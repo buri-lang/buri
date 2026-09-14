@@ -9,12 +9,6 @@ fix: check the spelling, or name a field the type declares
 error: `Rec` has no field `f1` [no-such-field]
 ```
 
-## What to do
-
-Correct the spelling, or name a field the type declares. Where there is a near
-miss the fix names it: "if you meant `f0`, use that; if not, `Rec`'s declaration
-lists its fields".
-
 ## Why
 
 There is no structural typing and no inheritance. A value's fields are exactly

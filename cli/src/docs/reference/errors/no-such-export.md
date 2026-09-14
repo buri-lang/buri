@@ -8,14 +8,6 @@ message: "{path}" does not export `{name}`
 error: "core/list" does not export `notAThing` [no-such-export]
 ```
 
-## What to do
-
-If the module declares the name but holds it back, add `export` to the
-declaration there. If it declares no such name, the spelling is the mistake.
-The diagnostic says which of the two it is, and where there is a near miss the
-fix names it. A name the standard library renamed is answered outright: `Alloc`
-was renamed to `Allocator`.
-
 ## Why
 
 A re-export may name only what its module path exports, so a library's surface

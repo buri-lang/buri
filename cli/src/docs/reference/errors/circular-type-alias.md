@@ -10,12 +10,6 @@ fix: 'break the cycle: give one of these a body that is a struct, an enum or a n
 error: circular type alias: `A` -> `A` [circular-type-alias]
 ```
 
-## What to do
-
-Decide which name on the chain is the real type and declare it as one. A
-`struct` or an `enum` may refer to itself, because its fields give the compiler
-a boundary to stop at; an alias has none.
-
 ## Why
 
 `type Handle = Str` introduces a spelling, not a type: everywhere you write

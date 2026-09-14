@@ -10,16 +10,6 @@ fix: correct the member name, or check `buri docs {path}`
 error: "core/fs" has no member `appendBytes` [no-such-member]
 ```
 
-## What to do
-
-Correct the member name. The diagnostic lists what the module exports, and where
-one of them is a near miss the fix names it: "if you meant `readText`, use that;
-if not, `buri docs core/fs` lists what the module exports".
-
-A name the standard library renamed is not a guess, so it gets the answer
-instead — `sqrt` was renamed to `squareRoot` — and a name it removed says what
-covers it now: `ZERO` was removed; write `time.nanoseconds(0)`.
-
 ## Why
 
 `fs` in `fs.appendBytes(...)` is a namespace, not a value. It stands for the

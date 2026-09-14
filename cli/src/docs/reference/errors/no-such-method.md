@@ -9,18 +9,6 @@ fix: check the spelling, or declare it in `impl {type} {{ ... }}` in that type's
 error: `Square` has no method `area` [no-such-method]
 ```
 
-## What to do
-
-Check the spelling. If the type is one of yours, declare the method in an `impl`
-block in that type's own module. If the type ships with the toolchain — a
-`Result`, an `I64` — or belongs to another package, `buri docs <module>` lists
-the methods it has.
-
-Where there is a near miss the fix names it: "if you meant `mapErrCtx`, use
-that; if not, `buri docs core/result` lists every method `Result<I64, Str>`
-has". A method the standard library renamed is not a guess and gets the answer
-instead — `len` was renamed to `length`.
-
 ## Why
 
 A method is looked up in exactly one place: the module that declares the

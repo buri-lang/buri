@@ -15,15 +15,6 @@ error: "//lib/money/test/parse.buri" does not export `digits` [no-such-export]
   = `digits` is declared in "//lib/money/test/parse.buri" but not exported
   = fix: check the spelling, or add `export` to `digits`'s declaration in "//lib/money/test/parse.buri"
 
-    What to do
-    ──────────
-
-    If the module declares the name but holds it back, add export to the
-    declaration there. If it declares no such name, the spelling is the mistake.
-    The diagnostic says which of the two it is, and where there is a near miss
-    the fix names it. A name the standard library renamed is answered outright:
-    Alloc was renamed to Allocator.
-
     Why
     ───
 
@@ -37,15 +28,6 @@ error: there is nothing named `digits` in scope [unresolved-name]
   |     ^^^^^^
   |
   = fix: declare `digits`, or import it — a name is in scope only from this module's own declarations and its imports
-
-    What to do
-    ──────────
-
-    Correct the spelling, or declare it. Where there is a near miss the fix
-    names it: "if you meant double, use that; if not, a name is in scope only
-    from this module's own declarations and its imports". A name the standard
-    library renamed is not a guess and gets the answer instead — sqrt was
-    renamed to squareRoot.
 
     Why
     ───
