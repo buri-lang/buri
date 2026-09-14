@@ -1245,7 +1245,7 @@ export fn main(): Result<(), Str> {
     Ui: host.ui,
     WebSocketClient: host.websocketClient,
   };
-  match (ui.mount(ctx, ui.region(.Main, [], [ui.heading(1, [], .Const("live"))]), [])) {
+  match (ui.mount(ctx, ui.stack({ styles: [], role: .Some(.Main), children: [ui.text({ content: .Const("live"), headingLevel: .Some(1) })] }), [])) {
     .Err(why) => .Err(why),
     .Ok(_mounted) => {
       let _said = io.println(ctx, "mounted").ignore();
@@ -2675,7 +2675,7 @@ from "core/json" import { FromJson, ToJson };
 from "core/lazy" import * as lazy;
 from "core/net/http" import * as http;
 from "core/str" import * as str;
-from "ui/effect" import { Event, Location, Ui, Watch };
+from "ui/effect" import { Location, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
@@ -2720,52 +2720,52 @@ fn page<C>(
     path: Prop<Str>,
     state: Sent,
     label: Prop<Str>,
-    onPress: fn(C, Event) => (),
+    onPress: fn(C) => (),
 ): Node<C> {
-    ui.region(
-        .Main,
-        [],
-        [
-            ui.heading(1, [], .Const(state.title)),
+    ui.stack({
+        styles: [],
+        role: .Some(.Main),
+        children: [
+            ui.text({ content: .Const(state.title), headingLevel: .Some(1) }),
             // Two runs of text side by side, and a third holding one space: a
             // browser parses all three into one node.
-            ui.text(.Const("one")),
-            ui.text(.Const("two")),
-            ui.text(.Const(state.gap)),
-            ui.image(.Const(state.picture), .Const("a cat"), []),
-            ui.region(
-                .Complementary,
-                [],
-                [
-                    ui.region(
-                        .List,
-                        [],
-                        [
+            ui.text({ content: .Const("one") }),
+            ui.text({ content: .Const("two") }),
+            ui.text({ content: .Const(state.gap) }),
+            ui.image({ source: .Const(state.picture), alt: .AccessibilityText("a cat"), styles: [] }),
+            ui.stack({
+                styles: [],
+                role: .Some(.Complementary),
+                children: [
+                    ui.stack({
+                        styles: [],
+                        role: .Some(.List),
+                        children: [
                             ui.each(
                                 .Const(state.rows),
                                 fn(row) => row.key,
                                 fn(_c, row, _i) => {
-                                    ui.region(.ListItem, [], [ui.text(.Const(row.label))])
+                                    ui.stack({ styles: [], role: .Some(.ListItem), children: [ui.text({ content: .Const(row.label) })] })
                                 },
                             ),
                         ],
-                    ),
-                    ui.button(label, [], [], onPress, .Const(false), .Const(false)),
+                    }),
+                    ui.button({ label: label, styles: [], onPress: .Some(onPress) }),
                 ],
-            ),
+            }),
             ui.computed(fn(scope) => at(path.read(scope))),
         ],
-    )
+    })
 }
 
 /// Routing: an ordinary match on the path.
 fn at<C>(path: Str): Node<C> {
     match (path) {
-        "/" => ui.region(.Article, [], [ui.text(.Const("home"))]),
+        "/" => ui.stack({ styles: [], role: .Some(.Article), children: [ui.text({ content: .Const("home") })] }),
         "/about" => {
-            ui.region(.Article, [], [ui.heading(2, [], .Const("About")), ui.text(.Const("about"))])
+            ui.stack({ styles: [], role: .Some(.Article), children: [ui.text({ content: .Const("About"), headingLevel: .Some(2) }), ui.text({ content: .Const("about") })] })
         },
-        _other => ui.region(.Article, [], [ui.text(.Const("nowhere"))]),
+        _other => ui.stack({ styles: [], role: .Some(.Article), children: [ui.text({ content: .Const("nowhere") })] }),
     }
 }
 
@@ -2805,7 +2805,7 @@ export fn main(): Result<(), Str> {
         web.route(ctx),
         state,
         .Cell(label),
-        fn(c, _event) => label.update(c, nextLabel),
+        fn(c) => label.update(c, nextLabel),
     );
     match (web.resume(ctx, tree)) {
         .Err(why) => .Err(why),
@@ -2846,7 +2846,7 @@ export fn fetch(request: Request): Response {
             request.path(),
             web.Document { ..web.defaultDocument(), title: "Edges" },
             web.render(
-                page(.Const(request.path()), state, .Const("press me"), fn(_c, _event) => ()),
+                page(.Const(request.path()), state, .Const("press me"), fn(_c) => ()),
             ),
             state.toJson(ctx),
         ),
@@ -2994,17 +2994,24 @@ from "ui/signal" import { Signal };
 /// The handler captures the scope and the cell, which is what `Scope` being
 /// inert buys — neither carries a context, so a lambda may hold both.
 fn page<C: Allocator + Clock + Tasks + Ui>(ctx: C, here: Scope, status: Signal<Str>): Node<C> {
-    ui.column([], [
-        ui.button(.Const("open"), [], [], fn(c, event) => {
-            let _ = tasks.spawn(c, here, fn(c2) => {
-                let _ = time.sleep(c2, time.milliseconds(20));
-                let _ = status.set(c2, "the socket opened");
-                ()
-            });
-            ()
-        }, .Const(false), .Const(false)),
-        ui.text(.Cell(status)),
-    ])
+    ui.stack({
+        styles: [.Layout(.Column)],
+        children: [
+            ui.button({
+                label: .Const("open"),
+                styles: [],
+                onPress: .Some(fn(c) => {
+                    let _ = tasks.spawn(c, here, fn(c2) => {
+                        let _ = time.sleep(c2, time.milliseconds(20));
+                        let _ = status.set(c2, "the socket opened");
+                        ()
+                    });
+                    ()
+                }),
+            }),
+            ui.text({ content: .Cell(status) }),
+        ],
+    })
 }
 
 export fn main(): Result<(), Str> {
