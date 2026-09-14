@@ -4056,6 +4056,59 @@ test "a separator is a rule the caller paints, and a picture is its own block" {
     assert.isTrue(reset < height);
 }
 
+test "a table collapses its borders, so a per-column hairline is one line across the row" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // A table ruled the way a design system rules one — a 1px top border on
+    // each box — reads as a continuous line across the row in the painter's
+    // picture. In a browser the UA default `border-collapse: separate` with a
+    // 2px `border-spacing` would break that line at every column boundary, so
+    // the reset collapses the borders and the two renderers draw one rule.
+    let ruled: [Style] = [
+        .Padding(.Px(8)),
+        .BorderEdge(.Top, .Px(1)),
+        .BorderColor(.Rgb(228, 228, 228)),
+    ];
+    let tree = rooted(
+        ctx,
+        ui.stack({
+            styles: [.Width(.Full)],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [
+                        ui.stack({
+                            styles: ruled,
+                            children: [ui.text({ content: .Const("Invoice") })],
+                            role: .Some(.ColumnHeader),
+                        }),
+                        ui.stack({
+                            styles: ruled,
+                            children: [ui.text({ content: .Const("$250.00") })],
+                            role: .Some(.Cell),
+                        }),
+                    ],
+                    role: .Some(.TableRow),
+                }),
+            ],
+            role: .Some(.Table),
+        }),
+    );
+    // The row is a grid of even columns and each box carries the caller's own
+    // top hairline, painted as one line across the row by both renderers.
+    assert.equal(
+        render(ctx, tree).markup(),
+        "e 0 class:w-full\ne 1 display:grid;grid-template-columns:1fr 1fr\ne 2 class:fw-bold ta-center p-8 be-top-1 bc-e4e4e4\nt 3 Invoice\ne 2 class:p-8 be-top-1 bc-e4e4e4\nt 3 $250.00",
+    );
+
+    // The collapse is emitted because a `Table` role is in the tree — nothing
+    // else puts a `:where(table)` rule in the sheet — and it is a `:where(...)`
+    // rule, so it weighs nothing against a class.
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(":where(table){border-collapse:collapse}"));
+}
+
 test "a form is submitted, which is behaviour and so not a role" {
     let ctx = context {
         Ui: headless(),
