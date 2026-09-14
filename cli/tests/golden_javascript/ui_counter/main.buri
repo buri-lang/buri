@@ -64,27 +64,24 @@ let badgeStyle: Style = .Group([
 
 // Pure: no ctx. It cannot tell whether either prop varies.
 fn badge<C>(title: Prop<Str>, count: Prop<Int>): Node<C> {
-    ui.row([badgeStyle], [
-        ui.text(title),
-        ui.text(.Computed(fn(c) => "${count.read(c)}")),
-    ])
+    ui.stack({ styles: [.Layout(.Row), badgeStyle], children: [
+        ui.text({ content: title }),
+        ui.text({ content: .Computed(fn(c) => "${count.read(c)}") }),
+    ] })
 }
 
 fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
     let count = signal(ctx, 0);
 
-    ui.column([], [
-        ui.button(
-            .Const(label),
-            [],
-            [],
-            fn(c, e) => count.update(c, fn(n) => n + 1),
-            .Const(false),
-            .Const(false),
-        ),
+    ui.stack({ styles: [.Layout(.Column)], children: [
+        ui.button({
+            label: .Const(label),
+            styles: [],
+            onPress: .Some(fn(c) => count.update(c, fn(n) => n + 1)),
+        }),
         badge(.Const(label), .Cell(count)),
         badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),
-    ])
+    ] })
 }
 
 export fn main(): Result<(), Str> {
