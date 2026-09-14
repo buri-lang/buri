@@ -7,7 +7,7 @@ from "core/json" import * as json;
 from "core/json" import { FromJson, ToJson };
 from "core/net/http" import * as http;
 from "core/str" import * as str;
-from "ui/effect" import { Event, Location, Ui, Watch };
+from "ui/effect" import { Location, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
@@ -41,17 +41,21 @@ fn page<C>(
     title: Str,
     visitors: Str,
     label: Prop<Str>,
-    onPress: fn(C, Event) => (),
-    onGo: fn(C, Event) => (),
+    onPress: fn(C) => (),
+    onGo: fn(C) => (),
 ): Node<C> {
-    ui.region(.Main, [], [
-        ui.heading(1, [], .Const(title)),
-        ui.icon([], "<svg viewBox='0 0 24 24'><path d='M20 6 9 17l-5-5'/></svg>"),
-        ui.text(.Const(visitors)),
-        ui.button(label, [], [], onPress, .Const(false), .Const(false)),
-        ui.button(.Const("about"), [], [], onGo, .Const(false), .Const(false)),
-        ui.computed(fn(scope) => at(path.read(scope))),
-    ])
+    ui.stack({
+        styles: [],
+        role: .Some(.Main),
+        children: [
+            ui.text({ content: .Const(title), headingLevel: .Some(1) }),
+            ui.image({ source: .Const("<svg viewBox='0 0 24 24'><path d='M20 6 9 17l-5-5'/></svg>"), alt: .Decorative, styles: [] }),
+            ui.text({ content: .Const(visitors) }),
+            ui.button({ label: label, styles: [], onPress: .Some(onPress) }),
+            ui.button({ label: .Const("about"), styles: [], onPress: .Some(onGo) }),
+            ui.computed(fn(scope) => at(path.read(scope))),
+        ],
+    })
     // Artwork the worker wrote into the markup, which the page then adopts
     // rather than building: an `<svg>` is nodes like any other.
 }
@@ -59,9 +63,9 @@ fn page<C>(
 /// Routing: an ordinary match on the path.
 fn at<C>(path: Str): Node<C> {
     match (path) {
-        "/" => ui.region(.Article, [], [ui.text(.Const("home"))]),
-        "/about" => ui.region(.Article, [], [ui.heading(2, [], .Const("About"))]),
-        _other => ui.region(.Article, [], [ui.text(.Const("no page here"))]),
+        "/" => ui.stack({ styles: [], role: .Some(.Article), children: [ui.text({ content: .Const("home") })] }),
+        "/about" => ui.stack({ styles: [], role: .Some(.Article), children: [ui.text({ content: .Const("About"), headingLevel: .Some(2) })] }),
+        _other => ui.stack({ styles: [], role: .Some(.Article), children: [ui.text({ content: .Const("no page here") })] }),
     }
 }
 
@@ -100,8 +104,8 @@ export fn main(): Result<(), Str> {
         state.title,
         str.format(ctx, "visitors: ${state.visitors}"),
         .Cell(thanks),
-        fn(c, _event) => thanks.set(c, "thanks"),
-        fn(c, _event) => web.navigate(c, "/about"),
+        fn(c) => thanks.set(c, "thanks"),
+        fn(c) => web.navigate(c, "/about"),
     );
     match (web.resume(ctx, tree)) {
         .Err(why) => .Err(why),
@@ -139,8 +143,8 @@ export fn fetch(request: Request): Response {
                     state.title,
                     str.format(ctx, "visitors: ${state.visitors}"),
                     .Const("say thanks"),
-                    fn(_ctx, _event) => (),
-                    fn(_ctx, _event) => (),
+                    fn(_ctx) => (),
+                    fn(_ctx) => (),
                 ),
             ),
             state.toJson(ctx),

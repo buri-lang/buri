@@ -14,15 +14,17 @@ from "ui/web" import * as web;
 fn at<C>(path: Str): Node<C> {
     match (path) {
         "/" => {
-            ui.region(.Main, [.Padding(.Rem(1.0))], [ui.text(.Const("the front page"))])
+            ui.stack({ styles: [.Padding(.Rem(1.0))], role: .Some(.Main), children: [ui.text({ content: .Const("the front page") })] })
         },
         "/components/button" => {
-            ui.region(.Main, [.Padding(.Rem(1.0))], [
-                ui.text(.Const("the button page")),
-            ])
+            ui.stack({
+                styles: [.Padding(.Rem(1.0))],
+                role: .Some(.Main),
+                children: [ui.text({ content: .Const("the button page") })],
+            })
         },
         _other => {
-            ui.region(.Main, [.Padding(.Rem(1.0))], [ui.text(.Const("no page here"))])
+            ui.stack({ styles: [.Padding(.Rem(1.0))], role: .Some(.Main), children: [ui.text({ content: .Const("no page here") })] })
         },
     }
 }
