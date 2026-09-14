@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:89:37
+   |
+89 |     let hit = signal(ctx, "waiting")
+   |                                     ^
+   |
+   = fix: write `;` here

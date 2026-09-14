@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:41:64
+   |
+41 |                 .Computed(fn(scope) => message.get(scope) != ""@ ),
+   |                                                                ^
+   |
+  --> main.buri:41:26
+   |
+41 |                 .Computed(fn(scope) => message.get(scope) != ""@ ),
+   |                          ^ opened here
+   |
+   = fix: write `)` here
