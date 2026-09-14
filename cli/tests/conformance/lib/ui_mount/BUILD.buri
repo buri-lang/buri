@@ -2,7 +2,7 @@ library {
     sources: []
 
     test {
-        sources: ["test/mount.buri"]
+        sources: ["test/mount.buri", "test/effect.buri"]
 
         # JS only, and for the one reason left after #53 phase 6 moved the render
         # suite to both backends: `ui/node`'s `mount` is the real page mount, a
