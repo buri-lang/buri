@@ -1753,3 +1753,70 @@ fn a_signature_edit_rebuilds_to_the_force_artifact() {
         .replace("scale(Point { x: 3, y: 4 }, 2)", "scale(Point { x: 3, y: 4 }, 2, 1)");
     incremental_vs_force("edit-signature", edit_base(), &after);
 }
+
+// ---------------------------------------------------------------------------
+// A test binary's own two cache correctness holes
+// ---------------------------------------------------------------------------
+
+/// Removing a `test` from a suite must relink the binary from scratch, never
+/// serve a stale object whose entry still calls a test that no longer exists.
+///
+/// A test binary has no `main`: the backend synthesises an entry — the program
+/// entry point and one `test$N` door per test — and emits the whole of it into
+/// the unit that holds the *first* test's function. That unit's `codegen` key
+/// was a hash of the functions it rendered, and the entry is not one of them, so
+/// removing a test whose function lives in *another* unit left the entry unit's
+/// key unchanged. The cache served its stale object, and the link failed on the
+/// `test$N` of the test that was gone — and kept failing, `--force` included,
+/// until `buri clean` (buri-lang/buri#175).
+///
+/// Two test sources, so the entry and the removed test are in different units,
+/// which is the whole of what the bug needs. The assertion is behaviour: the
+/// re-run links and passes on a plain `buri test`, with one fewer test and no
+/// `buri clean` between them.
+#[test]
+fn removing_a_test_relinks_the_binary() {
+    let scratch = Scratch::repo("removed-test-relink");
+    scratch.write(
+        "lib/suite/BUILD.buri",
+        "library {\n    sources: [\"s.buri\"]\n\n    test {\n        sources: \
+         [\"test/alpha.buri\", \"test/beta.buri\"]\n    }\n}\n",
+    );
+    scratch.write("lib/suite/lib.buri", "from \"//lib/suite/s.buri\" export { two };\n");
+    scratch.write("lib/suite/s.buri", "export fn two(): I64 { 2 }\n");
+    // The entry lands in this source's unit, because it holds the first test.
+    scratch.write(
+        "lib/suite/test/alpha.buri",
+        "from \"//lib/suite\" import { two };\n\
+         from \"core/testing/assert\" import * as assert;\n\n\
+         test \"alpha one\" { assert.equal(two(), 2); }\n",
+    );
+    let beta = |extra: &str| {
+        format!(
+            "from \"//lib/suite\" import {{ two }};\n\
+             from \"core/testing/assert\" import * as assert;\n\n\
+             test \"beta one\" {{ assert.equal(two() + two(), 4); }}\n{extra}"
+        )
+    };
+    scratch.write(
+        "lib/suite/test/beta.buri",
+        &beta("test \"beta two\" { assert.equal(two() * two(), 4); }\n"),
+    );
+
+    let first = scratch.run(&["test", "//lib/suite"]);
+    first.ok();
+    assert_eq!(first.tests_passed(), 3, "the suite did not run:\n{}", indent(&first.all()));
+
+    // The removed test's function is in `beta.buri`; `alpha.buri`'s own
+    // functions do not change, so its object — the one carrying the entry — was
+    // served from the cache and its entry still called the gone test's `test$N`.
+    scratch.write("lib/suite/test/beta.buri", &beta(""));
+    let again = scratch.run(&["test", "//lib/suite"]);
+    again.ok();
+    assert_eq!(
+        again.tests_passed(),
+        2,
+        "removing a test left a stale object linked, or failed to relink:\n{}",
+        indent(&again.all())
+    );
+}
