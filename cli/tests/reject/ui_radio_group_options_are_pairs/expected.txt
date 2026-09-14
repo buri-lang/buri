@@ -1,10 +1,10 @@
-error: expected `(Str, Prop<Str>)`, found `Str` [type-mismatch]
-  --> cmd/ui_radio_group_options_are_pairs/main.buri:15:34
+error: expected `(Str, Node<C>)`, found `Str` [type-mismatch]
+  --> cmd/ui_radio_group_options_are_pairs/main.buri:15:48
    |
-15 |   ui.radioGroup(.Const("Size"), ["small", "medium"], [], value)
-   |                                  ^^^^^^^ the element type is `(Str, Prop<Str>)`
+15 |   ui.picker({ label: .Const("Size"), options: ["small", "medium"], value: value, styles: [] })
+   |                                                ^^^^^^^ the element type is `(Str, Node<C>)`
    |
-   = expected: `(Str, Prop<Str>)`
+   = expected: `(Str, Node<C>)`
    = actual: `Str`
 
      Those two lines are the whole story: what the position wanted, and what is
@@ -34,11 +34,11 @@ error: expected `(Str, Prop<Str>)`, found `Str` [type-mismatch]
      type, because .Const on its own is not one — and guessing an enum from the
      payload would put a type in front of you that nothing in your program says.
 
-error: expected `(Str, Prop<Str>)`, found `Str` [type-mismatch]
-  --> cmd/ui_radio_group_options_are_pairs/main.buri:15:43
+error: expected `(Str, Node<C>)`, found `Str` [type-mismatch]
+  --> cmd/ui_radio_group_options_are_pairs/main.buri:15:57
    |
-15 |   ui.radioGroup(.Const("Size"), ["small", "medium"], [], value)
-   |                                           ^^^^^^^^ the element type is `(Str, Prop<Str>)`
+15 |   ui.picker({ label: .Const("Size"), options: ["small", "medium"], value: value, styles: [] })
+   |                                                         ^^^^^^^^ the element type is `(Str, Node<C>)`
    |
-   = expected: `(Str, Prop<Str>)`
+   = expected: `(Str, Node<C>)`
    = actual: `Str`

@@ -1,0 +1,11 @@
+error: `Field` is missing `label` [missing-field-value]
+  --> cmd/ui_field_needs_a_label/main.buri:17:26
+   |
+17 |   ui.mount(ctx, ui.field({ kind: .Search, value: query, styles: [] }), [])
+   |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: give `label` a value — only an `Option` field may be left out — or start from an existing one with `Field { ..base, field: value }`
+
+     A field whose declared type is Option<...> is not required. Leaving it out
+     writes .None for it, so the message names only the other fields.
+

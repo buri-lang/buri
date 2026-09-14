@@ -1,8 +1,8 @@
-error: an icon's artwork has to be written out at the call site, because the compiler reads it [icon-not-drawable]
-  --> cmd/ui_icon_is_not_written_out/main.buri:14:15
+error: a decorative picture's artwork has to be written out at the call site, because the compiler reads it [icon-not-drawable]
+  --> cmd/ui_icon_is_not_written_out/main.buri:14:22
    |
-14 |   ui.icon([], source)
-   |               ^^^^^^
+14 |   ui.image({ source: .Const(source), alt: .Decorative, styles: [] })
+   |                      ^^^^^^^^^^^^^^
    |
    = fix: write the artwork out at the call site, and keep it to an `<svg>` and the shapes inside it
 

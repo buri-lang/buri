@@ -1,10 +1,10 @@
 error: `FieldKind` has no variant `Radio` [no-such-variant]
-  --> cmd/ui_field_kind_has_no_radio/main.buri:15:27
+  --> cmd/ui_field_kind_has_no_radio/main.buri:15:42
    |
-15 |   ui.field(.Const("Pro"), .Radio, .Const(""), [], [], value, .Const(false), .Const(false))
-   |                           ^^^^^^
+15 |   ui.field({ label: .Const("Pro"), kind: .Radio, value: value, styles: [] })
+   |                                          ^^^^^^
    |
-   = its variants are `Text`, `Multiline`, `Password`, `Email`, `Number`, `Search` and `Range`
+   = its variants are `Text`, `Multiline`, `Password`, `Email`, `Number` and `Search`
    = fix: name a variant the enum declares
 
      Where the name is a near miss the fix names it; otherwise the enum's own

@@ -1,8 +1,8 @@
 error: expected `Signal<Bool>`, found `Prop<Bool>` [type-mismatch]
-  --> cmd/ui_node_disclosure_open_is_a_signal/main.buri:17:50
+  --> cmd/ui_node_disclosure_open_is_a_signal/main.buri:17:69
    |
-17 |   ui.mount(ctx, ui.disclosure(.Const("Details"), open, [], []), [])
-   |                                                  ^^^^ the parameter type is `Signal<Bool>`
+17 |   ui.mount(ctx, ui.disclosure({ summary: .Const("Details"), isOpen: open, children: [], styles: [] }), [])
+   |                                                                     ^^^^ the field type is `Signal<Bool>`
    |
    = expected: `Signal<Bool>`
    = actual: `Prop<Bool>`

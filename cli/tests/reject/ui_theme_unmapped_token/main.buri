@@ -58,5 +58,5 @@ fn cardTheme(t: Token): Color {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
-  ui.mount(ctx, ui.stack([], []), [themed(cardTheme)])
+  ui.mount(ctx, ui.stack({ styles: [], children: [] }), [themed(cardTheme)])
 }

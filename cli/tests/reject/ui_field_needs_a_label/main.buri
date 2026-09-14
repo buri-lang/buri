@@ -1,0 +1,18 @@
+// EXPECT: `Field` is missing `label`
+//
+// An unlabelled input is the commonest accessibility failure there is, and
+// unlike a missing `alt` it has no visual fallback — so `label` is a plain,
+// non-`Option` field. A config that leaves it out is missing a required value
+// rather than a field a reader cannot name.
+from "core/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let query = signal(ctx, "");
+  ui.mount(ctx, ui.field({ kind: .Search, value: query, styles: [] }), [])
+}

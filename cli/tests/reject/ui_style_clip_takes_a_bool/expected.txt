@@ -1,8 +1,8 @@
 error: `Bool` has no variant `Px` [no-such-variant]
-  --> cmd/ui_style_clip_takes_a_bool/main.buri:14:33
+  --> cmd/ui_style_clip_takes_a_bool/main.buri:14:43
    |
-14 |   ui.mount(ctx, ui.stack([.Clip(.Px(12))], []), [])
-   |                                 ^^^
+14 |   ui.mount(ctx, ui.stack({ styles: [.Clip(.Px(12))], children: [] }), [])
+   |                                           ^^^
    |
    = fix: name a variant the enum declares
 

@@ -1,8 +1,8 @@
 error: expected `Bool`, found `Str` [type-mismatch]
-  --> cmd/ui_style_passthrough_takes_a_bool/main.buri:14:40
+  --> cmd/ui_style_passthrough_takes_a_bool/main.buri:14:50
    |
-14 |   ui.mount(ctx, ui.stack([.Passthrough("none")], []), [])
-   |                                        ^^^^^^ the parameter type is `Bool`
+14 |   ui.mount(ctx, ui.stack({ styles: [.Passthrough("none")], children: [] }), [])
+   |                                                  ^^^^^^ the parameter type is `Bool`
    |
    = expected: `Bool`
    = actual: `Str`

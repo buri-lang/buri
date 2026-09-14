@@ -15,12 +15,11 @@ from "ui/style" import * as style;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
-  let card = ui.stack(
-    [
+  ui.mount(ctx, ui.stack({
+    styles: [
       .Background(.Rgba(0, 0, 0, 1.5)),
       .BorderColor(style.token("cardlib", "ring").alpha(-0.25)),
     ],
-    [],
-  );
-  ui.mount(ctx, card, [])
+    children: [],
+  }), [])
 }

@@ -1,7 +1,7 @@
 // EXPECT: expected `[Node<C>]`
 //
-// A button holds children the way a link does, so the third argument is a list
-// even when there is one thing in it. Handing it a bare node is the mistake the
+// A button holds children the way a link does, so `children` is a list even
+// when there is one thing in it. Handing it a bare node is the mistake the
 // shape invites, and it is a type error rather than a node quietly becoming a
 // list of one.
 from "core/effect" import { Allocator };
@@ -13,7 +13,7 @@ from "ui/node" import { Node };
 from "ui/signal" import { signal };
 
 fn entry<C>(): Node<C> {
-  ui.button(.Const("Overview"), [], ui.text(.Const("Overview")), fn(_c, _e) => (), .Const(false), .Const(false))
+  ui.button({ label: .Const("Overview"), styles: [], children: .Some(ui.text({ content: .Const("Overview") })) })
 }
 
 export fn main(): Result<(), Str> {

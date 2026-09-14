@@ -14,5 +14,5 @@ from "ui/web" import * as web;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
-  ui.mount(ctx, web.routeLink(.Const("/next"), [], [ui.text(.Const("go"))]), [])
+  ui.mount(ctx, web.routeLink(.Const("/next"), [], [ui.text({ content: .Const("go") })]), [])
 }
