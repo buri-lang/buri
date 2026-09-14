@@ -38,10 +38,29 @@ impl Ui for Headless {
     fn memo<T>(self, compute: fn(Scope) => T): Int;
 
     fn watch(self, run: fn(Scope) => ()): ();
+
+    fn schedule(self, millis: Int, run: fn(Self) => ()): Int;
+
+    fn unschedule(self, id: Int): ();
 }
 
 /// A headless `Ui`.
 export fn headless(): Headless;
+
+/// Advances the headless clock by `millis` milliseconds and fires, on the
+/// graph's own turn, every timer that `after` scheduled to run by then.
+///
+/// A page's own timers run on a real clock — `after` on a WEB output is a
+/// `setTimeout` — but a test has no wall clock to wait on, so the headless
+/// double queues what `after` schedules against a virtual clock this drives.
+/// Press the button that schedules a toast, assert the message is on screen,
+/// then `elapse` past its duration and assert it is gone: that is how a test
+/// sees an auto-dismiss without waiting three real seconds.
+///
+/// Each timer that comes due fires in an update transaction of its own, so the
+/// signals it writes settle before the next one runs, exactly as they would on
+/// a page.
+export fn elapse(millis: Int): ();
 
 /// Reads signals and nothing else — what a test binds to `Watch` so it can
 /// look at a cell from outside any computation.

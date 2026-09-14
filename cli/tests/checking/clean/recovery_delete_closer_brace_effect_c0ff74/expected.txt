@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:34:51
+   |
+34 |                     let _ = message.set(c, "Saved";
+   |                                                   ^
+   |
+  --> main.buri:34:40
+   |
+34 |                     let _ = message.set(c, "Saved";
+   |                                        ^ opened here
+   |
+   = fix: write `)` here
