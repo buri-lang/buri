@@ -493,6 +493,50 @@ test "a plain click on a route link navigates in place, keeping the tree" {
     assert.equal(page.markup(), "e 0 \nt 1 go");
 }
 
+test "a plain click follows a route link addressed by its joined text" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Location: address(headless(), "/"),
+    };
+    // A whole row is one link: a name, the line under it and a figure beside
+    // them, drawn as many runs across boxes rather than one. A reader hears the
+    // anchor's name as the text of its descendants joined, which is how this is
+    // addressed — the runs together are not it, so "OneTwo" would not find it.
+    let page = render(
+        ctx,
+        web.routeLink(.Const("/two"), [], [
+            ui.stack({
+                styles: [],
+                children: [
+                    ui.stack({ styles: [], children: [ui.text({ content: .Const("One") })] }),
+                    ui.stack({ styles: [], children: [ui.text({ content: .Const("Two") })] }),
+                ],
+            }),
+            ui.stack({ styles: [], children: [ui.text({ content: .Const("Three") })] }),
+        ]),
+    );
+    let _ = page.follow("One Two Three");
+    assert.equal(web.path(ctx), "/two");
+}
+
+test "a route link of a single run, nested in a box, still follows" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Location: address(headless(), "/"),
+    };
+    // One run however deep it sits is addressed by that run, unchanged.
+    let page = render(
+        ctx,
+        web.routeLink(.Const("/nested"), [], [
+            ui.stack({ styles: [], children: [ui.text({ content: .Const("Nested") })] }),
+        ]),
+    );
+    let _ = page.follow("Nested");
+    assert.equal(web.path(ctx), "/nested");
+}
+
 test "a modified click on a route link is left to the browser" {
     let ctx = context {
         Ui: headless(),

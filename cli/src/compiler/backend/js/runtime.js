@@ -6011,14 +6011,31 @@ function $scene_blocksSubmission(body) {
   return $SCENE_BLOCKING[$scene_declValue(body, "field")] === true;
 }
 
-// The text runs directly under `node`, concatenated — a control's own label,
-// not descending into a nested control. The native `Document::direct_text`.
-function $scene_directText(doc, node) {
-  let out = "";
-  for (const child of doc.records[node].children) {
-    if (doc.records[child].kind === 1) out += doc.records[child].text;
-  }
-  return out;
+// The elements whose own text an accessible-name walk does not fold into an
+// ancestor's name, so a field label's name stays its own text and not the value
+// run inside its input. The native `is_control`.
+const $SCENE_CONTROL = { input: true, textarea: true, select: true, button: true };
+
+// The accessible name a reader hears for `node`: every run of text in its
+// subtree, in document order, joined by a space — the same joining `text()`
+// does for a whole tree, so a link wrapping many runs is addressed by the words
+// it shows and not by the runs run together. It does not descend into a nested
+// control, so a field label's name stays its own text. The native
+// `Document::accessible_name`.
+function $scene_accessibleName(doc, node) {
+  const runs = [];
+  $scene_nameRuns(doc, node, true, runs);
+  return runs.join(" ");
+}
+
+// Gathers the text runs of `node`'s subtree into `out`, skipping the subtree of
+// any nested control. `root` is the node the name is computed for, whose own
+// control-ness never stops the walk.
+function $scene_nameRuns(doc, node, root, out) {
+  const r = doc.records[node];
+  if (!root && r.kind === 0 && $SCENE_CONTROL[r.name] === true) return;
+  if (r.kind === 1) out.push(r.text);
+  for (const child of r.children) $scene_nameRuns(doc, child, false, out);
 }
 
 // The first element of `name`, in document order, whose own label is `label` —
@@ -6026,9 +6043,9 @@ function $scene_directText(doc, node) {
 function $scene_labelled(doc, name, label) {
   for (const [i] of $scene_ordered(doc)) {
     const r = doc.records[i];
-    // A control's accessible name is its stored label where it has one, its own
-    // text otherwise — a button's glyphs are not its name.
-    const named = r.label === "" ? $scene_directText(doc, i) : r.label;
+    // A control's accessible name is its stored label where it has one, the
+    // text of its descendants otherwise — a button's glyphs are not its name.
+    const named = r.label === "" ? $scene_accessibleName(doc, i) : r.label;
     if (r.kind === 0 && r.name === name && named === label) return i;
   }
   return -1;
