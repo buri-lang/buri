@@ -41,7 +41,7 @@ from "core/json" import * as json;
 from "core/json" import { FromJson, ToJson };
 from "core/net/http" import * as http;
 from "core/str" import * as str;
-from "ui/effect" import { Event, Location, Ui, Watch };
+from "ui/effect" import { Location, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
@@ -75,24 +75,48 @@ fn page<C>(
     title: Str,
     visitors: Str,
     label: Prop<Str>,
-    onPress: fn(C, Event) => (),
-    onGo: fn(C, Event) => (),
+    onPress: fn(C) => (),
+    onGo: fn(C) => (),
 ): Node<C> {
-    ui.region(.Main, [], [
-        ui.heading(1, [], .Const(title)),
-        ui.text(.Const(visitors)),
-        ui.button(label, [], [], onPress, .Const(false), .Const(false)),
-        ui.button(.Const("about"), [], [], onGo, .Const(false), .Const(false)),
-        ui.computed(fn(scope) => at(path.read(scope))),
-    ])
+    ui.stack({
+        styles: [],
+        children: [
+            ui.text({ content: .Const(title), headingLevel: .Some(1) }),
+            ui.text({ content: .Const(visitors) }),
+            ui.button({ label: label, styles: [], onPress: .Some(onPress) }),
+            ui.button({ label: .Const("about"), styles: [], onPress: .Some(onGo) }),
+            ui.computed(fn(scope) => at(path.read(scope))),
+        ],
+        role: .Some(.Main),
+    })
 }
 
 /// Routing: an ordinary match on the path.
 fn at<C>(path: Str): Node<C> {
     match (path) {
-        "/" => ui.region(.Article, [], [ui.text(.Const("home"))]),
-        "/about" => ui.region(.Article, [], [ui.heading(2, [], .Const("About"))]),
-        _other => ui.region(.Article, [], [ui.text(.Const("no page here"))]),
+        "/" => {
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("home") })],
+                role: .Some(.Article),
+            })
+        },
+        "/about" => {
+            ui.stack({
+                styles: [],
+                children: [
+                    ui.text({ content: .Const("About"), headingLevel: .Some(2) }),
+                ],
+                role: .Some(.Article),
+            })
+        },
+        _other => {
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("no page here") })],
+                role: .Some(.Article),
+            })
+        },
     }
 }
 
@@ -117,8 +141,8 @@ export fn main(): Result<(), Str> {
         state.title,
         str.format(ctx, "visitors: ${state.visitors}"),
         .Cell(thanks),
-        fn(c, _event) => thanks.set(c, "thanks"),
-        fn(c, _event) => web.navigate(c, "/about"),
+        fn(c) => thanks.set(c, "thanks"),
+        fn(c) => web.navigate(c, "/about"),
     );
     match (web.resume(ctx, tree)) {
         .Err(why) => .Err(why),
@@ -156,8 +180,8 @@ export fn fetch(request: Request): Response {
                     state.title,
                     str.format(ctx, "visitors: ${state.visitors}"),
                     .Const("say thanks"),
-                    fn(_ctx, _event) => (),
-                    fn(_ctx, _event) => (),
+                    fn(_ctx) => (),
+                    fn(_ctx) => (),
                 ),
             ),
             state.toJson(ctx),
@@ -278,7 +302,7 @@ address in the address bar and writes the cell `route` wraps, so what re-renders
 is the subtree that read the path:
 
 ```buri ignore why="the handler `page` takes, out of the program above"
-fn(c, _event) => web.navigate(c, "/about")
+fn(c) => web.navigate(c, "/about")
 ```
 
 Everything else stays. The tree is the tree the reader is already looking at, so
@@ -316,7 +340,7 @@ navigation *as* a link:
 
 /// A menu row that navigates without loading a document.
 fn about<C: Location + Ui>(): Node<C> {
-    web.routeLink(.Const("/about"), [], [ui.text(.Const("about"))])
+    web.routeLink(.Const("/about"), [], [ui.text({ content: .Const("about") })])
 }
 ```
 
