@@ -1,0 +1,9 @@
+error: expected an expression, found `@` [unexpected-token]
+  --> main.buri:38:44
+   |
+38 |         styles: [.Layout(.Column), .Group([@ ])],
+   |                                            ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here
