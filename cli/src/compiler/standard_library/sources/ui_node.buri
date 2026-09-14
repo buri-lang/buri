@@ -1264,10 +1264,10 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             let _ = emitReactiveText(builder, content);
             exitElement(builder)
         },
-        .Stack(styles, children, _events) => {
-            emitBox(ctx, builder, "div", plain(state), styles, children, state)
+        .Stack(styles, children, events) => {
+            emitBox(ctx, builder, "div", plain(state), styles, children, state, events)
         },
-        .Region(role, styles, children, _events) => {
+        .Region(role, styles, children, events) => {
             emitBox(
                 ctx,
                 builder,
@@ -1276,6 +1276,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 roleStyles(mem, role, styles, children),
                 children,
                 state,
+                events,
             )
         },
         // A reactive `disabled` (or, for a label-only button, a reactive label)
@@ -1319,9 +1320,9 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // unbounded walk); the runtime fires it with the destination on a
         // `follow`. A plain link with no handler is a box like any other, so it
         // keeps `emitBox`'s reactive-style path.
-        .Link(dest, styles, children, onFollow, _current, _events) => {
+        .Link(dest, styles, children, onFollow, _current, events) => {
             match (onFollow) {
-                .None => emitBox(ctx, builder, "a", plain(state), styles, children, state),
+                .None => emitBox(ctx, builder, "a", plain(state), styles, children, state, events),
                 .Some(handler) => {
                     let _ = emitElement(
                         builder,
@@ -1329,22 +1330,23 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                         widgetBody(mem, plain(state), [], styles),
                     );
                     let _ = registerFollow(builder, dest.read(scope), handler);
+                    let _ = registerEvents(builder, events);
                     let _ = emitChildren(ctx, builder, children, state, 0);
                     exitElement(builder)
                 },
             }
         },
-        .Image(source, _alt, styles, _events) => {
+        .Image(source, _alt, styles, events) => {
             let declaration = decl(mem, "image", escapeValue(mem, source.read(scope)));
-            emitLeaf(
-                builder,
-                "img",
-                widgetBody(mem, plain(state), [declaration], styles),
-            )
+            let _ = emitElement(builder, "img", widgetBody(mem, plain(state), [declaration], styles));
+            let _ = registerEvents(builder, events);
+            exitElement(builder)
         },
-        .Icon(styles, source, _events) => {
+        .Icon(styles, source, events) => {
             let artwork = decl(mem, "icon", escapeInline(mem, source));
-            emitLeaf(builder, "svg", widgetBody(mem, plain(state), [artwork], styles))
+            let _ = emitElement(builder, "svg", widgetBody(mem, plain(state), [artwork], styles));
+            let _ = registerEvents(builder, events);
+            exitElement(builder)
         },
         // A field's value, hint and `disabled` all change its scene, so a write
         // to any of them rebuilds it in place: a region holds its spot and the
@@ -1425,23 +1427,25 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             let _ = label;
             emitPicker(ctx, builder, options, styles, value, state)
         },
-        .Form(onSubmit, styles, children, _events) => {
+        .Form(onSubmit, styles, children, events) => {
             let _ = emitElement(
                 builder,
                 "form",
                 widgetBody(mem, plain(state), [], styles),
             );
             let _ = registerPress(builder, onSubmit);
+            let _ = registerEvents(builder, events);
             let _ = emitChildren(ctx, builder, children, state, 0);
             exitElement(builder)
         },
-        .Submit(label, styles, _events) => {
+        .Submit(label, styles, events) => {
             let _ = emitElement(
                 builder,
                 "button",
                 widgetBody(mem, plain(state), [], styles),
             );
             let _ = markSubmit(builder);
+            let _ = registerEvents(builder, events);
             let _ = emitText(builder, label.read(scope));
             exitElement(builder)
         },
@@ -1492,7 +1496,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // signal, so the group rebuilds in place on a toggle: the build answers
         // a `details` element holding the summary, and the children after it
         // only while open, as a `.Raw` tree the reconciler walks.
-        .Disclosure(summary, open, styles, children, _events) => {
+        .Disclosure(summary, open, styles, children, events) => {
             // The `details` and its `summary` are always drawn, so they are
             // emitted once and kept — the element and its identity survive a
             // toggle, the way a browser's `<details>` does. Only the body comes
@@ -1502,6 +1506,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 "details",
                 widgetBody(mem, plain(state), [], styles),
             );
+            let _ = registerEvents(builder, events);
             let _ = emitElement(
                 builder,
                 "summary",
@@ -1520,11 +1525,11 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         },
         // A bar and whatever fills it. The role and the `aria-value*` are a
         // reader's, not a painter's, so the scene is the caller's own boxes.
-        .Progress(_label, _value, styles, children, _events) => {
-            emitBox(ctx, builder, "div", plain(state), styles, children, state)
+        .Progress(_label, _value, styles, children, events) => {
+            emitBox(ctx, builder, "div", plain(state), styles, children, state, events)
         },
         .Raw(name, styles, children) => {
-            emitBox(ctx, builder, name, plain(state), styles, children, state)
+            emitBox(ctx, builder, name, plain(state), styles, children, state, noEvents())
         },
         .Fragment(children) => { emitChildren(ctx, builder, children, state, 0) },
     }
@@ -1748,7 +1753,23 @@ fn emitSliderControl(
     exitElement(builder)
 }
 
-/// A box: its element, then every child one level in.
+/// Registers the one generic event a native scene can carry: `onPressOutside`,
+/// a document listener the runtime pairs with the open element, disposed with
+/// the subtree. The other four handlers (`onHover`, `onFocus`, `onScroll`,
+/// `onKey`) are the browser's alone — a snapshot has no pointer, keyboard or
+/// scroll — so they are wired only in `runtime.js`'s `$tree_events`. The public
+/// handler is `fn(C) => ()`, adapted here to the intrinsic's `fn(C, Event)`.
+fn registerEvents<C>(builder: Builder, events: Events<C>): () {
+    match (events.onPressOutside) {
+        .Some(handler) => registerOutside(builder, fn(c, _event) => handler(c)),
+        .None => {
+        },
+    }
+}
+
+/// A box: its element, its `onPressOutside` listener, then every child one level
+/// in. The listener is kept on the open element, so it lands before the
+/// children and is disposed with the subtree.
 fn emitBox<C>(
     ctx: C,
     builder: Builder,
@@ -1757,6 +1778,7 @@ fn emitBox<C>(
     styles: [Style],
     children: [Node<C>],
     state: State,
+    events: Events<C>,
 ): () {
     let mem = alloc.generalPurpose();
     // A box whose styles hold a computation opens the element once and patches
@@ -1769,10 +1791,12 @@ fn emitBox<C>(
         let _ = reactive(fn(scope) => {
             patchBody(builder, at, widgetBodyUnder(scope, painted, [], styles))
         });
+        let _ = registerEvents(builder, events);
         let _ = emitChildren(ctx, builder, children, state, 0);
         exitElement(builder)
     } else {
         let _ = emitElement(builder, name, widgetBody(mem, painted, [], styles));
+        let _ = registerEvents(builder, events);
         let _ = emitChildren(ctx, builder, children, state, 0);
         exitElement(builder)
     }
