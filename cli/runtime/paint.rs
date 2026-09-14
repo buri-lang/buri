@@ -1949,7 +1949,21 @@ fn taffy_style(c: &Computed) -> Style {
             (false, false) => FlexDirection::Row,
             (false, true) => FlexDirection::RowReverse,
         },
-        flex_wrap: if c.wrap { FlexWrap::Wrap } else { FlexWrap::NoWrap },
+        // A `flex-direction:column;flex-wrap:wrap` box breaks into side-by-side
+        // tracks only when its height is *definite* and too small for its
+        // content; a browser keeps a grown or content-sized column's height
+        // indefinite and lays its children out in one track. The painter lays a
+        // page out against a settled height, so a column grown by the label
+        // reset used to resolve to a definite figure smaller than its content
+        // and wrap where Chrome does not (buri#162). So a column wraps only when
+        // a pixel height was set on it; a row wraps as it always did, which is
+        // the wrap the label reset is there for — a wide control below its
+        // words.
+        flex_wrap: if c.wrap && (!c.column || matches!(c.size[1], Len::Px(_))) {
+            FlexWrap::Wrap
+        } else {
+            FlexWrap::NoWrap
+        },
         justify_content: c.justify,
         align_items: c.align_items,
         align_self: c.align_self,
@@ -6096,6 +6110,39 @@ mod tests {
         assert_eq!(at(&plain, 0, 0), [255, 255, 255, 255]);
         let (plain_brightest, plain_darkest) = brightness_span(&plain);
         assert!(plain_brightest > 200 && plain_darkest < 40, "plain: {plain_brightest} over {plain_darkest}");
+    }
+
+    /// buri#162: a `flex-direction:column;flex-wrap:wrap` box wraps into two
+    /// side-by-side tracks only when its height is *definite* — a browser keeps
+    /// a grown or content-sized column's height indefinite and lays its children
+    /// out in one track. The painter lays a page out against a settled height,
+    /// so a field's `<label>` grown by the label reset used to resolve to a
+    /// definite figure smaller than its content and wrap where Chrome shows one
+    /// column. So a column wraps only when a pixel height was set on it; a row
+    /// wraps as it always did — the wrap the label reset is there for.
+    #[test]
+    fn a_wrapping_column_wraps_only_with_a_height_of_its_own() {
+        let mut base = Computed::root();
+        base.wrap = true;
+
+        // A wrapping column with no height of its own does not wrap: its grown
+        // or content height is indefinite, so its children stay in one track.
+        let mut auto_column = base.clone();
+        auto_column.column = true;
+        assert_eq!(taffy_style(&auto_column).flex_wrap, FlexWrap::NoWrap);
+
+        // A wrapping column given a pixel height does wrap, the way a browser
+        // wraps one whose height is definite.
+        let mut sized_column = base.clone();
+        sized_column.column = true;
+        sized_column.size[1] = Len::Px(40.0);
+        assert_eq!(taffy_style(&sized_column).flex_wrap, FlexWrap::Wrap);
+
+        // A wrapping row wraps whatever its height — a wide control below its
+        // words is what the label reset's wrap is for.
+        let mut row = base;
+        row.column = false;
+        assert_eq!(taffy_style(&row).flex_wrap, FlexWrap::Wrap);
     }
 
     /// An element that names its own `color` still wins over the page theme's
