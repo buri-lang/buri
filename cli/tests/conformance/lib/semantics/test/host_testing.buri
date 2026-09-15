@@ -2737,6 +2737,98 @@ test "a client that closes the socket stops reading the script" {
     assert.equal(s.sent().map(alloc(), fn(one) => one.1), [Message.Text("one")]);
 }
 
+test "connect reports the reason the program closed the socket with" {
+    let s = sockets();
+    let ctx = context {
+        Sockets: s,
+        WebSocketClient: s.dialling([.Text("one")]),
+    };
+    // The program closes in `onOpen`, before the script is read, with a reason
+    // of its own. `connect` reports that reason rather than the `.Normal` a
+    // script that ran out would give — a close a program starts carries the
+    // reason it chose, exactly as a real client reads it back. That is what
+    // lets a reconnect loop tell a dropped session from a clean goodbye.
+    let ended = websocket.connect(ctx, Client {
+        url: "ws://example/socket",
+        onOpen: fn(c, socket, _response) => {
+            let _closed = socket.close(c, .GoingAway);
+            0
+        },
+        onMessage: fn(_c, _socket, seen, _message) => seen + 1,
+        onClose: fn(_c, _socket, seen, _reason) => seen,
+    });
+    assert.equal(ended, .Ok((.GoingAway, 0)));
+    // The socket closed before the script was read, so `onMessage` never ran
+    // and nothing was pushed: the state stays at what `onOpen` answered.
+    assert.equal(s.sent(), []);
+}
+
+/// A client that greets and then hangs up with `.GoingAway` every session, so a
+/// reconnect loop reading the close reason keeps dialling.
+fn dropping<C: Sockets + WebSocketClient>(url: Str): Client<C, Int> {
+    Client {
+        url: url,
+        onOpen: fn(c, socket, _response) => {
+            let _sent = socket.send(c, .Text("hi"));
+            let _closed = socket.close(c, .GoingAway);
+            0
+        },
+        onMessage: fn(_c, _socket, seen, _message) => seen,
+        onClose: fn(_c, _socket, seen, _reason) => seen,
+    }
+}
+
+/// A reconnect loop that retries only on a close that was not clean — the shape
+/// a program reconnecting after a dropped session writes. A `.Normal` close is
+/// the end; any other reason is worth another dial, up to the bound.
+fn retrying<C: Clock + Sockets + WebSocketClient>(
+    ctx: C,
+    client: Client<C, Int>,
+    left: Int,
+): Int {
+    match (websocket.connect(ctx, client)) {
+        .Err(_never) => left,
+        .Ok(ended) => {
+            match (ended.0) {
+                .Normal => left,
+                _ => {
+                    if (left <= 1) {
+                        left
+                    } else {
+                        let _slept = time.sleep(ctx, time.milliseconds(1000));
+                        retrying(ctx, client, left - 1)
+                    }
+                },
+            }
+        },
+    }
+}
+
+test "a reconnect loop that retries on a non-normal close reaches its later dials" {
+    let s = sockets();
+    let ctx = context {
+        Allocator: alloc(),
+        Clock: clock(),
+        Sockets: s,
+        WebSocketClient: s.dialling([.Text("one")]),
+    };
+    // Every session hangs up with `.GoingAway`, so the loop keeps dialling until
+    // its bound: three sessions, not the one a close reported as `.Normal` would
+    // have stopped it at.
+    let _ended = retrying(ctx, dropping("ws://example/socket"), 3);
+    // One greeting per session — the second and third are the dials a `.Normal`
+    // close would have made unreachable.
+    assert.equal(s.sent().map(alloc(), fn(one) => one.1), [
+        Message.Text("hi"),
+        Message.Text("hi"),
+        Message.Text("hi"),
+    ]);
+    // And a socket of its own each session rather than one socket reopened.
+    let pushes = s.sent().map(alloc(), fn(one) => one.0);
+    assert.notEqual(pushes.get(0), pushes.get(1));
+    assert.notEqual(pushes.get(1), pushes.get(2));
+}
+
 /// Reconnecting, as `core/net/websocket` writes it: a loop around `connect` with
 /// a sleep between the attempts, and no field on the `Client` at all.
 ///
