@@ -1532,7 +1532,36 @@ fn how_it_ended(status: &std::process::ExitStatus, stderr: &str) -> String {
     }
     match status.code() {
         Some(code) => format!("the run exited {code}"),
-        None => String::from("the run was killed by a signal"),
+        // A signal is the one fact `ExitStatus::code` throws away, and it is what
+        // turns "the run was killed by a signal" from a dead end into a lead: a
+        // SIGSEGV is a bad pointer, a SIGBUS an unmapped or misaligned access, a
+        // SIGABRT the program stopping itself, a SIGTRAP a trap the runtime
+        // reached deliberately. Reporting the number, and its name where macOS
+        // and Linux agree on one, is the secondary of issue #198 — the crash
+        // there is unbisectable from the outside without it. The table is
+        // `build::generators`'s, which is the toolchain's one signal table by
+        // its own account: a test binary that dies without writing a record and
+        // a generator that dies without answering are the same question.
+        None => match signal_number(status) {
+            Some(sig) => match crate::build::generators::signal_name(sig) {
+                Some(name) => format!("the run was killed by {name} (signal {sig})"),
+                None => format!("the run was killed by signal {sig}"),
+            },
+            None => String::from("the run was killed by a signal"),
+        },
+    }
+}
+
+/// The signal a process was killed by, where the platform records one.
+fn signal_number(status: &std::process::ExitStatus) -> Option<i32> {
+    #[cfg(unix)]
+    {
+        std::os::unix::process::ExitStatusExt::signal(status)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = status;
+        None
     }
 }
 
