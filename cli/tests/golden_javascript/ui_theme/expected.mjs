@@ -41,47 +41,39 @@ function __cmd_x_main_buri$main(){
   let $t3;
   const $t4=config_23[4];
   if($t4!==void 0&&$t4===1){
-    $t3=[[14,config_23[0],$share(config_23[1]),events_24]];
-  }else{
     const $t8=$share(config_23[1]);
-    const children_25=$share(config_23[2]);
     let $t5;
-    if(children_25!==void 0){
-      $t5=$share(children_25);
-    }else if(children_25===void 0){
-      $t5=[];
+    const $t6=config_23[5];
+    if($t6!==void 0){
+      $t5=$t6;
+    }else if($t6===void 0){
+      $t5=$k7;
     }else{
       $abort('no arm matched');
     }
+    $t3=[[14,config_23[0],$t8,$t5,events_24]];
+  }else{
+    const $t12=$share(config_23[1]);
+    const children_27=$share(config_23[2]);
     let $t9;
-    const $t10=config_23[3];
-    if($t10!==void 0){
-      $t9=(c_29,_event_30)=>$t10(c_29);
-    }else if($t10===void 0){
-      $t9=(_c_31,_event_32)=>0;
-    }else{
-      $abort('no arm matched');
-    }
-    let $t11;
-    const $t12=config_23[5];
-    if($t12!==void 0){
-      $t11=$t12;
-    }else if($t12===void 0){
-      $t11=$k7;
+    if(children_27!==void 0){
+      $t9=$share(children_27);
+    }else if(children_27===void 0){
+      $t9=[];
     }else{
       $abort('no arm matched');
     }
     let $t13;
-    const $t14=config_23[6];
+    const $t14=config_23[3];
     if($t14!==void 0){
-      $t13=$t14;
+      $t13=(c_31,_event_32)=>$t14(c_31);
     }else if($t14===void 0){
-      $t13=$k7;
+      $t13=(_c_33,_event_34)=>0;
     }else{
       $abort('no arm matched');
     }
     let $t15;
-    const $t16=config_23[7];
+    const $t16=config_23[5];
     if($t16!==void 0){
       $t15=$t16;
     }else if($t16===void 0){
@@ -89,13 +81,31 @@ function __cmd_x_main_buri$main(){
     }else{
       $abort('no arm matched');
     }
-    $t3=[[5,config_23[0],$t8,$t5,$t9,$t11,$t13,$t15,events_24]];
+    let $t17;
+    const $t18=config_23[6];
+    if($t18!==void 0){
+      $t17=$t18;
+    }else if($t18===void 0){
+      $t17=$k7;
+    }else{
+      $abort('no arm matched');
+    }
+    let $t19;
+    const $t20=config_23[7];
+    if($t20!==void 0){
+      $t19=$t20;
+    }else if($t20===void 0){
+      $t19=$k7;
+    }else{
+      $abort('no arm matched');
+    }
+    $t3=[[5,config_23[0],$t12,$t9,$t13,$t15,$t17,$t19,events_24]];
   }
-  const $t18=ui_node$stack$u3rqgv([$k6,[$t3,__cmd_x_main_buri$badge$u3rqgv([0,label_10],[1,count_11])],void 0,void 0,void 0,void 0,void 0,void 0]);
-  const $t17=ui_theme$themed([[__cmd_x_main_buri$Card_color(0),__cmd_x_main_buri$cardTheme(0)],[__cmd_x_main_buri$Card_color(1),__cmd_x_main_buri$cardTheme(1)],[__cmd_x_main_buri$Card_color(2),__cmd_x_main_buri$cardTheme(2)]]);
+  const $t22=ui_node$stack$u3rqgv([$k6,[$t3,__cmd_x_main_buri$badge$u3rqgv([0,label_10],[1,count_11])],void 0,void 0,void 0,void 0,void 0,void 0]);
+  const $t21=ui_theme$themed([[__cmd_x_main_buri$Card_color(0),__cmd_x_main_buri$cardTheme(0)],[__cmd_x_main_buri$Card_color(1),__cmd_x_main_buri$cardTheme(1)],[__cmd_x_main_buri$Card_color(2),__cmd_x_main_buri$cardTheme(2)]]);
   const whenTrue_16=__cmd_x_main_buri$appThemed(__cmd_x_main_buri$night);
   const whenFalse_17=__cmd_x_main_buri$appThemed(__cmd_x_main_buri$day);
-  return $ui_node_mount(ctx_0,$t18,[$t17,[[1,[1,dark_1],[whenTrue_16],[whenFalse_17]]]]);
+  return $ui_node_mount(ctx_0,$t22,[$t21,[[1,[1,dark_1],[whenTrue_16],[whenFalse_17]]]]);
 }
 function __cmd_x_main_buri$cardTheme(t_0){
   switch(t_0){

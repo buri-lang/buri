@@ -274,8 +274,11 @@ enum NodeKind<C> {
     Picker(Prop<Str>, [(Str, Node<C>)], [Style], Signal<Str>, ChoiceStyle, Prop<Bool>, Events<C>),
     Form(fn(C, Event) => (), [Style], [Node<C>], Events<C>),
     // The button that submits its form: a childless `<button type=submit>`. Its
-    // handler is the form's `onSubmit`, so it carries none of its own.
-    Submit(Prop<Str>, [Style], Events<C>),
+    // handler is the form's `onSubmit`, so it carries none of its own. `disabled`
+    // takes it out of the tab order and refuses the submit, the way `<button
+    // type=submit disabled>` does — an ordinary button's `isDisabled` reaches a
+    // submit too.
+    Submit(Prop<Str>, [Style], Prop<Bool>, Events<C>),
     // A modal. `scrimStyles` land on the scrim behind the panel, so a backdrop
     // blur or tint can reach it; `styles` land on the panel.
     Dialog(Signal<Bool>, Prop<Str>, [Style], [Node<C>], [Style], Events<C>),
@@ -541,7 +544,9 @@ export fn button<C>(config: Button<C>): Node<C> {
         config.onPressOutside,
     );
     match (config.kind) {
-        .Some(.Submit) => Node(.Submit(config.label, config.styles, events)),
+        .Some(.Submit) => {
+            Node(.Submit(config.label, config.styles, orFalse(config.isDisabled), events))
+        },
         _ => {
             Node(
                 .Button(
@@ -1718,16 +1723,26 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             let _ = emitChildren(ctx, builder, children, state, 0);
             exitElement(builder)
         },
-        .Submit(label, styles, events) => {
-            let _ = emitElement(
-                builder,
-                "button",
-                widgetBody(mem, plain(state), [], styles),
-            );
-            let _ = markSubmit(builder);
-            let _ = registerEvents(builder, events);
-            let _ = emitText(builder, label.read(scope));
-            exitElement(builder)
+        // A submit button's `disabled` changes its scene — the `disabled:true`
+        // its line carries, and whether a press or an Enter reaches the form —
+        // so a write rebuilds it in place, the way a field's does. The element is
+        // ctx-free, so the watcher emits it inline between the region's markers.
+        .Submit(label, styles, disabled, events) => {
+            let region = enterDynamic(builder);
+            reactive(fn(scope) => {
+                let inner = alloc.generalPurpose();
+                let _ = beginRegion(builder, region);
+                let _ = emitElement(
+                    builder,
+                    "button",
+                    widgetBody(inner, refusing(state, disabled.read(scope)), [], styles),
+                );
+                let _ = markSubmit(builder);
+                let _ = registerEvents(builder, events);
+                let _ = emitText(builder, label.read(scope));
+                let _ = exitElement(builder);
+                endRegion(builder)
+            })
         },
         .When(cond, then, otherwise) => {
             match (cond) {
@@ -2602,10 +2617,11 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         },
         // A form's action is a button with its label drawn in it, which is a
         // childless button's own shape: the accessible name and the glyphs are
-        // the same string.
-        .Submit(label, styles, _events) => {
+        // the same string. It answers for its own `disabled`, the way a field's
+        // control does.
+        .Submit(label, styles, disabled, _events) => {
             [
-                styledLine(ctx, plain(state), styles, depth),
+                styledLine(ctx, refusing(state, disabled.read(scope)), styles, depth),
                 textLine(ctx, depth + 1, label.read(scope)),
             ]
         },
