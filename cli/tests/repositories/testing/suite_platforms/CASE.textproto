@@ -13,15 +13,16 @@
 #
 # So the platform the suite asks for is not written down here. `{{CROSS_PLATFORM_PROTO}}`
 # is filled in by the harness (cli/tests/harness/case.rs) with a platform that
-# is not this host's: LINUX on a mac, MACOS on Linux. The third of
-# `build/actions.rs::native_ready`'s three questions is
-# `build/link.rs::can_link`, which is `host_platform() == Some(target.platform)`
-# and nothing else — the runtime archive `cli/build.rs` embeds is the host's,
-# and a cross link would need a cross runtime, a cross libc and a sysroot
-# (design/native/ARCHITECTURE.md §9). A platform that is not the host therefore
-# stays refused on every machine, however much native backend is compiled in,
-# which is what this step rests on and why it now holds on the Linux runner
-# too.
+# is not this host's: LINUX on a mac, MACOS on Linux. A **test** suite is
+# refused for any such platform on every machine, and the reason is the same on
+# both even though `buri build` now differs between them: a suite must *run*, so
+# its artifact has to be one the host can execute — its own. `buri build`
+# cross-links a Linux artifact from a mac (design/native/ARCHITECTURE.md §9), but
+# that artifact cannot be run where it was built, so `buri test` for a cross
+# platform is refused — `commands/test.rs`'s `native_ready` narrows to
+# `build/link.rs::is_host_target` for exactly this reason. A macOS host asked for
+# Linux can build the artifact but not run it; a Linux host asked for macOS
+# cannot even build it; the sentence this step records is the one true of both.
 #
 # The middle steps need the same platform for a different reason: `browser`
 # admits only JS, so any native platform is one the target does not admit, and

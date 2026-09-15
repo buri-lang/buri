@@ -159,6 +159,7 @@
 use crate::build::buildfile::{Arch, Platform};
 use crate::build::cache::hash_bytes;
 use crate::build::musl::{self, Libc};
+use crate::build::runtime_cross::{self, Cross};
 use crate::build::spawn;
 use crate::compiler::backend::runtime_native;
 use crate::compiler::backend::{Emitted, LinkOptions, Linker, Target};
@@ -196,12 +197,31 @@ pub fn host_platform() -> Option<Platform> {
 
 /// Whether this machine can link an artifact for `target`.
 ///
-/// Host only, and that is a decision rather than an omission
-/// (ARCHITECTURE.md §9): the runtime archive is built for the host by
-/// `cli/build.rs`, and a cross link would need a cross runtime, a cross libc
-/// and a sysroot. A declared `linux/x86_64` output on an arm64 mac is refused
-/// with the same diagnostic as a missing backend, which is the honest answer.
+/// The shape ARCHITECTURE.md §9 argues, and it is fixed rather than symmetric:
+/// **any host builds any Linux target, a macOS host builds macOS and Linux, and
+/// no Linux host builds a macOS artifact.** A Linux artifact is self-contained —
+/// static-PIE musl, no SDK — so the runtime archive and sysroot can be
+/// cross-built for it from anywhere ([`runtime_cross`]); a macOS artifact links
+/// against Apple's `libSystem` stubs, which do not ship, so it can only be built
+/// on a macOS host.
+///
+/// So the rule is: the target's own host ([`is_host_target`]) always links, and
+/// on top of that any host links a Linux target. The one direction left refused
+/// is Linux → macOS, and `native_gap`'s diagnostic owes that direction the
+/// honest "build this on a macOS host" rather than a promise the toolchain
+/// cannot keep.
 pub fn can_link(target: Target) -> bool {
+    is_host_target(target) || target.platform == Platform::Linux
+}
+
+/// Whether `target` is served by the archive and sysroot `cli/build.rs` baked
+/// into this binary — the host's own platform and architecture.
+///
+/// This is the old `can_link`, kept under a name that says what it now means:
+/// the *baked* runtime is the host's, so a target that is not the host's is a
+/// cross target and its runtime comes from [`runtime_cross`] instead. `arch:
+/// None` means the host's architecture, so it is a host target.
+pub fn is_host_target(target: Target) -> bool {
     host_platform() == Some(target.platform)
         && target.arch.is_none_or(|a| host_arch() == Some(a))
 }
@@ -502,6 +522,12 @@ pub struct CDriver {
     /// rather than three calls to [`libc_for`], so that a key can never be
     /// built from a different answer than the command line was.
     libc: LibcMode,
+    /// The cross runtime this link is against, on a cross target only
+    /// ([`LibcMode::MuslCross`]). `None` for a host link, which is every link on
+    /// this machine's own platform: the runtime and sysroot are then the baked
+    /// ones. Present for a cross link, and it carries the cached archive, the
+    /// staged sysroot and the two digests the `link` key is built from.
+    cross: Option<Cross>,
     /// Shared with every other `CDriver` this process selected for the same
     /// driver and flavour, so the two `--version` spawns happen once (see
     /// [`PROBED`]).
@@ -678,6 +704,15 @@ pub fn select(target: Target) -> Result<CDriver, Refusal> {
              this platform's libc and startup files live",
         ));
     };
+    // A cross target — a Linux output on a machine that is not that Linux — is
+    // linked against the runtime and sysroot `runtime_cross` cross-built and
+    // cached, with `rustc`'s own recipe for the triple. Split here so the host
+    // path below stays byte-identical: none of `libc_for`'s tiers apply to a
+    // cross link, and the flavour is fixed to `lld` because the recipe names the
+    // crt objects itself and `-fuse-ld=lld` is the linker it was proven with.
+    if !is_host_target(target) {
+        return select_cross(target, driver);
+    }
     // The libc question can replace the driver (the `musl-clang` tier), so it
     // is answered before the identity probe: the term in the `link` key has to
     // be the version of the program that will actually run.
@@ -686,7 +721,50 @@ pub fn select(target: Target) -> Result<CDriver, Refusal> {
     let mut programs = vec![driver.clone()];
     programs.extend(flavour.program(Some(target.platform)).and_then(spawn::resolve));
     let version = identity_of(flavour, programs);
-    Ok(CDriver { dir: PathBuf::new(), driver, flavour, target, libc, version })
+    Ok(CDriver { dir: PathBuf::new(), driver, flavour, target, libc, cross: None, version })
+}
+
+/// [`select`] for a cross target: resolve the cached cross runtime and pin the
+/// `lld` recipe.
+///
+/// The driver must understand `--target=<musl triple>` — the whole cross link
+/// rests on it — so a `cc` that does not (a gcc) is refused here with a sentence
+/// rather than left to fail deep in the link. The runtime itself is
+/// [`runtime_cross::resolve`]'s to build or serve from `~/.buri`, and its
+/// refusals (no `rust-std` for the triple, an unreachable dependency tree) are
+/// returned as they are.
+fn select_cross(target: Target, driver: PathBuf) -> Result<CDriver, Refusal> {
+    let triple = crate::compiler::backend::triple_text(target)
+        .unwrap_or_else(|| String::from("unknown-unknown-linux-musl"));
+    if !accepts_target(&driver, &triple) {
+        return Err(Refusal::new(
+            format!("the C driver cannot be pointed at {triple}, so it cannot cross-link"),
+            "install a clang that understands `--target=`, or set `CC` to one — a cross link is \
+             driven through it",
+        )
+        .with_note(
+            "a cross Linux artifact is linked with the target's musl sysroot and clang's \
+             `--target=`; a gcc that rejects the flag cannot produce one",
+        ));
+    }
+    let cross = runtime_cross::resolve(target)?;
+    // `lld`, not the platform's usual mold-first probe: the cross recipe names
+    // the crt objects by hand and was proven with `-fuse-ld=lld`
+    // (ARCHITECTURE.md §9). A fixed flavour also keeps the link line the same on
+    // every host that cross-builds.
+    let flavour = Flavour::Lld;
+    let mut programs = vec![driver.clone()];
+    programs.extend(flavour.program(Some(target.platform)).and_then(spawn::resolve));
+    let version = identity_of(flavour, programs);
+    Ok(CDriver {
+        dir: PathBuf::new(),
+        driver,
+        flavour,
+        target,
+        libc: LibcMode::MuslCross,
+        cross: Some(cross),
+        version,
+    })
 }
 
 /// The flavour for a platform, honouring `BURI_LINKER` and otherwise probing.
@@ -755,6 +833,13 @@ pub enum LibcMode {
     /// musl, from the machine: an Alpine host, or a `musl-clang`/`musl-gcc`
     /// wrapper that is now the driver. Still `-static-pie`, no sysroot flags.
     MuslSystem,
+    /// musl, cross-built for a foreign Linux triple: the archive and the sysroot
+    /// come from [`runtime_cross`]'s `~/.buri` cache rather than from this
+    /// binary, and the link line is `rustc`'s own recipe for the triple
+    /// (`-nodefaultlibs -nostartfiles`, the crt objects named by hand) because a
+    /// cross host has no `libgcc` for the foreign architecture to leave to the
+    /// driver (ARCHITECTURE.md §9).
+    MuslCross,
     /// The host's glibc, and therefore an artifact that runs where that glibc
     /// does. `BURI_MUSL=off` and nothing else reaches this.
     Glibc,
@@ -773,6 +858,7 @@ impl LibcMode {
         match self {
             LibcMode::MuslBaked => "musl-baked",
             LibcMode::MuslSystem => "musl-system",
+            LibcMode::MuslCross => "musl-cross",
             LibcMode::Glibc => "glibc",
             LibcMode::NotLinux => "not-linux",
         }
@@ -781,7 +867,7 @@ impl LibcMode {
     /// Whether this link is hermetic, which is the question every caller
     /// outside this module is actually asking.
     pub fn is_musl(self) -> bool {
-        matches!(self, LibcMode::MuslBaked | LibcMode::MuslSystem)
+        matches!(self, LibcMode::MuslBaked | LibcMode::MuslSystem | LibcMode::MuslCross)
     }
 }
 
@@ -1061,6 +1147,49 @@ pub fn stage_sysroot(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Writes the **cross** sysroot into `<dir>/musl/lib`, copied from
+/// `runtime_cross`'s `~/.buri` cache rather than from this binary.
+///
+/// [`stage_sysroot`]'s shape, over the cache's files rather than the baked
+/// constants: the names are the same eleven, because the linker looks for them
+/// by those names whichever tier staged them. The size guard is the one that
+/// function's header argues, and it is worth as much here — the cross link
+/// directory is reused by a `--watch` loop too.
+fn stage_cross_sysroot(cross: &Cross, dir: &Path) -> std::io::Result<()> {
+    let src = cross.dir().join("musl").join("lib");
+    let lib = dir.join("musl").join("lib");
+    std::fs::create_dir_all(&lib)?;
+    for (name, _) in musl::FILES {
+        stage_file(&src.join(name), &lib.join(name))?;
+    }
+    Ok(())
+}
+
+/// Writes `bytes` to `dest`, skipping the write when a file of the same length
+/// is already there.
+///
+/// The size check rather than a byte comparison because the callers pass a
+/// constant of this binary or a file from the content-addressed `~/.buri` cache:
+/// a file in the link directory whose length matches came from the same source
+/// and cannot be a different one that happens to weigh the same.
+fn stage_bytes(bytes: &[u8], dest: &Path) -> std::io::Result<()> {
+    if std::fs::metadata(dest).map(|m| m.len()).ok() != Some(bytes.len() as u64) {
+        std::fs::write(dest, bytes)?;
+    }
+    Ok(())
+}
+
+/// [`stage_bytes`] for a source that is a file — the cross archive and the cross
+/// sysroot members, which are too large to hold in memory just to compare.
+fn stage_file(src: &Path, dest: &Path) -> std::io::Result<()> {
+    let len = std::fs::metadata(src)?.len();
+    if std::fs::metadata(dest).map(|m| m.len()).ok() == Some(len) {
+        return Ok(());
+    }
+    std::fs::copy(src, dest)?;
+    Ok(())
+}
+
 /// The driver a harness should spawn to link the way the product does, and the
 /// arguments it should pass.
 ///
@@ -1228,6 +1357,23 @@ impl CDriver {
                 // here would also mean pinning a deployment target the runtime
                 // archive was not built for.
             }
+            _ if self.libc == LibcMode::MuslCross => {
+                // The **post-object** half of the cross recipe (ARCHITECTURE.md
+                // §9). Everything that precedes the objects — the mode flags and
+                // the crt-begin objects — is [`prelink_args`], because a link
+                // line resolves left to right and the crt objects are
+                // positional. Here go the library search path, the two
+                // libraries the archive did not carry, and the crt-end objects
+                // that close the sequence: `libburi_rt.a` precedes `-lc` so
+                // musl's own `__addtf3` references resolve against the archive's
+                // `compiler_builtins`, and `-lunwind` names the baked unwinder.
+                flags.push("-L".into());
+                flags.push("musl/lib".into());
+                flags.push("-lc".into());
+                flags.push("-lunwind".into());
+                flags.push("musl/lib/crtendS.o".into());
+                flags.push("musl/lib/crtn.o".into());
+            }
             _ => {
                 // A build id is a hash of content that is about to be compared
                 // byte for byte.
@@ -1243,6 +1389,37 @@ impl CDriver {
                 flags.extend(self.libc_flags());
             }
         }
+        flags
+    }
+
+    /// The arguments that must precede the objects on a cross link, empty on
+    /// every other link.
+    ///
+    /// A link line resolves left to right and the crt startup objects are
+    /// positional: `rcrt1.o`, `crti.o` and `crtbeginS.o` come *before* the
+    /// program's objects, and `crtendS.o`/`crtn.o` (in [`platform_flags`]) after
+    /// the archive. The mode flags ride here too — `-nodefaultlibs
+    /// -nostartfiles` because a cross host has no `libgcc` for the foreign
+    /// architecture to leave to the driver, `--target=` to select the psABI, and
+    /// the reproducibility pair — so that the whole line matches the recipe
+    /// ARCHITECTURE.md §9 proves. Empty for a host link, which is what keeps that
+    /// path byte-identical.
+    fn prelink_args(&self) -> Vec<String> {
+        if self.libc != LibcMode::MuslCross {
+            return Vec::new();
+        }
+        let mut flags: Vec<String> = Vec::new();
+        if let Some(triple) = crate::compiler::backend::triple_text(self.target) {
+            flags.push(format!("--target={triple}"));
+        }
+        flags.push("-static-pie".into());
+        flags.push("-nodefaultlibs".into());
+        flags.push("-nostartfiles".into());
+        flags.push("-Wl,--gc-sections".into());
+        flags.push("-Wl,--build-id=none".into());
+        flags.push("musl/lib/rcrt1.o".into());
+        flags.push("musl/lib/crti.o".into());
+        flags.push("musl/lib/crtbeginS.o".into());
         flags
     }
 
@@ -1354,10 +1531,12 @@ impl CDriver {
                 flags.push("-ldl".into());
                 flags.push("-lm".into());
             }
-            // Unreachable from the `_` arm this is called under, which is
-            // Linux; spelled out rather than caught by a wildcard so that a
-            // fourth platform cannot silently inherit a Linux libc.
-            LibcMode::NotLinux => {}
+            // Unreachable from the `_` arm this is called under: a cross link
+            // takes `platform_flags`'s own `MuslCross` branch above and never
+            // reaches here, and `NotLinux` is macOS. Spelled out rather than
+            // caught by a wildcard so that a fourth platform cannot silently
+            // inherit a Linux libc.
+            LibcMode::MuslCross | LibcMode::NotLinux => {}
         }
         flags
     }
@@ -1390,10 +1569,27 @@ impl Linker for CDriver {
     fn link_identity(&self) -> String {
         let mut text = String::from(self.libc.key());
         text.push('\u{0}');
-        text.push_str(&musl::sysroot_hash());
-        for flag in self.platform_flags() {
+        // The sysroot this link stages: the baked one on a host link, and the
+        // cross cache's on a cross link. Both are digests of the exact bytes the
+        // link uses, so a toolchain built against a different musl misses.
+        let sysroot = self
+            .cross
+            .as_ref()
+            .map_or_else(musl::sysroot_hash, |c| c.sysroot_hash().to_string());
+        text.push_str(&sysroot);
+        // The whole command line the link runs, prelude included. On a host link
+        // `prelink_args` is empty, so this is exactly the string it always was.
+        for flag in self.prelink_args().into_iter().chain(self.platform_flags()) {
             text.push('\u{0}');
             text.push_str(&flag);
+        }
+        // The cross archive's digest, because the `link` key's own `runtime`
+        // term is the *host* archive's (`build::actions::runtime_archive_hash`)
+        // and would not move when the cross one did. On a host link there is no
+        // cross archive and that term already covers the runtime.
+        if let Some(cross) = &self.cross {
+            text.push('\u{0}');
+            text.push_str(cross.archive_hash());
         }
         hash_bytes(text.as_bytes())
     }
@@ -1483,17 +1679,23 @@ impl Linker for CDriver {
             }
         }
 
-        // The libc's own staged files, on the one path that has any. Eleven
+        // The libc's own staged files, on the two paths that have any. Eleven
         // files under `musl/lib/`, named on the command line as
-        // `-B musl/lib -L musl/lib` — see `libc_flags`.
-        if self.libc == LibcMode::MuslBaked {
-            if let Err(e) = stage_sysroot(&self.dir) {
-                diagnostics.push(Diagnostic::error(
-                    Span::NONE,
-                    format!("cannot write the musl sysroot into {}: {e}", self.dir.display()),
-                ));
-                return Err(diagnostics);
-            }
+        // `-B musl/lib -L musl/lib` for a baked host link (see `libc_flags`), or
+        // `-L musl/lib` plus the crt objects by name for a cross link (see
+        // `prelink_args`). The baked bytes come from this binary; the cross bytes
+        // come from `runtime_cross`'s `~/.buri` cache.
+        let staged_sysroot = match (self.libc, &self.cross) {
+            (LibcMode::MuslBaked, _) => stage_sysroot(&self.dir),
+            (LibcMode::MuslCross, Some(cross)) => stage_cross_sysroot(cross, &self.dir),
+            _ => Ok(()),
+        };
+        if let Err(e) = staged_sysroot {
+            diagnostics.push(Diagnostic::error(
+                Span::NONE,
+                format!("cannot write the musl sysroot into {}: {e}", self.dir.display()),
+            ));
+            return Err(diagnostics);
         }
 
         // The decision, taken once and used twice below — the staged file and
@@ -1502,17 +1704,23 @@ impl Linker for CDriver {
         // fact about the link that actually ran.
         let runtime = runtime_archive_for(units);
         if runtime.is_linked() {
+            // The bytes are the baked host archive, or — on a cross link — the
+            // one `runtime_cross` built and cached for the target. Staged under
+            // the one name the command line uses either way. The "write only if
+            // the size differs" guard is worth most here: the archive is the
+            // largest file the link touches and a `--watch` loop reuses the
+            // directory on every pass.
             let archive = self.dir.join(runtime_native::ARCHIVE_NAME);
-            let stale = std::fs::metadata(&archive).map(|m| m.len()).ok()
-                != Some(runtime_native::ARCHIVE.len() as u64);
-            if stale {
-                if let Err(e) = std::fs::write(&archive, runtime_native::ARCHIVE) {
-                    diagnostics.push(Diagnostic::error(
-                        Span::NONE,
-                        format!("cannot write {}: {e}", archive.display()),
-                    ));
-                    return Err(diagnostics);
-                }
+            let written = match &self.cross {
+                Some(cross) => stage_file(&cross.archive(), &archive),
+                None => stage_bytes(runtime_native::ARCHIVE, &archive),
+            };
+            if let Err(e) = written {
+                diagnostics.push(Diagnostic::error(
+                    Span::NONE,
+                    format!("cannot write {}: {e}", archive.display()),
+                ));
+                return Err(diagnostics);
             }
         }
 
@@ -1570,6 +1778,10 @@ impl Linker for CDriver {
             command.arg(flag);
         }
         command.arg("-o").arg("artifact");
+        // The prelude — empty on a host link, and the mode flags plus the
+        // crt-begin objects on a cross one — comes before the program's objects
+        // because a link line resolves left to right (see `prelink_args`).
+        command.args(self.prelink_args());
         for path in &objects {
             command.arg(path.file_name().unwrap_or(path.as_os_str()));
         }
@@ -2306,28 +2518,57 @@ mod tests {
         assert_ne!(choose(Platform::Macos), Flavour::Mold);
     }
 
-    /// The host is the only thing this can link for, and saying so is what
-    /// keeps a declared cross output producing a diagnostic rather than an
-    /// object file for the wrong machine.
+    /// The cross rule ARCHITECTURE.md §9 fixes: any host links any Linux
+    /// target, a macOS host links macOS and Linux, and no Linux host links a
+    /// macOS artifact. This is what keeps a declared macOS output on a Linux
+    /// host producing a diagnostic, while a Linux output on a mac now links.
     #[test]
-    fn only_the_host_is_linkable() {
-        // Neither JavaScript platform is linked at all, and `Web` is the one
-        // that could plausibly have been mistaken for a native target by a
-        // predicate spelled `!= Js`.
+    fn any_host_links_linux_and_only_a_macos_host_links_macos() {
+        // Neither JavaScript platform is a native link at all, and `Web` is the
+        // one that could be mistaken for a native target by a `!= Js` predicate.
         assert!(!can_link(Target { platform: Platform::Js, arch: None }));
         assert!(!can_link(Target { platform: Platform::Web, arch: None }));
+
+        // Every Linux target links from every host: the runtime archive and the
+        // musl sysroot are cross-built and cached, not baked per host.
+        assert!(can_link(Target { platform: Platform::Linux, arch: Some(Arch::X86_64) }));
+        assert!(can_link(Target { platform: Platform::Linux, arch: Some(Arch::Arm64) }));
+        assert!(can_link(Target { platform: Platform::Linux, arch: None }));
+
         let Some(host) = host_platform() else { return };
+        // The host's own platform and architecture always link, from the baked
+        // runtime — which is what `is_host_target` names.
+        let own = Target { platform: host, arch: host_arch() };
+        assert!(can_link(own));
+        assert!(is_host_target(own));
         assert!(can_link(Target { platform: host, arch: None }));
-        assert!(can_link(Target { platform: host, arch: host_arch() }));
-        let other = match host {
-            Platform::Macos => Platform::Linux,
-            _ => Platform::Macos,
-        };
-        assert!(!can_link(Target { platform: other, arch: None }));
-        let wrong = match host_arch() {
-            Some(Arch::X86_64) => Arch::Arm64,
-            _ => Arch::X86_64,
-        };
-        assert!(!can_link(Target { platform: host, arch: Some(wrong) }));
+
+        // A macOS artifact links only on a macOS host, and there only for the
+        // host's own architecture — there is no cross-arch macOS runtime, and
+        // Apple's libSystem stubs do not ship for a Linux host to link against.
+        let macos_x86 = Target { platform: Platform::Macos, arch: Some(Arch::X86_64) };
+        assert_eq!(
+            can_link(macos_x86),
+            host == Platform::Macos && host_arch() == Some(Arch::X86_64)
+        );
+        // The one direction always refused.
+        if host == Platform::Linux {
+            for arch in [None, Some(Arch::X86_64), Some(Arch::Arm64)] {
+                assert!(!can_link(Target { platform: Platform::Macos, arch }));
+            }
+        }
+    }
+
+    /// A cross Linux target is linkable but is *not* a host target: it is served
+    /// by the cross runtime, not the baked one. This is the distinction the two
+    /// predicates draw, and the reason `select` splits on it.
+    #[test]
+    fn a_cross_linux_target_is_linkable_but_not_the_host() {
+        let Some(host) = host_platform() else { return };
+        if host == Platform::Macos {
+            let linux = Target { platform: Platform::Linux, arch: Some(Arch::X86_64) };
+            assert!(can_link(linux), "a mac links Linux");
+            assert!(!is_host_target(linux), "a Linux target is cross on a mac");
+        }
     }
 }

@@ -288,6 +288,16 @@ checks the whole dependency graph against each output separately, so
 `buri build //cmd/server --output=js`. A binary has no `platforms` field of its
 own, because `outputs` already says.
 
+Where an output can be built follows one rule: a Linux artifact is a
+self-contained static-PIE musl executable, so **any host builds a Linux output**
+— the runtime archive and musl sysroot are cross-built for the target and cached
+in `~/.buri`, which needs the target's Rust standard library installed
+(`rustup target add x86_64-unknown-linux-musl`). A macOS artifact links against
+Apple's `libSystem`, which does not ship, so **only a macOS host builds a macOS
+output**. A macOS output on a Linux host is `native-artifact-not-available`.
+`buri test` is stricter than `buri build`: a suite has to *run*, so it runs only
+on a host that can execute the artifact — its own — never cross.
+
 `tags` on a binary mean what they mean on a library. The tag check does not vary
 across outputs, so it runs once no matter how many artifacts the binary
 produces.
