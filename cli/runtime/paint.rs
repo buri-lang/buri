@@ -265,15 +265,38 @@ use image::{Picture, decode, pixel_bytes};
 // The bundled family
 // ---------------------------------------------------------------------------
 
-/// The one family the painter can draw with. Every `font-family` resolves to
-/// it, including `ui-serif` and `ui-monospace`, because a face this archive
-/// does not carry is a face no snapshot may depend on.
+/// The proportional family the painter draws with. Every `font-family` but
+/// `monospace` resolves to it — `ui-serif` included — because a face this
+/// archive does not carry is a face no snapshot may depend on.
 const FAMILY: &str = "Roboto";
+
+/// The fixed-pitch family, for a `font-family` a browser sets in a monospace
+/// face — `FontFamily(.Mono)`, whose stylesheet declaration names `monospace`.
+/// A code box, a diff, a log, a table of amounts or a keyboard shortcut lines
+/// up on a constant advance, and a golden of any of them is a picture of a
+/// thing the reader never sees unless the painter has the face too (#173).
+///
+/// **It lives in its own [`FontSystem`], never in the proportional one.** A
+/// fixed-pitch face put in the shared database would compete with [`FALLBACK`]
+/// for the scripts they both cover — Cyrillic, combining marks — and
+/// `cosmic_text`'s fallback tries every face in the database, so the tie would
+/// resolve one way on macOS and another on Linux and a golden with no
+/// monospace in it (the Cyrillic `снимок`) would move between hosts. Kept
+/// apart, the proportional path is byte-for-byte what it was, and monospace
+/// text is set in this face.
+const MONO_FAMILY: &str = "DejaVu Sans Mono";
 
 /// Roboto, Latin subset, under the SIL Open Font License — `fonts/LICENSE`.
 const REGULAR: &[u8] = include_bytes!("fonts/Roboto-Regular.ttf");
 const BOLD: &[u8] = include_bytes!("fonts/Roboto-Bold.ttf");
 const ITALIC: &[u8] = include_bytes!("fonts/Roboto-Italic.ttf");
+
+/// DejaVu Sans Mono, under the DejaVu Fonts License — the same permissive
+/// licence as the fallback face below, so `fonts/DejaVu-LICENSE` covers both.
+/// A single fixed-pitch weight: a snapshot's monospace text is set in one
+/// face, and a bold or an italic run of it falls back to synthesising from
+/// this the way the proportional bold and italic do not have to.
+const MONO: &[u8] = include_bytes!("fonts/DejaVuSansMono.ttf");
 
 /// DejaVu Sans, under the DejaVu Fonts License (a permissive, Bitstream Vera
 /// derivative) — `fonts/DejaVu-LICENSE`. Broad Unicode coverage in one face:
@@ -1231,6 +1254,9 @@ struct Computed {
     font_size: f32,
     weight: u16,
     italic: bool,
+    /// `font-family: monospace`: set the run in the bundled fixed-pitch face
+    /// rather than the proportional one. Inherited, the way `font-family` is.
+    mono: bool,
     line_height: f32,
     letter_spacing: f32,
     align_text: cosmic_text::Align,
@@ -1304,6 +1330,7 @@ impl Computed {
             font_size: ROOT_FONT_SIZE,
             weight: 400,
             italic: false,
+            mono: false,
             line_height: NORMAL_LINE_HEIGHT,
             letter_spacing: 0.0,
             align_text: cosmic_text::Align::Left,
@@ -1354,6 +1381,7 @@ impl Computed {
         child.font_size = self.font_size;
         child.weight = self.weight;
         child.italic = self.italic;
+        child.mono = self.mono;
         child.line_height = self.line_height;
         child.letter_spacing = self.letter_spacing;
         child.align_text = self.align_text;
@@ -1694,8 +1722,13 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         "placeholder" => {
             style.placeholder = (!value.is_empty()).then(|| value.to_string());
         }
-        // `font-family` resolves to the bundled family whatever it names, and
-        // `cursor` paints nothing. Both parse so that a scene keeps them.
+        // `font-family` picks between the two bundled families: the fixed-pitch
+        // one where a browser would set a monospace face — `FontFamily(.Mono)`,
+        // whose stack names `monospace` — and the proportional one for
+        // everything else, `ui-serif` included, since the archive carries no
+        // serif face (#173). `cursor` paints nothing. Both parse so a scene
+        // keeps them.
+        "font-family" => style.mono = value.contains("monospace"),
         _ => {}
     }
 }
@@ -2109,6 +2142,75 @@ fn font_system() -> FontSystem {
     FontSystem::new_with_locale_and_db("en-US".to_string(), db)
 }
 
+/// The monospace `FontSystem`, kept apart from the proportional one: the one
+/// fixed-pitch face, and [`FALLBACK`] for the scalars it does not carry.
+///
+/// **Kept apart is the whole of the cross-host safety.** A run set in
+/// [`MONO_FAMILY`] is shaped in the mono face first and reaches [`FALLBACK`]
+/// only for a glyph the mono face lacks; because this database holds no face
+/// that overlaps [`FALLBACK`] on a shared script, the fallback a missing glyph
+/// reaches is the same face on every host. The proportional [`font_system`]
+/// never sees this face, so nothing that is not monospace can be pulled onto
+/// it — the Cyrillic `снимок` golden, and every other non-mono picture, is
+/// byte-for-byte what it was before the fixed-pitch face was bundled.
+fn mono_font_system() -> FontSystem {
+    let mut db = fontdb::Database::new();
+    for face in [MONO, FALLBACK] {
+        db.load_font_source(fontdb::Source::Binary(Arc::new(face)));
+    }
+    db.set_sans_serif_family(MONO_FAMILY);
+    db.set_serif_family(MONO_FAMILY);
+    db.set_monospace_family(MONO_FAMILY);
+    FontSystem::new_with_locale_and_db("en-US".to_string(), db)
+}
+
+/// The proportional and monospace shapers and glyph rasterizers, side by side.
+///
+/// A run set in a monospace `font-family` is shaped and rasterized against
+/// [`mono_font_system`]; every other run against the proportional
+/// [`font_system`]. Two `FontSystem`s rather than one shared database because a
+/// shared one lets `cosmic_text`'s fallback pull the fixed-pitch face onto a
+/// glyph a non-mono run needed, and that choice is not stable across hosts
+/// (#173). Selection is by the run's inherited `mono` flag: [`system`] for a
+/// measure, [`pair`] for a paint, which draws the glyphs through the same
+/// system's cache the shaping used.
+///
+/// [`system`]: Fonts::system
+/// [`pair`]: Fonts::pair
+struct Fonts {
+    prop: FontSystem,
+    prop_cache: SwashCache,
+    mono: FontSystem,
+    mono_cache: SwashCache,
+}
+
+impl Fonts {
+    fn new() -> Self {
+        Self {
+            prop: font_system(),
+            prop_cache: SwashCache::new(),
+            mono: mono_font_system(),
+            mono_cache: SwashCache::new(),
+        }
+    }
+
+    /// The `FontSystem` a run of this kind is shaped in.
+    fn system(&mut self, mono: bool) -> &mut FontSystem {
+        if mono { &mut self.mono } else { &mut self.prop }
+    }
+
+    /// The `FontSystem` and its `SwashCache`, for a paint that shapes and then
+    /// rasterizes: both must be the same kind, so a glyph is drawn from the
+    /// face it was shaped in.
+    fn pair(&mut self, mono: bool) -> (&mut FontSystem, &mut SwashCache) {
+        if mono {
+            (&mut self.mono, &mut self.mono_cache)
+        } else {
+            (&mut self.prop, &mut self.prop_cache)
+        }
+    }
+}
+
 /// The shaper and the glyph rasterizer, kept for the life of the thread.
 ///
 /// **Reuse, not state.** Both are caches over an immutable font database — a
@@ -2127,8 +2229,7 @@ fn font_system() -> FontSystem {
 /// same assertion at fourteen scenes at once: a cache that changed an answer
 /// would move a picture.
 thread_local! {
-    static FACES: std::cell::RefCell<(FontSystem, SwashCache)> =
-        std::cell::RefCell::new((font_system(), SwashCache::new()));
+    static FACES: std::cell::RefCell<Fonts> = std::cell::RefCell::new(Fonts::new());
 }
 
 /// What a blurred shadow's coverage bytes are a function of: the region it is
@@ -2243,7 +2344,7 @@ fn shape(
     buffer.set_size(width, None);
 
     let mut attrs = Attrs::new()
-        .family(Family::Name(FAMILY))
+        .family(Family::Name(if style.mono { MONO_FAMILY } else { FAMILY }))
         .weight(Weight(style.weight))
         .cache_key_flags(CacheKeyFlags::DISABLE_HINTING);
     if style.italic {
@@ -2455,16 +2556,15 @@ fn extent(buffer: &Buffer) -> (f32, f32) {
 /// White rather than transparent because a snapshot is a picture of a page, and
 /// a page has a colour before anything is drawn on it.
 fn paint(scene: &Scene, styles: &[Computed], ground: Option<Rgba>) -> Result<Pixmap, String> {
-    FACES.with_borrow_mut(|(fonts, cache)| paint_with(scene, styles, ground, fonts, cache))
+    FACES.with_borrow_mut(|fonts| paint_with(scene, styles, ground, fonts))
 }
 
-/// [`paint`], with the shaper and the glyph cache handed in.
+/// [`paint`], with the shapers and the glyph caches handed in.
 fn paint_with(
     scene: &Scene,
     styles: &[Computed],
     ground: Option<Rgba>,
-    fonts: &mut FontSystem,
-    cache: &mut SwashCache,
+    fonts: &mut Fonts,
 ) -> Result<Pixmap, String> {
     // The blurred-shadow and measured-extent caches live for one paint: a scene
     // draws the same button many times and blurs it once, and asks a run its
@@ -2569,7 +2669,6 @@ fn paint_with(
         tree: &tree,
         ids: &ids,
         fonts,
-        cache,
         deferred: Vec::new(),
     };
     for &index in &scene.roots {
@@ -2607,7 +2706,7 @@ fn lay_out(
     root: NodeId,
     scene: &Scene,
     styles: &[Computed],
-    fonts: &mut FontSystem,
+    fonts: &mut Fonts,
     across: f32,
     down: AvailableSpace,
 ) -> Result<(), String> {
@@ -2644,7 +2743,7 @@ fn lay_out(
                     (None, AvailableSpace::MinContent) => (Some(0.0), Wrap::Word),
                     (None, AvailableSpace::MaxContent) => (None, Wrap::WordOrGlyph),
                 };
-                let (w, h) = measured(fonts, index, text, style, width, wrap);
+                let (w, h) = measured(fonts.system(style.mono), index, text, style, width, wrap);
                 Size { width: known.width.unwrap_or(w), height: known.height.unwrap_or(h) }
             })
         },
@@ -2837,8 +2936,7 @@ struct Painter<'a> {
     pictures: &'a [Option<Picture>],
     tree: &'a TaffyTree<usize>,
     ids: &'a [Option<NodeId>],
-    fonts: &'a mut FontSystem,
-    cache: &'a mut SwashCache,
+    fonts: &'a mut Fonts,
     /// Positioned (pinned) boxes met during the in-flow walk, held back to be
     /// painted after it. A browser paints a stacking context's positioned
     /// descendants after all its in-flow content (CSS 2.1 Appendix E step 8),
@@ -3211,7 +3309,8 @@ impl Painter<'_> {
             }
             Marker::Decimal => {
                 let text = format!("{item}.");
-                let (width, height) = extent(&shape(self.fonts, &text, style, None, Wrap::WordOrGlyph));
+                let (width, height) =
+                    extent(&shape(self.fonts.system(style.mono), &text, style, None, Wrap::WordOrGlyph));
                 let box_ = Box2 {
                     l: px(left - gap - width),
                     t: px(top),
@@ -3246,8 +3345,12 @@ impl Painter<'_> {
         // both scaled, so the glyphs are rasterized at their target size and
         // the lines break exactly where the CSS layout broke them.
         let scaled = style.scaled(DEVICE_SCALE);
+        // The fixed-pitch system for a monospace run, the proportional one
+        // otherwise; the glyphs are drawn from the same system's cache below,
+        // so a run is rasterized in the face it was shaped in.
+        let (fonts, cache) = self.fonts.pair(scaled.mono);
         let mut buffer =
-            shape(self.fonts, text, &scaled, Some(width * DEVICE_SCALE), Wrap::WordOrGlyph);
+            shape(fonts, text, &scaled, Some(width * DEVICE_SCALE), Wrap::WordOrGlyph);
         // A hint is the element's own foreground, faded — the fraction the
         // sheet's `::placeholder` rule writes, so a browser and this painter
         // draw the same grey.
@@ -3264,7 +3367,7 @@ impl Painter<'_> {
         let (cw, ch) = (canvas.width(), canvas.height());
         let clipped = clip;
         let pixels = canvas.pixels_mut();
-        buffer.draw(self.fonts, self.cache, ink, |gx, gy, w, h, pixel| {
+        buffer.draw(fonts, cache, ink, |gx, gy, w, h, pixel| {
             for dy in 0..h.min(64) {
                 for dx in 0..w.min(4096) {
                     let sx = ox.saturating_add(gx).saturating_add(dx as i32);
@@ -5128,6 +5231,39 @@ mod tests {
         let centre = first_inked_column(&render_ok(two, "", "rest")).unwrap();
         assert!(left < 4 * S, "a start-aligned run begins at the box's edge, not {left}");
         assert!(centre > 60 * S, "a centred run begins in the middle, not at {centre}");
+    }
+
+    /// buri#173: `font-family: monospace` sets the run in a fixed-pitch face,
+    /// so anything code-shaped lines up on a constant advance. The measurable
+    /// property of a monospace face is that every glyph takes the same width:
+    /// ten narrow `i`s and ten wide `M`s reach the same column. The
+    /// proportional face beside it does not — that is the whole difference, and
+    /// the whole of what a golden of a formula or a table depends on.
+    #[test]
+    fn a_monospace_family_sets_every_glyph_on_one_advance() {
+        let run = |family: &str, ch: char| {
+            let scene = format!(
+                "buri-scene 1\nviewport 400 40\ne 0 font-size:16px{family}\nt 1 {}\n",
+                std::iter::repeat(ch).take(10).collect::<String>()
+            );
+            last_inked_column(&render_ok(&scene, "", "rest")).unwrap()
+        };
+        let em = 16 * S;
+        // The two proportional runs end far apart: `M` is wide, `i` is narrow,
+        // and ten of each pull the right edge whole ems from one another.
+        let (sans_i, sans_m) = (run("", 'i'), run("", 'M'));
+        assert!(
+            sans_m.abs_diff(sans_i) > 2 * em,
+            "the proportional runs should end ems apart: i at {sans_i}, M at {sans_m}"
+        );
+        // The two monospace runs end within a single cell of each other,
+        // because every advance is the same width.
+        let (mono_i, mono_m) =
+            (run(";font-family:monospace", 'i'), run(";font-family:monospace", 'M'));
+        assert!(
+            mono_m.abs_diff(mono_i) < em,
+            "the monospace runs should end within a cell: i at {mono_i}, M at {mono_m}"
+        );
     }
 
     /// Three faces are bundled, and the weight picks between two of them.
