@@ -3308,19 +3308,32 @@ function $ui_notify(n) {
 }
 
 function $ui_drain() {
-  let steps = 0;
-  // Not `for (const id of queue)`: a watcher may schedule another, and the
-  // one it schedules belongs to this pass. Index-walking is what makes the
-  // order the order they were scheduled in.
-  for (let i = 0; i < $ui.queue.length; i++) {
-    if (++steps > $UI_STEPS) $abort("a reactive update did not settle");
-    const id = $ui.queue[i];
-    const n = $ui.nodes[id];
-    if (n === undefined) continue;
-    n.queued = false;
-    if (!n.disposed) $ui_run(id);
+  try {
+    let steps = 0;
+    // Not `for (const id of queue)`: a watcher may schedule another, and the
+    // one it schedules belongs to this pass. Index-walking is what makes the
+    // order the order they were scheduled in.
+    for (let i = 0; i < $ui.queue.length; i++) {
+      if (++steps > $UI_STEPS) $abort("a reactive update did not settle");
+      const id = $ui.queue[i];
+      const n = $ui.nodes[id];
+      if (n === undefined) continue;
+      n.queued = false;
+      if (!n.disposed) $ui_run(id);
+    }
+  } finally {
+    // A drain that threw — a reactive update that overflowed the stack or did
+    // not settle — must not leave its half-processed queue behind. The queue and
+    // every node's `queued` flag are the flush-in-progress state, so a batch
+    // sibling's next write would drain these stale nodes and fail with the same
+    // error, which is the poisoning buri#187 reports. Clearing them here scopes a
+    // failing update to the test that caused it.
+    for (const id of $ui.queue) {
+      const n = $ui.nodes[id];
+      if (n !== undefined) n.queued = false;
+    }
+    $ui.queue = [];
   }
-  $ui.queue = [];
 }
 
 function $ui_write(cell, v) {
