@@ -650,7 +650,7 @@ struct SymbolClash<'a> {
 pub(crate) fn assert_one_symbol_per_function(funcs: &[Func], after: &str) {
     if let Some(clash) = one_symbol_per_function(funcs) {
         crate::ice!(
-            "`{}` names two functions after {} — `{}` and `{}`. A symbol names              exactly one body, so one of the two would silently answer the              other's calls",
+            "`{}` names two functions after {} — `{}` and `{}`. A symbol names exactly one body, so one of the two would silently answer the other's calls",
             clash.symbol,
             after,
             clash.first,
