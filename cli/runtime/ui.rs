@@ -1023,6 +1023,19 @@ pub(crate) fn set_f64_signal(id: i64, x: f64) {
     unsafe { write_changed(id, bytes.as_ptr(), bytes.len()) };
 }
 
+/// Writes the `(Int, Int)` pair `(a, b)` to the tuple signal `id` — the native
+/// twin of a field's `select` moving the caret and selection. A tuple of two
+/// `I64`s is sixteen bytes, `a` then `b`, in the native byte order the generated
+/// code reads a `(Int, Int)` in, and holds no counted block, so nothing is given
+/// back.
+pub(crate) fn set_i64_pair_signal(id: i64, a: i64, b: i64) {
+    let mut bytes = [0u8; 16];
+    bytes[..8].copy_from_slice(&a.to_ne_bytes());
+    bytes[8..].copy_from_slice(&b.to_ne_bytes());
+    // SAFETY: `bytes` is one whole `(I64, I64)` value, sixteen bytes of it.
+    unsafe { write_changed(id, bytes.as_ptr(), bytes.len()) };
+}
+
 /// Flips the `Bool` signal `id` — the native twin of a toggle's `change`
 /// listener writing the negation of the bound signal. A `Bool` holds no counted
 /// block, so this is the byte turned over with no reference to give back.

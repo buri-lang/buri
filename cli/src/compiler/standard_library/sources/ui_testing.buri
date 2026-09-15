@@ -203,6 +203,17 @@ impl Rendered {
     /// out of reach, so the signal behind one stays where it was.
     export fn fill(self, label: Str, value: Str): ();
 
+    /// Moves the caret and selection of the field labelled `label` to the
+    /// `(anchor, focus)` offsets `start` and `end` — what a reader clicking into
+    /// the text, or the program calling `setSelectionRange`, does.
+    ///
+    /// The two are equal for a plain caret and differ for a selection. It writes
+    /// the field's `selection` signal, so a field built without one is left
+    /// alone, and a disabled or inert field is not moved. This is how a test
+    /// drives the caret a completion or an auto-close reads; what only a browser
+    /// does — that a moved row keeps the caret — stays out of reach.
+    export fn select(self, label: Str, start: Int, end: Int): ();
+
     /// Flips the toggle labelled `label`, unless it is disabled or a `dialog`
     /// has taken it out of reach.
     export fn flip(self, label: Str): ();

@@ -268,7 +268,7 @@ enum NodeKind<C> {
     Link(Prop<Str>, [Style], [Node<C>], Option<fn(C, Str) => ()>, Prop<Bool>, Events<C>),
     Image(Prop<Str>, Str, [Style], Events<C>),
     Icon([Style], Str, Events<C>),
-    Field(Prop<Str>, FieldKind, Prop<Str>, [Style], [Style], Signal<Str>, Prop<Bool>, Prop<Bool>, Events<C>),
+    Field(Prop<Str>, FieldKind, Prop<Str>, [Style], [Style], Signal<Str>, Option<Signal<(Int, Int)>>, Prop<Bool>, Prop<Bool>, Events<C>),
     // The numeric control split out of the old `FieldKind.Range`: label, value,
     // min, max, step, styles, around, disabled, events. `around` lands on the
     // `<label>` wrapper, the way a `Field`'s and a `Toggle`'s do.
@@ -734,6 +734,13 @@ struct Field<C> {
     /// The two-way binding: what the reader types lands here, and whatever
     /// writes this lands in the field. There is no change event.
     export value: Signal<Str>,
+    /// The caret and the selection, as an `(anchor, focus)` pair of offsets into
+    /// the text — the DOM's `selectionStart`/`selectionEnd`. The two are equal
+    /// for a plain caret and differ for a selection. The platform writes it as
+    /// the reader moves, and writing it back moves the caret or selects a span
+    /// (`setSelectionRange`), which is how an editor writes ahead of the caret or
+    /// replaces what is selected. Left out, the field keeps none.
+    export selection: Option<Signal<(Int, Int)>>,
     /// Applied to the input — the thing a reader focuses and a browser disables.
     export styles: [Style],
     /// The sample value shown in the empty box, gone the moment there is a
@@ -776,6 +783,7 @@ export fn field<C>(config: Field<C>): Node<C> {
             config.styles,
             orNoStyles(config.around),
             config.value,
+            config.selection,
             orFalse(config.isInvalid),
             orFalse(config.isDisabled),
             events,
@@ -1642,7 +1650,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // watcher re-reads the three — subscribing — and re-emits. The control's
         // own element is ctx-free, so the watcher emits it inline between the
         // region's markers rather than walking a node.
-        .Field(label, kind, hint, styles, around, value, invalid, disabled, _events) => {
+        .Field(label, kind, hint, styles, around, value, selection, invalid, disabled, _events) => {
             let region = enterDynamic(builder);
             let _ = invalid;
             reactive(fn(scope) => {
@@ -1656,6 +1664,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     styles,
                     around,
                     value,
+                    selection,
                     disabled,
                     state,
                 );
@@ -1936,6 +1945,7 @@ fn emitField(
     styles: [Style],
     around: [Style],
     value: Signal<Str>,
+    selection: Option<Signal<(Int, Int)>>,
     disabled: Prop<Bool>,
     state: State,
 ): () {
@@ -1954,6 +1964,7 @@ fn emitField(
         styles,
         value.get(ctx),
         value.index(),
+        selection,
     );
     exitElement(builder)
 }
@@ -2250,6 +2261,7 @@ fn emitFieldControl(
     styles: [Style],
     value: Str,
     signal: Int,
+    selection: Option<Signal<(Int, Int)>>,
 ): () {
     let mem = alloc.generalPurpose();
     let leading = [decl(mem, "field", kindName(kind))].concat(
@@ -2262,6 +2274,14 @@ fn emitFieldControl(
         widgetBody(mem, painted, leading, styles),
     );
     let _ = registerValue(builder, signal);
+    // The caret/selection signal is registered but never read here: the scene a
+    // painter reads carries no caret, so a write to it must not rebuild the
+    // field. `select` writes it, and a browser binds it to `setSelectionRange`.
+    let _ = match (selection) {
+        .Some(sel) => registerSelection(builder, sel.index()),
+        .None => {
+        },
+    };
     let _ = emitText(builder, value);
     exitElement(builder)
 }
@@ -2479,6 +2499,12 @@ fn registerOutside<C>(builder: Builder, handler: fn(C, Event) => ()): ();
 /// element, so `fill` writes it a string and `flip` its negation.
 fn registerValue(builder: Builder, signal: Int): ();
 
+/// Stores the signal a field's caret/selection is bound to on the open element,
+/// so `select` writes it an `(anchor, focus)` pair and a browser binds it to
+/// `setSelectionRange`. Never read while the scene is built — a caret is not in
+/// the paint — so a write to it moves no scene.
+fn registerSelection(builder: Builder, signal: Int): ();
+
 /// Keeps a control's accessible name on the open element, so `press` can
 /// address a button by the label a reader hears even when its glyphs are its
 /// children — the scene twin of the `aria-label` a button carries.
@@ -2563,7 +2589,7 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         },
         // Two boxes and two style lists: `around` on the label, `styles` on the
         // control inside it.
-        .Field(label, kind, hint, styles, around, value, _invalid, disabled, _events) => {
+        .Field(label, kind, hint, styles, around, value, _selection, _invalid, disabled, _events) => {
             [
                 styledLine(ctx, plain(state), wrapper(around), depth),
                 textLine(ctx, depth + 1, label.read(scope)),

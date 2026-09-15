@@ -5015,18 +5015,51 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     $tree_bind(node[3], (hint) => $dom_optional(element, "placeholder", hint));
     // Failing validation is announced as well as painted, and the attribute is
     // both: a reader hears it, and `On(.Invalid, …)` is a rule about it.
-    $tree_bind(node[7], (invalid) => $dom_flag(element, "aria-invalid", invalid));
+    $tree_bind(node[8], (invalid) => $dom_flag(element, "aria-invalid", invalid));
     // The styles are the input's rather than the label's: the input is what a
     // reader focuses and what a browser disables.
     $tree_styles(element, node[4]);
-    $tree_disabled(element, node[8]);
+    $tree_disabled(element, node[9]);
     const cell = node[6][0];
     $tree_bind([1, node[6]], (value) => {
       // Writing what is already there moves the caret in a real browser.
       if (element.value !== value) element.value = value;
     });
     $dom_listen(element, "input", () => $ui_flush(() => $ui_write(cell, element.value)));
-    $tree_events(ctx, wrapper, node[9]);
+    // The caret and selection, when the field binds one. `selection` is an
+    // `Option<Signal<(Int,Int)>>`: `undefined` is a field that keeps none.
+    // Writing the signal moves the caret (`setSelectionRange`), and the browser
+    // writes it back as the reader moves — guarded so the program's write does
+    // not read back as the reader's.
+    const selection = node[7];
+    if (selection !== undefined) {
+      const selCell = selection[0];
+      let ours = false;
+      $tree_bind([1, selection], (pair) => {
+        const a = Number(pair[0]);
+        const b = Number(pair[1]);
+        if (element.selectionStart !== a || element.selectionEnd !== b) {
+          ours = true;
+          element.setSelectionRange(a, b);
+          ours = false;
+        }
+      });
+      const report = () => {
+        if (ours) return;
+        const a = element.selectionStart;
+        const b = element.selectionEnd;
+        if (a === null || a === undefined || b === null || b === undefined) return;
+        $ui_flush(() => $ui_write(selCell, [BigInt(a), BigInt(b)]));
+      };
+      // The events that move a caret or a selection in a text control: the
+      // browser's own `select`, and the key and pointer gestures a plain caret
+      // move fires no `select` for.
+      $dom_listen(element, "select", report);
+      $dom_listen(element, "keyup", report);
+      $dom_listen(element, "mouseup", report);
+      $dom_listen(element, "focus", report);
+    }
+    $tree_events(ctx, wrapper, node[10]);
     return;
   }
   if (tag === 10) {
@@ -5761,6 +5794,9 @@ function $scene_record(kind, name, body, text) {
     // read, the scene twin of the JavaScript listener on an element.
     press: null,
     valueSignal: -1,
+    // The signal a field's caret/selection is bound to, so `select` writes it an
+    // `(anchor, focus)` pair. `-1` when the field carries none.
+    selectionSignal: -1,
     submit: false,
     // A control's accessible name, for `press` — the `aria-label` twin. Empty
     // means the element's own text is its name.
@@ -6048,6 +6084,15 @@ function $ui_node_registerValue(builder, signal) {
   const doc = $scene_of(builder);
   const record = doc.records[$scene_openElement(doc)];
   if (record !== undefined) record.valueSignal = Number(signal);
+}
+
+// The signal a field's caret/selection is bound to, stored on the open element
+// so `select` writes it an `(anchor, focus)` pair. Never touched while the scene
+// is built — a caret is not in the paint.
+function $ui_node_registerSelection(builder, signal) {
+  const doc = $scene_of(builder);
+  const record = doc.records[$scene_openElement(doc)];
+  if (record !== undefined) record.selectionSignal = Number(signal);
 }
 
 // Keeps a control's accessible name on the open element, so `press` addresses a
@@ -6359,6 +6404,26 @@ function $ui_testing_Rendered_fill(self, label, value) {
     // signal is a `Str`, so it takes the value as typed.
     const typed = $scene_declValue(record.body, "field") === "range" ? Number(value) : value;
     $ui_flush(() => $ui_write(signal, typed));
+  }
+  return 0;
+}
+
+function $ui_testing_Rendered_select(self, label, start, end) {
+  const doc = $scene_of(self);
+  const labelNode = $scene_labelled(doc, "label", label);
+  const field = labelNode < 0 ? -1 : $scene_firstNamed(doc, labelNode, ["input", "textarea"]);
+  if (field < 0) $abort('the label "' + label + '" is not a field');
+  const record = doc.records[field];
+  // Nothing moves the caret of a disabled or inert field.
+  if ($scene_isDisabled(record.body) || $scene_inert(doc, field)) return 0;
+  // A field built without a `selection` signal keeps no caret, so there is
+  // nowhere to write and this is the observable nothing the interface promises.
+  if (record.selectionSignal >= 0) {
+    const signal = record.selectionSignal;
+    // An `(anchor, focus)` pair — two `Int`s, which cross as `BigInt`s in a
+    // two-element array, the shape a `(Int, Int)` tuple has here.
+    const pair = [BigInt(start), BigInt(end)];
+    $ui_flush(() => $ui_write(signal, pair));
   }
   return 0;
 }
