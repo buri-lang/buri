@@ -5141,8 +5141,12 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     $dom_attribute(element, "type", "submit");
     $tree_bind(node[1], (label) => $dom_attribute(element, "aria-label", label));
     $tree_styles(element, node[2]);
+    // `disabled` takes the button out of the tab order and refuses the submit,
+    // both the press and the implicit Enter — a browser fires no `submit` for a
+    // disabled submit button, so the attribute is the whole of it.
+    $tree_disabled(element, node[3]);
     $tree_text(node[1], element, null);
-    $tree_events(ctx, element, node[3]);
+    $tree_events(ctx, element, node[4]);
     return;
   }
   if (tag === 15) {

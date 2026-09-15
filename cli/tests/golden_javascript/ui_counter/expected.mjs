@@ -35,47 +35,39 @@ function __cmd_x_main_buri$main(){
   let $t3;
   const $t4=config_17[4];
   if($t4!==void 0&&$t4===1){
-    $t3=[[14,config_17[0],$share(config_17[1]),events_18]];
-  }else{
     const $t8=$share(config_17[1]);
-    const children_19=$share(config_17[2]);
     let $t5;
-    if(children_19!==void 0){
-      $t5=$share(children_19);
-    }else if(children_19===void 0){
-      $t5=[];
+    const $t6=config_17[5];
+    if($t6!==void 0){
+      $t5=$t6;
+    }else if($t6===void 0){
+      $t5=$k5;
     }else{
       $abort('no arm matched');
     }
+    $t3=[[14,config_17[0],$t8,$t5,events_18]];
+  }else{
+    const $t12=$share(config_17[1]);
+    const children_21=$share(config_17[2]);
     let $t9;
-    const $t10=config_17[3];
-    if($t10!==void 0){
-      $t9=(c_23,_event_24)=>$t10(c_23);
-    }else if($t10===void 0){
-      $t9=(_c_25,_event_26)=>0;
-    }else{
-      $abort('no arm matched');
-    }
-    let $t11;
-    const $t12=config_17[5];
-    if($t12!==void 0){
-      $t11=$t12;
-    }else if($t12===void 0){
-      $t11=$k5;
+    if(children_21!==void 0){
+      $t9=$share(children_21);
+    }else if(children_21===void 0){
+      $t9=[];
     }else{
       $abort('no arm matched');
     }
     let $t13;
-    const $t14=config_17[6];
+    const $t14=config_17[3];
     if($t14!==void 0){
-      $t13=$t14;
+      $t13=(c_25,_event_26)=>$t14(c_25);
     }else if($t14===void 0){
-      $t13=$k5;
+      $t13=(_c_27,_event_28)=>0;
     }else{
       $abort('no arm matched');
     }
     let $t15;
-    const $t16=config_17[7];
+    const $t16=config_17[5];
     if($t16!==void 0){
       $t15=$t16;
     }else if($t16===void 0){
@@ -83,7 +75,25 @@ function __cmd_x_main_buri$main(){
     }else{
       $abort('no arm matched');
     }
-    $t3=[[5,config_17[0],$t8,$t5,$t9,$t11,$t13,$t15,events_18]];
+    let $t17;
+    const $t18=config_17[6];
+    if($t18!==void 0){
+      $t17=$t18;
+    }else if($t18===void 0){
+      $t17=$k5;
+    }else{
+      $abort('no arm matched');
+    }
+    let $t19;
+    const $t20=config_17[7];
+    if($t20!==void 0){
+      $t19=$t20;
+    }else if($t20===void 0){
+      $t19=$k5;
+    }else{
+      $abort('no arm matched');
+    }
+    $t3=[[5,config_17[0],$t12,$t9,$t13,$t15,$t17,$t19,events_18]];
   }
   return $ui_node_mount(ctx_0,ui_node$stack$u3rqgv([$k4,[$t3,__cmd_x_main_buri$badge$u3rqgv([0,label_7],[1,count_8]),__cmd_x_main_buri$badge$u3rqgv($k6,[2,c_11=>ui_signal$Signal_get$xiaice(count_8,c_11)*2n])],void 0,void 0,void 0,void 0,void 0,void 0]),[]);
 }

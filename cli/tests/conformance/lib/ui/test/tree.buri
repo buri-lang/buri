@@ -4273,6 +4273,76 @@ test "a submit button pressed submits the form it is in" {
     assert.equal(sent.get(ctx), "Ada");
 }
 
+test "a disabled submit button carries the flag, and neither a press nor Enter submits" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let sent = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.form({
+            onSubmit: fn(c) => sent.set(c, true),
+            children: [
+                ui.field({ label: .Const("Name"), kind: .Text, value: signal(ctx, ""), styles: [] }),
+                ui.field({ label: .Const("Email"), kind: .Email, value: signal(ctx, ""), styles: [] }),
+                ui.button({
+                    label: .Const("Save"),
+                    styles: [],
+                    kind: .Some(.Submit),
+                    isDisabled: .Some(.Const(true)),
+                }),
+            ],
+            styles: [],
+        }),
+    );
+    // The scene carries the flag now — `isDisabled` reaches a `.Submit` the way
+    // it reaches an ordinary button, so the markup says `disabled:true`.
+    assert.containsText(page.markup(), "disabled:true");
+    // A press on a disabled submit does nothing: it is not dispatched to, so
+    // the form's `onSubmit` never runs.
+    let _ = page.press("Save");
+    assert.isFalse(sent.get(ctx));
+    // Nor does Enter: a disabled submit is not a submit control, and with two
+    // fields there is no single-field implicit submission to fall back on, so
+    // the form whose only action is disabled discards the keypress.
+    let _ = page.submit(0);
+    assert.isFalse(sent.get(ctx));
+}
+
+test "a submit button's disabled is reactive: clearing it lets the form submit" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let busy = signal(ctx, true);
+    let sent = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.form({
+            onSubmit: fn(c) => sent.set(c, true),
+            children: [
+                ui.field({ label: .Const("Name"), kind: .Text, value: signal(ctx, ""), styles: [] }),
+                ui.button({
+                    label: .Const("Save"),
+                    styles: [],
+                    kind: .Some(.Submit),
+                    isDisabled: .Some(.Cell(busy)),
+                }),
+            ],
+            styles: [],
+        }),
+    );
+    // Disabled while busy: pressing does nothing.
+    let _ = page.press("Save");
+    assert.isFalse(sent.get(ctx));
+    // Clearing the signal re-enables it in place, and now the press submits.
+    busy.set(ctx, false);
+    assert.isFalse(page.markup().contains("disabled:true"));
+    let _ = page.press("Save");
+    assert.isTrue(sent.get(ctx));
+}
+
 test "a form of two fields with no submit button is not submitted at all" {
     let ctx = context {
         Ui: headless(),
