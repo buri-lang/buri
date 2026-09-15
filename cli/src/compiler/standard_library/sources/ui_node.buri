@@ -3503,6 +3503,12 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
                 .Flow => [decl(ctx, "position", "relative")],
                 .Sticky => [decl(ctx, "position", "sticky")],
                 .PinViewport => [decl(ctx, "position", "fixed")],
+                .PinAnchor => {
+                    [
+                        decl(ctx, "position", "fixed"),
+                        decl(ctx, "--buri-pin-anchor", "1"),
+                    ]
+                },
             }
         },
         .Gap(length) => [decl(ctx, "gap", lengthCss(ctx, length))],
