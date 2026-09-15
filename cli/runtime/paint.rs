@@ -2720,6 +2720,13 @@ fn paint_with(
     // viewport gave it.
     for &index in &fixed {
         painter.draw(&mut canvas, index, 0.0, 0.0, None);
+        // A fixed box is its own stacking context, so its positioned
+        // descendants paint after its in-flow content, the same as the page's
+        // do above (#176) — and a dialog is a fixed box (its scrim is a
+        // `PinViewport`), so its pinned close button, a select's chevron and
+        // every overlay opened in it are drained here rather than pushed onto
+        // the queue and dropped (#197).
+        painter.drain_deferred(&mut canvas);
     }
     Ok(canvas)
 }
@@ -4956,6 +4963,47 @@ mod tests {
             "rest",
         );
         assert_eq!(inked_pixels(&hidden), 0, "a visually-hidden run should paint nothing");
+    }
+
+    /// buri#197: a `Pin` inside an open dialog paints. A dialog's scrim is a
+    /// `PinViewport` (fixed) box — its own stacking context — so its pinned
+    /// descendants (the close button, a select's chevron, an overlay opened in
+    /// it) must paint after its in-flow content. #176 held every positioned box
+    /// back to paint after its stacking context's content, but drained the
+    /// queue only for the page, so a pin inside a fixed box was pushed and
+    /// never drawn.
+    #[test]
+    fn a_pin_inside_a_fixed_stacking_context_paints() {
+        // A fixed scrim (a dialog's), a flow panel inside it, and a box pinned
+        // to the panel's corner — the shape a dialog's close button takes.
+        let scene = |pin: &str| {
+            format!(
+                "buri-scene 1\nviewport 200 200\n\
+                 e 0 position:fixed;inset-inline-start:0px;inset-block-start:0px;\
+                 width:200px;height:200px;background-color:rgb(200,200,200)\n\
+                 e 1 position:relative;width:120px;height:120px;\
+                 background-color:rgb(255,255,255)\n\
+                 e 2 {pin};inset-block-start:0px;inset-inline-start:0px;\
+                 width:40px;height:40px;background-color:rgb(220,0,0)\n"
+            )
+        };
+        let red = [220, 0, 0, 255];
+        // A plain `Pin` (absolute) inside the fixed scrim paints, where the
+        // stacking change used to drop it.
+        let plain = render_ok(&scene("position:absolute"), "", "rest");
+        assert_eq!(
+            at(&plain, 10 * S, 10 * S),
+            red,
+            "a pin inside a fixed stacking context should paint"
+        );
+        // And it composes with the #168 escape hatch: a `PinAnchor` inside the
+        // dialog paints too.
+        let anchor = render_ok(&scene("position:fixed;--buri-pin-anchor:1"), "", "rest");
+        assert_eq!(
+            at(&anchor, 10 * S, 10 * S),
+            red,
+            "a PinAnchor inside a fixed stacking context should paint"
+        );
     }
 
     /// A shadow is paint like any other, so the page holds what it casts below
