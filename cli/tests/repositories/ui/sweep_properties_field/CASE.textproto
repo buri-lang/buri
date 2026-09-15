@@ -26,15 +26,13 @@
 # pixels of padding. The sheet's `box-sizing: border-box` says the same thing to
 # a browser, so these goldens are painted as right rather than as painted.
 #
-# Two bands are the same picture across their values on purpose, and each says
-# something. A `Gap` or a `ListMarker` on a primitive whose styled element
-# holds one child or none has nothing to space or to mark, which is what the
-# DOM does with it too. And `Scroll`'s three axes are one picture because CSS
-# computes `visible` to `auto` on the other axis, so any of them clips both
-# ways. `FontFamily` is no longer one of them: `Mono` sets the bundled
-# fixed-pitch face where the other families set the proportional one, both of
-# them in the archive, so the row still paints the same bytes on two hosts
-# (buri#173).
+# Three bands are the same picture across their values on purpose, and each says
+# something. `FontFamily`: every family resolves to the one bundled face, which
+# is what keeps a snapshot the same bytes on two hosts. A `Gap` or a
+# `ListMarker` on a primitive whose styled element holds one child or none has
+# nothing to space or to mark, which is what the DOM does with it too. And
+# `Scroll`'s three axes are one picture because CSS computes `visible` to `auto`
+# on the other axis, so any of them clips both ways.
 #
 # A seventh picture here, `field-kinds.png`, and it is the one that says the
 # scene carries the kind: the password cell's value is one bullet per character
