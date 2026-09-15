@@ -53,11 +53,53 @@ pub enum Chunks {
 }
 
 /// Drops every function no root reaches.
+///
+/// Dropping is [`FuncKind::Unbuilt`] in place, and an `Unbuilt` is a body — an
+/// abort — the backends emit under the function's symbol. That is fine while
+/// each symbol names one such body, which the program upheld before this pass
+/// (`monomorphize::one_symbol_per_function`). The pass can break it, though:
+/// **several functions may share one symbol as long as they are intrinsics**,
+/// because an intrinsic defines nothing and that check excludes them — the
+/// standard library's `Str.compare` is reached both inherently and through a
+/// derived `Ordered`, and a `--filter`ed batch keeps one intrinsic copy per
+/// suite (buri-lang/buri#186). Turning two of those into `Unbuilt` would give
+/// one symbol two bodies. So [`disambiguate_unreached_symbols`] runs after the
+/// drop: an unreached function is never called — a call resolves by `FuncIdx`,
+/// not by name — so renaming the symbol of a dropped duplicate is invisible to
+/// the program and leaves each emitted body a name of its own.
 pub fn run(program: &mut Program) {
     let reached = reachable(program, &program_roots(program), Chunks::Followed);
-    for (func, seen) in program.funcs.iter_mut().zip(reached) {
+    for (func, seen) in program.funcs.iter_mut().zip(&reached) {
         if !seen {
             func.kind = FuncKind::Unbuilt;
+        }
+    }
+    disambiguate_unreached_symbols(program, &reached);
+}
+
+/// Gives a dropped function a symbol of its own where it shared one.
+///
+/// Only an unreached function is touched, and only where its symbol is not
+/// unique in the program — the sole way this pass can leave two bodies under
+/// one name (see [`run`]). The rename is by slot index, so it is deterministic
+/// and cannot collide with a second rename or with any live symbol.
+fn disambiguate_unreached_symbols(program: &mut Program, reached: &[bool]) {
+    // The symbols worn by two functions or more — the only ones a rename has to
+    // reach. A second sighting of a symbol records it, so no count and no
+    // arithmetic: `insert` returning `false` is the collision.
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut shared: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for f in &program.funcs {
+        if !seen.insert(&f.symbol) {
+            shared.insert(f.symbol.clone());
+        }
+    }
+    if shared.is_empty() {
+        return;
+    }
+    for (i, f) in program.funcs.iter_mut().enumerate() {
+        if reached.get(i).copied() == Some(false) && shared.contains(&f.symbol) {
+            f.symbol = format!("{}$unreached${i}", f.symbol);
         }
     }
 }
@@ -166,6 +208,12 @@ mod tests {
         }
     }
 
+    fn intrinsic(symbol: &str, key: &str) -> Func {
+        let mut f = func(symbol, None);
+        f.kind = FuncKind::Intrinsic(key.to_string());
+        f
+    }
+
     fn call(to: u32) -> Expr {
         Expr::new(
             ExprKind::CallFn { func: Callee::Func(FuncIdx(to)), args: Vec::new() },
@@ -248,5 +296,54 @@ mod tests {
         ]);
         run(&mut p);
         assert!(p.funcs[1].body().is_some());
+    }
+
+    /// Two dropped copies of one intrinsic do not leave two bodies under one
+    /// symbol.
+    ///
+    /// A batched, `--filter`ed build can hold several intrinsic functions under
+    /// one symbol — the standard library's `Str.compare`, reached inherently
+    /// and through a derived `Ordered`, one copy per suite. `one_symbol_per_function`
+    /// excludes intrinsics, so they coexist; but a filter that leaves two of
+    /// them unreached would, before the fix, turn both into `Unbuilt` abort
+    /// bodies sharing the symbol and trip the check when it is asked again after
+    /// `derives::run` (buri-lang/buri#186). The drop must give each dropped copy
+    /// a name of its own.
+    #[test]
+    fn two_dropped_copies_of_one_intrinsic_do_not_share_a_symbol() {
+        let mut p = program(vec![
+            func("main", Some(Expr::new(ExprKind::Unit, Ty::Unit, Span::default()))),
+            intrinsic("core_str$Str_compare", "str.compare"),
+            intrinsic("core_str$Str_compare", "str.compare"),
+        ]);
+        run(&mut p);
+        // Both were dropped, and the shared symbol is no longer worn by two
+        // bodies — the invariant `monomorphize::one_symbol_per_function` states.
+        assert!(p.funcs[1].body().is_none());
+        assert!(p.funcs[2].body().is_none());
+        assert_ne!(
+            p.funcs[1].symbol, p.funcs[2].symbol,
+            "two dropped copies of one intrinsic kept one symbol between two bodies"
+        );
+        crate::compiler::middle::monomorphize::assert_one_symbol_per_function(
+            &p.funcs,
+            "`dce::run`",
+        );
+    }
+
+    /// A dropped intrinsic whose symbol was unique keeps that symbol.
+    ///
+    /// The rename is only for a shared symbol; the ordinary case — one dead
+    /// intrinsic, its own name — must be untouched, so a build with no
+    /// collision keeps every symbol a golden already records.
+    #[test]
+    fn a_lone_dropped_intrinsic_keeps_its_symbol() {
+        let mut p = program(vec![
+            func("main", Some(Expr::new(ExprKind::Unit, Ty::Unit, Span::default()))),
+            intrinsic("core_lazy$load", "lazy.load"),
+        ]);
+        run(&mut p);
+        assert!(p.funcs[1].body().is_none());
+        assert_eq!(p.funcs[1].symbol, "core_lazy$load");
     }
 }
