@@ -1,0 +1,30 @@
+error: expected `;`, found `,` [unexpected-token]
+  --> main.buri:17:35
+   |
+17 | from "ui/signal" import { signal }, ;
+   |                                   ^
+   |
+   = expected: `;`
+   = actual: `,`
+   = fix: write `;` here
+error: there is nothing named `signal` in scope [unresolved-name]
+  --> main.buri:25:19
+   |
+25 |     let message = signal(ctx, "");
+   |                   ^^^^^^
+   |
+   = fix: declare `signal`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `signal` in scope [unresolved-name]
+  --> main.buri:70:15
+   |
+70 |     let hit = signal(ctx, "waiting");
+   |               ^^^^^^
+   |
+   = fix: declare `signal`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `signal` in scope [unresolved-name]
+  --> main.buri:89:15
+   |
+89 |     let hit = signal(ctx, "waiting");
+   |               ^^^^^^
+   |
+   = fix: declare `signal`, or import it — a name is in scope only from this module's own declarations and its imports

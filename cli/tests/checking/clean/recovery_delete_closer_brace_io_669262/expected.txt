@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:74:5
+   |
+74 |     };
+   |     ^
+   |
+  --> main.buri:73:29
+   |
+73 |         Stdin: stdin().bytes([0, 255, 10, 65],
+   |                             ^ opened here
+   |
+   = fix: write `)` here

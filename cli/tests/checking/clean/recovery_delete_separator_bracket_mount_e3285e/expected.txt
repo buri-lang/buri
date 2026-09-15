@@ -1,7 +1,0 @@
-error: an array element ends with `,` [missing-separator]
-  --> main.buri:28:40
-   |
-28 |             ui.text({ content: title })
-   |                                        ^
-   |
-   = fix: write `,` here

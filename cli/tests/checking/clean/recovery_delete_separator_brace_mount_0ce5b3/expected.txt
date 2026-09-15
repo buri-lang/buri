@@ -1,7 +1,0 @@
-error: a struct-literal field ends with `,` [missing-separator]
-  --> main.buri:42:27
-   |
-42 |                 styles: []
-   |                           ^
-   |
-   = fix: write `,` here

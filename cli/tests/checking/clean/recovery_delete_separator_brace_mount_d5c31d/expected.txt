@@ -1,7 +1,0 @@
-error: a struct-literal field ends with `,` [missing-separator]
-  --> main.buri:26:54
-   |
-26 |         styles: [.Layout(.Row), .Group([badgeStyle])]
-   |                                                      ^
-   |
-   = fix: write `,` here
