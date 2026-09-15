@@ -15,13 +15,13 @@ test "half an em of padding at four text sizes" {
     };
     // One declaration across the whole row, because an em is a distance and
     // not a number of pixels: four boxes at four sizes share it and pad by four
-    // amounts. The padding arrives as a parameter, so it lands in the inline
-    // tier rather than the sheet — which is the tier the picture is the proof
-    // for, since both write the same CSS.
+    // amounts. The size and the padding arrive as parameters, so each is a
+    // custom property a stylesheet rule reads (#195) — which is the tier the
+    // picture is the proof for, since the rule writes the same CSS.
     let scene = ui.describe(ctx, scaling(), .Hover);
-    assert.containsText(scene, "font-size:12px;padding:0.5em");
-    assert.containsText(scene, "font-size:32px;padding:0.5em");
-    assert.containsText(scene, "font-size:32px;padding:0.5rem");
+    assert.containsText(scene, "--buri-fs:12px;--buri-p:0.5em");
+    assert.containsText(scene, "--buri-fs:32px;--buri-p:0.5em");
+    assert.containsText(scene, "--buri-fs:32px;--buri-p:0.5rem");
     snapshot(ctx, "em-scaling", scaling(), .Hover, []);
 }
 
@@ -31,9 +31,9 @@ test "tracking that follows the type it tracks" {
         Ui: headless(),
     };
     let scene = ui.describe(ctx, tracking(), .Hover);
-    assert.containsText(scene, "letter-spacing:-0.025em");
-    assert.containsText(scene, "letter-spacing:0.1em");
-    assert.containsText(scene, "letter-spacing:0.1rem");
+    assert.containsText(scene, "--buri-ls:-0.025em");
+    assert.containsText(scene, "--buri-ls:0.1em");
+    assert.containsText(scene, "--buri-ls:0.1rem");
     snapshot(ctx, "em-tracking", tracking(), .Hover, []);
 }
 

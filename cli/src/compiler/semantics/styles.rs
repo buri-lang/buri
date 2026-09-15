@@ -241,6 +241,56 @@ fn slot(variant: usize, sub: u32, cond: Cond) -> Option<u32> {
         .checked_add(cond.code())
 }
 
+/// The variable-backed lowering for a dynamic value the compiler could not fold
+/// (#195): the class abbreviation that names it, and the CSS property the class
+/// sets. A dynamic value is written inline as the custom property
+/// `--buri-<abbreviation>`, and this rule — `<property>:var(--buri-<abbr>)` on
+/// `.<abbr>-var` — reads it out, so the property comes from the stylesheet like
+/// any other and an `At`/`On` rule can still override it at its breakpoint,
+/// rather than an inline declaration outranking every rule at every width.
+///
+/// `Some` only for the properties whose declaration is one property with a
+/// fixed name and one leaf value — the shape a parameter is threaded through,
+/// which is the case #195 is about. An edge- or corner-named property, and one
+/// that writes more than a single declaration, still degrades to an inline
+/// declaration: its CSS property name is not fixed at compile time, so there is
+/// no one class the variable could feed. `Shadows` shares `Shadow`'s slot and
+/// class, so it is folded onto `Shadow` here the way `slot` folds it.
+fn variable_property(variant: usize) -> Option<(&'static str, &'static str)> {
+    let variant = if variant == STYLE_SHADOWS { STYLE_SHADOW } else { variant };
+    let pair = match variant {
+        12 => ("grow", "flex-grow"),
+        13 => ("shrink", "flex-shrink"),
+        14 => ("span", "grid-column"),
+        17 => ("gap", "gap"),
+        18 => ("gapx", "column-gap"),
+        19 => ("gapy", "row-gap"),
+        20 => ("p", "padding"),
+        21 => ("px", "padding-inline"),
+        22 => ("py", "padding-block"),
+        24 => ("w", "width"),
+        25 => ("h", "height"),
+        26 => ("minw", "min-width"),
+        27 => ("maxw", "max-width"),
+        28 => ("minh", "min-height"),
+        29 => ("maxh", "max-height"),
+        30 => ("ar", "aspect-ratio"),
+        31 => ("bg", "background-color"),
+        32 => ("fg", "color"),
+        35 => ("bc", "border-color"),
+        37 => ("r", "border-radius"),
+        39 => ("op", "opacity"),
+        40 => ("sh", "box-shadow"),
+        43 => ("fs", "font-size"),
+        46 => ("lh", "line-height"),
+        47 => ("ls", "letter-spacing"),
+        59 => ("bdblur", "backdrop-filter"),
+        60 => ("caret", "caret-color"),
+        _ => return None,
+    };
+    Some(pair)
+}
+
 /// The sub-key a property's value falls in: the edge or corner it names, or
 /// nothing. Both are four values, so one numbering serves both.
 fn sub_key(variant: usize, args: &[Value]) -> u32 {
@@ -528,7 +578,34 @@ impl<'a> Extractor<'a> {
             );
             return;
         }
+        // A dynamic value under no condition does not fail: it is written inline
+        // as a custom property that a stylesheet rule reads (#195). This puts
+        // that rule in the sheet; the bare property is left standing for the
+        // runtime, which writes the `--buri-…` value out and takes the class.
+        if let Some(variant) = composition {
+            self.variable_rule(variant);
+        }
         typed::children_mut(e, &mut |child| self.walk(child, cond));
+    }
+
+    /// Records the variable-backed rule a dynamic value at no condition needs
+    /// (#195), once per class. Nothing for a property whose value is threaded
+    /// through more than one declaration or an edge-named one — those keep
+    /// degrading to an inline declaration, as [`variable_property`] says.
+    fn variable_rule(&mut self, variant: usize) {
+        let Some((abbreviation, property)) = variable_property(variant) else { return };
+        let class = format!("{abbreviation}-var");
+        if !self.recorded.insert(class.clone()) {
+            return;
+        }
+        let folded = if variant == STYLE_SHADOWS { STYLE_SHADOW } else { variant };
+        self.rules.push(StyleRule {
+            class,
+            property: u16::try_from(folded).unwrap_or(0),
+            state: None,
+            screen: None,
+            blocks: vec![("", format!("{property}:var(--buri-{abbreviation})"))],
+        });
     }
 
     /// Descends one composition variant. Answers whether it handled the node.
@@ -1997,7 +2074,15 @@ pub fn collect(e: &mut typed::Expr, style_con: TyConId, out: &mut Reached) {
                 // either, and the checker has already refused the shapes that
                 // could produce one.
                 STYLE_GROUP | STYLE_WHEN | STYLE_ON | STYLE_AT => {}
-                _ => out.inline = true,
+                other => {
+                    out.inline = true;
+                    // A dynamic value that lowers to a variable-backed rule
+                    // (#195) names that rule's class here, so the sheet keeps it
+                    // the way it keeps a class an `Extracted` pair names.
+                    if let Some((abbreviation, _)) = variable_property(other) {
+                        out.classes.insert(format!("{abbreviation}-var"));
+                    }
+                }
             }
         }
     }

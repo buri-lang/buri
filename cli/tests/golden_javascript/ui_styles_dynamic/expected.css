@@ -5,5 +5,7 @@
 :where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}
 .lay-col{display:flex;flex-direction:column}
 .lay-row{display:flex;flex-direction:row}
+.grow-var{flex-grow:var(--buri-grow)}
+.w-var{width:var(--buri-w)}
 .bg-16a34a{background-color:rgb(22,163,74)}
 .bg-dc2626{background-color:rgb(220,38,38)}

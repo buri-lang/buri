@@ -11,6 +11,8 @@
 .gap-8{gap:8px}
 .p-r1{padding:1rem}
 .px-r0_5{padding-inline:0.5rem}
+.w-var{width:var(--buri-w)}
+.h-var{height:var(--buri-h)}
 .bg-f0f0f5{background-color:rgb(240,240,245)}
 .hover_bg-18181b:hover{background-color:rgb(24,24,27)}
 .fg-18181b{color:rgb(24,24,27)}

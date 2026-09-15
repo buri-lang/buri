@@ -4175,7 +4175,20 @@ function $tree_style_collect(styles, scope, slots, inline) {
       // condition, which it rejects — so this is the invariant, said out loud.
       $abort("a pseudo-class or a breakpoint exists only in the stylesheet");
     } else if ($tree_declare_hook !== null) {
-      $tree_declare_hook(style, inline);
+      const abbreviation = $TREE_VAR_ABBR[tag];
+      if (abbreviation !== undefined) {
+        // A dynamic value the compiler could not fold: write it out as the
+        // `--buri-…` custom property a stylesheet rule reads, and take that
+        // rule's class, so an `At`/`On` rule can still win over it (#195). The
+        // one declaration `$tree_declare` produces is the value; the class the
+        // compiler already put in the sheet reads it back.
+        const declared = new Map();
+        $tree_declare_hook(style, declared);
+        for (const value of declared.values()) inline.set("--buri-" + abbreviation, value);
+        slots.set($tree_var_slot(tag), abbreviation + "-var");
+      } else {
+        $tree_declare_hook(style, inline);
+      }
     } else {
       // The compiler said no style here could reach the inline tier, so it
       // left the lowering out of the artifact. Reaching this is that decision
@@ -4183,6 +4196,46 @@ function $tree_style_collect(styles, scope, slots, inline) {
       $abort("a style reached the inline tier in a program that was said to have none");
     }
   }
+}
+
+// A dynamic value's variable-backed lowering (#195): the class abbreviation per
+// `Style` variant, and the conflict slot it takes — `styles.rs::slot(variant,
+// 0, plain)`, which is `variant * SUB_KEYS * CONDITIONS`. Only the properties
+// `styles.rs::variable_property` names; the rest still write out inline. Kept
+// in step with that table and with `ui_node.buri`'s `variableProperty`.
+const $TREE_VAR_ABBR = {
+  12: "grow",
+  13: "shrink",
+  14: "span",
+  17: "gap",
+  18: "gapx",
+  19: "gapy",
+  20: "p",
+  21: "px",
+  22: "py",
+  24: "w",
+  25: "h",
+  26: "minw",
+  27: "maxw",
+  28: "minh",
+  29: "maxh",
+  30: "ar",
+  31: "bg",
+  32: "fg",
+  35: "bc",
+  37: "r",
+  39: "op",
+  40: "sh",
+  41: "sh",
+  43: "fs",
+  46: "lh",
+  47: "ls",
+  59: "bdblur",
+  60: "caret",
+};
+
+function $tree_var_slot(tag) {
+  return (tag === 41 ? 40 : tag) * 200;
 }
 
 // One property, written out as inline declarations.

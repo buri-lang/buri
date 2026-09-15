@@ -3353,7 +3353,19 @@ fn slotsIn<C: Allocator>(
                     }
                 },
                 .Computed(build) => slotsIn(ctx, painted, build(scope), 0, []),
-                _ => [],
+                // A dynamic value the compiler could not fold takes the class
+                // that reads the `--buri-…` it writes out, so an `At`/`On` rule
+                // can still win over it (#195). Its slot is the property's, so a
+                // literal of the same property at the same condition last-wins.
+                _ => {
+                    match (variableProperty(style)) {
+                        .Some(named) => {
+                            let (slot, abbreviation) = named;
+                            [(slot, str.format(ctx, "${abbreviation}-var"))]
+                        },
+                        .None => [],
+                    }
+                },
             };
             slotsIn(ctx, painted, styles, at + 1, acc.concat(ctx, more))
         },
@@ -3459,10 +3471,87 @@ fn inlineIn<C: Allocator>(
                 },
                 .Computed(build) => inlineIn(ctx, painted, build(scope), 0, []),
                 .Extracted(_classes) => [],
-                _ => declare(ctx, style),
+                // A dynamic value the compiler could not fold writes its value
+                // out as the `--buri-…` custom property its `<abbr>-var` class
+                // reads, rather than the property itself — so the class, and a
+                // breakpoint rule above it, decide the cascade (#195).
+                _ => {
+                    match (variableProperty(style)) {
+                        .Some(named) => {
+                            let (_slot, abbreviation) = named;
+                            variableInline(ctx, abbreviation, declare(ctx, style))
+                        },
+                        .None => declare(ctx, style),
+                    }
+                },
             };
             inlineIn(ctx, painted, styles, at + 1, acc.concat(ctx, more))
         },
+    }
+}
+
+/// The variable-backed lowering of a dynamic value the compiler could not fold
+/// (#195): the conflict slot the `<abbr>-var` class takes, and the abbreviation
+/// that names it. A dynamic value is written out as `--buri-<abbr>` and a
+/// stylesheet rule reads it, so the property comes from a class and a breakpoint
+/// rule can still override it — rather than an inline declaration outranking
+/// every rule at every width.
+///
+/// `Some` only for the properties whose CSS declaration is one property with a
+/// fixed name; an edge-named or many-declaration one keeps writing itself out
+/// inline. The slot is `semantics::styles::slot(variant, 0, plain)` — the
+/// variant's index times two hundred — so this stays in step with that table,
+/// with `styles.rs::variable_property` and with `runtime.js`'s `$TREE_VAR_ABBR`.
+/// `Shadows` shares `Shadow`'s slot and class.
+fn variableProperty(style: Style): Option<(Int, Str)> {
+    match (style) {
+        .Grow(_) => .Some((2400, "grow")),
+        .Shrink(_) => .Some((2600, "shrink")),
+        .Span(_) => .Some((2800, "span")),
+        .Gap(_) => .Some((3400, "gap")),
+        .GapX(_) => .Some((3600, "gapx")),
+        .GapY(_) => .Some((3800, "gapy")),
+        .Padding(_) => .Some((4000, "p")),
+        .PaddingX(_) => .Some((4200, "px")),
+        .PaddingY(_) => .Some((4400, "py")),
+        .Width(_) => .Some((4800, "w")),
+        .Height(_) => .Some((5000, "h")),
+        .MinWidth(_) => .Some((5200, "minw")),
+        .MaxWidth(_) => .Some((5400, "maxw")),
+        .MinHeight(_) => .Some((5600, "minh")),
+        .MaxHeight(_) => .Some((5800, "maxh")),
+        .AspectRatio(_) => .Some((6000, "ar")),
+        .Background(_) => .Some((6200, "bg")),
+        .Foreground(_) => .Some((6400, "fg")),
+        .BorderColor(_) => .Some((7000, "bc")),
+        .Radius(_) => .Some((7400, "r")),
+        .Opacity(_) => .Some((7800, "op")),
+        .Shadow(_) => .Some((8000, "sh")),
+        .Shadows(_) => .Some((8000, "sh")),
+        .FontSize(_) => .Some((8600, "fs")),
+        .LineHeight(_) => .Some((9200, "lh")),
+        .LetterSpacing(_) => .Some((9400, "ls")),
+        .BackdropBlur(_) => .Some((11800, "bdblur")),
+        .CaretColor(_) => .Some((12000, "caret")),
+        _ => .None,
+    }
+}
+
+/// The one declaration a variable-backed property produced, rewritten to set
+/// the `--buri-<abbr>` custom property the `<abbr>-var` rule reads instead of
+/// the property itself (#195). The value is what stood after the first colon.
+fn variableInline<C: Allocator>(ctx: C, abbreviation: Str, declarations: [Str]): [Str] {
+    match (declarations.get(0)) {
+        .Some(declaration) => {
+            match (declaration.splitOnce(":")) {
+                .Some(split) => {
+                    let (_property, value) = split;
+                    [str.format(ctx, "--buri-${abbreviation}:${value}")]
+                },
+                .None => declarations,
+            }
+        },
+        .None => declarations,
     }
 }
 

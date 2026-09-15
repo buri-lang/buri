@@ -9,7 +9,7 @@ const $k7=[$k6];
 const $k8=[$k7];
 const $k9=[5,$k8];
 const $k10=[0,255n,255n,255n];
-$ui_sheet='*,*::before,*::after{box-sizing:border-box}\n*,*::before,*::after{border-width:0}\n*{overflow-wrap:break-word}\n:where(body){margin:0}\n:where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}\n.lay-col{display:flex;flex-direction:column}\n.lay-row{display:flex;flex-direction:row}\n.bg-t_both_bg{background-color:var(--both-bg)}\n';
+$ui_sheet='*,*::before,*::after{box-sizing:border-box}\n*,*::before,*::after{border-width:0}\n*{overflow-wrap:break-word}\n:where(body){margin:0}\n:where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}\n.lay-col{display:flex;flex-direction:column}\n.lay-row{display:flex;flex-direction:row}\n.w-var{width:var(--buri-w)}\n.bg-t_both_bg{background-color:var(--both-bg)}\n';
 $tree_declare_hook=$tree_declare;
 $ui_theme_hook=$ui_theme_install;
 function __cmd_x_main_buri$main(){

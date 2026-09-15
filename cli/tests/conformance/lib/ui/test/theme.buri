@@ -377,16 +377,18 @@ test "switching turns the page over with the values it goes with" {
 
 // --- the inline tier -----------------------------------------------------------------
 
-test "a token the compiler could not fold is the same custom property inline" {
+test "a token the compiler could not fold is the same custom property variable" {
     let ctx = context {
         Ui: headless(),
     };
-    // The style is built out of a parameter, so it degrades to the inline tier
-    // — and what is written out is the *same* `var()` the stylesheet would have
-    // held, so whether a token folded changes what it costs and not what it
-    // looks like.
+    // The style is built out of a parameter, so the compiler cannot fold it: it
+    // is written out as the `--buri-bg` its `bg-var` class reads, and its value
+    // is the *same* token `var()` the stylesheet would have held — so whether a
+    // token folded changes what it costs and not what it looks like (#195). The
+    // token stays a `var()` the theme resolves, nested inside the `--buri-bg`.
     assert.equal(
         render(ctx, tinted(Card.Accent.color())).markup(),
-        "e 0 background-color:var(--cardlib-accent)",
+        "e 0 class:bg-var;--buri-bg:var(--cardlib-accent)",
     );
+    assert.isTrue(stylesheet().contains(".bg-var{background-color:var(--buri-bg)}"));
 }
