@@ -1,0 +1,15 @@
+struct Point {
+    x: Int,
+    y: Int,
+    z: Int,
+}
+
+origin fn(): Point {
+  Point {
+    // the horizontal one
+    x: 0,
+    y: 0, // the vertical one
+    // and the last one
+    z: 0,
+  }
+}
