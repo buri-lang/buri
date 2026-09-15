@@ -1298,6 +1298,12 @@ impl Jit<'_> {
         let l = self.layout_id_shared(prog, id);
         let (res, ok_at) = (o.dest.0, payload_at(&l, 0));
         let acc_w = self.slot_bytes_of(prog, it);
+        // The accumulator's real width. A narrow scalar (a `Bool` at one byte)
+        // lives in an eight-byte slot, and any copy into `acc` must zero-extend
+        // rather than carry whatever the step left in the high bytes — the Ok
+        // payload the step answers is only as wide as this, but sits in a slot
+        // sized for the widest variant (buri-lang/buri#191).
+        let acc_lw = self.value_bytes_of(prog, it);
         let acc_ty = self.counted(prog, it);
 
         // The accumulator, in the staging area: it is read by the step, written
@@ -1305,7 +1311,7 @@ impl Jit<'_> {
         // all three keeps both paths out of it the same copy. It is the one
         // slot here whose size comes from a *type* and so the one with a bound.
         let Some(acc) = self.stage(st, acc_w) else { return true };
-        self.mv(acc, init, acc_w);
+        self.mv_acc(acc, init, acc_w, acc_lw);
         if let Some(a) = acc_ty.clone() {
             self.retain_value(st, &a, acc);
         }
@@ -1355,7 +1361,7 @@ impl Jit<'_> {
         );
         self.emit("jump", &[("JIT_T", V::Blk(end))]);
         st.place(carry, self.region.code_addr());
-        self.mv(acc, res + ok_at, acc_w);
+        self.mv_acc(acc, res + ok_at, acc_w, acc_lw);
         self.addk(st, i, i, 1);
         self.emit("jump", &[("JIT_T", V::Blk(head))]);
         st.place(done, self.region.code_addr());

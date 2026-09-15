@@ -655,6 +655,91 @@ test "foldResult over a list of Results stops at the first bad parse" {
     assert.equal(assert.err(total), "nope");
 }
 
+// A `foldResultCtx` at `B = Bool` nested inside one at `B = [Row191]`. The
+// native backend moved a fold accumulator with a full-word copy even when the
+// accumulator is narrower than its slot — a `Bool` is one byte — so the seven
+// high bytes were whatever the step left behind. The `Result` here carries a
+// `Str` error, so its `Ok(Bool)` payload lives in a slot sized for the wide
+// `Err`, and a step that resolves a `Str` on its way to a one-byte answer left
+// that slot's high bytes dirty. A downstream reader that took the whole word
+// then saw a `false` as nonzero and either dropped a matching row or kept a
+// failing one. buri-lang/buri#191.
+derive Equal, Show for Val191;
+enum Val191 {
+    Text(Str),
+    Number(Int),
+}
+
+derive Equal, Show for Row191;
+struct Row191 {
+    name: Str,
+    value: Val191,
+}
+
+fn resolve191(v: Val191): Result<Val191, Str> {
+    match (v) {
+        .Text(s) => {
+            if (s.length() == 0) {
+                .Err("an empty text field is not allowed")
+            } else {
+                .Ok(.Text(s))
+            }
+        },
+        .Number(n) => .Ok(.Number(n)),
+    }
+}
+
+fn keepsAll191<C: Allocator>(ctx: C, mins: [Int], row: Row191): Result<Bool, Str> {
+    mins.foldResultCtx(
+        ctx,
+        fn(c, acc: Bool, minLen) => {
+            if (!acc) {
+                .Ok(false)
+            } else {
+                let resolved = resolve191(row.value)?;
+                match (resolved) {
+                    .Text(s) => .Ok(s.length() >= minLen),
+                    .Number(n) => .Ok(n >= minLen),
+                }
+            }
+        },
+        true,
+    )
+}
+
+fn select191<C: Allocator>(ctx: C, rows: [Row191], mins: [Int]): Result<[Row191], Str> {
+    rows.foldResultCtx(
+        ctx,
+        fn(c, kept: [Row191], row) => {
+            if (keepsAll191(c, mins, row)?) {
+                .Ok(kept.push(c, row))
+            } else {
+                .Ok(kept)
+            }
+        },
+        list.empty<Row191>(),
+    )
+}
+
+test "a Bool fold nested in a list fold keeps only the matching rows (#191)" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let rows = [
+        Row191 { name: "a", value: .Text("alexandra") },
+        Row191 { name: "b", value: .Text("bo") },
+        Row191 { name: "c", value: .Text("cassandra") },
+    ];
+    let kept = select191(ctx, rows, [3, 5]);
+    assert.equal(
+        kept,
+        .Ok([
+            Row191 { name: "a", value: .Text("alexandra") },
+            Row191 { name: "c", value: .Text("cassandra") },
+        ]),
+    );
+}
+
 test "mapping a parse over a list yields Options in order" {
     let ctx = context {
         Allocator: alloc(),

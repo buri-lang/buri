@@ -477,6 +477,14 @@ impl<'a> Jit<'a> {
         self.slot_bytes(prog, t)
     }
 
+    /// The bytes a value of this type actually occupies — its real width, not
+    /// its 8-byte-rounded frame slot's. A narrow scalar (`Bool` = 1) answers
+    /// less than [`Jit::slot_bytes_of`], which is what tells the fold loops how
+    /// far a value copy reaches before the rest of the slot is padding to clear.
+    pub(crate) fn value_bytes_of(&mut self, prog: &ir::Program, t: ir::Type) -> u32 {
+        self.width(prog, t)
+    }
+
     /// Bytes a value of this IR type occupies where it is *stored inside an
     /// aggregate* — its real width, not its frame slot's.
     fn width(&mut self, prog: &ir::Program, t: ir::Type) -> u32 {
