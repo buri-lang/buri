@@ -262,10 +262,13 @@ fn scaled(canvas: &mut Pixmap, image: &Image, box_: Box2, opacity: f32, clip: Op
 
 const SIGNATURE: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
 
-/// The largest picture this will decode along either axis. A snapshot is at
-/// most a viewport, and an icon is two dozen pixels; the cap is here so a
+/// The largest picture this will decode along either axis. It is the largest
+/// device canvas the painter will ever *produce* — a viewport capped at
+/// [`super::MAX_VIEWPORT`] CSS pixels, rastered at [`super::DEVICE_SCALE`] — so
+/// the read side reads back everything the record side can write and a golden
+/// is never one-way: paintable but un-diffable. The cap is still here so a
 /// header claiming four billion rows is a sentence rather than an allocation.
-const MAX_SIDE: u32 = 8192;
+const MAX_SIDE: u32 = super::MAX_VIEWPORT * super::DEVICE_SCALE as u32;
 
 /// A PNG's pixels, whatever colour type, bit depth and transparency it was
 /// written with.

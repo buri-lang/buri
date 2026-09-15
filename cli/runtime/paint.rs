@@ -418,9 +418,11 @@ pub fn encode_png(pixmap: &Pixmap) -> Vec<u8> {
 pub fn compare(golden: &[u8], pixmap: &Pixmap) -> Result<Option<Vec<u8>>, String> {
     let recorded = match decode(golden) {
         Ok(image) => image,
-        // The one golden in the corpus taller than the decode cap
-        // (`a-thousand-siblings`, nineteen thousand device pixels) lands here.
-        // Compare the bytes, which is what a match on such a picture always was.
+        // The decode cap matches the largest canvas the painter paints, so a
+        // golden this painter recorded always decodes and is diffed below. A
+        // golden it could not have written — corrupt, or from some other tool —
+        // is compared by the bytes it would write, the answer a match on such a
+        // picture always was.
         Err(why) => return if encode_png(pixmap) == golden { Ok(None) } else { Err(why) },
     };
     let fresh = straight(pixmap);
@@ -6239,6 +6241,31 @@ mod tests {
         let image = decode(&diff(&golden, &actual).unwrap().unwrap()).unwrap();
         assert_eq!((image.width, image.height), (2, 1));
         assert_eq!(image.pixel(1, 0), Some([255, 0, 255, 255]));
+    }
+
+    /// A golden as tall as the tallest page the painter will paint — well
+    /// past the eight-thousand-device-pixel limit an earlier decoder stopped
+    /// at — is still read back and diffed, so a change to a tall snapshot is
+    /// shown as a picture rather than refused with "larger than this painter
+    /// reads" (#184). The record side and the read side are held to the same
+    /// limit, so a golden is never paintable but un-diffable.
+    #[test]
+    fn a_golden_as_tall_as_the_painter_paints_is_still_diffed() {
+        let tall = MAX_VIEWPORT * DEVICE_SCALE as u32;
+        let width = 2_u32;
+        let rows = vec![0_u8; (width * tall * 4) as usize];
+        let golden = encode(width, tall, &rows);
+        // It decodes rather than answering "larger than this painter reads".
+        let back = decode(&golden).unwrap();
+        assert_eq!((back.width, back.height), (width, tall));
+        // And a change to it produces a diff picture, not a read failure.
+        let mut moved = rows.clone();
+        moved[0] = 255;
+        let changed = encode(width, tall, &moved);
+        assert!(
+            matches!(diff(&golden, &changed), Ok(Some(_))),
+            "a change to a golden the painter can paint must be diffable"
+        );
     }
 
     #[test]
