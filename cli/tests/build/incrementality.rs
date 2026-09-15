@@ -1985,3 +1985,83 @@ fn a_plain_run_never_serves_a_cached_pass_over_failing_content() {
     b.write("lib/two/m.buri", "export fn f(x: I64): I64 { x + 5 }\n");
     b.run(&["test", "//..."]).exits(1);
 }
+
+/// A `--filter`ed test run must run, not trip an internal compiler error.
+///
+/// Narrowing a `buri test` gate with `--filter` is how an agent iterates on one
+/// failing case, so a toolchain that crashes on the filtered compilation path
+/// blocks the workflow with a bug of its own rather than with the code under
+/// test (buri-lang/buri#186). The reported crash was a duplicate `Str.compare`
+/// symbol minted while lowering a suite that derives `Ordered` over a `Str`
+/// field — `Str.compare` being reached both inherently and through the derived
+/// conformance — under a filter that keeps only some of the suite's tests.
+///
+/// The assertion is user-visible: every filtered shape reports a test summary
+/// and none prints "internal compiler error". Both batch shapes the report
+/// named are exercised — several files in one suite's `test.sources`, and
+/// several sibling suites the CLI links into one binary for `//...` — each
+/// with and without `--force`, since the crash was reported for the filter
+/// alone as well as for `--force --filter`.
+#[test]
+fn a_filtered_run_over_a_derived_ordered_suite_runs_rather_than_ices() {
+    let s = Scratch::repo("filtered-derive-run");
+    // Two sibling packages, each deriving Ordered over a Str field and each
+    // using Str.compare inherently as well, so `//...` batches them.
+    for pkg in ["alpha", "beta"] {
+        s.write(
+            &format!("lib/{pkg}/BUILD.buri"),
+            "library {\n    sources: [\"math.buri\"]\n    visibility: [\"//...\"]\n\n    test {\n        \
+             sources: [\"test/a.buri\", \"test/b.buri\"]\n    }\n}\n",
+        );
+        s.write(&format!("lib/{pkg}/lib.buri"), &format!("from \"//lib/{pkg}/math.buri\" export {{ Row, mk }};\n"));
+        s.write(
+            &format!("lib/{pkg}/math.buri"),
+            "from \"core/order\" import { Order };\n\nexport struct Row { rank: Int, label: Str }\n\
+             derive Equal, Ordered for Row;\n\nexport fn mk(rank: Int, label: Str): Row { Row { rank: rank, label: label } }\n",
+        );
+        s.write(
+            &format!("lib/{pkg}/test/a.buri"),
+            &format!(
+                "from \"core/testing/assert\" import * as assert;\nfrom \"//lib/{pkg}\" import {{ Row, mk }};\n\
+                 from \"core/order\" import {{ Order }};\n\n\
+                 test \"inherent labels compare {pkg}\" {{ assert.isTrue(\"a\".compare(\"b\") == Order.Less); }}\n\
+                 test \"the closer typed literal {pkg}\" {{ assert.isTrue(mk(1, \"a\").compare(mk(1, \"b\")) == Order.Less); }}\n"
+            ),
+        );
+        s.write(
+            &format!("lib/{pkg}/test/b.buri"),
+            &format!(
+                "from \"core/testing/assert\" import * as assert;\nfrom \"//lib/{pkg}\" import {{ Row, mk }};\n\
+                 from \"core/order\" import {{ Order }};\n\n\
+                 test \"rows equal {pkg}\" {{ assert.equal(mk(1, \"a\"), mk(1, \"a\")); }}\n\
+                 test \"the closer typed cursor {pkg}\" {{ assert.isTrue(mk(2, \"z\").compare(mk(2, \"z\")) == Order.Equal); }}\n"
+            ),
+        );
+    }
+
+    let shapes: &[&[&str]] = &[
+        &["test", "//lib/alpha"],
+        &["test", "//lib/alpha", "--filter=closer typed"],
+        &["test", "//lib/alpha", "--force", "--filter=closer typed"],
+        &["test", "//..."],
+        &["test", "//...", "--filter=closer typed"],
+        &["test", "//...", "--force", "--filter=closer typed"],
+    ];
+    for shape in shapes {
+        let r = s.run(shape);
+        assert!(
+            !r.all().contains("internal compiler error"),
+            "`buri {}` tripped an internal compiler error instead of running:\n{}",
+            shape.join(" "),
+            indent(&r.all())
+        );
+        // It ran: a test summary, not a crash. A filter that keeps some tests
+        // reports the rest as skipped.
+        assert!(
+            r.all().contains(" passed, "),
+            "`buri {}` produced no test summary:\n{}",
+            shape.join(" "),
+            indent(&r.all())
+        );
+    }
+}
