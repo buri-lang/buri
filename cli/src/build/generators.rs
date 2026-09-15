@@ -1031,7 +1031,7 @@ pub(crate) fn how_it_ended(status: &std::process::ExitStatus) -> String {
 /// The two disagree about several — `SIGBUS` is 10 on one and 7 on the other —
 /// so the ones they disagree about are reported by number. A wrong name is
 /// worse than no name.
-fn signal_name(signal: i32) -> Option<&'static str> {
+pub(crate) fn signal_name(signal: i32) -> Option<&'static str> {
     Some(match signal {
         1 => "SIGHUP",
         2 => "SIGINT",
