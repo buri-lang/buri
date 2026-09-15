@@ -1,0 +1,9 @@
+error: expected `fn`, found `origin` [unexpected-token]
+ --> main.buri:7:1
+  |
+7 | origin fn(): Point {
+  | ^^^^^^
+  |
+  = expected: `fn`
+  = actual: `origin`
+  = fix: write `fn` first: `fn origin`

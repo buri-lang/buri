@@ -1,0 +1,9 @@
+error: expected an identifier, found `fn` [unexpected-token]
+ --> main.buri:7:1
+  |
+7 | fn origin(): Point {
+  | ^^
+  |
+  = expected: an identifier
+  = actual: `fn`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

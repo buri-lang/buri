@@ -1,0 +1,24 @@
+error: expected `:`, found `}` [unexpected-token]
+ --> main.buri:5:7
+  |
+5 | extra }
+  |       ^
+  |
+  = expected: `:`
+  = actual: `}`
+  = fix: write `:` here
+error: there is no type `Point` [unresolved-type]
+ --> main.buri:7:14
+  |
+7 | fn origin(): Point {
+  |              ^^^^^
+  |
+  = did you mean `Uint`?
+  = fix: if you meant `Uint`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: this is not a struct or an enum variant [not-a-struct-literal-head]
+ --> main.buri:8:3
+  |
+8 |   Point {
+  |   ^^^^^
+  |
+  = fix: name a struct, or an enum variant that has fields

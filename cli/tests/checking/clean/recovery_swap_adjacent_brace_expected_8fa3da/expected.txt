@@ -1,0 +1,9 @@
+error: expected a struct literal's type, found `{` [unexpected-token]
+ --> main.buri:8:5
+  |
+8 |     { Point
+  |     ^
+  |
+  = expected: a struct literal's type
+  = actual: `{`
+  = fix: write the type before the brace: `Point {`
