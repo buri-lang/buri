@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:40:81
+   |
+40 |     assert.approximatelyEqual(time.secondsFloat(3.0).asSecondsFloat(), 3.0, 1e-9;
+   |                                                                                 ^
+   |
+  --> main.buri:40:30
+   |
+40 |     assert.approximatelyEqual(time.secondsFloat(3.0).asSecondsFloat(), 3.0, 1e-9;
+   |                              ^ opened here
+   |
+   = fix: write `)` here

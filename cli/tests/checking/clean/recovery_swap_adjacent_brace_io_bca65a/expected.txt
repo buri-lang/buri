@@ -1,0 +1,9 @@
+error: expected `let`, found `ctx` [unexpected-token]
+  --> main.buri:28:5
+   |
+28 |     ctx let = context {
+   |     ^^^
+   |
+   = expected: `let`
+   = actual: `ctx`
+   = fix: write `let` first: `let ctx`

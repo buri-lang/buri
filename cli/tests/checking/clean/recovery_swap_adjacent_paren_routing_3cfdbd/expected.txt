@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:82:34
+   |
+82 |     assert.equal(log.recorded()[ ,"about"]);
+   |                                  ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here
