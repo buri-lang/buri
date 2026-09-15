@@ -1,0 +1,26 @@
+error: `Point` is missing `z` [missing-field-value]
+ --> main.buri:8:3
+  |
+8 |   Point {
+  |   ^^^^^^^
+  |
+  = fix: give `z` a value — only an `Option` field may be left out — or start from an existing one with `Point { ..base, field: value }`
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> main.buri:11:8
+   |
+11 |     y: extra 0, // the vertical one
+   |        ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:11:14
+   |
+11 |     y: extra 0, // the vertical one
+   |              ^
+   |
+ --> main.buri:8:9
+  |
+8 |   Point {
+  |         ^ opened here
+  |
+  = fix: write `}` here

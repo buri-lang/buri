@@ -1,0 +1,12 @@
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:13:9
+   |
+13 |     z: 0@ ,
+   |         ^
+   |
+ --> main.buri:8:9
+  |
+8 |   Point {
+  |         ^ opened here
+  |
+  = fix: write `}` here
