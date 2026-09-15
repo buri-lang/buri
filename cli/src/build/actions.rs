@@ -831,25 +831,6 @@ fn runtime_archive_hash() -> &'static str {
     HASH.get_or_init(runtime_native::archive_hash)
 }
 
-/// The `net`/`crypto` a link for `target` can answer, which is the archive it
-/// will link against: the baked host archive for a host target, and the cross
-/// archive `runtime_cross` builds for a cross one.
-///
-/// This is what makes a cross `net` program refuse *by name* at compile time
-/// rather than at the system linker: the first cross archive is net-off and
-/// crypto-off (`ring` cannot cross from a bare macOS host), so a cross build of
-/// a program that reaches networking is told which operations its target's
-/// runtime has no body for. A pure function of the toolchain and the target — it
-/// reads the feature *decision*, not a built archive, so it costs nothing during
-/// codegen.
-fn runtime_features_for(target: Target) -> (bool, bool) {
-    if link::is_host_target(target) {
-        (runtime_native::net(), runtime_native::crypto())
-    } else {
-        crate::build::runtime_cross::features_for(target)
-    }
-}
-
 /// Whether this toolchain can produce and link a native artifact for `target`.
 ///
 /// Three questions, and a `false` from any of them means the build refuses with
@@ -1352,28 +1333,14 @@ fn objects_named(
             return Err(std::mem::take(diagnostics));
         }
     };
-    // The **target's** runtime capabilities, which are the host's for a host
-    // build and the cross archive's for a cross one. `missing_intrinsics` folds
-    // in the host's own gaps (the seam it has always had), and a cross target is
-    // against an archive with fewer features — net-off and crypto-off on the
-    // first one (`runtime_cross`) — so its gaps are folded in here, where the
-    // target is known. On a host build `net`/`crypto` are the host's, both these
-    // additions are empty, and the behaviour is byte-identical.
-    let (net, crypto) = runtime_features_for(back_target);
-    let mut missing = backend.missing_intrinsics(program, tables);
-    missing.extend(backend::networking_gap_when(program, net));
-    missing.extend(backend::cryptography_gap_when(program, crypto));
-    missing.sort();
-    missing.dedup();
+    let missing = backend.missing_intrinsics(program, tables);
     if !missing.is_empty() {
         // One diagnostic per cause rather than one per program: an operation a
         // toolchain built without the runtime's `net` feature cannot answer is
         // a different sentence, and asks for a different thing, from an
-        // operation the backend has no body for. The split reads the target's
-        // own answer, not the baked one, so a cross `net` program is named here
-        // rather than at the system linker.
-        let (networking, rest) = backend::split_networking_when(&missing, net);
-        let (cryptography, rest) = backend::split_cryptography_when(&rest, crypto);
+        // operation the backend has no body for.
+        let (networking, rest) = backend::split_networking(&missing);
+        let (cryptography, rest) = backend::split_cryptography(&rest);
         if !networking.is_empty() {
             diagnostics.push(backend::no_networking(&networking, Span::NONE));
         }
@@ -2434,19 +2401,14 @@ mod tests {
     // build of the same output works. These rows are per cause, because the
     // point of the change is that the causes are told apart.
 
-    /// A target this toolchain refuses on this host, whatever the host.
-    ///
-    /// **Not a Linux target**, which now links from every host
-    /// (ARCHITECTURE.md §9). The refused direction is macOS: a Linux host cannot
-    /// build a macOS artifact at all, and a macOS host has no cross-arch macOS
-    /// runtime — so a macOS target of the non-host architecture is refused on
-    /// every machine the suite runs on.
+    /// A target that is not this host's, whatever this host is — the same
+    /// choice `tests/harness/case.rs` makes, and for the same reason.
     fn cross_target() -> Target {
-        let arch = match link::host_arch() {
-            Some(Arch::X86_64) => Arch::Arm64,
-            _ => Arch::X86_64,
+        let platform = match link::host_platform() {
+            Some(Platform::Macos) => Platform::Linux,
+            _ => Platform::Macos,
         };
-        Target { platform: Platform::Macos, arch: Some(arch) }
+        Target { platform, arch: Some(Arch::X86_64) }
     }
 
     /// A cross output is refused by the **host**, and the sentence says so —
@@ -2455,11 +2417,10 @@ mod tests {
     #[test]
     fn a_cross_output_is_refused_by_the_host_and_not_by_a_backend() {
         let target = cross_target();
-        let arch = target.arch.expect("the cross target names an architecture");
         for profile in [Profile::Debug, Profile::Release] {
             let gap = native_gap(target, profile)
                 .unwrap_or_else(|| panic!("{target:?} was not refused in {profile:?}"));
-            assert_eq!(gap.output, format!("{}/{}", target.platform.slug(), arch.slug()));
+            assert_eq!(gap.output, format!("{}/x86_64", target.platform.slug()));
             assert!(gap.reason.contains("own host only"), "{}", gap.reason);
             assert!(
                 gap.fix.contains(&format!("on a {} host", gap.output)),
@@ -2470,34 +2431,6 @@ mod tests {
                 !gap.reason.contains("backend"),
                 "a host gap blamed a backend: {}",
                 gap.reason
-            );
-        }
-    }
-
-    /// The capability lift: a Linux target is *ready* from any host with the
-    /// native backend and archive compiled in, where it used to be refused as a
-    /// cross output. The runtime and sysroot are cross-built at link time
-    /// (ARCHITECTURE.md §9), so readiness is not a claim that the cross build has
-    /// happened — only that nothing structural forbids it.
-    #[test]
-    fn a_linux_output_is_ready_from_any_host() {
-        // Only where this toolchain has a native backend and a runtime archive,
-        // which is the same precondition the host's own output has; a
-        // `--no-default-features` build has neither and refuses both.
-        if !runtime_native::AVAILABLE
-            || backend::select(
-                Target { platform: Platform::Linux, arch: Some(Arch::X86_64) },
-                Profile::Debug,
-            )
-            .is_err()
-        {
-            return;
-        }
-        for arch in [Arch::X86_64, Arch::Arm64] {
-            let target = Target { platform: Platform::Linux, arch: Some(arch) };
-            assert!(
-                native_gap(target, Profile::Debug).is_none(),
-                "a Linux output should be ready from this host: {target:?}"
             );
         }
     }

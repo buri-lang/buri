@@ -39,11 +39,6 @@ pub mod link;
 /// the staging are `link`'s.
 pub mod musl;
 pub mod regenerate;
-/// Building and caching the runtime archive and musl sysroot for a **cross**
-/// target, at `buri build` time, from the sources `runtime_src` embeds.
-pub mod runtime_cross;
-/// The runtime's sources, embedded so a cross build can re-assemble them.
-pub mod runtime_src;
 pub mod session;
 /// The loaded state of one repository, kept between the questions asked of
 /// it: the graph, the files read so far, and the parses of them.

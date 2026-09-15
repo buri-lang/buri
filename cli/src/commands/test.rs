@@ -729,14 +729,7 @@ fn run_on(
 /// rather than quietly run through the development backend.
 fn native_ready(platform: Platform, flags: &arguments::Flags) -> bool {
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
-    let target = actions::target_of(&output);
-    // A test must *run*, so its artifact has to be one this host can execute —
-    // its own. `buri build` cross-links a Linux artifact from a mac
-    // (ARCHITECTURE.md §9), but a test suite for that artifact could not be run
-    // where it was built, so `buri test` is refused for a cross platform even
-    // though `buri build` is not. `is_host_target` is that narrower question.
-    actions::native_ready(target, actions::profile_of(flags))
-        && crate::build::link::is_host_target(target)
+    actions::native_ready(actions::target_of(&output), actions::profile_of(flags))
         && crate::build::spawn::resolve(&linker_name()).is_some()
 }
 
@@ -831,27 +824,12 @@ fn not_ready(
             // buri-lang/buri#25 and buri-lang/buri#26 were about on the
             // build side.
             let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
-            let target = actions::target_of(&output);
-            let why = if platform.is_native()
-                && !crate::build::link::is_host_target(target)
-            {
-                // A cross platform: the artifact does not run on this host,
-                // whether or not it can be built here. The same sentence on
-                // both hosts — a Linux host asked for macOS (which it cannot
-                // build) and a macOS host asked for Linux (which it can build
-                // but not execute) — because for a *test* the operative fact is
-                // the same: the suite must run where its artifact runs.
-                "a test suite runs where its artifact runs, and this toolchain executes a \
-                 native suite on its own host only — a cross artifact it can build, it cannot \
-                 run"
-                    .to_string()
-            } else {
-                actions::native_gap(target, actions::profile_of(flags))
+            let why =
+                actions::native_gap(actions::target_of(&output), actions::profile_of(flags))
                     .map(|gap| gap.reason)
                     .unwrap_or_else(|| {
                         "this host has no C toolchain to link one with".to_string()
-                    })
-            };
+                    });
             Diagnostic::templated("platform-not-implemented", span)
                 .with_bind("platform", platform.slug())
                 .with_bind("reason", why)
