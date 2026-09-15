@@ -391,7 +391,12 @@ pub fn split_networking(missing: &[String]) -> (Vec<String>, Vec<String>) {
 
 /// [`split_networking`], with the toolchain's answer as a parameter, for the
 /// reason [`networking_gap_when`] takes one.
-fn split_networking_when(missing: &[String], net: bool) -> (Vec<String>, Vec<String>) {
+///
+/// `pub` because the answer is per **target** now, not per toolchain: a cross
+/// link is against an archive with fewer features than the host's, so
+/// `build::actions` hands the target's own `net` here rather than the baked
+/// constant `split_networking` reads.
+pub fn split_networking_when(missing: &[String], net: bool) -> (Vec<String>, Vec<String>) {
     missing.iter().cloned().partition(|key| !net && runtime_native::net_intrinsic(key))
 }
 
@@ -416,7 +421,10 @@ pub fn split_cryptography(missing: &[String]) -> (Vec<String>, Vec<String>) {
 }
 
 /// [`split_cryptography`], with the toolchain's answer as a parameter.
-fn split_cryptography_when(missing: &[String], crypto: bool) -> (Vec<String>, Vec<String>) {
+///
+/// `pub` for [`split_networking_when`]'s reason: `build::actions` supplies the
+/// cross target's own `crypto`, which is off on the first cross target.
+pub fn split_cryptography_when(missing: &[String], crypto: bool) -> (Vec<String>, Vec<String>) {
     missing.iter().cloned().partition(|key| !crypto && runtime_native::crypto_intrinsic(key))
 }
 

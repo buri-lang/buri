@@ -1,0 +1,1 @@
+.buri/out/{{CROSS_PLATFORM}}-{{CROSS_ARCH}}/cmd/native/native (N bytes)

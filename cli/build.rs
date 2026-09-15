@@ -780,6 +780,70 @@ fn assemble(runtime: &Path, out_dir: &Path) -> PathBuf {
     pkg
 }
 
+/// Packs the runtime's sources into one deterministic blob for the toolchain to
+/// embed, so `build::runtime_cross` can write them back out and cross-build the
+/// archive for a foreign Linux triple (ARCHITECTURE.md §9).
+///
+/// The set is exactly what [`assemble`] copies — the manifest and lockfile under
+/// Cargo's names, every `.rs` and `.s`, and `fonts/` — because the package the
+/// cross build compiles has to be the package the host build compiles, or the
+/// cross archive is a different runtime. The one difference from `assemble` is
+/// the destination: a directory there, one file here.
+///
+/// **The format is a length-prefixed concatenation and the order is sorted**,
+/// for the reason every other blob this script writes is deterministic:
+/// `write_if_different` only skips a rewrite when the bytes match, and a blob
+/// whose member order followed `read_dir` would reshuffle between two checkouts
+/// and recompile the toolchain for no change. Each member is a relative path
+/// (`fonts/DejaVuSans.ttf` keeps its slash), its length, and its bytes; the
+/// reader ([`build::runtime_src::unpack`]) recreates the tree from the paths.
+///
+/// Written on every path, empty when the runtime directory cannot be read, for
+/// the reason the sysroot is: the `include_bytes!` on the other side is
+/// unconditional.
+fn pack_runtime_src(runtime: &Path, out_dir: &Path) {
+    let mut members: Vec<(String, Vec<u8>)> = Vec::new();
+    if let Ok(manifest) = std::fs::read(runtime.join("manifest.toml")) {
+        members.push((String::from("Cargo.toml"), manifest));
+    }
+    if let Ok(lock) = std::fs::read(runtime.join("manifest.lock")) {
+        members.push((String::from("Cargo.lock"), lock));
+    }
+    if let Ok(entries) = std::fs::read_dir(runtime) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "rs" || e == "s") {
+                if let Ok(bytes) = std::fs::read(&path) {
+                    members.push((entry.file_name().to_string_lossy().into_owned(), bytes));
+                }
+            }
+        }
+    }
+    if let Ok(entries) = std::fs::read_dir(runtime.join("fonts")) {
+        for entry in entries.flatten() {
+            if entry.path().is_file() {
+                if let Ok(bytes) = std::fs::read(entry.path()) {
+                    members.push((
+                        format!("fonts/{}", entry.file_name().to_string_lossy()),
+                        bytes,
+                    ));
+                }
+            }
+        }
+    }
+    // Sorted by path, so the blob is a function of the sources and not of the
+    // order the filesystem listed them.
+    members.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut packed: Vec<u8> = Vec::new();
+    for (name, bytes) in &members {
+        packed.extend_from_slice(&(name.len() as u32).to_le_bytes());
+        packed.extend_from_slice(name.as_bytes());
+        packed.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+        packed.extend_from_slice(bytes);
+    }
+    write_if_different(&out_dir.join("runtime-src.pack"), &packed);
+}
+
 /// Copies one flat directory of files, and removes what is no longer in it.
 ///
 /// [`assemble`]'s loop over `cli/runtime/` for a subdirectory, with the same
@@ -1204,6 +1268,17 @@ fn runtime_archive(manifest: &Path) {
     let runtime = manifest.join("runtime");
     let out_dir = PathBuf::from(env("OUT_DIR"));
     let out = out_dir.join("libburi_rt.a");
+
+    // The runtime *sources*, packed into one blob the toolchain embeds, so that
+    // `build::runtime_cross` can re-assemble the package and cross-build the
+    // archive for a foreign Linux triple at `buri build` time
+    // (ARCHITECTURE.md §9). Written on **every** path — before the host check
+    // below — because `build::runtime_src::PACK` `include_bytes!`es it
+    // unconditionally, exactly as the sysroot and the archive are written empty
+    // on hosts that have neither. It is the same set of sources `assemble`
+    // copies, in one file rather than a directory, and it is deterministic so it
+    // does not move the toolchain binary's bytes between two builds of it.
+    pack_runtime_src(&runtime, &out_dir);
 
     // Cargo reruns this script when anything under `runtime/` changes, and
     // *only* then: without these lines it reruns on every change to any file in

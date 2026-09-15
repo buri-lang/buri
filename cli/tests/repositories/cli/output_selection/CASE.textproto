@@ -27,15 +27,16 @@
 # linux/x86_64 on a mac, macos/x86_64 on Linux. The goldens hold the
 # placeholder, so blessing on either machine records the same file.
 #
-# Why a *cross* pair is still refused once the native backend and the runtime
-# archive are compiled in: `build/actions.rs::native_ready` is a conjunction of
-# three questions, and the third is `build/link.rs::can_link`, which is
-# `host_platform() == Some(target.platform)` and nothing else. The runtime
-# archive `cli/build.rs` embeds is built for the host, and a cross link would
-# need a cross runtime, a cross libc and a sysroot
-# (design/native/ARCHITECTURE.md §9). So a platform that is not the host is
-# refused on every machine, whatever backend was compiled in — which is what
-# makes this case host-independent rather than merely re-worded.
+# The two hosts do *not* answer a cross selector the same way, and that is the
+# shape design/native/ARCHITECTURE.md §9 fixes: a Linux artifact is a
+# self-contained static-PIE musl executable, so any host can build one; a macOS
+# artifact links against Apple's libSystem stubs, which do not ship, so only a
+# macOS host can. `build/link.rs::can_link` is that rule. So the cross selector
+# is a **refusal** on a Linux host (its cross is macOS) and a **success** on a
+# macOS host (its cross is Linux, cross-built and cached in `~/.buri`). Each run
+# below names the host it is about with `host:`, and the harness runs it there.
+# The refusal that stays honest on every machine is the one direction the rule
+# forbids — Linux → macOS.
 #
 # What is deliberately *not* here is the positive half: a build for the host
 # platform. That answer depends on how this toolchain was built — a
@@ -71,12 +72,19 @@ run {
   golden: "native_js.txt"
 }
 
-# Selecting the other one reaches the backend, which says what is missing. Exit
-# 1: the selector was a real output, so the invocation was fine.
+# Selecting the other one. `{{CROSS_PLATFORM}}` is the platform that is not the
+# host, and a Linux artifact builds on any host while a macOS one builds only on
+# a macOS host (design/native/ARCHITECTURE.md §9) — so the two hosts answer this
+# differently and each run names the host it is about.
+#
+# On a **Linux** host the cross platform is macOS, which no Linux host can
+# build, so the backend refusal is what this selects. Exit 1: the selector was a
+# real output, so the invocation was fine.
 run {
   args: ["build", "//cmd/native", "--output={{CROSS_PLATFORM}}/{{CROSS_ARCH}}"]
   exit: 1
   golden: "native_cross.txt"
+  host: LINUX
 }
 
 # The dash spelling is the directory under `.buri/out`, and selects the same
@@ -85,13 +93,35 @@ run {
   args: ["build", "//cmd/native", "--output={{CROSS_PLATFORM}}-{{CROSS_ARCH}}"]
   exit: 1
   golden: "native_cross.txt"
+  host: LINUX
 }
 
-# With no selector, every declared output is built — which for this target is
-# one artifact and one refusal.
+# On a **macOS** host the cross platform is Linux, which any host can build: the
+# toolchain cross-builds the runtime archive and musl sysroot for the target,
+# caches them in `~/.buri`, and links a static-PIE executable. So the same
+# selector that refuses on Linux succeeds here, and this is the artifact.
+run {
+  args: ["build", "//cmd/native", "--output={{CROSS_PLATFORM}}/{{CROSS_ARCH}}"]
+  exit: 0
+  golden: "native_cross_built.txt"
+  host: MACOS
+}
+
+# With no selector, every declared output is built. On Linux that is one
+# artifact (js) and one refusal (the macOS native output).
 run {
   args: ["build", "//cmd/native"]
   exit: 1
   golden: "native_all.txt"
+  host: LINUX
+}
+
+# On macOS both declared outputs build: the JavaScript module and the
+# cross-built Linux executable.
+run {
+  args: ["build", "//cmd/native"]
+  exit: 0
+  golden: "native_all_built.txt"
+  host: MACOS
 }
 

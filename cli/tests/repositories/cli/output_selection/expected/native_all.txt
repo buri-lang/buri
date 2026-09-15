@@ -13,10 +13,14 @@ error: no native artifact for {{CROSS_PLATFORM}}/{{CROSS_ARCH}} [native-artifact
     The host
     ────────
 
-    A native artifact only builds on a machine of the platform and architecture
-    it names: the runtime archive, the C library it links against and the linker
-    are all the host's. Build the output on such a machine, or declare a JS
-    output and run the module anywhere.
+    A Linux artifact is self-contained — a static-PIE executable against the
+    musl libc the toolchain carries — so any host builds one: the runtime
+    archive and the musl sysroot are cross-built for the target and cached in
+    ~/.buri. A macOS artifact links against Apple's libSystem, which Apple does
+    not license for redistribution, so only a macOS host builds one. This
+    diagnostic names the one direction left over: a macOS output on a machine
+    that is not a macOS host of that architecture. Build it on such a machine,
+    or declare a JS output and run the module anywhere.
 
     The runtime archive
     ───────────────────
