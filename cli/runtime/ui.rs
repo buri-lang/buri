@@ -1012,6 +1012,17 @@ pub(crate) fn set_str_signal(id: i64, text: &str) {
     }
 }
 
+/// Writes `x` to the `F64` signal `id` — the native twin of a slider's `input`
+/// listener coercing the control's string value back to the `Float` the signal
+/// holds. A `Float` holds no counted block, so this is the eight bytes written
+/// with no reference to give back, in the native byte order the generated code
+/// reads and writes a `Float` in.
+pub(crate) fn set_f64_signal(id: i64, x: f64) {
+    let bytes = x.to_ne_bytes();
+    // SAFETY: `bytes` is one whole `F64` value, eight bytes of it.
+    unsafe { write_changed(id, bytes.as_ptr(), bytes.len()) };
+}
+
 /// Flips the `Bool` signal `id` — the native twin of a toggle's `change`
 /// listener writing the negation of the bound signal. A `Bool` holds no counted
 /// block, so this is the byte turned over with no reference to give back.

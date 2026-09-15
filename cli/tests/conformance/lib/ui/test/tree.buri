@@ -3586,6 +3586,38 @@ test "a slider takes styles for the box around it, the way a field and a toggle 
     );
 }
 
+test "fill on a slider writes a well-formed Float the signal can be compared against" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let watcher = context {
+        Watch: observer(),
+    };
+    let volume = signal(ctx, 50.0);
+    let rendered = render(
+        ctx,
+        ui.slider({ label: .Const("Volume"), value: volume, min: 0.0, max: 100.0, styles: [] }),
+    );
+    // `fill` types 80 into a slider over a `Signal<Float>`. What lands in the
+    // signal has to be a `Float`: before this it was the raw `Str`, so `==` and
+    // `Show` dispatched on the wrong tag — `80` was unequal to `80.0`.
+    rendered.fill("Volume", "80");
+    assert.equal(volume.get(watcher), 80.0);
+    // And it shows with its point, the way every other `Float` does.
+    assert.equal(str.format(ctx, "${volume.get(watcher)}"), "80.0");
+    // The scene the painter reads carries the new value, whole.
+    assert.containsText(rendered.markup(), "range:0.0 100.0 80.0");
+    // A text field still takes what a reader types as the `Str` it is.
+    let name = signal(ctx, "");
+    let form = render(
+        ctx,
+        ui.field({ label: .Const("Name"), kind: .Text, value: name, styles: [] }),
+    );
+    form.fill("Name", "Ada");
+    assert.equal(name.get(watcher), "Ada");
+}
+
 test "a range's bounds are in the scene, and its value is not a run of text" {
     let ctx = context {
         Allocator: alloc(),
