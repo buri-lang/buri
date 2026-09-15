@@ -550,7 +550,14 @@ export fn button<C>(config: Button<C>): Node<C> {
     );
     match (config.kind) {
         .Some(.Submit) => {
-            Node(.Submit(config.label, config.styles, orFalse(config.isDisabled), events))
+            Node(
+                .Submit(
+                    config.label,
+                    config.styles,
+                    orFalse(config.isDisabled),
+                    events,
+                ),
+            )
         },
         _ => {
             Node(
@@ -1749,7 +1756,12 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 let _ = emitElement(
                     builder,
                     "button",
-                    widgetBody(inner, refusing(state, disabled.read(scope)), [], styles),
+                    widgetBody(
+                        inner,
+                        refusing(state, disabled.read(scope)),
+                        [],
+                        styles,
+                    ),
                 );
                 let _ = markSubmit(builder);
                 let _ = registerEvents(builder, events);
