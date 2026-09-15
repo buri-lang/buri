@@ -3125,6 +3125,12 @@ const $ui = {
   // Open batches. A write inside one defers the drain, so N writes cause one
   // pass rather than N.
   depth: 0,
+  // Whether a drain is running. A write a watcher makes while the graph is
+  // draining — a keyed list's row builder correcting the signal its key list
+  // reads (buri#170) — queues the watcher and lets the running drain's own loop
+  // take it, rather than starting a nested drain that re-enters the reconciler
+  // mid-pass and recurses until the stack overflows.
+  draining: false,
 };
 
 // A runaway is a program whose watchers write what they read. The limit is not
@@ -3308,6 +3314,10 @@ function $ui_notify(n) {
 }
 
 function $ui_drain() {
+  // A drain already running takes new work through its own loop below, so a
+  // re-entrant call — a write made while draining — does nothing and returns.
+  if ($ui.draining) return;
+  $ui.draining = true;
   try {
     let steps = 0;
     // Not `for (const id of queue)`: a watcher may schedule another, and the
@@ -3322,17 +3332,19 @@ function $ui_drain() {
       if (!n.disposed) $ui_run(id);
     }
   } finally {
-    // A drain that threw — a reactive update that overflowed the stack or did
-    // not settle — must not leave its half-processed queue behind. The queue and
-    // every node's `queued` flag are the flush-in-progress state, so a batch
-    // sibling's next write would drain these stale nodes and fail with the same
-    // error, which is the poisoning buri#187 reports. Clearing them here scopes a
-    // failing update to the test that caused it.
+    // A drain that threw — a reactive update that did not settle — must not
+    // leave its half-processed queue or its flush-in-progress flag behind. The
+    // queue, the per-node `queued` flags and `draining` are that state, so a
+    // batch sibling's next write would drain these stale nodes (or find the
+    // graph wedged "draining") and fail with the same error, which is the
+    // poisoning buri#187 reports. Clearing them here scopes a failing update to
+    // the test that caused it.
     for (const id of $ui.queue) {
       const n = $ui.nodes[id];
       if (n !== undefined) n.queued = false;
     }
     $ui.queue = [];
+    $ui.draining = false;
   }
 }
 

@@ -31,7 +31,7 @@ from "ui/prop" import { Prop };
 from "ui/signal" import { Signal, signal, watch };
 from "ui/style" import * as style;
 from "ui/style" import { Color, Shadow, Style };
-from "ui/testing" import { headless, observer, recorder, render, stylesheet };
+from "ui/testing" import { headless, observer, recorder, render, stylesheet, Recorder };
 
 // --- helpers -------------------------------------------------------------------------
 
@@ -5425,6 +5425,64 @@ test "a derived list re-filters and re-renders when its signal is written" {
     let _ = xs.set(ctx, [2, 6]);
     assert.equal(page.markup(), "e 0 \ne 1 \nt 2 2\ne 1 \nt 2 6");
     assert.equal(page.identity("li", 0), two);
+}
+
+/// A gate whose row builder normalises what was typed and writes the correction
+/// back into the very signal its key list reads — the shape buri#170 is about.
+/// The row renders the text it was built with, so the tree shows what the each
+/// last built.
+fn correctingGate<C: Ui + Watch + Allocator>(value: Signal<Str>, log: Recorder): Node<C> {
+    ui.each(
+        .Computed(fn(s) => [value.get(s)]),
+        fn(t) => t,
+        fn(c, typed, _index) => {
+            let _ = log.record(typed);
+            // A closed call gets its missing slot filled in — a correction the
+            // control makes to what the reader typed, written back to the signal
+            // the key list reads.
+            let _ = if (typed.endsWith("(")) {
+                value.set(c, typed.concat(c, ")"))
+            } else {
+                ()
+            };
+            ui.text({ content: .Const(typed) })
+        },
+    )
+}
+
+test "an each row that corrects the signal its key list reads re-renders that row" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let value = signal(ctx, "a");
+    let log = recorder();
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.field({ label: .Const("Formula"), kind: .Text, value: value, styles: [] }),
+                correctingGate(value, log),
+            ],
+        }),
+    );
+    // Typing an open paren: the field takes it, the gate's builder runs on it,
+    // corrects the signal to the closed call, and the each re-runs on the
+    // correction — building the row once more, this time with the closed text.
+    let _ = page.fill("Formula", "Balance(");
+    // The builder ran on the keystroke and again on its own correction, and not
+    // a third, stale time: before the fix the graph replayed the superseded
+    // keystroke, and a non-converging correction recursed until the stack blew.
+    assert.equal(log.recorded(), ["a", "Balance(", "Balance()"]);
+    // The correction reached the signal — other readers (the field) see it.
+    assert.equal(value.get(ctx), "Balance()");
+    // And the each's own subtree re-rendered the row: the tree shows the
+    // corrected text, not the "Balance(" the reader typed. This is the headline
+    // the reader's control could not fix before. The runs are the field's label,
+    // the field's own value, then the gate's row — the last the each rebuilt.
+    assert.equal(page.text(), "Formula Balance() Balance()");
 }
 
 test "formatted text follows the signal it was formatted from" {
