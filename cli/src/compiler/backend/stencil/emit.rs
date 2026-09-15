@@ -162,6 +162,28 @@ impl<'a> Jit<'a> {
         }
     }
 
+    /// Moves an accumulator value into an 8-byte-aligned slot, zero-extended.
+    ///
+    /// `logical` is the value's real width and `slot` the padded slot's. When
+    /// the value is narrower than its slot — a `Bool` accumulator is one byte in
+    /// an eight-byte slot — the high bytes of `src` are whatever a step left
+    /// there, including a prior wider `Result` payload, so a plain [`Jit::mv`] of
+    /// the whole slot would carry that garbage. The slot is cleared a word at a
+    /// time and only the real bytes copied over its low end, mirroring how
+    /// [`Jit::elem_load`] zero-extends a narrow element (buri-lang/buri#191).
+    pub(crate) fn mv_acc(&mut self, dst: u32, src: u32, slot: u32, logical: u32) {
+        if logical < slot {
+            let mut off = 0;
+            while off < slot {
+                self.imm_to(dst + off, 0);
+                off += 8;
+            }
+            self.mv(dst, src, logical);
+        } else {
+            self.mv(dst, src, slot);
+        }
+    }
+
     pub(crate) fn imm_to(&mut self, dst: u32, v: u64) {
         if v == 0 {
             self.emit("imm/z", &[("JIT_D", V::I(dst as u64)), ("JIT_CONT", V::Fall)]);
