@@ -72,8 +72,6 @@ fn completion<C: Ui>(ctx: C): Node<C> {
     let open = signal(ctx, false);
     ui.stack({
         styles: [],
-        // A key on the stack claims nothing — it only observes — so it answers
-        // `false` and lets the platform have the key.
         onKey: .Some(fn(_c, _key) => false),
         children: [
             ui.form({
@@ -85,10 +83,11 @@ fn completion<C: Ui>(ctx: C): Node<C> {
                         kind: .Text,
                         value: name,
                         styles: [],
-                        // Enter and Tab and the arrows are the completion list's
-                        // while it is open; every other key falls through.
                         onKey: .Some(fn(_c, key) => {
-                            key == "Enter" || key == "Tab" || key == "ArrowDown" || key == "ArrowUp"
+                            key == "Enter"
+                                || key == "Tab"
+                                || key == "ArrowDown"
+                                || key == "ArrowUp"
                         }),
                     }),
                     ui.button({
@@ -104,8 +103,6 @@ fn completion<C: Ui>(ctx: C): Node<C> {
                 label: .Const("Help"),
                 children: [],
                 styles: [],
-                // The dialog claims Escape so its own shutting is the program's,
-                // not the browser's.
                 onKey: .Some(fn(_c, key) => key == "Escape"),
             }),
         ],

@@ -31,7 +31,7 @@ from "ui/prop" import { Prop };
 from "ui/signal" import { Signal, signal, watch };
 from "ui/style" import * as style;
 from "ui/style" import { Color, Shadow, Style };
-from "ui/testing" import { headless, observer, recorder, render, stylesheet, Recorder };
+from "ui/testing" import { headless, observer, Recorder, recorder, render, stylesheet };
 
 // --- helpers -------------------------------------------------------------------------
 
@@ -3610,7 +3610,12 @@ test "a slider takes styles for the box around it, the way a field and a toggle 
             min: 0.0,
             max: 100.0,
             styles: [.Width(.Full), .Height(.Px(16))],
-            around: .Some([.Layout(.Column), .AlignCross(.Stretch), .Grow(1), .Gap(.Px(8))]),
+            around: .Some([
+                .Layout(.Column),
+                .AlignCross(.Stretch),
+                .Grow(1),
+                .Gap(.Px(8)),
+            ]),
         }),
     );
     // The caller's arrangement beats the widget's default, the way a field's
@@ -3651,7 +3656,13 @@ test "fill on a slider writes a well-formed Float the signal can be compared aga
     let volume = signal(ctx, 50.0);
     let rendered = render(
         ctx,
-        ui.slider({ label: .Const("Volume"), value: volume, min: 0.0, max: 100.0, styles: [] }),
+        ui.slider({
+            label: .Const("Volume"),
+            value: volume,
+            min: 0.0,
+            max: 100.0,
+            styles: [],
+        }),
     );
     // `fill` types 80 into a slider over a `Signal<Float>`. What lands in the
     // signal has to be a `Float`: before this it was the raw `Str`, so `==` and
@@ -4370,8 +4381,18 @@ test "a disabled submit button carries the flag, and neither a press nor Enter s
         ui.form({
             onSubmit: fn(c) => sent.set(c, true),
             children: [
-                ui.field({ label: .Const("Name"), kind: .Text, value: signal(ctx, ""), styles: [] }),
-                ui.field({ label: .Const("Email"), kind: .Email, value: signal(ctx, ""), styles: [] }),
+                ui.field({
+                    label: .Const("Name"),
+                    kind: .Text,
+                    value: signal(ctx, ""),
+                    styles: [],
+                }),
+                ui.field({
+                    label: .Const("Email"),
+                    kind: .Email,
+                    value: signal(ctx, ""),
+                    styles: [],
+                }),
                 ui.button({
                     label: .Const("Save"),
                     styles: [],
@@ -4408,7 +4429,12 @@ test "a submit button's disabled is reactive: clearing it lets the form submit" 
         ui.form({
             onSubmit: fn(c) => sent.set(c, true),
             children: [
-                ui.field({ label: .Const("Name"), kind: .Text, value: signal(ctx, ""), styles: [] }),
+                ui.field({
+                    label: .Const("Name"),
+                    kind: .Text,
+                    value: signal(ctx, ""),
+                    styles: [],
+                }),
                 ui.button({
                     label: .Const("Save"),
                     styles: [],
@@ -5431,23 +5457,22 @@ test "a derived list re-filters and re-renders when its signal is written" {
 /// back into the very signal its key list reads — the shape buri#170 is about.
 /// The row renders the text it was built with, so the tree shows what the each
 /// last built.
-fn correctingGate<C: Ui + Watch + Allocator>(value: Signal<Str>, log: Recorder): Node<C> {
-    ui.each(
-        .Computed(fn(s) => [value.get(s)]),
-        fn(t) => t,
-        fn(c, typed, _index) => {
-            let _ = log.record(typed);
-            // A closed call gets its missing slot filled in — a correction the
-            // control makes to what the reader typed, written back to the signal
-            // the key list reads.
-            let _ = if (typed.endsWith("(")) {
-                value.set(c, typed.concat(c, ")"))
-            } else {
-                ()
-            };
-            ui.text({ content: .Const(typed) })
-        },
-    )
+fn correctingGate<C: Ui + Watch + Allocator>(
+    value: Signal<Str>,
+    log: Recorder,
+): Node<C> {
+    ui.each(.Computed(fn(s) => [value.get(s)]), fn(t) => t, fn(c, typed, _index) => {
+        let _ = log.record(typed);
+        // A closed call gets its missing slot filled in — a correction the
+        // control makes to what the reader typed, written back to the signal
+        // the key list reads.
+        let _ = if (typed.endsWith("(")) {
+            value.set(c, typed.concat(c, ")"))
+        } else {
+            ()
+        };
+        ui.text({ content: .Const(typed) })
+    })
 }
 
 test "an each row that corrects the signal its key list reads re-renders that row" {
@@ -5463,7 +5488,12 @@ test "an each row that corrects the signal its key list reads re-renders that ro
         ui.stack({
             styles: [],
             children: [
-                ui.field({ label: .Const("Formula"), kind: .Text, value: value, styles: [] }),
+                ui.field({
+                    label: .Const("Formula"),
+                    kind: .Text,
+                    value: value,
+                    styles: [],
+                }),
                 correctingGate(value, log),
             ],
         }),
