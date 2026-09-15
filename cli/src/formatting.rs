@@ -82,8 +82,8 @@
 
 use crate::diagnostics::{Diagnostic, FileId, Span};
 use crate::parsing::flat::{
-    ArmData, BlockId, CtxBodyId, ExprId, ExprView, Kind, LambdaParamData, Location, PartView,
-    PatId, PatView, StmtKind, Tree, TypeId, TypeView,
+    ArmData, BlockId, CtxBodyId, ExprId, ExprView, InitData, Kind, LambdaParamData, Location,
+    PartView, PatId, PatView, StmtKind, Tree, TypeId, TypeView,
 };
 use crate::parsing::lexer::{lex, Comment, TokenKind};
 use crate::parsing::tree::*;
@@ -520,6 +520,26 @@ fn bracketed(open: &str, items: Vec<Doc>, close: &str) -> Doc {
         Doc::SoftLine,
         text(close),
     ]))
+}
+
+/// A list item with the comment written above it, if there is one, pinned on
+/// the line before it. The break is a `HardLine` so the run cannot collapse the
+/// two back onto one line, and the `BreakParent` the comment carries breaks the
+/// list that holds it — which is how the comment keeps the construct it sits
+/// inside broken across lines rather than being swept out to after it.
+fn with_lead(lead: Option<Doc>, item: Doc) -> Doc {
+    match lead {
+        Some(c) => cat(vec![c, Doc::HardLine, item]),
+        None => item,
+    }
+}
+
+/// One element of a struct literal, in the order it was written: the spread, if
+/// there is one, and then each field. It exists so a comment above or beside an
+/// element is drained in source order, whichever kind of element it sits on.
+enum Slot<'t> {
+    Spread(ExprId),
+    Field(&'t InitData),
 }
 
 /// A list that reads across the page. Each item but the last carries its own
@@ -2224,7 +2244,7 @@ impl<'t> Build<'t> {
                 };
                 cat(vec![b, text(format!(".{index}"))])
             }
-            ExprView::StructLit { head, spread, fields, .. } => {
+            ExprView::StructLit { head, spread, fields, span } => {
                 // An anonymous literal is the same body with nothing in front
                 // of it, so the space that parts a head from its `{` belongs to
                 // the head rather than to the brace.
@@ -2232,35 +2252,100 @@ impl<'t> Build<'t> {
                     Some(h) => cat(vec![self.operand(h), text(" ")]),
                     None => Doc::Nil,
                 };
+                // A comment inside a struct literal is about the field it was
+                // written on, the way a comment inside a match is about the arm:
+                // one written above a field goes above it, and one written
+                // beside a field stays beside it. Draining them here is what
+                // pins them and keeps the literal broken across lines; leaving
+                // them for the enclosing block to sweep up moves them out to
+                // after the whole literal, where they read as a note about
+                // something else. `lo` is the top of the literal for every
+                // field, because `drain` takes what it returns, so a later
+                // field's flush sees only the run above it.
+                let lo = span.start;
                 if spread.is_none() && fields.is_empty() {
-                    return cat(vec![h, text("{ }")]);
+                    // No field to sit a comment above, but one written inside
+                    // an empty literal still must not drift out; it comes back
+                    // on a line of its own.
+                    return match self.flush(lo, span.end.saturating_sub(1)) {
+                        Some(c) => cat(vec![
+                            h,
+                            text("{"),
+                            nest(cat(vec![Doc::HardLine, c])),
+                            Doc::HardLine,
+                            text("}"),
+                        ]),
+                        None => cat(vec![h, text("{ }")]),
+                    };
                 }
-                let mut items = Vec::new();
-                if let Some(s) = spread {
-                    let d = self.expr(s);
-                    items.push(cat(vec![text(".."), d]));
-                }
-                for f in fields {
-                    let name = self.tree().text(f.name);
-                    items.push(match self.tree().opt(f.value) {
-                        Some(v) => {
-                            let d = self.expr(v);
-                            cat(vec![text(format!("{name}: ")), d])
+                // The elements in source order: the spread, if any, comes first.
+                let slots: Vec<Slot> = spread
+                    .map(Slot::Spread)
+                    .into_iter()
+                    .chain(fields.iter().map(Slot::Field))
+                    .collect();
+                // Where each element begins, so a comment beside one is bounded
+                // by where the next begins — the same span a comment above the
+                // next element is drained up to. The `after` of the last
+                // element is the closing brace.
+                let starts: Vec<u32> = slots
+                    .iter()
+                    .map(|s| match s {
+                        Slot::Spread(s) => self.tree().span(*s).start,
+                        Slot::Field(f) => f.span.start,
+                    })
+                    .collect();
+                let afters: Vec<u32> = starts
+                    .iter()
+                    .skip(1)
+                    .copied()
+                    .chain(std::iter::once(span.end))
+                    .collect();
+                let last = slots.len().saturating_sub(1);
+                let mut inner = vec![Doc::Line];
+                for (i, ((slot, &start), &after)) in
+                    slots.iter().zip(&starts).zip(&afters).enumerate()
+                {
+                    let lead = self.flush(lo, start);
+                    let (body, end) = match slot {
+                        Slot::Spread(s) => {
+                            let d = self.expr(*s);
+                            (cat(vec![text(".."), d]), self.tree().span(*s).end)
                         }
-                        None => text(name),
-                    });
+                        Slot::Field(f) => {
+                            let name = self.tree().text(f.name);
+                            let d = match self.tree().opt(f.value) {
+                                Some(v) => {
+                                    let d = self.expr(v);
+                                    cat(vec![text(format!("{name}: ")), d])
+                                }
+                                None => text(name),
+                            };
+                            (d, f.span.end)
+                        }
+                    };
+                    // The comma belongs to the list and the comment beside it to
+                    // the line, so the comment comes after the comma: written
+                    // before it, the next read of the file would take it as
+                    // ending the field. Only the last field's comma is optional
+                    // — it is the trailing one the break puts on.
+                    let comma = if i == last {
+                        if_break(text(","), Doc::Nil)
+                    } else {
+                        text(",")
+                    };
+                    let beside = self.trailing(end, after);
+                    if i > 0 {
+                        inner.push(Doc::Line);
+                    }
+                    inner.push(with_lead(lead, cat(vec![body, comma, beside])));
                 }
-                group(cat(vec![
-                    h,
-                    text("{"),
-                    nest(cat(vec![
-                        Doc::Line,
-                        join(cat(vec![text(","), Doc::Line]), items),
-                        if_break(text(","), Doc::Nil),
-                    ])),
-                    Doc::Line,
-                    text("}"),
-                ]))
+                // A comment written above the closing brace, after the last
+                // field, on a line of its own inside the literal.
+                if let Some(c) = self.flush(lo, span.end.saturating_sub(1)) {
+                    inner.push(cat(vec![Doc::HardLine, c]));
+                }
+                group(cat(vec![h, text("{"), nest(cat(inner)), Doc::Line, text("}")]))
             }
         }
     }
