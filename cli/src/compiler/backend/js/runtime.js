@@ -4342,10 +4342,25 @@ function $tree_declare(style, out) {
   } else if (tag === 59) {
     // Only the page behind the box is blurred; the box paints over the blur.
     out.set("backdrop-filter", "blur(" + $tree_length(value) + ")");
-  } else {
+  } else if (tag === 60) {
     // The caret on its own, so a field with transparent text still has a
     // visible one. `Foreground` is otherwise the only thing that reaches it.
     out.set("caret-color", $tree_color(value));
+  } else {
+    // Out of sight, in the tree: the "sr-only" clip. The element paints nothing
+    // and takes no space while its text stays for the accessible name. The
+    // `--buri-visually-hidden` marker is what the snapshot painter reads; a
+    // browser ignores the custom property.
+    out.set("position", "absolute");
+    out.set("width", "1px");
+    out.set("height", "1px");
+    out.set("padding", "0");
+    out.set("margin", "-1px");
+    out.set("overflow", "hidden");
+    out.set("clip", "rect(0,0,0,0)");
+    out.set("white-space", "nowrap");
+    out.set("border", "0");
+    out.set("--buri-visually-hidden", "1");
   }
 }
 

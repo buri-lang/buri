@@ -1629,6 +1629,23 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             let (css, key) = colour(first?)?;
             Some(("caret", key, one("caret-color", &css)))
         }
+        // Out of sight, in the tree: the "sr-only" clip. A one-pixel box out of
+        // the flow with its overflow clipped away, so the element paints
+        // nothing and takes no space while its text stays for the accessible
+        // name. The `--buri-visually-hidden` marker — a custom property a
+        // browser ignores — is what tells the snapshot painter to paint nothing
+        // rather than a clipped pixel (#188).
+        61 => Some((
+            "vh",
+            "on".into(),
+            vec![(
+                "",
+                "position:absolute;width:1px;height:1px;padding:0;margin:-1px;\
+                 overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;\
+                 --buri-visually-hidden:1"
+                    .to_owned(),
+            )],
+        )),
         _ => None,
     }
 }

@@ -1222,6 +1222,11 @@ struct Computed {
     /// stylesheet writes it as `position: fixed` (a browser's own clip escape)
     /// plus the `--buri-pin-anchor` marker this reads.
     escape: bool,
+    /// `VisuallyHidden`: paint nothing, but stay in the scene so the text
+    /// counts towards the accessible name. The stylesheet writes the sr-only
+    /// clip a browser hides the box with; this marker is what stops the painter
+    /// drawing the one clipped pixel it would otherwise leave (#188).
+    hidden: bool,
     inset: [Len; 4],
     clipped: [bool; 2],
 
@@ -1321,6 +1326,7 @@ impl Computed {
             fixed: false,
             sticky: false,
             escape: false,
+            hidden: false,
             inset: [Len::Auto; 4],
             clipped: [false; 2],
             background: Rgba::CLEAR,
@@ -1593,6 +1599,11 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
             style.absolute = true;
             style.escape = true;
         }
+        // `Position(.PinAnchor)`'s sibling from the other side: `VisuallyHidden`
+        // paints nothing. The stylesheet's sr-only clip would leave one pixel;
+        // this marker makes the painter draw the subtree not at all, while the
+        // node stays in the scene for the accessible name (#188).
+        "--buri-visually-hidden" => style.hidden = true,
         "inset-inline-start" => set_sides(&mut style.inset, [0], len(value)),
         "inset-inline-end" => set_sides(&mut style.inset, [1], len(value)),
         "inset-block-start" => set_sides(&mut style.inset, [2], len(value)),
@@ -3002,6 +3013,12 @@ impl Painter<'_> {
         else {
             return;
         };
+        // `VisuallyHidden`: paint nothing — not the box, not its children, not
+        // its text. The node is still in the scene, so its text has already
+        // counted towards the accessible name; it just leaves no ink (#188).
+        if style.hidden {
+            return;
+        }
         let Ok(layout) = self.tree.layout(id) else { return };
         let (across, down) = shift(style, layout.size);
         let left = x + layout.location.x + across;
@@ -4909,6 +4926,36 @@ mod tests {
             white,
             "and is cut off at the scroller's edge"
         );
+    }
+
+    /// buri#188: a `VisuallyHidden` element paints nothing — it is clipped out
+    /// of sight the way the "sr-only" technique hides it — while it stays in
+    /// the scene so its text still counts towards the accessible name. The
+    /// stylesheet writes the sr-only clip; the `--buri-visually-hidden` marker
+    /// is what makes the painter leave no ink at all rather than one pixel.
+    #[test]
+    fn a_visually_hidden_element_paints_nothing() {
+        let scene = |style: &str| {
+            format!(
+                "buri-scene 1\nviewport 120 40\n\
+                 e 0 font-size:20px;color:rgb(0,0,0){style}\n\
+                 t 1 Formula\n"
+            )
+        };
+        // The same run, drawn: it inks the canvas.
+        let shown = render_ok(&scene(""), "", "rest");
+        assert!(inked_pixels(&shown) > 0, "a plain run should paint");
+        // Behind the sr-only clip and the marker, it paints nothing: the canvas
+        // is white edge to edge.
+        let hidden = render_ok(
+            &scene(
+                ";position:absolute;width:1px;height:1px;overflow:hidden;\
+                 --buri-visually-hidden:1",
+            ),
+            "",
+            "rest",
+        );
+        assert_eq!(inked_pixels(&hidden), 0, "a visually-hidden run should paint nothing");
     }
 
     /// A shadow is paint like any other, so the page holds what it casts below
