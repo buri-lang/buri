@@ -5022,6 +5022,9 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // and `aria-valuemax` — there is nothing here to draw or announce for
     // itself.
     const wrapper = $tree_element(parent, "label", anchor);
+    // `around` is the label's, the box a surrounding row lays out — the same
+    // rule a `field`'s and a `toggle`'s wrapper follows.
+    $tree_styles(wrapper, node[7]);
     $tree_text(node[1], $tree_element(wrapper, "span", null), null);
     const element = $tree_element(wrapper, "input", null);
     $dom_attribute(element, "type", "range");
@@ -5033,7 +5036,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     const step = node[5];
     if (step !== undefined) $dom_attribute(element, "step", $f64(step));
     $tree_styles(element, node[6]);
-    $tree_disabled(element, node[7]);
+    $tree_disabled(element, node[8]);
     // The signal holds a `Float`, and the control's `value` is a string, so this
     // boundary is the one place a number is coerced across — `String` out and
     // `Number` back in.
@@ -5043,7 +5046,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
       if (element.value !== text) element.value = text;
     });
     $dom_listen(element, "input", () => $ui_flush(() => $ui_write(cell, Number(element.value))));
-    $tree_events(ctx, wrapper, node[8]);
+    $tree_events(ctx, wrapper, node[9]);
     return;
   }
   if (tag === 11) {

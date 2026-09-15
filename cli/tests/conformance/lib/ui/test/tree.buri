@@ -3538,6 +3538,54 @@ test "a range field is a slider, and the browser drives it" {
     assert.containsText(page.markup(), "range:0.0 100.0 75.0");
 }
 
+test "a slider takes styles for the box around it, the way a field and a toggle do" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let volume = signal(ctx, 50.0);
+    // `around` lands on the slider's `<label>` wrapper — the box a surrounding
+    // stack lays out — so the words can sit above the track in a stretched
+    // column, exactly as a labelled field's do. Without it the wrapper was the
+    // widget's own `lay-row wrap-wrap ac-center` and nothing else.
+    let tree = rooted(
+        ctx,
+        ui.slider({
+            label: .Const("Volume"),
+            value: volume,
+            min: 0.0,
+            max: 100.0,
+            styles: [.Width(.Full), .Height(.Px(16))],
+            around: .Some([.Layout(.Column), .AlignCross(.Stretch), .Grow(1), .Gap(.Px(8))]),
+        }),
+    );
+    // The caller's arrangement beats the widget's default, the way a field's
+    // `around` beats its wrapper's row.
+    assert.equal(
+        render(ctx, tree).markup(),
+        "e 0 class:wrap-wrap lay-col ac-stretch grow-1 gap-8\nt 1 Volume\ne 1 class:shrink-0 w-full h-16;field:range;range:0.0 100.0 50.0",
+    );
+    // The scene the painter reads carries the same wrapper.
+    assert.containsText(
+        ui.describe(ctx, tree, .Hover),
+        "e 0 class:wrap-wrap lay-col ac-stretch grow-1 gap-8",
+    );
+    // A slider given no `around` keeps the widget's own default wrapper.
+    assert.containsText(
+        render(
+            ctx,
+            ui.slider({
+                label: .Const("Bass"),
+                value: signal(ctx, 20.0),
+                min: 0.0,
+                max: 100.0,
+                styles: [],
+            }),
+        ).markup(),
+        "e 0 class:lay-row wrap-wrap ac-center",
+    );
+}
+
 test "a range's bounds are in the scene, and its value is not a run of text" {
     let ctx = context {
         Allocator: alloc(),

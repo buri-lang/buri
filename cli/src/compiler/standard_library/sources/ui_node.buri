@@ -265,8 +265,9 @@ enum NodeKind<C> {
     Icon([Style], Str, Events<C>),
     Field(Prop<Str>, FieldKind, Prop<Str>, [Style], [Style], Signal<Str>, Prop<Bool>, Prop<Bool>, Events<C>),
     // The numeric control split out of the old `FieldKind.Range`: label, value,
-    // min, max, step, styles, disabled, events.
-    Slider(Prop<Str>, Signal<Float>, Float, Float, Option<Float>, [Style], Prop<Bool>, Events<C>),
+    // min, max, step, styles, around, disabled, events. `around` lands on the
+    // `<label>` wrapper, the way a `Field`'s and a `Toggle`'s do.
+    Slider(Prop<Str>, Signal<Float>, Float, Float, Option<Float>, [Style], [Style], Prop<Bool>, Events<C>),
     Toggle(Prop<Str>, ToggleKind, [Style], [Style], Signal<Bool>, Prop<Bool>, Prop<Bool>, Events<C>),
     // The one choice primitive (was `radioGroup`), styled. Each option is a key
     // and the node drawn beside it — any node, not just a caption.
@@ -793,6 +794,10 @@ struct Slider<C> {
     export max: Float,
     /// Applied to the slider.
     export styles: [Style],
+    /// Applied to the `<label>` the track and its text are wrapped in — where
+    /// `Grow`, `Shrink`, `AlignSelf` and `Width` belong, the way a `field`'s and
+    /// a `toggle`'s `around` does.
+    export around: Option<[Style]>,
     /// What an arrow key moves by. Left out, a continuous track.
     export step: Option<Float>,
     /// Written only when `true`: takes the slider out of the tab order and
@@ -826,6 +831,7 @@ export fn slider<C>(config: Slider<C>): Node<C> {
             config.max,
             config.step,
             config.styles,
+            orNoStyles(config.around),
             orFalse(config.isDisabled),
             events,
         ),
@@ -1649,7 +1655,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // A slider's value and `disabled` change its scene, so a write rebuilds
         // it in place, the way a field does. The control is ctx-free, so the
         // watcher emits it inline between the region's markers.
-        .Slider(label, value, min, max, step, styles, disabled, _events) => {
+        .Slider(label, value, min, max, step, styles, around, disabled, _events) => {
             let region = enterDynamic(builder);
             let _ = step;
             reactive(fn(scope) => {
@@ -1662,6 +1668,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     min,
                     max,
                     styles,
+                    around,
                     disabled,
                     state,
                 );
@@ -2008,6 +2015,7 @@ fn emitSlider(
     min: Float,
     max: Float,
     styles: [Style],
+    around: [Style],
     disabled: Prop<Bool>,
     state: State,
 ): () {
@@ -2015,7 +2023,7 @@ fn emitSlider(
     let _ = emitElement(
         builder,
         "label",
-        widgetBody(mem, plain(state), [], wrapper([])),
+        widgetBody(mem, plain(state), [], wrapper(around)),
     );
     let _ = emitReactiveText(builder, label);
     let _ = emitSliderControl(
@@ -2556,14 +2564,14 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // carries `field:range` and `range:<min> <max> <value>` — the old
         // `FieldKind.Range`'s scene, so the painter draws the thumb unchanged —
         // and no run of text, because a browser draws a thumb and never a number.
-        .Slider(label, value, min, max, _step, styles, disabled, _events) => {
+        .Slider(label, value, min, max, _step, styles, around, disabled, _events) => {
             let painted = refusing(state, disabled.read(scope));
             let leading = [decl(ctx, "field", "range")].concat(
                 ctx,
                 sliderBounds(ctx, min, max, value.get(scope)),
             );
             [
-                styledLine(ctx, plain(state), wrapper([]), depth),
+                styledLine(ctx, plain(state), wrapper(around), depth),
                 textLine(ctx, depth + 1, label.read(scope)),
                 widgetLine(ctx, painted, leading, sliderTrack(styles), depth + 1),
             ]
