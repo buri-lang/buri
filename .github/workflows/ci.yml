@@ -93,11 +93,13 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       # A macOS host cross-builds the Linux output in the output-selection and
       # cross tests (#194), which needs the Linux target's standard library. The
-      # cross link then drives rustc's own bundled `ld.lld` (build/link.rs), so
-      # the macOS leg needs no system lld — which is why this is one line and not
-      # a linker install.
+      # cross link drives rustc's own bundled `ld.lld` (build/link.rs) so the leg
+      # needs no system lld — but that `rust-lld` is dynamically linked against
+      # `libLLVM.dylib`, which only the `llvm-tools` component ships, so add both.
       - if: runner.os == 'macOS'
-        run: rustup target add x86_64-unknown-linux-musl
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          rustup component add llvm-tools-preview
       - if: runner.os == 'Linux'
         run: |
           set -euo pipefail
