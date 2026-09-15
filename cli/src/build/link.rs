@@ -528,6 +528,12 @@ pub struct CDriver {
     /// ones. Present for a cross link, and it carries the cached archive, the
     /// staged sysroot and the two digests the `link` key is built from.
     cross: Option<Cross>,
+    /// The `gcc-ld` directory holding rustc's bundled `ld.lld`, passed as `-B`
+    /// so a cross link drives that lld instead of a system one. `Some` on a
+    /// cross link where the shim was found ([`runtime_cross::rust_lld_dir`]),
+    /// and `None` on every host link — which is what keeps the host command
+    /// line byte-identical, since nothing is added to it.
+    lld_dir: Option<PathBuf>,
     /// Shared with every other `CDriver` this process selected for the same
     /// driver and flavour, so the two `--version` spawns happen once (see
     /// [`PROBED`]).
@@ -721,7 +727,16 @@ pub fn select(target: Target) -> Result<CDriver, Refusal> {
     let mut programs = vec![driver.clone()];
     programs.extend(flavour.program(Some(target.platform)).and_then(spawn::resolve));
     let version = identity_of(flavour, programs);
-    Ok(CDriver { dir: PathBuf::new(), driver, flavour, target, libc, cross: None, version })
+    Ok(CDriver {
+        dir: PathBuf::new(),
+        driver,
+        flavour,
+        target,
+        libc,
+        cross: None,
+        lld_dir: None,
+        version,
+    })
 }
 
 /// [`select`] for a cross target: resolve the cached cross runtime and pin the
@@ -753,8 +768,24 @@ fn select_cross(target: Target, driver: PathBuf) -> Result<CDriver, Refusal> {
     // (ARCHITECTURE.md §9). A fixed flavour also keeps the link line the same on
     // every host that cross-builds.
     let flavour = Flavour::Lld;
+    // **Rustc's own `ld.lld`, not a system one.** Apple's `clang` ships no lld
+    // and rejects the bare `-fuse-ld=lld` outright — `invalid linker name in
+    // argument '-fuse-ld=lld'` — so a cross link that leaned on a system lld
+    // being on `PATH` worked only where one happened to be installed, which is
+    // exactly the CI leg #194 was first reverted for. Every Rust toolchain
+    // carries an `ld.lld` shim under `gcc-ld/`, and passing that directory as
+    // `-B` (below, in [`CDriver::link`]) makes clang accept `-fuse-ld=lld` and
+    // find it there rather than on `PATH`. `None` only when the shim is somehow
+    // absent, and then the flag falls back to whatever `PATH` offers.
+    let lld_dir = runtime_cross::rust_lld_dir();
     let mut programs = vec![driver.clone()];
-    programs.extend(flavour.program(Some(target.platform)).and_then(spawn::resolve));
+    // The linker whose `--version` enters the `link` key is the one that will
+    // actually run: rustc's `ld.lld` when it was found, and only otherwise the
+    // `PATH` probe the host path uses.
+    match &lld_dir {
+        Some(dir) => programs.push(dir.join("ld.lld")),
+        None => programs.extend(flavour.program(Some(target.platform)).and_then(spawn::resolve)),
+    }
     let version = identity_of(flavour, programs);
     Ok(CDriver {
         dir: PathBuf::new(),
@@ -763,6 +794,7 @@ fn select_cross(target: Target, driver: PathBuf) -> Result<CDriver, Refusal> {
         target,
         libc: LibcMode::MuslCross,
         cross: Some(cross),
+        lld_dir,
         version,
     })
 }
@@ -1776,6 +1808,14 @@ impl Linker for CDriver {
         command.env("ZERO_AR_DATE", "1");
         if let Some(flag) = self.flavour.driver_flag() {
             command.arg(flag);
+        }
+        // On a cross link, point the driver at rustc's bundled `ld.lld` for the
+        // `-fuse-ld=lld` above: `-B <gcc-ld dir>` is the directory clang searches
+        // for `ld.lld`, so the toolchain's own lld does the link and no system
+        // one need be on `PATH` (see `select_cross`). `None` on every host link,
+        // so that path's command line is exactly the string it always was.
+        if let Some(dir) = &self.lld_dir {
+            command.arg("-B").arg(dir);
         }
         command.arg("-o").arg("artifact");
         // The prelude — empty on a host link, and the mode flags plus the

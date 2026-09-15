@@ -91,6 +91,13 @@ jobs:
           # Two architectures must not share a key: the artifacts are the host's.
           shared-key: ${{ matrix.os }}-${{ matrix.arch }}
       - uses: oven-sh/setup-bun@v2
+      # A macOS host cross-builds the Linux output in the output-selection and
+      # cross tests (#194), which needs the Linux target's standard library. The
+      # cross link then drives rustc's own bundled `ld.lld` (build/link.rs), so
+      # the macOS leg needs no system lld — which is why this is one line and not
+      # a linker install.
+      - if: runner.os == 'macOS'
+        run: rustup target add x86_64-unknown-linux-musl
       - if: runner.os == 'Linux'
         run: |
           set -euo pipefail
