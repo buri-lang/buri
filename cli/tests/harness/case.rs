@@ -37,7 +37,6 @@
 //! run  { args: [...]  exit: 1  golden: "lint.txt"  stream: ALL  stdin: "session.jsonl" }
 //! run  { args: [...]  exit: 1  golden: "order.txt"  stream: MERGED }
 //! run  { args: ["build"]  exit: 0  cwd: "lib/money" }
-//! run  { args: [...]  exit: 1  golden: "cross.txt"  host: LINUX }
 //! edit { file: "cmd/app/BUILD.buri"  replace: "..."  with: "..." }
 //! file { path: "cmd/f/main.buri"  golden: "formatted.buri" }
 //! file { path: ".buri/out/js/cmd/app/app.mjs"  absent: "a marker" }
@@ -136,18 +135,6 @@ pub enum Step {
         /// A directory inside the repository to run from, for the forms that
         /// take no target and mean the repository whatever directory that is.
         cwd: Option<String>,
-        /// The host OS this run applies to, as `std::env::consts::OS`
-        /// (`"macos"`, `"linux"`), or `None` for every host.
-        ///
-        /// The seam a cross-compilation case needs. A Linux artifact builds on
-        /// any host and a macOS one only on a macOS host (ARCHITECTURE.md §9),
-        /// so `{{CROSS_PLATFORM}}` — the platform that is *not* the host — is a
-        /// **refusal** on a Linux host (its cross is macOS) and a **success** on
-        /// a macOS host (its cross is Linux). One run cannot assert both, so a
-        /// run names the host it is about and the harness skips it elsewhere.
-        /// The golden files stay checked in either way — [`no_golden_has_collapsed`]
-        /// reads them off disk — so a run skipped here does not orphan one.
-        host: Option<String>,
     },
     Edit {
         file: String,
@@ -536,14 +523,6 @@ pub fn load_case(dir: &Path) -> Case {
                             "{name}: run.stream is {other}, not one of ALL, OUT, ERR, MERGED"
                         ),
                     },
-                    host: match optional_ident(&name, "run.host", &message).as_deref() {
-                        None => None,
-                        Some("MACOS") => Some(String::from("macos")),
-                        Some("LINUX") => Some(String::from("linux")),
-                        Some(other) => {
-                            panic!("{name}: run.host is {other}, not one of MACOS, LINUX")
-                        }
-                    },
                 });
             }
             "edit" => {
@@ -706,13 +685,7 @@ pub fn run_case(case: &Case, g: &mut Golden) {
     }
     for (i, step) in case.steps.iter().enumerate() {
         match step {
-            Step::Run { args, exit, golden, stream, stdin, cwd, host } => {
-                // A run named for another host is skipped: its golden is another
-                // host's to bless and compare, and this one asserts nothing
-                // about it. The file stays on disk for `no_golden_has_collapsed`.
-                if host.as_deref().is_some_and(|h| h != std::env::consts::OS) {
-                    continue;
-                }
+            Step::Run { args, exit, golden, stream, stdin, cwd } => {
                 let argv: Vec<&str> = args.iter().map(String::as_str).collect();
                 // A `cwd` is a directory inside the scratch copy, so the run
                 // is the one a user makes standing in a package.

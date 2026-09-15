@@ -614,28 +614,25 @@ backend".
 
 ## 9. What this does not do
 
-- **Cross-compilation to Linux, from any host.** Cross *codegen* always worked
-  and is exercised: the debug backend bakes one stencil library per target and
-  looks one up by triple rather than by the running CPU, cross-building both of
-  its Linux libraries on a macOS host with no Linux sysroot (CODEGEN-STENCIL.md
-  §3.2), and LLVM targets everything (`design/PERFORMANCE.md` §3). What was
-  refused was the *link*, and it no longer is: `buri build --output=linux/x86_64`
-  on a macOS host now produces a runnable static-PIE musl executable.
+- **No cross-*linking*.** Cross *codegen* works and is exercised. The debug
+  backend bakes one stencil library per target and looks one up by triple rather
+  than by the running CPU, cross-building both of its Linux libraries on a macOS
+  host with no Linux sysroot (CODEGEN-STENCIL.md §3.2), and LLVM targets
+  everything: the benchmark suite takes `aarch64-apple-darwin`,
+  `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` as default rows on
+  whichever machine it is run on (`design/PERFORMANCE.md` §3). A cross triple is
+  in fact *more* reproducible than the host one, because the host ISA is inferred
+  from the running CPU's features and a cross ISA is the baseline for its triple.
 
-  The shape is fixed and asymmetric: **any host builds any Linux target, a macOS
-  host builds macOS and Linux, and no Linux host builds a macOS artifact.** A
-  Linux artifact is self-contained (musl, no SDK), so any host can produce one; a
-  macOS artifact links against Apple's `libSystem` stubs, which do not ship, so
-  it needs a macOS host. The policy lives in one predicate, `link::can_link`
-  (`is_host_target(target) || target.platform == Linux`), with
-  `actions::native_ready` in front of it; the one direction it refuses —
-  Linux → macOS — keeps the honest `native-artifact-not-available` diagnostic.
-  `buri test` is stricter: a suite must *run*, so `commands/test.rs` narrows to
-  `link::is_host_target`, and a cross platform is refused there even where
-  `buri build` allows it.
+  What is still refused is producing a runnable artifact for another host:
+  `buri build --output=linux/x86_64` on a macOS host is an error naming the host
+  it can build for. The policy lives in one predicate, `link::can_link` — the
+  target's platform and architecture must be the host's — with
+  `actions::native_ready` in front of it.
 
-  The link is `rustc`'s own recipe for the triple, and nothing the toolchain
-  does not already carry — `ld.lld` and the target's `self-contained/` sysroot:
+  The *link* is no longer the reason it is refused. A static-PIE musl executable
+  links for a foreign Linux triple from a macOS host with nothing the toolchain
+  does not already carry — the baked `self-contained/` sysroot and `ld.lld`:
 
   ```text
   cc --target=x86_64-unknown-linux-musl -fuse-ld=lld -static-pie \
@@ -653,27 +650,28 @@ backend".
   builtins `-lgcc` would have (`compiler_builtins` is in the archive) and
   precedes `-lc`, so musl's own `__addtf3` references resolve.
 
-  Lifting `can_link` needed the runtime per triple; the one thing it does *not*
-  reach is a macOS target from Linux, and that is not a compiler problem:
+  Two things stand between that and lifting `can_link`, and only the first is a
+  compiler problem:
 
-  - **The runtime archive per triple (done).** `cli/build.rs` builds
-    `libburi_rt.a` for the host only, and a cross link needs the target's. The
-    runtime *sources* are now embedded (`build/runtime_src.rs`) and
-    `build/runtime_cross.rs` re-assembles them, cross-builds the archive with
-    `rustc` for the target's musl triple (~30s), locates the target's
-    `self-contained/` sysroot, and caches both under `~/.buri/cross/<key>/` —
-    amortized like a toolchain component, not several megabytes per triple baked
-    into one binary. The first cross target is **net-off and crypto-off**:
-    `ring` compiles C that needs the target's musl headers, which a bare macOS
-    host does not have, so a cross `net` or `crypto` program is refused by name
-    at compile time (`backend::networking_gap_when`, threaded per target through
-    `actions::runtime_features_for`) rather than at the system linker.
-  - **A macOS target needs Apple's SDK, which cannot ship.** A macOS artifact
-    links against `libSystem` and its `.tbd` stubs, which Apple does not license
-    for redistribution, so a macOS target can only be built on a macOS host —
-    the one direction `can_link` refuses. The `--output` diagnostic owes it an
-    honest "build this on a macOS host" rather than a promise the toolchain
-    cannot keep.
+  - **The runtime archive per triple.** `cli/build.rs` builds `libburi_rt.a` for
+    the host and for nothing else, and a cross link needs the target's. `rustc`
+    cross-builds the pure-Rust runtime for `x86_64-unknown-linux-musl` from a
+    macOS host in about thirty seconds, so the machinery is a build-and-cache
+    step per triple — kept in `~/.buri` and amortized like a toolchain
+    component, not several megabytes per triple baked into one binary. Its
+    `net`/`crypto` features are the exception: `ring` compiles C that needs the
+    target's musl headers, which a bare macOS host does not have. A cross host
+    without them gets the `net`-off runtime and the same run-time refusal a host
+    with no `cc` already gets (§2, `networking_gap`).
+  - **A macOS target needs Apple's SDK, which cannot ship.** A Linux artifact is
+    self-contained — musl, no SDK, no `libSystem` — so *any* host can produce
+    one. A macOS artifact links against `libSystem` and its `.tbd` stubs, which
+    Apple does not license for redistribution, so a macOS target can only be
+    built on a macOS host. "Cross-compile for every platform" therefore has a
+    fixed shape: any host builds any Linux target, a macOS host builds macOS and
+    Linux, and **no Linux host builds a macOS artifact**. The `--output`
+    diagnostic owes that one direction an honest "build this on a macOS host"
+    rather than a promise the toolchain cannot keep.
 - **No dynamic linking, no shared libraries, no `dlopen`.** The language has no
   FFI to declare one with, so there is nothing to link against but the runtime.
   What "static" *means* differs on the two platforms:
