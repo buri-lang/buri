@@ -222,8 +222,13 @@ struct Events<C> {
     onFocus: Option<fn(C, Bool) => ()>,
     /// The offset this element's own scroll came to rest at.
     onScroll: Option<fn(C, ScrollOffset) => ()>,
-    /// A key pressed while focus is within this element.
-    onKey: Option<fn(C, Key) => ()>,
+    /// A key pressed while focus is within this element. Answering `true` claims
+    /// the key: the platform's own handling of it is suppressed
+    /// (`preventDefault`), so Tab does not leave the field, Enter does not submit
+    /// the form, an arrow does not move the caret, and Escape does not shut the
+    /// dialog. Answering `false` lets the key through, which is what a handler
+    /// that only observed it wants.
+    onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an
     /// overlay. Lowers to one document-level listener that lives exactly as long
     /// as the element.
@@ -319,7 +324,7 @@ fn listen<C>(
     onHover: Option<fn(C, Bool) => ()>,
     onFocus: Option<fn(C, Bool) => ()>,
     onScroll: Option<fn(C, ScrollOffset) => ()>,
-    onKey: Option<fn(C, Key) => ()>,
+    onKey: Option<fn(C, Key) => Bool>,
     onPressOutside: Option<fn(C) => ()>,
 ): Events<C> {
     Events {
@@ -407,7 +412,7 @@ struct Stack<C> {
     /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
     /// A key pressed while focus is within this element.
-    export onKey: Option<fn(C, Key) => ()>,
+    export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
@@ -530,7 +535,7 @@ struct Button<C> {
     /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
     /// A key pressed while focus is within this element.
-    export onKey: Option<fn(C, Key) => ()>,
+    export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
@@ -609,7 +614,7 @@ struct Link<C> {
     /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
     /// A key pressed while focus is within this element.
-    export onKey: Option<fn(C, Key) => ()>,
+    export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
@@ -666,7 +671,7 @@ struct Image<C> {
     /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
     /// A key pressed while focus is within this element.
-    export onKey: Option<fn(C, Key) => ()>,
+    export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
@@ -750,7 +755,7 @@ struct Field<C> {
     /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
     /// A key pressed while focus is within this element.
-    export onKey: Option<fn(C, Key) => ()>,
+    export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
@@ -815,7 +820,7 @@ struct Slider<C> {
     /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
     /// A key pressed while focus is within this element.
-    export onKey: Option<fn(C, Key) => ()>,
+    export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
@@ -879,7 +884,7 @@ struct Toggle<C> {
     /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
     /// A key pressed while focus is within this element.
-    export onKey: Option<fn(C, Key) => ()>,
+    export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
@@ -931,7 +936,7 @@ struct Form<C> {
     /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
     /// A key pressed while focus is within this element.
-    export onKey: Option<fn(C, Key) => ()>,
+    export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
@@ -997,7 +1002,7 @@ struct Dialog<C> {
     /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
     /// A key pressed while focus is within this element.
-    export onKey: Option<fn(C, Key) => ()>,
+    export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
@@ -1067,7 +1072,7 @@ struct Picker<C> {
     /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
     /// A key pressed while focus is within this element.
-    export onKey: Option<fn(C, Key) => ()>,
+    export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
@@ -1133,7 +1138,7 @@ struct Progress<C> {
     /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
     /// A key pressed while focus is within this element.
-    export onKey: Option<fn(C, Key) => ()>,
+    export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }
@@ -1186,7 +1191,7 @@ struct Disclosure<C> {
     /// The offset this element's own scroll came to rest at.
     export onScroll: Option<fn(C, ScrollOffset) => ()>,
     /// A key pressed while focus is within this element.
-    export onKey: Option<fn(C, Key) => ()>,
+    export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
 }

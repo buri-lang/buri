@@ -4815,7 +4815,21 @@ function $tree_events(ctx, element, events) {
   }
   const onKey = events[3];
   if (onKey !== undefined) {
-    $dom_listen(element, "keydown", (event) => $ui_flush(() => onKey(ctx, event.key)));
+    // The handler answers whether it claimed the key. When it did,
+    // `preventDefault` suppresses the platform's own handling — Tab leaving the
+    // field, Enter submitting the form, an arrow moving the caret, Escape
+    // shutting the dialog — so a combobox or completion list can drive those
+    // keys. The answer is captured out of the flushed run (which itself always
+    // returns 0), and `preventDefault` still lands synchronously inside the
+    // browser's keydown dispatch.
+    $dom_listen(element, "keydown", (event) => {
+      let consumed = false;
+      $ui_flush(() => {
+        consumed = onKey(ctx, event.key);
+        return consumed;
+      });
+      if (consumed === true) event.preventDefault();
+    });
   }
   const onPressOutside = events[4];
   if (onPressOutside !== undefined) {

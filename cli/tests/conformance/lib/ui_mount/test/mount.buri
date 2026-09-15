@@ -57,3 +57,65 @@ test "the counter mounts" {
     let themes: [Theme] = [];
     assert.equal(ui.mount(ctx, counter(ctx, "clicks"), themes), .Ok(()));
 }
+
+// The completion-list shape #181 is about: a field, its form's submit button,
+// the stack around them and a dialog all carry `onKey`, and each handler answers
+// whether it claimed the key. Answering `true` is what suppresses the platform's
+// own handling of it in a browser — Tab leaving the field, Enter submitting the
+// form, an arrow moving the caret, Escape shutting the dialog — so a completion
+// list can drive those keys. The consume itself is a `preventDefault` a browser
+// makes and a headless document has no pointer or keyboard to see; what a mount
+// can show is that the four constructors take the one consistent handler shape
+// and build.
+fn completion<C: Ui>(ctx: C): Node<C> {
+    let name = signal(ctx, "");
+    let open = signal(ctx, false);
+    ui.stack({
+        styles: [],
+        // A key on the stack claims nothing — it only observes — so it answers
+        // `false` and lets the platform have the key.
+        onKey: .Some(fn(_c, _key) => false),
+        children: [
+            ui.form({
+                onSubmit: fn(_c) => (),
+                styles: [],
+                children: [
+                    ui.field({
+                        label: .Const("Name"),
+                        kind: .Text,
+                        value: name,
+                        styles: [],
+                        // Enter and Tab and the arrows are the completion list's
+                        // while it is open; every other key falls through.
+                        onKey: .Some(fn(_c, key) => {
+                            key == "Enter" || key == "Tab" || key == "ArrowDown" || key == "ArrowUp"
+                        }),
+                    }),
+                    ui.button({
+                        label: .Const("Send"),
+                        styles: [],
+                        kind: .Some(.Submit),
+                        onKey: .Some(fn(_c, _key) => false),
+                    }),
+                ],
+            }),
+            ui.dialog({
+                isOpen: open,
+                label: .Const("Help"),
+                children: [],
+                styles: [],
+                // The dialog claims Escape so its own shutting is the program's,
+                // not the browser's.
+                onKey: .Some(fn(_c, key) => key == "Escape"),
+            }),
+        ],
+    })
+}
+
+test "a completion field, its submit, the stack and a dialog all carry a consuming onKey" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let themes: [Theme] = [];
+    assert.equal(ui.mount(ctx, completion(ctx), themes), .Ok(()));
+}
