@@ -2398,6 +2398,12 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Void,
     },
     Entry {
+        key: "ui_node.registerSelection",
+        symbol: "buri_rt_ui_node_register_selection",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Void,
+    },
+    Entry {
         key: "ui_node.registerLabel",
         symbol: "buri_rt_ui_node_register_label",
         args: &[Arg::Scalar, Arg::Str],
@@ -2444,6 +2450,12 @@ pub const ENTRIES: &[Entry] = &[
         key: "ui_testing.Rendered.fill",
         symbol: "buri_rt_ui_testing_rendered_fill",
         args: &[Arg::Scalar, Arg::Str, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_testing.Rendered.select",
+        symbol: "buri_rt_ui_testing_rendered_select",
+        args: &[Arg::Scalar, Arg::Str, Arg::Scalar, Arg::Scalar],
         ret: Ret::Void,
     },
     Entry {

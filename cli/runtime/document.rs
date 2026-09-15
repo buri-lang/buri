@@ -78,6 +78,10 @@ struct Record {
     /// writes it a string and `flip` its negation, the way the JavaScript
     /// `input`/`change` listener writes the bound signal.
     value_signal: i64,
+    /// The signal a field's caret/selection is bound to, or `-1`. `select` writes
+    /// it an `(anchor, focus)` pair — never read while the scene is built, since
+    /// a caret is not in the paint.
+    selection_signal: i64,
     /// Whether this button submits the form it is in — the JavaScript
     /// `type="submit"`, the whole of what makes a press or Enter submit.
     submit: bool,
@@ -104,6 +108,7 @@ fn plain_record(identity: i64, kind: Kind, name: String, body: String, text: Str
         children: Vec::new(),
         press: -1,
         value_signal: -1,
+        selection_signal: -1,
         submit: false,
         label: String::new(),
         follow: -1,
@@ -881,6 +886,19 @@ pub extern "C" fn buri_rt_ui_node_register_value(handle: i64, signal: i64) {
     });
 }
 
+/// `registerSelection(builder, signal)` — stores the signal a field's
+/// caret/selection is bound to on the open element, so `select` writes it an
+/// `(anchor, focus)` pair.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_node_register_selection(handle: i64, signal: i64) {
+    with_doc(handle, |doc| {
+        let open = open_element(doc);
+        if let Some(r) = doc.records.get_mut(open) {
+            r.selection_signal = signal;
+        }
+    });
+}
+
 /// `registerLabel(builder, label)` — keeps a control's accessible name on the
 /// open element, so `press` addresses a button by the label a reader hears
 /// rather than its glyphs.
@@ -1268,6 +1286,49 @@ pub unsafe extern "C" fn buri_rt_ui_testing_rendered_fill(
         } else {
             crate::ui::set_str_signal(signal, &value);
         }
+        crate::ui::buri_rt_ui_flush_end();
+    }
+}
+
+/// `Rendered.select(label, start, end)` — move the caret and selection of the
+/// field the label names to the `(anchor, focus)` offsets, unless it is disabled,
+/// inert, or keeps no `selection` signal.
+///
+/// # Safety
+/// `label` is a readable UTF-8 range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_rendered_select(
+    handle: i64,
+    _lbase: *mut u8,
+    lptr: *const u8,
+    llen: u64,
+    start: i64,
+    end: i64,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let label = unsafe { text_of(lptr, llen) };
+    let field = with_doc(handle, |doc| {
+        doc.labelled("label", &label).and_then(|l| doc.first_named(l, &["input", "textarea"]))
+    })
+    .flatten();
+    let Some(field) = field else {
+        crate::abort::die(&[b"the label \"", label.as_bytes(), b"\" is not a field"])
+    };
+    let (disabled, inert, signal) = with_doc(handle, |doc| {
+        (
+            is_disabled(&doc.records[field].body),
+            doc.inert(field),
+            doc.records[field].selection_signal,
+        )
+    })
+    .unwrap_or((true, true, -1));
+    if disabled || inert {
+        return;
+    }
+    if signal >= 0 {
+        // One update transaction, the way `fill` is.
+        crate::ui::buri_rt_ui_flush_begin();
+        crate::ui::set_i64_pair_signal(signal, start, end);
         crate::ui::buri_rt_ui_flush_end();
     }
 }

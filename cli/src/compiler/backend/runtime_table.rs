@@ -1498,6 +1498,9 @@ pub const ENTRIES: &[Entry] = &[
     // handler like `registerPress`, with the destination string ahead of it.
     ep("ui_node.registerFollow", "buri_rt_ui_node_register_follow", Ret::Void),
     e("ui_node.registerValue", "buri_rt_ui_node_register_value", Ret::Void),
+    // `registerSelection` stores a field's caret/selection signal so `select`
+    // can write it an `(anchor, focus)` pair — a plain handle like `registerValue`.
+    e("ui_node.registerSelection", "buri_rt_ui_node_register_selection", Ret::Void),
     // `registerLabel` keeps a button's accessible name on it, so `press` finds
     // a children-button by the label a reader hears rather than its glyphs.
     e("ui_node.registerLabel", "buri_rt_ui_node_register_label", Ret::Void),
@@ -1516,6 +1519,9 @@ pub const ENTRIES: &[Entry] = &[
     // under the implicit-submission rule. All answer `()`.
     e("ui_testing.Rendered.press", "buri_rt_ui_testing_rendered_press", Ret::Void),
     e("ui_testing.Rendered.fill", "buri_rt_ui_testing_rendered_fill", Ret::Void),
+    // `select` moves the caret and selection: it writes the field's `(Int, Int)`
+    // selection signal the way `fill` writes its value.
+    e("ui_testing.Rendered.select", "buri_rt_ui_testing_rendered_select", Ret::Void),
     e("ui_testing.Rendered.flip", "buri_rt_ui_testing_rendered_flip", Ret::Void),
     e("ui_testing.Rendered.submit", "buri_rt_ui_testing_rendered_submit", Ret::Void),
 ];

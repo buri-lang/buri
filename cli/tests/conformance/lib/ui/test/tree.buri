@@ -3083,6 +3083,60 @@ test "a labelled control takes styles for the box around it" {
     );
 }
 
+test "a field exposes its caret and selection, and select moves them" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let value = signal(ctx, "Balance");
+    let caret = signal(ctx, (0, 0));
+    // A reader watching where the caret is — a completion needs the offset it is
+    // at, which nothing but the selection could tell it. Before this a field had
+    // no caret to read at all.
+    let log = recorder();
+    let _ = watch(ctx, fn(s) => ignore(log.note(caret.get(s).0)));
+    let page = render(
+        ctx,
+        ui.field({
+            label: .Const("Formula"),
+            kind: .Text,
+            value: value,
+            styles: [],
+            selection: .Some(caret),
+        }),
+    );
+    assert.equal(log.noted(), [0]);
+    // Selecting a span writes the `(anchor, focus)` pair a reader would have.
+    let _ = page.select("Formula", 0, 7);
+    assert.equal(caret.get(ctx), (0, 7));
+    // A caret is a selection whose two offsets are equal.
+    let _ = page.select("Formula", 3, 3);
+    assert.equal(caret.get(ctx), (3, 3));
+    // A reader watching the caret sees each move — the offset a completion reads
+    // is reactive, not a guess diffed out of the text.
+    assert.equal(log.noted(), [0, 0, 3]);
+    // The selection is not in the scene a painter reads, so moving it rebuilds
+    // no field: the value the box shows is where it was.
+    assert.containsText(page.markup(), "t 2 Balance");
+}
+
+test "a field built without a selection keeps none, and select leaves it alone" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let value = signal(ctx, "Ada");
+    let page = render(
+        ctx,
+        ui.field({ label: .Const("Name"), kind: .Text, value: value, styles: [] }),
+    );
+    // No selection signal to move: `select` finds the field and does the
+    // observable nothing the interface promises — what the box holds is
+    // untouched, and nothing aborts.
+    let _ = page.select("Name", 0, 3);
+    assert.equal(value.get(ctx), "Ada");
+}
+
 test "a toggle draws its own mark" {
     let ctx = context {
         Allocator: alloc(),
