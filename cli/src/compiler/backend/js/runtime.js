@@ -6337,7 +6337,14 @@ function $ui_testing_Rendered_fill(self, label, value) {
   if ($scene_isDisabled(record.body) || $scene_inert(doc, field)) return 0;
   if (record.valueSignal >= 0) {
     const signal = record.valueSignal;
-    $ui_flush(() => $ui_write(signal, value));
+    // A slider binds a `Signal<Float>` and its `value` is a string on the
+    // control, so what a reader types has to cross back the way the browser's
+    // `input` listener crosses it — `Number` in — or the signal holds a `Str`
+    // where a `Float` belongs, and `==` and `Show` then dispatch on the wrong
+    // tag (`80` compares unequal to `80.0`, and to itself). A text field's
+    // signal is a `Str`, so it takes the value as typed.
+    const typed = $scene_declValue(record.body, "field") === "range" ? Number(value) : value;
+    $ui_flush(() => $ui_write(signal, typed));
   }
   return 0;
 }

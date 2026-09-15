@@ -1241,10 +1241,16 @@ pub unsafe extern "C" fn buri_rt_ui_testing_rendered_fill(
     let Some(field) = field else {
         crate::abort::die(&[b"the label \"", label.as_bytes(), b"\" is not a field"])
     };
-    let (disabled, inert, signal) = with_doc(handle, |doc| {
-        (is_disabled(&doc.records[field].body), doc.inert(field), doc.records[field].value_signal)
+    let (disabled, inert, signal, range) = with_doc(handle, |doc| {
+        let body = &doc.records[field].body;
+        (
+            is_disabled(body),
+            doc.inert(field),
+            doc.records[field].value_signal,
+            decl_value(body, "field").as_deref() == Some("range"),
+        )
     })
-    .unwrap_or((true, true, -1));
+    .unwrap_or((true, true, -1, false));
     if disabled || inert {
         return;
     }
@@ -1252,7 +1258,16 @@ pub unsafe extern "C" fn buri_rt_ui_testing_rendered_fill(
         // One update transaction, as the JavaScript `input` listener's
         // `$ui_flush` is: a write and the cascade it wakes are one pass.
         crate::ui::buri_rt_ui_flush_begin();
-        crate::ui::set_str_signal(signal, &value);
+        if range {
+            // A slider binds a `Signal<Float>`, so what a reader types crosses
+            // back as a `Float` — the same coercion the browser's `input`
+            // listener makes — rather than as the `Str` a text field's signal
+            // holds. A value that is not a number reads as `0.0`, the way an
+            // empty range control does.
+            crate::ui::set_f64_signal(signal, value.trim().parse::<f64>().unwrap_or(0.0));
+        } else {
+            crate::ui::set_str_signal(signal, &value);
+        }
         crate::ui::buri_rt_ui_flush_end();
     }
 }
