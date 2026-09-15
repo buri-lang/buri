@@ -1992,9 +1992,16 @@ fn a_plain_run_never_serves_a_cached_pass_over_failing_content() {
 /// failing case, so a toolchain that crashes on the filtered compilation path
 /// blocks the workflow with a bug of its own rather than with the code under
 /// test (buri-lang/buri#186). The reported crash was a duplicate `Str.compare`
-/// symbol minted while lowering a suite that derives `Ordered` over a `Str`
-/// field — `Str.compare` being reached both inherently and through the derived
-/// conformance — under a filter that keeps only some of the suite's tests.
+/// symbol in a suite that derives `Ordered` over a `Str` field — `Str.compare`
+/// being reached both inherently and through the derived conformance — under a
+/// filter that keeps only some of the suite's tests. The program legitimately
+/// held several `Str.compare` intrinsic functions under one symbol (one per
+/// suite in the batch), which `one_symbol_per_function` excludes because an
+/// intrinsic defines nothing; dead-code elimination then turned the copies the
+/// filter left unreached into `Unbuilt` abort bodies, and two of those under
+/// one symbol tripped the check. `dce::run` now renames a dropped copy that
+/// shared a symbol, and `dce`'s `two_dropped_copies_of_one_intrinsic_do_not_share_a_symbol`
+/// is the unit-level guard on the same fix.
 ///
 /// The assertion is user-visible: every filtered shape reports a test summary
 /// and none prints "internal compiler error". Both batch shapes the report
