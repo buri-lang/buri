@@ -737,10 +737,11 @@ fn the_link_key_moves_with_the_archive_decision_and_not_otherwise() {
 // ---------------------------------------------------------------------------
 
 /// Everything above is inert from the outside until a native backend is
-/// compiled in. That is what keeps `repositories/cli/output_selection` pinned —
-/// `buri build --output=linux/x86_64` must still say "the linux backend is not
-/// implemented" — and it is a claim about this toolchain rather than about a
-/// hypothetical one, so it is asserted on the answer this build gives.
+/// compiled in, and readiness is the conjunction of that, a runtime archive,
+/// and a linkable target. The linkable set is now the cross rule
+/// (ARCHITECTURE.md §9): any host links a Linux target, and only a macOS host
+/// links a macOS one — so this is asserted on the answer this build gives
+/// rather than on the old "host only" one.
 #[test]
 fn a_native_output_is_refused_until_a_backend_and_a_runtime_are_both_present() {
     let js = Target { platform: Platform::Js, arch: None };
@@ -764,16 +765,25 @@ fn a_native_output_is_refused_until_a_backend_and_a_runtime_are_both_present() {
         }
     }
 
-    // A cross target is refused whatever backends exist: the runtime archive is
-    // the host's, and a cross link would need a cross runtime and a sysroot.
-    if let Some(host) = link::host_platform() {
-        let other = match host {
-            Platform::Macos => Platform::Linux,
-            _ => Platform::Macos,
-        };
-        assert!(!actions::native_ready(
-            Target { platform: other, arch: None },
-            Profile::Debug
-        ));
+    // A Linux target is linkable from every host, so with a backend and an
+    // archive it is *ready* — the capability lift this increment is. A macOS
+    // target links only on a macOS host, so it is the one still refused when the
+    // host is not one (ARCHITECTURE.md §9).
+    let backend_and_archive = |t: Target| {
+        buri::compiler::backend::select(t, Profile::Debug).is_ok()
+            && buri::compiler::backend::runtime_native::AVAILABLE
+    };
+    let linux = Target { platform: Platform::Linux, arch: Some(Arch::X86_64) };
+    if backend_and_archive(linux) {
+        assert!(
+            actions::native_ready(linux, Profile::Debug),
+            "a Linux output is ready from every host now"
+        );
+    }
+    if link::host_platform() == Some(Platform::Linux) {
+        assert!(
+            !actions::native_ready(Target { platform: Platform::Macos, arch: None }, Profile::Debug),
+            "a Linux host cannot build a macOS artifact"
+        );
     }
 }

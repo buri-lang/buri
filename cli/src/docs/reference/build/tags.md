@@ -197,11 +197,12 @@ the JS target ([a `BigInt`, not a
 platform listed here must be one the target admits. Asking for a JS run of a
 `[LINUX, MACOS]` library is an error, not a skip.
 
-A native platform runs as a native binary wherever this toolchain can build one,
-which means the host's own platform. There is no cross-compilation, so a `LINUX`
-run happens on a Linux machine and a `MACOS` run on a Mac. The runner refuses
-the other with `platform-not-implemented` rather than quietly running it through
-JavaScript.
+A native platform runs as a native binary on the host that can *execute* one,
+which is the host's own platform. `buri build` cross-compiles a Linux artifact
+from any host, but a suite has to run, and a Linux binary does not run on a Mac —
+so a `LINUX` run happens on a Linux machine and a `MACOS` run on a Mac. The
+runner refuses a cross platform with `platform-not-implemented` rather than
+quietly running it through JavaScript.
 
 A suite that names no platforms also runs on the host natively. Where this
 toolchain cannot build a binary for the host, or where the suite's program
