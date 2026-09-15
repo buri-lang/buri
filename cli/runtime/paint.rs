@@ -1458,6 +1458,25 @@ fn resolve(
             // A `.<class>>*` rule is the enclosing box's class rather than this
             // one's, so a child rule is matched against the node above.
             let holder = holder.and_then(|i| scene.node(i));
+            // A dynamic value sets a `--buri-…` custom property inline and a
+            // class reads it with `var(…)` (#195). The element's own custom
+            // properties join the theme's so that read lands on the value
+            // written beside it and not on nothing — the theme block on its own
+            // never names one. Keyed without the `--`, the way `parse_variables`
+            // reads the theme block and `substitute` looks a name up.
+            let has_local = node.declarations.iter().any(|(name, _)| name.starts_with("--"));
+            let local: Vec<(String, String)> = if has_local {
+                let mut merged = variables.to_vec();
+                for (name, value) in &node.declarations {
+                    if let Some(stripped) = name.strip_prefix("--") {
+                        merged.push((stripped.to_string(), value.clone()));
+                    }
+                }
+                merged
+            } else {
+                Vec::new()
+            };
+            let vars: &[(String, String)] = if has_local { &local } else { variables };
             let mut declarations: Vec<(&str, Cow<'_, str>)> = Vec::new();
             for rule in sheet {
                 let named = if rule.child {
@@ -1468,12 +1487,12 @@ fn resolve(
                 if rule.min_width <= width && rule.state.is_none_or(|s| holds(node, s, state)) && named
                 {
                     for (name, value) in &rule.declarations {
-                        declarations.push((name, substitute(value, variables)));
+                        declarations.push((name, substitute(value, vars)));
                     }
                 }
             }
             for (name, value) in &node.declarations {
-                declarations.push((name, substitute(value, variables)));
+                declarations.push((name, substitute(value, vars)));
             }
             // **`font-size` is computed before everything beside it**, because
             // every `em` on this element is a multiple of the size the element

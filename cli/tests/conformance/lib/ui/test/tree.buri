@@ -790,6 +790,44 @@ test "an edge and a corner the compiler cannot evaluate become inline styles" {
     );
 }
 
+test "a dynamic span lets its breakpoint class win rather than outranking it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    // A column count read from a parameter cannot be folded to a literal. It
+    // used to be written inline as `grid-column`, which outranks every
+    // stylesheet rule — so the `md_span-1` breakpoint class never won, at any
+    // width, silently. Now the value is a `--buri-span` custom property that the
+    // `span-var` class reads, so both classes sit on the element and the medium
+    // rule overrides the base the ordinary way (#195).
+    let tracks = signal(ctx, 2);
+    let dynamic = rooted(
+        ctx,
+        ui.stack({
+            styles: [.Span(tracks.get(ctx)), .At(.Medium, [.Span(1)])],
+            children: [],
+        }),
+    );
+    assert.equal(
+        render(ctx, dynamic).markup(),
+        "e 0 class:span-var md_span-1;--buri-span:span 2",
+    );
+    // A literal count is the class it always was, beside the same breakpoint
+    // class — the two lower to markup the breakpoint rule can win over alike.
+    assert.equal(
+        render(
+            ctx,
+            ui.stack({ styles: [.Span(2), .At(.Medium, [.Span(1)])], children: [] }),
+        ).markup(),
+        "e 0 class:span-2 md_span-1",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".span-var{grid-column:var(--buri-span)}"));
+    assert.isTrue(sheet.contains("@media (min-width:48rem)"));
+    assert.isTrue(sheet.contains(".md_span-1{grid-column:span 1}"));
+}
+
 test "a bleed takes a child out past the padding its parent put it inside" {
     let ctx = context {
         Ui: headless(),
@@ -1203,7 +1241,7 @@ test "a backdrop blur is its own slot: last wins, and a background beside it sta
     );
 }
 
-test "a backdrop blur takes a state and a breakpoint, and degrades to an inline style" {
+test "a backdrop blur takes a state and a breakpoint, and a dynamic one a variable" {
     let ctx = context {
         Ui: headless(),
         Watch: observer(),
@@ -1220,14 +1258,19 @@ test "a backdrop blur takes a state and a breakpoint, and degrades to an inline 
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".hover_bdblur-8:hover{backdrop-filter:blur(8px)}"));
     assert.isTrue(sheet.contains(".md_bdblur-2{backdrop-filter:blur(2px)}"));
-    // A radius the folder cannot reach lands in the tier `Computed` lives in.
+    // A radius the folder cannot reach writes its value out as a custom property
+    // a stylesheet rule reads, so a breakpoint blur could still win over it
+    // (#195), rather than an inline `backdrop-filter` that never could.
     let radius = signal(ctx, 4);
     assert.equal(
         render(
             ctx,
             ui.stack({ styles: [.BackdropBlur(.Px(radius.get(ctx)))], children: [] }),
         ).markup(),
-        "e 0 backdrop-filter:blur(4px)",
+        "e 0 class:bdblur-var;--buri-bdblur:blur(4px)",
+    );
+    assert.isTrue(
+        stylesheet().contains(".bdblur-var{backdrop-filter:var(--buri-bdblur)}"),
     );
 }
 
@@ -1248,12 +1291,12 @@ test "the scene document writes the backdrop blur the browser was given" {
             children: [],
         }),
     );
-    // The background folded and the blur did not, so the element carries one of
-    // each tier — and the scene says both, in the order the browser was given
-    // them.
+    // The background folded and the blur did not, so the element carries a
+    // folded class and a variable-backed one — and the scene says both, the
+    // blur as the `--buri-bdblur` its `bdblur-var` class reads (#195).
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 fit\ne 0 class:bg-000000a0_1;backdrop-filter:blur(4px)",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:bg-000000a0_1 bdblur-var;--buri-bdblur:blur(4px)",
     );
 }
 
@@ -1694,19 +1737,22 @@ test "a shadow list is in the scene document the painter reads" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    // The layers are a parameter, so this is the inline tier — and what it
-    // writes out is the same declaration the stylesheet would have held. The
-    // headless painter reads the scene and a browser reads the markup, and
-    // they agree only while the two carry the same text.
+    // The layers are a parameter, so the compiler cannot fold them: the value
+    // is written out as the `--buri-sh` custom property, and the `sh-var` class
+    // — a rule in the stylesheet — reads it back as the `box-shadow`, so an
+    // `At`/`On` shadow could still win over it (#195). The headless painter
+    // reads the scene and a browser reads the markup, and they agree only while
+    // the two carry the same text.
     let tree = cast([lift, ring]);
     assert.equal(
         render(ctx, tree).markup(),
-        "e 0 box-shadow:0px 2px 4px 0px rgba(0,0,0,0.2),0px 0px 0px 3px rgba(59,130,246,0.5)",
+        "e 0 class:sh-var;--buri-sh:0px 2px 4px 0px rgba(0,0,0,0.2),0px 0px 0px 3px rgba(59,130,246,0.5)",
     );
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 fit\ne 0 box-shadow:0px 2px 4px 0px rgba(0,0,0,0.2),0px 0px 0px 3px rgba(59,130,246,0.5)",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:sh-var;--buri-sh:0px 2px 4px 0px rgba(0,0,0,0.2),0px 0px 0px 3px rgba(59,130,246,0.5)",
     );
+    assert.isTrue(stylesheet().contains(".sh-var{box-shadow:var(--buri-sh)}"));
 }
 
 // --- a colour, faded ------------------------------------------------------------------
@@ -1830,17 +1876,21 @@ test "a faded token is the same mix inline, and in the scene document" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    // The colour is a parameter, so it degrades to the inline tier — and what
-    // is written out is the same text the stylesheet would have held.
+    // The colour is a parameter, so the compiler cannot fold it: it is written
+    // out as the `--buri-bg` custom property — the same mix the stylesheet would
+    // have held, token `var()` and all — and the `bg-var` class reads it as the
+    // `background-color`, so a breakpoint background could still win (#195). The
+    // token inside the mix stays a `var()` for the theme to resolve.
     let tree = painted(style.token("cardlib", "ring").alpha(0.5));
     assert.equal(
         render(ctx, tree).markup(),
-        "e 0 background-color:color-mix(in srgb,var(--cardlib-ring) 50%,transparent)",
+        "e 0 class:bg-var;--buri-bg:color-mix(in srgb,var(--cardlib-ring) 50%,transparent)",
     );
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 fit\ne 0 background-color:color-mix(in srgb,var(--cardlib-ring) 50%,transparent)",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:bg-var;--buri-bg:color-mix(in srgb,var(--cardlib-ring) 50%,transparent)",
     );
+    assert.isTrue(stylesheet().contains(".bg-var{background-color:var(--buri-bg)}"));
 }
 
 test "a faded token inside a shadow is the ring every focus style is" {
@@ -2279,15 +2329,16 @@ test "a document is taken in one state, and carries only that state's classes" {
     );
 }
 
-test "the three new entries write the same declarations inline" {
+test "the three new entries write themselves out, letter-spacing through a variable" {
     let ctx = context {
         Allocator: alloc(),
         Ui: headless(),
         Watch: observer(),
     };
-    // `get` takes a context, so the folder stops at each of these and all three
-    // degrade to the tier `Computed` lives in. What they write out there has to
-    // be the CSS the classes above mean.
+    // `get` takes a context, so the folder stops at each of these. The layout
+    // and the translate write themselves out inline; the letter-spacing writes
+    // its value as the `--buri-ls` its `ls-var` class reads (#195). What each
+    // ends up meaning is still the CSS the folded classes above mean.
     let reversed = signal(ctx, true);
     let tracking = signal(ctx, 0.1);
     let sunk = signal(ctx, -0.5);
@@ -2304,14 +2355,16 @@ test "the three new entries write the same declarations inline" {
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "e 0 display:flex;flex-direction:column-reverse;letter-spacing:0.1em;transform:translate(0px,-0.5em)",
+        "e 0 class:ls-var;display:flex;flex-direction:column-reverse;--buri-ls:0.1em;transform:translate(0px,-0.5em)",
     );
     // The scene document the headless painter reads says the same thing.
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 fit\ne 0 display:flex;flex-direction:column-reverse;letter-spacing:0.1em;transform:translate(0px,-0.5em)",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:ls-var;display:flex;flex-direction:column-reverse;--buri-ls:0.1em;transform:translate(0px,-0.5em)",
     );
+    // The value stays out of the sheet; the class that reads it is what is in it.
     assert.isFalse(stylesheet().contains("letter-spacing:0.1em"));
+    assert.isTrue(stylesheet().contains(".ls-var{letter-spacing:var(--buri-ls)}"));
 }
 
 test "a `When` puts both branches in the stylesheet and swaps between them" {
@@ -2339,7 +2392,7 @@ test "a `When` puts both branches in the stylesheet and swaps between them" {
     assert.isTrue(sheet.contains(".bg-0000ff{background-color:rgb(0,0,255)}"));
 }
 
-test "a `Computed` style is inline, re-serialises, and is never in the stylesheet" {
+test "a `Computed` style re-serialises its value, which is never in the stylesheet" {
     let ctx = context {
         Ui: headless(),
     };
@@ -2352,25 +2405,32 @@ test "a `Computed` style is inline, re-serialises, and is never in the styleshee
         }),
     );
     let view = render(ctx, tree);
-    assert.equal(view.markup(), "e 0 width:137px");
+    // The width is dynamic, so it is the `--buri-w` its `w-var` class reads
+    // (#195), and a change re-serialises the value beside the same class.
+    assert.equal(view.markup(), "e 0 class:w-var;--buri-w:137px");
     width.set(ctx, 241);
-    assert.equal(view.markup(), "e 0 width:241px");
+    assert.equal(view.markup(), "e 0 class:w-var;--buri-w:241px");
     let sheet = stylesheet();
+    // The class that reads the value is in the sheet; neither value ever is.
+    assert.isTrue(sheet.contains(".w-var{width:var(--buri-w)}"));
     assert.isFalse(sheet.contains("137px"));
     assert.isFalse(sheet.contains("241px"));
 }
 
-test "a style the compiler cannot evaluate becomes an inline style" {
+test "a style the compiler cannot evaluate becomes a variable-backed class" {
     let ctx = context {
         Ui: headless(),
         Watch: observer(),
     };
     // `get` takes a context, so it is not pure, so the folder stops here — and
-    // the style degrades to the tier `Computed` lives in rather than failing.
+    // the value is written out as the `--buri-grow` its `grow-var` class reads
+    // rather than as an inline `flex-grow` that no rule could override (#195).
     let share = signal(ctx, 7);
     let tree = rooted(ctx, ui.stack({ styles: [.Grow(share.get(ctx))], children: [] }));
-    assert.equal(render(ctx, tree).markup(), "e 0 flex-grow:7");
+    assert.equal(render(ctx, tree).markup(), "e 0 class:grow-var;--buri-grow:7");
+    // The literal count's class is not here; the variable's is what reads it.
     assert.isFalse(stylesheet().contains("grow-7"));
+    assert.isTrue(stylesheet().contains(".grow-var{flex-grow:var(--buri-grow)}"));
 }
 
 test "a style that arrives as a parameter resolves last-wins over emitted classes" {
@@ -2413,12 +2473,12 @@ test "a static style registers nothing and a computed one re-runs once per chang
             ],
         }),
     );
-    assert.equal(view.markup(), "e 0 \ne 1 class:p-13\ne 1 width:21px");
+    assert.equal(view.markup(), "e 0 \ne 1 class:p-13\ne 1 class:w-var;--buri-w:21px");
     // The static one never ran a computation, so nothing it could have noted
     // is here; the computed one ran once.
     assert.equal(log.noted(), [21]);
     width.set(ctx, 22);
-    assert.equal(view.markup(), "e 0 \ne 1 class:p-13\ne 1 width:22px");
+    assert.equal(view.markup(), "e 0 \ne 1 class:p-13\ne 1 class:w-var;--buri-w:22px");
     assert.equal(log.noted(), [21, 22]);
 }
 
