@@ -7108,7 +7108,7 @@ function $host_testing_sockets() {
 }
 
 function $host_testing_socketsOpen(h) {
-  return $tmint({ owner: Number(h), open: true });
+  return $tmint({ owner: Number(h), open: true, closed: null });
 }
 
 // Whether a push through this double onto that socket goes anywhere — which is
@@ -7150,7 +7150,16 @@ function $host_testing_TestSockets_socketSendBytes(self, socket, body) {
 
 function $host_testing_TestSockets_socketClose(self, socket, code, reason) {
   if (!$tsockwritable(self[0], socket)) return 0;
-  $tslot(socket).open = false;
+  // The code the program chose is kept, so a socket it closed reads that
+  // reason back through a `TestWebSocketClient` — a `close` with `.GoingAway`
+  // reaches `onClose` as `.GoingAway`, which is what a real client does with a
+  // close it started (`net.rs`'s `told`). Clamped to the wire's range, with
+  // 1000 (`.Normal`) for anything outside it. The phrase has no far side to
+  // reach and is dropped.
+  const told = code < 1000n ? 1000n : code > 4999n ? 4999n : code;
+  const slot = $tslot(socket);
+  slot.open = false;
+  slot.closed = told;
   return 0;
 }
 
@@ -7196,7 +7205,7 @@ function $host_testing_TestWebSocketClient_connectSocket(self, url) {
   // and reconnecting is a loop around it, so a double that delivered its
   // messages once would answer the second dial with a socket that was already
   // spent.
-  const socket = $tmint({ owner: s.owner, open: true });
+  const socket = $tmint({ owner: s.owner, open: true, closed: null });
   s.socket = Number(socket);
   s.at = 0;
   s.gone = false;
@@ -7209,18 +7218,25 @@ function $host_testing_TestWebSocketClient_connectReceive(self, socket) {
   if (s.socket !== key || s.gone) {
     return $err([$SERVE_CLOSED, "this socket has already gone"]);
   }
-  // Two ways for the stream to end and one answer to both: the script runs
-  // out, or the program closed the socket and the `TestSockets` double no
-  // longer reports it open. Code 1000 is what `core/net/server`'s `reasonOf`
-  // reads as `.Normal`.
-  if (s.at >= s.script.length || !$tsockwritable(s.owner, socket)) {
+  // Two ways for the stream to end: the script runs out, or the program closed
+  // the socket and the `TestSockets` double no longer reports it open. A script
+  // that merely ran out is a close with no program behind it, which is code
+  // 1000 — `core/net/server`'s `reasonOf` reads it as `.Normal`. A socket the
+  // program closed carries the code it chose, so the reason it closed with is
+  // the reason `connect` reports, exactly as a real client reads back a close
+  // it started.
+  const open = $tsockwritable(s.owner, socket);
+  if (s.at >= s.script.length || !open) {
     s.gone = true;
+    // The reason the program chose where it closed the socket itself, read
+    // before the shut below; 1000 for a script that ran out on its own.
+    const code = open ? 1000n : $tslot(socket).closed ?? 1000n;
     // The socket is shut on the double that owns it before the `.Closed` goes
     // out, exactly as `socketClose` would shut it. So it is already closed
     // while `onClose` runs, and a push from that hook is dropped rather than
     // recorded — which is the promise `core/net/websocket` makes.
-    if ($tsockwritable(s.owner, socket)) $tslot(socket).open = false;
-    return $ok([$FRAME_CLOSED, "", [], 1000n]);
+    if (open) $tslot(socket).open = false;
+    return $ok([$FRAME_CLOSED, "", [], code]);
   }
   // A `Message` is `[tag, payload]`, and its two variants are declared in
   // `Frame`'s order: 0 is `.Text(Str)` and 1 is `.Binary([U8])`.

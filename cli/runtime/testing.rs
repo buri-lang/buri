@@ -188,13 +188,18 @@ enum Slot {
     /// `core/effect` promises of the real effect and therefore what the double
     /// has to promise too.
     Tcp { stream: Vec<u8>, taken: usize, open: Vec<i64>, calls: Vec<TcpLog> },
-    /// One socket `TestSockets::open` minted: which double owns it, and whether
-    /// it is still open.
+    /// One socket `TestSockets::open` minted: which double owns it, whether it
+    /// is still open, and the close code it was closed with.
     ///
     /// The second slot shape that names another (`Slot::Fs` is the first), and
     /// it points the other way: a view names its store, and a socket names the
     /// double that will record what is pushed on it.
-    Socket { owner: i64, open: bool },
+    ///
+    /// `closed` is the code `socketClose` was given, so a socket a program
+    /// closed reads back the reason the program chose — `net.rs`'s `told`, which
+    /// is what makes `socket.close(c, .GoingAway)` reach `onClose` as
+    /// `.GoingAway`. `None` while the socket is open.
+    Socket { owner: i64, open: bool, closed: Option<i64> },
     /// `core/host/testing`'s `TestWebSocketClient` — the `sockets()` double its
     /// socket belongs to, the messages it will deliver, and how far through them
     /// it has got.
@@ -1839,7 +1844,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_sockets(out: *mut i64) {
 /// `Socket` carries has to be one no other double can have minted.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_sockets_open(handle: i64) -> i64 {
-    install(Slot::Socket { owner: handle, open: true })
+    install(Slot::Socket { owner: handle, open: true, closed: None })
 }
 
 /// `socketsIsOpen(handle, socket)` — whether that double minted that socket and
@@ -1856,8 +1861,18 @@ pub extern "C" fn buri_rt_host_testing_sockets_is_open(handle: i64, socket: i64)
 /// Whether a push through `handle` onto `socket` goes anywhere.
 fn writable(handle: i64, socket: i64) -> bool {
     with(socket, false, |slot| match slot {
-        Slot::Socket { owner, open } => *owner == handle && *open,
+        Slot::Socket { owner, open, .. } => *owner == handle && *open,
         _ => false,
+    })
+}
+
+/// The code a socket was closed with, or [`CLOSED_NORMALLY`] where none was
+/// kept — a handle that names no socket, or one closed by the script running
+/// out rather than by the program.
+fn closed_with(socket: i64) -> i64 {
+    with(socket, CLOSED_NORMALLY, |slot| match slot {
+        Slot::Socket { closed, .. } => closed.unwrap_or(CLOSED_NORMALLY),
+        _ => CLOSED_NORMALLY,
     })
 }
 
@@ -1910,18 +1925,20 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_sockets_socket_send_bytes(
     pushed(handle, socket, FRAME_BINARY, String::new(), data);
 }
 
-/// `TestSockets::socketClose` — the socket closes, and neither the code nor the
-/// phrase is kept.
+/// `TestSockets::socketClose` — the socket closes, and the code is kept so the
+/// socket's own reader can be told the reason the program chose.
 ///
-/// `TestProcess::exitWith`'s reason: both are what the *far side* would be told,
-/// there is no far side, and a number held where nothing can read it is state
-/// kept for its own sake. What a close does here is close, which
-/// `socketsIsOpen` reports and which every later send obeys.
+/// The phrase is not kept: it is what the *far side* would be told, there is no
+/// far side, and a string held where nothing can read it is state kept for its
+/// own sake. The code is different — `connectReceive` reads it back, exactly as
+/// `net.rs`'s `close` keeps `told` so `socket.close(c, .GoingAway)` reaches
+/// `onClose` as `.GoingAway`. It is clamped to the wire's range for that
+/// runtime's reason, with `.Normal` for anything outside it.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_test_sockets_socket_close(
     handle: i64,
     socket: i64,
-    _code: i64,
+    code: i64,
     _base: *mut u8,
     _ptr: *const u8,
     _len: u64,
@@ -1929,9 +1946,11 @@ pub extern "C" fn buri_rt_host_testing_test_sockets_socket_close(
     if !writable(handle, socket) {
         return;
     }
+    let told = code.clamp(CLOSED_NORMALLY, 4999);
     with(socket, (), |slot| {
-        if let Slot::Socket { open, .. } = slot {
+        if let Slot::Socket { open, closed, .. } = slot {
             *open = false;
+            *closed = Some(told);
         }
     });
 }
@@ -2223,6 +2242,16 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_rec
         // than getting the error straight away, because `core/net/websocket`
         // runs `onClose` off this answer — and a client whose `onMessage`
         // hung up would otherwise reach that hook as `.Abnormal`.
+        //
+        // **The reason is the one the program chose.** A socket the program
+        // closed already carries the code `socketClose` was given, and that is
+        // what a real client reads back for a close it started (`net.rs`'s
+        // `told`); a script that simply ran out is a close with no program
+        // behind it, which is `.Normal`. So the code is read from the socket
+        // when the program closed it — `open` is `false` there — and is
+        // [`CLOSED_NORMALLY`] otherwise, which is also what the close below
+        // records for the socket the script ended.
+        let code = if open { CLOSED_NORMALLY } else { closed_with(socket) };
         with(handle, (), |slot| {
             if let Slot::Client { gone, .. } = slot {
                 *gone = true;
@@ -2240,7 +2269,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_rec
             frame: FRAME_CLOSED,
             text: str_of(""),
             data: list_of_bytes(&[]),
-            code: CLOSED_NORMALLY,
+            code,
         };
         // SAFETY: the caller promises a writable destination.
         unsafe { out.write(value) };

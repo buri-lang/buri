@@ -1177,9 +1177,12 @@ impl Sockets for TestSockets {
     /// Closes the socket, so that `isOpen` answers `false` and every later send
     /// through it is dropped.
     ///
-    /// **The code and the phrase are not kept**: they are what the far side is
-    /// told, and there is no far side. What a close does here is close, which
-    /// `isOpen` reports directly and `sent` reports by not growing.
+    /// **The phrase is not kept**: it is what the far side is told, and there is
+    /// no far side. The code is kept, because a socket a program closed reads
+    /// that reason back through a `TestWebSocketClient` — a `close` with
+    /// `.GoingAway` reaches `onClose` as `.GoingAway`, which is what a real
+    /// client does with a close it started. What a close does here is still
+    /// close, which `isOpen` reports directly and `sent` reports by not growing.
     fn socketClose(self, socket: Int, code: Int, reason: Str): ();
 }
 
@@ -1332,11 +1335,14 @@ impl WebSocketClient for TestWebSocketClient {
     /// The next scripted message, as `.Text` or `.Binary`.
     ///
     /// The script running out is a close with code 1000, which
-    /// `core/net/websocket` reads as `.Normal`. So is a socket the program has
-    /// closed, because a closed socket delivers nothing more. After that close
-    /// the socket is gone and a further call is `.Err(.Closed)` — the same last
-    /// answer `listenReceive` gives, so a loop written against one works against
-    /// the other.
+    /// `core/net/websocket` reads as `.Normal`: a socket ending with no program
+    /// behind it is a clean goodbye. A socket the program *closed* is a close
+    /// too — a closed socket delivers nothing more — but it carries the reason
+    /// the program chose, so a `close` with `.GoingAway` reaches `onClose` as
+    /// `.GoingAway`, which is what makes a reconnect loop reachable past its
+    /// first dial. After either close the socket is gone and a further call is
+    /// `.Err(.Closed)` — the same last answer `listenReceive` gives, so a loop
+    /// written against one works against the other.
     fn connectReceive(self, socket: Int): Result<Received, ServeError>;
 }
 
