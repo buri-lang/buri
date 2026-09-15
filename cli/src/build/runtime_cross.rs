@@ -485,6 +485,49 @@ fn tool_version(program: &str, args: &[&str]) -> Option<String> {
     String::from_utf8(out.stdout).ok()
 }
 
+/// The directory holding rust's bundled `ld.lld` shim, so a **cross** link can
+/// drive the lld every Rust toolchain ships rather than depending on a system
+/// lld being on `PATH`.
+///
+/// `<rustc sysroot>/lib/rustlib/<host triple>/bin/gcc-ld` is where rustc keeps
+/// its own `ld.lld` (and its `ld64.lld`, `wasm-ld`, `lld-link` siblings) — the
+/// `gcc-ld` directory a clang given `-B` searches for `ld.lld` when it is asked
+/// for `-fuse-ld=lld`. Passing that `-B` is what makes Apple's own `clang`,
+/// which ships no lld and rejects the bare `-fuse-ld=lld` as an
+/// "invalid linker name", accept the flag and find rustc's shim — see the cross
+/// linker selection in `build::link`.
+///
+/// `None` when the toolchain has no such shim — a rustc that printed no sysroot
+/// or host triple, or a layout without the directory — in which case the cross
+/// link falls back to whatever `-fuse-ld=lld` finds on `PATH`. In practice every
+/// `rustup` toolchain carries it.
+pub fn rust_lld_dir() -> Option<PathBuf> {
+    let rustc = tool("RUSTC", "rustc");
+    let sysroot = tool_version(&rustc, &["--print", "sysroot"])?;
+    let host = host_triple(&rustc)?;
+    let dir = PathBuf::from(sysroot.trim())
+        .join("lib")
+        .join("rustlib")
+        .join(host)
+        .join("bin")
+        .join("gcc-ld");
+    dir.join("ld.lld").is_file().then_some(dir)
+}
+
+/// The triple rustc runs on, read from its `-vV` banner's `host:` line.
+///
+/// The banner rather than `--print host-tuple`, which is only spelled that way
+/// on recent rustc and was `host-triple` before: the `host:` line has been in
+/// `-vV` unchanged for far longer, and this file already asks for `-vV` to key
+/// the cross cache.
+fn host_triple(rustc: &str) -> Option<String> {
+    let banner = tool_version(rustc, &["-vV"])?;
+    banner
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .map(|host| host.trim().to_string())
+}
+
 /// An `io::Error` turned into a refusal that names the step it failed at.
 fn io_refusal(step: &str) -> impl Fn(std::io::Error) -> link_refusal::Refusal + '_ {
     move |e| {
