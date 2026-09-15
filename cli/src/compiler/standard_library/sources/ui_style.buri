@@ -351,6 +351,19 @@ export enum Style {
     /// on its own, so the text can go transparent and the caret stay visible.
     /// A `Token` like every other colour here.
     CaretColor(Color),
+
+    /// Hidden from sight, kept in the tree. The element paints nothing and
+    /// takes no space, but stays where it was written, so its text still
+    /// counts towards the accessible name of what holds it. This is the
+    /// "sr-only" technique: a caption a structure editor pins outside its
+    /// scroll box can be silenced for a reader who sees the layout while it
+    /// still names the field for one who does not, without drawing a second
+    /// copy over the page (#188).
+    ///
+    /// The mirror image of `Passthrough`, which opts an element out of the
+    /// pointer while it stays in sight; this opts it out of sight while it
+    /// stays in the tree.
+    VisuallyHidden,
 }
 
 /// How a container arranges its children.

@@ -3601,6 +3601,25 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
         // The caret on its own, so a field with transparent text still has a
         // visible one. `Foreground` is otherwise the only thing that reaches it.
         .CaretColor(color) => [decl(ctx, "caret-color", colorCss(ctx, color))],
+        // Out of sight, in the tree: the "sr-only" clip. A one-pixel box out of
+        // the flow with its overflow clipped away, so it paints nothing and
+        // takes no space while its text stays for the accessible name. The
+        // `--buri-visually-hidden` marker tells the painter to paint nothing
+        // rather than a clipped pixel.
+        .VisuallyHidden => {
+            [
+                decl(ctx, "position", "absolute"),
+                decl(ctx, "width", "1px"),
+                decl(ctx, "height", "1px"),
+                decl(ctx, "padding", "0"),
+                decl(ctx, "margin", "-1px"),
+                decl(ctx, "overflow", "hidden"),
+                decl(ctx, "clip", "rect(0,0,0,0)"),
+                decl(ctx, "white-space", "nowrap"),
+                decl(ctx, "border", "0"),
+                decl(ctx, "--buri-visually-hidden", "1"),
+            ]
+        },
         _ => [],
     }
 }
