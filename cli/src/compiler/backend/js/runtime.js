@@ -3986,7 +3986,11 @@ const $TREE_EDGES = ["block-start", "block-end", "inline-start", "inline-end"];
 // which is the order `Corner` declares them in.
 const $TREE_CORNERS = ["start-start", "start-end", "end-start", "end-end"];
 
-const $TREE_POSITIONS = ["relative", "sticky", "fixed"];
+// `PinAnchor` is `fixed` as well: it takes the box out of every scroll
+// container's clip. The painter keeps it against its `Flow` ancestor from the
+// `--buri-pin-anchor` marker the stylesheet writes beside it; a browser stays
+// on the viewport until CSS anchor positioning closes that gap.
+const $TREE_POSITIONS = ["relative", "sticky", "fixed", "fixed"];
 
 const $TREE_BORDER_STYLES = ["none", "solid", "dashed"];
 
@@ -4227,6 +4231,9 @@ function $tree_declare(style, out) {
     out.set("inset-" + $TREE_EDGES[value], $tree_length(style[2]));
   } else if (tag === 16) {
     out.set("position", $TREE_POSITIONS[value]);
+    // The painter's marker, so a reactively-applied `PinAnchor` reads the same
+    // as the stylesheet's class does; a browser ignores the custom property.
+    if (value === 3) out.set("--buri-pin-anchor", "1");
   } else if (tag === 17) {
     out.set("gap", $tree_length(value));
   } else if (tag === 18) {

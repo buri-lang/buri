@@ -1356,7 +1356,18 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
             match which {
                 0 => Some(("pos", "flow".into(), one("position", "relative"))),
                 1 => Some(("pos", "sticky".into(), one("position", "sticky"))),
-                _ => Some(("pos", "viewport".into(), one("position", "fixed"))),
+                2 => Some(("pos", "viewport".into(), one("position", "fixed"))),
+                // `PinAnchor`: out of every ancestor's clip. `position: fixed`
+                // is the browser's own way to lift a positioned box out of every
+                // scroll container, and the `--buri-pin-anchor` marker — a
+                // custom property a browser ignores — tells the snapshot painter
+                // to keep the box against its `Flow` ancestor rather than the
+                // page, so the golden shows it hanging below its trigger (#168).
+                _ => Some((
+                    "pos",
+                    "anchor".into(),
+                    one("position", "fixed;--buri-pin-anchor:1"),
+                )),
             }
         }
 

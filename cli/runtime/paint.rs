@@ -1214,6 +1214,14 @@ struct Computed {
     /// `position: sticky`. In the flow, and the inset it carries is a
     /// threshold rather than an offset — see [`taffy_style`].
     sticky: bool,
+    /// `Position(.PinAnchor)`: a positioned box that leaves every ancestor's
+    /// clip while staying placed against its nearest `Flow` ancestor, so a
+    /// panel pinned to a trigger inside a `Scroll` box hangs below the trigger
+    /// rather than being cut off at the scroller's edge (#168). Absolute rather
+    /// than fixed — it keeps the flow-relative origin a pin has — and the
+    /// stylesheet writes it as `position: fixed` (a browser's own clip escape)
+    /// plus the `--buri-pin-anchor` marker this reads.
+    escape: bool,
     inset: [Len; 4],
     clipped: [bool; 2],
 
@@ -1312,6 +1320,7 @@ impl Computed {
             absolute: false,
             fixed: false,
             sticky: false,
+            escape: false,
             inset: [Len::Auto; 4],
             clipped: [false; 2],
             background: Rgba::CLEAR,
@@ -1573,6 +1582,16 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
             style.fixed = value == "fixed";
             style.absolute = style.fixed || value == "absolute";
             style.sticky = value == "sticky";
+        }
+        // `Position(.PinAnchor)`: the stylesheet writes it as `position: fixed`
+        // (a browser's clip escape) followed by this marker, which the painter
+        // reads to keep the box against its `Flow` ancestor — absolute, not
+        // fixed — while still leaving every ancestor's clip. Declared after
+        // `position`, so it wins over the `fixed` that line set (#168).
+        "--buri-pin-anchor" => {
+            style.fixed = false;
+            style.absolute = true;
+            style.escape = true;
         }
         "inset-inline-start" => set_sides(&mut style.inset, [0], len(value)),
         "inset-inline-end" => set_sides(&mut style.inset, [1], len(value)),
@@ -3098,8 +3117,19 @@ impl Painter<'_> {
             // context, not here in tree order, so it is held back with the
             // origin and clip it would have painted at (#176). It carries no
             // list marker — a marker is for the in-flow items of a list.
+            //
+            // A `PinAnchor` child (`escape`) is held back at the same flow
+            // origin but with **no clip**: it keeps its placement against this
+            // anchor while leaving every ancestor's clip, so a panel pinned to a
+            // trigger inside a `Scroll` box hangs below the trigger rather than
+            // being cut off at the scroller's edge (#168).
             if self.is_deferred(child) {
-                self.deferred.push((child, left, top, inner.cloned()));
+                let clip = if self.styles.get(child).is_some_and(|s| s.escape) {
+                    None
+                } else {
+                    inner.cloned()
+                };
+                self.deferred.push((child, left, top, clip));
                 continue;
             }
             if style.marker != Marker::None
@@ -4835,6 +4865,50 @@ mod tests {
         assert_eq!(at(&image, 799 * S, 199 * S), [0, 0, 255, 255]);
         assert_eq!(at(&image, 780 * S, 180 * S), [0, 0, 255, 255]);
         assert_eq!(at(&image, 779 * S, 179 * S), [255, 255, 255, 255]);
+    }
+
+    /// buri#168: a `Position(.PinAnchor)` panel pinned to a trigger inside a
+    /// `Scroll` box hangs below the trigger, over whatever is around it, rather
+    /// than being cut off at the scroller's edge. The escape leaves every
+    /// ancestor's clip while keeping the panel placed against its `Flow`
+    /// anchor. The stylesheet writes `PinAnchor` as `position: fixed` plus the
+    /// `--buri-pin-anchor` marker, which is the pair this scene states by hand.
+    #[test]
+    fn a_pin_anchor_panel_escapes_a_scroll_ancestors_clip() {
+        // A scroll box 80 tall, a flow anchor inside it, and a panel pinned
+        // below the anchor that reaches to y=100 — past the scroller's edge.
+        let scene = |panel: &str| {
+            format!(
+                "buri-scene 1\nviewport 200 120\n\
+                 e 0 height:80px;overflow-y:auto\n\
+                 e 1 position:relative;width:200px;height:40px\n\
+                 e 2 {panel};inset-inline-start:0px;inset-block-start:40px;\
+                 width:20px;height:60px;background-color:rgb(255,0,0)\n"
+            )
+        };
+        let red = [255, 0, 0, 255];
+        let white = [255, 255, 255, 255];
+        // A `PinAnchor` panel paints past the scroller's edge: red at y=90,
+        // ten pixels below the 80-tall scroll box.
+        let anchored = render_ok(&scene("position:fixed;--buri-pin-anchor:1"), "", "rest");
+        assert_eq!(
+            at(&anchored, 10 * S, 90 * S),
+            red,
+            "the pinned panel should hang below the scroll box"
+        );
+        // The same panel as a plain absolute pin is clipped at the scroller's
+        // edge: it paints inside the box and nowhere below it.
+        let clipped = render_ok(&scene("position:absolute"), "", "rest");
+        assert_eq!(
+            at(&clipped, 10 * S, 60 * S),
+            red,
+            "the panel still paints inside the scroll box"
+        );
+        assert_eq!(
+            at(&clipped, 10 * S, 90 * S),
+            white,
+            "and is cut off at the scroller's edge"
+        );
     }
 
     /// A shadow is paint like any other, so the page holds what it casts below
