@@ -1863,3 +1863,125 @@ fn a_comparing_run_is_not_served_an_update_runs_verdict() {
         indent(&compared.all())
     );
 }
+
+/// A plain `buri test` must never serve a cached pass over content that
+/// currently fails — the worst thing a cache can be is not slow but wrong.
+///
+/// The window this guards is the one an agent spends iterating on a suite: a
+/// batched suite (`test.sources` with several files in one binary) is edited
+/// over and over, and a plain `buri test` is the gate between edits. A stale
+/// verdict served there reports green while the suite has already regressed
+/// (buri-lang/buri#185).
+///
+/// The assertion is on behaviour, never on the transcript: after every
+/// falsifying edit a plain run — no `--force` — must exit non-zero, from each
+/// of the directions a suite's key can move. A `run` line with a stale verdict
+/// behind it would satisfy a test that only read `--explain`.
+///
+/// Two shapes of "batched", because both were named in the report: several
+/// files in one suite's `test.sources`, and several sibling suites the CLI
+/// links into one binary for a `//...` run.
+#[test]
+fn a_plain_run_never_serves_a_cached_pass_over_failing_content() {
+    // --- One suite, several files in its `test.sources`. ---
+    let s = Scratch::repo("batched-suite-staleness");
+    s.write(
+        "lib/formula/BUILD.buri",
+        "library {\n    sources: [\"math.buri\"]\n    visibility: [\"//...\"]\n\n    test {\n        sources: [\"test/structure.buri\", \"test/autocomplete.buri\", \"test/editor.buri\"]\n    }\n}\n",
+    );
+    s.write(
+        "lib/formula/lib.buri",
+        "from \"//lib/formula/math.buri\" export { addOne, double, square, negate, half };\n",
+    );
+    s.write(
+        "lib/formula/math.buri",
+        "export fn addOne(x: I64): I64 { x + 1 }\nexport fn double(x: I64): I64 { x * 2 }\n\
+         export fn square(x: I64): I64 { x * x }\nexport fn negate(x: I64): I64 { 0 - x }\n\
+         export fn half(x: I64): I64 { x / 2 }\n",
+    );
+    s.write(
+        "lib/formula/test/structure.buri",
+        "from \"core/testing/assert\" import * as assert;\nfrom \"//lib/formula\" import { addOne, double };\n\n\
+         test \"adds one to zero\" { assert.equal(addOne(0), 1); }\n\
+         test \"doubles three\" { assert.equal(double(3), 6); }\n\
+         test \"adds one to five\" { assert.equal(addOne(5), 6); }\n",
+    );
+    s.write(
+        "lib/formula/test/autocomplete.buri",
+        "from \"core/testing/assert\" import * as assert;\nfrom \"//lib/formula\" import { square, negate };\n\n\
+         test \"squares four\" { assert.equal(square(4), 16); }\n\
+         test \"negates zero\" { assert.equal(negate(0), 0); }\n",
+    );
+    s.write(
+        "lib/formula/test/editor.buri",
+        "from \"core/testing/assert\" import * as assert;\nfrom \"//lib/formula\" import { half };\n\n\
+         test \"halves ten\" { assert.equal(half(10), 5); }\n",
+    );
+
+    // Green, and cached on the repeat — the state the report started from.
+    s.run(&["test", "//lib/formula"]).ok();
+    let cached = s.run(&["test", "//lib/formula"]);
+    cached.ok();
+    assert!(
+        cached.stdout.contains("cached)"),
+        "an unchanged batched suite did not report as cached:\n{}",
+        indent(&cached.all())
+    );
+
+    // A falsifying edit to each file in turn, reverted between, so the run that
+    // catches it is a plain one served over a cache that held green a moment
+    // before.
+    for (file, from, to) in [
+        ("lib/formula/test/editor.buri", "assert.equal(half(10), 5)", "assert.equal(half(10), 6)"),
+        ("lib/formula/test/structure.buri", "assert.equal(addOne(5), 6)", "assert.equal(addOne(5), 7)"),
+        ("lib/formula/test/autocomplete.buri", "assert.equal(square(4), 16)", "assert.equal(square(4), 17)"),
+    ] {
+        s.edit(file, from, to);
+        let run = s.run(&["test", "//lib/formula"]);
+        run.exits(1);
+        assert!(
+            run.tests_passed() < 6,
+            "a plain run served a stale pass over a failing edit to {file}:\n{}",
+            indent(&run.all())
+        );
+        s.edit(file, to, from);
+        s.run(&["test", "//lib/formula"]).ok();
+    }
+
+    // And the other direction: the library under test starts answering
+    // something else, with no test file touched at all.
+    s.write(
+        "lib/formula/math.buri",
+        "export fn addOne(x: I64): I64 { x + 2 }\nexport fn double(x: I64): I64 { x * 2 }\n\
+         export fn square(x: I64): I64 { x * x }\nexport fn negate(x: I64): I64 { 0 - x }\n\
+         export fn half(x: I64): I64 { x / 2 }\n",
+    );
+    s.run(&["test", "//lib/formula"]).exits(1);
+
+    // --- Several sibling suites the CLI batches into one binary for `//...`. ---
+    let b = Scratch::repo("batched-siblings-staleness");
+    for pkg in ["one", "two"] {
+        b.write(
+            &format!("lib/{pkg}/BUILD.buri"),
+            "library {\n    sources: [\"m.buri\"]\n    visibility: [\"//...\"]\n\n    test {\n        \
+             sources: [\"test/t.buri\"]\n    }\n}\n",
+        );
+        b.write(&format!("lib/{pkg}/lib.buri"), &format!("from \"//lib/{pkg}/m.buri\" export {{ f }};\n"));
+        b.write(&format!("lib/{pkg}/m.buri"), "export fn f(x: I64): I64 { x + 1 }\n");
+        b.write(
+            &format!("lib/{pkg}/test/t.buri"),
+            &format!(
+                "from \"core/testing/assert\" import * as assert;\nfrom \"//lib/{pkg}\" import {{ f }};\n\n\
+                 test \"f adds one {pkg}\" {{ assert.equal(f(1), 2); }}\n\
+                 test \"f adds one again {pkg}\" {{ assert.equal(f(2), 3); }}\n"
+            ),
+        );
+    }
+    b.run(&["test", "//..."]).ok();
+    b.run(&["test", "//..."]).ok();
+    // Falsify one batched member's test source, and the other member's library.
+    b.edit("lib/one/test/t.buri", "assert.equal(f(1), 2)", "assert.equal(f(1), 99)");
+    b.run(&["test", "//..."]).exits(1);
+    b.write("lib/two/m.buri", "export fn f(x: I64): I64 { x + 5 }\n");
+    b.run(&["test", "//..."]).exits(1);
+}
