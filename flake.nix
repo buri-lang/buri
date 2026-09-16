@@ -245,22 +245,49 @@
           # fetched by the checksums in the lockfiles.
           cargoDeps = cargoVendorDir;
 
-          # Default features, which is `backend-stencil` alone -- and it needs
-          # no crate, so the default build fetches nothing.
+          # Built **with** `backend-llvm`, because a `nix build` produces the
+          # release toolchain and a release toolchain must be able to produce
+          # release artifacts: a `buri build --release` off this package must
+          # link a native binary rather than refuse for want of the optimizing
+          # backend. The default features are `backend-stencil` alone, so the
+          # flip is `buildNoDefaultFeatures = false` kept beside the three lines
+          # that turn the optional backend on -- `buildFeatures = [
+          # "backend-llvm" ]`, the pinned `llvm.dev` in `nativeBuildInputs`, and
+          # `LLVM_SYS_211_PREFIX` pointing at it.
           #
-          # design/native/BUILD-AND-WATCH.md §3.2 wants this built **with**
-          # `backend-llvm`, because a `nix build` produces the release
-          # toolchain and a release toolchain must be able to produce release
-          # artifacts. That flip is three lines -- `buildFeatures = [
-          # "backend-llvm" ]`, `nativeBuildInputs = [ llvm.dev ]`, and
-          # `LLVM_SYS_211_PREFIX` -- and it is deliberately not taken in the
-          # same change as the dependency itself, because it cannot be checked
-          # from a working tree: `src = self` is the *tracked* tree, so a
+          # This flip was deliberately deferred until it could be a real test
+          # rather than a claim: `src = self` is the *tracked* tree, so a
           # `nix build` run beside an uncommitted backend builds the previous
-          # one and proves nothing about the new. It lands with the commit that
-          # makes the LLVM backend part of the tracked tree, where `nix build`
-          # is a real test of it rather than a claim.
+          # one and proves nothing about the new. That condition is now met --
+          # the LLVM backend is committed and CI's advisory `release` job is
+          # green -- so the flip lands here, where `nix build` exercises the
+          # backend it ships. The vendoring needs nothing extra: `./Cargo.lock`
+          # names `inkwell`'s closure and `cargoVendorDir` fetches it whether or
+          # not the feature is on.
           buildNoDefaultFeatures = false;
+          buildFeatures = [ "backend-llvm" ];
+
+          # `llvm-sys`'s build script wants the headers and `bin/llvm-config`
+          # that live in `llvm.dev`, and it refuses to guess -- hence the pin
+          # made available here and named by `LLVM_SYS_211_PREFIX` below. The
+          # pin is LLVM 21.1 (`llvmPackages_21`, CODEGEN-LLVM.md §8), the same
+          # one the devShell uses; a version mismatch is a build failure rather
+          # than a silent substitution.
+          nativeBuildInputs = [ llvm.dev ];
+
+          # What `llvm-config --system-libs` asks the final `buri` link to
+          # carry beside LLVM's own libraries: `libffi` is the one this build
+          # cannot link without (`ld: library not found for -lffi`), and
+          # `libxml2`/`zlib` are the rest of the set most LLVM configurations
+          # name. This mirrors the devShell, whose comment tracks `zstd` and
+          # `ncurses` as the two a given configuration may add.
+          buildInputs = [ pkgs.libffi pkgs.libxml2 pkgs.zlib ];
+
+          # `llvm-sys` refuses to guess where LLVM is; without this the
+          # `backend-llvm` build fails at its build script rather than at a
+          # link. `.dev`, not the default output, because that is where
+          # `bin/llvm-config` and the headers are.
+          LLVM_SYS_211_PREFIX = "${llvm.dev}";
 
           # The archive is real, and this build fails if it is not.
           #
