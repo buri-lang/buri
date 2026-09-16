@@ -394,17 +394,27 @@ jobs:
       - run: ./check.sh
         working-directory: editors/tree-sitter-buri-build
 
-  # Packaging: the flake evaluates and the package builds, which is the
-  # `nix run github:...` path users take. The derivation carries its own
-  # runtime-archive assertion in `postBuild`, because the sandbox is the only
-  # place that archive exists. No binary cache action: measured, its post step
-  # cost five minutes to upload a store path no later run can hit.
+  # Packaging: the flake evaluates and the from-source toolchain builds. The
+  # derivation carries its own runtime-archive assertion in `postBuild`, because
+  # the sandbox is the only place that archive exists. No binary cache action:
+  # measured, its post step cost five minutes to upload a store path no later run
+  # can hit.
+  #
+  # `.#from-source`, not `.#default`: `packages.default` is now the PREBUILT
+  # install that fetches the `v<version>` release tarball, so a `nix build
+  # .#default` here would depend on a published release existing and race the
+  # nightly's release-create step — coupling this per-push hermetic gate to
+  # releases. `packages.from-source` is the from-source LLVM-backend build that
+  # this gate is actually about, and it needs no release. For the same reason the
+  # flake check is `--no-build` (evaluate every system's outputs, catching a
+  # broken flake or a bad placeholder, without trying to *build* the prebuilt
+  # default and fetch a tarball that does not exist yet).
   nix:
     timeout-minutes: 30
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@v16
-      - run: nix flake check --all-systems
-      - run: nix build .#default
+      - run: nix flake check --all-systems --no-build
+      - run: nix build .#from-source
       - run: ./result/bin/buri version

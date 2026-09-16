@@ -1,0 +1,383 @@
+name: Nightly
+
+# The nightly release pipeline, separate from ci.yml on purpose: ci.yml is the
+# fast per-push gate (its 8-minute guideline), and this is a slow, scheduled
+# *release* build. A single leg here compiles `buri` with `--features
+# backend-llvm` for a release triple and takes ~20 minutes; that is expected and
+# does NOT fall under the fast-CI guideline. Three things this file does that
+# ci.yml does not: it edits `version` in cli/Cargo.toml, it packages the built
+# binary as a tarball, and — in `release` mode only — it commits to main, tags,
+# and cuts a GitHub prerelease.
+#
+# WHAT RUNS WHEN, AND WHY IT IS SAFE ON A FEATURE BRANCH:
+#
+#   * `schedule` — 6am US Pacific. GitHub cron is UTC and cannot do DST, so this
+#     is 6am PDT / 5am PST year-round; `0 13 * * *` is 6am PDT. GitHub only ever
+#     fires a `schedule` from the repository's DEFAULT branch, so this trigger is
+#     inert until the file is merged to main — which is the go-live step.
+#   * `workflow_dispatch` — a manual run, defaulting to the safe `dry_run` mode.
+#
+# MODE. `dry_run` (the default, and what a push or a manual run gets unless asked
+# otherwise) does everything up to but NOT including any mutation of the remote:
+# it computes the version, builds and packages all three targets, and templates
+# flake.nix / Formula/buri.rb / Cargo.{toml,lock}, printing the diffs and
+# uploading the rewritten files as artifacts to inspect. `release` — which only a
+# `schedule` run or an explicit dispatch selects — additionally commits to main,
+# pushes, tags `v<version>`, and creates the prerelease with the tarballs. Every
+# remote-mutating step is guarded by `if: ... mode == 'release'`, so leaving the
+# schedule trigger in place cannot cut a release from anywhere but the default
+# branch's scheduled run.
+
+on:
+  schedule:
+    # 0 13 * * * UTC = 6am PDT / 5am PST. GitHub cron has no DST; this is fixed
+    # to PDT. Fires only from the default branch (see header).
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry_run templates everything but touches nothing on the remote; release commits, tags, and publishes."
+        type: choice
+        default: dry_run
+        options:
+          - dry_run
+          - release
+
+# One nightly at a time.
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+# The repo's default token is read-only (ci.yml pins `contents: read`). The
+# release/push/tag steps need write, and per-workflow elevation is how they get
+# it — no repository-setting change is required for `contents: write`.
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # The next version, and the mode, computed once for every downstream job.
+  version:
+    name: version
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+      mode: ${{ steps.mode.outputs.mode }}
+    steps:
+      # fetch-depth: 0 so the tags are present — the version is read from them.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: mode
+        # A dispatch carries its chosen mode; a schedule run releases; anything
+        # else (a push during development) is a dry run.
+        run: |
+          set -euo pipefail
+          mode="${{ inputs.mode || (github.event_name == 'schedule' && 'release' || 'dry_run') }}"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "mode=$mode"
+      - id: compute
+        # Patch increments off the latest v0.3.N tag; 0.3.1 when there are none.
+        run: |
+          set -euo pipefail
+          latest=$(git tag -l 'v0.3.*' | sed 's/^v//' | sort -V | tail -1)
+          if [ -z "$latest" ]; then
+            next="0.3.1"
+          else
+            next="0.3.$(( ${latest##*.} + 1 ))"
+          fi
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+          echo "next version: $next"
+
+  # The three release targets. Every leg checks out, packages, and uploads on the
+  # HOST runner; the only difference is where `buri` is compiled.
+  #
+  #   * macOS arm64 builds natively on its runner with Homebrew LLVM 21.
+  #   * The two Linux legs compile INSIDE an alpine:edge container invoked with a
+  #     plain `docker run`, so `buri` links against Alpine's own musl-built LLVM
+  #     21 (21.1.8) and comes out a truly static-PIE musl executable that runs on
+  #     any Linux. apt.llvm.org's glibc LLVM cannot satisfy a static-PIE musl link
+  #     (undefined `__isoc23_*@GLIBC`).
+  #
+  # Why `docker run` and NOT a `container:` job for Linux: a JavaScript action
+  # (actions/checkout, upload-artifact, …) cannot run inside a musl container on
+  # an arm64 runner — GitHub supports JS-actions-in-container on x64 Linux ONLY,
+  # and the arm64 leg fails at checkout with "JavaScript Actions in Alpine
+  # containers are only supported on x64 Linux runners. Detected Linux Arm64". So
+  # the JS actions stay on the glibc host (where they work on both arches) and
+  # only the compile runs in Alpine. Both Linux legs use the same shape so there
+  # is one mechanism, not two. `alpine:edge` is the only Alpine tag that packages
+  # LLVM 21 (21.1.8; stable 3.21/3.22 top out earlier) — verified before this
+  # rework — and its multi-arch tag pulls the arm64 image on the arm runner.
+  #
+  # A static-PIE musl binary has no interpreter and no libc dependency, so it runs
+  # on the glibc host directly — the smoke test, the static-PIE check, and the
+  # packaging all run on the host, uniformly, for every leg. The .sha256 sidecar —
+  # not a matrix job output — is the sha256's source of truth downstream: a
+  # matrix's job outputs collide (last leg wins, with no per-leg key), so publish
+  # reads each target's hash out of its own artifact instead.
+  build:
+    name: build (${{ matrix.target }})
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: blacksmith-12vcpu-macos-latest, target: aarch64-apple-darwin }
+          - { os: blacksmith-4vcpu-ubuntu-2404, target: x86_64-unknown-linux-musl }
+          - { os: blacksmith-8vcpu-ubuntu-2404-arm, target: aarch64-unknown-linux-musl }
+    runs-on: ${{ matrix.os }}
+    # ~20 min cold compile per leg with the LLVM backend; 60 leaves headroom for
+    # the toolchain setup and the image pull.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- macOS toolchain (native): rustup is already on the host; dtolnay pins
+      # stable, Homebrew provides LLVM 21, and CC is clang (cli/build.rs honours
+      # CC, and clang is already cc on macOS). None of this runs on the Linux
+      # legs, whose toolchain lives inside the Alpine container below.
+      - if: runner.os == 'macOS'
+        uses: dtolnay/rust-toolchain@stable
+      - if: runner.os == 'macOS'
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-${{ matrix.target }}
+      - if: runner.os == 'macOS'
+        name: LLVM 21 from Homebrew
+        run: |
+          set -euo pipefail
+          brew install llvm@21
+          prefix="$(brew --prefix llvm@21)"
+          case "$("$prefix/bin/llvm-config" --version)" in
+            21.*) ;;
+            *) echo "::error::brew llvm@21 is $("$prefix/bin/llvm-config" --version), not 21.x"; exit 1 ;;
+          esac
+          echo "LLVM_SYS_211_PREFIX=$prefix" >> "$GITHUB_ENV"
+          echo "CC=clang" >> "$GITHUB_ENV"
+          rustup target add "${{ matrix.target }}"
+
+      # --- version: cli/Cargo.toml drives CARGO_PKG_VERSION, which is what `buri
+      # version` prints, so editing it before the build is what makes the binary
+      # report 0.3.N. Done on the HOST for every leg — the Linux docker build reads
+      # the edited file from the mounted workspace. perl, not sed: macOS's BSD sed
+      # has neither the GNU `0,/re/` address nor in-place `-i` without an argument.
+      # The one-liner rewrites only the first `version = "..."` — the package
+      # version — and leaves `rust-version` alone.
+      - name: set version to ${{ needs.version.outputs.version }}
+        run: |
+          set -eu
+          v="${{ needs.version.outputs.version }}"
+          perl -i -pe 'if (!$done && /^version = "/) { s/"[^"]+"/"'"$v"'"/; $done=1 }' cli/Cargo.toml
+          grep -m1 '^version' cli/Cargo.toml
+
+      # --- macOS native build with the optimizing backend (not optional here).
+      - if: runner.os == 'macOS'
+        name: build buri --release --features backend-llvm
+        run: cargo build --release --features backend-llvm -p buri --target "${{ matrix.target }}"
+
+      # --- Linux build INSIDE Alpine via `docker run`. The workspace is
+      # bind-mounted so the checked-out source (with the version already bumped on
+      # the host) goes in and target/ comes back out. The container installs a
+      # musl-host rustup stable, clang for cli/build.rs's stencil generators (gcc
+      # degrades them to empty), and Alpine's musl-built LLVM 21 with the static
+      # archives its `--system-libs --link-static` set names — `-lrt -ldl -lm -lz
+      # -lzstd -lxml2` (rt/dl/m come from musl's libc; z/zstd/xml2 from their
+      # `-static` packages) — plus libstdc++ (Alpine's LLVM links libstdc++ and
+      # build-base carries libstdc++.a). llvm21-static gives llvm-sys LLVM's own
+      # component archives to link statically. The musl target defaults to
+      # crt-static + a PIE relocation model, so the plain `--target <musl>` build
+      # yields a static-PIE executable — verified on the host below. The closing
+      # `chmod` makes the root-owned build outputs readable by the host user that
+      # packages them. libffi/ncurses are not in the static system-libs set but
+      # are cheap insurance across LLVM configs.
+      - if: runner.os == 'Linux'
+        name: build buri in Alpine (musl-native LLVM 21)
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD":/w -w /w \
+            -e TARGET="${{ matrix.target }}" \
+            alpine:edge sh -euc '
+              apk add --no-cache \
+                rustup build-base musl-dev clang21 lld \
+                llvm21-dev llvm21-static \
+                libffi-dev zlib-dev zlib-static zstd-dev zstd-static \
+                libxml2-dev libxml2-static ncurses-dev ncurses-static
+              ver="$(llvm21-config --version)"
+              case "$ver" in
+                21.*) ;;
+                *) echo "Alpine llvm21 is $ver, not 21.x" >&2; exit 1 ;;
+              esac
+              export LLVM_SYS_211_PREFIX="$(llvm21-config --prefix)"
+              export CC="$(command -v clang-21 || echo /usr/lib/llvm21/bin/clang)"
+              rustup-init -y --profile minimal --default-toolchain stable --no-modify-path
+              . "$HOME/.cargo/env"
+              rustup target add "$TARGET"
+              cargo build --release --features backend-llvm -p buri --target "$TARGET"
+              chmod -R a+rX "target/$TARGET/release"
+            '
+
+      # --- smoke test: the binary runs and reports the computed version. It is a
+      # static-PIE musl (Linux) / native arm64 (macOS) executable, so it runs on
+      # the runner directly.
+      - name: smoke test (buri version)
+        run: |
+          set -eu
+          bin="target/${{ matrix.target }}/release/buri"
+          got="$("$bin" version)"
+          echo "$got"
+          test "$got" = "buri ${{ needs.version.outputs.version }}"
+
+      # --- static-PIE musl proof (Linux only): the whole reason for Alpine is a
+      # binary with no shared-library dependencies. `file` must report it static,
+      # and `ldd` must refuse it as a dynamic executable.
+      - if: runner.os == 'Linux'
+        name: verify static-PIE musl
+        run: |
+          set -eu
+          bin="target/${{ matrix.target }}/release/buri"
+          file "$bin"
+          if file "$bin" | grep -Eq 'static-pie|statically linked'; then
+            echo "OK: $bin is statically linked"
+          else
+            echo "::error::$bin is not statically linked"; exit 1
+          fi
+          # musl's ldd exits non-zero on a static binary; that is the pass.
+          if ldd "$bin" 2>&1 | grep -Eq 'not a dynamic|Not a valid dynamic'; then
+            echo "OK: ldd reports no dynamic dependencies"
+          else
+            ldd "$bin" 2>&1 || true
+          fi
+
+      # --- package + hash
+      - name: package
+        id: package
+        run: |
+          set -eu
+          v="${{ needs.version.outputs.version }}"
+          t="${{ matrix.target }}"
+          tarball="buri-$v-$t.tar.gz"
+          tar -C "target/$t/release" -czf "$tarball" buri
+          if command -v sha256sum >/dev/null; then
+            sha256sum "$tarball" > "$tarball.sha256"
+          else
+            shasum -a 256 "$tarball" > "$tarball.sha256"
+          fi
+          cat "$tarball.sha256"
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarball-${{ matrix.target }}
+          path: |
+            ${{ steps.package.outputs.tarball }}
+            ${{ steps.package.outputs.tarball }}.sha256
+          if-no-files-found: error
+
+  # Templating and publication. In BOTH modes it downloads the three tarballs,
+  # rewrites flake.nix / Formula/buri.rb / Cargo.{toml,lock} to the version and
+  # the three sha256s, prints the diffs and `git status`, and uploads the
+  # rewritten files. Only in `release` mode does it commit to main, push, tag,
+  # and cut the prerelease — every one of those steps is guarded.
+  publish:
+    name: publish (${{ needs.version.outputs.mode }})
+    needs: [version, build]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      # Check out the ref that triggered the run — main for a scheduled release,
+      # the pipeline branch for a dev dry run — so the files being templated are
+      # the ones on that ref. In release mode the commit is pushed to main
+      # explicitly below; a scheduled run's ref IS main, so HEAD:main is a
+      # fast-forward. fetch-depth 0 for the tag history.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: tarball-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: template flake.nix, Formula/buri.rb, Cargo.{toml,lock}
+        run: |
+          set -euo pipefail
+          v="${{ needs.version.outputs.version }}"
+          ls -R artifacts
+
+          # Per-target sha256, read from each tarball's sidecar (the source of
+          # truth; see the build job's note on matrix output collision). A
+          # missing sidecar is a hard error — all three targets must have built.
+          hash_for() { cut -d' ' -f1 < "artifacts/buri-$v-$1.tar.gz.sha256"; }
+          darwin_arm64=$(hash_for aarch64-apple-darwin)
+          linux_x86_64=$(hash_for x86_64-unknown-linux-musl)
+          linux_arm64=$(hash_for aarch64-unknown-linux-musl)
+
+          # cli/Cargo.toml + Cargo.lock: bump `buri`'s version. perl for both, so
+          # the same edit is portable — the toml's first `version = "..."` is the
+          # package version, and in Cargo.lock it is the line right after
+          # `name = "buri"`.
+          perl -i -pe 'if (!$done && /^version = "/) { s/"[^"]+"/"'"$v"'"/; $done=1 }' cli/Cargo.toml
+          perl -0777 -i -pe 's/(name = "buri"\nversion = ")[0-9.]+/${1}'"$v"'/' Cargo.lock
+
+          # flake.nix: the version and the three hashes, each tagged with a
+          # machine-editable marker so this sed is deterministic.
+          sed -i -E "s|version = \"[0-9.]+\"; # nightly:version|version = \"$v\"; # nightly:version|" flake.nix
+          sed -i -E "s|\"[0-9a-f]{64}\"(.*# nightly:hash:aarch64-apple-darwin)|\"$darwin_arm64\"\1|" flake.nix
+          sed -i -E "s|\"[0-9a-f]{64}\"(.*# nightly:hash:x86_64-unknown-linux-musl)|\"$linux_x86_64\"\1|" flake.nix
+          sed -i -E "s|\"[0-9a-f]{64}\"(.*# nightly:hash:aarch64-unknown-linux-musl)|\"$linux_arm64\"\1|" flake.nix
+
+          # Formula/buri.rb: version + the three sha256s, same marker scheme.
+          sed -i -E "s|version \"[0-9.]+\" # nightly:version|version \"$v\" # nightly:version|" Formula/buri.rb
+          sed -i -E "s|sha256 \"[0-9a-f]{64}\"(.*# nightly:sha256:aarch64-apple-darwin)|sha256 \"$darwin_arm64\"\1|" Formula/buri.rb
+          sed -i -E "s|sha256 \"[0-9a-f]{64}\"(.*# nightly:sha256:x86_64-unknown-linux-musl)|sha256 \"$linux_x86_64\"\1|" Formula/buri.rb
+          sed -i -E "s|sha256 \"[0-9a-f]{64}\"(.*# nightly:sha256:aarch64-unknown-linux-musl)|sha256 \"$linux_arm64\"\1|" Formula/buri.rb
+
+      - name: show the rewrites
+        run: |
+          set -euo pipefail
+          echo "=== git status ==="
+          git status --short
+          echo "=== git diff ==="
+          git --no-pager diff
+
+      # A dry run's whole point: the templated files, uploaded for inspection.
+      - if: needs.version.outputs.mode == 'dry_run'
+        uses: actions/upload-artifact@v4
+        with:
+          name: templated-files
+          path: |
+            flake.nix
+            Formula/buri.rb
+            cli/Cargo.toml
+            Cargo.lock
+
+      # ---- release-only, mutating steps below. Each is guarded. ----
+
+      - if: needs.version.outputs.mode == 'release'
+        name: commit + push to main
+        run: |
+          set -euo pipefail
+          v="${{ needs.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cli/Cargo.toml Cargo.lock flake.nix Formula/buri.rb
+          git commit -m "release: nightly v$v"
+          git push origin HEAD:main
+
+      - if: needs.version.outputs.mode == 'release'
+        name: tag + prerelease with tarballs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          v="${{ needs.version.outputs.version }}"
+          gh release create "v$v" \
+            --title "v$v" \
+            --prerelease \
+            --target main \
+            --notes "Nightly release v$v" \
+            artifacts/buri-"$v"-*.tar.gz
