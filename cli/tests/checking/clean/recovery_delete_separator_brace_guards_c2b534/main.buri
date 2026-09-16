@@ -1,0 +1,88 @@
+// `design/native/MEMORY.md` §5 — a match arm's guard borrows, it does not
+// consume.
+//
+// A guard runs before its arm is committed, so when it is false the next arm
+// runs. A value the guard hands to a callee that owns it is therefore not the
+// guard's last use of it — the fall-through arm still holds it. `middle::rc`
+// releasing it once in the guard and again in the arm it fell through to freed
+// a heap `Str` a whole recompute early (issue #198). These blocks run a heap
+// `Str` through such a guard on both backends and read it afterward, so the
+// value the guard borrowed is still the same characters.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+
+enum Kind {
+    Str,
+    Int,
+    Bool,
+}
+
+enum Value {
+    Text(Str),
+    Empty,
+}
+
+// Owns `value`: it binds the payload and reads it, so the match keeps a piece
+// of `value` and takes the whole — the shape a query filter's `matchesKind`
+// has.
+fn holdsText(value: Value): Bool {
+    match (value) {
+        .Text(text) => text.length() >= 0,
+        .Empty => false,
+    }
+}
+
+fn textOf(value: Value): Str {
+    match (value) {
+        .Text(text) => text
+        .Empty => "",
+    }
+}
+
+// A runtime `Kind`, so the match is not folded to one arm and its guard stays
+// in the program.
+fn kindOf(marker: Str): Kind {
+    if (marker.length() > 3) { .Str } else { .Int }
+}
+
+// A wildcard guard consumes `value`; the arms after it never read it, so they
+// release it themselves on the path the guard fell through by.
+fn accepts(kind: Kind, value: Value): Bool {
+    match (kind) {
+        .Bool => holdsText(value),
+        _ if !holdsText(value) => false,
+        .Str => true,
+        .Int => true,
+    }
+}
+
+test "a guard's consuming call leaves an alias of a heap Str usable" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let heap = str.format(ctx, "2026-03-${"01"}");
+    // `heap` is read after the match, so the wrap and the read share one block.
+    assert.isTrue(accepts(kindOf(heap), Value.Text(heap)));
+    assert.equal(heap, "2026-03-01");
+}
+
+test "a guard that holds selects its own arm" {
+    assert.isFalse(accepts(kindOf("no"), Value.Empty));
+}
+
+test "an arm reachable only past a guard reads a heap Str the guard borrowed" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let heap = str.format(ctx, "2026-03-${"01"}");
+    let described = match (kindOf(heap)) {
+        .Bool => "bool",
+        _ if !holdsText(Value.Text(heap)) => "empty",
+        .Str => textOf(Value.Text(heap)),
+        .Int => "int",
+    };
+    assert.equal(described, "2026-03-01");
+}

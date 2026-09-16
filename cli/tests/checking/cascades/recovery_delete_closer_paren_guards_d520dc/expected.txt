@@ -1,0 +1,30 @@
+error: `accepts` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> main.buri:68:19
+   |
+68 |     assert.isTrue(accepts(kindOf(heap, Value.Text(heap)));
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: `accepts` requires a `value` parameter: accepts(kind: Kind, value: Value)
+error: `kindOf` takes 1 arguments, but 2 were given [wrong-argument-count]
+  --> main.buri:68:27
+   |
+68 |     assert.isTrue(accepts(kindOf(heap, Value.Text(heap)));
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass `kindOf` the following arguments: kindOf(marker: Str)
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:68:58
+   |
+68 |     assert.isTrue(accepts(kindOf(heap, Value.Text(heap)));
+   |                                                          ^
+   |
+  --> main.buri:68:18
+   |
+68 |     assert.isTrue(accepts(kindOf(heap, Value.Text(heap)));
+   |                  ^ opened here
+   |
+   = fix: write `)` here

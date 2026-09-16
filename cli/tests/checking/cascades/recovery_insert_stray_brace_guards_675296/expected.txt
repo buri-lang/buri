@@ -1,0 +1,24 @@
+error: `equal` takes 2 arguments, but 3 were given [wrong-argument-count]
+  --> main.buri:69:5
+   |
+69 |     assert.equal(heap, "2026-03-01"extra );
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass `equal` the following arguments: equal<T: Equal>(actual: T, expected: T)
+error: a call argument ends with `,` [missing-separator]
+  --> main.buri:69:36
+   |
+69 |     assert.equal(heap, "2026-03-01"extra );
+   |                                    ^
+   |
+   = fix: write `,` here
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> main.buri:69:36
+   |
+69 |     assert.equal(heap, "2026-03-01"extra );
+   |                                    ^^^^^
+   |
+   = did you mean `textOf`?
+   = fix: if you meant `textOf`, use that; if not, a name is in scope only from this module's own declarations and its imports

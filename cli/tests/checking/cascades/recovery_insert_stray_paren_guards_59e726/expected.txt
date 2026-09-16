@@ -1,0 +1,20 @@
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> main.buri:48:9
+   |
+48 |     if (extra marker.length() > 3) { .Str } else { .Int }
+   |         ^^^^^
+   |
+   = did you mean `textOf`?
+   = fix: if you meant `textOf`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: this `if` condition is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:48:15
+   |
+48 |     if (extra marker.length() > 3) { .Str } else { .Int }
+   |               ^^^^^^
+   |
+  --> main.buri:48:8
+   |
+48 |     if (extra marker.length() > 3) { .Str } else { .Int }
+   |        ^ opened here
+   |
+   = fix: write `)` here

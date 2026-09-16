@@ -1,0 +1,27 @@
+error: this `match` does not cover `.Str` [match-not-exhaustive]
+  --> main.buri:81:21
+   |
+81 |     let described = match (kindOf(heap)) {
+   |                     ^^^^^^^^^^^^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.Str`, or a `_` arm for everything left
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> main.buri:83:42
+   |
+83 |         _ if !holdsText(Value.Text(heap)) "empty" =>,
+   |                                          ^
+   |
+   = fix: write `=>` here
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:83:51
+   |
+83 |         _ if !holdsText(Value.Text(heap)) "empty" =>,
+   |                                                   ^^
+   |
+  --> main.buri:81:42
+   |
+81 |     let described = match (kindOf(heap)) {
+   |                                          ^ opened here
+   |
+   = fix: write `}` here

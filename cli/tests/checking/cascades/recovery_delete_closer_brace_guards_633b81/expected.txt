@@ -1,0 +1,36 @@
+error: this `match` does not cover `.Int` [match-not-exhaustive]
+  --> main.buri:81:21
+   |
+81 |     let described = match (kindOf(heap)) {
+   |                     ^^^^^^^^^^^^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.Int`, or a `_` arm for everything left
+error: `textOf` takes 1 arguments, but 2 were given [wrong-argument-count]
+  --> main.buri:84:17
+   |
+84 |         .Str => textOf(Value.Text(heap),
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass `textOf` the following arguments: textOf(value: Value)
+error: `.Int` needs a known expected type [unannotated-variant]
+  --> main.buri:85:9
+   |
+85 |         .Int => "int",
+   |         ^^^^
+   |
+   = fix: write the qualified form, as in `Option.Int(...)`, or annotate what this value is being used as
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:85:14
+   |
+85 |         .Int => "int",
+   |              ^^
+   |
+  --> main.buri:84:23
+   |
+84 |         .Str => textOf(Value.Text(heap),
+   |                       ^ opened here
+   |
+   = fix: write `)` here
