@@ -61,6 +61,25 @@ class Buri < Formula
   # produces a hermetic toolchain.
   depends_on "rust" => :build
 
+  # THE OPTIMIZING BACKEND SHIPS WITH EVERY INSTALL.
+  #
+  # `buri build --release` for a native platform needs the LLVM code
+  # generator (`backend-llvm`, design/native/CODEGEN-LLVM.md §8); a toolchain
+  # built without it refuses `--release` by name rather than falling back to
+  # the debug backend. So this formula builds *with* the feature, and that
+  # makes LLVM a build dependency: `llvm-sys` reads the headers and
+  # `bin/llvm-config` out of the prefix `LLVM_SYS_211_PREFIX` names, set in
+  # `install` below.
+  #
+  # **`llvm@21`, not the unversioned `llvm`.** `cli/Cargo.toml` pins the
+  # `llvm21-1` inkwell feature, which expands to `llvm-sys-211` and binds LLVM
+  # 21.1 exactly — the flake's `llvmPackages_21` is the same decision written
+  # for nix. Homebrew's unversioned `llvm` tracks the newest LLVM and is
+  # already past 21, so it would *not* satisfy `llvm21-1`; the 21 formula is
+  # what does. It is keg-only, which is why `install` reaches it by
+  # `opt_prefix` rather than trusting it on `PATH`.
+  depends_on "llvm@21" => :build
+
   # No runtime dependency on a JavaScript runtime: `bun` is a development
   # tool, not something an install should carry. `buri test` compiles a suite
   # to a native binary and needs only `cc` to link it; where it falls back, and
@@ -68,10 +87,17 @@ class Buri < Formula
   # from `PATH` (or `BURI_JS`) when it is used.
 
   def install
-    # `std_cargo_args` supplies `--locked` and `--root #{prefix}`. The lockfile
-    # is the build: the toolchain has no dependencies (see the workspace
-    # `Cargo.toml`), so `--locked` resolves nothing and reaches nothing.
-    system "cargo", "install", *std_cargo_args(path: "cli")
+    # `llvm-sys` refuses to guess where LLVM is: point it at the keg-only
+    # `llvm@21`'s prefix, which carries `bin/llvm-config` and the headers its
+    # build script wants. Without this the `backend-llvm` build fails at the
+    # build script rather than at a link.
+    ENV["LLVM_SYS_211_PREFIX"] = Formula["llvm@21"].opt_prefix
+
+    # `std_cargo_args` supplies `--locked` and `--root #{prefix}`; the lockfile
+    # is the build. `--features backend-llvm` turns on the optimizing native
+    # backend so the installed toolchain can `buri build --release` — the whole
+    # point of the LLVM build dependency above.
+    system "cargo", "install", "--features", "backend-llvm", *std_cargo_args(path: "cli")
   end
 
   test do
