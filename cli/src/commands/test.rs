@@ -875,8 +875,9 @@ enum Gap {
     Networking(Vec<String>),
     /// Operations only a runtime built with cryptography answers.
     Cryptography(Vec<String>),
-    /// A key this backend has no body for, and how many more there were.
-    NoBody { backend: &'static str, first: String, more: usize },
+    /// The keys this backend has no body for, all of them: a truncated list is
+    /// a run that cannot show what it is missing (buri-lang/buri#199).
+    NoBody { backend: &'static str, keys: Vec<String> },
 }
 
 /// What this program reaches that a native run cannot answer, or `None` when it
@@ -918,8 +919,10 @@ fn native_gap(
     if !cryptography.is_empty() {
         return Some(Gap::Cryptography(cryptography));
     }
-    let (first, more) = rest.split_first()?;
-    Some(Gap::NoBody { backend: backend.name(), first: first.clone(), more: more.len() })
+    if rest.is_empty() {
+        return None;
+    }
+    Some(Gap::NoBody { backend: backend.name(), keys: rest })
 }
 
 /// Whether a native compilation failed because this backend has no body for
@@ -961,13 +964,14 @@ fn gap_refusal(label: &str, gap: Gap) -> Diagnostics {
         Gap::Cryptography(operations) => {
             diagnostics.push(crate::compiler::backend::no_cryptography(&operations, Span::NONE));
         }
-        Gap::NoBody { backend, first, more } => {
-            let more = match more {
-                0 => String::new(),
-                1 => String::from(" and one more"),
-                n => format!(" and {n} more"),
-            };
-            let reason = format!("the {backend} backend has no implementation of {first}{more}");
+        Gap::NoBody { backend, keys } => {
+            // Every key, not a count: a run that is refused for a gap should be
+            // able to show the whole gap, in the human sentence and — because
+            // the message is what the JSON carries — in the JSON too
+            // (buri-lang/buri#199). `build/actions.rs`'s sibling refusal lists
+            // them all the same way.
+            let reason =
+                format!("the {backend} backend has no implementation of {}", keys.join(", "));
             diagnostics.push(
                 Diagnostic::error(Span::NONE, format!("{label} cannot run natively: {reason}"))
                     .with_fix(GAP_FIX),
@@ -2570,6 +2574,24 @@ mod tests {
             "the stencil backend has no implementation of character.isDigit",
             "cannot declare the entry point: duplicate definition",
         ]));
+    }
+
+    /// A native gap names **every** key it found, not a count
+    /// (buri-lang/buri#199): a run refused for a gap should be able to show the
+    /// whole gap, and the message is what the `--error-format=json` output
+    /// carries, so listing them here fixes both surfaces at once.
+    #[test]
+    fn a_backend_gap_lists_every_missing_key() {
+        let keys =
+            vec!["number.I64.toI32".to_string(), "number.U32.toChar".to_string(), "z.z".to_string()];
+        let gap = Gap::NoBody { backend: "llvm", keys };
+        let diagnostics = gap_refusal("a suite", gap);
+        let message = &diagnostics.items.first().expect("a refusal").message;
+        assert!(message.contains("number.I64.toI32"), "{message}");
+        assert!(message.contains("number.U32.toChar"), "{message}");
+        assert!(message.contains("z.z"), "{message}");
+        // The truncation #199 is about — never a count in place of the names.
+        assert!(!message.contains("more"), "{message}");
     }
 
     /// The seed a suite schedules with is a function of its key and of nothing

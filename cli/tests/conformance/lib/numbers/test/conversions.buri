@@ -267,6 +267,32 @@ test "F64 into F32 goes through a Result like any other narrowing" {
     assert.equal(assert.ok(a.toF32()).toF64(), 1.5);
 }
 
+// `U32.toChar` is a narrowing onto the Unicode scalar set rather than a range:
+// a `Result<Char, RangeError>`, because not every `U32` is a scalar. It is the
+// path `text/json.buri`'s `\uXXXX` reads, so a regression here refuses every
+// package that parses JSON.
+test "U32 into Char succeeds for a scalar value" {
+    let a: U32 = 65;
+    assert.equal(assert.ok(a.toChar()), 'A');
+    let b: U32 = 128512;
+    assert.equal(assert.ok(b.toChar()), '😀');
+    let c: U32 = 0;
+    assert.equal(assert.ok(c.toChar()), '\0');
+    let d: U32 = 1114111;
+    assert.equal(assert.ok(d.toChar()), '􏿿');
+}
+
+test "U32 into Char fails for a surrogate or a value past the last scalar" {
+    let lo: U32 = 55296;
+    assert.equal(assert.err(lo.toChar()).target, "Char");
+    let hi: U32 = 57343;
+    assert.equal(assert.err(hi.toChar()).target, "Char");
+    let over: U32 = 1114112;
+    let e: RangeError = assert.err(over.toChar());
+    assert.equal(e.value, "1114112");
+    assert.equal(e.target, "Char");
+}
+
 // --- Family three: modular ----------------------------------------------------------
 
 test "wrapToU8 is modular" {

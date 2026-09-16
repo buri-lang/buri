@@ -5280,6 +5280,28 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         arg: ir::ValueId,
         quoted: bool,
     ) -> bool {
+        match self.show_prim_value(state, code, prim, arg, quoted) {
+            Some(value) => {
+                self.set(state, dest, value);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The `Str` register [`Unit::show_prim`] binds to its destination, made
+    /// available on its own so a caller with no `ValueId` for it — a checked
+    /// conversion rendering the value its `RangeError` names — can place it in
+    /// a field instead. `None` for a primitive this backend cannot render, the
+    /// gap `show_prim` reports as a refusal.
+    fn show_prim_value(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        prim: Prim,
+        arg: ir::ValueId,
+        quoted: bool,
+    ) -> Option<BasicValueEnum<'ctx>> {
         let value = self.get(state, arg);
         match prim {
             Prim::Str | Prim::Template => {
@@ -5288,8 +5310,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // register and `{ base, ptr, len }` aliased is the same
                     // three words, which is what a `memcpy` of a stack slot
                     // amounts to in a backend that keeps one.
-                    self.set(state, dest, value);
-                    return true;
+                    return Some(value);
                 }
                 let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(arg));
                 let pieces = repr::disassemble(&self.builder, &slots, value);
@@ -5298,7 +5319,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let (Some(ptr), Some(BasicValueEnum::IntValue(raw))) =
                     (pieces.get(layout::STR_PTR).copied(), pieces.get(layout::STR_LEN).copied())
                 else {
-                    return false;
+                    return None;
                 };
                 // **Masked**, unlike every `Arg::Str` argument. `text.rs`'s
                 // entries take the stored word and clear bit 63 themselves;
@@ -5312,47 +5333,40 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     .build_and(raw, word.const_int(STR_LEN_MASK, false), "show.bytes")
                     .unwrap_or(raw);
                 let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = vec![ptr.into(), len.into()];
-                self.call_out(state, code, dest, runtime::SHOW_STR, &mut argv);
-                true
+                Some(self.call_out_str(state, runtime::SHOW_STR, &mut argv))
             }
             // Two literals and a `select`. The debug backend generates a
             // helper; here the two `Str`s are three constants each and LLVM
             // folds the selects into one, so a call would be the more expensive
             // of the two spellings.
             Prim::Bool => {
-                let BasicValueEnum::IntValue(cond) = value else { return false };
+                let BasicValueEnum::IntValue(cond) = value else { return None };
                 let yes = self.str_literal("true");
                 let no = self.str_literal("false");
-                let chosen =
-                    self.builder.build_select(cond, yes, no, "show.bool").unwrap_or(no);
-                self.set(state, dest, chosen);
-                true
+                Some(self.builder.build_select(cond, yes, no, "show.bool").unwrap_or(no))
             }
             Prim::Char => {
                 let symbol = if quoted { runtime::SHOW_CHAR } else { runtime::CHAR_TO_STR };
                 let mut argv = vec![value.into()];
-                self.call_out(state, code, dest, symbol, &mut argv);
-                true
+                Some(self.call_out_str(state, symbol, &mut argv))
             }
             Prim::F32 | Prim::F64 => {
                 let symbol =
                     if matches!(prim, Prim::F32) { runtime::SHOW_F32 } else { runtime::SHOW_F64 };
                 let mut argv = vec![value.into()];
-                self.call_out(state, code, dest, symbol, &mut argv);
-                true
+                Some(self.call_out_str(state, symbol, &mut argv))
             }
             // A pair of `u64`s, low half first — `buri_rt_i128_divmod`'s shape,
             // for its reason: a 128-bit value is not a scalar leaf, and passing
             // it as one would mean agreeing with the platform ABI about how it
             // is classified.
             Prim::I128 | Prim::U128 => {
-                let BasicValueEnum::IntValue(v) = value else { return false };
+                let BasicValueEnum::IntValue(v) = value else { return None };
                 let (lo, hi) = self.halves(v);
                 let symbol =
                     if matches!(prim, Prim::I128) { runtime::SHOW_I128 } else { runtime::SHOW_U128 };
                 let mut argv = vec![lo.into(), hi.into()];
-                self.call_out(state, code, dest, symbol, &mut argv);
-                true
+                Some(self.call_out_str(state, symbol, &mut argv))
             }
             // A `U64` is the one integer whose value does not fit the `i64`
             // [`runtime::SHOW_INT`] takes, and widening cannot help: every bit
@@ -5364,14 +5378,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // renderer per signedness, so it has an unsigned division to hand
             // and this backend does not.
             Prim::U64 => {
-                let BasicValueEnum::IntValue(v) = value else { return false };
+                let BasicValueEnum::IntValue(v) = value else { return None };
                 let word = self.ctx.i64_type();
                 let mut argv = vec![v.into(), word.const_zero().into()];
-                self.call_out(state, code, dest, runtime::SHOW_U128, &mut argv);
-                true
+                Some(self.call_out_str(state, runtime::SHOW_U128, &mut argv))
             }
             p if p.is_integer() => {
-                let BasicValueEnum::IntValue(v) = value else { return false };
+                let BasicValueEnum::IntValue(v) = value else { return None };
                 // Widened by the **source's** signedness: `U8` to `I64` is a
                 // zero extension and `I8` to `I64` is a sign extension, and
                 // getting that backwards presents as `255` printing as `-1`.
@@ -5383,11 +5396,40 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 }
                 .unwrap_or_else(|_| word.const_zero());
                 let mut argv = vec![wide.into()];
-                self.call_out(state, code, dest, runtime::SHOW_INT, &mut argv);
-                true
+                Some(self.call_out_str(state, runtime::SHOW_INT, &mut argv))
             }
-            _ => false,
+            _ => None,
         }
+    }
+
+    /// [`Unit::call_out`] fixed to a `Str` result, returning the register
+    /// rather than binding it to a `ValueId`. The one caller that needs it —
+    /// [`Unit::show_prim_value`] — has a runtime symbol that writes a fresh
+    /// `Str` block through a trailing out-pointer and no destination to name.
+    fn call_out_str(
+        &mut self,
+        state: &mut Function<'ctx>,
+        symbol: &str,
+        argv: &mut Vec<BasicMetadataValueEnum<'ctx>>,
+    ) -> BasicValueEnum<'ctx> {
+        let (slots, size, align) = {
+            let r = self.reprs.of_ty(&self.tables.prim(Prim::Str));
+            (r.slots.clone(), r.layout.size, r.layout.align)
+        };
+        let buf = self.scratch(state, size, align);
+        argv.push(buf.into());
+        let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
+            argv.iter().map(|a| metadata_type_of(self.ctx, *a)).collect();
+        let f = self.declare_rt(symbol, &param_types, None);
+        if let Ok(call) = self.builder.build_call(f, argv, "") {
+            attrs::set_call_convention(call, attrs::C);
+        }
+        // A fresh block, so the caller allocates and is not `memory(none)` —
+        // the same two flags [`Unit::call_out`] sets.
+        state.observed.allocates = true;
+        state.observed.opaque = true;
+        let pieces = self.load_slots(buf, &slots, align);
+        repr::assemble(self.ctx, &self.builder, &slots, &pieces)
     }
 
     /// A 128-bit value as `(lo, hi)`, low half first.
@@ -8063,12 +8105,26 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // are left to the table and to `missing_intrinsics`.
         if let Some((to, exact)) = conversion_target(from, op) {
             let Some(v) = a else { return false };
-            if !exact {
-                return false;
+            if exact {
+                let out = self.cast(v, from, to, want);
+                self.set(state, dest, out);
+                return true;
             }
-            let out = self.cast(v, from, to, want);
-            self.set(state, dest, out);
-            return true;
+            // A narrowing `to` answers `Result<T, RangeError>` (SPEC 6.2.1):
+            // the value where it fits, a `RangeError` naming the value and the
+            // target where it does not. `stencil/emit.rs`'s `convert_checked`
+            // is the twin, and the two agree because both render the value with
+            // `show_prim` and name the target with a `Str` literal.
+            let Some(arg) = args.first().copied() else { return false };
+            return self.convert_checked(state, code, dest, from, to, arg);
+        }
+        // `U32.toChar` is the one inexact conversion [`conversion_target`] does
+        // not name — `Char` is not a numeric target — and it is the same
+        // `Result<Char, RangeError>` shape: not every `U32` is a Unicode
+        // scalar (`text/json.buri`'s `\uXXXX` path is the reachable caller).
+        if *op == "toChar" {
+            let Some(arg) = args.first().copied() else { return false };
+            return self.convert_checked(state, code, dest, from, Prim::Char, arg);
         }
 
         // `Bounded`'s two, which take no `self` and whose type is in the key
@@ -8698,6 +8754,280 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.builder.build_select(ok, some, none, "opt").ok()
     }
 
+    /// A narrowing conversion's `Result<T, RangeError>` (SPEC 6.2.1), built
+    /// where `stencil/emit.rs::convert_checked` builds the same value: the
+    /// range is tested at the source against the target's own ends, the value
+    /// goes in `.Ok` where it fits, and where it does not a `RangeError`
+    /// renders the value ([`Unit::show_prim_value`]) and names the target (a
+    /// `Str` literal). The two backends agree because neither invents the
+    /// message — the value is `$str(x)` and the target is the type's name.
+    ///
+    /// `.Ok` is variant 0 and `.Err` is variant 1 (`core/result`), and the
+    /// `RangeError`'s fields are the value then the target (`core/number`).
+    ///
+    /// The four shapes "does not fit" comes in are [`checked_kind`]'s, and a
+    /// pair that is none of them is a pair this backend has no body for — the
+    /// same refusal `numeric_op` predicts, so it is never reached from a claim.
+    fn convert_checked(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dest: ir::ValueId,
+        from: Prim,
+        to: Prim,
+        arg: ir::ValueId,
+    ) -> bool {
+        let ir::Type::Agg(id) = code.ty_of(dest) else { return false };
+        let Some(kind) = checked_kind(from, to) else { return false };
+        let owner = self.program.type_info(id).ty.clone();
+        let Some(ok_ty) = types::variant_types(self.tables, &owner, 0).into_iter().next() else {
+            return false;
+        };
+        let Some(err_ty) = types::variant_types(self.tables, &owner, 1).into_iter().next() else {
+            return false;
+        };
+        let err_fields = types::field_types(self.tables, &err_ty);
+        let [value_ty, target_ty] = err_fields.as_slice() else { return false };
+        let (value_ty, target_ty) = (value_ty.clone(), target_ty.clone());
+        let ok_slots = self.reprs.of_ty(&ok_ty).slots.clone();
+        let Some(ok_slot) = ok_slots.first().copied() else { return false };
+        let want = repr::slot_type(self.ctx, ok_slot.ty);
+        let result_ty = {
+            let slots = self.reprs.of(self.program, id).slots.clone();
+            repr::register_type(self.ctx, &slots)
+        };
+
+        let v = self.get(state, arg);
+        // One boolean — "does this value fit `T`" — and the narrowed value the
+        // `.Ok` arm places. The float shapes narrow with a saturating cast, so
+        // that value is never `poison` even on the path `.Err` takes.
+        let (fits, narrowed) = match kind {
+            CheckedKind::Ints => self.checked_int_fits(v, from, to, want),
+            CheckedKind::FloatToInt => self.checked_f2i_fits(v, from, to, want),
+            CheckedKind::ToChar => self.checked_char_fits(v, from, want),
+            CheckedKind::ToF32 => self.checked_f2f32_fits(v, want),
+        };
+
+        let ok_bb = self.ctx.append_basic_block(state.value, "cvt.ok");
+        let err_bb = self.ctx.append_basic_block(state.value, "cvt.err");
+        let join = self.ctx.append_basic_block(state.value, "cvt.done");
+        let _ = self.builder.build_conditional_branch(fits, ok_bb, err_bb);
+
+        // `.Ok(narrowed)`.
+        self.builder.position_at_end(ok_bb);
+        let ok_value = self
+            .build_variant(id, 0, &[(ok_slots, vec![narrowed])])
+            .unwrap_or_else(|| result_ty.const_zero());
+        let ok_end = self.builder.get_insert_block().unwrap_or(ok_bb);
+        let _ = self.builder.build_unconditional_branch(join);
+
+        // `.Err(RangeError { value: $str(x), target: "<T>" })`. The render is
+        // built here rather than before the branch so the allocating call it is
+        // runs only on the failing path.
+        self.builder.position_at_end(err_bb);
+        let value_str =
+            self.show_prim_value(state, code, from, arg, false).unwrap_or_else(|| {
+                self.str_literal("")
+            });
+        let target_str = self.str_literal(to.name());
+        // The `RangeError`'s slots and their values, disassembled — one payload
+        // field of the `.Err` variant, which [`Unit::build_variant`] then
+        // places (or boxes) as a whole.
+        let range_error =
+            self.record_pieces(state, &err_ty, &[(value_ty, value_str), (target_ty, target_str)]);
+        let err_value = self
+            .build_variant(id, 1, &[range_error])
+            .unwrap_or_else(|| result_ty.const_zero());
+        let err_end = self.builder.get_insert_block().unwrap_or(err_bb);
+        let _ = self.builder.build_unconditional_branch(join);
+
+        self.builder.position_at_end(join);
+        let Ok(phi) = self.builder.build_phi(result_ty, "cvt") else { return false };
+        phi.add_incoming(&[
+            (&ok_value as &dyn BasicValue<'ctx>, ok_end),
+            (&err_value as &dyn BasicValue<'ctx>, err_end),
+        ]);
+        self.set(state, dest, phi.as_basic_value());
+        true
+    }
+
+    /// A record's slots and their values from its fields' register values,
+    /// boxing a field whose type `middle::layout` keeps behind an indirection —
+    /// the same steps [`Unit::make_record`] takes, from values rather than
+    /// `ValueId`s and stopping one short of assembly so the pair can be handed
+    /// to [`Unit::build_variant`] as one payload field.
+    fn record_pieces(
+        &mut self,
+        state: &mut Function<'ctx>,
+        owner: &Ty,
+        fields: &[(Ty, BasicValueEnum<'ctx>)],
+    ) -> (Vec<Slot>, Vec<BasicValueEnum<'ctx>>) {
+        let rec_slots = self.reprs.of_ty(owner).slots.clone();
+        let mut pieces = Vec::with_capacity(rec_slots.len());
+        for (fty, val) in fields {
+            let (fslots, fsize, falign) = {
+                let r = self.reprs.of_ty(fty);
+                (r.slots.clone(), r.layout.size, r.layout.align)
+            };
+            let taken = repr::disassemble(&self.builder, &fslots, *val);
+            if self.reprs.boxes(owner, fty) {
+                state.observed.allocates = true;
+                let block = self.block_of(fsize, falign, &fslots, &taken);
+                pieces.push(block.into());
+            } else {
+                pieces.extend(taken);
+            }
+        }
+        (rec_slots, pieces)
+    }
+
+    /// `Checked::Ints`: the range test at the source's own width, widened to
+    /// 128 bits so a signed and an unsigned bound are one signed comparison —
+    /// every bound of every type this narrows to is exactly an `i128`, which is
+    /// [`Unit::checked`]'s reasoning.
+    fn checked_int_fits(
+        &mut self,
+        v: BasicValueEnum<'ctx>,
+        from: Prim,
+        to: Prim,
+        want: BasicTypeEnum<'ctx>,
+    ) -> (IntValue<'ctx>, BasicValueEnum<'ctx>) {
+        let bool_ty = self.ctx.bool_type();
+        let BasicValueEnum::IntValue(x) = v else { return (bool_ty.const_zero(), want.const_zero()) };
+        let wide = self.ctx.i128_type();
+        let a = self.widen(x, wide, from.is_signed());
+        let (lo, hi) = to.int_range().unwrap_or((0, 0));
+        let ty = wide.as_basic_type_enum();
+        let mut fits = bool_ty.const_int(1, false);
+        for (predicate, bound) in [
+            (IntPredicate::SGE, self.int_constant(ty, lo.unsigned_abs(), lo < 0)),
+            (IntPredicate::SLE, self.int_constant(ty, hi, false)),
+        ] {
+            let BasicValueEnum::IntValue(bound) = bound else { continue };
+            let inside = self
+                .builder
+                .build_int_compare(predicate, a, bound, "cvt.in")
+                .unwrap_or_else(|_| bool_ty.const_zero());
+            fits = self.builder.build_and(fits, inside, "cvt.fits").unwrap_or(fits);
+        }
+        (fits, self.cast(v, from, to, want))
+    }
+
+    /// `Checked::ToChar`: not a range but the Unicode scalar set — everything
+    /// above U+10FFFF is out, and so is the surrogate block in the middle of it
+    /// (`text/json.buri`'s `$toChar`). The compares are unsigned: a `U32` above
+    /// `2^31` is a negative `i32`.
+    fn checked_char_fits(
+        &mut self,
+        v: BasicValueEnum<'ctx>,
+        from: Prim,
+        want: BasicTypeEnum<'ctx>,
+    ) -> (IntValue<'ctx>, BasicValueEnum<'ctx>) {
+        let bool_ty = self.ctx.bool_type();
+        let BasicValueEnum::IntValue(x) = v else { return (bool_ty.const_zero(), want.const_zero()) };
+        let ty = x.get_type();
+        let cmp = |s: &Self, p, c: u64, name| {
+            s.builder
+                .build_int_compare(p, x, ty.const_int(c, false), name)
+                .unwrap_or_else(|_| bool_ty.const_zero())
+        };
+        let in_max = cmp(self, IntPredicate::ULE, 0x0010_ffff, "cvt.max");
+        let below = cmp(self, IntPredicate::ULT, 0xd800, "cvt.lo");
+        let above = cmp(self, IntPredicate::UGT, 0xdfff, "cvt.hi");
+        let not_surrogate =
+            self.builder.build_or(below, above, "cvt.scalar").unwrap_or(below);
+        let fits = self.builder.build_and(in_max, not_surrogate, "cvt.fits").unwrap_or(in_max);
+        (fits, self.cast(v, from, Prim::Char, want))
+    }
+
+    /// `Checked::FloatToInt`: in range **and** integral. The bounds are written
+    /// one past the end (`v >= hi + 1` where a plain `v > hi` has no double),
+    /// which every integer type makes a power of two and so an exact double;
+    /// the round trip through the saturating narrowing then rejects a fraction.
+    /// `NaN` fails the ordered range test, so the narrowing never sees it.
+    fn checked_f2i_fits(
+        &mut self,
+        v: BasicValueEnum<'ctx>,
+        from: Prim,
+        to: Prim,
+        want: BasicTypeEnum<'ctx>,
+    ) -> (IntValue<'ctx>, BasicValueEnum<'ctx>) {
+        let bool_ty = self.ctx.bool_type();
+        let BasicValueEnum::FloatValue(x) = v else { return (bool_ty.const_zero(), want.const_zero()) };
+        let f64t = self.ctx.f64_type();
+        let xf = if x.get_type() == f64t {
+            x
+        } else {
+            self.builder.build_float_ext(x, f64t, "cvt.ext").unwrap_or(x)
+        };
+        let (lo_i, hi_i) = to.int_range().unwrap_or((0, 0));
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "every integer type's lower bound is zero or a negative power of \
+                      two, and every `hi + 1` is a power of two at most 2^64; both are \
+                      exact doubles, which is the property the bounds rely on"
+        )]
+        let (lo, over) = (lo_i as f64, hi_i.saturating_add(1) as f64);
+        let ge_lo = self
+            .builder
+            .build_float_compare(FloatPredicate::OGE, xf, f64t.const_float(lo), "cvt.lo")
+            .unwrap_or_else(|_| bool_ty.const_zero());
+        let lt_over = self
+            .builder
+            .build_float_compare(FloatPredicate::OLT, xf, f64t.const_float(over), "cvt.hi")
+            .unwrap_or_else(|_| bool_ty.const_zero());
+        let in_range = self.builder.build_and(ge_lo, lt_over, "cvt.range").unwrap_or(ge_lo);
+        // Saturating (`Unit::cast`'s `llvm.fpto*.sat`), so the value is defined
+        // on the failing path too; the round trip back to a double is what
+        // catches a fraction that was in range.
+        let narrowed = self.cast(v, from, to, want);
+        let back = self.cast(narrowed, to, Prim::F64, f64t.as_basic_type_enum());
+        let integral = if let BasicValueEnum::FloatValue(back) = back {
+            self.builder
+                .build_float_compare(FloatPredicate::OEQ, back, xf, "cvt.int")
+                .unwrap_or_else(|_| bool_ty.const_zero())
+        } else {
+            bool_ty.const_zero()
+        };
+        let fits = self.builder.build_and(in_range, integral, "cvt.fits").unwrap_or(in_range);
+        (fits, narrowed)
+    }
+
+    /// `Checked::ToF32`: it fails only where the value does not survive as a
+    /// finite binary32. Asked of the answer — the rounded value is infinite
+    /// exactly when the input overflowed, unless the input was infinite
+    /// already, which converts to an infinity rather than failing.
+    fn checked_f2f32_fits(
+        &mut self,
+        v: BasicValueEnum<'ctx>,
+        want: BasicTypeEnum<'ctx>,
+    ) -> (IntValue<'ctx>, BasicValueEnum<'ctx>) {
+        let bool_ty = self.ctx.bool_type();
+        let BasicValueEnum::FloatValue(x) = v else { return (bool_ty.const_zero(), want.const_zero()) };
+        let f32t = self.ctx.f32_type();
+        let f64t = self.ctx.f64_type();
+        let narrowed = self.builder.build_float_trunc(x, f32t, "cvt.f32").unwrap_or(x);
+        let back = self.builder.build_float_ext(narrowed, f64t, "cvt.back").unwrap_or(x);
+        let inf = f64t.const_float(f64::INFINITY);
+        let is_inf = |s: &Self, f: FloatValue<'ctx>, name| {
+            let BasicValueEnum::FloatValue(mag) = s.fabs(f) else { return bool_ty.const_zero() };
+            s.builder
+                .build_float_compare(FloatPredicate::OEQ, mag, inf, name)
+                .unwrap_or_else(|_| bool_ty.const_zero())
+        };
+        let back_inf = is_inf(self, back, "cvt.binf");
+        let src_finite = self
+            .builder
+            .build_not(is_inf(self, x, "cvt.sinf"), "cvt.fin")
+            .unwrap_or_else(|_| bool_ty.const_zero());
+        let overflowed = self.builder.build_and(back_inf, src_finite, "cvt.of").unwrap_or(back_inf);
+        let fits = self
+            .builder
+            .build_not(overflowed, "cvt.fits")
+            .unwrap_or_else(|_| bool_ty.const_zero());
+        (fits, narrowed.into())
+    }
+
     /// `Bounded::minValue` and `Bounded::maxValue`, as constants.
     ///
     /// The bounds are the **type's**, not JavaScript's exactly-representable
@@ -9006,6 +9336,46 @@ fn conversion_target(from: Prim, op: &str) -> Option<(Prim, bool)> {
     Some((to, conversion_is_exact(from, to)))
 }
 
+/// The shapes a fallible `toT()` conversion comes in — the twin of
+/// `stencil/emit.rs`'s `Checked`, and the same four questions, because "does
+/// not fit" is not one machine test. [`Unit::convert_checked`] switches on it
+/// to emit the range check, and [`numeric_op`] asks it whether a key with an
+/// inexact target is one this backend has a body for, so a claim never outruns
+/// an implementation.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CheckedKind {
+    /// Both integers: a range at the source's own width.
+    Ints,
+    /// A float into an integer, which can also be fractional, `NaN` or
+    /// infinite. Refused past sixty-four bits, as the debug backend refuses it.
+    FloatToInt,
+    /// `U32 -> Char`: a set with the surrogate block cut out of the middle.
+    ToChar,
+    /// `F64 -> F32`, which has no integer range to test at all.
+    ToF32,
+}
+
+/// Which fallible shape a conversion is, or `None` when the pair is exact,
+/// modular, or one no backend has a body for (a float into a 128-bit integer).
+fn checked_kind(from: Prim, to: Prim) -> Option<CheckedKind> {
+    if from == to {
+        return None;
+    }
+    if from.is_integer() && to.is_integer() {
+        return (!conversion_is_exact(from, to)).then_some(CheckedKind::Ints);
+    }
+    if from.is_float() && to.is_integer() && to.bits() <= 64 {
+        return Some(CheckedKind::FloatToInt);
+    }
+    if from == Prim::U32 && to == Prim::Char {
+        return Some(CheckedKind::ToChar);
+    }
+    if from == Prim::F64 && to == Prim::F32 {
+        return Some(CheckedKind::ToF32);
+    }
+    None
+}
+
 /// The intrinsics this backend emits as instructions rather than as a call.
 ///
 /// The same list [`Unit::open_coded`] matches on, asked ahead of time. Each is
@@ -9122,9 +9492,19 @@ pub fn numeric_op(key: &str) -> bool {
     ) {
         return prim.is_integer();
     }
-    // A conversion is claimed only where its result is the target type;
-    // [`conversion_target`] is the same question, asked of the same two types.
-    conversion_target(prim, op).is_some_and(|(_, exact)| exact)
+    // `U32.toChar` answers a `Result<Char, RangeError>` and `Char` is not a
+    // numeric target, so [`conversion_target`] does not name it; [`checked_kind`]
+    // does, and [`Unit::convert_checked`] has its body.
+    if *op == "toChar" {
+        return checked_kind(prim, Prim::Char).is_some();
+    }
+    // A numeric conversion is claimed both ways now: an **exact** target
+    // ([`Unit::cast`]) and a **fallible** one whose `Result<T, RangeError>`
+    // [`Unit::convert_checked`] builds. The fallible half is gated on
+    // [`checked_kind`], so a pair with no body — a float into a 128-bit integer
+    // — is refused here rather than claimed and then declined.
+    conversion_target(prim, op)
+        .is_some_and(|(to, exact)| exact || checked_kind(prim, to).is_some())
 }
 
 // ---------------------------------------------------------------------------
