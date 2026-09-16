@@ -645,7 +645,22 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             for target in block.term.targets() {
                 let Some(row) = state.phis.get(target.block.index()) else { continue };
                 for (phi, arg) in row.iter().zip(target.args.iter()) {
-                    let Some(Some(value)) = state.values.get(arg.index()).copied() else { continue };
+                    // Every one of `from`'s edges is a real predecessor of the
+                    // target, so every phi in it must get an incoming value from
+                    // `from` — a missing entry is the "PHI node entries do not
+                    // match predecessors" the verifier rejects. A block argument
+                    // whose value never materialised is a **zero-sized** one: a
+                    // `()` a unit-returning call produced (`ret` stores nothing
+                    // for zero slots), which has no bits and reaches here as
+                    // `None`. Its phi is a zero-sized type too, so the edge is
+                    // filled with that type's zero rather than dropped — which is
+                    // what keeps a `()` merged out of a diverging arm and a
+                    // straight-line arm (an `if` whose one side `failWith`s and
+                    // whose other is `()`) verifying.
+                    let value = match state.values.get(arg.index()).copied().flatten() {
+                        Some(value) => value,
+                        None => phi.as_basic_value().get_type().const_zero(),
+                    };
                     phi.add_incoming(&[(&value as &dyn BasicValue<'ctx>, from)]);
                 }
             }
