@@ -1,0 +1,45 @@
+name: Verify Alpine LLVM 21
+
+# TEMPORARY, dev-only, STRIP before delivery. Probe the exact system libraries
+# Alpine's llvm21 asks a static link to carry, and confirm each has a static
+# archive once the -static packages are installed — so the fully-static musl
+# link of `buri` can be fixed in one shot rather than one cold LLVM rebuild per
+# missing lib.
+on:
+  push:
+    branches: [nightly-pipeline]
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    container: alpine:edge
+    timeout-minutes: 10
+    steps:
+      - name: system-libs + static archive coverage
+        run: |
+          set -eu
+          apk add --no-cache \
+            llvm21-dev llvm21-static \
+            libffi-dev zlib-dev zlib-static zstd-dev zstd-static \
+            libxml2-dev libxml2-static ncurses-dev ncurses-static
+          echo "=== llvm21-config --version / --link-static ==="
+          llvm21-config --version
+          echo "=== llvm21-config --system-libs ==="
+          llvm21-config --system-libs
+          echo "=== llvm21-config --system-libs --link-static ==="
+          llvm21-config --system-libs --link-static || true
+          echo "=== for each -lNAME: is there a static libNAME.a? ==="
+          libs="$(llvm21-config --system-libs --link-static 2>/dev/null || llvm21-config --system-libs)"
+          for tok in $libs; do
+            case "$tok" in
+              -l*) n="${tok#-l}"
+                   a="$(find /usr/lib /lib -name "lib$n.a" 2>/dev/null | head -1)"
+                   echo "lib$n.a: ${a:-MISSING}${a:+  ($(apk info -W "$a" 2>/dev/null | tail -1))}" ;;
+            esac
+          done
+          echo "=== which package owns each candidate .a ==="
+          for a in libxml2 libffi libz libzstd libncursesw libtinfo; do
+            f="$(find /usr/lib /lib -name "$a.a" 2>/dev/null | head -1)"
+            echo "$a.a => ${f:-MISSING}"
+          done
