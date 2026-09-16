@@ -276,12 +276,14 @@
           nativeBuildInputs = [ llvm.dev ];
 
           # What `llvm-config --system-libs` asks the final `buri` link to
-          # carry beside LLVM's own libraries: `libffi` is the one this build
-          # cannot link without (`ld: library not found for -lffi`), and
+          # carry beside LLVM's own libraries: `libffi` is the one the macOS
+          # build cannot link without (`ld: library not found for -lffi`), and
           # `libxml2`/`zlib` are the rest of the set most LLVM configurations
-          # name. This mirrors the devShell, whose comment tracks `zstd` and
-          # `ncurses` as the two a given configuration may add.
-          buildInputs = [ pkgs.libffi pkgs.libxml2 pkgs.zlib ];
+          # name. `zstd` and `ncurses` are carried too: this derivation's LLVM
+          # link is only exercised in CI on the Linux `nix` leg, whose LLVM 21
+          # `--system-libs` names them where macOS does not, and an unused input
+          # costs nothing. This is the superset of what either host asks for.
+          buildInputs = [ pkgs.libffi pkgs.libxml2 pkgs.zlib pkgs.zstd pkgs.ncurses ];
 
           # `llvm-sys` refuses to guess where LLVM is; without this the
           # `backend-llvm` build fails at its build script rather than at a

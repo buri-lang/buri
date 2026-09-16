@@ -25,15 +25,16 @@ brew install --HEAD buri-lang/buri/buri
 **Cargo**, with a Rust toolchain and LLVM 21 in hand:
 
 ```sh
-LLVM_SYS_211_PREFIX=$(brew --prefix llvm@21) \
+LLVM_SYS_211_PREFIX="$HOMEBREW_PREFIX/opt/llvm@21" \
   cargo install --locked --features backend-llvm --path cli
 ```
 
-`--features backend-llvm` is the optimizing native backend, which `buri build
---release` needs. It wants LLVM 21 with `LLVM_SYS_211_PREFIX` pointing at it —
-`brew --prefix llvm@21` on macOS, or `llvm-config-21 --prefix` where LLVM lives
-elsewhere. On a host without LLVM, drop the flag and the env var: the toolchain
-still builds and does everything but a native `--release`.
+The `backend-llvm` cargo feature is the optimizing native backend that `buri
+build --release` needs; `LLVM_SYS_211_PREFIX` points cargo at an LLVM 21 install
+(the command above reads it from Homebrew's `llvm@21`, and elsewhere it is
+wherever `llvm-config-21` reports). On a host without LLVM, leave the feature
+and the variable out: the toolchain still builds and does everything but a
+native `--release`.
 
 The binary has no runtime dependencies. Linking a native binary uses the system
 C toolchain: `cc`, or whatever `CC` names. The JavaScript path looks for `bun`
