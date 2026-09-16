@@ -403,6 +403,10 @@ const PACKAGES: &[Case] = &[
     // thirteen `proto_schema/refusals.buri` leaked, and it is the reason
     // `KNOWN_LEAKS` is empty again.
     included("memory/discards.buri"),
+    // A match arm's guard borrows what it reads. On the reference backend the
+    // answers are simply right; this side is where a guard that released a heap
+    // `Str` its fall-through arm still held read a freed block (issue #198).
+    included("memory/guards.buri"),
     // It was excluded for `list.fold` until the backend grew the loop
     // over a closure, and
     // `the_excluded_packages_are_excluded_for_the_stated_reason` is what
