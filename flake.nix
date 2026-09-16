@@ -219,9 +219,91 @@
             fi
           done
         '';
+
+        # The one owner/repo string the prebuilt path needs. `nix run
+        # github:buri-lang/buri` still names the repository at the call site, so
+        # nothing else in this flake has to know where it is hosted — but a
+        # release download is a URL, and this is where it is spelled.
+        repo = "https://github.com/buri-lang/buri";
+
+        # ---------------------------------------------------------------------
+        # The nightly prebuilt install (packages.default).
+        # ---------------------------------------------------------------------
+        #
+        # `packages.default` installs the prebuilt `buri` from the `v<version>`
+        # GitHub release rather than compiling from source. The block below is
+        # the ONLY thing `.github/workflows/nightly.yml` rewrites each night —
+        # the version and one sha256 per release target — and every field it
+        # touches carries a `# nightly:...` marker so that rewrite is a
+        # deterministic `sed`. The values shipped here are syntactically valid
+        # PLACEHOLDERS: the flake evaluates with them (`nix flake show`), and
+        # only a `nix build` of `packages.default` fetches the tarball and
+        # checks the hash — which cannot succeed until the first real release
+        # exists. The from-source escape hatch (`packages.from-source`) is what
+        # builds today.
+        nightly = {
+          version = "0.3.0"; # nightly:version
+          hashes = {
+            "aarch64-apple-darwin" = "0000000000000000000000000000000000000000000000000000000000000000"; # nightly:hash:aarch64-apple-darwin
+            "x86_64-unknown-linux-musl" = "0000000000000000000000000000000000000000000000000000000000000000"; # nightly:hash:x86_64-unknown-linux-musl
+            "aarch64-unknown-linux-musl" = "0000000000000000000000000000000000000000000000000000000000000000"; # nightly:hash:aarch64-unknown-linux-musl
+          };
+        };
+
+        # The release target triple for each nix system, or `null` where there
+        # is no nightly build — `x86_64-darwin`, because the three decided
+        # targets do not include an Intel mac. A `null` system falls back to the
+        # from-source build below, so `nix build` still works there.
+        nightlyTarget =
+          {
+            aarch64-darwin = "aarch64-apple-darwin";
+            x86_64-linux = "x86_64-unknown-linux-musl";
+            aarch64-linux = "aarch64-unknown-linux-musl";
+          }
+          .${system} or null;
+
+        # Fetch the release tarball, unpack it, install `buri` into `$out/bin`.
+        # On Linux the binary is a static-PIE musl executable, so there is no
+        # interpreter to patch — `stdenvNoCC` runs no autoPatchelf and this
+        # derivation disables the ELF fixups explicitly; on macOS it is the
+        # native arm64 Mach-O linked against the system `libSystem`. No
+        # compiler, no LLVM, no cargo: the prebuilt path exists so an install
+        # costs a download rather than a twenty-minute LLVM build.
+        prebuilt = pkgs.stdenvNoCC.mkDerivation {
+          pname = cargoToml.package.name;
+          version = nightly.version;
+          src = pkgs.fetchurl {
+            url = "${repo}/releases/download/v${nightly.version}/buri-${nightly.version}-${toString nightlyTarget}.tar.gz";
+            sha256 = nightly.hashes.${toString nightlyTarget};
+          };
+          # The tarball is a single `buri` at top level (nightly.yml packages it
+          # as `tar ... buri`), so there is no directory to descend into.
+          sourceRoot = ".";
+          dontConfigure = true;
+          dontBuild = true;
+          # A prebuilt release binary ships as-is: no strip, no RPATH rewriting.
+          dontStrip = true;
+          dontPatchELF = true;
+          installPhase = ''
+            runHook preInstall
+            install -Dm755 buri "$out/bin/buri"
+            runHook postInstall
+          '';
+          meta = {
+            inherit (cargoToml.package) description;
+            mainProgram = "buri";
+            license = pkgs.lib.licenses.mit;
+            platforms = pkgs.lib.platforms.unix;
+          };
+        };
       in
       {
-        packages.default = rustPlatform.buildRustPackage ({
+        # The from-source build, kept as an escape hatch and unchanged from when
+        # it was `packages.default`: `nix build .#from-source` compiles `buri`
+        # with the LLVM backend the way it always did. `packages.default` (below)
+        # is the prebuilt install; on `x86_64-darwin`, which has no nightly
+        # target, `default` falls back to this.
+        packages.from-source = rustPlatform.buildRustPackage ({
           pname = cargoToml.package.name;
           inherit (cargoToml.package) version;
           # The flake's own source. In a checkout that is a git repository this
@@ -449,7 +531,14 @@
           }
         );
 
-        # `nix run github:buri-lang/buri -- version`.
+        # The prebuilt install is what `nix build`/`nix profile install` gets by
+        # default. `x86_64-darwin` has no nightly target, so `default` is the
+        # from-source build there — the one system where `nix build .#default`
+        # still compiles.
+        packages.default =
+          if nightlyTarget == null then self.packages.${system}.from-source else prebuilt;
+
+        # `nix run github:buri-lang/buri -- version` — runs the prebuilt `buri`.
         apps.default = {
           type = "app";
           program = "${self.packages.${system}.default}/bin/buri";
