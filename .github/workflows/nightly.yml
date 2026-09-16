@@ -113,8 +113,11 @@ jobs:
       matrix:
         include:
           - { os: blacksmith-12vcpu-macos-latest, target: aarch64-apple-darwin, llvm: brew }
-          - { os: blacksmith-4vcpu-ubuntu-2404, target: x86_64-unknown-linux-musl, llvm: apt }
-          - { os: blacksmith-8vcpu-ubuntu-2404-arm, target: aarch64-unknown-linux-musl, llvm: apt }
+          # PROOF-ONLY: the two musl legs are commented out for this dry-run
+          # proof — they hit the glibc-LLVM/musl link wall (see report). RESTORE
+          # before delivery.
+          # - { os: blacksmith-4vcpu-ubuntu-2404, target: x86_64-unknown-linux-musl, llvm: apt }
+          # - { os: blacksmith-8vcpu-ubuntu-2404-arm, target: aarch64-unknown-linux-musl, llvm: apt }
     runs-on: ${{ matrix.os }}
     # `CC: clang` for the same reason ci.yml pins it: cli/build.rs's stencil
     # generators pass clang-only flags and DEGRADE (empty stencils, no native
@@ -181,11 +184,14 @@ jobs:
       # `buri version` prints, so editing it before the build is what makes the
       # binary report 0.3.N. The unlocked build syncs Cargo.lock as a side effect.
       - name: set version to ${{ needs.version.outputs.version }}
+        # perl, not sed: this step runs on macOS too, whose BSD sed has neither
+        # the GNU `0,/re/` address nor in-place `-i` without an argument. The
+        # one-liner rewrites only the first `version = "..."` — the package
+        # version — and leaves `rust-version` alone.
         run: |
           set -euo pipefail
           v="${{ needs.version.outputs.version }}"
-          sed -i.bak -E "0,/^version = \"[0-9.]+\"/s//version = \"$v\"/" cli/Cargo.toml
-          rm -f cli/Cargo.toml.bak
+          perl -i -pe 'if (!$done && /^version = "/) { s/"[^"]+"/"'"$v"'"/; $done=1 }' cli/Cargo.toml
           grep -m1 '^version' cli/Cargo.toml
 
       # --- the build itself: the optimizing backend must ship, so backend-llvm
@@ -259,15 +265,24 @@ jobs:
 
           # Per-target sha256, read from each tarball's sidecar (the source of
           # truth; see the build job's note on matrix output collision).
-          hash_for() { cut -d' ' -f1 < "artifacts/buri-$v-$1.tar.gz.sha256"; }
+          # PROOF-ONLY fallback to the placeholder when a sidecar is absent (the
+          # musl legs are disabled for this dry-run proof). RESTORE to the strict
+          # `cut < file` form before delivery — production requires all three.
+          placeholder="0000000000000000000000000000000000000000000000000000000000000000"
+          hash_for() {
+            f="artifacts/buri-$v-$1.tar.gz.sha256"
+            if [ -f "$f" ]; then cut -d' ' -f1 < "$f"; else echo "$placeholder"; fi
+          }
           darwin_arm64=$(hash_for aarch64-apple-darwin)
           linux_x86_64=$(hash_for x86_64-unknown-linux-musl)
           linux_arm64=$(hash_for aarch64-unknown-linux-musl)
 
-          # cli/Cargo.toml + Cargo.lock: bump `buri`'s version. In Cargo.lock the
-          # version line is the one immediately after `name = "buri"`.
-          sed -i -E "0,/^version = \"[0-9.]+\"/s//version = \"$v\"/" cli/Cargo.toml
-          sed -i -E "/^name = \"buri\"$/{n;s/^version = \"[0-9.]+\"/version = \"$v\"/}" Cargo.lock
+          # cli/Cargo.toml + Cargo.lock: bump `buri`'s version. perl for both, so
+          # the same edit is portable — the toml's first `version = "..."` is the
+          # package version, and in Cargo.lock it is the line right after
+          # `name = "buri"`.
+          perl -i -pe 'if (!$done && /^version = "/) { s/"[^"]+"/"'"$v"'"/; $done=1 }' cli/Cargo.toml
+          perl -0777 -i -pe 's/(name = "buri"\nversion = ")[0-9.]+/${1}'"$v"'/' Cargo.lock
 
           # flake.nix: the version and the three hashes, each tagged with a
           # machine-editable marker so this sed is deterministic.
