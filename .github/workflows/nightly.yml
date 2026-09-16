@@ -29,12 +29,6 @@ name: Nightly
 # branch's scheduled run.
 
 on:
-  # DEV-ONLY, STRIP BEFORE DELIVERY: a push to the pipeline branch runs the whole
-  # thing in dry_run (the mode step below resolves a push to dry_run), which is
-  # how this file is proven without touching the remote. The delivered file is
-  # `schedule` + `workflow_dispatch` only.
-  push:
-    branches: [nightly-pipeline]
   schedule:
     # 0 13 * * * UTC = 6am PDT / 5am PST. GitHub cron has no DST; this is fixed
     # to PDT. Fires only from the default branch (see header).
