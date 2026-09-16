@@ -1,15 +1,13 @@
 //! core/map — a hash map.
 //!
-//! Keys are anything that is `Hash` and `Equal`. `get`, `insert` and `remove`
-//! are O(log n): near-constant for any map you will build, and still flat well
-//! past a million entries. `length` is O(1). Building a map of `n` entries,
-//! whether with `of` or a fold of `insert`, is O(n log n).
+//! A list of buckets, each an association list, indexed by the key's `Hash`.
+//! Lookup is O(1) expected; insert copies the bucket spine, which is O(b) in
+//! the number of buckets rather than O(n) in the number of entries.
 //!
-//! **Iteration order is unspecified and will change.** `entries`, `keys` and
-//! `values` visit every entry exactly once, in an order that follows the keys'
-//! hashes rather than the order they arrived in. Anything that needs a stable
-//! order should sort `entries` — or use an association list, which is what
-//! `core/json` does for exactly this reason.
+//! **Iteration order is unspecified and will change.** It follows the bucket
+//! layout, which follows the hashes, which follow the values. Anything that
+//! needs a stable order should sort `entries` — or use an association list,
+//! which is what `core/json` does for exactly this reason.
 //!
 //! ```buri run
 //! from "core/effect" import { Allocator, Stdout };
@@ -38,414 +36,53 @@ from "core/bits" import * as bits;
 from "core/effect" import { Allocator };
 from "core/list" import * as list;
 
-// A node of the map's internal tree. Not exported: the map is a value whose
-// only surface is its methods.
-//
-// The key's 64-bit hash is read five bits at a time. Each five-bit chunk (a
-// number in 0..31) picks one of a `Branch`'s up to thirty-two slots, so the
-// tree is at most thirteen levels deep and every level is a bounded array that
-// copies cheaply. An insert path-copies only the nodes from the root to the
-// entry it touches and shares the rest, which is what makes each write
-// O(log n) rather than O(n).
-//
-// `Branch(bitmap, children)` keeps a bitmap of which of the thirty-two slots
-// are filled beside a *dense* array holding only those children: slot `c`'s
-// child, when the bit for `c` is set, is at index `popcount(bitmap below c)`.
-// So a node costs one array element per child rather than thirty-two.
-//
-// `Entry(hash, key, value)` is a slot that holds a single pair; the hash is
-// kept so a colliding insert need not recompute it. `Collision(hash, pairs)`
-// holds the pairs whose keys share a full 64-bit `hash` — the only way two
-// distinct keys can land in the same slot at every level — as a short
-// association list.
-enum Node<K, V> {
-    Entry(U64, K, V),
-    Collision(U64, [(K, V)]),
-    Branch(U64, [Node<K, V>]),
-}
-
-/// The map's tree and how many entries are in it.
+/// The buckets, and how many entries are spread across them.
 ///
-/// The map carries `size` rather than walking the tree, which would make
-/// `length` O(n).
+/// The map carries `size` rather than summing the buckets, which would make
+/// `length` O(b).
 export struct Map<K, V> {
-    root: Node<K, V>,
+    buckets: [[(K, V)]],
     export size: Int,
 }
 
-/// The five-bit chunk of `hash` that a node at `depth` branches on. The top
-/// chunk (`depth` 12) is the hash's four highest bits; nothing branches deeper,
-/// because two keys that agree on every chunk agree on the whole hash and so
-/// share a `Collision` rather than a branch.
-let BITS: Int = 5;
+/// How many buckets a new map has. Small, because most maps are.
+let INITIAL: Int = 8;
 
-/// The low five bits, as a mask over the hash.
-let MASK: U64 = 31;
+/// Entries per bucket, averaged, before the map grows. Above this the
+/// association lists stop being short and lookup stops being constant.
+let LOAD: Int = 4;
 
-/// A single set bit, for building slot masks.
-let ONE: U64 = 1;
-
-/// The chunk of `hash` a node at `depth` branches on, as an index in 0..31.
-fn chunkAt(hash: U64, depth: Int): Int {
-    (bits.shiftRightU64(hash, depth * BITS) & MASK).wrapToI64()
+/// A bucket index for a hash.
+///
+/// The top bit is shifted out first: `wrapToI64` on a `U64` above `I64`'s
+/// maximum produces a negative number, and a negative index is not a bucket.
+fn bucketOf(h: U64, count: Int): Int {
+    if (count <= 0) { 0 } else { bits.shiftRightU64(h, 1).wrapToI64() % count }
 }
 
-/// The one-bit mask for slot `chunk`.
-fn bitOf(chunk: Int): U64 {
-    bits.shiftLeftU64(ONE, chunk)
-}
-
-/// Whether `bitmap` has the slot `bit` names filled.
-fn hasSlot(bitmap: U64, bit: U64): Bool {
-    bits.popCountU64(bitmap & bit) == 1
-}
-
-/// Where slot `bit`'s child sits in the dense children array: the number of
-/// filled slots below it.
-fn indexOf(bitmap: U64, bit: U64): Int {
-    bits.popCountU64(bitmap & bit.wrappingSubtract(ONE))
-}
-
-// -----------------------------------------------------------------------------
-// Splicing
-//
-// Free functions over an unbounded `T` rather than lambdas, because a lambda
-// may not capture a value whose type could be a context (SPEC 10.6), and a
-// `[Node<K, V>]` or `[(K, V)]` is exactly such a type when `V` is unbounded.
-// -----------------------------------------------------------------------------
-
-fn insertAt<T, C: Allocator>(ctx: C, xs: [T], at: Int, x: T): [T] {
-    xs.take(ctx, at).push(ctx, x).concat(ctx, xs.drop(ctx, at))
-}
-
-fn replaceAt<T, C: Allocator>(ctx: C, xs: [T], at: Int, x: T): [T] {
-    xs.take(ctx, at).push(ctx, x).concat(ctx, xs.drop(ctx, at + 1))
-}
-
-fn removeAt<T, C: Allocator>(ctx: C, xs: [T], at: Int): [T] {
-    xs.take(ctx, at).concat(ctx, xs.drop(ctx, at + 1))
-}
-
-// -----------------------------------------------------------------------------
-// Collision lists
-//
-// A `Collision` holds a handful of pairs sharing one hash. Each helper is
-// recursive rather than a capturing lambda, for the splicing note's reason.
-// -----------------------------------------------------------------------------
-
-/// The value stored under `key` in an association list, if any.
-fn findInList<K: Equal, V>(es: [(K, V)], key: K, at: Int): Option<V> {
-    match (es.get(at)) {
-        .None => .None,
-        .Some(e) => {
-            let (k, v) = e;
-            if (k == key) { .Some(v) } else { findInList(es, key, at + 1) }
-        },
-    }
-}
-
-/// Whether `key` is in the association list.
-fn listHasKey<K: Equal, V>(es: [(K, V)], key: K, at: Int): Bool {
-    match (es.get(at)) {
-        .None => false,
-        .Some(e) => {
-            let (k, _v) = e;
-            if (k == key) { true } else { listHasKey(es, key, at + 1) }
-        },
-    }
-}
-
-/// The list with `key`'s value replaced. `key` is assumed present.
-fn replaceInList<K: Equal, V, C: Allocator>(
+/// The bucket list with position `at` replaced, by splicing rather than by
+/// mapping over the indices.
+///
+/// A free function rather than a lambda at each use site: a lambda may not
+/// capture a value whose type could be a context, and `V` is unbounded here, so
+/// `[[(K, V)]]` is exactly such a type (SPEC 10.6).
+fn replaceAt<K, V, C: Allocator>(
     ctx: C,
-    es: [(K, V)],
-    key: K,
-    value: V,
+    buckets: [[(K, V)]],
     at: Int,
-): [(K, V)] {
-    match (es.get(at)) {
-        .None => es,
-        .Some(e) => {
-            let (k, _v) = e;
-            if (k == key) {
-                replaceAt(ctx, es, at, (key, value))
-            } else {
-                replaceInList(ctx, es, key, value, at + 1)
-            }
-        },
-    }
-}
-
-/// The list without `key`, or `.None` when `key` was not in it.
-fn removeFromList<K: Equal, V, C: Allocator>(
-    ctx: C,
-    es: [(K, V)],
-    key: K,
-    at: Int,
-): Option<[(K, V)]> {
-    match (es.get(at)) {
-        .None => .None,
-        .Some(e) => {
-            let (k, _v) = e;
-            if (k == key) {
-                .Some(removeAt(ctx, es, at))
-            } else {
-                removeFromList(ctx, es, key, at + 1)
-            }
-        },
-    }
-}
-
-// -----------------------------------------------------------------------------
-// Nodes
-// -----------------------------------------------------------------------------
-
-/// A one-slot branch holding `node` at the slot `hash` picks for `depth`. It is
-/// what a leaf becomes when a differently-hashed key has to join it: the branch
-/// separates them, and the caller re-inserts into it.
-fn branchWith<K, V>(h: U64, node: Node<K, V>, depth: Int): Node<K, V> {
-    .Branch(bitOf(chunkAt(h, depth)), [node])
-}
-
-/// A branch's node after a removal, collapsed if it has shrunk too far: an empty
-/// branch is `.None`, and a branch left with a single leaf child *is* that
-/// child, hoisted up so a shrunk map keeps no dead spine. A branch whose one
-/// remaining child is itself a branch stays a branch, because that child's
-/// slots are numbered for the deeper level.
-fn compact<K, V>(bitmap: U64, children: [Node<K, V>]): Option<Node<K, V>> {
-    if (children.length() == 0) {
-        .None
-    } else if (children.length() == 1) {
-        match (children.get(0)) {
-            .None => .None,
-            .Some(only) => {
-                match (only) {
-                    .Branch(_b, _c) => .Some(.Branch(bitmap, children)),
-                    .Entry(_h, _k, _v) => .Some(only),
-                    .Collision(_h, _es) => .Some(only),
-                }
-            },
-        }
-    } else {
-        .Some(.Branch(bitmap, children))
-    }
-}
-
-/// The value under `key` in the subtree `n`, whose keys' hashes agree with
-/// `hash` down to `depth`.
-fn find<K: Equal, V>(n: Node<K, V>, hash: U64, key: K, depth: Int): Option<V> {
-    match (n) {
-        .Entry(_h, k, v) => if (k == key) { .Some(v) } else { .None },
-        .Collision(_h, es) => findInList(es, key, 0),
-        .Branch(bitmap, children) => {
-            let bit = bitOf(chunkAt(hash, depth));
-            if (hasSlot(bitmap, bit)) {
-                match (children.get(indexOf(bitmap, bit))) {
-                    .None => .None,
-                    .Some(child) => find(child, hash, key, depth + 1),
-                }
-            } else {
-                .None
-            }
-        },
-    }
-}
-
-/// The subtree after storing `(key, value)`, and whether the key was a new one
-/// — the `Bool` keeps `size` right without a second descent.
-fn insertNode<K: Equal, V, C: Allocator>(
-    ctx: C,
-    n: Node<K, V>,
-    hash: U64,
-    key: K,
-    value: V,
-    depth: Int,
-): (Node<K, V>, Bool) {
-    match (n) {
-        .Branch(bitmap, children) => {
-            let bit = bitOf(chunkAt(hash, depth));
-            let idx = indexOf(bitmap, bit);
-            if (hasSlot(bitmap, bit)) {
-                match (children.get(idx)) {
-                    .None => (.Branch(bitmap, children), false),
-                    .Some(child) => {
-                        let (grown, added) = insertNode(
-                            ctx,
-                            child,
-                            hash,
-                            key,
-                            value,
-                            depth + 1,
-                        );
-                        (.Branch(bitmap, replaceAt(ctx, children, idx, grown)), added)
-                    },
-                }
-            } else {
-                (
-                    .Branch(
-                        bitmap | bit,
-                        insertAt(ctx, children, idx, .Entry(hash, key, value)),
-                    ),
-                    true,
-                )
-            }
-        },
-        .Entry(h, k, v) => {
-            if (k == key) {
-                (.Entry(hash, key, value), false)
-            } else if (h == hash) {
-                // Two distinct keys, one hash: the only true collision.
-                (.Collision(hash, [(k, v), (key, value)]), true)
-            } else {
-                // Different hashes: push the sitting entry into a branch that
-                // separates the two, and let the branch case place the newcomer.
-                insertNode(
-                    ctx,
-                    branchWith(h, .Entry(h, k, v), depth),
-                    hash,
-                    key,
-                    value,
-                    depth,
-                )
-            }
-        },
-        .Collision(h, es) => {
-            if (h == hash) {
-                if (listHasKey(es, key, 0)) {
-                    (.Collision(h, replaceInList(ctx, es, key, value, 0)), false)
-                } else {
-                    (.Collision(h, es.push(ctx, (key, value))), true)
-                }
-            } else {
-                insertNode(
-                    ctx,
-                    branchWith(h, .Collision(h, es), depth),
-                    hash,
-                    key,
-                    value,
-                    depth,
-                )
-            }
-        },
-    }
-}
-
-/// The subtree after removing `key` (`.None` when it became empty), and whether
-/// a key actually went.
-fn removeNode<K: Equal, V, C: Allocator>(
-    ctx: C,
-    n: Node<K, V>,
-    hash: U64,
-    key: K,
-    depth: Int,
-): (Option<Node<K, V>>, Bool) {
-    match (n) {
-        .Entry(_h, k, _v) => if (k == key) { (.None, true) } else { (.Some(n), false) },
-        .Collision(h, es) => {
-            if (h == hash) {
-                match (removeFromList(ctx, es, key, 0)) {
-                    .None => (.Some(n), false),
-                    .Some(rest) => {
-                        if (rest.length() == 1) {
-                            match (rest.get(0)) {
-                                .None => (.None, true),
-                                .Some(e) => {
-                                    let (k, v) = e;
-                                    (.Some(.Entry(h, k, v)), true)
-                                },
-                            }
-                        } else {
-                            (.Some(.Collision(h, rest)), true)
-                        }
-                    },
-                }
-            } else {
-                (.Some(n), false)
-            }
-        },
-        .Branch(bitmap, children) => {
-            let bit = bitOf(chunkAt(hash, depth));
-            if (hasSlot(bitmap, bit)) {
-                let idx = indexOf(bitmap, bit);
-                match (children.get(idx)) {
-                    .None => (.Some(n), false),
-                    .Some(child) => {
-                        let (shrunk, removed) = removeNode(
-                            ctx,
-                            child,
-                            hash,
-                            key,
-                            depth + 1,
-                        );
-                        if (removed) {
-                            match (shrunk) {
-                                .None => {
-                                    (
-                                        compact(
-                                            bitmap & ~bit,
-                                            removeAt(ctx, children, idx),
-                                        ),
-                                        true,
-                                    )
-                                },
-                                .Some(c) => {
-                                    (
-                                        compact(
-                                            bitmap,
-                                            replaceAt(ctx, children, idx, c),
-                                        ),
-                                        true,
-                                    )
-                                },
-                            }
-                        } else {
-                            (.Some(n), false)
-                        }
-                    },
-                }
-            } else {
-                (.Some(n), false)
-            }
-        },
-    }
-}
-
-// -----------------------------------------------------------------------------
-// Walking
-//
-// The answer is threaded through as an accumulator rather than concatenating
-// sublists: a `push` onto a list nothing else holds grows it in place
-// (MEMORY.md §5.3), so the whole walk is linear.
-// -----------------------------------------------------------------------------
-
-fn walk<K, V, C: Allocator>(ctx: C, n: Node<K, V>, acc: [(K, V)]): [(K, V)] {
-    match (n) {
-        .Entry(_h, k, v) => acc.push(ctx, (k, v)),
-        .Collision(_h, es) => acc.concat(ctx, es),
-        .Branch(_bitmap, children) => walkChildren(ctx, children, 0, acc),
-    }
-}
-
-fn walkChildren<K, V, C: Allocator>(
-    ctx: C,
-    children: [Node<K, V>],
-    at: Int,
-    acc: [(K, V)],
-): [(K, V)] {
-    match (children.get(at)) {
-        .None => acc,
-        .Some(child) => walkChildren(ctx, children, at + 1, walk(ctx, child, acc)),
-    }
+    bucket: [(K, V)],
+): [[(K, V)]] {
+    buckets.take(ctx, at).push(ctx, bucket).concat(ctx, buckets.drop(ctx, at + 1))
 }
 
 /// The empty map.
 ///
-/// Pure, and holding an empty root that allocates nothing: the first `insert`
-/// fills it. That is what makes the function callable. The compiler generates a
-/// context type and gives it no name (SPEC 11.3), so nobody can write
-/// `empty<Str, Int, C>()`, and a written type argument list is all-or-nothing.
+/// Pure, and with no buckets at all: the first `insert` allocates them. That is
+/// what makes the function callable. The compiler generates a context type and
+/// gives it no name (SPEC 11.3), so nobody can write `empty<Str, Int, C>()`, and
+/// a written type argument list is all-or-nothing.
 export fn empty<K, V>(): Map<K, V> {
-    Map { root: .Branch(0, list.empty<Node<K, V>>()), size: 0 }
+    Map { buckets: list.empty<[(K, V)]>(), size: 0 }
 }
 
 impl<K: Hash + Equal, V> Map<K, V> {
@@ -459,7 +96,19 @@ impl<K: Hash + Equal, V> Map<K, V> {
 
     /// The value stored under `key`, if there is one.
     export fn get(self, key: K): Option<V> {
-        find(self.root, key.hash(), key, 0)
+        let buckets = self.buckets;
+        let b = buckets
+            .get(bucketOf(key.hash(), buckets.length()))
+            .withDefault(list.empty<(K, V)>());
+        b
+            .find(fn(e) => {
+                let (k, _v) = e;
+                k == key
+            })
+            .map(fn(e) => {
+                let (_k, v) = e;
+                v
+            })
     }
 
     export fn has(self, key: K): Bool {
@@ -468,26 +117,53 @@ impl<K: Hash + Equal, V> Map<K, V> {
 
     /// Stores `value` under `key`, replacing whatever was there.
     export fn insert<C: Allocator>(self, ctx: C, key: K, value: V): Map<K, V> {
-        let (root, added) = insertNode(ctx, self.root, key.hash(), key, value, 0);
-        Map { root: root, size: if (added) { self.size + 1 } else { self.size } }
+        let grown = if (self.size + 1 > self.buckets.length() * LOAD) {
+            self.grow(ctx)
+        } else {
+            self
+        };
+        let buckets = grown.buckets;
+        let target = bucketOf(key.hash(), buckets.length());
+        let existing = buckets.get(target).withDefault(list.empty<(K, V)>());
+        let replaced = existing.any(fn(e) => {
+            let (k, _v) = e;
+            k == key
+        });
+        let kept = existing.filterCtx(ctx, fn(_c, e) => {
+            let (k, _v) = e;
+            k != key
+        });
+        let bucket = kept.push(ctx, (key, value));
+        // Splice rather than rebuild by index: a lambda may not capture
+        // `buckets`, since `[[(K, V)]]` would carry an effect at `V := C`
+        // (SPEC 10.6).
+        let next = replaceAt(ctx, buckets, target, bucket);
+        Map {
+            buckets: next,
+            size: if (replaced) { grown.size } else { grown.size + 1 },
+        }
     }
 
     /// Removes `key`, if it is there. Removing what is absent is not an error.
     export fn remove<C: Allocator>(self, ctx: C, key: K): Map<K, V> {
-        let (root, removed) = removeNode(ctx, self.root, key.hash(), key, 0);
-        if (removed) {
-            match (root) {
-                .None => empty<K, V>(),
-                .Some(r) => Map { root: r, size: self.size - 1 },
-            }
-        } else {
+        let buckets = self.buckets;
+        let target = bucketOf(key.hash(), buckets.length());
+        let existing = buckets.get(target).withDefault(list.empty<(K, V)>());
+        let kept = existing.filterCtx(ctx, fn(_c, e) => {
+            let (k, _v) = e;
+            k != key
+        });
+        if (kept.length() == existing.length()) {
             self
+        } else {
+            let next = replaceAt(ctx, buckets, target, kept);
+            Map { buckets: next, size: self.size - 1 }
         }
     }
 
     /// Every entry, in no particular order — see the module comment.
     export fn entries<C: Allocator>(self, ctx: C): [(K, V)] {
-        walk(ctx, self.root, list.empty<(K, V)>())
+        self.buckets.flatten(ctx)
     }
 
     export fn keys<C: Allocator>(self, ctx: C): [K] {
@@ -557,8 +233,8 @@ impl<K: Hash + Equal, V> Map<K, V> {
 
     /// The same keys, every value put through `transform`.
     ///
-    /// It rebuilds the map rather than copying the tree, so it costs one insert
-    /// per entry. The iteration order is still unspecified.
+    /// It rebuilds the map rather than copying the buckets, so it costs one
+    /// insert per entry. The iteration order is still unspecified.
     export fn mapValues<W, C: Allocator>(
         self,
         ctx: C,
@@ -718,6 +394,36 @@ impl<K: Hash + Equal, V> Map<K, V> {
                 empty<K, V>(),
             )
     }
+
+    /// Twice the buckets, everything rehashed. `insert` calls it once the entries
+    /// outgrow the load factor, so the association lists stay short and lookup
+    /// stays expected-constant.
+    fn grow<C: Allocator>(self, ctx: C): Map<K, V> {
+        // From nothing, the initial size; otherwise twice what there was.
+        let count = if (self.buckets.length() == 0) {
+            INITIAL
+        } else {
+            self.buckets.length() * 2
+        };
+        let all = self.buckets.flatten(ctx);
+        // One pass over the entries, each dropped into its new bucket. A fold
+        // takes the accumulator as a *parameter*, and a lambda may not capture a
+        // `[(K, V)]` when `V` is unbounded and so could be a context (SPEC 10.6).
+        let blank = list.repeat(ctx, list.empty<(K, V)>(), count);
+        // `acc` is annotated because type information flows left-to-right and
+        // the checker has not reached `blank` yet (guides/compile-speed.md).
+        let next = all.foldCtx(
+            ctx,
+            fn(c, acc: [[(K, V)]], e) => {
+                let (k, _v) = e;
+                let at = bucketOf(k.hash(), count);
+                let bucket = acc.get(at).withDefault(list.empty<(K, V)>()).push(c, e);
+                replaceAt(c, acc, at, bucket)
+            },
+            blank,
+        );
+        Map { buckets: next, size: self.size }
+    }
 }
 
 /// The elements of `items` collected under `key(x)`, each group in the order the
@@ -794,8 +500,9 @@ export fn of<K: Hash + Equal, V, C: Allocator>(ctx: C, entries: [(K, V)]): Map<K
 }
 
 impl<K: Hash + Equal, V: Equal> Map<K, V> {
-    /// Same entries, whatever tree each arrived at. `derive Equal` would compare
-    /// the trees, which two equal maps built in different orders need not share.
+    /// Same entries, whatever bucket layout each arrived at. `derive Equal` would
+    /// compare the layout, which two equal maps built in different orders need
+    /// not share.
     export fn equals<C: Allocator>(self, ctx: C, other: Map<K, V>): Bool {
         if (self.size != other.size) {
             false
