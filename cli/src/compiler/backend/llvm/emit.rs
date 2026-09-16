@@ -2612,13 +2612,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     argv.push(give_back.into());
                 }
                 runtime::Arg::Spilled => {
-                    let (size, align) = match &element {
-                        Some(t) => {
-                            let r = self.reprs.of_ty(t);
-                            (r.layout.size, r.layout.align)
-                        }
-                        None => (0, 1),
-                    };
+                    // The buffer is sized from the value actually being
+                    // spilled, not from `element`. A `[T]` operation's spilled
+                    // argument is one element and `element` names its type, so
+                    // the two agree there. A bare `signal(initial: T)` names its
+                    // type only in the spilled argument — `element` is `None` —
+                    // and sizing the buffer at zero there gave the runtime a
+                    // one-byte `alloca` to read `stride` bytes out of: `store`s
+                    // past its end that `default<O2>` was entitled to drop,
+                    // which is buri-lang/buri#200's zeroed leading fields.
+                    let (size, align) = self.spill_shape(ir_ty);
                     let buf = self.scratch(state, size, align);
                     self.store_slots(buf, &slots, align, &pieces);
                     argv.push(buf.into());
@@ -4639,6 +4642,33 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     .unwrap_or(0);
                 let align = slots.iter().map(|s| s.ty.size()).max().unwrap_or(1);
                 (slots, size, align)
+            }
+        }
+    }
+
+    /// The byte size and alignment a value of `ty` occupies in memory, for a
+    /// spilled argument's stack buffer.
+    ///
+    /// The same rule [`Unit::dest_shape`] uses — the layout table for an
+    /// aggregate, the one slot's own width for a scalar — because the buffer a
+    /// value is stored into and the buffer it is read back out of are the same
+    /// bytes. The runtime reads `stride(ty)` of them, so a buffer any smaller is
+    /// a read past its end.
+    fn spill_shape(&mut self, ty: ir::Type) -> (u32, u32) {
+        match ty {
+            ir::Type::Agg(id) => {
+                let r = self.reprs.of(self.program, id);
+                (r.layout.size, r.layout.align)
+            }
+            other => {
+                let slots = repr::ir_slots(&mut self.reprs, self.program, other);
+                let size = slots
+                    .iter()
+                    .map(|s| s.offset.saturating_add(s.ty.size()))
+                    .max()
+                    .unwrap_or(0);
+                let align = slots.iter().map(|s| s.ty.size()).max().unwrap_or(1);
+                (size, align)
             }
         }
     }
