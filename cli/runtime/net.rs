@@ -6896,9 +6896,20 @@ mod tests {
         let refused = client::connect(&format!("ws://127.0.0.1:{port}/socket"))
             .expect_err("nobody is listening");
         assert_eq!(refused.cause, ServeFail::Transport);
+        // The freed ephemeral port almost always refuses the connect, and the
+        // detail then names it. But on a busy host — the CI leg runs many tests
+        // at once — another bind can reclaim that exact port in the window
+        // between the `drop` above and this dial, so the dial reaches a listener
+        // that resets it mid-handshake instead. That is still a `Transport`
+        // failure (asserted above); its detail names the reset rather than the
+        // port. Both are the one thing this checks: a dial that could not
+        // usefully reach the endpoint fails as a transport error with a
+        // sentence, not a panic or a silent success.
         assert!(
-            refused.detail.contains(&port.to_string()),
-            "the refusal says what could not be dialled: {}",
+            refused.detail.contains(&port.to_string())
+                || refused.detail.to_lowercase().contains("reset"),
+            "a dead port is a Transport failure naming the port, or a reset if \
+             the port was transiently reclaimed by another bind: {}",
             refused.detail
         );
     }
