@@ -4452,6 +4452,87 @@ fn the_text_a_shaper_has_to_survive_paints_the_same_bytes_under_the_release_back
     );
 }
 
+/// **Painting a snapshot leaves the tree it painted intact**
+/// (buri-lang/buri#201).
+///
+/// The page holds a struct in a signal — a leading `Str` field ahead of an
+/// `OrderedMap` — and paints a line of text read back out of that field. The
+/// map's B-tree node is the recursive shape #200's spill buffer was sized at
+/// zero for, so before that fix the leading field came back `""`: the release
+/// backend painted a snapshot of nothing, and `describe`, run afterwards over
+/// the same tree, no longer held the word it was painted from. That is #201's
+/// report — a suite green in `--debug` whose paint corrupts memory under
+/// `--release`, one victim losing a word from a `describe` after a snapshot.
+///
+/// `--update` here, so the assertion is the `describe` inside the suite rather
+/// than a checked-in golden: `--update` never reads a golden and died the same
+/// way, because the fault is the paint, not the compare. `native differential`
+/// is stencil-against-JS and cannot see an LLVM-only fault, so this
+/// release-backend paint is the guard.
+#[test]
+fn a_painted_snapshot_leaves_the_tree_intact_under_the_release_backend() {
+    skip_unless_executable!();
+    let source = r#"
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { describe, Node };
+from "ui/signal" import * as signal;
+from "ui/testing" import { headless, snapshot };
+
+struct State {
+    label: Str,
+    rows: OrderedMap<Str, Int>,
+}
+
+fn page<C: Allocator + Ui>(ctx: C): Node<C> {
+    let state = signal.signal(
+        ctx,
+        State { label: "Grace", rows: orderedmap.of(ctx, [("a", 1), ("b", 2)]) },
+    );
+    ui.stack({
+        styles: [.Layout(.Column)],
+        children: [ui.text({ content: .Computed(fn(scope) => state.get(scope).label) })],
+    })
+}
+
+context Fixture {
+    Allocator: alloc(),
+    Ui: headless(),
+}
+
+test "the label ahead of a map survives its own paint" {
+    let ctx = Fixture();
+    let p = page(ctx);
+    snapshot(ctx, "page", p, .Checked, []);
+    assert.isTrue(describe(ctx, p, .Checked).contains("Grace"));
+}
+"#;
+    let binary = build_tests("snapshot-intact", source);
+    let snapshots = workspace().join("snapshot-intact").join("__snapshots__");
+    let _ = std::fs::remove_dir_all(&snapshots);
+    std::fs::create_dir_all(&snapshots).unwrap();
+
+    let out = Command::new(&binary)
+        .env("BURI_TEST_FROM", "0")
+        .env("BURI_SNAPSHOT_DIR", &snapshots)
+        .env("BURI_SNAPSHOT_SHEET", workspace().join("snapshot-intact").join("styles.css"))
+        .env("BURI_SNAPSHOT_UPDATE", "1")
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "painting the snapshot clobbered the tree — the field ahead of the map \
+         did not survive the paint:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// **A boxed field and a boxed variant payload** round-trip: built, read back,
 /// and released.
 ///
