@@ -7,6 +7,7 @@ library {
             "test/captures.buri",
             "test/copyout.buri",
             "test/discards.buri",
+            "test/guards.buri",
             "test/scoped.buri",
         ]
 

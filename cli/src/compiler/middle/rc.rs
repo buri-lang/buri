@@ -3262,13 +3262,47 @@ impl Scan<'_> {
                 }
             }
             let before_arm = std::mem::replace(&mut self.diverged, false);
-            let mut lb = self.expr(&a.body, bid, live, mode);
+            let body_live = self.expr(&a.body, bid, live, mode);
             self.flush(bid);
             // Every arm has to jump for the match to.
             self.diverged = before_arm && self.diverged;
+            let mut lb = body_live.clone();
             if let (Some(g), Some(gid)) = (a.guard.as_ref(), gid) {
-                lb = self.expr(g, gid, &lb, Mode::Borrow);
+                // A guard is speculative: when it is false the *next* arm runs,
+                // so the guard is not the last use of anything, even a value it
+                // hands to a callee that owns it — `match (k) { _ if take(v) =>
+                // …, .A => … }` reaches `.A` with `v` already consumed. Scanned
+                // as an ordinary last use, `take(v)`'s release is the arm's only
+                // one, and the fall-through arm releases `v` a second time
+                // (issue #198, a query filter's heap `Str` freed a recompute
+                // early). So every owned counted local the guard reads is forced
+                // live across it: a consuming use is then a duplicating one and
+                // takes a retain, and the guard nets to zero on ownership. What
+                // the arm body does not go on to use is released at its entry,
+                // which the fall-through never reaches — the arm it lands on
+                // releases its own copy there instead. The scrutinee is left to
+                // the match's own disposal, and a pattern binding to the arm's.
+                let mut held: Vec<LocalId> = Vec::new();
+                collect_locals(g, &mut held);
+                held.retain(|l| {
+                    self.is_counted(*l)
+                        && self.owned.contains(l)
+                        && !bound.contains(l)
+                        && borrowed_root(scrutinee) != Some(*l)
+                });
+                held.sort_by_key(|l| l.0);
+                held.dedup();
+                let mut guarded = body_live.clone();
+                for l in &held {
+                    guarded.insert(*l);
+                }
+                lb = self.expr(g, gid, &guarded, Mode::Borrow);
                 self.flush(gid);
+                for l in &held {
+                    if !body_live.contains(l) && !live.contains(l) {
+                        self.push(bid, Position::Before, RcOp::DecRef, Target::Local(*l));
+                    }
+                }
             }
             // A fresh binding the arm never reads is dropped where it is bound,
             // for the reason `Stmt::Let` drops one: the allocation happened
@@ -3718,6 +3752,23 @@ fn borrowed_root(e: &Expr) -> Option<LocalId> {
         | ExprKind::CtxGet { base, .. }
         | ExprKind::Index { base, .. } => borrowed_root(base),
         _ => None,
+    }
+}
+
+/// Every local a guard expression names, so a match arm's guard can be held to
+/// borrow them rather than consume them (see [`Scan::match_`]). A `Lambda`'s
+/// body is not walked: it is a construction over its captures, and the captures
+/// are what a guard reaching one already lists.
+fn collect_locals(e: &Expr, out: &mut Vec<LocalId>) {
+    if let ExprKind::Local(l) = &e.kind {
+        out.push(*l);
+    }
+    if let ExprKind::Lambda { captures, .. } = &e.kind {
+        out.extend(captures.iter().copied());
+        return;
+    }
+    for k in kids(e) {
+        collect_locals(k, out);
     }
 }
 
