@@ -66,6 +66,7 @@ jobs:
     outputs:
       version: ${{ steps.compute.outputs.version }}
       mode: ${{ steps.mode.outputs.mode }}
+      ci_green: ${{ steps.gate.outputs.ci_green }}
     steps:
       # fetch-depth: 0 so the tags are present — the version is read from them.
       - uses: actions/checkout@v4
@@ -91,6 +92,29 @@ jobs:
           fi
           echo "version=$next" >> "$GITHUB_OUTPUT"
           echo "next version: $next"
+      - id: gate
+        # Reuse main's own CI verdict rather than re-running the suite: refuse to
+        # cut a nightly unless the most recent COMPLETED ci.yml run on main
+        # concluded `success`. Gated on the latest completed run, not this exact
+        # HEAD sha, on purpose — the nightly's own version-bump commit is
+        # bot-pushed and never gets a ci.yml run of its own, so a quiet day with
+        # no human commits would otherwise always skip. Enforced only in release
+        # mode (see the build job's `if`); a dry run still computes and logs the
+        # verdict but always proceeds, so the pipeline stays testable from any
+        # state.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          verdict=$(gh run list --workflow=ci.yml --branch main --status completed \
+            --limit 1 --json conclusion --jq '.[0].conclusion // "none"')
+          echo "latest completed ci.yml run on main concluded: $verdict"
+          if [ "$verdict" = "success" ]; then
+            echo "ci_green=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ci_green=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::main CI is '$verdict', not success — a release-mode nightly is skipped."
+          fi
 
   # The three release targets. Every leg checks out, packages, and uploads on the
   # HOST runner; the only difference is where `buri` is compiled.
@@ -122,6 +146,10 @@ jobs:
   build:
     name: build (${{ matrix.target }})
     needs: version
+    # A dry run always builds (testable from any state); a release-mode run
+    # builds only when main's latest CI is green. Skipping build skips publish,
+    # so a red main cuts no nightly.
+    if: needs.version.outputs.mode == 'dry_run' || needs.version.outputs.ci_green == 'true'
     strategy:
       fail-fast: false
       matrix:
