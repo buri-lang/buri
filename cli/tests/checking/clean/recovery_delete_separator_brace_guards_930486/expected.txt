@@ -1,0 +1,7 @@
+error: a match arm ends with `,` [missing-separator]
+  --> main.buri:56:40
+   |
+56 |         _ if !holdsText(value) => false
+   |                                        ^
+   |
+   = fix: write `,` here

@@ -1,0 +1,28 @@
+error: a `match` used as a statement ends with `;` [missing-terminator]
+  --> main.buri:42:6
+   |
+42 |     }
+   |      ^
+   |
+   = fix: write `;` here
+error: expected `(`, found `kindOf` [unexpected-token]
+  --> main.buri:47:4
+   |
+47 | fn kindOf(marker: Str): Kind {
+   |    ^^^^^^
+   |
+   = expected: `(`
+   = actual: `kindOf`
+   = fix: write `(` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:89:1
+   |
+89 | 
+   | ^
+   |
+  --> main.buri:38:30
+   |
+38 | fn textOf(value: Value): Str {
+   |                              ^ opened here
+   |
+   = fix: write `}` here

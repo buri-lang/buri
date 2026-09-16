@@ -1,0 +1,19 @@
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> main.buri:34:15
+   |
+34 |         .Empty false =>,
+   |               ^
+   |
+   = fix: write `=>` here
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:34:22
+   |
+34 |         .Empty false =>,
+   |                      ^^
+   |
+  --> main.buri:32:19
+   |
+32 |     match (value) {
+   |                   ^ opened here
+   |
+   = fix: write `}` here

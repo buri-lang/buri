@@ -1,0 +1,28 @@
+error: a `match` used as a statement ends with `;` [missing-terminator]
+  --> main.buri:35:6
+   |
+35 |     }
+   |      ^
+   |
+   = fix: write `;` here
+error: expected `(`, found `textOf` [unexpected-token]
+  --> main.buri:38:4
+   |
+38 | fn textOf(value: Value): Str {
+   |    ^^^^^^
+   |
+   = expected: `(`
+   = actual: `textOf`
+   = fix: write `(` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:89:1
+   |
+89 | 
+   | ^
+   |
+  --> main.buri:31:34
+   |
+31 | fn holdsText(value: Value): Bool {
+   |                                  ^ opened here
+   |
+   = fix: write `}` here

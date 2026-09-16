@@ -1,0 +1,7 @@
+error: a match arm ends with `,` [missing-separator]
+  --> main.buri:82:24
+   |
+82 |         .Bool => "bool"
+   |                        ^
+   |
+   = fix: write `,` here

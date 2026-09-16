@@ -1,9 +1,0 @@
-error: expected `test`, found a string literal [unexpected-token]
-  --> main.buri:17:1
-   |
-17 | "hash follows equality" test {
-   | ^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = expected: `test`
-   = actual: a string literal
-   = fix: write `test` first: `test "hash follows equality"`

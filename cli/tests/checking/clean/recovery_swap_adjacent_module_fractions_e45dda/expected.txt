@@ -1,9 +1,0 @@
-error: expected `test`, found a string literal [unexpected-token]
-  --> main.buri:28:1
-   |
-28 | "a fraction no Duration can hold saturates, and a NaN is nothing" test {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = expected: `test`
-   = actual: a string literal
-   = fix: write `test` first: `test "a fraction no Duration can hold saturates, and a NaN is nothing"`
