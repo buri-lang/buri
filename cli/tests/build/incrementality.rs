@@ -685,6 +685,165 @@ fn a_native_build_re_emits_the_unit_an_edit_landed_in() {
     assert_eq!(status(&edited, "link //cmd/c"), "run");
 }
 
+/// `//apps/state`'s re-export, unchanged across the shape edit.
+const SHAPE_STATE_LIB: &str = "from \"//apps/state/held.buri\" export { Held, newHeld, open };\n";
+
+/// `//apps/state`'s struct, two fields — the **before** of buri-lang/buri#196.
+const SHAPE_HELD_TWO_FIELDS: &str = r#"from "core/effect" import { Allocator };
+from "core/orderedmap" import * as ordmap;
+from "core/orderedmap" import { OrderedMap };
+
+export struct Held {
+    open: OrderedMap<Int, Str>,
+    seen: OrderedMap<Int, Str>,
+}
+
+export fn newHeld(): Held {
+    Held { open: ordmap.empty<Int, Str>(), seen: ordmap.empty<Int, Str>() }
+}
+
+export fn open<C: Allocator>(ctx: C, held: Held, id: Int): (Held, Int) {
+    let next = Held {
+        ..held,
+        open: held.open.insert(ctx, id, "open"),
+        seen: held.seen.insert(ctx, id, "seen"),
+    };
+    (next, next.open.length() + next.seen.length())
+}
+"#;
+
+/// The same struct with `seen` dropped — the **after**. One field, so the copy
+/// walk the backend sizes from the layout copies fewer bytes.
+const SHAPE_HELD_ONE_FIELD: &str = r#"from "core/effect" import { Allocator };
+from "core/orderedmap" import * as ordmap;
+from "core/orderedmap" import { OrderedMap };
+
+export struct Held {
+    open: OrderedMap<Int, Str>,
+}
+
+export fn newHeld(): Held {
+    Held { open: ordmap.empty<Int, Str>() }
+}
+
+export fn open<C: Allocator>(ctx: C, held: Held, id: Int): (Held, Int) {
+    let next = Held { ..held, open: held.open.insert(ctx, id, "open") };
+    (next, next.open.length())
+}
+"#;
+
+/// `//apps/app`: the struct behind a `core/actor` mailbox, which is what makes
+/// the backend emit the copy walk this bug served stale.
+const SHAPE_APP_MAIN: &str = r#"from "core/actor" import * as actor;
+from "core/actor" import { Actor, Stepped };
+from "core/effect" import { Allocator, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "//apps/state" import { Held, newHeld, open };
+
+enum Note {
+    Opened(Int),
+}
+
+fn holder<C: Allocator>(): Actor<C, Held, Note, Int> {
+    Actor {
+        state: newHeld(),
+        step: fn(c, held, note) => {
+            match (note) {
+                .Opened(id) => {
+                    let (next, count) = open(c, held, id);
+                    Stepped { state: next, answer: count }
+                },
+            }
+        },
+        onStop: .None,
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let mailbox = actor.start(ctx, holder());
+    let count = mailbox.sendMessage(ctx, .Opened(1)).withDefault(-1);
+    let _ = io.println(ctx, "open ${count}").ignore();
+    let _ = mailbox.stop(ctx).ignore();
+    .Ok(())
+}
+"#;
+
+/// buri-lang/buri#196: an incremental rebuild after a **dependency's** struct
+/// changes shape must behave exactly like a cold one.
+///
+/// The struct is held behind a `core/actor` mailbox, which is what makes the
+/// backend generate a copy walk for it — a per-type helper sized from the
+/// struct's layout and emitted into `core/alloc`'s object, where `copyOut` is.
+/// That object's `codegen` key is content-addressed on the unit's lowered IR
+/// and the layout of every type it names. But `alloc.copyOut`'s signature is
+/// erased to `[Carried<T>]` (a list, `{ ptr, len }` whatever `T` is), so neither
+/// the IR nor a one-level layout of the type the unit names moved when the
+/// struct lost a field — the key stayed put, the incremental build served the
+/// old copy walk, and the binary copied the wrong number of bytes and corrupted
+/// the heap. A cold `--force` build re-emitted the walk and was correct.
+///
+/// So this is a behaviour test and nothing else: the incrementally rebuilt
+/// binary must print the new answer, exit clean, and pass the runtime's heap
+/// check — the same three the cold build passes. It asserts nothing about which
+/// unit was rebuilt, because a user cannot see that and the fix must be free to
+/// move it.
+#[test]
+fn an_incremental_rebuild_after_a_dependency_struct_changes_shape_is_not_miscompiled() {
+    let host = if cfg!(target_os = "macos") { "MACOS" } else { "LINUX" };
+    let scratch = Scratch::repo("shape-change");
+
+    scratch.write(
+        "apps/state/BUILD.buri",
+        "library {\n  sources: [\"held.buri\", \"lib.buri\"]\n  \
+         visibility: [\"//apps/...\"]\n}\n",
+    );
+    scratch.write("apps/state/lib.buri", SHAPE_STATE_LIB);
+    scratch.write("apps/state/held.buri", SHAPE_HELD_TWO_FIELDS);
+    scratch.write(
+        "apps/app/BUILD.buri",
+        &format!(
+            "binary {{\n  dependencies: [\"//apps/state\"]\n  \
+             outputs: [{{ platform: {host} }}]\n}}\n"
+        ),
+    );
+    scratch.write("apps/app/main.buri", SHAPE_APP_MAIN);
+
+    // The cold build, run under the heap report. If it never reaches the native
+    // runtime — no backend compiled in, no runtime archive, no linker — there is
+    // no binary to miscompile and nothing this test can ask; that is a host's
+    // answer, and `ci::skipped` prints it and panics under `BURI_CI=1`.
+    let cold = scratch.run_with_env(&["run", "//apps/app"], &[("BURI_RT_HEAP_REPORT", "1")]);
+    if !cold.all().contains("buri heap check:") {
+        crate::harness::ci::skipped(
+            "build::incrementality",
+            &format!(
+                "`buri run //apps/app` never reached the native runtime, so there was no \
+                 shape-change rebuild to check:\n{}",
+                indent(&cold.all())
+            ),
+        );
+        return;
+    }
+    cold.ok().says("open 2").says("buri heap check: ok (");
+
+    // Drop a field, then rebuild and run WITHOUT `--force`. The one that fails
+    // before the fix: same answer shape, one fewer field, and the incremental
+    // binary aborts in libmalloc at exit (or segfaults in the copy walk).
+    scratch.write("apps/state/held.buri", SHAPE_HELD_ONE_FIELD);
+    let incremental =
+        scratch.run_with_env(&["run", "//apps/app"], &[("BURI_RT_HEAP_REPORT", "1")]);
+    incremental
+        .ok()
+        .says("open 1")
+        .says("buri heap check: ok (");
+}
+
 /// A suite that names a native platform is compiled and run as a native
 /// binary, and its verdict is cached on the same key a JavaScript run uses.
 ///
