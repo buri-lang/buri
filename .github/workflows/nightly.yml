@@ -29,6 +29,12 @@ name: Nightly
 # branch's scheduled run.
 
 on:
+  # DEV-ONLY, STRIP BEFORE DELIVERY: a push to the pipeline branch runs the whole
+  # thing in dry_run (the mode step below resolves a push to dry_run), which is
+  # how this file is proven without touching the remote. The delivered file is
+  # `schedule` + `workflow_dispatch` only.
+  push:
+    branches: [nightly-pipeline]
   schedule:
     # 0 13 * * * UTC = 6am PDT / 5am PST. GitHub cron has no DST; this is fixed
     # to PDT. Fires only from the default branch (see header).
@@ -92,13 +98,21 @@ jobs:
           echo "version=$next" >> "$GITHUB_OUTPUT"
           echo "next version: $next"
 
-  # The three release targets, each built NATIVELY on its own runner. Every leg:
-  # sets up LLVM 21 + (on Linux) musl, edits cli/Cargo.toml to the computed
-  # version, builds `buri` with the optimizing backend, smoke-tests the binary,
-  # packages it as buri-<version>-<target>.tar.gz, and uploads the tarball plus a
-  # .sha256 sidecar. The sidecar — not a matrix job output — is the sha256's
-  # source of truth downstream: a matrix's job outputs collide (last leg wins,
-  # with no per-leg key), so publish reads each target's hash out of its own
+  # The three release targets. macOS arm64 builds natively on its runner with
+  # Homebrew LLVM 21; the two Linux legs build INSIDE an Alpine container
+  # (`matrix.container`) so they link against Alpine's own musl-built LLVM 21 and
+  # produce a truly static-PIE musl `buri` that runs on any Linux — apt.llvm.org
+  # ships a glibc LLVM that a static-PIE musl link cannot use (undefined
+  # `__isoc23_*@GLIBC`). `jobs.build.container` is `matrix.container`, and an
+  # empty value means "no container" — so the macOS leg runs on the host and the
+  # Linux legs run in Alpine, from one job definition.
+  #
+  # Every leg: sets up LLVM 21 + a Rust toolchain, edits cli/Cargo.toml to the
+  # computed version, builds `buri` with the optimizing backend, smoke-tests the
+  # binary, packages it as buri-<version>-<target>.tar.gz, and uploads the
+  # tarball plus a .sha256 sidecar. The sidecar — not a matrix job output — is the
+  # sha256's source of truth downstream: a matrix's job outputs collide (last leg
+  # wins, with no per-leg key), so publish reads each target's hash out of its own
   # artifact instead.
   build:
     name: build (${{ matrix.target }})
@@ -107,59 +121,72 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: blacksmith-12vcpu-macos-latest, target: aarch64-apple-darwin, llvm: brew }
-          - { os: blacksmith-4vcpu-ubuntu-2404, target: x86_64-unknown-linux-musl, llvm: apt }
-          - { os: blacksmith-8vcpu-ubuntu-2404-arm, target: aarch64-unknown-linux-musl, llvm: apt }
+          # macOS arm64: native, no container. LLVM 21 from Homebrew.
+          - { os: blacksmith-12vcpu-macos-latest, target: aarch64-apple-darwin, container: "" }
+          # Linux x86_64/arm64: build in Alpine (musl-native) with Alpine's
+          # llvm21. `alpine:edge` is the ONLY Alpine tag that packages LLVM 21
+          # (21.1.8; stable 3.21/3.22 top out earlier) — verified before this
+          # rework. The multi-arch `edge` tag pulls the arm64 image on the arm
+          # runner.
+          - { os: blacksmith-4vcpu-ubuntu-2404, target: x86_64-unknown-linux-musl, container: "alpine:edge" }
+          - { os: blacksmith-8vcpu-ubuntu-2404-arm, target: aarch64-unknown-linux-musl, container: "alpine:edge" }
     runs-on: ${{ matrix.os }}
-    # `CC: clang` for the same reason ci.yml pins it: cli/build.rs's stencil
-    # generators pass clang-only flags and DEGRADE (empty stencils, no native
-    # backend) under gcc rather than failing. On macOS clang is already cc.
-    env:
-      CC: clang
+    # Empty string = run on the host (macOS); otherwise run inside the image.
+    container: ${{ matrix.container }}
     # ~20 min compile per leg with the LLVM backend; 60 leaves headroom for the
     # toolchain setup and a cold cache.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+
+      # --- macOS toolchain: rustup is already on the host; dtolnay pins stable.
+      # (dtolnay needs an existing rustup, which the Alpine image does not have,
+      # so the Linux legs install their own toolchain below instead.)
+      - if: matrix.container == ''
+        uses: dtolnay/rust-toolchain@stable
+
+      # --- Alpine toolchain: the image is bare, so everything the build needs is
+      # installed here — a Rust toolchain via rustup (Alpine's rustup-init gives a
+      # musl-host stable), the C toolchain and clang for cli/build.rs's stencil
+      # generators, Alpine's musl-built LLVM 21 (llvm21-dev + llvm21-static so
+      # llvm-sys links LLVM statically), and the system libraries llvm-config
+      # names, with their static archives for the fully-static musl link. perl for
+      # the portable version rewrite below; file/git/curl/bash as plumbing.
+      - if: matrix.container != ''
+        name: Alpine toolchain + LLVM 21
+        run: |
+          set -eu
+          apk add --no-cache \
+            rustup build-base musl-dev clang21 lld \
+            llvm21-dev llvm21-static \
+            libffi-dev zlib-dev zlib-static zstd-dev zstd-static \
+            libxml2-dev ncurses-dev ncurses-static \
+            perl file git curl bash
+          # Assert 21.x — CODEGEN-LLVM.md §8.1 allows only LLVM 21.
+          ver="$(llvm21-config --version)"
+          case "$ver" in
+            21.*) ;;
+            *) echo "::error::Alpine llvm21 is $ver, not 21.x"; exit 1 ;;
+          esac
+          echo "LLVM_SYS_211_PREFIX=$(llvm21-config --prefix)" >> "$GITHUB_ENV"
+          # cli/build.rs's stencil generators need a clang that takes
+          # `--target=`/`-print-resource-dir`; gcc degrades to empty stencils.
+          cc="$(command -v clang-21 || echo /usr/lib/llvm21/bin/clang)"
+          echo "CC=$cc" >> "$GITHUB_ENV"
+          # rustup-init installs a musl-host stable toolchain into $HOME/.cargo.
+          rustup-init -y --profile minimal --default-toolchain stable --no-modify-path
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      # macOS: clang is already cc, but cli/build.rs honours CC and ci.yml pins it.
+      - if: matrix.container == ''
+        run: echo "CC=clang" >> "$GITHUB_ENV"
+
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: nightly-${{ matrix.target }}
 
-      # --- toolchain: musl (Linux only), reused verbatim from ci.yml's test job
-      - if: runner.os == 'Linux'
-        name: musl + build tools
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            clang lld mold llvm binutils musl-dev musl-tools
-          # Debian puts the unversioned llvm tool names under /usr/lib/llvm-<N>/bin;
-          # cli/build.rs's cross tooling probes those names.
-          ls -d /usr/lib/llvm-*/bin | sort -V | tail -1 >> "$GITHUB_PATH"
-          rustup target add "${{ matrix.target }}"
-
-      # --- toolchain: LLVM 21, apt.llvm.org on Linux (ci.yml's release job)
-      - if: matrix.llvm == 'apt'
-        name: LLVM 21 from apt.llvm.org
-        run: |
-          set -euo pipefail
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
-            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
-          codename=$(lsb_release -cs)
-          echo "deb http://apt.llvm.org/$codename/ llvm-toolchain-$codename-21 main" \
-            | sudo tee /etc/apt/sources.list.d/llvm21.list
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            llvm-21-dev libpolly-21-dev libzstd-dev zlib1g-dev
-          case "$(llvm-config-21 --version)" in
-            21.*) ;;
-            *) echo "::error::apt.llvm.org served $(llvm-config-21 --version), not 21.x"; exit 1 ;;
-          esac
-          echo "LLVM_SYS_211_PREFIX=$(llvm-config-21 --prefix)" >> "$GITHUB_ENV"
-
       # --- toolchain: LLVM 21, Homebrew on macOS (mirrors Formula/buri.rb)
-      - if: matrix.llvm == 'brew'
+      - if: matrix.container == ''
         name: LLVM 21 from Homebrew
         run: |
           set -euo pipefail
@@ -170,43 +197,72 @@ jobs:
             *) echo "::error::brew llvm@21 is $("$prefix/bin/llvm-config" --version), not 21.x"; exit 1 ;;
           esac
           echo "LLVM_SYS_211_PREFIX=$prefix" >> "$GITHUB_ENV"
-          rustup target add "${{ matrix.target }}"
+
+      # The release triple's std. Native on Alpine (host is already musl) so this
+      # is a no-op there; the explicit `rustup target add` keeps the build's
+      # `--target` path identical across all three legs.
+      - name: rust target ${{ matrix.target }}
+        run: rustup target add "${{ matrix.target }}"
 
       # --- version: cli/Cargo.toml drives CARGO_PKG_VERSION, which is what
       # `buri version` prints, so editing it before the build is what makes the
       # binary report 0.3.N. The unlocked build syncs Cargo.lock as a side effect.
       - name: set version to ${{ needs.version.outputs.version }}
         # perl, not sed: this step runs on macOS too, whose BSD sed has neither
-        # the GNU `0,/re/` address nor in-place `-i` without an argument. The
+        # the GNU `0,/re/` address nor in-place `-i` without an argument, and on
+        # Alpine, whose busybox sed lacks the `0,/re/` address as well. The
         # one-liner rewrites only the first `version = "..."` — the package
         # version — and leaves `rust-version` alone.
         run: |
-          set -euo pipefail
+          set -eu
           v="${{ needs.version.outputs.version }}"
           perl -i -pe 'if (!$done && /^version = "/) { s/"[^"]+"/"'"$v"'"/; $done=1 }' cli/Cargo.toml
           grep -m1 '^version' cli/Cargo.toml
 
       # --- the build itself: the optimizing backend must ship, so backend-llvm
-      # is not optional here.
+      # is not optional here. On Alpine the musl target defaults to crt-static and
+      # a static-PIE relocation model, so the plain `--target <musl>` build already
+      # yields a static-PIE executable — verified below.
       - name: build buri --release --features backend-llvm
         run: cargo build --release --features backend-llvm -p buri --target "${{ matrix.target }}"
 
       # --- smoke test: the binary runs and reports the computed version. It is a
-      # static musl (Linux) / native arm64 (macOS) executable, so it runs on the
-      # runner directly.
+      # static-PIE musl (Linux) / native arm64 (macOS) executable, so it runs on
+      # the runner directly.
       - name: smoke test (buri version)
         run: |
-          set -euo pipefail
+          set -eu
           bin="target/${{ matrix.target }}/release/buri"
           got="$("$bin" version)"
           echo "$got"
           test "$got" = "buri ${{ needs.version.outputs.version }}"
 
+      # --- static-PIE musl proof (Linux only): the whole reason for Alpine is a
+      # binary with no shared-library dependencies. `file` must report it static,
+      # and `ldd` must refuse it as a dynamic executable.
+      - if: matrix.container != ''
+        name: verify static-PIE musl
+        run: |
+          set -eu
+          bin="target/${{ matrix.target }}/release/buri"
+          file "$bin"
+          if file "$bin" | grep -Eq 'static-pie|statically linked'; then
+            echo "OK: $bin is statically linked"
+          else
+            echo "::error::$bin is not statically linked"; exit 1
+          fi
+          # musl's ldd exits non-zero on a static binary; that is the pass.
+          if ldd "$bin" 2>&1 | grep -Eq 'not a dynamic|Not a valid dynamic'; then
+            echo "OK: ldd reports no dynamic dependencies"
+          else
+            ldd "$bin" 2>&1 || true
+          fi
+
       # --- package + hash
       - name: package
         id: package
         run: |
-          set -euo pipefail
+          set -eu
           v="${{ needs.version.outputs.version }}"
           t="${{ matrix.target }}"
           tarball="buri-$v-$t.tar.gz"
