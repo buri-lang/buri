@@ -5,8 +5,8 @@ FAIL //lib/asserts  test/asserts.buri  "eq"
   --> lib/asserts/test/asserts.buri:15:1
 FAIL //lib/asserts  test/asserts.buri  "equalWith"
   assert.equalWith failed
-    actual:   Map { buckets: [[], [], [], [], [], [], [("a", 1)], []], size: 1 }
-    expected: Map { buckets: [[], [], [], [], [], [], [("a", 2)], []], size: 1 }
+    actual:   Map { root: .Branch(4096, [.Entry(3826002220, "a", 1)]), size: 1 }
+    expected: Map { root: .Branch(4096, [.Entry(3826002220, "a", 2)]), size: 1 }
   --> lib/asserts/test/asserts.buri:19:1
 FAIL //lib/asserts  test/asserts.buri  "notEqual"
   assert.notEqual failed
