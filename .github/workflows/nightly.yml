@@ -33,9 +33,8 @@ on:
   # thing in dry_run (the mode step below resolves a push to dry_run), which is
   # how this file is proven without touching the remote. The delivered file is
   # `schedule` + `workflow_dispatch` only.
-  # (temporarily disabled while probing Alpine static libs — restored with fix)
-  # push:
-  #   branches: [nightly-pipeline]
+  push:
+    branches: [nightly-pipeline]
   schedule:
     # 0 13 * * * UTC = 6am PDT / 5am PST. GitHub cron has no DST; this is fixed
     # to PDT. Fires only from the default branch (see header).
@@ -157,11 +156,18 @@ jobs:
         name: Alpine toolchain + LLVM 21
         run: |
           set -eu
+          # The static system libraries `llvm21-config --system-libs
+          # --link-static` names are `-lrt -ldl -lm -lz -lzstd -lxml2` (rt/dl/m
+          # come from musl's libc; z/zstd/xml2 need their `-static` archives),
+          # plus libstdc++ (Alpine's LLVM links libstdc++, and build-base carries
+          # `libstdc++.a`). llvm21-static supplies LLVM's own component archives
+          # so llvm-sys links LLVM statically. libffi/ncurses are not in the
+          # static system-libs set but are cheap insurance across LLVM configs.
           apk add --no-cache \
             rustup build-base musl-dev clang21 lld \
             llvm21-dev llvm21-static \
             libffi-dev zlib-dev zlib-static zstd-dev zstd-static \
-            libxml2-dev ncurses-dev ncurses-static \
+            libxml2-dev libxml2-static ncurses-dev ncurses-static \
             perl file git curl bash
           # Assert 21.x — CODEGEN-LLVM.md §8.1 allows only LLVM 21.
           ver="$(llvm21-config --version)"
