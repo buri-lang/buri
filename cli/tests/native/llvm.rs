@@ -4644,3 +4644,33 @@ export fn main(): Result<(), Str> {
     assert!(total > 0, "the program allocated nothing, so this asserts nothing");
     assert_eq!(live, 0, "{total} blocks allocated and {live} still live: a box was not released");
 }
+
+/// **`assert.notEmpty` on a non-empty list runs to completion under the release
+/// backend** (buri-lang/buri#204).
+///
+/// `assert.notEmpty` takes an owned `[T]` and, on the branch where the list is
+/// *not* empty, does nothing with it — so the owned, heap-backed list is
+/// dropped at the function's exit. The native release backend faulted (SIGBUS)
+/// dropping it; the stencil backend, `--output=js`, and the failing (empty)
+/// branch were all clean. This runs the test binary and asserts it exits 0.
+#[test]
+fn not_empty_on_a_non_empty_list_runs_under_the_release_backend() {
+    skip_unless_executable!();
+    let source = r#"
+from "core/testing/assert" import * as assert;
+
+test "notEmpty on a one-element list" {
+    assert.notEmpty([7]);
+}
+"#;
+    let binary = build_tests("not-empty-204", source);
+    let out = Command::new(&binary).env("BURI_TEST_FROM", "0").output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "notEmpty on a non-empty list did not pass under the release backend \
+         (signal {:?}):\n{}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
