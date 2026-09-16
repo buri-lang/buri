@@ -85,7 +85,9 @@ a change that breaks your code.
 
 ## Installing
 
-Every path below builds from source, and each produces the same binary.
+Every path below builds from source. The Nix and Homebrew packages build with
+the optimizing LLVM backend, so `buri build --release` works out of the box; the
+Cargo path needs one flag and LLVM 21 to match them.
 
 **Nix.** This repository is a flake, and its default package is `buri`:
 
@@ -103,11 +105,16 @@ brew install --HEAD buri-lang/buri/buri
 
 `--HEAD` builds the `main` branch. You need it until a release is tagged.
 
-**Cargo**, with a Rust toolchain already in hand:
+**Cargo**, with a Rust toolchain and LLVM 21 in hand:
 
 ```sh
-cargo install --locked --path cli
+LLVM_SYS_211_PREFIX=$(brew --prefix llvm@21) \
+  cargo install --locked --features backend-llvm --path cli
 ```
+
+`--features backend-llvm` is the optimizing backend `buri build --release`
+needs. On a host without LLVM, drop the flag and the env var for a toolchain
+that does everything but a native `--release`.
 
 Your first repository is one command. `buri init` writes a working library, a
 binary that depends on it, and a test suite, and installs the agent skills:
