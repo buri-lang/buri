@@ -245,11 +245,13 @@ jobs:
     needs: [version, build]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      # Always target main: the templated tree, the diffs, and (in release mode)
-      # the commit are all against the branch the release lands on.
+      # Check out the ref that triggered the run — main for a scheduled release,
+      # the pipeline branch for a dev dry run — so the files being templated are
+      # the ones on that ref. In release mode the commit is pushed to main
+      # explicitly below; a scheduled run's ref IS main, so HEAD:main is a
+      # fast-forward. fetch-depth 0 for the tag history.
       - uses: actions/checkout@v4
         with:
-          ref: main
           fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
