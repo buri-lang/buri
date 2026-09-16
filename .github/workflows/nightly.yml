@@ -29,11 +29,6 @@ name: Nightly
 # branch's scheduled run.
 
 on:
-  # TODO remove before go-live: dev-only trigger so each push to the pipeline
-  # branch runs the workflow in dry_run mode. The delivered file must be
-  # schedule + workflow_dispatch only.
-  push:
-    branches: [nightly-pipeline]
   schedule:
     # 0 13 * * * UTC = 6am PDT / 5am PST. GitHub cron has no DST; this is fixed
     # to PDT. Fires only from the default branch (see header).
@@ -113,11 +108,8 @@ jobs:
       matrix:
         include:
           - { os: blacksmith-12vcpu-macos-latest, target: aarch64-apple-darwin, llvm: brew }
-          # PROOF-ONLY: the two musl legs are commented out for this dry-run
-          # proof — they hit the glibc-LLVM/musl link wall (see report). RESTORE
-          # before delivery.
-          # - { os: blacksmith-4vcpu-ubuntu-2404, target: x86_64-unknown-linux-musl, llvm: apt }
-          # - { os: blacksmith-8vcpu-ubuntu-2404-arm, target: aarch64-unknown-linux-musl, llvm: apt }
+          - { os: blacksmith-4vcpu-ubuntu-2404, target: x86_64-unknown-linux-musl, llvm: apt }
+          - { os: blacksmith-8vcpu-ubuntu-2404-arm, target: aarch64-unknown-linux-musl, llvm: apt }
     runs-on: ${{ matrix.os }}
     # `CC: clang` for the same reason ci.yml pins it: cli/build.rs's stencil
     # generators pass clang-only flags and DEGRADE (empty stencils, no native
@@ -266,15 +258,9 @@ jobs:
           ls -R artifacts
 
           # Per-target sha256, read from each tarball's sidecar (the source of
-          # truth; see the build job's note on matrix output collision).
-          # PROOF-ONLY fallback to the placeholder when a sidecar is absent (the
-          # musl legs are disabled for this dry-run proof). RESTORE to the strict
-          # `cut < file` form before delivery — production requires all three.
-          placeholder="0000000000000000000000000000000000000000000000000000000000000000"
-          hash_for() {
-            f="artifacts/buri-$v-$1.tar.gz.sha256"
-            if [ -f "$f" ]; then cut -d' ' -f1 < "$f"; else echo "$placeholder"; fi
-          }
+          # truth; see the build job's note on matrix output collision). A
+          # missing sidecar is a hard error — all three targets must have built.
+          hash_for() { cut -d' ' -f1 < "artifacts/buri-$v-$1.tar.gz.sha256"; }
           darwin_arm64=$(hash_for aarch64-apple-darwin)
           linux_x86_64=$(hash_for x86_64-unknown-linux-musl)
           linux_arm64=$(hash_for aarch64-unknown-linux-musl)
