@@ -982,12 +982,25 @@ pub fn no_native_artifact(gap: &NativeGap, span: Span) -> Diagnostic {
 /// with no hash iteration order anywhere in it.
 ///
 /// The types a unit "names" are the aggregates in its functions' signatures, in
-/// their values' types, and in the structural operations that take one. That is
-/// the whole set a backend can ask `Layouts::of` about, because an aggregate a
-/// unit touches is the type of some value in it. The `Layout` that goes into
-/// the hash is the *computed* one — sizes, alignments and every field offset —
-/// so a change to a field's type deep inside a record is caught without this
-/// having to walk to it.
+/// their values' types, and in the structural operations that take one. But the
+/// set a backend can ask `Layouts::of` about is **larger** than that, and the
+/// difference is what buri-lang/buri#196 was: a generic intrinsic's body reads
+/// the layout of a type its lowered signature has *erased*. `alloc.copyOut`'s
+/// signature is `[Carried<T>]`, a list whose shallow `Layout` is `{ ptr, len }`
+/// whatever `T` is — so a change to `T`'s shape moved neither the rendered IR
+/// (the body is `= runtime`) nor a one-level layout of the type the unit names.
+/// The backend recovers `T` from the signature and emits a copy walk sized to
+/// it, so the *bytes* moved while the *key* did not, and the incremental build
+/// served a copy stencil for the old shape — a heap corruption a cold build
+/// never produced.
+///
+/// So the layout term is the **transitive closure** of every type a named type
+/// reaches: its type arguments, an array's element, a tuple's or a closure's
+/// parts, and a struct's or enum's field types. That is the whole set a unit's
+/// glue can be sized from, reached across the pointers and erased carriers a
+/// one-level `Layout` stops at. An inlined field was already caught by the
+/// owner's own computed layout; a field behind a pointer, a list element, or an
+/// erased carrier's element is caught now. See [`layout_closure_signature`].
 ///
 /// The shape lines are sorted **as text**, not by `TypeId`. A `TypeId` is a
 /// program-global interning index, so ordering by it makes an unrelated unit's
@@ -1025,16 +1038,77 @@ fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, S
             }
             types.sort_unstable();
             types.dedup();
-            let mut lines: Vec<String> = Vec::with_capacity(types.len());
-            for id in types {
-                let Some(info) = program.types.get(id) else { continue };
-                lines.push(format!("{} {:?}\n", info.name, layouts.of(info.ty.clone())));
-            }
-            lines.sort();
-            let shapes: String = lines.concat();
+            let seeds =
+                types.iter().filter_map(|id| program.types.get(*id)).map(|info| info.ty.clone());
+            let shapes = layout_closure_signature(layouts, tables, seeds);
             (name, hash_bytes(text.as_bytes()), hash_bytes(shapes.as_bytes()))
         },
     )
+}
+
+/// The layout term for one unit: the computed layout of every type in the
+/// transitive closure of the types the unit names, rendered as sorted text.
+///
+/// Seeded with the aggregates a unit's functions name ([`collect_types`]) and
+/// then walked through every type each of those reaches — type arguments, an
+/// array's element, a tuple's or a closure's parts, and a struct's fields or an
+/// enum's variants' fields. A one-level `Layout` stops at a pointer, a list's
+/// `{ ptr, len }`, or an erased carrier, so a type whose shape a unit's glue is
+/// sized from — but which the unit reaches only across one of those boundaries —
+/// would otherwise be absent from the key (buri-lang/buri#196). The closure
+/// reaches it, so a change to its shape moves the layout hash and the unit is
+/// rebuilt rather than served stale.
+///
+/// A `HashSet` of the visited `Ty` bounds the walk: a recursive type (a `Tree`
+/// whose `Node` holds a `Tree`) is entered once. Each type is rendered by
+/// `types::show`, which is derived from the type and not from its interning
+/// index, so — like the sort being on text — the string moves only when a
+/// layout it names moves.
+fn layout_closure_signature(
+    layouts: &mut layout::Layouts,
+    tables: &Tables,
+    seeds: impl Iterator<Item = crate::compiler::semantics::types::Ty>,
+) -> String {
+    use crate::compiler::semantics::types::{self, Ty};
+
+    let mut seen: std::collections::HashSet<Ty> = std::collections::HashSet::new();
+    let mut stack: Vec<Ty> = seeds.collect();
+    let mut lines: Vec<String> = Vec::new();
+    while let Some(ty) = stack.pop() {
+        // Only the shaped types have a layout worth folding in; a bare
+        // parameter or an inference variable has none and cannot be reached in
+        // a monomorphized program anyway.
+        if matches!(ty, Ty::Var(_) | Ty::Param(_) | Ty::SelfTy | Ty::Error) {
+            continue;
+        }
+        if !seen.insert(ty.clone()) {
+            continue;
+        }
+        lines.push(format!("{} {:?}\n", types::show(tables, None, &[], &ty), layouts.of(ty.clone())));
+        // The types this one reaches: its arguments and its constituent parts,
+        // then — for a nominal type — the types of its fields or its variants'
+        // fields, which is where a shape reached only across a pointer lives.
+        match &ty {
+            Ty::Con(id, args) => {
+                stack.extend(args.iter().cloned());
+                stack.extend(types::field_types(tables, &ty));
+                let variants = tables.tycon(*id).variants().len();
+                for v in 0..variants {
+                    stack.extend(types::variant_types(tables, &ty, v));
+                }
+            }
+            Ty::Array(el) => stack.push((**el).clone()),
+            Ty::Tuple(els) => stack.extend(els.iter().cloned()),
+            Ty::Fn(ps, r) => {
+                stack.extend(ps.iter().cloned());
+                stack.push((**r).clone());
+            }
+            Ty::Ctx(_) => stack.extend(types::field_types(tables, &ty)),
+            _ => {}
+        }
+    }
+    lines.sort();
+    lines.concat()
 }
 
 /// The unit that carries a test binary's entry point, and a signature of the
