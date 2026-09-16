@@ -873,6 +873,64 @@ export fn main(): Result<(), Str> {
     assert_eq!(code, Some(0));
 }
 
+/// The fallible `toT()` conversions — `Result<T, RangeError>` (SPEC 6.2.1) —
+/// which this backend used to refuse (buri-lang/buri#199), one per shape
+/// [`llvm::CheckedKind`] names: an integer narrowing, a float into an integer,
+/// `U32.toChar`, and `F64.toF32`. Each is exercised on a value that fits and on
+/// one that does not, and the rendered lines are the debug backend's and the
+/// JavaScript backend's — the conformance corpus asserts that agreement on the
+/// same conversions, and this asserts the release backend joins it. `F32` is
+/// never shown (a separate gap), so `.toF32` reports only its verdict.
+#[test]
+fn the_fallible_conversions_run() {
+    skip_unless_executable!();
+    let (out, err, code) = build_and_run(
+        "conversions",
+        &program(
+            r#"
+fn i32of(x: I64): Template { match (x.toI32()) { .Ok(v) => "ok ${v}", .Err(e) => "err ${e.value} ${e.target}" } }
+fn u8of(x: I64): Template { match (x.toU8()) { .Ok(v) => "ok ${v}", .Err(e) => "err ${e.value} ${e.target}" } }
+fn i64of128(x: I128): Template { match (x.toI64()) { .Ok(v) => "ok ${v}", .Err(e) => "err ${e.value} ${e.target}" } }
+fn i64ofF(x: F64): Template { match (x.toI64()) { .Ok(v) => "ok ${v}", .Err(e) => "err ${e.target}" } }
+fn charof(x: U32): Template { match (x.toChar()) { .Ok(v) => "ok ${v}", .Err(e) => "err ${e.value} ${e.target}" } }
+fn f32of(x: F64): Template { match (x.toF32()) { .Ok(_v) => "ok ${x}", .Err(e) => "err ${e.target}" } }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, i32of(100)).ignore();
+  let _ = io.println(ctx, i32of(3000000000)).ignore();
+  let _ = io.println(ctx, u8of(-1)).ignore();
+  let _ = io.println(ctx, i64of128(9223372036854775808)).ignore();
+  let _ = io.println(ctx, i64ofF(42.0)).ignore();
+  let _ = io.println(ctx, i64ofF(2.5)).ignore();
+  let _ = io.println(ctx, charof(65)).ignore();
+  let _ = io.println(ctx, charof(55296)).ignore();
+  let _ = io.println(ctx, charof(1114112)).ignore();
+  let _ = io.println(ctx, f32of(1.5)).ignore();
+  let _ = io.println(ctx, f32of(1.0e300)).ignore();
+  .Ok(())
+}
+"#,
+        ),
+    );
+    assert_eq!(
+        out,
+        "ok 100\n\
+         err 3000000000 I32\n\
+         err -1 U8\n\
+         err 9223372036854775808 I64\n\
+         ok 42\n\
+         err I64\n\
+         ok A\n\
+         err 55296 Char\n\
+         err 1114112 Char\n\
+         ok 1.5\n\
+         err F32\n",
+        "stderr was: {err}"
+    );
+    assert_eq!(code, Some(0));
+}
+
 /// `F32` and `F64`. `F32` is a distinct register shape rather than a rounded
 /// `F64`, so an `F32` multiply that a double would get right and a single
 /// would not is the thing worth asserting.
