@@ -2759,6 +2759,70 @@ export fn main(): Result<(), Str> {
     assert_eq!(code, Some(0));
 }
 
+/// The structural `Ordered` of a `[T]`, which is `deriveArrayCompare`.
+///
+/// `a < b` on two lists, a `derive Ordered` on a type holding a list, and
+/// `sort` on a list of lists all reach the same intrinsic: the lexicographic
+/// order where the first `min(m, n)` elements decide it and, where they all
+/// agree, the lengths do (`$cmp`'s array arm). This backend refused it by name
+/// — "the native runtime has no implementation of `deriveArrayCompare`"
+/// (buri-lang/buri#202) — while the same programs built in `--debug`; the debug
+/// backend has open-coded the loop since buri-lang/buri#27.
+///
+/// The three lines are the three shapes the front end lets ask the question: a
+/// bare `[Int]` comparison, the `derive` that recurses into a field's `[Int]`,
+/// and `list.sort` reaching the element's own `compare`. `<` and `.compare`
+/// answer the same order, and the sorted list is checked with `==`
+/// (`deriveArrayEq`, which this backend already open-codes) so a wrong order is
+/// a wrong answer rather than a refusal.
+#[test]
+fn a_structural_ordered_over_a_list_compares_and_sorts() {
+    skip_unless_executable!();
+    let (out, err, code) = build_and_run(
+        "arraycompare",
+        &program(
+            r#"
+from "core/order" import { Order };
+
+struct Bag { xs: [Int] }
+derive Equal, Ordered for Bag;
+
+fn name(o: Order): Str {
+  match (o) { .Less => "Less", .Equal => "Equal", .Greater => "Greater" }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+
+  // The minimal repro: `<` on two `[Int]` values.
+  let a: [Int] = [1, 2, 3];
+  let b: [Int] = [1, 2, 4];
+  let _ = io.println(ctx, "listInt: ${a < b}").ignore();
+
+  // A `derive Ordered` that recurses into a `[Int]` field, read as `<` and by
+  // name. `[1, 2]` is a prefix of `[1, 2, 0]`, so the shorter one is `Less`.
+  let p = Bag { xs: [1, 2] };
+  let q = Bag { xs: [1, 2, 0] };
+  let _ = io.println(ctx, "struct: ${name(p.compare(q))} ${p < q}").ignore();
+
+  // `sort` on a list of lists, whose element order is the structural one.
+  let unsorted: [[Int]] = [[3, 1], [1, 2], [1, 1]];
+  let want: [[Int]] = [[1, 1], [1, 2], [3, 1]];
+  let _ = io.println(ctx, "sorted: ${unsorted.sort(ctx) == want}").ignore();
+
+  .Ok(())
+}
+"#,
+        ),
+    );
+    assert_eq!(
+        out,
+        "listInt: true\nstruct: Less true\nsorted: true\n",
+        "stderr was: {err}"
+    );
+    assert_eq!(code, Some(0));
+}
+
 /// `derive Show`, whose primitive leaves are `derivePrimShow.<T>`.
 ///
 /// The primitive is in the **key** — `middle::lower`'s `qualified_key` appends

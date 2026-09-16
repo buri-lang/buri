@@ -6503,6 +6503,13 @@ struct StepFn<'ctx> {
 /// number three files already agree on rather than a new convention.
 const GREATER: u64 = 2;
 
+/// `Order.Less`'s tag, the same three-variant enum [`GREATER`] names.
+const LESS: u64 = 0;
+
+/// `Order.Equal`'s tag: the answer that lets [`Unit::derive_array_compare`] keep
+/// walking, and the one two equal-length lists agree on.
+const EQUAL: u64 = 1;
+
 /// One resolved call: the block to walk, the closure to step with, and the two
 /// operands only some of the loops have.
 ///
@@ -7507,6 +7514,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if key == "deriveArrayShow" {
             return self.derive_array_show(state, code, dests, args);
         }
+        if key == "deriveArrayCompare" {
+            return self.derive_array_compare(state, code, dests, args);
+        }
         if key != "deriveArrayEq" {
             return false;
         }
@@ -7580,6 +7590,136 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 phi.as_basic_value()
             }
             Err(_) => no.into(),
+        };
+        self.set(state, dest, value);
+        true
+    }
+
+    /// `deriveArrayCompare` — a derived `Ordered` where the field is a `[T]`.
+    ///
+    /// `middle/derives.rs`'s header states the shape: `([T], [T], fn(T, T) ->
+    /// Order) -> Order`. It is [`Unit::derive_array`]'s loop over the same code
+    /// pointer with a different carried answer, and it is `$cmp`'s array arm:
+    /// the first `min(m, n)` elements decide the order, and where every one of
+    /// them is `Equal` the **lengths** do — so `[1]` is below `[1, 2]` and a
+    /// prefix is below what extends it. That length half is what `deriveArrayEq`
+    /// has no equivalent of, and it is why the loop bound is the shorter length
+    /// rather than the refusal on unequal ones that makes `$eq`'s paired
+    /// indexing in bounds. `stencil/lists.rs::derive_array_compare` is the same
+    /// loop for the same reason (buri-lang/buri#27), and the two backends
+    /// answer the same `Order` because the algorithm is the one SPEC names.
+    ///
+    /// The element's answer is an `Order` — the comparator's whole result, an
+    /// integer tag [`GREATER`]/[`LESS`]/[`EQUAL`] the same three files agree on
+    /// — and the `Order` this returns is the same width, because both are that
+    /// enum's bare tag. The counts are [`Unit::pass_elem`]'s: each element is
+    /// retained on the way into the comparator, which the convention in
+    /// [`Unit::list_closure`]'s header requires of any call through a function
+    /// value.
+    fn derive_array_compare(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dests: &[ir::ValueId],
+        args: &[ir::ValueId],
+    ) -> bool {
+        let (Some(xs), Some(ys), Some(f), Some(dest)) = (
+            args.first().copied(),
+            args.get(1).copied(),
+            args.get(2).copied(),
+            dests.first().copied(),
+        ) else {
+            return false;
+        };
+        let (Some(a), Some(b), Some(step)) = (
+            self.list_source(state, code, xs),
+            self.list_source(state, code, ys),
+            self.step_fn(state, code, f),
+        ) else {
+            return false;
+        };
+        let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
+        let BasicTypeEnum::IntType(int) = want else { return false };
+
+        // The shorter of the two lengths, which is the loop bound that makes the
+        // paired indexing below in bounds.
+        let a_shorter = self
+            .builder
+            .build_int_compare(IntPredicate::ULT, a.len, b.len, "cmp.ashorter")
+            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+        let n: IntValue<'ctx> = match self.builder.build_select(a_shorter, a.len, b.len, "cmp.n") {
+            Ok(BasicValueEnum::IntValue(v)) => v,
+            _ => a.len,
+        };
+
+        // Every exit meets in `decided`; `diff` is the one an unequal element
+        // takes, carrying that element's own `Order` as the answer.
+        let decided = self.ctx.append_basic_block(state.value, "cmp.decided");
+        let diff = self.ctx.append_basic_block(state.value, "cmp.diff");
+
+        let Some(l) = self.open_loop(state, n, None) else { return false };
+        let at_a = self.elem_at(a.base, l.i, a.stride, "cmp.a");
+        let at_b = self.elem_at(b.base, l.i, b.stride, "cmp.b");
+        let mut params = Vec::new();
+        let mut argv = Vec::new();
+        self.pass_elem(state, &a, at_a, &mut params, &mut argv);
+        self.pass_elem(state, &b, at_b, &mut params, &mut argv);
+        let order = match self.call_step(state, &step, &params, &argv) {
+            Some(BasicValueEnum::IntValue(order)) => {
+                let cont = self.ctx.append_basic_block(state.value, "cmp.cont");
+                let Ok(is_equal) = self.builder.build_int_compare(
+                    IntPredicate::EQ,
+                    order,
+                    order.get_type().const_int(EQUAL, false),
+                    "cmp.equal",
+                ) else {
+                    return false;
+                };
+                // `Equal` walks on to the next element; anything else is the
+                // answer and takes `diff`.
+                let _ = self.builder.build_conditional_branch(is_equal, cont, diff);
+                self.builder.position_at_end(cont);
+                order
+            }
+            _ => return false,
+        };
+        self.close_loop(&l, None);
+
+        // Every shared element compared `Equal`, so the lengths decide: the
+        // shorter list is `Less`, the longer `Greater`, and two of a length
+        // `Equal`.
+        let (Ok(shorter), Ok(longer)) = (
+            self.builder.build_int_compare(IntPredicate::ULT, a.len, b.len, "cmp.lt"),
+            self.builder.build_int_compare(IntPredicate::UGT, a.len, b.len, "cmp.gt"),
+        ) else {
+            return false;
+        };
+        let (less, equal, greater) =
+            (int.const_int(LESS, false), int.const_int(EQUAL, false), int.const_int(GREATER, false));
+        let Ok(when_longer) = self.builder.build_select(longer, greater, equal, "cmp.golen") else {
+            return false;
+        };
+        let Ok(by_len) = self.builder.build_select(shorter, less.into(), when_longer, "cmp.bylen")
+        else {
+            return false;
+        };
+        let len_from = self.builder.get_insert_block().unwrap_or(l.done);
+        let _ = self.builder.build_unconditional_branch(decided);
+
+        // The unequal element's `Order` is the answer, unchanged.
+        self.builder.position_at_end(diff);
+        let _ = self.builder.build_unconditional_branch(decided);
+
+        self.builder.position_at_end(decided);
+        let value = match self.builder.build_phi(int, "cmp.answer") {
+            Ok(phi) => {
+                phi.add_incoming(&[
+                    (&order as &dyn BasicValue<'ctx>, diff),
+                    (&by_len as &dyn BasicValue<'ctx>, len_from),
+                ]);
+                phi.as_basic_value()
+            }
+            Err(_) => equal.into(),
         };
         self.set(state, dest, value);
         true
@@ -9306,6 +9446,7 @@ pub fn implemented(key: &str) -> bool {
         || open_coded_key(key)
         || list_closure_key(key)
         || key == "deriveArrayEq"
+        || key == "deriveArrayCompare"
         || key == "deriveArrayShow"
         || derive_key(key).is_some()
         || runtime::entry(key).is_some()
