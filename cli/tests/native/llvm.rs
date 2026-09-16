@@ -4165,6 +4165,125 @@ fn ignore(value: Int): () {
     );
 }
 
+/// **A struct that holds an ordered container survives a signal round-trip
+/// with the fields declared ahead of the map intact** (buri-lang/buri#200).
+///
+/// An `OrderedMap`/`OrderedSet` field is a recursive B-tree node, whose payload
+/// area this backend spills as one wide integer (`i256`). Handing such a struct
+/// to `signal` and reading it back sized the spill buffer at zero — a one-byte
+/// `alloca` the runtime read `stride` bytes out of — so the fields ahead of the
+/// map came back zeroed (an `Int` `0`, a `Str` `""`, a list empty) or holding a
+/// node pointer, and running the case on its own segfaulted. The stencil
+/// backend and `--output=js` were always right; this asserts the release
+/// backend now matches them, which is dev/release parity.
+///
+/// Every block reads a field declared *before* the map back out of the signal
+/// and asserts it, so a regression zeroes the field and aborts the block.
+#[test]
+fn a_struct_holding_an_ordered_container_survives_a_signal() {
+    skip_unless_executable!();
+    let source = r#"
+from "core/alloc" import * as alloc;
+from "core/effect" import { Allocator };
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
+from "core/orderedset" import * as orderedset;
+from "core/orderedset" import { OrderedSet };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui, Watch };
+from "ui/signal" import { signal };
+from "ui/testing" import { headless, observer };
+
+derive Equal, Show for Entity;
+struct Entity {
+    name: Str,
+}
+
+struct Cache {
+    triples: OrderedMap<Str, Int>,
+}
+
+struct Client {
+    schema: [Entity],
+    cache: Cache,
+}
+
+struct Leading {
+    before: Int,
+    rows: OrderedMap<Str, Int>,
+    after: Int,
+}
+
+struct SetBearer {
+    name: Str,
+    members: OrderedSet<Str>,
+}
+
+context Fixture {
+    Allocator: alloc.generalPurpose(),
+    Ui: headless(),
+    Watch: observer(),
+}
+
+test "the fields ahead of an empty ordered map survive the round-trip" {
+    let ctx = Fixture();
+    let value = Leading { before: 11, rows: orderedmap.empty(), after: 99 };
+    let held = signal(ctx, value);
+    let back = held.get(ctx);
+    assert.equal(back.before, 11);
+    assert.equal(back.after, 99);
+    assert.equal(back.rows.length(), 0);
+}
+
+test "the fields ahead of a populated ordered map survive the round-trip" {
+    let ctx = Fixture();
+    let value = Leading {
+        before: 11,
+        rows: orderedmap.of(ctx, [("a", 1), ("b", 2)]),
+        after: 99,
+    };
+    let held = signal(ctx, value);
+    let back = held.get(ctx);
+    assert.equal(back.before, 11);
+    assert.equal(back.after, 99);
+    assert.equal(back.rows.length(), 2);
+    assert.equal(back.rows.get("a"), .Some(1));
+}
+
+test "a leading Str ahead of an ordered set survives the round-trip" {
+    let ctx = Fixture();
+    let value = SetBearer { name: "hello", members: orderedset.empty() };
+    let held = signal(ctx, value);
+    let back = held.get(ctx);
+    assert.equal(back.name, "hello");
+    assert.equal(back.members.length(), 0);
+}
+
+test "a schema declared ahead of a cache of ordered maps survives" {
+    let ctx = Fixture();
+    let client = Client {
+        schema: [Entity { name: "users" }],
+        cache: Cache { triples: orderedmap.empty() },
+    };
+    let held = signal(ctx, client);
+    let back = held.get(ctx);
+    assert.equal(back.schema.length(), 1);
+    let found = back.schema.find(fn(candidate) => candidate.name == "users");
+    assert.equal(found, .Some(Entity { name: "users" }));
+    assert.equal(back.cache.triples.length(), 0);
+}
+"#;
+    let binary = build_tests("ordered-container-signal", source);
+    let out = Command::new(&binary).env("BURI_TEST_FROM", "0").output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "an ordered-container-bearing struct lost the fields ahead of its map \
+         through a signal on the release backend:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// The package `repositories/ui/a_card_is_painted_and_compared/` builds, as one
 /// source: its library and its test block with the import between them removed.
 ///
