@@ -5,6 +5,8 @@ name: Verify Alpine LLVM 21
 # Linux build legs. edge is expected to pass; the stable tags are probed for
 # information (what LLVM they carry) and allowed to fail.
 on:
+  push:
+    branches: [nightly-pipeline]
   workflow_dispatch:
 
 jobs:
