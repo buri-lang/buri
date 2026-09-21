@@ -1,6 +1,6 @@
 [package]
 name = "buri"
-version = "0.3.5"
+version = "0.3.6"
 edition = "2021"
 description = "The Buri toolchain: compiler, build system, test runner, formatter, and linter."
 license = "MIT"
