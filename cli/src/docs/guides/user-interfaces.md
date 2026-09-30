@@ -704,10 +704,6 @@ land on that scrim, so a `BackdropBlur` or a tint reaches the backdrop the way
 one is pinned to the viewport, so like every other pin it never decides how tall
 a page is.
 
-The panel doesn't clip or scroll, so a focus ring or a pinned child that hangs
-past its edge draws whole. Give a panel that may be taller than the screen
-`Scroll(.Y)` and a `MaxHeight`, or its bottom is out of reach.
-
 **An overlay that is not modal dismisses itself with `onPressOutside`.** A
 dialog gets Escape and a backdrop press from the platform, but a menu, a popover
 or a select does not — nothing watches for a press that lands elsewhere.
@@ -823,11 +819,6 @@ indent and the margin — a rail, a menu and a tab strip are all lists, and none
 of them wants a bullet. `ListMarker(.Disc)` or `ListMarker(.Decimal)` asks for
 marks back. They hang outside the item, as a browser's do, so give the list a
 `PaddingEdge(.Start, ...)` for them to sit in.
-
-A browser draws those marks from the stylesheet, so it draws none for a
-`ListMarker` applied inline — under `Computed`, or built from a value the
-compiler could not evaluate — and none beside an image or an input that is
-itself an item. Wrap that item in a `stack`.
 
 Constant folding is what makes design tokens work. `.Background(Token.Surface.color())`
 is a *call*, not a literal, and it still reaches the stylesheet: the extractor
