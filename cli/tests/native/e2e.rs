@@ -3016,6 +3016,259 @@ fn an_actor_leaks_none_of_what_its_messages_and_answers_carried() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Many senders, one actor
+// ---------------------------------------------------------------------------
+
+/// Run a program to its end under the heap check, or fail after `within`.
+///
+/// Bounded because the two rows below are about waits: a sender that waits for
+/// an actor, and a step that must not. A regression in either is a program
+/// that hangs, and a hang here is a failing row with a sentence rather than a
+/// job CI has to kill.
+fn ran_within(binary: &std::path::Path, within: std::time::Duration) -> crate::shared::Ran {
+    let mut child = std::process::Command::new(binary)
+        .env("BURI_RT_HEAP_CHECK", "1")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("the program did not start");
+    let status = crate::shared::waited(&mut child, within);
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        let _ = std::io::Read::read_to_string(&mut pipe, &mut stdout);
+    }
+    if let Some(mut pipe) = child.stderr.take() {
+        let _ = std::io::Read::read_to_string(&mut pipe, &mut stderr);
+    }
+    crate::shared::Ran { status: status.code().unwrap_or(-1), stdout, stderr }
+}
+
+/// Sixteen tasks, each sending eight messages to one counter, and a step that
+/// sleeps for two milliseconds while it holds the state.
+///
+/// The sleep is what makes the row certain rather than likely. With the state
+/// out for two milliseconds a step, the fifteen other tasks are all posting
+/// while one of them is stepping, on every run and on any machine — so a
+/// sender that answers `.Err(.Stopped)` whenever somebody else holds the state
+/// refuses dozens of the 128 messages, not one or two.
+///
+/// Every task counts what was refused, and the program prints the total and
+/// then asks the counter how many messages it stepped.
+fn many_senders() -> String {
+    String::from(
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Address, Stepped };
+from "core/effect" import { Allocator, Clock, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+from "core/time" import * as time;
+
+enum Counting {
+    Increment,
+    Get,
+}
+
+fn counter<C: Allocator + Clock + Tasks>(): Actor<C, Int, Counting, Int> {
+    Actor {
+        state: 0,
+        step: fn(c, count, message) => {
+            match (message) {
+                .Increment => {
+                    let _ = time.sleep(c, time.milliseconds(2));
+                    Stepped { state: count + 1, answer: count + 1 }
+                },
+                .Get => Stepped { state: count, answer: count },
+            }
+        },
+    }
+}
+
+fn sending<C: Allocator + Clock + Tasks>(
+    ctx: C,
+    mailbox: Address<C, Int, Counting, Int>,
+    left: Int,
+    refused: Int,
+): Int {
+    if (left <= 0) {
+        refused
+    } else {
+        let now = match (mailbox.sendMessage(ctx, .Increment)) {
+            .Ok(_count) => refused,
+            .Err(_gone) => refused + 1,
+        };
+        sending(ctx, mailbox, left - 1, now)
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Clock: host.clock,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let mailbox = actor.start(ctx, counter());
+    let senders = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+    let refusals = tasks.parallel(ctx, senders, fn(c, _i, _sender) => sending(c, mailbox, 8, 0));
+    let _ = io.println(ctx, "refused ${refusals.sum()}").ignore();
+    let stepped = match (mailbox.sendMessage(ctx, .Get)) {
+        .Ok(count) => count,
+        .Err(_gone) => -1,
+    };
+    let _ = io.println(ctx, "stepped ${stepped}").ignore();
+    let _ = io.println(ctx, "stopped ${mailbox.stop(ctx).isOk()}").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// **Every sender gets its own answer, however many post at once**
+/// (buri-lang/buri#205).
+///
+/// `core/actor` names three cases for `.Err(.Stopped)`, and none of them
+/// happens here: the actor is live throughout, and no sender is a step. The
+/// bug this row pins answered `.Err(.Stopped)` to a sender that found another
+/// task stepping the actor, *after* its message had been posted — so the
+/// message was stepped and its answer went nowhere. `stepped 128` next to
+/// `refused 0` is the row: every message stepped once, and every sender told
+/// what its step answered.
+///
+/// On the development backend the tasks run one after another and the row is
+/// the same answer reached without contention.
+#[test]
+fn every_sender_gets_its_answer_when_many_post_at_once() {
+    unless_ready!();
+    let binary = built("e2e-many-senders", &many_senders());
+    let out = ran_within(&binary, std::time::Duration::from_secs(60));
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.stdout.lines().collect::<Vec<_>>(),
+        vec!["refused 0", "stepped 128", "stopped true"],
+        "stderr:\n{}",
+        out.stderr
+    );
+}
+
+/// A step that sends to the actor running it, directly and from inside a
+/// fan-out the step made.
+///
+/// The message carries a function rather than the address, which is
+/// `cli/tests/conformance/lib/actor/test/counter.buri`'s way of letting a step
+/// reach its own actor without a recursive type.
+fn reentering_senders() -> String {
+    String::from(
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Stepped, Stopped };
+from "core/effect" import { Allocator, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+
+enum Reentrant<C> {
+    Reenter(fn(C) => Int),
+    Tick,
+    Get,
+}
+
+enum Reentered {
+    Ticked,
+    Reentered(Int),
+    Count(Int),
+}
+
+fn reentrant<C: Allocator + Tasks>(): Actor<C, Int, Reentrant<C>, Reentered> {
+    Actor {
+        state: 0,
+        step: fn(c, count, message) => {
+            match (message) {
+                .Reenter(f) => {
+                    let call = f;
+                    Stepped { state: count, answer: .Reentered(call(c)) }
+                },
+                .Tick => Stepped { state: count + 1, answer: .Ticked },
+                .Get => Stepped { state: count, answer: .Count(count) },
+            }
+        },
+    }
+}
+
+fn shown<C: Stdout>(ctx: C, label: Str, answer: Result<Reentered, Stopped>): () {
+    let printed = match (answer) {
+        .Ok(.Reentered(n)) => io.println(ctx, "${label} answered ${n}"),
+        .Ok(.Count(n)) => io.println(ctx, "${label} count ${n}"),
+        .Ok(.Ticked) => io.println(ctx, "${label} ticked"),
+        .Err(_gone) => io.println(ctx, "${label} stopped"),
+    };
+    printed.ignore()
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let counted = actor.start(ctx, reentrant());
+    // Straight from the step: one tick, refused on the spot.
+    let direct = counted.sendMessage(ctx, .Reenter(fn(c) => {
+        match (counted.sendMessage(c, .Tick)) {
+            .Ok(_ticked) => 1,
+            .Err(_gone) => 0,
+        }
+    }));
+    let _ = shown(ctx, "direct", direct);
+    // From two tasks the step fanned out: two ticks, both refused on the spot,
+    // because the step that made them is still holding the state.
+    let fanned = counted.sendMessage(ctx, .Reenter(fn(c) => {
+        let sent = tasks.parallel(c, [0, 1], fn(c2, _i, _n) => {
+            match (counted.sendMessage(c2, .Tick)) {
+                .Ok(_ticked) => 1,
+                .Err(_gone) => 0,
+            }
+        });
+        sent.sum()
+    }));
+    let _ = shown(ctx, "fanned", fanned);
+    // Refused is not lost: all three ticks were stepped by the loop that was
+    // already running.
+    let _ = shown(ctx, "then", counted.sendMessage(ctx, .Get));
+    let _ = io.println(ctx, "stopped ${counted.stop(ctx).isOk()}").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// **A step that sends to its own actor is still refused at once**, on every
+/// backend — and so is a task that step fanned out.
+///
+/// `core/actor` promises `.Err(.Stopped)` to "a step of this same actor" that
+/// sends to it, because the state is out and the send would otherwise wait
+/// for itself. Now that a sender *does* wait for a state another task is
+/// holding, this is the row that says the wait knows the difference: a step's
+/// own fan-out answers in a moment rather than waiting for the step that is
+/// waiting for it. The deadline is far below the runtime's own thirty-second
+/// bound on an actor wait, so a send that waited it out fails this row.
+#[test]
+fn a_step_sending_to_its_own_actor_is_refused_at_once() {
+    unless_ready!();
+    let binary = built("e2e-reentering-senders", &reentering_senders());
+    let out = ran_within(&binary, std::time::Duration::from_secs(20));
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.stdout.lines().collect::<Vec<_>>(),
+        vec!["direct answered 0", "fanned answered 0", "then count 3", "stopped true"],
+        "stderr:\n{}",
+        out.stderr
+    );
+}
+
 
 
 // ---------------------------------------------------------------------------
