@@ -51,7 +51,7 @@ argument it means every target in it. Patterns are CLI-only: `//lib/...`,
 ## `REPO.buri`
 
 A directory with a `REPO.buri` is a repository root. The file parses as
-`buri.build.v1.RepoConfig` and has **two fields**:
+`buri.build.v1.RepoConfig` and has **three fields**:
 
 ```textproto
 tag {
@@ -72,7 +72,15 @@ lint {
     check_during_build: true
     fail_on_finding: true
 }
+
+language {
+    name: "jsonc"
+    extensions: [".code-workspace"]
+}
 ```
+
+`language` gives a built-in language (`json`, `jsonc`, `json5`) more
+extensions, and nothing else.
 
 `lint` says where the lint catalogue runs, what a finding costs, and which
 rules run. `check_during_build` makes `buri build` and `buri test` run it too.

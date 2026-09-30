@@ -25,6 +25,11 @@ step to forget to run.
 cannot know which generator owns a file, so it never writes the field and never
 touches an entry's `inputs`.
 
+An input in a language the toolchain knows is **checked before the tool reads
+it**. A `.json`, `.jsonc` or `.json5` input is checked against the schema its
+`"$schema"` names, and one that fails is reported where the mistake is, and the
+entry does not run. See [`guides/json.md`](../../guides/json.md).
+
 An input counts as declared, the way a `sources` entry does. The question is
 asked back, too, but only of files wearing an extension a generator in that
 package already reads: once an entry names a `.units`, a second `.units` nothing

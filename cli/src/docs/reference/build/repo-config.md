@@ -34,9 +34,14 @@ lint {
     check_during_build: true
     fail_on_finding: true
 }
+
+language {
+    name: "jsonc"
+    extensions: [".code-workspace"]
+}
 ```
 
-Two fields. The example is not abridged. A knob goes on the command, where the
+Three fields. The example is not abridged. A knob goes on the command, where the
 invocation shows it, or on the rule it affects, where anyone reading that rule
 sees it. `REPO.buri` gets what has no other home. There is no `flags` field: a
 repository-wide compiler flag is a dialect, and a dialect makes one source file
@@ -158,6 +163,36 @@ There is no per-directory exemption and no per-file suppression comment. One
 file answers "is this rule on here" for the whole repository, and turning a rule
 off takes a diff somebody reviews rather than a line somebody adds to the file
 they were already editing.
+
+## `language`
+
+The extension of a file some rule's `inputs` lists decides its language, and
+the language decides how the build checks it and how `buri format` lays it
+out. The built-in languages are `json` (`.json`), `jsonc` (`.jsonc`) and
+`json5` (`.json5`). A `language` block gives one of them more extensions:
+
+```textproto schema=repo
+language {
+    name: "jsonc"
+    extensions: [".code-workspace"]
+}
+```
+
+| | |
+|---|---|
+| `name` | The language the block is about. Required. |
+| `extensions` | More extensions for it, each with a leading dot. |
+| `check`, `format`, `generate` | Refused on a built-in language: [`built-in-language-tool`](../errors/built-in-language-tool.md). |
+
+One extension names one language, so claiming one that is taken is
+[`language-extension-taken`](../errors/language-extension-taken.md). A block
+naming a language that is not built in is
+[`language-not-built-in`](../errors/language-not-built-in.md): a language of
+your own needs a `tool` rule to check it, and there is no such rule yet.
+
+A built-in language keeps its own check because a `.json` file should mean the
+same thing in every repository. [`guides/json.md`](../../guides/json.md) is
+what the check does.
 
 ## What is not here
 
