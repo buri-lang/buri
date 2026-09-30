@@ -16,7 +16,10 @@
 //!     serves, assembles, and compiles the examples in it.
 //!   * `language_server` — the protocol, over the analysis `build` already runs.
 //!
-//! `diagnostics`, `formatting`, `json` and `parallel` are at the top level
+//!   * `languages` — the files a build reads that are not Buri: JSON today,
+//!     each checked against its schema and laid out through `layout`.
+//!
+//! `diagnostics`, `formatting`, `json`, `layout` and `parallel` are at the top level
 //! because more than one of the above depends on them and none of them owns
 //! them.
 
@@ -29,5 +32,7 @@ pub mod formatting;
 pub mod hash;
 pub mod json;
 pub mod language_server;
+pub mod languages;
+pub mod layout;
 pub mod parallel;
 pub mod parsing;
