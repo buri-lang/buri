@@ -1228,9 +1228,11 @@ impl Reset {
             // is the half no style can say: `position:fixed`, the automatic
             // margins that centre it, and the top layer `showModal` puts it
             // in. The panel's own look is the styles'.
+            // `overflow:visible` undoes the UA's `dialog:modal{overflow:auto}`,
+            // which clips focus rings and pinned panels the painter draws whole.
             out.push_str(
                 ":where(dialog){border:0;padding:0;background:none;color:inherit;\
-                 max-width:none;max-height:none}\n",
+                 max-width:none;max-height:none;overflow:visible}\n",
             );
             // Open, it is a container like every other one. Shut, it keeps a
             // browser's `display:none`, which is why this hangs off `[open]`

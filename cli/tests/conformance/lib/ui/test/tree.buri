@@ -4625,7 +4625,7 @@ test "a dialog's styles land on the panel" {
     let sheet = stylesheet();
     assert.isTrue(
         sheet.contains(
-            ":where(dialog){border:0;padding:0;background:none;color:inherit;max-width:none;max-height:none}",
+            ":where(dialog){border:0;padding:0;background:none;color:inherit;max-width:none;max-height:none;overflow:visible}",
         ),
     );
     // Open, it is a container like every other one; shut, it keeps a browser's
@@ -4635,6 +4635,55 @@ test "a dialog's styles land on the panel" {
     );
     assert.isTrue(
         sheet.contains(":where(dialog)::backdrop{background-color:rgba(0,0,0,0.5)}"),
+    );
+}
+
+test "a dialog's panel lets what hangs off its edge show, as the painter does" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let open = signal(ctx, true);
+    // A list pinned below its trigger hangs past the panel's edge. The painter
+    // clips only a box that scrolls, so it draws the list whole over the scrim.
+    let panel = render(
+        ctx,
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Billing"),
+            children: [
+                ui.stack({
+                    styles: [.Position(.Flow)],
+                    children: [
+                        ui.button({
+                            label: .Const("Trigger"),
+                            styles: [],
+                            onPress: .Some(fn(_c) => ()),
+                        }),
+                        ui.stack({
+                            styles: [
+                                .Pin(.Top, .Percent(100.0)),
+                                .Background(.Rgb(255, 0, 0)),
+                                .Height(.Px(200)),
+                            ],
+                            children: [],
+                        }),
+                    ],
+                }),
+            ],
+            styles: [.Padding(.Px(24))],
+        }),
+    );
+    assert.equal(
+        panel.markup(),
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 class:p-24\ne 2 class:pos-flow\ne 3 \nt 4 Trigger\ne 3 class:pin-out pin-top-pc100 bg-ff0000 h-200",
+    );
+    // A browser's own sheet makes a modal a scroll container. The reset undoes
+    // that; a panel that should scroll asks for `Scroll`, which beats it.
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(
+            ":where(dialog){border:0;padding:0;background:none;color:inherit;max-width:none;max-height:none;overflow:visible}",
+        ),
     );
 }
 
