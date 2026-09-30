@@ -1,7 +1,7 @@
 ## What it does
 
 Formats `.buri` sources and build files — `BUILD.buri` and `REPO.buri` — in
-place, the JSON files a rule's `inputs` lists, **and the Buri written in
+place, the JSON and other files a rule's `inputs` lists, **and the Buri written in
 documentation**: every ```` ```buri ```` fence
 in a markdown file, and every example in a `///` or `//!` comment. There are no
 options. One canonical layout means nobody argues about formatting in review and
@@ -118,6 +118,15 @@ exactly as you wrote them. A trailing comma is never written in `.json` or
 formatter never adds `"$schema"`.
 
 A file that does not parse is left as it is, and `--check` exits `1` for it.
+
+## Files in a language of your own
+
+A file in a language `REPO.buri` declares is laid out by the `format` of the
+tool the language names, and only when some rule's `inputs` lists it. The tool
+returns a document; the width and indent are the same as every `.buri` file's.
+A file the tool will not format is left as it is, and `--check` exits `1` for
+it. A language with no `format` is left alone. See
+[`build/tools.md`](../build/tools.md).
 
 ## Build files
 

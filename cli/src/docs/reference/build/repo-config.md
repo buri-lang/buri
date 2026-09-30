@@ -178,17 +178,37 @@ language {
 }
 ```
 
+Or it declares a language of your own, and names the [tools](./tools.md) that
+check, format and generate from it:
+
+```textproto schema=repo
+language {
+    name: "lines"
+    extensions: [".lines"]
+    check: "//tools/lines"
+    format: "//tools/lines"
+}
+```
+
 | | |
 |---|---|
 | `name` | The language the block is about. Required. |
 | `extensions` | More extensions for it, each with a leading dot. |
-| `check`, `format`, `generate` | Refused on a built-in language: [`built-in-language-tool`](../errors/built-in-language-tool.md). |
+| `check`, `format`, `generate` | A `tool` rule, whose entry point of the same name does the work. Refused on a built-in language: [`built-in-language-tool`](../errors/built-in-language-tool.md). |
 
-One extension names one language, so claiming one that is taken is
-[`language-extension-taken`](../errors/language-extension-taken.md). A block
-naming a language that is not built in is
-[`language-not-built-in`](../errors/language-not-built-in.md): a language of
-your own needs a `tool` rule to check it, and there is no such rule yet.
+- `check` runs on each referenced file before any generator reads it, in
+  `buri build`, `buri test`, `buri lint` and your editor. `format` is what
+  `buri format` and your editor lay the file out with. A language without one
+  is not checked, or not formatted.
+- A tool without the entry point is
+  [`tool-without-entry-point`](../errors/tool-without-entry-point.md), and a
+  name that is no tool is [`no-such-tool`](../errors/no-such-tool.md).
+- `generate` is checked the same way, and nothing runs it yet: a `generators`
+  entry names its own tool.
+- One extension names one language, so claiming one that is taken is
+  [`language-extension-taken`](../errors/language-extension-taken.md). A
+  language is declared once
+  ([`language-declared-twice`](../errors/language-declared-twice.md)).
 
 A built-in language keeps its own check because a `.json` file should mean the
 same thing in every repository. [`guides/json.md`](../../guides/json.md) is
@@ -226,6 +246,6 @@ what the check does.
 - **No environment.** Actions run with an empty environment
   ([`hermeticity.md`](./hermeticity.md)), so there is nowhere to set a variable
   because nothing reads one.
-- **No rule definitions.** Two rule kinds, both in the schema. Where a
+- **No rule definitions.** Three rule kinds, all in the schema. Where a
   repository can define rules, reading a `BUILD.buri` no longer tells you what
   will happen.

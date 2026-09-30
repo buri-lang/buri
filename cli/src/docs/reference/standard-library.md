@@ -97,9 +97,12 @@ unordered, so it answers `.Equal` for a pair it could not order.
 [`core/compression`](../../compiler/standard_library/sources/compression.buri),
 [`core/proto`](../../compiler/standard_library/sources/proto.buri),
 [`core/buri/ast`](../../compiler/standard_library/sources/buri_ast.buri),
+[`core/tool`](../../compiler/standard_library/sources/tool.buri),
+[`core/format`](../../compiler/standard_library/sources/format.buri),
 [`core/codegen`](../../compiler/standard_library/sources/codegen.buri),
 [`std/codegen/proto/schema`](../../compiler/standard_library/sources/codegen_proto_schema.buri),
-[`std/codegen/proto`](../../compiler/standard_library/sources/codegen_proto.buri).
+[`std/codegen/proto`](../../compiler/standard_library/sources/codegen_proto.buri),
+[`std/proto`](../../compiler/standard_library/sources/proto_tool.buri).
 
 - **`core/str`** — a `Str` measures in Unicode scalar values everywhere. `len`
   counts them, `charAt` and `slice` index by them, and `compare` orders by them.
@@ -298,17 +301,25 @@ unordered, so it answers `.Equal` for a pair it could not order.
   generator is linked as JavaScript and the toolchain's own parser is Rust. Both
   cost O(n) in the source, and one `[Char]` of it.
 
-- **`core/codegen`** — the protocol a generator speaks. `run` reads one JSON
-  line from `Stdin`, hands your function the `Request`, and writes the
-  `Response` back as one JSON line on `Stdout`. It calls `core/buri/ast`'s
-  `print` for you, so what goes over the wire is text plus anchors and never a
-  tree. The function `run` takes is handed a context bounded by `Allocator`, `Stdin`
-  and `Stdout`, so a generator written the documented way cannot reach the clock
-  or the disk — that is the determinism, and it is a type error rather than a
-  rule. `run` answers `.Err` when there was no
-  request to read or the line was not one; returning that from `main` is how a
-  generator fails visibly. Costs one parse of the request line plus one `print`
-  per module — O(n) in the text read and the text written.
+- **`core/tool`** — what a `tool` rule's entry points are handed and answer:
+  `CheckRequest`, `Checked`, `FormatRequest`, `GenerateRequest`, `Generated`,
+  and the `Input` each file arrives as, with its path, language and text. A tool
+  exports `check`, `format` or `generate` against these and never touches a
+  stream: the build writes the `main` that calls `serve`, which reads the
+  request, calls the entry point and writes the answer. See
+  [tools](./build/tools.md).
+
+- **`core/format`** — the `Doc` a tool's `format` returns: text, the places a
+  line may break, groups that break together, and indentation. The toolchain
+  lays it out at the width and indent every `.buri` file gets.
+
+- **`core/codegen`** — the `Request`, `Response` and `Diagnostic` a generator
+  works in, and `run`, which speaks them over `Stdin` and `Stdout`. The build
+  runs a tool's `generate` now rather than a binary, so `run` is for a program
+  of your own; `core/tool` re-exports `Diagnostic`. `run` calls
+  `core/buri/ast`'s `print`, so what goes over the wire is text plus anchors
+  and never a tree. Costs one parse of the request line plus one `print` per
+  module — O(n) in the text read and the text written.
 
 - **`std/codegen/proto/schema`** — a reader for `.proto` schemas, and the front
   half of the `std/codegen/proto` generator. `parse` answers what a file
@@ -325,7 +336,7 @@ unordered, so it answers `.Equal` for a pair it could not order.
   [The proto reference](./build/proto.md) is the mapping it feeds.
 
 - **`std/codegen/proto`** — the other half: the schema `std/codegen/proto/schema`
-  read, as a Buri module. `emit` is the generator `core/codegen`'s `run` takes,
+  read, as a Buri module. `emit` turns a `core/codegen` request into modules,
   and `generate` is one schema at a time. It builds `core/buri/ast` nodes rather
   than text, and **every node carries the declaration behind it** — a struct its
   `message`'s span, a field's name the span of the `.proto` field, a variant the
@@ -336,9 +347,10 @@ unordered, so it answers `.Equal` for a pair it could not order.
   table and one to write the tree; a type name resolves through an `OrderedMap`, so
   a schema of `n` declarations costs O(n log t) in the `t` types in scope.
   [The proto reference](./build/proto.md) is the mapping, and it is a promise.
-  This is the module the build runs: `generators: [{ tool: "std/codegen/proto",
-  ... }]` compiles it and hands it a request, the same way it runs a tool of
-  your own.
+
+- **`std/proto`** — the `.proto` tool: its `generate` is `emit` over a
+  `core/tool` request. `generators: [{ tool: "std/proto", ... }]` compiles it
+  and runs it the same way it runs a tool of your own.
 
 ## Collections
 
