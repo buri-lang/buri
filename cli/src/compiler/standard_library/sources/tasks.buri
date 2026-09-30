@@ -29,8 +29,8 @@
 //! | Backend | Today |
 //! |---|---|
 //! | JavaScript | genuinely concurrent — it starts the tasks together and awaits them together, so two that wait overlap. Two that *compute* do not: the engine has one thread |
-//! | native, `--release` | genuinely **parallel** — each task runs on a carrier of its own, on a processor of its own, so two that wait overlap and two that compute overlap |
-//! | native, `buri run` | sequential, in index order, on the calling carrier |
+//! | native, `--release` | genuinely **parallel** — each task runs on a thread of its own, on a processor of its own, so two that wait overlap and two that compute overlap |
+//! | native, `buri run` | sequential, in index order, on the calling thread |
 //!
 //! All three answer the same list, and that is the whole of what this module
 //! promises.
@@ -119,7 +119,7 @@
 //! A scope collects what was spawned and runs a round of it through `parallel`,
 //! then another round for whatever those tasks spawned, until nothing is
 //! waiting. So the table above applies: on JavaScript two spawned tasks
-//! overlap, on a native `--release` build they run on carriers of their own,
+//! overlap, on a native `--release` build they run on threads of their own,
 //! and under `buri run` they run one after another in the order they were
 //! spawned.
 //!

@@ -80,7 +80,7 @@
 //! ## A handler runs on a task, and that is why `Tasks` is in the bound
 //!
 //! `run` does not drive one accept loop. It fans out `listener.handlers` of
-//! them with `Tasks.parallel`, each on a carrier of its own, all accepting on
+//! them with `Tasks.parallel`, each on a thread of its own, all accepting on
 //! the one listener. A slow handler therefore holds up its own connection and
 //! nothing else, which is what "many connections in flight" means here.
 //!
