@@ -1324,11 +1324,14 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
     workspace.generated.record(&workspace, target, fingerprint, outcome);
 }
 
+/// A check's key, where it has one, and what it found.
+type Verdict = (Option<ActionKey>, Vec<crate::languages::Finding>);
+
 /// The checks of one rule's inputs, each file once however many entries list
 /// it.
 #[derive(Default)]
 struct Checks {
-    done: BTreeMap<(String, Option<tools::Contract>), (Option<ActionKey>, Vec<crate::languages::Finding>)>,
+    done: BTreeMap<(String, Option<tools::Contract>), Verdict>,
     /// The contract each file was first read under, and by which tool.
     contracts: BTreeMap<String, (Option<String>, String)>,
     findings: Vec<(crate::languages::Finding, Span)>,

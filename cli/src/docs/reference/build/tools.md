@@ -158,14 +158,10 @@ export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Config>): Gene
   contract, because a typed value has lost the comments a formatter lays out.
 - **The consumer gets no types.** It never reads its config at run time.
 
-The module holds the types and a `decode`, which the `main` the build writes
-calls on each input before the entry point sees it:
-
-```buri sig
-export fn decode<C: Allocator>(ctx: C, text: Str): Result<Config, Str>
-```
-
-A JSON input arrives as strict JSON, whatever its dialect, so comments and
+The module holds the types and
+`decode<C: Allocator>(ctx: C, text: Str): Result<Config, Str>`, which the
+`main` the build writes calls on each input before the entry point sees it. A
+JSON input arrives as strict JSON, whatever its dialect, so comments and
 JSON5 syntax never reach `decode`. A language of your own supplies types by
 answering a `generate` whose `typesOf` is set: one module, with the root type
 and this `decode`, which reads the input's text.

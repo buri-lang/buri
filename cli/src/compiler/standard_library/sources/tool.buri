@@ -164,7 +164,10 @@ export fn typed<T, C: Allocator>(
                 .Err([
                     Diagnostic {
                         code: "typed-input-unreadable",
-                        message: str.format(c, "`${input.path}` did not read as its contract's type: ${why}"),
+                        message: str.format(
+                            c,
+                            "`${input.path}` did not read as its contract's type: ${why}",
+                        ),
                         note: .None,
                         fix: .None,
                         origin: .None,
@@ -218,7 +221,9 @@ fn input(item: Json): Result<Input<Str>, Str> {
 
 fn typeSchema(value: Json): Option<TypeSchema> {
     field(value, "text").andThen(fn(text) => {
-        field(value, "package").map(fn(package) => TypeSchema { text: text, package: package })
+        field(value, "package").map(fn(package) => {
+            TypeSchema { text: text, package: package }
+        })
     })
 }
 

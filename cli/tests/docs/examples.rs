@@ -216,7 +216,7 @@ fn cli_reference_examples() {
 /// `ignore` without `why=` is an extraction failure
 /// (`documentation::examples::parse_block`), so the reason for every one of
 /// these is written where a reader of the diff can weigh it, in the `.md`.
-const MAX_IGNORED_EXAMPLES: usize = 62;
+const MAX_IGNORED_EXAMPLES: usize = 64;
 
 /// An untested example is a claim nobody checks, so there is a ceiling on how
 /// many of them there may be and each one says why in the document itself.

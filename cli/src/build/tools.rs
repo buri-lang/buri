@@ -304,7 +304,7 @@ fn request_type(
         })
     };
     let names_root = |arg| match tree.ty(arg) {
-        TypeView::Named { path: segments, args, .. } if args.is_empty() => {
+        TypeView::Named { path: segments, args: [], .. } => {
             let segments: Vec<&str> = segments.iter().map(|s| tree.text(*s)).collect();
             wanted.iter().any(|(root, path)| {
                 imports().filter(|i| &i.path == path).any(|i| match (&i.clause, segments.as_slice()) {
