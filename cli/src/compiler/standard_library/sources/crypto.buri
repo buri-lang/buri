@@ -18,12 +18,17 @@
 //! predict. The seeded path a test needs is `core/host/testing`'s `entropy()`, a
 //! seeded implementation of the same effect that only a test source can reach.
 //!
+//! # Sealing and signatures
+//!
+//! `seal` and `open` encrypt with ChaCha20-Poly1305, and `Entropy` mints the
+//! nonce rather than the caller. `verifyEs256` and `verifyEd25519` check a
+//! signature somebody else made. These four are the platform's rather than
+//! Buri's: `ring` natively, and the JavaScript runtime's own synchronous code.
+//!
 //! # What is not here
 //!
-//! - **No ciphers.** No AES, no ChaCha. An AEAD — one authenticated
-//!   construction, with `Entropy` minting the nonce rather than the caller — is
-//!   the shape it would take, and it is a slice of its own.
-//! - **No public-key anything.**
+//! - **No signing and no key generation.** Only checking.
+//! - **No RSA.** RS256 JWTs cannot be checked yet.
 //! - **No key derivation and no password hashing.**
 //!
 //! **`sha256` is not a password hash.** It is fast, which is the wrong
@@ -824,4 +829,300 @@ fn accumulate(a: [U8], b: [U8], i: Int, acc: Int): Int {
         let y = b.get(i).withDefault(0).toI64();
         accumulate(a, b, i + 1, acc | x ^ y)
     }
+}
+
+// --- Sealing ---------------------------------------------------------------------
+
+/// ChaCha20-Poly1305 (RFC 8439): the ciphertext with its tag appended. A key
+/// that is not 32 bytes or a nonce that is not 12 aborts.
+fn chacha20Poly1305Seal<C: Allocator>(
+    ctx: C,
+    key: [U8],
+    nonce: [U8],
+    plaintext: [U8],
+    aad: [U8],
+): [U8];
+
+/// The plaintext, or `.None` when the tag does not match.
+fn chacha20Poly1305Open<C: Allocator>(
+    ctx: C,
+    key: [U8],
+    nonce: [U8],
+    sealed: [U8],
+    aad: [U8],
+): Option<[U8]>;
+
+let KEY_BYTES: Int = 32;
+
+let NONCE_BYTES: Int = 12;
+
+let TAG_BYTES: Int = 16;
+
+/// Encrypts and authenticates `plaintext` under a 32-byte `key`.
+///
+/// ```buri run
+/// from "core/bytes" import * as bytes;
+/// from "core/crypto" import * as crypto;
+/// from "core/effect" import { Allocator, Entropy, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Allocator: host.alloc,
+///         Entropy: host.entropy,
+///         Stdout: host.stdout,
+///     };
+///     let key = crypto.randomBytes(ctx, 32);
+///     let aad = bytes.toUtf8(ctx, "user:42");
+///     let sealed = crypto.seal(ctx, key, bytes.toUtf8(ctx, "refresh-token"), aad);
+///     let opened = crypto.open(ctx, key, sealed, aad)?;
+///     let _ = io
+///         .println(ctx, "${sealed.length()} ${bytes.fromUtf8Lossy(ctx, opened)}")
+///         .ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// 41 refresh-token
+/// ```
+///
+/// The answer is `nonce ++ ciphertext ++ tag`: 12 + the plaintext's length + 16
+/// bytes. The nonce comes from `Entropy`, so sealing the same plaintext twice
+/// gives two different answers.
+///
+/// `aad` is authenticated but not encrypted. Bind a value to where it belongs,
+/// such as a user id or a column name, and `open` refuses it anywhere else.
+/// Pass `[]` when there is nothing to bind.
+///
+/// A random 12-byte nonce repeats by chance after about 2^32 seals under one
+/// key, and a repeat leaks both plaintexts. Rotate keys well before that.
+///
+/// A `key` that is not 32 bytes aborts. Make one with `randomBytes(ctx, 32)`.
+export fn seal<C: Allocator + Entropy>(
+    ctx: C,
+    key: [U8],
+    plaintext: [U8],
+    aad: [U8],
+): [U8] {
+    let nonce = randomBytes(ctx, NONCE_BYTES);
+    nonce.concat(ctx, chacha20Poly1305Seal(ctx, key, nonce, plaintext, aad))
+}
+
+/// The plaintext `seal` encrypted, or why it cannot be had.
+///
+/// It fails when the key is wrong, when `aad` differs from what was sealed, or
+/// when any byte of `sealed` changed. The tag is checked before anything is
+/// decrypted, so a failure releases no plaintext.
+export fn open<C: Allocator>(
+    ctx: C,
+    key: [U8],
+    sealed: [U8],
+    aad: [U8],
+): Result<[U8], Str> {
+    if (key.length() != KEY_BYTES) {
+        .Err("a sealing key is 32 bytes")
+    } else if (sealed.length() < NONCE_BYTES + TAG_BYTES) {
+        .Err("too short to be a sealed value")
+    } else {
+        let nonce = sealed.slice(ctx, 0, NONCE_BYTES);
+        let rest = sealed.slice(ctx, NONCE_BYTES, sealed.length());
+        match (chacha20Poly1305Open(ctx, key, nonce, rest, aad)) {
+            .Some(plaintext) => .Ok(plaintext),
+            .None => .Err("the sealed value does not authenticate"),
+        }
+    }
+}
+
+// --- Signatures ------------------------------------------------------------------
+
+/// ECDSA over P-256 with SHA-256. `key` is a 65-byte uncompressed point and
+/// `signature` is `r ++ s`.
+fn ecdsaP256Sha256Verify(key: [U8], message: [U8], signature: [U8]): Bool;
+
+/// Ed25519 (RFC 8032). `key` is 32 bytes and `signature` 64.
+fn ed25519Verify(key: [U8], message: [U8], signature: [U8]): Bool;
+
+/// A P-256 public key, for `verifyEs256`. Make one with
+/// `p256PublicKeyFromJwk`, `p256PublicKeyFromSec1` or `p256PublicKeyFromSpki`.
+///
+/// Those check the encoding, not the curve: a point that is not on P-256 fails
+/// every `verifyEs256`.
+export struct P256PublicKey([U8]);
+
+/// A P-256 key from a JWK's `x` and `y` members, which are base64url.
+///
+/// ```buri
+/// from "core/crypto" import * as crypto;
+/// from "core/effect" import { Allocator };
+///
+/// export fn rfcKey<C: Allocator>(ctx: C): Result<crypto.P256PublicKey, Str> {
+///     crypto.p256PublicKeyFromJwk(
+///         ctx,
+///         "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+///         "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
+///     )
+/// }
+/// ```
+///
+/// Check the JWK's `kty` is `"EC"` and its `crv` is `"P-256"` before calling this.
+export fn p256PublicKeyFromJwk<C: Allocator>(
+    ctx: C,
+    x: Str,
+    y: Str,
+): Result<P256PublicKey, Str> {
+    match ((bytes.fromBase64Url(ctx, x), bytes.fromBase64Url(ctx, y))) {
+        (.Ok(xs), .Ok(ys)) => {
+            if (xs.length() != 32 || ys.length() != 32) {
+                .Err("a P-256 coordinate is 32 bytes")
+            } else {
+                let prefix: [U8] = [4];
+                .Ok(P256PublicKey(prefix.concat(ctx, xs).concat(ctx, ys)))
+            }
+        },
+        _ => .Err("a JWK coordinate is base64url"),
+    }
+}
+
+/// A P-256 key from its SEC1 encoding: `0x04 ++ x ++ y`, 65 bytes. The
+/// compressed form is refused.
+export fn p256PublicKeyFromSec1(point: [U8]): Result<P256PublicKey, Str> {
+    if (point.length() == 65 && point.get(0).withDefault(0) == 4) {
+        .Ok(P256PublicKey(point))
+    } else {
+        .Err("a P-256 key is 65 bytes starting with 0x04")
+    }
+}
+
+/// DER's `SubjectPublicKeyInfo` header for an uncompressed P-256 key: the
+/// `id-ecPublicKey` and `prime256v1` object identifiers and the bit string's
+/// opening. DER is canonical, so every such key starts with exactly these.
+let SPKI_P256: [U8] = [
+    0x30,
+    0x59,
+    0x30,
+    0x13,
+    0x06,
+    0x07,
+    0x2a,
+    0x86,
+    0x48,
+    0xce,
+    0x3d,
+    0x02,
+    0x01,
+    0x06,
+    0x08,
+    0x2a,
+    0x86,
+    0x48,
+    0xce,
+    0x3d,
+    0x03,
+    0x01,
+    0x07,
+    0x03,
+    0x42,
+    0x00,
+];
+
+/// A P-256 key from DER `SubjectPublicKeyInfo` bytes, which is what a PEM
+/// `PUBLIC KEY` block holds once its base64 is decoded.
+export fn p256PublicKeyFromSpki<C: Allocator>(
+    ctx: C,
+    der: [U8],
+): Result<P256PublicKey, Str> {
+    if (der.length() == 91 && bytes.startsWith(der, SPKI_P256)) {
+        p256PublicKeyFromSec1(der.slice(ctx, 26, 91))
+    } else {
+        .Err("not a P-256 SubjectPublicKeyInfo")
+    }
+}
+
+/// Whether `signature` is `key`'s ES256 signature over `message`.
+///
+/// `signature` is `r ++ s`, 64 bytes, which is how JWS writes it. For a JWT,
+/// `message` is the ASCII of `header.payload` and `signature` is the third part,
+/// base64url-decoded:
+///
+/// ```buri
+/// from "core/bytes" import * as bytes;
+/// from "core/crypto" import * as crypto;
+/// from "core/effect" import { Allocator };
+/// from "core/str" import * as str;
+///
+/// export fn checks<C: Allocator>(ctx: C, key: crypto.P256PublicKey, jwt: Str): Bool {
+///     let parts = jwt.split(ctx, ".");
+///     let signed = str.format(
+///         ctx,
+///         "${parts.get(0).withDefault("")}.${parts.get(1).withDefault("")}",
+///     );
+///     match (bytes.fromBase64Url(ctx, parts.get(2).withDefault(""))) {
+///         .Ok(signature) => crypto.verifyEs256(key, bytes.toUtf8(ctx, signed), signature),
+///         .Err(_) => false,
+///     }
+/// }
+/// ```
+///
+/// A true answer says who signed. Checking the header's `alg`, and the claims'
+/// `exp`, `aud` and `iss`, is still the caller's job.
+export fn verifyEs256(key: P256PublicKey, message: [U8], signature: [U8]): Bool {
+    ecdsaP256Sha256Verify(key.0, message, signature)
+}
+
+/// An Ed25519 public key, for `verifyEd25519`.
+export struct Ed25519PublicKey([U8]);
+
+/// An Ed25519 key from its 32 raw bytes, which is also what a JWK's `x`
+/// decodes to.
+export fn ed25519PublicKeyFromRaw(raw: [U8]): Result<Ed25519PublicKey, Str> {
+    if (raw.length() == 32) {
+        .Ok(Ed25519PublicKey(raw))
+    } else {
+        .Err("an Ed25519 key is 32 bytes")
+    }
+}
+
+/// Whether `signature` is `key`'s Ed25519 signature over `message`.
+///
+/// ```buri run
+/// from "core/bytes" import * as bytes;
+/// from "core/crypto" import * as crypto;
+/// from "core/effect" import { Allocator, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+///
+/// fn hex<C: Allocator>(ctx: C, text: Str): [U8] {
+///     bytes.fromHex(ctx, text).withDefault([])
+/// }
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Allocator: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     // RFC 8032 section 7.1, test 2.
+///     let key = crypto.ed25519PublicKeyFromRaw(
+///         hex(ctx, "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"),
+///     )?;
+///     let signature = hex(
+///         ctx,
+///         "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
+///     );
+///     let good = crypto.verifyEd25519(key, hex(ctx, "72"), signature);
+///     let forged = crypto.verifyEd25519(key, hex(ctx, "73"), signature);
+///     let _ = io.println(ctx, "${good} ${forged}").ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// true false
+/// ```
+///
+/// A signature must be 64 bytes, and its `S` below the group order. Any other
+/// signature answers `false`.
+export fn verifyEd25519(key: Ed25519PublicKey, message: [U8], signature: [U8]): Bool {
+    ed25519Verify(key.0, message, signature)
 }

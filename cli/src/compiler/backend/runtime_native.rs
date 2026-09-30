@@ -275,14 +275,14 @@ pub fn h3() -> bool {
     declares("net-h3")
 }
 
-/// Whether this toolchain's runtime archive can answer `Entropy`.
+/// Whether this toolchain's runtime archive can answer `Entropy` and
+/// `core/crypto`'s sealing and signature checks.
 ///
 /// The runtime's `crypto` feature is on by default, so this is true of every
 /// ordinary toolchain — [`net`]'s shape rather than [`h3`]'s. It is false in
-/// three ways: `BURI_RUNTIME_CRYPTO=0` at build time, a dependency tree that
-/// would not resolve, and a host with no archive at all. There is no
-/// C-compiler leg here, which is the one difference from `net`: `getrandom`
-/// compiles no C.
+/// four ways: `BURI_RUNTIME_CRYPTO=0` at build time, a dependency tree that
+/// would not resolve, a host with no C compiler for `ring`, and a host with no
+/// archive at all.
 ///
 /// What reads it is [`super::cryptography_gap`], which turns it into a refusal
 /// naming the operation rather than a link error naming
@@ -361,9 +361,8 @@ pub fn net_intrinsic(key: &str) -> bool {
 
 /// Whether an intrinsic key is one only a `crypto` runtime answers.
 ///
-/// One effect and one operation today, and matched on the effect for
-/// [`net_intrinsic`]'s reason: a second operation on `Entropy` is covered the
-/// day it is added rather than the day somebody remembers this line.
+/// `Entropy`, matched on the effect for [`net_intrinsic`]'s reason, and
+/// `core/crypto`'s four `ring` entries by name.
 ///
 /// **`host_testing.TestEntropy.*` is deliberately not here.** The test
 /// platform's `Entropy` is seeded, its body is in `cli/runtime/testing.rs`
@@ -373,6 +372,17 @@ pub fn net_intrinsic(key: &str) -> bool {
 /// `host_testing.TestFileSystem` are on: two implementations of one effect, and only
 /// one of them needs the world.
 pub fn crypto_intrinsic(key: &str) -> bool {
+    // `core/crypto`'s four `ring` entries (`cli/runtime/crypto.rs`). Named one
+    // by one, because the rest of the module is Buri and reaches no feature.
+    if matches!(
+        key,
+        "crypto.chacha20Poly1305Seal"
+            | "crypto.chacha20Poly1305Open"
+            | "crypto.ecdsaP256Sha256Verify"
+            | "crypto.ed25519Verify"
+    ) {
+        return true;
+    }
     let Some(rest) = key.strip_prefix("host.") else { return false };
     let Some((effect, _operation)) = rest.split_once('.') else { return false };
     effect == "HostEntropy"
@@ -598,6 +608,8 @@ mod tests {
     #[test]
     fn the_cryptography_family_is_one_effect_and_excludes_the_double() {
         assert!(crypto_intrinsic("host.HostEntropy.bytes"));
+        assert!(crypto_intrinsic("crypto.chacha20Poly1305Seal"));
+        assert!(crypto_intrinsic("crypto.ed25519Verify"));
         for key in [
             "host_testing.TestEntropy.bytes",
             "host_testing.entropy",

@@ -647,6 +647,15 @@ pub const ENTRIES: &[Entry] = &[
     e("character.toUpper", "buri_rt_character_to_upper", Ret::Scalar),
     e("character.toLower", "buri_rt_character_to_lower", Ret::Scalar),
     e("character.toDigit", "buri_rt_character_to_digit", Ret::Opt),
+    // -- core/crypto --------------------------------------------------------
+    //
+    // Sealing and the two signature checks, in `cli/runtime/crypto.rs` behind
+    // the `crypto` feature (`runtime_native::crypto_intrinsic`). Every argument
+    // is a `[U8]`, so `core/bytes`'s `Extra::None` reasoning holds.
+    cx(e("crypto.chacha20Poly1305Seal", "buri_rt_crypto_chacha20_poly1305_seal", Ret::Out), 0),
+    cx(e("crypto.chacha20Poly1305Open", "buri_rt_crypto_chacha20_poly1305_open", Ret::Opt), 0),
+    e("crypto.ecdsaP256Sha256Verify", "buri_rt_crypto_ecdsa_p256_sha256_verify", Ret::Scalar),
+    e("crypto.ed25519Verify", "buri_rt_crypto_ed25519_verify", Ret::Scalar),
     // -- core/math, the exactly-specified half --------------------------------
     //
     // Nine of twenty-two. `cli/runtime/math.rs` says why the other thirteen are
@@ -1656,6 +1665,7 @@ mod tests {
         ("alloc", "core/alloc"),
         ("bytes", "core/bytes"),
         ("character", "core/character"),
+        ("crypto", "core/crypto"),
         ("host", "core/host"),
         ("host_testing", "core/host/testing"),
         ("list", "core/list"),
@@ -1777,8 +1787,9 @@ mod tests {
         // `core/tasks`'s ten: every one of the nineteen is a module function
         // whose first parameter is the context, which is the second of the two
         // shapes below. `ui_testing.mount` is the forty-ninth — the renderer
-        // drops its context the way every one of these does.
-        assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 49);
+        // drops its context the way every one of these does. `core/crypto`'s
+        // `seal` and `open` entries are the fiftieth and fifty-first.
+        assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 51);
     }
 
     /// The two shapes the column takes, by example, so that the indices are

@@ -320,11 +320,12 @@ tiny-skia = { version = "=0.12.0", optional = true, default-features = false, fe
 # capability question for every program, and the answer for the overwhelming
 # majority of them would be yes.
 #
-# What is unlike `net` is what it costs to have it: one crate, no C compiler,
-# no native object files, and a few kilobytes of archive. `net` is on by
-# default despite costing 2.7 MB; this is on by default and costs almost
-# nothing, so the interesting half of the decision is the *other* direction —
-# what a `crypto`-off toolchain owes a program.
+# It also turns on `ring`, for `core/crypto`'s `seal`, `open`, `verifyEs256`
+# and `verifyEd25519` (`crypto.rs`). A default toolchain already carries
+# `ring` for `net`, so that costs nothing there; a `net`-off, `crypto`-on
+# archive pays `ring`'s object code, and `cli/build.rs` gives `crypto` the same
+# C-compiler probe `net` has. The interesting half of the decision is the
+# *other* direction — what a `crypto`-off toolchain owes a program.
 #
 # It owes it a refusal at compile time, and that is why the feature exists at
 # all rather than a fallback existing. `cli/build.rs` reads
@@ -348,7 +349,7 @@ tiny-skia = { version = "=0.12.0", optional = true, default-features = false, fe
 default = ["net", "crypto", "paint"]
 net = ["dep:tokio", "dep:hyper", "dep:rustls", "dep:ring", "dep:tungstenite"]
 net-h3 = ["net", "dep:quinn"]
-crypto = ["dep:getrandom"]
+crypto = ["dep:getrandom", "dep:ring"]
 paint = ["dep:taffy", "dep:cosmic-text", "dep:tiny-skia"]
 
 # The flags that used to be spelled out in `cli/build.rs`'s `rustc` command
