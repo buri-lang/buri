@@ -4458,7 +4458,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         while off < stride {
             // Whole words while they fit, then bytes. An element holding a
             // pointer is word-aligned, so the bytes are only ever a fallback.
-            let wide = stride - off >= 8;
+            let wide = stride.saturating_sub(off) >= 8;
             let ty = if wide { word } else { self.ctx.i8_type() };
             let p = repr::byte_offset(self.ctx, &self.builder, at, i64::from(off), "spare.p");
             let Ok(BasicValueEnum::IntValue(v)) = self.builder.build_load(ty, p, "spare.w") else {
@@ -4476,7 +4476,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 None => v,
                 Some(a) => self.builder.build_or(a, v, "spare.or").unwrap_or(a),
             });
-            off += if wide { 8 } else { 1 };
+            off = off.saturating_add(if wide { 8 } else { 1 });
         }
         let any = any?;
         let zero = self
