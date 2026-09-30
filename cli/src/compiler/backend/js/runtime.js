@@ -2527,6 +2527,421 @@ function $host_HostEntropy_bytes(self, count) {
   return Array.from(out);
 }
 
+// --- Cryptography --------------------------------------------------------------
+//
+// `core/crypto`'s sealing and signature checks. Written out here rather than
+// handed to WebCrypto, because `crypto.subtle` is promise-shaped and these are
+// ordinary synchronous functions, and because WebCrypto has no ChaCha20 at all.
+// The native runtime answers the same keys through `ring`, and both are checked
+// against the RFC 8439, RFC 8032 and RFC 7515 vectors in the conformance corpus.
+//
+// Nothing below branches on a secret except Poly1305's BigInt arithmetic, whose
+// timing depends on the one-time key's magnitude and nothing an attacker picks.
+// The signature half only ever sees public values.
+
+// Little-endian bytes to a BigInt, and back.
+function $cryptoLe(b, from, to) {
+  let n = 0n;
+  for (let i = to - 1; i >= from; i--) n = (n << 8n) | BigInt(b[i]);
+  return n;
+}
+function $cryptoLeBytes(n, width) {
+  const out = new Array(width);
+  for (let i = 0; i < width; i++) {
+    out[i] = Number(n & 0xffn);
+    n >>= 8n;
+  }
+  return out;
+}
+function $cryptoBe(b, from, to) {
+  let n = 0n;
+  for (let i = from; i < to; i++) n = (n << 8n) | BigInt(b[i]);
+  return n;
+}
+
+// One ChaCha20 block, RFC 8439 §2.3, as sixteen little-endian words.
+function $chachaBlock(key, counter, nonce) {
+  const w = (b, i) => (b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24)) >>> 0;
+  const s = new Uint32Array(16);
+  s[0] = 0x61707865;
+  s[1] = 0x3320646e;
+  s[2] = 0x79622d32;
+  s[3] = 0x6b206574;
+  for (let i = 0; i < 8; i++) s[4 + i] = w(key, i * 4);
+  s[12] = counter >>> 0;
+  for (let i = 0; i < 3; i++) s[13 + i] = w(nonce, i * 4);
+  const x = Uint32Array.from(s);
+  const quarter = (a, b, c, d) => {
+    x[a] += x[b]; x[d] ^= x[a]; x[d] = (x[d] << 16) | (x[d] >>> 16);
+    x[c] += x[d]; x[b] ^= x[c]; x[b] = (x[b] << 12) | (x[b] >>> 20);
+    x[a] += x[b]; x[d] ^= x[a]; x[d] = (x[d] << 8) | (x[d] >>> 24);
+    x[c] += x[d]; x[b] ^= x[c]; x[b] = (x[b] << 7) | (x[b] >>> 25);
+  };
+  for (let i = 0; i < 10; i++) {
+    quarter(0, 4, 8, 12);
+    quarter(1, 5, 9, 13);
+    quarter(2, 6, 10, 14);
+    quarter(3, 7, 11, 15);
+    quarter(0, 5, 10, 15);
+    quarter(1, 6, 11, 12);
+    quarter(2, 7, 8, 13);
+    quarter(3, 4, 9, 14);
+  }
+  const out = new Uint8Array(64);
+  for (let i = 0; i < 16; i++) {
+    const v = (x[i] + s[i]) >>> 0;
+    out[i * 4] = v & 0xff;
+    out[i * 4 + 1] = (v >>> 8) & 0xff;
+    out[i * 4 + 2] = (v >>> 16) & 0xff;
+    out[i * 4 + 3] = v >>> 24;
+  }
+  return out;
+}
+
+// The keystream from block 1 on, xor-ed over `data`.
+function $chachaXor(key, nonce, data) {
+  const out = new Array(data.length);
+  for (let at = 0, counter = 1; at < data.length; at += 64, counter++) {
+    const block = $chachaBlock(key, counter, nonce);
+    const end = Math.min(at + 64, data.length);
+    for (let i = at; i < end; i++) out[i] = (data[i] ^ block[i - at]) & 0xff;
+  }
+  return out;
+}
+
+// Poly1305 over RFC 8439 §2.8's padded AAD and ciphertext.
+function $chachaTag(key, nonce, aad, ciphertext) {
+  const otk = $chachaBlock(key, 0, nonce);
+  const r = $cryptoLe(otk, 0, 16) & 0x0ffffffc0ffffffc0ffffffc0fffffffn;
+  const s = $cryptoLe(otk, 16, 32);
+  const p = (1n << 130n) - 5n;
+  let acc = 0n;
+  const absorb = (b) => {
+    for (let i = 0; i < b.length; i += 16) {
+      const end = Math.min(i + 16, b.length);
+      acc = ((acc + $cryptoLe(b, i, end) + (1n << BigInt(8 * (end - i)))) * r) % p;
+    }
+  };
+  const padded = (b) => b.concat(new Array((16 - (b.length % 16)) % 16).fill(0));
+  absorb(
+    padded(aad)
+      .concat(padded(ciphertext))
+      .concat($cryptoLeBytes(BigInt(aad.length), 8))
+      .concat($cryptoLeBytes(BigInt(ciphertext.length), 8)),
+  );
+  return $cryptoLeBytes((acc + s) & ((1n << 128n) - 1n), 16);
+}
+
+function $crypto_chacha20Poly1305Seal(_c, key, nonce, plaintext, aad) {
+  if (key.length !== 32) $abort("a sealing key is 32 bytes");
+  if (nonce.length !== 12) $abort("a sealing nonce is 12 bytes");
+  const ciphertext = $chachaXor(key, nonce, plaintext);
+  return ciphertext.concat($chachaTag(key, nonce, aad, ciphertext));
+}
+
+// `.None` for anything that does not authenticate. The tag is compared without
+// an early exit, and nothing is decrypted until it matches.
+function $crypto_chacha20Poly1305Open(_c, key, nonce, sealed, aad) {
+  if (key.length !== 32 || nonce.length !== 12 || sealed.length < 16) return undefined;
+  const ciphertext = sealed.slice(0, sealed.length - 16);
+  const expected = $chachaTag(key, nonce, aad, ciphertext);
+  let diff = 0;
+  for (let i = 0; i < 16; i++) diff |= expected[i] ^ sealed[sealed.length - 16 + i];
+  if (diff !== 0) return undefined;
+  return $chachaXor(key, nonce, ciphertext);
+}
+
+// SHA-256 and SHA-512, for the two signature checks to hash with. `core/crypto`
+// has its own in Buri; the runtime cannot call back into it.
+const $sha256K = Uint32Array.from([
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+]);
+
+// Padding shared by both: a one bit, zeros, and the bit length big-endian in
+// the block's last `lengthBytes` bytes.
+function $shaPad(message, block, lengthBytes) {
+  const n = message.length;
+  const total = Math.ceil((n + 1 + lengthBytes) / block) * block;
+  const out = new Uint8Array(total);
+  out.set(message);
+  out[n] = 0x80;
+  let bits = BigInt(n) * 8n;
+  for (let i = total - 1; bits > 0n; i--) {
+    out[i] = Number(bits & 0xffn);
+    bits >>= 8n;
+  }
+  return out;
+}
+
+function $sha256(message) {
+  const m = $shaPad(message, 64, 8);
+  const h = Uint32Array.from([
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+  ]);
+  const w = new Uint32Array(64);
+  const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+  for (let at = 0; at < m.length; at += 64) {
+    for (let i = 0; i < 16; i++) {
+      const j = at + i * 4;
+      w[i] = (m[j] << 24) | (m[j + 1] << 16) | (m[j + 2] << 8) | m[j + 3];
+    }
+    for (let i = 16; i < 64; i++) {
+      const s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3);
+      const s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+      w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+    }
+    let [a, b, c, d, e, f, g, hh] = h;
+    for (let i = 0; i < 64; i++) {
+      const t1 =
+        (hh + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + $sha256K[i] + w[i]) >>> 0;
+      const t2 = ((rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) >>> 0;
+      hh = g;
+      g = f;
+      f = e;
+      e = (d + t1) >>> 0;
+      d = c;
+      c = b;
+      b = a;
+      a = (t1 + t2) >>> 0;
+    }
+    h[0] += a; h[1] += b; h[2] += c; h[3] += d;
+    h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+  }
+  const out = [];
+  for (const word of h) out.push(word >>> 24, (word >>> 16) & 0xff, (word >>> 8) & 0xff, word & 0xff);
+  return out;
+}
+
+const $sha512K = [
+  "428a2f98d728ae22", "7137449123ef65cd", "b5c0fbcfec4d3b2f", "e9b5dba58189dbbc", "3956c25bf348b538",
+  "59f111f1b605d019", "923f82a4af194f9b", "ab1c5ed5da6d8118", "d807aa98a3030242", "12835b0145706fbe",
+  "243185be4ee4b28c", "550c7dc3d5ffb4e2", "72be5d74f27b896f", "80deb1fe3b1696b1", "9bdc06a725c71235",
+  "c19bf174cf692694", "e49b69c19ef14ad2", "efbe4786384f25e3", "0fc19dc68b8cd5b5", "240ca1cc77ac9c65",
+  "2de92c6f592b0275", "4a7484aa6ea6e483", "5cb0a9dcbd41fbd4", "76f988da831153b5", "983e5152ee66dfab",
+  "a831c66d2db43210", "b00327c898fb213f", "bf597fc7beef0ee4", "c6e00bf33da88fc2", "d5a79147930aa725",
+  "06ca6351e003826f", "142929670a0e6e70", "27b70a8546d22ffc", "2e1b21385c26c926", "4d2c6dfc5ac42aed",
+  "53380d139d95b3df", "650a73548baf63de", "766a0abb3c77b2a8", "81c2c92e47edaee6", "92722c851482353b",
+  "a2bfe8a14cf10364", "a81a664bbc423001", "c24b8b70d0f89791", "c76c51a30654be30", "d192e819d6ef5218",
+  "d69906245565a910", "f40e35855771202a", "106aa07032bbd1b8", "19a4c116b8d2d0c8", "1e376c085141ab53",
+  "2748774cdf8eeb99", "34b0bcb5e19b48a8", "391c0cb3c5c95a63", "4ed8aa4ae3418acb", "5b9cca4f7763e373",
+  "682e6ff3d6b2b8a3", "748f82ee5defb2fc", "78a5636f43172f60", "84c87814a1f0ab72", "8cc702081a6439ec",
+  "90befffa23631e28", "a4506cebde82bde9", "bef9a3f7b2c67915", "c67178f2e372532b", "ca273eceea26619c",
+  "d186b8c721c0c207", "eada7dd6cde0eb1e", "f57d4f7fee6ed178", "06f067aa72176fba", "0a637dc5a2c898a6",
+  "113f9804bef90dae", "1b710b35131c471b", "28db77f523047d84", "32caab7b40c72493", "3c9ebe0a15c9bebc",
+  "431d67c49c100d4c", "4cc5d4becb3e42b6", "597f299cfc657e2a", "5fcb6fab3ad6faec", "6c44198c4a475817",
+].map((k) => BigInt("0x" + k));
+
+function $sha512(message) {
+  const m = $shaPad(message, 128, 16);
+  const u = (x) => BigInt.asUintN(64, x);
+  const rotr = (x, n) => u((x >> n) | (x << (64n - n)));
+  const h = [
+    0x6a09e667f3bcc908n, 0xbb67ae8584caa73bn, 0x3c6ef372fe94f82bn, 0xa54ff53a5f1d36f1n,
+    0x510e527fade682d1n, 0x9b05688c2b3e6c1fn, 0x1f83d9abfb41bd6bn, 0x5be0cd19137e2179n,
+  ];
+  const w = new Array(80);
+  for (let at = 0; at < m.length; at += 128) {
+    for (let i = 0; i < 16; i++) w[i] = $cryptoBe(m, at + i * 8, at + i * 8 + 8);
+    for (let i = 16; i < 80; i++) {
+      const s0 = rotr(w[i - 15], 1n) ^ rotr(w[i - 15], 8n) ^ (w[i - 15] >> 7n);
+      const s1 = rotr(w[i - 2], 19n) ^ rotr(w[i - 2], 61n) ^ (w[i - 2] >> 6n);
+      w[i] = u(w[i - 16] + s0 + w[i - 7] + s1);
+    }
+    let [a, b, c, d, e, f, g, hh] = h;
+    for (let i = 0; i < 80; i++) {
+      const ch = (e & f) ^ (u(~e) & g);
+      const t1 = u(hh + (rotr(e, 14n) ^ rotr(e, 18n) ^ rotr(e, 41n)) + ch + $sha512K[i] + w[i]);
+      const t2 = u((rotr(a, 28n) ^ rotr(a, 34n) ^ rotr(a, 39n)) + ((a & b) ^ (a & c) ^ (b & c)));
+      hh = g;
+      g = f;
+      f = e;
+      e = u(d + t1);
+      d = c;
+      c = b;
+      b = a;
+      a = u(t1 + t2);
+    }
+    [a, b, c, d, e, f, g, hh].forEach((v, i) => (h[i] = u(h[i] + v)));
+  }
+  const out = [];
+  for (const word of h) for (let i = 56n; i >= 0n; i -= 8n) out.push(Number((word >> i) & 0xffn));
+  return out;
+}
+
+function $cryptoPow(base, exp, m) {
+  let result = 1n;
+  base %= m;
+  for (; exp > 0n; exp >>= 1n) {
+    if (exp & 1n) result = (result * base) % m;
+    base = (base * base) % m;
+  }
+  return result;
+}
+
+// ECDSA over P-256 with SHA-256, the way JWS writes it: a 65-byte uncompressed
+// point, and `r ++ s` as 64 bytes. Jacobian coordinates, so one inversion.
+const $p256 = {
+  p: 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffffn,
+  n: 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551n,
+  b: 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604bn,
+  gx: 0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296n,
+  gy: 0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5n,
+};
+
+function $p256Double([x, y, z]) {
+  const p = $p256.p;
+  if (z === 0n || y === 0n) return [0n, 1n, 0n];
+  const delta = (z * z) % p;
+  const gamma = (y * y) % p;
+  const beta = (x * gamma) % p;
+  const alpha = (3n * (((x - delta + p) * (x + delta)) % p)) % p;
+  const x3 = (((alpha * alpha - 8n * beta) % p) + p) % p;
+  const z3 = (((((y + z) * (y + z) - gamma - delta) % p) + p) % p);
+  const y3 = (((alpha * ((4n * beta - x3 + p) % p) - 8n * gamma * gamma) % p) + p) % p;
+  return [x3, y3, z3];
+}
+
+function $p256Add(a, b) {
+  const p = $p256.p;
+  if (a[2] === 0n) return b;
+  if (b[2] === 0n) return a;
+  const [x1, y1, z1] = a;
+  const [x2, y2, z2] = b;
+  const z1z1 = (z1 * z1) % p;
+  const z2z2 = (z2 * z2) % p;
+  const u1 = (x1 * z2z2) % p;
+  const u2 = (x2 * z1z1) % p;
+  const s1 = (((y1 * z2) % p) * z2z2) % p;
+  const s2 = (((y2 * z1) % p) * z1z1) % p;
+  const h = (u2 - u1 + p) % p;
+  const r = (s2 - s1 + p) % p;
+  if (h === 0n) return r === 0n ? $p256Double(a) : [0n, 1n, 0n];
+  const hh = (h * h) % p;
+  const hhh = (h * hh) % p;
+  const v = (u1 * hh) % p;
+  const x3 = (((r * r - hhh - 2n * v) % p) + p) % p;
+  const y3 = (((r * (v - x3) - s1 * hhh) % p) + p) % p;
+  const z3 = (((z1 * z2) % p) * h) % p;
+  return [x3, y3, z3];
+}
+
+function $crypto_ecdsaP256Sha256Verify(key, message, signature) {
+  const { p, n, b, gx, gy } = $p256;
+  if (key.length !== 65 || key[0] !== 4 || signature.length !== 64) return false;
+  const qx = $cryptoBe(key, 1, 33);
+  const qy = $cryptoBe(key, 33, 65);
+  if (qx >= p || qy >= p) return false;
+  if ((qy * qy) % p !== (((qx * qx - 3n) % p) * qx + b + p) % p) return false;
+  const r = $cryptoBe(signature, 0, 32);
+  const s = $cryptoBe(signature, 32, 64);
+  if (r === 0n || r >= n || s === 0n || s >= n) return false;
+  const e = $cryptoBe($sha256(message), 0, 32) % n;
+  const w = $cryptoPow(s, n - 2n, n);
+  const u1 = (e * w) % n;
+  const u2 = (r * w) % n;
+  // Shamir's trick: one pass over both scalars' bits.
+  const g = [gx, gy, 1n];
+  const q = [qx, qy, 1n];
+  const gq = $p256Add(g, q);
+  let acc = [0n, 1n, 0n];
+  for (let i = 255n; i >= 0n; i--) {
+    acc = $p256Double(acc);
+    const bits = Number(((u1 >> i) & 1n) | (((u2 >> i) & 1n) << 1n));
+    if (bits === 1) acc = $p256Add(acc, g);
+    else if (bits === 2) acc = $p256Add(acc, q);
+    else if (bits === 3) acc = $p256Add(acc, gq);
+  }
+  if (acc[2] === 0n) return false;
+  const zinv = $cryptoPow(acc[2], p - 2n, p);
+  const x = (acc[0] * ((zinv * zinv) % p)) % p;
+  return x % n === r;
+}
+
+// Ed25519 per RFC 8032 §5.1.7, over extended coordinates. The checks are
+// `ring`'s, so both backends refuse the same inputs: `S` must be below the group
+// order, the key's `y` is read mod p, and `R` must match the recomputed point's
+// encoding byte for byte.
+const $ed25519 = (() => {
+  const p = (1n << 255n) - 19n;
+  const d = (((-121665n * $cryptoPow(121666n, p - 2n, p)) % p) + p) % p;
+  const l = (1n << 252n) + 27742317777372353535851937790883648493n;
+  const sqrtMinusOne = $cryptoPow(2n, (p - 1n) / 4n, p);
+  return { p, d, l, sqrtMinusOne };
+})();
+
+function $edAdd(a, b) {
+  const { p, d } = $ed25519;
+  const [x1, y1, z1, t1] = a;
+  const [x2, y2, z2, t2] = b;
+  const aa = ((y1 - x1 + p) * (y2 - x2 + p)) % p;
+  const bb = ((y1 + x1) * (y2 + x2)) % p;
+  const c = (2n * t1 * t2 * d) % p;
+  const dd = (2n * z1 * z2) % p;
+  const e = (bb - aa + p) % p;
+  const f = (dd - c + p) % p;
+  const g = (dd + c) % p;
+  const h = (bb + aa) % p;
+  return [(e * f) % p, (g * h) % p, (f * g) % p, (e * h) % p];
+}
+
+function $edMultiply(k, point) {
+  let acc = [0n, 1n, 1n, 0n];
+  for (let i = 255n; i >= 0n; i--) {
+    acc = $edAdd(acc, acc);
+    if ((k >> i) & 1n) acc = $edAdd(acc, point);
+  }
+  return acc;
+}
+
+// The point whose encoding is these 32 bytes, or null where there is none.
+function $edDecode(bytes) {
+  const { p, d, sqrtMinusOne } = $ed25519;
+  const y = ($cryptoLe(bytes, 0, 32) & ((1n << 255n) - 1n)) % p;
+  const u = (y * y - 1n + p) % p;
+  const v = (d * y * y + 1n) % p;
+  const v3 = (v * v * v) % p;
+  let x = (u * v3 * $cryptoPow(u * v3 * v3 * v, (p - 5n) / 8n, p)) % p;
+  const vxx = (v * x * x) % p;
+  if (vxx !== u) {
+    if (vxx !== (p - u) % p) return null;
+    x = (x * sqrtMinusOne) % p;
+  }
+  if (Number(x & 1n) !== bytes[31] >> 7) x = (p - x) % p;
+  return [x, y, 1n, (x * y) % p];
+}
+
+function $edEncode([x, y, z]) {
+  const p = $ed25519.p;
+  const zinv = $cryptoPow(z, p - 2n, p);
+  const ax = (x * zinv) % p;
+  const ay = (y * zinv) % p;
+  return $cryptoLeBytes(ay | ((ax & 1n) << 255n), 32);
+}
+
+function $crypto_ed25519Verify(key, message, signature) {
+  const { p, l } = $ed25519;
+  if (key.length !== 32 || signature.length !== 64) return false;
+  const s = $cryptoLe(signature, 32, 64);
+  if (s >= l) return false;
+  const a = $edDecode(key);
+  if (a === null) return false;
+  const base = $edDecode($cryptoLeBytes((4n * $cryptoPow(5n, p - 2n, p)) % p, 32));
+  const r = signature.slice(0, 32);
+  const h = $cryptoLe($sha512(r.concat(key, message)), 0, 64) % l;
+  const minusA = [(p - a[0]) % p, a[1], a[2], (p - a[3]) % p];
+  const check = $edEncode($edAdd($edMultiply(s, base), $edMultiply(h, minusA)));
+  let diff = 0;
+  for (let i = 0; i < 32; i++) diff |= check[i] ^ r[i];
+  return diff === 0;
+}
+
 // A worker's environment: the `env` the platform handed `$fetchEntry`, or null
 // in every artifact that is not a worker being called.
 //

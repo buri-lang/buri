@@ -620,6 +620,10 @@
 mod abort;
 mod bytes;
 mod character;
+/// `core/crypto`'s sealing and signature checks, through `ring`. Behind
+/// `crypto` beside `entropy`, and refused by name the same way without it.
+#[cfg(feature = "crypto")]
+mod crypto;
 /// `ui/testing`'s element document and the readers a `Rendered` answers from
 /// it (issue #53): the arena `render` builds, its `markup`/`text`/`count`/
 /// `identity`, and the builder the Buri `renderInto` walk emits to. Static —
@@ -680,6 +684,8 @@ mod value;
 pub use abort::*;
 pub use bytes::*;
 pub use character::*;
+#[cfg(feature = "crypto")]
+pub use crypto::*;
 #[cfg(feature = "crypto")]
 pub use entropy::*;
 pub use fmt::*;
