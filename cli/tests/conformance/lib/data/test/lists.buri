@@ -1148,7 +1148,10 @@ test "an update that swaps two lists as it grows them answers what a copy would"
     };
     let base = Two { left: [1].concat(ctx, [2]), right: [3].concat(ctx, [4]) };
     let once = swapGrow(ctx, base);
-    let twice = swapGrow(ctx, swapGrow(ctx, Two { left: [1].concat(ctx, [2]), right: [] }));
+    let twice = swapGrow(
+        ctx,
+        swapGrow(ctx, Two { left: [1].concat(ctx, [2]), right: [] }),
+    );
     assert.equal(once.left, [3, 4, 7]);
     assert.equal(once.right, [1, 2, 8]);
     assert.equal(twice.left, [1, 2, 8, 7]);
@@ -1177,14 +1180,22 @@ enum Shape {
 }
 
 fn growWords<C: Allocator>(ctx: C, i: Int, n: Int, acc: [Str]): [Str] {
-    if (i >= n) { acc } else { growWords(ctx, i + 1, n, acc.push(ctx, str.fromInt(ctx, i))) }
+    if (i >= n) {
+        acc
+    } else {
+        growWords(ctx, i + 1, n, acc.push(ctx, str.fromInt(ctx, i)))
+    }
 }
 
 fn growMaybes<C: Allocator>(ctx: C, i: Int, n: Int, acc: [Option<Str>]): [Option<Str>] {
     if (i >= n) {
         acc
     } else {
-        let next: Option<Str> = if (i % 2 == 0) { .None } else { .Some(str.fromInt(ctx, i)) };
+        let next: Option<Str> = if (i % 2 == 0) {
+            .None
+        } else {
+            .Some(str.fromInt(ctx, i))
+        };
         growMaybes(ctx, i + 1, n, acc.push(ctx, next))
     }
 }
