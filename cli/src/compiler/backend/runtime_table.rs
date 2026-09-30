@@ -649,11 +649,13 @@ pub const ENTRIES: &[Entry] = &[
     e("character.toDigit", "buri_rt_character_to_digit", Ret::Opt),
     // -- core/crypto --------------------------------------------------------
     //
-    // Sealing, in `cli/runtime/crypto.rs` behind
+    // Sealing and the two signature checks, in `cli/runtime/crypto.rs` behind
     // the `crypto` feature (`runtime_native::crypto_intrinsic`). Every argument
     // is a `[U8]`, so `core/bytes`'s `Extra::None` reasoning holds.
     cx(e("crypto.chacha20Poly1305Seal", "buri_rt_crypto_chacha20_poly1305_seal", Ret::Out), 0),
     cx(e("crypto.chacha20Poly1305Open", "buri_rt_crypto_chacha20_poly1305_open", Ret::Opt), 0),
+    e("crypto.ecdsaP256Sha256Verify", "buri_rt_crypto_ecdsa_p256_sha256_verify", Ret::Scalar),
+    e("crypto.ed25519Verify", "buri_rt_crypto_ed25519_verify", Ret::Scalar),
     // -- core/math, the exactly-specified half --------------------------------
     //
     // Nine of twenty-two. `cli/runtime/math.rs` says why the other thirteen are

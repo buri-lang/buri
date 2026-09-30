@@ -620,7 +620,7 @@
 mod abort;
 mod bytes;
 mod character;
-/// `core/crypto`'s sealing, through `ring`. Behind
+/// `core/crypto`'s sealing and signature checks, through `ring`. Behind
 /// `crypto` beside `entropy`, and refused by name the same way without it.
 #[cfg(feature = "crypto")]
 mod crypto;

@@ -1412,14 +1412,15 @@ fn runtime_archive(manifest: &Path) {
     // On by default for `net`'s reason and unlike `net` in what it costs;
     // `manifest.toml`'s feature block argues both halves.
     //
-    // It also carries `ring`, for `core/crypto`'s `seal` and `open`, so it needs the C compiler `net` probes for and degrades the same
+    // It also carries `ring`, for `core/crypto`'s `seal`, `open` and signature
+    // checks, so it needs the C compiler `net` probes for and degrades the same
     // way without one.
     let crypto = !matches!(std::env::var("BURI_RUNTIME_CRYPTO").as_deref(), Ok("0"))
         && (can_compile(&cc) || {
             println!(
                 "cargo:warning=no C compiler was found ({cc}), so the runtime is built without \
                  its `crypto` feature: `ring` compiles C and assembly. Programs that reach \
-                 `Entropy` or `core/crypto`'s sealing are refused by name. Set \
+                 `Entropy` or `core/crypto`'s sealing and signatures are refused by name. Set \
                  CC, or install the platform's compiler, and rebuild."
             );
             false

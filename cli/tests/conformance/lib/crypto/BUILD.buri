@@ -7,6 +7,7 @@ library {
             "test/seal.buri",
             "test/sha256.buri",
             "test/sha512.buri",
+            "test/signatures.buri",
         ]
 
         # The reference run, on the reference backend: `native::conformance`

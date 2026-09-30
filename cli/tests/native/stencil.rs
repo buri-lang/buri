@@ -1953,6 +1953,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "crypto/seal.buri",
     "crypto/sha256.buri",
     "crypto/sha512.buri",
+    "crypto/signatures.buri",
     "data/assertions.buri",
     "data/characters.buri",
     "data/lists.buri",
