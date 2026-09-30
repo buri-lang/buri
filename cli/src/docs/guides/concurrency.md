@@ -49,8 +49,8 @@ signature's:
 | Backend | Today |
 |---|---|
 | JavaScript | Started together and awaited together, so two tasks that *wait* overlap; two that compute do not, because the engine has one thread |
-| Native, `--release` | Each task on a carrier of its own, so waiting and computing both overlap |
-| Native, `buri run` | Sequential, in index order, on the calling carrier |
+| Native, `--release` | Each task on a thread of its own, so waiting and computing both overlap |
+| Native, `buri run` | Sequential, in index order, on the calling thread |
 
 All three answer the same list, which is the point of fixing the order.
 
@@ -116,7 +116,7 @@ whether to carry on. An abort is a write to standard error and an exit
 When a spawned task actually runs is the same table as `parallel`'s, for the
 same reason: a scope collects what was spawned and runs a round of it, then
 another round for whatever those tasks spawned, until nothing is waiting. So two
-spawned tasks overlap on JavaScript, get a carrier each under `--release`, and
+spawned tasks overlap on JavaScript, get a thread each under `--release`, and
 run one after another under `buri run`. A task spawned *after* the body has
 returned — which on a page is what a handler does — runs on the task that
 spawned it.

@@ -1291,8 +1291,8 @@ arrives as a parameter because a lambda may not capture a context
 
 How much actually runs at once is the platform's business, not the signature's.
 JavaScript starts the tasks together and awaits them together. A native
-`--release` build gives each task a carrier of its own, so two that wait
-overlap. `buri run` runs them in index order on one carrier. All three answer
+`--release` build gives each task a thread of its own, so two that wait
+overlap. `buri run` runs them in index order on one thread. All three answer
 the same list. Two tasks that *compute* do not yet overlap on either native
 backend: `parallel` buys overlapped waiting rather than more processors.
 
@@ -1508,7 +1508,7 @@ every depth: a nested list, an enum's payload, a closure's captured environment.
 
 Two consequences follow. **Answer only what you need**, because the copy is
 proportional to what leaves. And **a task started inside a scope allocates
-outside it**, on the ordinary heap: the arena belongs to the carrier that
+outside it**, on the ordinary heap: the arena belongs to the thread that
 entered the scope, and a step of a `Tasks.parallel` runs somewhere else.
 
 An allocator hears about less than the cost model defines, identically on both

@@ -210,7 +210,7 @@ over-set bit costs a copy, an under-set one is a silent aliasing bug.
 Three pieces, each in the one place that can hold it:
 
 - **`middle::rc::crosses_tasks`** asks the whole post-monomorphization program
-  whether any intrinsic it can reach hands a value to another carrier — the
+  whether any intrinsic it can reach hands a value to another thread — the
   `host.HostTasks` surface, by prefix, so a row track F adds is covered on the
   day it lands. The answer rides on `ir::Program::crosses_tasks`.
 - **Both native backends** emit one call in `main` when it is true:
@@ -218,7 +218,7 @@ Three pieces, each in the one place that can hold it:
   and before anything allocates. The frame-threaded backend makes it too, even
   though it cannot fan out yet, because this is a fact about the *program*,
   where the other statement an artifact makes about itself
-  (`buri_rt_frames_are_per_carrier`) is a fact about the *backend*.
+  (`buri_rt_frames_are_per_thread`) is a fact about the *backend*.
 - **`cli/runtime/memory.rs::finish`** ORs the mark into every `cap` it writes,
   out of one process-wide word. One relaxed load and one `or` per allocation,
   on a word written at most once in a program's life.
@@ -226,10 +226,10 @@ Three pieces, each in the one place that can hold it:
 **Why the whole program and not the value.** A per-value mark has to be a
 deep, type-directed walk of everything reachable from the call's arguments — a
 `[Str]` handed to a step is a block whose *elements* the step counts, and a
-`Str` inside a closure's environment is a block two carriers count — and a
+`Str` inside a closure's environment is a block two threads count — and a
 *shallow* walk is exactly the under-set the asymmetry forbids. The
 program-wide answer is sound by construction rather than by audit: a value
-that reaches a carrier by a route the compiler cannot see — a block the
+that reaches a thread by a route the compiler cannot see — a block the
 runtime built itself, a `Str` from `host.rs`, whatever an FFI hands in one day
 — is marked anyway, because the *allocator* is what marks. What it costs is
 atomic reference counting throughout a program that uses `core/tasks`, which
@@ -238,7 +238,7 @@ an answer that is already correct.
 
 The runtime's fan-out is gated on the same latch as well as on the frames one,
 so an artifact that failed to make the call runs its tasks one after another —
-slow, and never two carriers counting an unmarked block.
+slow, and never two threads counting an unmarked block.
 
 Two properties of the count survive the fork, and preserving them is why the
 mark is a bit of `cap` and not of `rc`:
@@ -250,10 +250,10 @@ mark is a bit of `cap` and not of `rc`:
   program.
 - **The `rc == 1` uniqueness test** (§5.3) is not forked, and has a second
   half instead: **a marked block is never unique.** The count alone was right
-  while exactly one carrier ran Buri code, on the premise that the caller
+  while exactly one thread ran Buri code, on the premise that the caller
   holds the reference it is testing — and a *borrowed* parameter does not. A
   step of a `Tasks.parallel` reading `rc == 1` off its closure's list is one of
-  several carriers reading the same `1`. So `buri_rt_unique_cap` answers
+  several threads reading the same `1`. So `buri_rt_unique_cap` answers
   `None` for a marked block whatever the count: the caller allocates and
   copies, and what an over-set mark costs is that copy.
 
@@ -521,7 +521,7 @@ instructions until something sets the bit. The second is this:
 
 **The per-thread caches.** A free list per thread in front of `malloc`, keyed
 on the **exact** payload size for payloads up to 256 bytes, with a byte budget
-per thread that is one process-wide number divided by the carrier count. Three
+per thread that is one process-wide number divided by the thread count. Three
 decisions in that sentence:
 
 - **Exact sizes, not size classes.** A class allocator rounds a request up, so
@@ -538,10 +538,10 @@ decisions in that sentence:
   `Str`'s bytes, a fixed-size aggregate, a list below the first few doublings
   of the growth floor. A block above it is rare enough that a `malloc` per
   block is the right answer.
-- **A budget divided by the carriers, not multiplied by them.** The budget is
+- **A budget divided by the threads, not multiplied by them.** The budget is
   stated for the process and split, so the cache's total footprint is a
-  property of the program rather than of how wide the carrier pool is: sixteen
-  carriers get a sixteenth each rather than sixteen times the memory.
+  property of the program rather than of how wide the thread pool is: sixteen
+  threads get a sixteenth each rather than sixteen times the memory.
 
 The block's own header carries the free list's link — `rc` holds the next
 block's pointer while it is dead — so the lists cost one head per size per
@@ -842,7 +842,7 @@ half-ones.
 every runtime call (§7.3.1), so the operation that builds a list cannot be
 **told** which allocator asked for it. The answer is not to tell it. `scoped`
 calls `buri_rt_alloc_arena_enter` before `body` and `buri_rt_alloc_arena_leave`
-after, and for that dynamic extent — on that carrier — `buri_rt_alloc` serves
+after, and for that dynamic extent — on that thread — `buri_rt_alloc` serves
 out of the arena and stamps `CAP_ARENA` (bit 62 of `cap`) into the header.
 `buri_rt_free` reads that bit, does the accounting and returns; the pages go
 back in one `munmap`.
@@ -851,7 +851,7 @@ That is an *over*-approximation of "charged to the `Scoped`": every allocation
 in the extent is the scope's, whoever asked. It is the safe end of §5.5's
 asymmetry — a block that should have been on the heap and is in the arena
 leaves with the answer or dies with the scope, and occasionally costs a copy.
-The active arena is a **thread-local**, and `rt.rs`'s carrier loop saves and
+The active arena is a **thread-local**, and `rt.rs`'s thread loop saves and
 restores it around a stack switch, so it belongs to the *task* rather than to
 the thread the task is on this turn — which is what makes a scope per request
 safe, and what makes a task started inside a scope allocate on the platform
