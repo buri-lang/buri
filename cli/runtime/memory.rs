@@ -91,7 +91,7 @@ pub const BURI_RT_CAP_FLAGS: u64 = BURI_RT_CAP_SHARED | BURI_RT_CAP_ARENA;
 // reference is a silent aliasing bug* — and a per-value mark is the direction
 // that can be under-set. Marking has to be **transitive**: a `[Str]` handed to
 // a step is a block whose *elements* the step increfs, and a `Str` inside a
-// closure's environment is a block two carriers count. So a per-value mark is
+// closure's environment is a block two threads count. So a per-value mark is
 // a type-directed recursive walk — the shape of `Helper::Walk`, which is G5's
 // `Helper::Copy` machinery and does not exist yet — and a *shallow* per-value
 // mark is exactly the under-count the design forbids. `middle::rc::sharing`
@@ -112,7 +112,7 @@ pub const BURI_RT_CAP_FLAGS: u64 = BURI_RT_CAP_SHARED | BURI_RT_CAP_ARENA;
 // answer**: an entry point that forgets it gets a single-threaded program,
 // because `rt::fan_out` is gated on the same latch and falls back to running
 // the steps in order. That is the same fail-safe shape D4 gave
-// `buri_rt_frames_are_per_carrier`, and for the same reason.
+// `buri_rt_frames_are_per_thread`, and for the same reason.
 
 /// [`BURI_RT_CAP_SHARED`] once the artifact has said its values may cross a
 /// task boundary, and `0` before that — the whole of the marking policy, as
@@ -137,7 +137,7 @@ fn shared_mask() -> u64 {
 ///
 /// **The ordering requirement is the whole of the safety argument**: a block
 /// allocated before this call carries no mark and would be counted
-/// non-atomically on a carrier. Nothing allocates before it — `argv_init`
+/// non-atomically on a thread. Nothing allocates before it — `argv_init`
 /// stores the arguments as Rust `Vec`s and builds no Buri block — and
 /// `rt::fan_out` refuses to fan out at all unless the latch is set, so a
 /// backend that got the order wrong is a slow program rather than a racing
@@ -146,9 +146,9 @@ fn shared_mask() -> u64 {
 ///
 /// **Relaxed is the right ordering, and it is an argument rather than a
 /// default.** This store publishes nothing but itself — there is no other
-/// write a reader has to see with it — and every carrier that reads it was
+/// write a reader has to see with it — and every thread that reads it was
 /// started by `thread::Builder::spawn`, which is a synchronisation edge, from
-/// a thread that had already made this call. So a carrier's first load happens
+/// a thread that had already made this call. So a thread's first load happens
 /// after this store on every path there is, and an `Acquire` on the allocation
 /// path would buy an ordering nothing needs at the price of an `ldapr` per
 /// block.
@@ -159,7 +159,7 @@ pub extern "C" fn buri_rt_values_may_cross_tasks() {
 
 /// Whether [`buri_rt_values_may_cross_tasks`] has been called.
 ///
-/// `rt::fan_out`'s gate: a carrier may run Buri code beside another one only
+/// `rt::fan_out`'s gate: a thread may run Buri code beside another one only
 /// where the blocks they both reach are marked.
 #[must_use]
 pub fn values_may_cross_tasks() -> bool {
@@ -172,7 +172,7 @@ pub fn values_may_cross_tasks() -> bool {
 /// `pub(crate)` and test-only: the count is not part of the C ABI — `rc.rs`
 /// and both backends open-code their access to it — and an accessor that
 /// shipped would be an invitation to read a number whose only correct use is
-/// `buri_rt_unique_cap`'s. `rt.rs`'s carrier cases are the callers.
+/// `buri_rt_unique_cap`'s. `rt.rs`'s thread cases are the callers.
 ///
 /// # Safety
 /// `p` is a live payload pointer from [`buri_rt_alloc`].
@@ -203,7 +203,7 @@ pub(crate) fn forget_values_may_cross_tasks() {
 /// Two kinds of case take it, and naming both is the point of putting it here
 /// rather than in one module's test module:
 ///
-///  * the ones that set it — `rt`'s carrier cases and this module's;
+///  * the ones that set it — `rt`'s thread cases and this module's;
 ///  * the ones that assert an **in-place write happened**, because
 ///    [`buri_rt_unique_cap`] refuses a marked block and an in-place write is
 ///    exactly what a marked block does not get: `text`'s and `list`'s
@@ -361,14 +361,14 @@ pub struct BuriHeapStats {
     /// these, this file does. `live_bytes + retained_bytes` is what the
     /// runtime is charging the process for.
     ///
-    /// **Accurate to within one sweep period per live carrier.** A carrier
+    /// **Accurate to within one sweep period per live thread.** A thread
     /// publishes its total at each sweep and when it ends, rather than on
     /// every push and pop, because a process-wide atomic on the allocator's
     /// fast path costs more than the number is worth — `Cache::published` has
-    /// the measurement. A carrier that has ended has published, always, so an
+    /// the measurement. A thread that has ended has published, always, so an
     /// assertion taken after a `join` is exact.
     pub retained_bytes: u64,
-    /// Bytes of carrier stack **range** decommitted since the process started,
+    /// Bytes of thread stack **range** decommitted since the process started,
     /// cumulative: one [`buri_rt_stack_release`] adds
     /// `BURI_RT_STACK_USABLE - BURI_RT_STACK_WARM`, whether or not the kernel
     /// had a resident page for every byte of it. It is a count of what this
@@ -561,29 +561,29 @@ const CACHE_MAX_PAYLOAD: u64 = 256;
 const CACHE_SLOTS: usize = CACHE_MAX_PAYLOAD as usize + 1;
 
 /// The whole process's cache budget in bytes, **before** it is divided between
-/// carriers. Four mebibytes: large enough that a single-threaded program keeps
+/// threads. Four mebibytes: large enough that a single-threaded program keeps
 /// its whole working set of small blocks, small enough to be invisible beside
 /// the heap of any program that allocates enough to care.
 const CACHE_BYTES: u64 = 4 << 20;
 
-/// The floor a carrier's share does not go under, however many carriers there
+/// The floor a thread's share does not go under, however many threads there
 /// are. A cache too small to hold a loop's block is a cache that costs a branch
 /// and buys nothing.
 const CACHE_BYTES_FLOOR: u64 = 64 << 10;
 
-/// One carrier's share of [`CACHE_BYTES`].
+/// One thread's share of [`CACHE_BYTES`].
 ///
-/// **This is the "sized for carrier count" of MEMORY.md §5.4.** The budget is
+/// **This is the "sized for thread count" of MEMORY.md §5.4.** The budget is
 /// stated for the process and divided, so that the cache's total footprint is
-/// a property of the program rather than of how wide the carrier pool happens
-/// to be: sixteen carriers get a sixteenth each rather than sixteen times the
-/// memory. `available_parallelism` is the carrier count the pool is built for
+/// a property of the program rather than of how wide the thread pool happens
+/// to be: sixteen threads get a sixteenth each rather than sixteen times the
+/// memory. `available_parallelism` is the thread count the pool is built for
 /// (design/native, track B, the `rt.rs` pool) and is asked once.
 fn cache_budget() -> u64 {
     static BUDGET: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
     *BUDGET.get_or_init(|| {
-        let carriers = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
-        let share = CACHE_BYTES / (carriers as u64).max(1);
+        let threads = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+        let share = CACHE_BYTES / (threads as u64).max(1);
         share.max(CACHE_BYTES_FLOOR)
     })
 }
@@ -607,7 +607,7 @@ fn cache_budget() -> u64 {
 /// after.**
 const CACHE_SWEEP_OPS: u32 = 1024;
 
-/// One carrier's cache: a free-list head per exact payload size, the bytes
+/// One thread's cache: a free-list head per exact payload size, the bytes
 /// they hold between them, and (G6) the decay state that gives them back.
 ///
 /// A dead block's own header carries the link — `rc` holds the next block's
@@ -619,7 +619,7 @@ struct Cache {
     /// lines per allocation where one will do.
     slots: [Slot; CACHE_SLOTS],
     held: u64,
-    /// What this carrier last told [`RETAINED_BYTES`] it was holding.
+    /// What this thread last told [`RETAINED_BYTES`] it was holding.
     ///
     /// **The counter is published at sweep boundaries, not per operation**,
     /// and that is a measured decision rather than a tidy one: an
@@ -629,17 +629,17 @@ struct Cache {
     /// number nothing reads more than a few times in a program's life.
     /// Publishing at each sweep and at thread exit makes it one atomic per
     /// [`CACHE_SWEEP_OPS`] operations, and costs the counter's readers an
-    /// accuracy of one sweep period per live carrier — which
+    /// accuracy of one sweep period per live thread — which
     /// `BuriHeapStats::retained_bytes` says out loud.
     published: u64,
     /// Cache operations since the last sweep.
     since_sweep: u32,
-    /// **G5: the `core/alloc::scoped` arena this carrier is inside, plus one;
+    /// **G5: the `core/alloc::scoped` arena this thread is inside, plus one;
     /// `0` is none.**
     ///
     /// It is *here*, in a struct about free lists, for one reason and it is a
-    /// measured one. Both questions — "is this carrier inside a scope" and "has
-    /// this carrier a block of this size" — are asked on every allocation, and
+    /// measured one. Both questions — "is this thread inside a scope" and "has
+    /// this thread a block of this size" — are asked on every allocation, and
     /// on macOS a `thread_local!` access is a call to `tlv_get_addr`, not a
     /// register-relative load. Two thread-locals therefore cost two of those:
     /// the first draft of this slice put the arena in a `Cell<u64>` of its own
@@ -654,7 +654,7 @@ struct Cache {
     /// `buri_rt_alloc_arena_leave` unread — so nesting is the caller's local
     /// and this file keeps no stack.
     arena: u64,
-    /// **The bump window this carrier is serving the scope's blocks out of**:
+    /// **The bump window this thread is serving the scope's blocks out of**:
     /// the next free byte, and one past the end of the mapping it is in.
     ///
     /// Here rather than in the arena for the same reason [`Cache::arena`] is
@@ -662,7 +662,7 @@ struct Cache {
     /// a block allocated through it would cost a lock acquisition *per
     /// allocation* — twice what the whole allocate-and-free pair costs when it
     /// is uncontended, and a queue when it is not. With the window on the
-    /// carrier, an allocation inside a scope is an add and a compare on a word
+    /// thread, an allocation inside a scope is an add and a compare on a word
     /// [`take_block`] has already loaded, and the lock is taken once per 64 KiB
     /// to map the next one.
     ///
@@ -709,7 +709,7 @@ const fn slot_bytes(payload: u64) -> u64 {
 }
 
 impl Cache {
-    /// Register [`CACHE_DRAIN`]'s destructor for this carrier, and open the
+    /// Register [`CACHE_DRAIN`]'s destructor for this thread, and open the
     /// cache for business. Once, ever.
     #[cold]
     #[inline(never)]
@@ -719,7 +719,7 @@ impl Cache {
     }
 
     /// Give every cached block back and refuse to keep another. Runs from
-    /// [`CacheDrain::drop`], on the way out of the carrier.
+    /// [`CacheDrain::drop`], on the way out of the thread.
     fn close(&mut self) {
         for idx in 0..CACHE_SLOTS {
             self.release_slot(idx);
@@ -728,7 +728,7 @@ impl Cache {
         self.held = CACHE_CLOSED;
     }
 
-    /// Tell [`RETAINED_BYTES`] what this carrier is holding now.
+    /// Tell [`RETAINED_BYTES`] what this thread is holding now.
     fn publish(&mut self) {
         if self.held >= CACHE_UNARMED {
             return;
@@ -787,7 +787,7 @@ impl Cache {
     /// whether that chunk is now empty. Handing the block back is therefore
     /// the whole of what this runtime can honestly do, and it is what puts the
     /// allocator in a position to do the rest. (The pages this file *does* own
-    /// are the carrier stacks, and those are decommitted for real: see
+    /// are the thread stacks, and those are decommitted for real: see
     /// [`buri_rt_stack_release`].)
     fn release_slot(&mut self, idx: usize) {
         let payload = idx as u64;
@@ -810,33 +810,33 @@ impl Cache {
     }
 }
 
-/// The `held` of a carrier whose cache has been drained for the last time.
+/// The `held` of a thread whose cache has been drained for the last time.
 ///
 /// Every push tests `held + bytes > cache_budget()` already, and `u64::MAX`
 /// fails it forever, so closing the cache costs the fast path no branch of its
-/// own: a block freed after this carrier's destructor has run goes straight
+/// own: a block freed after this thread's destructor has run goes straight
 /// back to the allocator instead of onto a list nothing will ever drain again.
 const CACHE_CLOSED: u64 = u64::MAX;
 
-/// The `held` of a carrier that has not yet registered [`CACHE_DRAIN`].
+/// The `held` of a thread that has not yet registered [`CACHE_DRAIN`].
 ///
 /// **A sentinel rather than a flag, so that arming costs the fast path
 /// nothing.** Every push already tests `held + bytes > cache_budget()`; this
-/// value fails that test, so a carrier's *first* free takes the refusal path,
+/// value fails that test, so a thread's *first* free takes the refusal path,
 /// which is where [`Cache::arm`] lives and which is out of line already; the
 /// arm opens the cache and the block is kept after all. The accepted-push path
 /// therefore has no have-I-armed branch in it at all.
 const CACHE_UNARMED: u64 = u64::MAX - 1;
 
-/// **A carrier that ends gives its cache back**, and this is the thing that
+/// **A thread that ends gives its cache back**, and this is the thing that
 /// makes it happen.
 ///
 /// Without it a thread's lists die with its thread-local storage and every
 /// block in them is lost to the process for good — not a leak by
 /// `buri_rt_heap_stats`'s reckoning, because `buri_rt_free` decremented
 /// `live_blocks` before the block entered a list, but memory `malloc` can
-/// never hand out again, once per carrier that ever ran. Measured: sixteen
-/// carriers that each allocate and free a thousand 248-byte blocks ended
+/// never hand out again, once per thread that ever ran. Measured: sixteen
+/// threads that each allocate and free a thousand 248-byte blocks ended
 /// holding 4 224 000 bytes between them, and before this slice every one of
 /// those bytes stayed held for the life of the process.
 ///
@@ -845,7 +845,7 @@ const CACHE_UNARMED: u64 = u64::MAX - 1;
 /// whose type does not: the second compiles to a bare `#[thread_local]` static
 /// and the first to a lazily-registered one with a state byte tested on every
 /// access — on `CACHE`, twice per allocation. Hanging the destructor on a
-/// zero-sized neighbour that is touched **once per carrier** keeps `CACHE`
+/// zero-sized neighbour that is touched **once per thread** keeps `CACHE`
 /// itself in the cheap form. [`Cache::arm`] is that one touch.
 struct CacheDrain;
 
@@ -876,7 +876,7 @@ thread_local! {
         })
     };
 
-    /// Touched once per carrier, by [`Cache::arm`], purely so that its
+    /// Touched once per thread, by [`Cache::arm`], purely so that its
     /// destructor is registered.
     static CACHE_DRAIN: CacheDrain = const { CacheDrain };
 }
@@ -931,7 +931,7 @@ fn cache_pop(payload: u64) -> Option<*mut u8> {
 /// The bump window is checked before the cache and the cache is not consulted
 /// at all inside a scope: a cached block is the platform allocator's, and
 /// handing one to a scope that will `munmap` around it would be a
-/// use-after-free at the *next* allocation of that size on some other carrier.
+/// use-after-free at the *next* allocation of that size on some other thread.
 fn scoped_alloc(payload: u64, zeroed: bool) -> Option<*mut u8> {
     enum Take {
         Bumped(*mut u8),
@@ -986,7 +986,7 @@ fn scoped_alloc(payload: u64, zeroed: bool) -> Option<*mut u8> {
             // has to be given what it asked for.
             //
             // SAFETY: `raw` names `BURI_RT_HEADER + payload` bytes this
-            // carrier has just reserved and nothing else holds.
+            // thread has just reserved and nothing else holds.
             if zeroed {
                 unsafe { std::ptr::write_bytes(raw.add(BURI_RT_HEADER), 0, payload as usize) };
             }
@@ -1041,7 +1041,7 @@ unsafe fn cache_push(p: *mut u8, cap: u64) -> bool {
                     cache.tick();
                     return false;
                 }
-                // The carrier's first free. Register the destructor that will
+                // The thread's first free. Register the destructor that will
                 // drain this cache, open it, and keep the block after all.
                 cache.arm();
             }
@@ -1462,7 +1462,7 @@ pub extern "C" fn buri_rt_live_blocks() -> u64 {
 // memory the program has given back, the sentinel goes into a header the
 // program no longer names, and every branch that reads either is behind a mode
 // that is off unless a harness asked for it. The one thing it changes is the
-// *allocator*: a quarantined block does not enter the per-carrier cache, so a
+// *allocator*: a quarantined block does not enter the per-thread cache, so a
 // program under this mode calls `malloc` where it would have hit the cache.
 // That is a timing difference and not an answer.
 
@@ -1975,9 +1975,9 @@ pub fn buri_rt_grown_capacity(needed: u64, old_cap: u64) -> u64 {
 /// reference it is testing** — and it is the premise the baton was keeping
 /// true. A borrowed parameter aliases somebody else's reference rather than
 /// adding one, so a step of a `Tasks.parallel` that reads `rc == 1` off a list
-/// its closure's environment owns is a carrier testing a block it does *not*
-/// hold, and every other carrier is reading the same `1` at the same time.
-/// Under the baton those carriers were serialised; without it they would each
+/// its closure's environment owns is a thread testing a block it does *not*
+/// hold, and every other thread is reading the same `1` at the same time.
+/// Under the baton those threads were serialised; without it they would each
 /// take the licence and write through the same block.
 ///
 /// So [`BURI_RT_CAP_SHARED`] is the second half of the test, and it is a
@@ -1985,7 +1985,7 @@ pub fn buri_rt_grown_capacity(needed: u64, old_cap: u64) -> u64 {
 /// answers `None`, the caller allocates and copies, and what an over-set mark
 /// costs is that copy. `IMMORTAL` and the mark are the two ways to fail it and
 /// neither can be un-failed, which is what makes the answer stable in a way a
-/// count read on another carrier is not.
+/// count read on another thread is not.
 ///
 /// It is one load and one test more than G2's version — of the `cap` word this
 /// function was already going to read for its answer.
@@ -2002,7 +2002,7 @@ pub unsafe fn buri_rt_unique_cap(p: *const u8) -> Option<u64> {
     let h = unsafe { header(p.cast_mut()) };
     // SAFETY: as above. The mark is read first, because it is the half that
     // does not depend on the count being stable: a block reachable from a
-    // second carrier fails here whatever its count says, and a block that is
+    // second thread fails here whatever its count says, and a block that is
     // not is this thread's alone, where G2's argument for the relaxed load
     // holds unchanged — `rc == 1` cannot move under the caller who read it.
     unsafe {
@@ -2183,7 +2183,7 @@ fn index(handle: i64) -> Option<usize> {
 // true here, so the number a scope hands out survives the scope by
 // construction. Nothing G3 can mark, and nothing G6 can decommit, is in these
 // mappings: they are this arena's own, they never enter the `malloc` heap or
-// the carrier-stack pool, and the release below is an unconditional `munmap`
+// the thread-stack pool, and the release below is an unconditional `munmap`
 // of memory no Buri value has ever pointed into.
 //
 // **What G5 changes.** When `Helper::Copy` exists, a value that leaves a scope
@@ -2255,7 +2255,7 @@ struct Arena {
 /// Every arena this process has issued a handle for, live or not.
 ///
 /// A `Mutex` like `COUNTERS` next door, and unlike that one this may genuinely
-/// be contended: G3's carriers run Buri code beside each other, and a scope
+/// be contended: G3's threads run Buri code beside each other, and a scope
 /// per task is the shape the note's server example has. It is taken once per
 /// `allocate` and the body under it is arithmetic and at most one `mmap`, so
 /// the lock is not the cost of a scope.
@@ -2270,7 +2270,7 @@ static ARENAS: Mutex<Vec<Arena>> = Mutex::new(Vec::new());
 /// is a `Vec::pop`.
 ///
 /// Bounded at [`ARENA_POOL_MAX`], which is the same shape as G2's per-thread
-/// block caches and B7's carrier-stack pool next door: a small, stated amount
+/// block caches and B7's thread-stack pool next door: a small, stated amount
 /// of memory this runtime holds so that the common path makes no system call.
 /// Anything past the bound, and every mapping that is not a standard block, is
 /// `munmap`ed.
@@ -2280,7 +2280,7 @@ static ARENA_POOL: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 ///
 /// Small on purpose. What it has to cover is *concurrent* scopes plus a little
 /// slack, not a working set — a scope gives its block back the moment it ends,
-/// so a server answering one request per carrier needs one block per carrier.
+/// so a server answering one request per thread needs one block per thread.
 const ARENA_POOL_MAX: usize = 8;
 
 fn arena_pool<T>(f: impl FnOnce(&mut Vec<usize>) -> T) -> T {
@@ -2530,10 +2530,10 @@ pub extern "C" fn buri_rt_alloc_arena_total(handle: i64) -> i64 {
 
 
 // ---------------------------------------------------------------------------
-// === G5 begin: which arena a carrier is inside =============================
+// === G5 begin: which arena a thread is inside =============================
 // ---------------------------------------------------------------------------
 //
-// # The context the ABI drops, restored as a property of the carrier
+// # The context the ABI drops, restored as a property of the thread
 //
 // `core/alloc`'s module header states the gap this closes: the native ABI drops
 // the context argument from every `buri_rt_*` call, so the function that builds
@@ -2545,7 +2545,7 @@ pub extern "C" fn buri_rt_alloc_arena_total(handle: i64) -> i64 {
 // **The answer is dynamic instead of passed.** `scoped` calls
 // [`buri_rt_alloc_arena_enter`] before it calls `body` and
 // [`buri_rt_alloc_arena_leave`] after, and for that dynamic extent — on that
-// carrier — [`buri_rt_alloc`] serves out of the arena. Every allocation in the
+// thread — [`buri_rt_alloc`] serves out of the arena. Every allocation in the
 // extent is the scope's, whoever asked for it and through whichever runtime
 // entry, including the ones this runtime makes for itself.
 //
@@ -2558,12 +2558,12 @@ pub extern "C" fn buri_rt_alloc_arena_total(handle: i64) -> i64 {
 // lifetime never exceeds the extent it was made in except by being the answer,
 // and the answer is deep-copied ([`buri_rt_copy_block`]).
 //
-// ## Per carrier, and what a task inside a scope gets
+// ## Per thread, and what a task inside a scope gets
 //
 // The active arena is a thread-local, so a task started inside a scope and run
-// by another carrier allocates on the platform heap. That is the safe
+// by another thread allocates on the platform heap. That is the safe
 // direction again — a heap block outliving a scope is ordinary — and it is why
-// this is a `Cell<u64>` and not a global. `rt.rs`'s carrier loop saves and
+// this is a `Cell<u64>` and not a global. `rt.rs`'s thread loop saves and
 // restores it around a stack switch, because B9 runs two tasks on one thread
 // and the arena belongs to the *task*, not to the thread it is on this turn.
 //
@@ -2580,14 +2580,14 @@ pub extern "C" fn buri_rt_alloc_arena_total(handle: i64) -> i64 {
 /// The active arena's handle, or `None`. Off [`Cache::arena`], which is where
 /// the encoding and the reason for its home are written down.
 fn current_arena() -> Option<i64> {
-    let biased = arena_slot_of_carrier().biased;
+    let biased = arena_slot_of_thread().biased;
     (biased != 0).then(|| biased.wrapping_sub(1) as i64)
 }
 
-/// The scope a carrier is inside, as the three words that describe it.
+/// The scope a thread is inside, as the three words that describe it.
 ///
 /// `rt.rs` saves and restores one of these around a stack switch, because since
-/// B9 two tasks share a carrier's thread and the arena — and the bump window
+/// B9 two tasks share a thread and the arena — and the bump window
 /// into it — belong to the task whose stack is running.
 #[derive(Clone, Copy, Default)]
 pub struct ArenaSlot {
@@ -2597,12 +2597,12 @@ pub struct ArenaSlot {
 }
 
 impl ArenaSlot {
-    /// A carrier that is inside no scope, which is what one between tasks is.
+    /// A thread that is inside no scope, which is what one between tasks is.
     pub const NONE: ArenaSlot = ArenaSlot { biased: 0, at: 0, end: 0 };
 }
 
-/// This carrier's scope, for `rt.rs` to put aside.
-pub fn arena_slot_of_carrier() -> ArenaSlot {
+/// This thread's scope, for `rt.rs` to put aside.
+pub fn arena_slot_of_thread() -> ArenaSlot {
     // SAFETY: this thread's own cell, and nothing derived from it escapes.
     CACHE
         .try_with(|c| unsafe {
@@ -2612,8 +2612,8 @@ pub fn arena_slot_of_carrier() -> ArenaSlot {
         .unwrap_or(ArenaSlot::NONE)
 }
 
-/// Puts back what [`arena_slot_of_carrier`] answered.
-pub fn set_arena_slot_of_carrier(slot: ArenaSlot) {
+/// Puts back what [`arena_slot_of_thread`] answered.
+pub fn set_arena_slot_of_thread(slot: ArenaSlot) {
     // SAFETY: as above.
     let _ = CACHE.try_with(|c| unsafe {
         let cache = &mut *c.get();
@@ -2623,7 +2623,7 @@ pub fn set_arena_slot_of_carrier(slot: ArenaSlot) {
     });
 }
 
-/// `core/alloc`'s `arenaEnter(handle)` — serve this carrier's blocks out of
+/// `core/alloc`'s `arenaEnter(handle)` — serve this thread's blocks out of
 /// `handle` until `arenaLeave` puts back what this answers.
 ///
 /// Answers the *encoded* previous value rather than a handle, which is what
@@ -2639,11 +2639,11 @@ pub fn set_arena_slot_of_carrier(slot: ArenaSlot) {
 /// [`arenas`] does not have and so allocates from the platform instead.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc_arena_enter(handle: i64) -> i64 {
-    let previous = arena_slot_of_carrier().biased;
+    let previous = arena_slot_of_thread().biased;
     // The window starts empty, so the first allocation of the new scope takes
     // the mapping path. The window the *outer* scope had is abandoned, which
     // is [`Cache::arena_at`]'s stated cost of nesting.
-    set_arena_slot_of_carrier(ArenaSlot {
+    set_arena_slot_of_thread(ArenaSlot {
         biased: (handle as u64).wrapping_add(1),
         at: 0,
         end: 0,
@@ -2654,11 +2654,11 @@ pub extern "C" fn buri_rt_alloc_arena_enter(handle: i64) -> i64 {
 /// `core/alloc`'s `arenaLeave(previous)` — the inverse, and the whole of it.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc_arena_leave(previous: i64) -> i64 {
-    set_arena_slot_of_carrier(ArenaSlot { biased: previous as u64, at: 0, end: 0 });
+    set_arena_slot_of_thread(ArenaSlot { biased: previous as u64, at: 0, end: 0 });
     previous
 }
 
-/// A block of `payload` usable bytes out of the arena this carrier is inside,
+/// A block of `payload` usable bytes out of the arena this thread is inside,
 /// or `None` where it is inside none.
 ///
 /// The header goes in the arena with the payload — one bump, one range — so
@@ -2671,7 +2671,7 @@ pub extern "C" fn buri_rt_alloc_arena_leave(previous: i64) -> i64 {
 /// allocator, which is the same quiet answer `index` gives an unknown counter
 /// and the same one `buri_rt_alloc_arena_allocate` gives a stale scope.
 ///
-/// `handle` is the one [`take_block`] read out of this carrier's cache, rather
+/// `handle` is the one [`take_block`] read out of this thread's cache, rather
 /// than one read again here: the whole point of that function is that the
 /// thread-local is touched once.
 fn arena_block(handle: i64, payload: u64) -> Option<*mut u8> {
@@ -2692,12 +2692,12 @@ fn arena_block(handle: i64, payload: u64) -> Option<*mut u8> {
         a.cursor = len;
         Some((base, len))
     })?;
-    // The rest of the mapping becomes this carrier's window.
+    // The rest of the mapping becomes this thread's window.
     set_window(base.saturating_add(need), base.saturating_add(len));
     Some(finish_with(base as *mut u8, payload, BURI_RT_CAP_ARENA))
 }
 
-/// Points this carrier's bump window at `[at, end)`.
+/// Points this thread's bump window at `[at, end)`.
 fn set_window(at: usize, end: usize) {
     // SAFETY: this thread's own cell, and nothing derived from it escapes.
     let _ = CACHE.try_with(|c| unsafe {
@@ -2829,7 +2829,7 @@ pub unsafe extern "C" fn buri_rt_copy_str(s: *mut u8) {
 
 
 // ---------------------------------------------------------------------------
-// The per-carrier Buri data stack (design/native track B, slice B7)
+// The per-thread Buri data stack (design/native track B, slice B7)
 // ---------------------------------------------------------------------------
 //
 // A stencil artifact runs on **two** stacks. The machine stack is the OS's and
@@ -2840,19 +2840,19 @@ pub unsafe extern "C" fn buri_rt_copy_str(s: *mut u8) {
 // Until this slice there was exactly one of them: a 64 MiB `__bss` symbol
 // (`backend/stencil/asm.rs`'s `buri$stencil$stack`) with a 1 MiB `PROT_NONE`
 // guard `main` installs once. One block is right for one thread and wrong for
-// two — a second carrier entering Buri code would write its frames into the
-// first carrier's, and the fault a runaway recursion is *supposed* to take at
+// two — a second thread entering Buri code would write its frames into the
+// first thread's, and the fault a runaway recursion is *supposed* to take at
 // the guard would instead be a silent overwrite of somebody else's locals.
 //
-// So a carrier asks for its own. `main` does not: it keeps the static block,
+// So a thread asks for its own. `main` does not: it keeps the static block,
 // which is why nothing about a single-threaded program's startup moves — no
 // `mmap`, no page faulted in, no bytes in the executable.
 
-/// How much Buri stack one carrier may use: 64 MiB.
+/// How much Buri stack one thread may use: 64 MiB.
 ///
 /// **The same number as `backend/stencil/asm.rs`'s `STACK_USABLE`, and it has
 /// to be.** A program's frames are the same size whichever stack they land on,
-/// so a carrier that got less than the process's own would fault at a depth
+/// so a thread that got less than the process's own would fault at a depth
 /// the process's own survives — a concurrency bug that reads as a stack bug.
 /// The two constants are in two crates because the compiler cannot link the
 /// runtime, and each one's test names the number so a change to either is a
@@ -2880,12 +2880,12 @@ pub const BURI_RT_STACK_BYTES: usize = BURI_RT_STACK_USABLE + BURI_RT_STACK_GUAR
 /// true rather than one it may read off the kernel's answer.
 pub const BURI_RT_STACK_ALIGN: usize = 16 * 1024;
 
-/// **The retained set**: how much of an idle carrier stack keeps its pages.
+/// **The retained set**: how much of an idle thread stack keeps its pages.
 /// 256 KiB — sixteen of arm64 macOS's pages, sixty-four of everyone else's.
 ///
 /// This is the whole of G6's hysteresis on the stack side, and it is stated as
 /// a *prefix* rather than as a count of blocks because that is the shape the
-/// churn has. A carrier that enters Buri code, returns, and enters again
+/// churn has. A thread that enters Buri code, returns, and enters again
 /// touches the bottom of its stack and nothing else; if the decommit started
 /// at the base, every one of those entries would give back pages the next
 /// entry immediately faults in again — the ping-pong the row warns about. With
@@ -2896,7 +2896,7 @@ pub const BURI_RT_STACK_ALIGN: usize = 16 * 1024;
 ///
 /// The number is a frame-depth judgement: 256 KiB is far more than the frames
 /// of an ordinary entry, and a rounding error against the 64 MiB a deep
-/// recursion is allowed to reach. A carrier that goes deeper than this has by
+/// recursion is allowed to reach. A thread that goes deeper than this has by
 /// definition done something big enough that one system call afterwards is not
 /// the cost worth optimising.
 pub const BURI_RT_STACK_WARM: usize = 256 * 1024;
@@ -2925,18 +2925,18 @@ pub const BURI_RT_STACK_WARM: usize = 256 * 1024;
 /// is empty either way. [`STACK_DECOMMIT_EVERY`] is the floor under that.
 const BURI_RT_STACK_WATERMARK: u64 = 0x6275_7269_5f77_6d6b;
 
-/// How many releases a carrier may make before one of them decommits whatever
+/// How many releases a thread may make before one of them decommits whatever
 /// the watermark said.
 ///
 /// The floor under [`BURI_RT_STACK_WATERMARK`]'s failure mode, and the reason
-/// the policy has a guarantee rather than a tendency: a carrier gives its
+/// the policy has a guarantee rather than a tendency: a thread gives its
 /// stack's pages back at least once every 1024 entries into Buri code,
 /// whatever the probe thought.
 ///
 /// **The number is the amortisation.** A decommit measured inside this
 /// runtime's own multi-threaded test binary is **8.4 µs**, not the 0.4 µs a
 /// single-threaded C program sees — a `MAP_FIXED` re-map has to shoot down
-/// every other thread's TLB, so the cost is a property of how many carriers
+/// every other thread's TLB, so the cost is a property of how many threads
 /// the process is running rather than of the range. One in 1024 puts that at
 /// **8 ns** on an entry that otherwise costs 5, which is a rounding error
 /// against anything that crosses this door; one in 256, measured, put it at
@@ -2975,7 +2975,7 @@ const PROT_WRITE: i32 = 2;
 const MAP_PRIVATE: i32 = 0x2;
 /// Replace whatever is mapped over the range rather than picking a free one.
 /// `0x10` on both platforms, and it is how [`decommit_stack`] gives an idle
-/// carrier stack's pages back without giving back its guard.
+/// thread stack's pages back without giving back its guard.
 const MAP_FIXED: i32 = 0x10;
 /// `MAP_ANONYMOUS`, whose value is the one thing here that is not the same
 /// number on both platforms.
@@ -2996,13 +2996,13 @@ thread_local! {
     /// whole mechanism is already paying.
     ///
     /// **Thread-local was the whole answer until B9, and is now the fallback.**
-    /// A block belongs to whoever is *inside* it, and since the carrier thread
+    /// A block belongs to whoever is *inside* it, and since the thread
     /// became a stack switch that is a **task**, not a thread: a task that
-    /// parks holding a Buri stack is resumed on whichever carrier picks it up,
+    /// parks holding a Buri stack is resumed on whichever thread picks it up,
     /// and a list keyed by thread would hand its block to somebody else in the
     /// meantime. So a running task uses its own list ([`Blocks`] lives on
     /// `rt::Task`) and this one serves everything that is not a task — `main`'s
-    /// own thread, a carrier between tasks, and every build without `net`,
+    /// own thread, a thread between tasks, and every build without `net`,
     /// which has no tasks at all. [`stack_list`] is the two-line function that
     /// chooses, and B7's handover note is where this was predicted.
     static STACKS: core::cell::RefCell<Blocks> = const { core::cell::RefCell::new(Blocks::new()) };
@@ -3061,7 +3061,7 @@ impl Drop for Blocks {
     /// **A list that ends gives its blocks to the pool, not to the kernel.**
     ///
     /// Before B9 this was a `munmap` per block and that was right, because the
-    /// only lists were threads' and a carrier thread never ended. A *task*
+    /// only lists were threads' and a thread never ended. A *task*
     /// ends constantly — one per step of a `Tasks.parallel` — so unmapping
     /// here would put an `mmap` and an `mprotect` in front of every step that
     /// enters Buri code, to give back address space that costs nothing. The
@@ -3085,7 +3085,7 @@ impl Drop for Blocks {
 /// one: a task's list dies with the task, and the mapping in it is worth more
 /// than the two system calls it would cost the next task to make a new one.
 /// The pool is what carries a block from a task that has ended to a task that
-/// is starting, across whatever carrier either ran on.
+/// is starting, across whatever thread either ran on.
 static POOL: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 
 /// How many idle blocks the pool holds before it starts unmapping them.
@@ -3136,14 +3136,14 @@ unsafe fn retire_stack(base: *mut u8) {
 ///
 /// `#[inline(never)]` on `rt`'s side of it, and that is the load-bearing part:
 /// the address of a thread-local is a value a compiler may cache, and a task
-/// that switched carriers between the cache and the use would write through
+/// that switched threads between the cache and the use would write through
 /// the wrong thread's slot. Everything this function reaches for is read
 /// through a call the compiler cannot see past.
 fn stack_list<T>(f: impl FnOnce(&mut Blocks) -> T) -> T {
     #[cfg(feature = "net")]
     if let Some(mine) = crate::rt::running_task_blocks() {
         // SAFETY: `running_task_blocks` answers the list of the task running
-        // on *this* thread, and a task runs on one carrier at a time, so this
+        // on *this* thread, and a task runs on one thread at a time, so this
         // is the only live reference to it.
         return f(unsafe { &mut *mine });
     }
@@ -3177,7 +3177,7 @@ fn stack_trim(raw: usize) -> (usize, usize, usize) {
 /// 16 KiB boundary whatever page size the host has.
 ///
 /// Zero-filled by the kernel and never faulted in until a frame lands on a
-/// page, so the cost of a carrier that enters Buri code once and returns is
+/// page, so the cost of a thread that enters Buri code once and returns is
 /// four system calls and the pages it actually used. Four rather than two
 /// because a bare `BURI_RT_STACK_BYTES` request answers only *page* aligned,
 /// which is the 16 KiB this block needs on arm64 macOS and a one-in-four coin
@@ -3224,7 +3224,7 @@ fn map_stack() -> *mut u8 {
         };
         a | b
     };
-    assert!(freed == 0, "a carrier stack's alignment slack could not be given back");
+    assert!(freed == 0, "a thread stack's alignment slack could not be given back");
     let p = base as *mut core::ffi::c_void;
     // Now an invariant rather than a hope. The frame offsets this block is
     // addressed with were computed against `STACK_ALIGN` and the guard below
@@ -3238,7 +3238,7 @@ fn map_stack() -> *mut u8 {
     // the guard is the top `BURI_RT_STACK_GUARD` of it, which is a whole
     // number of pages at a page boundary.
     let rc = unsafe { mprotect(p.wrapping_add(BURI_RT_STACK_USABLE).cast(), BURI_RT_STACK_GUARD, PROT_NONE) };
-    assert!(rc == 0, "a carrier stack could not be given its guard");
+    assert!(rc == 0, "a thread stack could not be given its guard");
     let base: *mut u8 = p.cast();
     // SAFETY: `base + WARM` is inside the usable range and 8-byte aligned.
     unsafe { arm_watermark(base) };
@@ -3250,7 +3250,7 @@ fn map_stack() -> *mut u8 {
 /// question answerable without a system call.
 ///
 /// # Safety
-/// `base` names a live carrier stack block.
+/// `base` names a live thread stack block.
 unsafe fn arm_watermark(base: *mut u8) {
     // SAFETY: the caller promises a live block, and `BURI_RT_STACK_WARM` is a
     // multiple of the page size and therefore of eight.
@@ -3261,7 +3261,7 @@ unsafe fn arm_watermark(base: *mut u8) {
 /// whether it stayed inside the retained prefix.
 ///
 /// # Safety
-/// `base` names a live carrier stack block.
+/// `base` names a live thread stack block.
 unsafe fn watermark_intact(base: *mut u8) -> bool {
     // SAFETY: as in `arm_watermark`.
     unsafe { base.add(BURI_RT_STACK_WARM).cast::<u64>().read() == BURI_RT_STACK_WATERMARK }
@@ -3271,12 +3271,12 @@ unsafe fn watermark_intact(base: *mut u8) -> bool {
 /// puts in `x0` (`rdi` on x86-64) before it calls into frame-threaded code.
 ///
 /// The block is the caller's alone and carries its own `PROT_NONE` guard, so a
-/// runaway recursion on a carrier faults at *its* boundary rather than walking
+/// runaway recursion on a thread faults at *its* boundary rather than walking
 /// into whatever the linker placed after the process's static block.
 ///
 /// **Whose block it is changed in B9** and the entry point did not, which is
 /// what "behind the same ABI" means for this pair. B7 answered *this thread's*
-/// free list; a parked task now outlives the carrier that started it, so the
+/// free list; a parked task now outlives the thread that started it, so the
 /// answer is *this task's* list where a task is running and this thread's
 /// where none is. [`stack_list`] is the whole of the difference.
 ///
@@ -3286,16 +3286,16 @@ unsafe fn watermark_intact(base: *mut u8) -> bool {
 /// enters Buri code repeatedly pays the mapping once: the block goes back on
 /// the list rather than to the kernel.
 ///
-/// `main` never calls this. The process's own carrier keeps the `__bss` block
+/// `main` never calls this. The process's own thread keeps the `__bss` block
 /// `backend/stencil/asm.rs` emits, which is why a program that never starts a
-/// second carrier makes no system call it did not make before.
+/// second thread makes no system call it did not make before.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_stack_acquire() -> *mut u8 {
     stack_list(Blocks::acquire)
 }
 
-/// **Gives an idle carrier stack's pages back to the kernel** and the block
-/// back to this carrier's free list.
+/// **Gives an idle thread stack's pages back to the kernel** and the block
+/// back to this thread's free list.
 ///
 /// A released block is *fully empty* by construction — no entry thunk is
 /// inside it, and nothing above the base is live — so this is the moment
@@ -3309,7 +3309,7 @@ pub extern "C" fn buri_rt_stack_acquire() -> *mut u8 {
 /// 1. the entry went past [`BURI_RT_STACK_WARM`], which
 ///    [`BURI_RT_STACK_WATERMARK`] answers with a load rather than a system
 ///    call — so an entry that stayed shallow costs 6 ns and not 391;
-/// 2. this is not the carrier's *retained* block. The first idle block is the
+/// 2. this is not the thread's *retained* block. The first idle block is the
 ///    one the next entry gets handed; anything past it belongs to a nested
 ///    entry and is not worth keeping warm;
 /// 3. [`STACK_DECOMMIT_EVERY`] releases have gone by, which is the floor under
@@ -3370,12 +3370,12 @@ pub unsafe extern "C" fn buri_rt_stack_release(base: *mut u8) {
 ///
 /// `munmap` is the third option the row offers and it is the wrong one here
 /// for [`buri_rt_stack_release`]'s reason: it would take the guard and the
-/// reservation with it, and the next entry on this carrier would pay for both
+/// reservation with it, and the next entry on this thread would pay for both
 /// again.
 ///
 /// On the ping-pong path the range is already unmapped-in-fact, and the same
 /// measurement puts a re-map over a clean range at **0.38 µs** — one system
-/// call per *entry into Buri code*, which is a boundary a carrier crosses once
+/// call per *entry into Buri code*, which is a boundary a thread crosses once
 /// per task and not once per call.
 fn decommit_stack(base: *mut u8) -> bool {
     let tail = BURI_RT_STACK_USABLE - BURI_RT_STACK_WARM;
@@ -3424,13 +3424,13 @@ fn decommit_stack(base: *mut u8) -> bool {
 // on: the return-address chain, `cli/runtime`'s Rust frames, and — under the
 // LLVM backend, where a Buri frame *is* a machine frame — the Buri frames too.
 //
-// **This closes `reports/wave6-b7b8.md` §5.2**, which recorded that a carrier's
+// **This closes `reports/wave6-b7b8.md` §5.2**, which recorded that a thread's
 // recursion depth was two different numbers on the two backends: 64 MiB of
 // acquired Buri stack under the frame-threaded backend and a 512 KiB thread
 // stack under LLVM. A task's machine stack is mapped here, at
-// `BURI_RT_STACK_BYTES`, so the two are one number. `CARRIER_STACK_BYTES` in
-// `rt.rs` still sizes the carrier *thread*, and no longer bounds any Buri code:
-// a carrier's own stack now holds a scheduler loop and nothing else.
+// `BURI_RT_STACK_BYTES`, so the two are one number. `THREAD_STACK_BYTES` in
+// `rt.rs` still sizes each thread's own stack, and no longer bounds any Buri
+// code: that stack now holds a scheduler loop and nothing else.
 
 /// Map one task machine stack: [`BURI_RT_STACK_USABLE`] usable with a
 /// [`BURI_RT_STACK_GUARD`] `PROT_NONE` guard **below** it.
@@ -3439,7 +3439,7 @@ fn decommit_stack(base: *mut u8) -> bool {
 /// [`map_stack`]: a machine stack grows *down*, so the guard goes where the
 /// deepest frame would land. A runaway recursion on a task therefore faults on
 /// its own guard, at its own boundary, exactly as
-/// `a_runaway_recursion_on_a_carrier_faults_at_its_own_guard` requires of the
+/// `a_runaway_recursion_on_a_thread_faults_at_its_own_guard` requires of the
 /// other stack.
 ///
 /// The alignment is [`map_stack`]'s, by the same route and for the same
@@ -3519,8 +3519,8 @@ pub(crate) fn buri_rt_task_stack_acquire() -> (*mut u8, *mut u8) {
 
 /// Give a finished task's machine stack back, decommitted.
 ///
-/// Called from the **carrier's** stack and never from the task's own, which is
-/// the whole of why the carrier loop reaps a finished task rather than the task
+/// Called from the **thread's** stack and never from the task's own, which is
+/// the whole of why the thread loop reaps a finished task rather than the task
 /// reaping itself: a stack cannot free the ground it is standing on.
 ///
 /// The retained prefix is [`BURI_RT_STACK_WARM`] at the **top** — a task that
@@ -3583,10 +3583,10 @@ mod tests {
     ///
     /// They live in two crates because the compiler does not link the runtime,
     /// so nothing but a pair of tests naming the same numbers keeps them equal.
-    /// The compiler's half is `asm::tests::the_carrier_stack_is_the_size_the_
+    /// The compiler's half is `asm::tests::the_thread_stack_is_the_size_the_
     /// runtime_maps`.
     #[test]
-    fn a_carrier_stack_is_the_size_the_static_block_is() {
+    fn a_thread_stack_is_the_size_the_static_block_is() {
         assert_eq!(BURI_RT_STACK_USABLE, 64 * 1024 * 1024);
         assert_eq!(BURI_RT_STACK_GUARD, 1024 * 1024);
         assert_eq!(BURI_RT_STACK_BYTES, 65 * 1024 * 1024);
@@ -3601,14 +3601,14 @@ mod tests {
         const { assert!(BURI_RT_STACK_WARM < BURI_RT_STACK_USABLE) };
     }
 
-    /// **A carrier's stack is writable to its last usable byte, aligned, and
+    /// **A thread's stack is writable to its last usable byte, aligned, and
     /// reused.**
     ///
     /// The write at `USABLE - 1` is the assertion that matters: it is the
     /// address one below the guard, so a block whose guard had been installed
     /// a page low would fault here instead of answering.
     #[test]
-    fn a_carrier_stack_is_writable_up_to_its_guard_and_comes_back() {
+    fn a_thread_stack_is_writable_up_to_its_guard_and_comes_back() {
         let a = buri_rt_stack_acquire();
         assert!(!a.is_null());
         assert!((a as usize).is_multiple_of(BURI_RT_STACK_ALIGN), "not 16 KiB aligned");
@@ -3644,7 +3644,7 @@ mod tests {
         let (lo, hi) = if outer < inner { (outer, inner) } else { (inner, outer) };
         assert!(
             (hi as usize) - (lo as usize) >= BURI_RT_STACK_BYTES,
-            "two live carrier stacks overlap"
+            "two live thread stacks overlap"
         );
         // SAFETY: a block this test acquired on this thread and is not inside.
         unsafe { buri_rt_stack_release(inner) };
@@ -3652,9 +3652,9 @@ mod tests {
         unsafe { buri_rt_stack_release(outer) };
     }
 
-    /// **Two carriers get two stacks**, which is the whole reason this exists.
+    /// **Two threads get two stacks**, which is the whole reason this exists.
     #[test]
-    fn two_carriers_do_not_share_a_stack() {
+    fn two_threads_do_not_share_a_stack() {
         let mine = buri_rt_stack_acquire();
         let theirs = std::thread::spawn(|| {
             let p = buri_rt_stack_acquire();
@@ -3663,8 +3663,8 @@ mod tests {
             p as usize
         })
         .join()
-        .expect("the second carrier panicked");
-        assert_ne!(mine as usize, theirs, "two carriers were handed one stack");
+        .expect("the second thread panicked");
+        assert_ne!(mine as usize, theirs, "two threads were handed one stack");
         // SAFETY: a block this test acquired on this thread and is not inside.
         unsafe { buri_rt_stack_release(mine) };
     }
@@ -3717,7 +3717,7 @@ mod tests {
         }
     }
 
-    /// **Every block a carrier is handed is aligned, however many are live.**
+    /// **Every block a thread is handed is aligned, however many are live.**
     ///
     /// The other half, and the one that reads the real kernel's answer: four
     /// nested acquires are four separate mappings, so on a 4 KiB-page host
@@ -3725,12 +3725,12 @@ mod tests {
     /// luck. Each is written at its last usable byte too, because a block
     /// whose guard moved with the base would fault there rather than answer.
     #[test]
-    fn every_live_carrier_stack_is_aligned() {
+    fn every_live_thread_stack_is_aligned() {
         let blocks: Vec<*mut u8> = (0..4).map(|_| buri_rt_stack_acquire()).collect();
         for &b in &blocks {
             assert!(
                 (b as usize).is_multiple_of(BURI_RT_STACK_ALIGN),
-                "a carrier was handed a block at {b:p}, which is not 16 KiB aligned"
+                "a thread was handed a block at {b:p}, which is not 16 KiB aligned"
             );
             // SAFETY: `b` names `BURI_RT_STACK_USABLE` writable bytes, and the
             // guard begins at the byte after this one.
@@ -3850,11 +3850,11 @@ mod tests {
                 // layout, `buri_rt_grown_capacity` still doubles the capacity —
                 // masking, all three. The uniqueness test is not a byte count:
                 // it is the in-place-write licence, and a block a second
-                // carrier may reach does not get one. See `buri_rt_unique_cap`.
+                // thread may reach does not get one. See `buri_rt_unique_cap`.
                 assert_eq!(
                     buri_rt_unique_cap(p),
                     None,
-                    "a block a second carrier may reach was handed an in-place write",
+                    "a block a second thread may reach was handed an in-place write",
                 );
                 // `buri_rt_free` recovers `layout_for(cap)`, so a block freed
                 // with the bit on must reach the allocator with the same layout
@@ -3934,7 +3934,7 @@ mod tests {
     /// that premise true. A borrowed parameter aliases somebody else's
     /// reference rather than adding one, so with the baton gone a step of a
     /// `Tasks.parallel` reading `rc == 1` off its closure's list is one of
-    /// several carriers reading the same `1`. G2's own handover note said this
+    /// several threads reading the same `1`. G2's own handover note said this
     /// function would need a second look on the day the bit was live; this is
     /// that look, taken in the over-set direction MEMORY.md §5.5 names.
     ///
@@ -4023,14 +4023,14 @@ mod tests {
         }
     }
 
-    /// A carrier's share of the cache is the process budget divided by the
-    /// carriers, with a floor — the "sized for carrier count" of MEMORY.md
+    /// A thread's share of the cache is the process budget divided by the
+    /// threads, with a floor — the "sized for thread count" of MEMORY.md
     /// §5.4.
     #[test]
     fn the_cache_budget_is_a_share_of_one_process_wide_number() {
         let b = cache_budget();
-        assert!(b >= CACHE_BYTES_FLOOR, "a carrier's share fell below the floor: {b}");
-        assert!(b <= CACHE_BYTES, "a carrier's share exceeded the whole budget: {b}");
+        assert!(b >= CACHE_BYTES_FLOOR, "a thread's share fell below the floor: {b}");
+        assert!(b <= CACHE_BYTES, "a thread's share exceeded the whole budget: {b}");
         assert_eq!(b, cache_budget(), "the budget is not stable across calls");
     }
 
@@ -4063,8 +4063,8 @@ mod tests {
     /// What this thread's block cache is holding, exactly.
     ///
     /// The process-wide `retained_bytes` cannot answer a question about *one*
-    /// carrier while the test harness is running other tests on other threads,
-    /// and the convergence claim below is a per-carrier claim.
+    /// thread while the test harness is running other tests on other threads,
+    /// and the convergence claim below is a per-thread claim.
     fn cache_held() -> u64 {
         // SAFETY: this thread's own cell, and the reference does not escape.
         CACHE.with(|c| unsafe { (*c.get()).held })
@@ -4185,22 +4185,22 @@ mod tests {
         assert!(after.total_bytes >= before.total_bytes + N as u64 * PAYLOAD);
     }
 
-    /// **A carrier that ends gives its whole cache back**, asserted through
+    /// **A thread that ends gives its whole cache back**, asserted through
     /// `buri_rt_heap_stats`.
     ///
     /// Before G6 a thread's free lists died with its thread-local storage and
     /// every block in them was lost to the process for good — invisible to the
     /// leak counters, because `buri_rt_free` had already decremented them, and
-    /// permanent. Sixteen carriers each filling a cache is a signal of
+    /// permanent. Sixteen threads each filling a cache is a signal of
     /// megabytes against the kilobytes any concurrently running test in this
     /// crate can be holding, which is what makes a process-wide counter
     /// assertable here at all.
     #[test]
-    fn a_carrier_that_ends_gives_its_cache_back() {
-        const CARRIERS: usize = 16;
+    fn a_thread_that_ends_gives_its_cache_back() {
+        const THREADS: usize = 16;
         // Under one sweep period each, so the *exit* rule is what is being
         // measured rather than the decay rule.
-        const PER_CARRIER: usize = 1_000;
+        const PER_THREAD: usize = 1_000;
         const PAYLOAD: u64 = 248;
 
         let mut base = BuriHeapStats {
@@ -4216,11 +4216,11 @@ mod tests {
         // SAFETY: a writable, aligned destination.
         unsafe { buri_rt_heap_stats(&raw mut base) };
 
-        let carriers: Vec<_> = (0..CARRIERS)
+        let threads: Vec<_> = (0..THREADS)
             .map(|_| {
                 std::thread::spawn(|| {
-                    let mut blocks = Vec::with_capacity(PER_CARRIER);
-                    for _ in 0..PER_CARRIER {
+                    let mut blocks = Vec::with_capacity(PER_THREAD);
+                    for _ in 0..PER_THREAD {
                         blocks.push(buri_rt_alloc(PAYLOAD));
                     }
                     for p in blocks {
@@ -4231,13 +4231,13 @@ mod tests {
                 })
             })
             .collect();
-        let filled: u64 = carriers.into_iter().map(|c| c.join().expect("a carrier panicked")).sum();
+        let filled: u64 = threads.into_iter().map(|t| t.join().expect("a thread panicked")).sum();
 
-        // Each carrier was holding at least its floor share, so the signal is
+        // Each thread was holding at least its floor share, so the signal is
         // megabytes; if it were not, the assertion below would prove nothing.
         assert!(
             filled > 4 * CACHE_BYTES_FLOOR,
-            "the carriers only cached {filled} bytes between them; nothing was measured"
+            "the threads only cached {filled} bytes between them; nothing was measured"
         );
 
         let mut after = BuriHeapStats {
@@ -4254,7 +4254,7 @@ mod tests {
         unsafe { buri_rt_heap_stats(&raw mut after) };
         assert!(
             after.retained_bytes <= base.retained_bytes + CACHE_BYTES_FLOOR,
-            "sixteen ended carriers left {} bytes cached, up from {}; \
+            "sixteen ended threads left {} bytes cached, up from {}; \
              their lists were {filled} bytes",
             after.retained_bytes,
             base.retained_bytes
@@ -4286,7 +4286,7 @@ mod tests {
         unsafe { buri_rt_free(buri_rt_alloc(PAYLOAD)) };
     }
 
-    /// **An idle carrier stack gives its pages back, and the resident set says
+    /// **An idle thread stack gives its pages back, and the resident set says
     /// so.**
     ///
     /// This is the acceptance row's stack half, and it is the one measured
@@ -4296,7 +4296,7 @@ mod tests {
     /// the counter, which is exact, and the resident set, with a margin wide
     /// enough that no other test in this crate can close it.
     #[test]
-    fn an_idle_carrier_stack_gives_its_pages_back() {
+    fn an_idle_thread_stack_gives_its_pages_back() {
         const DIRTY: usize = 48 * 1024 * 1024;
 
         let mut before = BuriHeapStats {
@@ -4432,7 +4432,7 @@ mod tests {
         unsafe { buri_rt_stack_release(base) };
     }
 
-    /// **A carrier gives its stack's pages back at least once every
+    /// **A thread gives its stack's pages back at least once every
     /// [`STACK_DECOMMIT_EVERY`] entries**, whatever the watermark thought.
     ///
     /// The floor under the probe's one failure mode — a frame that straddles
@@ -4441,7 +4441,7 @@ mod tests {
     /// `decommitted_bytes` is process-wide and other tests release stacks too;
     /// what is exact is that nothing else can make it *smaller*.
     #[test]
-    fn a_carrier_decommits_on_a_floor_even_when_nothing_looks_deep() {
+    fn a_thread_decommits_on_a_floor_even_when_nothing_looks_deep() {
         let mut before = BuriHeapStats {
             live_blocks: 0,
             live_bytes: 0,
@@ -4483,7 +4483,7 @@ mod tests {
     }
 
     /// **A nested entry's block is not kept warm.** The retained set is one
-    /// block per carrier; the second one a carrier is holding is a nested
+    /// block per thread; the second one a thread is holding is a nested
     /// entry's and is decommitted the moment it comes back.
     #[test]
     fn only_the_first_idle_block_is_retained() {
@@ -4980,7 +4980,7 @@ mod tests {
         assert_eq!(v.ptr, BYTES.as_ptr(), "a static's bytes moved");
     }
 
-    // -- the arena a carrier is inside --------------------------------------
+    // -- the arena a thread is inside --------------------------------------
 
     /// **A scope serves the blocks its body allocates**, which is the half of
     /// G4's interim rule this slice lifts.
@@ -5123,7 +5123,7 @@ mod tests {
 
     /// **A scope's block never enters the platform allocator's free list.**
     ///
-    /// The carrier cache is what would have taken it — `buri_rt_free` files a
+    /// The thread cache is what would have taken it — `buri_rt_free` files a
     /// small block on a thread-local list rather than calling `dealloc` — and
     /// handing it a block whose pages are about to be unmapped would be a
     /// use-after-free at the *next* allocation of that size, on a thread that
@@ -5131,7 +5131,7 @@ mod tests {
     /// the size the arena served comes back from `malloc` and not from the
     /// arena's mappings after the release.
     #[test]
-    fn a_scope_block_does_not_reach_the_carrier_cache() {
+    fn a_scope_block_does_not_reach_the_thread_cache() {
         let _alone = arena_alone();
         let a = buri_rt_alloc_arena_create();
         let outer = buri_rt_alloc_arena_enter(a);
@@ -5228,12 +5228,12 @@ mod tests {
         let _ = buri_rt_alloc_arena_leave(outer);
     }
 
-    /// **The arena is a property of the carrier, not of the process.** A second
+    /// **The arena is a property of the thread, not of the process.** A second
     /// thread inside no scope allocates from the platform heap while this one
     /// is inside one — which is what makes a scope per request safe, and what
     /// makes a task started inside a scope allocate on the heap.
     #[test]
-    fn a_scope_is_this_carriers_and_no_other_threads() {
+    fn a_scope_belongs_to_this_thread_and_no_other() {
         let _alone = arena_alone();
         let a = buri_rt_alloc_arena_create();
         let outer = buri_rt_alloc_arena_enter(a);
@@ -5242,7 +5242,7 @@ mod tests {
         unsafe { assert!(is_arena(header(mine))) };
 
         let elsewhere = std::thread::spawn(|| {
-            assert!(current_arena().is_none(), "a fresh carrier began inside a scope");
+            assert!(current_arena().is_none(), "a fresh thread began inside a scope");
             let p = buri_rt_alloc(80);
             // SAFETY: live, just allocated on this thread.
             let charged = unsafe { is_arena(header(p)) };
@@ -5251,7 +5251,7 @@ mod tests {
             charged
         })
         .join();
-        assert_eq!(elsewhere.ok(), Some(false), "another carrier was inside this scope");
+        assert_eq!(elsewhere.ok(), Some(false), "another thread was inside this scope");
 
         // SAFETY: the only reference.
         unsafe { buri_rt_free(mine) };
@@ -5542,8 +5542,8 @@ mod tests {
     /// The count of a marked block is exact under many threads, with no
     /// scheduler in the way.
     ///
-    /// `rt.rs`'s `the_count_of_a_marked_block_is_exact_under_every_carrier` is
-    /// the same claim through the carrier pool; this one is the same claim
+    /// `rt.rs`'s `the_count_of_a_marked_block_is_exact_under_every_thread` is
+    /// the same claim through the thread pool; this one is the same claim
     /// through `std::thread`, so that it is asserted in the build that has no
     /// `net` and therefore no pool at all.
     #[test]

@@ -1545,7 +1545,7 @@ impl CDriver {
                 // The reason `-lm` was load-bearing survives the flag's
                 // removal from every other path: `tokio`'s multi-thread worker
                 // calls libm's `power` (its mean-poll-time estimator), and since
-                // the carrier pool made `rt::Launch::launch` reachable,
+                // the thread pool made `rt::Launch::launch` reachable,
                 // `libburi_rt.a` carries that worker in every Buri program. On
                 // glibc that call needs `-lm` and a link without it ends at
                 // `undefined reference to 'pow'`. On musl it needs nothing:

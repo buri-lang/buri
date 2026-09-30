@@ -397,11 +397,11 @@ macro_rules! skip_unless_executable {
     };
 }
 
-/// A probe that **enters Buri code from a second carrier** through the door
-/// `carrier.rs` names, and says so.
+/// A probe that **enters Buri code from a second thread** through the door
+/// `task_thread.rs` names, and says so.
 ///
-/// The counterpart of `stencil.rs`'s `CARRIER_PROBE`, minus its sentinel: this
-/// backend has no Buri data stack to keep two carriers off each other's frames
+/// The counterpart of `stencil.rs`'s `THREAD_PROBE`, minus its sentinel: this
+/// backend has no Buri data stack to keep two threads off each other's frames
 /// — a frame here is the machine's, and a thread's machine stack is the OS's.
 /// So what is left to check is the half that *is* shared, and it is the half
 /// the two slices exist to make identical: that a `void(void *, void *)`
@@ -410,37 +410,37 @@ macro_rules! skip_unless_executable {
 /// A **constructor** rather than a wrapper around `main`, for [`ALLOC_PROBE`]'s
 /// reason. It runs before `main`, and `main` then runs the same root on the
 /// process's own thread — which is what makes the expected output two lines.
-const CARRIER_PROBE: &str = r#"
+const THREAD_PROBE: &str = r#"
 #include <pthread.h>
 #include <stdio.h>
 
-extern void buri$carrier$main(void *state, void *out);
+extern void buri$thread$main(void *state, void *out);
 
 static unsigned char answer[4096];
 
-static void *carrier(void *unused) {
+static void *enter_buri(void *unused) {
   (void)unused;
-  buri$carrier$main(0, answer);
+  buri$thread$main(0, answer);
   return 0;
 }
 
-__attribute__((constructor)) static void buri_carrier_probe(void) {
+__attribute__((constructor)) static void buri_thread_probe(void) {
   /* 64 MiB, which is `asm::STACK_USABLE`: on this backend a Buri frame *is* a
-     machine frame, so the depth a carrier can recurse to is the depth its
+     machine frame, so the depth a thread can recurse to is the depth its
      thread stack allows, and the default one is far under what the stencil
      backend's own block gives. See the test's header. */
   pthread_attr_t a;
   pthread_attr_init(&a);
   pthread_attr_setstacksize(&a, 64u * 1024u * 1024u);
   pthread_t t;
-  if (pthread_create(&t, &a, carrier, 0) != 0) { fprintf(stderr, "carrier: no thread\n"); return; }
+  if (pthread_create(&t, &a, enter_buri, 0) != 0) { fprintf(stderr, "thread: not started\n"); return; }
   pthread_join(t, 0);
   pthread_attr_destroy(&a);
-  fprintf(stderr, "carrier: entered\n");
+  fprintf(stderr, "thread: entered\n");
 }
 "#;
 
-/// **A second carrier enters Buri code through the door, at both profiles.**
+/// **A second thread enters Buri code through the door, at both profiles.**
 ///
 /// Slice B8. The door is a `ccc` wrapper in front of the `fastcc` body, so the
 /// two things it can get wrong are a convention mismatch — which shows up as a
@@ -452,26 +452,26 @@ __attribute__((constructor)) static void buri_carrier_probe(void) {
 /// own stack, so the two halves of the pair are asking one question of one
 /// program — but **not** on the same stack, and the probe has to say so.
 ///
-/// A Buri frame here *is* a machine frame, so a carrier's depth is its
+/// A Buri frame here *is* a machine frame, so a thread's depth is its
 /// thread's stack and nothing else. The default for a non-main thread is well
 /// under a megabyte on both platforms, and ten thousand of these frames do not
 /// fit in it: the first run of this test was killed by a signal. The probe
 /// therefore asks for 64 MiB, which is `asm::STACK_USABLE` — the number the
-/// *other* backend gives a carrier — so that the pair is comparable.
+/// *other* backend gives a thread — so that the pair is comparable.
 ///
 /// That is a real asymmetry rather than a detail of this test, and it is
 /// written down here because this is where it was found: `cli/runtime/rt.rs`
-/// sizes a pool carrier's machine stack at 512 KiB, which is right for a
+/// sizes a pool thread's machine stack at 512 KiB, which is right for a
 /// backend whose frames are on a separate 64 MiB block and is a much shallower
 /// recursion limit for the one whose frames are not. Slice B9 replaces the
-/// carrier thread with a stack switch and is where the two become one number.
+/// thread with a stack switch and is where the two become one number.
 ///
 /// **Both pipelines**, because that is what `release_and_debug_agree` asserts
 /// for the suite and this file asserts per case: `default<O2>` and
 /// `default<O0>` have to print the same thing and exit the same way, and an
 /// entry point one of them deleted would not.
 #[test]
-fn a_second_carrier_enters_through_the_door() {
+fn a_second_thread_enters_through_the_door() {
     skip_unless_executable!();
     // `f` prints at the base case, and that is not decoration. A *pure*
     // self-recursive function is `memory(none) willreturn` here, and
@@ -492,13 +492,13 @@ export fn main(): Result<(), Str> {
 }
 "#
     .to_string();
-    let fast = build_and_run_at("carrier-door-o2", &source, Some(CARRIER_PROBE), Profile::Release);
-    let plain = build_and_run_at("carrier-door-o0", &source, Some(CARRIER_PROBE), Profile::Debug);
+    let fast = build_and_run_at("thread-door-o2", &source, Some(THREAD_PROBE), Profile::Release);
+    let plain = build_and_run_at("thread-door-o0", &source, Some(THREAD_PROBE), Profile::Debug);
 
     for (what, ran) in [("default<O2>", &fast), ("default<O0>", &plain)] {
         assert_eq!(ran.2, Some(0), "{what} exited {:?}: {}", ran.2, ran.1);
         assert!(
-            ran.1.contains("carrier: entered"),
+            ran.1.contains("thread: entered"),
             "{what}: the probe never came back from the door: {:?}",
             ran.1
         );
@@ -518,15 +518,15 @@ export fn main(): Result<(), Str> {
 /// this backend *emits* can be made ([`emitted_ir`]). Three things, and each
 /// one is what a caller outside the artifact depends on:
 ///
-///  * the name is `carrier.rs`'s, so a C declaration finds it;
+///  * the name is `task_thread.rs`'s, so a C declaration finds it;
 ///  * it takes two pointers and answers nothing, which
-///    `the_two_carrier_doors_have_one_signature` pins byte for byte against
+///    `the_two_thread_doors_have_one_signature` pins byte for byte against
 ///    the other backend;
 ///  * the call inside it is `fastcc`, because the body is — the door is the
 ///    one place the two conventions meet, and a `ccc` call to a `fastcc`
 ///    definition is a miscompile no linker sees.
 #[test]
-fn the_carrier_door_is_a_ccc_wrapper_over_a_fastcc_body() {
+fn the_thread_door_is_a_ccc_wrapper_over_a_fastcc_body() {
     let source = program(
         r#"
 export fn main(): Result<(), Str> {
@@ -537,7 +537,7 @@ export fn main(): Result<(), Str> {
 "#,
     );
     let ir = emitted_ir(&source);
-    let name = buri::compiler::backend::carrier::MAIN_ENTRY;
+    let name = buri::compiler::backend::task_thread::MAIN_ENTRY;
     let line = ir
         .lines()
         .find(|l| l.starts_with("define") && l.contains(name))
@@ -1126,8 +1126,8 @@ export fn main(): Result<(), Str> {
     // be a `Tasks.parallel` that silently stopped overlapping its waits, which
     // is why the assertion is here rather than on the unoptimized module.
     assert!(
-        ir.contains("buri_rt_frames_are_per_carrier"),
-        "no frames_are_per_carrier in:\n{ir}"
+        ir.contains("buri_rt_frames_are_per_thread"),
+        "no frames_are_per_thread in:\n{ir}"
     );
 
     // The emitted `main` is `ccc`, because the platform starts it, while every
@@ -1156,7 +1156,7 @@ export fn main(): Result<(), Str> {
 /// unrelated links `core/tasks` in. This asserts that a program that prints a
 /// string does not pay for a scheduler it never mentions.
 ///
-/// Asserted on the **optimized** IR, like its `frames_are_per_carrier`
+/// Asserted on the **optimized** IR, like its `frames_are_per_thread`
 /// neighbour: a call `default<O2>` decided to drop is a call the object does
 /// not make.
 #[test]
@@ -3948,7 +3948,7 @@ fn a_server_answers_a_request_on_a_socket() {
 /// and each backend decides for itself where an `Int` payload sits inside an
 /// enum — and this one is the only one of the two whose workers genuinely run
 /// at the same time, so it is also the one where the request being answered is
-/// on a different carrier from the workers being told to stop.
+/// on a different thread from the workers being told to stop.
 #[test]
 fn a_signalled_server_answers_the_request_in_flight_and_stops() {
     skip_unless_executable!();
@@ -3992,7 +3992,7 @@ fn a_secured_server_opens_its_port_and_says_why_when_it_cannot() {
 ///
 /// **This row is the LLVM backend's alone**, and that is a fact about the
 /// artifact rather than a gap. `rt.rs` fans a `parallel` out only where the
-/// artifact called `buri_rt_frames_are_per_carrier`, which the frame-threaded
+/// artifact called `buri_rt_frames_are_per_thread`, which the frame-threaded
 /// backend deliberately does not (`stencil/asm.rs` asserts it never emits the
 /// call): a program built there has one Buri stack, so its workers run one after
 /// another and fifty sleeps take fifty sleeps. The stencil row beside this one

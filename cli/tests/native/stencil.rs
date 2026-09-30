@@ -226,9 +226,9 @@ pub fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     // a harness that cannot see the product's bugs.
     //
     // `--gc-sections` is that same flag's Linux counterpart, and it was missing
-    // here until the carrier-door test asked what the link had stripped and got
+    // here until the thread-door test asked what the link had stripped and got
     // an answer from a link that had stripped nothing
-    // (`the_carrier_door_is_emitted_and_is_stripped_as_far_as_the_container_allows`).
+    // (`the_thread_door_is_emitted_and_is_stripped_as_far_as_the_container_allows`).
     // The Linux half now carries the whole "which libc" answer as well, and
     // that is why this is a call rather than a list: the flags are
     // `build/link.rs`'s own, and the driver is too, because the `musl-clang`
@@ -3297,15 +3297,15 @@ fn a_deep_recursion_inside_the_stack_still_answers() {
 }
 
 // ---------------------------------------------------------------------------
-// The carrier door, and the second stack behind it
+// The thread door, and the second stack behind it
 // ---------------------------------------------------------------------------
 
-/// A probe that **enters Buri code from a second carrier** and reports what
-/// the first carrier's stack looked like afterwards.
+/// A probe that **enters Buri code from a second thread** and reports what
+/// the first thread's stack looked like afterwards.
 ///
 /// Three questions in one C file, and each is a thing the door can get wrong:
 ///
-///  1. does `buri$carrier$main` run the root at all, on a thread that is not
+///  1. does `buri$thread$main` run the root at all, on a thread that is not
 ///     the process's own;
 ///  2. did it use a **different** Buri stack — the sentinel is written over
 ///     the low megabytes of `buri$stencil$stack`, which is exactly where a
@@ -3321,16 +3321,16 @@ fn a_deep_recursion_inside_the_stack_still_answers() {
 /// lines rather than one.
 ///
 /// `base_seen` is taken **after** the door returns: the block goes back on this
-/// carrier's free list, so the next acquire on this thread is the very block
+/// thread's free list, so the next acquire on this thread is the very block
 /// the door just ran on (`memory.rs`'s
-/// `a_carrier_stack_is_writable_up_to_its_guard_and_comes_back`).
-const CARRIER_PROBE: &str = r#"
+/// `a_thread_stack_is_writable_up_to_its_guard_and_comes_back`).
+const THREAD_PROBE: &str = r#"
 #include <pthread.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 
-extern void buri$carrier$main(void *state, void *out);
+extern void buri$thread$main(void *state, void *out);
 extern unsigned char buri$stencil$stack[];
 extern void *buri_rt_stack_acquire(void);
 extern void buri_rt_stack_release(void *base);
@@ -3341,15 +3341,15 @@ extern void buri_rt_stack_release(void *base);
 static unsigned char answer[4096];
 static void *base_seen;
 
-static void *carrier(void *unused) {
+static void *enter_buri(void *unused) {
   (void)unused;
-  buri$carrier$main(0, answer);
+  buri$thread$main(0, answer);
   base_seen = buri_rt_stack_acquire();
   buri_rt_stack_release(base_seen);
   return 0;
 }
 
-__attribute__((constructor)) static void buri_carrier_probe(void) {
+__attribute__((constructor)) static void buri_thread_probe(void) {
   memset(buri$stencil$stack, SENTINEL, WATCHED);
   pthread_t t;
   /* EIGHT MEGABYTES, SPELLED OUT, because the default is not a constant of
@@ -3365,7 +3365,7 @@ __attribute__((constructor)) static void buri_carrier_probe(void) {
   pthread_attr_t attr;
   pthread_attr_init(&attr);
   pthread_attr_setstacksize(&attr, 8u * 1024u * 1024u);
-  if (pthread_create(&t, &attr, carrier, 0) != 0) { fprintf(stderr, "carrier: no thread\n"); return; }
+  if (pthread_create(&t, &attr, enter_buri, 0) != 0) { fprintf(stderr, "thread: not started\n"); return; }
   pthread_attr_destroy(&attr);
   pthread_join(t, 0);
   unsigned long clobbered = 0;
@@ -3373,30 +3373,30 @@ __attribute__((constructor)) static void buri_carrier_probe(void) {
   unsigned char *lo = buri$stencil$stack;
   unsigned char *hi = lo + 65u * 1024u * 1024u;
   int inside = ((unsigned char *)base_seen >= lo && (unsigned char *)base_seen < hi);
-  fprintf(stderr, "carrier: clobbered=%lu inside=%d\n", clobbered, inside);
+  fprintf(stderr, "thread: clobbered=%lu inside=%d\n", clobbered, inside);
 }
 "#;
 
-/// `(bytes of the static stack the carrier clobbered, whether its block was
-/// inside the static one)` from a [`CARRIER_PROBE`]-linked run.
-fn carrier_probed(stderr: &str) -> (u64, bool) {
+/// `(bytes of the static stack the thread clobbered, whether its block was
+/// inside the static one)` from a [`THREAD_PROBE`]-linked run.
+fn thread_probed(stderr: &str) -> (u64, bool) {
     let line = stderr
         .lines()
-        .find_map(|l| l.strip_prefix("carrier: "))
-        .unwrap_or_else(|| panic!("the carrier probe printed nothing: {stderr:?}"));
+        .find_map(|l| l.strip_prefix("thread: "))
+        .unwrap_or_else(|| panic!("the thread probe printed nothing: {stderr:?}"));
     let (clobbered, rest) = line
         .strip_prefix("clobbered=")
         .and_then(|l| l.split_once(" inside="))
-        .unwrap_or_else(|| panic!("the carrier probe said {line:?}"));
+        .unwrap_or_else(|| panic!("the thread probe said {line:?}"));
     (clobbered.trim().parse().unwrap(), rest.trim() == "1")
 }
 
-/// **A second carrier enters Buri code on its own stack, and recurses ten
+/// **A second thread enters Buri code on its own stack, and recurses ten
 /// thousand frames inside it.**
 ///
 /// This is the whole of slice B7 in one assertion. Before it there was one
-/// Buri stack — a `__bss` block `main` guards once — and a second carrier
-/// entering Buri code would have written its frames *into the first carrier's*,
+/// Buri stack — a `__bss` block `main` guards once — and a second thread
+/// entering Buri code would have written its frames *into the first thread's*,
 /// past nothing, with the guard belonging to somebody else's recursion.
 ///
 /// Ten thousand non-tail frames, for `recursion`'s reason: a tail call runs in
@@ -3405,11 +3405,11 @@ fn carrier_probed(stderr: &str) -> (u64, bool) {
 /// fit one, so a door that had kept the static block would clobber the
 /// sentinel by a wide margin rather than by a byte.
 ///
-/// Two lines of output, not one: the constructor's carrier runs the root and
+/// Two lines of output, not one: the constructor's thread runs the root and
 /// then `main` runs it again on the static block. A door that never entered
 /// prints one line; a door that entered and faulted prints none.
 #[test]
-fn a_second_carrier_recurses_ten_thousand_frames_on_its_own_stack() {
+fn a_second_thread_recurses_ten_thousand_frames_on_its_own_stack() {
     if !supported() {
         return;
     }
@@ -3422,7 +3422,7 @@ export fn main(): Result<(), Str> {
   .Ok(())
 }
 "#;
-    let ran = run_with("carrier-entry", source, Some(CARRIER_PROBE));
+    let ran = run_with("thread-entry", source, Some(THREAD_PROBE));
     assert_eq!(ran.status, 0, "{}", ran.stderr);
     assert_eq!(
         ran.stdout, "depth 10000\ndepth 10000\n",
@@ -3430,20 +3430,20 @@ export fn main(): Result<(), Str> {
         ran.stdout.lines().count(),
         ran.stdout
     );
-    let (clobbered, inside) = carrier_probed(&ran.stderr);
+    let (clobbered, inside) = thread_probed(&ran.stderr);
     assert_eq!(
         clobbered, 0,
-        "the carrier wrote {clobbered} bytes into the process's own Buri stack: it \
+        "the thread wrote {clobbered} bytes into the process's own Buri stack: it \
          is running on the static block, not on one of its own"
     );
-    assert!(!inside, "the block the carrier acquired is inside `buri$stencil$stack`");
+    assert!(!inside, "the block the thread acquired is inside `buri$stencil$stack`");
 }
 
-/// **A runaway recursion on a carrier faults at the carrier's own guard.**
+/// **A runaway recursion on a thread faults at the thread's own guard.**
 ///
 /// The counterpart to `a_runaway_recursion_faults_at_the_guard`, on the stack
 /// that slice B7 added. Its whole content is that the fault happens *at all*:
-/// a per-carrier block with no guard would run five million frames past 64 MiB
+/// a per-thread block with no guard would run five million frames past 64 MiB
 /// and into whatever `mmap` had placed after it, and a block that was really
 /// the static one would fault at the old guard — which the test above rules
 /// out on the same door, on the same machine, in the same file.
@@ -3452,7 +3452,7 @@ export fn main(): Result<(), Str> {
 /// does when it is exhausted and what `asm::install_guard`'s counterpart
 /// asserts. Which signal is the kernel's business.
 #[test]
-fn a_runaway_recursion_on_a_carrier_faults_at_its_own_guard() {
+fn a_runaway_recursion_on_a_thread_faults_at_its_own_guard() {
     if !supported() {
         return;
     }
@@ -3466,11 +3466,11 @@ export fn main(): Result<(), Str> {
   .Ok(())
 }
 "#;
-    let binary = build_with("carrier-runaway", source, Some(CARRIER_PROBE));
+    let binary = build_with("thread-runaway", source, Some(THREAD_PROBE));
     let out = Command::new(&binary).output().unwrap();
     assert!(
         out.status.signal().is_some(),
-        "a five-million-deep recursion on a carrier exited {:?} instead of faulting: {}",
+        "a five-million-deep recursion on a thread exited {:?} instead of faulting: {}",
         out.status.code(),
         String::from_utf8_lossy(&out.stderr)
     );
@@ -3480,7 +3480,7 @@ export fn main(): Result<(), Str> {
 /// as far as it can.**
 ///
 /// Two halves. The first is the same on every target: the symbol is *defined*
-/// in the object next to `main`, so a carrier outside the artifact can find it.
+/// in the object next to `main`, so a thread outside the artifact can find it.
 /// The second is what the link then does with a door nobody references, and it
 /// is **not the same on every target** — which is what this test used to get
 /// wrong.
@@ -3509,14 +3509,14 @@ export fn main(): Result<(), Str> {
 /// ```text
 ///                                the door in the linked image        span
 /// aarch64-apple-darwin           absent — dead-stripped                 —
-/// aarch64-unknown-linux-gnu      000000000000c768 T buri$carrier$main   84
-/// x86_64-unknown-linux-gnu       000000000000d68c T buri$carrier$main  132
+/// aarch64-unknown-linux-gnu      000000000000c768 T buri$thread$main   84
+/// x86_64-unknown-linux-gnu       000000000000d68c T buri$thread$main  132
 /// ```
 ///
 /// The span is the distance to whatever the linker placed next, which is an
 /// upper bound on the door's own bytes: 84 and 132, against a `main` shim of
 /// 144 and 80 in the same two images. That is the honest statement of the
-/// cost — an ELF artifact that never opens a carrier pays a couple of dozen
+/// cost — an ELF artifact that never opens a thread pays a couple of dozen
 /// instructions for the door, not a runtime.
 ///
 /// The harness was also missing `--gc-sections`, which `build/link.rs` passes
@@ -3546,19 +3546,19 @@ export fn main(): Result<(), Str> {
 /// rather than a regression: the emitter will have gained a section per shim,
 /// and this test should then assert absence on both containers.
 #[test]
-fn the_carrier_door_is_emitted_and_is_stripped_as_far_as_the_container_allows() {
+fn the_thread_door_is_emitted_and_is_stripped_as_far_as_the_container_allows() {
     if !supported() {
         return;
     }
     let source = "export fn main(): Result<(), Str> { .Ok(()) }";
-    let units = emitted("carrier-door", source);
+    let units = emitted("thread-door", source);
     let (_, bytes) = units.first().expect("no unit was emitted");
-    let door = buri::compiler::backend::carrier::MAIN_ENTRY;
+    let door = buri::compiler::backend::task_thread::MAIN_ENTRY;
     let needle = door.as_bytes();
     assert!(bytes.windows(needle.len()).any(|w| w == needle), "no unit names {door}");
 
     // And what the link does with it, which is the half that is per-target.
-    let binary = build_with("carrier-door-link", source, None);
+    let binary = build_with("thread-door-link", source, None);
     let nm = Command::new("nm").arg(&binary).output().unwrap();
     if !nm.status.success() {
         eprintln!("no `nm` on this host: the linked half was not checked");
@@ -3568,7 +3568,7 @@ fn the_carrier_door_is_emitted_and_is_stripped_as_far_as_the_container_allows() 
     if cfg!(target_os = "macos") {
         assert!(
             !listed.contains(door),
-            "an unreferenced carrier door survived a `-dead_strip` link:\n{}",
+            "an unreferenced thread door survived a `-dead_strip` link:\n{}",
             rows_naming(&listed, door)
         );
     } else {
@@ -3578,16 +3578,16 @@ fn the_carrier_door_is_emitted_and_is_stripped_as_far_as_the_container_allows() 
                  dropped it or the emitter renamed it"
             )
         });
-        eprintln!("the carrier door rides with `main` in one .text: {span} bytes of it");
+        eprintln!("the thread door rides with `main` in one .text: {span} bytes of it");
         assert!(
             span <= DOOR_SPAN_CEILING,
-            "the carrier door spans {span} bytes, over the {DOOR_SPAN_CEILING} a shim is \
+            "the thread door spans {span} bytes, over the {DOOR_SPAN_CEILING} a shim is \
              allowed: it has stopped being a wrapper over the root"
         );
     }
 }
 
-/// The most an unreferenced carrier door is allowed to span in a linked image.
+/// The most an unreferenced thread door is allowed to span in a linked image.
 ///
 /// Measured, in the images the doc comment above tabulates: 84 bytes on
 /// aarch64 and 132 on x86-64, and 84 and 128 for the same two under
@@ -3866,15 +3866,15 @@ fn objects_link_and_every_relocation_resolves(
     assert!(!dis.contains("<unknown>"), "the linked image does not disassemble cleanly");
     assert!(dis.contains("<main>"), "the linked image has no main:\n{}", &dis[..dis.len().min(400)]);
 
-    // (4) The carrier door nothing references is *still there*, and small. This
+    // (4) The thread door nothing references is *still there*, and small. This
     // is the ELF half of
-    // `the_carrier_door_is_emitted_and_is_stripped_as_far_as_the_container_allows`,
+    // `the_thread_door_is_emitted_and_is_stripped_as_far_as_the_container_allows`,
     // made here because `--gc-sections` is on the command line above and this
     // test runs on the Mach-O host too: the section granularity ELF collects at
     // is a fact about the container, and a suite that could only observe it on
     // a Linux runner is how the assertion came to be written from `ld64`'s
     // behaviour in the first place.
-    let door = buri::compiler::backend::carrier::MAIN_ENTRY;
+    let door = buri::compiler::backend::task_thread::MAIN_ENTRY;
     let listed = tool("llvm-nm", &["--defined-only", &exe.display().to_string()]);
     let span = symbol_span(&listed, door).unwrap_or_else(|| {
         panic!("{triple}: --gc-sections collected {door}, which one .text per unit cannot do")
@@ -3882,7 +3882,7 @@ fn objects_link_and_every_relocation_resolves(
     eprintln!("{triple}: the unreferenced door survives --gc-sections, {span} bytes of it");
     assert!(
         span <= DOOR_SPAN_CEILING,
-        "{triple}: the carrier door spans {span} bytes, over the {DOOR_SPAN_CEILING} a shim is \
+        "{triple}: the thread door spans {span} bytes, over the {DOOR_SPAN_CEILING} a shim is \
          allowed"
     );
 }
@@ -3908,7 +3908,7 @@ fn a_cross_emission_is_reproducible() {
     }
 }
 
-/// **The carrier door is emitted for every `StencilTarget`, and names the two
+/// **The thread door is emitted for every `StencilTarget`, and names the two
 /// runtime entries on each.**
 ///
 /// A cross-emission test rather than a run, for this section's reason: this
@@ -3922,7 +3922,7 @@ fn a_cross_emission_is_reproducible() {
 /// them: acquire, the root, release. The pair of relocation tests above then
 /// answer whether a real linker can satisfy them.
 #[test]
-fn the_carrier_door_is_emitted_for_every_target() {
+fn the_thread_door_is_emitted_for_every_target() {
     let source = "export fn main(): Result<(), Str> { .Ok(()) }";
     let (program, tables) = lowered(source);
     let mut seen = 0;
@@ -3953,14 +3953,14 @@ fn the_carrier_door_is_emitted_for_every_target() {
             let n = needle.as_bytes();
             bytes.windows(n.len()).any(|w| w == n)
         };
-        use buri::compiler::backend::carrier;
-        assert!(names(carrier::MAIN_ENTRY), "{}: no door", stencil_target.slug());
-        assert!(names(carrier::STACK_ACQUIRE), "{}: the door takes no stack", stencil_target.slug());
-        assert!(names(carrier::STACK_RELEASE), "{}: the door keeps its stack", stencil_target.slug());
+        use buri::compiler::backend::task_thread;
+        assert!(names(task_thread::MAIN_ENTRY), "{}: no door", stencil_target.slug());
+        assert!(names(task_thread::STACK_ACQUIRE), "{}: the door takes no stack", stencil_target.slug());
+        assert!(names(task_thread::STACK_RELEASE), "{}: the door keeps its stack", stencil_target.slug());
         seen += 1;
     }
     assert!(seen > 0, "no target's stencils were available: nothing was checked");
-    eprintln!("the carrier door was checked on {seen} of the three targets");
+    eprintln!("the thread door was checked on {seen} of the three targets");
 }
 
 /// **A target this toolchain cannot emit for says which one and why.**
@@ -4495,8 +4495,8 @@ fn a_secured_server_opens_its_port_and_says_why_when_it_cannot() {
 ///
 /// The frame-threaded backend's half of F3, and the honest one. `run` fans its
 /// accept loop out with `Tasks.parallel` on every backend, but `rt.rs` runs the
-/// steps of a fan-out on the calling carrier unless the artifact called
-/// `buri_rt_frames_are_per_carrier` — and this backend never does, because a
+/// steps of a fan-out on the calling thread unless the artifact called
+/// `buri_rt_frames_are_per_thread` — and this backend never does, because a
 /// program it builds has one Buri stack and a second worker would have nowhere
 /// to put a frame (`asm.rs`, where that call's absence is asserted). So the
 /// eight workers here run in index order and worker zero answers everything.

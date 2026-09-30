@@ -161,7 +161,7 @@ struct Compute {
 
 // SAFETY: `state` is the backend's record for one computation, handed back
 // untouched and never read here. The graph is one per process and a Buri
-// program drives it from one carrier, so the pointer is only ever called on the
+// program drives it from one thread, so the pointer is only ever called on the
 // thread that installed it; the `Send` is what a `static Mutex` asks for and
 // not a promise that two threads may run the same body.
 unsafe impl Send for Compute {}

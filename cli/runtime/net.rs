@@ -130,7 +130,7 @@
 //! ## What the three doors are for
 //!
 //! They are not scaffolding in the sense of a stub to be filled in — the
-//! carrier runtime is `rt.rs` (design/native, track B) and the HTTP client is
+//! thread runtime is `rt.rs` (design/native, track B) and the HTTP client is
 //! `http.rs`. They are the *question* "was this toolchain built with the
 //! networking stack" made answerable **from a generated program**.
 //!
@@ -179,7 +179,7 @@ use std::time::{Duration, Instant};
 
 use crate::value::{BuriList, BuriStr, list_of_bytes, list_of_headers, str_of};
 
-/// The reactor, the timer wheel and the carrier pool — `tokio`. The one bit
+/// The reactor, the timer wheel and the thread pool — `tokio`. The one bit
 /// whose crate is genuinely linked: `rt.rs` is what reaches it.
 pub const BURI_NET_TOKIO: i64 = 1 << 0;
 /// HTTP/2 framing — `hyper`. Like [`BURI_NET_TLS`] and unlike its two remaining
@@ -456,7 +456,7 @@ pub const H2_NEEDS_TLS: &str =
 //
 // **A worker per handler, and a connection identifier because of it.** The loop
 // is still `core/net/server`'s and still in Buri; what F3 changed is that there
-// are several of it, fanned out by `Tasks.parallel` onto carriers of their own,
+// are several of it, fanned out by `Tasks.parallel` onto threads of their own,
 // all taking connections from the one listener. So "the request the accept last
 // handed out" stopped naming exactly one connection: [`accept`] answers a
 // connection id beside the request and [`respond`] takes that id instead of the
@@ -555,7 +555,7 @@ const DRAIN_DEADLINE: Duration = Duration::from_secs(10);
 /// that is the status for a server that did not get its answer in time — and it
 /// reaches the client, which is the whole difference between this and a stream
 /// nobody ever hears about again. The handler is not cancelled and cannot be:
-/// it is Buri code on a carrier, its `listenRespond` will find the connection
+/// it is Buri code on a thread, its `listenRespond` will find the connection
 /// gone and answer `.Closed`, and that is the same thing a `listenClose` under
 /// a running handler already does.
 const ANSWER_DEADLINE: Duration = Duration::from_secs(30);
@@ -793,10 +793,10 @@ impl ServePlan {
 /// How many handlers one listener hosts at once — the number `bind` answers on
 /// `Listener.handlers`, and the number `core/net/server`'s `run` fans out to.
 ///
-/// **A worker waiting for a connection holds a carrier.** The accept below is a
-/// blocking call, and `rt.rs`'s `park_on` can only give a carrier back to a
+/// **A worker waiting for a connection holds a thread.** The accept below is a
+/// blocking call, and `rt.rs`'s `park_on` can only give a thread back to a
 /// future that answers `Pending` — so a worker between requests costs an OS
-/// thread rather than a mapping. `rt::MAX_CARRIERS` is 256 and is what a whole
+/// thread rather than a mapping. `rt::MAX_THREADS` is 256 and is what a whole
 /// *program* may have blocked at once, so a server may not be allowed to spend
 /// all of it: sixty-four leaves a program its own `parallel` and leaves the pool
 /// room to run the work the handlers themselves hand on.
@@ -814,7 +814,7 @@ impl ServePlan {
 /// the forecast was half right.** What became asynchronous is the *accepting* —
 /// the socket, the handshake and the framing all left the workers — but a worker
 /// still waits on a condition variable for the next ready request, and a
-/// condition variable is not something `park_on` can hand a carrier back
+/// condition variable is not something `park_on` can hand a thread back
 /// through. What changed is what the sixty-four are spent on: they were the
 /// bound on how many connections could be *in progress* and they are now the
 /// bound on how many can be *answered at once*, with [`IN_FLIGHT`] carrying the
@@ -2089,7 +2089,7 @@ fn drain_all() {
 /// Almost nothing. A handler runs on whatever thread the kernel picked, at
 /// whatever point that thread had reached — which on this runtime may be inside
 /// `malloc`, inside the allocator's own lock, or part-way through B9's stack
-/// switch with a stack pointer that belongs to neither carrier nor task. So the
+/// switch with a stack pointer that belongs to neither thread nor task. So the
 /// only calls a handler may make are the ones POSIX lists as
 /// async-signal-safe, and [`on_signal`] makes exactly three of them: it takes
 /// the errno slot's address, it restores the default disposition, and it writes
@@ -3600,7 +3600,7 @@ mod sockets {
 // **Every step is bounded**, which is `http.rs`'s sentence from this side of
 // the wire: the name lookup, the connect, the TLS handshake, the write of the
 // request and the read of the response. A client that could hang forever would
-// hang a carrier forever, and a carrier is not the caller's to lose.
+// hang a thread forever, and a thread is not the caller's to lose.
 #[cfg(feature = "net")]
 mod client {
     use std::io::{Read, Write};
@@ -4335,8 +4335,8 @@ pub unsafe extern "C" fn buri_rt_host_listen_bind(
     };
     // **A suspension point** (`rt.rs` §2), for `buri_rt_host_network_fetch`'s
     // reason: the bind is a syscall that can block on name resolution, and a
-    // carrier is not the caller's to lose. The Buri blocks below are built
-    // after the park returns, on the carrier and under the baton.
+    // thread is not the caller's to lose. The Buri blocks below are built
+    // after the park returns, on the thread and under the baton.
     let outcome = park(|| bind(&address, port, &plan, limit, idle));
     match outcome {
         Ok((handle, bound, handlers)) => {
@@ -4524,7 +4524,7 @@ fn upgraded(_connection: i64) -> Result<i64, ServeErr> {
 /// **A suspension point, and the second one in this file that can wait
 /// forever.** A socket between messages is a worker between messages, exactly
 /// as a listener between connections is, and `park_on` is what keeps it from
-/// being a carrier between messages too.
+/// being a thread between messages too.
 ///
 /// # Safety
 /// Both out-pointers writable and aligned.
@@ -4802,16 +4802,16 @@ fn dialled_received(_socket: i64) -> Result<Received, ServeErr> {
 ///
 /// **It does not park, and the name is older than the mechanism.** `work` is a
 /// synchronous call wrapped in an `async` block, so the first poll runs it to
-/// completion and answers `Ready` — and `rt::park_on` only gives a carrier back
-/// to a future that answers `Pending`. The carrier is therefore held for the
+/// completion and answers `Ready` — and `rt::park_on` only gives a thread back
+/// to a future that answers `Pending`. The thread is therefore held for the
 /// whole of the blocking `accept(2)` or `Condvar::wait` underneath. That is not
 /// an oversight and [`MAX_HANDLERS`] is the number that prices it: sixty-four
-/// carriers may be in exactly this state at once, which is the reason that
+/// threads may be in exactly this state at once, which is the reason that
 /// ceiling is a constant a program can predict rather than a function of the
 /// machine, and it is stated there in as many words.
 ///
 /// **What routing through `park_on` buys is the reactor and the seam.** The
-/// work runs under `Handle::enter` on a carrier and under `Handle::block_on`
+/// work runs under `Handle::enter` on a thread and under `Handle::block_on`
 /// off one, so a body that reaches for a tokio resource without naming a handle
 /// finds a runtime; and this is the one function — five callers, two lines —
 /// where a real suspension goes on the day these entries stop being blocking
@@ -4819,7 +4819,7 @@ fn dialled_received(_socket: i64) -> Result<Received, ServeErr> {
 /// below names [`crate::rt::handle`] explicitly, so what this is at present is
 /// the seam and an honest name for where the waiting happens.
 ///
-/// The doc this replaces said `park_on` kept the carrier from "holding the
+/// The doc this replaces said `park_on` kept the thread from "holding the
 /// baton while a server waits for a client". There is no baton — G3 deleted it
 /// (`rt.rs` §1) — and on the mechanism that replaced it the sentence was the
 /// opposite of what these two lines do.

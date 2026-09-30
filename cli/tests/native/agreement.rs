@@ -2557,21 +2557,21 @@ export fn main(): Result<(), Str> {
 /// hands every step the **same blocks**, three ways at once:
 ///
 ///  * **a captured list.** `shared` is one `[Str]` the closure's environment
-///    owns, and every step reads the whole of it. Sixteen carriers therefore
+///    owns, and every step reads the whole of it. Sixteen threads therefore
 ///    `incref` and `decref` one list block and its four element blocks at the
-///    same time. A count that lost an update frees a block another carrier is
+///    same time. A count that lost an update frees a block another thread is
 ///    still reading, and what that prints is not this file's business — it is
 ///    a crash, a repeated line or a line of rubbish, and any of the three
 ///    fails the comparison.
 ///  * **elements that alias.** `twice` is built out of one `Str` value placed
 ///    in four slots, so four steps that each look at "their own" element are
-///    four carriers counting **one block**. This is the case a per-element
+///    four threads counting **one block**. This is the case a per-element
 ///    argument about ownership gets wrong.
 ///  * **a value read back afterwards.** `shared` is printed once more in
 ///    `main`'s own frame, so a step that over-released it shows up here as a
 ///    wrong answer rather than as a leak nobody looks at.
 ///
-/// Sixteen steps rather than four, because the window is what makes carriers
+/// Sixteen steps rather than four, because the window is what makes threads
 /// overlap and four of them on a fast machine can finish one at a time by
 /// accident. The number is a *likelihood* knob, and the assertion does not
 /// depend on it: the answer is the same list either way.
@@ -2601,16 +2601,16 @@ export fn main(): Result<(), Str> {
   };
 
   // One list, read whole by every step. The closure captures it, so the
-  // environment owns the only reference and each carrier borrows it.
+  // environment owns the only reference and each thread borrows it.
   let shared = ["al", "be", "ga", "de"].mapCtx(ctx, fn(c, s) => str.format(c, "<${s}>"));
   let ns = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
   let spin = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
   // The sleep is what makes the steps *overlap*, and the inner walk is what
-  // gives them something to overlap on. Sixteen carriers are dispatched in
+  // gives them something to overlap on. Sixteen threads are dispatched in
   // microseconds and then wait together, so they reach the shared list at the
   // same instant and each of them counts it sixteen times over. Without the
   // sleep a step finishes before the next is dispatched and gets handed the
-  // same carrier back, which is a sequential walk with extra steps.
+  // same thread back, which is a sequential walk with extra steps.
   let seen = tasks.parallel(ctx, ns, fn(c, i, n) => {
     let _ = time.sleep(c, time.milliseconds(20));
     let each = spin.mapCtx(c, fn(d, k) => shared.join(d, ""));
@@ -2686,10 +2686,10 @@ export fn main(): Result<(), Str> {
   // A heap Str with room to grow, owned by the closure's environment.
   let seed = "ab".repeat(ctx, 2);
   let ns = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-  // The sleep is what makes the steps *overlap*: sixteen carriers are
+  // The sleep is what makes the steps *overlap*: sixteen threads are
   // dispatched in microseconds, wait together, and reach the concat at the
   // same instant. Without it a step finishes before the next is dispatched and
-  // its carrier is handed straight back, so a fan-out over trivial work is a
+  // its thread is handed straight back, so a fan-out over trivial work is a
   // sequential walk with extra steps and would prove nothing about sharing.
   let grown = tasks.parallel(ctx, ns, fn(c, i, n) => {
     let _ = time.sleep(c, time.milliseconds(40));
@@ -3307,10 +3307,10 @@ export fn main(): Result<(), Str> {
     );
 }
 
-/// **A scope per task, each on its own carrier.**
+/// **A scope per task, each on its own thread.**
 ///
-/// The arena a scope serves out of is a property of the **carrier**
-/// (`memory::arena_slot_of_carrier`), not of the process — so sixteen steps of
+/// The arena a scope serves out of is a property of the **thread**
+/// (`memory::arena_slot_of_thread`), not of the process — so sixteen steps of
 /// one `Tasks.parallel` can each open a scope, allocate in it and answer out of
 /// it at the same moment, and none of them can see another's arena or unmap
 /// another's pages. That is the note's server workload — a scope per request —
@@ -3359,8 +3359,8 @@ export fn main(): Result<(), Str> {
 ///
 /// The whole of `core/tasks`'s background half in one program, and every line
 /// of the answer is an order rather than a timing: one task per round, so the
-/// output is the same whether the round ran on a carrier of its own, inside a
-/// `Promise.all`, or one after another on the calling carrier. That is the
+/// output is the same whether the round ran on a thread of its own, inside a
+/// `Promise.all`, or one after another on the calling thread. That is the
 /// point — the scope's promise is what agrees across the three, and the overlap
 /// is deliberately not asserted anywhere.
 ///
@@ -4651,7 +4651,7 @@ export fn main(): Result<(), Str> {
 /// `cli/tests/conformance/lib/actor/test/scoped.buri` is this claim as a corpus
 /// and is the fuller statement of it, but the corpus's native run is the stencil
 /// backend alone. The claim is about *pages*: `core/alloc`'s `copyAcross` leaves
-/// the carrier's arena before it copies, and each backend generates the copy walk
+/// the thread's arena before it copies, and each backend generates the copy walk
 /// for the concrete `T` itself (`stencil/glue.rs`'s `Helper::Copy`,
 /// `llvm/emit.rs`'s `Job::Copy`), so one green pipeline says nothing about the
 /// other. Before the copy existed this program read memory `munmap` had taken

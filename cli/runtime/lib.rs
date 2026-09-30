@@ -193,13 +193,13 @@
 //!
 //! Every rule above describes a call **into** this crate. There is now one
 //! symbol that describes a call **out of** it, and it is not in this file at
-//! all: `backend/carrier.rs` fixes
+//! all: `backend/task_thread.rs` fixes
 //!
 //! ```text
 //!   void entry(void *state, void *out);
 //! ```
 //!
-//! as the C door by which a carrier enters Buri code. Both native backends
+//! as the C door by which a thread enters Buri code. Both native backends
 //! emit one in front of a program's root. It is stated *there* rather than
 //! here because the shape of the thing behind the door is the backend's: the
 //! frame-threaded one takes a Buri data stack from
@@ -446,7 +446,7 @@
 //!
 //! **The last two are the ones that make Buri values live in an arena.**
 //! `enter` makes the arena the one [`buri_rt_alloc`] serves out of, for *this
-//! carrier* and for the dynamic extent of `body`; `leave` puts back whatever
+//! thread* and for the dynamic extent of `body`; `leave` puts back whatever
 //! was there before. That is how the context this ABI drops (§2 rule 1's
 //! neighbour, `runtime_table::Entry::ctx`) is restored without putting it back
 //! in every signature. `memory.rs`'s G5 section is the argument.
@@ -477,7 +477,7 @@
 //! int main(int argc, char** argv) {
 //!     buri_rt_argv_init(argc, argv);        /* first statement */
 //!     buri_rt_values_may_cross_tasks();     /* if they may — before any block */
-//!     buri_rt_frames_are_per_carrier();     /* if, and only if, they are */
+//!     buri_rt_frames_are_per_thread();     /* if, and only if, they are */
 //!     ...                                   /* the program */
 //!     buri_rt_flush();                      /* before every return path */
 //!     return 0;
@@ -492,8 +492,8 @@
 //! and the fallback is correct on both supported platforms; the call is
 //! preferred, not required.
 //!
-//! [`buri_rt_frames_are_per_carrier`] is the artifact's one statement about
-//! *itself* rather than about its arguments: whether a second carrier entering
+//! [`buri_rt_frames_are_per_thread`] is the artifact's one statement about
+//! *itself* rather than about its arguments: whether a second thread entering
 //! Buri code gets frames of its own. Saying nothing is the safe answer and the
 //! old behaviour — `Tasks.parallel` then runs its steps one at a time — so an
 //! entry point that forgets it is slow and not wrong. Its doc comment says
@@ -502,7 +502,7 @@
 //! [`memory::buri_rt_values_may_cross_tasks`] is the artifact's *other*
 //! statement about itself, and it is a different fact rather than the same one
 //! twice: this one says whether a block this program allocates can come to be
-//! reachable from a second carrier, which `middle::rc::crosses_tasks` answers
+//! reachable from a second thread, which `middle::rc::crosses_tasks` answers
 //! for the whole program, and **both** native backends make it for exactly the
 //! programs it is true of. Its effect is that every block carries
 //! `middle::layout::CAP_SHARED_FLAG`, so every reference operation takes the
@@ -537,8 +537,8 @@
 //! `Cargo.toml` states the bar, and `dependencies_stay_behind_the_bar` asserts
 //! the equality).
 //!
-//! **Three of the six are linked and three are not.** [`rt`] is the carrier
-//! runtime — the reactor, the run baton, the carrier pool and the task table —
+//! **Three of the six are linked and three are not.** [`rt`] is the thread
+//! runtime — the reactor, the run baton, the thread pool and the task table —
 //! and `Clock::sleepMilliseconds` and `Network::fetch` wait on it, so the archive carries
 //! the reactor's code on purpose; `rustls` over `ring` is what [`tls`] uses for
 //! `https://`, and it is why the archive grew by about 1.72 MiB, most of it
@@ -649,7 +649,7 @@ mod net;
 #[cfg(feature = "paint")]
 mod paint;
 mod rng;
-/// The carrier runtime — the tokio handle, the carrier pool, the task table
+/// The thread runtime — the tokio handle, the thread pool, the task table
 /// and the stack switch a park is made of. (The run baton this line used to
 /// name was deleted in G3; `rt.rs` §1 is what stands in its place.) Behind `net` in full: without the feature there is no
 /// reactor to hold and nothing here compiles.
@@ -702,16 +702,16 @@ pub use value::*;
 /// fails immediately rather than silently reporting `NotFound`.
 pub const BURI_OK: i32 = -1;
 
-/// Whether every carrier gets its own Buri frames, declared by the artifact.
+/// Whether every thread gets its own Buri frames, declared by the artifact.
 ///
 /// `false` until an entry point says otherwise, and the conservative answer is
 /// the one that costs nothing: a runtime that believes frames are shared runs
 /// `rt::buri_rt_host_tasks_parallel`'s steps one at a time, which is what it
 /// did before there was a fan-out at all.
-static FRAMES_PER_CARRIER: std::sync::atomic::AtomicBool =
+static FRAMES_PER_THREAD: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
-/// The artifact declaring that a second carrier entering Buri code gets frames
+/// The artifact declaring that a second thread entering Buri code gets frames
 /// of its own — §6's third call, and the one that is *optional*.
 ///
 /// It is a property of the **artifact**, not of a call site, which is why it is
@@ -723,9 +723,9 @@ static FRAMES_PER_CARRIER: std::sync::atomic::AtomicBool =
 ///   own and two tasks may be in flight at once. Since B9 that stack is one
 ///   this runtime maps, `memory::BURI_RT_STACK_BYTES` wide with a guard, so
 ///   the depth a task may recurse to is the same number on both backends;
-///   before it, it was a carrier's 512 KiB thread stack, which is the
+///   before it, it was a thread's 512 KiB stack, which is the
 ///   asymmetry `reports/wave6-b7b8.md` §5.2 recorded.
-/// * The **frame-threaded** backend does not, and must not until each carrier
+/// * The **frame-threaded** backend does not, and must not until each thread
 ///   owns a Buri stack (track B, B7). Today a program has exactly one, the
 ///   `buri$stencil$stack` block its `main` guards, and an entry thunk works in a
 ///   frame the *call site* set aside — so two steps of one `parallel` would
@@ -737,14 +737,14 @@ static FRAMES_PER_CARRIER: std::sync::atomic::AtomicBool =
 ///
 /// Idempotent, and never unset: an artifact makes one statement about itself.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_frames_are_per_carrier() {
-    FRAMES_PER_CARRIER.store(true, std::sync::atomic::Ordering::Release);
+pub extern "C" fn buri_rt_frames_are_per_thread() {
+    FRAMES_PER_THREAD.store(true, std::sync::atomic::Ordering::Release);
 }
 
-/// What [`buri_rt_frames_are_per_carrier`] was told, for the scheduler.
+/// What [`buri_rt_frames_are_per_thread`] was told, for the scheduler.
 #[must_use]
-pub fn frames_are_per_carrier() -> bool {
-    FRAMES_PER_CARRIER.load(std::sync::atomic::Ordering::Acquire)
+pub fn frames_are_per_thread() -> bool {
+    FRAMES_PER_THREAD.load(std::sync::atomic::Ordering::Acquire)
 }
 
 /// Unsay it, which only a test may do.
@@ -757,8 +757,8 @@ pub fn frames_are_per_carrier() -> bool {
 /// `net`-gated as well as test-gated, because without the reactor there is no
 /// scheduler to tell and `rt.rs` — the only caller — is not compiled.
 #[cfg(all(test, feature = "net"))]
-pub(crate) fn forget_frames_are_per_carrier() {
-    FRAMES_PER_CARRIER.store(false, std::sync::atomic::Ordering::Release);
+pub(crate) fn forget_frames_are_per_thread() {
+    FRAMES_PER_THREAD.store(false, std::sync::atomic::Ordering::Release);
 }
 
 /// 128-bit division and remainder, in one call.

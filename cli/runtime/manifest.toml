@@ -65,7 +65,7 @@ crate-type = ["staticlib"]
 # is argued after them. Each clears all three clauses, and each is named for
 # what it is rather than for what it belongs to:
 #
-# * **`tokio`** — the reactor, the timer wheel and the carrier pool. `epoll` and
+# * **`tokio`** — the reactor, the timer wheel and the thread pool. `epoll` and
 #   `kqueue` behind one edge-triggered readiness API, per platform, is the whole
 #   of what a hand-written one would have to be, and getting it subtly wrong
 #   presents as a hang rather than as a failure.
@@ -136,7 +136,7 @@ crate-type = ["staticlib"]
 # Rust code nothing reaches is not in the archive — measured on
 # aarch64-apple-darwin at the commit that added `net`, twenty-four bytes for the
 # lot. Five have since been reached, each in the commit that needed it:
-# `tokio` by `rt.rs`, the carrier runtime whose reactor and timer wheel
+# `tokio` by `rt.rs`, the thread runtime whose reactor and timer wheel
 # `Clock::sleepMilliseconds` and `Network::fetch` wait on (+185 424 bytes); `rustls`
 # and `ring` by `tls.rs`, which `http.rs` calls for every `https://` URL
 # (+1 804 592); `hyper` by `net.rs`'s HTTP/2 acceptor (+771 688, which is

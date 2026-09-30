@@ -324,13 +324,13 @@ pub fn crypto() -> bool {
 ///
 /// The three host effects the networking archive carries — `Listen` accepts
 /// connections, `Sockets` writes to open ones, `Tasks` runs Buri code on the
-/// carrier pool the same reactor drives. Matched on the effect type rather than
+/// thread pool the same reactor drives. Matched on the effect type rather than
 /// on the whole key, so an operation added to one of them by a later slice is
 /// covered the day it is added rather than the day somebody remembers this
 /// list.
 ///
 /// **`host.HostTasks.parallel` was the first of these keys a program reached**,
-/// and it is answered by `cli/runtime/rt.rs` — behind `net`, beside the carrier
+/// and it is answered by `cli/runtime/rt.rs` — behind `net`, beside the thread
 /// pool D4 fans it out onto — which is what keeps this rule honest for it.
 /// `host.HostListen.*` is reachable now as well: the grant table gives `Listen`
 /// `LINUX, MACOS`, `core/net/server` runs the accept loop over its four

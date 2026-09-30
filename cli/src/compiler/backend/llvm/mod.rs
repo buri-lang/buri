@@ -69,7 +69,7 @@ use std::rc::Rc;
 
 use crate::build::buildfile::{Arch, Platform};
 use crate::build::cache::{hash_bytes, ActionKey};
-use crate::compiler::backend::carrier;
+use crate::compiler::backend::task_thread;
 use crate::compiler::backend::{triple_text, Backend, Emitted, Options, Target, Units};
 use crate::compiler::middle::{ir, layout, lower, monomorphize, rc};
 use crate::compiler::semantics::types::{FuncIdx, Tables};
@@ -426,16 +426,16 @@ fn emit_selected(
             match &root {
                 Some(Root::Main(e)) => {
                     emitter.entry_point(*e);
-                    // The carrier door rides with `main`, in the same unit and
+                    // The thread door rides with `main`, in the same unit and
                     // for the same reason the stencil backend puts it there:
                     // they are the two ways into this program's Buri code and
                     // they name the same root.
-                    emitter.carrier_door(*e, carrier::MAIN_ENTRY);
+                    emitter.thread_door(*e, task_thread::MAIN_ENTRY);
                 }
                 Some(Root::Tests(tests)) => {
                     emitter.test_entry_point(tests);
                     for (i, t) in tests.iter().enumerate() {
-                        emitter.carrier_door(*t, &carrier::test_entry(i));
+                        emitter.thread_door(*t, &task_thread::test_entry(i));
                     }
                 }
                 None => {}
@@ -529,7 +529,7 @@ pub fn emit_ir_text(
         program.funcs.get(e.index()).is_some_and(|f| f.unit == unit && f.code().is_some())
     }) {
         emitter.entry_point(e);
-        emitter.carrier_door(e, carrier::MAIN_ENTRY);
+        emitter.thread_door(e, task_thread::MAIN_ENTRY);
     }
     emitter.finish();
     if emitter.diags.has_errors() {
