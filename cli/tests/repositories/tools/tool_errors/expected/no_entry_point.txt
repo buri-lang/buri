@@ -1,11 +1,11 @@
-error: `std/json` has no `generate` entry point [tool-without-entry-point]
- --> lib/app/BUILD.buri:3:17
+error: `std/proto` has no `format` entry point [tool-without-entry-point]
+ --> REPO.buri:7:13
   |
-3 |         { tool: "std/json", inputs: ["input.txt"] },
-  |                 ^^^^^^^^^^
+7 |     format: "std/proto"
+  |             ^^^^^^^^^^^
   |
   = a `generators` entry runs its tool's `generate`, and a language's `check`, `format` and `generate` each run the entry point of that name
-  = fix: add `generate {}` to the `tool` rule and export `generate` from its `tool.buri`, or name a tool that has one
+  = fix: add `format {}` to the `tool` rule and export `format` from its `tool.buri`, or name a tool that has one
 
       tool {
           check {}
@@ -13,6 +13,6 @@ error: `std/json` has no `generate` entry point [tool-without-entry-point]
       }
 
     This tool has check and format, so a language may name it for either, and a
-    generators entry may not name it at all. std/json has check and format;
-    std/proto has generate.
+    generators entry may not name it at all. std/json has all three; std/proto
+    has generate only.
 

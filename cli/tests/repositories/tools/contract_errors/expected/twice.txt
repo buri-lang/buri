@@ -1,0 +1,21 @@
+error: `json` has two contracts on this tool [accepts-language-twice]
+ --> tools/b/BUILD.buri:5:25
+  |
+5 |             { language: "json", type_schema: "other.schema.json" },
+  |                         ^^^^^^
+  |
+  = the types for a language are one module, `<tool>/json`, so the tool has one schema for it
+  = fix: keep one `accepts` entry for `json`, or give `check` and `generate` the same `type_schema`
+
+      tool {
+          generate {
+              accepts: [
+                  { language: "json", type_schema: "config.schema.json" },
+                  { language: "json", type_schema: "other.schema.json" },
+              ]
+          }
+      }
+
+    The build generates a language's types into the tool as <tool>/<language>,
+    so a tool has one schema per language, across check and generate too.
+

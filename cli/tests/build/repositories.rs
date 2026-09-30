@@ -134,10 +134,13 @@ fn languages() {
     run_corpus(&tests_dir().join("repositories/languages"), "languages", 5);
 }
 
-/// `tool` rules: every way a tool name or a tool's entry points are refused.
+/// `tool` rules: every way a tool name or a tool's entry points are refused;
+/// `contract_generate` is a tool with a json contract reading typed values,
+/// `contract_errors` every way a contract is refused, and `json_generate` is
+/// `std/json` generating types and a data file's value.
 #[test]
 fn tools() {
-    run_corpus(&tests_dir().join("repositories/tools"), "tools", 1);
+    run_corpus(&tests_dir().join("repositories/tools"), "tools", 4);
 }
 
 /// CLI.md's lint catalogue: the hygiene rules, which ask about a package's own

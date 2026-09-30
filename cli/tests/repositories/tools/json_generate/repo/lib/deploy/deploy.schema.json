@@ -1,0 +1,70 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Deploy",
+    "description": "One service's deployment.",
+    "type": "object",
+    "properties": {
+        "$schema": { "type": "string" },
+        "version": { "const": 2 },
+        "name": { "type": "string", "minLength": 1 },
+        "replicas": { "type": "integer", "minimum": 1 },
+        "ratio": { "type": "number" },
+        "limit": { "type": "number" },
+        "public": { "type": "boolean" },
+        "owner": { "type": ["string", "null"] },
+        "tier": { "enum": ["free", "pro-plus"] },
+        "regions": { "type": "array", "items": { "$ref": "#/$defs/region" } },
+        "health": {
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "format": "uri-reference" },
+                "interval-seconds": { "type": "integer" }
+            },
+            "required": ["path"]
+        },
+        "labels": { "type": "object", "additionalProperties": { "type": "string" } },
+        "shape": {
+            "oneOf": [
+                { "$ref": "#/$defs/circle" },
+                {
+                    "type": "object",
+                    "properties": { "kind": { "const": "point" } },
+                    "required": ["kind"]
+                }
+            ]
+        },
+        "fallback": { "anyOf": [{ "$ref": "#/$defs/region" }, { "type": "null" }] },
+        "extra": {}
+    },
+    "required": [
+        "version",
+        "name",
+        "replicas",
+        "ratio",
+        "limit",
+        "public",
+        "owner",
+        "tier",
+        "regions",
+        "shape"
+    ],
+    "additionalProperties": false,
+    "$defs": {
+        "region": {
+            "type": "object",
+            "properties": {
+                "id": { "type": "string", "pattern": "^[a-z]+-[a-z]+$" },
+                "type": { "enum": ["primary", "backup"] }
+            },
+            "required": ["id", "type"]
+        },
+        "circle": {
+            "type": "object",
+            "properties": {
+                "kind": { "const": "circle" },
+                "radius": { "type": "number" }
+            },
+            "required": ["kind", "radius"]
+        }
+    }
+}

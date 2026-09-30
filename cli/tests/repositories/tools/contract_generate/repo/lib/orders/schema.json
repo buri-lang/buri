@@ -1,0 +1,19 @@
+{
+    "tables": [
+        {
+            "name": "orders",
+            "columns": [
+                { "name": "id", "type": "int" },
+                { "name": "note", "type": "text", "nullable": true }
+            ]
+        },
+        {
+            "name": "events",
+            "columns": [{ "name": "at", "type": "int" }],
+            "storage": { "kind": "disk", "fill": 0.5 },
+            "comment": null,
+            "tags": { "hot": 1 },
+            "extra": [true, { "a": "b" }]
+        }
+    ]
+}

@@ -1,0 +1,5 @@
+from "//lib/deploy/deploy.json5" export { deploy };
+
+from "//lib/deploy/deploy.schema.json" export {
+    Deploy, DeployTier, Region, RegionType,
+};

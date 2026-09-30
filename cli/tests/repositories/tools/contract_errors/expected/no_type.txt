@@ -1,0 +1,67 @@
+error: `prefixItems` has no Buri type [json-schema-no-type]
+ --> tools/b/b.schema.json:6:37
+  |
+6 |         "names": { "type": "array", "prefixItems": [{ "type": "string" }], "items": { "type": "string" } }
+  |                                     ^^^^^^^^^^^^^
+  |
+  = `prefixItems` gives each position of an array its own type
+  = fix: describe the value with a construct that has a type
+
+      { "if": { "required": ["port"] }, "then": { "required": ["host"] } }
+
+    std/json turns a schema into types for a contract or a generators entry.
+    Keywords about values, such as pattern, minimum and format, stay the
+    check's. These change a value's shape in a way no one type follows, so they
+    are refused where they are written:
+
+    - if, then and else;
+    - allOf, and an anyOf that is not one type or null;
+    - a oneOf whose branches no const string tells apart;
+    - patternProperties and dependentSchemas;
+    - additionalProperties holding a schema beside properties;
+    - unevaluatedProperties and unevaluatedItems holding a schema;
+    - prefixItems and $dynamicRef;
+    - an enum of anything but strings, and a type of several types.
+
+    buri docs guides/json has the whole mapping.
+
+error: "//tools/b/json" names no file (tools/b/json.buri) [module-not-found]
+ --> tools/b/tool.buri:6:6
+  |
+6 | from "//tools/b/json" import * as a;
+  |      ^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    What to do
+    ──────────
+
+    Create the file the path names, or correct the path.
+
+    Why
+    ───
+
+    A module path maps to exactly one file, with no search path and no fallback,
+    so there is never a question of which of two candidates a path meant.
+
+    A program that provokes it
+    ──────────────────────────
+
+    This snippet resolves against the worked monorepo in cli/tests/example,
+    which has no lib/nope.
+
+error: there is no type `a.Names` [unresolved-type]
+ --> tools/b/tool.buri:8:67
+  |
+8 | export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<a.Names>): Generated {
+  |                                                                   ^^^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+
+    Why
+    ───
+
+    Types are nominal throughout. There is no structural fallback and no
+    inference from shape, so a misspelling cannot quietly become a different
+    type that happens to fit.
+

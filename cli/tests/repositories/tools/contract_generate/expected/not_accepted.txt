@@ -1,0 +1,18 @@
+error: `notes.jsonc` is in `jsonc`, and `//tools/database_schema_codegen` accepts `json` [input-language-not-accepted]
+ --> lib/orders/BUILD.buri:3:76
+  |
+3 |         { tool: "//tools/database_schema_codegen", inputs: ["schema.json", "notes.jsonc"] },
+  |                                                                            ^^^^^^^^^^^^^
+  |
+  = a tool with a contract reads typed values, and only the languages its `accepts` lists have types
+  = fix: list a file in an accepted language, or add an `accepts` entry for this one to the tool
+
+      library {
+          generators: [
+              { tool: "//tools/database_schema_codegen", inputs: ["schema.json", "notes.jsonc"] },
+          ]
+      }
+
+    //tools/database_schema_codegen accepts json only, so notes.jsonc has no
+    type to be read as.
+

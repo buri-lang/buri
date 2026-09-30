@@ -1,0 +1,6 @@
+# `.lines` is a language with a check and no generate.
+language {
+    name: "lines"
+    extensions: [".lines"]
+    check: "std/json"
+}

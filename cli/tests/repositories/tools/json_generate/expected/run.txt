@@ -1,0 +1,5 @@
+Region { id: "ap-south", type_: .Backup } .Free
+web "${prod}" x3 0.5 inf .ProPlus
+[Region { id: "eu-west", type_: .Primary }, Region { id: "us-east", type_: .Backup }] .None
+.Some(DeployHealth { path: "/up", intervalSeconds: .None }) .Some([("team", "core"), ("cost-center", "7")])
+.Circle(Circle { radius: 1500.0 }) .None .Some(.Array([.Num(1.0), .Str("two"), .Object([("three", .Null)])]))
