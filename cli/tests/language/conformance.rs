@@ -105,51 +105,77 @@ fn rejected_programs_are_rejected() {
     let dir = tests_dir().join("reject");
     let cases = case_dirs(&dir, "main.buri", 25);
 
-    // One scratch repository, one package per case. The package is named after
-    // the directory, because the recorded diagnostics name `cmd/<case>/main.buri`.
-    let scratch = Scratch::repo("reject-corpus");
+    // The cases run at once through the shared pool, each with a `Golden` of
+    // its own, absorbed afterwards in the corpus's order — so a failing run
+    // reports what a one-case-at-a-time run reported.
     let mut g = Golden::new();
-
-    for case in &cases {
-        let name = case.file_name().unwrap().to_string_lossy().to_string();
-        let text = std::fs::read_to_string(case.join("main.buri")).unwrap();
-        let expect = require_annotation(&text, "// EXPECT:", &name);
-
-        scratch.binary_package(&format!("cmd/{name}"), &text);
-        let target = format!("//cmd/{name}");
-        let run = scratch.run(&["build", &target]);
-        let printed = run.all();
-        if run.code == 0 {
-            g.fail(format!("{name}: compiled, but should not have"));
-            continue;
-        }
-        if !printed.contains(&expect) {
-            g.fail(format!(
-                "{name}: expected a diagnostic containing {expect:?}, got:\n{}",
-                indent(&printed)
-            ));
-            continue;
-        }
-        let json = scratch
-            .run(&["build", &target, "--error-format=json", "--force"])
-            .all();
-
-        // Every diagnostic answers "what do I do about it?".
-        for (i, line) in json.lines().enumerate() {
-            if is_a_diagnostic_with_no_fix(line) {
-                g.fail(format!(
-                    "{name}: diagnostic {} carries no `fix`:\n{}",
-                    i + 1,
-                    indent(line)
-                ));
-            }
-        }
-
-        for (file, content) in [("expected.txt", &printed), ("expected.json", &json)] {
-            g.check(&case.join(file), &format!("{name}/{file}"), content);
-        }
+    for one in pool::map(&cases, |case| rejected_case(case, &cases)) {
+        g.absorb(one);
     }
     g.finish("reject", cases.len());
+}
+
+/// One case of `rejected_programs_are_rejected`, in a scratch repository of its
+/// own. The package is named after the directory, because the recorded
+/// diagnostics name `cmd/<case>/main.buri`.
+///
+/// A case may import another case's package by its label, as in
+/// `from "//cmd/discarded_result"`, to be rejected for what it finds there. So
+/// every other case whose `"//cmd/<case>"` the program names is laid out
+/// beside it.
+fn rejected_case(case: &std::path::Path, corpus: &[std::path::PathBuf]) -> Golden {
+    let mut g = Golden::new();
+    let name = case_name(case);
+    let text = std::fs::read_to_string(case.join("main.buri")).unwrap();
+    let expect = require_annotation(&text, "// EXPECT:", &name);
+
+    let scratch = Scratch::repo("reject-case");
+    scratch.binary_package(&format!("cmd/{name}"), &text);
+    for other in corpus {
+        let other_name = case_name(other);
+        if other_name != name && text.contains(&format!("\"//cmd/{other_name}\"")) {
+            let source = std::fs::read_to_string(other.join("main.buri")).unwrap();
+            scratch.binary_package(&format!("cmd/{other_name}"), &source);
+        }
+    }
+    let target = format!("//cmd/{name}");
+    let run = scratch.run(&["build", &target]);
+    let printed = run.all();
+    if run.code == 0 {
+        g.fail(format!("{name}: compiled, but should not have"));
+        return g;
+    }
+    if !printed.contains(&expect) {
+        g.fail(format!(
+            "{name}: expected a diagnostic containing {expect:?}, got:\n{}",
+            indent(&printed)
+        ));
+        return g;
+    }
+    let json = scratch
+        .run(&["build", &target, "--error-format=json", "--force"])
+        .all();
+
+    // Every diagnostic answers "what do I do about it?".
+    for (i, line) in json.lines().enumerate() {
+        if is_a_diagnostic_with_no_fix(line) {
+            g.fail(format!(
+                "{name}: diagnostic {} carries no `fix`:\n{}",
+                i + 1,
+                indent(line)
+            ));
+        }
+    }
+
+    for (file, content) in [("expected.txt", &printed), ("expected.json", &json)] {
+        g.check(&case.join(file), &format!("{name}/{file}"), content);
+    }
+    g
+}
+
+/// A reject case's name: its directory's.
+fn case_name(case: &std::path::Path) -> String {
+    case.file_name().unwrap().to_string_lossy().to_string()
 }
 
 // ---------------------------------------------------------------------------
