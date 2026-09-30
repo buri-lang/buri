@@ -1,0 +1,80 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "buri format lays out the JSON files a rule references at the width and indent every .buri file gets, keeps every comment, follows each language's trailing-comma rule, leaves a file that does not parse and one nothing references exactly as they are, and --check reports without rewriting"
+
+run {
+  args: ["format", "--check"]
+  exit: 1
+  golden: "check.txt"
+}
+
+file {
+  path: "lib/fmt/plain.json"
+  golden: "plain_before.json"
+}
+
+run {
+  args: ["format"]
+  exit: 0
+  golden: "format.txt"
+}
+
+# Too wide for one line, so each member gets its own; the lists inside fit.
+file {
+  path: "lib/fmt/plain.json"
+  golden: "plain.json"
+}
+
+# Every comment kept, one blank line kept, the trailing commas removed.
+file {
+  path: "lib/fmt/notes.jsonc"
+  golden: "notes.jsonc"
+}
+
+# Broken across lines, with JSON5's trailing comma, and every scalar as written.
+file {
+  path: "lib/fmt/wide.json5"
+  golden: "wide.json5"
+}
+
+# No rule lists it, so it is not the repository's to format.
+file {
+  path: "lib/fmt/package.json"
+  golden: "package.json"
+}
+
+file {
+  path: "lib/fmt/broken.json"
+  golden: "broken.json"
+}
+
+# A label reaches the same files, and a fixed point has nothing to report
+# but the file that still does not parse.
+run {
+  args: ["format", "--check", "//lib/fmt"]
+  exit: 1
+  golden: "check_after.txt"
+}
+
+edit {
+  file: "lib/fmt/broken.json"
+  replace: "\"a\": }"
+  with: "\"a\":1}"
+}
+
+run {
+  args: ["format", "lib/fmt"]
+  exit: 0
+  golden: "format_path.txt"
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 0
+}
+
+run {
+  args: ["build", "//lib/fmt"]
+  exit: 0
+}

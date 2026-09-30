@@ -1,0 +1,5 @@
+{
+    "$schema": "workspace.schema.json",
+    // One folder for now.
+    "folders": [{ "path": "." }]
+}

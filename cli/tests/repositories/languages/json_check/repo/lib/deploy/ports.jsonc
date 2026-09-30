@@ -1,0 +1,6 @@
+// The ports each service listens on.
+{
+    "$schema": "//schemas/ports.schema.json",
+    "web": 8080, // the public one
+    "admin": 9090,
+}

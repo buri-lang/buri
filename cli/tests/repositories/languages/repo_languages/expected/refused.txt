@@ -1,0 +1,61 @@
+error: `yaml` is not a built-in language [language-not-built-in]
+ --> REPO.buri:8:11
+  |
+8 |     name: "yaml"
+  |           ^^^^^^
+  |
+  = the built-in languages are `json`, `jsonc` and `json5`; a language of your own needs a `tool` rule to check it, which this toolchain does not have yet
+  = fix: name a built-in language, or delete the block
+error: `.code-workspace` already belongs to `jsonc` [language-extension-taken]
+  --> REPO.buri:14:18
+   |
+14 |     extensions: [".code-workspace", "json5", ".json"]
+   |                  ^^^^^^^^^^^^^^^^^
+   |
+ --> REPO.buri:4:18
+  |
+4 |     extensions: [".code-workspace"]
+  |                  ^^^^^^^^^^^^^^^^^ claimed here
+  |
+  = the extension decides a file's language, so one extension names one language
+  = fix: delete one of the two
+error: `json5` is not an extension [language-extension-invalid]
+  --> REPO.buri:14:37
+   |
+14 |     extensions: [".code-workspace", "json5", ".json"]
+   |                                     ^^^^^^^
+   |
+   = fix: write it with a leading dot and no `/`, such as `".jsonc"`
+error: `.json` already belongs to `json` [language-extension-taken]
+  --> REPO.buri:14:46
+   |
+14 |     extensions: [".code-workspace", "json5", ".json"]
+   |                                              ^^^^^^^
+   |
+   = the extension decides a file's language, so one extension names one language
+   = fix: delete one of the two
+error: `check` cannot be set on `json`, a built-in language [built-in-language-tool]
+  --> REPO.buri:15:5
+   |
+15 |     check: "//tools/json"
+   |     ^^^^^
+   |
+   = a built-in language means the same thing in every repository, so a block for one may only add extensions
+   = fix: delete the field
+
+       language {
+           name: "jsonc"
+           extensions: [".code-workspace"]
+       }
+
+     If json could be checked by a tool of your own, a .json file would mean
+     something different in each repository, and a schema that passed here could
+     fail next door.
+
+error: a `language` block must have a `name` [language-without-a-name]
+  --> REPO.buri:18:10
+   |
+18 | language {
+   |          ^
+   |
+   = fix: add `name: "json"`, or the name of the language to extend

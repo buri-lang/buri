@@ -1,0 +1,16 @@
+library {
+    generators: [
+        { tool: "//cmd/gen", inputs: [
+            "comment.json",
+            "trailing.json",
+            "quoted.json",
+            "bare.json",
+            "remote.json",
+            "outside.json",
+            "missing.json",
+            "draft7.json",
+            "invalid.json",
+            "broken_ref.json",
+        ] },
+    ]
+}

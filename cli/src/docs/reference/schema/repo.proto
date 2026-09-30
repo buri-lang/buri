@@ -4,8 +4,9 @@
 // `BUILD.buri` it is data: no expression language, no glob, no macro, no
 // import. Its presence is what makes a directory a repository root.
 //
-// It is deliberately small. Two things belong here — the tag vocabulary every
-// build file draws from, and how the lint catalogue is run — and everything
+// It is deliberately small. Three things belong here — the tag vocabulary every
+// build file draws from, how the lint catalogue is run, and which extension
+// is which language — and everything
 // else that might want to live in a repository-wide config file is either a
 // flag on the command or a field on a rule. See REPO-CONFIG.md for what is
 // absent and why.
@@ -30,6 +31,32 @@ message RepoConfig {
 
   // How hard the lint catalogue is run here. One block, or none.
   Lint lint = 3;
+
+  // More extensions for a built-in language. See `buri docs guides/json`.
+  repeated Language language = 4;
+}
+
+// What a file some rule's `inputs` lists is written in, decided by its
+// extension. The built-in languages are `json` (`.json`), `jsonc` (`.jsonc`)
+// and `json5` (`.json5`), and every `REPO.buri` has them without a block.
+//
+// A block names a built-in language and adds extensions to it. Nothing else:
+// a built-in language's check means the same thing in every repository, so
+// `check`, `format` and `generate` are refused on one. One extension belongs
+// to one language, and claiming a taken one is an error.
+message Language {
+  // A built-in language: `json`, `jsonc` or `json5`.
+  string name = 1;
+
+  // More extensions for it, each with its leading dot: `".code-workspace"`.
+  repeated string extensions = 2;
+
+  // The tools a language of a repository's own is checked, formatted and
+  // generated from. Refused on a built-in language, and a language that is
+  // not built in is refused too until a `tool` rule exists to name here.
+  string check = 3;
+  string format = 4;
+  string generate = 5;
 }
 
 // Where the lint catalogue runs, what a finding costs, and which of its rules
