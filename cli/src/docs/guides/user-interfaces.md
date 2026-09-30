@@ -87,8 +87,8 @@ reference to it goes, and there is no budget on a computation.
 ## The tree
 
 `ui/node` is what an interface *is*: `Node<C>`, eighteen `Role`s, and the
-eighteen functions that build one. `ui/style` is how a container arranges and
-paints what is inside it. `mount`, the nineteenth function, puts a tree on the
+nineteen functions that build one. `ui/style` is how a container arranges and
+paints what is inside it. `mount`, the twentieth function, puts a tree on the
 screen. Two rules run through the vocabulary.
 
 **Meaning is the role and arrangement is the style.** A `stack` given a
@@ -641,6 +641,82 @@ The value is a `Signal<Float>`, because a slider's value is a number and not
 text: the signal holds the number directly, and there is nothing to parse on the
 way in or out.
 
+**A file the reader chooses comes in through `filePicker`.** It reads one local
+file as text, and the file never leaves the page.
+
+```buri
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+
+export fn importCsv<C: Ui>(rows: Signal<Str>, problem: Signal<Str>): Node<C> {
+    ui.filePicker({
+        label: .Const("Import a CSV"),
+        accept: .Some([".csv", "text/csv"]),
+        maxBytes: 5_000_000,
+        onPick: fn(c, picked) => {
+            match (picked) {
+                .Ok(file) => rows.set(c, file.text),
+                .Err(why) => problem.set(c, why),
+            }
+        },
+        styles: [.PaddingX(.Px(14)), .PaddingY(.Px(8)), .Radius(.Px(6))],
+    })
+}
+```
+
+`onPick` runs once per chosen file with a `Result<PickedFile, Str>`. A
+`PickedFile` is the file's `name` and its `text`. The `.Err` is a sentence you
+can show the reader:
+
+- **No `accept` entry matches.** `.csv` matches a name's ending, `text/csv` a
+  type and `text/*` a type family, ignoring case. A browser's chooser only
+  suggests the filter, so the picker checks it again. Leave `accept` out to take
+  any file.
+- **The file is over `maxBytes`.** It's refused without being read.
+- **The bytes aren't UTF-8.** Decoding is strict, so a Latin-1 export is an
+  error rather than text full of `�`. A leading byte-order mark is dropped.
+
+On the web it's a `<button>` that opens a hidden `<input type="file">`. The
+button is what a reader focuses and hears, and what `styles` and `isDisabled`
+land on. A snapshot paints it as that button, showing its label.
+
+A test chooses the file with `pickFile`, handing over the name, the type a
+browser would report and the bytes:
+
+```buri role=test
+from "core/bytes" import * as bytes;
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { PickedFile };
+from "ui/signal" import { Signal, signal };
+from "ui/testing" import { headless, observer, render };
+
+test "a CSV is imported" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let picked: Signal<Result<PickedFile, Str>> = signal(ctx, .Err("none yet"));
+    let page = render(
+        ctx,
+        ui.filePicker({
+            label: .Const("Import"),
+            maxBytes: 100,
+            onPick: fn(c, file) => picked.set(c, file),
+            styles: [],
+        }),
+    );
+    let _ = page.pickFile("Import", "a.csv", "text/csv", bytes.toUtf8(ctx, "id\n1"));
+    assert.equal(picked.get(ctx), .Ok(PickedFile { name: "a.csv", text: "id\n1" }));
+}
+```
+
 `text` takes a `headingLevel` to become a heading. The level is the document's
 outline, so the size and the weight are the styles' — an unstyled heading reads
 at the size of the text around it.
@@ -1101,6 +1177,8 @@ The rest is short:
   says a `value` attribute is worth. A track shorter than one line is the one
   place the picture and a browser differ: the thumb shrinks to fit the box here
   and overflows it there.
+- **A `filePicker` is painted as its button**: the label in the picker's
+  styles. The hidden file input draws nothing.
 - `ui/node`'s `describe(ctx, root, state)` answers the scene document `snapshot`
   paints — every prop read, every style expanded, every child in order. Print it
   when a snapshot surprises you.

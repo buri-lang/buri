@@ -42,7 +42,7 @@
 
 use crate::list::Release;
 use crate::ui::ComputeEntry;
-use crate::value::{str_of, BuriStr, BURI_RT_STR_LEN_MASK};
+use crate::value::{list_of_bytes, str_of, BuriList, BuriStr, BURI_RT_STR_LEN_MASK};
 use std::sync::Mutex;
 
 /// What a record is. A `Marker` emits nothing in markup and is never counted;
@@ -93,6 +93,9 @@ struct Record {
     /// it and `openInNewTab` leaves it alone — the scene twin of the anchor's
     /// click listener.
     follow: i64,
+    /// A file picker's handler graph node, or `-1`. `pickFile` fires it and
+    /// `press` never does.
+    pick: i64,
 }
 
 /// A record with no widget state — an element, a run or a marker before any
@@ -112,7 +115,17 @@ fn plain_record(identity: i64, kind: Kind, name: String, body: String, text: Str
         submit: false,
         label: String::new(),
         follow: -1,
+        pick: -1,
     }
+}
+
+/// The file `pickFile` last offered a document: its name, the type a browser
+/// would report, and its bytes.
+#[derive(Default)]
+struct Offer {
+    name: String,
+    mime_type: String,
+    content: Vec<u8>,
 }
 
 /// Where the next record lands: under `parent`, before `anchor` — or at the end
@@ -173,6 +186,8 @@ struct Document {
     /// subtree a press must land outside of to fire it. The handler lives on a
     /// graph node (disposed with the subtree), so a stale pair fires nothing.
     outside: Vec<(i64, usize)>,
+    /// The file `pickFile` last offered, which a picker's handler reads back.
+    offer: Offer,
 }
 
 impl Document {
@@ -190,6 +205,7 @@ impl Document {
             regions: Vec::new(),
             each_regions: Vec::new(),
             outside: Vec::new(),
+            offer: Offer::default(),
         }
     }
 
@@ -969,6 +985,66 @@ pub extern "C" fn buri_rt_ui_node_mark_submit(handle: i64) {
     });
 }
 
+/// `registerPick(builder, onPick)` — keeps a file picker's handler on a graph
+/// node and stores it on the open element, in a slot `press` never reads, so
+/// only `pickFile` fires it.
+///
+/// # Safety
+/// `entry`/`state`/`bytes`/`frame_at`/`body` are the kept handler's trampoline
+/// arguments.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_register_pick(
+    handle: i64,
+    entry: ComputeEntry,
+    state: *const u8,
+    bytes: usize,
+    frame_at: i64,
+    body: Release,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let node =
+        unsafe { crate::ui::buri_rt_ui_node_register_handler(entry, state, bytes, frame_at, body) };
+    with_doc(handle, |doc| {
+        let open = open_element(doc);
+        if let Some(r) = doc.records.get_mut(open) {
+            r.pick = node;
+        }
+    });
+}
+
+/// `offeredName(builder)` — the name of the file `pickFile` last offered.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_offered_name(handle: i64, out: *mut BuriStr) {
+    let name = with_doc(handle, |doc| doc.offer.name.clone()).unwrap_or_default();
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(str_of(&name)) };
+}
+
+/// `offeredType(builder)` — the type of the file `pickFile` last offered.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_offered_type(handle: i64, out: *mut BuriStr) {
+    let mime_type = with_doc(handle, |doc| doc.offer.mime_type.clone()).unwrap_or_default();
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(str_of(&mime_type)) };
+}
+
+/// `offeredBytes(builder)` — the bytes of the file `pickFile` last offered.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_offered_bytes(handle: i64, out: *mut BuriList) {
+    let content = with_doc(handle, |doc| doc.offer.content.clone()).unwrap_or_default();
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(list_of_bytes(&content)) };
+}
+
 impl Document {
     /// The accessible name a reader hears for `node`: every run of text in its
     /// subtree, in document order, joined by a space — the same joining
@@ -1366,6 +1442,68 @@ pub unsafe extern "C" fn buri_rt_ui_testing_rendered_flip(
         crate::ui::buri_rt_ui_flush_begin();
         crate::ui::flip_bool_signal(signal);
         crate::ui::buri_rt_ui_flush_end();
+    }
+}
+
+/// `offerFile(page, name, mimeType, content)` — `pickFile`'s first half: keep
+/// the file on the document for the picker's handler to read back.
+///
+/// # Safety
+/// `name` and `mime_type` are readable UTF-8 ranges, and `content` a readable
+/// byte range — each may be null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_offer_file(
+    handle: i64,
+    _nbase: *mut u8,
+    nptr: *const u8,
+    nlen: u64,
+    _tbase: *mut u8,
+    tptr: *const u8,
+    tlen: u64,
+    cptr: *const u8,
+    clen: u64,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let name = unsafe { text_of(nptr, nlen) };
+    // SAFETY: forwarded to the caller's promise.
+    let mime_type = unsafe { text_of(tptr, tlen) };
+    let content = if cptr.is_null() || clen == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: the caller promises `clen` readable bytes at `cptr`.
+        unsafe { std::slice::from_raw_parts(cptr, clen as usize) }.to_vec()
+    };
+    with_doc(handle, |doc| doc.offer = Offer { name, mime_type, content });
+}
+
+/// `deliverFile(page, label)` — `pickFile`'s second half: fire the handler of
+/// the picker the label names, unless it is disabled or out of reach.
+///
+/// # Safety
+/// `label` is a readable UTF-8 range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_deliver_file(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let label = unsafe { text_of(ptr, len) };
+    let picker = with_doc(handle, |doc| {
+        doc.labelled("button", &label).filter(|&b| doc.records[b].pick >= 0)
+    })
+    .flatten();
+    let Some(picker) = picker else {
+        crate::abort::die(&[b"this tree has no file picker labelled \"", label.as_bytes(), b"\""])
+    };
+    let (open, pick) = with_doc(handle, |doc| {
+        let r = &doc.records[picker];
+        (doc.reachable(picker) && !doc.inert(picker) && !is_disabled(&r.body), r.pick)
+    })
+    .unwrap_or((false, -1));
+    if open {
+        crate::ui::fire(pick);
     }
 }
 

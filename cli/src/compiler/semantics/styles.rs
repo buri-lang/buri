@@ -126,6 +126,9 @@ const NODE_DIALOG: usize = 15;
 /// lowers to `<details>`/`<summary>`, which a browser paints a marker and a
 /// block layout on by itself.
 const NODE_DISCLOSURE: usize = 16;
+/// A file picker, whose control is a `<button>` like `button`'s and takes the
+/// same reset. Its `<input type="file">` is `hidden`, so it needs none.
+const NODE_FILE_PICKER: usize = 23;
 
 /// `ui/node`'s `Role::List` and `Role::Separator`, the two roles that lower to
 /// an element a browser paints something on by itself. A role is written at the
@@ -1327,7 +1330,7 @@ pub fn reset_in(
                 NODE_FIELD | NODE_SLIDER => out.field = true,
                 NODE_TOGGLE => out.toggle = true,
                 NODE_IMAGE | NODE_ICON => out.image = true,
-                NODE_SUBMIT => out.button = true,
+                NODE_SUBMIT | NODE_FILE_PICKER => out.button = true,
                 NODE_DIALOG => out.dialog = true,
                 NODE_PICKER => out.radiogroup = true,
                 NODE_DISCLOSURE => out.disclosure = true,
