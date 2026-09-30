@@ -3269,7 +3269,151 @@ fn a_step_sending_to_its_own_actor_is_refused_at_once() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// A task beside the body that spawned it
+// ---------------------------------------------------------------------------
 
+/// A scope whose body spawns a long-running loop, waits to hear that the loop
+/// has started, then spawns a timer and waits to hear that the loop saw it
+/// fire.
+///
+/// The three tasks talk through an actor, so nothing here is a race between
+/// two sleeps. Every wait is a poll of the actor, ten milliseconds apart and at
+/// most five hundred times, and what the body prints is what it heard — not how
+/// long anything took.
+///
+/// Two claims, each of which only a task running *beside* the body can make
+/// true:
+///
+/// * **the loop starts while the body is still running**, so the body hears
+///   `started` before it gives up;
+/// * **a timer spawned after the loop still runs**, although the loop has not
+///   finished, so the loop hears `fired` and the body hears that it did.
+fn beside_the_body() -> String {
+    String::from(
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Address, Stepped };
+from "core/effect" import { Allocator, Clock, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+from "core/time" import * as time;
+
+enum Note {
+    Started,
+    Fired,
+    Saw,
+    Get,
+}
+
+struct Board {
+    started: Bool,
+    fired: Bool,
+    saw: Bool,
+}
+
+fn board<C: Allocator + Clock + Stdout + Tasks>(): Actor<C, Board, Note, Board> {
+    Actor {
+        state: Board { started: false, fired: false, saw: false },
+        step: fn(c, now, message) => {
+            let next = match (message) {
+                .Started => Board { ..now, started: true },
+                .Fired => Board { ..now, fired: true },
+                .Saw => Board { ..now, saw: true },
+                .Get => now,
+            };
+            Stepped { state: next, answer: next }
+        },
+    }
+}
+
+/// Whether `heard` became true of the board within `left` more polls.
+fn waiting<C: Allocator + Clock + Stdout + Tasks>(
+    ctx: C,
+    notes: Address<C, Board, Note, Board>,
+    heard: fn(Board) => Bool,
+    left: Int,
+): Bool {
+    let now = match (notes.sendMessage(ctx, .Get)) {
+        .Ok(seen) => heard(seen),
+        .Err(_gone) => false,
+    };
+    match (now || left <= 0) {
+        true => now,
+        false => {
+            let _ = time.sleep(ctx, time.milliseconds(10));
+            waiting(ctx, notes, heard, left - 1)
+        },
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Clock: host.clock,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let notes = actor.start(ctx, board());
+    let heard = tasks.scope(ctx, fn(c, here) => {
+        let _ = tasks.spawn(c, here, fn(c2) => {
+            let _ = notes.sendMessage(c2, .Started).ignore();
+            match (waiting(c2, notes, fn(seen) => seen.fired, 500)) {
+                true => {
+                    let _ = notes.sendMessage(c2, .Saw).ignore();
+                    ()
+                },
+                false => (),
+            }
+        });
+        let started = waiting(c, notes, fn(seen) => seen.started, 500);
+        let _ = tasks.spawn(c, here, fn(c2) => {
+            let _ = time.sleep(c2, time.milliseconds(10));
+            let _ = notes.sendMessage(c2, .Fired).ignore();
+            ()
+        });
+        let saw = waiting(c, notes, fn(seen) => seen.saw, 500);
+        [started, saw]
+    });
+    let _ = io.println(ctx, "the loop started beside the body: ${heard.first().withDefault(false)}").ignore();
+    let _ = io.println(ctx, "the loop saw the timer while the body ran: ${heard.last().withDefault(false)}").ignore();
+    let _ = io.println(ctx, "stopped ${notes.stop(ctx).isOk()}").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// **A spawned task runs beside the scope's body in a `--release` build**
+/// (buri-lang/buri#206).
+///
+/// `core/tasks` promises that a native `--release` build runs a spawned task on
+/// a thread of its own, and that a socket loop and a timer spawned into one
+/// scope both run. The bug this row pins held every spawned task back until the
+/// body returned, so a timer spawned beside a server's `run` — a body that
+/// never returns — never fired.
+///
+/// Release only. The development backend runs a scope's tasks after its body,
+/// and says so; `agreement.rs`'s scope rows pin that order there.
+#[cfg(feature = "backend-llvm")]
+#[test]
+fn a_spawned_task_runs_beside_the_body_that_spawned_it() {
+    unless_ready!();
+    let binary = built("e2e-beside-the-body", &beside_the_body());
+    let out = ran_within(&binary, std::time::Duration::from_secs(60));
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.stdout.lines().collect::<Vec<_>>(),
+        vec![
+            "the loop started beside the body: true",
+            "the loop saw the timer while the body ran: true",
+            "stopped true",
+        ],
+        "stderr:\n{}",
+        out.stderr
+    );
+}
 
 // ---------------------------------------------------------------------------
 // A projection off a value that arrives through a tail
