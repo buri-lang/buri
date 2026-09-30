@@ -3415,6 +3415,109 @@ fn a_spawned_task_runs_beside_the_body_that_spawned_it() {
     );
 }
 
+/// Fanned-out steps inside a scope post strings the scope built, and the actor
+/// keeps them past the scope.
+///
+/// Under `--release` each step runs on a thread that is inside no arena, yet the
+/// string it posts lives in the scope's pages. `core/actor` still copies it,
+/// because it asks whether *any* arena holds pages, not whether this thread is
+/// in one. Each string is bigger than one arena block, so its pages are unmapped
+/// when the scope ends, and a kept pointer into them would fault or misread.
+fn fanned_out_inside_a_scope() -> String {
+    String::from(
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Address, Stepped };
+from "core/alloc" import * as alloc;
+from "core/alloc" import { Scoped };
+from "core/effect" import { Allocator, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/str" import * as str;
+from "core/tasks" import * as tasks;
+
+enum Keep {
+    Add(Str),
+    Get,
+}
+
+enum Kept {
+    Added,
+    Held([Str]),
+}
+
+fn keeper<C: Allocator + Tasks>(): Actor<C, [Str], Keep, Kept> {
+    Actor {
+        state: [],
+        step: fn(c, held, message) => {
+            match (message) {
+                .Add(s) => Stepped { state: held.push(c, s), answer: .Added },
+                .Get => Stepped { state: held, answer: .Held(held) },
+            }
+        },
+    }
+}
+
+struct Escaped<C> {
+    scope: Scoped<C>,
+    address: Address<Scoped<C>, [Str], Keep, Kept>,
+}
+
+fn big<C: Allocator>(ctx: C, unit: Str): Str {
+    unit.repeat(ctx, 70000)
+}
+
+fn built<C: Allocator>(ctx: C): [Str] {
+    [0, 1, 2, 3, 4, 5, 6, 7].mapCtx(ctx, fn(k, n) => big(k, str.format(k, "${n}")))
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let out = alloc.scoped(ctx, fn(c) => {
+        let address = actor.start(c, keeper());
+        let posted = tasks.parallel(c, built(c), fn(c2, _i, item) => {
+            address.sendMessage(c2, .Add(item)).isOk()
+        });
+        let _ = io.println(c, "posted ${posted.count(fn(ok) => ok)}").ignore();
+        Escaped { scope: c, address: address }
+    });
+    // Scopes that take the released pages back, small ones first.
+    let churned = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(ctx, fn(k, n) => {
+        alloc.scoped(k, fn(s) => "z".repeat(s, 40 + n).length())
+    });
+    let large = alloc.scoped(ctx, fn(s) => "y".repeat(s, 70000).length());
+    let _ = io.println(ctx, "churned ${churned.length()} ${large}").ignore();
+    let held = match (out.address.sendMessage(out.scope, .Get)) {
+        .Ok(.Held(list)) => list,
+        _otherwise => [],
+    };
+    let want = built(ctx);
+    let _ = io.println(ctx, "kept ${want.count(fn(w) => held.any(fn(s) => s == w))} of ${held.length()}").ignore();
+    let _ = io.println(ctx, "stopped ${out.address.stop(out.scope).isOk()}").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+#[test]
+fn an_actor_keeps_what_fanned_out_steps_posted_inside_a_scope() {
+    unless_ready!();
+    let binary = built("e2e-fanned-out-inside-a-scope", &fanned_out_inside_a_scope());
+    let out = ran_within(&binary, std::time::Duration::from_secs(60));
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.stdout.lines().collect::<Vec<_>>(),
+        vec!["posted 8", "churned 8 70000", "kept 8 of 8", "stopped true"],
+        "stderr:\n{}",
+        out.stderr
+    );
+}
+
 // ---------------------------------------------------------------------------
 // A projection off a value that arrives through a tail
 // ---------------------------------------------------------------------------

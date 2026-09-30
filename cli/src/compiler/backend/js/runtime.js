@@ -3178,6 +3178,11 @@ function $actor_replyTake(c, handle) {
   return answered ? $some(value) : undefined;
 }
 
+// No arenas here, so nothing is ever in one.
+function $actor_scopesLive() {
+  return false;
+}
+
 // --- The reactive graph -----------------------------------------------------
 //
 // Auto-tracking, in the shape design/ui-reactivity.md commits to: the runtime
