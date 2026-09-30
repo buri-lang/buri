@@ -1048,8 +1048,8 @@ export fn lists<C>(): Node<C> {
     ])
 }
 
-/// A row divides into one even track per cell, so the second row's cells
-/// line up under the first's — and a row of four divides into four.
+/// A table sizes its columns over all its rows, so the second row's boxes line
+/// up under the first's, and a row of two shares the columns of a row of four.
 export fn tables<C>(): Node<C> {
     page([
         band(
