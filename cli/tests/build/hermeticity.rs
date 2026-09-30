@@ -198,23 +198,20 @@ fn two_checkouts_of_one_tree_build_identical_bytes() {
 /// A repository whose only source is written by a generator, for the two rows
 /// below.
 ///
-/// The tool's `main` binds `FileSystemRead` and `FileSystemWrite` as well as the three
-/// `codegen.run` needs, which the language allows — a bound is a floor and not
-/// a ceiling — and `marked` is the switch that turns the extra two into an
-/// answer that depends on what has happened before. So one repository states
-/// both halves: a generator is reproducible, and one that is not is caught.
-fn generated_only(name: &str, marked: bool) -> Scratch {
+/// `reads_the_disk` is the switch that asks for `FileSystemRead` beside the
+/// allocator a tool is handed, which is the smallest tool whose answer could
+/// depend on something other than its request.
+fn generated_only(name: &str, reads_the_disk: bool) -> Scratch {
     let scratch = Scratch::repo(name);
     scratch.write(
         "lib/wire/BUILD.buri",
-        "library {\n    generators: [{ tool: \"//cmd/gen\", inputs: [\"units.txt\"] }]\n\n    \
+        "library {\n    generators: [{ tool: \"//tools/gen\", inputs: [\"units.txt\"] }]\n\n    \
          visibility: [\"//visibility:public\"]\n}\n",
     );
     scratch.write("lib/wire/units.txt", "3\n");
     scratch.write("lib/wire/lib.buri", "from \"//lib/wire/units\" export { width };\n");
-    scratch
-        .write("cmd/gen/BUILD.buri", "binary {\n    outputs: [{ platform: JS }]\n}\n");
-    scratch.write("cmd/gen/main.buri", &generator(marked));
+    scratch.write("tools/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
+    scratch.write("tools/gen/tool.buri", &generator(reads_the_disk));
     scratch.write(
         "cmd/app/BUILD.buri",
         "binary {\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [{ platform: JS }]\n}\n",
@@ -234,79 +231,27 @@ fn generated_only(name: &str, marked: bool) -> Scratch {
     scratch
 }
 
-/// The tool [`generated_only`] runs.
-///
-/// With `marked`, the number it writes is one more the second time it runs,
-/// because it leaves a file behind and looks for it. That is the smallest
-/// possible generator whose answer is not a function of its request, and it is
-/// deliberate rather than random: a test that relied on two clocks or two
-/// random numbers differing would be a test that usually passes.
-fn generator(marked: bool) -> String {
-    let extra = match marked {
-        false => String::new(),
-        true => "  let tally = fs.readText(ctx, path.of(ctx, \"tally.txt\")).withDefault(\"\");\n  \
-                 let _ = fs\n    .writeText(ctx, path.of(ctx, \"tally.txt\"), tally.concat(ctx, \"x\"))\n    \
-                 .ignore();\n  let n = n0 + tally.length();\n"
-            .to_string(),
-    };
-    let plain = match marked {
-        false => "  let n = n0;\n".to_string(),
-        true => String::new(),
+/// The tool [`generated_only`] runs: `export let width: Int = <the input>;`.
+fn generator(reads_the_disk: bool) -> String {
+    let bound = match reads_the_disk {
+        false => "Allocator",
+        true => "Allocator + FileSystemRead",
     };
     format!(
-        r#"from "core/effect" import {{ Allocator, Stdin, Stdout }};
-from "core/fs" import * as fs;
-from "core/fs" import {{ FileSystemRead, FileSystemWrite }};
-from "core/host" import * as host;
-from "core/io" import * as io;
-from "core/json" import * as json;
-from "core/json" import {{ Json }};
-from "core/list" import * as list;
-from "core/path" import * as path;
+        r#"from "core/buri/ast" import * as ast;
+from "core/effect" import {{ Allocator }};
+from "core/fs" import {{ FileSystemRead }};
 from "core/str" import * as str;
+from "core/tool" import {{ Generated, GenerateRequest }};
 
-export fn main(): Result<(), Str> {{
-  let ctx = context {{
-    Allocator: host.alloc,
-    FileSystemRead: host.fs,
-    FileSystemWrite: host.fs,
-    Stdin: host.stdin,
-    Stdout: host.stdout,
+export fn generate<C: {bound}>(ctx: C, request: GenerateRequest<Str>): Generated {{
+  let n = request.inputs.get(0).map(fn(i) => i.value.trim()).withDefault("0");
+  let source = str.format(ctx, "export let width: Int = ${{n}};\n");
+  let modules = match (ast.parse(ctx, "", source)) {{
+    .Ok(parsed) => [("units", parsed)],
+    .Err(_) => [],
   }};
-  let line = io.readLine(ctx).okOr("no request")?;
-  let request = json.parse(ctx, line).mapErr(fn(_e) => "the request is not JSON")?;
-  let n0 = firstInput(request).withDefault("0").trim().toInt().withDefault(0);
-{extra}{plain}  let source = str.format(ctx, "export let width: Int = ${{n}};\n");
-  let unit: Json = .Object([
-    ("name", .Str("units")),
-    ("text", .Str(source)),
-    ("anchors", .Array(list.empty())),
-  ]);
-  let response: Json = .Object([
-    ("modules", .Array([unit])),
-    ("diagnostics", .Array(list.empty())),
-  ]);
-  let _ = io.println(ctx, "${{json.stringify(ctx, response)}}").ignore();
-  .Ok(())
-}}
-
-fn firstInput(request: Json): Option<Str> {{
-  let inputs = match (request) {{
-    .Object(fields) => fields.find(fn(f) => f.0 == "inputs").map(fn(f) => f.1),
-    _ => .None,
-  }};
-  let items = match (inputs.withDefault(.Null)) {{
-    .Array(xs) => xs,
-    _ => list.empty(),
-  }};
-  let pair = match (items.get(0).withDefault(.Null)) {{
-    .Array(xs) => xs,
-    _ => list.empty(),
-  }};
-  match (pair.get(1).withDefault(.Null)) {{
-    .Str(s) => .Some(s),
-    _ => .None,
-  }}
+  Generated {{ modules: modules, diagnostics: [], needs: [] }}
 }}
 "#
     )
@@ -341,30 +286,19 @@ fn two_checkouts_of_a_generated_tree_build_identical_bytes() {
     one.run(&["build", "//cmd/app", "--check-reproducible"]).ok();
 }
 
-/// ...and the negative twin: a generator whose answer is not a function of its
-/// request is caught by the same flag.
+/// ...and the negative twin: a generator that asks for more than an allocator
+/// is refused before it runs.
 ///
-/// `core/codegen`'s `run` bounds what it hands `generate` to `Allocator +
-/// Stdin + Stdout`, and `cli/tests/reject/generator_reaches_beyond_its_context` is the
-/// half of that a type error covers. A bound is a *floor*, though: a `main`
-/// that binds the disk as well hands `generate` the disk, and nothing at
-/// compile time says otherwise. This is the check that does — the one
-/// `build/generators.md` sends a reader to.
+/// A tool's answer is cached under its request, so a tool that could read the
+/// disk could give two answers to one question. Its `ctx` has `Allocator` and
+/// nothing else, and asking for the disk is refused by name rather than caught
+/// afterwards by `--check-reproducible`.
 #[test]
-fn a_generator_whose_answer_is_not_a_function_of_its_request_is_caught() {
-    let scratch = generated_only("reproducible-generated-drift", true);
-    // It builds, and the first answer is the honest one: nothing here is
-    // refused, which is why the flag has to be what asks.
-    scratch.run(&["run", "//cmd/app"]).ok().says("width=");
-
-    let run = scratch.run(&["build", "//cmd/app", "--check-reproducible"]);
-    assert_ne!(
-        run.code, 0,
-        "a generator that answers differently the second time passed --check-reproducible:\n{}",
-        run.all()
-    );
-    run.says("differs between two builds of the same tree");
+fn a_generator_that_asks_for_the_disk_is_refused() {
+    let scratch = generated_only("reproducible-generated-disk", true);
+    scratch.run(&["run", "//cmd/app"]).exits(1).says("`generate` asks for `FileSystemRead`");
 }
+
 
 // ---------------------------------------------------------------------------
 // Concurrency

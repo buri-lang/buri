@@ -1,0 +1,38 @@
+//! One module, `words`, holding how many words its inputs hold.
+
+from "core/buri/ast" import * as ast;
+from "core/effect" import { Allocator };
+from "core/tool" import { Generated, GenerateRequest };
+
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+    let total = request
+        .inputs
+        .foldCtx(
+            ctx,
+            fn(c, n: Int, input) => {
+                n
+                    + input
+                        .value
+                        .lines(c)
+                        .filter(c, fn(l) => !l.trim().isEmpty())
+                        .length()
+            },
+            0,
+        );
+    let int = ast.Name { text: "Int", origin: ast.nowhere() };
+    let count = ast.Item {
+        kind: .Let(ast.LetDecl {
+            name: ast.Name { text: "count", origin: ast.nowhere() },
+            ty: ast.Type { kind: .Named(int, []), origin: ast.nowhere() },
+            value: ast.Expr { kind: .Int(total), origin: ast.nowhere() },
+            exported: true,
+            docs: [],
+        }),
+        origin: ast.nowhere(),
+    };
+    Generated {
+        modules: [("words", ast.Module { items: [count], docs: [] })],
+        diagnostics: [],
+        needs: [],
+    }
+}

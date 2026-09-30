@@ -2,7 +2,7 @@
 
 You declare everything in a Buri repository: which files a target compiles,
 which libraries it may use, and who may use it. Nothing is discovered by walking
-the filesystem, and there are two rule kinds rather than a rule language.
+the filesystem, and there are three rule kinds rather than a rule language.
 
 The exact rules are in
 [`reference/build/overview.md`](../reference/build/overview.md) and

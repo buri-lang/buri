@@ -15,7 +15,7 @@ use crate::diagnostics::{Diagnostic, FileId, Invariant, Span};
 /// formatter cannot tell the two kinds of file apart, so it carries their
 /// union, while the reader must refuse a `tag` in a build file. The test at
 /// the bottom of this module holds the union to these two halves.
-const BUILD_FILE_RULES: &[&str] = &["library", "binary"];
+const BUILD_FILE_RULES: &[&str] = &["library", "binary", "tool"];
 const REPO_FILE_RULES: &[&str] = &["tag", "lint", "language"];
 
 /// The fields a `test` block used to declare and no longer does.
@@ -38,6 +38,11 @@ const RETIRED_LIBRARY_FIELDS: &[&str] = &["proto_sources"];
 
 /// The same, for a `binary` rule.
 const RETIRED_BINARY_FIELDS: &[&str] = &["proto_sources"];
+
+/// The tool names this toolchain used to answer to, and what each is called
+/// now. A toolchain tool is `std/<language>`; the proto generator was named
+/// for what it did before it was named for its language.
+pub const RETIRED_TOOL_NAMES: &[(&str, &str)] = &[("std/codegen/proto", "std/proto")];
 
 #[derive(Clone, Debug)]
 pub struct Spanned<T> {
@@ -429,10 +434,39 @@ pub struct Binary {
     pub span: Span,
 }
 
+/// A program the build runs on a language's files, rooted at `tool.buri`.
+///
+/// Each of `check`, `format` and `generate` is the span of the block declaring
+/// the entry point of that name, or `None` where the rule has no such block.
+/// `tool.buri` exports exactly the functions its blocks name.
+#[derive(Clone, Debug, Default)]
+pub struct Tool {
+    pub sources: Vec<Spanned<String>>,
+    pub dependencies: Vec<Spanned<String>>,
+    pub test: Option<TestSuite>,
+    pub check: Option<Span>,
+    pub format: Option<Span>,
+    pub generate: Option<Span>,
+    pub span: Span,
+}
+
+impl Tool {
+    /// The block declaring the entry point `name`, if the rule has one.
+    pub fn block(&self, name: &str) -> Option<Span> {
+        match name {
+            "check" => self.check,
+            "format" => self.format,
+            "generate" => self.generate,
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct BuildFile {
     pub library: Option<Library>,
     pub binary: Option<Binary>,
+    pub tool: Option<Tool>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -603,7 +637,10 @@ impl Reader {
                     .templated("unknown-field", f.name_span)
                     .bind("field", f.name.clone())
                     .bind("block", what)
-                    .bind("known_fields", known.join(", "));
+                    .bind(
+                        "known_fields",
+                        if known.is_empty() { "nothing".to_string() } else { known.join(", ") },
+                    );
                 // A near miss replaces the page's fix: the two sentences share
                 // no phrase, and it is one rule with one message.
                 if let Some(near) = near {
@@ -797,10 +834,14 @@ impl Reader {
     ///
     /// A block may add extensions to a built-in language and do nothing else:
     /// replacing a built-in's check would make one `.json` mean different
-    /// things in different repositories. A language of a repository's own
-    /// needs a `tool` rule to check it, which this toolchain does not have yet.
+    /// things in different repositories. A block naming any other language
+    /// declares it, once, with the `tool` rules that check, format and
+    /// generate from it; whether each names a tool with that entry point is
+    /// the graph's question, asked once every build file is read.
     fn languages(&mut self, document: &Document) -> crate::languages::Languages {
+        use crate::languages::{Kind, Language, Tools};
         let mut languages = crate::languages::Languages::default();
+        let mut declared: Vec<(String, Span)> = Vec::new();
         for f in document.all("language") {
             let Value::Message(m, span) = &f.value else {
                 let kind = f.value.kind().to_string();
@@ -814,16 +855,35 @@ impl Reader {
                 }
                 continue;
             };
-            if languages.named(&name.value).is_none() {
-                self.templated("language-not-built-in", name.span).bind("language", name.value.clone());
-                continue;
-            }
-            for tool in ["check", "format", "generate"] {
-                if let Some(field) = m.get(tool) {
-                    self.templated("built-in-language-tool", field.name_span)
-                        .bind("field", tool)
-                        .bind("language", name.value.clone());
+            let built_in = languages.named(&name.value).is_some_and(|l| l.dialect().is_some());
+            if built_in {
+                for tool in ["check", "format", "generate"] {
+                    if let Some(field) = m.get(tool) {
+                        self.templated("built-in-language-tool", field.name_span)
+                            .bind("field", tool)
+                            .bind("language", name.value.clone());
+                    }
                 }
+            } else {
+                if let Some((_, first)) = declared.iter().find(|(n, _)| *n == name.value) {
+                    self.templated("language-declared-twice", name.span)
+                        .bind("language", name.value.clone())
+                        .secondary_span(*first, "declared here");
+                    continue;
+                }
+                declared.push((name.value.clone(), name.span));
+                let mut tool = |field: &str| {
+                    let named = self.spanned_string(m, field)?;
+                    self.retired_tool_name(&named);
+                    Some(named)
+                };
+                let tools =
+                    Tools { check: tool("check"), format: tool("format"), generate: tool("generate") };
+                languages.all.push(Language {
+                    name: name.value.clone(),
+                    extensions: Vec::new(),
+                    kind: Kind::Custom(tools),
+                });
             }
             for extension in self.strings(m, "extensions") {
                 let e = &extension.value;
@@ -838,7 +898,9 @@ impl Reader {
                 let owner = languages
                     .all
                     .iter()
-                    .find_map(|l| l.extensions.iter().find(|x| x.value == *e).map(|x| (l.name, x.span)));
+                    .find_map(|l| {
+                        l.extensions.iter().find(|x| x.value == *e).map(|x| (l.name.clone(), x.span))
+                    });
                 if let Some((owner, first)) = owner {
                     let d = self
                         .templated("language-extension-taken", extension.span)
@@ -855,6 +917,18 @@ impl Reader {
             }
         }
         languages
+    }
+
+    /// Refuses a tool name this toolchain has retired, naming what replaced it.
+    ///
+    /// A retired name is not an unknown one: somebody wrote what the last
+    /// release documented, and the page says what it is called now.
+    fn retired_tool_name(&mut self, tool: &Spanned<String>) {
+        if let Some((_, now)) = RETIRED_TOOL_NAMES.iter().find(|(old, _)| *old == tool.value) {
+            self.templated("retired-tool-name", tool.span)
+                .bind("tool", tool.value.clone())
+                .bind("replacement", *now);
+        }
     }
 
     fn sub_message<'a>(&mut self, message: &'a Message, name: &str) -> Option<(&'a Message, Span)> {
@@ -935,6 +1009,7 @@ impl Reader {
                         continue;
                     }
                 };
+                self.retired_tool_name(&tool);
                 out.push(Generator { tool, inputs, span: *span });
             }
         }
@@ -1228,8 +1303,27 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
         }
     });
 
+    let tool = reader.sub_message(&message, "tool").map(|(m, span)| {
+        reader.check_known(m, textproto::schema_order("tool"), &[], "a `tool` rule");
+        let mut block = |name: &str| {
+            let (b, span) = reader.sub_message(m, name)?;
+            reader.check_known(b, textproto::schema_order(name), &[], &format!("a `{name}` block"));
+            Some(span)
+        };
+        let (check, format, generate) = (block("check"), block("format"), block("generate"));
+        Tool {
+            sources: reader.strings(m, "sources"),
+            dependencies: reader.strings(m, "dependencies"),
+            test: reader.test_suite(m),
+            check,
+            format,
+            generate,
+            span,
+        }
+    });
+
     ReadResult {
-        value: BuildFile { library, binary },
+        value: BuildFile { library, binary, tool },
         document: parsed.document,
         errors: reader.errors,
     }

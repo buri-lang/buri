@@ -16,6 +16,10 @@ A JSON file a generator lists is checked against its schema before the
 generator runs, and a failure is an error, the same in `buri test` and
 `buri lint`. The verdict is cached on the file and every schema it reads, so
 editing either one checks it again. See [`guides/json.md`](../../guides/json.md).
+A file in a language of your own is checked by its tool's `check` the same way
+([`build/tools.md`](../build/tools.md)).
+
+`buri build` on a `tool` rule checks it, the way it checks a library.
 
 ## Lint findings
 

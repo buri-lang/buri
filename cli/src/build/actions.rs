@@ -339,12 +339,13 @@ pub fn action_key(
 /// something a test can watch rather than something a comment asserts.
 fn contribute(session: &Session, member: TargetId, k: &mut KeyBuilder) {
     let package = session.workspace.package(member.package);
-    let kind = match member.kind {
-        RuleKind::Library => "library",
-        RuleKind::Binary => "binary",
-    };
+    let kind = member.kind.name();
     let mut sources: Vec<String> = Vec::new();
-    let entry = if member.kind == RuleKind::Library { "lib.buri" } else { "main.buri" };
+    let entry = match member.kind {
+        RuleKind::Library => "lib.buri",
+        RuleKind::Binary => "main.buri",
+        RuleKind::Tool => "tool.buri",
+    };
     sources.push(entry.to_string());
     match member.kind {
         RuleKind::Library => {
@@ -368,6 +369,11 @@ fn contribute(session: &Session, member: TargetId, k: &mut KeyBuilder) {
                 sources.extend(
                     bin.generators.iter().flat_map(|g| g.inputs.iter().map(|x| x.value.clone())),
                 );
+            }
+        }
+        RuleKind::Tool => {
+            if let Some(tool) = &package.build.tool {
+                sources.extend(tool.sources.iter().map(|x| x.value.clone()));
             }
         }
     }
@@ -486,11 +492,7 @@ pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
         contribute(session, member, &mut k);
     }
     let package = session.workspace.package(target.package);
-    let suite = match target.kind {
-        RuleKind::Library => package.build.library.as_ref().and_then(|l| l.test.as_ref()),
-        RuleKind::Binary => package.build.binary.as_ref().and_then(|b| b.test.as_ref()),
-    };
-    if let Some(suite) = suite {
+    if let Some(suite) = package.test_suite(target.kind) {
         let mut files: Vec<String> =
             suite.sources.iter().map(|x| x.value.clone()).collect();
         files.sort();

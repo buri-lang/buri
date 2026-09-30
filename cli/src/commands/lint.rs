@@ -575,6 +575,12 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
             push(&t.sources, &mut declared);
         }
     }
+    if let Some(tool) = &p.build.tool {
+        push(&tool.sources, &mut declared);
+        if let Some(t) = &tool.test {
+            push(&t.sources, &mut declared);
+        }
+    }
 
     for (i, (first_name, first_span)) in declared.iter().enumerate() {
         for (name, span) in declared.iter().skip(i + 1) {
@@ -593,6 +599,7 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
     known.insert("lib.buri".into());
     known.insert("main.buri".into());
     known.insert("testing/lib.buri".into());
+    known.insert("tool.buri".into());
 
     // What a generator's inputs wear. A generator reads whatever it likes, so
     // "every file belongs to a rule" cannot be asked of every file on disk —

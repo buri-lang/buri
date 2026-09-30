@@ -23,6 +23,19 @@ pub struct PackageId(pub u32);
 pub enum RuleKind {
     Library,
     Binary,
+    /// A program the build runs on a language's files, rooted at `tool.buri`.
+    Tool,
+}
+
+impl RuleKind {
+    /// The rule's name as a build file writes it.
+    pub fn name(self) -> &'static str {
+        match self {
+            RuleKind::Library => "library",
+            RuleKind::Binary => "binary",
+            RuleKind::Tool => "tool",
+        }
+    }
 }
 
 /// A target is a package plus a rule kind. There is no `:name` syntax to learn
@@ -87,6 +100,10 @@ impl Package {
         self.build.binary.is_some()
     }
 
+    pub fn has_tool(&self) -> bool {
+        self.build.tool.is_some()
+    }
+
     /// The suite one rule declares, if it declares one.
     ///
     /// "This target's test suite" is a question `test`, `watch` and `lint` all
@@ -97,6 +114,7 @@ impl Package {
         match kind {
             RuleKind::Library => self.build.library.as_ref().and_then(|l| l.test.as_ref()),
             RuleKind::Binary => self.build.binary.as_ref().and_then(|b| b.test.as_ref()),
+            RuleKind::Tool => self.build.tool.as_ref().and_then(|t| t.test.as_ref()),
         }
     }
 }
@@ -391,7 +409,7 @@ impl Workspace {
             let id = map.load(&rel, &build_path)?;
             let read = buildfile::read_build_file(map.text(id), id);
             diagnostics.extend(read.errors);
-            if read.value.library.is_none() && read.value.binary.is_none() {
+            if read.value.library.is_none() && read.value.binary.is_none() && read.value.tool.is_none() {
                 diagnostics.push(
                     Diagnostic::templated("package-without-a-rule", Span::point(id, 0))
                         .with_bind("package_path", path.clone()),
@@ -426,6 +444,10 @@ impl Workspace {
                 sorted_paths,
                 generated: crate::build::generators::Store::default(),
             };
+        // Only once the build file it names has been read can a tool name be
+        // resolved, so the references are checked here rather than by the
+        // reader.
+        diagnostics.extend(crate::build::tools::validate(&workspace));
         Ok(workspace)
     }
 
@@ -455,6 +477,9 @@ impl Workspace {
             if p.has_binary() {
                 out.push(TargetId { package: id, kind: RuleKind::Binary });
             }
+            if p.has_tool() {
+                out.push(TargetId { package: id, kind: RuleKind::Tool });
+            }
         }
         out
     }
@@ -469,23 +494,27 @@ impl Workspace {
         match target.kind {
             RuleKind::Library => p.build.library.as_ref().map(|l| &l.dependencies[..]).unwrap_or(&[]),
             RuleKind::Binary => p.build.binary.as_ref().map(|b| &b.dependencies[..]).unwrap_or(&[]),
+            RuleKind::Tool => p.build.tool.as_ref().map(|t| &t.dependencies[..]).unwrap_or(&[]),
         }
     }
 
+    /// A tool carries no tags: nothing is built from it, so there is nothing
+    /// a policy could forbid it from reaching.
     pub fn tags(&self, target: TargetId) -> &[Spanned<String>] {
         let p = self.package(target.package);
         match target.kind {
             RuleKind::Library => p.build.library.as_ref().map(|l| &l.tags[..]).unwrap_or(&[]),
             RuleKind::Binary => p.build.binary.as_ref().map(|b| &b.tags[..]).unwrap_or(&[]),
+            RuleKind::Tool => &[],
         }
     }
 
     /// Resolved dependency edges: (dependency library target, the label span).
-    /// A binary additionally depends on the library in its own package, which
-    /// is implicit and carries no span.
+    /// A binary and a tool additionally depend on the library in their own
+    /// package, which is implicit and carries no span.
     pub fn dep_edges(&self, target: TargetId) -> Vec<(TargetId, Option<Span>)> {
         let mut out = Vec::new();
-        if target.kind == RuleKind::Binary && self.package(target.package).has_library() {
+        if target.kind != RuleKind::Library && self.package(target.package).has_library() {
             out.push((TargetId { package: target.package, kind: RuleKind::Library }, None));
         }
         for dep in self.declared_deps(target) {
@@ -520,6 +549,11 @@ impl Workspace {
             RuleKind::Binary => {
                 if let Some(b) = &p.build.binary {
                     declared.extend(b.test.iter().flat_map(|t| t.dependencies.iter()));
+                }
+            }
+            RuleKind::Tool => {
+                if let Some(t) = &p.build.tool {
+                    declared.extend(t.test.iter().flat_map(|t| t.dependencies.iter()));
                 }
             }
         }
@@ -583,6 +617,11 @@ impl Workspace {
             out.extend(b.sources.iter().map(|s| s.value.clone()));
             out.extend(b.test.iter().flat_map(|t| t.sources.iter()).map(|s| s.value.clone()));
         }
+        if let Some(t) = &p.build.tool {
+            out.push("tool.buri".into());
+            out.extend(t.sources.iter().map(|s| s.value.clone()));
+            out.extend(t.test.iter().flat_map(|t| t.sources.iter()).map(|s| s.value.clone()));
+        }
         out
     }
 
@@ -603,7 +642,14 @@ impl Workspace {
         match rel {
             "lib.buri" | "testing/lib.buri" if p.has_library() => return Some(RuleKind::Library),
             "main.buri" if p.has_binary() => return Some(RuleKind::Binary),
+            "tool.buri" if p.has_tool() => return Some(RuleKind::Tool),
             _ => {}
+        }
+        if let Some(t) = &p.build.tool {
+            if t.sources.iter().chain(t.test.iter().flat_map(|t| t.sources.iter())).any(|s| s.value == rel)
+            {
+                return Some(RuleKind::Tool);
+            }
         }
         if let Some(l) = &p.build.library {
             let listed = l
@@ -791,7 +837,7 @@ impl Workspace {
                 "main" | "main.buri" => (ModuleKind::BinaryEntry, package.dir.join("main.buri")),
                 // A `.proto` names a schema, and a schema is a generator's
                 // input rather than a module of its own. The only module one
-                // produces is the one `std/codegen/proto` handed back, which
+                // produces is the one `std/proto` handed back, which
                 // the lookup above already answered — so reaching here means no
                 // `generators` entry declares it, and the sentence says which
                 // of the two ways that happened.
@@ -964,6 +1010,9 @@ impl Workspace {
                 }
                 declared
             }
+            // A tool always runs where the build runs, as JavaScript, and says
+            // nothing about platforms itself.
+            RuleKind::Tool => None,
         }
     }
 

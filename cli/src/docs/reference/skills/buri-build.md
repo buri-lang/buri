@@ -41,7 +41,7 @@ cmd/server/
 ## Labels
 
 A label is a package path and **never carries a target name**: `//lib/money`,
-`//cmd/server`. A package holds at most one library and at most one binary, so
+`//cmd/server`. A package holds at most one library, one binary and one tool, so
 a rule has no `name` field.
 
 In `dependencies` a label always means the *library* of that package. In a CLI
@@ -127,7 +127,7 @@ library {
 | Field | Meaning |
 |---|---|
 | `sources` | Every `.buri` in the package belonging to this library, **excluding** `lib.buri` and the test sources. Package-relative, may descend. |
-| `generators` | Programs the build runs, whose output becomes a module of this library. Each entry names a `tool` and its `inputs`. A `.proto` schema goes here, under `std/codegen/proto`. |
+| `generators` | Tools the build runs, whose `generate` answers with modules of this library. Each entry names a `tool` rule and its `inputs`. A `.proto` schema goes here, under `std/proto`. |
 | `dependencies` | Labels of libraries this one may use. Libraries only. |
 | `tags` | Labels saying what this code is. The policy lives in `REPO.buri`. |
 | `platforms` | Omit unless the code is genuinely platform-specific. Unset means all. |

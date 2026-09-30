@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "what a `generators` entry may name and what it may not: no tool at all, a generator this toolchain does not ship, a label that is no binary, an input that is not there — and `proto_sources`, which a binary may no longer write either"
+doc: "what a `generators` entry may name and what it may not: no tool at all, a tool this toolchain does not ship, a label that is no tool rule, an input that is not there — and `proto_sources`, which a binary may no longer write either"
 
 # The shape everything below is one edit away from.
 run {
@@ -13,7 +13,7 @@ run {
 # A generator *is* its tool, so an entry with none names nothing to run.
 edit {
   file: "lib/wire/BUILD.buri"
-  replace: "{ tool: \"std/codegen/proto\", inputs: [\"point.proto\"] },"
+  replace: "{ tool: \"std/proto\", inputs: [\"point.proto\"] },"
   with: "{ inputs: [\"point.proto\"] },"
 }
 
@@ -25,8 +25,8 @@ run {
   golden: "no_tool.txt"
 }
 
-# A name that is not a `//label` names a generator the toolchain ships, and the
-# list has one entry on it.
+# A name that is not a `//label` names a tool the toolchain ships: `std/json`
+# and `std/proto`. Exit 2, as for any build file naming nothing.
 edit {
   file: "lib/wire/BUILD.buri"
   replace: "{ inputs: [\"point.proto\"] },"
@@ -35,12 +35,12 @@ edit {
 
 run {
   args: ["build", "//lib/wire"]
-  exit: 1
+  exit: 2
   golden: "not_shipped.txt"
 }
 
-# A `//label` names a *binary*. A library is a target and not a program, so it
-# is refused where a tool that does not exist would be.
+# A `//label` names a `tool` rule. A library is a target and not a program, so
+# it is refused where a tool that does not exist would be.
 edit {
   file: "lib/wire/BUILD.buri"
   replace: "{ tool: \"std/codegen/thrift\", inputs: [\"point.proto\"] },"
@@ -49,8 +49,8 @@ edit {
 
 run {
   args: ["build", "//lib/wire"]
-  exit: 1
-  golden: "not_a_binary.txt"
+  exit: 2
+  golden: "not_a_tool.txt"
 }
 
 # An input is a declared source like any other: no globs, and a path that names
@@ -58,7 +58,7 @@ run {
 edit {
   file: "lib/wire/BUILD.buri"
   replace: "{ tool: \"//lib/wire\", inputs: [\"point.proto\"] },"
-  with: "{ tool: \"std/codegen/proto\", inputs: [\"gone.proto\"] },"
+  with: "{ tool: \"std/proto\", inputs: [\"gone.proto\"] },"
 }
 
 run {
@@ -69,8 +69,8 @@ run {
 
 edit {
   file: "lib/wire/BUILD.buri"
-  replace: "{ tool: \"std/codegen/proto\", inputs: [\"gone.proto\"] },"
-  with: "{ tool: \"std/codegen/proto\", inputs: [\"point.proto\"] },"
+  replace: "{ tool: \"std/proto\", inputs: [\"gone.proto\"] },"
+  with: "{ tool: \"std/proto\", inputs: [\"point.proto\"] },"
 }
 
 # `proto_sources` is retired on a binary as well as on a library, and the two

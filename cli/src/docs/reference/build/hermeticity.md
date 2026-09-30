@@ -49,10 +49,10 @@ system uses none, because the language already gives it:
   ([`testing.md`](./testing.md)). There is no real capability to withhold.
 - **The action set is closed, and one action's program is not.** Five kinds, and
   a repository cannot define a sixth. `generate` is the one whose program this
-  toolchain did not write: a [generator](./generators.md) is a binary somebody
+  toolchain did not write: a [generator](./generators.md) is a tool somebody
   declared. It is held to the model by the same two things everything else is —
   every input in the key, and the effect bounds on the context
-  `core/codegen`'s `run` hands it.
+  a tool entry point is handed, which is `Allocator` and nothing else.
 
 Three of the five kinds never leave this process. `test` and `generate` each
 spawn a JavaScript runtime. Both spawns are **deterministic** rather than

@@ -20,8 +20,8 @@ use super::convert::{self, Position};
 /// This is what `textDocument/formatting` answers and what
 /// `textDocument/willSaveWaitUntil` answers, and they are one function because
 /// format-on-save and format-the-file are the same act at two moments.
-pub fn whole_file(name: &str, text: &str) -> Value {
-    let Some(formatted) = formatted(name, text) else { return Value::Array(Vec::new()) };
+pub fn whole_file(text: &str, formatted: Option<String>) -> Value {
+    let Some(formatted) = formatted.filter(|f| f != text) else { return Value::Array(Vec::new()) };
     Value::Array(vec![edit(
         text,
         0,
@@ -35,8 +35,8 @@ pub fn whole_file(name: &str, text: &str) -> Value {
 /// A hunk that merely abuts the range is kept: a pure insertion has no width,
 /// and one at the caret is exactly the edit a reader who selected up to there
 /// asked for.
-pub fn ranged(name: &str, text: &str, from: u32, to: u32) -> Value {
-    let Some(formatted) = formatted(name, text) else { return Value::Array(Vec::new()) };
+pub fn ranged(text: &str, formatted: Option<String>, from: u32, to: u32) -> Value {
+    let Some(formatted) = formatted.filter(|f| f != text) else { return Value::Array(Vec::new()) };
     let (low, high) = if from <= to { (from, to) } else { (to, from) };
     Value::Array(
         hunks(text, &formatted)
@@ -64,10 +64,24 @@ pub fn enclosing_item(text: &str, offset: u32) -> Option<(u32, u32)> {
 }
 
 /// What the formatter would write, or nothing — a file that does not parse is
-/// left alone rather than mangled, and one already formatted has no edit.
-fn formatted(name: &str, text: &str) -> Option<String> {
-    let formatted = crate::commands::format::file(name, text)?;
-    (formatted != text).then_some(formatted)
+/// left alone rather than mangled.
+///
+/// A file in a repository's own language goes to the tool that formats it,
+/// exactly as `buri format` sends it; everything else to the printer
+/// `buri format` picks by name.
+pub fn formatted(state: &mut super::state::State, path: &std::path::Path, text: &str) -> Option<String> {
+    let name = path.file_name()?.to_string_lossy().to_string();
+    if let Some(session) = state.session_for(path) {
+        let rel = session.workspace.rel_of(path);
+        if session.workspace.repo.languages.of(&rel).is_some_and(|l| l.tools().is_some()) {
+            let flags = crate::commands::arguments::Flags::default();
+            return match crate::build::tools::format_file(&session, &rel, text, &flags) {
+                crate::build::tools::Formatted::Text(out) => Some(out),
+                _ => None,
+            };
+        }
+    }
+    crate::commands::format::file(&name, text)
 }
 
 fn edit(text: &str, start: u32, end: u32, new_text: &str) -> Value {

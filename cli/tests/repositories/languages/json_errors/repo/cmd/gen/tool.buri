@@ -1,0 +1,20 @@
+//! A generator that answers every request with one module, `config`, saying
+//! how many inputs it was handed. What it reads is not the point: the build
+//! checks those inputs before this runs, and does not run it when one fails.
+
+from "core/buri/ast" import * as ast;
+from "core/effect" import { Allocator };
+from "core/str" import * as str;
+from "core/tool" import { Generated, GenerateRequest };
+
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+    let text = str.format(
+        ctx,
+        "export let inputs: Int = ${request.inputs.length()};\n",
+    );
+    let modules = match (ast.parse(ctx, "", text)) {
+        .Ok(parsed) => [("config", parsed)],
+        .Err(_) => [],
+    };
+    Generated { modules: modules, diagnostics: [], needs: [] }
+}

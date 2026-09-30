@@ -41,7 +41,7 @@
 use crate::build::cache::{Action, ActionKey, Cache, KeyBuilder, Status};
 use crate::build::session::Session;
 use crate::build::sources::{Overlay, Sources};
-use crate::build::workspace::{RuleKind, TargetId};
+use crate::build::workspace::TargetId;
 use crate::commands::arguments::{BuildMode, Flags};
 use crate::compiler::driver::Analysis;
 use crate::diagnostics::{Diagnostic, Edit, FileId, SecondarySpan, Severity, SourceMap, Span};
@@ -115,10 +115,7 @@ impl Store {
     /// file appearing can turn a finding on, neither of which shows in the
     /// bytes of any file already in the closure.
     fn key(&self, session: &Session, target: TargetId) -> ActionKey {
-        let kind = match target.kind {
-            RuleKind::Library => "library",
-            RuleKind::Binary => "binary",
-        };
+        let kind = target.kind.name();
         let mut builder = KeyBuilder::new(Action::Lint, self.mode);
         // The declared sources are in the graph hash below, which is over the
         // bytes of every build file, so they are not listed again here.

@@ -1,0 +1,56 @@
+//! A generator that writes a type and a value of it, both anchored on the line
+//! of the input they came from.
+//!
+//! A line reads `Type name value`. What it writes is a struct declaration and a
+//! `let` holding one, so the module carries a *type* as well as a name — which
+//! is what a type-definition request needs something to answer with.
+
+from "core/buri/ast" import * as ast;
+from "core/effect" import { Allocator };
+from "core/str" import * as str;
+from "core/tool" import { Generated, GenerateRequest, Input };
+
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+    let items = request.inputs.mapCtx(ctx, fn(c, i) => itemsOf(c, i)).flatten(ctx);
+    Generated {
+        modules: [("units", ast.Module { items: items, docs: [] })],
+        diagnostics: [],
+        needs: [],
+    }
+}
+
+fn itemsOf<C: Allocator>(ctx: C, input: Input<Str>): [ast.Item] {
+    input
+        .value
+        .lines(ctx)
+        .mapCtx(ctx, fn(c, line) => declaration(c, input, line))
+        .flatten(ctx)
+}
+
+/// `Type name value` becomes a struct and a value of it, both anchored on the
+/// line.
+fn declaration<C: Allocator>(ctx: C, input: Input<Str>, line: Str): [ast.Item] {
+    let trimmed = line.trim();
+    let words = trimmed.split(ctx, " ");
+    match ((words.get(0), words.get(1), words.get(2).andThen(fn(v) => v.toInt()))) {
+        (.Some(ty), .Some(name), .Some(value)) => {
+            let start = input.value.indexOf(trimmed).withDefault(0);
+            let origin = ast.origin(input.path, start, start + trimmed.length());
+            let text = str.format(
+                ctx,
+                "export struct ${ty} {\n    export size: Int,\n}\n\nexport let ${name}: ${ty} = ${ty} { size: ${value} };\n",
+            );
+            match (ast.parse(ctx, "", text)) {
+                .Ok(parsed) => {
+                    parsed
+                        .items
+                        .map(ctx, fn(item) => {
+                            ast.Item { kind: item.kind, origin: origin }
+                        })
+                },
+                .Err(_) => [],
+            }
+        },
+        _ => [],
+    }
+}

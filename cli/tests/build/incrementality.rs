@@ -1641,7 +1641,7 @@ fn fail_on_finding_reaches_a_cached_finding() {
 
 /// A repository whose generated code depends on three separate things.
 ///
-/// `//cmd/gen` writes one `export let` whose value is the number in its input
+/// `//tools/gen` writes one `export let` whose value is the number in its input
 /// times a constant it imports from `//lib/factor`. So the generated module
 /// moves when the input moves, when the tool's own source moves, and when the
 /// *tool's dependency* moves — three edits reaching one artifact by three
@@ -1652,13 +1652,13 @@ fn generated_repository(name: &str) -> Scratch {
         .write("lib/factor/BUILD.buri", "library {\n    visibility: [\"//visibility:public\"]\n}\n");
     scratch.write("lib/factor/lib.buri", "export fn factor(): Int { 2 }\n");
     scratch.write(
-        "cmd/gen/BUILD.buri",
-        "binary {\n    dependencies: [\"//lib/factor\"]\n\n    outputs: [{ platform: JS }]\n}\n",
+        "tools/gen/BUILD.buri",
+        "tool {\n    dependencies: [\"//lib/factor\"]\n\n    generate {}\n}\n",
     );
-    scratch.write("cmd/gen/main.buri", GENERATOR);
+    scratch.write("tools/gen/tool.buri", GENERATOR);
     scratch.write(
         "lib/wire/BUILD.buri",
-        "library {\n    generators: [{ tool: \"//cmd/gen\", inputs: [\"units.txt\"] }]\n\n    \
+        "library {\n    generators: [{ tool: \"//tools/gen\", inputs: [\"units.txt\"] }]\n\n    \
          visibility: [\"//visibility:public\"]\n}\n",
     );
     scratch.write("lib/wire/units.txt", "3\n");
@@ -1689,54 +1689,31 @@ fn generated_repository(name: &str) -> Scratch {
 
 /// The tool [`generated_repository`] runs: the input's number times the
 /// constant `//lib/factor` exports.
-const GENERATOR: &str = r#"from "core/effect" import { Allocator, Stdin, Stdout };
-from "core/host" import * as host;
-from "core/io" import * as io;
-from "core/json" import * as json;
-from "core/json" import { Json };
-from "core/list" import * as list;
+const GENERATOR: &str = r#"from "core/buri/ast" import * as ast;
+from "core/effect" import { Allocator };
 from "core/str" import * as str;
+from "core/tool" import { Generated, GenerateRequest };
 from "//lib/factor" import { factor };
 
-export fn main(): Result<(), Str> {
-  let ctx = context { Allocator: host.alloc, Stdin: host.stdin, Stdout: host.stdout };
-  let line = io.readLine(ctx).okOr("no request")?;
-  let request = json.parse(ctx, line).mapErr(fn(_e) => "the request is not JSON")?;
-  let text = firstInput(request).withDefault("0");
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+  let text = request.inputs.get(0).map(fn(i) => i.value).withDefault("0");
   let n = text.trim().toInt().withDefault(0) * factor();
   let source = str.format(ctx, "export let width: Int = ${n};\n");
-  let unit: Json = .Object([
-    ("name", .Str("units")),
-    ("text", .Str(source)),
-    ("anchors", .Array(list.empty())),
-  ]);
-  let response: Json = .Object([
-    ("modules", .Array([unit])),
-    ("diagnostics", .Array(list.empty())),
-  ]);
-  let _ = io.println(ctx, "${json.stringify(ctx, response)}").ignore();
-  .Ok(())
-}
-
-fn firstInput(request: Json): Option<Str> {
-  let inputs = match (request) {
-    .Object(fields) => fields.find(fn(f) => f.0 == "inputs").map(fn(f) => f.1),
-    _ => .None,
+  let modules = match (ast.parse(ctx, "", source)) {
+    .Ok(parsed) => [("units", parsed)],
+    .Err(_) => [],
   };
-  let items = match (inputs.withDefault(.Null)) {
-    .Array(xs) => xs,
-    _ => list.empty(),
-  };
-  let pair = match (items.get(0).withDefault(.Null)) {
-    .Array(xs) => xs,
-    _ => list.empty(),
-  };
-  match (pair.get(1).withDefault(.Null)) {
-    .Str(s) => .Some(s),
-    _ => .None,
-  }
+  Generated { modules: modules, diagnostics: [], needs: [] }
 }
 "#;
+
+/// The programs the build has compiled tools to, one file per program key.
+fn tool_programs(scratch: &Scratch) -> Vec<std::path::PathBuf> {
+    let Ok(entries) = std::fs::read_dir(scratch.path(".buri/out/tools")) else { return Vec::new() };
+    let mut out: Vec<std::path::PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
+    out.sort();
+    out
+}
 
 /// **Three routes to one generated module, and each edit takes exactly one.**
 ///
@@ -1765,7 +1742,8 @@ fn a_generate_key_moves_with_the_input_the_tool_and_the_tools_own_dependency() {
         before["generate //lib/wire"], after["generate //lib/wire"],
         "an edit to a library the tool does not use re-ran the generator"
     );
-    assert_eq!(before["link //cmd/gen"], after["link //cmd/gen"]);
+    let tools = tool_programs(&scratch);
+    assert_eq!(tools.len(), 1, "one tool, compiled once: {tools:?}");
 
     // The input. Generation moves; the tool does not.
     let before = after;
@@ -1775,18 +1753,15 @@ fn a_generate_key_moves_with_the_input_the_tool_and_the_tools_own_dependency() {
         before["generate //lib/wire"], after["generate //lib/wire"],
         "editing an input did not move the generate key"
     );
-    assert_eq!(
-        before["link //cmd/gen"], after["link //cmd/gen"],
-        "editing an input rebuilt the tool"
-    );
+    assert_eq!(tool_programs(&scratch), tools, "editing an input rebuilt the tool");
     scratch.run(&["run", "//cmd/app"]).ok().says("width=10");
 
     // The tool's own source. Both move, and no source of `//lib/wire` was
     // touched.
     let before = after;
-    scratch.edit("cmd/gen/main.buri", "* factor()", "* factor() + 1");
+    scratch.edit("tools/gen/tool.buri", "* factor()", "* factor() + 1");
     let after = keys(scratch.run(&["build", "//...", "--explain"]).ok());
-    assert_ne!(before["link //cmd/gen"], after["link //cmd/gen"]);
+    assert_ne!(tool_programs(&scratch), tools, "editing the tool did not rebuild it");
     assert_ne!(
         before["generate //lib/wire"], after["generate //lib/wire"],
         "editing the tool did not move the generate key"
@@ -1798,7 +1773,6 @@ fn a_generate_key_moves_with_the_input_the_tool_and_the_tools_own_dependency() {
     let before = after;
     scratch.edit("lib/factor/lib.buri", "{ 2 }", "{ 3 }");
     let after = keys(scratch.run(&["build", "//...", "--explain"]).ok());
-    assert_ne!(before["compile //lib/factor"], after["compile //lib/factor"]);
     assert_ne!(
         before["generate //lib/wire"], after["generate //lib/wire"],
         "editing a library the tool is built from did not move the generate key"

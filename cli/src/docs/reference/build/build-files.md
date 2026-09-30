@@ -48,9 +48,9 @@ lib/ledger/
 Subdirectories organize a library that has grown, and they cost nothing: no
 rule, no visibility, no dependency edge. Only a `BUILD.buri` creates a boundary.
 
-A package declares **at most one library and at most one binary**. The fixed
-entry-point filenames force that: one `lib.buri` per directory, one `main.buri`
-per directory. It is also what lets a label be a bare path.
+A package declares **at most one library, one binary and one tool**. The fixed
+entry-point filenames force that: one `lib.buri`, one `main.buri` and one
+`tool.buri` per directory. It is also what lets a label be a bare path.
 
 ## Labels
 
@@ -305,6 +305,28 @@ produces.
 A `binary` has no `visibility` field, because nothing can depend on a binary.
 Use `buri run` or `buri build`. When two binaries need shared code, that code is
 a library.
+
+## `tool`
+
+A program the build runs on a language's files: its check, its formatter, or a
+generator. Its root is `tool.buri`, which exports one function per block.
+
+```textproto schema=build
+# tools/lines/BUILD.buri
+tool {
+    sources: ["words.buri"]
+    dependencies: ["//lib/text"]
+
+    check {}
+    format {}
+}
+```
+
+`sources`, `dependencies` and `test` mean what they mean on a `binary`, and a
+tool implicitly depends on the library in its own package. There is no `main`
+and no `outputs`: the build compiles the tool itself and calls its entry
+points. `buri build //tools/lines` checks it. [`tools.md`](./tools.md) has the
+entry points and what each is handed.
 
 ## A package with both
 

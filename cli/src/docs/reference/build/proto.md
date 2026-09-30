@@ -16,12 +16,12 @@ forget to run.
 
 ## Declaring the schema
 
-A `.proto` is a generator's input, and `std/codegen/proto` is the generator:
+A `.proto` is a generator's input, and `std/proto` is the generator:
 
 ```textproto schema=build
 library {
     generators: [
-        { tool: "std/codegen/proto", inputs: ["address.proto", "demo.proto"] },
+        { tool: "std/proto", inputs: ["address.proto", "demo.proto"] },
     ]
 }
 ```
