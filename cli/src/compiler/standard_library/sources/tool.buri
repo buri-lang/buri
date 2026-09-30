@@ -41,7 +41,8 @@ from "core/codegen" export { Diagnostic };
 
 from "core/format" export { Doc };
 
-/// One file. `T` is `Str`, the file's text.
+/// One file. `T` is `Str`, the file's text, unless the entry point has a
+/// contract; then it is the contract's root type.
 export struct Input<T> {
     /// Repository-relative.
     export path: Str,
@@ -76,6 +77,9 @@ export struct Checked {
 
 export struct GenerateRequest<T> {
     export inputs: [Input<T>],
+    /// Set when the build wants only the types a contract describes. `inputs`
+    /// is then empty, and the answer is one module holding those types, with
+    /// an exported `decode<C: Allocator>(ctx: C, text: Str): Result<Root, Str>`.
     export typesOf: Option<TypeSchema>,
     export files: [(Str, Str)],
 }
@@ -138,6 +142,39 @@ export fn serve<C: Allocator + Stdin + Stdout>(
     }
 }
 
+/// Each input's value read as a `T`: what the toolchain's `main` hands an
+/// entry point with a contract. `decode` takes the input's language and text,
+/// and a value it cannot read is a diagnostic.
+export fn typed<T, C: Allocator>(
+    ctx: C,
+    inputs: [Input<Str>],
+    decode: fn(C, Str, Str) => Result<T, Str>,
+): Result<[Input<T>], [Diagnostic]> {
+    inputs.mapResultCtx(ctx, fn(c, input) => {
+        match (decode(c, input.language, input.value)) {
+            .Ok(value) => {
+                .Ok(Input {
+                    path: input.path,
+                    language: input.language,
+                    typeSchema: input.typeSchema,
+                    value: value,
+                })
+            },
+            .Err(why) => {
+                .Err([
+                    Diagnostic {
+                        code: "typed-input-unreadable",
+                        message: str.format(c, "`${input.path}` did not read as its contract's type: ${why}"),
+                        note: .None,
+                        fix: .None,
+                        origin: .None,
+                    },
+                ])
+            },
+        }
+    })
+}
+
 // -----------------------------------------------------------------------------
 // Reading the request
 // -----------------------------------------------------------------------------
@@ -157,7 +194,7 @@ fn generateRequest<C: Allocator>(
 ): Result<GenerateRequest<Str>, Str> {
     .Ok(GenerateRequest {
         inputs: inputs(ctx, request)?,
-        typesOf: .None,
+        typesOf: request.get("typesOf").andThen(fn(t) => typeSchema(t)),
         files: files(ctx, request)?,
     })
 }
@@ -174,8 +211,14 @@ fn input(item: Json): Result<Input<Str>, Str> {
     .Ok(Input {
         path: field(item, "path").okOr(bad)?,
         language: field(item, "language").okOr(bad)?,
-        typeSchema: .None,
+        typeSchema: item.get("typeSchema").andThen(fn(t) => typeSchema(t)),
         value: field(item, "value").okOr(bad)?,
+    })
+}
+
+fn typeSchema(value: Json): Option<TypeSchema> {
+    field(value, "text").andThen(fn(text) => {
+        field(value, "package").map(fn(package) => TypeSchema { text: text, package: package })
     })
 }
 

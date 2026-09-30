@@ -2119,7 +2119,8 @@ fn language_findings(state: &mut State, path: &std::path::Path, text: &str) -> O
     let root = workspace.root.clone();
     let read = |r: &str| state.text_of(&root.join(r));
     let flags = crate::commands::arguments::Flags::default();
-    let findings = crate::build::tools::check_file(&session, &rel, text, &read, &flags)
+    let contract = crate::build::generators::contract_for(workspace, &rel);
+    let findings = crate::build::tools::check_file(&session, &rel, text, contract.as_ref(), &read, &flags)
         .map(|c| c.findings)
         .unwrap_or_default();
     let uri = convert::uri_of(path);
