@@ -1,0 +1,85 @@
+//! A generator: reads a `units.txt` of `name value` lines and writes a module,
+//! `units`, declaring each name as an exported `Int`. Every declaration carries
+//! the origin of the line it was written from, which is what the language
+//! server reads a generated symbol's origin out of.
+//!
+//! Four line shapes, which is the whole of the format:
+//!
+//! ```text
+//! # prose            a comment, printed nowhere — the input's doc comment
+//! width 3            `export let width: Int = 3;`, anchored at this line
+//! width 3 # prose    the same; the prose is not printed and is still anchored
+//! ~any buri source   printed as written, anchored nowhere
+//! ```
+//!
+//! Origins count **UTF-8 bytes**, which is not the unit `Str.length` counts —
+//! so a line is measured through `core/bytes`, and an input written in more
+//! than ASCII lands where it was written.
+
+from "core/buri/ast" import * as ast;
+from "core/bytes" import * as bytes;
+from "core/effect" import { Allocator };
+from "core/str" import * as str;
+from "core/tool" import { Generated, GenerateRequest, Input };
+
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+    let items = request.inputs.mapCtx(ctx, fn(c, i) => itemsOf(c, i)).flatten(ctx);
+    Generated {
+        modules: [("units", ast.Module { items: items, docs: [] })],
+        diagnostics: [],
+        needs: [],
+    }
+}
+
+/// Every line, parsed, carrying the offset of the line it came from.
+fn itemsOf<C: Allocator>(ctx: C, input: Input<Str>): [ast.Item] {
+    input
+        .value
+        .lines(ctx)
+        .foldCtx(
+            ctx,
+            fn(c, acc: (Int, [ast.Item]), line) => {
+                let next = acc.0 + byteLen(c, line) + 1;
+                (next, acc.1.concat(c, items(c, input.path, line, acc.0)))
+            },
+            (0, []),
+        ).1
+}
+
+fn items<C: Allocator>(ctx: C, path: Str, line: Str, at: Int): [ast.Item] {
+    if (line.isEmpty() || line.startsWith("#")) {
+        []
+    } else if (line.startsWith("~")) {
+        nodesOf(ctx, line.slice(1, line.length()))
+    } else {
+        match (line.splitOnce(" ")) {
+            .None => [],
+            .Some(split) => {
+                // The origin is the whole line, prose and all — a `#` after
+                // the value is written about the declaration.
+                let value = split.1
+                    .splitOnce("#")
+                    .map(fn(v) => v.0)
+                    .withDefault(split.1)
+                    .trim();
+                let text = str.format(ctx, "export let ${split.0}: Int = ${value};");
+                let end = at + byteLen(ctx, line);
+                nodesOf(ctx, text).map(ctx, fn(item) => {
+                    ast.Item { kind: item.kind, origin: ast.origin(path, at, end) }
+                })
+            },
+        }
+    }
+}
+
+/// Source text as nodes that came from nowhere.
+fn nodesOf<C: Allocator>(ctx: C, text: Str): [ast.Item] {
+    match (ast.parse(ctx, "", text)) {
+        .Ok(parsed) => parsed.items,
+        .Err(_) => [],
+    }
+}
+
+fn byteLen<C: Allocator>(ctx: C, s: Str): Int {
+    bytes.toUtf8(ctx, s).length()
+}

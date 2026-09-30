@@ -1,0 +1,95 @@
+error: "//lib/wire" does not export `height` [no-such-export]
+ --> cmd/app/main.buri:4:28
+  |
+4 | from "//lib/wire" import { height, width };
+  |                            ^^^^^^
+  |
+  = fix: check the spelling, or re-export `height` from "//lib/wire"'s `lib.buri`
+
+    Why
+    ───
+
+    A re-export may name only what its module path exports, so a library's
+    surface is never wider than the modules it is built from.
+
+error: "//lib/wire" does not export `width` [no-such-export]
+ --> cmd/app/main.buri:4:36
+  |
+4 | from "//lib/wire" import { height, width };
+  |                                    ^^^^^
+  |
+  = fix: check the spelling, or re-export `width` from "//lib/wire"'s `lib.buri`
+error: there is nothing named `width` in scope [unresolved-name]
+  --> cmd/app/main.buri:12:26
+   |
+12 |         .println(ctx, "${width * height}")
+   |                          ^^^^^
+   |
+   = fix: declare `width`, or import it — a name is in scope only from this module's own declarations and its imports
+
+     Why
+     ───
+
+     There is no prelude and no ambient scope. A module's available names are
+     the ones it declares plus the ones its own imports name, which is what
+     makes the suggestion trustworthy.
+
+error: there is nothing named `height` in scope [unresolved-name]
+  --> cmd/app/main.buri:12:34
+   |
+12 |         .println(ctx, "${width * height}")
+   |                                  ^^^^^^
+   |
+   = fix: declare `height`, or import it — a name is in scope only from this module's own declarations and its imports
+error: `//cmd/gen` did not answer [tool-failed]
+ --> lib/wire/BUILD.buri:3:9
+  |
+3 |         { tool: "//cmd/gen", inputs: ["spare.txt", "units.txt"] },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = the tool exited with 1
+    division by zero
+    Error: division by zero
+  = fix: fix what the note names; `buri test` on the tool runs its own tests
+
+    The note says which way it went: the tool did not build, it exited non-zero,
+    a signal killed it, it wrote nothing, or what it wrote is not an answer.
+
+      = the tool was killed by SIGSEGV (signal 11)
+        RangeError: Maximum call stack size exceeded.
+
+    A tool that was killed chose no status, so the note names the signal
+    instead: SIGSEGV for a crash or a stack it ran off the end of, SIGKILL for a
+    machine that ran out of memory. The last four kilobytes of what it put on
+    standard error come with the note, because what a program says last is what
+    says why it stopped.
+
+    A tool that is *slow* is not this page. Nothing puts a clock on a tool: the
+    build waits for as long as it runs, the way it waits for a compiler or a
+    linker.
+
+error: "//lib/wire/units" names no file (lib/wire/units.buri) [module-not-found]
+ --> lib/wire/lib.buri:1:6
+  |
+1 | from "//lib/wire/units" export { height, width };
+  |      ^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    What to do
+    ──────────
+
+    Create the file the path names, or correct the path.
+
+    Why
+    ───
+
+    A module path maps to exactly one file, with no search path and no fallback,
+    so there is never a question of which of two candidates a path meant.
+
+    A program that provokes it
+    ──────────────────────────
+
+    This snippet resolves against the worked monorepo in cli/tests/example,
+    which has no lib/nope.
+

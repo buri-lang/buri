@@ -23,7 +23,7 @@
 //!
 //! The last three are here rather than in `repositories/generators/` because
 //! none of their fixtures is something a corpus could hold: a schema that is
-//! not UTF-8; a megabyte through every one of the tool's three pipes, past any
+//! not UTF-8; a megabyte through both of the tool's pipes, past any
 //! platform's buffer; and the printer's own text compared byte for byte with
 //! the file beside it.
 //!
@@ -46,7 +46,7 @@ fn host_platform() -> &'static str {
     }
 }
 
-const LIBRARY: &str = "library {\n    generators: [\n        { tool: \"std/codegen/proto\", inputs: [\"address.proto\", \"demo.proto\"] },\n    ]\n\n    visibility: [\"//visibility:public\"]\n}\n";
+const LIBRARY: &str = "library {\n    generators: [\n        { tool: \"std/proto\", inputs: [\"address.proto\", \"demo.proto\"] },\n    ]\n\n    visibility: [\"//visibility:public\"]\n}\n";
 
 const SURFACE: &str = "from \"//lib/proto/demo.proto\" export {\n    decodeEverything, defaultEverything, encodeEverything, Everything, Shade,\n};\n";
 
@@ -176,15 +176,15 @@ fn a_generated_module_links_into_a_release_artifact_or_is_refused_by_name() {
 
 /// The generator the toolchain ships is compiled **once per repository**.
 ///
-/// `std/codegen/proto` is a Buri program, and the build compiles it to an
-/// `.mjs` under `.buri/out/toolchain/` the first time anything needs a schema
+/// `std/proto` is a Buri program, and the build compiles it to an
+/// `.mjs` under `.buri/out/tools/` the first time anything needs a schema
 /// read. The file's name is its action key, so the claim this row holds is
 /// two-sided: after two builds, of two targets, across three platforms, that
 /// directory holds exactly one file — and the second build did not write it
 /// again.
 ///
 /// What it costs is the whole reason to care. A compile of the generator is a
-/// compile of `core/codegen`, `core/buri/ast` and both halves of the schema
+/// compile of `core/tool`, `core/buri/ast` and both halves of the schema
 /// reader, and it happens before the first schema is read. Paying it per target
 /// would put it in front of every package in a repository.
 #[test]
@@ -238,7 +238,7 @@ fn an_input_that_is_not_text_is_reported_as_unreadable_rather_than_absent() {
     scratch.write(
         "lib/wire/BUILD.buri",
         "library {\n    sources: [\"beside.buri\"]\n\n    \
-         generators: [{ tool: \"std/codegen/proto\", inputs: [\"point.proto\"] }]\n}\n",
+         generators: [{ tool: \"std/proto\", inputs: [\"point.proto\"] }]\n}\n",
     );
     scratch.write("lib/wire/lib.buri", "export fn here(): Int { 1 }\n");
     scratch.write("lib/wire/beside.buri", "export fn beside(): Int { 2 }\n");
@@ -271,15 +271,14 @@ fn an_input_that_is_not_text_is_reported_as_unreadable_rather_than_absent() {
         .says("check the file exists and is readable");
 }
 
-/// **All three pipes carry more than a pipe holds.**
+/// **Both pipes carry more than a pipe holds.**
 ///
-/// The build writes the request on one thread and drains both of the tool's
-/// streams on two more, because a pipe holds a page or two: a stream bigger
-/// than that blocks whoever is writing it, and a build waiting for an exit that
-/// the block prevents is two processes waiting on each other with nothing to
-/// end it. So the tool here is handed a megabyte, answers with a module holding
-/// all of it, and writes a hundred kilobytes on standard error on the way — a
-/// megabyte and a hundred kilobytes being far past any platform's buffer.
+/// The build writes the request on one thread and drains the tool's streams on
+/// others, because a pipe holds a page or two: a stream bigger than that
+/// blocks whoever is writing it, and a build waiting for an exit that the block
+/// prevents is two processes waiting on each other with nothing to end it. So
+/// the tool here is handed a megabyte and answers with a module holding all of
+/// it — far past any platform's buffer, both ways.
 ///
 /// The generator answers with the input's own length and with the input itself,
 /// so a stream that arrived truncated is a wrong number rather than a hang.
@@ -288,7 +287,7 @@ fn an_input_larger_than_a_pipe_crosses_it_whole() {
     let scratch = Scratch::repo("generators-large-input");
     scratch.write(
         "lib/wire/BUILD.buri",
-        "library {\n    generators: [{ tool: \"//cmd/gen\", inputs: [\"big.txt\"] }]\n\n    \
+        "library {\n    generators: [{ tool: \"//tools/gen\", inputs: [\"big.txt\"] }]\n\n    \
          visibility: [\"//visibility:public\"]\n}\n",
     );
     // One megabyte, which no pipe buffer on either platform holds.
@@ -298,8 +297,8 @@ fn an_input_larger_than_a_pipe_crosses_it_whole() {
         "lib/wire/lib.buri",
         "from \"//lib/wire/units\" export { echoed, size };\n",
     );
-    scratch.write("cmd/gen/BUILD.buri", "binary {\n    outputs: [{ platform: JS }]\n}\n");
-    scratch.write("cmd/gen/main.buri", MEASURING_GENERATOR);
+    scratch.write("tools/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
+    scratch.write("tools/gen/tool.buri", MEASURING_GENERATOR);
     scratch.write(
         "cmd/app/BUILD.buri",
         "binary {\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [{ platform: JS }]\n}\n",
@@ -321,60 +320,23 @@ fn an_input_larger_than_a_pipe_crosses_it_whole() {
 }
 
 /// A generator that answers with the bytes it was handed and how many there
-/// were, and that fills standard error before it does.
-const MEASURING_GENERATOR: &str = r#"from "core/effect" import { Allocator, Stderr, Stdin, Stdout };
-from "core/host" import * as host;
-from "core/io" import * as io;
-from "core/json" import * as json;
-from "core/json" import { Json };
-from "core/list" import * as list;
+/// were.
+const MEASURING_GENERATOR: &str = r#"from "core/buri/ast" import * as ast;
+from "core/effect" import { Allocator };
 from "core/str" import * as str;
+from "core/tool" import { Generated, GenerateRequest };
 
-export fn main(): Result<(), Str> {
-  let ctx = context {
-    Allocator: host.alloc,
-    Stderr: host.stderr,
-    Stdin: host.stdin,
-    Stdout: host.stdout,
-  };
-  let line = io.readLine(ctx).okOr("no request")?;
-  let request = json.parse(ctx, line).mapErr(fn(_e) => "the request is not JSON")?;
-  let text = firstInput(request).withDefault("");
-  let _ = io.eprintln(ctx, "e".repeat(ctx, 100000)).ignore();
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+  let text = request.inputs.get(0).map(fn(i) => i.value).withDefault("");
   let source = str.format(
     ctx,
     "export let size: Int = ${text.length()};\nexport let echoed: Str = \"${text}\";\n",
   );
-  let unit: Json = .Object([
-    ("name", .Str("units")),
-    ("text", .Str(source)),
-    ("anchors", .Array(list.empty())),
-  ]);
-  let response: Json = .Object([
-    ("modules", .Array([unit])),
-    ("diagnostics", .Array(list.empty())),
-  ]);
-  let _ = io.println(ctx, "${json.stringify(ctx, response)}").ignore();
-  .Ok(())
-}
-
-fn firstInput(request: Json): Option<Str> {
-  let inputs = match (request) {
-    .Object(fields) => fields.find(fn(f) => f.0 == "inputs").map(fn(f) => f.1),
-    _ => .None,
+  let modules = match (ast.parse(ctx, "", source)) {
+    .Ok(parsed) => [("units", parsed)],
+    .Err(_) => [],
   };
-  let items = match (inputs.withDefault(.Null)) {
-    .Array(xs) => xs,
-    _ => list.empty(),
-  };
-  let pair = match (items.get(0).withDefault(.Null)) {
-    .Array(xs) => xs,
-    _ => list.empty(),
-  };
-  match (pair.get(1).withDefault(.Null)) {
-    .Str(s) => .Some(s),
-    _ => .None,
-  }
+  Generated { modules: modules, diagnostics: [], needs: [] }
 }
 "#;
 
@@ -403,11 +365,13 @@ fn firstInput(request: Json): Option<Str> {
 fn the_printers_text_is_the_file_beside_it_byte_for_byte() {
     let fixture = tests_dir().join("repositories/generators/the_printer_round_trips/repo");
     let scratch = Scratch::copy_of("generators-printed-text", &fixture);
-    scratch.run(&["build", "//cmd/gen"]).ok();
+    scratch.run(&["build", "//lib/wire"]).ok();
 
-    let request = buri::build::generators::Request::default();
-    let response = buri::build::generators::run_artifact(&scratch.artifact("cmd/gen"), &request)
+    let tool = toolchain_artifacts(&scratch);
+    let [tool] = tool.as_slice() else { panic!("one tool was compiled: {tool:?}") };
+    let line = buri::build::generators::run_artifact(tool, r#"{"entry":"generate","inputs":[],"files":[]}"#)
         .expect("the generator answers");
+    let response = buri::build::generators::Response::decode(&line).expect("an answer");
     let printed = &response.modules.first().expect("one module").text;
     let twin = std::fs::read_to_string(fixture.join("lib/wire/twin.buri")).expect("the twin");
     assert_eq!(
@@ -418,9 +382,9 @@ fn the_printers_text_is_the_file_beside_it_byte_for_byte() {
     );
 }
 
-/// Every `.mjs` under `.buri/out/toolchain/`, sorted.
+/// Every `.mjs` under `.buri/out/tools/`, sorted.
 fn toolchain_artifacts(scratch: &Scratch) -> Vec<std::path::PathBuf> {
-    let dir = scratch.path(".buri/out/toolchain");
+    let dir = scratch.path(".buri/out/tools");
     let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
     let mut out: Vec<std::path::PathBuf> = entries
         .filter_map(Result::ok)

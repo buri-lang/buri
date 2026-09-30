@@ -1,0 +1,18 @@
+error: `//lib/nothing` names no tool [no-such-tool]
+ --> lib/app/BUILD.buri:3:17
+  |
+3 |         { tool: "//lib/nothing", inputs: ["input.txt"] },
+  |                 ^^^^^^^^^^^^^^^
+  |
+  = a tool is a `//label` naming a `tool` rule in this repository, or `std/json` or `std/proto`
+  = fix: name a package whose BUILD.buri declares a `tool` rule
+
+      library {
+          generators: [
+              { tool: "//tools/routes", inputs: ["regions.json"] },
+          ]
+      }
+
+    //tools/routes is a package whose BUILD.buri holds tool { generate {} }. See
+    `tools.md` (../build/tools.md).
+

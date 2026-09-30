@@ -1,0 +1,120 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a language REPO.buri declares, checked and formatted by a tool rule of the repository: build, lint and format use its check and format, a generator is a tool's generate, and editing the tool, the file or a file the check needs asks the tool again"
+
+# `colors.lines` passes `//tools/lines`'s check, which reads the dictionary
+# through `needs`, and `//tools/count` generates the module the binary prints.
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run.txt"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "lint.txt"
+}
+
+# A tool's own suite calls its entry points directly.
+run {
+  args: ["test", "//tools/lines"]
+  exit: 0
+  golden: "tool_test.txt"
+}
+
+# The file is laid out by the tool's `format`.
+run {
+  args: ["format", "--check"]
+  exit: 1
+  golden: "check.txt"
+}
+
+run {
+  args: ["format"]
+  exit: 0
+  golden: "format.txt"
+}
+
+file {
+  path: "lib/colors/colors.lines"
+  golden: "colors.lines"
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 0
+}
+
+# A word the dictionary lacks is the tool's diagnostic, where the word is, and
+# the generator does not run.
+edit {
+  file: "lib/colors/colors.lines"
+  replace: "green\n"
+  with: "purple\n"
+}
+
+run {
+  args: ["build", "//lib/colors"]
+  exit: 1
+  golden: "violation.txt"
+}
+
+run {
+  args: ["lint", "//lib/colors", "--dense"]
+  exit: 1
+  golden: "violation_lint.txt"
+}
+
+# The check is keyed on the file it needed: adding the word re-checks.
+edit {
+  file: "tools/lines/dictionary.txt"
+  replace: "blue\n"
+  with: "blue\npurple\n"
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run.txt"
+}
+
+# Editing a generator's source generates again.
+edit {
+  file: "tools/count/tool.buri"
+  replace: "            0,\n"
+  with: "            10,\n"
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run_edited.txt"
+}
+
+# Editing a check's source checks again.
+edit {
+  file: "tools/lines/tool.buri"
+  replace: "if (word.isEmpty() || known.contains(word)) {"
+  with: "if (word.isEmpty() || (known.contains(word) && word.length() < 5)) {"
+}
+
+run {
+  args: ["build", "//lib/colors"]
+  exit: 1
+  golden: "tool_edit.txt"
+}
+
+# A file the tool will not format is left as it is.
+edit {
+  file: "lib/colors/colors.lines"
+  replace: "red\n"
+  with: "red\n!\n"
+}
+
+run {
+  args: ["format", "--check", "lib/colors"]
+  exit: 1
+  golden: "refused.txt"
+}

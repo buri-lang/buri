@@ -1,0 +1,15 @@
+error: `purple` is not in the dictionary [tool-diagnostic]
+ --> lib/colors/colors.lines:2:1
+  |
+2 | purple
+  | ^^^^^^
+  |
+  = the tool reported this as `lines-unknown-word`, which is not a code this toolchain has a page for
+  = fix: add it to tools/lines/dictionary.txt
+error: "//lib/colors/words" names no file (lib/colors/words.buri) [module-not-found]
+ --> lib/colors/lib.buri:1:6
+  |
+1 | from "//lib/colors/words" export { count };
+  |      ^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search

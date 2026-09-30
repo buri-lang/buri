@@ -1,5 +1,3 @@
-keyed  compile //cmd/gen js <key>
-run    link //cmd/gen js <key>
 keyed  compile //cmd/app js <key>
 keyed  generate //lib/wire js <key>
 keyed  compile //lib/wire js <key>

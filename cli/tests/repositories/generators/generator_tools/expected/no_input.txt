@@ -1,8 +1,8 @@
 error: gone.proto does not exist [no-such-source]
- --> lib/wire/BUILD.buri:3:47
+ --> lib/wire/BUILD.buri:3:39
   |
-3 |         { tool: "std/codegen/proto", inputs: ["gone.proto"] },
-  |                                               ^^^^^^^^^^^^
+3 |         { tool: "std/proto", inputs: ["gone.proto"] },
+  |                                       ^^^^^^^^^^^^
   |
   = every source is declared one path at a time; there are no globs
   = fix: create the file, or remove it from `generators`

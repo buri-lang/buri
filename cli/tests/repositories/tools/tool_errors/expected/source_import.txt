@@ -1,0 +1,21 @@
+error: //tools/good/tool.buri belongs to the tool in //tools/good [tool-source-import]
+ --> tools/good/lib.buri:1:6
+  |
+1 | from "//tools/good/tool.buri" import { generate };
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^ only the tool and its tests reach its modules
+  |
+  = tools/good/lib.buri belongs to the library rule, and the toolchain is what calls a tool
+  = fix: move what you need into a library, and depend on it from both
+
+    A tool is run by the build, not linked into a program. Code a tool shares
+    with a library or a binary lives in a library that all of them list in
+    dependencies.
+
+error: //tools/good/tool.buri belongs to the tool in //tools/good [tool-source-import]
+ --> tools/good/lib.buri:1:6
+  |
+1 | from "//tools/good/tool.buri" import { generate };
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^ only the tool and its tests reach its modules
+  |
+  = tools/good/lib.buri belongs to the library rule, and the toolchain is what calls a tool
+  = fix: move what you need into a library, and depend on it from both

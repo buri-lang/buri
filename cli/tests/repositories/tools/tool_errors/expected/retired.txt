@@ -1,0 +1,18 @@
+error: `std/codegen/proto` is retired [retired-tool-name]
+ --> lib/app/BUILD.buri:3:17
+  |
+3 |         { tool: "std/codegen/proto", inputs: ["input.txt"] },
+  |                 ^^^^^^^^^^^^^^^^^^^
+  |
+  = a tool this toolchain ships is `std/<language>`
+  = fix: name it `std/proto`
+
+      library {
+          generators: [
+              { tool: "std/proto", inputs: ["point.proto"] },
+          ]
+      }
+
+    std/codegen/proto was named for what it did. It is std/proto now, beside
+    std/json, and the old name is refused rather than kept as a second spelling.
+

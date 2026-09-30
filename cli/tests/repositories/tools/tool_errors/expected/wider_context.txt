@@ -1,0 +1,20 @@
+error: `generate` asks for `Stdout`, and `ctx` in a tool has `Allocator` only [tool-context-beyond-allocator]
+ --> tools/good/tool.buri:8:35
+  |
+8 | export fn generate<C: Allocator + Stdout>(ctx: C, request: GenerateRequest<Str>): Generated {
+  |                                   ^^^^^^
+  |
+  = what a tool answers is a function of what it was handed, so it cannot read the clock, the disk or the network
+  = fix: bound `ctx` by `Allocator` alone; a file the tool needs to read goes in `needs`
+
+      from "core/effect" import { Allocator };
+      from "core/tool" import { Checked, CheckRequest };
+
+      export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
+          Checked { diagnostics: [], needs: [] }
+      }
+
+    The build caches a tool's answer under its inputs. A tool that read anything
+    else could give two answers to one question, and the cache would serve the
+    wrong one.
+

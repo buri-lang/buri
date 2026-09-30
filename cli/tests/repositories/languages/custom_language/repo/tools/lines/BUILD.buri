@@ -1,0 +1,9 @@
+tool {
+    test {
+        sources: ["test/lines.buri"]
+        platforms: [JS]
+    }
+
+    check {}
+    format {}
+}
