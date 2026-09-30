@@ -1056,6 +1056,25 @@ N36cRROHvFG5TJfrBSfH3IXkHfALHOC4nsMZgUIK1DDUYy/eh0P1jYuY
 -----END PRIVATE KEY-----
 ";
 
+/// The authority that signed [`TLS_LEAF_PEM`]: the trust anchor a client
+/// needs to accept the leaf.
+///
+/// Also copied from `cli/runtime/tls.rs`'s test fixture, for the same reason as
+/// the leaf. Regenerate both copies together.
+pub const TLS_CA_PEM: &str = "\
+-----BEGIN CERTIFICATE-----
+MIIBpTCCAUygAwIBAgIUbhJr2chPv/c7SF7l4NzpYPs3TvIwCgYIKoZIzj0EAwIw
+HzEdMBsGA1UEAwwUYnVyaSBydW50aW1lIHRlc3QgQ0EwHhcNMjYwODMwMTYzMDI1
+WhcNNDgwNzI1MTYzMDI1WjAfMR0wGwYDVQQDDBRidXJpIHJ1bnRpbWUgdGVzdCBD
+QTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABNzK2k8RMPmAbeUnOQN0XOeLbErK
+jrxvaxKWSvHP1RvgWBP76WZFmDjJPnkMnrPPzgWKSH7aVXi4kuNYtAA8aGGjZjBk
+MB0GA1UdDgQWBBTA1KvkoObvR+8An7VQ5rGc8ibMozAfBgNVHSMEGDAWgBTA1Kvk
+oObvR+8An7VQ5rGc8ibMozASBgNVHRMBAf8ECDAGAQH/AgEAMA4GA1UdDwEB/wQE
+AwIBBjAKBggqhkjOPQQDAgNHADBEAiBVHuidBPkVtHVAGk22n1tXvJJOWFus9Kev
+u66hvyYsxgIgYiwfnji/XJr7G0G3su3bda6gySR7mwXtJaSJYsw0AQo=
+-----END CERTIFICATE-----
+";
+
 /// The two PEM files a fixture names, written beside the binary that will read
 /// them, and a third path that is deliberately not there.
 ///

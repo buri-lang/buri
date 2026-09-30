@@ -359,8 +359,9 @@ pub struct Entry {
     /// The index, in the Buri argument list, of an argument passed **by
     /// address** rather than flattened into leaves.
     ///
-    /// Exactly the arguments whose type is a bare type variable: `list.push`'s
-    /// item and `list.repeat`'s. `lib.rs` §2 rule 1 flattens an aggregate into
+    /// Mostly the arguments whose type is a bare type variable: `list.push`'s
+    /// item and `list.repeat`'s. `host.HostNetwork.fetch`'s `Request` is the
+    /// other case: too many words for the registers. `lib.rs` §2 rule 1 flattens an aggregate into
     /// its leaves, and a `T` has no leaf list a C signature could name, so the
     /// caller spills it to a stack slot and passes the address — which is
     /// `lib.rs` §2 rule 4, and the same reason `stride` is a parameter.
@@ -777,6 +778,10 @@ pub const ENTRIES: &[Entry] = &[
     e("host.HostTcp.tcpRead", "buri_rt_host_tcp_read", Ret::ResMsg),
     e("host.HostTcp.tcpWrite", "buri_rt_host_tcp_write", Ret::ResMsg),
     e("host.HostTcp.tcpClose", "buri_rt_host_tcp_close", Ret::Void),
+    // `Request` goes by address: its nine words plus two out-pointers would not
+    // fit the stencil backend's ten argument registers. `NetError`'s `BadUrl`
+    // and `Transport` carry the sentence `Ret::ResMsg` gives a place to.
+    Entry { by_ref: Some(1), ..e("host.HostNetwork.fetch", "buri_rt_host_network_fetch", Ret::ResMsg) },
     e("host.HostFileSystem.fileExists", "buri_rt_host_file_system_file_exists", Ret::Scalar),
     e("host.HostClock.nowMilliseconds", "buri_rt_host_clock_now_milliseconds", Ret::Scalar),
     e("host.HostClock.sleepMilliseconds", "buri_rt_host_clock_sleep_milliseconds", Ret::Void),
@@ -1571,23 +1576,10 @@ mod tests {
             // shape, because `IoError.Other(Str)` is what a real filesystem
             // answers for every kind the six classified variants do not name.
             //
-            // `host.HostNetwork.fetch` is absent for a *third* reason, and it is
-            // the one this list exists to distinguish. The archive has a body
-            // (`cli/runtime/host.rs`), and the shape is not merely missing: it
-            // is not expressible. `Ret::Res` names the error variant by index
-            // and §2.1 restricts that variant to carrying no fields, while
-            // `NetError` carries a `Str` on `BadUrl` and on `Transport`. A row
-            // here needs §2.1 widened first, not a `Ret` picked from the ones
-            // that exist.
-            "host.HostNetwork.fetch",
-            // `core/host/testing`'s `net()` answers the same shape and needs
-            // no row at all: `TestNetwork` carries its responder as a value and
-            // `TestNetwork.fetch` is a Buri body that calls it, so no key is
-            // produced for it here. That is the same wall read from the other
-            // side — a responder is a `{ code, env }` pair the archive has no
-            // way to invoke, and its answer is the `Result<Response, NetError>`
-            // §2.1 cannot name — and it is why widening §2.1 later changes
-            // nothing about the double. Its *log* is a different question and
+            // `core/host/testing`'s `net()` needs no row at all: `TestNetwork`
+            // carries its responder as a value and `TestNetwork.fetch` is a Buri
+            // body that calls it, so no key is produced for it here. A responder
+            // is a `{ code, env }` pair the archive has no way to invoke. Its *log* is a different question and
             // has five rows above: `newNet`, `netRebind`, `netWithPlan`,
             // `recordFetch` and `netCalls` cross nothing §2.1 restricts. So does
             // its **fault plan**, which is the same wall a third time: the plan
@@ -1626,18 +1618,14 @@ mod tests {
         assert!(entry("str.concat").is_none());
     }
 
-    /// `host.HostNetwork.fetch`, in both directions.
-    ///
-    /// The archive exports exactly the symbol the mangling rule produces — so
-    /// a row added later needs no invention — and this table has no row for
-    /// it, because `NetError`'s two payload-carrying variants put it outside
-    /// `lib.rs` §2.1's `Result` shape. Asserted as a pair so that "the body
-    /// exists" and "the backend can call it" stay two separate claims, exactly
-    /// as `str.concat`'s pair does one row above.
+    /// `host.HostNetwork.fetch` hands its `Request` over by address and has a
+    /// place for `NetError`'s sentence.
     #[test]
-    fn host_net_fetch_has_a_symbol_and_no_row() {
-        assert_eq!(symbol_for("host.HostNetwork.fetch"), "buri_rt_host_network_fetch");
-        assert!(entry("host.HostNetwork.fetch").is_none());
+    fn host_net_fetch_passes_its_request_by_address() {
+        let fetch = entry("host.HostNetwork.fetch").expect("a row for fetch");
+        assert_eq!(fetch.symbol, "buri_rt_host_network_fetch");
+        assert_eq!(fetch.by_ref, Some(1));
+        assert_eq!(fetch.ret, Ret::ResMsg);
     }
 
     /// The module a key's first segment names, for the keys whose operations
@@ -1921,6 +1909,9 @@ mod tests {
                 "host.HostFileSystem.syncFile",
                 "host.HostFileSystem.writeFile",
                 "host.HostFileSystem.writeFileBytes",
+                // `BadUrl` and `Transport` carry the only actionable half of a
+                // failed request.
+                "host.HostNetwork.fetch",
                 // Starting a program fails the way the filesystem does and for
                 // the same reason: `ENOEXEC` and `E2BIG` have no `IoError`
                 // variant either, and the string is the only place a refused

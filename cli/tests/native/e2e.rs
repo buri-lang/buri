@@ -4323,3 +4323,261 @@ fn a_hook_that_aborts_stops_the_program_rather_than_the_socket() {
         said.stdout
     );
 }
+
+// ---------------------------------------------------------------------------
+// The client half of HTTP: `http.send` through `host.net`
+// ---------------------------------------------------------------------------
+
+/// A program that sends one request per command-line argument and prints one
+/// line per answer.
+///
+/// Every request is a `POST` with a text body and one header of its own, so
+/// the peer can check that all three reached the wire. An answer prints its
+/// status, its `x-reply` header and its body. A failure prints the `NetError`
+/// variant, with the sentence it carries where it has one: that sentence is
+/// what a user acts on, so the rows below read it.
+fn fetching_client() -> String {
+    String::from(
+        r#"from "core/effect" import { Allocator, Environment, Network, Stdout };
+from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/http" import { NetError, Response };
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Environment: host.env,
+        Network: host.net,
+        Stdout: host.stdout,
+    };
+    each(ctx, env.arguments(ctx), 0)
+}
+
+fn each<C: Allocator + Network + Stdout>(ctx: C, urls: [Str], at: Int): Result<(), Str> {
+    match (urls.get(at)) {
+        .None => .Ok(()),
+        .Some(url) => {
+            let request = http.textRequest(ctx, .Post, url, "hello").withHeader(ctx, "x-asked", "buri");
+            let line = match (http.send(ctx, request)) {
+                .Ok(response) => answered(ctx, response),
+                .Err(error) => failed(ctx, error),
+            };
+            let _shown = io.println(ctx, line).ignore();
+            each(ctx, urls, at + 1)
+        },
+    }
+}
+
+fn answered<C: Allocator>(ctx: C, response: Response): Str {
+    let reply = response.header("x-reply").withDefault("<none>");
+    let body = http.bodyText(ctx, response.body).withDefault("<not utf-8>");
+    str.format(ctx, "${response.status} ${reply} ${body}")
+}
+
+fn failed<C: Allocator>(ctx: C, error: NetError): Str {
+    match (error) {
+        .Timeout => "timeout",
+        .Refused => "refused",
+        .BadUrl(why) => str.format(ctx, "bad url: ${why}"),
+        .Transport(why) => str.format(ctx, "transport: ${why}"),
+        .Aborted => "aborted",
+    }
+}
+"#,
+    )
+}
+
+/// Run [`fetching_client`] with `urls` as its arguments and `environment` added
+/// to its own, under the runtime's exit audit, within `SERVER_DEADLINE`.
+fn fetched(
+    binary: &std::path::Path,
+    urls: &[String],
+    environment: &[(&str, &str)],
+) -> crate::shared::Ran {
+    use std::io::Read;
+    let mut command = std::process::Command::new(binary);
+    command
+        .args(urls)
+        .env("BURI_RT_HEAP_CHECK", "1")
+        .env("BURI_RT_HEAP_REPORT", "1")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    for (name, value) in environment {
+        command.env(name, value);
+    }
+    let mut child = command.spawn().expect("the program did not start");
+    let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+    let mut stdout = String::new();
+    child.stdout.take().expect("a piped stdout").read_to_string(&mut stdout).expect("stdout");
+    let mut stderr = String::new();
+    child.stderr.take().expect("a piped stderr").read_to_string(&mut stderr).expect("stderr");
+    crate::shared::Ran { status: status.code().unwrap_or(-1), stdout, stderr }
+}
+
+/// **A native binary sends an HTTP request and reads the whole answer**, and
+/// each way the request can fail comes back as the `NetError` that names it.
+///
+/// buri-lang/buri#207: `core/host` grants `HostNetwork` on every platform, and
+/// until this row a native build of a program that called `http.send` was
+/// refused, because neither backend could call `host.HostNetwork.fetch`.
+///
+/// The peer is this test: a loopback listener that takes one connection, reads
+/// the request whole, and answers with a status, a header and a body. Then two
+/// failures that need no peer. A port that was bound and released is
+/// `.Refused`. A string that is not a URL is `.BadUrl`, and `BadUrl` carries a
+/// sentence, so this row also checks that the sentence arrived.
+///
+/// It runs under the heap audit, so a response or a sentence that was not
+/// given back fails here too.
+#[test]
+fn a_native_binary_sends_a_request_and_reads_the_answer() {
+    unless_ready!();
+    use std::io::{Read, Write};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+    let port = listener.local_addr().expect("the bound address").port();
+    listener.set_nonblocking(true).expect("a listener that can be polled");
+    let closed = {
+        let released = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+        released.local_addr().expect("the bound address").port()
+    };
+
+    let peer = std::thread::spawn(move || {
+        let until = std::time::Instant::now() + crate::shared::SERVER_DEADLINE;
+        let mut accepted = None;
+        while std::time::Instant::now() < until {
+            match listener.accept() {
+                Ok((socket, _)) => {
+                    accepted = Some(socket);
+                    break;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                Err(e) => panic!("the loopback listener failed: {e}"),
+            }
+        }
+        // Dropping the listener without accepting is what a program that never
+        // dialled gets: a refusal rather than a wait.
+        let Some(mut socket) = accepted else {
+            return String::from("<nobody dialled>");
+        };
+        socket.set_nonblocking(false).expect("a blocking socket");
+        socket.set_read_timeout(Some(crate::shared::SERVER_DEADLINE)).expect("a read deadline");
+        socket.set_write_timeout(Some(crate::shared::SERVER_DEADLINE)).expect("a write deadline");
+        // The head, and then the five octets of body it announces.
+        let mut asked = Vec::new();
+        let mut chunk = [0_u8; 1024];
+        loop {
+            let n = socket.read(&mut chunk).expect("the request");
+            asked.extend_from_slice(&chunk[..n]);
+            let head_end = asked.windows(4).position(|w| w == b"\r\n\r\n");
+            if n == 0 || head_end.is_some_and(|at| asked.len() >= at + 4 + 5) {
+                break;
+            }
+        }
+        socket
+            .write_all(
+                b"HTTP/1.1 201 Created\r\nX-Reply: yes\r\nContent-Length: 7\r\n\
+                  Connection: close\r\n\r\nmade it",
+            )
+            .expect("the answer");
+        socket.flush().expect("the answer flushed");
+        String::from_utf8_lossy(&asked).into_owned()
+    });
+
+    let binary = built("e2e-http-client", &fetching_client());
+    let out = fetched(
+        &binary,
+        &[
+            format!("http://127.0.0.1:{port}/echo?q=1"),
+            format!("http://127.0.0.1:{closed}/"),
+            String::from("not a url"),
+        ],
+        &[],
+    );
+    // The program's answer is read before the peer is joined, so a program
+    // that failed reports as the program failing.
+    assert_eq!(
+        out.status, 0,
+        "the program failed.\nstdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
+    assert_eq!(
+        out.stdout.lines().collect::<Vec<_>>(),
+        vec!["201 yes made it", "refused", "bad url: not an absolute http URL: not a url"],
+        "stderr:\n{}",
+        out.stderr
+    );
+    assert!(
+        out.stderr.contains("buri heap check: ok"),
+        "the heap audit did not report a clean exit.\nstderr:\n{}",
+        out.stderr
+    );
+
+    let asked = peer.join().expect("the peer thread");
+    assert!(asked.starts_with("POST /echo?q=1 HTTP/1.1\r\n"), "the request was:\n{asked}");
+    assert!(asked.contains("x-asked: buri\r\n"), "the request was:\n{asked}");
+    assert!(asked.ends_with("\r\n\r\nhello"), "the request was:\n{asked}");
+}
+
+/// **A native binary speaks HTTPS**, checks the server's certificate against
+/// the roots it was told to trust, and refuses one it cannot trust.
+///
+/// The server is a Buri program built by this same toolchain, serving TLS with
+/// `shared::TLS_LEAF_PEM`: a certificate for `localhost` signed by a test
+/// authority that no real trust store carries. Nothing leaves the loopback
+/// interface.
+///
+/// The client runs twice against it. With `SSL_CERT_FILE` naming the test
+/// authority, the request is answered. With `SSL_CERT_FILE` naming only the
+/// leaf, the issuer is unknown, and the answer is `.Transport` with a sentence
+/// that says the certificate was refused and names the trust source.
+#[test]
+fn a_native_binary_speaks_https_and_refuses_a_certificate_it_cannot_trust() {
+    unless_ready!();
+    let (certificate, key, _absent) = crate::shared::tls_identity("e2e-fetch");
+    let authority = certificate.with_file_name("ca.pem");
+    std::fs::write(&authority, crate::shared::TLS_CA_PEM).expect("the authority");
+
+    let server = built("e2e-https-server", &tls_running_server(&certificate, &key));
+    let client = built("e2e-https-client", &fetching_client());
+    let running = crate::shared::announced(&server);
+    let url = format!("https://localhost:{}/secure", running.2);
+
+    let authority_text = authority.display().to_string();
+    let trusted =
+        fetched(&client, std::slice::from_ref(&url), &[("SSL_CERT_FILE", &authority_text)]);
+    let leaf_text = certificate.display().to_string();
+    let untrusted = fetched(&client, std::slice::from_ref(&url), &[("SSL_CERT_FILE", &leaf_text)]);
+
+    crate::shared::signalling(&running.0, crate::shared::SIGTERM);
+    let served = crate::shared::finished(running);
+
+    assert_eq!(
+        trusted.stdout, "200 <none> /secure\n",
+        "the trusted request was not answered.\nstderr:\n{}\nthe server said:\n{}\n{}",
+        trusted.stderr, served.stdout, served.stderr
+    );
+    assert!(
+        trusted.stderr.contains("buri heap check: ok"),
+        "the heap audit did not report a clean exit.\nstderr:\n{}",
+        trusted.stderr
+    );
+    assert!(
+        untrusted.stdout.starts_with("transport: tls: the server's certificate was refused"),
+        "a certificate from an unknown issuer was not refused.\nstdout:\n{}\nstderr:\n{}",
+        untrusted.stdout,
+        untrusted.stderr
+    );
+    assert!(
+        untrusted.stdout.contains(&leaf_text),
+        "the refusal does not name the trust source it checked against:\n{}",
+        untrusted.stdout
+    );
+    assert_eq!(untrusted.status, 0, "stderr:\n{}", untrusted.stderr);
+    assert_eq!(served.status, 0, "stdout:\n{}\nstderr:\n{}", served.stdout, served.stderr);
+}
