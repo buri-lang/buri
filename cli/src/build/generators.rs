@@ -19,7 +19,7 @@
 //! The JSON of the answer is read by hand. This workspace may not grow a
 //! dependency (`language::corpus::dependencies_stay_behind_the_bar`).
 
-use crate::build::buildfile::{Generator, Output};
+use crate::build::buildfile::{self, Generator, Output};
 use crate::build::cache::{Action, ActionKey, KeyBuilder};
 use crate::build::session::Session;
 use crate::build::sources::Overlay;
@@ -725,6 +725,32 @@ pub fn rule_key(
     k.finish()
 }
 
+/// Whether a target is a tool with an `accepts` entry, whose types the build
+/// generates into it.
+pub fn has_contracts(workspace: &Workspace, target: TargetId) -> bool {
+    target.kind == RuleKind::Tool
+        && workspace.package(target.package).build.tool.as_ref().is_some_and(|t| t.contracts().next().is_some())
+}
+
+/// The contract a file is checked under: the first `generators` entry listing
+/// it whose tool's `generate` has one for its language.
+pub fn contract_for(workspace: &Workspace, rel: &str) -> Option<tools::Contract> {
+    let language = workspace.repo.languages.of(rel)?.name.clone();
+    for target in workspace.targets() {
+        let dir = &workspace.package(target.package).dir;
+        for g in declared(workspace, target) {
+            if !g.inputs.iter().any(|i| workspace.rel_of(&dir.join(&i.value)) == rel) {
+                continue;
+            }
+            let Ok(tool) = tools::resolve(workspace, &g.tool.value) else { continue };
+            if let Some(c) = tools::Contract::of(workspace, tool, "generate", &language) {
+                return Some(c);
+            }
+        }
+    }
+    None
+}
+
 /// The `tool` rule a `//label` names.
 pub fn tool_target(workspace: &Workspace, tool: &str) -> Option<TargetId> {
     match tools::resolve(workspace, tool) {
@@ -922,7 +948,7 @@ pub fn prepare(session: &mut Session, flags: &Flags, overlay: &Overlay) {
         .workspace
         .targets()
         .into_iter()
-        .filter(|t| !declared(&session.workspace, *t).is_empty())
+        .filter(|t| !declared(&session.workspace, *t).is_empty() || has_contracts(&session.workspace, *t))
         .collect();
     let mut done: BTreeSet<TargetId> = BTreeSet::new();
     for target in targets {
@@ -947,8 +973,14 @@ fn ensure(
     }
     let workspace = Rc::clone(&session.workspace);
     // The tools this rule runs: each entry's own, and the check of each input's
-    // language.
+    // language. A tool's contracts run each language's `generate`.
     let mut tools: Vec<TargetId> = Vec::new();
+    if let Some(rule) = workspace.package(target.package).build.tool.as_ref().filter(|_| target.kind == RuleKind::Tool) {
+        for a in rule.contracts() {
+            let generate = workspace.repo.languages.named(&a.language.value).and_then(|l| l.tools()?.generate.clone());
+            tools.extend(generate.and_then(|g| tool_target(&workspace, &g.value)));
+        }
+    }
     for generator in declared(&workspace, target) {
         tools.extend(tool_target(&workspace, &generator.tool.value));
         for input in &generator.inputs {
@@ -960,13 +992,154 @@ fn ensure(
         if cycle(&workspace, target, tool).is_some() {
             continue;
         }
-        for member in workspace.closure(tool) {
-            if !declared(&workspace, member).is_empty() {
+        let members = workspace.closure(tool);
+        for member in members.into_iter().chain([tool]) {
+            if !declared(&workspace, member).is_empty() || has_contracts(&workspace, member) {
                 ensure(session, member, flags, overlay, done);
             }
         }
     }
-    run_rule(session, target, flags, overlay);
+    if has_contracts(&workspace, target) {
+        run_contracts(session, target, flags, overlay);
+    } else {
+        run_rule(session, target, flags, overlay);
+    }
+}
+
+/// Generates a tool's contracts into it: each `accepts` entry's language's
+/// `generate`, on its `type_schema`, as the module `<label>/<language>`.
+///
+/// For `std/json` that is [`crate::languages::json::contract`]: the types and
+/// `decode`. A language of a repository's own is asked with `typesOf`, and its
+/// one module is filed under the language's name.
+fn run_contracts(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Overlay) {
+    let workspace = Rc::clone(&session.workspace);
+    let package = workspace.package(target.package);
+    let Some(rule) = &package.build.tool else { return };
+    let languages = &workspace.repo.languages;
+    let read = crate::languages::reader(&session.root, overlay);
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut fingerprint = String::new();
+    let mut outcome = Outcome::default();
+    let mut produced: Vec<GeneratedModule> = Vec::new();
+    let mut asks: Vec<(&buildfile::Accepts, tools::Contract, &crate::languages::Language)> = Vec::new();
+    for a in rule.contracts() {
+        if !seen.insert(a.language.value.clone()) {
+            continue;
+        }
+        let Some(language) = languages.named(&a.language.value) else { continue };
+        let contract = tools::Contract { package: package.path.clone(), type_schema: a.type_schema.value.clone() };
+        asks.push((a, contract, language));
+    }
+    // What decides the answer: each schema and every file it reaches for a
+    // JSON contract, and the key of the answer for any other.
+    let mut answers: Vec<Result<GeneratedModule, Vec<(Diagnostic, Span)>>> = Vec::new();
+    for (a, contract, language) in &asks {
+        fingerprint.push_str(&format!("{} {}\n", a.language.value, a.type_schema.value));
+        match language.dialect() {
+            Some(_) => {
+                let Some(path) = contract.json_path() else {
+                    answers.push(Err(vec![(not_local(&a.type_schema.value), a.type_schema.span)]));
+                    continue;
+                };
+                let mut asked = BTreeSet::new();
+                let mut recording = |p: &str| {
+                    asked.insert(p.to_string());
+                    read(p)
+                };
+                let dialect_of = |p: &str| languages.dialect_of(p);
+                let files = crate::languages::json::schema_closure(&path, &dialect_of, &mut recording);
+                for p in &asked {
+                    let hash = crate::build::cache::hash_bytes(files.get(p).map_or(&b""[..], |t| t.as_bytes()));
+                    fingerprint.push_str(&format!("read {p}: {hash}\n"));
+                }
+                outcome.reads.extend(asked);
+                match crate::languages::json::contract(&path, &dialect_of, &files) {
+                    Ok(module) => answers.push(Ok(module_of(&a.language.value, module))),
+                    Err(findings) => {
+                        outcome.findings.extend(findings.into_iter().map(|f| (f, a.type_schema.span)));
+                        answers.push(Err(Vec::new()));
+                    }
+                }
+            }
+            None => {
+                let generate = language.tools().and_then(|t| t.generate.as_ref());
+                let Some(tool) = generate.and_then(|g| tools::resolve(&workspace, &g.value).ok()) else { continue };
+                let label = workspace.label(target);
+                let ask = tools::Ask {
+                    tool,
+                    entry: "generate",
+                    fields: vec![("inputs", crate::json::Value::Array(Vec::new())), ("typesOf", contract.value())],
+                    label: &label,
+                };
+                let failed = |why: String| Diagnostic {
+                    code: "tool-failed".to_string(),
+                    message: generate.map(|g| g.value.clone()).unwrap_or_default(),
+                    note: Some(why),
+                    fix: None,
+                    origin: None,
+                };
+                let answer = tools::exchange(session, &ask, &read, flags);
+                match answer.and_then(|x| Ok((Response::decode(&x.line)?, x))) {
+                    Ok((response, x)) => {
+                        fingerprint.push_str(x.key.as_str());
+                        fingerprint.push('\n');
+                        outcome.reads.extend(x.asked.iter().cloned());
+                        outcome.generated_reads.extend(x.asked);
+                        let mut problems: Vec<(Diagnostic, Span)> =
+                            response.diagnostics.into_iter().map(|d| (d, a.type_schema.span)).collect();
+                        problems.extend(x.outside.iter().map(|p| (not_local(p), a.type_schema.span)));
+                        match (response.modules.into_iter().next(), problems.is_empty()) {
+                            (Some(mut module), true) => {
+                                module.name = a.language.value.clone();
+                                answers.push(Ok(module));
+                            }
+                            (None, true) => answers.push(Err(vec![(
+                                failed("its `generate` answered `typesOf` with no module".to_string()),
+                                a.type_schema.span,
+                            )])),
+                            (_, false) => answers.push(Err(problems)),
+                        }
+                    }
+                    Err(why) => answers.push(Err(vec![(failed(why), a.type_schema.span)])),
+                }
+            }
+        }
+    }
+    if workspace.generated.key_of(target).as_deref() == Some(fingerprint.as_str()) && !flags.force {
+        return;
+    }
+    for answer in answers {
+        match answer {
+            Ok(module) => produced.push(module),
+            Err(problems) => outcome.diagnostics.extend(problems),
+        }
+    }
+    outcome.modules = produced.into_iter().map(Arc::new).collect();
+    workspace.generated.record(&workspace, target, fingerprint, outcome);
+}
+
+fn not_local(path: &str) -> Diagnostic {
+    Diagnostic {
+        code: "schema-not-local".to_string(),
+        message: format!("`{path}` is not a file in this repository"),
+        note: None,
+        fix: Some("check the schema in, and name it by a path relative to the tool or a `//` path".to_string()),
+        origin: None,
+    }
+}
+
+/// A module `std/json` generated, under `name`.
+fn module_of(name: &str, module: crate::languages::json::types::Module) -> GeneratedModule {
+    GeneratedModule {
+        name: name.to_string(),
+        text: module.text,
+        anchors: module
+            .anchors
+            .into_iter()
+            .map(|(start, end, file, span)| Anchor { start, end, file, span })
+            .collect(),
+    }
 }
 
 /// Whether a generator's tool is built from the target that declares it.
@@ -986,6 +1159,8 @@ fn cycle(workspace: &Workspace, target: TargetId, tool: TargetId) -> Option<Cycl
 struct Entry {
     generator: Generator,
     inputs: Vec<(String, String)>,
+    /// Each input's contract, where the tool has one for its language.
+    contracts: Vec<Option<tools::Contract>>,
 }
 
 fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Overlay) {
@@ -1048,10 +1223,46 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
             continue;
         }
         // Checked before the tool reads them, and the tool does not run on a
-        // file that fails.
+        // file that fails. A tool with a contract has its inputs checked
+        // against the contract's schema.
+        let tool = tools::resolve(&workspace, &generator.tool.value).ok();
+        let contracts: Vec<Option<tools::Contract>> = inputs
+            .iter()
+            .map(|(rel, _)| {
+                let language = workspace.repo.languages.of(rel)?;
+                tools::Contract::of(&workspace, tool?, "generate", &language.name)
+            })
+            .collect();
         let mut failed = false;
-        for (rel, text) in &inputs {
-            let (key, found) = checks.check(session, rel, text, &read, flags);
+        for (((rel, text), contract), input) in inputs.iter().zip(&contracts).zip(&generator.inputs) {
+            let json = workspace.repo.languages.of(rel).is_some_and(|l| l.dialect().is_some());
+            let identity = contract.as_ref().map(|c| c.identity(json));
+            match checks.contracts.get(rel) {
+                Some((first, _)) if identity.is_some() && first.is_some() && *first != identity => {
+                    failed = true;
+                    missing.push((
+                        Diagnostic {
+                            code: "schema-mismatch".to_string(),
+                            message: format!(
+                                "`{}` is read under two contracts, `{}` and `{}`",
+                                input.value,
+                                first.clone().unwrap_or_default(),
+                                identity.clone().unwrap_or_default()
+                            ),
+                            note: Some("a file is checked against one schema, so every tool that reads it must agree on which".to_string()),
+                            fix: Some("give the tools one `type_schema`, or read the file with one of them".to_string()),
+                            origin: None,
+                        },
+                        input.span,
+                    ));
+                    continue;
+                }
+                Some(_) => {}
+                None => {
+                    checks.contracts.insert(rel.clone(), (identity, generator.tool.value.clone()));
+                }
+            }
+            let (key, found) = checks.check(session, rel, text, contract.as_ref(), &read, flags);
             if let Some(key) = key {
                 fingerprint.push_str(key.as_str());
                 fingerprint.push('\n');
@@ -1066,7 +1277,7 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
         }
         fingerprint.push_str(generate_key(session, target, &generator.tool.value, &inputs, flags).as_str());
         fingerprint.push('\n');
-        entries.push(Entry { generator: generator.clone(), inputs });
+        entries.push(Entry { generator: generator.clone(), inputs, contracts });
     }
     for path in workspace.generated.outcome(target).map(|o| o.generated_reads).unwrap_or_default() {
         let contents = read(&path);
@@ -1086,7 +1297,8 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
     let mut produced: Vec<(GeneratedModule, Span)> = Vec::new();
     for entry in entries {
         match answer(session, &workspace, target, &entry, &read, flags) {
-            Ok((response, asked)) => {
+            Ok((response, asked, findings)) => {
+                outcome.findings.extend(findings.into_iter().map(|f| (f, entry.generator.span)));
                 for module in response.modules {
                     produced.push((module, entry.generator.span));
                 }
@@ -1116,7 +1328,9 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
 /// it.
 #[derive(Default)]
 struct Checks {
-    done: BTreeMap<String, (Option<ActionKey>, Vec<crate::languages::Finding>)>,
+    done: BTreeMap<(String, Option<tools::Contract>), (Option<ActionKey>, Vec<crate::languages::Finding>)>,
+    /// The contract each file was first read under, and by which tool.
+    contracts: BTreeMap<String, (Option<String>, String)>,
     findings: Vec<(crate::languages::Finding, Span)>,
     reads: BTreeSet<String>,
 }
@@ -1129,25 +1343,30 @@ impl Checks {
         session: &Session,
         rel: &str,
         text: &str,
+        contract: Option<&tools::Contract>,
         read: &dyn Fn(&str) -> Option<String>,
         flags: &Flags,
     ) -> (Option<ActionKey>, Vec<crate::languages::Finding>) {
-        if let Some(known) = self.done.get(rel) {
+        let at = (rel.to_string(), contract.cloned());
+        if let Some(known) = self.done.get(&at) {
             return known.clone();
         }
-        let answer = match tools::check_file(session, rel, text, read, flags) {
+        let answer = match tools::check_file(session, rel, text, contract, read, flags) {
             Some(checked) => {
                 self.reads.extend(checked.asked);
                 (Some(checked.key), checked.findings)
             }
             None => (None, Vec::new()),
         };
-        self.done.insert(rel.to_string(), answer.clone());
+        self.done.insert(at, answer.clone());
         answer
     }
 }
 
-/// One entry's answer, and every path the tool asked to read.
+/// One entry's answer, every path the tool asked to read, and what the
+/// in-tree `std/json` found.
+type Answered = (Response, BTreeSet<String>, Vec<crate::languages::Finding>);
+
 fn answer(
     session: &Session,
     workspace: &Workspace,
@@ -1155,7 +1374,7 @@ fn answer(
     entry: &Entry,
     read: &dyn Fn(&str) -> Option<String>,
     flags: &Flags,
-) -> Result<(Response, BTreeSet<String>), String> {
+) -> Result<Answered, String> {
     let name = &entry.generator.tool.value;
     let tool = tools::resolve(workspace, name).map_err(|_| format!("`{name}` names no tool"))?;
     if let Tool::Repo(t) = tool {
@@ -1164,10 +1383,17 @@ fn answer(
         }
     }
     let languages = &workspace.repo.languages;
+    if tool == Tool::Json {
+        return Ok(generate_json(languages, entry, read));
+    }
     let inputs = entry
         .inputs
         .iter()
-        .map(|(path, text)| tools::input(path, languages.of(path).map_or("", |l| &l.name), text))
+        .zip(&entry.contracts)
+        .map(|((path, text), contract)| match contract {
+            Some(c) => tools::typed_input(languages, path, text, c),
+            None => tools::input(path, languages.of(path).map_or("", |l| &l.name), text),
+        })
         .collect();
     let label = workspace.label(target);
     let ask = tools::Ask {
@@ -1188,7 +1414,52 @@ fn answer(
             origin: None,
         });
     }
-    Ok((response, answer.asked))
+    Ok((response, answer.asked, Vec::new()))
+}
+
+/// `std/json`'s `generate`, in-tree: a module per input, named as the entry
+/// lists it. A schema gives its types; a data file its schema's types and its
+/// contents as a value.
+fn generate_json(
+    languages: &crate::languages::Languages,
+    entry: &Entry,
+    read: &dyn Fn(&str) -> Option<String>,
+) -> Answered {
+    let mut response = Response::default();
+    let mut asked = BTreeSet::new();
+    let mut findings = Vec::new();
+    let dialect_of = |p: &str| languages.dialect_of(p);
+    for ((rel, text), input) in entry.inputs.iter().zip(&entry.generator.inputs) {
+        if languages.of(rel).and_then(crate::languages::Language::dialect).is_none() {
+            findings.push(crate::languages::Finding::new(
+                "json-schema-no-type",
+                rel,
+                (0, 0),
+                vec![
+                    ("keyword", "$schema".to_string()),
+                    ("why", "`std/json` generates from `json`, `jsonc` and `json5` files, and this is none of them".to_string()),
+                ],
+            ));
+            continue;
+        }
+        let mut recording = |p: &str| {
+            asked.insert(p.to_string());
+            read(p)
+        };
+        let files = crate::languages::json::schema_files(rel, text, None, &dialect_of, &mut recording);
+        match crate::languages::json::generate(rel, text, &dialect_of, &files) {
+            Ok(module) => response.modules.push(module_of(&input.value, module)),
+            // A schema and a data file naming it find the same problems once.
+            Err(found) => {
+                for f in found {
+                    if !findings.contains(&f) {
+                        findings.push(f);
+                    }
+                }
+            }
+        }
+    }
+    (response, asked, findings)
 }
 
 /// What one `generators` entry's answer depends on, computed without running

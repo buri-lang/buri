@@ -306,7 +306,10 @@ impl<'a> Loader<'a> {
                 let ast = root.and_then(|r| self.modules.get(r.index())).map(|m| std::rc::Rc::clone(&m.ast));
                 if let Some(ast) = ast {
                     if self.checked_tools.insert(target) {
-                        self.diags.extend(crate::build::tools::contract(&ast, tool));
+                        let roots = |path: &str| {
+                            ws.generated.module(path).and_then(|m| crate::build::tools::root_of(&m.text))
+                        };
+                        self.diags.extend(crate::build::tools::contract(&ast, tool, &pkg.label(), &roots));
                     }
                 }
                 for src in &tool.sources {
@@ -513,7 +516,9 @@ impl<'a> Loader<'a> {
     /// can neither build nor spawn a tool. What arrives here is data.
     fn load_generators(&mut self, target: TargetId) {
         let Some(ws) = self.ws else { return };
-        if crate::build::generators::declared(ws, target).is_empty() {
+        if crate::build::generators::declared(ws, target).is_empty()
+            && !crate::build::generators::has_contracts(ws, target)
+        {
             return;
         }
         // Once per rule per compilation. `analyze_all` batches units and every

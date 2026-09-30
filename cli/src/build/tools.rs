@@ -40,7 +40,7 @@ use std::path::PathBuf;
 /// The entry points a tool may export, one per block.
 pub const ENTRY_POINTS: [&str; 3] = ["check", "format", "generate"];
 
-/// The built-in JSON tool: `check` and `format`, in-tree.
+/// The built-in JSON tool: `check`, `format` and `generate`, in-tree.
 pub const JSON: &str = "std/json";
 
 /// The built-in `.proto` tool: `generate`, through `std/proto`.
@@ -86,7 +86,7 @@ impl Tool {
             Tool::Repo(t) => {
                 workspace.package(t.package).build.tool.as_ref().is_some_and(|r| r.block(entry).is_some())
             }
-            Tool::Json => matches!(entry, "check" | "format"),
+            Tool::Json => ENTRY_POINTS.contains(&entry),
             Tool::Proto => entry == "generate",
         }
     }
@@ -115,6 +115,10 @@ pub fn validate(workspace: &Workspace) -> Vec<Diagnostic> {
         let generators = build.library.iter().flat_map(|l| l.generators.iter());
         for g in generators.chain(build.binary.iter().flat_map(|b| b.generators.iter())) {
             refer(workspace, &g.tool, "generate", true, &mut out);
+            accepted(workspace, g, &mut out);
+        }
+        if let Some(rule) = &build.tool {
+            contracts(workspace, rule, &mut out);
         }
     }
     for language in &workspace.repo.languages.all {
@@ -126,6 +130,64 @@ pub fn validate(workspace: &Workspace) -> Vec<Diagnostic> {
         }
     }
     out
+}
+
+/// Every input of a `generators` entry whose tool has a contract is in a
+/// language the contract lists.
+fn accepted(workspace: &Workspace, g: &buildfile::Generator, out: &mut Vec<Diagnostic>) {
+    let Ok(Tool::Repo(t)) = resolve(workspace, &g.tool.value) else { return };
+    let Some(rule) = &workspace.package(t.package).build.tool else { return };
+    let accepts = rule.accepts("generate");
+    if accepts.is_empty() {
+        return;
+    }
+    let listed = accepts.iter().map(|a| format!("`{}`", a.language.value)).collect::<Vec<_>>().join(", ");
+    for input in &g.inputs {
+        let language = workspace.repo.languages.of(&input.value).map(|l| l.name.clone());
+        if accepts.iter().any(|a| Some(&a.language.value) == language.as_ref()) {
+            continue;
+        }
+        out.push(
+            Diagnostic::templated("input-language-not-accepted", input.span)
+                .with_bind("input", input.value.as_str())
+                .with_bind("language", language.map_or("no language".to_string(), |l| format!("`{l}`")))
+                .with_bind("tool", g.tool.value.as_str())
+                .with_bind("accepted", listed.as_str()),
+        );
+    }
+}
+
+/// A tool's `accepts` entries each name a language with a `generate`, once.
+fn contracts(workspace: &Workspace, rule: &buildfile::Tool, out: &mut Vec<Diagnostic>) {
+    let languages = &workspace.repo.languages;
+    let mut seen: Vec<&buildfile::Accepts> = Vec::new();
+    for entry in ["check", "generate"] {
+        let mut here: BTreeSet<&str> = BTreeSet::new();
+        for a in rule.accepts(entry) {
+            let name = a.language.value.as_str();
+            let twice = !here.insert(name)
+                || seen.iter().any(|b| b.language.value == name && b.type_schema.value != a.type_schema.value);
+            if twice {
+                out.push(Diagnostic::templated("accepts-language-twice", a.language.span).with_bind("language", name));
+                continue;
+            }
+            seen.push(a);
+            match languages.named(name) {
+                None => {
+                    let known = languages.all.iter().map(|l| format!("`{}`", l.name)).collect::<Vec<_>>().join(", ");
+                    out.push(
+                        Diagnostic::templated("accepts-unknown-language", a.language.span)
+                            .with_bind("language", name)
+                            .with_bind("known", known),
+                    );
+                }
+                Some(l) if l.tools().is_some_and(|t| t.generate.is_none()) => out.push(
+                    Diagnostic::templated("accepts-language-without-generate", a.language.span).with_bind("language", name),
+                ),
+                Some(_) => {}
+            }
+        }
+    }
 }
 
 fn refer(workspace: &Workspace, named: &Spanned<String>, entry: &str, generator: bool, out: &mut Vec<Diagnostic>) {
@@ -150,7 +212,16 @@ fn refer(workspace: &Workspace, named: &Spanned<String>, entry: &str, generator:
 /// What `tool.buri` has to say about its `BUILD.buri`: every block has its
 /// exported function and every exported entry point its block, and `ctx` is
 /// bounded by `Allocator` alone.
-pub fn contract(module: &crate::parsing::tree::Module, tool: &buildfile::Tool) -> Vec<Diagnostic> {
+///
+/// Under a contract the entry point's request is typed: `roots` answers the
+/// root type the module `<label>/<language>` declares, and the request must be
+/// `CheckRequest<Root>` or `GenerateRequest<Root>` with `Root` imported from it.
+pub fn contract(
+    module: &crate::parsing::tree::Module,
+    tool: &buildfile::Tool,
+    label: &str,
+    roots: &dyn Fn(&str) -> Option<String>,
+) -> Vec<Diagnostic> {
     use crate::parsing::tree::{Item, ParamKind};
     let tree = &module.tree;
     let mut out = Vec::new();
@@ -175,6 +246,11 @@ pub fn contract(module: &crate::parsing::tree::Module, tool: &buildfile::Tool) -
         }
     }
     for (entry, f) in &exported {
+        if let Some(d) = request_type(module, tool, label, roots, entry, f) {
+            out.push(d);
+        }
+    }
+    for (entry, f) in &exported {
         let ctx = f.params.iter().find(|p| p.kind == ParamKind::CtxParam).or(f.params.first());
         let Some(head) = ctx.and_then(|p| p.written_type()).and_then(|t| tree.type_head(t)) else { continue };
         let Some(generic) = f.generics.iter().find(|g| tree.name(g.name) == head) else { continue };
@@ -192,26 +268,221 @@ pub fn contract(module: &crate::parsing::tree::Module, tool: &buildfile::Tool) -
     out
 }
 
+/// What is wrong with an entry point's request type under a contract, if
+/// anything.
+fn request_type(
+    module: &crate::parsing::tree::Module,
+    tool: &buildfile::Tool,
+    label: &str,
+    roots: &dyn Fn(&str) -> Option<String>,
+    entry: &str,
+    f: &crate::parsing::tree::FnDecl,
+) -> Option<Diagnostic> {
+    use crate::parsing::flat::TypeView;
+    use crate::parsing::tree::{ImportClause, Item};
+    let accepts = tool.accepts(entry);
+    let first = accepts.first()?;
+    let tree = &module.tree;
+    let request = f.params.get(1)?.written_type()?;
+    let head = match entry {
+        "check" => "CheckRequest",
+        _ => "GenerateRequest",
+    };
+    let wanted: Vec<(String, String)> = accepts
+        .iter()
+        .filter_map(|a| {
+            let path = format!("{label}/{}", a.language.value);
+            Some((roots(&path)?, path))
+        })
+        .collect();
+    // A module that did not generate is reported where it failed.
+    let (root, path) = wanted.first().cloned()?;
+    let imports = || {
+        module.items.iter().filter_map(|i| match i {
+            Item::Import(import) => Some(&**import),
+            _ => None,
+        })
+    };
+    let names_root = |arg| match tree.ty(arg) {
+        TypeView::Named { path: segments, args, .. } if args.is_empty() => {
+            let segments: Vec<&str> = segments.iter().map(|s| tree.text(*s)).collect();
+            wanted.iter().any(|(root, path)| {
+                imports().filter(|i| &i.path == path).any(|i| match (&i.clause, segments.as_slice()) {
+                    (ImportClause::Named(specs), [name]) => {
+                        specs.iter().any(|s| tree.name(s.local()) == *name && tree.name(s.name) == root)
+                    }
+                    (ImportClause::Namespace(ns), [q, name]) => tree.name(*ns) == *q && name == root,
+                    _ => false,
+                })
+            })
+        }
+        _ => false,
+    };
+    let ok = match tree.ty(request) {
+        TypeView::Named { args: [arg], .. } => tree.type_head(request) == Some(head) && names_root(*arg),
+        _ => false,
+    };
+    if ok {
+        return None;
+    }
+    Some(
+        Diagnostic::templated("tool-request-type", tree.type_span(request))
+            .with_bind("entry", entry)
+            .with_bind("expected", format!("{head}<{root}>"))
+            .with_bind("module", path)
+            .with_bind("language", first.language.value.as_str()),
+    )
+}
+
+/// The root type a contract module declares: what its `decode` returns.
+pub fn root_of(text: &str) -> Option<String> {
+    use crate::parsing::flat::TypeView;
+    use crate::parsing::tree::Item;
+    let parsed = crate::parsing::parser::parse(text, crate::diagnostics::FileId(0));
+    let tree = &parsed.module.tree;
+    parsed.module.items.iter().find_map(|i| match i {
+        Item::Fn(f) if f.exported && tree.name(f.name) == "decode" => match tree.ty(f.ret) {
+            TypeView::Named { args: [ok, _], .. } => tree.type_head(*ok).map(str::to_string),
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Contracts
+// ---------------------------------------------------------------------------
+
+/// One `accepts` entry, as the tools that read it see it: opaque text, and
+/// the tool's package for a relative path.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Contract {
+    /// Repository-relative; empty for the root package.
+    pub package: String,
+    pub type_schema: String,
+}
+
+impl Contract {
+    /// The contract the tool's entry point `entry` has for `language`.
+    pub fn of(workspace: &Workspace, tool: Tool, entry: &str, language: &str) -> Option<Contract> {
+        let Tool::Repo(t) = tool else { return None };
+        let package = workspace.package(t.package);
+        let rule = package.build.tool.as_ref()?;
+        let a = rule.accepts(entry).iter().find(|a| a.language.value == language)?;
+        Some(Contract { package: package.path.clone(), type_schema: a.type_schema.value.clone() })
+    }
+
+    /// `type_schema` as a JSON Schema's repository path: relative to the
+    /// tool's package, or a `//` path. `None` for one outside the repository.
+    pub fn json_path(&self) -> Option<String> {
+        let text = &self.type_schema;
+        if crate::languages::json::schema::has_scheme(text) {
+            return None;
+        }
+        let from = match self.package.is_empty() {
+            true => "BUILD.buri".to_string(),
+            false => format!("{}/BUILD.buri", self.package),
+        };
+        crate::languages::json::schema::local_path(&from, text)
+    }
+
+    /// What tells two contracts apart: the schema a JSON one names, or the
+    /// text and package of any other.
+    pub fn identity(&self, json: bool) -> String {
+        match (json, self.json_path()) {
+            (true, Some(path)) => format!("//{path}"),
+            _ => format!("{}:{}", self.package, self.type_schema),
+        }
+    }
+
+    pub fn value(&self) -> Value {
+        Value::object(vec![("text", Value::str(&self.type_schema)), ("package", Value::str(&self.package))])
+    }
+}
+
+/// The modules a tool's contracts become, `(language, module path)`, for one
+/// entry point.
+pub fn typed(workspace: &Workspace, tool: Tool, entry: &str) -> Vec<(String, String)> {
+    let Tool::Repo(t) = tool else { return Vec::new() };
+    let package = workspace.package(t.package);
+    let Some(rule) = &package.build.tool else { return Vec::new() };
+    rule.accepts(entry)
+        .iter()
+        .map(|a| (a.language.value.clone(), package.module_path(&a.language.value)))
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // The program a tool is
 // ---------------------------------------------------------------------------
 
 /// The `main` the build writes for a tool: `serve`, over the entry points
 /// `module` exports and `provides` says it has.
-pub fn harness(module: &str, provides: &dyn Fn(&str) -> bool) -> String {
+///
+/// An entry point with a contract takes typed values: its closure reads each
+/// input through `decode` from the module `typed` names for its language,
+/// before the entry point sees it.
+pub fn harness(
+    module: &str,
+    provides: &dyn Fn(&str) -> bool,
+    typed: &dyn Fn(&str) -> Vec<(String, String)>,
+) -> String {
     let mut fields = String::new();
+    let mut imports: Vec<String> = Vec::new();
     for entry in ENTRY_POINTS {
-        let value = match provides(entry) {
-            true => format!(".Some(fn(c, request) => entry.{entry}(c, request))"),
-            false => ".None".to_string(),
+        let modules = typed(entry);
+        let value = match (provides(entry), modules.is_empty()) {
+            (false, _) => ".None".to_string(),
+            (true, true) => format!(".Some(fn(c, request) => entry.{entry}(c, request))"),
+            (true, false) => {
+                let mut arms = String::new();
+                for (language, path) in modules {
+                    let alias = match imports.iter().position(|p| *p == path) {
+                        Some(i) => format!("typed{i}"),
+                        None => {
+                            imports.push(path);
+                            format!("typed{}", imports.len().saturating_sub(1))
+                        }
+                    };
+                    arms.push_str(&format!(
+                        "                    \"{language}\" => {alias}.decode(c2, text),\n"
+                    ));
+                }
+                let (request, failed) = match entry {
+                    "check" => (
+                        "tool.CheckRequest { inputs: inputs, files: request.files }",
+                        "tool.Checked { diagnostics: diagnostics, needs: [] }",
+                    ),
+                    _ => (
+                        "tool.GenerateRequest { inputs: inputs, typesOf: request.typesOf, files: request.files }",
+                        "tool.Generated { modules: [], diagnostics: diagnostics, needs: [] }",
+                    ),
+                };
+                format!(
+                    ".Some(fn(c, request) => {{\n\
+                     \x20           let read = fn(c2, language, text) => {{\n\
+                     \x20               match (language) {{\n{arms}\
+                     \x20                   _ => .Err(\"no contract reads this language\"),\n\
+                     \x20               }}\n\
+                     \x20           }};\n\
+                     \x20           match (tool.typed(c, request.inputs, read)) {{\n\
+                     \x20               .Ok(inputs) => entry.{entry}(c, {request}),\n\
+                     \x20               .Err(diagnostics) => {failed},\n\
+                     \x20           }}\n\
+                     \x20       }})"
+                )
+            }
         };
         fields.push_str(&format!("        {entry}: {value},\n"));
     }
+    let typed_imports: String =
+        imports.iter().enumerate().map(|(i, p)| format!("from \"{p}\" import * as typed{i};\n")).collect();
     format!(
         "from \"core/effect\" import {{ Allocator, Stdin, Stdout }};\n\
          from \"core/host\" import * as host;\n\
          from \"core/tool\" import * as tool;\n\
          from \"{module}\" import * as entry;\n\
+         {typed_imports}\
          \n\
          export fn main(): Result<(), Str> {{\n\
          \x20   let ctx = context {{\n\
@@ -231,10 +502,12 @@ fn source(workspace: &Workspace, tool: Tool) -> Option<(Option<crate::build::wor
         Tool::Repo(t) => {
             let package = workspace.package(t.package);
             let module = package.module_path("tool.buri");
-            let main = harness(&module, &|e| tool.provides(workspace, e));
+            let main = harness(&module, &|e| tool.provides(workspace, e), &|e| typed(workspace, tool, e));
             Some((Some(t.package), package.module_path("(tool main)"), main))
         }
-        Tool::Proto => Some((None, "(std/proto main)".to_string(), harness("std/proto", &|e| e == "generate"))),
+        Tool::Proto => {
+            Some((None, "(std/proto main)".to_string(), harness("std/proto", &|e| e == "generate", &|_| Vec::new())))
+        }
         Tool::Json => None,
     }
 }
@@ -274,6 +547,12 @@ pub fn artifact(session: &Session, tool: Tool, flags: &Flags) -> Result<PathBuf,
     if let Some(why) = broken_contract(&session.workspace, tool) {
         return Err(format!("the tool does not build: {why}"));
     }
+    if let Tool::Repo(t) = tool {
+        let failed = session.workspace.generated.outcome(t).is_some_and(|o| !o.diagnostics.is_empty() || !o.findings.is_empty());
+        if failed {
+            return Err(format!("its contract's types did not generate; `buri build {name}` says why"));
+        }
+    }
     let mut map = crate::diagnostics::SourceMap::new();
     let (js, _chunks) = crate::compiler::driver::compile_snippet_js_as(
         Some(&session.workspace),
@@ -302,7 +581,8 @@ fn broken_contract(workspace: &Workspace, tool: Tool) -> Option<String> {
     let rule = package.build.tool.as_ref()?;
     let text = std::fs::read_to_string(package.dir.join("tool.buri")).ok()?;
     let parsed = crate::parsing::parser::parse(&text, crate::diagnostics::FileId(0));
-    contract(&parsed.module, rule).first().map(|d| d.message.clone())
+    let roots = |path: &str| workspace.generated.module(path).and_then(|m| root_of(&m.text));
+    contract(&parsed.module, rule, &package.label(), &roots).first().map(|d| d.message.clone())
 }
 
 // ---------------------------------------------------------------------------
@@ -334,6 +614,23 @@ pub struct Answer {
 /// One `{path, language, value}` input.
 pub fn input(path: &str, language: &str, text: &str) -> Value {
     Value::object(vec![("path", Value::str(path)), ("language", Value::str(language)), ("value", Value::str(text))])
+}
+
+/// One input under a contract: its `typeSchema`, and its value as the
+/// language's `decode` reads it. For the JSON languages that is the value as
+/// strict JSON, so JSON5 and comments never reach a decoder.
+pub fn typed_input(languages: &crate::languages::Languages, path: &str, text: &str, contract: &Contract) -> Value {
+    let language = languages.of(path);
+    let value = match language.and_then(Language::dialect) {
+        Some(dialect) => crate::languages::json::strict(text, dialect).unwrap_or_else(|| text.to_string()),
+        None => text.to_string(),
+    };
+    Value::object(vec![
+        ("path", Value::str(path)),
+        ("language", Value::str(language.map_or("", |l| &l.name))),
+        ("typeSchema", contract.value()),
+        ("value", Value::str(&value)),
+    ])
 }
 
 /// Asks, and asks again for as long as the answer needs files it has not
@@ -466,29 +763,35 @@ pub struct Checked {
 
 /// Checks one file a rule references, keyed and cached. `None` for a file in
 /// no language, or in one no tool checks.
+///
+/// `contract` is the one a tool reading the file holds it to, if any: the
+/// language's check then checks against its `type_schema`.
 pub fn check_file(
     session: &Session,
     rel: &str,
     text: &str,
+    contract: Option<&Contract>,
     read: &dyn Fn(&str) -> Option<String>,
     flags: &Flags,
 ) -> Option<Checked> {
     let languages = &session.workspace.repo.languages;
     let language = languages.of(rel)?;
     let named = match &language.kind {
-        Kind::BuiltIn(_) => return Some(check_json(session, language, rel, text, read, flags)),
+        Kind::BuiltIn(_) => return Some(check_json(session, language, rel, text, contract, read, flags)),
         Kind::Custom(tools) => tools.check.as_ref()?,
     };
     let tool = resolve(&session.workspace, &named.value).ok()?;
     if tool == Tool::Json {
-        return Some(check_json(session, language, rel, text, read, flags));
+        return Some(check_json(session, language, rel, text, contract, read, flags));
     }
-    let ask = Ask {
-        tool,
-        entry: "check",
-        fields: vec![("inputs", Value::Array(vec![input(rel, &language.name, text)]))],
-        label: rel,
-    };
+    // A check reads the file's own text, and the contract beside it.
+    let mut fields = vec![("path", Value::str(rel)), ("language", Value::str(&language.name))];
+    if let Some(c) = contract {
+        fields.push(("typeSchema", c.value()));
+    }
+    fields.push(("value", Value::str(text)));
+    let one = Value::object(fields);
+    let ask = Ask { tool, entry: "check", fields: vec![("inputs", Value::Array(vec![one]))], label: rel };
     Some(match exchange(session, &ask, read, flags) {
         Ok(answer) => {
             let mut findings: Vec<Finding> = diagnostics(&answer.value)
@@ -525,14 +828,28 @@ fn check_json(
     language: &Language,
     rel: &str,
     text: &str,
+    contract: Option<&Contract>,
     read: &dyn Fn(&str) -> Option<String>,
     flags: &Flags,
 ) -> Checked {
     let languages = &session.workspace.repo.languages;
-    let check = crate::languages::Check::prepare(languages, rel, text.to_string(), read);
+    let schema = contract.map(Contract::json_path);
     let mut k = KeyBuilder::new(Action::Check, flags.mode);
     k.rule_identity(rel, &language.name, &[]);
     k.input(rel, text.as_bytes());
+    if let Some(Some(schema)) = &schema {
+        k.input("contract", schema.as_bytes());
+    }
+    let schema = match schema {
+        Some(None) => {
+            let written = contract.map(|c| c.type_schema.clone()).unwrap_or_default();
+            let finding = Finding::new("schema-not-local", rel, (0, 0), vec![("schema", written)]);
+            return Checked { key: k.finish(), findings: vec![finding], asked: BTreeSet::new() };
+        }
+        Some(Some(schema)) => Some(schema),
+        None => None,
+    };
+    let check = crate::languages::Check::prepare(languages, rel, text.to_string(), schema, read);
     for (path, contents) in &check.reads {
         k.input(path, contents.as_bytes());
     }
@@ -639,7 +956,7 @@ mod tests {
 
     #[test]
     fn the_harness_calls_only_what_the_tool_has() {
-        let main = harness("//tools/lines/tool.buri", &|e| e == "check");
+        let main = harness("//tools/lines/tool.buri", &|e| e == "check", &|_| Vec::new());
         assert!(main.contains("check: .Some(fn(c, request) => entry.check(c, request))"), "{main}");
         assert!(main.contains("format: .None"), "{main}");
         assert!(main.contains("from \"//tools/lines/tool.buri\" import * as entry;"), "{main}");
