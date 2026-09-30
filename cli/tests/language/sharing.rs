@@ -670,3 +670,113 @@ fn printing_a_module_is_linear_in_its_size() {
             .join(" "),
     );
 }
+
+/// Runs a built artifact with every `Array.prototype.slice` counted, and
+/// answers the elements those calls copied, beside what the program printed.
+///
+/// `$list_push`'s copy of a shared list is a `slice`, so this is the number
+/// that grows with the square of a list's length when a loop copies it on
+/// every push, and with its length when the loop writes in place. It is a
+/// count rather than a time, so it reads the same on a loaded machine as on an
+/// idle one. The wrapper replaces the method and then imports the artifact,
+/// which runs `main`; the count is written synchronously on the way out,
+/// because an asynchronous write to a pipe may not survive the exit.
+fn copied_by_slice(scratch: &Scratch, package: &str) -> (u64, String) {
+    let artifact = scratch.artifact(package);
+    let wrapper = scratch.write(
+        "count-slices.mjs",
+        r#"
+import { writeSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+let copied = 0;
+const slice = Array.prototype.slice;
+Array.prototype.slice = function (...args) {
+  copied += this.length;
+  return slice.apply(this, args);
+};
+process.on("exit", () => writeSync(2, `copied=${copied}\n`));
+await import(pathToFileURL(process.argv[2]).href);
+"#,
+    );
+    let what = format!("{} {} {}", js_runtime(), wrapper.display(), artifact.display());
+    let out = Command::new(js_runtime())
+        .arg(&wrapper)
+        .arg(&artifact)
+        .output()
+        .unwrap_or_else(|e| panic!("`{what}` did not run: {e}"));
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "`{what}` failed:\n{stdout}{stderr}");
+    let copied = stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("copied="))
+        .and_then(|n| n.trim().parse().ok())
+        .unwrap_or_else(|| panic!("`{what}` reported no count:\n{stdout}{stderr}"));
+    (copied, stdout)
+}
+
+/// A fold whose record grows **two** lists in one functional update, and reads
+/// a third field into one of them.
+///
+/// `prepare` out of `core/buri/ast`'s parser, with the names changed: each
+/// token is pushed onto `tokens`, the doc lines waiting for it are pushed onto
+/// `docs`, and `pending` starts again empty. Every field the update reads out
+/// of `acc` is one it also replaces, so `acc` has no reader left afterwards and
+/// neither list is shared. The analysis read the first projection as a second
+/// reference, because `acc` was still read by the second one, and each push
+/// copied its whole list: parsing a module was quadratic in its tokens.
+const GROW_TWO: &str = r#"
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+struct Prep { tokens: [Int], docs: [[Int]], pending: [Int] }
+
+fn prepare<C: Allocator>(ctx: C, raw: [Int]): Prep {
+  raw.foldCtx(
+    ctx,
+    fn(c, acc, t) => {
+      if (t % 4 == 0) {
+        Prep { ..acc, pending: acc.pending.push(c, t) }
+      } else {
+        Prep {
+          ..acc,
+          tokens: acc.tokens.push(c, t),
+          docs: acc.docs.push(c, acc.pending),
+          pending: [],
+        }
+      }
+    },
+    Prep { tokens: [], docs: [], pending: [] },
+  )
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let p = prepare(ctx, list.range(ctx, 0, 4000));
+  let _ = io.println(ctx, "${p.tokens.length()} ${p.docs.length()}").ignore();
+  .Ok(())
+}
+"#;
+
+/// Four thousand elements folded into two lists copies a handful of elements,
+/// not the several million a copy per push costs.
+#[test]
+fn growing_two_lists_in_one_update_copies_neither() {
+    let scratch = Scratch::repo("js-sharing-two-lists");
+    scratch.write("cmd/grow/BUILD.buri", JS_BINARY);
+    scratch.write("cmd/grow/main.buri", GROW_TWO);
+    scratch.run(&["build", "//cmd/grow", "--force"]).ok();
+
+    let (copied, stdout) = copied_by_slice(&scratch, "cmd/grow");
+    assert_eq!(stdout, "3000 3000\n");
+    // A copy per push is about nine million elements here: three thousand
+    // pushes onto each of two lists growing to three thousand. Writing in
+    // place copies none of them; the bound leaves room for whatever a
+    // runtime copies on its own account.
+    assert!(
+        copied < 40_000,
+        "folding four thousand elements into two lists copied {copied} elements"
+    );
+}

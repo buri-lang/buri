@@ -1046,6 +1046,7 @@ fn scan_func(
                 named: vec![None; sizes.len()],
                 self_params: plan.params.clone(),
                 inherits: Vec::new(),
+                handed_on: Vec::new(),
                 tries: Vec::new(),
                 escaped: HashSet::default(),
                 opts,
@@ -2396,6 +2397,9 @@ struct Scan<'a> {
     self_params: Vec<ir::Ownership>,
     /// [`FuncPlan::inherits`], as it is found.
     inherits: Vec<(NodeId, LocalId)>,
+    /// The fields of a dying base each functional update being scanned hands
+    /// on whole — see [`handed_on_fields`]. Innermost last. `sharing` only.
+    handed_on: Vec<(LocalId, Vec<usize>)>,
     /// Every `?` node this body holds, in the order the scan reached them.
     ///
     /// The scan runs backwards and a `?` is an exit the tree does not spell,
@@ -2714,7 +2718,9 @@ impl Scan<'_> {
             // second reference only if the parent was one.
             if self.opts.sharing {
                 if let Some(root) = borrowed_root(base) {
-                    if self.owned.contains(&root) && !live.contains(&root) {
+                    if self.owned.contains(&root)
+                        && (!live.contains(&root) || self.hands_on(e, base, root))
+                    {
                         self.inherits.push((id, root));
                     }
                 }
@@ -2724,6 +2730,23 @@ impl Scan<'_> {
             self.push(id, Position::After, RcOp::DecRef, Target::Node(bid));
         }
         self.project(id, mode);
+    }
+
+    /// Whether `e` reads a field out of `root` that the functional update
+    /// being scanned hands on whole ([`handed_on_fields`]), so that `root`
+    /// being live — read again by the update's *other* fields — is no second
+    /// reference to what this field holds.
+    fn hands_on(&self, e: &Expr, base: &Expr, root: LocalId) -> bool {
+        let (ExprKind::Field { index, .. }, ExprKind::Local(l)) = (&e.kind, &base.kind) else {
+            return false;
+        };
+        *l == root
+            && self
+                .handed_on
+                .iter()
+                .rev()
+                .find(|(r, _)| *r == root)
+                .is_some_and(|(_, fields)| fields.contains(index))
     }
 
     /// The local a projection may be scanned **without** keeping alive, because
@@ -3158,13 +3181,31 @@ impl Scan<'_> {
             // duplication — true of a count, false of a reference. Under
             // `sharing` the base is scanned last and borrowed, which is what
             // makes `S { ..s, xs: s.xs.push(x) }` write through in a loop.
+            //
+            // Past the base, the update's *own* reads of it: `S { ..s, xs:
+            // s.xs.push(x), ys: s.ys.push(y) }` reads `s` twice, and the scan
+            // reaching `s.xs` sees `s` still live for `s.ys`. That is no second
+            // reference to what `s.xs` holds when each field is read once and
+            // replaced, which [`handed_on_fields`] decides and
+            // [`Scan::hands_on`] asks.
             ExprKind::StructUpdate { base, updates, .. }
                 if self.opts.sharing && dies_here(base, &self.owned, live) =>
             {
+                let handed = match &base.kind {
+                    ExprKind::Local(root) => {
+                        handed_on_fields(*root, updates).map(|fields| (*root, fields))
+                    }
+                    _ => None,
+                };
+                let pushed = handed.is_some();
+                self.handed_on.extend(handed);
                 let mut after = live.clone();
                 for (k, (_, value)) in updates.iter().enumerate().rev() {
                     let kid = self.child(id, k + 1);
                     after = self.expr(value, kid, &after, Mode::Own);
+                }
+                if pushed {
+                    self.handed_on.pop();
                 }
                 let bid = self.child(id, 0);
                 let after = self.expr(base, bid, &after, Mode::Borrow);
@@ -3728,6 +3769,48 @@ fn dies_here(e: &Expr, owned: &HashSet<LocalId>, live: &Live) -> bool {
         ExprKind::Local(l) => owned.contains(l) && !live.contains(l),
         _ => false,
     }
+}
+
+/// The fields of `root` a functional update over it **hands on whole**: each
+/// is read exactly once, as `root.f`, and is one of the fields the update
+/// replaces. `None` when the update reads `root` any other way — whole, or
+/// captured by a lambda — because then any field could have a second reader.
+///
+/// `sharing` asks where a second reference to a list comes into existence, and
+/// the update is where `root` stops being read. A field read once and replaced
+/// has exactly one reader after it: the one expression that read it. The spread
+/// copies only the fields the update does *not* replace, so it is not a second
+/// one. Two fields of one record that hold the same list were marked when the
+/// list was stored twice, so reading them apart does not hide an alias; and
+/// whether `root` itself was shared is still asked at run time, by
+/// `$fromShared`.
+///
+/// `core/buri/ast`'s `prepare` is the shape: `Prep { ..acc, tokens:
+/// acc.tokens.push(c, t), docs: acc.docs.push(c, acc.pending), pending: [] }`
+/// once per token, where every push copied its whole list because the scan
+/// reaching one field saw `acc` still read by the next.
+fn handed_on_fields(root: LocalId, updates: &[(usize, Expr)]) -> Option<Vec<usize>> {
+    fn reads(root: LocalId, e: &Expr, out: &mut Vec<usize>) -> bool {
+        match &e.kind {
+            ExprKind::Field { base, index }
+                if matches!(base.kind, ExprKind::Local(l) if l == root) =>
+            {
+                out.push(*index);
+                true
+            }
+            ExprKind::Local(l) => *l != root,
+            ExprKind::Lambda { captures, .. } if captures.contains(&root) => false,
+            _ => kids(e).into_iter().all(|k| reads(root, k, out)),
+        }
+    }
+    let mut read = Vec::new();
+    for (_, value) in updates {
+        if !reads(root, value, &mut read) {
+            return None;
+        }
+    }
+    let once = |f: &usize| read.iter().filter(|r| *r == f).count() == 1;
+    Some(updates.iter().map(|(f, _)| *f).filter(|f| once(f)).collect())
 }
 
 /// The local a **field path** starts at: `s`, `s.a`, `s.a.1`, and nothing that

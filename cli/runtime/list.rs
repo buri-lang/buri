@@ -47,7 +47,9 @@
 //!   neither is needed by the conformance corpus that the native set runs, so
 //!   they are named here rather than half-built.
 
-use crate::memory::{buri_rt_alloc, buri_rt_grown_capacity, buri_rt_incref, buri_rt_unique_cap};
+use crate::memory::{
+    buri_rt_alloc, buri_rt_cap, buri_rt_grown_capacity, buri_rt_incref, buri_rt_unique_cap,
+};
 use crate::value::BuriList;
 use crate::BURI_OK;
 
@@ -109,20 +111,24 @@ pub(crate) fn block(count: usize, stride: usize) -> BuriList {
 ///
 /// Three outcomes, in the order they are tried:
 ///
-///  1. **In place.** The block is uniquely owned ([`buri_rt_unique_cap`]) and
-///     has the headroom. Nothing is copied and nothing is allocated: the
-///     elements are written past the end and the block takes one more
-///     reference, which the *result* holds. The caller's own reference is
-///     untouched, so the `decref` the compiler already emits for it — this
-///     runtime borrows its arguments (`rc.rs`'s header) — leaves the result
-///     uniquely owned and the next append in a loop takes this path again.
-///  2. **Grown.** Uniquely owned but out of capacity: a fresh block with
-///     [`buri_rt_grown_capacity`] bytes, so the *next* append takes path 1 and
-///     a loop of `n` appends allocates O(log n) times rather than O(n).
-///  3. **Exact.** Shared, immortal, or empty: exactly what the result needs,
-///     which is what this entry did unconditionally before.
+///  1. **In place.** The block is uniquely owned ([`buri_rt_unique_cap`]), has
+///     the headroom, and — for an element type holding references — the slots
+///     about to be written are [spare](#spare-slots). Nothing is copied and
+///     nothing is allocated: the elements are written past the end and the
+///     block takes one more reference, which the *result* holds. The caller's
+///     own reference is untouched, so the `decref` the compiler already emits
+///     for it — this runtime borrows its arguments (`rc.rs`'s header) — leaves
+///     the result uniquely owned and the next append in a loop takes this path
+///     again.
+///  2. **Grown.** Uniquely owned but out of capacity, or with those slots not
+///     spare: a fresh block with [`buri_rt_grown_capacity`] bytes, so the
+///     *next* append takes path 1 and a loop of `n` appends allocates
+///     O(log n) times rather than O(n). For an element type holding references
+///     the bytes past the copied prefix are zeroed, which is what makes them
+///     spare.
+///  3. **Exact.** Shared, immortal, or empty: exactly what the result needs.
 ///
-/// # Why paths 1 and 2 are unobservable, and why `retain` gates them
+/// # Why paths 1 and 2 are unobservable
 ///
 /// The uniqueness half is [`buri_rt_unique_cap`]'s doc comment: `rc == 1` means
 /// one observable value, every alias of it carries the same `len`, and a write
@@ -130,24 +136,27 @@ pub(crate) fn block(count: usize, stride: usize) -> BuriList {
 /// view (`value.rs`), so there is no second descriptor into the same block at a
 /// different offset to worry about.
 ///
-/// The `retain.is_none()` half is a *correctness* condition and not caution.
-/// A null `retain` is the backend saying the element type holds no counted
-/// references (`llvm/emit.rs::retain_glue`), and that is exactly what
-/// makes both paths safe:
+/// # Spare slots
 ///
-///  * **Path 1** writes over whatever those slots held. For a scalar element
-///    that is nothing; for a counted one it would be a reference the block
-///    still owned, dropped without a `decref` — a leak.
-///  * **Path 2** leaves `cap / stride` above the element count, and the
-///    generated release glue for a `[T]` block walks **`cap / stride`
-///    elements** (`stencil/glue.rs`'s `Helper::Elems`). For a scalar
-///    element the extra slots are bytes nobody reads; for a counted one they
-///    are uninitialized memory the drop glue would decref.
+/// An element type holding counted references (`retain` non-null) needs two
+/// more things, because the generated release glue for a `[T]` block walks
+/// **`cap / stride`** elements (`stencil/glue.rs`'s `Helper::Elems`,
+/// `llvm/emit.rs`'s `Job::ReleaseElems`) and so does the copy glue beside it:
 ///
-/// Lifting the restriction means giving this ABI a per-element *release* glue
-/// beside `retain`, and making the drop walk follow the element count rather
-/// than the capacity. Both are backend changes; MEMORY.md §5.3 records them as
-/// the growth path.
+///  * **Headroom holds no garbage.** Path 2 zeroes every byte past the copied
+///    prefix, and both walks skip an element whose bytes are all zero. That
+///    skip is exact rather than a guess: a reference is a non-null pointer, so
+///    an all-zero element holds none, whether it is headroom or a value such as
+///    `.None` that really was pushed.
+///  * **Nothing owned is written over.** A slot past one descriptor's end can
+///    hold an element a *longer*, now-dead descriptor put there, and the block
+///    still owns that reference. Path 1 therefore writes only over all-zero
+///    slots — which hold no reference, by the same argument — and otherwise
+///    takes path 2, whose copy leaves the old element with the old block, to be
+///    released when it dies.
+///
+/// A null `retain` needs neither: scalar bytes hold nothing to release, and no
+/// glue walks a block of them.
 ///
 /// # Safety
 /// `ptr` covers `n * stride` bytes and is null or a live payload pointer;
@@ -164,10 +173,16 @@ unsafe fn append_dest(
         return BuriList { ptr: std::ptr::null_mut(), len: total as u64 };
     }
     let needed = total.saturating_mul(stride) as u64;
-    if retain.is_none() && !ptr.is_null() {
+    if !ptr.is_null() {
         // SAFETY: the caller promises a live payload pointer.
         if let Some(cap) = unsafe { buri_rt_unique_cap(ptr) } {
-            if cap >= needed {
+            let used = n.saturating_mul(stride);
+            // SAFETY: when `cap >= needed` the slots `[n, total)` are inside
+            // the block, and `spare` reads no further.
+            let fits = cap >= needed
+                && (retain.is_none()
+                    || unsafe { spare(ptr.add(used), add.saturating_mul(stride)) });
+            if fits {
                 // SAFETY: as above. The result is a second reference to the
                 // block, so it takes a count of its own.
                 unsafe { buri_rt_incref(ptr.cast_mut()) };
@@ -175,8 +190,16 @@ unsafe fn append_dest(
             }
             let fresh = buri_rt_alloc(buri_rt_grown_capacity(needed, cap));
             // SAFETY: a fresh block of at least `needed` bytes, disjoint from
-            // the source, which covers its own `n` elements.
-            unsafe { copy_retaining(fresh, ptr, n, stride, retain) };
+            // the source, which covers its own `n` elements. The zeroing runs
+            // to the capacity the header records, because that is what the
+            // walks read.
+            unsafe {
+                copy_retaining(fresh, ptr, n, stride, retain);
+                if retain.is_some() {
+                    let headroom = (buri_rt_cap(fresh) as usize).saturating_sub(used);
+                    std::ptr::write_bytes(fresh.add(used), 0, headroom);
+                }
+            }
             return BuriList { ptr: fresh, len: total as u64 };
         }
     }
@@ -184,6 +207,16 @@ unsafe fn append_dest(
     // SAFETY: a fresh block of `total` elements, disjoint from the source.
     unsafe { copy_retaining(out.ptr, ptr, n, stride, retain) };
     out
+}
+
+/// Whether the `bytes` at `at` are all zero: a [spare](append_dest#spare-slots)
+/// run of slots, which holds no reference and may be written over.
+///
+/// # Safety
+/// `at` covers `bytes` readable bytes.
+unsafe fn spare(at: *const u8, bytes: usize) -> bool {
+    // SAFETY: the caller promises the range.
+    unsafe { std::slice::from_raw_parts(at, bytes) }.iter().all(|b| *b == 0)
 }
 
 /// `list.get(self, index) -> Option<T>` — `stride` bytes into `out`.
@@ -741,29 +774,82 @@ mod tests {
         }
     }
 
-    /// A counted element type keeps the old behaviour exactly, for the reason
-    /// [`append_dest`] gives: the release glue for a `[T]` block walks
-    /// `cap / stride`, so a block with headroom would have it walk slots
-    /// nothing wrote.
+    /// An element type holding references takes the in-place path too, and
+    /// the headroom it grows into is zeroed: the release glue walks `cap /
+    /// stride` slots and skips an all-zero one, so nothing it meets there is
+    /// garbage. Issue #211 was this path being refused, which made building a
+    /// `[Str]` quadratic.
     #[test]
-    fn a_counted_element_type_still_allocates_exactly() {
+    fn a_counted_element_type_grows_in_place_over_zeroed_headroom() {
+        // The in-place licence is `buri_rt_unique_cap`'s, and it is refused
+        // for a marked block — see `a_unique_push_grows_in_place`.
+        let _latch = crate::memory::latch();
         unsafe extern "C" fn nothing(_: *mut u8) {}
         let retain: Retain = Some(nothing);
         let mut acc = BuriList { ptr: std::ptr::null_mut(), len: 0 };
-        for i in 0i64..4 {
+        let mut allocations = 0u32;
+        for i in 1i64..=1000 {
             let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
             // SAFETY: `acc` is this test's own live list.
             unsafe {
                 buri_rt_list_push(acc.ptr, acc.len, (&raw const i).cast(), 8, retain, &raw mut out);
-                assert_ne!(out.ptr, acc.ptr, "a counted element type took the in-place path");
-                // SAFETY: `out` is a fresh block whose capacity is its length.
-                assert_eq!(crate::memory::buri_rt_cap(out.ptr), out.len * 8);
-                crate::memory::buri_rt_free(acc.ptr);
+                crate::memory::buri_rt_decref(acc.ptr, None);
+            }
+            if out.ptr != acc.ptr {
+                allocations += 1;
             }
             acc = out;
         }
-        // SAFETY: the last reference.
-        unsafe { crate::memory::buri_rt_free(acc.ptr) };
+        assert!(allocations <= 12, "one push per element allocated {allocations} times");
+        // SAFETY: a thousand `i64`s were written there, and the block's
+        // capacity covers the rest.
+        unsafe {
+            let got: Vec<i64> =
+                (0..1000).map(|i| acc.ptr.add(i * 8).cast::<i64>().read()).collect();
+            assert_eq!(got, (1..=1000).collect::<Vec<i64>>());
+            let cap = crate::memory::buri_rt_cap(acc.ptr) as usize;
+            assert!(cap > 8000, "the last growth left no headroom to check");
+            assert!(spare(acc.ptr.add(8000), cap - 8000), "the headroom is not zeroed");
+            crate::memory::buri_rt_free(acc.ptr);
+        }
+    }
+
+    /// A slot past a list's end can hold what a **longer** list put there.
+    /// Once that list is gone the shorter one is unique again, and a push onto
+    /// it must copy rather than write over an element the block still owns.
+    #[test]
+    fn a_slot_a_longer_list_left_behind_is_not_written_over() {
+        let _latch = crate::memory::latch();
+        unsafe extern "C" fn nothing(_: *mut u8) {}
+        let retain: Retain = Some(nothing);
+        let mut base = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        for i in 1i64..=4 {
+            let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            // SAFETY: `base` is this test's own live list.
+            unsafe {
+                buri_rt_list_push(base.ptr, base.len, (&raw const i).cast(), 8, retain, &raw mut out);
+                crate::memory::buri_rt_decref(base.ptr, None);
+            }
+            base = out;
+        }
+        let (long, short) = (50i64, 60i64);
+        let mut longer = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut other = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        // SAFETY: `base` is live and each item is a live local.
+        unsafe {
+            buri_rt_list_push(base.ptr, base.len, (&raw const long).cast(), 8, retain, &raw mut longer);
+            assert_eq!(longer.ptr, base.ptr, "the first push did not take the in-place path");
+            // The longer list dies, and `base` is unique again.
+            crate::memory::buri_rt_decref(longer.ptr, None);
+            buri_rt_list_push(base.ptr, base.len, (&raw const short).cast(), 8, retain, &raw mut other);
+            assert_ne!(other.ptr, base.ptr, "a push wrote over a slot the block still owned");
+            assert_eq!(base.ptr.add(32).cast::<i64>().read(), 50, "the old element was moved");
+            assert_eq!(other.ptr.add(32).cast::<i64>().read(), 60);
+            let cap = crate::memory::buri_rt_cap(other.ptr) as usize;
+            assert!(spare(other.ptr.add(40), cap - 40), "the grown block's headroom is not zeroed");
+            crate::memory::buri_rt_free(other.ptr);
+            crate::memory::buri_rt_free(base.ptr);
+        }
     }
 
     /// `concat` takes the same three paths, and the grown one keeps the
