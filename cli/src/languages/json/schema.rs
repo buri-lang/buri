@@ -308,6 +308,31 @@ impl<'r> Registry<'r> {
         &self.problems
     }
 
+    /// The resource a file's root is, by repository path.
+    pub fn resource_of_file(&self, path: &str) -> Option<usize> {
+        self.by_file.get(path).copied()
+    }
+
+    /// The resource `node` is in, given the one its parent is in.
+    pub fn enter(&self, node: &Node, current: usize) -> usize {
+        self.root_of.get(&(node as *const Node)).copied().unwrap_or(current)
+    }
+
+    /// The schema a `$ref` names from inside `resource`, and its resource.
+    pub fn target(&self, reference: &str, resource: usize) -> Option<(usize, &'r Node)> {
+        self.resolve(reference, resource).ok()
+    }
+
+    /// The repository path of the file a resource is in.
+    pub fn file_of(&self, resource: usize) -> String {
+        self.resources.get(resource).map(|r| self.path_of(r.file)).unwrap_or_default()
+    }
+
+    /// Whether `node` is the root of the file it is in.
+    pub fn is_file_root(&self, node: &Node) -> bool {
+        self.files.iter().any(|f| std::ptr::eq(&f.root, node))
+    }
+
     fn add_resource(&mut self, file: usize, root: &'r Node, id: Option<String>) -> usize {
         let index = self.resources.len();
         if let Some(id) = &id {

@@ -6,6 +6,7 @@ pub mod number;
 pub mod regex;
 pub mod schema;
 pub mod syntax;
+pub mod types;
 
 #[cfg(test)]
 mod suite;
@@ -40,8 +41,28 @@ enum Named<'d> {
     Refused(Finding),
 }
 
-fn named<'d>(path: &str, doc: &'d Document) -> Named<'d> {
+/// Where a file's schema is. Under a contract, `contract` is the schema's
+/// repository path, and the file may omit `"$schema"` or name the same one.
+fn named<'d>(path: &str, doc: &'d Document, contract: Option<&str>) -> Named<'d> {
     let root = &doc.root;
+    if let Some(contract) = contract {
+        let Some(member) = root.member("$schema") else { return Named::File(contract.to_string(), root) };
+        let value = &member.value;
+        let written = value.as_str().unwrap_or_default();
+        let local = match has_scheme(written) {
+            true => None,
+            false => local_path(path, written.split('#').next().unwrap_or_default()),
+        };
+        return match local.as_deref() == Some(contract) {
+            true => Named::File(contract.to_string(), value),
+            false => Named::Refused(Finding::new(
+                "schema-mismatch",
+                path,
+                value.span,
+                vec![("schema", written.to_string()), ("contract", format!("//{contract}"))],
+            )),
+        };
+    }
     let Some(member) = root.member("$schema") else {
         let at = (root.span.0, root.span.0.saturating_add(1));
         return Named::Refused(Finding::new("json-without-schema", path, at, Vec::new()));
@@ -71,13 +92,14 @@ fn named<'d>(path: &str, doc: &'d Document) -> Named<'d> {
 pub fn schema_files(
     path: &str,
     text: &str,
+    contract: Option<&str>,
     dialect_of: &dyn Fn(&str) -> Dialect,
     read_file: &mut dyn FnMut(&str) -> Option<String>,
 ) -> BTreeMap<String, String> {
     let mut files = BTreeMap::new();
     let Ok(doc) = syntax::parse(text, dialect_of(path)) else { return files };
     let mut queue: Vec<(String, Document)> = Vec::new();
-    match named(path, &doc) {
+    match named(path, &doc, contract) {
         Named::Schema => queue.push((path.to_string(), doc)),
         Named::File(schema, _) => {
             if let Some(schema_text) = read_file(&schema) {
@@ -110,6 +132,7 @@ pub fn schema_files(
 pub fn check(
     path: &str,
     text: &str,
+    contract: Option<&str>,
     dialect_of: &dyn Fn(&str) -> Dialect,
     files: &BTreeMap<String, String>,
 ) -> Vec<Finding> {
@@ -119,7 +142,7 @@ pub fn check(
     };
     let mut findings = Vec::new();
     let mut schemas: Vec<SchemaFile> = Vec::new();
-    let (target, instance) = match named(path, &doc) {
+    let (target, instance) = match named(path, &doc, contract) {
         Named::Refused(finding) => return vec![finding],
         Named::Schema => {
             schemas.push(SchemaFile { path: path.to_string(), root: doc.root.clone() });
@@ -168,6 +191,77 @@ pub fn check(
         .collect()
 }
 
+/// Every file a schema reaches through `$ref`, itself included: what
+/// generating types from it reads.
+pub fn schema_closure(
+    path: &str,
+    dialect_of: &dyn Fn(&str) -> Dialect,
+    read_file: &mut dyn FnMut(&str) -> Option<String>,
+) -> BTreeMap<String, String> {
+    let Some(text) = read_file(path) else { return BTreeMap::new() };
+    let mut files = schema_files(path, &text, None, dialect_of, read_file);
+    files.insert(path.to_string(), text);
+    files
+}
+
+/// The parsed files of a schema's closure, or why they are not one schema.
+fn schema_set(
+    path: &str,
+    files: &BTreeMap<String, String>,
+    dialect_of: &dyn Fn(&str) -> Dialect,
+) -> Result<Vec<SchemaFile>, Vec<Finding>> {
+    let Some(text) = files.get(path) else {
+        return Err(vec![Finding::new("schema-not-found", path, (0, 0), vec![("path", path.to_string())])]);
+    };
+    let found = check(path, text, None, dialect_of, files);
+    if !found.is_empty() {
+        return Err(found);
+    }
+    let mut out = Vec::new();
+    for (file, text) in files {
+        let doc = read(file, text, dialect_of(file)).map_err(|f| vec![f])?;
+        out.push(SchemaFile { path: file.clone(), root: doc.root });
+    }
+    Ok(out)
+}
+
+/// `std/json`'s `generate` on one input: a schema gives its types, and a data
+/// file its schema's types and its contents as a value. `files` is what
+/// [`schema_files`] read for it.
+pub fn generate(
+    path: &str,
+    text: &str,
+    dialect_of: &dyn Fn(&str) -> Dialect,
+    files: &BTreeMap<String, String>,
+) -> Result<types::Module, Vec<Finding>> {
+    let doc = read(path, text, dialect_of(path)).map_err(|f| vec![f])?;
+    match named(path, &doc, None) {
+        Named::Refused(finding) => Err(vec![finding]),
+        Named::Schema => {
+            let mut all = files.clone();
+            all.insert(path.to_string(), text.to_string());
+            types::schema_module(&schema_set(path, &all, dialect_of)?, path)
+        }
+        Named::File(schema, _) => types::data_module(&schema_set(&schema, files, dialect_of)?, &schema, path, &doc.root),
+    }
+}
+
+/// The module a contract's `type_schema` gives a tool: its types and
+/// `decode`. `files` is what [`schema_closure`] read.
+pub fn contract(
+    path: &str,
+    dialect_of: &dyn Fn(&str) -> Dialect,
+    files: &BTreeMap<String, String>,
+) -> Result<types::Module, Vec<Finding>> {
+    types::contract_module(&schema_set(path, files, dialect_of)?, path)
+}
+
+/// A file's value as strict JSON, for a tool that takes it typed. `None` when
+/// it does not parse.
+pub fn strict(text: &str, dialect: Dialect) -> Option<String> {
+    Some(types::strict(&syntax::parse(text, dialect).ok()?.root))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,8 +271,8 @@ mod tests {
             others.iter().map(|(p, t)| (p.to_string(), t.to_string())).collect();
         let dialect = |_: &str| Dialect::Json;
         let mut read_file = |p: &str| others.get(p).cloned();
-        let files = schema_files(path, text, &dialect, &mut read_file);
-        check(path, text, &dialect, &files)
+        let files = schema_files(path, text, None, &dialect, &mut read_file);
+        check(path, text, None, &dialect, &files)
     }
 
     fn codes(findings: &[Finding]) -> Vec<&str> {

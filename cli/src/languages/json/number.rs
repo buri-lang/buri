@@ -143,6 +143,19 @@ impl Decimal {
         q.is_finite() && q.fract() == 0.0
     }
 
+    /// The integer, when it is one an `i64` holds.
+    pub fn to_i64(&self) -> Option<i64> {
+        if !self.is_integer() {
+            return None;
+        }
+        let mut n: i64 = 0;
+        let zeros = usize::try_from(self.exp).ok()?;
+        for d in self.digits.iter().copied().chain(std::iter::repeat_n(0, zeros)) {
+            n = n.checked_mul(10)?.checked_add(i64::from(d))?;
+        }
+        Some(if self.negative { n.checked_neg()? } else { n })
+    }
+
     pub fn to_f64(&self) -> f64 {
         if self.is_zero() {
             return 0.0;

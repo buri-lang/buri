@@ -265,23 +265,32 @@ pub struct Check {
     /// Every path it looked for, found or not: a schema that appears later
     /// changes the verdict as surely as one that is edited.
     pub asked: std::collections::BTreeSet<String>,
+    /// The schema a contract checks the file against, instead of its own.
+    pub contract: Option<String>,
 }
 
 impl Check {
     /// Reads what checking `path` needs. `read` answers for a repository path,
     /// and is where an editor's unsaved buffers come in.
-    pub fn prepare(languages: &Languages, path: &str, text: String, read: &dyn Fn(&str) -> Option<String>) -> Check {
+    pub fn prepare(
+        languages: &Languages,
+        path: &str,
+        text: String,
+        contract: Option<String>,
+        read: &dyn Fn(&str) -> Option<String>,
+    ) -> Check {
         let mut asked = std::collections::BTreeSet::new();
         let mut recording = |p: &str| {
             asked.insert(p.to_string());
             read(p)
         };
-        let reads = json::schema_files(path, &text, &|p| languages.dialect_of(p), &mut recording);
-        Check { path: path.to_string(), text, reads, asked }
+        let reads =
+            json::schema_files(path, &text, contract.as_deref(), &|p| languages.dialect_of(p), &mut recording);
+        Check { path: path.to_string(), text, reads, asked, contract }
     }
 
     pub fn run(&self, languages: &Languages) -> Vec<Finding> {
-        json::check(&self.path, &self.text, &|p| languages.dialect_of(p), &self.reads)
+        json::check(&self.path, &self.text, self.contract.as_deref(), &|p| languages.dialect_of(p), &self.reads)
     }
 }
 
