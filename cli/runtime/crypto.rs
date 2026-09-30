@@ -1,14 +1,16 @@
-//! `core/crypto`'s sealing, through `ring`.
+//! `core/crypto`'s sealing and signature checks, through `ring`.
 //!
-//! Two private intrinsics sit under `crypto.seal` and `crypto.open`. The Buri
-//! side frames the sealed value; these do the arithmetic. `runtime.js` answers
-//! the same two keys in JavaScript, and the conformance corpus holds both to
-//! the RFC 8439 vectors.
+//! Four private intrinsics sit under `crypto.seal`, `crypto.open`,
+//! `crypto.verifyEs256` and `crypto.verifyEd25519`. The Buri side frames the
+//! sealed value and parses keys; these do the arithmetic. `runtime.js` answers
+//! the same four keys in JavaScript, and the conformance corpus holds both to
+//! the RFC 8439, RFC 8032 and RFC 7515 vectors.
 //!
 //! Behind the `crypto` feature, beside `entropy.rs`. `ring` is already in every
 //! `net` archive as `rustls`'s provider, so this adds no crate.
 
 use ring::aead::{Aad, CHACHA20_POLY1305, LessSafeKey, Nonce, UnboundKey};
+use ring::signature::{ECDSA_P256_SHA256_FIXED, ED25519, UnparsedPublicKey};
 
 use crate::value::{list_of_bytes, BuriList};
 use crate::BURI_OK;
@@ -125,4 +127,57 @@ pub unsafe extern "C" fn buri_rt_crypto_chacha20_poly1305_open(
     };
     wipe(&mut buffer);
     answer
+}
+
+/// `crypto.ecdsaP256Sha256Verify(key, message, signature) -> Bool` — `key` is
+/// the 65-byte uncompressed point and `signature` is `r ++ s`, as JWS writes
+/// it.
+///
+/// # Safety
+/// Each `ptr`/`len` pair describes a readable range.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_crypto_ecdsa_p256_sha256_verify(
+    key_ptr: *const u8,
+    key_len: u64,
+    message_ptr: *const u8,
+    message_len: u64,
+    signature_ptr: *const u8,
+    signature_len: u64,
+) -> u8 {
+    // SAFETY: the caller promises every range.
+    let (key, message, signature) = unsafe {
+        (
+            octets(key_ptr, key_len),
+            octets(message_ptr, message_len),
+            octets(signature_ptr, signature_len),
+        )
+    };
+    let key = UnparsedPublicKey::new(&ECDSA_P256_SHA256_FIXED, key);
+    u8::from(key.verify(message, signature).is_ok())
+}
+
+/// `crypto.ed25519Verify(key, message, signature) -> Bool` — RFC 8032's
+/// 32-byte key and 64-byte signature.
+///
+/// # Safety
+/// As [`buri_rt_crypto_ecdsa_p256_sha256_verify`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_crypto_ed25519_verify(
+    key_ptr: *const u8,
+    key_len: u64,
+    message_ptr: *const u8,
+    message_len: u64,
+    signature_ptr: *const u8,
+    signature_len: u64,
+) -> u8 {
+    // SAFETY: the caller promises every range.
+    let (key, message, signature) = unsafe {
+        (
+            octets(key_ptr, key_len),
+            octets(message_ptr, message_len),
+            octets(signature_ptr, signature_len),
+        )
+    };
+    let key = UnparsedPublicKey::new(&ED25519, key);
+    u8::from(key.verify(message, signature).is_ok())
 }

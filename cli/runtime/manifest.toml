@@ -320,8 +320,8 @@ tiny-skia = { version = "=0.12.0", optional = true, default-features = false, fe
 # capability question for every program, and the answer for the overwhelming
 # majority of them would be yes.
 #
-# It also turns on `ring`, for `core/crypto`'s `seal` and `open`
-# (`crypto.rs`). A default toolchain already carries
+# It also turns on `ring`, for `core/crypto`'s `seal`, `open`, `verifyEs256`
+# and `verifyEd25519` (`crypto.rs`). A default toolchain already carries
 # `ring` for `net`, so that costs nothing there; a `net`-off, `crypto`-on
 # archive pays `ring`'s object code, and `cli/build.rs` gives `crypto` the same
 # C-compiler probe `net` has. The interesting half of the decision is the

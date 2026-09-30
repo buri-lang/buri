@@ -1,0 +1,249 @@
+// core/crypto — `verifyEd25519` against RFC 8032's vectors, and `verifyEs256`
+// against RFC 7515's ES256 example, with the keys read every way they arrive.
+
+from "core/bytes" import * as bytes;
+from "core/crypto" import * as crypto;
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+
+fn hex(text: Template): [U8] {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    bytes.fromHex(ctx, str.format(ctx, text)).withDefault([])
+}
+
+fn text(t: Template): [U8] {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    bytes.toUtf8(ctx, str.format(ctx, t))
+}
+
+fn ed25519(key: Template, message: Template, signature: Template): Bool {
+    match (crypto.ed25519PublicKeyFromRaw(hex(key))) {
+        .Ok(k) => crypto.verifyEd25519(k, hex(message), hex(signature)),
+        .Err(_) => false,
+    }
+}
+
+// --- Ed25519, RFC 8032 section 7.1 -----------------------------------------------
+
+let KEY_1: Str = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
+
+let SIGNATURE_1: Str =
+    "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b";
+
+let KEY_2: Str = "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c";
+
+let SIGNATURE_2: Str =
+    "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00";
+
+test "test 1, the empty message" {
+    assert.isTrue(ed25519(KEY_1, "", SIGNATURE_1));
+}
+
+test "test 2, one byte" {
+    assert.isTrue(ed25519(KEY_2, "72", SIGNATURE_2));
+}
+
+test "test 3, two bytes" {
+    assert.isTrue(
+        ed25519(
+            "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+            "af82",
+            "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a",
+        ),
+    );
+}
+
+test "test SHA(abc), a 64-byte message" {
+    assert.isTrue(
+        ed25519(
+            "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+            "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
+            "dc2a4459e7369633a52b1bf277839a00201009a3efbf3ecb69bea2186c26b58909351fc9ac90b3ecfdfbc7c66431e0303dca179c138ac17ad9bef1177331a704",
+        ),
+    );
+}
+
+test "a changed message is refused" {
+    assert.isFalse(ed25519(KEY_2, "73", SIGNATURE_2));
+    assert.isFalse(ed25519(KEY_1, "00", SIGNATURE_1));
+}
+
+test "a changed signature is refused" {
+    // One bit in R, then one bit in S.
+    assert.isFalse(
+        ed25519(
+            KEY_2,
+            "72",
+            "93a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
+        ),
+    );
+    assert.isFalse(
+        ed25519(
+            KEY_2,
+            "72",
+            "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da095ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
+        ),
+    );
+}
+
+test "another key's signature is refused" {
+    assert.isFalse(ed25519(KEY_1, "72", SIGNATURE_2));
+}
+
+test "S plus the group order is the same point and is still refused" {
+    // Test 1's signature with L added to S: a forgery by malleability.
+    assert.isFalse(
+        ed25519(
+            KEY_1,
+            "",
+            "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901554c8c7872aa064e049dbb3013fbf29380d25bf5f0595bbe24655141438e7a101b",
+        ),
+    );
+}
+
+test "a signature that is not 64 bytes is refused" {
+    assert.isFalse(ed25519(KEY_1, "", "e5564300c360ac72"));
+    assert.isFalse(ed25519(KEY_1, "", "${SIGNATURE_1}00"));
+}
+
+test "a key that is not 32 bytes is not a key" {
+    assert.equal(
+        crypto.ed25519PublicKeyFromRaw(hex("d75a98")).map(fn(_k) => ()),
+        .Err("an Ed25519 key is 32 bytes"),
+    );
+}
+
+// --- ES256, RFC 7515 appendix A.3 -------------------------------------------------
+
+let JWK_X: Str = "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU";
+
+let JWK_Y: Str = "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0";
+
+let SEC1: Str =
+    "047fcdce2770f6c45d4183cbee6fdb4b7b580733357be9ef13bacf6e3c7bd15445c7f144cd1bbd9b7e872cdfedb9eeb9f4b3695d6ea90b24ad8a4623288588e5ad";
+
+let SIGNING_INPUT: Str =
+    "eyJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ";
+
+let JWS_SIGNATURE: Str =
+    "DtEhU3ljbEg8L38VWAfUAqOyKAM6-Xx-F4GawxaepmXFCgfTjDxw5djxLa8ISlSApmWQxfKTUJqPP3-Kg6NU1Q";
+
+fn jwkKey(): crypto.P256PublicKey {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.ok(crypto.p256PublicKeyFromJwk(ctx, JWK_X, JWK_Y))
+}
+
+fn jwsSignature(): [U8] {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    bytes.fromBase64Url(ctx, JWS_SIGNATURE).withDefault([])
+}
+
+test "the RFC's ES256 JWS checks against its JWK" {
+    assert.isTrue(crypto.verifyEs256(jwkKey(), text(SIGNING_INPUT), jwsSignature()));
+}
+
+test "the same key read as SEC1 and as SPKI checks too" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sec1 = assert.ok(crypto.p256PublicKeyFromSec1(hex(SEC1)));
+    let spki = assert.ok(
+        crypto.p256PublicKeyFromSpki(
+            ctx,
+            hex("3059301306072a8648ce3d020106082a8648ce3d030107034200${SEC1}"),
+        ),
+    );
+    assert.isTrue(crypto.verifyEs256(sec1, text(SIGNING_INPUT), jwsSignature()));
+    assert.isTrue(crypto.verifyEs256(spki, text(SIGNING_INPUT), jwsSignature()));
+}
+
+test "a changed payload is refused" {
+    assert.isFalse(
+        crypto.verifyEs256(jwkKey(), text("${SIGNING_INPUT}x"), jwsSignature()),
+    );
+}
+
+test "a changed ES256 signature is refused" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let signature = jwsSignature();
+    let changed = signature
+        .slice(ctx, 0, 40)
+        .push(ctx, (signature.get(40).withDefault(0).toI64() ^ 1).wrapToU8())
+        .concat(ctx, signature.slice(ctx, 41, 64));
+    assert.isFalse(crypto.verifyEs256(jwkKey(), text(SIGNING_INPUT), changed));
+    assert.isFalse(
+        crypto.verifyEs256(jwkKey(), text(SIGNING_INPUT), signature.slice(ctx, 0, 63)),
+    );
+    // r and s of zero, which no signature has.
+    assert.isFalse(
+        crypto.verifyEs256(jwkKey(), text(SIGNING_INPUT), hex("00".repeat(ctx, 64))),
+    );
+}
+
+test "another key is refused" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // The P-256 generator, which is on the curve and is not the signer.
+    let other = assert.ok(
+        crypto.p256PublicKeyFromSec1(
+            hex(
+                "046b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c2964fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+            ),
+        ),
+    );
+    assert.isFalse(crypto.verifyEs256(other, text(SIGNING_INPUT), jwsSignature()));
+}
+
+test "a point off the curve is refused" {
+    // The RFC's key with the last bit of y flipped.
+    let off = assert.ok(
+        crypto.p256PublicKeyFromSec1(
+            hex(
+                "047fcdce2770f6c45d4183cbee6fdb4b7b580733357be9ef13bacf6e3c7bd15445c7f144cd1bbd9b7e872cdfedb9eeb9f4b3695d6ea90b24ad8a4623288588e5ac",
+            ),
+        ),
+    );
+    assert.isFalse(crypto.verifyEs256(off, text(SIGNING_INPUT), jwsSignature()));
+}
+
+test "keys in the wrong shape are not keys" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        crypto.p256PublicKeyFromJwk(ctx, "f83OJ3D2", JWK_Y).map(fn(_k) => ()),
+        .Err("a P-256 coordinate is 32 bytes"),
+    );
+    assert.equal(
+        crypto.p256PublicKeyFromJwk(ctx, "not base64!", JWK_Y).map(fn(_k) => ()),
+        .Err("a JWK coordinate is base64url"),
+    );
+    // The compressed form: 0x02 or 0x03, then x.
+    assert.equal(
+        crypto
+            .p256PublicKeyFromSec1(
+                hex(
+                    "037fcdce2770f6c45d4183cbee6fdb4b7b580733357be9ef13bacf6e3c7bd15445",
+                ),
+            )
+            .map(fn(_k) => ()),
+        .Err("a P-256 key is 65 bytes starting with 0x04"),
+    );
+    assert.equal(
+        crypto.p256PublicKeyFromSpki(ctx, hex(SEC1)).map(fn(_k) => ()),
+        .Err("not a P-256 SubjectPublicKeyInfo"),
+    );
+}

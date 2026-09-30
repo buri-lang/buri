@@ -1359,7 +1359,8 @@ pub const ENTRIES: &[Entry] = &[
     },
     // -- core/crypto --------------------------------------------------------
     //
-    // Sealing, behind the runtime's `crypto` feature.
+    // Sealing and the two signature checks, behind the runtime's `crypto`
+    // feature. The checks are `Ret::Int(8)` for `core/character`'s reason below.
     Entry {
         key: "crypto.chacha20Poly1305Seal",
         symbol: "buri_rt_crypto_chacha20_poly1305_seal",
@@ -1371,6 +1372,18 @@ pub const ENTRIES: &[Entry] = &[
         symbol: "buri_rt_crypto_chacha20_poly1305_open",
         args: &[Arg::Dropped, Arg::List, Arg::List, Arg::List, Arg::List],
         ret: Ret::Sum,
+    },
+    Entry {
+        key: "crypto.ecdsaP256Sha256Verify",
+        symbol: "buri_rt_crypto_ecdsa_p256_sha256_verify",
+        args: &[Arg::List, Arg::List, Arg::List],
+        ret: Ret::Int(8),
+    },
+    Entry {
+        key: "crypto.ed25519Verify",
+        symbol: "buri_rt_crypto_ed25519_verify",
+        args: &[Arg::List, Arg::List, Arg::List],
+        ret: Ret::Int(8),
     },
     // -- core/character -----------------------------------------------------
     //
