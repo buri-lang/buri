@@ -16,7 +16,7 @@ use crate::diagnostics::{Diagnostic, FileId, Invariant, Span};
 /// union, while the reader must refuse a `tag` in a build file. The test at
 /// the bottom of this module holds the union to these two halves.
 const BUILD_FILE_RULES: &[&str] = &["library", "binary"];
-const REPO_FILE_RULES: &[&str] = &["tag", "lint"];
+const REPO_FILE_RULES: &[&str] = &["tag", "lint", "language"];
 
 /// The fields a `test` block used to declare and no longer does.
 ///
@@ -545,6 +545,8 @@ impl LintRules {
 pub struct RepoConfig {
     pub tags: Vec<Tag>,
     pub lint: LintConfig,
+    /// The built-in languages, with the extensions `language` blocks added.
+    pub languages: crate::languages::Languages,
 }
 
 impl RepoConfig {
@@ -789,6 +791,70 @@ impl Reader {
             }
         }
         rules
+    }
+
+    /// The `language` blocks, over the built-in languages.
+    ///
+    /// A block may add extensions to a built-in language and do nothing else:
+    /// replacing a built-in's check would make one `.json` mean different
+    /// things in different repositories. A language of a repository's own
+    /// needs a `tool` rule to check it, which this toolchain does not have yet.
+    fn languages(&mut self, document: &Document) -> crate::languages::Languages {
+        let mut languages = crate::languages::Languages::default();
+        for f in document.all("language") {
+            let Value::Message(m, span) = &f.value else {
+                let kind = f.value.kind().to_string();
+                self.wrong_kind(f.value.span(), "language", "a block", &kind);
+                continue;
+            };
+            self.check_known(m, textproto::schema_order("language"), &[], "a `language` block");
+            let Some(name) = self.spanned_string(m, "name") else {
+                if m.get("name").is_none() {
+                    self.templated("language-without-a-name", *span);
+                }
+                continue;
+            };
+            if languages.named(&name.value).is_none() {
+                self.templated("language-not-built-in", name.span).bind("language", name.value.clone());
+                continue;
+            }
+            for tool in ["check", "format", "generate"] {
+                if let Some(field) = m.get(tool) {
+                    self.templated("built-in-language-tool", field.name_span)
+                        .bind("field", tool)
+                        .bind("language", name.value.clone());
+                }
+            }
+            for extension in self.strings(m, "extensions") {
+                let e = &extension.value;
+                let valid = e.len() > 1
+                    && e.starts_with('.')
+                    && !e.contains('/')
+                    && !e.contains(char::is_whitespace);
+                if !valid {
+                    self.templated("language-extension-invalid", extension.span).bind("extension", e.clone());
+                    continue;
+                }
+                let owner = languages
+                    .all
+                    .iter()
+                    .find_map(|l| l.extensions.iter().find(|x| x.value == *e).map(|x| (l.name, x.span)));
+                if let Some((owner, first)) = owner {
+                    let d = self
+                        .templated("language-extension-taken", extension.span)
+                        .bind("extension", e.clone())
+                        .bind("language", owner);
+                    if first != Span::NONE {
+                        d.secondary_span(first, "claimed here");
+                    }
+                    continue;
+                }
+                if let Some(language) = languages.all.iter_mut().find(|l| l.name == name.value) {
+                    language.extensions.push(extension);
+                }
+            }
+        }
+        languages
     }
 
     fn sub_message<'a>(&mut self, message: &'a Message, name: &str) -> Option<(&'a Message, Span)> {
@@ -1247,8 +1313,10 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
         }
     }
 
+    let languages = reader.languages(&parsed.document);
+
     ReadResult {
-        value: RepoConfig { tags, lint },
+        value: RepoConfig { tags, lint, languages },
         document: parsed.document,
         errors: reader.errors,
     }
@@ -1604,7 +1672,7 @@ library {
             .first()
             .expect("a removed field is still a field REPO.buri does not have");
         assert_eq!(d.message, "unknown field `toolchain` in REPO.buri");
-        assert_eq!(d.fix.as_deref(), Some("REPO.buri accepts: tag, lint"));
+        assert_eq!(d.fix.as_deref(), Some("REPO.buri accepts: tag, lint, language"));
         assert!(
             nearest("toolchain", REPO_FILE_RULES).is_none(),
             "a field REPO.buri has was suggested for `toolchain`"

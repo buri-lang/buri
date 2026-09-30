@@ -12,6 +12,11 @@ library correct?"
 With no target argument it builds the whole repository: bare `buri build` is
 `buri build //...`, from any directory in it.
 
+A JSON file a generator lists is checked against its schema before the
+generator runs, and a failure is an error, the same in `buri test` and
+`buri lint`. The verdict is cached on the file and every schema it reads, so
+editing either one checks it again. See [`guides/json.md`](../../guides/json.md).
+
 ## Lint findings
 
 A build reports the lint catalogue too, where `REPO.buri` asks it to. Set

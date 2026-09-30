@@ -1,0 +1,99 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a JSON file a generator lists is checked against its schema by build, test and lint before the generator runs: JSON, JSONC and JSON5, a relative and a // schema path, and a check keyed on the file and its schema"
+
+# All three languages read and pass: `regions.json` names its schema by a
+# relative path, `ports.jsonc` by a `//` path, `limits.json5` holds JSON5's
+# `Infinity` and a hexadecimal number.
+run {
+  args: ["build", "//lib/deploy"]
+  exit: 0
+}
+
+run {
+  args: ["test", "//lib/deploy"]
+  exit: 0
+  golden: "test.txt"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "lint.txt"
+}
+
+# A value its schema refuses is an error where the value is written, the
+# generator does not run, and every command that type-checks says so.
+edit {
+  file: "lib/deploy/regions.json"
+  replace: "\"primary\": \"eu-west\""
+  with: "\"primary\": \"EU\", \"backup\": 2"
+}
+
+run {
+  args: ["build", "//lib/deploy"]
+  exit: 1
+  golden: "violation.txt"
+}
+
+run {
+  args: ["test", "//lib/deploy", "--dense"]
+  exit: 1
+  golden: "violation_test.txt"
+}
+
+run {
+  args: ["lint", "//lib/deploy", "--dense"]
+  exit: 1
+  golden: "violation_lint.txt"
+}
+
+edit {
+  file: "lib/deploy/regions.json"
+  replace: "\"primary\": \"EU\", \"backup\": 2"
+  with: "\"primary\": \"eu-west\""
+}
+
+run {
+  args: ["build", "//lib/deploy"]
+  exit: 0
+}
+
+# The check is keyed on the schema too: tightening the schema re-checks the
+# data file that did not change.
+edit {
+  file: "schemas/ports.schema.json"
+  replace: "\"maximum\": 65535"
+  with: "\"maximum\": 8999"
+}
+
+run {
+  args: ["build", "//lib/deploy"]
+  exit: 1
+  golden: "schema_edit.txt"
+}
+
+edit {
+  file: "schemas/ports.schema.json"
+  replace: "\"maximum\": 8999"
+  with: "\"maximum\": 65535"
+}
+
+run {
+  args: ["build", "//lib/deploy"]
+  exit: 0
+}
+
+# JSON5's `Infinity` is a number and not an integer.
+edit {
+  file: "lib/deploy/limits.schema.json"
+  replace: "\"burst\": { \"type\": \"number\" }"
+  with: "\"burst\": { \"type\": \"integer\" }"
+}
+
+run {
+  args: ["build", "//lib/deploy"]
+  exit: 1
+  golden: "infinity.txt"
+}

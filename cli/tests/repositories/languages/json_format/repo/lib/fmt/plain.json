@@ -1,0 +1,3 @@
+{"$schema":"any.schema.json",
+  "ports":[80,443],"hosts":   {"web":"example.com"},
+    "empty": {}, "none": []}

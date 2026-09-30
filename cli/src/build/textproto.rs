@@ -508,7 +508,7 @@ pub fn schema_order(message: &str) -> &'static [&'static str] {
         // does not know which kind it is looking at — which is why the top
         // level is the one place `buildfile.rs` keeps its own lists, and a test
         // below holds the two halves to this union.
-        "" => &["library", "binary", "tag", "lint"],
+        "" => &["library", "binary", "tag", "lint", "language"],
         "library" => &[
             "sources",
             "generators",
@@ -536,6 +536,7 @@ pub fn schema_order(message: &str) -> &'static [&'static str] {
         "forbids" => &["tags"],
         "requires" => &["platforms"],
         "lint" => &["check_during_build", "fail_on_finding", "rules"],
+        "language" => &["name", "extensions", "check", "format", "generate"],
         // The one message whose fields are not written down: `rules` holds a
         // `default` and one bool per lint code, and the codes are the
         // catalogue's. Written here as a list it would be a copy that could go

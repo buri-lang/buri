@@ -1,0 +1,43 @@
+error: "//lib/deploy/config" names no file (lib/deploy/config.buri) [module-not-found]
+ --> lib/deploy/lib.buri:1:6
+  |
+1 | from "//lib/deploy/config" export { inputs };
+  |      ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    What to do
+    ──────────
+
+    Create the file the path names, or correct the path.
+
+    Why
+    ───
+
+    A module path maps to exactly one file, with no search path and no fallback,
+    so there is never a question of which of two candidates a path meant.
+
+    A program that provokes it
+    ──────────────────────────
+
+    This snippet resolves against the worked monorepo in cli/tests/example,
+    which has no lib/nope.
+
+error: expected an integer, found a number [json-schema-violation]
+ --> lib/deploy/limits.json5:4:12
+  |
+4 |     burst: Infinity,
+  |            ^^^^^^^^
+  |
+  = the schema says so at `lib/deploy/limits.schema.json#/properties/burst/type`
+  = fix: write an integer here
+
+    Each failure is reported at the value that fails, and the note names the
+    keyword in the schema that it fails. Change the value, or, if the value is
+    right, change the schema.
+
+    A file with a failure is not handed to the generator that lists it.
+
+    "$schema" is a property like any other: a schema with
+    "additionalProperties": false lists it in properties.
+

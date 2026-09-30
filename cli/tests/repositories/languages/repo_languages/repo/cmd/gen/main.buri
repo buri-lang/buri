@@ -1,0 +1,43 @@
+//! A generator that answers every request with one module, `config`, saying
+//! how many inputs it was handed. What it reads is not the point: the build
+//! checks those inputs before this runs, and does not run it when one fails.
+
+from "core/effect" import { Allocator, Stdin, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/json" import * as json;
+from "core/json" import { Json };
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdin: host.stdin,
+        Stdout: host.stdout,
+    };
+    let line = io.readLine(ctx).okOr("the generator was handed no request")?;
+    let request = json.parse(ctx, line).mapErr(fn(_e) => "the request is not JSON")?;
+    let count = match (field(request, "inputs")) {
+        .Some(.Array(items)) => items.length(),
+        _ => 0,
+    };
+    let generated: Json = .Object([
+        ("name", .Str("config")),
+        ("text", .Str(str.format(ctx, "export let inputs: Int = ${count};\n"))),
+        ("anchors", .Array([])),
+    ]);
+    let response: Json = .Object([
+        ("modules", .Array([generated])),
+        ("diagnostics", .Array([])),
+    ]);
+    io
+        .println(ctx, "${json.stringify(ctx, response)}")
+        .mapErr(fn(_e) => "could not write the response")
+}
+
+fn field(value: Json, name: Str): Option<Json> {
+    match (value) {
+        .Object(fields) => fields.find(fn(f) => f.0 == name).map(fn(f) => f.1),
+        _ => .None,
+    }
+}

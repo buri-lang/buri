@@ -389,6 +389,15 @@ impl Sources {
 /// this binary, and its identity is the toolchain version.
 pub fn closure_of(workspace: &Workspace, analysis: &Analysis) -> Vec<PathBuf> {
     let mut files = Vec::new();
+    // A rule whose input failed its check produced no module to find it by.
+    for rule in &analysis.loaded.generated_rules {
+        let dir = &workspace.package(rule.package).dir;
+        for input in crate::build::generators::inputs(workspace, *rule) {
+            files.push(dir.join(input));
+        }
+        let reads = workspace.generated.outcome(*rule).map(|o| o.reads).unwrap_or_default();
+        files.extend(reads.iter().map(|rel| workspace.root.join(rel)));
+    }
     for module in &analysis.loaded.modules {
         if let Some(disk) = &module.disk {
             files.push(disk.clone());
