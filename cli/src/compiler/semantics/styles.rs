@@ -1710,7 +1710,7 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
                 ],
                 _ => return None,
             };
-            let key = ["none", "disc", "decimal"][which];
+            let key = *["none", "disc", "decimal"].get(which)?;
             Some(("lm", key.into(), blocks))
         }
 
