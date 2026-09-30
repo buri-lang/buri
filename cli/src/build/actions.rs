@@ -1115,7 +1115,7 @@ fn layout_closure_signature(
 /// test set that entry enumerates.
 ///
 /// A test binary has no `main`. The backend synthesises an entry — the program
-/// entry, the `test$N` carrier doors, and the calls between them — from the
+/// entry, the `test$N` thread doors, and the calls between them — from the
 /// ordered set of test roots, and emits the whole of it into the unit that
 /// holds the *first* test's function (`backend::stencil`'s `Root::Tests` arm).
 /// None of that is an `ir::Func`, so [`unit_hashes`] — which renders a unit's

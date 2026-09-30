@@ -1,4 +1,4 @@
-//! The **carrier entry ABI**: the one C signature by which something outside a
+//! The **thread entry ABI**: the one C signature by which something outside a
 //! Buri artifact enters Buri code.
 //!
 //! `design/native/CODEGEN-*.md` describe how a Buri function is *called by
@@ -8,10 +8,10 @@
 //! Buri code was `main`, and `main` is emitted by the same backend that emits
 //! the body it calls.
 //!
-//! A **carrier** is not. `cli/runtime/rt.rs` runs Buri code on an OS thread
-//! from a pool, and what a pool hands a thread is a C function pointer. So
-//! there has to be a door, and this module is the one place its shape is
-//! written down.
+//! A **task thread** is not. `cli/runtime/rt.rs` runs Buri code on OS
+//! threads from a pool, and what a pool hands a thread is a C function
+//! pointer. So there has to be a door, and this module is the one place its
+//! shape is written down.
 //!
 //! # The shape
 //!
@@ -56,12 +56,12 @@
 //!
 //!  * **stencil** — generated Buri code runs on a Buri data stack that no
 //!    kernel guards, and there has been exactly one of them: `asm.rs`'s 64 MiB
-//!    `__bss` block. A carrier cannot use it, so the thunk asks
+//!    `__bss` block. A task thread cannot use it, so the thunk asks
 //!    [`STACK_ACQUIRE`] for its own and puts the answer in the frame-pointer
 //!    register before it calls the body;
-//!  * **LLVM** — a frame there *is* the machine's, and the machine stack of a
-//!    carrier thread is the OS's and already guarded. The thunk is a `ccc`
-//!    wrapper in front of the `fastcc` body and asks for no stack at all.
+//!  * **LLVM** — a frame there *is* the machine's, and a thread's machine
+//!    stack is the OS's and already guarded. The thunk is a `ccc` wrapper in
+//!    front of the `fastcc` body and asks for no stack at all.
 //!
 //! The signature does not know which, which is the point of having one.
 
@@ -124,7 +124,7 @@ impl Signature {
     }
 }
 
-/// **The carrier entry signature.** `void(ptr, ptr)`: the caller's record, and
+/// **The thread entry signature.** `void(ptr, ptr)`: the caller's record, and
 /// where to put the answer.
 pub const ENTRY: Signature = Signature { params: &[Word::Ptr, Word::Ptr], ret: None };
 
@@ -137,7 +137,7 @@ pub const OUT: usize = 1;
 /// The runtime entry a stencil thunk takes its Buri data stack from.
 ///
 /// `cli/runtime/memory.rs`. Answers a 64 MiB block with its own 1 MiB
-/// `PROT_NONE` guard, belonging to the calling carrier alone.
+/// `PROT_NONE` guard, belonging to the calling thread alone.
 pub const STACK_ACQUIRE: &str = "buri_rt_stack_acquire";
 
 /// The runtime entry that gives one back. `cli/runtime/memory.rs`.
@@ -151,14 +151,14 @@ pub const STACK_RELEASE: &str = "buri_rt_stack_release";
 /// depended on the module the root happened to be written in would be a name
 /// nothing outside could predict. The `$` is `asm::STACK_SYMBOL`'s guarantee —
 /// no Buri path contains one, so no mangled symbol can collide.
-pub const MAIN_ENTRY: &str = "buri$carrier$main";
+pub const MAIN_ENTRY: &str = "buri$thread$main";
 
 /// The symbol the door to test block `i` is emitted under.
 ///
 /// Test binaries have no root, so the index is the name — the same index
 /// `buri_rt_test_enter` already identifies a block by.
 pub fn test_entry(i: usize) -> String {
-    format!("buri$carrier$test{i}")
+    format!("buri$thread$test{i}")
 }
 
 #[cfg(test)]
@@ -196,7 +196,7 @@ mod tests {
     fn the_door_symbols_cannot_collide_with_a_mangled_one() {
         assert!(MAIN_ENTRY.contains('$'));
         assert!(test_entry(0).contains('$'));
-        assert_eq!(test_entry(7), "buri$carrier$test7");
+        assert_eq!(test_entry(7), "buri$thread$test7");
         assert_ne!(test_entry(0), test_entry(1));
         assert_ne!(MAIN_ENTRY, test_entry(0));
         // The two runtime entries are `buri_rt_`, the one prefix every runtime

@@ -844,7 +844,7 @@ pub const ENTRIES: &[Entry] = &[
     // shape at all. That is the whole reason `Listen`
     // costs seven ordinary rows where `Tasks` costs one with a trampoline
     // behind it — and it is why F3 could put a *worker per handler* on the
-    // carrier pool without touching the trampoline at all: the fan-out is
+    // thread pool without touching the trampoline at all: the fan-out is
     // `Tasks.parallel`'s, one row up, and these seven neither know nor care how
     // many callers they have.
     //
@@ -947,7 +947,7 @@ pub const ENTRIES: &[Entry] = &[
     e("alloc.arenaCount", "buri_rt_alloc_arena_count", Ret::Scalar),
     e("alloc.arenaTotal", "buri_rt_alloc_arena_total", Ret::Scalar),
     // G5's pair: the arena the platform allocator serves out of, for this
-    // carrier and for the dynamic extent of `scoped`'s body. `arenaEnter`
+    // thread and for the dynamic extent of `scoped`'s body. `arenaEnter`
     // answers the arena that was active before, so nesting is the caller's
     // local and not a stack in the runtime.
     e("alloc.arenaEnter", "buri_rt_alloc_arena_enter", Ret::Scalar),

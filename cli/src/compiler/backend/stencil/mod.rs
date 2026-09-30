@@ -37,7 +37,7 @@
 //!   mod.rs      this file: the backend, and one object per codegen unit
 //!   abi.rs      the two facts the library builder and the emitter must share
 //!   asm.rs      the hand-written shims: `main`, for a program and for tests,
-//!               and the carrier door in front of each root (`carrier.rs`)
+//!               and the thread door in front of each root (`task_thread.rs`)
 //!   emit.rs     middle::ir into stencil keys
 //!   glue.rs     the functions a unit generates for itself: thunks, drop glue
 //!   jit.rs      copy, patch, and the three analyses a stencil key needs
@@ -141,7 +141,7 @@ pub mod runtime;
 
 use crate::build::buildfile::{Arch, Platform};
 use crate::build::cache::ActionKey;
-use crate::compiler::backend::carrier;
+use crate::compiler::backend::task_thread;
 use crate::compiler::backend::{Backend, Emitted, Options, Target, Units};
 use crate::compiler::middle::layout::{EnumRepr, Layouts, Repr};
 use crate::compiler::middle::monomorphize::{Program, ProgramRoots};
@@ -623,7 +623,7 @@ pub fn supported(target: Target) -> Result<abi::StencilTarget, String> {
 /// shims are emitted under.
 ///
 /// Named here rather than spelled at the one use because a *second* named shim
-/// arrived in the same list ([`carrier::MAIN_ENTRY`]) and a list with one
+/// arrived in the same list ([`task_thread::MAIN_ENTRY`]) and a list with one
 /// literal and one constant in it reads as though the two were different
 /// kinds of thing.
 const ENTRY_SYMBOL: &str = "main";
@@ -631,7 +631,7 @@ const ENTRY_SYMBOL: &str = "main";
 /// The C door into one root, or `None` for a root this backend has no record
 /// shape for yet.
 ///
-/// **Nullary only, deliberately.** `carrier.rs`'s `state` is passed and not
+/// **Nullary only, deliberately.** `task_thread.rs`'s `state` is passed and not
 /// read, so a root that took arguments would have to read them out of a record
 /// whose layout nothing has decided — and deciding it here, with no call site
 /// to fill it, is exactly the guess `cli/runtime/rt.rs` §1 refuses to make
@@ -639,7 +639,7 @@ const ENTRY_SYMBOL: &str = "main";
 /// Str>` and a `test` block both), so the `None` arm is unreachable today and
 /// is here so that the day it is reachable is a missing symbol rather than a
 /// door that reads uninitialised bytes.
-fn carrier_door(
+fn thread_door(
     target: abi::StencilTarget,
     frames: &[jit::FrameSig],
     idx: usize,
@@ -649,7 +649,7 @@ fn carrier_door(
     if !frame.params.is_empty() {
         return None;
     }
-    Some(asm::carrier_entry(target, sym, frame.ret_size))
+    Some(asm::thread_entry(target, sym, frame.ret_size))
 }
 
 /// One codegen unit, from IR to object bytes.
@@ -872,11 +872,11 @@ fn assemble_unit(
     // *first* test — the same rule `llvm/mod.rs` applies to the root that
     // exists.
     //
-    // **The carrier doors ride with it**, in the same unit and for the same
+    // **The thread doors ride with it**, in the same unit and for the same
     // reason: `main` and a door are the two ways into this program's Buri
     // code, they name the same roots, and a unit that has one and not the
-    // other would leave a symbol nothing defines. `carrier.rs` is the
-    // signature; `asm::carrier_entry` is this backend's half of it.
+    // other would leave a symbol nothing defines. `task_thread.rs` is the
+    // signature; `asm::thread_entry` is this backend's half of it.
     let mut shims: Vec<(String, asm::Shim)> = Vec::new();
     // G3: `middle::rc::crosses_tasks`'s whole-program answer, which is the one
     // fact an entry point states that no `Func` in it carries. `asm::Marking`
@@ -894,8 +894,8 @@ fn assemble_unit(
                 String::from(ENTRY_SYMBOL),
                 asm::program_entry(target, &sym, main_result(program, tables, *idx), marking),
             ));
-            if let Some(door) = carrier_door(target, frames, *idx, &sym) {
-                shims.push((String::from(carrier::MAIN_ENTRY), door));
+            if let Some(door) = thread_door(target, frames, *idx, &sym) {
+                shims.push((String::from(task_thread::MAIN_ENTRY), door));
             }
         }
         Root::Tests(tests) if tests.first().is_some_and(|i| members.contains(i)) => {
@@ -905,8 +905,8 @@ fn assemble_unit(
                 .collect();
             shims.push((String::from(ENTRY_SYMBOL), asm::test_entry(target, &names, marking)));
             for (i, (t, sym)) in tests.iter().zip(&names).enumerate() {
-                if let Some(door) = carrier_door(target, frames, *t, sym) {
-                    shims.push((carrier::test_entry(i), door));
+                if let Some(door) = thread_door(target, frames, *t, sym) {
+                    shims.push((task_thread::test_entry(i), door));
                 }
             }
         }

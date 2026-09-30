@@ -79,7 +79,7 @@
 use super::abi::StencilTarget;
 use super::object::RelKind;
 use super::region::Target;
-use crate::compiler::backend::carrier;
+use crate::compiler::backend::task_thread;
 
 /// Whether a `linux-x86_64` build can be made at all.
 ///
@@ -841,8 +841,8 @@ const PROT_NONE: u64 = 0;
 /// **This backend makes the call even though it cannot fan out.** The two
 /// statements an artifact makes about itself are deliberately separate: one is
 /// about *where a frame lives*, which is this backend's own answer and is why
-/// `buri_rt_frames_are_per_carrier` is missing here, and this one is about
-/// *whether a block can be reached from two carriers*, which is a property of
+/// `buri_rt_frames_are_per_thread` is missing here, and this one is about
+/// *whether a block can be reached from two threads*, which is a property of
 /// the program and is true here for exactly the programs it is true of over
 /// there. Marking a program that then runs its steps in order costs an `or`
 /// per allocation and an atomic count; not marking it would make the day this
@@ -875,13 +875,13 @@ impl Marking {
 /// error, flushes and exits 1.
 ///
 /// **One call that entry point makes and this one does not**, and the omission
-/// is the decision: `buri_rt_frames_are_per_carrier`. A program built here has
+/// is the decision: `buri_rt_frames_are_per_thread`. A program built here has
 /// a single Buri stack — [`STACK_SYMBOL`], guarded by `install_guard` — so a
-/// second carrier entering Buri code has nowhere of its own to put a frame, and
-/// `Tasks.parallel` runs its steps one after another on the calling carrier
+/// second thread entering Buri code has nowhere of its own to put a frame, and
+/// `Tasks.parallel` runs its steps one after another on the calling thread
 /// instead of fanning them out. `cli/runtime/lib.rs` §6 makes that call the
 /// optional one for exactly this reason: silence is the safe answer. Track B's
-/// per-carrier Buri stack (B7) is what lets this entry point make it too.
+/// per-thread Buri stack (B7) is what lets this entry point make it too.
 ///
 /// The target picks the machine and nothing else: the two bodies below are the
 /// same program in two instruction sets, and a difference between them that is
@@ -1132,26 +1132,26 @@ fn test_entry_x86_64(tests: &[String], marking: Marking) -> X86 {
 }
 
 // ---------------------------------------------------------------------------
-// The carrier door
+// The thread door
 // ---------------------------------------------------------------------------
 
 /// **`void entry(void *state, void *out)`** — the C door into one Buri
 /// function, for a caller that is not this artifact's own `main`.
 ///
-/// `backend/carrier.rs` is the signature and the argument order; this is the
+/// `backend/task_thread.rs` is the signature and the argument order; this is the
 /// stencil half of it, and the whole of what it adds to the shape
 /// [`program_entry`] already has is *where the Buri stack comes from*:
 ///
 /// ```text
 ///   program_entry   x0 <- buri$stencil$stack        the process's one block
-///   carrier_entry   x0 <- buri_rt_stack_acquire()   this carrier's own
+///   thread_entry   x0 <- buri_rt_stack_acquire()   this thread's own
 /// ```
 ///
 /// That one line is the slice. `main` keeps the `__bss` block — a program that
-/// never starts a second carrier maps nothing and faults nowhere new — and a
-/// carrier gets 64 MiB with its own 1 MiB `PROT_NONE` guard, so a runaway
+/// never starts a second thread maps nothing and faults nowhere new — and a
+/// thread gets 64 MiB with its own 1 MiB `PROT_NONE` guard, so a runaway
 /// recursion on it faults at *its* boundary instead of writing over the frames
-/// of whichever carrier holds the static block.
+/// of whichever thread holds the static block.
 ///
 /// `ret_bytes` is the callee's return area, which begins at offset 0 of its
 /// frame; it is copied through `out` in whole words, so `out` must have room
@@ -1159,13 +1159,13 @@ fn test_entry_x86_64(tests: &[String], marking: Marking) -> X86 {
 /// `out`, which is what makes a null one legal for a callee that answers
 /// nothing.
 ///
-/// `state` is passed and not read — `carrier.rs` says why the parameter exists
+/// `state` is passed and not read — `task_thread.rs` says why the parameter exists
 /// before the caller that fills it does.
-pub fn carrier_entry(target: StencilTarget, callee: &str, ret_bytes: u32) -> Shim {
+pub fn thread_entry(target: StencilTarget, callee: &str, ret_bytes: u32) -> Shim {
     if target.is_arm64() {
-        return carrier_entry_arm64(callee, ret_bytes).into_shim();
+        return thread_entry_arm64(callee, ret_bytes).into_shim();
     }
-    carrier_entry_x86_64(callee, ret_bytes).into_shim()
+    thread_entry_x86_64(callee, ret_bytes).into_shim()
 }
 
 /// The words of a return area, which is what the copy below is counted in.
@@ -1182,14 +1182,14 @@ const DOOR_FRAME: u32 = 16;
 const DOOR_OUT: u32 = 0;
 const DOOR_BASE: u32 = 8;
 
-fn carrier_entry_arm64(callee: &str, ret_bytes: u32) -> Asm {
+fn thread_entry_arm64(callee: &str, ret_bytes: u32) -> Asm {
     let mut a = Asm::new();
     a.stp_fp_lr();
     a.sub_imm(SP, SP, DOOR_FRAME);
     // `out` has to outlive `buri_rt_stack_acquire` and the body; `state` does
     // not, because nothing reads it.
-    a.str_off(arg_reg_a64(carrier::OUT), SP, DOOR_OUT);
-    a.bl_symbol(carrier::STACK_ACQUIRE);
+    a.str_off(arg_reg_a64(task_thread::OUT), SP, DOOR_OUT);
+    a.bl_symbol(task_thread::STACK_ACQUIRE);
     // The answer *is* the frame pointer the body wants, so there is no move
     // between these two instructions — and the body answers the same `x0`,
     // which is what the copy below reads the return area off.
@@ -1205,27 +1205,27 @@ fn carrier_entry_arm64(callee: &str, ret_bytes: u32) -> Asm {
     }
 
     a.ldr(X0, SP, DOOR_BASE);
-    a.bl_symbol(carrier::STACK_RELEASE);
+    a.bl_symbol(task_thread::STACK_RELEASE);
     a.add_imm(SP, SP, DOOR_FRAME);
     a.ldp_fp_lr();
     a.ret();
     a
 }
 
-/// [`carrier_entry`] for SysV x86-64.
+/// [`thread_entry`] for SysV x86-64.
 ///
 /// The one structural difference is [`program_entry_x86_64`]'s: an emitted
 /// body answers its frame pointer in `rax` rather than in the register it was
 /// handed, so the return area is read off `rax` and the acquired base has to
 /// be kept for the release rather than still being in `rdi`.
-fn carrier_entry_x86_64(callee: &str, ret_bytes: u32) -> X86 {
+fn thread_entry_x86_64(callee: &str, ret_bytes: u32) -> X86 {
     let mut a = X86::new();
     // `rsp % 16` is 8 on entry; the push makes it 0 and `sub #16` keeps it, so
     // every `call` below is made on a sixteen-aligned stack.
     a.push_rbp();
     a.sub_imm(RSP, DOOR_FRAME);
-    a.str_off(arg_reg_sysv(carrier::OUT), RSP, DOOR_OUT);
-    a.call_symbol(carrier::STACK_ACQUIRE);
+    a.str_off(arg_reg_sysv(task_thread::OUT), RSP, DOOR_OUT);
+    a.call_symbol(task_thread::STACK_ACQUIRE);
     a.str_off(RAX, RSP, DOOR_BASE);
     a.mov_reg(RDI, RAX);
     a.call_symbol(callee);
@@ -1239,7 +1239,7 @@ fn carrier_entry_x86_64(callee: &str, ret_bytes: u32) -> X86 {
     }
 
     a.ldr(RDI, RSP, DOOR_BASE);
-    a.call_symbol(carrier::STACK_RELEASE);
+    a.call_symbol(task_thread::STACK_RELEASE);
     a.add_imm(RSP, DOOR_FRAME);
     a.pop_rbp();
     a.ret();
@@ -1249,7 +1249,7 @@ fn carrier_entry_x86_64(callee: &str, ret_bytes: u32) -> X86 {
 /// Argument register `pos` on A64: `x0`..`x7`, which is the register number.
 ///
 /// A function of the *position* rather than a constant at the one use, so that
-/// `carrier::STATE` and `carrier::OUT` are what decide which register the door
+/// `task_thread::STATE` and `task_thread::OUT` are what decide which register the door
 /// reads — moving one of them moves the emitted instruction, which is what
 /// makes the shared table load-bearing rather than decorative.
 fn arg_reg_a64(pos: usize) -> u32 {
@@ -1268,35 +1268,35 @@ fn arg_reg_sysv(pos: usize) -> u32 {
     }
 }
 
-/// The carrier entry signature this backend emits its door against, in
-/// `backend/carrier.rs`'s canonical spelling.
+/// The thread entry signature this backend emits its door against, in
+/// `backend/task_thread.rs`'s canonical spelling.
 ///
 /// This is the *reference* side of the byte-for-byte comparison: the door
 /// above reads its argument registers through [`arg_reg_a64`] /
-/// [`arg_reg_sysv`] at `carrier::OUT`, and copies the return area through a
+/// [`arg_reg_sysv`] at `task_thread::OUT`, and copies the return area through a
 /// pointer rather than answering one, so the constant rendered here is the one
-/// the machine code was written from. `llvm::emit::carrier_signature` answers
+/// the machine code was written from. `llvm::emit::thread_signature` answers
 /// the same question by reading a real `FunctionValue`'s type back out of a
-/// module, and `the_two_carrier_doors_have_one_signature` diffs them.
-pub fn carrier_signature() -> Vec<u8> {
-    carrier::ENTRY.render()
+/// module, and `the_two_thread_doors_have_one_signature` diffs them.
+pub fn thread_signature() -> Vec<u8> {
+    task_thread::ENTRY.render()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// **The carrier stack is the size the runtime maps.**
+    /// **The thread stack is the size the runtime maps.**
     ///
-    /// `cli/runtime/memory.rs` mmaps a carrier's block and this file emits the
+    /// `cli/runtime/memory.rs` mmaps a thread's block and this file emits the
     /// process's own; the two are in two crates that cannot see each other, so
     /// nothing but a pair of tests naming the same numbers keeps them equal. A
-    /// carrier given less than the process gets would fault at a depth the
+    /// thread given less than the process gets would fault at a depth the
     /// process survives, which reads as a stack bug and is a concurrency one.
-    /// The runtime's half is `memory::tests::a_carrier_stack_is_the_size_the_
+    /// The runtime's half is `memory::tests::a_thread_stack_is_the_size_the_
     /// static_block_is`.
     #[test]
-    fn the_carrier_stack_is_the_size_the_runtime_maps() {
+    fn the_thread_stack_is_the_size_the_runtime_maps() {
         assert_eq!(STACK_USABLE, 64 * 1024 * 1024);
         assert_eq!(GUARD_BYTES, 1024 * 1024);
         assert_eq!(STACK_BYTES, 65 * 1024 * 1024);
@@ -1312,7 +1312,7 @@ mod tests {
     /// against.
     #[test]
     fn the_a64_door_takes_its_stack_from_the_runtime() {
-        let door = carrier_entry_arm64("body", 8);
+        let door = thread_entry_arm64("body", 8);
         let (_, relocs) = door.finish();
         let named: Vec<String> = relocs
             .iter()
@@ -1329,7 +1329,7 @@ mod tests {
     /// not force is a bug in one of them ([`program_entry`]).
     #[test]
     fn the_sysv_door_takes_its_stack_from_the_runtime() {
-        let door = carrier_entry_x86_64("body", 8);
+        let door = thread_entry_x86_64("body", 8);
         let (_, relocs) = door.finish();
         let named: Vec<String> = relocs
             .iter()
@@ -1352,38 +1352,38 @@ mod tests {
         assert_eq!(ret_words(1), 1);
         assert_eq!(ret_words(8), 1);
         assert_eq!(ret_words(9), 2);
-        let empty = words(carrier_entry_arm64("body", 0)).len();
-        let one = words(carrier_entry_arm64("body", 8)).len();
-        let three = words(carrier_entry_arm64("body", 24)).len();
+        let empty = words(thread_entry_arm64("body", 0)).len();
+        let one = words(thread_entry_arm64("body", 8)).len();
+        let three = words(thread_entry_arm64("body", 24)).len();
         // One `ldr` of `out`, then a load and a store per word.
         assert_eq!(one, empty + 3);
         assert_eq!(three, empty + 7);
     }
 
-    /// **The door reads the argument register `carrier::OUT` names.**
+    /// **The door reads the argument register `task_thread::OUT` names.**
     ///
     /// The shared table is load-bearing rather than decorative: moving `OUT`
     /// moves the instruction, on both machines. `x1` is register 1 in the
     /// `str` encoding's `Rt` field; `rsi` is the SysV second integer argument.
     #[test]
     fn the_door_saves_the_argument_register_the_shared_table_names() {
-        assert_eq!(arg_reg_a64(carrier::STATE), X0);
-        assert_eq!(arg_reg_a64(carrier::OUT), X1);
-        assert_eq!(arg_reg_sysv(carrier::STATE), RDI);
-        assert_eq!(arg_reg_sysv(carrier::OUT), RSI);
+        assert_eq!(arg_reg_a64(task_thread::STATE), X0);
+        assert_eq!(arg_reg_a64(task_thread::OUT), X1);
+        assert_eq!(arg_reg_sysv(task_thread::STATE), RDI);
+        assert_eq!(arg_reg_sysv(task_thread::OUT), RSI);
         // And it is the register the second instruction after the prologue
         // stores: `str x1, [sp, #0]`.
-        let got = words(carrier_entry_arm64("body", 0));
+        let got = words(thread_entry_arm64("body", 0));
         let store = got.get(3).copied().unwrap_or(0);
-        assert_eq!(store & 31, arg_reg_a64(carrier::OUT), "the door saved the wrong register");
+        assert_eq!(store & 31, arg_reg_a64(task_thread::OUT), "the door saved the wrong register");
     }
 
     /// The signature this backend emits against is the shared one, spelled the
-    /// one canonical way. `llvm::emit::carrier_signature` is compared to this.
+    /// one canonical way. `llvm::emit::thread_signature` is compared to this.
     #[test]
     fn the_door_signature_is_the_shared_one() {
-        assert_eq!(carrier_signature(), b"void(ptr,ptr)".to_vec());
-        assert_eq!(carrier_signature(), carrier::ENTRY.render());
+        assert_eq!(thread_signature(), b"void(ptr,ptr)".to_vec());
+        assert_eq!(thread_signature(), task_thread::ENTRY.render());
     }
 
     fn words(a: Asm) -> Vec<u32> {
@@ -1544,15 +1544,15 @@ mod tests {
         );
     }
 
-    /// **No entry point here declares that its carriers have frames of their
+    /// **No entry point here declares that its threads have frames of their
     /// own**, and the omission is the safety property rather than an oversight.
     ///
-    /// `cli/runtime/lib.rs` §6 makes `buri_rt_frames_are_per_carrier` the one
+    /// `cli/runtime/lib.rs` §6 makes `buri_rt_frames_are_per_thread` the one
     /// optional call, and the LLVM backend makes it. A program built here has a
     /// single Buri stack — [`STACK_SYMBOL`] — and a runtime-driven step works in
     /// a frame its *call site* set aside, so two steps of one `Tasks.parallel`
     /// would share it and one that suspends would still be holding it. Making
-    /// the call would turn that into two carriers writing the same frame; not
+    /// the call would turn that into two threads writing the same frame; not
     /// making it is `parallel` running its steps one at a time, which is what
     /// the four shims above already show and what this asserts on purpose.
     ///
@@ -1560,7 +1560,7 @@ mod tests {
     /// `the_attribute_discipline_reaches_the_optimized_ir`, which asserts the
     /// other backend does make it. B7 is what lets this test be deleted.
     #[test]
-    fn no_entry_point_here_declares_per_carrier_frames() {
+    fn no_entry_point_here_declares_per_thread_frames() {
         let shims = [
             program_entry(ARM64, "buri$main", None, Marking::None),
             program_entry(X86_64, "buri$main", None, Marking::None),
@@ -1570,8 +1570,8 @@ mod tests {
         for shim in shims {
             let called = names(shim);
             assert!(
-                called.iter().all(|(_, n)| n != "buri_rt_frames_are_per_carrier"),
-                "a shim told the runtime its carriers have frames of their own: {called:?}"
+                called.iter().all(|(_, n)| n != "buri_rt_frames_are_per_thread"),
+                "a shim told the runtime its threads have frames of their own: {called:?}"
             );
         }
     }
@@ -1579,11 +1579,11 @@ mod tests {
     /// **Every entry point here states whether its values may cross a task
     /// boundary**, and the state it is asked for is the state it emits.
     ///
-    /// The sibling of `no_entry_point_here_declares_per_carrier_frames`, and
+    /// The sibling of `no_entry_point_here_declares_per_thread_frames`, and
     /// the two are deliberately opposite in shape: that one asserts a call is
     /// *never* made, because a Buri frame here is the call site's and that is a
     /// property of the backend; this one asserts the call is made exactly when
-    /// asked, because whether a block can be reached from two carriers is a
+    /// asked, because whether a block can be reached from two threads is a
     /// property of the *program* and is the same fact on both backends.
     ///
     /// Both directions, on all four shims, because either half alone would

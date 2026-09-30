@@ -34,7 +34,7 @@ pub mod intrinsic_keys;
 ///
 /// Ungated for [`intrinsic_keys`]'s reason: both native backends read it, and
 /// a table two backends share cannot live inside either of them.
-pub mod carrier;
+pub mod task_thread;
 
 /// The native runtime archive both native backends link against, built by
 /// `cli/build.rs`. Its ABI contract is `cli/runtime/lib.rs`'s module comment.

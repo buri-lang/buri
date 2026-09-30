@@ -10,7 +10,7 @@
 //! binary has none, so those two have no native counterpart anywhere. The other
 //! three are implemented natively and elsewhere in this crate, divided by what
 //! they need rather than by what they are: `HostTasks` is in `rt.rs`, beside
-//! the carrier pool `parallel` fans out onto, and `HostListen` and
+//! the thread pool `parallel` fans out onto, and `HostListen` and
 //! `HostSockets` are in `net.rs` because they are the networking half — a bound
 //! listener, an accepted connection, a deadline on every read and every write —
 //! so they live with the reactor and the TLS stack, behind feature `net`, where
@@ -1068,18 +1068,18 @@ pub unsafe extern "C" fn buri_rt_host_network_fetch(
     };
     // **Not a suspension point, though it is spelled like one.** `http.rs`'s
     // client is synchronous, so the `async` block runs to completion inside its
-    // first poll and answers `Ready`, and `rt::park_on` only gives a carrier
-    // back to a future that answers `Pending`. This carrier is held for as long
+    // first poll and answers `Ready`, and `rt::park_on` only gives a thread
+    // back to a future that answers `Pending`. This thread is held for as long
     // as the exchange takes — bounded, but by `http.rs`'s own deadlines and not
     // by anything here. `net.rs`'s `park` is the same two lines with the same
     // caveat written out at length. What the spelling buys is that the day the
     // client is asynchronous this becomes the suspension the name promises,
     // without this line or any caller moving.
     //
-    // The Buri blocks below are built **after** it answers and on the carrier.
+    // The Buri blocks below are built **after** it answers and on the thread.
     // That used to be load-bearing: under the run baton the allocator and the
     // reference counts were single-threaded. G3 deleted the baton and made a
-    // block two carriers can reach atomically counted (`rt.rs` §1), so what is
+    // block two threads can reach atomically counted (`rt.rs` §1), so what is
     // left is the ordinary rule — a runtime call builds no Buri value until it
     // has an answer to build one from.
     let bound = http::bound(timeout_millis);
@@ -1124,13 +1124,13 @@ pub extern "C" fn buri_rt_host_clock_now_milliseconds() -> i64 {
 /// `Clock::sleepMilliseconds`. A negative or zero duration returns immediately.
 ///
 /// **A suspension point** (`rt.rs` §2): with the `net` feature the wait is the
-/// reactor's timer wheel rather than the carrier, so the carrier is idle and
+/// reactor's timer wheel rather than the thread, so the thread is idle and
 /// the processor is free. Without the feature there is no reactor and this is
 /// `thread::sleep`, which is what it has always been.
 ///
 /// The two are distinguishable, and `Tasks.parallel` is what distinguishes
 /// them: two steps that each sleep here finish in one sleep's time rather than
-/// two. Until G3 that was because the sleeping carrier gave the *run baton* to
+/// two. Until G3 that was because the sleeping thread gave the *run baton* to
 /// the other one; there is no baton now, and the answer is simpler — they are
 /// two threads, and both of them are asleep. Outside a fan-out the sleeping
 /// thread is still the only one there is, and the two answer the same nothing

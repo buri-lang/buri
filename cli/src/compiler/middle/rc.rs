@@ -18,7 +18,7 @@
 //!
 //! **G3 sets the bit, and this pass is what decides.** [`crosses_tasks`] asks
 //! one question of the whole program — *can any value of it come to be
-//! reachable from a second carrier* — and [`Plan::crosses_tasks`] carries the
+//! reachable from a second thread* — and [`Plan::crosses_tasks`] carries the
 //! answer to `ir::Program`, to both native backends, and into `main` as a call
 //! to `buri_rt_values_may_cross_tasks`. A program that says so marks **every
 //! block it allocates**; a program that does not marks none and is bit for bit
@@ -31,7 +31,7 @@
 //! about **sites** — where an `incref` goes — and the mark is a question about
 //! **blocks**, and specifically about a transitive closure of them: a `[Str]`
 //! handed to a step is a block whose *elements* the step counts, and a `Str`
-//! inside a closure's environment is a block two carriers count. So a mark
+//! inside a closure's environment is a block two threads count. So a mark
 //! derived from a call site has to be a deep, type-directed walk of everything
 //! reachable from the arguments — `Helper::Walk`'s shape, which G5's
 //! `Helper::Copy` has since generalised — and a *shallow* one is precisely the
@@ -43,7 +43,7 @@
 //! > through, and a wrong answer with no crash to find it by.
 //!
 //! The whole-program answer is the over-set end of that asymmetry, and it is
-//! sound by construction rather than by audit: a value reaches a carrier by a
+//! sound by construction rather than by audit: a value reaches a thread by a
 //! route this compiler cannot see — the runtime's own blocks, a `Str` built
 //! inside `host.rs`, whatever an FFI hands in one day — and it is marked
 //! anyway, because the *allocator* is what marks. What it costs is atomic
@@ -67,7 +67,7 @@
 //!    whatever its count. G2's argument for the bare count — *a thread holding
 //!    no reference cannot make a second one* — has a premise the run baton was
 //!    keeping true, that the caller holds the reference it is testing, and a
-//!    borrowed parameter does not. Two carriers reading `1` off one borrowed
+//!    borrowed parameter does not. Two threads reading `1` off one borrowed
 //!    list would each take the licence. Failing the test on the mark is the
 //!    over-set direction again: it costs a copy, and it is why the elision and
 //!    reuse this pass plans stay sound with the baton gone.
@@ -387,7 +387,7 @@ pub struct FuncPlan {
     /// graph, and because the answer is per *instantiation* rather than per
     /// source function, which is the only place it is worth asking. The
     /// JavaScript backend reads it as the `async` column; no native backend
-    /// reads it yet, and the design puts a carrier's stack sizing there.
+    /// reads it yet, and the design puts a thread's stack sizing there.
     pub can_park: bool,
     /// Sorted by `(node, position)`, and stable within one key.
     pub sites: Vec<Site>,
@@ -445,7 +445,7 @@ pub struct Plan {
     /// One per `Program::funcs` entry, by index.
     pub funcs: Vec<FuncPlan>,
     /// Whether any value of this program can come to be reachable from a
-    /// second carrier — see [`crosses_tasks`].
+    /// second thread — see [`crosses_tasks`].
     ///
     /// A **whole-program** answer, not a per-function or per-value one, and
     /// [`crosses_tasks`]'s doc is the argument for that. It reaches
@@ -1714,7 +1714,7 @@ pub fn suspends(key: &str) -> bool {
                 // back, which is what "`stop` lets the current message finish"
                 // means. The other seven never wait — `stateTake` answers
                 // `.None` rather than blocking, which is the whole reason two
-                // carriers can reach one actor without either of them
+                // threads can reach one actor without either of them
                 // stopping — and listing the family by prefix would have
                 // claimed otherwise.
                 | "actor.mailboxPush"
@@ -1729,7 +1729,7 @@ pub fn suspends(key: &str) -> bool {
 }
 
 /// Whether an intrinsic key **hands a value of this program to another
-/// carrier**: after the call, a block the caller made may be counted, read and
+/// thread**: after the call, a block the caller made may be counted, read and
 /// released by a thread that is not this one.
 ///
 /// This is the seed of `Plan::crosses_tasks`, and it is the escape-analysis
@@ -1754,11 +1754,11 @@ pub fn crosses_tasks(key: &str) -> bool {
     // any task that later drives the actor, and the state can be threaded by a
     // different one every time. That is exactly "a block the caller made may
     // be counted, read and released by a thread that is not this one", and it
-    // is true of all nine keys — a `replyPut` on one carrier and the
+    // is true of all nine keys — a `replyPut` on one thread and the
     // `replyTake` that reads it on another is the same hand-off as the queue's.
     // `core/tasks`'s scopes, by prefix and for the mailbox's reason exactly: a
     // spawned task **waits** in a scope until a round picks it up, and the
-    // round that picks it up runs on a carrier of its own on a native release
+    // round that picks it up runs on a thread of its own on a native release
     // build. The closure and everything it captured are what cross.
     key.starts_with("actor.")
         || key.starts_with("host.HostTasks.")
@@ -1885,7 +1885,7 @@ fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>) {
 /// the purity column still does, which reads *"every `map` may park"* — the
 /// callback of `list.map` is a code pointer with no name, so the worst
 /// function in the program was the answer. That is free where the column sizes
-/// a carrier's stack and it is not free at all on the JavaScript backend,
+/// a thread's stack and it is not free at all on the JavaScript backend,
 /// where the column decides which functions are printed `async`: `async` is
 /// not a property a caller may ignore, an `async` function returns a promise
 /// whether or not it ever waits, and this compiler hands function values to
@@ -4033,7 +4033,7 @@ export fn main(): Result<(), Str> {
         assert!(crosses_tasks("host.HostTasks.start"));
         assert!(crosses_tasks("host.HostTasks.send"));
         // `core/tasks`'s scopes: a spawned task waits in one until a round on
-        // another carrier picks it up.
+        // another thread picks it up.
         assert!(crosses_tasks("tasks.scopePush"));
         assert!(crosses_tasks("tasks.scopeTaskAt"));
         // The module's other keys are not the scope's: `tasks.parallel` is the
@@ -6273,7 +6273,7 @@ export fn main(): Result<(), Str> {
             "derivePrimHash",
             // The other seven `actor.*` keys. Listing them is the half a
             // prefix rule would have got wrong: `stateTake` answers `.None`
-            // where another carrier is stepping rather than waiting for it,
+            // where another thread is stepping rather than waiting for it,
             // and a `send` that had to park to find that out would be a
             // scheduler this module does not have.
             "actor.mailboxOpen",
@@ -6291,7 +6291,7 @@ export fn main(): Result<(), Str> {
     /// Every `core/actor` key hands a value to whichever task drives the actor
     /// next, so every one of them is a crossing — which is the direction an
     /// omission has to be wrong in, since a block nobody marked is a block two
-    /// carriers count without an atomic.
+    /// threads count without an atomic.
     #[test]
     fn an_actor_is_a_place_a_value_waits_for_another_task() {
         for key in [

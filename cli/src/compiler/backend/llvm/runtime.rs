@@ -815,7 +815,7 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Scalar,
     },
     // G5's pair: which arena the platform allocator serves out of, for this
-    // carrier and for the dynamic extent of `scoped`'s body.
+    // thread and for the dynamic extent of `scoped`'s body.
     Entry {
         key: "alloc.arenaEnter",
         symbol: "buri_rt_alloc_arena_enter",
@@ -2556,29 +2556,29 @@ pub const DECREF: &str = "buri_rt_decref";
 pub const ARGV_INIT: &str = "buri_rt_argv_init";
 /// `buri_rt_flush()` — required before every return path from `main`.
 pub const FLUSH: &str = "buri_rt_flush";
-/// `buri_rt_frames_are_per_carrier()` — the artifact's one statement about
+/// `buri_rt_frames_are_per_thread()` — the artifact's one statement about
 /// itself, made once at startup (`cli/runtime/lib.rs` §6).
 ///
 /// **This backend makes it and the frame-threaded one does not**, and that is
 /// a fact about where a Buri frame lives rather than a difference of opinion
 /// about scheduling. Here a Buri function is an ordinary LLVM function and its
-/// locals are `alloca`s, so a carrier's 512 KiB thread stack is its own and the
+/// locals are `alloca`s, so a thread's 512 KiB stack is its own and the
 /// runtime may run two `Tasks.parallel` steps at once. There a program has one
 /// Buri stack — the `buri$stencil$stack` block its `main` guards — and a step
 /// runs in a frame the *call site* set aside, so two of them would share it.
 /// Saying nothing is the safe answer, which is why the call is here and not a
 /// parameter of one over there.
-pub const FRAMES_PER_CARRIER: &str = "buri_rt_frames_are_per_carrier";
+pub const FRAMES_PER_THREAD: &str = "buri_rt_frames_are_per_thread";
 /// `buri_rt_values_may_cross_tasks()` — the artifact's other statement about
 /// itself, made once at startup and **before it allocates anything**
 /// (`cli/runtime/lib.rs` §6).
 ///
 /// **Both native backends make it**, and only for a program
 /// `middle::rc::crosses_tasks` says can reach a task boundary. It is not the
-/// same fact as [`FRAMES_PER_CARRIER`] and the two are deliberately not one
+/// same fact as [`FRAMES_PER_THREAD`] and the two are deliberately not one
 /// call: that one is about *where a frame lives*, which is a property of the
 /// backend, and this one is about *whether a block can be reached from two
-/// carriers*, which is a property of the program. A backend that cannot fan
+/// threads*, which is a property of the program. A backend that cannot fan
 /// out still makes this call, because the day it learns to is not a day
 /// anybody should have to remember a second edit.
 ///
@@ -2706,13 +2706,13 @@ mod tests {
     use super::*;
     use crate::compiler::backend::runtime_native::symbol_for;
 
-    /// **The two carrier-stack entries are symbols with no row, and that is
+    /// **The two thread-stack entries are symbols with no row, and that is
     /// the answer rather than an omission.**
     ///
     /// `buri_rt_stack_acquire` and `buri_rt_stack_release` are `buri_rt_*`
     /// entries this backend never calls, and the reason is the whole shape of
-    /// the B7/B8 pair: a Buri frame here *is* a machine frame, so a carrier
-    /// entering through `carrier.rs`'s door needs no second stack and no guard
+    /// the B7/B8 pair: a Buri frame here *is* a machine frame, so a thread
+    /// entering through `task_thread.rs`'s door needs no second stack and no guard
     /// of its own — its thread's is the OS's. The frame-threaded backend calls
     /// them from `stencil/asm.rs`, by name, out of a hand-written shim rather
     /// than through any table.
@@ -2723,9 +2723,9 @@ mod tests {
     /// `host_net_fetch_has_a_symbol_and_no_row` makes, for the same reason: an
     /// absence with a reason, asserted, so that adding one is a deliberate act.
     #[test]
-    fn the_carrier_stack_entries_have_symbols_and_no_row() {
-        use crate::compiler::backend::carrier;
-        for symbol in [carrier::STACK_ACQUIRE, carrier::STACK_RELEASE] {
+    fn the_thread_stack_entries_have_symbols_and_no_row() {
+        use crate::compiler::backend::task_thread;
+        for symbol in [task_thread::STACK_ACQUIRE, task_thread::STACK_RELEASE] {
             assert!(symbol.starts_with("buri_rt_"), "{symbol} is not a runtime symbol");
             assert!(
                 !ENTRIES.iter().any(|e| e.symbol == symbol),

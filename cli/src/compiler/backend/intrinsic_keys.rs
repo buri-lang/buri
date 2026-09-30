@@ -297,7 +297,7 @@ pub struct StepCall {
 ///
 /// `host.HostTasks.parallel` is what the mechanism was built for. Same four
 /// words, and today the same walk — the native body runs the steps in index
-/// order on the calling carrier (`cli/runtime/rt.rs`) — with a scheduler behind
+/// order on the calling thread (`cli/runtime/rt.rs`) — with a scheduler behind
 /// them in D4. It is the row that makes the index parameter necessary:
 /// `effect Tasks` hands the step its item's own index, and only the side
 /// driving the walk knows one.

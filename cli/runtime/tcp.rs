@@ -10,7 +10,7 @@
 //! **The dial is**, on `http.rs`'s argument and with `http.rs`'s machinery: a
 //! name lookup is the one step socket options cannot bound, so it happens on a
 //! thread of its own and this one waits [`DIAL`] for it. A `Tcp.tcpConnect`
-//! that never returned would hang a carrier, and a carrier is not the caller's
+//! that never returned would hang a thread, and a thread is not the caller's
 //! to lose.
 //!
 //! **A read and a write are not.** That is the difference from every other
@@ -141,7 +141,7 @@ fn resolve(host: &str, port: u16) -> Result<SocketAddr, (i32, String)> {
 /// Do `f` with the stream `handle` names, or answer `None` for a handle this
 /// table does not hold.
 ///
-/// The stream is **taken out of the table for the duration**, so two carriers
+/// The stream is **taken out of the table for the duration**, so two threads
 /// reading one handle do not hold the lock across a syscall that waits — which
 /// is what a read on this effect does on purpose. A handle whose stream is out
 /// looks closed to anybody else, and `core/effect` says a handle that names no

@@ -1,7 +1,7 @@
 //! The machine-stack switch: `buri_rt_task_switch`, and the frame a task
 //! starts life with.
 //!
-//! Design: `design/native` track B, slice B9 — *"replace the carrier thread
+//! Design: `design/native` track B, slice B9 — *"replace the thread
 //! with a stack switch"*. This file is the three hand-written blocks the row
 //! asks for and nothing else; who switches, and when, is `rt.rs`'s.
 //!
@@ -13,7 +13,7 @@
 //!
 //! * The **Buri data stack** is the one `middle::layout` addresses frames on.
 //!   The frame-threaded backend threads a pointer to it through `x0` (`rdi`),
-//!   it grows *upward*, and since B7 a carrier gets one of its own from
+//!   it grows *upward*, and since B7 a thread gets one of its own from
 //!   `memory::buri_rt_stack_acquire`.
 //! * The **machine stack** carries the return-address chain — sixteen bytes
 //!   per Buri call on the frame-threaded backend, a whole frame per call under

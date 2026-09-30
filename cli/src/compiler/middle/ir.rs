@@ -602,7 +602,7 @@ pub struct Facts {
     /// including the answer at an indirect call.
     ///
     /// **No native backend reads this copy yet** — it is carried here because
-    /// this is where one will ask, and the design puts a carrier's stack
+    /// this is where one will ask, and the design puts a thread's stack
     /// sizing there. The JavaScript backend does read the column, as its
     /// `async` question, but it reads `rc::FuncPlan::can_park` directly: that
     /// branch of the pipeline does not run `lower` and has no `ir::Func` to
@@ -850,7 +850,7 @@ pub struct Program {
     /// Every source type the IR names, interned.
     pub types: Vec<TypeInfo>,
     /// Whether any value of this program can come to be reachable from a
-    /// second carrier — `middle::rc::crosses_tasks`, carried here because both
+    /// second thread — `middle::rc::crosses_tasks`, carried here because both
     /// native backends need it at their **entry points**, which is the one
     /// place in an artifact that is not a function of any one `Func`.
     ///

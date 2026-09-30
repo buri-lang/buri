@@ -19,7 +19,7 @@
 //! the TLS handshake, each write and each read. [`DEADLINE`] says what that is
 //! worth and [`within`] is how the one step the socket options cannot bound —
 //! `getaddrinfo` — is bounded anyway. A `fetch` that could hang forever would
-//! hang a carrier forever, and a carrier is not the caller's to lose.
+//! hang a thread forever, and a thread is not the caller's to lose.
 //!
 //! **The scheme changes one thing and one thing only: whether the socket is
 //! wrapped.** [`Transport`] is the seam, `tls.rs` is what fills it, and
@@ -31,7 +31,7 @@
 //!
 //! What is *not* here is HTTP/2. `hyper` is in the runtime's manifest and this
 //! client does not use it: a synchronous exchange over one connection is the
-//! whole of what `Network.fetch` is until the carrier runtime exists (design/native
+//! whole of what `Network.fetch` is until the thread runtime exists (design/native
 //! track B), and until then a `hyper` client would mean standing up a `tokio`
 //! reactor per request in order to reach a framing layer this file already has.
 //! The day `fetch` can suspend, that decision is worth taking again.
@@ -267,7 +267,7 @@ fn io_fail(e: &std::io::Error) -> NetFail {
 /// millisecond; on one whose packets to the resolver are dropped it is minutes,
 /// and on one whose resolver is gone it can be *never*. A `Network.fetch` that
 /// never returns is not a slow program, it is a stuck one, and the calling
-/// thread is a carrier that nothing can take back.
+/// thread is one that nothing can take back.
 ///
 /// So the lookup happens on a thread of its own and this one waits for it with
 /// [`within`]. An address literal — which is what every loopback probe in this
