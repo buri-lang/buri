@@ -4,7 +4,7 @@ error: `yaml` is not a language this repository has [accepts-unknown-language]
 4 |             { language: "yaml", type_schema: "b.schema.json" },
   |                         ^^^^^^
   |
-  = the languages are `json`, `jsonc`, `json5`, `lines`
+  = the languages are `json`, `jsonc`, `json5`, `proto`, `lines`
   = fix: name one of them, or declare `yaml` in `REPO.buri`
 
       tool {

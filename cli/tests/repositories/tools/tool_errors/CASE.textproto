@@ -53,11 +53,11 @@ edit {
   with: "tool: \"//tools/good\""
 }
 
-# `std/proto` generates; it has no `format`.
+# `//tools/good` generates; it has no `format`.
 edit {
   file: "REPO.buri"
   replace: "repository root.\n"
-  with: "repository root.\n\nlanguage {\n    name: \"text\"\n    extensions: [\".txt\"]\n    format: \"std/proto\"\n}\n"
+  with: "repository root.\n\nlanguage {\n    name: \"text\"\n    extensions: [\".txt\"]\n    format: \"//tools/good\"\n}\n"
 }
 
 run {
@@ -68,7 +68,7 @@ run {
 
 edit {
   file: "REPO.buri"
-  replace: "\n\nlanguage {\n    name: \"text\"\n    extensions: [\".txt\"]\n    format: \"std/proto\"\n}\n"
+  replace: "\n\nlanguage {\n    name: \"text\"\n    extensions: [\".txt\"]\n    format: \"//tools/good\"\n}\n"
   with: "\n"
 }
 
