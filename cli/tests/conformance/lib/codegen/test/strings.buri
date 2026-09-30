@@ -138,3 +138,97 @@ test "chars agrees with length and charAt" {
     assert.equal(mixed.chars(ctx).get(4), mixed.charAt(4));
     assert.equal("".chars(ctx).length(), 0);
 }
+
+// --- long strings ------------------------------------------------------------------
+//
+// The runtime remembers where each scalar starts in the last long string with a
+// surrogate in it, so these ask about several long strings in turn — two of one
+// length that differ in one scalar, one with no surrogate, and short ones in
+// between — and check no answer comes from the wrong string.
+
+test "a long astral string indexes by scalar at both ends" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // 600 scalars, 900 UTF-16 code units.
+    let long = "a😀".repeat(ctx, 300);
+    assert.equal(long.length(), 600);
+    assert.equal(long.charAt(0), .Some('a'));
+    assert.equal(long.charAt(1), .Some('😀'));
+    assert.equal(long.charAt(598), .Some('a'));
+    assert.equal(long.charAt(599), .Some('😀'));
+    assert.equal(long.charAt(600), .None);
+    assert.equal(long.charAt(-1), .None);
+    assert.equal(long.slice(0, 3), "a😀a");
+    assert.equal(long.slice(597, 600), "😀a😀");
+    assert.equal(long.slice(598, 9999), "a😀");
+    assert.equal(long.slice(-5, 2), "a😀");
+    assert.equal(long.slice(600, 700), "");
+    assert.equal(long.slice(10, 4), "");
+    assert.equal(long.slice(7, 7), "");
+    assert.equal(long.slice(0, 600), long);
+    assert.equal(long.slice(1, 600).length(), 599);
+    assert.equal(long.indexOf("a😀a"), .Some(0));
+    assert.equal(long.indexOf("😀a"), .Some(1));
+}
+
+test "two long astral strings of one length are told apart" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let half = "😀".repeat(ctx, 200);
+    let left = half.concat(ctx, "x").concat(ctx, half);
+    let right = half.concat(ctx, "y").concat(ctx, half);
+    let wider = "😀".repeat(ctx, 401);
+    assert.equal(left.length(), 401);
+    assert.equal(right.length(), 401);
+    assert.equal(left.charAt(200), .Some('x'));
+    assert.equal(right.charAt(200), .Some('y'));
+    assert.equal(wider.charAt(200), .Some('😀'));
+    assert.equal(left.slice(199, 202), "😀x😀");
+    assert.equal(right.slice(199, 202), "😀y😀");
+    assert.equal(wider.slice(199, 202), "😀😀😀");
+    assert.equal(left.charAt(200), .Some('x'));
+    assert.equal(left.slice(200, 201), "x");
+    assert.equal(right.slice(200, 201), "y");
+    assert.equal(left.indexOf("x"), .Some(200));
+    assert.equal(right.indexOf("y"), .Some(200));
+}
+
+test "long and short strings asked in turn each answer for themselves" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let wide = "日😀".repeat(ctx, 250);
+    let narrow = "日b".repeat(ctx, 250);
+    assert.equal(wide.charAt(301), .Some('😀'));
+    assert.equal(narrow.charAt(301), .Some('b'));
+    assert.equal("a😀b".charAt(1), .Some('😀'));
+    assert.equal(wide.slice(300, 303), "日😀日");
+    assert.equal("".slice(0, 1), "");
+    assert.equal("".charAt(0), .None);
+    assert.equal("".length(), 0);
+    assert.equal(narrow.slice(300, 303), "日b日");
+    assert.equal(wide.length(), 500);
+    assert.equal(narrow.length(), 500);
+    assert.equal("😀".slice(0, 1), "😀");
+    assert.equal(wide.slice(499, 500), "😀");
+    assert.equal(wide.charAt(500), .None);
+}
+
+test "chars of a long astral string is its own list" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let long = "a😀".repeat(ctx, 300);
+    assert.equal(long.charAt(1), .Some('😀'));
+    let cs = long.chars(ctx);
+    assert.equal(cs.length(), 600);
+    assert.equal(cs.get(599), .Some('😀'));
+    // A list built from the one the runtime handed out leaves the string alone.
+    let changed = cs.replaceAt(ctx, 1, 'z');
+    assert.equal(changed.get(1), .Some('z'));
+    assert.equal(long.charAt(1), .Some('😀'));
+    assert.equal(long.chars(ctx).get(1), .Some('😀'));
+    assert.equal(str.fromChars(ctx, long.chars(ctx)), long);
+}
