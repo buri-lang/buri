@@ -190,14 +190,38 @@ message Tool {
   Generate generate = 6;
 }
 
-// Empty: the block says only that `tool.buri` exports `check`.
-message Check {}
+// `tool.buri` exports `check`. With `accepts`, it takes typed values.
+message Check {
+  repeated Accepts accepts = 1;
+}
 
-// Empty: a formatter lays out text, and takes no options.
+// Empty: a formatter lays out text, and a typed value has lost it.
 message Format {}
 
-// Empty: the block says only that `tool.buri` exports `generate`.
-message Generate {}
+// `tool.buri` exports `generate`. With `accepts`, each input is checked
+// against the contract's `type_schema` and reaches `generate` typed.
+message Generate {
+  repeated Accepts accepts = 1;
+}
+
+// A contract: the inputs an entry point takes typed. Listing one hands the
+// entry point values read through that language's `generate`; listing none
+// hands it text.
+//
+// The build generates the language's types from `type_schema` into the tool as
+// the module `<tool label>/<language>`, and the entry point takes
+// `CheckRequest<Root>` or `GenerateRequest<Root>`, `Root` being its root type.
+// An input in a language no entry lists is an error on the consumer's
+// `inputs`.
+message Accepts {
+  // A language in REPO.buri with a `generate`, or a built-in one. One entry
+  // per language, across `check` and `generate`.
+  string language = 1;
+
+  // Opaque here; the language's tools read it. For the JSON languages, a
+  // JSON Schema relative to this package or a `//` path, in the repository.
+  string type_schema = 2;
+}
 
 // A tool's `generate`, run by the build, whose answer becomes modules.
 //
@@ -206,8 +230,8 @@ message Generate {}
 // `//lib/wire/point.proto`.
 message Generator {
   // Which tool to run: a `//label` naming a `tool` rule with a `generate {}`
-  // block, or `std/proto`. A binary is refused, and so is the retired name
-  // `std/codegen/proto`.
+  // block, `std/json` or `std/proto`. A binary is refused, and so is the
+  // retired name `std/codegen/proto`.
   string tool = 1;
 
   // The files handed to the generator, package-relative, no globs. Their

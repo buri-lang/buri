@@ -528,9 +528,11 @@ pub fn schema_order(message: &str) -> &'static [&'static str] {
             "test",
         ],
         "tool" => &["sources", "dependencies", "test", "check", "format", "generate"],
-        // A tool's entry points take nothing yet: each block says only that
-        // `tool.buri` exports the function of its name.
-        "check" | "format" | "generate" => &[],
+        // `format` takes no contract: a typed value has lost the comments and
+        // spacing a formatter lays out.
+        "check" | "generate" => &["accepts"],
+        "format" => &[],
+        "accepts" => &["language", "type_schema"],
         "generators" => &["tool", "inputs"],
         "test" => &["sources", "dependencies", "timeout_seconds", "platforms"],
         "testing" => &["sources", "dependencies"],
