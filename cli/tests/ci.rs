@@ -530,7 +530,13 @@ fn overlapped_step(text: &str) -> String {
 /// This is what stops that being quietly undone. Four properties, all about the
 /// step rather than about the suite: it asks cargo, it reads the profile's flag
 /// and not the target's, it actually RUNS what it derived, and it names no
-/// domain of its own.
+/// domain of its own, except one.
+///
+/// The exception is the longest unit, which the step starts first and wider
+/// than the rest. It is named only to schedule it: the step takes it out of the
+/// derived set and runs it on its own, so it is still run and still waited for.
+/// One name is a scheduling hint. Two would be the start of a list, which is
+/// why the count is capped at one.
 #[test]
 fn the_suite_is_asked_for_as_a_whole() {
     let text = workflow();
@@ -588,6 +594,25 @@ fn the_suite_is_asked_for_as_a_whole() {
         domains.len(),
         tests.display()
     );
+    // The scheduling hint, as the step writes it: the executable's name up to
+    // cargo's hash. At most one, and the one that is named is still run and
+    // waited for.
+    let scheduled: Vec<&String> =
+        domains.iter().filter(|d| step.contains(&format!("/{d}-[0-9a-f]"))).collect();
+    assert!(
+        scheduled.len() <= 1,
+        "the overlapped step picks out {scheduled:?} by name. One unit may be named, to start \
+         the longest first. More than one is a hand-written list of \
+         domains.\n--- the step ---\n{step}"
+    );
+    if !scheduled.is_empty() {
+        assert!(
+            step.contains("\"$slowest\" --test-threads") && step.contains("wait \"$first\""),
+            "the overlapped step names {scheduled:?} and takes it out of the derived set, but \
+             no longer runs it on its own and waits for it. A unit taken out of the queue has to \
+             be run somewhere else, or the step drops it.\n--- the step ---\n{step}"
+        );
+    }
     for domain in &domains {
         let named = format!("--test {domain}");
         assert!(
