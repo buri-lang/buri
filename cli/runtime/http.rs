@@ -257,7 +257,7 @@ fn io_fail(e: &std::io::Error) -> NetFail {
     }
 }
 
-/// The address to dial, found within the deadline.
+/// The addresses to dial, in the resolver's order, found within the deadline.
 ///
 /// **A name lookup is the one step of a dial that the socket options cannot
 /// bound.** `connect_timeout` takes a `Duration`, `SO_RCVTIMEO` and
@@ -273,9 +273,9 @@ fn io_fail(e: &std::io::Error) -> NetFail {
 /// [`within`]. An address literal — which is what every loopback probe in this
 /// repository and every URL with an IP in it is — skips the whole arrangement:
 /// there is nothing to ask anybody.
-fn resolve(host: &str, port: u16, deadline: Duration) -> Result<SocketAddr, NetFail> {
+fn resolve(host: &str, port: u16, deadline: Duration) -> Result<Vec<SocketAddr>, NetFail> {
     if let Ok(ip) = host.parse::<IpAddr>() {
-        return Ok(SocketAddr::new(ip, port));
+        return Ok(vec![SocketAddr::new(ip, port)]);
     }
     let name = host.to_string();
     let found = within(deadline, "the name lookup", move || {
@@ -286,11 +286,25 @@ fn resolve(host: &str, port: u16, deadline: Duration) -> Result<SocketAddr, NetF
     })?;
     match found {
         Err(e) => Err(NetFail::Transport(format!("could not resolve {host}: {e}"))),
-        Ok(addrs) => addrs
-            .into_iter()
-            .next()
-            .ok_or_else(|| NetFail::Transport(format!("no address for {host}"))),
+        Ok(addrs) if addrs.is_empty() => Err(NetFail::Transport(format!("no address for {host}"))),
+        Ok(addrs) => Ok(addrs),
     }
+}
+
+/// A connection to the first of `addrs` that answers.
+///
+/// A name often resolves to an IPv6 and an IPv4 address, and a server may
+/// listen on only one of them (`localhost` is the everyday case). Each address
+/// gets the whole deadline; the last failure is the answer.
+fn dial(addrs: &[SocketAddr], deadline: Duration) -> Result<TcpStream, NetFail> {
+    let mut last = NetFail::Refused;
+    for addr in addrs {
+        match TcpStream::connect_timeout(addr, deadline) {
+            Ok(sock) => return Ok(sock),
+            Err(e) => last = io_fail(&e),
+        }
+    }
+    Err(last)
 }
 
 /// Run `work` on a thread of its own and wait `deadline` for its answer.
@@ -380,9 +394,9 @@ fn fetch_within(
 ) -> Result<HttpResponse, NetFail> {
     let url = parse(url)?;
 
-    let addr = resolve(url.host, url.port, deadline)?;
+    let addrs = resolve(url.host, url.port, deadline)?;
 
-    let sock = TcpStream::connect_timeout(&addr, deadline).map_err(|e| io_fail(&e))?;
+    let sock = dial(&addrs, deadline)?;
     sock.set_read_timeout(Some(deadline)).map_err(|e| io_fail(&e))?;
     sock.set_write_timeout(Some(deadline)).map_err(|e| io_fail(&e))?;
     // A request/response exchange is one write and one read, so Nagle can only
@@ -617,11 +631,11 @@ mod tests {
     fn an_address_literal_is_not_looked_up() {
         assert_eq!(
             resolve("127.0.0.1", 443, Duration::ZERO).ok(),
-            Some(SocketAddr::from(([127, 0, 0, 1], 443)))
+            Some(vec![SocketAddr::from(([127, 0, 0, 1], 443))])
         );
         assert_eq!(
             resolve("::1", 8443, Duration::ZERO).ok(),
-            Some(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 8443)))
+            Some(vec![SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 8443))])
         );
     }
 
