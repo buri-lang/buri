@@ -6,7 +6,9 @@ from "core/tool" import { Generated, GenerateRequest };
 from "//tools/a/json" import * as a;
 
 export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<a.Names>): Generated {
-    let total = request.inputs.fold(fn(n: Int, input) => n + input.value.names.length(), 0);
+    let total = request
+        .inputs
+        .fold(fn(n: Int, input) => n + input.value.names.length(), 0);
     let int = ast.Name { text: "Int", origin: ast.nowhere() };
     let count = ast.Item {
         kind: .Let(ast.LetDecl {
