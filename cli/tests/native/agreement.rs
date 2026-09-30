@@ -4773,6 +4773,129 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// **A large state survives many messages, on every backend** (buri-lang/buri#210).
+///
+/// With no scope live, `core/actor` hands the runtime the state a step leaves
+/// behind without copying it, so the runtime and the answers share blocks with
+/// it. This row holds that sharing to value semantics: a snapshot answered
+/// before a hundred edits still reads the old values, and the exit audit
+/// catches a block the sharing leaked or freed twice.
+#[test]
+fn a_large_state_survives_many_messages_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "actor large state",
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Address, Stepped, Stopped };
+from "core/effect" import { Allocator, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
+from "core/str" import * as str;
+
+enum Poke {
+  Keep,
+  Touch(Int),
+  Snapshot,
+}
+
+enum Poked {
+  Kept,
+  Touched,
+  Whole(OrderedMap<Int, Str>),
+}
+
+fn holding<C: Allocator + Tasks>(initial: OrderedMap<Int, Str>): Actor<C, OrderedMap<Int, Str>, Poke, Poked> {
+  Actor {
+    state: initial,
+    step: fn(c, state, message) => {
+      match (message) {
+        .Keep => Stepped { state, answer: .Kept },
+        .Touch(k) => Stepped { state: state.insert(c, k, str.format(c, "t${k}")), answer: .Touched },
+        .Snapshot => Stepped { state, answer: .Whole(state) },
+      }
+    },
+  }
+}
+
+fn original<C: Allocator>(ctx: C, k: Int): Str {
+  str.format(ctx, "${k}:${"x".repeat(ctx, 200)}")
+}
+
+fn filled<C: Allocator>(ctx: C, n: Int, at: Int, map: OrderedMap<Int, Str>): OrderedMap<Int, Str> {
+  match (at >= n) {
+    true => map,
+    false => filled(ctx, n, at + 1, map.insert(ctx, at, original(ctx, at))),
+  }
+}
+
+/// Sends `.Keep` `left` times, then `.Touch` for keys `0` up to `touches`.
+fn sending<C: Allocator + Tasks>(
+  ctx: C,
+  a: Address<C, OrderedMap<Int, Str>, Poke, Poked>,
+  left: Int,
+  touches: Int,
+  answered: Int,
+): Int {
+  match (left <= 0 && touches <= 0) {
+    true => answered,
+    false => {
+      let message = match (left > 0) {
+        true => Poke.Keep,
+        false => Poke.Touch(touches - 1),
+      };
+      let got = match (a.sendMessage(ctx, message)) {
+        .Ok(.Kept) => 1,
+        .Ok(.Touched) => 1,
+        _otherwise => 0,
+      };
+      sending(ctx, a, left - 1, match (left > 0) { true => touches, false => touches - 1 }, answered + got)
+    },
+  }
+}
+
+fn whole(got: Result<Poked, Stopped>): OrderedMap<Int, Str> {
+  match (got) {
+    .Ok(.Whole(map)) => map,
+    _otherwise => orderedmap.empty(),
+  }
+}
+
+fn reads<C: Allocator>(ctx: C, map: OrderedMap<Int, Str>, k: Int): Str {
+  match (map.get(k)) {
+    .None => "missing",
+    .Some(v) => match (v == original(ctx, k)) {
+      true => "original",
+      false => v,
+    },
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Allocator: host.alloc,
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  };
+  let a = actor.start(ctx, holding(filled(ctx, 2000, 0, orderedmap.empty())));
+  let kept = sending(ctx, a, 500, 0, 0);
+  let before = whole(a.sendMessage(ctx, .Snapshot));
+  let touched = sending(ctx, a, 0, 100, 0);
+  let after = whole(a.sendMessage(ctx, .Snapshot));
+  let _ = io.println(ctx, "answered ${kept} ${touched}").ignore();
+  let _ = io.println(ctx, "before ${before.length()} ${reads(ctx, before, 5)} ${reads(ctx, before, 1500)}").ignore();
+  let _ = io.println(ctx, "after ${after.length()} ${reads(ctx, after, 5)} ${reads(ctx, after, 1500)}").ignore();
+  let _ = io.println(ctx, "stopped ${a.stop(ctx).isOk()}").ignore();
+  .Ok(())
+}
+"#,
+        "answered 500 100\nbefore 2000 original original\n\
+         after 2000 t5 original\nstopped true\n",
+    );
+}
+
 // -------------------------------------------------------------------
 // Not rows: the memory-corruption family, one test per report
 // -------------------------------------------------------------------

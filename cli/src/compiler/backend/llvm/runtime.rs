@@ -911,6 +911,12 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Dropped, Arg::Scalar],
         ret: Ret::Sum,
     },
+    Entry {
+        key: "actor.scopesLive",
+        symbol: "buri_rt_actor_scopes_live",
+        args: &[],
+        ret: Ret::Scalar,
+    },
     // -- core/tasks's scopes (F8) --------------------------------------------
     //
     // The nine above read a second time, and for the same reasons: `Arg::List`
