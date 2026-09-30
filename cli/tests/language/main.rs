@@ -19,6 +19,9 @@
 //! | [`sharing`] | `runtime.js`, four generated programs | Is a list this backend did not allocate never written to, is growing one in a loop linear — beside another field as well as alone — and is `core/buri/ast`'s printer linear because of it? |
 //! | [`symbols`] | `example/`, `repositories/testing/*/repo` | Does every function a program will define have a mangled symbol of its own? |
 //!
+//! [`debug_suite`] is not a suite: it holds the one run of the unmodified
+//! conformance corpus that three of the tests above share.
+//!
 //! ```text
 //! cargo test -p buri --test language                       # all nine
 //! cargo test -p buri --test language conformance::         # one of them
@@ -46,6 +49,7 @@ mod harness;
 
 mod conformance;
 mod corpus;
+mod debug_suite;
 mod golden_javascript;
 mod js_streams;
 mod round_trip;

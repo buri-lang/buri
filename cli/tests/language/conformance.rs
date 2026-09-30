@@ -34,8 +34,8 @@ fn conformance_repo() -> std::path::PathBuf {
 fn conformance_suite_passes() {
     // A copy, so the suite cannot be disturbed by anything else running, and
     // starts from an empty cache rather than from whatever was left behind.
-    let suite = Scratch::copy_of("conformance", &conformance_repo());
-    let run = suite.run(&["test", "//...", "--force"]);
+    // The run is shared with the other tests that ask about the same one.
+    let run = crate::debug_suite::unmodified_conformance_run();
     run.ok();
 
     // A suite that compiled to nothing would "pass" with zero assertions, so
@@ -376,10 +376,18 @@ export fn main(): Result<(), Str> {
 /// actually smaller, so "identical behaviour" cannot be bought by doing nothing.
 #[test]
 fn release_and_debug_agree() {
+    // Debug is the default mode, so the debug half is the suite as
+    // `conformance_suite_passes` runs it, and it is that same run.
     let mut counts = Vec::new();
     for mode in ["--debug", "--release"] {
-        let suite = Scratch::copy_of("agree-suite", &conformance_repo());
-        let run = suite.run(&["test", "//...", mode, "--force"]);
+        let release;
+        let run = if mode == "--release" {
+            let suite = Scratch::copy_of("agree-suite", &conformance_repo());
+            release = suite.run(&["test", "//...", mode, "--force"]);
+            &release
+        } else {
+            crate::debug_suite::unmodified_conformance_run()
+        };
         run.ok();
         let passed = run.tests_passed();
         assert!(passed > 100, "expected the whole suite {mode}, ran {passed}");

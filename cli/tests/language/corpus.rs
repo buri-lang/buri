@@ -693,7 +693,6 @@ fn formatting_keeps_every_comment() {
 fn formatting_the_corpus_preserves_what_it_means() {
     let root = repo_root();
     let source = root.join("cli/tests/conformance");
-    let plain = harness::Scratch::copy_of("meaning-plain", &source);
     let formatted = harness::Scratch::copy_of("meaning-formatted", &source);
 
     let mut files = Vec::new();
@@ -713,7 +712,9 @@ fn formatting_the_corpus_preserves_what_it_means() {
     }
     assert!(changed > 10, "formatting rewrote only {changed} of the suite's files");
 
-    let before = plain.run(&["test", "//...", "--force"]);
+    // The unformatted copy is the corpus as checked in, run the way
+    // `conformance_suite_passes` runs it, so it is that same run.
+    let before = crate::debug_suite::unmodified_conformance_run();
     let after = formatted.run(&["test", "//...", "--force"]);
     assert_eq!(
         after.code,
