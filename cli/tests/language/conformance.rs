@@ -867,6 +867,96 @@ await say(new Request("https://example.com/broken"));
     );
 }
 
+/// A worker reads its vars and secrets through `Environment`, from the `env`
+/// the platform passes to `fetch` beside the request.
+///
+/// The driver hands `fetch` an `env` the way a worker runtime does: string
+/// bindings, which are what a `[vars]` entry and a secret both arrive as, and
+/// one binding that is not a string, which is what a KV namespace or any
+/// other resource arrives as. A variable the `env` does not carry is `.None`,
+/// the same answer a missing variable gets on every other platform — and the
+/// name is one the JavaScript runtime's own process environment does not have
+/// either, so the value can only have come from the argument.
+#[test]
+fn a_worker_reads_its_variables_from_the_env_the_platform_passes() {
+    let scratch = Scratch::repo("worker-env");
+    scratch.write(
+        "cmd/site/BUILD.buri",
+        "binary {\n    outputs: [\n        { platform: CLOUDFLARE_WORKER, entry: \"fetch\" },\n    ]\n}\n",
+    );
+    scratch.write(
+        "cmd/site/main.buri",
+        r#"
+from "core/effect" import { Allocator, Environment, Request, Response };
+from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/net/http" import * as http;
+from "core/str" import * as str;
+
+export fn fetch(request: Request): Response {
+  let ctx = context { Allocator: host.alloc, Environment: host.env };
+  match (request.path()) {
+    "/all" => http.text(ctx, names(ctx)),
+    "/arguments" => http.text(ctx, str.format(ctx, "${env.arguments(ctx).length()}")),
+    other => match (env.get(ctx, other.slice(1, other.length()))) {
+      .Some(value) => http.text(ctx, value),
+      .None => http.status(404),
+    },
+  }
+}
+
+/// Every variable's name, sorted, because `core/env` promises no order.
+fn names<C: Allocator + Environment>(ctx: C): Str {
+  env.all(ctx).map(ctx, fn(pair) => pair.0).sort(ctx).join(ctx, ",")
+}
+"#,
+    );
+    scratch.run(&["build", "//cmd/site"]).ok();
+
+    let driver = scratch.write(
+        "drive.mjs",
+        r#"
+import worker from "./.buri/out/cloudflare-worker/cmd/site/fetch.mjs";
+
+const env = {
+  GREETING: "hello from a var",
+  BURI_WORKER_SECRET: "s3cret",
+  STORE: { get() {} },
+};
+
+const say = async (path) => {
+  const answer = await worker.fetch(new Request(`https://example.com${path}`), env, {});
+  console.log(`${answer.status} ${await answer.text()}`);
+};
+
+await say("/GREETING");
+await say("/BURI_WORKER_SECRET");
+await say("/BURI_WORKER_NOT_BOUND");
+await say("/STORE");
+await say("/all");
+await say("/arguments");
+"#,
+    );
+
+    let out = Command::new(js_runtime())
+        .arg(&driver)
+        .output()
+        .expect("the javascript runtime runs");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "the worker refused the platform's request:\n{stderr}");
+    assert_eq!(
+        stdout,
+        "200 hello from a var\n\
+         200 s3cret\n\
+         404 \n\
+         404 \n\
+         200 BURI_WORKER_SECRET,GREETING\n\
+         200 0\n",
+        "the worker did not read the env it was handed:\n{stderr}"
+    );
+}
+
 /// How long anything in the bounded-fetch case below may take before the claim
 /// it makes — that the *program's own* bound is what ends a request — is the
 /// thing that failed. Fifty times the bound the program asks for, so a loaded

@@ -140,6 +140,11 @@ impl Entropy for HostEntropy {
     fn bytes(self, count: Int): [U8];
 }
 
+/// The process's variables and arguments.
+///
+/// **Granted on LINUX, MACOS, JS and CLOUDFLARE_WORKER.** A worker's variables
+/// are the string bindings in the `env` its platform calls it with — its vars
+/// and its secrets — and it has no arguments.
 export struct HostEnvironment {}
 
 impl Environment for HostEnvironment {

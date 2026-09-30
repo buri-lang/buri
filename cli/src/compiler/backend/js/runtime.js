@@ -2378,7 +2378,12 @@ async function $host_HostNetwork_fetch(self, request) {
 //
 // `await`ed unconditionally: an entry that never parks answers a plain value,
 // and awaiting one costs a microtask on a path that is already asynchronous.
-async function $fetchEntry(entry, request) {
+//
+// `env` is the second argument the platform calls a module worker with: its
+// bindings, vars and secrets among them. It is what `host.env` reads in a
+// worker, so it is kept before the entry runs (`$workerEnv`).
+async function $fetchEntry(entry, request, env) {
+  $workerEnv = env ?? {};
   const method = $HTTP_METHOD.indexOf(request.method);
   const headers = [];
   for (const [name, value] of request.headers) headers.push([name, value]);
@@ -2472,13 +2477,33 @@ function $host_HostEntropy_bytes(self, count) {
   return Array.from(out);
 }
 
-function $host_HostEnvironment_variable(self, name) {
-  const env = typeof process !== "undefined" ? process.env : {};
-  const v = env[name];
-  return v === undefined ? undefined : $some(v);
+// A worker's environment: the `env` the platform handed `$fetchEntry`, or null
+// in every artifact that is not a worker being called.
+//
+// One variable rather than one per request, because the platform hands every
+// request an isolate serves the same bindings: two requests in flight at once
+// read the same answers whichever set it last. A worker has no process
+// environment of its own to fall back to, so a worker is never answered from
+// `process.env`, even on a runtime that has one.
+let $workerEnv = null;
+
+// Where `variable` and `allVariables` read. In a worker only the bindings whose
+// value is a string are variables — a var and a secret both arrive as one —
+// and a binding to a resource, a KV namespace say, is not.
+function $environmentVariables() {
+  if ($workerEnv !== null) return $workerEnv;
+  return typeof process !== "undefined" ? process.env : {};
 }
 
+function $host_HostEnvironment_variable(self, name) {
+  const env = $environmentVariables();
+  const v = env[name];
+  return typeof v === "string" ? $some(v) : undefined;
+}
+
+// A worker has no command line.
 function $host_HostEnvironment_arguments(self) {
+  if ($workerEnv !== null) return [];
   if (typeof Bun !== "undefined") return Bun.argv.slice(2);
   if (typeof process !== "undefined") return process.argv.slice(2);
   return [];
@@ -2491,10 +2516,10 @@ function $host_HostEnvironment_currentDirectory(self) {
 // In the engine's own order, which is insertion order over the object it built
 // the environment into. `core/env` promises no order at all.
 function $host_HostEnvironment_allVariables(self) {
-  const env = typeof process !== "undefined" ? process.env : {};
+  const env = $environmentVariables();
   const out = [];
   for (const name of Object.keys(env)) {
-    if (env[name] !== undefined) out.push([name, String(env[name])]);
+    if (typeof env[name] === "string") out.push([name, env[name]]);
   }
   return out;
 }

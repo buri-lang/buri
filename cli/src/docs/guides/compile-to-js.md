@@ -124,6 +124,33 @@ self-starting epilogue every other JavaScript output gets. `buri run` never runs
 one: there is nothing to start. Build it, and let the platform call it.
 [Build a website](./websites.md) is both halves end to end.
 
+A worker reads its vars and secrets through `Environment`:
+
+```buri repo=cli/tests/repositories/build-files/several_entries/repo package=//cmd/worker role=entry
+from "core/effect" import { Allocator, Environment, Request, Response };
+from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/net/http" import * as http;
+
+export fn fetch(request: Request): Response {
+    let ctx = context {
+        Allocator: host.alloc,
+        Environment: host.env,
+    };
+    match (env.get(ctx, "API_KEY")) {
+        .Some(_) => http.text(ctx, "the key is bound"),
+        .None => http.status(500),
+    }
+}
+```
+
+`host.env` reads the `env` the platform calls the worker with. A `[vars]` entry
+in `wrangler.toml` and a `wrangler secret put` both arrive as a string, so
+`env.get` answers either one, and `env.all` lists every string binding. A
+binding to a resource, like a KV namespace, isn't a variable, so `env.get`
+answers `.None` for it. A worker has no command line, so `env.arguments` is
+empty.
+
 ## Shipping part of it later
 
 `core/lazy` splits a function, and everything only that function reaches, into a
