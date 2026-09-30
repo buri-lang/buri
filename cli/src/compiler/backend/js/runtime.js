@@ -2527,6 +2527,129 @@ function $host_HostEntropy_bytes(self, count) {
   return Array.from(out);
 }
 
+// --- Cryptography --------------------------------------------------------------
+//
+// `core/crypto`'s sealing. Written out here rather than handed to WebCrypto,
+// because `crypto.subtle` is promise-shaped and these are ordinary synchronous
+// functions, and because WebCrypto has no ChaCha20 at all. The native runtime
+// answers the same keys through `ring`, and both are checked against the RFC
+// 8439 vectors in the conformance corpus.
+//
+// Nothing below branches on a secret except Poly1305's BigInt arithmetic, whose
+// timing depends on the one-time key's magnitude and nothing an attacker picks.
+
+// Little-endian bytes to a BigInt, and back.
+function $cryptoLe(b, from, to) {
+  let n = 0n;
+  for (let i = to - 1; i >= from; i--) n = (n << 8n) | BigInt(b[i]);
+  return n;
+}
+function $cryptoLeBytes(n, width) {
+  const out = new Array(width);
+  for (let i = 0; i < width; i++) {
+    out[i] = Number(n & 0xffn);
+    n >>= 8n;
+  }
+  return out;
+}
+function $cryptoBe(b, from, to) {
+  let n = 0n;
+  for (let i = from; i < to; i++) n = (n << 8n) | BigInt(b[i]);
+  return n;
+}
+
+// One ChaCha20 block, RFC 8439 §2.3, as sixteen little-endian words.
+function $chachaBlock(key, counter, nonce) {
+  const w = (b, i) => (b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24)) >>> 0;
+  const s = new Uint32Array(16);
+  s[0] = 0x61707865;
+  s[1] = 0x3320646e;
+  s[2] = 0x79622d32;
+  s[3] = 0x6b206574;
+  for (let i = 0; i < 8; i++) s[4 + i] = w(key, i * 4);
+  s[12] = counter >>> 0;
+  for (let i = 0; i < 3; i++) s[13 + i] = w(nonce, i * 4);
+  const x = Uint32Array.from(s);
+  const quarter = (a, b, c, d) => {
+    x[a] += x[b]; x[d] ^= x[a]; x[d] = (x[d] << 16) | (x[d] >>> 16);
+    x[c] += x[d]; x[b] ^= x[c]; x[b] = (x[b] << 12) | (x[b] >>> 20);
+    x[a] += x[b]; x[d] ^= x[a]; x[d] = (x[d] << 8) | (x[d] >>> 24);
+    x[c] += x[d]; x[b] ^= x[c]; x[b] = (x[b] << 7) | (x[b] >>> 25);
+  };
+  for (let i = 0; i < 10; i++) {
+    quarter(0, 4, 8, 12);
+    quarter(1, 5, 9, 13);
+    quarter(2, 6, 10, 14);
+    quarter(3, 7, 11, 15);
+    quarter(0, 5, 10, 15);
+    quarter(1, 6, 11, 12);
+    quarter(2, 7, 8, 13);
+    quarter(3, 4, 9, 14);
+  }
+  const out = new Uint8Array(64);
+  for (let i = 0; i < 16; i++) {
+    const v = (x[i] + s[i]) >>> 0;
+    out[i * 4] = v & 0xff;
+    out[i * 4 + 1] = (v >>> 8) & 0xff;
+    out[i * 4 + 2] = (v >>> 16) & 0xff;
+    out[i * 4 + 3] = v >>> 24;
+  }
+  return out;
+}
+
+// The keystream from block 1 on, xor-ed over `data`.
+function $chachaXor(key, nonce, data) {
+  const out = new Array(data.length);
+  for (let at = 0, counter = 1; at < data.length; at += 64, counter++) {
+    const block = $chachaBlock(key, counter, nonce);
+    const end = Math.min(at + 64, data.length);
+    for (let i = at; i < end; i++) out[i] = (data[i] ^ block[i - at]) & 0xff;
+  }
+  return out;
+}
+
+// Poly1305 over RFC 8439 §2.8's padded AAD and ciphertext.
+function $chachaTag(key, nonce, aad, ciphertext) {
+  const otk = $chachaBlock(key, 0, nonce);
+  const r = $cryptoLe(otk, 0, 16) & 0x0ffffffc0ffffffc0ffffffc0fffffffn;
+  const s = $cryptoLe(otk, 16, 32);
+  const p = (1n << 130n) - 5n;
+  let acc = 0n;
+  const absorb = (b) => {
+    for (let i = 0; i < b.length; i += 16) {
+      const end = Math.min(i + 16, b.length);
+      acc = ((acc + $cryptoLe(b, i, end) + (1n << BigInt(8 * (end - i)))) * r) % p;
+    }
+  };
+  const padded = (b) => b.concat(new Array((16 - (b.length % 16)) % 16).fill(0));
+  absorb(
+    padded(aad)
+      .concat(padded(ciphertext))
+      .concat($cryptoLeBytes(BigInt(aad.length), 8))
+      .concat($cryptoLeBytes(BigInt(ciphertext.length), 8)),
+  );
+  return $cryptoLeBytes((acc + s) & ((1n << 128n) - 1n), 16);
+}
+
+function $crypto_chacha20Poly1305Seal(_c, key, nonce, plaintext, aad) {
+  if (key.length !== 32) $abort("a sealing key is 32 bytes");
+  if (nonce.length !== 12) $abort("a sealing nonce is 12 bytes");
+  const ciphertext = $chachaXor(key, nonce, plaintext);
+  return ciphertext.concat($chachaTag(key, nonce, aad, ciphertext));
+}
+
+// `.None` for anything that does not authenticate. The tag is compared without
+// an early exit, and nothing is decrypted until it matches.
+function $crypto_chacha20Poly1305Open(_c, key, nonce, sealed, aad) {
+  if (key.length !== 32 || nonce.length !== 12 || sealed.length < 16) return undefined;
+  const ciphertext = sealed.slice(0, sealed.length - 16);
+  const expected = $chachaTag(key, nonce, aad, ciphertext);
+  let diff = 0;
+  for (let i = 0; i < 16; i++) diff |= expected[i] ^ sealed[sealed.length - 16 + i];
+  if (diff !== 0) return undefined;
+  return $chachaXor(key, nonce, ciphertext);
+}
+
 // A worker's environment: the `env` the platform handed `$fetchEntry`, or null
 // in every artifact that is not a worker being called.
 //

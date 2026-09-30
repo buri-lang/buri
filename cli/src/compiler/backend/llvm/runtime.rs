@@ -1357,6 +1357,21 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::List, Arg::Scalar],
         ret: Ret::Sum,
     },
+    // -- core/crypto --------------------------------------------------------
+    //
+    // Sealing, behind the runtime's `crypto` feature.
+    Entry {
+        key: "crypto.chacha20Poly1305Seal",
+        symbol: "buri_rt_crypto_chacha20_poly1305_seal",
+        args: &[Arg::Dropped, Arg::List, Arg::List, Arg::List, Arg::List],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "crypto.chacha20Poly1305Open",
+        symbol: "buri_rt_crypto_chacha20_poly1305_open",
+        args: &[Arg::Dropped, Arg::List, Arg::List, Arg::List, Arg::List],
+        ret: Ret::Sum,
+    },
     // -- core/character -----------------------------------------------------
     //
     // Eight rows, and the five predicates are `Ret::Int(8)` rather than

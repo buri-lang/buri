@@ -1,0 +1,21 @@
+// CRASH: a sealing key is 32 bytes
+// `seal` answers a `[U8]` rather than a `Result`, so a key of the wrong size
+// stops the program instead of sealing under something weaker.
+from "core/crypto" import * as crypto;
+from "core/effect" import { Allocator, Entropy, Environment, Stdout };
+from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Allocator: host.alloc,
+    Stdout: host.stdout,
+    Environment: host.env,
+    Entropy: host.entropy,
+  };
+  // Opaque to the compiler, so the call is really made.
+  let key = crypto.randomBytes(ctx, 16 + env.arguments(ctx).length());
+  let _ = io.println(ctx, "${crypto.seal(ctx, key, [], []).length()}").ignore();
+  .Ok(())
+}
