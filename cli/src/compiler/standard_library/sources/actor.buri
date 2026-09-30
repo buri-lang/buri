@@ -132,12 +132,14 @@
 //! on the block, keeps the pointer, and gives every one of them back — to the
 //! step, or to `stop`'s discard loop.
 //!
-//! **`core/alloc`'s `copyAcross` builds every one of those blocks.** It is a
-//! deep copy made with every arena left behind. Four crossings hand a value
-//! over: `start`'s initial state, `sendMessage`'s message, the state a step
-//! leaves behind, and the answer a step gives. All four outlive the call that
-//! made them, so without the copy a value made inside an `alloc.scoped` body
-//! would reach the runtime *in pages the scope is about to unmap*.
+//! Four crossings hand a value over: `start`'s initial state, `sendMessage`'s
+//! message, the state a step leaves behind, and the answer a step gives. All
+//! four outlive the call that made them, so a value made inside an
+//! `alloc.scoped` body would reach the runtime *in pages the scope is about to
+//! unmap*. **While any scope holds pages, `core/alloc`'s `copyAcross` builds
+//! every one of those blocks**: a deep copy made with every arena left behind.
+//! While none does, no value is in an arena, so the value crosses as it is and
+//! a step that leaves a large state alone costs nothing extra.
 
 from "core/alloc" import * as alloc;
 from "core/effect" import { Allocator, Tasks };
@@ -244,6 +246,18 @@ fn carried<T>(value: T): Carried<T> {
     Carried { pad: 0, value: value }
 }
 
+/// `value`, as a block no scope will unmap.
+///
+/// While any scope holds pages that takes `copyAcross`. While none does, no
+/// block anywhere is in an arena, so `value` already is one and the runtime
+/// takes another reference to it. That keeps a large state that a step leaves
+/// alone from costing a copy per drive. Sharing is safe across threads: a
+/// program that reaches this module marks every block shared, so each is
+/// counted atomically and never written in place.
+fn across<T>(value: T): T {
+    if (scopesLive()) { alloc.copyAcross(value) } else { value }
+}
+
 /// How many messages may wait in a mailbox: 64.
 ///
 /// The number is here, not only in the runtime, because a reader has to know
@@ -256,17 +270,15 @@ let MAILBOX: Int = 64;
 /// Gives the actor a mailbox and answers where to send it messages.
 ///
 /// The initial state moves into the runtime as a one-element `[Carried<S>]` and
-/// does not come back out until a step asks for it.
-///
-/// `core/alloc`'s `copyAcross` deep-copies the state out of every arena on the
-/// way in, because the runtime holds it past this call and an actor started
-/// inside an `alloc.scoped` body outlives that body.
+/// does not come back out until a step asks for it. It crosses through
+/// `across`, because an actor started inside an `alloc.scoped` body outlives
+/// that body.
 export fn start<C: Allocator + Tasks, S, M, R>(
     ctx: C,
     actor: Actor<C, S, M, R>,
 ): Address<C, S, M, R> {
     Address {
-        handle: mailboxOpen(ctx, alloc.copyAcross([carried(actor.state)]), MAILBOX),
+        handle: mailboxOpen(ctx, across([carried(actor.state)]), MAILBOX),
         step: actor.step,
         onStop: actor.onStop,
     }
@@ -276,9 +288,8 @@ impl<C: Allocator + Tasks, S, M, R> Address<C, S, M, R> {
     /// Posts `message`, runs the mailbox down, and answers what the step
     /// answered for it.
     ///
-    /// `core/alloc`'s `copyAcross` deep-copies the message **out of every
-    /// arena** before posting it, so the mailbox holds a block on the platform
-    /// allocator whatever scope this call was made inside.
+    /// The message crosses through `across`, so the mailbox holds a block on
+    /// the platform allocator whatever scope this call was made inside.
     ///
     /// `.Err(.Stopped)` covers three cases: the actor was gone before the
     /// message was posted, it went before the answer came, or the caller is a
@@ -288,7 +299,7 @@ impl<C: Allocator + Tasks, S, M, R> Address<C, S, M, R> {
     export fn sendMessage(self, ctx: C, message: M): Result<R, Stopped> {
         let reply = Reply(replyOpen(ctx));
         let posted = Posted { slot: reply.0, message: message };
-        match (mailboxPush(ctx, self.handle, alloc.copyAcross([carried(posted)]))) {
+        match (mailboxPush(ctx, self.handle, across([carried(posted)]))) {
             .None => {
                 // The slot is nobody's now, and taking it is what gives it
                 // back to the next `sendMessage`.
@@ -372,10 +383,9 @@ fn draining<C: Allocator + Tasks, S, M, R>(
 /// about, so this answers a `Bool` and not a `Result`. A state another task is
 /// holding is waited for rather than refused.
 ///
-/// The state going back takes `start`'s copy, for the same reason: a step that
-/// ran inside an `alloc.scoped` body built the next state *there*, and the
-/// runtime keeps it long after that body has answered. That deep copy is
-/// unconditional, and it runs once per *drive* rather than once per message.
+/// The state going back crosses through `across`, for `start`'s reason: a step
+/// that ran inside an `alloc.scoped` body built the next state *there*, and the
+/// runtime keeps it long after that body has answered.
 fn drive<C: Allocator + Tasks, S, M, R>(ctx: C, address: Address<C, S, M, R>): Bool {
     match (taking(ctx, address)) {
         .None => false,
@@ -384,11 +394,7 @@ fn drive<C: Allocator + Tasks, S, M, R>(ctx: C, address: Address<C, S, M, R>): B
                 .None => false,
                 .Some(state) => {
                     let ended = draining(ctx, address, state.value);
-                    let _ = statePut(
-                        ctx,
-                        address.handle,
-                        alloc.copyAcross([carried(ended)]),
-                    );
+                    let _ = statePut(ctx, address.handle, across([carried(ended)]));
                     true
                 },
             }
@@ -485,7 +491,7 @@ fn answering<C: Tasks, R>(ctx: C, reply: Reply<R>): Option<[Carried<R>]> {
 /// `.None` where the slot is gone. The block is not taken on that path, so the
 /// caller here releases an answer nobody is waiting for.
 fn filling<C: Allocator + Tasks, R>(ctx: C, reply: Reply<R>, value: R): Option<Int> {
-    replyPut(ctx, reply.0, alloc.copyAcross([carried(value)]))
+    replyPut(ctx, reply.0, across([carried(value)]))
 }
 
 // --- The runtime's half -------------------------------------------------------
@@ -543,3 +549,9 @@ fn replyPut<C: Tasks, R>(ctx: C, handle: Int, value: [Carried<R>]): Option<Int>;
 /// Takes a reply slot's answer, once, and gives the slot back either way.
 /// `.None` where there is no answer in it.
 fn replyTake<C: Tasks, R>(ctx: C, handle: Int): Option<[Carried<R>]>;
+
+/// Whether any `alloc.scoped` arena holds pages right now, anywhere in the
+/// process. The one entry here that moves no block, so it takes no context.
+/// Not the calling thread's own arena: a `Tasks.parallel` step runs
+/// outside its caller's arena and still reads blocks in it.
+fn scopesLive(): Bool;

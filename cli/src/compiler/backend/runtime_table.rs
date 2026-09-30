@@ -996,6 +996,9 @@ pub const ENTRIES: &[Entry] = &[
     cx(e("actor.replyOpen", "buri_rt_actor_reply_open", Ret::Scalar), 0),
     cx(e("actor.replyPut", "buri_rt_actor_reply_put", Ret::Opt), 0),
     cx(e("actor.replyTake", "buri_rt_actor_reply_take", Ret::Opt), 0),
+    // Takes no context: whether any arena holds pages is a fact about the
+    // process, and `core/actor` asks it before skipping a copy.
+    e("actor.scopesLive", "buri_rt_actor_scopes_live", Ret::Scalar),
     // -- core/tasks's scopes (F8) --------------------------------------------
     //
     // Ten rows, the nine above read a second time: a spawned task crosses as a
