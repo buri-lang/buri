@@ -1,6 +1,8 @@
-//! core/codegen — the protocol a generator speaks.
+//! core/codegen — a generator's request and response, over standard streams.
 //!
-//! A generator is an ordinary Buri binary. [`run`] reads one JSON line from
+//! The build runs a `tool` rule's `generate` rather than a binary: see
+//! `core/tool`, which re-exports [`Diagnostic`]. What is here is the same
+//! work as a program of your own. [`run`] reads one JSON line from
 //! `Stdin`, hands your function the [`Request`], and writes the [`Response`]
 //! back as one JSON line on `Stdout`.
 //!

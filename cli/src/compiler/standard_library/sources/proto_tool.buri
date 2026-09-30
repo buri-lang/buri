@@ -1,0 +1,25 @@
+//! std/proto — the `.proto` tool this toolchain ships.
+//!
+//! [`generate`] turns each schema a `generators` entry lists into a module
+//! named after the file, through `std/codegen/proto`'s `emit`:
+//!
+//! ```text
+//! library {
+//!     generators: [{ tool: "std/proto", inputs: ["point.proto"] }]
+//! }
+//! ```
+
+from "core/codegen" import { Request };
+from "core/effect" import { Allocator };
+from "core/tool" import { Generated, GenerateRequest };
+from "std/codegen/proto" import * as proto;
+
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+    let inputs = request.inputs.map(ctx, fn(input) => (input.path, input.value));
+    let response = proto.emit(ctx, Request { inputs: inputs, dependencies: [] });
+    Generated {
+        modules: response.modules,
+        diagnostics: response.diagnostics,
+        needs: [],
+    }
+}

@@ -1,0 +1,321 @@
+//! core/tool — what a `tool` rule's entry points are handed, and answer.
+//!
+//! A tool's `tool.buri` exports one function per block in its `BUILD.buri`:
+//!
+//! ```buri
+//! from "core/effect" import { Allocator };
+//! from "core/format" import { Doc };
+//! from "core/tool" import { Checked, CheckRequest, Diagnostic, FormatRequest };
+//!
+//! export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
+//!     Checked { diagnostics: [], needs: [] }
+//! }
+//!
+//! export fn format<C: Allocator>(
+//!     ctx: C,
+//!     request: FormatRequest,
+//! ): Result<Doc, [Diagnostic]> {
+//!     .Ok(.Text(request.input.value.trim()))
+//! }
+//! ```
+//!
+//! `ctx` is bounded by `Allocator` and nothing else, so what a tool answers is
+//! a function of what it was handed. There is no `main`: the toolchain writes
+//! one that reads the request, calls the entry point, and writes the answer.
+//! It calls [`serve`] to do that, and a tool never does.
+//!
+//! A diagnostic's `code` is looked up in the toolchain's catalogue. A code the
+//! catalogue has prints with the tool's own sentence; any other prints as
+//! `tool-diagnostic`, naming it.
+
+from "core/buri/ast" import * as ast;
+from "core/codegen" import { Diagnostic };
+from "core/effect" import { Allocator, Stdin, Stdout };
+from "core/format" import { Doc };
+from "core/io" import * as io;
+from "core/json" import * as json;
+from "core/json" import { Json };
+from "core/str" import * as str;
+
+from "core/codegen" export { Diagnostic };
+
+from "core/format" export { Doc };
+
+/// One file. `T` is `Str`, the file's text.
+export struct Input<T> {
+    /// Repository-relative.
+    export path: Str,
+    /// `json`, `jsonc`, `json5`, or a language `REPO.buri` declares. Empty for
+    /// a file in no language.
+    export language: Str,
+    export typeSchema: Option<TypeSchema>,
+    export value: T,
+}
+
+/// A schema a tool's BUILD file names, as it wrote it.
+export struct TypeSchema {
+    /// Opaque here: the language's tools read it.
+    export text: Str,
+    /// The tool's package, for a relative path.
+    export package: Str,
+}
+
+export struct CheckRequest<T> {
+    export inputs: [Input<T>],
+    /// `(repository path, text)`, for each path an earlier answer's `needs`
+    /// named. A path that names no file is left out.
+    export files: [(Str, Str)],
+}
+
+export struct Checked {
+    export diagnostics: [Diagnostic],
+    /// Repository paths to read, such as a schema. The toolchain asks again
+    /// with their contents in `files`.
+    export needs: [Str],
+}
+
+export struct GenerateRequest<T> {
+    export inputs: [Input<T>],
+    export typesOf: Option<TypeSchema>,
+    export files: [(Str, Str)],
+}
+
+/// Modules by name, and what the tool has to say. A module named `N`,
+/// generated for a rule in `//lib/wire`, is importable as `//lib/wire/N`.
+export struct Generated {
+    export modules: [(Str, ast.Module)],
+    export diagnostics: [Diagnostic],
+    export needs: [Str],
+}
+
+export struct FormatRequest {
+    export input: Input<Str>,
+}
+
+/// The entry points a tool exports, as the toolchain's `main` hands them to
+/// [`serve`].
+export struct Entries<C> {
+    export check: Option<fn(C, CheckRequest<Str>) => Checked>,
+    export format: Option<fn(C, FormatRequest) => Result<Doc, [Diagnostic]>>,
+    export generate: Option<fn(C, GenerateRequest<Str>) => Generated>,
+}
+
+/// Reads one request from `Stdin`, calls the entry point it names, and writes
+/// the answer as one line of JSON on `Stdout`.
+///
+/// The whole of the `main` the toolchain writes for a tool.
+export fn serve<C: Allocator + Stdin + Stdout>(
+    ctx: C,
+    entries: Entries<C>,
+): Result<(), Str> {
+    let line = io.readLine(ctx).okOr("tool: standard input held no request")?;
+    let request = json
+        .parse(ctx, line)
+        .mapErr(fn(_e) => "tool: the request is not JSON")?;
+    let entry = request.get("entry").andThen(fn(v) => v.asStr()).withDefault("");
+    let answer = match (entry) {
+        "check" => {
+            let run = entries.check.okOr("tool: this tool has no `check`")?;
+            checkedJson(ctx, run(ctx, checkRequest(ctx, request)?))
+        },
+        "format" => {
+            let run = entries.format.okOr("tool: this tool has no `format`")?;
+            formattedJson(ctx, run(ctx, formatRequest(ctx, request)?))
+        },
+        "generate" => {
+            let run = entries.generate.okOr("tool: this tool has no `generate`")?;
+            generatedJson(ctx, run(ctx, generateRequest(ctx, request)?))
+        },
+        _ => Json.Null,
+    };
+    match (answer) {
+        .Null => .Err(str.format(ctx, "tool: `${entry}` is not an entry point")),
+        _ => {
+            io
+                .println(ctx, json.stringify(ctx, answer))
+                .mapErr(fn(_e) => "tool: the answer could not be written")
+        },
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Reading the request
+// -----------------------------------------------------------------------------
+
+fn checkRequest<C: Allocator>(ctx: C, request: Json): Result<CheckRequest<Str>, Str> {
+    .Ok(CheckRequest { inputs: inputs(ctx, request)?, files: files(ctx, request)? })
+}
+
+fn formatRequest<C: Allocator>(ctx: C, request: Json): Result<FormatRequest, Str> {
+    let value = request.get("input").okOr("tool: the request has no `input`")?;
+    .Ok(FormatRequest { input: input(value)? })
+}
+
+fn generateRequest<C: Allocator>(
+    ctx: C,
+    request: Json,
+): Result<GenerateRequest<Str>, Str> {
+    .Ok(GenerateRequest {
+        inputs: inputs(ctx, request)?,
+        typesOf: .None,
+        files: files(ctx, request)?,
+    })
+}
+
+fn inputs<C: Allocator>(ctx: C, request: Json): Result<[Input<Str>], Str> {
+    match (request.get("inputs").andThen(fn(v) => v.asArray())) {
+        .None => .Ok([]),
+        .Some(items) => items.mapResult(ctx, fn(item) => input(item)),
+    }
+}
+
+fn input(item: Json): Result<Input<Str>, Str> {
+    let bad = "tool: an input is not a path, a language and a value";
+    .Ok(Input {
+        path: field(item, "path").okOr(bad)?,
+        language: field(item, "language").okOr(bad)?,
+        typeSchema: .None,
+        value: field(item, "value").okOr(bad)?,
+    })
+}
+
+fn field(item: Json, name: Str): Option<Str> {
+    item.get(name).andThen(fn(v) => v.asStr())
+}
+
+fn files<C: Allocator>(ctx: C, request: Json): Result<[(Str, Str)], Str> {
+    match (request.get("files").andThen(fn(v) => v.asArray())) {
+        .None => .Ok([]),
+        .Some(items) => items.mapResult(ctx, fn(item) => pair(item)),
+    }
+}
+
+fn pair(item: Json): Result<(Str, Str), Str> {
+    let bad = "tool: `files` holds something that is not a (path, text) pair";
+    let path = item.at(0).andThen(fn(v) => v.asStr()).okOr(bad)?;
+    let text = item.at(1).andThen(fn(v) => v.asStr()).okOr(bad)?;
+    .Ok((path, text))
+}
+
+// -----------------------------------------------------------------------------
+// Writing the answer
+// -----------------------------------------------------------------------------
+
+fn checkedJson<C: Allocator>(ctx: C, checked: Checked): Json {
+    Json.Object([
+        ("diagnostics", diagnosticsJson(ctx, checked.diagnostics)),
+        ("needs", needsJson(ctx, checked.needs)),
+    ])
+}
+
+fn formattedJson<C: Allocator>(ctx: C, formatted: Result<Doc, [Diagnostic]>): Json {
+    match (formatted) {
+        .Ok(doc) => {
+            Json.Object([("doc", docJson(ctx, doc)), ("diagnostics", Json.Array([]))])
+        },
+        .Err(diagnostics) => {
+            Json.Object([
+                ("doc", Json.Null),
+                ("diagnostics", diagnosticsJson(ctx, diagnostics)),
+            ])
+        },
+    }
+}
+
+fn generatedJson<C: Allocator>(ctx: C, generated: Generated): Json {
+    let modules = generated
+        .modules
+        .mapCtx(ctx, fn(c, entry) => {
+            let (name, tree) = entry;
+            moduleJson(c, name, ast.print(c, tree))
+        });
+    Json.Object([
+        ("modules", Json.Array(modules)),
+        ("diagnostics", diagnosticsJson(ctx, generated.diagnostics)),
+        ("needs", needsJson(ctx, generated.needs)),
+    ])
+}
+
+fn needsJson<C: Allocator>(ctx: C, needs: [Str]): Json {
+    Json.Array(needs.map(ctx, fn(path) => Json.Str(path)))
+}
+
+/// A doc as a tagged array: `["text", "a"]`, `["group", [...]]`, `["line"]`.
+fn docJson<C: Allocator>(ctx: C, doc: Doc): Json {
+    match (doc) {
+        .Text(s) => Json.Array([Json.Str("text"), Json.Str(s)]),
+        .Concat(all) => Json.Array([Json.Str("concat"), docsJson(ctx, all)]),
+        .Line => Json.Array([Json.Str("line")]),
+        .SoftLine => Json.Array([Json.Str("softline")]),
+        .HardLine => Json.Array([Json.Str("hardline")]),
+        .Group(all) => Json.Array([Json.Str("group"), docsJson(ctx, all)]),
+        .Indent(all) => Json.Array([Json.Str("indent"), docsJson(ctx, all)]),
+        .IfBreak(broken, flat) => {
+            Json.Array([Json.Str("ifbreak"), docJson(ctx, broken), docJson(ctx, flat)])
+        },
+        .LineSuffix(s) => Json.Array([Json.Str("linesuffix"), Json.Str(s)]),
+        .BreakParent => Json.Array([Json.Str("breakparent")]),
+    }
+}
+
+fn docsJson<C: Allocator>(ctx: C, all: [Doc]): Json {
+    Json.Array(all.mapCtx(ctx, fn(c, d) => docJson(c, d)))
+}
+
+fn moduleJson<C: Allocator>(ctx: C, name: Str, printed: ast.Printed): Json {
+    let anchors = printed.anchors.map(ctx, fn(a) => anchorJson(a));
+    Json.Object([
+        ("name", Json.Str(name)),
+        ("text", Json.Str(printed.text)),
+        ("anchors", Json.Array(anchors)),
+    ])
+}
+
+fn anchorJson(a: ast.Anchor): Json {
+    Json.Object([
+        ("start", offset(a.start)),
+        ("end", offset(a.end)),
+        ("file", Json.Str(a.origin.file)),
+        ("span", spanJson(a.origin.span)),
+    ])
+}
+
+fn diagnosticsJson<C: Allocator>(ctx: C, diagnostics: [Diagnostic]): Json {
+    Json.Array(diagnostics.map(ctx, fn(d) => diagnosticJson(d)))
+}
+
+fn diagnosticJson(d: Diagnostic): Json {
+    Json.Object([
+        ("code", Json.Str(d.code)),
+        ("message", Json.Str(d.message)),
+        ("note", textOrNull(d.note)),
+        ("fix", textOrNull(d.fix)),
+        (
+            "origin",
+            match (d.origin) {
+                .Some(o) => {
+                    Json.Object([
+                        ("file", Json.Str(o.file)),
+                        ("span", spanJson(o.span)),
+                    ])
+                },
+                .None => Json.Null,
+            },
+        ),
+    ])
+}
+
+fn spanJson(span: ast.Span): Json {
+    Json.Object([("start", offset(span.start)), ("end", offset(span.end))])
+}
+
+fn textOrNull(text: Option<Str>): Json {
+    match (text) {
+        .Some(s) => Json.Str(s),
+        .None => Json.Null,
+    }
+}
+
+fn offset(n: Int): Json {
+    Json.Num(n.toF64())
+}
