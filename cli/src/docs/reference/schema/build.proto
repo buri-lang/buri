@@ -24,9 +24,9 @@ package buri.build.v1;
 // subdirectories that do not themselves contain a BUILD.buri belong to the
 // nearest ancestor package.
 //
-// A package declares at most one library and at most one binary. That is what
-// makes `//lib/money` an unambiguous name for a directory, a library, and the
-// module `lib/money/lib.buri` all at once, and it is why no label in this
+// A package declares at most one library, one binary and one tool. That is
+// what makes `//lib/money` an unambiguous name for a directory, a library, and
+// the module `lib/money/lib.buri` all at once, and it is why no label in this
 // schema has a `:target` suffix.
 message BuildFile {
   // The library rooted at this package's `lib.buri`.
@@ -34,6 +34,9 @@ message BuildFile {
 
   // The binary rooted at this package's `main.buri`.
   Binary binary = 2;
+
+  // The tool rooted at this package's `tool.buri`.
+  Tool tool = 3;
 }
 
 // A `library` requires `lib.buri` in the package directory. That file is the
@@ -153,19 +156,58 @@ message Binary {
   TestSuite test = 5;
 }
 
-// A program the build runs, whose output becomes a module.
+// A `tool` requires `tool.buri` in the package directory. Each block below
+// declares the function of the same name that `tool.buri` exports, and the
+// build calls it: a language's `check` and `format` on the files a rule
+// references, and `generate` for a `generators` entry. A block without its
+// function, or the function without its block, is an error.
 //
-// A generator is an ordinary Buri binary: it reads one JSON request on standard
-// input and writes one JSON response on standard output. Nothing else is
-// granted to it, so what it produces is a function of what it was handed.
+// There is no `main`. The build writes the one that reads a request and writes
+// the answer, and each entry point's `ctx` is bounded by `Allocator` and
+// nothing else, so what a tool answers is a function of what it was handed.
+//
+// No `name` field, for the reason a library has none: `//tools/yaml` names it.
+// Nothing depends on a tool and nothing imports its modules but its own tests,
+// so it has no `visibility`.
+message Tool {
+  // Every .buri file in this package that belongs to the tool, excluding
+  // `tool.buri` and the test sources.
+  repeated string sources = 1;
+
+  // Libraries the tool uses. The library in its own package needs no entry.
+  repeated string dependencies = 2;
+
+  // Tests of the tool. A test source imports `//tools/yaml/tool.buri`.
+  TestSuite test = 3;
+
+  // `tool.buri` exports `check`, a language's check.
+  Check check = 4;
+
+  // `tool.buri` exports `format`, a language's formatter.
+  Format format = 5;
+
+  // `tool.buri` exports `generate`, a generator.
+  Generate generate = 6;
+}
+
+// Empty: the block says only that `tool.buri` exports `check`.
+message Check {}
+
+// Empty: a formatter lays out text, and takes no options.
+message Format {}
+
+// Empty: the block says only that `tool.buri` exports `generate`.
+message Generate {}
+
+// A tool's `generate`, run by the build, whose answer becomes modules.
 //
 // The module a generator names `N` is importable as `<this package's label>/N`,
 // so a generator naming `point.proto` in `//lib/wire` produces
 // `//lib/wire/point.proto`.
 message Generator {
-  // Which program to run. A `//label` names a binary target in this
-  // repository. Anything else names a generator the toolchain ships, and
-  // `std/codegen/proto` is the only one.
+  // Which tool to run: a `//label` naming a `tool` rule with a `generate {}`
+  // block, or `std/proto`. A binary is refused, and so is the retired name
+  // `std/codegen/proto`.
   string tool = 1;
 
   // The files handed to the generator, package-relative, no globs. Their

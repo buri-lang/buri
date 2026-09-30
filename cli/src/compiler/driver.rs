@@ -350,19 +350,39 @@ pub fn run_snippet_in(
 /// The same up to running it: the JavaScript a snippet that exports `main`
 /// compiles to.
 ///
-/// [`run_snippet_in`] is this and then a subprocess. `build::generators` is the
-/// other caller — the generator this toolchain ships is a Buri program that
-/// imports `std/codegen/proto`, and this is what turns it into an artifact the
-/// build can hand a request on standard input.
+/// [`run_snippet_in`] is this and then a subprocess. `build::tools` is the
+/// other caller: the `main` it writes for a tool is a snippet too, and this is
+/// what turns it into an artifact the build can hand a request on standard
+/// input.
 pub fn compile_snippet_js(
     ws: Option<&Workspace>,
     map: &mut SourceMap,
     name: &str,
     text: &str,
 ) -> Result<(String, Vec<String>), Diagnostics> {
+    compile_snippet_js_as(ws, None, map, name, text)
+}
+
+/// The same, with the snippet standing in for a file of `pkg`: the `main` the
+/// toolchain writes for a `tool` rule imports that tool's `tool.buri`, which
+/// only a file of its own package may.
+pub fn compile_snippet_js_as(
+    ws: Option<&Workspace>,
+    pkg: Option<crate::build::workspace::PackageId>,
+    map: &mut SourceMap,
+    name: &str,
+    text: &str,
+) -> Result<(String, Vec<String>), Diagnostics> {
     let mut cache = crate::parsing::parser::Cache::new();
-    let analysis =
-        analyze_snippet_in(ws, map, &mut cache, name, text, crate::compiler::modules::Role::Entry);
+    let analysis = analyze_snippet_as(
+        ws,
+        pkg,
+        map,
+        &mut cache,
+        name,
+        text,
+        crate::compiler::modules::Role::Entry,
+    );
     if analysis.diagnostics.has_errors() {
         return Err(analysis.diagnostics);
     }

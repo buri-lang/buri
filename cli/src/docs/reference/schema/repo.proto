@@ -32,7 +32,8 @@ message RepoConfig {
   // How hard the lint catalogue is run here. One block, or none.
   Lint lint = 3;
 
-  // More extensions for a built-in language. See `buri docs guides/json`.
+  // More extensions for a built-in language, or a language of the
+  // repository's own. See `buri docs build/repo-config`.
   repeated Language language = 4;
 }
 
@@ -40,20 +41,22 @@ message RepoConfig {
 // extension. The built-in languages are `json` (`.json`), `jsonc` (`.jsonc`)
 // and `json5` (`.json5`), and every `REPO.buri` has them without a block.
 //
-// A block names a built-in language and adds extensions to it. Nothing else:
+// A block naming a built-in language adds extensions to it and nothing else:
 // a built-in language's check means the same thing in every repository, so
-// `check`, `format` and `generate` are refused on one. One extension belongs
-// to one language, and claiming a taken one is an error.
+// `check`, `format` and `generate` are refused on one. A block naming any other
+// language declares it, once. One extension belongs to one language, and
+// claiming a taken one is an error.
 message Language {
-  // A built-in language: `json`, `jsonc` or `json5`.
+  // A built-in language, or a language of this repository's own.
   string name = 1;
 
   // More extensions for it, each with its leading dot: `".code-workspace"`.
   repeated string extensions = 2;
 
-  // The tools a language of a repository's own is checked, formatted and
-  // generated from. Refused on a built-in language, and a language that is
-  // not built in is refused too until a `tool` rule exists to name here.
+  // The `tool` rules a language of the repository's own is checked, formatted
+  // and generated from, as `//labels`. Each runs the tool's entry point of the
+  // same name, and a tool without it is an error. Refused on a built-in
+  // language.
   string check = 3;
   string format = 4;
   string generate = 5;
