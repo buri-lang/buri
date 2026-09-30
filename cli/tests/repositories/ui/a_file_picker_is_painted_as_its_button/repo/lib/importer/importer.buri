@@ -1,0 +1,25 @@
+from "ui/node" import * as ui;
+from "ui/node" import { Node, PickedFile };
+
+/// A CSV importer's button, styled the way a design system styles a button.
+export fn importer<C>(
+    label: Str,
+    disabled: Bool,
+    onPick: fn(C, Result<PickedFile, Str>) => (),
+): Node<C> {
+    ui.filePicker({
+        label: .Const(label),
+        accept: .Some([".csv"]),
+        maxBytes: 5_000_000,
+        onPick: onPick,
+        styles: [
+            .PaddingX(.Px(14)),
+            .PaddingY(.Px(8)),
+            .Radius(.Px(6)),
+            .Background(.Rgb(40, 90, 200)),
+            .Foreground(.Rgb(255, 255, 255)),
+            .On(.Disabled, [.Opacity(0.5)]),
+        ],
+        isDisabled: .Some(.Const(disabled)),
+    })
+}

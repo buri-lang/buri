@@ -2448,6 +2448,42 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Void,
     },
     Entry {
+        key: "ui_node.registerPick",
+        symbol: "buri_rt_ui_node_register_pick",
+        args: &[Arg::Scalar, Arg::Press],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_node.offeredName",
+        symbol: "buri_rt_ui_node_offered_name",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_node.offeredType",
+        symbol: "buri_rt_ui_node_offered_type",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_node.offeredBytes",
+        symbol: "buri_rt_ui_node_offered_bytes",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_testing.offerFile",
+        symbol: "buri_rt_ui_testing_offer_file",
+        args: &[Arg::Scalar, Arg::Str, Arg::Str, Arg::List],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_testing.deliverFile",
+        symbol: "buri_rt_ui_testing_deliver_file",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
         key: "ui_testing.Rendered.markup",
         symbol: "buri_rt_ui_testing_rendered_markup",
         args: &[Arg::Scalar],
@@ -3064,9 +3100,10 @@ mod tests {
             }
         }
         assert_eq!(
-            checked, 3,
-            "the renderer's kept handlers: `registerPress`, and the `registerOutside` and \
-             `registerFollow` added with `onPressOutside` and `routeLink` (#53)"
+            checked, 4,
+            "the renderer's kept handlers: `registerPress`, the `registerOutside` and \
+             `registerFollow` added with `onPressOutside` and `routeLink` (#53), and a file \
+             picker's `registerPick` (#209)"
         );
     }
 

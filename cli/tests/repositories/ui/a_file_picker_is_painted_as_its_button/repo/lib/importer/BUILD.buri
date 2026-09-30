@@ -1,0 +1,7 @@
+library {
+    sources: ["importer.buri"]
+
+    test {
+        sources: ["test/pickers.buri"]
+    }
+}

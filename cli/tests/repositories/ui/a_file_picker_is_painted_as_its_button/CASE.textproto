@@ -1,0 +1,37 @@
+# A file picker is painted as the button a reader presses: its label, in the
+# caller's styles. The hidden `<input type="file">` a browser opens the chooser
+# through draws nothing, so it is nowhere in the picture.
+#
+# `pickers.png` holds two pickers side by side, one enabled and one disabled.
+# The disabled one answers `On(.Disabled, ...)` by itself, the way a disabled
+# button does, so it is drawn faded.
+#
+# The negative twin changes the enabled picker's label, and exactly that
+# picture fails.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a file picker is painted as a button showing its label, a disabled one faded, and fails with a diff when its label changes"
+
+run {
+  args: ["test", "//lib/importer", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/importer/test/__snapshots__/pickers.diff.png"  exists: false }
+
+edit {
+  file: "lib/importer/test/pickers.buri"
+  replace: "\"Import a CSV\""
+  with: "\"Import a TSV\""
+}
+
+run {
+  args: ["test", "//lib/importer", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/importer/test/__snapshots__/pickers.diff.png"  exists: true }
