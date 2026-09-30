@@ -3,7 +3,7 @@
 // here is wrong — what decides whether it compiles is the platform its rule
 // names, which is the point of the case around it.
 //
-// `Tasks` is bound because `serve` fans its accept loop out over the carrier
+// `Tasks` is bound because `serve` fans its accept loop out over the thread
 // pool, one worker per handler the acceptor will host. On a page that is a
 // second refusal rather than a second problem: `WEB` grants neither.
 from "core/effect" import { Allocator, Listen, Tasks };

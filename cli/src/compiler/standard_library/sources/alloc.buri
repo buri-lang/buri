@@ -314,7 +314,7 @@ fn arenaCount(handle: I64): Int;
 fn arenaTotal(handle: I64): Int;
 
 /// The handle no arena has. So `arenaEnter(NO_SCOPE)` *leaves* whichever arena
-/// the carrier is in without entering another, and still answers what it left —
+/// the thread is in without entering another, and still answers what it left —
 /// the whole of what `copyAcross` needs.
 ///
 /// The runtime encodes "no arena at all" in the same `I64` the pair carries
@@ -323,12 +323,12 @@ fn arenaTotal(handle: I64): Int;
 let NO_SCOPE: I64 = -1;
 
 /// Makes this arena the one the platform allocator serves blocks from, for the
-/// carrier this runs on, and answers whichever arena was active before.
+/// thread this runs on, and answers whichever arena was active before.
 /// `arenaLeave` takes that number back.
 ///
 /// Every runtime call drops its context argument, so nothing can *tell* the
 /// function that builds a list which allocator asked. Making the answer a
-/// property of the carrier for the dynamic extent of the scope tells it anyway.
+/// property of the thread for the dynamic extent of the scope tells it anyway.
 ///
 /// `NO_SCOPE` above is the handle that means "none of them".
 fn arenaEnter(handle: I64): I64;
@@ -358,7 +358,7 @@ fn arenaLeave(previous: I64): I64;
 export fn copyOut<T>(value: T): T;
 
 /// **A deep copy of `value` that is in no arena at all**, whichever one the
-/// carrier is standing in.
+/// thread is standing in.
 ///
 /// This is [`copyOut`] with [`scoped`]'s leave-first dance written into it:
 /// leave every arena, copy, go back. So the answer is a block the platform
@@ -425,10 +425,10 @@ export struct Scoped<C>(C, I64);
 ///
 /// A `[Str]` the body builds is in the arena too. The mechanism is dynamic
 /// rather than passed: `arenaEnter` makes the arena the one the platform
-/// allocator serves from, for this carrier and for the dynamic extent of `body`,
+/// allocator serves from, for this thread and for the dynamic extent of `body`,
 /// and `arenaLeave` puts back whatever was there before.
 ///
-/// A task started inside a scope runs on another carrier and allocates on the
+/// A task started inside a scope runs on another thread and allocates on the
 /// platform heap, not in this arena. That is the safe direction: a block on the
 /// heap outliving the scope is ordinary, and a block in the arena escaping it is
 /// what the copy below prevents.
