@@ -151,6 +151,21 @@ jobs:
       # the ones running; by the time the compiler-spawning suites are alone,
       # concurrency has fallen to them.
       #
+      # **One unit is named, and only to schedule it.** `language` is the longest
+      # unit on every leg, by far. Run 35149058204 measured it at 1309 s on
+      # arm64 (next longest: `native`, 711 s), 829 s on x86_64 (`build`, 669 s)
+      # and 347 s on macOS (`build`, 148 s). Its long tests are serial loops over
+      # a corpus, so at two threads they queue two at a time. For the last ten
+      # minutes of the arm64 leg, those two threads were all that was running
+      # on an eight-core box. The x86_64 leg also queued it: fifteenth of
+      # fifteen on eight workers, it started about 137 s after the others. So it
+      # starts first, outside the queue, with one test thread per core. That is
+      # libtest's own default, and it is the width the x86_64 `release` job
+      # gives it, where it takes 496 s. Naming it does not make this a list. The
+      # set is still cargo's, and the name only orders one member of it. If the
+      # unit is renamed, the `grep` finds nothing and the step fails rather
+      # than running without it.
+      #
       # **The set is cargo's, never a list.** Every artifact whose PROFILE says
       # `test` is run — the profile's flag and not the target's, because cargo
       # marks the plain `buri` binary testable too and running that one is the
@@ -173,10 +188,16 @@ jobs:
           cargo test -p buri --no-run --message-format=json-render-diagnostics \
             | jq -r 'select(.profile.test == true) | .executable | select(. != null)' > target/units.txt
           test -s target/units.txt
+          slowest="$(grep -E '/language-[0-9a-f]+$' target/units.txt)"
           status=0
-          xargs -P "$(( $(getconf _NPROCESSORS_ONLN) * 2 ))" -n 1 \
-            sh -c 'exec "$0" --test-threads=2 > "target/units/$(basename "$0").log" 2>&1' \
-            < target/units.txt || status=$?
+          "$slowest" --test-threads="$(getconf _NPROCESSORS_ONLN)" \
+            > "target/units/$(basename "$slowest").log" 2>&1 &
+          first=$!
+          grep -vxF -- "$slowest" target/units.txt \
+            | xargs -P "$(( $(getconf _NPROCESSORS_ONLN) * 2 ))" -n 1 \
+              sh -c 'exec "$0" --test-threads=2 > "target/units/$(basename "$0").log" 2>&1' \
+            || status=$?
+          wait "$first" || status=$?
           tail -n +1 -- target/units/*.log
           cargo test -p buri --doc
           exit "$status"
