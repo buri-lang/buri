@@ -250,7 +250,7 @@ test "a data table is roles, and its headers say which way they head" {
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "e 0 \ne 1 display:grid;grid-template-columns:1fr 1fr\ne 2 class:fw-bold ta-center\nt 3 name\ne 2 class:fw-bold ta-center\nt 3 owed\ne 1 display:grid;grid-template-columns:1fr 1fr\ne 2 class:fw-bold ta-center\nt 3 ada\ne 2 \nt 3 3",
+        "e 0 role:table\ne 1 role:table-row\ne 2 class:fw-bold ta-center\nt 3 name\ne 2 class:fw-bold ta-center\nt 3 owed\ne 1 role:table-row\ne 2 class:fw-bold ta-center\nt 3 ada\ne 2 \nt 3 3",
     );
 }
 
@@ -4375,11 +4375,11 @@ test "a table collapses its borders, so a per-column hairline is one line across
             role: .Some(.Table),
         }),
     );
-    // The row is a grid of even columns and each box carries the caller's own
-    // top hairline, painted as one line across the row by both renderers.
+    // Each box carries the caller's own top hairline, painted as one line
+    // across the row by both renderers.
     assert.equal(
         render(ctx, tree).markup(),
-        "e 0 class:w-full\ne 1 display:grid;grid-template-columns:1fr 1fr\ne 2 class:fw-bold ta-center p-8 be-top-1 bc-e4e4e4\nt 3 Invoice\ne 2 class:p-8 be-top-1 bc-e4e4e4\nt 3 $250.00",
+        "e 0 class:w-full;role:table\ne 1 role:table-row\ne 2 class:fw-bold ta-center p-8 be-top-1 bc-e4e4e4\nt 3 Invoice\ne 2 class:p-8 be-top-1 bc-e4e4e4\nt 3 $250.00",
     );
 
     // The collapse is emitted because a `Table` role is in the tree — nothing
@@ -4387,6 +4387,9 @@ test "a table collapses its borders, so a per-column hairline is one line across
     // rule, so it weighs nothing against a class.
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(":where(table){border-collapse:collapse}"));
+    // A browser's own pixel of padding and centred content go too, so a box
+    // sits where the painter puts it.
+    assert.isTrue(sheet.contains(":where(td,th){padding:0;vertical-align:top}"));
 }
 
 test "a form is submitted, which is behaviour and so not a role" {
