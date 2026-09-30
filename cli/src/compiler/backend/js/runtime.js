@@ -5509,6 +5509,56 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     for (const child of node[1]) $tree_render(ctx, child, parent, anchor);
     return;
   }
+  if (tag === 23) {
+    // A file picker. The button is the control a reader focuses, hears and
+    // styles; the `<input type=file>` beside it is `hidden` and only opens the
+    // platform's chooser, which a click on the button asks it to.
+    const button = $tree_element(parent, "button", anchor);
+    $dom_attribute(button, "type", "button");
+    $tree_bind(node[1], (label) => $dom_attribute(button, "aria-label", label));
+    $tree_styles(button, node[2]);
+    $tree_text(node[1], button, null);
+    $tree_disabled(button, node[3]);
+    const input = $tree_element(parent, "input", anchor);
+    $dom_attribute(input, "type", "file");
+    $dom_attribute(input, "hidden", "");
+    // Only a hint to the chooser — a reader can pick "All files" — so `admit`
+    // checks the entries again.
+    if (node[4].length > 0) $dom_attribute(input, "accept", node[4].join(","));
+    const admit = node[5];
+    const land = node[6];
+    $dom_listen(button, "click", () => input.click());
+    $dom_listen(input, "change", () => {
+      const file = input.files ? input.files[0] : undefined;
+      // Cleared, so choosing the same file again is a new pick.
+      input.value = "";
+      if (file === undefined) return;
+      const name = file.name;
+      const type = file.type;
+      const size = BigInt(file.size);
+      // A refused file is never read: over the cap, it may be any size at all.
+      if (admit(name, type, size) !== "") {
+        $ui_flush(() => land(ctx, [name, type, size, undefined]));
+        return;
+      }
+      file.arrayBuffer().then(
+        (buffer) => {
+          // Strict, the way `bytes.fromUtf8` is, and a leading byte-order mark
+          // is dropped. Bytes that are not UTF-8 land as no text at all.
+          let text;
+          try {
+            text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+          } catch {
+            text = undefined;
+          }
+          $ui_flush(() => land(ctx, [name, type, size, text]));
+        },
+        () => $ui_flush(() => land(ctx, [name, type, size, undefined])),
+      );
+    });
+    $tree_events(ctx, button, node[7]);
+    return;
+  }
   // Every tag the vocabulary has an arm above. Reaching here is a node carrying
   // one the renderer does not, which beats a `TypeError` about `node` shape.
   $abort("a node carried a tag the renderer has no arm for: " + tag);
@@ -5973,6 +6023,8 @@ function $scene_open(ctx) {
     regions: [],
     eachRegions: [],
     outside: [],
+    // The file `pickFile` last offered, which a picker's handler reads back.
+    offer: { name: "", type: "", content: [] },
     ctx,
   };
 }
@@ -6002,6 +6054,8 @@ function $scene_record(kind, name, body, text) {
     // A route link's plain-click handler thunk, or null — `follow` fires it,
     // `openInNewTab` leaves it to the browser.
     follow: null,
+    // A file picker's handler thunk, or null — `pickFile` fires it.
+    pick: null,
   };
 }
 
@@ -6316,6 +6370,29 @@ function $ui_node_markSubmit(builder) {
   const doc = $scene_of(builder);
   const record = doc.records[$scene_openElement(doc)];
   if (record !== undefined) record.submit = true;
+}
+
+// A file picker's handler, kept on the open element in a slot `press` never
+// reads, so only `pickFile` fires it.
+function $ui_node_registerPick(builder, onPick) {
+  const doc = $scene_of(builder);
+  const record = doc.records[$scene_openElement(doc)];
+  if (record !== undefined) {
+    record.pick = () => $ui_flush(() => onPick(doc.ctx, [0n]));
+  }
+}
+
+// The file `pickFile` offered, read back by the picker's handler.
+function $ui_node_offeredName(builder) {
+  return $scene_of(builder).offer.name;
+}
+
+function $ui_node_offeredType(builder) {
+  return $scene_of(builder).offer.type;
+}
+
+function $ui_node_offeredBytes(builder) {
+  return $scene_of(builder).offer.content;
 }
 
 // `mount(ctx, root, walk)` — open a scene document, walk `root` into it with the
@@ -6637,6 +6714,27 @@ function $ui_testing_Rendered_flip(self, label) {
     const signal = record.valueSignal;
     $ui_flush(() => $ui_write(signal, !$ui_read(signal)));
   }
+  return 0;
+}
+
+// `pickFile`'s two halves: keep the file on the document, then fire the
+// picker's handler, which reads it back. A disabled or unreachable picker opens
+// no chooser, so nothing runs.
+function $ui_testing_offerFile(page, name, type, content) {
+  $scene_of(page).offer = { name, type, content };
+  return 0;
+}
+
+function $ui_testing_deliverFile(page, label) {
+  const doc = $scene_of(page);
+  const button = $scene_labelled(doc, "button", label);
+  if (button < 0 || doc.records[button].pick === null) {
+    $abort('this tree has no file picker labelled "' + label + '"');
+  }
+  const record = doc.records[button];
+  if (!$scene_reachable(doc, button) || $scene_inert(doc, button)) return 0;
+  if ($scene_isDisabled(record.body)) return 0;
+  record.pick();
   return 0;
 }
 

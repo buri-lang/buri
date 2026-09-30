@@ -32,6 +32,7 @@
 //! an ordinary function, and it is called once.
 
 from "core/alloc" import * as alloc;
+from "core/bytes" import * as bytes;
 from "core/effect" import { Allocator };
 from "core/str" import * as str;
 from "ui/effect" import { Event, Scope, Ui };
@@ -307,6 +308,12 @@ enum NodeKind<C> {
     // (a disclosure's body). Appended last, the variant order being load-bearing
     // and append-only.
     Fragment([Node<C>]),
+    // A button that opens the platform's file chooser: label, styles, disabled,
+    // the `accept` entries, `admit` (a chosen file's name, type and size to the
+    // refusal, or `""` to read it) and `land` (the offer to the program's
+    // `onPick`). Both closures are built from the config in Buri, so every
+    // backend applies one rule. Appended last, the order being append-only.
+    FilePicker(Prop<Str>, [Style], Prop<Bool>, [Str], fn(Str, Str, Int) => Str, fn(C, Offer) => (), Events<C>),
 }
 
 // --- Building the tree -------------------------------------------------------
@@ -1117,6 +1124,165 @@ export fn picker<C>(config: Picker<C>): Node<C> {
     )
 }
 
+derive Equal, Show for PickedFile;
+/// One file a reader chose, read as text.
+export struct PickedFile {
+    /// The file's name, with no folder: `sales.csv`.
+    export name: Str,
+    /// What the file holds, decoded as UTF-8, with a leading byte-order mark
+    /// dropped.
+    export text: Str,
+}
+
+/// What the platform hands a file picker: the chosen file's name, its type as
+/// the platform reports it (`""` when unknown), its size in bytes, and its text.
+/// `text` is `.None` when the file was refused before it was read, or could not
+/// be read as UTF-8.
+struct Offer {
+    name: Str,
+    mimeType: Str,
+    size: Int,
+    text: Option<Str>,
+}
+
+/// A button that lets the reader choose one local file, and hands the program
+/// its name and text.
+///
+/// The file never leaves the page. `onPick` gets `.Ok` with the file, or `.Err`
+/// with a sentence saying why not:
+///
+/// - its name and type match no `accept` entry,
+/// - it is bigger than `maxBytes` (it is refused unread),
+/// - or its bytes are not UTF-8.
+///
+/// The browser's own chooser only suggests the `accept` filter, since a reader
+/// can switch it to "All files", so the picker checks it again.
+struct FilePicker<C> {
+    /// The accessible name, and the words drawn on the button.
+    export label: Prop<Str>,
+    /// The largest file, in bytes, the picker reads. A bigger one is `.Err`.
+    export maxBytes: Int,
+    /// Runs once per chosen file with the file, or with why it was refused.
+    export onPick: fn(C, Result<PickedFile, Str>) => (),
+    /// Applied to the button.
+    export styles: [Style],
+    /// The files to offer, the way HTML's `accept` spells them: `.csv` matches
+    /// a name ending in it, `text/csv` a type, and `text/*` every `text/` type,
+    /// all ignoring case. Left out, any file.
+    export accept: Option<[Str]>,
+    /// Written only when `true`: takes the button out of the tab order and
+    /// opens no chooser.
+    export isDisabled: Option<Prop<Bool>>,
+    /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
+    export onHover: Option<fn(C, Bool) => ()>,
+    /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
+    export onFocus: Option<fn(C, Bool) => ()>,
+    /// The offset this element's own scroll came to rest at.
+    export onScroll: Option<fn(C, ScrollOffset) => ()>,
+    /// A key pressed while focus is within this element.
+    export onKey: Option<fn(C, Key) => Bool>,
+    /// A press that lands anywhere outside this element — what dismisses an overlay.
+    export onPressOutside: Option<fn(C) => ()>,
+}
+
+/// On the web it is a `<button>` that opens a hidden `<input type="file">`, so
+/// the button is what a reader focuses, hears and styles. A snapshot paints the
+/// button with its label, the way it paints a `button`, and `ui/testing`'s
+/// `pickFile` stands in for the reader choosing a file.
+export fn filePicker<C>(config: FilePicker<C>): Node<C> {
+    let events = listen(
+        config.onHover,
+        config.onFocus,
+        config.onScroll,
+        config.onKey,
+        config.onPressOutside,
+    );
+    let accept = match (config.accept) {
+        .Some(entries) => entries,
+        .None => [],
+    };
+    let maxBytes = config.maxBytes;
+    let onPick = config.onPick;
+    Node(
+        .FilePicker(
+            config.label,
+            config.styles,
+            orFalse(config.isDisabled),
+            accept,
+            fn(name, mimeType, size) => refusal(name, mimeType, size, accept, maxBytes),
+            fn(c, offer) => onPick(c, verdict(offer, accept, maxBytes)),
+            events,
+        ),
+    )
+}
+
+/// What `onPick` hears about an offered file: the file, or why not.
+fn verdict(offer: Offer, accept: [Str], maxBytes: Int): Result<PickedFile, Str> {
+    let refused = refusal(offer.name, offer.mimeType, offer.size, accept, maxBytes);
+    if (!refused.isEmpty()) {
+        .Err(refused)
+    } else {
+        match (offer.text) {
+            .Some(text) => .Ok(PickedFile { name: offer.name, text: text }),
+            .None => {
+                let mem = alloc.generalPurpose();
+                let name = offer.name;
+                .Err(str.format(mem, "${name} could not be read as UTF-8 text"))
+            },
+        }
+    }
+}
+
+/// Why a file of this name, type and size is refused before it is read, or
+/// `""` when it may be read.
+fn refusal(name: Str, mimeType: Str, size: Int, accept: [Str], maxBytes: Int): Str {
+    let mem = alloc.generalPurpose();
+    if (!accepts(mem, accept, name, mimeType, 0)) {
+        let listed = accept.join(mem, ", ");
+        str.format(mem, "${name} is not one of the accepted types: ${listed}")
+    } else if (size > maxBytes) {
+        str.format(mem, "${name} is ${size} bytes, over the ${maxBytes}-byte limit")
+    } else {
+        ""
+    }
+}
+
+/// Whether an `accept` list lets a file through. An empty list lets every file
+/// through.
+fn accepts<C: Allocator>(
+    ctx: C,
+    accept: [Str],
+    name: Str,
+    mimeType: Str,
+    at: Int,
+): Bool {
+    match (accept.get(at)) {
+        .None => at == 0,
+        .Some(entry) => {
+            matchesAccept(
+                ctx,
+                entry.trim().toLower(ctx),
+                name.toLower(ctx),
+                mimeType.toLower(ctx),
+            )
+                || accepts(ctx, accept, name, mimeType, at + 1)
+        },
+    }
+}
+
+/// One `accept` entry against a lower-cased name and type: `.ext` is the name's
+/// ending, `type/*` a type's family, and anything else a whole type.
+fn matchesAccept<C: Allocator>(ctx: C, entry: Str, name: Str, mimeType: Str): Bool {
+    if (entry.startsWith(".")) {
+        name.endsWith(entry)
+    } else {
+        match (entry.stripSuffix("*")) {
+            .Some(family) => family.endsWith("/") && mimeType.startsWith(family),
+            .None => !entry.isEmpty() && mimeType == entry,
+        }
+    }
+}
+
 /// How far along a task has come, announced as well as drawn.
 ///
 /// A widget rather than a role, because the value is what the role is for: a bar
@@ -1425,6 +1591,9 @@ fn rootScope(): Scope;
 /// drawing rather than anything a program wrote: `mark:thumb` for a switch,
 /// always, and `mark:tick` for a checkbox that is on. Both are painted in the
 /// box's own foreground.
+///
+/// A file picker writes the lines a childless button does: its styles, and its
+/// label under them. The hidden file input a browser opens writes none.
 ///
 /// A shut `dialog` writes no lines at all, because a browser draws none of
 /// one. An open one writes two boxes: the scrim it sits on, pinned to the
@@ -1860,6 +2029,62 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             )
         },
         .Fragment(children) => { emitChildren(ctx, builder, children, state, 0) },
+        // A file picker's scene is its button: the label drawn in the caller's
+        // styles, the way a childless button's is. Its label and `disabled`
+        // change the scene, so a write rebuilds it in place, the way a submit
+        // button's does. The hidden input is a browser's alone and paints
+        // nothing. `pickFile` fires the kept handler, which reads the file the
+        // test offered back off the document.
+        .FilePicker(label, styles, disabled, _accept, _admit, land, events) => {
+            let region = enterDynamic(builder);
+            reactive(fn(scope) => {
+                let inner = alloc.generalPurpose();
+                let _ = beginRegion(builder, region);
+                let _ = emitElement(
+                    builder,
+                    "button",
+                    widgetBody(
+                        inner,
+                        refusing(state, disabled.read(scope)),
+                        [],
+                        styles,
+                    ),
+                );
+                let _ = registerLabel(builder, label.read(scope));
+                let _ = registerPick(builder, fn(c, _event) => {
+                    land(c, offered(builder))
+                });
+                let _ = registerEvents(builder, events);
+                let _ = emitText(builder, label.read(scope));
+                let _ = exitElement(builder);
+                endRegion(builder)
+            })
+        },
+    }
+}
+
+/// The file `ui/testing`'s `pickFile` offered, read back off the document. The
+/// bytes are decoded here, strictly, the way a browser's `TextDecoder` with
+/// `fatal` decodes them, and a leading byte-order mark is dropped the way it
+/// drops one.
+fn offered(builder: Builder): Offer {
+    let mem = alloc.generalPurpose();
+    let content = offeredBytes(builder);
+    // U+FEFF, the byte-order mark, as the three bytes UTF-8 spells it with.
+    let unmarked = if (bytes.startsWith(content, [239, 187, 191])) {
+        content.drop(mem, 3)
+    } else {
+        content
+    };
+    let text: Option<Str> = match (bytes.fromUtf8(mem, unmarked)) {
+        .Ok(decoded) => .Some(decoded),
+        .Err(_) => .None,
+    };
+    Offer {
+        name: offeredName(builder),
+        mimeType: offeredType(builder),
+        size: content.length(),
+        text: text,
     }
 }
 
@@ -2552,6 +2777,20 @@ fn registerFollow<C>(builder: Builder, dest: Str, onFollow: fn(C, Str) => ()): (
 /// `type="submit"`, the whole of what makes a press or Enter submit.
 fn markSubmit(builder: Builder): ();
 
+/// Keeps a file picker's `fn(C, Event) => ()` on the open element, in a slot of
+/// its own so `press` never fires it and `pickFile` does. It lives in the
+/// graph, disposed with the subtree.
+fn registerPick<C>(builder: Builder, onPick: fn(C, Event) => ()): ();
+
+/// The name of the file `pickFile` last offered this document.
+fn offeredName(builder: Builder): Str;
+
+/// The type of the file `pickFile` last offered this document.
+fn offeredType(builder: Builder): Str;
+
+/// The bytes of the file `pickFile` last offered this document.
+fn offeredBytes(builder: Builder): [U8];
+
 /// The lines one node contributes, and the lines of everything under it.
 ///
 /// Mirrors the runtime's own render, minus the document: a box is an `e` line
@@ -2762,6 +3001,15 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // A fragment draws its children at the depth it sits, with no box of its
         // own — `describe` never builds one, so this is for the match.
         .Fragment(children) => childLines(ctx, state, children, depth, 0, []),
+        // The button a reader presses to choose a file, drawn as a childless
+        // button is: the label in the caller's styles. The hidden input a
+        // browser opens the chooser through is drawn nowhere.
+        .FilePicker(label, styles, disabled, _accept, _admit, _land, _events) => {
+            [
+                styledLine(ctx, refusing(state, disabled.read(scope)), styles, depth),
+                textLine(ctx, depth + 1, label.read(scope)),
+            ]
+        },
     }
 }
 

@@ -1,0 +1,26 @@
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
+from "//lib/importer" import { importer };
+
+test "a file picker is painted as its button, and a disabled one faded" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "pickers",
+        ui.stack({
+            styles: [.Layout(.Row), .Gap(.Px(12)), .Padding(.Px(16))],
+            children: [
+                importer("Import a CSV", false, fn(_c, _file) => ()),
+                importer("Import a backup", true, fn(_c, _file) => ()),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
