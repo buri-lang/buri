@@ -637,7 +637,7 @@ impl Jit<'_> {
     /// holds the slot's own bytes rather than whatever the frame held before.
     fn unless_spare(&mut self, stride: u32, skip: u32) {
         let words = round8(stride) / 8;
-        if stride % 8 != 0 {
+        if !stride.is_multiple_of(8) {
             // The load fills the low bytes of the last word and no more.
             self.imm_to(G_VALUE + (words - 1) * 8, 0);
         }
