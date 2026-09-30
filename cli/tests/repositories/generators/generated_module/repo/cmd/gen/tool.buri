@@ -1,0 +1,71 @@
+//! A generator: reads `name value` a line and writes a module, `units`,
+//! declaring each name as an exported `Int`.
+//!
+//! A line it cannot read is a diagnostic pointing at that line in the input;
+//! inputs that declare nothing between them are a diagnostic with no origin at
+//! all, which lands on the `generators` entry instead.
+
+from "core/buri/ast" import * as ast;
+from "core/effect" import { Allocator };
+from "core/str" import * as str;
+from "core/tool" import { Diagnostic, Generated, GenerateRequest, Input };
+
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+    let items = request.inputs.mapCtx(ctx, fn(c, i) => itemsOf(c, i)).flatten(ctx);
+    let bad = request.inputs.mapCtx(ctx, fn(c, i) => badLines(c, i)).flatten(ctx);
+    let nothing = if (items.isEmpty()) {
+        [diagnostic("units-declares-nothing", "no input declares a unit", .None)]
+    } else {
+        []
+    };
+    Generated {
+        modules: [("units", ast.Module { items: items, docs: [] })],
+        diagnostics: bad.concat(ctx, nothing),
+        needs: [],
+    }
+}
+
+fn itemsOf<C: Allocator>(ctx: C, input: Input<Str>): [ast.Item] {
+    input.value.lines(ctx).filterMapCtx(ctx, fn(c, line) => declaration(c, input, line))
+}
+
+/// One `export let` per readable line, anchored on the line it was written in.
+fn declaration<C: Allocator>(ctx: C, input: Input<Str>, line: Str): Option<ast.Item> {
+    let trimmed = line.trim();
+    let split = trimmed.splitOnce(" ")?;
+    let value = split.1.trim().toInt()?;
+    let start = input.value.indexOf(trimmed)?;
+    let text = str.format(ctx, "export let ${split.0}: Int = ${value};\n");
+    let parsed = ast.parse(ctx, "", text).toOption()?;
+    let item = parsed.items.get(0)?;
+    .Some(ast.Item {
+        kind: item.kind,
+        origin: ast.origin(input.path, start, start + trimmed.length()),
+    })
+}
+
+/// A line that is not `name value`, reported where it is written.
+fn badLines<C: Allocator>(ctx: C, input: Input<Str>): [Diagnostic] {
+    input
+        .value
+        .lines(ctx)
+        .filterMapCtx(ctx, fn(c, line) => {
+            let trimmed = line.trim();
+            if (trimmed.isEmpty() || declaration(c, input, line).isSome()) {
+                .None
+            } else {
+                let start = input.value.indexOf(trimmed).withDefault(0);
+                .Some(
+                    diagnostic(
+                        "units-unreadable-line",
+                        str.format(c, "`${trimmed}` is not `name value`"),
+                        .Some(ast.origin(input.path, start, start + trimmed.length())),
+                    ),
+                )
+            }
+        })
+}
+
+fn diagnostic(code: Str, message: Str, origin: Option<ast.Origin>): Diagnostic {
+    Diagnostic { code: code, message: message, note: .None, fix: .None, origin: origin }
+}

@@ -1,0 +1,13 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Every word is in the dictionary, so opening the file publishes nothing to fix.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/colors/colors.lines", "languageId": "plaintext", "version": 1, "text": "red\ngreen\nblue\n"}}}
+# A word the dictionary lacks is the tool's diagnostic, on the word, at once.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/colors/colors.lines", "version": 2}, "contentChanges": [{"text": "red\npurple\nblue\n"}]}}
+# Put right, and the file is clean again.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/colors/colors.lines", "version": 3}, "contentChanges": [{"text": "  red\n\ngreen\nblue\n"}]}}
+# Formatting answers with what the tool's `format` lays out.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/formatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/colors/colors.lines"}, "options": {"tabSize": 4, "insertSpaces": true}}}
+{"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

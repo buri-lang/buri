@@ -1,0 +1,46 @@
+error: `purple` is not in the dictionary [tool-diagnostic]
+ --> lib/colors/colors.lines:2:1
+  |
+2 | purple
+  | ^^^^^^
+  |
+  = the tool reported this as `lines-unknown-word`, which is not a code this toolchain has a page for
+  = fix: add it to tools/lines/dictionary.txt
+
+    The sentence above is the tool's own. Only the code is this page's: a tool
+    cannot invent a catalogue entry, and a code with no page has no wording
+    anybody can hold it to.
+
+    A code the catalogue does have prints under that code instead, with the
+    tool's own sentence. So a tool can reuse the pages this toolchain already
+    writes.
+
+    A diagnostic with an origin lands at that span of that file. One without
+    lands on the start of the file a check was handed, or on the generators
+    entry that ran a generate.
+
+error: "//lib/colors/words" names no file (lib/colors/words.buri) [module-not-found]
+ --> lib/colors/lib.buri:1:6
+  |
+1 | from "//lib/colors/words" export { count };
+  |      ^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    What to do
+    ──────────
+
+    Create the file the path names, or correct the path.
+
+    Why
+    ───
+
+    A module path maps to exactly one file, with no search path and no fallback,
+    so there is never a question of which of two candidates a path meant.
+
+    A program that provokes it
+    ──────────────────────────
+
+    This snippet resolves against the worked monorepo in cli/tests/example,
+    which has no lib/nope.
+

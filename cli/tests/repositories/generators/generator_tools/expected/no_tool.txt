@@ -5,4 +5,4 @@ error: this `generators` entry names no tool [generator-without-a-tool]
   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = a generator is its tool, so an entry without one names nothing the build could run
-  = fix: add `tool:` — a `//label` naming a binary in this repository, or `std/codegen/proto`
+  = fix: add `tool:` — a `//label` naming a `tool` rule, or `std/proto`

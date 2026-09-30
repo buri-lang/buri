@@ -89,7 +89,7 @@ fn proto_schemas() {
     run_corpus(&tests_dir().join("repositories/proto"), "proto", 8);
 }
 
-/// BUILD-FILES.md's `generators`: a program the build runs, whose output
+/// BUILD-FILES.md's `generators`: a tool's `generate`, whose answer
 /// becomes a module. One case for the rule itself — declared inputs, the
 /// `generate` action, the cache, reproducibility, the module's internality, and
 /// the two ways a tool can fail — one for what a generator says about its
@@ -97,10 +97,10 @@ fn proto_schemas() {
 ///
 /// Two more are the edges of each half. `generator_shapes` is what a tool may
 /// hand back: no modules, two of them with one importing the other, an entry
-/// with no inputs at all, noise on either stream, an answer followed by a
-/// non-zero exit, and the three names a generated module may not take.
+/// with no inputs at all, a tool that crashes before it answers, and the
+/// three names a generated module may not take.
 /// `generator_tools` is what an entry may *name*: no tool, a generator this
-/// toolchain does not ship, a label that is no binary, an input that is not
+/// toolchain does not ship, a label that is no tool rule, an input that is not
 /// there, and `proto_sources` on a binary.
 ///
 /// `origins_at_the_edges` is the third: an origin is a byte range in a file,
@@ -111,7 +111,7 @@ fn proto_schemas() {
 ///
 /// `the_printer_round_trips` is the fourth, and it is about `core/buri/ast`
 /// rather than about the rule: a generator builds a module out of nodes,
-/// `core/codegen` prints it, the compiler parses and checks the text, and the
+/// the toolchain prints it, the compiler parses and checks the text, and the
 /// program that runs it gets the same answers as a byte-identical module a
 /// person wrote by hand. Between the two halves it reaches every construct
 /// `std/codegen/proto` never writes, so a node kind the printer wrote wrongly
@@ -127,10 +127,17 @@ fn generators() {
 /// `lint`, with both schema path forms and a schema edit re-checking an
 /// unchanged file; `json_errors` is every way a check refuses one;
 /// `json_format` is `buri format` over them; `repo_languages` is `REPO.buri`'s
-/// `language` block, and each way one is refused.
+/// `language` block, and each way one is refused; `custom_language` is a
+/// language of the repository's own, checked and formatted by its tool rule.
 #[test]
 fn languages() {
-    run_corpus(&tests_dir().join("repositories/languages"), "languages", 4);
+    run_corpus(&tests_dir().join("repositories/languages"), "languages", 5);
+}
+
+/// `tool` rules: every way a tool name or a tool's entry points are refused.
+#[test]
+fn tools() {
+    run_corpus(&tests_dir().join("repositories/tools"), "tools", 1);
 }
 
 /// CLI.md's lint catalogue: the hygiene rules, which ask about a package's own
@@ -462,7 +469,7 @@ fn snapshots() {
 /// rather than as an editor behaving differently.
 #[test]
 fn language_server() {
-    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 96);
+    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 97);
 }
 
 /// Every method a 3.17 client can send is answered by the dispatch, and is

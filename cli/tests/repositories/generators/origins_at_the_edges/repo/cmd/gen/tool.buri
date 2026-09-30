@@ -1,0 +1,45 @@
+//! A generator that says nothing useful and points everywhere.
+//!
+//! Five diagnostics, one per edge of an input's byte range: the first byte, the
+//! last byte, a span that begins where the file ends, one that begins well past
+//! it, and one naming a file this repository does not have. What the case is
+//! for is the caret each of them draws.
+
+from "core/buri/ast" import * as ast;
+from "core/effect" import { Allocator };
+from "core/str" import * as str;
+from "core/tool" import { Diagnostic, Generated, GenerateRequest };
+
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+    let first = request.inputs.get(0).map(fn(i) => i.path).withDefault("");
+    let length = request.inputs.get(0).map(fn(i) => i.value.length()).withDefault(0);
+    let text = str.format(ctx, "export let edge: Int = ${length};\n");
+    let modules = match (ast.parse(ctx, "", text)) {
+        .Ok(parsed) => [("units", parsed)],
+        .Err(_) => [],
+    };
+    Generated { modules: modules, diagnostics: edges(first, length), needs: [] }
+}
+
+/// One diagnostic per edge. The offsets are written down rather than found, so
+/// that what the case records is what the toolchain does with each of them.
+fn edges(path: Str, length: Int): [Diagnostic] {
+    let last = if (length == 0) { 0 } else { length - 1 };
+    [
+        at("the first byte", path, 0, 1),
+        at("the last byte", path, last, length),
+        at("a span that begins where the file ends", path, length, length + 8),
+        at("a span well past the end", path, length + 40, length + 48),
+        at("a file this repository does not have", "cmd/app/nowhere.txt", 0, 4),
+    ]
+}
+
+fn at(message: Str, file: Str, start: Int, end: Int): Diagnostic {
+    Diagnostic {
+        code: "units-edge",
+        message: message,
+        note: .None,
+        fix: .None,
+        origin: .Some(ast.origin(file, start, end)),
+    }
+}

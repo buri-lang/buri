@@ -1,0 +1,26 @@
+error: `//cmd/bin` is a binary, and a generator is a `tool` rule [generator-is-a-binary]
+ --> lib/app/BUILD.buri:3:17
+  |
+3 |         { tool: "//cmd/bin", inputs: ["input.txt"] },
+  |                 ^^^^^^^^^^^
+  |
+  = the build calls a tool's `generate` itself, so a generator has no `main` and reads no standard input
+  = fix: make it a `tool` rule: move `main.buri` to `tool.buri`, export `generate`, and declare `generate {}`
+
+      # tools/routes/BUILD.buri
+      tool {
+          generate {}
+      }
+
+      // tools/routes/tool.buri
+      from "core/effect" import { Allocator };
+      from "core/tool" import { Generated, GenerateRequest };
+
+      export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+          Generated { modules: [], diagnostics: [], needs: [] }
+      }
+
+    What main did with core/codegen's run becomes the body of generate. Each
+    input arrives with its path and its text as value. See `tools.md`
+    (../build/tools.md).
+
