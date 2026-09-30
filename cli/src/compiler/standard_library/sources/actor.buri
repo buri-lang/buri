@@ -258,11 +258,7 @@ fn carried<T>(value: T): Carried<T> {
 /// program that reaches this module marks every block shared, so each is
 /// counted atomically and never written in place.
 fn across<T>(value: T): T {
-    if (scopesLive()) {
-        alloc.copyAcross(value)
-    } else {
-        value
-    }
+    if (scopesLive()) { alloc.copyAcross(value) } else { value }
 }
 
 /// How many messages may wait in a mailbox: 64.
