@@ -1008,64 +1008,59 @@ pub(crate) unsafe fn headers(ptr: *const u8, len: u64) -> Vec<(String, String)> 
     out
 }
 
+/// `Request` — `{ method: Method, url: Str, headers: [Header], body: [U8],
+/// timeoutMillis: Int }`, as `middle::layout` lays it out: fields in
+/// declaration order, and `Method` a bare enum whose tag is one byte.
+#[repr(C)]
+pub struct BuriRequest {
+    method: u8,
+    url: BuriStr,
+    headers: BuriList,
+    body: BuriList,
+    timeout_millis: i64,
+}
+
+/// `Response` — `{ status: Int, headers: [Header], body: [U8] }`.
+#[repr(C)]
+pub struct BuriResponse {
+    status: i64,
+    headers: BuriList,
+    body: BuriList,
+}
+
 /// `Network::fetch` — `Result<Response, NetError>`.
 ///
-/// The Buri signature is `fetch(self, request: Request)`, and `Request` is
-/// `{ method: Method, url: Str, headers: [Header], body: [U8] }` — so per
-/// `lib.rs` §2 rule 1 the argument arrives flattened: the method's variant
-/// index (widened to a C `int`, for [`crate::Ret::Tag`]'s reason), then the
-/// URL's three `Str` leaves, then two `(ptr, len)` pairs. `Response`'s three
-/// fields leave through three out-pointers, per §2 rule 2.
+/// The request arrives by address rather than flattened: its nine words and
+/// the two out-pointers would overflow the stencil backend's ten argument
+/// registers. The error's tag is `NetError`'s variant index, and `out_err`
+/// takes the sentence `BadUrl` and `Transport` carry (`lib.rs` §2.1).
 ///
-/// On the error arm the returned tag is `NetError`'s variant index and
-/// `out_err` carries the payload of the two variants that have one —
-/// `BadUrl(Str)` and `Transport(Str)` — and the empty string for the three
-/// that do not.
-///
-/// **No backend calls this yet.** `NetError` carries a payload on two of its
-/// variants, and `lib.rs` §2.1's `Result` shape requires the error variant an
-/// entry names to carry none — so neither runtime table has a row for
-/// `host.HostNetwork.fetch`, and both name it in their absent-key list. This body
-/// is what a row will call, and what `cli/tests/native/driver.c` calls today.
-///
-/// `timeout_millis` is `Request.withTimeout`'s, and **zero is the runtime's own
-/// bound** — `http::DEADLINE`. It bounds every step of the exchange rather than
-/// the whole of it, which is what `http.rs`'s `fetch_within` takes and what its
-/// header says a deadline here is worth.
-///
-/// `http://` only; see `http.rs` for why, and for what would change it.
+/// A `timeoutMillis` of zero means the runtime's own bound, `http::DEADLINE`,
+/// applied to each step of the exchange rather than to the whole of it.
 ///
 /// # Safety
-/// The URL view, the `[Header]` and the `[U8]` must be live; all four
-/// out-pointers writable and aligned.
+/// `request` must point at a live `Request`; both out-pointers writable and
+/// aligned.
 #[unsafe(no_mangle)]
-#[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn buri_rt_host_network_fetch(
-    method: i32,
-    _ubase: *mut u8,
-    uptr: *const u8,
-    ulen: u64,
-    hptr: *const u8,
-    hlen: u64,
-    bptr: *const u8,
-    blen: u64,
-    timeout_millis: i64,
-    out_status: *mut i64,
-    out_headers: *mut BuriList,
-    out_body: *mut BuriList,
+    request: *const BuriRequest,
+    out_ok: *mut BuriResponse,
     out_err: *mut BuriStr,
 ) -> i32 {
-    // SAFETY: forwarded.
-    let url = unsafe { text(uptr, ulen) };
-    // SAFETY: forwarded.
-    let sent = unsafe { headers(hptr, hlen) };
-    let body: &[u8] = if bptr.is_null() || blen == 0 {
+    // SAFETY: the caller promises a live `Request`.
+    let request = unsafe { &*request };
+    let method = i32::from(request.method);
+    // SAFETY: a live `Request` holds live views.
+    let url = unsafe { request.url.as_str().into_owned() };
+    // SAFETY: as above.
+    let sent = unsafe { headers(request.headers.ptr, request.headers.len) };
+    let body: &[u8] = if request.body.ptr.is_null() || request.body.len == 0 {
         &[]
     } else {
-        // SAFETY: the caller promises `blen` readable bytes; a `[U8]`'s stride
-        // is one, so the payload is the bytes themselves.
-        unsafe { std::slice::from_raw_parts(bptr, blen as usize) }
+        // SAFETY: a `[U8]`'s stride is one, so the payload is the bytes.
+        unsafe { std::slice::from_raw_parts(request.body.ptr, request.body.len as usize) }
     };
+    let timeout_millis = request.timeout_millis;
     // **Not a suspension point, though it is spelled like one.** `http.rs`'s
     // client is synchronous, so the `async` block runs to completion inside its
     // first poll and answers `Ready`, and `rt::park_on` only gives a thread
@@ -1089,14 +1084,13 @@ pub unsafe extern "C" fn buri_rt_host_network_fetch(
     let outcome = http::fetch(bound, method, &url, &sent, body);
     match outcome {
         Ok(response) => {
-            let fields = list_of_headers(&response.headers);
-            let bytes = list_of_bytes(&response.body);
-            // SAFETY: the caller promises writable destinations.
-            unsafe {
-                out_status.write(response.status);
-                out_headers.write(fields);
-                out_body.write(bytes);
-            }
+            let answer = BuriResponse {
+                status: response.status,
+                headers: list_of_headers(&response.headers),
+                body: list_of_bytes(&response.body),
+            };
+            // SAFETY: the caller promises a writable destination.
+            unsafe { out_ok.write(answer) };
             BURI_OK
         }
         Err(e) => {

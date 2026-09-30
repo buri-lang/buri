@@ -247,21 +247,19 @@
 //! failure that says nothing at all, where `backend/js/runtime.js` says
 //! `ENOTEMPTY: directory not empty`.
 //!
-//! So the rule is widened by exactly one shape, and it is *narrow*. **Where**
-//! the message goes is a shape a layout decides and is not a column:
-//! `backend/runtime_native.rs`'s `error_message_offset` is the one place it is
-//! recognised, and it answers `Some(offset)` for an `E` that is
+//! So the rule is widened by exactly one shape. **Where** the message goes is
+//! a layout's call, not a column: `backend/runtime_native.rs`'s
+//! `error_message_offset` recognises it, and answers `Some(offset)` for an `E`
+//! that is
 //!
-//!   * a **tagged** enum — a bare one has no payload area at all;
-//!   * with **exactly one** variant carrying fields, and that variant the
-//!     **last**;
-//!   * carrying **exactly one** field, which fills the payload area and is 24
-//!     bytes — a `Str` (VALUE-MODEL.md §3) and nothing else laid out that way.
+//!   * a **tagged** enum, since a bare one has no payload area;
+//!   * whose variants each carry nothing or **one field at the payload area's
+//!     start**, with at least one carrying it;
+//!   * whose payload area is 24 bytes, which is a `Str` (VALUE-MODEL.md §3).
 //!
-//! `IoError` answers `Some`. `NetError` answers `None`, because `BadUrl` and
-//! `Transport` both carry one: two payload variants would need an out-pointer
-//! whose offset depends on which one `n` turned out to name, which is the
-//! switch this section declined to generate and still declines.
+//! Every payload-carrying variant then keeps its message at the same offset,
+//! so one address serves whichever variant `n` names. `IoError`'s `Other(Str)`
+//! and `NetError`'s `BadUrl(Str)` and `Transport(Str)` both fit.
 //!
 //! The signature then gains **one trailing out-pointer**, after `.Ok`'s, and
 //! the two sides split the work:

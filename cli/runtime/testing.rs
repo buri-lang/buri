@@ -2772,10 +2772,9 @@ pub extern "C" fn buri_rt_host_testing_net_with_plan(handle: i64) -> i64 {
 /// `recordFetch(handle, method, url, headers, body, timeoutMillis)` — one
 /// request, recorded after the responder has answered it.
 ///
-/// The five pieces are `Request`'s five fields flattened by §2 rule 1, which is
-/// exactly what `crate::buri_rt_host_network_fetch` is handed: the method's variant
-/// index, the URL's three `Str` leaves, two `(ptr, len)` pairs, and the bound in
-/// milliseconds. They are put back together by
+/// The five pieces are `Request`'s five fields flattened by §2 rule 1: the
+/// method's variant index, the URL's three `Str` leaves, two `(ptr, len)`
+/// pairs, and the bound in milliseconds. They are put back together by
 /// [`buri_rt_host_testing_net_calls`].
 ///
 /// # Safety

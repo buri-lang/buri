@@ -544,6 +544,14 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Dropped],
         ret: Ret::Out,
     },
+    // `Request` goes by address, as the other table's row explains, and
+    // `Response` comes back through the one out-pointer.
+    Entry {
+        key: "host.HostNetwork.fetch",
+        symbol: "buri_rt_host_network_fetch",
+        args: &[Arg::Dropped, Arg::Spilled],
+        ret: Ret::ResMsg,
+    },
     // Starting a program: `Command` encoded into four flat arguments — nine
     // leaves, which is what `backend/stencil/abi.rs`'s register budget leaves
     // room for — and `Output`'s three fields back through the one out-pointer.
@@ -2841,21 +2849,10 @@ mod tests {
             // on nothing but the row, and `FileSystem` was waiting on §2.1's message
             // shape.
             //
-            // `host.HostNetwork.fetch` has a body in the archive and no row, and
-            // not because nobody got to it: `Ret::Res` names the error variant
-            // by index and `lib.rs` §2.1 restricts that variant to carrying no
-            // fields, while `NetError` carries a `Str` on `BadUrl` and on
-            // `Transport`. The row waits on §2.1, not on a table edit — the
-            // same statement `runtime_table.rs`'s list makes.
-            "host.HostNetwork.fetch",
-            // `core/host/testing`'s `net()` answers the same shape and needs
-            // no row at all: `TestNetwork` carries its responder as a value and
-            // `TestNetwork.fetch` is a Buri body that calls it, so no key is
-            // produced for it here. That is the same wall read from the other
-            // side — a responder is a `{ code, env }` pair the archive has no
-            // way to invoke, and its answer is the `Result<Response, NetError>`
-            // §2.1 cannot name — and it is why widening §2.1 later changes
-            // nothing about the double. Its *log* is a different question and
+            // `core/host/testing`'s `net()` needs no row at all: `TestNetwork`
+            // carries its responder as a value and `TestNetwork.fetch` is a Buri
+            // body that calls it, so no key is produced for it here. A responder
+            // is a `{ code, env }` pair the archive has no way to invoke. Its *log* is a different question and
             // has five rows above: `newNet`, `netRebind`, `netWithPlan`,
             // `recordFetch` and `netCalls` cross nothing §2.1 restricts. So does
             // its **fault plan**, which is the same wall a third time: the plan
@@ -2870,17 +2867,14 @@ mod tests {
         }
     }
 
-    /// `host.HostNetwork.fetch`, in both directions.
-    ///
-    /// The archive exports exactly the symbol the mangling rule produces — so
-    /// a row added later needs no invention — and this table has no row for
-    /// it, because `NetError`'s two payload-carrying variants put it outside
-    /// `cli/runtime/lib.rs` §2.1's `Result` shape. The pair keeps "the body
-    /// exists" and "this backend can call it" two separate claims.
+    /// `host.HostNetwork.fetch` hands its `Request` over by address and has a
+    /// place for `NetError`'s sentence, as the other table's row does.
     #[test]
-    fn host_net_fetch_has_a_symbol_and_no_row() {
-        assert_eq!(symbol_for("host.HostNetwork.fetch"), "buri_rt_host_network_fetch");
-        assert!(entry("host.HostNetwork.fetch").is_none());
+    fn host_net_fetch_passes_its_request_by_address() {
+        let fetch = entry("host.HostNetwork.fetch").expect("a row for fetch");
+        assert_eq!(fetch.symbol, symbol_for("host.HostNetwork.fetch"));
+        assert_eq!(fetch.args, &[Arg::Dropped, Arg::Spilled]);
+        assert_eq!(fetch.ret, Ret::ResMsg);
     }
 
     /// The two shapes the backend supplies for itself emit a parameter and
@@ -2946,8 +2940,12 @@ mod tests {
                         runtime_table::Extra::Element | runtime_table::Extra::Owned
                     )
                 });
-            let generic =
-                e.args.iter().any(|a| matches!(a, Arg::Elems | Arg::Spilled)) || by_result;
+            // `host.HostNetwork.fetch` spills a `Request`, a concrete type too
+            // wide for the registers, so its spill names no `T`.
+            let concrete_spill = e.key == "host.HostNetwork.fetch";
+            let generic = (e.args.iter().any(|a| matches!(a, Arg::Elems | Arg::Spilled))
+                && !concrete_spill)
+                || by_result;
             // [`Arg::Step`] carries **both** of its strides itself, because a
             // step reads one element type and writes another and `Arg::Stride`
             // names exactly one. So a row with a step is generic and has no
