@@ -532,9 +532,10 @@ fn finish_with(raw: *mut u8, payload: u64, flags: u64) -> *mut u8 {
 // §5.4 anticipates *and* §5.3 forbids for one case: the release glue of a
 // `[T]` walks `cap / stride` elements, so spare capacity in a block of counted
 // elements is a walk over slots nothing wrote. `buri_rt_grown_capacity` is
-// allowed to overshoot only because the fast paths that use it are restricted
-// to element types holding no references. A cache is under no such
-// restriction — every block in the program passes through it — so it must not
+// allowed to overshoot only because the fast paths that use it zero that
+// headroom for element types holding references, and the walk skips an
+// all-zero slot (`list.rs`'s `append_dest`). A cache hands out blocks nobody
+// zeroed — every block in the program passes through it — so it must not
 // change `cap` at all. Keying on the *exact* payload size gives a cache with
 // no semantic footprint whatever: `cap` is what it always was, `layout_for`
 // recovers the layout the block was made with, and the drop walk counts what

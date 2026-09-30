@@ -4073,7 +4073,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // a pointer enough for a list. Bit 63 of the word is the reserved
             // multi-threaded mark (`layout::CAP_SHARED_FLAG`), so it is masked
             // off before the divide: a set bit would make this walk 2^60
-            // elements of a block that holds a handful.
+            // elements of a block that holds a handful. Headroom past the last
+            // element is zeroed and skipped (`Unit::unless_spare`).
             Job::ReleaseElems { elem, .. } => {
                 let stride = self.reprs.stride_of(&elem);
                 let count = self.block_element_count(first, stride);
@@ -4433,6 +4434,70 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
     }
 
+    /// Branches past the element at `at` when all `stride` of its bytes are
+    /// zero, and answers the block the walk rejoins at; the builder is left in
+    /// the block the walk goes in.
+    ///
+    /// A `[T]` block's walks run to `cap / stride`, and `cli/runtime/list.rs`'s
+    /// `append_dest` grows a block of counted elements with **zeroed headroom**
+    /// past the last element, so the walk meets slots nothing was written to.
+    /// Skipping them is exact rather than a guess: a reference is a non-null
+    /// pointer, so an all-zero element holds none, whether it is headroom or a
+    /// value such as `.None` that really was stored. Walking one instead is not
+    /// harmless: a boxed field is released without a null test, and a zero
+    /// discriminant names a variant that may have one.
+    fn unless_spare(
+        &mut self,
+        state: &mut Function<'ctx>,
+        at: PointerValue<'ctx>,
+        stride: u32,
+    ) -> Option<BasicBlock<'ctx>> {
+        let word = self.ctx.i64_type();
+        let mut any: Option<IntValue<'ctx>> = None;
+        let mut off = 0u32;
+        while off < stride {
+            // Whole words while they fit, then bytes. An element holding a
+            // pointer is word-aligned, so the bytes are only ever a fallback.
+            let wide = stride - off >= 8;
+            let ty = if wide { word } else { self.ctx.i8_type() };
+            let p = repr::byte_offset(self.ctx, &self.builder, at, i64::from(off), "spare.p");
+            let Ok(BasicValueEnum::IntValue(v)) = self.builder.build_load(ty, p, "spare.w") else {
+                return None;
+            };
+            if let Some(i) = v.as_instruction_value() {
+                let _ = i.set_alignment(1);
+            }
+            let v = if wide {
+                v
+            } else {
+                self.builder.build_int_z_extend(v, word, "spare.b").unwrap_or(v)
+            };
+            any = Some(match any {
+                None => v,
+                Some(a) => self.builder.build_or(a, v, "spare.or").unwrap_or(a),
+            });
+            off += if wide { 8 } else { 1 };
+        }
+        let any = any?;
+        let zero = self
+            .builder
+            .build_int_compare(IntPredicate::EQ, any, word.const_zero(), "spare")
+            .ok()?;
+        let walk = self.ctx.append_basic_block(state.value, "elem.walk");
+        let rejoin = self.ctx.append_basic_block(state.value, "elem.rejoin");
+        let _ = self.builder.build_conditional_branch(zero, rejoin, walk);
+        self.builder.position_at_end(walk);
+        Some(rejoin)
+    }
+
+    /// Closes what [`Unit::unless_spare`] opened: the walk falls through to the
+    /// block the skip branched to, and the builder continues there.
+    fn join_spare(&mut self, rejoin: Option<BasicBlock<'ctx>>) {
+        let Some(rejoin) = rejoin else { return };
+        let _ = self.builder.build_unconditional_branch(rejoin);
+        self.builder.position_at_end(rejoin);
+    }
+
     /// [`Unit::each_element`] for the copy: the same counted loop, replacing
     /// each element in place.
     fn each_element_copy(
@@ -4472,7 +4537,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 .build_in_bounds_gep(self.ctx.i8_type(), base, &[scaled], "cpel.at")
                 .unwrap_or(base)
         };
+        let skip = self.unless_spare(state, at, stride);
         self.copy_rc(state, elem, at, 0, 0);
+        self.join_spare(skip);
         let next = self
             .builder
             .build_int_add(index, word.const_int(1, false), "cpel.next")
@@ -4531,7 +4598,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         };
         let align = self.reprs.of_ty(elem).layout.align;
         let place = Place::Memory { base: at, align };
+        let skip = self.unless_spare(state, at, stride);
         self.walk_rc(state, elem, &place, 0, retain, 0);
+        self.join_spare(skip);
         let next = self
             .builder
             .build_int_add(index, word.const_int(1, false), "elem.next")

@@ -1111,6 +1111,85 @@ test "an accumulator grown in a loop answers what a copy would" {
     assert.equal(assert.some(xs.get(39)), 39);
 }
 
+// The same cases for elements that hold something of their own: a string, an
+// optional one, and a recursive enum whose first variant is the one with
+// payloads. Natively these grow into headroom a list of numbers never needed.
+
+enum Shape {
+    Pair(Shape, Shape),
+    Dot(Str),
+}
+
+fn growWords<C: Allocator>(ctx: C, i: Int, n: Int, acc: [Str]): [Str] {
+    if (i >= n) { acc } else { growWords(ctx, i + 1, n, acc.push(ctx, str.fromInt(ctx, i))) }
+}
+
+fn growMaybes<C: Allocator>(ctx: C, i: Int, n: Int, acc: [Option<Str>]): [Option<Str>] {
+    if (i >= n) {
+        acc
+    } else {
+        let next: Option<Str> = if (i % 2 == 0) { .None } else { .Some(str.fromInt(ctx, i)) };
+        growMaybes(ctx, i + 1, n, acc.push(ctx, next))
+    }
+}
+
+fn growShapes<C: Allocator>(ctx: C, i: Int, n: Int, acc: [Shape]): [Shape] {
+    if (i >= n) {
+        acc
+    } else {
+        let dot = Shape.Dot(str.fromInt(ctx, i));
+        growShapes(ctx, i + 1, n, acc.push(ctx, Shape.Pair(dot, dot)))
+    }
+}
+
+fn dots(s: Shape): Int {
+    match (s) {
+        .Pair(a, b) => dots(a) + dots(b),
+        .Dot(_) => 1,
+    }
+}
+
+test "two pushes onto one list of strings do not see each other" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = growWords(ctx, 0, 5, []);
+    let a = xs.push(ctx, "a");
+    let b = xs.push(ctx, "b");
+    assert.equal(a, ["0", "1", "2", "3", "4", "a"]);
+    assert.equal(b, ["0", "1", "2", "3", "4", "b"]);
+    assert.equal(xs, ["0", "1", "2", "3", "4"]);
+}
+
+test "a push after a longer list of strings is gone answers what a copy would" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = growWords(ctx, 0, 10, []);
+    let longer = xs.push(ctx, str.fromInt(ctx, 100));
+    assert.equal(longer.length(), 11);
+    let other = xs.push(ctx, str.fromInt(ctx, 200));
+    let doubled = xs.concat(ctx, xs);
+    assert.equal(other.join(ctx, ","), "0,1,2,3,4,5,6,7,8,9,200");
+    assert.equal(xs.join(ctx, ","), "0,1,2,3,4,5,6,7,8,9");
+    assert.equal(doubled.length(), 20);
+    assert.equal(assert.some(doubled.get(19)), "9");
+}
+
+test "lists of optional and recursive values grown in a loop keep every element" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let maybes = growMaybes(ctx, 0, 41, []);
+    let present = maybes.count(fn(m) => m.isSome());
+    assert.equal(maybes.length(), 41);
+    assert.equal(present, 20);
+    assert.equal(assert.some(maybes.get(39)), .Some("39"));
+    let shapes = growShapes(ctx, 0, 41, []);
+    assert.equal(shapes.length(), 41);
+    assert.equal(shapes.fold(fn(n, s) => n + dots(s), 0), 82);
+}
+
 // A fresh aggregate can only hold aliases that were already marked on the way
 // in, which is what makes reading a field back out of a dying one safe.
 test "a list zipped into a fresh pair is not written through" {

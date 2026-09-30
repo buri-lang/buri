@@ -454,11 +454,13 @@ impl Jit<'_> {
     fn copy_elems_glue(&mut self, ty: Ty) {
         let l = self.layouts_of(ty.clone());
         let (size, stride) = (l.size.max(1), l.stride.max(1));
-        let frame = round16(G_VALUE + round8(size) + SCRATCH_BYTES);
+        // The frame holds a whole *stride*, padding and all, because
+        // [`Jit::unless_spare`] reads every byte of the slot.
+        let frame = round16(G_VALUE + round8(stride) + SCRATCH_BYTES);
         if !self.glue_stub(frame) {
             return;
         }
-        let mut st = self.glue_frame(frame, G_VALUE + round8(size));
+        let mut st = self.glue_frame(frame, G_VALUE + round8(stride));
         self.emit(
             "bin/sub/u64/fi/f",
             &[
@@ -491,14 +493,17 @@ impl Jit<'_> {
         let base = self.fixups_len();
         let body = st.label();
         let done = st.label();
+        let next = st.label();
         self.glue_loop_test(G_INDEX, G_COUNT, V::Fall, V::Blk(done), "JIT_T");
         let here = self.region.code_addr();
         st.place(body, here);
-        self.elem_load(G_VALUE, G_PTR, G_INDEX, stride, size);
+        self.unless_spare(stride, next);
         if let Err(why) = self.copy_rc(&mut st, &ty, G_VALUE, 0) {
             self.unsupported(why);
         }
         self.elem_store(G_VALUE, G_PTR, G_INDEX, stride, size);
+        let here = self.region.code_addr();
+        st.place(next, here);
         self.emit(
             "bin/add/u64/fi/f",
             &[
@@ -539,20 +544,22 @@ impl Jit<'_> {
     /// The count is `cap / stride`, and `cap` is the second header word
     /// (VALUE-MODEL.md §2) — which is what makes a drop glue taking only a
     /// pointer enough for a whole list. `llvm/emit.rs::release_elems_glue`
-    /// reads the same word and divides by the same stride.
+    /// reads the same word and divides by the same stride. Headroom past the
+    /// last element is zeroed and skipped ([`Jit::unless_spare`]).
     ///
     /// Bit 63 of the word is the reserved multi-threaded mark
     /// (`layout::CAP_SHARED_FLAG`), so the load is masked with [`CAP_MASK`]
     /// before the divide — a set bit would turn this loop into a walk over
     /// 2^60 elements of a block that holds a handful.
     fn elems_glue(&mut self, ty: Ty) {
-        let l = self.layouts_of(ty.clone());
-        let (size, stride) = (l.size.max(1), l.stride.max(1));
-        let frame = round16(G_VALUE + round8(size) + SCRATCH_BYTES);
+        let stride = self.layouts_of(ty.clone()).stride.max(1);
+        // The frame holds a whole *stride*, padding and all, because
+        // [`Jit::unless_spare`] reads every byte of the slot.
+        let frame = round16(G_VALUE + round8(stride) + SCRATCH_BYTES);
         if !self.glue_stub(frame) {
             return;
         }
-        let mut st = self.glue_frame(frame, G_VALUE + round8(size));
+        let mut st = self.glue_frame(frame, G_VALUE + round8(stride));
         // `cap` lives eight bytes below the payload pointer, so the header
         // address is formed first and read as an ordinary indexed load.
         self.emit(
@@ -587,13 +594,16 @@ impl Jit<'_> {
         let base = self.fixups_len();
         let body = st.label();
         let done = st.label();
+        let next = st.label();
         self.glue_loop_test(G_INDEX, G_COUNT, V::Fall, V::Blk(done), "JIT_T");
         let here = self.region.code_addr();
         st.place(body, here);
-        self.elem_load(G_VALUE, G_PTR, G_INDEX, stride, size);
+        self.unless_spare(stride, next);
         if let Err(why) = self.walk_rc(&mut st, &ty, G_VALUE, false, 0) {
             self.unsupported(why);
         }
+        let here = self.region.code_addr();
+        st.place(next, here);
         self.emit(
             "bin/add/u64/fi/f",
             &[
@@ -608,6 +618,53 @@ impl Jit<'_> {
         st.place(done, here);
         self.emit("ret", &[]);
         self.resolve_helper_blocks(base, &st);
+    }
+
+    /// Loads element `G_INDEX` of the block into the frame, **all `stride`
+    /// bytes** of it, and branches to `skip` when every one of them is zero.
+    ///
+    /// A `[T]` block's walks run to `cap / stride`, and `cli/runtime/list.rs`'s
+    /// `append_dest` grows a block of counted elements with **zeroed headroom**
+    /// past the last element, so these loops meet slots nothing was written
+    /// to. Skipping them is exact rather than a guess: a reference is a
+    /// non-null pointer, so an all-zero element holds none, whether it is
+    /// headroom or a value such as `.None` that really was stored. Walking one
+    /// instead is not harmless: a boxed field is released without a null test,
+    /// and a zero discriminant names a variant that may have one.
+    /// `llvm/emit.rs`'s `unless_spare` is the same test.
+    ///
+    /// The whole stride rather than the value's `size`, so the last frame word
+    /// holds the slot's own bytes rather than whatever the frame held before.
+    fn unless_spare(&mut self, stride: u32, skip: u32) {
+        let words = round8(stride) / 8;
+        if stride % 8 != 0 {
+            // The load fills the low bytes of the last word and no more.
+            self.imm_to(G_VALUE + (words - 1) * 8, 0);
+        }
+        self.elem_load(G_VALUE, G_PTR, G_INDEX, stride, stride);
+        let mut any = G_VALUE;
+        for w in 1..words {
+            self.emit(
+                "bin/or/u64/ff/f",
+                &[
+                    ("JIT_D", V::I(u64::from(G_SPARE))),
+                    ("JIT_A", V::I(u64::from(any))),
+                    ("JIT_B", V::I(u64::from(G_VALUE + w * 8))),
+                    ("JIT_CONT", V::Fall),
+                ],
+            );
+            any = G_SPARE;
+        }
+        let key = self.arm_key("brcmp/eq/u64/fi", "JIT_F");
+        self.emit(
+            &key,
+            &[
+                ("JIT_A", V::I(u64::from(any))),
+                ("JIT_K", V::I(0)),
+                ("JIT_T", V::Blk(skip)),
+                ("JIT_F", V::Fall),
+            ],
+        );
     }
 
     fn glue_loop_test(&mut self, i: u32, n: u32, tv: V, fv: V, fall: &str) {

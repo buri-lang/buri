@@ -1765,6 +1765,102 @@ export fn main(): Result<(), Str> {
     assert_eq!(r.status, 0);
 }
 
+/// MEMORY.md §5.3's list half for an element type that **holds a reference**:
+/// a `[Str]` and a `[(Str, Int)]` grown one `push` at a time allocate O(log n)
+/// blocks, exactly as an `[Int]` does. Issue #211: they allocated once per
+/// push, copying the whole list each time, so building one was quadratic.
+///
+/// The strings pushed are literals, which allocate nothing, so every block
+/// counted is a list block.
+#[test]
+fn a_unique_push_loop_of_counted_elements_allocates_logarithmically() {
+    if !supported() {
+        return;
+    }
+    let r = run_with(
+        "push-loop-counted",
+        r#"
+from "core/host" import { stdout, alloc };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+export fn words(xs: [Str], i: Int): [Str] {
+  if (i == 0) { xs } else { words(xs.push(alloc, "w"), i - 1) }
+}
+
+export fn pairs(xs: [(Str, Int)], i: Int): [(Str, Int)] {
+  if (i == 0) { xs } else { pairs(xs.push(alloc, ("p", i)), i - 1) }
+}
+
+export fn main(): Result<(), Str> {
+  let ws = words([], 2000);
+  let ps = pairs([], 2000);
+  let last = match (ps.last()) { .Some(p) => p.1, .None => -1 };
+  let _ = io.println(stdout, "${ws.length()} ${ps.length()} ${last}").ignore();
+  .Ok(())
+}
+"#,
+        Some(ALLOC_PROBE),
+    );
+    assert_eq!(r.stdout, "2000 2000 1\n", "stderr: {}", r.stderr);
+    let (blocks, live) = probed(&r.stderr);
+    assert!(
+        blocks < 60,
+        "four thousand pushes allocated {blocks} blocks: the uniqueness fast path did not fire"
+    );
+    assert_eq!(live, 0, "{blocks} blocks allocated and {live} still live at exit");
+}
+
+/// The guard beside it: a slot past one list's end can hold an element a
+/// **longer** list put there. Once that longer list is gone the shorter one is
+/// unique again, and a `push` onto it must neither overwrite the old element
+/// without releasing it nor let the two lists see each other.
+///
+/// Under the heap check, so an element dropped without its release fails the
+/// status; the output catches one written over.
+#[test]
+fn a_push_after_a_longer_sibling_died_keeps_both_answers() {
+    if !supported() {
+        return;
+    }
+    let r = run(
+        "push-after-sibling",
+        r#"
+from "core/host" import { stdout, alloc };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+export fn build(xs: [Str], i: Int): [Str] {
+  if (i == 0) { xs } else { build(xs.push(alloc, str.fromInt(alloc, i)), i - 1) }
+}
+
+export fn main(): Result<(), Str> {
+  let xs = build([], 10);
+  let longer = xs.push(alloc, str.fromInt(alloc, 100));
+  let seen = longer.join(alloc, ",");
+  let other = xs.push(alloc, str.fromInt(alloc, 200));
+  let doubled = xs.concat(alloc, xs);
+  let tail = xs.concat(alloc, ["x".concat(alloc, "y")]);
+  let _ = io.println(stdout, seen).ignore();
+  let _ = io.println(stdout, other.join(alloc, ",")).ignore();
+  let _ = io.println(stdout, xs.join(alloc, ",")).ignore();
+  let _ = io.println(stdout, doubled.join(alloc, ",")).ignore();
+  let _ = io.println(stdout, tail.join(alloc, ",")).ignore();
+  .Ok(())
+}
+"#,
+    );
+    let ten = "10,9,8,7,6,5,4,3,2,1";
+    assert_eq!(
+        r.stdout,
+        format!("{ten},100\n{ten},200\n{ten}\n{ten},{ten}\n{ten},xy\n"),
+        "stderr: {}",
+        r.stderr
+    );
+    assert_eq!(r.status, 0, "stderr: {}", r.stderr);
+}
+
 /// A borrowed local handed to a construct **beside** a sibling that holds
 /// its last mention — `middle::rc`'s `children`, and a middle-end fact both
 /// backends show.
