@@ -1863,6 +1863,22 @@ pub unsafe extern "C" fn buri_rt_actor_state_put(
     crate::BURI_OK
 }
 
+/// `actor.scopesLive() -> Bool` — whether any `alloc.scoped` arena holds pages
+/// right now.
+///
+/// `false` means no block in the process is an arena block, so `core/actor`
+/// can hand the runtime a value without copying it. The thread's own arena
+/// can't answer this: a `Tasks.parallel` step runs outside its caller's arena
+/// yet reads blocks that live in it.
+///
+/// A relaxed load is enough. An arena counts its pages before it makes a
+/// block there, so a caller that can reach such a block sees a non-zero count
+/// until the arena is released, and by then nothing can reach the block.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_actor_scopes_live() -> u8 {
+    u8::from(crate::memory::arenas_hold_pages())
+}
+
 /// `actor.replyOpen(ctx) -> Int` — a fresh slot, and the handle that names it.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_actor_reply_open() -> i64 {

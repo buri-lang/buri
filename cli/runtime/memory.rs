@@ -2225,6 +2225,12 @@ fn scopes_exist() -> bool {
 /// Bytes an arena has mapped and not yet given back, across every live arena.
 static ARENA_BYTES: AtomicU64 = AtomicU64::new(0);
 
+/// Whether any live arena holds a page. `false` means no block anywhere is an
+/// arena block, which is what lets `core/actor` skip its copy (`rt.rs`).
+pub(crate) fn arenas_hold_pages() -> bool {
+    ARENA_BYTES.load(Ordering::Relaxed) != 0
+}
+
 /// Bytes arenas have given up since the process started, cumulative. Never
 /// falls.
 ///
