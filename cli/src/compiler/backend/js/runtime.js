@@ -2724,6 +2724,24 @@ function $tasks_scopeLeave(c, handle) {
   return s.waiting.length > 0;
 }
 
+// A page's tasks wait for the scope's body, so a scope here never runs them
+// beside it, and the three worker entries answer as if every worker were done.
+function $tasks_scopeBeside(c, handle) {
+  return false;
+}
+
+function $tasks_scopeClaim(c, handle) {
+  return -1n;
+}
+
+function $tasks_scopeSpare(c, handle) {
+  return false;
+}
+
+function $tasks_scopeRan(c, handle) {
+  return true;
+}
+
 function $host_HostProcess_exitWith(self, code) {
   $exit(Number(code));
   return 0;

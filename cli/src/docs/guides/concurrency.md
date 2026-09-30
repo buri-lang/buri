@@ -113,13 +113,12 @@ ends, so a loop stops by finding its socket closed, or by asking an actor
 whether to carry on. An abort is a write to standard error and an exit
 ([effects](../language/effects.md)), never something a second task survives.
 
-When a spawned task actually runs is the same table as `parallel`'s, for the
-same reason: a scope collects what was spawned and runs a round of it, then
-another round for whatever those tasks spawned, until nothing is waiting. So two
-spawned tasks overlap on JavaScript, get a thread each under `--release`, and
-run one after another under `buri run`. A task spawned *after* the body has
-returned — which on a page is what a handler does — runs on the task that
-spawned it.
+Under `--release` a spawned task starts at once, on a thread of its own, while
+the body keeps running. Everywhere else the body runs first, then the scope runs
+what was spawned in rounds, one round for whatever the last one spawned, until
+nothing is waiting. So spawned tasks overlap on JavaScript and run one after
+another under `buri run`. A task spawned *after* the body has returned — which
+on a page is what a handler does — runs on the task that spawned it.
 
 That last row has a consequence: under `buri run` a task that never ends starves
 the ones behind it. Spawn a socket loop and then a timer, and the timer never

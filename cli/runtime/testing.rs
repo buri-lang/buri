@@ -3469,12 +3469,26 @@ fn resume_at() -> Option<i64> {
     *ASKED.get_or_init(|| std::env::var(RESUME).ok().and_then(|v| v.parse().ok()))
 }
 
+/// Set by the first `test` block this process enters, and never cleared.
+static IN_A_TEST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether this process is a test binary running its blocks.
+///
+/// `core/tasks` asks, because a test's `TestTasks` double promises that nothing
+/// runs concurrently: a scope in a test runs its tasks after its body, as a
+/// development build does, whatever backend built it.
+#[cfg_attr(not(feature = "net"), allow(dead_code))]
+pub(crate) fn in_a_test() -> bool {
+    IN_A_TEST.load(std::sync::atomic::Ordering::Acquire)
+}
+
 /// Whether to run the `test` block at `index`, and a note of which one it is.
 ///
 /// Answers 1 for every block where nothing is driving this process, so the
 /// binary is the same program run by hand that it is under the runner.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_test_enter(index: i64) -> i32 {
+    IN_A_TEST.store(true, std::sync::atomic::Ordering::Release);
     // Where the block's own slots begin. Unconditional, and before the two
     // early answers: a binary nothing is driving checks the post-condition too,
     // because it is the program's rule and not the runner's protocol.
