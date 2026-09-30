@@ -1,0 +1,59 @@
+// Each table and the grid it has to match share one golden, so a table whose
+// columns came out other than the grid's fails against a picture its own
+// layout had no part in making.
+
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/testing" import { headless, snapshot };
+from "//lib/columns" import {
+    fullGrid, fullTable, ownTracksGrid, ownTracksTable, shrunkGrid, shrunkTable,
+};
+
+test "a column is as wide as the widest box in it, in whichever row that is" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "columns-shrunk", shrunkTable(), .Hover, []);
+}
+
+test "the same columns, drawn as grids" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "columns-shrunk", shrunkGrid(), .Hover, []);
+}
+
+test "a wide table shares its room in proportion to its columns' content" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "columns-full", fullTable(), .Hover, []);
+}
+
+test "the same shares, drawn as grids" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "columns-full", fullGrid(), .Hover, []);
+}
+
+test "a row that names its own tracks keeps them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "columns-own-tracks", ownTracksTable(), .Hover, []);
+}
+
+test "the same tracks, drawn as a grid" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "columns-own-tracks", ownTracksGrid(), .Hover, []);
+}

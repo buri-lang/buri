@@ -1,0 +1,7 @@
+library {
+    sources: ["columns.buri"]
+
+    test {
+        sources: ["test/columns.buri"]
+    }
+}

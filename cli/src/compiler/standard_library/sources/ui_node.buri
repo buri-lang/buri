@@ -1383,6 +1383,9 @@ fn rootScope(): Scope;
 /// element paints in — which is what an icon is for, and what an `image` cannot
 /// do, its source being a document of its own.
 ///
+/// A `Table` carries `role:table` and a `TableRow` `role:table-row`. The
+/// painter sizes a table's columns over all its rows, the way a browser does.
+///
 /// `state` is the pseudo-class the snapshot is taken in. An `On(s, ...)`
 /// contributes its styles when `s` is that state and nothing otherwise. An
 /// `At(...)` contributes nothing at all — a breakpoint's rules are in the
@@ -1538,12 +1541,13 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             emitBox(ctx, builder, "div", plain(state), styles, children, state, events)
         },
         .Region(role, styles, children, events) => {
-            emitBox(
+            emitBoxWith(
                 ctx,
                 builder,
                 roleName(role),
                 plain(state),
-                roleStyles(mem, role, styles, children),
+                roleScene(mem, role),
+                roleStyles(role, styles),
                 children,
                 state,
                 events,
@@ -2134,6 +2138,22 @@ fn emitBox<C>(
     state: State,
     events: Events<C>,
 ): () {
+    emitBoxWith(ctx, builder, name, painted, [], styles, children, state, events)
+}
+
+/// `emitBox`, with the scene-only declarations `leading` names on the element
+/// ahead of what its styles write out — what `widgetLine` takes for a line.
+fn emitBoxWith<C>(
+    ctx: C,
+    builder: Builder,
+    name: Str,
+    painted: Painted,
+    leading: [Str],
+    styles: [Style],
+    children: [Node<C>],
+    state: State,
+    events: Events<C>,
+): () {
     let mem = alloc.generalPurpose();
     // A box whose styles hold a computation opens the element once and patches
     // its body from a watcher, so a write to what a `Computed`/`When` style
@@ -2143,13 +2163,13 @@ fn emitBox<C>(
     if (stylesReactive(styles)) {
         let at = openElement(builder, name, "");
         let _ = reactive(fn(scope) => {
-            patchBody(builder, at, widgetBodyUnder(scope, painted, [], styles))
+            patchBody(builder, at, widgetBodyUnder(scope, painted, leading, styles))
         });
         let _ = registerEvents(builder, events);
         let _ = emitChildren(ctx, builder, children, state, 0);
         exitElement(builder)
     } else {
-        let _ = emitElement(builder, name, widgetBody(mem, painted, [], styles));
+        let _ = emitElement(builder, name, widgetBody(mem, painted, leading, styles));
         let _ = registerEvents(builder, events);
         let _ = emitChildren(ctx, builder, children, state, 0);
         exitElement(builder)
@@ -2555,13 +2575,14 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // painter draws — except the table roles, whose whole point is a
         // two-dimensional arrangement a browser gives them for free.
         .Region(role, styles, children, _events) => {
-            container(
+            let line = widgetLine(
                 ctx,
-                state,
-                roleStyles(ctx, role, styles, children),
-                children,
+                plain(state),
+                roleScene(ctx, role),
+                roleStyles(role, styles),
                 depth,
-            )
+            );
+            [line].concat(ctx, childLines(ctx, state, children, depth + 1, 0, []))
         },
         // The children are what is drawn, and a button with none draws its
         // label — which is the one place the accessible name and the glyphs
@@ -3196,41 +3217,28 @@ fn elementBody<C: Allocator>(ctx: C, classes: [Str], declarations: [Str]): Str {
     all.join(ctx, ";")
 }
 
-/// What a role adds to an element's own styles.
-///
-/// A `<table>`'s rows and cells arrange themselves in a browser, so a scene
-/// that says nothing about them paints every cell on a line of its own. A row
-/// is a grid of one equal column per cell, which is what makes the second row's
-/// cells line up under the first's, and a header cell is bold and centred, which
-/// is what every browser's own stylesheet does to a `<th>`. The caller's styles
-/// come after, so a caller who sets their own still wins.
-fn roleStyles<C: Allocator, N>(
-    ctx: C,
-    role: Role,
-    styles: [Style],
-    children: [Node<N>],
-): [Style] {
+/// What a role adds to an element's own styles: a header box is bold and
+/// centred, which is what every browser's own stylesheet does to a `<th>`. The
+/// caller's styles come after, so a caller who sets their own still wins.
+fn roleStyles(role: Role, styles: [Style]): [Style] {
     match (role) {
-        .TableRow => {
-            if (children.isEmpty()) {
-                styles
-            } else {
-                [.Layout(.Grid(columns(ctx, children.length(), []))), .Group(styles)]
-            }
-        },
         .ColumnHeader => [.FontWeight(.Bold), .TextAlign(.Center), .Group(styles)],
         .RowHeader => [.FontWeight(.Bold), .TextAlign(.Center), .Group(styles)],
         _ => styles,
     }
 }
 
-/// `n` tracks that share the row evenly — a table row's cells.
-fn columns<C: Allocator>(ctx: C, n: Int, acc: [Track]): [Track] {
-    if (acc.length() >= n) {
-        acc
-    } else {
-        let track: Track = .Fraction(1);
-        columns(ctx, n, acc.push(ctx, track))
+/// The scene-only declarations a role's line leads with.
+///
+/// A browser lays out `<table>` and `<tr>` as a table, sizing each column over
+/// every row. `role:table` and `role:table-row` tell the painter to do the same.
+/// They stand in for the browser's own sheet, so any style beats them: a row
+/// with its own `Layout` is laid out by that, in both renderers.
+fn roleScene<C: Allocator>(ctx: C, role: Role): [Str] {
+    match (role) {
+        .Table => [decl(ctx, "role", "table")],
+        .TableRow => [decl(ctx, "role", "table-row")],
+        _ => [],
     }
 }
 
