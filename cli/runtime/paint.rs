@@ -207,8 +207,8 @@
 //!   container in a browser.
 //! * `list-style-type` is drawn by the element that carries it, beside each of
 //!   its own boxes, rather than inherited down to whatever a browser calls a
-//!   list item. A list region carries it and its items are its children, so
-//!   the picture agrees; a list nested inside one carries its own.
+//!   list item. The sheet's `.lm-*>*::after` rules draw the same marks in a
+//!   browser; a list nested inside one carries its own.
 //! * `opacity` multiplies into every colour the subtree paints rather than
 //!   compositing the subtree as a group, so two overlapping half-transparent
 //!   children show through each other.
