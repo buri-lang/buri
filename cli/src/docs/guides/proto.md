@@ -15,8 +15,8 @@ edition = "2026";
 package demo.v1;
 
 message Point {
-  int32 x = 1;
-  int32 y = 2;
+    int32 x = 1;
+    int32 y = 2;
 }
 ```
 
@@ -85,6 +85,34 @@ export fn dark(): Everything {
 
 A failure is a `ProtoError` carrying a byte offset or a field number, so a
 malformed message says where it went wrong.
+
+## Check and format it
+
+`buri build`, `buri test` and `buri lint` check a schema before generating from
+it, and your editor checks it as you type. Each mistake lands on its own line:
+
+```text
+error: `radius` and `sides` both use field number 3 [proto-field-reused]
+  --> libs/wire/shape.proto:17:5
+   |
+17 |     double radius = 3;
+   |     ^^^^^^^^^^^^^^^^^^
+```
+
+`buri format` lays the schema out, and `buri format --check` fails when it
+would change:
+
+```proto
+// libs/wire/point.proto
+edition = "2026";
+
+package demo.v1;
+
+message Point {
+    int32 x = 1; // east
+    int32 y = 2;
+}
+```
 
 ## Share a schema between packages
 

@@ -45,6 +45,58 @@ owning library's `lib.buri`.
 `unused-import` and `dead-code` step around a generated module. Both ask a
 person to make an edit, and here there is no file to edit.
 
+## Checking
+
+`proto` is a built-in language, like `json`: every `.proto` a rule's `inputs`
+lists is checked by `std/proto` before any generator reads it, by `buri build`,
+`buri test`, `buri lint` and the language server as you type. A `REPO.buri` may
+give it more extensions and nothing else.
+
+The check reads the schema the way `generate` does, so it reports everything
+`generate` would, each on its own span:
+
+- a statement that does not parse ([`proto-schema`](../errors/proto-schema.md));
+- the edition, and everything the reader refuses (see below);
+- a type that names nothing, or two things
+  ([`proto-unknown-type`](../errors/proto-unknown-type.md),
+  [`proto-ambiguous-type`](../errors/proto-ambiguous-type.md));
+- a field number or name used twice in a message, `oneof` cases included, or
+  one the message `reserved`
+  ([`proto-field-reused`](../errors/proto-field-reused.md));
+- an `import` that names no schema in the repository
+  ([`proto-import-not-found`](../errors/proto-import-not-found.md)). The check
+  reads each import from the repository root, and never outside it.
+
+A schema that fails is not handed to its generator, so nothing imports a module
+generated from a broken schema.
+
+## Formatting
+
+`buri format` lays out every `.proto` a rule's `inputs` lists, and your editor
+formats one on request. It takes no options:
+
+```proto
+// before
+message Point{int32 x=1;int32 y=2 [deprecated=true];}
+
+// after
+message Point {
+    int32 x = 1;
+    int32 y = 2 [deprecated = true];
+}
+```
+
+- One statement per line, and one level of indent, four spaces, per block.
+- An empty line between two statements survives, and several become one.
+- A field's `[...]` options break one per line when they pass the margin.
+- Every comment survives: one on a line of its own stays there, and one at the
+  end of a line stays at the end of that statement's line.
+- A string, a comment or a bracket that does not close leaves the file exactly
+  as it is.
+
+The formatter moves whitespace and comments and nothing else, so the formatted
+schema means what the original did.
+
 ## Editions, and only one
 
 A schema declares `edition = "2026";`. Buri accepts nothing else: not
@@ -402,8 +454,9 @@ source-retention lints. They say nothing about what a message means, so the
 reader reads past them rather than refusing. That is what lets a schema opt out
 of the naming style protoc enforces from edition 2024 on.
 
-`option` and `reserved` are the two statements the reader *skips* rather than
-refuses. Neither says anything about the shape of a message.
+`option` is the one statement the reader *skips* rather than refuses: it says
+nothing about the shape of a message. `reserved` is read only to check that no
+field uses what it reserves.
 
 You write an `import` inside a schema from the repository root, the way protoc
 resolves one against `-I.`:

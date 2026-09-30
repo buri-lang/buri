@@ -168,8 +168,9 @@ they were already editing.
 
 The extension of a file some rule's `inputs` lists decides its language, and
 the language decides how the build checks it and how `buri format` lays it
-out. The built-in languages are `json` (`.json`), `jsonc` (`.jsonc`) and
-`json5` (`.json5`). A `language` block gives one of them more extensions:
+out. The built-in languages are `json` (`.json`), `jsonc` (`.jsonc`), `json5`
+(`.json5`) and `proto` (`.proto`). A `language` block gives one of them more
+extensions:
 
 ```textproto schema=repo
 language {

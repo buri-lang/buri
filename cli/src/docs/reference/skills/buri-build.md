@@ -79,7 +79,7 @@ language {
 }
 ```
 
-`language` gives a built-in language (`json`, `jsonc`, `json5`) more
+`language` gives a built-in language (`json`, `jsonc`, `json5`, `proto`) more
 extensions, and nothing else.
 
 `lint` says where the lint catalogue runs, what a finding costs, and which
