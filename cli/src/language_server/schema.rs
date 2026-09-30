@@ -294,7 +294,7 @@ mod tests {
     fn the_field_lists_agree_with_the_formatter() {
         let schema = schema();
         for block in
-            ["", "library", "binary", "test", "testing", "outputs", "js", "tag", "lint", "rules"]
+            ["", "library", "binary", "tool", "test", "testing", "outputs", "js", "tag", "lint", "rules"]
         {
             let mut ordered: Vec<&str> = crate::build::textproto::schema_order(block).to_vec();
             let mut declared: Vec<&str> =

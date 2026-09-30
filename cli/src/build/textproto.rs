@@ -508,7 +508,7 @@ pub fn schema_order(message: &str) -> &'static [&'static str] {
         // does not know which kind it is looking at — which is why the top
         // level is the one place `buildfile.rs` keeps its own lists, and a test
         // below holds the two halves to this union.
-        "" => &["library", "binary", "tag", "lint", "language"],
+        "" => &["library", "binary", "tool", "tag", "lint", "language"],
         "library" => &[
             "sources",
             "generators",
@@ -527,6 +527,10 @@ pub fn schema_order(message: &str) -> &'static [&'static str] {
             "outputs",
             "test",
         ],
+        "tool" => &["sources", "dependencies", "test", "check", "format", "generate"],
+        // A tool's entry points take nothing yet: each block says only that
+        // `tool.buri` exports the function of its name.
+        "check" | "format" | "generate" => &[],
         "generators" => &["tool", "inputs"],
         "test" => &["sources", "dependencies", "timeout_seconds", "platforms"],
         "testing" => &["sources", "dependencies"],

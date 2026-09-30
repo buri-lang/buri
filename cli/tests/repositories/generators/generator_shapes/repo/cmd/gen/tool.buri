@@ -1,0 +1,72 @@
+//! A generator whose shape is whatever the first line of its input says.
+//!
+//! One tool rather than six, because what the case is about is how the build
+//! takes an answer rather than how a generator computes one: a word in
+//! `mode.txt` picks the answer, and every step of the case is one edit to that
+//! word.
+//!
+//! The modes: `two` hands back two modules, one importing the other; `crash`
+//! divides by zero before answering; `zero` hands back no modules at all;
+//! `shadow`, `surface` and `taken` each name a module something else already
+//! names.
+
+from "core/buri/ast" import * as ast;
+from "core/effect" import { Allocator };
+from "core/str" import * as str;
+from "core/tool" import { Generated, GenerateRequest };
+
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+    // The entry with no inputs is handed an empty list, and answers `none`.
+    let mode = request.inputs.get(0).map(fn(i) => i.value.trim()).withDefault("none");
+    let modules = if (mode == "crash") {
+        // One input, so this divides by zero.
+        let divided = 1 / (request.inputs.length() - 1);
+        [
+            wrote(
+                ctx,
+                "crashed",
+                str.format(ctx, "export let crashed: Int = ${divided};\n"),
+            ),
+        ]
+    } else if (mode == "none") {
+        [wrote(ctx, "nothing", "export let nothing: Int = 0;\n")]
+    } else if (mode == "zero") {
+        []
+    } else {
+        pair(ctx).concat(ctx, extra(ctx, mode))
+    };
+    Generated { modules: modules, diagnostics: [], needs: [] }
+}
+
+/// The two modules every mode but `zero` and `none` hands back: `right` imports
+/// `left`, which is one generated module reaching another.
+fn pair<C: Allocator>(ctx: C): [(Str, ast.Module)] {
+    let importing = "from \"//lib/wire/left\" import { leftValue };\n\n".concat(
+        ctx,
+        "export let rightValue: Int = leftValue * 2;\n",
+    );
+    [
+        wrote(ctx, "left", "export let leftValue: Int = 7;\n"),
+        wrote(ctx, "right", importing),
+    ]
+}
+
+/// A third module, named after something else, for the three collisions.
+fn extra<C: Allocator>(ctx: C, mode: Str): [(Str, ast.Module)] {
+    if (mode == "shadow") {
+        [wrote(ctx, "spare.buri", "export let spare: Int = 99;\n")]
+    } else if (mode == "surface") {
+        [wrote(ctx, "lib.buri", "export let spare: Int = 99;\n")]
+    } else if (mode == "taken") {
+        [wrote(ctx, "nothing", "export let nothing: Int = 99;\n")]
+    } else {
+        []
+    }
+}
+
+fn wrote<C: Allocator>(ctx: C, name: Str, text: Str): (Str, ast.Module) {
+    match (ast.parse(ctx, "", text)) {
+        .Ok(parsed) => (name, parsed),
+        .Err(_) => (name, ast.Module { items: [], docs: [] }),
+    }
+}

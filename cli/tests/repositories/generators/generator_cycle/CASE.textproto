@@ -12,8 +12,8 @@ run {
 # One edge, and the tool is now built from the library whose generator runs it.
 edit {
   file: "cmd/gen/BUILD.buri"
-  replace: "binary {\n"
-  with: "binary {\n    dependencies: [\"//lib/wire\"]\n\n"
+  replace: "tool {\n"
+  with: "tool {\n    dependencies: [\"//lib/wire\"]\n\n"
 }
 
 run {
@@ -26,8 +26,8 @@ run {
 # depend on because nothing generated is in it.
 edit {
   file: "cmd/gen/BUILD.buri"
-  replace: "binary {\n    dependencies: [\"//lib/wire\"]\n\n"
-  with: "binary {\n    dependencies: [\"//lib/helper\"]\n\n"
+  replace: "tool {\n    dependencies: [\"//lib/wire\"]\n\n"
+  with: "tool {\n    dependencies: [\"//lib/helper\"]\n\n"
 }
 
 run {

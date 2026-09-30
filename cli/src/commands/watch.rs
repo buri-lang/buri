@@ -152,6 +152,14 @@ fn declared_sources(session: &Session, member: TargetId, out: &mut BTreeSet<Path
                 }
             }
         }
+        RuleKind::Tool => {
+            out.insert(dir.join("tool.buri"));
+            if let Some(tool) = &package.build.tool {
+                for x in tool.sources.iter() {
+                    out.insert(dir.join(&x.value));
+                }
+            }
+        }
     }
 }
 

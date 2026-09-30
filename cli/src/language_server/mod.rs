@@ -933,7 +933,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
                 let from =
                     convert::offset_of(&text, Position::from_json(params.at("range.start")?)?);
                 let to = convert::offset_of(&text, Position::from_json(params.at("range.end")?)?);
-                Some(formatting::ranged(&file_name(&path), &text, from, to))
+                Some(formatting::ranged(&text, formatting::formatted(state, &path, &text), from, to))
             })();
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
@@ -951,7 +951,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
                 let text = state.text_of(&path)?;
                 let offset = convert::offset_of(&text, Position::from_json(params.get("position")?)?);
                 let (from, to) = formatting::enclosing_item(&text, offset)?;
-                Some(formatting::ranged(&file_name(&path), &text, from, to))
+                Some(formatting::ranged(&text, formatting::formatted(state, &path, &text), from, to))
             })();
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
@@ -1839,7 +1839,7 @@ fn capabilities() -> Value {
 ///
 /// One pattern covers all four kinds: a source, a `BUILD.buri` and a
 /// `REPO.buri` all wear the `.buri` extension, and a `.proto` a `generators`
-/// entry hands to `std/codegen/proto` becomes a module like any of them — so an
+/// entry hands to `std/proto` becomes a module like any of them — so an
 /// edit to one is an edit to the code, and a server that did not hear about it
 /// would keep answering from the module the old schema became. `**/` in the
 /// protocol's glob matches any number of path segments *including none*, so
@@ -1938,19 +1938,13 @@ fn whole(text: &str) -> Value {
     ])
 }
 
-/// Which formatter a file gets is decided by its name, exactly as it is at the
-/// terminal — a `BUILD.buri` is textproto and everything else is Buri.
-fn file_name(path: &std::path::Path) -> String {
-    path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
-}
-
 /// The whole file, formatted — what `formatting` and `willSaveWaitUntil` both
 /// answer.
 fn whole_file_format(state: &mut State, params: &Value) -> Value {
     (|| {
         let path = uri_param(params)?;
         let text = state.text_of(&path)?;
-        Some(formatting::whole_file(&file_name(&path), &text))
+        Some(formatting::whole_file(&text, formatting::formatted(state, &path, &text)))
     })()
     .unwrap_or(Value::Array(Vec::new()))
 }
@@ -2124,12 +2118,14 @@ fn language_findings(state: &mut State, path: &std::path::Path, text: &str) -> O
     }
     let root = workspace.root.clone();
     let read = |r: &str| state.text_of(&root.join(r));
-    let check = crate::languages::Check::prepare(languages, &rel, text.to_string(), &read);
+    let flags = crate::commands::arguments::Flags::default();
+    let findings = crate::build::tools::check_file(&session, &rel, text, &read, &flags)
+        .map(|c| c.findings)
+        .unwrap_or_default();
     let uri = convert::uri_of(path);
     let file = crate::diagnostics::FileId(0);
     Some(
-        check
-            .run(languages)
+        findings
             .iter()
             .filter(|f| f.file == rel)
             .map(|f| {

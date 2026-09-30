@@ -1,15 +1,38 @@
-error: `yaml` is not a built-in language [language-not-built-in]
+error: `//tools/yaml` names no tool [no-such-tool]
+  --> REPO.buri:10:12
+   |
+10 |     check: "//tools/yaml"
+   |            ^^^^^^^^^^^^^^
+   |
+   = a tool is a `//label` naming a `tool` rule in this repository, or `std/json` or `std/proto`
+   = fix: name a package whose BUILD.buri declares a `tool` rule
+
+       library {
+           generators: [
+               { tool: "//tools/routes", inputs: ["regions.json"] },
+           ]
+       }
+
+     //tools/routes is a package whose BUILD.buri holds tool { generate {} }.
+     See `tools.md` (../build/tools.md).
+
+error: `yaml` is declared twice [language-declared-twice]
+  --> REPO.buri:14:11
+   |
+14 |     name: "yaml"
+   |           ^^^^^^
+   |
  --> REPO.buri:8:11
   |
 8 |     name: "yaml"
-  |           ^^^^^^
+  |           ^^^^^^ declared here
   |
-  = the built-in languages are `json`, `jsonc` and `json5`; a language of your own needs a `tool` rule to check it, which this toolchain does not have yet
-  = fix: name a built-in language, or delete the block
+  = one block says which extensions and tools a language has, so no two blocks can disagree
+  = fix: merge the two blocks into one
 error: `.code-workspace` already belongs to `jsonc` [language-extension-taken]
-  --> REPO.buri:14:18
+  --> REPO.buri:20:18
    |
-14 |     extensions: [".code-workspace", "json5", ".json"]
+20 |     extensions: [".code-workspace", "json5", ".json"]
    |                  ^^^^^^^^^^^^^^^^^
    |
  --> REPO.buri:4:18
@@ -20,24 +43,24 @@ error: `.code-workspace` already belongs to `jsonc` [language-extension-taken]
   = the extension decides a file's language, so one extension names one language
   = fix: delete one of the two
 error: `json5` is not an extension [language-extension-invalid]
-  --> REPO.buri:14:37
+  --> REPO.buri:20:37
    |
-14 |     extensions: [".code-workspace", "json5", ".json"]
+20 |     extensions: [".code-workspace", "json5", ".json"]
    |                                     ^^^^^^^
    |
    = fix: write it with a leading dot and no `/`, such as `".jsonc"`
 error: `.json` already belongs to `json` [language-extension-taken]
-  --> REPO.buri:14:46
+  --> REPO.buri:20:46
    |
-14 |     extensions: [".code-workspace", "json5", ".json"]
+20 |     extensions: [".code-workspace", "json5", ".json"]
    |                                              ^^^^^^^
    |
    = the extension decides a file's language, so one extension names one language
    = fix: delete one of the two
 error: `check` cannot be set on `json`, a built-in language [built-in-language-tool]
-  --> REPO.buri:15:5
+  --> REPO.buri:21:5
    |
-15 |     check: "//tools/json"
+21 |     check: "//tools/json"
    |     ^^^^^
    |
    = a built-in language means the same thing in every repository, so a block for one may only add extensions
@@ -53,9 +76,9 @@ error: `check` cannot be set on `json`, a built-in language [built-in-language-t
      fail next door.
 
 error: a `language` block must have a `name` [language-without-a-name]
-  --> REPO.buri:18:10
+  --> REPO.buri:24:10
    |
-18 | language {
+24 | language {
    |          ^
    |
    = fix: add `name: "json"`, or the name of the language to extend

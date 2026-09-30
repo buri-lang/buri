@@ -220,15 +220,16 @@ pub fn command_format(args: &arguments::Args) -> i32 {
                 continue;
             }
             let Ok(text) = std::fs::read_to_string(path) else { continue };
-            match crate::languages::format(languages, &rel, &text) {
-                None => refused.push(rel),
-                Some(out) if out != text => {
+            use crate::build::tools::Formatted;
+            match crate::build::tools::format_file(&session, &rel, &text, &args.flags) {
+                Formatted::Refused => refused.push(rel),
+                Formatted::Text(out) if out != text => {
                     changed.push(rel);
                     if !args.flags.check {
                         let _ = std::fs::write(path, out);
                     }
                 }
-                Some(_) => {}
+                Formatted::Text(_) | Formatted::Unformatted => {}
             }
             continue;
         }

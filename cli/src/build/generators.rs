@@ -1,14 +1,14 @@
-//! `generators`: a program the build runs, whose output becomes a module.
+//! `generators`: a tool the build runs, whose output becomes a module.
 //!
-//! A generator is an ordinary Buri binary. The build hands it one line of JSON
-//! on standard input and reads one line of JSON back, and every module it names
-//! is loaded the way a `.proto` module is: through the real parser, into the
-//! rule that declared the generator, with no file on disk.
+//! A `generators` entry names a `tool` rule, or `std/proto`, and the build asks
+//! its `generate` entry point about the entry's inputs
+//! ([`crate::build::tools`]). Every module it answers with is loaded the way a
+//! source is: through the real parser, into the rule that declared the entry,
+//! with no file on disk.
 //!
 //! ```text
-//! -> {"inputs":[["lib/wire/point.proto","edition = \"2026\";\n"]],"dependencies":[]}
 //! <- {"modules":[{"name":"point.proto","text":"export struct Point {}\n","anchors":[]}],
-//!     "diagnostics":[]}
+//!     "diagnostics":[],"needs":[]}
 //! ```
 //!
 //! **Text plus anchors, never a tree.** An anchor says which region of the
@@ -16,33 +16,20 @@
 //! what go-to-definition and a diagnostic inside generated code need. The
 //! compiler then parses the text with its one ordinary parser.
 //!
-//! Two kinds of tool, **one path**. A `tool` beginning `//` names a binary
-//! target in this repository: it is built for `JS` through the ordinary action
-//! path and run under the JavaScript runtime. Anything else names a generator
-//! the toolchain ships — `std/codegen/proto` is the only one — which is a Buri
-//! program too, compiled from [`PROTO_MAIN`] the first time a build needs it
-//! and run through the same [`run_artifact`]. That is what makes the boundary
-//! provable rather than asserted: the `.proto` generator is not privileged,
-//! and nothing here would notice if it moved into a repository.
-//!
-//! The JSON is written and read by hand. This workspace may not grow a
-//! dependency (`language::corpus::dependencies_stay_behind_the_bar`), and the
-//! request and response documents belong to this protocol rather than to
-//! whatever a derive would print.
+//! The JSON of the answer is read by hand. This workspace may not grow a
+//! dependency (`language::corpus::dependencies_stay_behind_the_bar`).
 
-use crate::build::buildfile::{Generator, Output, Platform};
-use crate::build::cache::{Action, ActionKey, Cache, KeyBuilder};
+use crate::build::buildfile::{Generator, Output};
+use crate::build::cache::{Action, ActionKey, KeyBuilder};
 use crate::build::session::Session;
 use crate::build::sources::Overlay;
+use crate::build::tools::{self, Tool};
 use crate::build::workspace::{RuleKind, TargetId, Workspace};
 use crate::commands::arguments::Flags;
 use crate::diagnostics::Span;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, PoisonError};
-
-/// The generator the toolchain ships. Every other non-`//` tool is refused.
-pub const PROTO_TOOL: &str = "std/codegen/proto";
 
 /// The `code` of a [`Diagnostic`] whose `message` is already the whole
 /// sentence, so the loader prints it rather than a page's wording.
@@ -56,19 +43,6 @@ pub const UNREADABLE: &str = "an-input-that-could-not-be-read";
 // ---------------------------------------------------------------------------
 // The protocol
 // ---------------------------------------------------------------------------
-
-/// What the build hands a generator: the files it declared, and the files of
-/// the rules it depends on.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Request {
-    /// `(repository-relative path, contents)`, in the order the rule declared
-    /// them.
-    pub inputs: Vec<(String, String)>,
-    /// The same, for what the declaring rule's dependencies own. Empty today:
-    /// nothing yet declares a generator that reads across a rule boundary, and
-    /// the field is in the wire so that one can without the protocol moving.
-    pub dependencies: Vec<(String, String)>,
-}
 
 /// A position in one of the generator's inputs.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -428,56 +402,6 @@ fn read_span(value: &Json) -> Option<(usize, usize)> {
     Some((value.get("start")?.as_usize()?, value.get("end")?.as_usize()?))
 }
 
-impl Request {
-    /// The one line the build writes to a generator's standard input.
-    pub fn encode(&self) -> String {
-        let pairs = |list: &[(String, String)]| {
-            Json::Array(
-                list.iter()
-                    .map(|(path, text)| {
-                        Json::Array(vec![
-                            Json::Str(path.clone()),
-                            Json::Str(text.clone()),
-                        ])
-                    })
-                    .collect(),
-            )
-        };
-        let mut out = String::new();
-        write_json(
-            &mut out,
-            &Json::Object(vec![
-                ("inputs".to_string(), pairs(&self.inputs)),
-                ("dependencies".to_string(), pairs(&self.dependencies)),
-            ]),
-        );
-        out
-    }
-
-    pub fn decode(text: &str) -> Result<Request, String> {
-        let json = parse_json(text)?;
-        let pairs = |name: &str| -> Result<Vec<(String, String)>, String> {
-            let Some(list) = json.get(name).and_then(Json::present) else { return Ok(Vec::new()) };
-            let items =
-                list.as_array().ok_or_else(|| format!("`{name}` is not a list"))?;
-            let mut out = Vec::new();
-            for item in items {
-                let pair = item
-                    .as_array()
-                    .ok_or_else(|| format!("`{name}` holds something that is not a pair"))?;
-                let [path, text] = pair else {
-                    return Err(format!("`{name}` holds a pair of the wrong length"));
-                };
-                let path = path.as_str().ok_or_else(|| format!("`{name}`: a path is not a string"))?;
-                let text = text.as_str().ok_or_else(|| format!("`{name}`: a text is not a string"))?;
-                out.push((path.to_string(), text.to_string()));
-            }
-            Ok(out)
-        };
-        Ok(Request { inputs: pairs("inputs")?, dependencies: pairs("dependencies")? })
-    }
-}
-
 impl Response {
     /// The one line a generator writes to its standard output.
     pub fn encode(&self) -> String {
@@ -630,8 +554,12 @@ pub struct Outcome {
     /// What checking the inputs found, each with the `generators` entry that
     /// listed the file. An entry with an input that fails is not run.
     pub findings: Vec<(crate::languages::Finding, Span)>,
-    /// Repository paths the checks read besides the inputs: the schemas.
+    /// Repository paths the checks and the tools read besides the inputs: the
+    /// schemas.
     pub reads: Vec<String>,
+    /// The paths among those that a `generate` asked for, so the next
+    /// session's fingerprint can tell whether one moved.
+    pub generated_reads: Vec<String>,
 }
 
 /// Every module the generators in this repository produced.
@@ -739,6 +667,7 @@ pub fn declared(workspace: &Workspace, target: TargetId) -> &[Generator] {
     match target.kind {
         RuleKind::Library => p.build.library.as_ref().map(|l| &l.generators[..]).unwrap_or(&[]),
         RuleKind::Binary => p.build.binary.as_ref().map(|b| &b.generators[..]).unwrap_or(&[]),
+        RuleKind::Tool => &[],
     }
 }
 
@@ -769,16 +698,9 @@ pub fn modules_of(workspace: &Workspace, target: TargetId) -> Vec<Arc<GeneratedM
 
 /// The key `--explain` reports for one rule's generators.
 ///
-/// One line per rule rather than one per entry: `generators` is a list of ways
-/// to produce the rule's modules, and what a reader is asking is whether *this
-/// rule's* generated code moved. Each entry's own answer is stored under
-/// [`generate_key`], which is what a cache needs; this is what a person
-/// compares between two runs.
-///
-/// The tool is in it twice over: by name, and — for a repository tool — as the
-/// `link` key of the binary that is the tool. Editing the tool must move this
-/// line, or `--explain` would say nothing changed about generation while the
-/// generated code changed underneath it.
+/// One line per rule rather than one per entry: what a reader is asking is
+/// whether *this rule's* generated code moved. The tool is in it as its
+/// program key, so editing the tool moves this line too.
 pub fn rule_key(
     session: &Session,
     target: TargetId,
@@ -792,14 +714,8 @@ pub fn rule_key(
     k.rule_identity(&package.label(), "generate", &paths);
     for g in declared(&session.workspace, target) {
         k.input("tool", g.tool.value.as_bytes());
-        if let Some(tool) = tool_target(&session.workspace, &g.tool.value) {
-            k.dependency(&crate::build::actions::action_key(
-                session,
-                tool,
-                &Output::js(Span::NONE),
-                flags,
-                Action::Link,
-            ));
+        if let Ok(tool) = tools::resolve(&session.workspace, &g.tool.value) {
+            k.dependency(&tools::program_key(session, tool, flags));
         }
     }
     for rel in &paths {
@@ -809,126 +725,28 @@ pub fn rule_key(
     k.finish()
 }
 
-/// The binary target a `//label` tool names.
+/// The `tool` rule a `//label` names.
 pub fn tool_target(workspace: &Workspace, tool: &str) -> Option<TargetId> {
-    let path = tool.strip_prefix("//")?;
-    let package = workspace.package_by_path(path)?;
-    workspace
-        .package(package)
-        .has_binary()
-        .then_some(TargetId { package, kind: RuleKind::Binary })
+    match tools::resolve(workspace, tool) {
+        Ok(Tool::Repo(t)) => Some(t),
+        _ => None,
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Running one
 // ---------------------------------------------------------------------------
 
-/// The program a toolchain generator *is*.
-///
-/// `std/codegen/proto` is the whole of the list, and there is nothing in here
-/// a user could not have written: `core/codegen`'s `run`, over the `emit` the
-/// standard library exports. What the build runs is this, compiled to
-/// JavaScript and handed a request on standard input — the same protocol and
-/// the same subprocess a `//label` tool gets.
-const GENERATOR_MAIN_NAME: &str = "toolchain-generator-main";
-
-const PROTO_MAIN: &str = r#"from "core/codegen" import * as codegen;
-from "core/effect" import { Allocator, Stdin, Stdout };
-from "core/host" import * as host;
-from "std/codegen/proto" import * as proto;
-
-export fn main(): Result<(), Str> {
-    let ctx = context {
-        Allocator: host.alloc,
-        Stdin: host.stdin,
-        Stdout: host.stdout,
-    };
-    codegen.run(ctx, fn(c, request) => proto.emit(c, request))
-}
-"#;
-
-/// Runs the toolchain generator named `tool`.
-///
-/// One path, not two. A generator this toolchain ships goes through
-/// [`run_artifact`] exactly as a repository tool does, so what proves the
-/// protocol is the `.proto` generator itself rather than a wrapper written to
-/// look like one.
-pub fn run_toolchain(
-    session: &Session,
-    tool: &str,
-    request: &Request,
-    flags: &Flags,
-) -> Result<Response, String> {
-    let artifact = toolchain_artifact(session, tool, flags)?;
-    run_artifact(&artifact, request)
-}
-
-/// The `.mjs` a toolchain generator is compiled to, built once and kept.
-///
-/// The file's name is its action key, which already carries the toolchain
-/// version, so a new toolchain writes a new file rather than reading a stale
-/// one — and `buri clean`, which drops `.buri`, drops this with everything
-/// else. Written through a temporary and renamed, because two builds in one
-/// repository may reach this at the same moment and a half-written module is
-/// worse than a second compile.
-fn toolchain_artifact(
-    session: &Session,
-    tool: &str,
-    flags: &Flags,
-) -> Result<std::path::PathBuf, String> {
-    if tool != PROTO_TOOL {
-        return Err(format!(
-            "`{tool}` is not a generator this toolchain ships; `{PROTO_TOOL}` is the only one"
-        ));
-    }
-    let source = PROTO_MAIN;
-    let mut k = KeyBuilder::new(Action::Generate, flags.mode);
-    k.platform(Platform::Js, None);
-    k.rule_identity(tool, "toolchain-generator", &[]);
-    k.input("main.buri", source.as_bytes());
-    let key = k.finish();
-    let dir = session.root.join(".buri/out/toolchain");
-    let path = dir.join(format!("{}.mjs", key.as_str()));
-    if path.is_file() {
-        return Ok(path);
-    }
-    // Not the tool's own name: the snippet is loaded as a module beside the
-    // standard library, and a module path already taken is one it would shadow.
-    let mut map = crate::diagnostics::SourceMap::new();
-    // The generator this toolchain ships never calls `lazy.load`, so it has no
-    // chunks to write beside itself.
-    let (js, _chunks) =
-        crate::compiler::driver::compile_snippet_js(None, &mut map, GENERATOR_MAIN_NAME, source)
-        .map_err(
-        |d| match d.items.first() {
-            Some(first) => format!("`{tool}` does not compile: {}", map.render(first, false)),
-            None => format!("`{tool}` does not compile"),
-        },
-    )?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let staged = dir.join(format!("{}.mjs.{}", key.as_str(), std::process::id()));
-    std::fs::write(&staged, js.as_bytes()).map_err(|e| format!("{}: {e}", staged.display()))?;
-    std::fs::rename(&staged, &path).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(path)
-}
-
-/// Runs a built `.mjs` generator under the JavaScript runtime, one line in and
-/// one line out.
+/// Runs a built tool under the JavaScript runtime, one line in and one line
+/// out, and answers with the last non-empty line it wrote.
 ///
 /// The command comes from [`crate::build::spawn::command`] rather than
-/// `Command::new`, so a generator's process gets the same explicit environment
+/// `Command::new`, so a tool's process gets the same explicit environment
 /// every other action's does: cleared, then `TZ` and `SOURCE_DATE_EPOCH`.
 ///
-/// The clock is the effect system's job rather than this one's.
-/// [`crate::build::spawn::FIXED_CLOCK_JS`] is spliced into a *suite's* script,
-/// which the runner writes; a generator's artifact is the ordinary linked one,
-/// and nothing here rewrites it. What keeps a generator off the clock is that
-/// `core/codegen`'s `run` hands `generate` a context bounded by `Allocator`,
-/// `Stdin` and `Stdout` — reach past those three and the program does not
-/// compile (`cli/tests/reject/generator_reaches_beyond_its_context`). A `main`
-/// that binds more than `run` needs is out of that bound, and
-/// `--check-reproducible` is what answers for it.
-pub fn run_artifact(artifact: &std::path::Path, request: &Request) -> Result<Response, String> {
+/// What keeps a tool off the clock is its entry points' bound: `ctx` has
+/// `Allocator` and nothing else (`tool-context-beyond-allocator`).
+pub fn run_artifact(artifact: &std::path::Path, request: &str) -> Result<String, String> {
     use std::io::{Read as _, Write as _};
     use std::process::Stdio;
 
@@ -952,8 +770,8 @@ pub fn run_artifact(artifact: &std::path::Path, request: &Request) -> Result<Res
     // each other, with nothing to end it. Draining while the tool runs is what
     // makes the size of the answer not matter, and it is what makes the wait
     // below safe to be a plain one.
-    let mut stdin = child.stdin.take().ok_or("the generator has no standard input")?;
-    let line = format!("{}\n", request.encode());
+    let mut stdin = child.stdin.take().ok_or("the tool has no standard input")?;
+    let line = format!("{}\n", request);
     let feeding = std::thread::spawn(move || {
         // A write that fails because the tool exited before reading is not
         // itself the failure worth reporting: the exit status below says more.
@@ -988,15 +806,14 @@ pub fn run_artifact(artifact: &std::path::Path, request: &Request) -> Result<Res
     let stdout = reading_out.join().unwrap_or_default();
     let stderr = reading_err.join().unwrap_or_default();
     if !status.success() {
-        return Err(said(&format!("the generator {}", how_it_ended(&status)), &stderr));
+        return Err(said(&format!("the tool {}", how_it_ended(&status)), &stderr));
     }
     // One line out. Anything before it is the tool talking to a person, which
     // is not this protocol — the response is the last non-empty line.
     let Some(line) = stdout.lines().rev().find(|l| !l.trim().is_empty()) else {
-        return Err(said("the generator wrote nothing", &stderr));
+        return Err(said("the tool wrote nothing", &stderr));
     };
-    Response::decode(line)
-        .map_err(|e| said(&format!("the generator's answer is not a response: {e}"), &stderr))
+    Ok(line.to_string())
 }
 
 /// How much of what a tool put on standard error a note carries.
@@ -1059,8 +876,19 @@ fn signal_name(signal: i32) -> Option<&'static str> {
 /// The **tail** of it, at most [`STDERR_TAIL`] bytes: what a program says last
 /// is what says why it stopped, and a runtime's stack trace buries its first
 /// line under a hundred frames.
+///
+/// The frames inside the tool's own compiled module go: they name lines of
+/// JavaScript nobody wrote, under a file named for a cache key, and what the
+/// runtime said above them is the part a person can act on.
 fn said(sentence: &str, stderr: &str) -> String {
-    let text = stderr.trim();
+    let kept: Vec<&str> = stderr
+        .lines()
+        .filter(|l| {
+            !(l.trim_start().starts_with("at ") && (l.contains(".mjs:") || l.contains("(native:") || l.contains("(node:")))
+        })
+        .collect();
+    let kept = kept.join("\n");
+    let text = kept.trim();
     if text.is_empty() {
         return sentence.to_string();
     }
@@ -1118,8 +946,17 @@ fn ensure(
         return;
     }
     let workspace = Rc::clone(&session.workspace);
+    // The tools this rule runs: each entry's own, and the check of each input's
+    // language.
+    let mut tools: Vec<TargetId> = Vec::new();
     for generator in declared(&workspace, target) {
-        let Some(tool) = tool_target(&workspace, &generator.tool.value) else { continue };
+        tools.extend(tool_target(&workspace, &generator.tool.value));
+        for input in &generator.inputs {
+            let check = workspace.repo.languages.of(&input.value).and_then(|l| l.tools()?.check.clone());
+            tools.extend(check.and_then(|c| tool_target(&workspace, &c.value)));
+        }
+    }
+    for tool in tools {
         if cycle(&workspace, target, tool).is_some() {
             continue;
         }
@@ -1144,27 +981,29 @@ fn cycle(workspace: &Workspace, target: TargetId, tool: TargetId) -> Option<Cycl
     })
 }
 
-/// One entry, ready to run: what it was handed and what that keys as.
+/// One entry, ready to run: its inputs, `(repository path, text)` in the
+/// order the entry lists them.
 struct Entry {
     generator: Generator,
-    request: Request,
-    key: ActionKey,
+    inputs: Vec<(String, String)>,
 }
 
 fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Overlay) {
     let workspace = Rc::clone(&session.workspace);
     let mut entries: Vec<Entry> = Vec::new();
     let mut missing: Vec<(Diagnostic, Span)> = Vec::new();
-    // The keys, plus a line per input nothing could read. Together they are the
-    // whole of what decides this rule's answer, so a session whose fingerprint
-    // has not moved has nothing to re-run — and a missing input that appears
-    // moves it, which is what makes writing the file enough.
+    // The keys, plus a line per input nothing could read and the contents of
+    // every file the last answer read. Together they are the whole of what
+    // decides this rule's answer, so a session whose fingerprint has not moved
+    // has nothing to re-run — and a missing input that appears moves it,
+    // which is what makes writing the file enough.
     let mut fingerprint = String::new();
     let mut checks = Checks::default();
+    let read = crate::languages::reader(&session.root, overlay);
 
     for generator in declared(&workspace, target) {
         let package = workspace.package(target.package);
-        let mut request = Request::default();
+        let mut inputs = Vec::new();
         let mut unreadable = false;
         for input in &generator.inputs {
             let full = package.dir.join(&input.value);
@@ -1174,23 +1013,19 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
                 None => std::fs::read_to_string(&full),
             };
             match text {
-                Ok(text) => request.inputs.push((rel, text)),
+                Ok(text) => inputs.push((rel, text)),
                 Err(e) => {
                     unreadable = true;
                     fingerprint.push_str(&format!("unreadable {rel}: {}\n", e.kind()));
                     // **A file that is there is never reported as absent.** A
                     // schema saved in UTF-16 answers `InvalidData` here, and
                     // "create the file" is no advice about a file a person can
-                    // see in the directory the diagnostic names. A `sources`
-                    // entry over the same bytes says `cannot read <path>: …`,
-                    // and this says the same sentence.
+                    // see in the directory the diagnostic names.
                     missing.push((
                         match e.kind() {
                             std::io::ErrorKind::NotFound => Diagnostic {
                                 code: "no-such-source".to_string(),
-                                // The entry, so the loader can name it: this
-                                // diagnostic's wording is its page's, and the
-                                // page asks which source and which field.
+                                // The entry, so the loader can name it.
                                 message: input.value.clone(),
                                 note: None,
                                 fix: None,
@@ -1200,9 +1035,7 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
                                 code: UNREADABLE.to_string(),
                                 message: format!("cannot read {rel}: {e}"),
                                 note: None,
-                                fix: Some(
-                                    "check the file exists and is readable".to_string(),
-                                ),
+                                fix: Some("check the file exists and is readable".to_string()),
                                 origin: None,
                             },
                         },
@@ -1217,8 +1050,8 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
         // Checked before the tool reads them, and the tool does not run on a
         // file that fails.
         let mut failed = false;
-        for (rel, text) in &request.inputs {
-            let (key, found) = checks.check(session, rel, text, overlay, flags);
+        for (rel, text) in &inputs {
+            let (key, found) = checks.check(session, rel, text, &read, flags);
             if let Some(key) = key {
                 fingerprint.push_str(key.as_str());
                 fingerprint.push('\n');
@@ -1231,10 +1064,13 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
         if failed {
             continue;
         }
-        let key = generate_key(session, target, &generator.tool.value, &request, flags);
-        fingerprint.push_str(key.as_str());
+        fingerprint.push_str(generate_key(session, target, &generator.tool.value, &inputs, flags).as_str());
         fingerprint.push('\n');
-        entries.push(Entry { generator: generator.clone(), request, key });
+        entries.push(Entry { generator: generator.clone(), inputs });
+    }
+    for path in workspace.generated.outcome(target).map(|o| o.generated_reads).unwrap_or_default() {
+        let contents = read(&path);
+        fingerprint.push_str(&format!("read {path}: {}\n", crate::build::cache::hash_bytes(contents.unwrap_or_default().as_bytes())));
     }
 
     if workspace.generated.key_of(target).as_deref() == Some(fingerprint.as_str()) && !flags.force {
@@ -1249,19 +1085,20 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
     };
     let mut produced: Vec<(GeneratedModule, Span)> = Vec::new();
     for entry in entries {
-        match answer(session, &workspace, target, &entry, flags) {
-            Ok(response) => {
+        match answer(session, &workspace, target, &entry, &read, flags) {
+            Ok((response, asked)) => {
                 for module in response.modules {
                     produced.push((module, entry.generator.span));
                 }
                 for d in response.diagnostics {
                     outcome.diagnostics.push((d, entry.generator.span));
                 }
+                outcome.generated_reads.extend(asked);
             }
             Err(why) => outcome.diagnostics.push((
                 Diagnostic {
-                    code: "generator-failed".to_string(),
-                    message: String::new(),
+                    code: "tool-failed".to_string(),
+                    message: entry.generator.tool.value.clone(),
                     note: Some(why),
                     fix: None,
                     origin: None,
@@ -1270,6 +1107,7 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
             )),
         }
     }
+    outcome.reads.extend(outcome.generated_reads.iter().cloned());
     keep_the_names_that_are_free(&workspace, target, produced, &mut outcome);
     workspace.generated.record(&workspace, target, fingerprint, outcome);
 }
@@ -1278,60 +1116,103 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
 /// it.
 #[derive(Default)]
 struct Checks {
-    done: BTreeMap<String, Vec<crate::languages::Finding>>,
+    done: BTreeMap<String, (Option<ActionKey>, Vec<crate::languages::Finding>)>,
     findings: Vec<(crate::languages::Finding, Span)>,
     reads: BTreeSet<String>,
 }
 
 impl Checks {
     /// Checks one input in a language this repository knows, and answers with
-    /// the key the verdict is cached under. A file in no language has neither.
-    ///
-    /// The key is the file and every schema the check reads, so editing
-    /// either one re-checks.
+    /// the key the verdict is cached under. A file no tool checks has neither.
     fn check(
         &mut self,
         session: &Session,
         rel: &str,
         text: &str,
-        overlay: &Overlay,
+        read: &dyn Fn(&str) -> Option<String>,
         flags: &Flags,
     ) -> (Option<ActionKey>, Vec<crate::languages::Finding>) {
-        let languages = &session.workspace.repo.languages;
-        let Some(language) = languages.of(rel) else { return (None, Vec::new()) };
-        let read = crate::languages::reader(&session.root, overlay);
-        let check = crate::languages::Check::prepare(languages, rel, text.to_string(), &read);
-        let mut k = KeyBuilder::new(Action::Check, flags.mode);
-        k.rule_identity(rel, language.name, &[]);
-        k.input(rel, text.as_bytes());
-        for (path, contents) in &check.reads {
-            k.input(path, contents.as_bytes());
-        }
-        let key = k.finish();
-        self.reads.extend(check.asked.iter().cloned());
         if let Some(known) = self.done.get(rel) {
-            return (Some(key), known.clone());
+            return known.clone();
         }
-        let cache = Cache::open(&session.root);
-        let cached = match flags.force {
-            true => None,
-            false => cache
-                .get(&key)
-                .and_then(|bytes| String::from_utf8(bytes).ok())
-                .and_then(|text| crate::languages::Finding::decode(&text)),
-        };
-        let found = match cached {
-            Some(found) => found,
-            None => {
-                let found = check.run(languages);
-                cache.put(&key, crate::languages::Finding::encode(&found).as_bytes());
-                found
+        let answer = match tools::check_file(session, rel, text, read, flags) {
+            Some(checked) => {
+                self.reads.extend(checked.asked);
+                (Some(checked.key), checked.findings)
             }
+            None => (None, Vec::new()),
         };
-        self.done.insert(rel.to_string(), found.clone());
-        (Some(key), found)
+        self.done.insert(rel.to_string(), answer.clone());
+        answer
     }
 }
+
+/// One entry's answer, and every path the tool asked to read.
+fn answer(
+    session: &Session,
+    workspace: &Workspace,
+    target: TargetId,
+    entry: &Entry,
+    read: &dyn Fn(&str) -> Option<String>,
+    flags: &Flags,
+) -> Result<(Response, BTreeSet<String>), String> {
+    let name = &entry.generator.tool.value;
+    let tool = tools::resolve(workspace, name).map_err(|_| format!("`{name}` names no tool"))?;
+    if let Tool::Repo(t) = tool {
+        if let Some(path) = cycle(workspace, target, t) {
+            return Err(cycle_sentence(workspace, &path));
+        }
+    }
+    let languages = &workspace.repo.languages;
+    let inputs = entry
+        .inputs
+        .iter()
+        .map(|(path, text)| tools::input(path, languages.of(path).map_or("", |l| &l.name), text))
+        .collect();
+    let label = workspace.label(target);
+    let ask = tools::Ask {
+        tool,
+        entry: "generate",
+        fields: vec![("inputs", crate::json::Value::Array(inputs))],
+        label: &label,
+    };
+    let answer = tools::exchange(session, &ask, read, flags)?;
+    let mut response = Response::decode(&answer.line)
+        .map_err(|e| format!("the tool's answer is not one `generate` gives: {e}"))?;
+    for path in answer.outside {
+        response.diagnostics.push(Diagnostic {
+            code: "schema-not-local".to_string(),
+            message: format!("`{path}` is not in this repository"),
+            note: None,
+            fix: Some("check the file in, and name it by its repository path".to_string()),
+            origin: None,
+        });
+    }
+    Ok((response, answer.asked))
+}
+
+/// What one `generators` entry's answer depends on, computed without running
+/// anything: the rule, the tool's program key, and every input's contents.
+fn generate_key(
+    session: &Session,
+    target: TargetId,
+    tool: &str,
+    inputs: &[(String, String)],
+    flags: &Flags,
+) -> ActionKey {
+    let mut k = KeyBuilder::new(Action::Generate, flags.mode);
+    let paths: Vec<String> = inputs.iter().map(|(p, _)| p.clone()).collect();
+    k.rule_identity(&session.workspace.label(target), "generate", &paths);
+    k.input("tool", tool.as_bytes());
+    if let Ok(tool) = tools::resolve(&session.workspace, tool) {
+        k.dependency(&tools::program_key(session, tool, flags));
+    }
+    for (path, text) in inputs {
+        k.input(path, text.as_bytes());
+    }
+    k.finish()
+}
+
 
 /// Moves the modules whose names are the generator's own into the outcome, and
 /// reports the ones that are not.
@@ -1398,105 +1279,6 @@ fn shadowed_source(dir: &std::path::Path, name: &str) -> Option<String> {
     dir.join(file).is_file().then(|| file.to_string())
 }
 
-/// One entry's answer: the cache's, or the tool's.
-fn answer(
-    session: &mut Session,
-    workspace: &Workspace,
-    target: TargetId,
-    entry: &Entry,
-    flags: &Flags,
-) -> Result<Response, String> {
-    let tool = &entry.generator.tool.value;
-    let cache = Cache::open(&session.root);
-    if !flags.force {
-        if let Some(response) = cache
-            .get(&entry.key)
-            .and_then(|bytes| String::from_utf8(bytes).ok())
-            .and_then(|text| Response::decode(&text).ok())
-        {
-            return Ok(response);
-        }
-    }
-    let response = match tool.strip_prefix("//") {
-        None => run_toolchain(session, tool, &entry.request, flags)?,
-        Some(_) => {
-            let Some(tool_target) = tool_target(workspace, tool) else {
-                return Err(format!("`{tool}` names no binary target in this repository"));
-            };
-            if let Some(path) = cycle(workspace, target, tool_target) {
-                return Err(cycle_sentence(workspace, &path));
-            }
-            let artifact = build_tool(session, tool_target, flags)?;
-            run_artifact(&artifact, &entry.request)?
-        }
-    };
-    cache.put(&entry.key, response.encode().as_bytes());
-    Ok(response)
-}
-
-/// The key one `generators` entry's answer is stored under.
-///
-/// The platform, the rule's identity, the tool, and the contents of every
-/// declared input.
-///
-/// For a repository tool the tool's identity is its `link` action key. That key
-/// is the SHA-256 of everything that decides the artifact's bytes — a strictly
-/// finer identity than the artifact's own digest — and it can be computed
-/// without linking the tool, so a cache hit costs no build. For a toolchain
-/// generator the identity is the tool's *name* on top of the toolchain version
-/// every key already carries, because the generator is the toolchain and there
-/// are no other bytes to hash.
-fn generate_key(
-    session: &Session,
-    target: TargetId,
-    tool: &str,
-    request: &Request,
-    flags: &Flags,
-) -> ActionKey {
-    let mut k = KeyBuilder::new(Action::Generate, flags.mode);
-    // In the key for the same reason it is in every other one, even though
-    // generation does not vary along it today: a key that leaves out something
-    // a future action varies on is the shape of a stale-cache bug.
-    k.platform(Platform::Js, None);
-    let paths: Vec<String> = request.inputs.iter().map(|(p, _)| p.clone()).collect();
-    k.rule_identity(&session.workspace.label(target), "generate", &paths);
-    k.input("tool", tool.as_bytes());
-    if let Some(tool_target) = tool_target(&session.workspace, tool) {
-        k.dependency(&crate::build::actions::action_key(
-            session,
-            tool_target,
-            &Output::js(Span::NONE),
-            flags,
-            Action::Link,
-        ));
-    }
-    for (path, text) in &request.inputs {
-        k.input(path, text.as_bytes());
-    }
-    k.finish()
-}
-
-/// Builds a tool for JavaScript, and answers with the artifact it wrote.
-///
-/// JavaScript, always: a generator runs on the machine doing the build, and an
-/// `.mjs` is the one artifact every host can produce and run without a linker.
-/// The tool's own `outputs` do not decide this — a generator is built because
-/// something else needs it, not because the tool declared an artifact.
-fn build_tool(
-    session: &mut Session,
-    tool: TargetId,
-    flags: &Flags,
-) -> Result<std::path::PathBuf, String> {
-    let output = Output::js(Span::NONE);
-    match crate::build::actions::build_target(session, tool, &output, flags) {
-        Ok(artifact) => Ok(artifact.path),
-        Err(diagnostics) => Err(match diagnostics.items.first() {
-            Some(first) => format!("the tool does not build: {}", first.message),
-            None => "the tool does not build".to_string(),
-        }),
-    }
-}
-
 /// One step of a cycle: a target, and the span of the edge that reached the
 /// next one.
 pub type CyclePath = Vec<(TargetId, Option<Span>)>;
@@ -1540,17 +1322,15 @@ mod tests {
 
     #[test]
     fn a_request_survives_the_wire() {
-        let request = Request {
-            inputs: hard_strings()
-                .iter()
-                .enumerate()
-                .map(|(i, s)| (format!("lib/x/{i}.schema"), s.clone()))
-                .collect(),
-            dependencies: vec![("lib/y/dep.schema".to_string(), "a\\b\"c\n".to_string())],
-        };
-        let line = request.encode();
+        let inputs: Vec<crate::json::Value> = hard_strings()
+            .iter()
+            .enumerate()
+            .map(|(i, s)| tools::input(&format!("lib/x/{i}.schema"), "", s))
+            .collect();
+        let request = crate::json::Value::object(vec![("inputs", crate::json::Value::Array(inputs))]);
+        let line = request.to_string();
         assert!(!line.contains('\n'), "the request is one line: {line}");
-        assert_eq!(Request::decode(&line).expect("the request decodes"), request);
+        assert_eq!(crate::json::parse(&line).expect("the request decodes"), request);
     }
 
     #[test]
@@ -1579,7 +1359,7 @@ mod tests {
                     origin: Some(Origin { file: "lib/x/0.schema".to_string(), span: (18, 29) }),
                 },
                 Diagnostic {
-                    code: "generator-diagnostic".to_string(),
+                    code: "tool-diagnostic".to_string(),
                     message: "nothing to point at".to_string(),
                     note: None,
                     fix: None,
@@ -1614,15 +1394,6 @@ mod tests {
         let d = response.diagnostics.first().expect("one diagnostic");
         assert_eq!(d.note, None);
         assert_eq!(d.origin.as_ref().map(|o| o.file.as_str()), Some("lib/wire/point.proto"));
-
-        let request = Request::decode(
-            r#"{"inputs":[["lib/wire/point.proto","edition = \"2026\";\n"]],"dependencies":[]}"#,
-        )
-        .expect("the documented request decodes");
-        assert_eq!(
-            request.inputs,
-            vec![("lib/wire/point.proto".to_string(), "edition = \"2026\";\n".to_string())]
-        );
     }
 
     /// A `\u` escape and a surrogate pair, which a generator written against a

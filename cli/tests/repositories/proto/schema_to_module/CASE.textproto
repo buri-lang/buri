@@ -47,7 +47,7 @@ run {
 edit {
   file: "lib/wire/BUILD.buri"
   replace: "    proto_sources: [\"point.proto\"]"
-  with: "    generators: [\n        { tool: \"std/codegen/proto\", inputs: [\"point.proto\"] },\n    ]"
+  with: "    generators: [\n        { tool: \"std/proto\", inputs: [\"point.proto\"] },\n    ]"
 }
 
 run {

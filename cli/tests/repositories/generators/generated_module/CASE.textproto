@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a generator is an ordinary Buri binary: the build runs it, its inputs are declared and keyed like any other source, and what it hands back is a module of the rule that declared it"
+doc: "a generator is a tool rule's generate: the build runs it, its inputs are declared and keyed like any other source, and what it hands back is a module of the rule that declared it"
 
 # An input no rule lists is `unused-library`, exactly as a stray .buri is — and
 # the fix names `generators`, because that is the field it belongs in.
@@ -88,7 +88,7 @@ run {
 # rebuilds everything that read its modules, with no source of this repository
 # touched — which is the half a run that only ever edits an input cannot show.
 edit {
-  file: "cmd/gen/main.buri"
+  file: "cmd/gen/tool.buri"
   replace: "let ${split.0}: Int = ${value};"
   with: "let ${split.0}: Int = ${value * 2};"
 }
@@ -106,7 +106,7 @@ run {
 }
 
 edit {
-  file: "cmd/gen/main.buri"
+  file: "cmd/gen/tool.buri"
   replace: "let ${split.0}: Int = ${value * 2};"
   with: "let ${split.0}: Int = ${value};"
 }
@@ -132,13 +132,13 @@ edit {
   with: "from \"//lib/wire\" import"
 }
 
-# The signature failure. A tool that writes something that is not a response
-# fails the build where the `generators` entry is written, with what it wrote as
-# the note — never a silent empty module.
+# The signature failure. A tool that does not build fails the build where the
+# `generators` entry is written, with why as the note — never a silent empty
+# module.
 edit {
-  file: "cmd/gen/main.buri"
-  replace: "\"${json.stringify(ctx, respond(ctx, inputs))}\""
-  with: "\"this is not a response\""
+  file: "cmd/gen/tool.buri"
+  replace: "let value = split.1.trim().toInt()?;"
+  with: "let value = split.1.trim().toInt()? + \"one\";"
 }
 
 run {
@@ -147,16 +147,16 @@ run {
   golden: "failed.txt"
 }
 
-# A tool that exits non-zero fails the same way, with what it said on standard
+# A tool that stops partway fails the same way, with what it said on standard
 # error as the note.
 edit {
-  file: "cmd/gen/main.buri"
-  replace: "let line = io.readLine(ctx).okOr(\"the generator was handed no request\")?;"
-  with: "let line = \"\";"
+  file: "cmd/gen/tool.buri"
+  replace: "let value = split.1.trim().toInt()? + \"one\";"
+  with: "let value = split.1.trim().toInt()? / (split.0.length() - split.0.length());"
 }
 
 run {
   args: ["build", "//cmd/app"]
   exit: 1
-  golden: "refused.txt"
+  golden: "crashed.txt"
 }

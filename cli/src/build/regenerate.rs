@@ -42,6 +42,13 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
     }
     let mut document = parsed.document;
 
+    // A package holding a tool is left as written. Which of three rules a new
+    // file belongs to is a question `gen` cannot answer from imports alone —
+    // nothing but the toolchain imports `tool.buri` — so it does not guess.
+    if document.get("tool").is_some() {
+        return Ok(None);
+    }
+
     let has_library = document.get("library").is_some();
     let has_binary = document.get("binary").is_some();
 
@@ -329,6 +336,7 @@ fn derive_dependencies(
         let has = match kind {
             RuleKind::Library => session.workspace.package(package).has_library(),
             RuleKind::Binary => session.workspace.package(package).has_binary(),
+            RuleKind::Tool => false,
         };
         if !has {
             continue;
@@ -390,7 +398,7 @@ fn derive_dependencies(
         // `--check` lies.
         let on_disk = match kind {
             RuleKind::Library => lib_tests,
-            RuleKind::Binary => bin_tests,
+            RuleKind::Binary | RuleKind::Tool => bin_tests,
         };
         test.extend(imported_labels(session, package, dir, on_disk));
         // `test.dependencies` is what the suite adds: the target under test is
@@ -408,6 +416,7 @@ fn derive_dependencies(
             RuleKind::Binary => {
                 out.binary = Some(BinaryDeps { production, test });
             }
+            RuleKind::Tool => {}
         }
     }
     Some(out)

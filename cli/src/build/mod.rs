@@ -12,7 +12,7 @@
 //! runs, and what the program answers *becomes* a Buri module, so that
 //! `from "//proto/person.proto" import { Person };` resolves to types and
 //! codecs that no one had to write down twice. The `.proto` generator is one
-//! of those programs — `std/codegen/proto`, written in Buri — and not a path
+//! of those programs — `std/proto`, written in Buri — and not a path
 //! of its own.
 //!
 //! `link` is the last action in the graph for a native artifact: the C driver
@@ -55,4 +55,7 @@ pub mod sources;
 pub mod sha256;
 pub mod spawn;
 pub mod textproto;
+/// `tool` rules: resolving a tool name, the `main` the build writes for one,
+/// and asking one to check, format or generate.
+pub mod tools;
 pub mod workspace;

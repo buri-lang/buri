@@ -145,6 +145,11 @@ pub const MODULES: &[StdModule] = &[
     // this one.
     m("std/codegen/proto/schema", include_str!("sources/codegen_proto_schema.buri")),
     m("std/codegen/proto", include_str!("sources/codegen_proto.buri")),
+    // What a `tool` rule's entry points are handed and answer, and the doc a
+    // formatter returns. `std/proto` is the `.proto` tool, written against it.
+    m("core/format", include_str!("sources/format.buri")),
+    m("core/tool", include_str!("sources/tool.buri")),
+    m("std/proto", include_str!("sources/proto_tool.buri")),
     m("core/map", include_str!("sources/map.buri")),
     m("core/set", include_str!("sources/set.buri")),
     m("core/orderedmap", include_str!("sources/orderedmap.buri")),

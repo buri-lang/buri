@@ -1,0 +1,7 @@
+library {
+    generators: [
+        { tool: "//tools/count", inputs: ["colors.lines"] },
+    ]
+
+    visibility: ["//visibility:public"]
+}

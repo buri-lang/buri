@@ -53,9 +53,10 @@ Two rules answer differently in a test source, and neither is a skip:
   may *build* a context, so `let ctx = …` is the real thing — the same answer
   the rule gives inside `main`.
 
-A JSON file a generator lists is checked against its schema, as `buri build`
-checks it. A failure is an error, not a finding, so it fails the run whatever
-`REPO.buri` says about findings.
+A JSON file a generator lists is checked against its schema, and a file in a
+language of your own by its tool's `check`, as `buri build` checks them. A
+failure is an error, not a finding, so it fails the run whatever `REPO.buri`
+says about findings.
 
 A `testing/` module has both. Its surface is `testing/lib.buri`, which decides
 what leaves the test-only half exactly as `lib.buri` decides what leaves the

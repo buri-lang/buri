@@ -1,0 +1,8 @@
+# `.lines` is this repository's own language: one word a line, every word in
+# the dictionary.
+language {
+    name: "lines"
+    extensions: [".lines"]
+    check: "//tools/lines"
+    format: "//tools/lines"
+}

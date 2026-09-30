@@ -1,0 +1,2 @@
+/// What every generated `answer` is.
+export let BASE: Int = 42;
