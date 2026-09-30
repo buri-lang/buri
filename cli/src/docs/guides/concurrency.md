@@ -113,16 +113,16 @@ ends, so a loop stops by finding its socket closed, or by asking an actor
 whether to carry on. An abort is a write to standard error and an exit
 ([effects](../language/effects.md)), never something a second task survives.
 
-In a native `--release` build a spawned task starts at once, on a thread of its
-own, while the body keeps running. Everywhere else — `buri run`, JavaScript, and
-tests on every backend — the body runs first, then the scope runs what was
-spawned in rounds, one round for whatever the last one spawned, until nothing is
-waiting. So spawned tasks overlap on JavaScript and run one after another under
-`buri run`. A task spawned *after* the body has returned — which on a page is
-what a handler does — runs on the task that spawned it.
+Under `--release` a spawned task starts at once, on a thread of its own, while
+the body keeps running. Everywhere else the body runs first, then the scope runs
+what was spawned in rounds, one round for whatever the last one spawned, until
+nothing is waiting. So spawned tasks overlap on JavaScript and run one after
+another under `buri run`. A task spawned *after* the body has returned — which
+on a page is what a handler does — runs on the task that spawned it.
 
-So under `buri run` a task that never ends starves the ones behind it. Spawn a
-socket loop and then a timer, and the timer never starts. Build with `--release`, or run on JavaScript, and both run.
+That last row has a consequence: under `buri run` a task that never ends starves
+the ones behind it. Spawn a socket loop and then a timer, and the timer never
+starts. Build with `--release`, or run on JavaScript, and both run.
 
 ## An actor is a value
 
@@ -174,7 +174,7 @@ wait for a driver busy somewhere else.
 The one way a program reaches the bound is a step posting to its own actor,
 because nothing drains while a step holds the state. Keep a step's fan-out at
 sixty-four or under: a sixty-fifth message from there waits for room nobody is
-coming to make, and natively gets `.Err(.Stopped)` after thirty seconds.
+coming to make.
 
 ## `sendMessage` and `stop`
 
@@ -224,14 +224,10 @@ closes and then runs the hook. One sender's messages arrive in order, the actor
 steps each message exactly once, and a send sees the state its own message left.
 So an actor is not yet a way to get work done in the background.
 
-Two tasks may send at once. Under `--release`, where tasks run side by side, a
-sender that finds another task mid-step waits for that step, then gets its own
-answer. After thirty seconds it gives up with `.Err(.Stopped)`.
-
-A step that sends to the actor running it gets `.Err(.Stopped)` back at once,
-and so does a task that step started. The state is already out — waiting for it
-would be waiting for itself. The message is posted all the same, and the loop
-already running steps it before it puts the state back.
+A step that sends to the actor running it gets `.Err(.Stopped)` back. The state
+is already out — waiting for it would be waiting for itself — so the send does
+not wait. The message is posted all the same, and the loop already running
+steps it before it puts the state back.
 
 ## Why the state goes behind a mailbox
 

@@ -996,10 +996,6 @@ fn submitHandler<C>(onSubmit: fn(C) => ()): fn(C, Event) => () {
 /// Shut, it draws nothing and what is inside it is out of reach. Open, it is
 /// pinned to the viewport, so like every pin it never decides how tall a page
 /// is.
-///
-/// **The panel doesn't clip or scroll.** A focus ring or a pinned child that
-/// hangs past its edge draws whole. A panel that may be taller than the screen
-/// needs `Scroll(.Y)` and a `MaxHeight`, or its bottom is out of reach.
 struct Dialog<C> {
     /// The two-way binding that opens and shuts it: Open while it holds `true`.
     /// Writable because the platform writes it — the browser writes `false`

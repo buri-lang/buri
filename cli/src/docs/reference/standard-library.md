@@ -1291,9 +1291,10 @@ arrives as a parameter because a lambda may not capture a context
 
 How much actually runs at once is the platform's business, not the signature's.
 JavaScript starts the tasks together and awaits them together. A native
-`--release` build gives each task a thread of its own, so two that wait or
-compute overlap. `buri run` runs them in index order on one thread. All three
-answer the same list.
+`--release` build gives each task a thread of its own, so two that wait
+overlap. `buri run` runs them in index order on one thread. All three answer
+the same list. Two tasks that *compute* do not yet overlap on either native
+backend: `parallel` buys overlapped waiting rather than more processors.
 
 `scope` and `spawn` are the other shape: work that runs beside the code that
 started it. A scope returns when its body **and every task spawned into it**
@@ -1326,15 +1327,13 @@ a loop ends by finding its socket closed or by asking an actor whether to carry
 on, because there is no way to unwind a task from outside it.
 
 Both carry `Allocator` beside `Tasks`: `spawn` copies the task out of whatever arena
-it was written in, and a scope runs its tasks through `parallel`.
+it was written in, and a scope drains its rounds through `parallel`.
 
-In a native `--release` build a spawned task starts at once, on a thread of its
-own, beside the body. Everywhere else — `buri run`, JavaScript, and tests on
-every backend — the body runs first and the scope then runs what was spawned in
-rounds. That is why a task that never ends starves the ones behind it under
-`buri run`: the round they wait for never finishes. And a task spawned *after*
-the body returned runs on the task that spawned it, which is what lets a page's
-handler spawn once `main` has gone.
+Rounds are why the platform table above covers a spawned task too. They are also
+why a task that never ends starves the ones behind it under `buri run`: the
+round they wait for never finishes. And a task spawned *after* the body returned
+runs on the task that spawned it, which is what lets a page's handler spawn once
+`main` has gone.
 
 `core/actor` is the other half of concurrency: state that outlives one call,
 behind a mailbox. An actor is a *value*, an initial state and a
@@ -1372,14 +1371,11 @@ you test an actor by calling it. The mailbox holds sixty-four messages and you
 cannot configure it. **The actor steps on the task that drives it.**
 `sendMessage` runs the mailbox down before it answers, and `stop` before it runs
 `onStop`. So an actor is not yet a way to get work done in the background. A
-sender that finds another task mid-step, which happens under `--release`, waits
-up to thirty seconds for it before it answers `.Err(.Stopped)`. A step that
-sends to its own actor, or a task that step started, gets `.Err(.Stopped)` at
-once rather than waiting for itself, and the message it posted is stepped once
-the step returns. That is also the only way to reach the bound, since nothing
-drains while a step holds the state, so a step that posts a sixty-fifth message
-waits for room nobody is coming to make, and natively gets `.Err(.Stopped)`
-after thirty seconds.
+step that sends to its own actor gets `.Err(.Stopped)` rather than waiting for
+itself, and the message it posted is stepped once the step returns. That is also
+the only way to reach the bound, since nothing drains while a step holds the
+state, so a step that posts a sixty-fifth message waits for room nobody is
+coming to make.
 
 `core/net/http` documents `Request` and `Response`, the two types `Network.fetch`
 speaks in. It re-exports them from `core/effect`, where the effect's own
@@ -1404,16 +1400,6 @@ mutation. The language has no associated functions, since a function inside an
 `impl` block takes `self`, so the constructors are free functions:
 `http.request`, `http.textRequest`, `http.status`, `http.ok`, `http.text`,
 `http.json`, `http.html`.
-
-`http.send` works on every platform, over `http://` and `https://`. JavaScript
-uses the platform's `fetch`. A native binary differs from it in three ways:
-
-- **HTTP/1.1 only.**
-- **Redirects aren't followed.** A `3xx` comes back as the response, where
-  JavaScript follows it.
-- **Certificates are checked against the system's PEM bundle**, which on macOS
-  is `/etc/ssl/cert.pem` and not the keychain. Set `SSL_CERT_FILE` to a PEM
-  file to trust its roots instead.
 
 `core/host/testing` is `core/host`'s surface for a test. It has the same names —
 `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`, `entropy`,

@@ -110,10 +110,8 @@
 //! - `sendMessage` sees the state its own message left behind.
 //! - `onStop` runs once, with the final state.
 //!
-//! Two tasks may send at once. Under `--release`, where tasks run side by side,
-//! a sender that finds another task stepping the actor waits for that step to
-//! finish, then gets its own answer. After thirty seconds it gives up with
-//! `.Err(.Stopped)`.
+//! Two tasks may send at once. A sender that finds another task stepping the
+//! actor waits for that step to finish, then gets its own answer.
 //!
 //! A step that sends to the actor running it gets `.Err(.Stopped)`, and so does
 //! a task that step fanned out. That send would wait for itself, so it doesn't
@@ -122,8 +120,7 @@
 //!
 //! That is also the only way to fill the mailbox, which holds sixty-four:
 //! nothing drains while a step holds the state. A step that posts a
-//! sixty-fifth message waits there for room nobody is coming to make, and
-//! natively gets `.Err(.Stopped)` after thirty seconds.
+//! sixty-fifth message waits there for room nobody is coming to make.
 //!
 //! An actor does not run *between* the calls that drive it, so it is not yet a
 //! way to get work done in the background.
@@ -283,19 +280,11 @@ impl<C: Allocator + Tasks, S, M, R> Address<C, S, M, R> {
     /// arena** before posting it, so the mailbox holds a block on the platform
     /// allocator whatever scope this call was made inside.
     ///
-    /// It answers `.Err(.Stopped)` when:
-    ///
-    /// - the actor was stopped before the message was posted, or before the
-    ///   answer came;
-    /// - the caller is a step of this same actor, or a task that step started,
-    ///   so the state is out and waiting for it would be waiting for itself —
-    ///   this answers at once;
-    /// - natively, the mailbox stayed full for thirty seconds;
-    /// - under `--release`, another task's step held the state for thirty
-    ///   seconds.
-    ///
-    /// Where the state was out, the message stays in the mailbox and the loop
-    /// already running steps it.
+    /// `.Err(.Stopped)` covers three cases: the actor was gone before the
+    /// message was posted, it went before the answer came, or the caller is a
+    /// step of this same actor and is holding the state, so the drive below
+    /// finds nothing to step with. Only the last one leaves the message in the
+    /// mailbox, where the loop that is already running steps it.
     export fn sendMessage(self, ctx: C, message: M): Result<R, Stopped> {
         let reply = Reply(replyOpen(ctx));
         let posted = Posted { slot: reply.0, message: message };

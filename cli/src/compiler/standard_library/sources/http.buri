@@ -13,12 +13,6 @@
 //! A struct literal always works too — both types export every field — and it is
 //! what to write when you know every field at once.
 //!
-//! `send` works on every platform, over `http://` and `https://`. A native
-//! binary speaks HTTP/1.1, doesn't follow redirects, and checks certificates
-//! against the system's PEM bundle (`/etc/ssl/cert.pem` on macOS, not the
-//! keychain) unless `SSL_CERT_FILE` names another. JavaScript's `fetch`
-//! follows redirects.
-//!
 //! ```buri
 //! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
@@ -127,9 +121,6 @@ export fn bodyText<C: Allocator>(ctx: C, body: [U8]): Result<Str, Utf8Error> {
 
 /// Sends the request as written. Needs only `Network`, since nothing here
 /// allocates.
-///
-/// A native binary answers a redirect with the `3xx` itself; JavaScript follows
-/// it.
 export fn send<C: Network>(ctx: C, request: Request): Result<Response, NetError> {
     ctx.fetch(request)
 }
