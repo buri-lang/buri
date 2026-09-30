@@ -110,10 +110,13 @@
 //! - `sendMessage` sees the state its own message left behind.
 //! - `onStop` runs once, with the final state.
 //!
-//! A step that sends to the actor running it gets `.Err(.Stopped)`. The state
-//! is out and taking it does not wait, so the send does not wait for itself.
-//! The message is not lost: the loop already running steps it before it puts
-//! the state back.
+//! Two tasks may send at once. A sender that finds another task stepping the
+//! actor waits for that step to finish, then gets its own answer.
+//!
+//! A step that sends to the actor running it gets `.Err(.Stopped)`, and so does
+//! a task that step fanned out. That send would wait for itself, so it doesn't
+//! wait at all. The message is not lost: the loop already running steps it
+//! before it puts the state back.
 //!
 //! That is also the only way to fill the mailbox, which holds sixty-four:
 //! nothing drains while a step holds the state. A step that posts a
@@ -364,10 +367,10 @@ fn draining<C: Allocator + Tasks, S, M, R>(
 
 /// Takes the state, runs the mailbox down, puts the state back.
 ///
-/// `false` where there was no state to take — a stopped actor, or one another
-/// task is stepping. Both mean "somebody else will run it", and neither is a
-/// failure a caller can do anything about, so this answers a `Bool` and not a
-/// `Result`.
+/// `false` where there was no state to take — a stopped actor, or one this
+/// caller's own step is holding. Neither is a failure a caller can do anything
+/// about, so this answers a `Bool` and not a `Result`. A state another task is
+/// holding is waited for rather than refused.
 ///
 /// The state going back takes `start`'s copy, for the same reason: a step that
 /// ran inside an `alloc.scoped` body built the next state *there*, and the
@@ -505,8 +508,8 @@ fn mailboxOpen<C: Tasks, S>(ctx: C, state: [Carried<S>], bound: Int): Int;
 /// Posts one message and answers how many are now waiting. `.None` once the
 /// mailbox is closed, and the block is not taken on that path.
 ///
-/// **Waits while the mailbox is full.** That is the one place another task's
-/// actor can suspend a caller of this module.
+/// **Waits while the mailbox is full.** That and `stateTake` are the two places
+/// another task's actor can suspend a caller of this module.
 fn mailboxPush<C: Tasks, M>(ctx: C, handle: Int, message: [Carried<M>]): Option<Int>;
 
 /// Takes the oldest message, or `.None` for an empty mailbox. A closed mailbox
@@ -519,8 +522,11 @@ fn mailboxPop<C: Tasks, M>(ctx: C, handle: Int): Option<[Carried<M>]>;
 /// **Waits for the state**, so a `stop` racing a step lets that step finish.
 fn mailboxClose<C: Tasks, S>(ctx: C, handle: Int): Option<[Carried<S>]>;
 
-/// Takes the state out. `.None` for a closed actor, or one whose state is
-/// already out.
+/// Takes the state out. `.None` for a closed actor, or one the caller's own step
+/// is holding.
+///
+/// **Waits while another task holds the state**, so a sender that arrives
+/// mid-step gets its answer once that step is done.
 fn stateTake<C: Tasks, S>(ctx: C, handle: Int): Option<[Carried<S>]>;
 
 /// Puts a state back, and answers how many messages are waiting. `.None` for a
