@@ -427,6 +427,70 @@ pub(crate) struct Task {
     /// A `Mutex` rather than an atomic because it is three words now; it is
     /// taken twice per turn of a task, which is nowhere near anything hot.
     arena: Mutex<crate::memory::ArenaSlot>,
+    /// What started this task, outermost first: the thread that is not a task
+    /// at the root, then every task between it and this one.
+    ///
+    /// Written once, before the task is queued, and read by [`within`]. An
+    /// actor's state held by an ancestor is held by the step this task is
+    /// working for, so a send to that actor must not wait for it.
+    lineage: Vec<Who>,
+}
+
+/// Who is running Buri code: a task, or a thread that is not one.
+///
+/// `main`'s own thread is the second kind, and so is every thread a Rust test
+/// in this file starts by hand. A task is named by its address, which stays
+/// its own while it runs: nothing reaps a task that is still running.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Who {
+    Task(usize),
+    Thread(thread::ThreadId),
+}
+
+/// The caller, as [`Who`] names it.
+fn who() -> Who {
+    let here = running();
+    if here.is_null() {
+        Who::Thread(thread::current().id())
+    } else {
+        Who::Task(here as usize)
+    }
+}
+
+/// Whether `holder` is the caller, or something the caller was started from.
+///
+/// The question `stateTake` asks before it waits: a state held by the caller's
+/// own step — or by the step a fan-out it belongs to is working for — is
+/// never going to be put back while the caller waits, because putting it back
+/// is what that step does *after* the caller has answered.
+///
+/// An ancestor's address cannot have been handed to another task while this
+/// one runs, because every task that starts another waits for it: a fan-out
+/// joins its steps before it returns.
+fn within(holder: Who) -> bool {
+    let here = running();
+    if here.is_null() {
+        return holder == Who::Thread(thread::current().id());
+    }
+    if holder == Who::Task(here as usize) {
+        return true;
+    }
+    // SAFETY: a task on this thread's stack is one the thread holds an `Arc`
+    // to, and its lineage was written before it was queued and never again.
+    unsafe { (*here).lineage.contains(&holder) }
+}
+
+/// The lineage a task started from here carries: the caller's own, and the
+/// caller.
+fn lineage_here() -> Vec<Who> {
+    let here = running();
+    if here.is_null() {
+        return vec![Who::Thread(thread::current().id())];
+    }
+    // SAFETY: as in [`within`].
+    let mut lineage = unsafe { (*here).lineage.clone() };
+    lineage.push(Who::Task(here as usize));
+    lineage
 }
 
 // SAFETY: every field is either atomic, behind a `Mutex`, or an `UnsafeCell`
@@ -860,6 +924,7 @@ fn spawn_task(body: Box<dyn FnOnce() + Send>) -> Arc<Task> {
         ok: AtomicBool::new(false),
         waiters: Mutex::new(Vec::new()),
         arena: Mutex::new(crate::memory::ArenaSlot::NONE),
+        lineage: lineage_here(),
     });
     // The task's *own* address travels in the frame, and the `Arc` that keeps
     // it alive travels on the queue: the launch pad hands the address back and
@@ -1384,9 +1449,15 @@ struct Mailbox {
     room: Arc<tokio::sync::Semaphore>,
     /// Exactly one permit, and holding it *is* holding the state. It is what
     /// makes a step exclusive without a lock held across a call into Buri
-    /// code, and what `mailboxClose` waits on so that a `stop` racing a step
-    /// lets that step finish.
+    /// code, what `mailboxClose` waits on so that a `stop` racing a step lets
+    /// that step finish, and what `stateTake` waits on so that a sender
+    /// arriving mid-step gets its answer. Closed with the mailbox, which is
+    /// what turns every `stateTake` still waiting into a `.None`.
     baton: Arc<tokio::sync::Semaphore>,
+    /// Who took the state, while it is out. `stateTake` reads it to tell a
+    /// sender that may wait from a step sending to its own actor, which may
+    /// not.
+    holder: Option<Who>,
 }
 
 /// Every actor this program has started. Tombstoned rather than reused, for
@@ -1463,6 +1534,7 @@ pub unsafe extern "C" fn buri_rt_actor_mailbox_open(ptr: *mut u8, len: u64, boun
         closed: false,
         room: Arc::new(tokio::sync::Semaphore::new(room)),
         baton: Arc::new(tokio::sync::Semaphore::new(1)),
+        holder: None,
     });
     (table.len() as i64) - 1
 }
@@ -1470,15 +1542,16 @@ pub unsafe extern "C" fn buri_rt_actor_mailbox_open(ptr: *mut u8, len: u64, boun
 /// How long a wait on the actor table lasts before it is answered rather than
 /// waited out.
 ///
-/// **The two waits below are the only ones in this runtime a *program* can
+/// **The three waits below are the only ones in this runtime a *program* can
 /// make unbounded**, which is why they carry a number at all. Everything else
 /// that waits here is waiting on the runtime's own machinery — a thread
 /// picking work up, a task the waker will reach — and cannot be deadlocked by
-/// what a program does. These two can: `mailboxPush` waits on room a *second*
-/// actor has to make, and `mailboxClose` waits on a step that is arbitrary Buri
-/// code. Two actors each posting into the other's full mailbox is a deadlock
-/// with no participant at fault, and an `onStop` that never returns is a `stop`
-/// that never does.
+/// what a program does. These three can: `mailboxPush` waits on room a
+/// *second* actor has to make, and `mailboxClose` and `stateTake` wait on a
+/// step that is arbitrary Buri code. Two actors each posting into the other's
+/// full mailbox is a deadlock with no participant at fault, so is two steps
+/// each sending to the actor the other is stepping, and an `onStop` that never
+/// returns is a `stop` that never does.
 ///
 /// Thirty seconds, the same number `http.rs`, `tls.rs` and `net.rs` carry, and
 /// for the reason `net.rs` states as the rule: **every wait is bounded except
@@ -1488,7 +1561,7 @@ pub unsafe extern "C" fn buri_rt_actor_mailbox_open(ptr: *mut u8, len: u64, boun
 /// here at all — so it is priced as "long enough that reaching it is a bug"
 /// rather than as a latency budget.
 ///
-/// What expiry *means* is stated at each of the two callers, because the two
+/// What expiry *means* is stated at each of the three callers, because the
 /// answers differ and neither is a new variant: a program that wants to tell a
 /// deadlock from a stop needs one, and that is a `core/actor` change rather
 /// than a runtime one.
@@ -1664,6 +1737,9 @@ unsafe fn close_within(handle: i64, out: *mut BuriList, deadline: Duration) -> i
         // holding it forever is what makes a stopped actor unsteppable.
         permit.forget();
     }
+    // And every `stateTake` still waiting for it is answered now rather than
+    // at its own deadline: there is no state left to wait for.
+    baton.close();
     let mut table = actors();
     let Some(mailbox) = at(&mut table, handle) else { return 0 };
     let Some(held) = mailbox.state.take() else { return 0 };
@@ -1675,26 +1751,85 @@ unsafe fn close_within(handle: i64, out: *mut BuriList, deadline: Duration) -> i
 /// `actor.stateTake(ctx, handle) -> Option<[Carried<S>]>` — the state, and with
 /// it the right to step this actor.
 ///
-/// Never waits. `.None` is "somebody else is stepping it, or it has stopped",
-/// and `core/actor::drive` reads both as "not mine to run" — which is what
-/// keeps two threads from stepping one actor at once without either of them
-/// blocking.
+/// **Waits while another task is stepping it**, for the baton that task gives
+/// back when it puts the state back, so a sender that arrives mid-step drives
+/// the mailbox — or finds its answer already written — once that step is done.
+/// Answering `.None` there instead was buri-lang/buri#205: the message was
+/// posted and stepped, and the answer went nowhere.
+///
+/// **Never waits for itself.** `.None` at once where the state is held by the
+/// caller, or by a task the caller was started from — a step sending to its
+/// own actor, directly or from a fan-out it made. That state goes back only
+/// after the caller has answered, and the loop that holds it steps the message
+/// before it does. `.None` too for a stopped actor, and for a wait that ran
+/// past [`ACTOR_DEADLINE`]; `core/actor::drive` reads every `.None` as "not
+/// mine to run".
 ///
 /// # Safety
 /// `out` is writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_actor_state_take(handle: i64, out: *mut BuriList) -> i32 {
+    // SAFETY: forwarded.
+    unsafe { take_within(handle, out, ACTOR_DEADLINE) }
+}
+
+/// [`buri_rt_actor_state_take`], with the deadline as a parameter — see
+/// [`permit_within`] for why there is one.
+///
+/// # Safety
+/// As [`buri_rt_actor_state_take`].
+unsafe fn take_within(handle: i64, out: *mut BuriList, deadline: Duration) -> i32 {
+    let baton = {
+        let mut table = actors();
+        let Some(mailbox) = at(&mut table, handle) else { return 0 };
+        if mailbox.closed {
+            return 0;
+        }
+        let free = match mailbox.baton.try_acquire() {
+            Ok(permit) => {
+                permit.forget();
+                true
+            }
+            Err(_) => false,
+        };
+        if free {
+            // SAFETY: forwarded.
+            return unsafe { handed(mailbox, out) };
+        }
+        match mailbox.holder {
+            Some(holder) if within(holder) => return 0,
+            _ => Arc::clone(&mailbox.baton),
+        }
+    };
+    // Outside the lock: the step this waits for takes it to put the state
+    // back. **Bounded**, which is [`ACTOR_DEADLINE`]'s row, and expiry is the
+    // same `.None` a stopped actor answers.
+    let Some(permit) = permit_within(&baton, deadline) else {
+        return 0;
+    };
+    permit.forget();
     let mut table = actors();
     let Some(mailbox) = at(&mut table, handle) else { return 0 };
     if mailbox.closed {
+        // Closed while this waited, and the close is waiting for this very
+        // baton: give it straight back.
+        mailbox.baton.add_permits(1);
         return 0;
     }
-    let Ok(permit) = mailbox.baton.try_acquire() else { return 0 };
-    permit.forget();
+    // SAFETY: forwarded.
+    unsafe { handed(mailbox, out) }
+}
+
+/// The state out of `mailbox`, to a caller that has just taken its baton.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriList`].
+unsafe fn handed(mailbox: &mut Mailbox, out: *mut BuriList) -> i32 {
     let Some(held) = mailbox.state.take() else {
         mailbox.baton.add_permits(1);
         return 0;
     };
+    mailbox.holder = Some(who());
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(held.give()) };
     crate::BURI_OK
@@ -1720,6 +1855,7 @@ pub unsafe extern "C" fn buri_rt_actor_state_put(
     let mut table = actors();
     let Some(mailbox) = at(&mut table, handle) else { return 0 };
     mailbox.state = Some(Held::keep(BuriList { ptr, len }));
+    mailbox.holder = None;
     let waiting = mailbox.queue.len() as i64;
     mailbox.baton.add_permits(1);
     // SAFETY: the caller promises a writable, aligned destination.
@@ -1816,7 +1952,7 @@ pub unsafe extern "C" fn buri_rt_actor_reply_take(handle: i64, out: *mut BuriLis
 // `core/tasks` — the scope a task is spawned into
 // ---------------------------------------------------------------------------
 //
-// Six exported entries, and they are the `core/actor` exception a second time
+// Ten exported entries, and they are the `core/actor` exception a second time
 // over: a scope is a place a task waits between the `spawn` that queued it and
 // the drain that runs it, so `lib.rs` §3's third bullet is amended for these as
 // well. Everything that made the actor entries expressible makes these
@@ -1834,7 +1970,8 @@ pub unsafe extern "C" fn buri_rt_actor_reply_take(handle: i64, out: *mut BuriLis
 // scratch record.
 //
 // The scheduling is `core/tasks`'s, in Buri, exactly as the mailbox's is
-// `core/actor`'s. This file holds a queue, a round and one flag.
+// `core/actor`'s. This file holds a queue, a round, one flag, and — for a
+// scope whose tasks run beside its body — the count its workers wait on.
 
 /// One scope: what is waiting, what this round handed out, and who is draining.
 struct ScopePlace {
@@ -1845,8 +1982,26 @@ struct ScopePlace {
     round: Vec<Option<Held>>,
     /// Whether somebody is running this scope's drain. `scopeOpen` answers a
     /// scope whose opener is, which is what keeps a `spawn` inside the body from
-    /// running its task before the body has finished.
+    /// running its task on the spawner.
     draining: bool,
+    /// The workers running this scope's tasks beside its body, from
+    /// `scopeBeside` on. `None` where the tasks wait for the body instead.
+    beside: Option<Beside>,
+}
+
+/// What the workers of a scope that runs its tasks beside its body share.
+struct Beside {
+    /// The body and the tasks still running. The workers are done when this is
+    /// zero and nothing is waiting.
+    busy: usize,
+    /// Workers parked in `scopeClaim`, ready for the next spawn.
+    idle: usize,
+    /// Who opened the scope. A worker running *as* the opener was handed its
+    /// half by a scheduler that runs steps one after another, and waiting there
+    /// would be waiting for a body that runs after it.
+    opener: Who,
+    /// Woken by every spawn, and by the body or a task ending.
+    wake: Arc<tokio::sync::Notify>,
 }
 
 /// Every scope a program has opened, by handle.
@@ -1881,7 +2036,12 @@ fn scope_at(table: &mut [ScopePlace], handle: i64) -> Option<&mut ScopePlace> {
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_tasks_scope_open() -> i64 {
     let mut table = scopes();
-    table.push(ScopePlace { waiting: VecDeque::new(), round: Vec::new(), draining: true });
+    table.push(ScopePlace {
+        waiting: VecDeque::new(),
+        round: Vec::new(),
+        draining: true,
+        beside: None,
+    });
     (table.len() - 1) as i64
 }
 
@@ -1905,6 +2065,9 @@ pub unsafe extern "C" fn buri_rt_tasks_scope_push(
     let Some(place) = scope_at(&mut table, handle) else { return 0 };
     place.waiting.push_back(Held::keep(BuriList { ptr, len }));
     let waiting = place.waiting.len() as i64;
+    if let Some(beside) = &place.beside {
+        beside.wake.notify_waiters();
+    }
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(waiting) };
     crate::BURI_OK
@@ -1997,6 +2160,104 @@ pub extern "C" fn buri_rt_tasks_scope_leave(handle: i64) -> u8 {
     let Some(place) = scope_at(&mut table, handle) else { return 0 };
     place.draining = false;
     u8::from(!place.waiting.is_empty())
+}
+
+/// `tasks.scopeBeside(ctx, handle) -> Bool` — whether this scope runs its
+/// tasks beside its body, and if so, counts the body as running.
+///
+/// Yes only where [`buri_rt_host_tasks_parallel`] fans out — both of §2's
+/// statements made — and outside a test binary, whose `TestTasks` double
+/// promises that nothing runs at once. Everywhere else a scope's tasks run
+/// after its body.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_tasks_scope_beside(handle: i64) -> u8 {
+    if !(crate::frames_are_per_thread() && crate::memory::values_may_cross_tasks())
+        || crate::testing::in_a_test()
+    {
+        return 0;
+    }
+    let mut table = scopes();
+    let Some(place) = scope_at(&mut table, handle) else { return 0 };
+    place.beside = Some(Beside {
+        busy: 1,
+        idle: 0,
+        opener: who(),
+        wake: Arc::new(tokio::sync::Notify::new()),
+    });
+    1
+}
+
+/// `tasks.scopeClaim(ctx, handle) -> Int` — the next task for a worker, as an
+/// index `scopeTaskAt` hands back, or `-1` once the worker is done.
+///
+/// **Waits** while nothing is waiting and something is still running: the body,
+/// or a task that may spawn. Done is nothing waiting and nothing running, and
+/// the call that makes it true wakes every worker.
+///
+/// Never waits as the opener, and answers `-1` there instead: the scope's drain
+/// runs whatever is left after the body.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_tasks_scope_claim(handle: i64) -> i64 {
+    loop {
+        let mut table = scopes();
+        let Some(place) = scope_at(&mut table, handle) else { return -1 };
+        let Some(beside) = place.beside.as_mut() else { return -1 };
+        if let Some(task) = place.waiting.pop_front() {
+            beside.busy += 1;
+            let at = match place.round.iter().position(Option::is_none) {
+                Some(at) => {
+                    place.round[at] = Some(task);
+                    at
+                }
+                None => {
+                    place.round.push(Some(task));
+                    place.round.len() - 1
+                }
+            };
+            return at as i64;
+        }
+        if beside.busy == 0 || beside.opener == who() {
+            return -1;
+        }
+        beside.idle += 1;
+        let wake = Arc::clone(&beside.wake);
+        // Armed before the lock is let go, so a spawn or an ending that lands
+        // between here and the park still wakes this worker.
+        let notified = wake.notified();
+        let mut notified = std::pin::pin!(notified);
+        notified.as_mut().enable();
+        drop(table);
+        park_on(notified.as_mut());
+        let mut table = scopes();
+        if let Some(beside) = scope_at(&mut table, handle).and_then(|p| p.beside.as_mut()) {
+            beside.idle = beside.idle.saturating_sub(1);
+        }
+    }
+}
+
+/// `tasks.scopeSpare(ctx, handle) -> Bool` — whether a worker is parked, ready
+/// for the next spawn.
+///
+/// A worker that has just claimed a task asks. Where nobody is, it splits in
+/// two before it runs the task, so a task that never ends never holds up one
+/// spawned after it.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_tasks_scope_spare(handle: i64) -> u8 {
+    let mut table = scopes();
+    let Some(place) = scope_at(&mut table, handle) else { return 0 };
+    u8::from(place.beside.as_ref().is_some_and(|b| b.idle > 0))
+}
+
+/// `tasks.scopeRan(ctx, handle) -> Bool` — the body, or a claimed task, has
+/// finished. Answers whether nothing is running any more.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_tasks_scope_ran(handle: i64) -> u8 {
+    let mut table = scopes();
+    let Some(place) = scope_at(&mut table, handle) else { return 0 };
+    let Some(beside) = place.beside.as_mut() else { return 0 };
+    beside.busy = beside.busy.saturating_sub(1);
+    beside.wake.notify_waiters();
+    u8::from(beside.busy == 0)
 }
 
 #[cfg(test)]
@@ -4114,6 +4375,68 @@ mod tests {
         // SAFETY: a writable, aligned destination.
         assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut refused) }, 0);
         drop_ref(&held);
+    }
+
+    /// **A take from a second thread waits for the step the first is running,
+    /// and a stop answers one still waiting at once** (buri-lang/buri#205).
+    ///
+    /// The first half is the fix: the waiting take gets the state the step put
+    /// back, rather than `.None` the moment it found the state out. The second
+    /// is the path a program cannot time: a take queued behind a step that never
+    /// ends is answered when the stop closes the baton, not at its own thirty
+    /// seconds.
+    #[test]
+    fn a_take_waits_for_a_step_on_another_thread_and_a_stop_answers_it() {
+        let state = carried(3);
+        // SAFETY: a live one-element block.
+        let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 4) };
+        drop_ref(&state);
+
+        let mut held = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut held) }, crate::BURI_OK);
+        let taking = || {
+            thread::spawn(move || {
+                let mut got = nothing();
+                // SAFETY: a writable, aligned destination.
+                let answer = unsafe { buri_rt_actor_state_take(actor, &raw mut got) };
+                if answer != crate::BURI_OK {
+                    return None;
+                }
+                // SAFETY: the block the runtime handed back, still counted here.
+                let mark = unsafe { mark_of(&got) };
+                drop_ref(&got);
+                Some(mark)
+            })
+        };
+
+        let first = taking();
+        thread::sleep(Duration::from_millis(50));
+        assert!(!first.is_finished(), "a take answered while another thread held the state");
+        let mut waiting = 0i64;
+        // SAFETY: a live one-element block, and a writable `i64`.
+        assert_eq!(
+            unsafe { buri_rt_actor_state_put(actor, held.ptr, held.len, &raw mut waiting) },
+            crate::BURI_OK
+        );
+        drop_ref(&held);
+        assert_eq!(first.join().unwrap(), Some(3), "the waiting take did not get the state back");
+
+        // The first taker never puts the state back, so this one waits behind a
+        // step that never ends — until the stop.
+        let second = taking();
+        thread::sleep(Duration::from_millis(50));
+        assert!(!second.is_finished(), "a take answered while another thread held the state");
+        let mut out = nothing();
+        // SAFETY: a writable, aligned destination.
+        let closed = unsafe { close_within(actor, &raw mut out, Duration::from_millis(80)) };
+        assert_eq!(closed, 0, "a close under a live step answered with a state it does not have");
+        let started = Instant::now();
+        while !second.is_finished() {
+            assert!(started.elapsed() < SOON, "the stop left a waiting take waiting");
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(second.join().unwrap(), None, "a take after the stop got a state");
     }
 
     /// A `stop` while the mailbox is full does not leave the poster waiting:

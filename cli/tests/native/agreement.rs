@@ -3416,9 +3416,12 @@ export fn main(): Result<(), Str> {
 /// `core/tasks` says `copyAcross` deep-copies the task out of every arena
 /// before it is queued, "because the runtime holds it past this call". This is
 /// the program that reaches that: the scope is opened outside the arena, so the
-/// body of `alloc.scoped` is not the drain and the task it spawns only runs
-/// once the arena has been released — and the closure's captured string was
-/// built in pages the arena is about to unmap.
+/// body of `alloc.scoped` is not the drain and the task it spawns runs once the
+/// arena has been released — and the closure's captured string was built in
+/// pages the arena is about to unmap. A `--release` build may start the task
+/// before the release instead, beside the body, and the copy is what makes
+/// either order safe. So the body prints nothing: what it built is printed
+/// after the scope, and the output is the same whichever order ran.
 ///
 /// `churn` is `cli/tests/conformance/lib/actor/test/scoped.buri`'s, and for the
 /// reason its header gives: a released arena block of exactly one standard
@@ -3461,9 +3464,9 @@ export fn main(): Result<(), Str> {
     Stdout: host.stdout,
     Tasks: host.tasks,
   };
-  let _ = tasks.scope(ctx, fn(c, here) => {
-    // The scope's body is the drain, so this spawn queues rather than running:
-    // the task is entered after `alloc.scoped` below has answered.
+  let built = tasks.scope(ctx, fn(c, here) => {
+    // The scope's body is the drain, so this spawn queues rather than running
+    // on the spawner.
     let built = alloc.scoped(c, fn(d) => {
       let big = "s".repeat(d, LOOSE);
       let _ = tasks.spawn(d, here, fn(e) => {
@@ -3473,12 +3476,13 @@ export fn main(): Result<(), Str> {
       big.length()
     });
     let _ = churn(c);
-    io.println(c, "the arena built ${built}").ignore()
+    built
   });
+  let _ = io.println(ctx, "the arena built ${built}").ignore();
   .Ok(())
 }
 "#,
-        "the arena built 70000\nthe task read 70000\n",
+        "the task read 70000\nthe arena built 70000\n",
     );
 }
 
@@ -3494,8 +3498,11 @@ export fn main(): Result<(), Str> {
 ///  * an inner scope closes before the outer one, so its task has finished
 ///    before the outer body's next line;
 ///  * a `Scope` fits in a message, so an actor's step can start background work
-///    — and the spawn lands in the drain the *sender* is inside, which is why
-///    the job runs after the body rather than during the step.
+///    — and the spawn lands in the scope the *sender* is inside, which waits
+///    for both jobs.
+///
+/// A body prints only what no spawned task can race: a `--release` build runs
+/// a task beside the body that spawned it.
 ///
 /// `cli/tests/conformance/lib/tasks/test/background.buri` is the same claims as
 /// a corpus, and its native run is the stencil backend alone.
@@ -3564,22 +3571,22 @@ export fn main(): Result<(), Str> {
 
   // A scope inside a scope waits for its own tasks and for nobody else's.
   let _ = tasks.scope(ctx, fn(c, outer) => {
-    let _ = tasks.spawn(c, outer, fn(c2) => {
-      let _ = io.println(c2, "outer task").ignore();
-      ()
-    });
     let _ = tasks.scope(c, fn(d, inner) => {
       let _ = tasks.spawn(d, inner, fn(d2) => {
         let _ = io.println(d2, "inner task").ignore();
         ()
       });
-      io.println(d, "inner body").ignore()
+      ()
     });
-    io.println(c, "outer body").ignore()
+    let _ = io.println(c, "outer body").ignore();
+    tasks.spawn(c, outer, fn(c2) => {
+      let _ = io.println(c2, "outer task").ignore();
+      ()
+    })
   });
 
-  // A step that spawns. The body is still running, so the scope is still its
-  // own drain and neither job starts until the body has finished.
+  // A step that spawns, into the scope the sender is inside. That scope waits
+  // for both jobs.
   let boss = actor.start(ctx, foreman());
   let started = tasks.scope(ctx, fn(c, here) => {
     let first = match (boss.sendMessage(c, .Run(here))) {
@@ -3590,7 +3597,6 @@ export fn main(): Result<(), Str> {
       .Ok(.Started(n)) => n,
       _gone => -1,
     };
-    let _ = io.println(c, "asked twice").ignore();
     first + second
   });
   let _ = io.println(ctx, "started ${started}").ignore();
@@ -3598,8 +3604,8 @@ export fn main(): Result<(), Str> {
   .Ok(())
 }
 "#,
-        "the task still ran\nbody the body gave up\ninner body\ninner task\nouter body\n\
-         outer task\nasked twice\nthe job ran\nthe job ran\nstarted 3\n",
+        "the task still ran\nbody the body gave up\ninner task\nouter body\nouter task\n\
+         the job ran\nthe job ran\nstarted 3\n",
     );
 }
 
