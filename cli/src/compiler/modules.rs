@@ -153,6 +153,9 @@ pub struct Loader<'a> {
     stack: Vec<String>,
     /// The rules whose generators this compilation has already reported on.
     generated_rules: std::collections::BTreeSet<TargetId>,
+    /// The tools whose entry points this compilation has already checked, so
+    /// a batch that reaches one twice reports it once.
+    checked_tools: std::collections::BTreeSet<TargetId>,
     /// See [`Loaded::platform`].
     platform: Option<Platform>,
     /// See [`Loaded::entry`].
@@ -178,6 +181,7 @@ impl<'a> Loader<'a> {
             by_path: HashMap::default(),
             stack: Vec::new(),
             generated_rules: std::collections::BTreeSet::new(),
+            checked_tools: std::collections::BTreeSet::new(),
             test_sources: Vec::new(),
             platform: None,
             entry: None,
@@ -284,6 +288,32 @@ impl<'a> Loader<'a> {
                 }
                 if unit.with_tests {
                     for src in bin.test.iter().flat_map(|t| t.sources.iter()) {
+                        if let Some(id) =
+                            self.load_package_source(target, &src.value, Role::TestSource, src.span)
+                        {
+                            self.test_sources.push(id);
+                        }
+                    }
+                }
+            }
+            RuleKind::Tool => {
+                let Some(tool) = &pkg.build.tool else { return };
+                self.load_closure_generators(target);
+                // A source rather than an entry: `tool.buri` has no `main` and
+                // builds no context. The toolchain writes the `main` that calls
+                // it, when it runs the tool.
+                let root = self.load_path(&pkg.module_path("tool.buri"), Role::Source, Span::NONE);
+                let ast = root.and_then(|r| self.modules.get(r.index())).map(|m| std::rc::Rc::clone(&m.ast));
+                if let Some(ast) = ast {
+                    if self.checked_tools.insert(target) {
+                        self.diags.extend(crate::build::tools::contract(&ast, tool));
+                    }
+                }
+                for src in &tool.sources {
+                    self.load_package_source(target, &src.value, Role::Source, src.span);
+                }
+                if unit.with_tests {
+                    for src in tool.test.iter().flat_map(|t| t.sources.iter()) {
                         if let Some(id) =
                             self.load_package_source(target, &src.value, Role::TestSource, src.span)
                         {
@@ -525,7 +555,7 @@ impl<'a> Loader<'a> {
     /// A code the catalogue knows prints under that code with the generator's
     /// own sentence, which is what keeps every `proto-*` page working when the
     /// `.proto` reader is a generator. A code it does not know prints under
-    /// `generator-diagnostic`, naming the code the generator asked for — a
+    /// `tool-diagnostic`, naming the code the generator asked for — a
     /// generator cannot invent a page, and a diagnostic with no page has no
     /// wording anybody can hold it to.
     fn generator_diagnostic(
@@ -535,12 +565,10 @@ impl<'a> Loader<'a> {
     ) -> Diagnostic {
         let span = self.generator_origin(d.origin.as_ref()).unwrap_or(entry);
         // The two the loader raises itself, whose wording is their page's.
-        if d.code == "generator-failed" {
-            let mut reported = Diagnostic::templated("generator-failed", span);
-            if let Some(note) = &d.note {
-                reported = reported.with_note(note.clone());
-            }
-            return reported;
+        if d.code == "tool-failed" {
+            return Diagnostic::templated("tool-failed", span)
+                .with_bind("tool", d.message.clone())
+                .with_bind("why", d.note.clone().unwrap_or_default());
         }
         if d.code == "no-such-source" {
             return Diagnostic::templated("no-such-source", span)
@@ -567,7 +595,7 @@ impl<'a> Loader<'a> {
         let known = crate::documentation::page_of_code(&d.code).is_some();
         let mut reported = match known {
             true => Diagnostic::error(span, d.message.clone()).with_code(d.code.clone()),
-            false => Diagnostic::templated("generator-diagnostic", span)
+            false => Diagnostic::templated("tool-diagnostic", span)
                 .with_bind("code", d.code.clone())
                 .with_bind("message", d.message.clone()),
         };
@@ -1040,12 +1068,21 @@ impl<'a> Loader<'a> {
                                     .with_bind("owner", owner.as_str())
                                     .with_bind("owner_path", dir)
                                     .with_bind("importer_file", importer_file)
+                                    .with_bind("rule", from.name())
                             }
                             RuleKind::Binary => {
                                 Diagnostic::templated("binary-source-import", span)
                                     .with_bind("path", path)
                                     .with_bind("owner", owner.as_str())
                                     .with_bind("importer_file", importer_file)
+                                    .with_bind("rule", from.name())
+                            }
+                            RuleKind::Tool => {
+                                Diagnostic::templated("tool-source-import", span)
+                                    .with_bind("path", path)
+                                    .with_bind("owner", owner.as_str())
+                                    .with_bind("importer_file", importer_file)
+                                    .with_bind("rule", from.name())
                             }
                         };
                         self.diags.push(d);

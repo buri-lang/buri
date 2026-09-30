@@ -67,9 +67,9 @@ pub fn command_build(args: &arguments::Args) -> i32 {
     let mut failed = false;
     // By reference: the resolved list is the catalogue's input too, below.
     for &target in &targets {
-        // Only a binary produces an artifact; a library is checked, which is
-        // what `buri build //lib/money` means.
-        if target.kind == RuleKind::Library {
+        // Only a binary produces an artifact; a library or a tool is checked,
+        // which is what `buri build //lib/money` means.
+        if target.kind != RuleKind::Binary {
             let mut diagnostics = crate::diagnostics::Diagnostics::new();
             // A library declares no outputs, so there is no platform this is
             // *for*; `Js` is the toolchain's default and is what this asked

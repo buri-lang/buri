@@ -98,8 +98,7 @@ pub enum Action {
     /// Running one rule's generators. Keyed on the platform, the rule's
     /// identity, the tool, and the contents of every declared input — which is
     /// the whole of what the modules a generator hands back depend on, because
-    /// `core/codegen`'s `run` gives the generating function `Stdin`, `Stdout`
-    /// and an allocator, and a tool that reaches past those does not compile.
+    /// a tool's `generate` is handed an allocator and nothing else.
     ///
     /// The one action whose program this toolchain did not write. See
     /// [`crate::build::generators`].
@@ -108,6 +107,8 @@ pub enum Action {
     /// JSON, its schema. Keyed on the file and on every schema the check
     /// reads, so editing either re-checks it.
     Check,
+    /// Asking a tool to lay out one file. Keyed on the tool and the file.
+    Format,
     Compile,
     /// Turning one codegen unit's lowered IR into object bytes. One action per
     /// unit, where a unit is the set of monomorphized functions whose
@@ -138,6 +139,7 @@ impl Action {
         match self {
             Action::Generate => "generate",
             Action::Check => "check",
+            Action::Format => "format",
             Action::Compile => "compile",
             Action::Codegen => "codegen",
             Action::Link => "link",
