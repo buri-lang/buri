@@ -86,65 +86,39 @@ fn snake_into(segment: &str, out: &mut String) {
 use crate::build::musl::{self, Libc};
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 
-/// The byte offset, inside an enum error `E`, of the `Str` its one
-/// message-carrying variant holds — or `None` for an `E` with no such variant.
+/// The byte offset, inside an enum error `E`, of the `Str` its
+/// message-carrying variants hold, or `None` for an `E` with nowhere to put one.
 ///
-/// This is `cli/runtime/lib.rs` §2.1's **message** shape, or rather the half of
-/// it that is a function of `E`'s own layout: *where* the message goes. Whether
-/// a given entry has one at all is the other half and is a column of each
-/// runtime table — the paragraph at the end of this comment is that
-/// distinction, and it is the one place in §2.1 where the two halves come
-/// apart.
+/// This is `cli/runtime/lib.rs` §2.1's **message** shape: *where* the message
+/// goes. *Whether* an entry writes one is a column of each runtime table
+/// (`Ret::ResMsg`), because two entries answering one `Result<Str, IoError>`
+/// can differ: one meets an `EISDIR`, the other is a map in memory.
 ///
-/// §2.1's rule is that the discriminant `0 ..= n` names a variant of `E` and
-/// that the variant it names carries no fields, because there is one
-/// out-pointer and it belongs to `.Ok`. That restriction is what kept every
-/// `FileSystem` operation out of both runtime tables: `IoError`'s seventh variant is
-/// `Other(Str)`, the one a native `read` of a directory or a `removeDir` of a
-/// non-empty one answers with, and an entry that could not carry its message
-/// would answer `.Other("")` — a failure that says nothing at all, where the
-/// JavaScript backend says `EISDIR` or `ENOTEMPTY`.
+/// `E` qualifies when:
 ///
-/// So the rule is widened by exactly one shape, and the shape is narrow enough
-/// that a layout decides it:
+/// * it is a **tagged** enum, since a bare one has no payload area;
+/// * every variant carries either nothing or **one field at the payload
+///   area's start**, and at least one carries that field;
+/// * the payload area is 24 bytes, which is a `Str` (VALUE-MODEL.md §3).
 ///
-/// * the error is a **tagged** enum — a bare one has no payload area at all;
-/// * **exactly one** variant carries fields, and it is the **last**;
-/// * that variant carries **exactly one field**, occupying the whole payload
-///   area, and the area is 24 bytes — which is a `Str` (VALUE-MODEL.md §3) and
-///   nothing else this language lays out that way.
+/// So every payload-carrying variant keeps its message at the same offset,
+/// and the address does not depend on which variant the discriminant names.
+/// `IoError` (`Other(Str)`) and `NetError` (`BadUrl(Str)`, `Transport(Str)`)
+/// both answer `Some(8)`.
 ///
-/// `IoError` answers `Some(8)`. `NetError` answers `None`, because `BadUrl` and
-/// `Transport` both carry a `Str` and two payload variants would need an
-/// out-pointer whose offset depends on which one the discriminant turned out to
-/// name — the switch §2.1 declined to generate, and still declines.
-///
-/// The entry then writes that `Str` on its failure path, and the **caller**
-/// zeroes the area first — so an entry that answered a classified variant and
-/// wrote nothing leaves an empty `Str` rather than whatever the frame held, and
-/// a backend needs no branch: it appends this one address, and on the failure
-/// side it zeroes the bytes *before* the message and leaves the message where
-/// the runtime put it. `cli/runtime/host.rs`'s `fail` is the one function on the
-/// other side of that.
-///
-/// **This answers *where*, never *whether*.** Which entries take the pointer is
-/// a column of each runtime table (`Ret::ResMsg`), because it is a property of
-/// the implementation rather than of `E`: two entries answering one
-/// `Result<Str, IoError>` have different C signatures when one can meet an
-/// `EISDIR` and the other is a map in memory. A row that claims a message for
-/// an `E` this answers `None` for is emitted without one, which leaves the
-/// entry a parameter nobody fills — the safe direction.
+/// The caller zeroes the area before the call, the entry writes the message
+/// where it has one, and on failure the caller zeroes only the bytes in front
+/// of it. A fieldless variant therefore keeps an empty `Str` it never reads.
+/// `cli/runtime/host.rs`'s `fail` is the runtime's side.
 pub fn error_message_offset(err: &Layout) -> Option<u32> {
     let Repr::Enum { repr: EnumRepr::Tagged { payload, .. }, variants } = &err.repr else {
         return None;
     };
-    let (last, rest) = variants.split_last()?;
-    if !rest.iter().all(Vec::is_empty) {
+    let carries = |fields: &Vec<u32>| fields.len() == 1 && fields.first() == Some(payload);
+    if !variants.iter().all(|fields| fields.is_empty() || carries(fields)) {
         return None;
     }
-    // One field, at the payload area's own start, filling it — 24 bytes, which
-    // is a `Str`.
-    if last.len() != 1 || last.first() != Some(payload) {
+    if !variants.iter().any(carries) {
         return None;
     }
     if err.size.checked_sub(*payload) != Some(STR_BYTES) {
@@ -703,23 +677,19 @@ mod tests {
         assert_eq!(error_message_offset(&io_error), Some(8));
     }
 
-    /// `NetError`: two variants carry a `Str`, so the out-pointer's offset
-    /// would depend on which one the discriminant named — which is the switch
-    /// §2.1 declines to generate.
+    /// `NetError`: two variants carry a `Str`, both at the payload area's start,
+    /// so one address serves whichever the discriminant names.
     #[test]
-    fn two_payload_variants_are_not_the_message_shape() {
+    fn every_payload_variant_holding_one_str_is_the_message_shape() {
         let net_error = tagged(32, vec![vec![], vec![], vec![8], vec![8], vec![]]);
-        assert_eq!(error_message_offset(&net_error), None);
+        assert_eq!(error_message_offset(&net_error), Some(8));
     }
 
-    /// A payload variant that is not the last one. The rule names the last
-    /// because that is where `Other` is, and a rule that took "the only
-    /// non-empty one" would quietly accept an enum whose indices no longer
-    /// line up with the archive's.
+    /// A variant with two fields has no single place for a message.
     #[test]
-    fn a_payload_variant_that_is_not_last_is_not_the_message_shape() {
-        let odd = tagged(32, vec![vec![], vec![8], vec![]]);
-        assert_eq!(error_message_offset(&odd), None);
+    fn a_variant_with_two_fields_is_not_the_message_shape() {
+        let two = tagged(32, vec![vec![], vec![8], vec![8, 16]]);
+        assert_eq!(error_message_offset(&two), None);
     }
 
     /// A payload that is not 24 bytes is not a `Str`, whatever else it is —
