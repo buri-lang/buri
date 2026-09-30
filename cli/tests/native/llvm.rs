@@ -2505,6 +2505,98 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// The same count for an element type that **holds a reference**: a `[Str]`
+/// and a `[(Str, Int)]` grown one `push` at a time. Issue #211: each push
+/// copied the whole list, so building one was quadratic. The strings are
+/// literals, which allocate nothing, so every block counted is a list block.
+#[test]
+fn a_unique_push_loop_of_counted_elements_allocates_logarithmically() {
+    skip_unless_executable!();
+    let (out, err, code) = build_and_run_with(
+        "push-growth-counted",
+        &program(
+            r#"
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+export fn words(xs: [Str], i: Int): [Str] {
+  if (i == 0) { xs } else { words(xs.push(host.alloc, "w"), i - 1) }
+}
+
+export fn pairs(xs: [(Str, Int)], i: Int): [(Str, Int)] {
+  if (i == 0) { xs } else { pairs(xs.push(host.alloc, ("p", i)), i - 1) }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let ws = words([], 2000);
+  let ps = pairs([], 2000);
+  let last = match (ps.last()) { .Some(p) => p.1, .None => -1 };
+  let _ = io.println(ctx, "${ws.length()} ${ps.length()} ${last}").ignore();
+  .Ok(())
+}
+"#,
+        ),
+        Some(ALLOC_PROBE),
+    );
+    assert_eq!(out, "2000 2000 1\n", "stderr was: {err}");
+    assert_eq!(code, Some(0), "stderr was: {err}");
+    let (blocks, live) = probed(&err);
+    assert!(
+        blocks < 60,
+        "four thousand pushes allocated {blocks} blocks: the uniqueness fast path did not fire"
+    );
+    assert_eq!(live, 0, "{blocks} blocks allocated and {live} still live at exit");
+}
+
+/// A slot past one list's end can hold an element a **longer**, now-dead list
+/// put there; a `push` onto the shorter one must neither write over it
+/// unreleased nor let the two lists see each other.
+#[test]
+fn a_push_after_a_longer_sibling_died_keeps_both_answers() {
+    skip_unless_executable!();
+    let (out, err, code) = build_and_run_with(
+        "push-after-sibling",
+        &program(
+            r#"
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+export fn build(xs: [Str], i: Int): [Str] {
+  if (i == 0) { xs } else { build(xs.push(host.alloc, str.fromInt(host.alloc, i)), i - 1) }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let xs = build([], 10);
+  let longer = xs.push(ctx, str.fromInt(ctx, 100));
+  let seen = longer.join(ctx, ",");
+  let other = xs.push(ctx, str.fromInt(ctx, 200));
+  let doubled = xs.concat(ctx, xs);
+  let tail = xs.concat(ctx, ["x".concat(ctx, "y")]);
+  let _ = io.println(ctx, seen).ignore();
+  let _ = io.println(ctx, other.join(ctx, ",")).ignore();
+  let _ = io.println(ctx, xs.join(ctx, ",")).ignore();
+  let _ = io.println(ctx, doubled.join(ctx, ",")).ignore();
+  let _ = io.println(ctx, tail.join(ctx, ",")).ignore();
+  .Ok(())
+}
+"#,
+        ),
+        Some(ALLOC_PROBE),
+    );
+    let ten = "10,9,8,7,6,5,4,3,2,1";
+    assert_eq!(
+        out,
+        format!("{ten},100\n{ten},200\n{ten}\n{ten},{ten}\n{ten},xy\n"),
+        "stderr was: {err}"
+    );
+    assert_eq!(code, Some(0), "stderr was: {err}");
+    let (blocks, live) = probed(&err);
+    assert_eq!(live, 0, "{blocks} blocks allocated and {live} still live at exit");
+}
+
 /// The same guard for the list half: two pushes onto a list a binding still
 /// holds must answer two distinct lists and leave the original alone.
 #[test]
