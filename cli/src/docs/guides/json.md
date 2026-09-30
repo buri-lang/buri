@@ -115,3 +115,94 @@ is left as it is, and `buri format --check` names it.
 ```json
 { "$schema": "regions.schema.json", "regions": ["eu-west", "us-east"] }
 ```
+
+## Generating types
+
+`std/json` in `generators` gives a module named after each file:
+
+```textproto schema=build
+library {
+    generators: [
+        { tool: "std/json", inputs: ["regions.schema.json", "regions.json"] },
+    ]
+}
+```
+
+```buri ignore why="it imports modules the build generates from the JSON files"
+from "//lib/deploy/regions.json" import { Regions, regions };
+from "//lib/deploy/regions.schema.json" import { Region };
+```
+
+- **A schema file** gives the types it describes.
+- **A data file** gives the types its `"$schema"` describes, and its contents
+  as `export let regions: Regions`, named after the file.
+- **The root type** is named after the schema's `title`, or its file name up
+  to the first `.` when there is none.
+
+A tool with a [contract](../reference/build/tools.md#input-contracts) gets the
+same types, generated into the tool, with a `decode` for the values it is
+handed.
+
+### The mapping
+
+| JSON Schema | Buri |
+|---|---|
+| `"type": "object"` with `properties` | a struct, one exported field per property |
+| a property in `required` | the field's type |
+| any other property | `Option` of it |
+| `"type": "array"` with `items` | `[T]` |
+| `"enum"` of strings | an enum, one variant per string |
+| `$ref` to `$defs` | the named type, declared once |
+| `oneOf` of objects told apart by one required `const` string | an enum, a variant per branch carrying its struct |
+| `"string"`, `"integer"`, `"number"`, `"boolean"` | `Str`, `Int`, `F64`, `Bool` |
+| `"null"` beside one other type, in `type` or `anyOf`/`oneOf` | `Option` of that type |
+| `"type": "null"` alone | `()` |
+| `"object"` with only `additionalProperties` | `[(Str, T)]`, in document order |
+| `{}`, `true`, or an object with neither | `core/json`'s `Json` |
+| `const` | the constant's type |
+
+```json
+{
+    "title": "Config",
+    "type": "object",
+    "properties": {
+        "name": { "type": "string" },
+        "port": { "type": "integer", "minimum": 1 },
+        "tier": { "enum": ["free", "pro-plus"] }
+    },
+    "required": ["name", "tier"]
+}
+```
+
+```buri
+export struct Config {
+    export name: Str,
+    export port: Option<Int>,
+    export tier: ConfigTier,
+}
+
+export enum ConfigTier {
+    Free,
+    ProPlus,
+}
+```
+
+- **Names.** A type is named after its `title`, then its `$defs` name, then
+  its place: `tier` inside `Config` is `ConfigTier`. Fields and variants are
+  camel case, and a keyword gets a trailing `_`, so `"type"` is `type_`.
+- **Every type derives `Equal` and `Show`.**
+- **Not every property is a field.** `"$schema"` says where the schema is, and
+  a property with a `const` has one value, so neither gets a field. That is
+  also what drops the tag from a `oneOf`'s variants.
+- **Validation stays the check's.** `pattern`, `minimum`, `format`,
+  `minLength` and the rest describe values, not types, and the check has
+  already enforced them.
+- JSON5's `Infinity`, `-Infinity` and `NaN` read as `F64`.
+
+A construct no one Buri type follows is refused where the schema writes it,
+as [`json-schema-no-type`](../reference/errors/json-schema-no-type.md): `if`,
+`then` and `else`; `allOf`; an `anyOf`, or a `oneOf` with no `const` tag;
+`patternProperties`; `dependentSchemas`; `additionalProperties` holding a
+schema beside `properties`; `unevaluatedProperties` or `unevaluatedItems`
+holding a schema; `prefixItems`; `$dynamicRef`; an `enum` of anything but
+strings; and a `type` of several types.
