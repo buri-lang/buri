@@ -34,8 +34,8 @@ fn conformance_repo() -> std::path::PathBuf {
 fn conformance_suite_passes() {
     // A copy, so the suite cannot be disturbed by anything else running, and
     // starts from an empty cache rather than from whatever was left behind.
-    let suite = Scratch::copy_of("conformance", &conformance_repo());
-    let run = suite.run(&["test", "//...", "--force"]);
+    // The run is shared with the other tests that ask about the same one.
+    let run = crate::debug_suite::unmodified_conformance_run();
     run.ok();
 
     // A suite that compiled to nothing would "pass" with zero assertions, so
@@ -376,16 +376,31 @@ export fn main(): Result<(), Str> {
 /// actually smaller, so "identical behaviour" cannot be bought by doing nothing.
 #[test]
 fn release_and_debug_agree() {
-    let mut counts = Vec::new();
-    for mode in ["--debug", "--release"] {
-        let suite = Scratch::copy_of("agree-suite", &conformance_repo());
-        let run = suite.run(&["test", "//...", mode, "--force"]);
-        run.ok();
+    // The two halves are independent, so they run at once, each in a copy of
+    // its own. Debug is the default mode, so the debug half is the suite as
+    // `conformance_suite_passes` runs it, and it is that same run.
+    let whole = |mode: &str, run: &Run| -> usize {
+        assert!(
+            run.code == 0,
+            "the {mode} half: `{}` exited {} rather than 0:\n{}",
+            run.what,
+            run.code,
+            indent(&run.all())
+        );
         let passed = run.tests_passed();
         assert!(passed > 100, "expected the whole suite {mode}, ran {passed}");
-        counts.push(passed);
-    }
-    assert_eq!(counts[0], counts[1], "the two modes ran different numbers of assertions");
+        passed
+    };
+    let (debug, release) = both_halves(
+        "--debug",
+        || whole("--debug", crate::debug_suite::unmodified_conformance_run()),
+        "--release",
+        || {
+            let suite = Scratch::copy_of("agree-suite", &conformance_repo());
+            whole("--release", &suite.run(&["test", "//...", "--release", "--force"]))
+        },
+    );
+    assert_eq!(debug, release, "the two modes ran different numbers of assertions");
 
     // And a whole program's stdout, which no assertion inside a program covers.
     let example = Scratch::copy_of("agree-example", &example_repo());
@@ -405,8 +420,35 @@ fn release_and_debug_agree() {
     );
     eprintln!(
         "minify: {} assertions hold both ways; //cmd/web {} -> {} bytes",
-        counts[0], sizes[0], sizes[1]
+        debug, sizes[0], sizes[1]
     );
+}
+
+/// Two independent halves of one test, on two threads at once, answered in
+/// the order they are named.
+///
+/// Each thread is named for the test and its half, so a panic in either says
+/// which half it was. A half that panics is re-raised once both have stopped,
+/// and when both do, the first named is the one re-raised.
+pub(crate) fn both_halves<A: Send, B: Send>(
+    first_name: &str,
+    first: impl FnOnce() -> A + Send,
+    second_name: &str,
+    second: impl FnOnce() -> B + Send,
+) -> (A, B) {
+    let test = std::thread::current().name().unwrap_or("a test").to_string();
+    std::thread::scope(|scope| {
+        let spawn = |half: &str| {
+            std::thread::Builder::new().name(format!("{test} ({half})"))
+        };
+        let a = spawn(first_name).spawn_scoped(scope, first).expect("a thread for a half");
+        let b = spawn(second_name).spawn_scoped(scope, second).expect("a thread for a half");
+        let (a, b) = (a.join(), b.join());
+        match (a, b) {
+            (Ok(a), Ok(b)) => (a, b),
+            (Err(panic), _) | (_, Err(panic)) => std::panic::resume_unwind(panic),
+        }
+    })
 }
 
 // ---------------------------------------------------------------------------
