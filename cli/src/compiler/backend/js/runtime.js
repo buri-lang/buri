@@ -918,38 +918,80 @@ function $chars(s) {
 // has exactly one scalar per code unit, its `length` is the scalar count, and
 // `s[i]` is the scalar at index `i`.
 //
-// That is worth testing for, because `$chars` allocates an array as long as the
-// string: without this, `len` was O(n) *with an allocation*, and the ordinary
-// `for i in 0..s.length() { s.charAt(i) }` scan was O(n²) with n allocations. The
-// scan is still quadratic here — the fix for that is to iterate `chars()`
-// rather than to index — but the constant is about a hundred times smaller.
+// A string that does hold one is indexed through a table of where each scalar
+// starts: entry `i` is the code unit scalar `i` begins at, and one last entry
+// is `s.length`, so scalar `i` is `s.slice(t[i], t[i + 1])` and the count is
+// `t.length - 1`. A pair is one scalar, and so is a lone unpaired surrogate —
+// the same split `Array.from` makes.
 //
-// A lone unpaired surrogate takes the slow path, where `Array.from` yields it
-// as one element, which is the same answer as before.
+// `length`, `charAt` and `slice` get asked of one long string over and over —
+// the `core/buri/ast` lexer slices its whole source once per token, and the
+// ordinary `for i in 0..s.length() { s.charAt(i) }` scan asks once per scalar
+// — so the answer for the last long string asked about is kept: its table, or
+// `null` when it holds no surrogate. Without that, every question about a
+// string with one emoji in it cost a pass and an allocation as long as the
+// string. The key is compared with `===`, which on strings compares the
+// characters, so a different string never reads another's table; and the
+// table is never handed out, so nothing but this can change it. A short string
+// is cheap to measure again, and is not kept, so it cannot push out a long one.
 const $surrogate = /[\uD800-\uDFFF]/;
 
 function $wide(s) {
   return $surrogate.test(s);
 }
 
+const $startsKept = 256;
+let $startsKey = "";
+let $startsTable = null;
+
+function $starts(s) {
+  if (s === $startsKey) return $startsTable;
+  const t = $wide(s) ? $scalarStarts(s) : null;
+  if (s.length >= $startsKept) {
+    $startsKey = s;
+    $startsTable = t;
+  }
+  return t;
+}
+
+function $scalarStarts(s) {
+  const n = s.length;
+  const t = [];
+  let i = 0;
+  while (i < n) {
+    t.push(i);
+    const c = s.charCodeAt(i);
+    const paired = c >= 0xd800 && c <= 0xdbff && i + 1 < n && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00;
+    i += paired ? 2 : 1;
+  }
+  t.push(n);
+  return t;
+}
+
 function $str_length(s) {
-  return BigInt($wide(s) ? $chars(s).length : s.length);
+  const t = $starts(s);
+  return BigInt(t === null ? s.length : t.length - 1);
 }
 
 function $str_charAt(s, i) {
   const n = Number(i);
-  if (!$wide(s)) return n >= 0 && n < s.length ? $some(s[n]) : undefined;
-  const cs = $chars(s);
-  return n >= 0 && n < cs.length ? $some(cs[n]) : undefined;
+  const t = $starts(s);
+  if (t === null) return n >= 0 && n < s.length ? $some(s[n]) : undefined;
+  return n >= 0 && n < t.length - 1 ? $some(s.slice(t[n], t[n + 1])) : undefined;
 }
 
 function $str_slice(s, a, b) {
   const lo = Math.max(0, Number(a));
   const hi = Math.max(0, Number(b));
   // `String.prototype.slice` clamps past the end and answers "" when the end
-  // is at or before the start, which is what the array path does too.
-  if (!$wide(s)) return s.slice(lo, hi);
-  return $chars(s).slice(lo, hi).join("");
+  // is at or before the start, and the table path clamps to the scalar count
+  // and answers the same.
+  const t = $starts(s);
+  if (t === null) return s.slice(lo, hi);
+  const m = t.length - 1;
+  const l = Math.min(lo, m);
+  const h = Math.min(hi, m);
+  return h <= l ? "" : s.slice(t[l], t[h]);
 }
 
 function $str_trim(s) {
@@ -980,9 +1022,17 @@ function $str_indexOf(s, n) {
   const i = s.indexOf(n);
   if (i < 0) return undefined;
   // The answer is a scalar index, and `indexOf` gives a code-unit index, so
-  // what has to be counted is the prefix — and only when it holds a surrogate.
-  const prefix = s.slice(0, i);
-  return $some(BigInt($wide(prefix) ? $chars(prefix).length : i));
+  // what has to be counted is the scalars that start before it.
+  const t = $starts(s);
+  if (t === null) return $some(BigInt(i));
+  let lo = 0;
+  let hi = t.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (t[mid] < i) lo = mid + 1;
+    else hi = mid;
+  }
+  return $some(BigInt(lo));
 }
 
 // Two slices, or .None when the separator does not occur. Pure, because
