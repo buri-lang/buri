@@ -22,9 +22,10 @@
 //! editing the tool, the file, or a file it read asks again, and nothing else
 //! does.
 //!
-//! The toolchain's own tools are `std/json`, whose `check` and `format` are
-//! native ([`crate::languages::json`]), and `std/proto`, whose `generate` is a
-//! Buri program like any other tool.
+//! The toolchain's own tools are `std/json`, whose entry points are native
+//! ([`crate::languages::json`]), and `std/proto`, whose `check` and `generate`
+//! are a Buri program like any other tool and whose `format` is native
+//! ([`crate::languages::proto`]).
 
 use crate::build::buildfile::{self, Output, Platform, Spanned};
 use crate::build::cache::{Action, ActionKey, Cache, KeyBuilder};
@@ -43,7 +44,7 @@ pub const ENTRY_POINTS: [&str; 3] = ["check", "format", "generate"];
 /// The built-in JSON tool: `check`, `format` and `generate`, in-tree.
 pub const JSON: &str = "std/json";
 
-/// The built-in `.proto` tool: `generate`, through `std/proto`.
+/// The built-in `.proto` tool: `check`, `format` and `generate`.
 pub const PROTO: &str = "std/proto";
 
 /// What a tool name refers to.
@@ -86,8 +87,7 @@ impl Tool {
             Tool::Repo(t) => {
                 workspace.package(t.package).build.tool.as_ref().is_some_and(|r| r.block(entry).is_some())
             }
-            Tool::Json => ENTRY_POINTS.contains(&entry),
-            Tool::Proto => entry == "generate",
+            Tool::Json | Tool::Proto => ENTRY_POINTS.contains(&entry),
         }
     }
 
@@ -181,6 +181,9 @@ fn contracts(workspace: &Workspace, rule: &buildfile::Tool, out: &mut Vec<Diagno
                             .with_bind("known", known),
                     );
                 }
+                Some(l) if matches!(l.kind, Kind::Proto) => out.push(
+                    Diagnostic::templated("proto-contract-unsupported", a.language.span).with_bind("tool_entry", entry),
+                ),
                 Some(l) if l.tools().is_some_and(|t| t.generate.is_none()) => out.push(
                     Diagnostic::templated("accepts-language-without-generate", a.language.span).with_bind("language", name),
                 ),
@@ -506,7 +509,8 @@ fn source(workspace: &Workspace, tool: Tool) -> Option<(Option<crate::build::wor
             Some((Some(t.package), package.module_path("(tool main)"), main))
         }
         Tool::Proto => {
-            Some((None, "(std/proto main)".to_string(), harness("std/proto", &|e| e == "generate", &|_| Vec::new())))
+            // `format` is in-tree, so the program serves the other two.
+            Some((None, "(std/proto main)".to_string(), harness("std/proto", &|e| e != "format", &|_| Vec::new())))
         }
         Tool::Json => None,
     }
@@ -776,11 +780,14 @@ pub fn check_file(
 ) -> Option<Checked> {
     let languages = &session.workspace.repo.languages;
     let language = languages.of(rel)?;
-    let named = match &language.kind {
+    let (tool, name) = match &language.kind {
         Kind::BuiltIn(_) => return Some(check_json(session, language, rel, text, contract, read, flags)),
-        Kind::Custom(tools) => tools.check.as_ref()?,
+        Kind::Proto => (Tool::Proto, PROTO.to_string()),
+        Kind::Custom(tools) => {
+            let named = tools.check.as_ref()?;
+            (resolve(&session.workspace, &named.value).ok()?, named.value.clone())
+        }
     };
-    let tool = resolve(&session.workspace, &named.value).ok()?;
     if tool == Tool::Json {
         return Some(check_json(session, language, rel, text, contract, read, flags));
     }
@@ -816,7 +823,7 @@ pub fn check_file(
             let mut k = KeyBuilder::new(Action::Check, flags.mode);
             k.rule_identity(rel, "failed", &[]);
             k.input(rel, text.as_bytes());
-            let failed = Finding::new("tool-failed", rel, (0, 0), vec![("tool", named.value.clone()), ("why", why)]);
+            let failed = Finding::new("tool-failed", rel, (0, 0), vec![("tool", name), ("why", why)]);
             Checked { key: k.finish(), findings: vec![failed], asked: BTreeSet::new() }
         }
     })
@@ -891,6 +898,7 @@ pub fn format_file(session: &Session, rel: &str, text: &str, flags: &Flags) -> F
     let Some(language) = languages.of(rel) else { return Formatted::Unformatted };
     let named = match &language.kind {
         Kind::BuiltIn(dialect) => return refused(crate::languages::json::format(text, *dialect)),
+        Kind::Proto => return refused(crate::languages::proto::format(text)),
         Kind::Custom(tools) => match &tools.format {
             Some(named) => named,
             None => return Formatted::Unformatted,
@@ -898,6 +906,7 @@ pub fn format_file(session: &Session, rel: &str, text: &str, flags: &Flags) -> F
     };
     let tool = match resolve(&session.workspace, &named.value) {
         Ok(Tool::Json) => return refused(crate::languages::json::format(text, crate::languages::json::Dialect::Json)),
+        Ok(Tool::Proto) => return refused(crate::languages::proto::format(text)),
         Ok(tool) => tool,
         Err(_) => return Formatted::Unformatted,
     };

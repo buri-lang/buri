@@ -1,0 +1,66 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "buri format lays out the .proto files a rule references: one statement per line, a block indented, one empty line at most, every comment kept, long options broken one per line; a file whose string does not close and one nothing references stay exactly as they are, --check reports without rewriting, and the formatted schema still generates"
+
+run {
+  args: ["format", "--check"]
+  exit: 1
+  golden: "check.txt"
+}
+
+file {
+  path: "lib/fmt/order.proto"
+  golden: "order_before.proto"
+}
+
+run {
+  args: ["format"]
+  exit: 0
+  golden: "format.txt"
+}
+
+file {
+  path: "lib/fmt/order.proto"
+  golden: "order.proto"
+}
+
+file {
+  path: "lib/fmt/broken.proto"
+  golden: "broken.proto"
+}
+
+# No rule lists it, so it is not the repository's to format.
+file {
+  path: "lib/fmt/stray.proto"
+  golden: "stray.proto"
+}
+
+# A fixed point: nothing to report but the file that still does not parse.
+run {
+  args: ["format", "--check", "//lib/fmt"]
+  exit: 1
+  golden: "check_after.txt"
+}
+
+edit {
+  file: "lib/fmt/broken.proto"
+  replace: "\"open]"
+  with: "\"open\"]"
+}
+
+run {
+  args: ["format", "lib/fmt"]
+  exit: 0
+  golden: "format_path.txt"
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 0
+}
+
+run {
+  args: ["build", "//lib/fmt"]
+  exit: 0
+}

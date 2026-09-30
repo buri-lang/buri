@@ -1,0 +1,23 @@
+// Orders, as the shop's API sends them.
+
+
+edition="2026";
+package shop.v1;
+
+
+
+/* Where an order is.
+      * Every order starts PLACED.
+      */
+enum Status{STATUS_UNSPECIFIED=0;PLACED=1; // new
+SHIPPED=2;}
+message Order {
+    string id=1;   // opaque
+  Status status = 2;
+
+
+  repeated string items = 3 [features.repeated_field_encoding = EXPANDED, json_name = "lineItemsForThisOrderAsTheShopSendsThem"];
+  // Which way it goes.
+  oneof delivery{string address=4;string locker=5;}
+  message Note { string text = 1; }
+}

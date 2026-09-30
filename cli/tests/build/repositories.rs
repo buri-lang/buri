@@ -86,7 +86,7 @@ fn graph_queries() {
 /// conversions (buri-lang/buri#43).
 #[test]
 fn proto_schemas() {
-    run_corpus(&tests_dir().join("repositories/proto"), "proto", 8);
+    run_corpus(&tests_dir().join("repositories/proto"), "proto", 10);
 }
 
 /// BUILD-FILES.md's `generators`: a tool's `generate`, whose answer
@@ -472,7 +472,7 @@ fn snapshots() {
 /// rather than as an editor behaving differently.
 #[test]
 fn language_server() {
-    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 97);
+    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 98);
 }
 
 /// Every method a 3.17 client can send is answered by the dispatch, and is

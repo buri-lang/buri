@@ -349,6 +349,10 @@ impl ModuleLocation {
 
 /// Whether a module path names a file rather than a module directory.
 ///
+/// Why a schema a `generators` entry lists has no module: a check failed, and
+/// said so on the file it failed.
+pub const SCHEMA_HAS_ERRORS: &str = "a schema this entry lists has errors, so it generated nothing";
+
 /// The two extensions a module can have are `.buri` and `.proto`. Asked of the
 /// *path* rather than of the disk, because this is half of the question "may
 /// this file be written here" — the other half is which package the writer is
@@ -838,11 +842,19 @@ impl Workspace {
                 // A `.proto` names a schema, and a schema is a generator's
                 // input rather than a module of its own. The only module one
                 // produces is the one `std/proto` handed back, which
-                // the lookup above already answered — so reaching here means no
-                // `generators` entry declares it, and the sentence says which
-                // of the two ways that happened.
+                // the lookup above already answered — so reaching here means its
+                // check failed, or no `generators` entry declares it, and the
+                // sentence says which.
                 r if r.ends_with(".proto") => {
                     let file = package.dir.join(r);
+                    let listed = self
+                        .targets()
+                        .into_iter()
+                        .filter(|t| t.package == *id)
+                        .any(|t| crate::build::generators::inputs(self, t).iter().any(|i| i == r));
+                    if listed && file.is_file() {
+                        return Err(SCHEMA_HAS_ERRORS.to_string());
+                    }
                     return Err(if file.is_file() {
                         format!(
                             "\"{path}\" names a schema, and no `generators` entry in {} hands it to a tool",

@@ -1,0 +1,54 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a .proto a generator lists is checked by std/proto before the generator runs: an import it reads from the repository, one that names nothing or leaves the repository, a field number or name used twice or reserved, a type that names nothing, and a statement that does not parse, each where it is written"
+
+# `shape.proto` imports `colour.proto`, which the check reads to resolve
+# `Colour`, and `reserved` holds numbers and a name no field uses.
+run {
+  args: ["build", "//lib/wire"]
+  exit: 0
+}
+
+edit {
+  file: "lib/wire/shape.proto"
+  replace: "import \"lib/wire/colour.proto\";\n"
+  with: "import \"lib/wire/colour.proto\";\nimport \"lib/wire/missing.proto\";\nimport \"../outside.proto\";\n"
+}
+
+edit {
+  file: "lib/wire/shape.proto"
+  replace: "    double radius = 4;\n  }\n}"
+  with: "    double radius = 3;\n  }\n  string name = 5;\n  int64 area = 11;\n  bool legacy = 6;\n  Texture texture = 8;\n  int32 = 9;\n}"
+}
+
+# Every finding at its own line, the generator does not run, and the module it
+# would have made is missing for that reason.
+run {
+  args: ["lint", "//lib/wire"]
+  exit: 1
+  golden: "broken.txt"
+}
+
+run {
+  args: ["build", "//lib/wire", "--dense"]
+  exit: 1
+  golden: "broken_build.txt"
+}
+
+edit {
+  file: "lib/wire/shape.proto"
+  replace: "import \"lib/wire/missing.proto\";\nimport \"../outside.proto\";\n"
+  with: ""
+}
+
+edit {
+  file: "lib/wire/shape.proto"
+  replace: "    double radius = 3;\n  }\n  string name = 5;\n  int64 area = 11;\n  bool legacy = 6;\n  Texture texture = 8;\n  int32 = 9;\n}"
+  with: "    double radius = 4;\n  }\n}"
+}
+
+run {
+  args: ["build", "//lib/wire"]
+  exit: 0
+}

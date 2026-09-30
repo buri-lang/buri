@@ -9,13 +9,15 @@
 //! ```
 //!
 //! The extension decides the language. The built-in languages are `json`,
-//! `jsonc` and `json5`, which `std/json` checks and formats natively; a
-//! `REPO.buri` may give one of them more extensions and nothing else. A
+//! `jsonc` and `json5`, which `std/json` checks and formats natively, and
+//! `proto`, which `std/proto` checks and this crate formats; a `REPO.buri` may
+//! give one of them more extensions and nothing else. A
 //! language of a repository's own names the `tool` rules that check, format
 //! and generate from it. Only a file some rule's `inputs` lists is checked or
 //! formatted, so a `package.json` beside the sources is left alone.
 
 pub mod json;
+pub mod proto;
 
 use crate::build::buildfile::Spanned;
 use crate::diagnostics::{Diagnostic, Span};
@@ -34,6 +36,8 @@ pub struct Language {
 pub enum Kind {
     /// `json`, `jsonc` or `json5`: `std/json`, in-tree.
     BuiltIn(json::Dialect),
+    /// `proto`: `std/proto` checks it, and [`proto::format`] lays it out.
+    Proto,
     /// A language a `REPO.buri` declared. Each field is the tool it names, as
     /// written; the entry point of the same name on that tool does the work.
     Custom(Tools),
@@ -64,14 +68,19 @@ impl Language {
     pub fn dialect(&self) -> Option<json::Dialect> {
         match &self.kind {
             Kind::BuiltIn(d) => Some(*d),
-            Kind::Custom(_) => None,
+            Kind::Proto | Kind::Custom(_) => None,
         }
+    }
+
+    /// Whether every repository has this language, with its own tools.
+    pub fn is_built_in(&self) -> bool {
+        !matches!(self.kind, Kind::Custom(_))
     }
 
     /// The tools a repository's own language names, or `None` for a built-in.
     pub fn tools(&self) -> Option<&Tools> {
         match &self.kind {
-            Kind::BuiltIn(_) => None,
+            Kind::BuiltIn(_) | Kind::Proto => None,
             Kind::Custom(t) => Some(t),
         }
     }
@@ -86,16 +95,17 @@ pub struct Languages {
 
 impl Default for Languages {
     fn default() -> Languages {
-        let builtin = |name: &str, extension: &str, dialect| Language {
+        let builtin = |name: &str, extension: &str, kind| Language {
             name: name.to_string(),
             extensions: vec![Spanned::new(extension.to_string(), Span::NONE)],
-            kind: Kind::BuiltIn(dialect),
+            kind,
         };
         Languages {
             all: vec![
-                builtin("json", ".json", json::Dialect::Json),
-                builtin("jsonc", ".jsonc", json::Dialect::Jsonc),
-                builtin("json5", ".json5", json::Dialect::Json5),
+                builtin("json", ".json", Kind::BuiltIn(json::Dialect::Json)),
+                builtin("jsonc", ".jsonc", Kind::BuiltIn(json::Dialect::Jsonc)),
+                builtin("json5", ".json5", Kind::BuiltIn(json::Dialect::Json5)),
+                builtin("proto", ".proto", Kind::Proto),
             ],
         }
     }
@@ -311,5 +321,10 @@ pub fn reader<'a>(
 /// The canonical text of a file in a built-in language, by its name alone.
 /// `None` for a file that does not parse, and for one in no built-in language.
 pub fn format(languages: &Languages, path: &str, text: &str) -> Option<String> {
-    json::format(text, languages.of(path)?.dialect()?)
+    let language = languages.of(path)?;
+    match language.kind {
+        Kind::BuiltIn(dialect) => json::format(text, dialect),
+        Kind::Proto => proto::format(text),
+        Kind::Custom(_) => None,
+    }
 }

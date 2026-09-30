@@ -1,0 +1,5 @@
+library {
+    generators: [
+        { tool: "std/proto", inputs: ["colour.proto", "shape.proto"] },
+    ]
+}

@@ -882,7 +882,7 @@ impl Reader {
                 }
                 continue;
             };
-            let built_in = languages.named(&name.value).is_some_and(|l| l.dialect().is_some());
+            let built_in = languages.named(&name.value).is_some_and(crate::languages::Language::is_built_in);
             if built_in {
                 for tool in ["check", "format", "generate"] {
                     if let Some(field) = m.get(tool) {

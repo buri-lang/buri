@@ -233,6 +233,15 @@ export struct Enum {
     export values: [EnumValue],
 }
 
+derive Equal, Show for Reserved;
+/// One entry of a `reserved` statement.
+export enum Reserved {
+    /// `5`, `9 to 11`, or `100 to max`: the first and last number reserved.
+    Numbers(Int, Int),
+    /// `foo`, or proto3's `"foo"`.
+    Name(Str),
+}
+
 derive Equal, Show for Message;
 /// A message and everything it declares. `origin` is its name.
 export struct Message {
@@ -244,6 +253,8 @@ export struct Message {
     /// Nested messages. A Buri type recurses through `[T]`, and this is one.
     export messages: [Message],
     export enums: [Enum],
+    /// What no field may use: `reserved` numbers and names.
+    export reserved: [Reserved],
     /// Declared on the message, and inherited by its fields and its nested
     /// types.
     export features: Features,
@@ -1306,10 +1317,11 @@ fn message<C: Allocator>(ctx: C, p: P): (P, Option<Message>) {
                     oneofs: list.empty<Oneof>(),
                     messages: list.empty<Message>(),
                     enums: list.empty<Enum>(),
+                    reserved: list.empty<Reserved>(),
                     features: inherited(),
                 };
                 let (q, m) = messageBody(ctx, P { ..p2, depth: p2.depth + 1 }, empty);
-                (P { ..q, depth: p2.depth }, .Some(m))
+                (fieldsAreDistinct(ctx, P { ..q, depth: p2.depth }, m), .Some(m))
             }
         },
     }
@@ -1381,7 +1393,8 @@ fn messageItem<C: Allocator>(
         };
         messageBody(ctx, p1, next)
     } else if (w == "reserved") {
-        messageBody(ctx, skipStatement(ctx, nextToken(ctx, p).0), m)
+        let (p1, entries) = reservedEntries(ctx, nextToken(ctx, p).0, m.reserved);
+        messageBody(ctx, p1, Message { ..m, reserved: entries })
     } else if (w == "extensions" || w == "extend") {
         let p1 = nextToken(ctx, p).0;
         let q = unsupported(
@@ -1529,6 +1542,128 @@ fn oneofCase<C: Allocator>(ctx: C, p: P, o: Oneof): (P, Oneof) {
             oneofBody(ctx, q2, Oneof { ..o, cases: o.cases.push(ctx, c) })
         },
     }
+}
+
+/// The entries of a `reserved` statement, after the word, up to its `;`.
+fn reservedEntries<C: Allocator>(ctx: C, p: P, acc: [Reserved]): (P, [Reserved]) {
+    let (p1, t) = nextToken(ctx, p);
+    match (t) {
+        .End => (p1, acc),
+        .Num(n) => {
+            let (p2, ahead) = peekToken(ctx, p1);
+            if (ahead != Token.Word("to")) {
+                reservedEntries(ctx, p2, acc.push(ctx, Reserved.Numbers(n, n)))
+            } else {
+                let (p3, last) = nextToken(ctx, nextToken(ctx, p2).0);
+                let top = match (last) {
+                    .Num(k) => k,
+                    _ => 536870911,
+                };
+                reservedEntries(ctx, p3, acc.push(ctx, Reserved.Numbers(n, top)))
+            }
+        },
+        .Str(name) => reservedEntries(ctx, p1, acc.push(ctx, Reserved.Name(name))),
+        .Word(name) => reservedEntries(ctx, p1, acc.push(ctx, Reserved.Name(name))),
+        .Punctuation(c) => {
+            if (c == ";") {
+                (p1, acc)
+            } else if (c == "{") {
+                (skipStatement(ctx, skipBraces(ctx, p1, 1)), acc)
+            } else {
+                reservedEntries(ctx, p1, acc)
+            }
+        },
+    }
+}
+
+/// One field of a message, `oneof` cases included.
+struct Numbered {
+    name: Str,
+    number: Int,
+    origin: ast.Origin,
+}
+
+/// No two fields of a message share a number or a name, and none uses what the
+/// message reserved.
+fn fieldsAreDistinct<C: Allocator>(ctx: C, p: P, m: Message): P {
+    let own = m
+        .fields
+        .map(ctx, fn(f) => Numbered { name: f.name, number: f.number, origin: f.origin });
+    let cases = m.oneofs.flatMapCtx(ctx, fn(c, o) => {
+        o.cases.map(c, fn(f) => Numbered { name: f.name, number: f.number, origin: f.origin })
+    });
+    let all = own
+        .concat(ctx, cases)
+        .sortBy(ctx, fn(a, b) => a.origin.span.start.compare(b.origin.span.start));
+    all.indexed(ctx).foldCtx(
+        ctx,
+        fn(c, acc: P, entry) => {
+            let (i, f) = entry;
+            let earlier = all.take(c, i);
+            match (earlier.find(fn(e) => e.number == f.number)) {
+                .Some(e) => {
+                    reused(
+                        c,
+                        acc,
+                        f.origin,
+                        str.format(c, "`${f.name}` and `${e.name}` both use field number ${f.number}"),
+                        "give each field of a message its own number",
+                    )
+                },
+                .None => {
+                    if (earlier.any(fn(e) => e.name == f.name)) {
+                        reused(
+                            c,
+                            acc,
+                            f.origin,
+                            str.format(c, "`${m.name}` declares `${f.name}` twice"),
+                            "rename one of them",
+                        )
+                    } else if (reservesNumber(m.reserved, f.number)) {
+                        reused(
+                            c,
+                            acc,
+                            f.origin,
+                            str.format(c, "`${m.name}` reserves ${f.number}, and `${f.name}` uses it"),
+                            "give the field a number the message does not reserve",
+                        )
+                    } else if (m.reserved.contains(Reserved.Name(f.name))) {
+                        reused(
+                            c,
+                            acc,
+                            f.origin,
+                            str.format(c, "`${m.name}` reserves the name `${f.name}`"),
+                            "give the field a name the message does not reserve",
+                        )
+                    } else {
+                        acc
+                    }
+                },
+            }
+        },
+        p,
+    )
+}
+
+fn reservesNumber(reserved: [Reserved], number: Int): Bool {
+    reserved.any(fn(r) => {
+        match (r) {
+            .Numbers(low, high) => number >= low && number <= high,
+            .Name(_) => false,
+        }
+    })
+}
+
+fn reused<C: Allocator>(ctx: C, p: P, origin: ast.Origin, problem: Str, remedy: Str): P {
+    capped(ctx, p, codegen.Diagnostic {
+        code: "proto-field-reused",
+        message: problem,
+        note: .Some(
+            "a number is what names a field on the wire, and a name what names it in JSON, so a second use would read as the first field",
+        ),
+        fix: .Some(remedy),
+        origin: .Some(origin),
+    })
 }
 
 // --- fields -------------------------------------------------------------------
