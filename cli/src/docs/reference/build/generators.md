@@ -18,7 +18,7 @@ step to forget to run.
 
 | Field | Meaning |
 |---|---|
-| `tool` | A `//label` naming a `tool` rule with a `generate` entry point, or `std/proto` for `.proto` schemas. |
+| `tool` | A `//label` naming a `tool` rule with a `generate` entry point, `std/json` for [types from JSON](../../guides/json.md#generating-types), or `std/proto` for `.proto` schemas. |
 | `inputs` | The files handed to the tool, package-relative, no globs. |
 
 `generators` is hand-authored, like `visibility` and `outputs`. `buri gen`

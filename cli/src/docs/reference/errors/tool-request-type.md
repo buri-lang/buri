@@ -7,7 +7,7 @@ reproduction: none
 ---
 # A tool with a contract takes its root type
 
-```buri ignore why="it imports the module the build generates into the tool from its contract"
+```text
 from "core/effect" import { Allocator };
 from "core/tool" import { Generated, GenerateRequest };
 from "//tools/database_schema_codegen/json" import { Config };
