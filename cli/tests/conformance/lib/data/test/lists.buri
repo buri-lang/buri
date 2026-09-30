@@ -1111,6 +1111,62 @@ test "an accumulator grown in a loop answers what a copy would" {
     assert.equal(assert.some(xs.get(39)), 39);
 }
 
+// A functional update that grows two of a record's lists at once, reading each
+// out of the record it replaces. What it answers must not depend on who else
+// holds the record, or on the two fields holding one list.
+
+struct Two {
+    left: [Int],
+    right: [Int],
+}
+
+fn growBoth<C: Allocator>(ctx: C, t: Two): Two {
+    Two { ..t, left: t.left.push(ctx, 9), right: t.right.push(ctx, 10) }
+}
+
+fn swapGrow<C: Allocator>(ctx: C, t: Two): Two {
+    Two { ..t, left: t.right.push(ctx, 7), right: t.left.push(ctx, 8) }
+}
+
+test "growing both lists of a kept record leaves it alone" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let base = Two { left: [1].concat(ctx, [2]), right: [3].concat(ctx, [4]) };
+    let grown = growBoth(ctx, base);
+    let again = growBoth(ctx, base);
+    assert.equal(grown.left, [1, 2, 9]);
+    assert.equal(grown.right, [3, 4, 10]);
+    assert.equal(again.left, [1, 2, 9]);
+    assert.equal(base.left, [1, 2]);
+    assert.equal(base.right, [3, 4]);
+}
+
+test "an update that swaps two lists as it grows them answers what a copy would" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let base = Two { left: [1].concat(ctx, [2]), right: [3].concat(ctx, [4]) };
+    let once = swapGrow(ctx, base);
+    let twice = swapGrow(ctx, swapGrow(ctx, Two { left: [1].concat(ctx, [2]), right: [] }));
+    assert.equal(once.left, [3, 4, 7]);
+    assert.equal(once.right, [1, 2, 8]);
+    assert.equal(twice.left, [1, 2, 8, 7]);
+    assert.equal(twice.right, [7, 8]);
+    assert.equal(base.left, [1, 2]);
+}
+
+test "one list held by two fields is written through by neither" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let shared = [1].concat(ctx, [2]);
+    let grown = growBoth(ctx, Two { left: shared, right: shared });
+    assert.equal(grown.left, [1, 2, 9]);
+    assert.equal(grown.right, [1, 2, 10]);
+    assert.equal(shared, [1, 2]);
+}
+
 // The same cases for elements that hold something of their own: a string, an
 // optional one, and a recursive enum whose first variant is the one with
 // payloads. Natively these grow into headroom a list of numbers never needed.
