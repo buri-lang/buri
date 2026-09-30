@@ -1,0 +1,45 @@
+//! core/format — the document a tool's `format` returns.
+//!
+//! A formatter describes where lines may break, and the toolchain picks the
+//! breaks at the margin and indent every `.buri` file gets. So no formatter
+//! chooses its own width.
+//!
+//! ```buri
+//! from "core/format" import { Doc };
+//!
+//! /// `[1, 2]` on one line, or one item per line when it does not fit.
+//! fn list(): Doc {
+//!     .Group([
+//!         .Text("["),
+//!         .Indent([.SoftLine, .Text("1,"), .Line, .Text("2")]),
+//!         .SoftLine,
+//!         .Text("]"),
+//!     ])
+//! }
+//! ```
+//!
+//! Keep every comment: an end-of-line comment is a `LineSuffix` followed by
+//! `BreakParent`, and any other comment is `Text` on a line of its own.
+
+derive Equal, Show for Doc;
+export enum Doc {
+    /// Printed as written. A newline inside it breaks every enclosing group.
+    Text(Str),
+    Concat([Doc]),
+    /// A space, or a break.
+    Line,
+    /// Nothing, or a break.
+    SoftLine,
+    /// Always a break.
+    HardLine,
+    /// Breaks all its lines, or none.
+    Group([Doc]),
+    /// Breaks inside it indent one level.
+    Indent([Doc]),
+    /// The first if the enclosing group breaks, the second if it does not.
+    IfBreak(Doc, Doc),
+    /// Printed at the end of the current line, before its break.
+    LineSuffix(Str),
+    /// Forces every enclosing group to break.
+    BreakParent,
+}
