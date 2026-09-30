@@ -443,7 +443,7 @@ fn serving_a_page() {
 /// marker and block layout taken away by the reset.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 63);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 64);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

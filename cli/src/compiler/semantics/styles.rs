@@ -1286,6 +1286,9 @@ impl Reset {
             // edge to edge. There is no way back: a collapsed table is what a
             // data table is, and no style names `border-spacing`.
             out.push_str(":where(table){border-collapse:collapse}\n");
+            // A browser pads each `<td>` and `<th>` by a pixel and centres or
+            // baseline-aligns what is in it. The painter does neither.
+            out.push_str(":where(td,th){padding:0;vertical-align:top}\n");
         }
         if self.image {
             // A picture and an inlined `<svg>` are the two leaves a browser

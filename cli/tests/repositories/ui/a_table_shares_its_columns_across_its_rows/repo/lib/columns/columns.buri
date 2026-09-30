@@ -1,0 +1,185 @@
+// Three tables, each beside the grid it has to paint the same as.
+//
+// A table's columns are shared by every row in it: a column is as wide as the
+// widest box in it, in whichever row that box is, and the header lines up over
+// the rows under it. Each table here is drawn twice, once as a table and once
+// as a column of grids whose tracks are the widths the columns should come to,
+// and the two are one golden.
+//
+// Every box holds a block of a fixed width, so the widths are whole pixels and
+// nothing depends on how a run of text is shaped. The block is darker than the
+// box around it, so a picture shows both how wide the column is and how wide
+// the thing that decided it was.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node, Role };
+from "ui/style" import { Color, Style, Track };
+
+/// The widest block in each column, and so the width each column comes to
+/// when the table is as wide as its content: 120, 60 and 200. No row holds
+/// all three — the header is widest in the first column, the last row in the
+/// third, and the middle row in the second.
+fn widths(): [[Int]] {
+    [[120, 20, 40], [30, 60, 90], [50, 10, 200]]
+}
+
+/// A column's tint, for the box the block sits in.
+fn tint(column: Int): Color {
+    match (column) {
+        0 => .Rgb(250, 214, 214),
+        1 => .Rgb(214, 240, 214),
+        _ => .Rgb(214, 224, 250),
+    }
+}
+
+/// A column's ink, for the block itself.
+fn ink(column: Int): Color {
+    match (column) {
+        0 => .Rgb(190, 40, 40),
+        1 => .Rgb(40, 150, 40),
+        _ => .Rgb(40, 70, 190),
+    }
+}
+
+fn block<C>(width: Int, column: Int): Node<C> {
+    ui.stack({
+        styles: [.Width(.Px(width)), .Height(.Px(20)), .Background(ink(column))],
+        children: [],
+    })
+}
+
+/// What a header adds to a box's own styles — a browser's `<th>`, bold and
+/// centred. The grid version carries it too, so the two lines differ only in
+/// their arrangement.
+fn heading(): [Style] {
+    [.FontWeight(.Bold), .TextAlign(.Center)]
+}
+
+/// The role each box in a row takes: the first row is the header, and the
+/// first box of every other row is the header of its row.
+fn roleAt(row: Int, column: Int): Role {
+    if (row == 0) { .ColumnHeader } else if (column == 0) { .RowHeader } else { .Cell }
+}
+
+/// One box of the table: the tint, the block, and the role.
+fn tableBox<C>(row: Int, column: Int): Node<C> {
+    let width = widths().get(row).andThen(fn(r) => r.get(column)).withDefault(0);
+    ui.stack({
+        styles: [.Background(tint(column))],
+        children: [block(width, column)],
+        role: .Some(roleAt(row, column)),
+    })
+}
+
+/// The same box with no role, carrying what the role would have added.
+fn gridBox<C>(row: Int, column: Int): Node<C> {
+    let width = widths().get(row).andThen(fn(r) => r.get(column)).withDefault(0);
+    let own: [Style] = [.Background(tint(column))];
+    let styles = match (roleAt(row, column)) {
+        .Cell => own,
+        _ => [.Group(heading()), .Group(own)],
+    };
+    ui.stack({ styles: styles, children: [block(width, column)] })
+}
+
+fn tableRow<C>(row: Int): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [tableBox(row, 0), tableBox(row, 1), tableBox(row, 2)],
+        role: .Some(.TableRow),
+    })
+}
+
+fn gridRow<C>(row: Int, tracks: [Track]): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Grid(tracks))],
+        children: [gridBox(row, 0), gridBox(row, 1), gridBox(row, 2)],
+    })
+}
+
+fn table<C>(styles: [Style]): Node<C> {
+    ui.stack({
+        styles: styles,
+        children: [tableRow(0), tableRow(1), tableRow(2)],
+        role: .Some(.Table),
+    })
+}
+
+fn grid<C>(styles: [Style], tracks: [Track]): Node<C> {
+    ui.stack({
+        styles: styles,
+        children: [gridRow(0, tracks), gridRow(1, tracks), gridRow(2, tracks)],
+    })
+}
+
+/// A table nobody gave a width, in a row, so it is as wide as its content: each
+/// column is its widest block, 120, 60 and 200.
+export fn shrunkTable<C>(): Node<C> {
+    ui.stack({ styles: [.Layout(.Row)], children: [table([])] })
+}
+
+export fn shrunkGrid<C>(): Node<C> {
+    let tracks: [Track] = [.Fixed(.Px(120)), .Fixed(.Px(60)), .Fixed(.Px(200))];
+    ui.stack({ styles: [.Layout(.Row)], children: [grid([], tracks)] })
+}
+
+/// A table across the whole page. The room past what the blocks need goes to
+/// each column in proportion to how wide its content is, which is what a
+/// browser's automatic table layout does: 120, 60 and 200 parts of the 800.
+export fn fullTable<C>(): Node<C> {
+    table([.Width(.Full)])
+}
+
+export fn fullGrid<C>(): Node<C> {
+    let tracks: [Track] = [.Fraction(120), .Fraction(60), .Fraction(200)];
+    grid([.Width(.Full)], tracks)
+}
+
+/// A row that names its own tracks keeps them. A row laid out as a grid is no
+/// longer a row of the table's columns, so it lays out the way the same grid
+/// would anywhere: six hundred pixels, and the rest.
+export fn ownTracksTable<C>(): Node<C> {
+    ui.stack({
+        styles: [.Width(.Full)],
+        children: [
+            ui.stack({
+                styles: [.Layout(.Grid([.Fixed(.Px(600)), .Auto]))],
+                children: [
+                    ui.stack({
+                        styles: [.Background(tint(0))],
+                        children: [block(40, 0)],
+                        role: .Some(.Cell),
+                    }),
+                    ui.stack({
+                        styles: [.Background(tint(1))],
+                        children: [block(40, 1)],
+                        role: .Some(.Cell),
+                    }),
+                ],
+                role: .Some(.TableRow),
+            }),
+        ],
+        role: .Some(.Table),
+    })
+}
+
+export fn ownTracksGrid<C>(): Node<C> {
+    ui.stack({
+        styles: [.Width(.Full)],
+        children: [
+            ui.stack({
+                styles: [.Layout(.Grid([.Fixed(.Px(600)), .Auto]))],
+                children: [
+                    ui.stack({
+                        styles: [.Background(tint(0))],
+                        children: [block(40, 0)],
+                    }),
+                    ui.stack({
+                        styles: [.Background(tint(1))],
+                        children: [block(40, 1)],
+                    }),
+                ],
+            }),
+        ],
+    })
+}

@@ -1,0 +1,40 @@
+# A table's columns are shared by all of its rows (buri#177). Each picture is
+# drawn twice, once as a `Role.Table` and once as a column of plain grids
+# whose tracks are the widths the table's columns should come to, and both
+# tests compare against the same golden. The grids recorded the goldens, so a
+# table that lays out any other way fails against a picture its own layout
+# had no part in.
+#
+# Every box holds a darker block of a fixed width, so each width is whole
+# pixels and no golden depends on how text is shaped.
+#
+#   * **`columns-shrunk.png`**: a table in a row, so it is as wide as its
+#     content. Each column is its widest block — 120, 60 and 200 — although
+#     no single row holds all three, so the header and both rows line up at
+#     x=120 and x=180. Laid out a row at a time, each row divided itself into
+#     thirds of its own.
+#   * **`columns-full.png`**: the same table across the page. The 420 pixels
+#     the blocks do not need go to the columns in proportion to their widest
+#     block, 120 : 60 : 200, which is how a browser's automatic table layout
+#     shares out the room. The boundaries land at 252.6 and 378.9.
+#   * **`columns-own-tracks.png`**: the issue's own program. A row that names
+#     its own `Layout(.Grid([.Fixed(.Px(600)), .Auto]))` keeps it, so its first
+#     box is 600 wide rather than half the page.
+#
+# Checked against Chromium: the same trees as `<table>`s under the sheet's
+# reset put the column boundaries at the same x in all three.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a table's columns are sized over every row at once and share the room in proportion to their content, and a row that names its own tracks keeps them, each picture matching the grid of the widths it should come to"
+
+run {
+  args: ["test", "//lib/columns", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/columns/test/__snapshots__/columns-shrunk.diff.png"  exists: false }
+path { path: "lib/columns/test/__snapshots__/columns-full.diff.png"  exists: false }
+path { path: "lib/columns/test/__snapshots__/columns-own-tracks.diff.png"  exists: false }

@@ -1,7 +1,7 @@
 // A table, painted twice.
 //
-// The four table roles are an arrangement as well as a meaning: a row divides
-// into one column per cell, so the second row's cells line up under the first's.
+// The four table roles are an arrangement as well as a meaning: the table
+// sizes its columns over all its rows, so every row lines up under the first.
 // Without that every cell is on a line of its own and a column that stopped
 // aligning could not fail a golden.
 //

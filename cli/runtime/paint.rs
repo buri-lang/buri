@@ -1079,6 +1079,13 @@ enum Spec {
 enum Flow {
     Flex,
     Grid,
+    /// `role:table`: a grid of one column per box in its widest row, each
+    /// column sized over every row, the way a browser's automatic table layout
+    /// sizes one. See [`build_table`].
+    Table,
+    /// `role:table-row`: inside a table, a box whose children are placed in
+    /// the table's columns. Anywhere else, a table of one row.
+    TableRow,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1477,6 +1484,17 @@ fn resolve(
                 Vec::new()
             };
             let vars: &[(String, String)] = if has_local { &local } else { variables };
+            // A table role stands in for a browser's own sheet, so it comes
+            // before every rule: a `display` from a class or inline beats it.
+            for (name, value) in &node.declarations {
+                if name == "role" {
+                    match value.as_str() {
+                        "table" => style.flow = Flow::Table,
+                        "table-row" => style.flow = Flow::TableRow,
+                        _ => {}
+                    }
+                }
+            }
             let mut declarations: Vec<(&str, Cow<'_, str>)> = Vec::new();
             for rule in sheet {
                 let named = if rule.child {
@@ -2041,7 +2059,7 @@ fn taffy_style(c: &Computed) -> Style {
     Style {
         display: match c.flow {
             Flow::Flex => Display::Flex,
-            Flow::Grid => Display::Grid,
+            Flow::Grid | Flow::Table | Flow::TableRow => Display::Grid,
         },
         flex_direction: match (c.column, c.reverse) {
             (true, false) => FlexDirection::Column,
@@ -2630,10 +2648,11 @@ fn paint_with(
     let pictures: Vec<Option<Picture>> =
         scene.nodes.iter().map(|node| node.picture.as_ref().and_then(picture)).collect();
 
-    let mut ids: Vec<Option<NodeId>> = vec![None; scene.nodes.len()];
-    let mut fixed: Vec<usize> = Vec::new();
-    let roots =
-        build(scene, styles, &pictures, &mut tree, &scene.roots, &mut ids, &mut fixed)?;
+    let mut built =
+        Built { ids: vec![None; scene.nodes.len()], fixed: Vec::new(), tables: Vec::new() };
+    let roots = build(scene, styles, &pictures, &mut tree, &scene.roots, &mut built)?;
+    let Built { ids, fixed, mut tables } = built;
+    measure_tables(&mut tree, &mut tables, scene, styles, fonts)?;
     // **The canvas is an unstyled `stack`, sized to the page**, and that is
     // load-bearing rather than tidy: wrapping a tree in `ui.stack([], [...])`
     // must not move a pixel. An unstyled `stack` lowers to `display: flex;
@@ -2654,6 +2673,16 @@ fn paint_with(
     let root = tree
         .new_with_children(page(Dimension::auto()), &roots)
         .map_err(|e| format!("layout: {e}"))?;
+    let across_page = AvailableSpace::Definite(across);
+
+    // A table narrower than its content learns so only from a layout, and its
+    // new columns can narrow a table inside it, so this repeats until settled.
+    for _ in 0..tables.len() {
+        lay_out(&mut tree, root, scene, styles, fonts, across_page, AvailableSpace::MaxContent)?;
+        if !settle_tables(&mut tree, &mut tables)? {
+            break;
+        }
+    }
 
     // **How tall the page is.** A scene that states a height is painted at
     // exactly that one. One that says `fit` takes the flow's own painted
@@ -2663,7 +2692,7 @@ fn paint_with(
     let down = match scene.height {
         Some(stated) => stated as f32,
         None => {
-            lay_out(&mut tree, root, scene, styles, fonts, across, AvailableSpace::MaxContent)?;
+            lay_out(&mut tree, root, scene, styles, fonts, across_page, AvailableSpace::MaxContent)?;
             let flow = reach_of(scene, styles, &tree, &ids, &[]);
             // **Rounded up, never to the nearest.** A flex item's
             // `flex-shrink` is 1, so a page half a pixel shorter than the flow
@@ -2683,7 +2712,7 @@ fn paint_with(
     children.extend(fixed.iter().filter_map(|&index| ids.get(index).copied().flatten()));
     tree.set_style(root, page(Dimension::length(down))).map_err(|e| format!("layout: {e}"))?;
     tree.set_children(root, &children).map_err(|e| format!("layout: {e}"))?;
-    lay_out(&mut tree, root, scene, styles, fonts, across, AvailableSpace::Definite(down))?;
+    lay_out(&mut tree, root, scene, styles, fonts, across_page, AvailableSpace::Definite(down))?;
 
     // The canvas is the page, plus wherever the paint ran past it: a dock
     // pinned wider than the page, a bleed, a translate off the edge. Nothing a
@@ -2763,12 +2792,12 @@ fn lay_out(
     scene: &Scene,
     styles: &[Computed],
     fonts: &mut Fonts,
-    across: f32,
+    across: AvailableSpace,
     down: AvailableSpace,
 ) -> Result<(), String> {
     tree.compute_layout_with_measure(
         root,
-        Size { width: AvailableSpace::Definite(across), height: down },
+        Size { width: across, height: down },
         |input, _, context, style| {
             compute_leaf_layout(input, style, |_, _| 0.0, |known, available| {
                 let Some(&mut index) = context else { return Size::ZERO };
@@ -2893,14 +2922,29 @@ fn reach(
     // a `Scroll` writes alike — cuts what is under it to this box, so a scroll
     // container is measured at its own box and never at what it scrolls.
     let inner = if style.clipped[0] || style.clipped[1] { Some(box_.met_by(clip)) } else { clip };
+    let from = children_origin(style, tree, id, (x + across, y + down), (left, top));
     for &child in &node.children {
         // A fixed child hangs off the page rather than off this box, so it is
         // neither placed here nor clipped by anything here.
         if styles.get(child).is_some_and(|s| s.fixed) {
             continue;
         }
-        reach(scene, styles, tree, ids, child, left, top, inner, out);
+        reach(scene, styles, tree, ids, child, from.0, from.1, inner, out);
     }
+}
+
+/// Where a box's children are placed from: its own corner, except for a row
+/// inside a table, whose boxes are items of the table's grid and so are placed
+/// from the table's corner, which `table` is.
+fn children_origin(
+    style: &Computed,
+    tree: &TaffyTree<usize>,
+    id: NodeId,
+    table: (f32, f32),
+    own: (f32, f32),
+) -> (f32, f32) {
+    let lent = style.flow == Flow::TableRow && tree.children(id).is_ok_and(|c| c.is_empty());
+    if lent { table } else { own }
 }
 
 /// How far a blurred shadow's coverage spreads past the shape it was cast
@@ -2930,32 +2974,252 @@ fn build(
     pictures: &[Option<Picture>],
     tree: &mut TaffyTree<usize>,
     indices: &[usize],
-    ids: &mut [Option<NodeId>],
-    fixed: &mut Vec<usize>,
+    built: &mut Built,
 ) -> Result<Vec<NodeId>, String> {
     let mut out = Vec::with_capacity(indices.len());
     for &index in indices {
         let Some(node) = scene.node(index) else { continue };
         let style = styles.get(index).cloned().unwrap_or_else(Computed::root);
+        let is_row = |child: usize| {
+            scene.node(child).is_some_and(|n| n.text.is_none() && n.picture.is_none())
+                && styles.get(child).is_some_and(|s| s.flow == Flow::TableRow)
+        };
         let id = if node.text.is_some() {
             tree.new_leaf_with_context(taffy_style(&style), index)
+                .map_err(|e| format!("layout: {e}"))?
         } else if node.picture.is_some() {
             tree.new_leaf(picture_style(&style, pictures.get(index).and_then(Option::as_ref)))
+                .map_err(|e| format!("layout: {e}"))?
+        } else if style.flow == Flow::Table {
+            // Anything in a table that is not a row is a row of one, the
+            // way a browser wraps it in an anonymous row.
+            let rows: Vec<(Option<usize>, Vec<usize>)> = node
+                .children
+                .iter()
+                .map(|&child| match scene.node(child) {
+                    Some(row) if is_row(child) => (Some(child), row.children.clone()),
+                    _ => (None, vec![child]),
+                })
+                .collect();
+            build_table(scene, styles, pictures, tree, &style, &rows, built)?
+        } else if style.flow == Flow::TableRow {
+            // A row outside a table is a table of one row, as a browser
+            // wraps it in an anonymous table.
+            let rows = [(None, node.children.clone())];
+            build_table(scene, styles, pictures, tree, &style, &rows, built)?
         } else {
-            let children = build(scene, styles, pictures, tree, &node.children, ids, fixed)?;
+            let children = build(scene, styles, pictures, tree, &node.children, built)?;
             tree.new_with_children(taffy_style(&style), &children)
-        }
-        .map_err(|e| format!("layout: {e}"))?;
-        if let Some(slot) = ids.get_mut(index) {
+                .map_err(|e| format!("layout: {e}"))?
+        };
+        if let Some(slot) = built.ids.get_mut(index) {
             *slot = Some(id);
         }
         if style.fixed {
-            fixed.push(index);
+            built.fixed.push(index);
         } else {
             out.push(id);
         }
     }
     Ok(out)
+}
+
+/// What [`build`] hands back beside the roots.
+struct Built {
+    /// One slot per scene node: its `taffy` node.
+    ids: Vec<Option<NodeId>>,
+    /// The `position: fixed` nodes, for the caller to hang off the viewport.
+    fixed: Vec<usize>,
+    /// Every table, innermost first, so a table is measured after any table
+    /// inside it.
+    tables: Vec<TableGrid>,
+}
+
+/// A table's grid, and what its columns need.
+struct TableGrid {
+    id: NodeId,
+    /// The boxes in each column, from every row.
+    columns: Vec<Vec<NodeId>>,
+    /// The table's border, which its columns do not get.
+    edges: f32,
+    /// Each column's min-content and max-content width, from its widest box.
+    min: Vec<f32>,
+    max: Vec<f32>,
+    /// The pixel widths the columns were given once the table turned out
+    /// narrower than its content, or `None` while they are shares.
+    squeezed: Option<Vec<f32>>,
+}
+
+/// A table as one grid: a row's boxes are the grid's items, in the row's own
+/// grid row, so every row shares the table's columns.
+///
+/// Each row is a leaf spanning its grid row, so its background paints behind
+/// its boxes. `rows` holds each row's scene node, or `None` for a row the
+/// scene has no node for, and the boxes in it.
+fn build_table(
+    scene: &Scene,
+    styles: &[Computed],
+    pictures: &[Option<Picture>],
+    tree: &mut TaffyTree<usize>,
+    style: &Computed,
+    rows: &[(Option<usize>, Vec<usize>)],
+    built: &mut Built,
+) -> Result<NodeId, String> {
+    let fail = |e: taffy::TaffyError| format!("layout: {e}");
+    let mut children = Vec::new();
+    let mut columns: Vec<Vec<NodeId>> = Vec::new();
+    for (at, (row, items)) in rows.iter().enumerate() {
+        let line = i16::try_from(at + 1).unwrap_or(i16::MAX);
+        if let Some(row) = *row {
+            // A table row takes no padding and no width of its own.
+            let own = styles.get(row).cloned().unwrap_or_else(Computed::root);
+            let mut leaf = taffy_style(&own);
+            leaf.padding = Rect::zero();
+            leaf.size.width = Dimension::auto();
+            leaf.min_size.width = LengthPercentageAuto::auto();
+            leaf.max_size.width = LengthPercentageAuto::auto();
+            leaf.grid_row = Line::from_line_index(line);
+            leaf.grid_column = Line { start: line_at(1), end: line_at(-1) };
+            let id = tree.new_leaf(leaf).map_err(fail)?;
+            if let Some(slot) = built.ids.get_mut(row) {
+                *slot = Some(id);
+            }
+            children.push(id);
+        }
+        let placed = build(scene, styles, pictures, tree, items, built)?;
+        for (column, id) in placed.into_iter().enumerate() {
+            let mut item = tree.style(id).map_err(fail)?.clone();
+            item.grid_row = Line::from_line_index(line);
+            item.grid_column = Line::from_line_index(i16::try_from(column + 1).unwrap_or(i16::MAX));
+            tree.set_style(id, item).map_err(fail)?;
+            if columns.len() <= column {
+                columns.resize_with(column + 1, Vec::new);
+            }
+            if let Some(boxes) = columns.get_mut(column) {
+                boxes.push(id);
+            }
+            children.push(id);
+        }
+    }
+    // A table has no gap and, with its borders collapsed, no padding.
+    let mut grid = taffy_style(style);
+    grid.padding = Rect::zero();
+    grid.gap = Size::zero();
+    grid.grid_template_columns = columns.iter().map(|_| grid_track(Len::Auto)).collect();
+    let id = tree.new_with_children(grid, &children).map_err(fail)?;
+    let widths = style.border_widths();
+    built.tables.push(TableGrid {
+        id,
+        columns,
+        edges: widths[0] + widths[1],
+        min: Vec::new(),
+        max: Vec::new(),
+        squeezed: None,
+    });
+    Ok(id)
+}
+
+fn line_at(index: i16) -> GridPlacement<String> {
+    GridPlacement::from_line_index(index)
+}
+
+/// Measures every table's columns and gives them their first tracks.
+///
+/// A column is as wide as its widest box. The tracks are `minmax(min,
+/// <max>fr)`, which is what a browser's automatic layout comes to whenever the
+/// table is at least as wide as its content: a table sized to its content
+/// gets each column's max-content width, and a wider one shares the room in
+/// proportion to them. [`settle_tables`] handles a narrower one.
+fn measure_tables(
+    tree: &mut TaffyTree<usize>,
+    tables: &mut [TableGrid],
+    scene: &Scene,
+    styles: &[Computed],
+    fonts: &mut Fonts,
+) -> Result<(), String> {
+    let fail = |e: taffy::TaffyError| format!("layout: {e}");
+    for table in tables.iter_mut() {
+        let (mut min, mut max) = (Vec::new(), Vec::new());
+        for boxes in &table.columns {
+            let (mut lo, mut hi) = (0.0_f32, 0.0_f32);
+            for &id in boxes {
+                for (width, out) in
+                    [(AvailableSpace::MinContent, &mut lo), (AvailableSpace::MaxContent, &mut hi)]
+                {
+                    lay_out(tree, id, scene, styles, fonts, width, AvailableSpace::MaxContent)?;
+                    let size = tree.layout(id).map_err(fail)?.size.width;
+                    *out = out.max(size);
+                }
+            }
+            min.push(lo);
+            max.push(hi.max(lo));
+        }
+        let mut grid = tree.style(table.id).map_err(fail)?.clone();
+        grid.grid_template_columns = shares(&min, &max);
+        // A table is never narrower than its columns can be.
+        if grid.min_size.width == LengthPercentageAuto::auto() {
+            grid.min_size.width = LengthPercentageAuto::length(min.iter().sum::<f32>() + table.edges);
+        }
+        tree.set_style(table.id, grid).map_err(fail)?;
+        table.min = min;
+        table.max = max;
+    }
+    Ok(())
+}
+
+/// A `minmax(min, <max>fr)` track per column.
+fn shares(min: &[f32], max: &[f32]) -> Vec<GridTemplateComponent<String>> {
+    min.iter()
+        .zip(max)
+        .map(|(&lo, &hi)| {
+            GridTemplateComponent::Single(TrackSizingFunction {
+                min: MinTrackSizingFunction::length(lo),
+                max: MaxTrackSizingFunction::fr(hi),
+            })
+        })
+        .collect()
+}
+
+/// Gives each table narrower than its content the column widths a browser
+/// would, from the width the last layout gave the table. Answers whether any
+/// table changed, so the caller lays the page out again.
+///
+/// Between the columns' min-content and max-content widths a browser grows
+/// every column from its minimum, in proportion to how far it is from its
+/// maximum — which no grid track says, so the widths go in as pixels.
+fn settle_tables(tree: &mut TaffyTree<usize>, tables: &mut [TableGrid]) -> Result<bool, String> {
+    let fail = |e: taffy::TaffyError| format!("layout: {e}");
+    let mut moved = false;
+    for table in tables.iter_mut() {
+        let layout = tree.layout(table.id).map_err(fail)?;
+        let room = layout.size.width - table.edges;
+        let lo: f32 = table.min.iter().sum();
+        let hi: f32 = table.max.iter().sum();
+        let count = table.max.len() as f32;
+        let widths = if table.max.is_empty() || (room >= hi && hi > 0.0) {
+            None
+        } else if hi <= 0.0 {
+            // Nothing in any column: the room is shared evenly.
+            Some(vec![room.max(0.0) / count; table.max.len()])
+        } else if room > lo {
+            let share = (room - lo) / (hi - lo);
+            Some(table.min.iter().zip(&table.max).map(|(&a, &b)| a + (b - a) * share).collect())
+        } else {
+            Some(table.min.clone())
+        };
+        if widths == table.squeezed {
+            continue;
+        }
+        let mut grid = tree.style(table.id).map_err(fail)?.clone();
+        grid.grid_template_columns = match &widths {
+            Some(widths) => widths.iter().map(|&w| grid_track(Len::Px(w))).collect(),
+            None => shares(&table.min, &table.max),
+        };
+        tree.set_style(table.id, grid).map_err(fail)?;
+        table.squeezed = widths;
+        moved = true;
+    }
+    Ok(moved)
 }
 
 /// A picture's box: whatever the scene declared, and where it declared
@@ -3149,6 +3413,7 @@ impl Painter<'_> {
             return;
         }
         let mut item = 0_u32;
+        let from = children_origin(style, self.tree, id, (x + across, y + down), (left, top));
         for &child in &node.children {
             // A fixed child hangs off the viewport, so it is neither placed
             // here nor clipped by anything here. It is drawn last, from the
@@ -3172,16 +3437,16 @@ impl Painter<'_> {
                 } else {
                     inner.cloned()
                 };
-                self.deferred.push((child, left, top, clip));
+                self.deferred.push((child, from.0, from.1, clip));
                 continue;
             }
             if style.marker != Marker::None
                 && self.scene.node(child).is_some_and(|c| c.text.is_none())
             {
                 item = item.saturating_add(1);
-                self.marker(canvas, style.marker, item, child, left, top, inner);
+                self.marker(canvas, style.marker, item, child, from.0, from.1, inner);
             }
-            self.draw(canvas, child, left, top, inner);
+            self.draw(canvas, child, from.0, from.1, inner);
         }
     }
 
@@ -6814,5 +7079,32 @@ mod tests {
         // two byte for byte.
         let content_sized = render_ok(&three_cells("auto auto"), "", "rest");
         assert_eq!(bands(&content_sized, 1 * S), [(0, RED), (400 * S, GREEN)]);
+    }
+
+    /// A table narrower than its content grows each column from its
+    /// min-content width towards its max-content width by the same fraction,
+    /// as Chromium does. Each box wraps two blocks: the red column is 100 to
+    /// 200 wide and the green 50 to 100, so 225 of room is halfway, 150 and 75.
+    #[test]
+    fn a_narrow_table_grows_each_column_halfway_to_its_content() {
+        const RED: [u8; 4] = [255, 0, 0, 255];
+        const GREEN: [u8; 4] = [0, 255, 0, 255];
+        let column = |colour: &str, block: u32| {
+            let block = format!("e 4 width:{block}px;height:10px\n");
+            format!(
+                "e 2 background-color:{colour}\n\
+                 e 3 display:flex;flex-direction:row;flex-wrap:wrap\n{block}{block}"
+            )
+        };
+        let scene = format!(
+            "buri-scene 1\nviewport 800 fit\ne 0 role:table;width:225px\ne 1 role:table-row\n{}{}",
+            column("rgb(255,0,0)", 100),
+            column("rgb(0,255,0)", 50),
+        );
+        let image = render_ok(&scene, "", "rest");
+        assert_eq!(
+            bands(&image, 1 * S),
+            [(0, RED), (150 * S, GREEN), (225 * S, [255, 255, 255, 255])]
+        );
     }
 }
