@@ -7,6 +7,9 @@ pub mod regex;
 pub mod schema;
 pub mod syntax;
 
+#[cfg(test)]
+mod suite;
+
 pub use syntax::Dialect;
 
 use crate::languages::Finding;
