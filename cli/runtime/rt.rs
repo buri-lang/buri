@@ -1952,7 +1952,7 @@ pub unsafe extern "C" fn buri_rt_actor_reply_take(handle: i64, out: *mut BuriLis
 // `core/tasks` — the scope a task is spawned into
 // ---------------------------------------------------------------------------
 //
-// Six exported entries, and they are the `core/actor` exception a second time
+// Ten exported entries, and they are the `core/actor` exception a second time
 // over: a scope is a place a task waits between the `spawn` that queued it and
 // the drain that runs it, so `lib.rs` §3's third bullet is amended for these as
 // well. Everything that made the actor entries expressible makes these
@@ -1970,7 +1970,8 @@ pub unsafe extern "C" fn buri_rt_actor_reply_take(handle: i64, out: *mut BuriLis
 // scratch record.
 //
 // The scheduling is `core/tasks`'s, in Buri, exactly as the mailbox's is
-// `core/actor`'s. This file holds a queue, a round and one flag.
+// `core/actor`'s. This file holds a queue, a round, one flag, and — for a
+// scope whose tasks run beside its body — the count its workers wait on.
 
 /// One scope: what is waiting, what this round handed out, and who is draining.
 struct ScopePlace {
@@ -1981,8 +1982,26 @@ struct ScopePlace {
     round: Vec<Option<Held>>,
     /// Whether somebody is running this scope's drain. `scopeOpen` answers a
     /// scope whose opener is, which is what keeps a `spawn` inside the body from
-    /// running its task before the body has finished.
+    /// running its task on the spawner.
     draining: bool,
+    /// The workers running this scope's tasks beside its body, from
+    /// `scopeBeside` on. `None` where the tasks wait for the body instead.
+    beside: Option<Beside>,
+}
+
+/// What the workers of a scope that runs its tasks beside its body share.
+struct Beside {
+    /// The body and the tasks still running. The workers are done when this is
+    /// zero and nothing is waiting.
+    busy: usize,
+    /// Workers parked in `scopeClaim`, ready for the next spawn.
+    idle: usize,
+    /// Who opened the scope. A worker running *as* the opener was handed its
+    /// half by a scheduler that runs steps one after another, and waiting there
+    /// would be waiting for a body that runs after it.
+    opener: Who,
+    /// Woken by every spawn, and by the body or a task ending.
+    wake: Arc<tokio::sync::Notify>,
 }
 
 /// Every scope a program has opened, by handle.
@@ -2017,7 +2036,12 @@ fn scope_at(table: &mut [ScopePlace], handle: i64) -> Option<&mut ScopePlace> {
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_tasks_scope_open() -> i64 {
     let mut table = scopes();
-    table.push(ScopePlace { waiting: VecDeque::new(), round: Vec::new(), draining: true });
+    table.push(ScopePlace {
+        waiting: VecDeque::new(),
+        round: Vec::new(),
+        draining: true,
+        beside: None,
+    });
     (table.len() - 1) as i64
 }
 
@@ -2041,6 +2065,9 @@ pub unsafe extern "C" fn buri_rt_tasks_scope_push(
     let Some(place) = scope_at(&mut table, handle) else { return 0 };
     place.waiting.push_back(Held::keep(BuriList { ptr, len }));
     let waiting = place.waiting.len() as i64;
+    if let Some(beside) = &place.beside {
+        beside.wake.notify_waiters();
+    }
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(waiting) };
     crate::BURI_OK
@@ -2133,6 +2160,104 @@ pub extern "C" fn buri_rt_tasks_scope_leave(handle: i64) -> u8 {
     let Some(place) = scope_at(&mut table, handle) else { return 0 };
     place.draining = false;
     u8::from(!place.waiting.is_empty())
+}
+
+/// `tasks.scopeBeside(ctx, handle) -> Bool` — whether this scope runs its
+/// tasks beside its body, and if so, counts the body as running.
+///
+/// Yes only where [`buri_rt_host_tasks_parallel`] fans out — both of §2's
+/// statements made — and outside a test binary, whose `TestTasks` double
+/// promises that nothing runs at once. Everywhere else a scope's tasks run
+/// after its body.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_tasks_scope_beside(handle: i64) -> u8 {
+    if !(crate::frames_are_per_thread() && crate::memory::values_may_cross_tasks())
+        || crate::testing::in_a_test()
+    {
+        return 0;
+    }
+    let mut table = scopes();
+    let Some(place) = scope_at(&mut table, handle) else { return 0 };
+    place.beside = Some(Beside {
+        busy: 1,
+        idle: 0,
+        opener: who(),
+        wake: Arc::new(tokio::sync::Notify::new()),
+    });
+    1
+}
+
+/// `tasks.scopeClaim(ctx, handle) -> Int` — the next task for a worker, as an
+/// index `scopeTaskAt` hands back, or `-1` once the worker is done.
+///
+/// **Waits** while nothing is waiting and something is still running: the body,
+/// or a task that may spawn. Done is nothing waiting and nothing running, and
+/// the call that makes it true wakes every worker.
+///
+/// Never waits as the opener, and answers `-1` there instead: the scope's drain
+/// runs whatever is left after the body.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_tasks_scope_claim(handle: i64) -> i64 {
+    loop {
+        let mut table = scopes();
+        let Some(place) = scope_at(&mut table, handle) else { return -1 };
+        let Some(beside) = place.beside.as_mut() else { return -1 };
+        if let Some(task) = place.waiting.pop_front() {
+            beside.busy += 1;
+            let at = match place.round.iter().position(Option::is_none) {
+                Some(at) => {
+                    place.round[at] = Some(task);
+                    at
+                }
+                None => {
+                    place.round.push(Some(task));
+                    place.round.len() - 1
+                }
+            };
+            return at as i64;
+        }
+        if beside.busy == 0 || beside.opener == who() {
+            return -1;
+        }
+        beside.idle += 1;
+        let wake = Arc::clone(&beside.wake);
+        // Armed before the lock is let go, so a spawn or an ending that lands
+        // between here and the park still wakes this worker.
+        let notified = wake.notified();
+        let mut notified = std::pin::pin!(notified);
+        notified.as_mut().enable();
+        drop(table);
+        park_on(notified.as_mut());
+        let mut table = scopes();
+        if let Some(beside) = scope_at(&mut table, handle).and_then(|p| p.beside.as_mut()) {
+            beside.idle = beside.idle.saturating_sub(1);
+        }
+    }
+}
+
+/// `tasks.scopeSpare(ctx, handle) -> Bool` — whether a worker is parked, ready
+/// for the next spawn.
+///
+/// A worker that has just claimed a task asks. Where nobody is, it splits in
+/// two before it runs the task, so a task that never ends never holds up one
+/// spawned after it.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_tasks_scope_spare(handle: i64) -> u8 {
+    let mut table = scopes();
+    let Some(place) = scope_at(&mut table, handle) else { return 0 };
+    u8::from(place.beside.as_ref().is_some_and(|b| b.idle > 0))
+}
+
+/// `tasks.scopeRan(ctx, handle) -> Bool` — the body, or a claimed task, has
+/// finished. Answers whether nothing is running any more.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_tasks_scope_ran(handle: i64) -> u8 {
+    let mut table = scopes();
+    let Some(place) = scope_at(&mut table, handle) else { return 0 };
+    let Some(beside) = place.beside.as_mut() else { return 0 };
+    beside.busy = beside.busy.saturating_sub(1);
+    beside.wake.notify_waiters();
+    u8::from(beside.busy == 0)
 }
 
 #[cfg(test)]

@@ -374,9 +374,9 @@ pub fn net_intrinsic(key: &str) -> bool {
     if key.starts_with("actor.") {
         return true;
     }
-    // `core/tasks`'s six scope entries, for the same reason and in the same
-    // file. They wait on nothing themselves, but they live in `rt.rs` and
-    // `rt.rs` is behind the feature in full.
+    // `core/tasks`'s scope entries, for the same reason and in the same file.
+    // One of them (`scopeClaim`) parks too, and all of them live in `rt.rs`,
+    // which is behind the feature in full.
     if key.starts_with("tasks.scope") {
         return true;
     }

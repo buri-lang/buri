@@ -116,12 +116,15 @@
 //!
 //! ### When a spawned task actually runs
 //!
-//! A scope collects what was spawned and runs a round of it through `parallel`,
-//! then another round for whatever those tasks spawned, until nothing is
-//! waiting. So the table above applies: on JavaScript two spawned tasks
-//! overlap, on a native `--release` build they run on threads of their own,
-//! and under `buri run` they run one after another in the order they were
-//! spawned.
+//! On a native `--release` build a spawned task starts at once, on a thread of
+//! its own, while the body keeps running.
+//!
+//! Everywhere else the body runs first. Then the scope runs what was spawned in
+//! rounds through `parallel`, one round for whatever the last one spawned,
+//! until nothing is waiting. On JavaScript the tasks of a round overlap. Under
+//! `buri run` they run one after another, in the order they were spawned. A
+//! test runs them after the body on every backend, so a `TestTasks` double
+//! still decides their order.
 //!
 //! Under `buri run` a spawned task that never ends starves the ones behind it,
 //! because they wait for a round that never finishes. Spawn a socket loop and a
@@ -171,8 +174,13 @@ export struct Scope(Int);
 /// nothing is waiting.
 export fn scope<C: Allocator + Tasks, A>(ctx: C, body: fn(C, Scope) => A): A {
     let here = Scope(scopeOpen(ctx));
-    let run = body;
-    let answer = run(ctx, here);
+    let answer = match (scopeBeside(ctx, here.0)) {
+        true => beside(ctx, here, body),
+        false => {
+            let run = body;
+            run(ctx, here)
+        },
+    };
     let _ = draining(ctx, here);
     let _ = resting(ctx, here);
     answer
@@ -201,6 +209,79 @@ export fn spawn<C: Allocator + Tasks>(ctx: C, scope: Scope, step: fn(C) => ()): 
             resting(ctx, scope)
         },
     }
+}
+
+// --- Beside the body ----------------------------------------------------------
+
+/// Runs `body` and the scope's workers at once, and answers what `body`
+/// answered once they have all finished.
+///
+/// The workers start what the body spawns as soon as it is spawned, each task
+/// on a thread of its own.
+fn beside<C: Allocator + Tasks, A>(ctx: C, here: Scope, body: fn(C, Scope) => A): A {
+    let halves: [Option<A>] = parallel(ctx, [true, false], fn(c, i, isBody) => {
+        match (isBody) {
+            true => {
+                let run = body;
+                let answer = run(c, here);
+                let _ = scopeRan(c, here.0);
+                .Some(answer)
+            },
+            false => {
+                let _ = working(c, here);
+                .None
+            },
+        }
+    });
+    match (halves.first()) {
+        .Some(.Some(answer)) => answer,
+        // Unreachable: `parallel` answers in the items' order, so the first
+        // answer is the body's. Running it here keeps a toolchain bug from
+        // stopping the program.
+        _ => {
+            let run = body;
+            run(ctx, here)
+        },
+    }
+}
+
+/// Runs claimed tasks until the scope is done.
+///
+/// A worker that claims a task while no other worker is free splits in two
+/// first, so there is always one free for the next spawn and a task that
+/// never ends holds up nothing spawned after it. A self tail call, so a worker
+/// that runs a million tasks uses one frame.
+fn working<C: Allocator + Tasks>(ctx: C, scope: Scope): Bool {
+    let at = scopeClaim(ctx, scope.0);
+    match (at < 0) {
+        true => true,
+        false => {
+            match (scopeSpare(ctx, scope.0)) {
+                true => {
+                    let _ = ran(ctx, scope, at);
+                    working(ctx, scope)
+                },
+                false => {
+                    let _ = parallel(ctx, [at, -1], fn(c, i, claimed) => {
+                        match (claimed < 0) {
+                            true => working(c, scope),
+                            false => {
+                                let _ = ran(c, scope, claimed);
+                                working(c, scope)
+                            },
+                        }
+                    });
+                    true
+                },
+            }
+        },
+    }
+}
+
+/// The claimed task at `at`, run, and counted as finished.
+fn ran<C: Allocator + Tasks>(ctx: C, scope: Scope, at: Int): Bool {
+    let _ = running(ctx, scope, at);
+    scopeRan(ctx, scope.0)
 }
 
 // --- The drain ----------------------------------------------------------------
@@ -258,8 +339,8 @@ fn running<C: Allocator + Tasks>(ctx: C, scope: Scope, at: Int): Bool {
         .Some(held) => {
             match (held.first()) {
                 .None => false,
-                .Some(carrier) => {
-                    let task = carrier.value;
+                .Some(wrapped) => {
+                    let task = wrapped.value;
                     let _ = task(ctx);
                     true
                 },
@@ -299,7 +380,7 @@ fn carried<T>(value: T): Carried<T> {
 
 // --- The runtime's half -------------------------------------------------------
 //
-// Six operations. The two that move a task move a **whole block** — a
+// Ten operations. The two that move a task move a **whole block** — a
 // one-element `[Carried<fn(C) => ()>]` — which is what makes them
 // implementable against a runtime compiled once that knows no Buri type.
 // `middle/monomorphize.rs`'s `GENERIC_INTRINSICS` records the argument, and
@@ -329,3 +410,17 @@ fn scopeEnter<C: Tasks>(ctx: C, handle: Int): Bool;
 /// Gives the drain up, and answers whether anything is waiting — which is a
 /// task that arrived while the drain was ending, and has to be taken back up.
 fn scopeLeave<C: Tasks>(ctx: C, handle: Int): Bool;
+
+/// Whether this scope's tasks run beside its body. `true` only in a native
+/// `--release` program, and then the body counts as running until `scopeRan`.
+fn scopeBeside<C: Tasks>(ctx: C, handle: Int): Bool;
+
+/// The next task for a worker, as an index `scopeTaskAt` takes, or `-1` once
+/// nothing is waiting and nothing is running. **Waits** in between.
+fn scopeClaim<C: Tasks>(ctx: C, handle: Int): Int;
+
+/// Whether another worker is waiting for the next spawn.
+fn scopeSpare<C: Tasks>(ctx: C, handle: Int): Bool;
+
+/// The body, or a claimed task, has finished.
+fn scopeRan<C: Tasks>(ctx: C, handle: Int): Bool;

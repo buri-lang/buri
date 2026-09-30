@@ -949,6 +949,30 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Dropped, Arg::Scalar],
         ret: Ret::Scalar,
     },
+    Entry {
+        key: "tasks.scopeBeside",
+        symbol: "buri_rt_tasks_scope_beside",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "tasks.scopeClaim",
+        symbol: "buri_rt_tasks_scope_claim",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "tasks.scopeSpare",
+        symbol: "buri_rt_tasks_scope_spare",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "tasks.scopeRan",
+        symbol: "buri_rt_tasks_scope_ran",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Scalar,
+    },
     // -- core/str, the pure half (`cli/runtime/text.rs`) ---------------------
     //
     // Every one of these takes `self` as a full `Str`: the `base` is passed

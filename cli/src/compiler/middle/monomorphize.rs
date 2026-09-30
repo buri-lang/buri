@@ -2482,11 +2482,15 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // `actor.replyOpen`'s reason: `C` is a type parameter, so the key is
     // generic even where nothing about it crosses, and the list is the record
     // that somebody looked.
+    "tasks.scopeBeside",
+    "tasks.scopeClaim",
     "tasks.scopeEnter",
     "tasks.scopeLeave",
     "tasks.scopeOpen",
     "tasks.scopePush",
+    "tasks.scopeRan",
     "tasks.scopeRound",
+    "tasks.scopeSpare",
     "tasks.scopeTaskAt",
     // The test runner's two. Both render values the program never rendered
     // itself, so both are given a descriptor in `build_fn` — the `desc` field
@@ -2846,8 +2850,9 @@ mod tests {
         str.chars str.concat str.format str.fromChars str.fromFloat \
         str.fromInt str.lines str.padEnd str.padStart str.repeat str.replace \
         str.show str.split str.splitAny str.toJson str.toLower str.toUpper \
-        tasks.scopeEnter tasks.scopeLeave tasks.scopeOpen tasks.scopePush \
-        tasks.scopeRound tasks.scopeTaskAt \
+        tasks.scopeBeside tasks.scopeClaim tasks.scopeEnter tasks.scopeLeave \
+        tasks.scopeOpen tasks.scopePush tasks.scopeRan tasks.scopeRound \
+        tasks.scopeSpare tasks.scopeTaskAt \
         testing_assert.failExpected testing_assert.report \
         ui_effect.Scope.read ui_node.mount ui_node.rebuildRegion \
         ui_node.reconcile ui_node.registerFollow ui_node.registerOutside \
