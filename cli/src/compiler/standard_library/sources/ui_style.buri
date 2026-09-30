@@ -730,6 +730,11 @@ export enum Cursor {
 /// A list region is a list because of its role, and a role paints nothing. The
 /// stylesheet clears the browser's own marker and indent from every list, so
 /// this is how a list that wants marks asks for them.
+///
+/// A browser draws the marks from the stylesheet, so it draws none for a marker
+/// applied inline — under `Computed`, or built from a value the compiler could
+/// not evaluate — and none beside an image or an input that is itself an item.
+/// Wrap such an item in a `stack`.
 export enum ListMarker {
     /// Nothing at all. What a navigation rail, a menu and a tab strip want.
     None,

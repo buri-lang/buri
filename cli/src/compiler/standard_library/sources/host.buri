@@ -104,6 +104,16 @@ impl FileSystemWrite for HostFileSystem {
     fn copyFile(self, source: Path, destination: Path): Result<(), IoError>;
 }
 
+/// HTTP and HTTPS requests out.
+///
+/// **Granted on every platform.** On JavaScript it is the platform's own
+/// `fetch`. On LINUX and MACOS it is an HTTP/1.1 client, and two things differ:
+///
+/// * **Redirects come back as they are.** A `3xx` is the response, where
+///   JavaScript follows it and answers the final one.
+/// * **Certificates are checked against the system's PEM bundle**, which on
+///   macOS is `/etc/ssl/cert.pem` and not the keychain. Set `SSL_CERT_FILE` to
+///   a PEM file to trust its roots instead.
 export struct HostNetwork {}
 
 impl Network for HostNetwork {

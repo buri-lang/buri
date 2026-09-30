@@ -119,12 +119,12 @@
 //! On a native `--release` build a spawned task starts at once, on a thread of
 //! its own, while the body keeps running.
 //!
-//! Everywhere else the body runs first. Then the scope runs what was spawned in
-//! rounds through `parallel`, one round for whatever the last one spawned,
-//! until nothing is waiting. On JavaScript the tasks of a round overlap. Under
-//! `buri run` they run one after another, in the order they were spawned. A
-//! test runs them after the body on every backend, so a `TestTasks` double
-//! still decides their order.
+//! Everywhere else the body runs first: under `buri run`, on JavaScript, and in
+//! a test on every backend, so a `TestTasks` double still decides the order.
+//! Then the scope runs what was spawned in rounds through `parallel`, one round
+//! for whatever the last one spawned, until nothing is waiting. On JavaScript
+//! the tasks of a round overlap. Under `buri run` they run one after another,
+//! in the order they were spawned.
 //!
 //! Under `buri run` a spawned task that never ends starves the ones behind it,
 //! because they wait for a round that never finishes. Spawn a socket loop and a
