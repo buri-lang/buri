@@ -1,0 +1,16 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The file passes its schema, so opening it publishes nothing to fix.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/deploy/regions.json", "languageId": "json", "version": 1, "text": "{\n    \"$schema\": \"regions.schema.json\",\n    \"primary\": \"eu-west\"\n}\n"}}}
+# A keystroke that breaks the pattern is checked at once, on the value.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/deploy/regions.json", "version": 2}, "contentChanges": [{"text": "{\n    \"$schema\": \"regions.schema.json\",\n    \"primary\": \"EU\"\n}\n"}]}}
+# A trailing comma is not JSON: the file does not parse, and says where.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/deploy/regions.json", "version": 3}, "contentChanges": [{"text": "{\n    \"$schema\": \"regions.schema.json\",\n    \"primary\": \"eu-west\",\n}\n"}]}}
+# Put right, and the file is clean again.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/deploy/regions.json", "version": 4}, "contentChanges": [{"text": "{\n    \"$schema\": \"regions.schema.json\",\n    \"primary\": \"eu-west\"\n}\n"}]}}
+# The value goes wrong again, and a save runs the whole analysis, which agrees.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/deploy/regions.json", "version": 5}, "contentChanges": [{"text": "{\n    \"$schema\": \"regions.schema.json\",\n    \"primary\": \"EU\"\n}\n"}]}}
+{"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/lib/deploy/regions.json"}}}
+{"jsonrpc": "2.0", "id": 2, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

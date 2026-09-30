@@ -1,0 +1,56 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a REPO.buri language block gives a built-in language more extensions and nothing else: the extension decides the language, one extension names one language, and a built-in keeps its own check"
+
+# `.code-workspace` is JSONC here, so its comments and trailing comma read,
+# and the file is checked against its schema.
+run {
+  args: ["build", "//lib/editor"]
+  exit: 0
+}
+
+# ...and laid out as JSONC: the comment kept, the trailing comma gone.
+run {
+  args: ["format", "//lib/editor"]
+  exit: 0
+  golden: "format.txt"
+}
+
+file {
+  path: "lib/editor/app.code-workspace"
+  golden: "app.code-workspace"
+}
+
+# The check is really running: a folder with no `path` fails it.
+edit {
+  file: "lib/editor/app.code-workspace"
+  replace: "{ \"path\": \".\" }"
+  with: "{ \"name\": \"root\" }"
+}
+
+run {
+  args: ["build", "//lib/editor"]
+  exit: 1
+  golden: "violation.txt"
+}
+
+edit {
+  file: "lib/editor/app.code-workspace"
+  replace: "{ \"name\": \"root\" }"
+  with: "{ \"path\": \".\" }"
+}
+
+# Every way a block can be refused, each where it is written.
+edit {
+  file: "REPO.buri"
+  replace: "extensions: [\".code-workspace\"]\n}\n"
+  with: "extensions: [\".code-workspace\"]\n}\n\nlanguage {\n    name: \"yaml\"\n    extensions: [\".yaml\"]\n}\n\nlanguage {\n    name: \"json\"\n    extensions: [\".code-workspace\", \"json5\", \".json\"]\n    check: \"//tools/json\"\n}\n\nlanguage {\n    extensions: [\".x\"]\n}\n"
+}
+
+# A `REPO.buri` that does not read stops every command before it starts.
+run {
+  args: ["build", "//lib/editor"]
+  exit: 2
+  golden: "refused.txt"
+}

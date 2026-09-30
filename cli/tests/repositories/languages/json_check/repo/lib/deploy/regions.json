@@ -1,0 +1,5 @@
+{
+    "$schema": "regions.schema.json",
+    "regions": ["eu-west", "us-east"],
+    "primary": "eu-west"
+}

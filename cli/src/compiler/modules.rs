@@ -124,6 +124,9 @@ pub struct Loaded {
     /// package because `analyze_all` batches many targets into one
     /// compilation, and each one's suite speaks only for its own entry point.
     pub test_platforms: HashMap<crate::build::workspace::PackageId, Vec<Platform>>,
+    /// The rules whose generators this compilation reported on. Their inputs,
+    /// and the schemas those were checked against, are files it read.
+    pub generated_rules: Vec<TargetId>,
 }
 
 impl Loaded {
@@ -190,6 +193,7 @@ impl<'a> Loader<'a> {
             platform: self.platform,
             entry: self.entry,
             test_platforms: self.test_platforms,
+            generated_rules: self.generated_rules.into_iter().collect(),
         }
     }
 
@@ -503,6 +507,11 @@ impl<'a> Loader<'a> {
         for (d, span) in &outcome.diagnostics {
             let reported = self.generator_diagnostic(d, *span);
             self.diags.push(reported);
+        }
+        for (finding, entry) in &outcome.findings {
+            let origin = crate::build::generators::Origin { file: finding.file.clone(), span: finding.span };
+            let span = self.generator_origin(Some(&origin)).unwrap_or(*entry);
+            self.diags.push(finding.diagnostic(span));
         }
         let pkg = ws.package(target.package);
         for module in &outcome.modules {

@@ -1,0 +1,38 @@
+0 passed, 0 failed, 0 skipped, 1 failed to compile (0.0s)
+error: "//lib/deploy/config" names no file (lib/deploy/config.buri) [module-not-found]
+ --> lib/deploy/lib.buri:1:6
+  |
+1 | from "//lib/deploy/config" export { inputs };
+  |      ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+error: `"EU"` does not match the pattern `^[a-z]+-[a-z]+$` [json-schema-violation]
+ --> lib/deploy/regions.json:4:16
+  |
+4 |     "primary": "EU", "backup": 2
+  |                ^^^^
+  |
+  = the schema says so at `lib/deploy/regions.schema.json#/$defs/region/pattern`
+  = fix: write a string the pattern matches
+error: `"backup"` is not a property the schema declares [json-schema-violation]
+ --> lib/deploy/regions.json:4:22
+  |
+4 |     "primary": "EU", "backup": 2
+  |                      ^^^^^^^^
+  |
+  = the schema says so at `lib/deploy/regions.schema.json#/additionalProperties`
+  = fix: delete it, or declare it in the schema's `properties`
+error: "//lib/deploy" does not export `inputs` [no-such-export]
+ --> lib/deploy/test/deploy.buri:2:30
+  |
+2 | from "//lib/deploy" import { inputs };
+  |                              ^^^^^^
+  |
+  = fix: check the spelling, or re-export `inputs` from "//lib/deploy"'s `lib.buri`
+error: there is nothing named `inputs` in scope [unresolved-name]
+ --> lib/deploy/test/deploy.buri:5:18
+  |
+5 |     assert.equal(inputs, 3);
+  |                  ^^^^^^
+  |
+  = fix: declare `inputs`, or import it — a name is in scope only from this module's own declarations and its imports

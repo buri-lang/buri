@@ -104,6 +104,10 @@ pub enum Action {
     /// The one action whose program this toolchain did not write. See
     /// [`crate::build::generators`].
     Generate,
+    /// Checking one file a rule references against its language's rules — for
+    /// JSON, its schema. Keyed on the file and on every schema the check
+    /// reads, so editing either re-checks it.
+    Check,
     Compile,
     /// Turning one codegen unit's lowered IR into object bytes. One action per
     /// unit, where a unit is the set of monomorphized functions whose
@@ -133,6 +137,7 @@ impl Action {
     pub fn name(self) -> &'static str {
         match self {
             Action::Generate => "generate",
+            Action::Check => "check",
             Action::Compile => "compile",
             Action::Codegen => "codegen",
             Action::Link => "link",

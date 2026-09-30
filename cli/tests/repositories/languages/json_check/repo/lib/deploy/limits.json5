@@ -1,0 +1,6 @@
+// JSON5: unquoted keys, single quotes, and a number with no end.
+{
+    $schema: 'limits.schema.json',
+    burst: Infinity,
+    rate: 0x10,
+}

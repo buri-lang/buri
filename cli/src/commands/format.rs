@@ -8,9 +8,12 @@
 //!
 //! # Everywhere somebody wrote Buri
 //!
-//! Three kinds of file, one command, one layout:
+//! Four kinds of file, one command, one layout:
 //!
 //!   * **source** and **build files**, through the two printers below;
+//!   * **JSON, JSONC and JSON5** that a rule's `inputs` lists, through
+//!     `crate::languages`. Any other JSON file is not the repository's to
+//!     format;
 //!   * **markdown**, where every ```` ```buri ```` fence is laid out and the
 //!     prose around it is left exactly as it was written;
 //!   * **a source file's own documentation comments**, where an example is what
@@ -62,6 +65,11 @@ pub fn file(name: &str, text: &str) -> Option<String> {
 /// for the file there is nothing to be said about — a build file that does not
 /// read, or source the formatter could not vouch for.
 pub fn formatted(name: &str, text: &str) -> Option<crate::formatting::Formatted> {
+    let languages = crate::languages::Languages::default();
+    if languages.of(name).is_some() {
+        let text = crate::languages::format(&languages, name, text)?;
+        return Some(crate::formatting::Formatted { text, regions: Vec::new() });
+    }
     if is_build_file(name) {
         let parsed = textproto::parse(text, crate::diagnostics::FileId(0));
         if !parsed.errors.is_empty() {
@@ -103,8 +111,10 @@ fn select(
 ) -> Result<(Vec<PathBuf>, Vec<PathBuf>), String> {
     let mut files = Vec::new();
     let mut documents = Vec::new();
+    let referenced = referenced(session);
     if arguments.is_empty() {
         collect(&session.root, &mut files);
+        files.extend(referenced);
         crate::documentation::layout::documents_under(&session.root, &mut documents);
         return Ok((files, documents));
     }
@@ -123,6 +133,7 @@ fn select(
             ));
         }
         collect(&path, &mut files);
+        files.extend(referenced.iter().filter(|f| f.starts_with(&path)).cloned());
         crate::documentation::layout::documents_under(&path, &mut documents);
     }
     // No label is not the same question with an empty answer: `resolve_targets`
@@ -141,8 +152,38 @@ fn select(
         for source in session.workspace.declared_sources(id) {
             files.push(package.dir.join(source));
         }
+        files.extend(referenced.iter().filter(|f| owned_by(session, id, f)).cloned());
     }
     Ok((files, documents))
+}
+
+/// Every file some rule's `inputs` lists in a language this repository knows:
+/// the whole set of non-Buri files `buri format` touches.
+fn referenced(session: &session::Session) -> Vec<PathBuf> {
+    let workspace = &session.workspace;
+    let mut out: Vec<PathBuf> = Vec::new();
+    for target in workspace.targets() {
+        let dir = &workspace.package(target.package).dir;
+        for input in crate::build::generators::inputs(workspace, target) {
+            if workspace.repo.languages.of(&input).is_some() {
+                out.push(dir.join(input));
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Whether a referenced file is one a rule of this package lists.
+fn owned_by(session: &session::Session, id: PackageId, file: &Path) -> bool {
+    let workspace = &session.workspace;
+    let dir = &workspace.package(id).dir;
+    workspace
+        .targets()
+        .into_iter()
+        .filter(|t| t.package == id)
+        .any(|t| crate::build::generators::inputs(workspace, t).iter().any(|i| dir.join(i) == file))
 }
 
 /// Formats `.buri` sources, build files, and the Buri written in documentation,
@@ -162,6 +203,7 @@ pub fn command_format(args: &arguments::Args) -> i32 {
     };
     files.sort();
     files.dedup();
+    let referenced = referenced(&session);
 
     let mut changed = Vec::new();
     // The files a syntax error kept part or all of out of the formatter's
@@ -170,7 +212,26 @@ pub fn command_format(args: &arguments::Args) -> i32 {
     // `--check` that passed one would be reporting a gate it did not run.
     let mut unread = Vec::new();
     let mut refused = Vec::new();
+    let languages = &session.workspace.repo.languages;
     for path in &files {
+        let rel = session.workspace.rel_of(path);
+        if languages.of(&rel).is_some() {
+            if !referenced.contains(path) {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(path) else { continue };
+            match crate::languages::format(languages, &rel, &text) {
+                None => refused.push(rel),
+                Some(out) if out != text => {
+                    changed.push(rel);
+                    if !args.flags.check {
+                        let _ = std::fs::write(path, out);
+                    }
+                }
+                Some(_) => {}
+            }
+            continue;
+        }
         let Ok(text) = std::fs::read_to_string(path) else { continue };
         let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
             continue;

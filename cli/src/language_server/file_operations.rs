@@ -42,6 +42,11 @@ use super::state::State;
 /// operations if the client sends them at all.
 pub const GLOB: &str = "**/*.{buri,proto}";
 
+/// The files the server asks to have watched: [`GLOB`], and the built-in
+/// languages a generator's input may be written in. A schema edited on disk
+/// moves the check of every file that names it.
+pub const WATCHED: &str = "**/*.{buri,proto,json,jsonc,json5}";
+
 /// The `sources`-family fields a rule can hold, in the order they are searched
 /// for an entry.
 const FIELDS: [(&str, &[&str]); 5] = [

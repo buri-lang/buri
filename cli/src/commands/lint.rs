@@ -610,10 +610,20 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
         }
     }
 
+    // A schema an input is checked against is read by the build, so it
+    // belongs to whichever rule lists that input.
+    let schemas: BTreeSet<String> = session
+        .workspace
+        .targets()
+        .into_iter()
+        .filter_map(|t| session.workspace.generated.outcome(t))
+        .flat_map(|o| o.reads)
+        .collect();
+
     let mut on_disk = Vec::new();
     collect_package_sources(&p.dir, &p.dir, &extensions, &mut on_disk);
     for rel in on_disk {
-        if known.contains(&rel) {
+        if known.contains(&rel) || schemas.contains(&session.workspace.rel_of(&p.dir.join(&rel))) {
             continue;
         }
         // Which field a file belongs in follows from what it is, and the fix

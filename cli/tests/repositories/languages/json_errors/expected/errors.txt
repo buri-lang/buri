@@ -1,0 +1,171 @@
+error: this file has no `"$schema"` [json-without-schema]
+ --> lib/bad/bare.json:1:1
+  |
+1 | { "a": 1 }
+  | ^
+  |
+  = a JSON file a build reads is checked against its schema before any generator reads it
+  = fix: add `"$schema": "<schema path>"` as its first key: a path relative to this file, or a `//` path
+
+      {
+          "$schema": "regions.schema.json",
+          "regions": ["eu-west", "us-east"]
+      }
+
+    The schema is what a mistake in the file is measured against. Without one, a
+    typo in a key reaches the generator as data, and the error surfaces as wrong
+    generated code rather than at the line that holds the typo.
+
+    buri format never adds the key for you: which schema a file follows is yours
+    to say.
+
+error: `https://example.com/elsewhere.json` is not a file in this repository [schema-not-local]
+ --> lib/bad/broken_ref.schema.json:3:13
+  |
+3 |     "$ref": "https://example.com/elsewhere.json",
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = a schema is read from the repository and never fetched, so every machine checks against the same one
+  = fix: check the schema in, and name it by a path relative to this file or a `//` path
+
+    "$schema", and every $ref to another file, names a file in this repository:
+
+      { "$schema": "regions.schema.json" }
+      { "$schema": "//schemas/regions.schema.json" }
+
+    A URL, an absolute path, or a relative path that climbs out of the
+    repository is refused. Fetching one would put the network in the build, and
+    two machines could check one file against two different schemas.
+
+    The one URL known by name is the JSON Schema 2020-12 meta-schema,
+    https://json-schema.org/draft/2020-12/schema, which marks a file as a
+    schema.
+
+error: `#/$defs/nothing` points at nothing in the schema [json-schema-invalid]
+ --> lib/bad/broken_ref.schema.json:4:36
+  |
+4 |     "properties": { "a": { "$ref": "#/$defs/nothing" } }
+  |                                    ^^^^^^^^^^^^^^^^^
+  |
+  = fix: correct the pointer or the anchor it names
+
+    Every keyword a schema writes is checked before any file is checked against
+    it, so a mistake in the schema is reported in the schema rather than as a
+    puzzling verdict on the data.
+
+    Two kinds of refusal are not mistakes in 2020-12 terms:
+
+    - A draft-07 keyword with a 2020-12 replacement, such as dependencies or
+    additionalItems. 2020-12 would silently ignore it, so the check would pass
+    data the author meant to refuse.
+
+    - A `pattern` this toolchain cannot read. Patterns are ECMA-262 regular
+    expressions over code points. Lookbehind, back-references and \p{…} are not
+    supported. buri docs guides/json lists the syntax that is.
+
+error: JSON has no comments [json-syntax]
+ --> lib/bad/comment.json:1:1
+  |
+1 | // JSON has no comments.
+  | ^^
+  |
+  = fix: delete the comment, or rename the file to `.jsonc` or `.json5`
+
+    The extension decides what a file may hold:
+
+                       .json  .jsonc  .json5
+      Comments         no     yes     yes
+      Trailing commas  no     yes     yes
+      JSON5 syntax     no     no      yes
+
+    JSON5 syntax is single-quoted strings, unquoted keys, hexadecimal numbers,
+    Infinity and NaN. A key written twice in one object is an error in all
+    three, because nothing says which one wins.
+
+    A file that does not parse is neither checked nor formatted, and the
+    generator that lists it does not run.
+
+error: `http://json-schema.org/draft-07/schema#` is not JSON Schema 2020-12 [json-schema-draft-unsupported]
+ --> lib/bad/draft7.schema.json:2:16
+  |
+2 |     "$schema": "http://json-schema.org/draft-07/schema#",
+  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = this toolchain reads one draft of JSON Schema, so every keyword has one meaning
+  = fix: write `"$schema": "https://json-schema.org/draft/2020-12/schema"` in the schema, and update its keywords to 2020-12
+
+    The drafts disagree about what one keyword means: items holding a list is a
+    tuple in draft 7 and an error in 2020-12. Reading one draft means a schema
+    says one thing.
+
+    Moving a draft-07 schema to 2020-12 is mostly renaming:
+
+      Draft 7          2020-12
+      definitions      $defs
+      items: [...]     prefixItems: [...]
+      additionalItems  items
+      dependencies     dependentRequired or dependentSchemas
+
+error: `minLength` is a whole number, zero or more [json-schema-invalid]
+ --> lib/bad/invalid.schema.json:5:50
+  |
+5 |         "name": { "type": "string", "minLength": "two", "pattern": "(?<=a)b" }
+  |                                                  ^^^^^
+  |
+  = fix: write a whole number
+error: the pattern `(?<=a)b` does not read: lookbehind is not supported [json-schema-invalid]
+ --> lib/bad/invalid.schema.json:5:68
+  |
+5 |         "name": { "type": "string", "minLength": "two", "pattern": "(?<=a)b" }
+  |                                                                    ^^^^^^^^^
+  |
+  = fix: write an ECMA-262 regular expression this toolchain reads; `buri docs guides/json` lists the syntax
+error: `dependencies` is not a JSON Schema 2020-12 keyword [json-schema-invalid]
+ --> lib/bad/invalid.schema.json:7:5
+  |
+7 |     "dependencies": { "name": ["other"] }
+  |     ^^^^^^^^^^^^^^
+  |
+  = fix: use `dependentRequired` for a list of names, and `dependentSchemas` for a schema
+error: there is no schema at `lib/bad/nowhere.schema.json` [schema-not-found]
+ --> lib/bad/missing.json:1:14
+  |
+1 | { "$schema": "nowhere.schema.json" }
+  |              ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the schema, or correct the path
+
+    A relative path is read from the directory of the file that holds it, the
+    way a browser resolves a link. A path starting // is read from the
+    repository root.
+
+error: `../../../ok.schema.json` is not a file in this repository [schema-not-local]
+ --> lib/bad/outside.json:1:14
+  |
+1 | { "$schema": "../../../ok.schema.json" }
+  |              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = a schema is read from the repository and never fetched, so every machine checks against the same one
+  = fix: check the schema in, and name it by a path relative to this file or a `//` path
+error: a single-quoted string is JSON5, not JSON [json-syntax]
+ --> lib/bad/quoted.json:1:14
+  |
+1 | { "$schema": 'ok.schema.json' }
+  |              ^
+  |
+  = fix: write it the JSON way, or rename the file to `.json5`
+error: `https://example.com/ok.schema.json` is not a file in this repository [schema-not-local]
+ --> lib/bad/remote.json:1:14
+  |
+1 | { "$schema": "https://example.com/ok.schema.json" }
+  |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = a schema is read from the repository and never fetched, so every machine checks against the same one
+  = fix: check the schema in, and name it by a path relative to this file or a `//` path
+error: JSON has no trailing commas [json-syntax]
+ --> lib/bad/trailing.json:1:38
+  |
+1 | { "$schema": "ok.schema.json", "a": 1, }
+  |                                      ^
+  |
+  = fix: delete the comma, or rename the file to `.jsonc` or `.json5`
