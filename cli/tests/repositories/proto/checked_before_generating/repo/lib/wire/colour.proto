@@ -1,0 +1,8 @@
+edition = "2026";
+
+package wire.v1;
+
+enum Colour {
+  COLOUR_UNSPECIFIED = 0;
+  RED = 1;
+}

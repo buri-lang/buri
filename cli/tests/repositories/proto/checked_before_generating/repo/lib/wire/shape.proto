@@ -1,0 +1,17 @@
+edition = "2026";
+
+package wire.v1;
+
+import "lib/wire/colour.proto";
+
+message Shape {
+  reserved 7, 10 to 12;
+  reserved legacy;
+
+  string name = 1;
+  Colour colour = 2;
+  oneof size {
+    int32 sides = 3;
+    double radius = 4;
+  }
+}

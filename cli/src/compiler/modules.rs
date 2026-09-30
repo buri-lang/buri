@@ -745,9 +745,13 @@ impl<'a> Loader<'a> {
             Err(msg) => {
                 // The resolver says which of the several ways a path can fail
                 // to name a file this one took, so the whole sentence is bound.
-                self.diags.push(
-                    Diagnostic::templated("module-not-found", span).with_bind("problem", msg),
-                );
+                // A schema whose check failed has its errors reported on it; a
+                // second one here would only repeat them.
+                if msg != crate::build::workspace::SCHEMA_HAS_ERRORS {
+                    self.diags.push(
+                        Diagnostic::templated("module-not-found", span).with_bind("problem", msg),
+                    );
+                }
                 None
             }
         }

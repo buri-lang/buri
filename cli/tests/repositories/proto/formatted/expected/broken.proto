@@ -1,0 +1,3 @@
+edition = "2026";
+package shop.v1;
+message   Broken { string label = 1 [json_name = "open]; }

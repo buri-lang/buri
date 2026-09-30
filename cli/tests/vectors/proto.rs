@@ -77,6 +77,24 @@ fn unframe(mut b: &[u8]) -> Vec<Vec<u8>> {
 /// protocol has rather than a shortcut this test takes.
 #[test]
 fn the_recorded_exchanges_still_hold() {
+    replay(&Scratch::copy_of("proto-vectors", &proto_dir().join("repo")));
+}
+
+/// The same exchanges, after `buri format` has laid out both vendored schemas:
+/// formatting moves whitespace and comments, and changes no answer.
+#[test]
+fn formatting_the_schemas_changes_no_answer() {
+    let scratch = Scratch::copy_of("proto-vectors-formatted", &proto_dir().join("repo"));
+    let schema = "lib/conformance/test_messages_proto3.proto";
+    let before = scratch.read(schema);
+    scratch.run(&["format"]).ok();
+    assert_ne!(scratch.read(schema), before, "formatting left {schema} as it was");
+    // A fixed point: a second run finds nothing to change.
+    scratch.run(&["format", "--check"]).ok();
+    replay(&scratch);
+}
+
+fn replay(scratch: &Scratch) {
     let vectors = vectors();
     assert!(
         vectors.len() > 100,
@@ -84,7 +102,6 @@ fn the_recorded_exchanges_still_hold() {
         vectors.len()
     );
 
-    let scratch = Scratch::copy_of("proto-vectors", &proto_dir().join("repo"));
     scratch.run(&["build", "//cmd/testee"]).ok();
     let artifact = scratch.path(".buri/out/js/cmd/testee/testee.mjs");
     assert!(artifact.is_file(), "the testee did not build");

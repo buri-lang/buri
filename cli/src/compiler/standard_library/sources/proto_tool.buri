@@ -8,11 +8,15 @@
 //!     generators: [{ tool: "std/proto", inputs: ["point.proto"] }]
 //! }
 //! ```
+//!
+//! [`check`] reads each schema the way `generate` does, against the schemas it
+//! imports, and answers only what it found. Formatting is in-tree.
 
 from "core/codegen" import { Request };
 from "core/effect" import { Allocator };
-from "core/tool" import { Generated, GenerateRequest };
+from "core/tool" import { Checked, CheckRequest, Generated, GenerateRequest };
 from "std/codegen/proto" import * as proto;
+from "std/codegen/proto/schema" import * as schema;
 
 export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
     let inputs = request.inputs.map(ctx, fn(input) => (input.path, input.value));
@@ -22,4 +26,27 @@ export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generat
         diagnostics: response.diagnostics,
         needs: [],
     }
+}
+
+/// Every diagnostic `generate` would raise. An import is asked for by its
+/// repository path, and one that leaves the repository is never read, so it
+/// names no schema.
+export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
+    let inputs = request.inputs.map(ctx, fn(input) => (input.path, input.value));
+    let response = proto.emit(ctx, Request { inputs: inputs, dependencies: request.files });
+    let imports = request
+        .inputs
+        .flatMapCtx(ctx, fn(c, input) => schema.parse(c, input.value, input.path).schema.imports);
+    Checked {
+        diagnostics: response.diagnostics,
+        needs: imports.filterMapCtx(ctx, fn(c, i) => local(c, i.path)),
+    }
+}
+
+/// An import's repository path, or `None` for one outside the repository.
+fn local<C: Allocator>(ctx: C, path: Str): Option<Str> {
+    let wanted = proto.importModulePath(ctx, path);
+    let rest = wanted.slice(2, wanted.length());
+    let climbs = rest.split(ctx, "/").any(fn(segment) => segment == "..");
+    if (climbs || rest.contains(":") || rest.startsWith("/")) { .None } else { .Some(rest) }
 }
