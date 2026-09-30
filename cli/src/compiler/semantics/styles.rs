@@ -82,6 +82,8 @@ const STYLE_SHADOW: usize = 40;
 /// `Shadows([Shadow])`, which writes the same declaration and so shares
 /// `Shadow`'s conflict slot.
 const STYLE_SHADOWS: usize = 41;
+/// `ListMarker(ListMarker)`.
+const STYLE_LIST_MARKER: usize = 54;
 /// `Bleed(Edge, Length)`, declared last because nothing else writes a margin.
 const STYLE_BLEED: usize = 55;
 
@@ -896,6 +898,7 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
 
     let mut out = reset.rules();
     out.push_str(&focus_ring(&unique));
+    out.push_str(&marker_anchor(&unique));
     let mut open: Option<Option<u8>> = None;
     for rule in unique {
         if open != Some(rule.screen) {
@@ -959,6 +962,24 @@ fn focus_ring(rules: &[&StyleRule]) -> String {
     let selectors =
         classes.iter().map(|c| format!(".{c}")).collect::<Vec<_>>().join(",");
     format!(":where({selectors}):focus-visible{{outline:none}}\n")
+}
+
+/// Makes each child of a marked list the box its `::after` marker hangs from.
+/// `:where()` keeps it weightless, so a child's own `Position` still wins.
+fn marker_anchor(rules: &[&StyleRule]) -> String {
+    let mut classes: Vec<&str> = rules
+        .iter()
+        .filter(|r| r.property as usize == STYLE_LIST_MARKER)
+        .filter(|r| r.class.ends_with("lm-disc") || r.class.ends_with("lm-decimal"))
+        .map(|r| r.class.as_str())
+        .collect();
+    if classes.is_empty() {
+        return String::new();
+    }
+    classes.sort_unstable();
+    let selectors =
+        classes.iter().map(|c| format!(".{c}")).collect::<Vec<_>>().join(",");
+    format!(":where({selectors})>*{{position:relative}}\n")
 }
 
 /// Everything a browser paints on an element by itself that no atomic class
@@ -1228,9 +1249,11 @@ impl Reset {
             // is the half no style can say: `position:fixed`, the automatic
             // margins that centre it, and the top layer `showModal` puts it
             // in. The panel's own look is the styles'.
+            // `overflow:visible` undoes the UA's `dialog:modal{overflow:auto}`,
+            // which clips focus rings and pinned panels the painter draws whole.
             out.push_str(
                 ":where(dialog){border:0;padding:0;background:none;color:inherit;\
-                 max-width:none;max-height:none}\n",
+                 max-width:none;max-height:none;overflow:visible}\n",
             );
             // Open, it is a container like every other one. Shut, it keeps a
             // browser's `display:none`, which is why this hangs off `[open]`
@@ -1652,10 +1675,43 @@ fn declaration(variant: usize, args: &[Value]) -> Option<Declaration> {
         // lists
         54 => {
             let (which, _) = first?.as_variant()?;
-            let css = ["none", "disc", "decimal"].get(which)?;
             // The type, not the shorthand: the reset already cleared the
             // indent, and a marker asked for here must not put it back.
-            Some(("lm", (*css).into(), one("list-style-type", css)))
+            //
+            // A browser draws `::marker` only on `display:list-item`, and the
+            // reset makes every item a flex box. So `::after` draws the
+            // painter's marker instead, sized by its MARKER_DISC and MARKER_GAP.
+            let blocks = match which {
+                0 => vec![
+                    ("", "list-style-type:none".into()),
+                    (">*::after", "content:none".into()),
+                ],
+                1 => vec![
+                    ("", "list-style-type:disc".into()),
+                    (
+                        ">*::after",
+                        "content:\"\";position:absolute;top:calc(0.5lh - 0.175em);\
+                         right:calc(100% + 0.4em);width:0.35em;height:0.35em;\
+                         border-radius:9999px;background-color:currentColor;\
+                         white-space:normal"
+                            .into(),
+                    ),
+                ],
+                2 => vec![
+                    ("", "list-style-type:decimal;counter-reset:buri-item".into()),
+                    (">*", "counter-increment:buri-item".into()),
+                    (
+                        ">*::after",
+                        "content:counter(buri-item) \".\";position:absolute;top:0;\
+                         right:calc(100% + 0.4em);width:auto;height:auto;\
+                         border-radius:0;background-color:transparent;white-space:nowrap"
+                            .into(),
+                    ),
+                ],
+                _ => return None,
+            };
+            let key = ["none", "disc", "decimal"][which];
+            Some(("lm", key.into(), blocks))
         }
 
         // out of the box the container put the child in
