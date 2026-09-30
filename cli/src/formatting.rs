@@ -89,11 +89,11 @@ use crate::parsing::lexer::{lex, Comment, TokenKind};
 use crate::parsing::tree::*;
 use std::fmt::Write as _;
 
-const WIDTH: usize = 88;
+pub(crate) const WIDTH: usize = 88;
 
 /// One level of indentation. Every indent in the output is a multiple of it,
 /// and nothing else in this file knows a number of spaces.
-const INDENT: usize = 4;
+pub(crate) const INDENT: usize = 4;
 
 /// One file's canonical form, and what the parser could not read in it.
 pub struct Formatted {
