@@ -4,6 +4,7 @@ library {
     test {
         sources: [
             "test/entropy.buri",
+            "test/seal.buri",
             "test/sha256.buri",
             "test/sha512.buri",
         ]

@@ -1412,12 +1412,18 @@ fn runtime_archive(manifest: &Path) {
     // On by default for `net`'s reason and unlike `net` in what it costs;
     // `manifest.toml`'s feature block argues both halves.
     //
-    // It has no C-compiler probe beside it, and that is the difference worth
-    // noticing: `getrandom` is pure Rust, so the one way this feature is off is
-    // that somebody asked for it to be — or that the whole dependency tree
-    // failed to resolve, which takes the archive with it rather than this
-    // feature alone.
-    let crypto = !matches!(std::env::var("BURI_RUNTIME_CRYPTO").as_deref(), Ok("0"));
+    // It also carries `ring`, for `core/crypto`'s `seal` and `open`, so it needs the C compiler `net` probes for and degrades the same
+    // way without one.
+    let crypto = !matches!(std::env::var("BURI_RUNTIME_CRYPTO").as_deref(), Ok("0"))
+        && (can_compile(&cc) || {
+            println!(
+                "cargo:warning=no C compiler was found ({cc}), so the runtime is built without \
+                 its `crypto` feature: `ring` compiles C and assembly. Programs that reach \
+                 `Entropy` or `core/crypto`'s sealing are refused by name. Set \
+                 CC, or install the platform's compiler, and rebuild."
+            );
+            false
+        });
     // The opt-in write-back path. Without `--locked` Cargo resolves and updates
     // the assembled package's `Cargo.lock`; this is what carries the result back
     // to the file a reviewer reads.

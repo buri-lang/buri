@@ -2350,6 +2350,10 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "bytes.toUtf8",
     "character.show",
     "character.toJson",
+    // `core/crypto`'s two `C: Allocator` sealing entries. Every argument and
+    // the result are `[U8]`, so `core/bytes`'s reasoning holds.
+    "crypto.chacha20Poly1305Open",
+    "crypto.chacha20Poly1305Seal",
     // `Tasks.parallel<C, A, B>` — the closure trampoline's second key, and the
     // one it was built for. It is on this list for the same reason
     // `list.mapCtxStep` is, which is A4's rule and not an exception to it: an
@@ -2834,6 +2838,7 @@ mod tests {
         bool.show bool.toJson \
         bytes.f32ToBytes bytes.f64ToBytes bytes.fromUtf8 bytes.toUtf8 \
         character.show character.toJson \
+        crypto.chacha20Poly1305Open crypto.chacha20Poly1305Seal \
         host.HostTasks.parallel \
         host.HostUi.memo host.HostUi.read host.HostUi.signal host.HostUi.write \
         host.HostWatch.read \

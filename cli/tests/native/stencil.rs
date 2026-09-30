@@ -1950,6 +1950,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "compression/deflate.buri",
     "crypto/entropy.buri",
     "csv/csv.buri",
+    "crypto/seal.buri",
     "crypto/sha256.buri",
     "crypto/sha512.buri",
     "data/assertions.buri",

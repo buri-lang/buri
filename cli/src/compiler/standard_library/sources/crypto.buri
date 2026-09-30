@@ -18,11 +18,14 @@
 //! predict. The seeded path a test needs is `core/host/testing`'s `entropy()`, a
 //! seeded implementation of the same effect that only a test source can reach.
 //!
+//! # Sealing
+//!
+//! `seal` and `open` encrypt with ChaCha20-Poly1305, and `Entropy` mints the
+//! nonce rather than the caller. Both are the platform's rather than Buri's:
+//! `ring` natively, and the JavaScript runtime's own synchronous code.
+//!
 //! # What is not here
 //!
-//! - **No ciphers.** No AES, no ChaCha. An AEAD — one authenticated
-//!   construction, with `Entropy` minting the nonce rather than the caller — is
-//!   the shape it would take, and it is a slice of its own.
 //! - **No public-key anything.**
 //! - **No key derivation and no password hashing.**
 //!
@@ -823,5 +826,109 @@ fn accumulate(a: [U8], b: [U8], i: Int, acc: Int): Int {
         let x = a.get(i).withDefault(0).toI64();
         let y = b.get(i).withDefault(0).toI64();
         accumulate(a, b, i + 1, acc | x ^ y)
+    }
+}
+
+// --- Sealing ---------------------------------------------------------------------
+
+/// ChaCha20-Poly1305 (RFC 8439): the ciphertext with its tag appended. A key
+/// that is not 32 bytes or a nonce that is not 12 aborts.
+fn chacha20Poly1305Seal<C: Allocator>(
+    ctx: C,
+    key: [U8],
+    nonce: [U8],
+    plaintext: [U8],
+    aad: [U8],
+): [U8];
+
+/// The plaintext, or `.None` when the tag does not match.
+fn chacha20Poly1305Open<C: Allocator>(
+    ctx: C,
+    key: [U8],
+    nonce: [U8],
+    sealed: [U8],
+    aad: [U8],
+): Option<[U8]>;
+
+let KEY_BYTES: Int = 32;
+
+let NONCE_BYTES: Int = 12;
+
+let TAG_BYTES: Int = 16;
+
+/// Encrypts and authenticates `plaintext` under a 32-byte `key`.
+///
+/// ```buri run
+/// from "core/bytes" import * as bytes;
+/// from "core/crypto" import * as crypto;
+/// from "core/effect" import { Allocator, Entropy, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Allocator: host.alloc,
+///         Entropy: host.entropy,
+///         Stdout: host.stdout,
+///     };
+///     let key = crypto.randomBytes(ctx, 32);
+///     let aad = bytes.toUtf8(ctx, "user:42");
+///     let sealed = crypto.seal(ctx, key, bytes.toUtf8(ctx, "refresh-token"), aad);
+///     let opened = crypto.open(ctx, key, sealed, aad)?;
+///     let _ = io
+///         .println(ctx, "${sealed.length()} ${bytes.fromUtf8Lossy(ctx, opened)}")
+///         .ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// 41 refresh-token
+/// ```
+///
+/// The answer is `nonce ++ ciphertext ++ tag`: 12 + the plaintext's length + 16
+/// bytes. The nonce comes from `Entropy`, so sealing the same plaintext twice
+/// gives two different answers.
+///
+/// `aad` is authenticated but not encrypted. Bind a value to where it belongs,
+/// such as a user id or a column name, and `open` refuses it anywhere else.
+/// Pass `[]` when there is nothing to bind.
+///
+/// A random 12-byte nonce repeats by chance after about 2^32 seals under one
+/// key, and a repeat leaks both plaintexts. Rotate keys well before that.
+///
+/// A `key` that is not 32 bytes aborts. Make one with `randomBytes(ctx, 32)`.
+export fn seal<C: Allocator + Entropy>(
+    ctx: C,
+    key: [U8],
+    plaintext: [U8],
+    aad: [U8],
+): [U8] {
+    let nonce = randomBytes(ctx, NONCE_BYTES);
+    nonce.concat(ctx, chacha20Poly1305Seal(ctx, key, nonce, plaintext, aad))
+}
+
+/// The plaintext `seal` encrypted, or why it cannot be had.
+///
+/// It fails when the key is wrong, when `aad` differs from what was sealed, or
+/// when any byte of `sealed` changed. The tag is checked before anything is
+/// decrypted, so a failure releases no plaintext.
+export fn open<C: Allocator>(
+    ctx: C,
+    key: [U8],
+    sealed: [U8],
+    aad: [U8],
+): Result<[U8], Str> {
+    if (key.length() != KEY_BYTES) {
+        .Err("a sealing key is 32 bytes")
+    } else if (sealed.length() < NONCE_BYTES + TAG_BYTES) {
+        .Err("too short to be a sealed value")
+    } else {
+        let nonce = sealed.slice(ctx, 0, NONCE_BYTES);
+        let rest = sealed.slice(ctx, NONCE_BYTES, sealed.length());
+        match (chacha20Poly1305Open(ctx, key, nonce, rest, aad)) {
+            .Some(plaintext) => .Ok(plaintext),
+            .None => .Err("the sealed value does not authenticate"),
+        }
     }
 }

@@ -587,8 +587,8 @@ it is the answer another implementation gives.
 ## Cryptography
 
 [`core/crypto`](../../compiler/standard_library/sources/crypto.buri) — SHA-256,
-SHA-512, their HMACs, SHA-1, a constant-time comparison, and the platform's
-cryptographic randomness.
+SHA-512, their HMACs, SHA-1, a constant-time comparison, the platform's
+cryptographic randomness and authenticated encryption.
 
 The hashes are written in Buri rather than handed to the platform, because a
 dependency tree is a second thing to audit. The NIST vectors check them, RFC
@@ -620,15 +620,42 @@ name, before code generation, rather than answering from a generator that is
 merely uniform. See
 [cryptography-not-available](./errors/cryptography-not-available.md).
 
+### Sealing
+
+`seal` encrypts and authenticates with ChaCha20-Poly1305. `open` undoes it.
+
+```buri
+from "core/crypto" import * as crypto;
+from "core/effect" import { Allocator, Entropy };
+
+export fn roundTrip<C: Allocator + Entropy>(
+    ctx: C,
+    key: [U8],
+    token: [U8],
+): Result<[U8], Str> {
+    let sealed = crypto.seal(ctx, key, token, []);
+    crypto.open(ctx, key, sealed, [])
+}
+```
+
+- **The key is 32 bytes.** Make one with `crypto.randomBytes(ctx, 32)` and keep
+  it away from what it protects. `seal` aborts on any other size.
+- **You never pick a nonce.** `Entropy` mints a fresh 12-byte one per call, and
+  `sealed` is `nonce ++ ciphertext ++ tag`. Rotate the key well before 2^32
+  seals, where random nonces start to repeat.
+- **The last argument is associated data.** It is authenticated but not stored.
+  Pass a user id or a column name, and a sealed value copied anywhere else fails
+  to open.
+- **A failed `open` releases nothing.** The tag is checked first, and a wrong
+  key, a wrong `aad` or one changed byte is `.Err`.
+
+`seal` and `open` run on the platform: `ring` natively, and the JavaScript
+runtime's own synchronous code, held to the RFC 8439 vectors on both. A native
+toolchain built without its `crypto` feature refuses them by name, as it does
+`randomBytes`.
+
 Deliberately absent, and not by oversight:
 
-- **No ciphers, yet.** Ship a block function without a key schedule, a mode, a
-  nonce discipline and an authentication tag, and people end up with ECB. It
-  would take the shape of one authenticated construction: an AEAD, with
-  `Entropy` minting the nonce rather than the caller. It needs a second host
-  effect on both backends, `crypto.subtle` is undefined on a page that is not a
-  secure context, and every Buri function that could reach it becomes `async` in
-  the emitted JavaScript.
 - **No public-key anything.**
 - **No key derivation and no password hashing.**
 

@@ -661,6 +661,9 @@ const PACKAGES: &[Case] = &[
     // `cli/runtime/testing.rs`, so the sequence this file writes down is the
     // one both backends draw.
     included("crypto/entropy.buri"),
+    // `seal` and `open`: `cli/runtime/crypto.rs` through `ring`, held to the
+    // same RFC 8439 vectors `runtime.js` is.
+    included("crypto/seal.buri"),
     // `Generator`, which is ordinary Buri and reaches no host: U64 wrapping
     // arithmetic, shifts, tail recursion and a tuple returned from every
     // method. It is on the native set from the day it landed for the reason
