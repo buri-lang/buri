@@ -1,0 +1,10 @@
+/* The notes file.
+   Kept as written. */
+{
+    "$schema": "any.schema.json", // beside the schema
+
+    "list": [1, 2, 3], // three
+    // before the last one
+    "last": true
+    // at the end
+}

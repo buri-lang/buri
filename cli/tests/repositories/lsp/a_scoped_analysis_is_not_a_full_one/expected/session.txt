@@ -10,7 +10,7 @@
 {"id":2,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nfn total(count: I64): I64\n```\n\nWhat the basket comes to, in whole cents."},"range":{"end":{"character":15,"line":3},"start":{"character":10,"line":3}}}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/hover (2)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 5, published 0, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received notification textDocument/didChange"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didChange","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 0, published 0, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didChange","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 5, published 0, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request textDocument/hover (3)"}}
 {"id":3,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nfn total(count: I64): I64\n```\n\nWhat the basket comes to, in whole cents."},"range":{"end":{"character":15,"line":3},"start":{"character":10,"line":3}}}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/hover (3)","verbose":"answered in 0ms; analyses 1, lints 0, sessions opened 0, files hashed 5, published 0, bytes written N"}}

@@ -1,0 +1,5 @@
+# The `jsonc` language also covers VS Code's workspace files.
+language {
+    name: "jsonc"
+    extensions: [".code-workspace"]
+}

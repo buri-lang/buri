@@ -1,0 +1,1 @@
+{$schema: 'any.schema.json', description: 'a value long enough that the object does not fit on one line', count: +1.5e3, hex: 0xFF, rest: [Infinity, NaN]}

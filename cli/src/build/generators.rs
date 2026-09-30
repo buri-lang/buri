@@ -627,6 +627,11 @@ pub struct Outcome {
     pub modules: Vec<Arc<GeneratedModule>>,
     /// Diagnostics, each with the `generators` entry it belongs to.
     pub diagnostics: Vec<(Diagnostic, Span)>,
+    /// What checking the inputs found, each with the `generators` entry that
+    /// listed the file. An entry with an input that fails is not run.
+    pub findings: Vec<(crate::languages::Finding, Span)>,
+    /// Repository paths the checks read besides the inputs: the schemas.
+    pub reads: Vec<String>,
 }
 
 /// Every module the generators in this repository produced.
@@ -1155,6 +1160,7 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
     // has not moved has nothing to re-run — and a missing input that appears
     // moves it, which is what makes writing the file enough.
     let mut fingerprint = String::new();
+    let mut checks = Checks::default();
 
     for generator in declared(&workspace, target) {
         let package = workspace.package(target.package);
@@ -1208,6 +1214,23 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
         if unreadable {
             continue;
         }
+        // Checked before the tool reads them, and the tool does not run on a
+        // file that fails.
+        let mut failed = false;
+        for (rel, text) in &request.inputs {
+            let (key, found) = checks.check(session, rel, text, overlay, flags);
+            if let Some(key) = key {
+                fingerprint.push_str(key.as_str());
+                fingerprint.push('\n');
+            }
+            if !found.is_empty() {
+                failed = true;
+                checks.findings.extend(found.into_iter().map(|f| (f, generator.span)));
+            }
+        }
+        if failed {
+            continue;
+        }
         let key = generate_key(session, target, &generator.tool.value, &request, flags);
         fingerprint.push_str(key.as_str());
         fingerprint.push('\n');
@@ -1218,7 +1241,12 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
         return;
     }
 
-    let mut outcome = Outcome { diagnostics: missing, ..Outcome::default() };
+    let mut outcome = Outcome {
+        diagnostics: missing,
+        findings: checks.findings,
+        reads: checks.reads.into_iter().collect(),
+        ..Outcome::default()
+    };
     let mut produced: Vec<(GeneratedModule, Span)> = Vec::new();
     for entry in entries {
         match answer(session, &workspace, target, &entry, flags) {
@@ -1244,6 +1272,65 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
     }
     keep_the_names_that_are_free(&workspace, target, produced, &mut outcome);
     workspace.generated.record(&workspace, target, fingerprint, outcome);
+}
+
+/// The checks of one rule's inputs, each file once however many entries list
+/// it.
+#[derive(Default)]
+struct Checks {
+    done: BTreeMap<String, Vec<crate::languages::Finding>>,
+    findings: Vec<(crate::languages::Finding, Span)>,
+    reads: BTreeSet<String>,
+}
+
+impl Checks {
+    /// Checks one input in a language this repository knows, and answers with
+    /// the key the verdict is cached under. A file in no language has neither.
+    ///
+    /// The key is the file and every schema the check reads, so editing
+    /// either one re-checks.
+    fn check(
+        &mut self,
+        session: &Session,
+        rel: &str,
+        text: &str,
+        overlay: &Overlay,
+        flags: &Flags,
+    ) -> (Option<ActionKey>, Vec<crate::languages::Finding>) {
+        let languages = &session.workspace.repo.languages;
+        let Some(language) = languages.of(rel) else { return (None, Vec::new()) };
+        let read = crate::languages::reader(&session.root, overlay);
+        let check = crate::languages::Check::prepare(languages, rel, text.to_string(), &read);
+        let mut k = KeyBuilder::new(Action::Check, flags.mode);
+        k.rule_identity(rel, language.name, &[]);
+        k.input(rel, text.as_bytes());
+        for (path, contents) in &check.reads {
+            k.input(path, contents.as_bytes());
+        }
+        let key = k.finish();
+        self.reads.extend(check.asked.iter().cloned());
+        if let Some(known) = self.done.get(rel) {
+            return (Some(key), known.clone());
+        }
+        let cache = Cache::open(&session.root);
+        let cached = match flags.force {
+            true => None,
+            false => cache
+                .get(&key)
+                .and_then(|bytes| String::from_utf8(bytes).ok())
+                .and_then(|text| crate::languages::Finding::decode(&text)),
+        };
+        let found = match cached {
+            Some(found) => found,
+            None => {
+                let found = check.run(languages);
+                cache.put(&key, crate::languages::Finding::encode(&found).as_bytes());
+                found
+            }
+        };
+        self.done.insert(rel.to_string(), found.clone());
+        (Some(key), found)
+    }
 }
 
 /// Moves the modules whose names are the generator's own into the outcome, and

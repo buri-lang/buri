@@ -1,0 +1,6 @@
+from "core/testing/assert" import * as assert;
+from "//lib/deploy" import { inputs };
+
+test "every input reached the generator" {
+    assert.equal(inputs, 3);
+}

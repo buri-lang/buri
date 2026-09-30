@@ -452,6 +452,14 @@ pub const TOPICS: &[Topic] = &[
         &["build/proto"],
     ),
     tagged(
+        "guides/json",
+        "Check JSON against a schema",
+        Kind::Guide,
+        include_str!("../docs/guides/json.md"),
+        &["json", "jsonc", "json5", "schema", "json schema", "config", "language"],
+        &["build/generators", "build/repo-config"],
+    ),
+    tagged(
         "guides/tags-policy",
         "Enforce policy with tags",
         Kind::Guide,

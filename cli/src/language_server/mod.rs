@@ -1863,7 +1863,7 @@ fn watcher_registration() -> Value {
                     Value::object(vec![(
                         "watchers",
                         Value::Array(vec![Value::object(vec![
-                            ("globPattern", Value::str(file_operations::GLOB)),
+                            ("globPattern", Value::str(file_operations::WATCHED)),
                             ("kind", Value::number(7)),
                         ])]),
                     )]),
@@ -2075,6 +2075,13 @@ fn hierarchy_symbol(
 /// parse publishes its parse errors, and when it parses again what the analysis
 /// last said goes back.
 fn parse_diagnostics(state: &mut State, path: &std::path::Path, text: &str) -> Vec<Value> {
+    // A file in a language of its own is checked whole on every keystroke: the
+    // check is the file's parse and its schema, and nothing else is needed.
+    if let Some(items) = language_findings(state, path, text) {
+        let mut published = Published::new();
+        published.insert(convert::uri_of(path), items);
+        return remember(state, published);
+    }
     // Which parser reads the buffer is decided by what kind of file it is. A
     // `BUILD.buri` is textproto, and the Buri lexer refused its every
     // `# comment` — a syntax error on a file that is not in that syntax.
@@ -2094,6 +2101,43 @@ fn parse_diagnostics(state: &mut State, path: &std::path::Path, text: &str) -> V
     state.showing_parse_errors.insert(uri.clone());
     let items: Vec<Value> = errors.iter().map(|d| convert::diagnostic(text, d, &uri)).collect();
     vec![publish(&uri, items)]
+}
+
+/// What the check of a referenced file finds in the buffer as typed. `None` for
+/// a file in no language; nothing for one no rule's `inputs` lists, because
+/// only those are checked.
+///
+/// Only the findings in the file itself: a schema that does not read is
+/// reported on the schema, by the analysis a save runs.
+fn language_findings(state: &mut State, path: &std::path::Path, text: &str) -> Option<Vec<Value>> {
+    let session = state.session_for(path)?;
+    let workspace = &session.workspace;
+    let rel = workspace.rel_of(path);
+    let languages = &workspace.repo.languages;
+    languages.of(&rel)?;
+    let referenced = workspace.targets().into_iter().any(|t| {
+        let dir = &workspace.package(t.package).dir;
+        crate::build::generators::inputs(workspace, t).iter().any(|i| dir.join(i) == path)
+    });
+    if !referenced {
+        return Some(Vec::new());
+    }
+    let root = workspace.root.clone();
+    let read = |r: &str| state.text_of(&root.join(r));
+    let check = crate::languages::Check::prepare(languages, &rel, text.to_string(), &read);
+    let uri = convert::uri_of(path);
+    let file = crate::diagnostics::FileId(0);
+    Some(
+        check
+            .run(languages)
+            .iter()
+            .filter(|f| f.file == rel)
+            .map(|f| {
+                let span = crate::diagnostics::Span::new(file, f.span.0, f.span.1);
+                convert::diagnostic(text, &f.diagnostic(span), &uri)
+            })
+            .collect(),
+    )
 }
 
 /// Everything the front end has to say, for every file it looked at.

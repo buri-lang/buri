@@ -1,7 +1,8 @@
 ## What it does
 
 Formats `.buri` sources and build files — `BUILD.buri` and `REPO.buri` — in
-place, **and the Buri written in documentation**: every ```` ```buri ```` fence
+place, the JSON files a rule's `inputs` lists, **and the Buri written in
+documentation**: every ```` ```buri ```` fence
 in a markdown file, and every example in a `///` or `//!` comment. There are no
 options. One canonical layout means nobody argues about formatting in review and
 no repository has to configure it.
@@ -98,6 +99,25 @@ the region, the line lengths are yours.
 the formatter could not read whole is a file it has not checked. So `--check`
 fails on three things: a file that would change, a file with a syntax error, and
 a file the formatter refused outright.
+
+## JSON files
+
+A `.json`, `.jsonc` or `.json5` file is formatted when some rule's `inputs`
+lists it, and left alone otherwise. A `package.json` beside your sources is not
+the repository's to lay out.
+
+```json
+{ "$schema": "regions.schema.json", "regions": ["eu-west", "us-east"] }
+```
+
+It gets the width and indent every `.buri` file gets, and a list that does not
+fit puts one element on a line. Every comment survives: one at the end of a line
+stays there, and any other goes on a line of its own. Scalars are written
+exactly as you wrote them. A trailing comma is never written in `.json` or
+`.jsonc`, and is written in `.json5` wherever a list breaks across lines. The
+formatter never adds `"$schema"`.
+
+A file that does not parse is left as it is, and `--check` exits `1` for it.
 
 ## Build files
 

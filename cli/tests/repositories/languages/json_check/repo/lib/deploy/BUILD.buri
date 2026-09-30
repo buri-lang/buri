@@ -1,0 +1,11 @@
+library {
+    generators: [
+        { tool: "//cmd/gen", inputs: ["regions.json", "ports.jsonc", "limits.json5"] },
+    ]
+
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/deploy.buri"]
+    }
+}

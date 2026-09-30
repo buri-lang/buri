@@ -122,6 +122,17 @@ fn generators() {
     run_corpus(&tests_dir().join("repositories/generators"), "generators", 7);
 }
 
+/// The files a rule references that are not Buri: JSON, JSONC and JSON5 in a
+/// generator's `inputs`. `json_check` is the check in `build`, `test` and
+/// `lint`, with both schema path forms and a schema edit re-checking an
+/// unchanged file; `json_errors` is every way a check refuses one;
+/// `json_format` is `buri format` over them; `repo_languages` is `REPO.buri`'s
+/// `language` block, and each way one is refused.
+#[test]
+fn languages() {
+    run_corpus(&tests_dir().join("repositories/languages"), "languages", 4);
+}
+
 /// CLI.md's lint catalogue: the hygiene rules, which ask about a package's own
 /// code rather than about the graph. Each case ends with the edit that makes
 /// the finding go away, because a rule nothing can turn off is a rule nobody
@@ -451,7 +462,7 @@ fn snapshots() {
 /// rather than as an editor behaving differently.
 #[test]
 fn language_server() {
-    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 95);
+    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 96);
 }
 
 /// Every method a 3.17 client can send is answered by the dispatch, and is

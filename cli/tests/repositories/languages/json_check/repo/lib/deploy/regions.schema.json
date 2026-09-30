@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+        "$schema": { "type": "string" },
+        "regions": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/region" },
+            "minItems": 1,
+            "uniqueItems": true
+        },
+        "primary": { "$ref": "#/$defs/region" }
+    },
+    "required": ["regions"],
+    "additionalProperties": false,
+    "$defs": {
+        "region": { "type": "string", "pattern": "^[a-z]+-[a-z]+$" }
+    }
+}

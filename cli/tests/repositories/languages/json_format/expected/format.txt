@@ -1,0 +1,4 @@
+formatted lib/fmt/notes.jsonc
+formatted lib/fmt/plain.json
+formatted lib/fmt/wide.json5
+lib/fmt/broken.json: does not parse, and was left exactly as it is
