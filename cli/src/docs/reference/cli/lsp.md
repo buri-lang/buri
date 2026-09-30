@@ -15,8 +15,9 @@ the outline, inlay hints, code actions and code lenses. It serves all of them in
 `.buri` sources and in `BUILD.buri` and `REPO.buri` alike.
 
 A JSON file a generator lists is checked against its schema as you type, and
-formatted the way `buri format` would. A save runs the whole analysis, which
-reports the same findings.
+formatted the way `buri format` would. A file in a language of your own is
+checked and formatted by its tool's `check` and `format` the same way. A save
+runs the whole analysis, which reports the same findings.
 
 Only the protocol goes to stdout. The server writes everything it says out loud
 to stderr as well, because a stray line on stdout corrupts the stream, and that

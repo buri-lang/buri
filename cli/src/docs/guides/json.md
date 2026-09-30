@@ -45,7 +45,10 @@ error: expected a string, found an integer [json-schema-violation]
 ```
 
 `buri build`, `buri test` and `buri lint` all run the check, `buri format` lays
-the file out, and the language server checks it as you type.
+the file out, and the language server checks it as you type. The check and the
+formatter are `std/json`, the tool this toolchain ships for JSON; `//tools/routes`
+is a [tool](../reference/build/tools.md) of your own with a `generate` entry
+point.
 
 ## Which files
 

@@ -1,14 +1,14 @@
 # `generators`
 
-A generator is a program the build runs. It reads one JSON request on standard
-input, writes one JSON response back, and every module it names belongs to the
-rule that declared it, exactly as a `.buri` source does.
+A generator is a [tool](./tools.md)'s `generate`, run by the build. Every module
+it answers with belongs to the rule that declared it, exactly as a `.buri`
+source does.
 
 ```textproto schema=build
 # lib/wire/BUILD.buri
 library {
     generators: [
-        { tool: "//cmd/gen", inputs: ["units.txt"] },
+        { tool: "//tools/units", inputs: ["units.txt"] },
     ]
 }
 ```
@@ -18,17 +18,17 @@ step to forget to run.
 
 | Field | Meaning |
 |---|---|
-| `tool` | The program to run. A `//label` names a binary target in this repository; anything else names a generator the toolchain ships, and `std/codegen/proto` is the only one. |
+| `tool` | A `//label` naming a `tool` rule with a `generate` entry point, or `std/proto` for `.proto` schemas. |
 | `inputs` | The files handed to the tool, package-relative, no globs. |
 
 `generators` is hand-authored, like `visibility` and `outputs`. `buri gen`
 cannot know which generator owns a file, so it never writes the field and never
 touches an entry's `inputs`.
 
-An input in a language the toolchain knows is **checked before the tool reads
-it**. A `.json`, `.jsonc` or `.json5` input is checked against the schema its
-`"$schema"` names, and one that fails is reported where the mistake is, and the
-entry does not run. See [`guides/json.md`](../../guides/json.md).
+An input in a language the repository knows is **checked before the tool reads
+it**, by its language's `check`. One that fails is reported where the mistake
+is, and the entry does not run. See [`guides/json.md`](../../guides/json.md) and
+[`repo-config.md`](./repo-config.md).
 
 An input counts as declared, the way a `sources` entry does. The question is
 asked back, too, but only of files wearing an extension a generator in that
@@ -38,30 +38,26 @@ whatever it likes, so a `README.md` is still nobody's.
 
 ## Writing one
 
-`core/codegen`'s `run` is the whole of a generator's `main`:
-
-```buri role=entry
-from "core/buri/ast" import * as ast;
-from "core/codegen" import * as codegen;
-from "core/codegen" import { Request, Response };
-from "core/effect" import { Allocator, Stdin, Stdout };
-from "core/host" import * as host;
-
-export fn main(): Result<(), Str> {
-    let ctx = context {
-        Allocator: host.alloc,
-        Stdin: host.stdin,
-        Stdout: host.stdout,
-    };
-    codegen.run(ctx, fn(c, request) => generate(c, request))
+```textproto schema=build
+# tools/units/BUILD.buri
+tool {
+    generate {}
 }
+```
+
+```buri
+// tools/units/tool.buri
+from "core/buri/ast" import * as ast;
+from "core/effect" import { Allocator };
+from "core/tool" import { Generated, GenerateRequest };
 
 /// One module named `units`, holding an `export let` per input.
-fn generate<C: Allocator>(ctx: C, request: Request): Response {
-    let items = request.inputs.map(ctx, fn(input) => width(input.0));
-    Response {
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+    let items = request.inputs.map(ctx, fn(input) => width(input.path));
+    Generated {
         modules: [("units", ast.Module { items: items, docs: [] })],
         diagnostics: [],
+        needs: [],
     }
 }
 
@@ -83,22 +79,17 @@ fn width(path: Str): ast.Item {
 ```
 
 You build the module as `core/buri/ast` nodes, so a generator cannot emit a
-parse error. `run` prints them and sends text plus anchors — never the tree —
-and the compiler reads that text with its one ordinary parser.
+parse error. The toolchain prints them and sends text plus anchors — never the
+tree — and the compiler reads that text with its one ordinary parser.
 
 A generator that has to *read* Buri — one whose input is source rather than a
 schema — goes the other way with `ast.parse(ctx, file, source)`. Every node it
 answers carries an `Origin` naming that file and the bytes it came from, so what
 you build out of it anchors the same way what you built by hand does.
 
-`run` hands your `generate` the context `main` built, bounded by `Allocator`,
-`Stdin` and `Stdout`. Write `main` the way the example does and reaching for the
-clock or the filesystem is a type error, not a rule to remember. Bind more than
-those three and you are answering for the result yourself: what a generator
-writes has to be a function of what it was handed, and `--check-reproducible` is
-what asks.
-
-`buri docs core/codegen` has the request and response documents, byte for byte.
+A generator used to be a `binary` whose `main` called `core/codegen`'s `run`.
+Naming one is [`generator-is-a-binary`](../errors/generator-is-a-binary.md):
+move `main.buri` to `tool.buri`, export `generate`, and declare `generate {}`.
 
 ## The modules it produces
 
@@ -128,30 +119,26 @@ was there first is what the build compiles.
 ## What a generator says
 
 A generator answers with diagnostics as well as modules. One whose `code` names
-a page in the catalogue prints under that code, with the generator's own
-sentence. One whose code the catalogue does not have prints under
-[`generator-diagnostic`](../errors/generator-diagnostic.md), naming the code it
-asked for.
+a page in the catalogue prints under that code, with the tool's own sentence.
+One whose code the catalogue does not have prints under
+[`tool-diagnostic`](../errors/tool-diagnostic.md), naming the code it asked for.
 
 A diagnostic carrying an origin is reported at that span of that input. One
 carrying none lands on the `generators` entry that ran the tool.
 
-A tool that exits non-zero, is killed by a signal, writes nothing, or writes
-something that is not a response is
-[`generator-failed`](../errors/generator-failed.md) — with the status or the
-signal, and the tail of standard error, in the note. A tool built from the
-target that declares it is
+A tool that does not build, exits non-zero, is killed by a signal, or writes
+something that is not an answer is [`tool-failed`](../errors/tool-failed.md) —
+with the reason, and the tail of standard error, in the note. A tool built from
+the target that declares it is
 [`generator-cycle`](../errors/generator-cycle.md).
 
-Taking a long time is not a failure. Nothing puts a clock on a generator, so the
-build waits for as long as the tool runs, the way it waits for a compiler or a
-linker. The one deadline in the build system is `timeout_seconds` on a `test`
-rule, and you write that one yourself.
+Taking a long time is not a failure. Nothing puts a clock on a tool, so the
+build waits for as long as it runs, the way it waits for a compiler or a linker.
 
 ## The cache
 
-Running a generator is an action like any other, keyed on the tool's linked
-artifact and the contents of every input:
+Running a generator is an action like any other, keyed on the tool's program and
+the contents of every input:
 
 ```
 $ buri build //lib/wire --explain
@@ -163,21 +150,7 @@ So editing an input re-runs the tool and rebuilds what read its modules, editing
 the tool does the same, and `--check-reproducible` covers a generator for free.
 [Hermeticity](./hermeticity.md) has the rest of the model.
 
-A repository tool is built for `JS` and run under the JavaScript runtime,
-whatever the tool's own `outputs` say. A generator runs on the machine doing the
-build, and an `.mjs` is the one artifact every host can produce and run without
-a linker.
-
-A generator the toolchain ships takes the same path. `std/codegen/proto` is a
-Buri program — `core/codegen`'s `run` over the `emit` the standard library
-exports — compiled to an `.mjs` the first time a build needs it, kept under
-`.buri/out/toolchain`, and handed a request on standard input like any other
-tool. There is no second path for it, which is the point: the `.proto`
-generator is the worked example of this page rather than an exception to it.
-
-That compile happens **once per repository**. The file's name is its action key,
-so a new toolchain writes a new one instead of reading a stale one, and every
-build after the first reads what is there — one schema or fifty, one target or
-the whole tree, every platform. `buri clean` drops it with the rest of `.buri`,
-and the next build pays for it again: on the order of a tenth of a second, in
-front of the first schema read and nothing else.
+A tool is compiled to JavaScript and run under the JavaScript runtime on the
+machine doing the build. `std/proto` takes the same path: it is a Buri program
+whose `generate` calls the `emit` of `std/codegen/proto`, compiled the first
+time a build needs it and kept under `.buri/out/tools` by its key.
