@@ -697,7 +697,7 @@ from it by hand.
 **Two rows carry most of the growth, and neither is a compiler phase.**
 `language_server` is **9.5×** what it was — 1,430 lines to 13,564 — and
 `cli/runtime` is **3.8×**, 6,954 to 26,720: the reactor, the TLS client,
-HTTP/1.1 and h2, WebSockets, the carrier stacks and the scoped arenas §6.6 and
+HTTP/1.1 and h2, WebSockets, the thread stacks and the scoped arenas §6.6 and
 §6.7 measure. Against those the front end moved little: `parsing` +8.4%,
 `semantics` +22%, `middle` +12.5%, `backend/js` +12.4%.
 
@@ -1348,7 +1348,7 @@ else.
 `ARENA_POOL` is eight standard blocks — 512 KiB, stated and bounded — that a
 released scope hands to the next one instead of to the kernel. It is the third
 time this runtime makes that trade (G2's per-thread block caches, B7's
-carrier-stack pool), for the same reason each time: **the common path should
+thread-stack pool), for the same reason each time: **the common path should
 make no system call.** With it, a scope's 2.4 µs becomes 183 ns.
 
 One correctness consequence is worth stating beside the number, because it is
@@ -1360,7 +1360,7 @@ else. A **pooled** block holds the last scope's bytes, so it zeroes.
 
 ### 6.8 Where the program ends, 2026-09-01
 
-The concurrency-and-servers program — carriers, stack switching, scoped arenas,
+The concurrency-and-servers program — threads, stack switching, scoped arenas,
 HTTP/1.1 and h2 with TLS and WebSockets, actors, the test doubles, and four
 flag-days — is complete at `0c66339d`. This section is the end state in one
 place: what the suite costs to run, what the toolchain costs to ship, and the

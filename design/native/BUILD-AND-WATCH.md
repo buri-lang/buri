@@ -48,7 +48,7 @@ than a review comment.
 
 | Crate | Feature | Why it clears the bar |
 |---|---|---|
-| `tokio` | `net` | The reactor and the timer wheel, and **linked**: `cli/runtime/rt.rs` is the carrier runtime and every suspending host call parks on it. `epoll` and `kqueue` behind one readiness API, per platform; getting it subtly wrong presents as a hang. |
+| `tokio` | `net` | The reactor and the timer wheel, and **linked**: `cli/runtime/rt.rs` is the thread runtime and every suspending host call parks on it. `epoll` and `kqueue` behind one readiness API, per platform; getting it subtly wrong presents as a hang. |
 | `hyper` | `net` | HTTP/1.1 and HTTP/2 framing, and **linked**: `cli/runtime/net.rs` serves HTTP/2 over TLS through it, chosen by ALPN, and frames HTTP/1.1 itself. `cli/runtime/http.rs` is a complete cleartext client, which is the easy half; HPACK, flow control and a correct server are not. |
 | `rustls` | `net` | TLS 1.2 and 1.3, and **linked**: `cli/runtime/tls.rs` builds its client configuration and `http.rs` reaches that for every `https://` URL. |
 | `ring` | `net` | `rustls`'s crypto provider. Reached only through `rustls::crypto::ring`, and declared directly anyway — see §1.1.2. |
@@ -71,8 +71,8 @@ across the dependency rlibs and Rust code nothing reaches does not reach the
 archive. One of the six is still in exactly that state — `quinn` — and the
 other five are not.
 
-**`tokio` is linked deliberately.** `cli/runtime/rt.rs` is the carrier runtime
-— the reactor handle, the carrier pool with its 512 KiB stacks and the task
+**`tokio` is linked deliberately.** `cli/runtime/rt.rs` is the thread runtime
+— the reactor handle, the thread pool with its 512 KiB stacks and the task
 table — and `Clock::sleepMilliseconds` and `Network::fetch` wait on it through
 `park_on`, so the reactor and its timer wheel are in the archive on purpose:
 
