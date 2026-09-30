@@ -4075,10 +4075,67 @@ test "a list has no marker until one is asked for" {
         render(ctx, numbered).markup(),
         "e 0 class:pe-start-24 lm-decimal\ne 1 \nt 2 first",
     );
-    assert.isTrue(sheet.contains(".lm-decimal{list-style-type:decimal}"));
+    assert.isTrue(
+        sheet.contains(".lm-decimal{list-style-type:decimal;counter-reset:buri-item}"),
+    );
+    assert.isTrue(sheet.contains(".lm-decimal>*{counter-increment:buri-item}"));
+    assert.isTrue(
+        sheet.contains(
+            ".lm-decimal>*::after{content:counter(buri-item) \".\";position:absolute;top:0;right:calc(100% + 0.4em);width:auto;height:auto;border-radius:0;background-color:transparent;white-space:nowrap}",
+        ),
+    );
     let reset = assert.some(sheet.indexOf(":where(ul,ol)"));
     let marker = assert.some(sheet.indexOf(".lm-decimal{"));
     assert.isTrue(reset < marker);
+}
+
+test "a marked list's items keep their layout and still wear the marker in a browser" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let advice = rooted(
+        ctx,
+        ui.stack({
+            styles: [
+                .Layout(.Column),
+                .PaddingEdge(.Start, .Px(20)),
+                .ListMarker(.Disc),
+            ],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [
+                        ui.text({ content: .Const("An independent yes or no.") }),
+                    ],
+                    role: .Some(.ListItem),
+                }),
+                ui.stack({
+                    styles: [],
+                    children: [
+                        ui.text({ content: .Const("Several can be true at once.") }),
+                    ],
+                    role: .Some(.ListItem),
+                }),
+            ],
+            role: .Some(.List),
+        }),
+    );
+    assert.equal(
+        render(ctx, advice).markup(),
+        "e 0 class:lay-col pe-start-20 lm-disc\ne 1 \nt 2 An independent yes or no.\ne 1 \nt 2 Several can be true at once.",
+    );
+    // An item stays the flex column the painter lays out, and a browser draws
+    // `::marker` only for `display:list-item`. So the sheet draws the painter's
+    // disc itself: 0.35em across, 0.4em before the item, on its first line.
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains("search,ul,li,hr,"));
+    // Weightless, so a child's own `Position` still wins.
+    assert.isTrue(sheet.contains(":where(.lm-decimal,.lm-disc)>*{position:relative}"));
+    assert.isTrue(
+        sheet.contains(
+            ".lm-disc>*::after{content:\"\";position:absolute;top:calc(0.5lh - 0.175em);right:calc(100% + 0.4em);width:0.35em;height:0.35em;border-radius:9999px;background-color:currentColor;white-space:normal}",
+        ),
+    );
 }
 
 test "a toggle's own styles paint, because the reset takes the native control away" {
@@ -4625,7 +4682,7 @@ test "a dialog's styles land on the panel" {
     let sheet = stylesheet();
     assert.isTrue(
         sheet.contains(
-            ":where(dialog){border:0;padding:0;background:none;color:inherit;max-width:none;max-height:none}",
+            ":where(dialog){border:0;padding:0;background:none;color:inherit;max-width:none;max-height:none;overflow:visible}",
         ),
     );
     // Open, it is a container like every other one; shut, it keeps a browser's
@@ -4635,6 +4692,55 @@ test "a dialog's styles land on the panel" {
     );
     assert.isTrue(
         sheet.contains(":where(dialog)::backdrop{background-color:rgba(0,0,0,0.5)}"),
+    );
+}
+
+test "a dialog's panel lets what hangs off its edge show, as the painter does" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let open = signal(ctx, true);
+    // A list pinned below its trigger hangs past the panel's edge. The painter
+    // clips only a box that scrolls, so it draws the list whole over the scrim.
+    let panel = render(
+        ctx,
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Billing"),
+            children: [
+                ui.stack({
+                    styles: [.Position(.Flow)],
+                    children: [
+                        ui.button({
+                            label: .Const("Trigger"),
+                            styles: [],
+                            onPress: .Some(fn(_c) => ()),
+                        }),
+                        ui.stack({
+                            styles: [
+                                .Pin(.Top, .Percent(100.0)),
+                                .Background(.Rgb(255, 0, 0)),
+                                .Height(.Px(200)),
+                            ],
+                            children: [],
+                        }),
+                    ],
+                }),
+            ],
+            styles: [.Padding(.Px(24))],
+        }),
+    );
+    assert.equal(
+        panel.markup(),
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 class:p-24\ne 2 class:pos-flow\ne 3 \nt 4 Trigger\ne 3 class:pin-out pin-top-pc100 bg-ff0000 h-200",
+    );
+    // A browser's own sheet makes a modal a scroll container. The reset undoes
+    // that; a panel that should scroll asks for `Scroll`, which beats it.
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(
+            ":where(dialog){border:0;padding:0;background:none;color:inherit;max-width:none;max-height:none;overflow:visible}",
+        ),
     );
 }
 
