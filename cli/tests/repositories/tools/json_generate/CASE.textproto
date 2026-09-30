@@ -1,0 +1,46 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "std/json as a generator: a schema gives Buri types for every construct that has one, a data file gives its schema's types and its contents as a value named after the file, JSON5's Infinity reads as F64, editing the data file generates again, and a construct with no type is refused where the schema writes it"
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run.txt"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 0
+}
+
+edit {
+  file: "lib/deploy/deploy.json5"
+  replace: "replicas: 3,"
+  with: "replicas: 5,"
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run_edited.txt"
+}
+
+# Each of these has no one Buri type. The file does not use them, so it passes
+# its check, and generating from the schema is what refuses them.
+edit {
+  file: "lib/deploy/deploy.schema.json"
+  replace: "\"extra\": {}"
+  with: "\"extra\": {}, \"a\": { \"if\": {}, \"then\": {} }, \"b\": { \"anyOf\": [{ \"type\": \"string\" }, { \"type\": \"integer\" }] }, \"c\": { \"oneOf\": [{ \"type\": \"string\" }, { \"type\": \"integer\" }] }, \"d\": { \"patternProperties\": { \"^x\": {} } }, \"e\": { \"properties\": { \"x\": {} }, \"additionalProperties\": { \"type\": \"string\" } }, \"f\": { \"type\": \"object\", \"unevaluatedProperties\": { \"type\": \"string\" } }, \"g\": { \"type\": [\"string\", \"integer\"] }, \"h\": { \"enum\": [1, 2] }, \"i\": { \"allOf\": [{ \"type\": \"string\" }] }"
+}
+
+run {
+  args: ["build", "//lib/deploy"]
+  exit: 1
+  golden: "refused.txt"
+}

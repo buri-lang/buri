@@ -1,0 +1,123 @@
+error: `if` has no Buri type [json-schema-no-type]
+  --> lib/deploy/deploy.schema.json:37:29
+   |
+37 |         "extra": {}, "a": { "if": {}, "then": {} }, "b": { "anyOf": [{ "type": "string" }, { "type": "integer" }] }, "c": { "oneOf": [{ "type": "string" }, { "type": "integer" }] }, "d": { "patternProperties": { "^x": {} } }, "e": { "proper…
+   |                             ^^^^
+   |
+   = `if`, `then` and `else` make a value's shape depend on its contents
+   = fix: describe the value with a construct that has a type
+
+       { "if": { "required": ["port"] }, "then": { "required": ["host"] } }
+
+     std/json turns a schema into types for a contract or a generators entry.
+     Keywords about values, such as pattern, minimum and format, stay the
+     check's. These change a value's shape in a way no one type follows, so they
+     are refused where they are written:
+
+     - if, then and else;
+     - allOf, and an anyOf that is not one type or null;
+     - a oneOf whose branches no const string tells apart;
+     - patternProperties and dependentSchemas;
+     - additionalProperties holding a schema beside properties;
+     - unevaluatedProperties and unevaluatedItems holding a schema;
+     - prefixItems and $dynamicRef;
+     - an enum of anything but strings, and a type of several types.
+
+     buri docs guides/json has the whole mapping.
+
+error: `anyOf` has no Buri type [json-schema-no-type]
+  --> lib/deploy/deploy.schema.json:37:60
+   |
+37 |         "extra": {}, "a": { "if": {}, "then": {} }, "b": { "anyOf": [{ "type": "string" }, { "type": "integer" }] }, "c": { "oneOf": [{ "type": "string" }, { "type": "integer" }] }, "d": { "patternProperties": { "^x": {} } }, "e": { "proper…
+   |                                                            ^^^^^^^
+   |
+   = an `anyOf` has no tag saying which branch a value is
+   = fix: describe the value with a construct that has a type
+error: `oneOf` has no Buri type [json-schema-no-type]
+  --> lib/deploy/deploy.schema.json:37:125
+   |
+37 | …f": [{ "type": "string" }, { "type": "integer" }] }, "c": { "oneOf": [{ "type": "string" }, { "type": "integer" }] }, "d": { "patternProperties": { "^x": {} } }, "e": { "properties": { "x": {} }, "additionalProperties": { "type": "string" }…
+   |                                                              ^^^^^^^
+   |
+   = a `oneOf` is typed only when every branch is an object with one required property whose `const` string names it
+   = fix: describe the value with a construct that has a type
+error: `patternProperties` has no Buri type [json-schema-no-type]
+  --> lib/deploy/deploy.schema.json:37:190
+   |
+37 | …f": [{ "type": "string" }, { "type": "integer" }] }, "d": { "patternProperties": { "^x": {} } }, "e": { "properties": { "x": {} }, "additionalProperties": { "type": "string" } }, "f": { "type": "object", "unevaluatedProperties": { "type": "…
+   |                                                              ^^^^^^^^^^^^^^^^^^^
+   |
+   = `patternProperties` gives a property a type by its name's spelling
+   = fix: describe the value with a construct that has a type
+error: `additionalProperties` has no Buri type [json-schema-no-type]
+  --> lib/deploy/deploy.schema.json:37:261
+   |
+37 | …perties": { "^x": {} } }, "e": { "properties": { "x": {} }, "additionalProperties": { "type": "string" } }, "f": { "type": "object", "unevaluatedProperties": { "type": "string" } }, "g": { "type": ["string", "integer"] }, "h": { "enum": [1,…
+   |                                                              ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a schema for the other properties beside `properties` makes an object both a struct and a map
+   = fix: describe the value with a construct that has a type
+error: `unevaluatedProperties` has no Buri type [json-schema-no-type]
+  --> lib/deploy/deploy.schema.json:37:334
+   |
+37 | …operties": { "type": "string" } }, "f": { "type": "object", "unevaluatedProperties": { "type": "string" } }, "g": { "type": ["string", "integer"] }, "h": { "enum": [1, 2] }, "i": { "allOf": [{ "type": "string" }] }
+   |                                                              ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a schema for the leftover members gives them a type no field or element has
+   = fix: describe the value with a construct that has a type
+error: `type` has no Buri type [json-schema-no-type]
+  --> lib/deploy/deploy.schema.json:37:390
+   |
+37 | …t", "unevaluatedProperties": { "type": "string" } }, "g": { "type": ["string", "integer"] }, "h": { "enum": [1, 2] }, "i": { "allOf": [{ "type": "string" }] }
+   |                                                              ^^^^^^
+   |
+   = a value of several types has no one Buri type
+   = fix: describe the value with a construct that has a type
+error: `enum` has no Buri type [json-schema-no-type]
+  --> lib/deploy/deploy.schema.json:37:430
+   |
+37 | …string" } }, "g": { "type": ["string", "integer"] }, "h": { "enum": [1, 2] }, "i": { "allOf": [{ "type": "string" }] }
+   |                                                              ^^^^^^
+   |
+   = only an `enum` of strings is a Buri enum
+   = fix: describe the value with a construct that has a type
+error: `allOf` has no Buri type [json-schema-no-type]
+  --> lib/deploy/deploy.schema.json:37:455
+   |
+37 | …": ["string", "integer"] }, "h": { "enum": [1, 2] }, "i": { "allOf": [{ "type": "string" }] }
+   |                                                              ^^^^^^^
+   |
+   = `allOf` merges schemas, and a merge is not one type
+   = fix: describe the value with a construct that has a type
+error: "//lib/deploy/deploy.json5" names no file (lib/deploy/deploy.json5.buri) [module-not-found]
+ --> lib/deploy/lib.buri:1:6
+  |
+1 | from "//lib/deploy/deploy.json5" export { deploy };
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    What to do
+    ──────────
+
+    Create the file the path names, or correct the path.
+
+    Why
+    ───
+
+    A module path maps to exactly one file, with no search path and no fallback,
+    so there is never a question of which of two candidates a path meant.
+
+    A program that provokes it
+    ──────────────────────────
+
+    This snippet resolves against the worked monorepo in cli/tests/example,
+    which has no lib/nope.
+
+error: "//lib/deploy/deploy.schema.json" names no file (lib/deploy/deploy.schema.json.buri) [module-not-found]
+ --> lib/deploy/lib.buri:3:6
+  |
+3 | from "//lib/deploy/deploy.schema.json" export {
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search

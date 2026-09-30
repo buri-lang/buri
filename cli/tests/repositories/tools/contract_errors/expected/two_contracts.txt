@@ -1,0 +1,18 @@
+error: `config.json` is read under two contracts, `//schemas/names.schema.json` and `//tools/b/b.schema.json` [schema-mismatch]
+ --> lib/x/BUILD.buri:4:39
+  |
+4 |         { tool: "//tools/b", inputs: ["config.json"] },
+  |                                       ^^^^^^^^^^^^^
+  |
+  = a file is checked against one schema, so every tool that reads it must agree on which
+  = fix: give the tools one `type_schema`, or read the file with one of them
+
+      { "$schema": "orders.schema.json", "tables": [] }
+
+    A tool with a contract reads a typed value, so the file is checked against
+    the contract's type_schema. A different "$schema" would say the file is
+    something else.
+
+    Two tools with different contracts reading one file is the same mistake: one
+    file cannot have two schemas.
+

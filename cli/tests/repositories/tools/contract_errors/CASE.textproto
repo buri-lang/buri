@@ -1,0 +1,128 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "every way a contract is refused: two tools with different contracts reading one file, an accepts entry missing a field, naming an unknown language, a language twice, or a language with no generate, a type_schema outside the repository, and a type_schema with no Buri type, which the tool reports and its consumer sees as a tool that did not build"
+
+# `//tools/a` reads `config.json` under `//schemas/names.schema.json`, a `//`
+# type_schema.
+run {
+  args: ["build", "//lib/x", "//tools/a", "//tools/b"]
+  exit: 0
+}
+
+# `//tools/b` has a different contract for the same file.
+edit {
+  file: "lib/x/BUILD.buri"
+  replace: "        { tool: \"//tools/a\", inputs: [\"config.json\"] },\n"
+  with: "        { tool: \"//tools/a\", inputs: [\"config.json\"] },\n        { tool: \"//tools/b\", inputs: [\"config.json\"] },\n"
+}
+
+run {
+  args: ["build", "//lib/x"]
+  exit: 1
+  golden: "two_contracts.txt"
+}
+
+edit {
+  file: "lib/x/BUILD.buri"
+  replace: "        { tool: \"//tools/b\", inputs: [\"config.json\"] },\n"
+  with: ""
+}
+
+edit {
+  file: "tools/b/BUILD.buri"
+  replace: "{ language: \"json\", type_schema: \"b.schema.json\" },"
+  with: "{ language: \"json\" },"
+}
+
+run {
+  args: ["build", "//tools/b"]
+  exit: 2
+  golden: "incomplete.txt"
+}
+
+edit {
+  file: "tools/b/BUILD.buri"
+  replace: "{ language: \"json\" },"
+  with: "{ language: \"yaml\", type_schema: \"b.schema.json\" },"
+}
+
+run {
+  args: ["build", "//tools/b"]
+  exit: 2
+  golden: "unknown_language.txt"
+}
+
+edit {
+  file: "tools/b/BUILD.buri"
+  replace: "{ language: \"yaml\", type_schema: \"b.schema.json\" },"
+  with: "{ language: \"json\", type_schema: \"b.schema.json\" },\n            { language: \"json\", type_schema: \"other.schema.json\" },"
+}
+
+run {
+  args: ["build", "//tools/b"]
+  exit: 2
+  golden: "twice.txt"
+}
+
+edit {
+  file: "tools/b/BUILD.buri"
+  replace: "\n            { language: \"json\", type_schema: \"other.schema.json\" },"
+  with: "\n            { language: \"lines\", type_schema: \"b.schema.json\" },"
+}
+
+run {
+  args: ["build", "//tools/b"]
+  exit: 2
+  golden: "without_generate.txt"
+}
+
+edit {
+  file: "tools/b/BUILD.buri"
+  replace: "\n            { language: \"lines\", type_schema: \"b.schema.json\" },"
+  with: ""
+}
+
+edit {
+  file: "tools/b/BUILD.buri"
+  replace: "type_schema: \"b.schema.json\""
+  with: "type_schema: \"https://example.com/b.schema.json\""
+}
+
+run {
+  args: ["build", "//tools/b"]
+  exit: 1
+  golden: "not_local.txt"
+}
+
+edit {
+  file: "tools/b/BUILD.buri"
+  replace: "type_schema: \"https://example.com/b.schema.json\""
+  with: "type_schema: \"b.schema.json\""
+}
+
+# A schema with no Buri type is the tool's error, and a consumer's tool did not
+# build.
+edit {
+  file: "tools/b/b.schema.json"
+  replace: "\"type\": \"array\","
+  with: "\"type\": \"array\", \"prefixItems\": [{ \"type\": \"string\" }],"
+}
+
+run {
+  args: ["build", "//tools/b"]
+  exit: 1
+  golden: "no_type.txt"
+}
+
+edit {
+  file: "lib/x/BUILD.buri"
+  replace: "tool: \"//tools/a\""
+  with: "tool: \"//tools/b\""
+}
+
+run {
+  args: ["build", "//lib/x"]
+  exit: 1
+  golden: "no_type_consumer.txt"
+}

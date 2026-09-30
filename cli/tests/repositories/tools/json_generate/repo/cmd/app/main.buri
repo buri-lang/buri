@@ -1,0 +1,24 @@
+from "core/effect" import { Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "//lib/deploy" import { deploy, DeployTier, Region, RegionType };
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Stdout: host.stdout,
+    };
+    let failed = fn(_e) => "could not print";
+    // A schema module's types, built by hand.
+    let spare = Region { id: "ap-south", type_: RegionType.Backup };
+    let _ = io.println(ctx, "${spare} ${DeployTier.Free}").mapErr(failed)?;
+    // A data module's value.
+    let _ = io
+        .println(
+            ctx,
+            "${deploy.name} x${deploy.replicas} ${deploy.ratio} ${deploy.limit} ${deploy.tier}",
+        )
+        .mapErr(failed)?;
+    let _ = io.println(ctx, "${deploy.regions} ${deploy.owner}").mapErr(failed)?;
+    let _ = io.println(ctx, "${deploy.health} ${deploy.labels}").mapErr(failed)?;
+    io.println(ctx, "${deploy.shape} ${deploy.fallback} ${deploy.extra}").mapErr(failed)
+}

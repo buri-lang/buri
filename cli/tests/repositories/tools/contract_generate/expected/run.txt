@@ -1,0 +1,2 @@
+CREATE TABLE orders (id .Int NOT NULL, note .Text); CREATE TABLE events (at .Int NOT NULL)
+Config { tables: [Table { name: "orders", columns: [Column { name: "id", type_: .Int, nullable: .None }, Column { name: "note", type_: .Text, nullable: .Some(true) }], storage: .None, comment: .None, tags: .None, extra: .None }, Table { name: "events", columns: [Column { name: "at", type_: .Int, nullable: .None }], storage: .Some(.Disk(TableStorageDisk { fill: 0.5 })), comment: .None, tags: .Some([("hot", 1)]), extra: .Some(.Array([.Bool(true), .Object([("a", .Str("b"))])])) }] }

@@ -1,0 +1,7 @@
+tool {
+    generate {
+        accepts: [
+            { language: "json", type_schema: "b.schema.json" },
+        ]
+    }
+}

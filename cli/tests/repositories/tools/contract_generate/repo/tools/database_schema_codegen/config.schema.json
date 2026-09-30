@@ -1,0 +1,52 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Config",
+    "type": "object",
+    "properties": {
+        "$schema": { "type": "string" },
+        "tables": { "type": "array", "items": { "$ref": "#/$defs/Table" } }
+    },
+    "required": ["tables"],
+    "additionalProperties": false,
+    "$defs": {
+        "Table": {
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "pattern": "^[a-z_]+$" },
+                "columns": { "type": "array", "items": { "$ref": "#/$defs/Column" } },
+                "storage": {
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "kind": { "const": "disk" },
+                                "fill": { "type": "number" }
+                            },
+                            "required": ["kind", "fill"]
+                        },
+                        {
+                            "type": "object",
+                            "properties": { "kind": { "const": "memory" } },
+                            "required": ["kind"]
+                        }
+                    ]
+                },
+                "comment": { "type": ["string", "null"] },
+                "tags": { "type": "object", "additionalProperties": { "type": "integer" } },
+                "extra": {}
+            },
+            "required": ["name", "columns"],
+            "additionalProperties": false
+        },
+        "Column": {
+            "type": "object",
+            "properties": {
+                "name": { "type": "string" },
+                "type": { "enum": ["int", "text"] },
+                "nullable": { "type": "boolean" }
+            },
+            "required": ["name", "type"],
+            "additionalProperties": false
+        }
+    }
+}

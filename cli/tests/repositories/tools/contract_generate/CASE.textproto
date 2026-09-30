@@ -1,0 +1,114 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a tool whose generate declares a json contract: the consumer's file omits \"$schema\" and is checked against the contract's type_schema, the tool reads typed values through the module std/json generates into it, editing the contract schema checks and generates again, and a different \"$schema\", an input in a language the contract does not list and a request that is not the contract's root type are each refused"
+
+# `schema.json` has no `"$schema"`; the contract supplies it, and the tool reads
+# `Config` values.
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run.txt"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 0
+}
+
+# The contract's schema is checked, not the file's.
+edit {
+  file: "lib/orders/schema.json"
+  replace: "\"name\": \"id\", \"type\": \"int\""
+  with: "\"name\": \"id\", \"type\": \"bool\""
+}
+
+run {
+  args: ["build", "//lib/orders"]
+  exit: 1
+  golden: "violation.txt"
+}
+
+# Editing the contract schema checks the file again, and regenerates the types
+# the tool reads.
+edit {
+  file: "tools/database_schema_codegen/config.schema.json"
+  replace: "\"enum\": [\"int\", \"text\"]"
+  with: "\"enum\": [\"int\", \"text\", \"bool\"]"
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run_bool.txt"
+}
+
+# The file may name the contract's schema itself.
+edit {
+  file: "lib/orders/schema.json"
+  replace: "{\n    \"tables\""
+  with: "{\n    \"$schema\": \"//tools/database_schema_codegen/config.schema.json\",\n    \"tables\""
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run_bool.txt"
+}
+
+# Any other schema is a mismatch.
+edit {
+  file: "lib/orders/schema.json"
+  replace: "\"$schema\": \"//tools/database_schema_codegen/config.schema.json\""
+  with: "\"$schema\": \"orders.schema.json\""
+}
+
+run {
+  args: ["build", "//lib/orders"]
+  exit: 1
+  golden: "mismatch.txt"
+}
+
+edit {
+  file: "lib/orders/schema.json"
+  replace: "    \"$schema\": \"orders.schema.json\",\n"
+  with: ""
+}
+
+# The entry point takes the contract's root type, and nothing else.
+edit {
+  file: "tools/database_schema_codegen/tool.buri"
+  replace: "request: GenerateRequest<Config>"
+  with: "request: GenerateRequest<Str>"
+}
+
+run {
+  args: ["build", "//tools/database_schema_codegen"]
+  exit: 1
+  golden: "request_type.txt"
+}
+
+edit {
+  file: "tools/database_schema_codegen/tool.buri"
+  replace: "request: GenerateRequest<Str>"
+  with: "request: GenerateRequest<Config>"
+}
+
+# An input in a language the contract does not list. Exit 2: a build file
+# naming the wrong thing stops every command.
+edit {
+  file: "lib/orders/BUILD.buri"
+  replace: "inputs: [\"schema.json\"]"
+  with: "inputs: [\"schema.json\", \"notes.jsonc\"]"
+}
+
+run {
+  args: ["build", "//lib/orders"]
+  exit: 2
+  golden: "not_accepted.txt"
+}

@@ -1,0 +1,17 @@
+// The web service.
+{
+    $schema: "deploy.schema.json",
+    version: 2,
+    name: "web \"${prod}\"",
+    replicas: 3,
+    ratio: 0.5,
+    limit: Infinity,
+    public: true,
+    owner: null,
+    tier: "pro-plus",
+    regions: [{ id: "eu-west", type: "primary" }, { id: "us-east", type: "backup" }],
+    health: { path: "/up" },
+    labels: { team: "core", "cost-center": "7" },
+    shape: { kind: "circle", radius: 1.5e3 },
+    extra: [1, "two", { three: null }],
+}

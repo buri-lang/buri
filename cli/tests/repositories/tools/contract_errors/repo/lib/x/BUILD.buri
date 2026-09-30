@@ -1,0 +1,5 @@
+library {
+    generators: [
+        { tool: "//tools/a", inputs: ["config.json"] },
+    ]
+}

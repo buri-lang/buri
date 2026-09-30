@@ -1,0 +1,18 @@
+error: `yaml` is not a language this repository has [accepts-unknown-language]
+ --> tools/b/BUILD.buri:4:25
+  |
+4 |             { language: "yaml", type_schema: "b.schema.json" },
+  |                         ^^^^^^
+  |
+  = the languages are `json`, `jsonc`, `json5`, `lines`
+  = fix: name one of them, or declare `yaml` in `REPO.buri`
+
+      tool {
+          generate {
+              accepts: [{ language: "yaml", type_schema: "config.schema.yaml" }]
+          }
+      }
+
+    The contract's types come from the language's generate, so the language has
+    to exist: a built-in one, or one REPO.buri declares.
+

@@ -1,0 +1,7 @@
+library {
+    generators: [
+        { tool: "std/json", inputs: ["deploy.schema.json", "deploy.json5"] },
+    ]
+
+    visibility: ["//visibility:public"]
+}

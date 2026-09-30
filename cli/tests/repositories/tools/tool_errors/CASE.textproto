@@ -47,11 +47,17 @@ run {
   golden: "retired.txt"
 }
 
-# `std/json` checks and formats; it has no `generate`.
 edit {
   file: "lib/app/BUILD.buri"
   replace: "tool: \"std/codegen/proto\""
-  with: "tool: \"std/json\""
+  with: "tool: \"//tools/good\""
+}
+
+# `std/proto` generates; it has no `format`.
+edit {
+  file: "REPO.buri"
+  replace: "repository root.\n"
+  with: "repository root.\n\nlanguage {\n    name: \"text\"\n    extensions: [\".txt\"]\n    format: \"std/proto\"\n}\n"
 }
 
 run {
@@ -61,9 +67,9 @@ run {
 }
 
 edit {
-  file: "lib/app/BUILD.buri"
-  replace: "tool: \"std/json\""
-  with: "tool: \"//tools/good\""
+  file: "REPO.buri"
+  replace: "\n\nlanguage {\n    name: \"text\"\n    extensions: [\".txt\"]\n    format: \"std/proto\"\n}\n"
+  with: "\n"
 }
 
 # A block with no function: the tool says so, and so does every rule it runs for.

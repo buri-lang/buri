@@ -1,0 +1,9 @@
+tool {
+    sources: ["emit.buri"]
+
+    generate {
+        accepts: [
+            { language: "json", type_schema: "config.schema.json" },
+        ]
+    }
+}
