@@ -33,10 +33,15 @@ export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generat
 /// names no schema.
 export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
     let inputs = request.inputs.map(ctx, fn(input) => (input.path, input.value));
-    let response = proto.emit(ctx, Request { inputs: inputs, dependencies: request.files });
+    let response = proto.emit(ctx, Request {
+        inputs: inputs,
+        dependencies: request.files,
+    });
     let imports = request
         .inputs
-        .flatMapCtx(ctx, fn(c, input) => schema.parse(c, input.value, input.path).schema.imports);
+        .flatMapCtx(ctx, fn(c, input) => {
+            schema.parse(c, input.value, input.path).schema.imports
+        });
     Checked {
         diagnostics: response.diagnostics,
         needs: imports.filterMapCtx(ctx, fn(c, i) => local(c, i.path)),
@@ -48,5 +53,9 @@ fn local<C: Allocator>(ctx: C, path: Str): Option<Str> {
     let wanted = proto.importModulePath(ctx, path);
     let rest = wanted.slice(2, wanted.length());
     let climbs = rest.split(ctx, "/").any(fn(segment) => segment == "..");
-    if (climbs || rest.contains(":") || rest.startsWith("/")) { .None } else { .Some(rest) }
+    if (climbs || rest.contains(":") || rest.startsWith("/")) {
+        .None
+    } else {
+        .Some(rest)
+    }
 }

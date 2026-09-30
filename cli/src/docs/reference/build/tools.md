@@ -73,9 +73,8 @@ a tool without that entry point is
 [`tool-without-entry-point`](../errors/tool-without-entry-point.md), and a name
 that is no tool is [`no-such-tool`](../errors/no-such-tool.md).
 
-The toolchain ships two: `std/json` (`check`, `format` and `generate`, for
-`json`, `jsonc` and `json5`) and `std/proto` (`generate`, for `.proto`
-schemas). The old
+The toolchain ships two, each with `check`, `format` and `generate`: `std/json`
+for `json`, `jsonc` and `json5`, and `std/proto` for `.proto` schemas. The old
 `std/codegen/proto` is [`retired-tool-name`](../errors/retired-tool-name.md).
 
 ## What an entry point is handed
@@ -149,6 +148,8 @@ export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Config>): Gene
 - **`type_schema` belongs to the language.** For `json`, `jsonc` and `json5`
   it is a JSON Schema path relative to the tool's package, or a `//` path.
   [`guides/json`](../../guides/json.md#generating-types) has the type mapping.
+  `proto` takes no contract, because a `.proto` file holds no value
+  ([`proto-contract-unsupported`](../errors/proto-contract-unsupported.md)).
 - **One entry per language.** An input in a language no entry lists is
   [`input-language-not-accepted`](../errors/input-language-not-accepted.md), on
   the consumer's `inputs`.

@@ -32,8 +32,8 @@
 //! What is *not* here is refused by name rather than ignored: `service`,
 //! `extend`, `extensions`, groups, `map<>`, the two removed labels, and every
 //! feature value this mapping cannot express. Each would change what a message
-//! means on the wire. `reserved`, and an `option` that is not a `features.` one,
-//! are skipped instead: neither says anything about the shape of a message.
+//! means on the wire. An `option` that is not a `features.` one is skipped
+//! instead, and `reserved` is kept only to check that no field uses it.
 //!
 //! Cost: one pass to split the text into characters and one to read it, so
 //! O(n). Alongside the characters it keeps one `Int` per character — the byte
@@ -1588,61 +1588,80 @@ struct Numbered {
 fn fieldsAreDistinct<C: Allocator>(ctx: C, p: P, m: Message): P {
     let own = m
         .fields
-        .map(ctx, fn(f) => Numbered { name: f.name, number: f.number, origin: f.origin });
-    let cases = m.oneofs.flatMapCtx(ctx, fn(c, o) => {
-        o.cases.map(c, fn(f) => Numbered { name: f.name, number: f.number, origin: f.origin })
-    });
+        .map(ctx, fn(f) => {
+            Numbered { name: f.name, number: f.number, origin: f.origin }
+        });
+    let cases = m
+        .oneofs
+        .flatMapCtx(ctx, fn(c, o) => {
+            o
+                .cases
+                .map(c, fn(f) => {
+                    Numbered { name: f.name, number: f.number, origin: f.origin }
+                })
+        });
     let all = own
         .concat(ctx, cases)
         .sortBy(ctx, fn(a, b) => a.origin.span.start.compare(b.origin.span.start));
-    all.indexed(ctx).foldCtx(
-        ctx,
-        fn(c, acc: P, entry) => {
-            let (i, f) = entry;
-            let earlier = all.take(c, i);
-            match (earlier.find(fn(e) => e.number == f.number)) {
-                .Some(e) => {
-                    reused(
-                        c,
-                        acc,
-                        f.origin,
-                        str.format(c, "`${f.name}` and `${e.name}` both use field number ${f.number}"),
-                        "give each field of a message its own number",
-                    )
-                },
-                .None => {
-                    if (earlier.any(fn(e) => e.name == f.name)) {
+    all
+        .indexed(ctx)
+        .foldCtx(
+            ctx,
+            fn(c, acc: P, entry) => {
+                let (i, f) = entry;
+                let earlier = all.take(c, i);
+                match (earlier.find(fn(e) => e.number == f.number)) {
+                    .Some(e) => {
                         reused(
                             c,
                             acc,
                             f.origin,
-                            str.format(c, "`${m.name}` declares `${f.name}` twice"),
-                            "rename one of them",
+                            str.format(
+                                c,
+                                "`${f.name}` and `${e.name}` both use field number ${f.number}",
+                            ),
+                            "give each field of a message its own number",
                         )
-                    } else if (reservesNumber(m.reserved, f.number)) {
-                        reused(
-                            c,
-                            acc,
-                            f.origin,
-                            str.format(c, "`${m.name}` reserves ${f.number}, and `${f.name}` uses it"),
-                            "give the field a number the message does not reserve",
-                        )
-                    } else if (m.reserved.contains(Reserved.Name(f.name))) {
-                        reused(
-                            c,
-                            acc,
-                            f.origin,
-                            str.format(c, "`${m.name}` reserves the name `${f.name}`"),
-                            "give the field a name the message does not reserve",
-                        )
-                    } else {
-                        acc
-                    }
-                },
-            }
-        },
-        p,
-    )
+                    },
+                    .None => {
+                        if (earlier.any(fn(e) => e.name == f.name)) {
+                            reused(
+                                c,
+                                acc,
+                                f.origin,
+                                str.format(c, "`${m.name}` declares `${f.name}` twice"),
+                                "rename one of them",
+                            )
+                        } else if (reservesNumber(m.reserved, f.number)) {
+                            reused(
+                                c,
+                                acc,
+                                f.origin,
+                                str.format(
+                                    c,
+                                    "`${m.name}` reserves ${f.number}, and `${f.name}` uses it",
+                                ),
+                                "give the field a number the message does not reserve",
+                            )
+                        } else if (m.reserved.contains(Reserved.Name(f.name))) {
+                            reused(
+                                c,
+                                acc,
+                                f.origin,
+                                str.format(
+                                    c,
+                                    "`${m.name}` reserves the name `${f.name}`",
+                                ),
+                                "give the field a name the message does not reserve",
+                            )
+                        } else {
+                            acc
+                        }
+                    },
+                }
+            },
+            p,
+        )
 }
 
 fn reservesNumber(reserved: [Reserved], number: Int): Bool {
@@ -1654,7 +1673,13 @@ fn reservesNumber(reserved: [Reserved], number: Int): Bool {
     })
 }
 
-fn reused<C: Allocator>(ctx: C, p: P, origin: ast.Origin, problem: Str, remedy: Str): P {
+fn reused<C: Allocator>(
+    ctx: C,
+    p: P,
+    origin: ast.Origin,
+    problem: Str,
+    remedy: Str,
+): P {
     capped(ctx, p, codegen.Diagnostic {
         code: "proto-field-reused",
         message: problem,

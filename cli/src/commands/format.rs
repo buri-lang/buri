@@ -11,9 +11,9 @@
 //! Four kinds of file, one command, one layout:
 //!
 //!   * **source** and **build files**, through the two printers below;
-//!   * **JSON, JSONC and JSON5** that a rule's `inputs` lists, through
-//!     `crate::languages`. Any other JSON file is not the repository's to
-//!     format;
+//!   * **JSON, JSONC, JSON5 and `.proto`** that a rule's `inputs` lists,
+//!     through `crate::languages`. Any other such file is not the repository's
+//!     to format;
 //!   * **markdown**, where every ```` ```buri ```` fence is laid out and the
 //!     prose around it is left exactly as it was written;
 //!   * **a source file's own documentation comments**, where an example is what
@@ -320,7 +320,7 @@ pub fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
 /// Shared with the language server's fingerprint, so that what `buri format`
 /// considers part of the repository and what an analysis is keyed on are one
 /// list rather than two that can drift apart. A schema is on this list and not
-/// on the one above because it is compiled and not formatted.
+/// on the one above because only one a rule's `inputs` lists is formatted.
 pub fn collect_with_schemas(dir: &Path, out: &mut Vec<PathBuf>) {
     walk(dir, out, true);
 }

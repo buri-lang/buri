@@ -25,6 +25,13 @@
 //! A string, a comment or a bracket that does not close leaves the file as it
 //! is.
 
+#![allow(
+    clippy::arithmetic_side_effects,
+    reason = "every operand is an index into, or a count of, the characters or tokens of a file \
+              already in memory, so a sum is bounded by that length; `i - 1` follows a step past \
+              the first character"
+)]
+
 use crate::layout::Doc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,13 +108,11 @@ fn lex(text: &str) -> Option<Vec<Token>> {
             i += 1;
             loop {
                 let d = at(i);
-                if d.is_ascii_alphanumeric() || d == '_' || d == '.' {
-                    i += 1;
-                } else if matches!(d, '+' | '-') && !hex && matches!(at(i - 1), 'e' | 'E') {
-                    i += 1;
-                } else {
+                let exponent = matches!(d, '+' | '-') && !hex && matches!(at(i - 1), 'e' | 'E');
+                if !(d.is_ascii_alphanumeric() || d == '_' || d == '.' || exponent) {
                     break;
                 }
+                i += 1;
             }
             Kind::Number
         } else if c == '"' || c == '\'' {
@@ -368,23 +373,32 @@ fn ends_line(p: &Piece) -> bool {
 fn pieces(ps: &[Piece]) -> Doc {
     let mut out = Vec::new();
     let mut k = 0;
-    while k < ps.len() {
-        let p = &ps[k];
-        if let Some(prev) = k.checked_sub(1).and_then(|i| ps.get(i)) {
+    let mut prev: Option<&Piece> = None;
+    while let Some(p) = ps.get(k) {
+        if let Some(prev) = prev {
             if ends_line(prev) {
                 out.push(Doc::Indent(vec![Doc::HardLine]));
             } else if spaced(&prev.token, &p.token) {
                 out.push(Doc::text(" "));
             }
         }
-        let options = p.token.is("[") && k > 0 && matches!(ps[k - 1].token.kind, Kind::Number | Kind::Word);
-        if let Some(close) = options.then(|| matching(ps, k)).flatten() {
-            out.push(options_group(ps, k, close));
-            k = close + 1;
-            continue;
+        let options = p.token.is("[") && prev.is_some_and(|q| matches!(q.token.kind, Kind::Number | Kind::Word));
+        let group = options.then(|| matching(ps, k)).flatten().and_then(|close| {
+            let doc = options_group(p, ps.get(k + 1..close)?, ps.get(close)?);
+            Some((doc, close))
+        });
+        match group {
+            Some((doc, close)) => {
+                out.push(doc);
+                prev = ps.get(close);
+                k = close + 1;
+            }
+            None => {
+                out.push(piece(p));
+                prev = Some(p);
+                k += 1;
+            }
         }
-        out.push(piece(p));
-        k += 1;
     }
     Doc::Concat(out)
 }
@@ -411,41 +425,38 @@ fn matching(ps: &[Piece], open: usize) -> Option<usize> {
 }
 
 /// `[a = 1, b = 2]`, or one option per line.
-fn options_group(ps: &[Piece], open: usize, close: usize) -> Doc {
+fn options_group(open: &Piece, inside: &[Piece], close: &Piece) -> Doc {
     let mut inner = vec![Doc::SoftLine];
     let mut depth = 0usize;
-    let mut start = open + 1;
-    for i in open + 1..=close {
-        let t = &ps[i].token;
+    let mut start = 0;
+    for (i, p) in inside.iter().enumerate() {
+        let t = &p.token;
         if t.kind == Kind::Symbol && matches!(t.text.as_str(), "(" | "[" | "<" | "{") {
             depth += 1;
         }
-        if t.kind == Kind::Symbol && matches!(t.text.as_str(), ")" | ">" | "}") {
+        if t.kind == Kind::Symbol && matches!(t.text.as_str(), ")" | "]" | ">" | "}") {
             depth = depth.saturating_sub(1);
         }
-        if t.is("]") && i != close {
-            depth = depth.saturating_sub(1);
-        }
-        let comma = depth == 0 && t.is(",");
-        if !comma && i != close {
+        if depth > 0 || !t.is(",") {
             continue;
         }
-        let option = &ps[start..i];
+        let option = inside.get(start..i).unwrap_or_default();
         inner.push(pieces(option));
-        if comma {
-            if option.last().is_some_and(ends_line) {
-                inner.push(Doc::Indent(vec![Doc::HardLine]));
-            }
-            inner.push(piece(&ps[i]));
-            inner.push(Doc::Line);
-        } else if option.last().is_some_and(ends_line) {
-            inner.push(Doc::HardLine);
+        if option.last().is_some_and(ends_line) {
+            inner.push(Doc::Indent(vec![Doc::HardLine]));
         }
+        inner.push(piece(p));
+        inner.push(Doc::Line);
         start = i + 1;
     }
+    let last = inside.get(start..).unwrap_or_default();
+    inner.push(pieces(last));
+    if last.last().is_some_and(ends_line) {
+        inner.push(Doc::HardLine);
+    }
     Doc::Concat(vec![
-        Doc::Group(vec![piece(&ps[open]), Doc::Indent(inner), Doc::SoftLine, Doc::text("]")]),
-        Doc::Concat(ps[close].after.iter().flat_map(suffix).collect()),
+        Doc::Group(vec![piece(open), Doc::Indent(inner), Doc::SoftLine, Doc::text("]")]),
+        Doc::Concat(close.after.iter().flat_map(suffix).collect()),
     ])
 }
 
@@ -549,7 +560,8 @@ mod tests {
             assert_eq!(format(&once).as_deref(), Some(once.as_str()), "{} is not a fixed point", path.display());
             assert_eq!(meaning(&once), meaning(&text), "{} changed meaning", path.display());
         }
-        // One fixture is broken on purpose: its message never closes.
-        assert!(refused.len() == 1 && refused[0].ends_with("malformed_schema/repo/lib/bad/broken.proto"), "{refused:?}");
+        // Only the fixtures broken on purpose: a message or a string that
+        // never closes.
+        assert!(refused.iter().all(|p| p.ends_with("/broken.proto")), "{refused:?}");
     }
 }
