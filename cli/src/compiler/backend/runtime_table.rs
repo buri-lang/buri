@@ -1514,6 +1514,16 @@ pub const ENTRIES: &[Entry] = &[
     // a children-button by the label a reader hears rather than its glyphs.
     e("ui_node.registerLabel", "buri_rt_ui_node_register_label", Ret::Void),
     e("ui_node.markSubmit", "buri_rt_ui_node_mark_submit", Ret::Void),
+    // A file picker (#209). `registerPick` keeps its handler in a slot of its
+    // own, an `ep` like `registerPress`, so `press` never fires it; the three
+    // `offered` readers answer the file `pickFile` left on the document, and
+    // `offerFile`/`deliverFile` are `pickFile`'s two halves.
+    ep("ui_node.registerPick", "buri_rt_ui_node_register_pick", Ret::Void),
+    e("ui_node.offeredName", "buri_rt_ui_node_offered_name", Ret::Out),
+    e("ui_node.offeredType", "buri_rt_ui_node_offered_type", Ret::Out),
+    e("ui_node.offeredBytes", "buri_rt_ui_node_offered_bytes", Ret::Out),
+    e("ui_testing.offerFile", "buri_rt_ui_testing_offer_file", Ret::Void),
+    e("ui_testing.deliverFile", "buri_rt_ui_testing_deliver_file", Ret::Void),
     // The readers, over the reconciled document rather than the string:
     // `markup` and `text` answer a `Str` through an out-pointer, `count` and
     // `identity` an `Int`.

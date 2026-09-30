@@ -20,13 +20,14 @@
 // painting, focus order, and the browser's own dispatch of a press — and that
 // needs a browser rather than a substitute for one.
 
+from "core/bytes" import * as bytes;
 from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
-from "ui/node" import { FieldKind, Node };
+from "ui/node" import { FieldKind, Node, PickedFile };
 from "ui/prop" import { Prop };
 from "ui/signal" import { Signal, signal, watch };
 from "ui/style" import * as style;
@@ -3195,6 +3196,186 @@ test "a field built without a selection keeps none, and select leaves it alone" 
     // untouched, and nothing aborts.
     let _ = page.select("Name", 0, 3);
     assert.equal(value.get(ctx), "Ada");
+}
+
+/// Where a test keeps what a file picker handed `onPick`, before anything has.
+fn unpicked<C: Ui>(ctx: C): Signal<Result<PickedFile, Str>> {
+    signal(ctx, .Err("nothing picked"))
+}
+
+/// A CSV importer: a file picker whose `onPick` keeps what it was handed, so a
+/// test reads the verdict the page would have acted on.
+fn importer<C: Ui>(
+    picked: Signal<Result<PickedFile, Str>>,
+    maxBytes: Int,
+    disabled: Bool,
+): Node<C> {
+    ui.filePicker({
+        label: .Const("Import"),
+        accept: .Some([".csv", "text/csv"]),
+        maxBytes: maxBytes,
+        onPick: fn(c, file) => picked.set(c, file),
+        styles: [],
+        isDisabled: .Some(.Const(disabled)),
+    })
+}
+
+test "a file picker hands onPick the chosen file's name and text" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let picked = unpicked(ctx);
+    let page = render(ctx, importer(picked, 100, false));
+    let _ = page.pickFile(
+        "Import",
+        "sales.csv",
+        "text/csv",
+        bytes.toUtf8(ctx, "a,b\n1,2"),
+    );
+    assert.equal(
+        picked.get(ctx),
+        .Ok(PickedFile { name: "sales.csv", text: "a,b\n1,2" }),
+    );
+    // Either half of `accept` lets a file through: an extension matches the
+    // name whatever its case, and a type matches whatever the name.
+    let _ = page.pickFile("Import", "SALES.CSV", "", bytes.toUtf8(ctx, "x"));
+    assert.equal(picked.get(ctx), .Ok(PickedFile { name: "SALES.CSV", text: "x" }));
+    let _ = page.pickFile("Import", "export", "text/csv", bytes.toUtf8(ctx, "y"));
+    assert.equal(picked.get(ctx), .Ok(PickedFile { name: "export", text: "y" }));
+}
+
+test "a file picker refuses a file no accept entry matches" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let picked = unpicked(ctx);
+    let page = render(ctx, importer(picked, 100, false));
+    // A browser's chooser only suggests the filter — a reader can switch it to
+    // "All files" — so the picker checks it again.
+    let _ = page.pickFile("Import", "notes.txt", "text/plain", bytes.toUtf8(ctx, "hi"));
+    assert.equal(
+        picked.get(ctx),
+        .Err("notes.txt is not one of the accepted types: .csv, text/csv"),
+    );
+}
+
+test "a file picker's accept takes a type family, and no accept takes any file" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let picked = unpicked(ctx);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.filePicker({
+                    label: .Const("Text"),
+                    accept: .Some(["text/*"]),
+                    maxBytes: 100,
+                    onPick: fn(c, file) => picked.set(c, file),
+                    styles: [],
+                }),
+                ui.filePicker({
+                    label: .Const("Anything"),
+                    maxBytes: 100,
+                    onPick: fn(c, file) => picked.set(c, file),
+                    styles: [],
+                }),
+            ],
+        }),
+    );
+    let _ = page.pickFile(
+        "Text",
+        "notes.md",
+        "text/markdown",
+        bytes.toUtf8(ctx, "# Hi"),
+    );
+    assert.equal(picked.get(ctx), .Ok(PickedFile { name: "notes.md", text: "# Hi" }));
+    let _ = page.pickFile(
+        "Text",
+        "data.json",
+        "application/json",
+        bytes.toUtf8(ctx, "{}"),
+    );
+    assert.equal(
+        picked.get(ctx),
+        .Err("data.json is not one of the accepted types: text/*"),
+    );
+    let _ = page.pickFile(
+        "Anything",
+        "data.json",
+        "application/json",
+        bytes.toUtf8(ctx, "{}"),
+    );
+    assert.equal(picked.get(ctx), .Ok(PickedFile { name: "data.json", text: "{}" }));
+}
+
+test "a file picker refuses a file over its size cap" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let picked = unpicked(ctx);
+    let page = render(ctx, importer(picked, 4, false));
+    let _ = page.pickFile("Import", "big.csv", "text/csv", bytes.toUtf8(ctx, "12345"));
+    assert.equal(picked.get(ctx), .Err("big.csv is 5 bytes, over the 4-byte limit"));
+    // The cap is the largest file read, so a file exactly that size is read.
+    let _ = page.pickFile("Import", "fits.csv", "text/csv", bytes.toUtf8(ctx, "1234"));
+    assert.equal(picked.get(ctx), .Ok(PickedFile { name: "fits.csv", text: "1234" }));
+}
+
+test "a file picker refuses bytes that are not UTF-8, and drops a byte-order mark" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let picked = unpicked(ctx);
+    let page = render(ctx, importer(picked, 100, false));
+    let latin1: [U8] = [99, 97, 102, 233];
+    let _ = page.pickFile("Import", "cafe.csv", "text/csv", latin1);
+    assert.equal(picked.get(ctx), .Err("cafe.csv could not be read as UTF-8 text"));
+    // The mark a spreadsheet writes ahead of a CSV export is not text, so a
+    // header row read from it starts with its first real letter.
+    let marked: [U8] = [239, 187, 191, 105, 100];
+    let _ = page.pickFile("Import", "export.csv", "text/csv", marked);
+    assert.equal(picked.get(ctx), .Ok(PickedFile { name: "export.csv", text: "id" }));
+}
+
+test "a disabled file picker opens no chooser, so onPick never runs" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let picked = unpicked(ctx);
+    let page = render(ctx, importer(picked, 100, true));
+    let _ = page.pickFile("Import", "sales.csv", "text/csv", bytes.toUtf8(ctx, "a"));
+    assert.equal(picked.get(ctx), .Err("nothing picked"));
+}
+
+test "a file picker is a button showing its label, which press leaves alone" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let picked = unpicked(ctx);
+    let page = render(ctx, importer(picked, 100, false));
+    assert.equal(page.count("button"), 1);
+    assert.equal(page.text(), "Import");
+    // Pressing the button opens a chooser, and choosing is the reader's: a
+    // press alone hands the program nothing.
+    let _ = page.press("Import");
+    assert.equal(picked.get(ctx), .Err("nothing picked"));
 }
 
 test "a toggle draws its own mark" {
