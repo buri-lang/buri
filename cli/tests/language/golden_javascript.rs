@@ -141,145 +141,20 @@ fn generated_javascript_matches_its_record() {
     let dir = tests_dir().join("golden_javascript");
     let cases = case_dirs(&dir, "main.buri", 15);
 
+    // The cases run at once through the shared pool, each with a `Golden` and
+    // a scratch tree of its own, and are folded back in corpus order — so a
+    // failing run prints what a one-case-at-a-time run printed.
     let mut g = Golden::new();
     let mut sizes = String::new();
     let (mut total_release, mut total_generated) = (0usize, 0usize);
     let mut biggest = (String::new(), 0usize);
-
-    for case in &cases {
-        let name = case.file_name().unwrap().to_string_lossy().to_string();
-        let source = std::fs::read_to_string(case.join("main.buri")).unwrap();
-
-        let scratch = Scratch::repo(&format!("golden-js-{name}"));
-        scratch.binary_package("cmd/x", &source);
-        // A case that binds a UI effect declares `// PLATFORM: WEB`, and its
-        // artifact lands under `.buri/out/web/`. Everything recorded below is
-        // the same recording either way: the module a page loads and the module
-        // a script loads are the same bytes, and it is the *host grant* the two
-        // platforms differ in.
-        let out_dir = output_dir_for(&source);
-
-        // Debug first: it is what `expected.mjs` records, and unmangled names
-        // are what make the diff readable.
-        scratch.run(&["build", "//cmd/x", "--force"]).ok();
-        let debug = std::fs::read_to_string(scratch.artifact_in(out_dir, "cmd/x")).unwrap();
-        let generated = program_only(&debug);
-        g.check(
-            &case.join("expected.mjs"),
-            &format!("golden_javascript/{name}/expected.mjs"),
-            &generated,
-        );
-        // A `core/lazy` chunk is a second file the same build wrote, so it is
-        // recorded the same way the module is — and a case that stopped
-        // splitting fails rather than quietly shipping one file.
-        let module = scratch.artifact_in(out_dir, "cmd/x");
-        for n in 0.. {
-            let chunk = module.with_file_name(format!("x.{n}.mjs"));
-            let recorded = case.join(format!("expected.{n}.mjs"));
-            match std::fs::read_to_string(&chunk) {
-                Ok(text) => g.check(
-                    &recorded,
-                    &format!("golden_javascript/{name}/expected.{n}.mjs"),
-                    &program_only(&text),
-                ),
-                Err(_) => {
-                    if recorded.exists() {
-                        g.fail(format!(
-                            "{name}: `expected.{n}.mjs` records a chunk, and the program \
-                             no longer splits one out. Delete the file to record that \
-                             deliberately."
-                        ));
-                    }
-                    break;
-                }
-            }
-        }
-
-        // The stylesheet is the other half of what this backend emits for a
-        // user interface, and it is a separate record because it is a separate
-        // artifact in every way but where the bytes sit: it is CSS, it is read
-        // by a browser rather than run, and a change to it is reviewed as text
-        // rather than as code. A case with no styles records no file, and one
-        // that *stopped* having styles fails rather than quietly losing them.
-        let sheet = stylesheet_of(&debug);
-        let css = case.join("expected.css");
-        if sheet.is_empty() {
-            if css.exists() {
-                g.fail(format!(
-                    "{name}: `expected.css` records a stylesheet, and the program \
-                     no longer emits one. Delete the file to record that \
-                     deliberately."
-                ));
-            }
-        } else {
-            g.check(&css, &format!("golden_javascript/{name}/expected.css"), &sheet);
-        }
-
-        let debug_out = scratch.exec_js_in(out_dir, "cmd/x");
-        debug_out.ok();
-
-        scratch.run(&["build", "//cmd/x", "--release", "--force"]).ok();
-        let release = std::fs::read_to_string(scratch.artifact_in(out_dir, "cmd/x")).unwrap();
-        let release_out = scratch.exec_js_in(out_dir, "cmd/x");
-        release_out.ok();
-
-        // Per case, what `release_and_debug_agree` asserts for the suite as a
-        // whole. Here it is what stops a blessed `expected.mjs` from recording
-        // a program that stopped working.
-        if debug_out.stdout != release_out.stdout {
-            g.fail(format!(
-                "{name}: release and debug print differently.\n  debug:\n{}\n  release:\n{}",
-                indent(&debug_out.stdout),
-                indent(&release_out.stdout)
-            ));
-        }
-        // Recorded once and never re-recorded. `expected.mjs` is a record of
-        // *how* a program compiles and is meant to move; `expected.out` is a
-        // claim about what it computes, and blessing one of those would launder
-        // exactly the failure this corpus exists to catch. It caught a
-        // tail-call rebinding that read a parameter after overwriting it, and
-        // would have recorded `4950` for a sum of `5050` had it been writable.
-        // To change one deliberately, delete it and re-record.
-        behaviour(
-            &mut g,
-            &case.join("expected.out"),
-            &format!("golden_javascript/{name}/expected.out"),
-            &debug_out.stdout,
-        );
-
-        if release.len() >= debug.len() {
-            g.fail(format!(
-                "{name}: the release artifact ({} bytes) is not smaller than the debug one ({} bytes)",
-                release.len(),
-                debug.len()
-            ));
-        }
-        // Two numbers, because they answer different questions. The artifact
-        // is what a user ships; most of it is the runtime, which no pass here
-        // changes, so it moves slowly. The generated column is what the
-        // backend actually emitted, and it is where a pass either shows up or
-        // did not land.
-        sizes.push_str(&format!(
-            "{name}: {} bytes artifact, {} generated\n",
-            release.len(),
-            generated.len()
-        ));
-        total_release += release.len();
-        total_generated += generated.len();
-
-        let (fname, fsize) = largest_function(&release);
-        if fsize > biggest.1 {
-            biggest = (format!("{name}/{fname}"), fsize);
-        }
-        if fsize > LARGEST_FUNCTION_LIMIT {
-            g.fail(format!(
-                "{name}: `{fname}` is {fsize} bytes of minified source, which puts it \
-                 within reach of V8's 61,440-bytecode ceiling — past that a function is \
-                 never optimized, however hot it gets. Look at what grew it: the \
-                 inliner's per-caller ceiling compounds over its rounds, a merged \
-                 tail-call group fuses a whole component, and `main` collects every \
-                 single-use body inlined into it."
-            ));
+    for one in pool::map(&cases, |case| golden_case(case)) {
+        g.absorb(one.golden);
+        sizes.push_str(&one.sizes_line);
+        total_release += one.release;
+        total_generated += one.generated;
+        if one.largest.1 > biggest.1 {
+            biggest = one.largest;
         }
     }
     sizes.push_str(&format!(
@@ -291,6 +166,157 @@ fn generated_javascript_matches_its_record() {
 
     g.check(&dir.join("sizes.txt"), "golden_javascript/sizes.txt", &sizes);
     g.finish("golden-js", cases.len());
+}
+
+/// What one case of the corpus found, for the corpus-wide records.
+struct CaseResult {
+    golden: Golden,
+    sizes_line: String,
+    release: usize,
+    generated: usize,
+    /// `case/function` and its size in the release artifact.
+    largest: (String, usize),
+}
+
+/// Builds, records and runs one case. It writes only into its own directory.
+fn golden_case(case: &std::path::Path) -> CaseResult {
+    let mut g = Golden::new();
+    let name = case.file_name().unwrap().to_string_lossy().to_string();
+    let source = std::fs::read_to_string(case.join("main.buri")).unwrap();
+
+    let scratch = Scratch::repo(&format!("golden-js-{name}"));
+    scratch.binary_package("cmd/x", &source);
+    // A case that binds a UI effect declares `// PLATFORM: WEB`, and its
+    // artifact lands under `.buri/out/web/`. Everything recorded below is
+    // the same recording either way: the module a page loads and the module
+    // a script loads are the same bytes, and it is the *host grant* the two
+    // platforms differ in.
+    let out_dir = output_dir_for(&source);
+
+    // Debug first: it is what `expected.mjs` records, and unmangled names
+    // are what make the diff readable.
+    scratch.run(&["build", "//cmd/x", "--force"]).ok();
+    let debug = std::fs::read_to_string(scratch.artifact_in(out_dir, "cmd/x")).unwrap();
+    let generated = program_only(&debug);
+    g.check(
+        &case.join("expected.mjs"),
+        &format!("golden_javascript/{name}/expected.mjs"),
+        &generated,
+    );
+    // A `core/lazy` chunk is a second file the same build wrote, so it is
+    // recorded the same way the module is — and a case that stopped
+    // splitting fails rather than quietly shipping one file.
+    let module = scratch.artifact_in(out_dir, "cmd/x");
+    for n in 0.. {
+        let chunk = module.with_file_name(format!("x.{n}.mjs"));
+        let recorded = case.join(format!("expected.{n}.mjs"));
+        match std::fs::read_to_string(&chunk) {
+            Ok(text) => g.check(
+                &recorded,
+                &format!("golden_javascript/{name}/expected.{n}.mjs"),
+                &program_only(&text),
+            ),
+            Err(_) => {
+                if recorded.exists() {
+                    g.fail(format!(
+                        "{name}: `expected.{n}.mjs` records a chunk, and the program \
+                         no longer splits one out. Delete the file to record that \
+                         deliberately."
+                    ));
+                }
+                break;
+            }
+        }
+    }
+
+    // The stylesheet is the other half of what this backend emits for a
+    // user interface, and it is a separate record because it is a separate
+    // artifact in every way but where the bytes sit: it is CSS, it is read
+    // by a browser rather than run, and a change to it is reviewed as text
+    // rather than as code. A case with no styles records no file, and one
+    // that *stopped* having styles fails rather than quietly losing them.
+    let sheet = stylesheet_of(&debug);
+    let css = case.join("expected.css");
+    if sheet.is_empty() {
+        if css.exists() {
+            g.fail(format!(
+                "{name}: `expected.css` records a stylesheet, and the program \
+                 no longer emits one. Delete the file to record that \
+                 deliberately."
+            ));
+        }
+    } else {
+        g.check(&css, &format!("golden_javascript/{name}/expected.css"), &sheet);
+    }
+
+    let debug_out = scratch.exec_js_in(out_dir, "cmd/x");
+    debug_out.ok();
+
+    scratch.run(&["build", "//cmd/x", "--release", "--force"]).ok();
+    let release = std::fs::read_to_string(scratch.artifact_in(out_dir, "cmd/x")).unwrap();
+    let release_out = scratch.exec_js_in(out_dir, "cmd/x");
+    release_out.ok();
+
+    // Per case, what `release_and_debug_agree` asserts for the suite as a
+    // whole. Here it is what stops a blessed `expected.mjs` from recording
+    // a program that stopped working.
+    if debug_out.stdout != release_out.stdout {
+        g.fail(format!(
+            "{name}: release and debug print differently.\n  debug:\n{}\n  release:\n{}",
+            indent(&debug_out.stdout),
+            indent(&release_out.stdout)
+        ));
+    }
+    // Recorded once and never re-recorded. `expected.mjs` is a record of
+    // *how* a program compiles and is meant to move; `expected.out` is a
+    // claim about what it computes, and blessing one of those would launder
+    // exactly the failure this corpus exists to catch. It caught a
+    // tail-call rebinding that read a parameter after overwriting it, and
+    // would have recorded `4950` for a sum of `5050` had it been writable.
+    // To change one deliberately, delete it and re-record.
+    behaviour(
+        &mut g,
+        &case.join("expected.out"),
+        &format!("golden_javascript/{name}/expected.out"),
+        &debug_out.stdout,
+    );
+
+    if release.len() >= debug.len() {
+        g.fail(format!(
+            "{name}: the release artifact ({} bytes) is not smaller than the debug one ({} bytes)",
+            release.len(),
+            debug.len()
+        ));
+    }
+    // Two numbers, because they answer different questions. The artifact
+    // is what a user ships; most of it is the runtime, which no pass here
+    // changes, so it moves slowly. The generated column is what the
+    // backend actually emitted, and it is where a pass either shows up or
+    // did not land.
+    let sizes_line = format!(
+        "{name}: {} bytes artifact, {} generated\n",
+        release.len(),
+        generated.len()
+    );
+
+    let (fname, fsize) = largest_function(&release);
+    if fsize > LARGEST_FUNCTION_LIMIT {
+        g.fail(format!(
+            "{name}: `{fname}` is {fsize} bytes of minified source, which puts it \
+             within reach of V8's 61,440-bytecode ceiling — past that a function is \
+             never optimized, however hot it gets. Look at what grew it: the \
+             inliner's per-caller ceiling compounds over its rounds, a merged \
+             tail-call group fuses a whole component, and `main` collects every \
+             single-use body inlined into it."
+        ));
+    }
+    CaseResult {
+        golden: g,
+        sizes_line,
+        release: release.len(),
+        generated: generated.len(),
+        largest: (format!("{name}/{fname}"), fsize),
+    }
 }
 
 /// `async` reaches exactly as far as `can_park` says, and no further.
