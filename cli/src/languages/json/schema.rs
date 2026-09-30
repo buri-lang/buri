@@ -70,6 +70,60 @@ pub fn local_path(from: &str, reference: &str) -> Option<String> {
     Some(parts.join("/"))
 }
 
+/// `reference` resolved against the absolute URI `base`, as RFC 3986 §5.2 does
+/// it, less queries.
+fn resolve_uri(base: &str, reference: &str) -> String {
+    if has_scheme(reference) {
+        return reference.to_string();
+    }
+    let base = base.split('#').next().unwrap_or_default();
+    let (scheme, rest) = base.split_once(':').unwrap_or(("", base));
+    if let Some(net) = reference.strip_prefix("//") {
+        return format!("{scheme}://{net}");
+    }
+    let (authority, path) = match rest.strip_prefix("//") {
+        Some(r) => {
+            let at = r.find('/').unwrap_or(r.len());
+            (format!("//{}", r.get(..at).unwrap_or_default()), r.get(at..).unwrap_or_default())
+        }
+        None => (String::new(), rest),
+    };
+    let (reference, fragment) = match reference.split_once('#') {
+        Some((r, f)) => (r, format!("#{f}")),
+        None => (reference, String::new()),
+    };
+    let merged = if reference.is_empty() {
+        path.to_string()
+    } else if reference.starts_with('/') {
+        reference.to_string()
+    } else {
+        match path.rsplit_once('/') {
+            Some((dir, _)) => format!("{dir}/{reference}"),
+            None if authority.is_empty() => reference.to_string(),
+            None => format!("/{reference}"),
+        }
+    };
+    let mut out: Vec<&str> = Vec::new();
+    let segments: Vec<&str> = merged.split('/').collect();
+    let last = segments.len().saturating_sub(1);
+    for (i, seg) in segments.iter().enumerate() {
+        match *seg {
+            "." => {}
+            ".." => {
+                if out.len() > 1 {
+                    out.pop();
+                }
+            }
+            s => out.push(s),
+        }
+        // A trailing `.` or `..` still leaves the path a directory.
+        if i == last && matches!(*seg, "." | "..") {
+            out.push("");
+        }
+    }
+    format!("{scheme}:{authority}{}{fragment}", out.join("/"))
+}
+
 fn percent_decode(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -344,6 +398,12 @@ impl<'r> Registry<'r> {
                 // A file's own relative `$id` names the file, which is how it
                 // is reached anyway.
                 Some(_) if pointer.is_empty() => {}
+                // Under an absolute `$id`, a relative one resolves against it.
+                Some(s) if self.resources.get(resource).is_some_and(|r| r.id.is_some()) => {
+                    let base = self.resources.get(resource).and_then(|r| r.id.clone()).unwrap_or_default();
+                    let id = resolve_uri(&base, s).trim_end_matches('#').to_string();
+                    resource = self.add_resource(file, node, Some(id));
+                }
                 Some(s) => self.problem(
                     file,
                     id.value.span,
@@ -520,11 +580,7 @@ impl<'r> Registry<'r> {
         }
         let r = self.resources.get(from).ok_or(Unresolved::NoTarget)?;
         if let Some(id) = &r.id {
-            let joined = match id.rsplit_once('/') {
-                Some((dir, _)) => format!("{dir}/{base}"),
-                None => base.to_string(),
-            };
-            if let Some(i) = self.by_id.get(&joined) {
+            if let Some(i) = self.by_id.get(&resolve_uri(id, base)) {
                 return Ok(*i);
             }
         }
@@ -731,7 +787,8 @@ impl<'a, 'r> Checker<'a, 'r> {
             return Evaluated::default();
         }
         self.depth = self.depth.saturating_add(1);
-        let entered = self.reg.root_of.get(&(schema as *const Node)).copied();
+        // A resource's root, or any schema in a resource a `$ref` just entered.
+        let entered = self.reg.root_of.get(&(schema as *const Node)).copied().or_else(|| (self.dynamic.last() != Some(&resource)).then_some(resource));
         let resource = entered.unwrap_or(resource);
         if let Some(r) = entered {
             self.dynamic.push(r);
