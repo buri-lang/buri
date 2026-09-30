@@ -12,7 +12,7 @@
 //! the answer.
 //!
 //! The run is memoized even when it fails. A failure is recorded and handed to
-//! every test that asks, rather than leaving the cell empty for the next test
+//! every test that asks, rather than leaving the `OnceLock` empty for the next test
 //! to try again, so a flaky run cannot pass on its second attempt.
 use crate::harness::*;
 
