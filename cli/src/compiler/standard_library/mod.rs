@@ -559,11 +559,15 @@ const HOST_GRANTS: &[HostGrant] = &[
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "neither a page nor a worker has standard input",
     },
+    // A worker has no command line, but it does have an environment: the
+    // platform calls it as `fetch(request, env, ctx)`, and `env` carries its
+    // vars and its secrets. That is where a worker's keys belong, so the row
+    // grants it there, backed by that argument (buri-lang/buri#208).
     HostGrant {
         effect: "`Environment`",
         exports: &["HostEnvironment", "env"],
-        platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
-        because: "neither a page nor a worker has a command line or an environment",
+        platforms: &[Platform::Linux, Platform::Macos, Platform::Js, Platform::CloudflareWorker],
+        because: "a page has no command line or environment",
     },
     HostGrant {
         effect: "`Process`",

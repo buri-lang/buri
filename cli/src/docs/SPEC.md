@@ -1886,9 +1886,11 @@ filesystem and not the other is the ordinary case rather than a precaution.
 Which platforms grant an effect is a row in a grant table. `Tasks` — "run this
 concurrently" — is granted everywhere, `WEB` included: a page's concurrency is
 its event loop, and `core/tasks`'s `spawn` is how a program puts a socket, a
-retry or a timer on one. `FileSystemRead`, `FileSystemWrite`, `Stdin`, `Environment` and `Process` are the
-three platforms that are not a page, because a page has no filesystem, no
-standard input, no command line and no process to exit. `Listen` — "I accept
+retry or a timer on one. `FileSystemRead`, `FileSystemWrite`, `Stdin` and
+`Process` are granted on `LINUX`, `MACOS` and `JS`, because a page and a
+worker have no filesystem, no standard input and no process to exit.
+`Environment` is granted there and on `CLOUDFLARE_WORKER` too: a worker has no
+command line, but its vars and secrets are its environment. `Listen` — "I accept
 connections" — is granted on `LINUX` and `MACOS` and nowhere else, because
 holding a port open is a native program's authority and a page is served rather
 than serving.

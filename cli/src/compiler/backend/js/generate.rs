@@ -512,9 +512,10 @@ pub fn generate(
         if platform == Platform::CloudflareWorker {
             // A module worker's default export. `$fetchEntry` is the crossing:
             // the platform's `Request` in, `core/effect`'s `Response` out.
+            // `env` is the worker's bindings, which `host.env` reads.
             roots.push("$fetchEntry".into());
             stmts.push(Stmt::Raw(format!(
-                "export default{{fetch:(request)=>$fetchEntry({sym},request)}};"
+                "export default{{fetch:(request,env)=>$fetchEntry({sym},request,env)}};"
             )));
         } else {
             // Awaited only when the entry itself parks, so an artifact whose
