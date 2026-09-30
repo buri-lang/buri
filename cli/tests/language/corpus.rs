@@ -693,29 +693,39 @@ fn formatting_keeps_every_comment() {
 fn formatting_the_corpus_preserves_what_it_means() {
     let root = repo_root();
     let source = root.join("cli/tests/conformance");
-    let formatted = harness::Scratch::copy_of("meaning-formatted", &source);
-
-    let mut files = Vec::new();
-    buri_sources(&formatted.root, &mut files);
-    assert!(files.len() > 30, "expected the suite, found {} files", files.len());
-    let mut changed = 0;
-    for path in &files {
-        let text = std::fs::read_to_string(path).unwrap();
-        let flattened: String =
-            text.lines().map(|l| format!("{}\n", l.trim_start())).collect();
-        let once = buri::formatting::source(&flattened)
-            .unwrap_or_else(|| panic!("{} does not format", path.display()));
-        if once != flattened {
-            changed += 1;
-        }
-        std::fs::write(path, &once).unwrap();
-    }
-    assert!(changed > 10, "formatting rewrote only {changed} of the suite's files");
-
-    // The unformatted copy is the corpus as checked in, run the way
-    // `conformance_suite_passes` runs it, so it is that same run.
-    let before = crate::debug_suite::unmodified_conformance_run();
-    let after = formatted.run(&["test", "//...", "--force"]);
+    // The two halves are independent, so they run at once. The unformatted
+    // copy is the corpus as checked in, run the way `conformance_suite_passes`
+    // runs it, so it is that same run; the formatted copy is a scratch tree of
+    // its own, kept while it is being asked about.
+    let (before, (formatted, after, changed)) = crate::conformance::both_halves(
+        "before formatting",
+        crate::debug_suite::unmodified_conformance_run,
+        "after formatting",
+        || {
+            let formatted = harness::Scratch::copy_of("meaning-formatted", &source);
+            let mut files = Vec::new();
+            buri_sources(&formatted.root, &mut files);
+            assert!(files.len() > 30, "expected the suite, found {} files", files.len());
+            let mut changed = 0;
+            for path in &files {
+                let text = std::fs::read_to_string(path).unwrap();
+                let flattened: String =
+                    text.lines().map(|l| format!("{}\n", l.trim_start())).collect();
+                let once = buri::formatting::source(&flattened)
+                    .unwrap_or_else(|| panic!("{} does not format", path.display()));
+                if once != flattened {
+                    changed += 1;
+                }
+                std::fs::write(path, &once).unwrap();
+            }
+            assert!(changed > 10, "formatting rewrote only {changed} of the suite's files");
+            let after = formatted.run(&["test", "//...", "--force"]);
+            (formatted, after, changed)
+        },
+    );
+    // Held until the comparison below is made, so a failing one keeps the
+    // formatted tree it failed on.
+    let _formatted = formatted;
     assert_eq!(
         after.code,
         before.code,
