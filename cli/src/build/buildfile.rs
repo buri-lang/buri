@@ -447,6 +447,19 @@ pub struct Tool {
     pub check: Option<Span>,
     pub format: Option<Span>,
     pub generate: Option<Span>,
+    /// The contracts `check` and `generate` declare. Empty means text.
+    pub check_accepts: Vec<Accepts>,
+    pub generate_accepts: Vec<Accepts>,
+    pub span: Span,
+}
+
+/// One `accepts` entry: inputs in `language` reach the entry point typed, as
+/// the root type `language`'s `generate` makes of `type_schema`.
+#[derive(Clone, Debug)]
+pub struct Accepts {
+    pub language: Spanned<String>,
+    /// Opaque to the build; the language's tools read it.
+    pub type_schema: Spanned<String>,
     pub span: Span,
 }
 
@@ -459,6 +472,20 @@ impl Tool {
             "generate" => self.generate,
             _ => None,
         }
+    }
+
+    /// The contracts the entry point `name` declares.
+    pub fn accepts(&self, name: &str) -> &[Accepts] {
+        match name {
+            "check" => &self.check_accepts,
+            "generate" => &self.generate_accepts,
+            _ => &[],
+        }
+    }
+
+    /// Every contract, over both entry points.
+    pub fn contracts(&self) -> impl Iterator<Item = &Accepts> {
+        self.check_accepts.iter().chain(self.generate_accepts.iter())
     }
 }
 
@@ -931,6 +958,38 @@ impl Reader {
         }
     }
 
+    /// A block's `accepts`, a list of `{ language, type_schema }`. An entry
+    /// missing either is refused and dropped.
+    fn accepts(&mut self, message: &Message) -> Vec<Accepts> {
+        let mut out = Vec::new();
+        for f in message.all("accepts") {
+            let items: Vec<&Value> = match &f.value {
+                Value::List(items, _) => items.iter().collect(),
+                other => vec![other],
+            };
+            for item in items {
+                let Value::Message(m, span) = item else {
+                    let kind = item.kind().to_string();
+                    self.wrong_kind(item.span(), "accepts", "a block", &kind);
+                    continue;
+                };
+                self.check_known(m, textproto::schema_order("accepts"), &[], "an `accepts` entry");
+                let language = self.spanned_string(m, "language");
+                let type_schema = self.spanned_string(m, "type_schema");
+                let (Some(language), Some(type_schema)) = (language, type_schema) else {
+                    for field in ["language", "type_schema"] {
+                        if m.get(field).is_none() {
+                            self.templated("accepts-incomplete", *span).bind("field", field);
+                        }
+                    }
+                    continue;
+                };
+                out.push(Accepts { language, type_schema, span: *span });
+            }
+        }
+        out
+    }
+
     fn sub_message<'a>(&mut self, message: &'a Message, name: &str) -> Option<(&'a Message, Span)> {
         let f = message.get(name)?;
         match &f.value {
@@ -1308,16 +1367,19 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
         let mut block = |name: &str| {
             let (b, span) = reader.sub_message(m, name)?;
             reader.check_known(b, textproto::schema_order(name), &[], &format!("a `{name}` block"));
-            Some(span)
+            let accepts = reader.accepts(b);
+            Some((span, accepts))
         };
         let (check, format, generate) = (block("check"), block("format"), block("generate"));
         Tool {
             sources: reader.strings(m, "sources"),
             dependencies: reader.strings(m, "dependencies"),
             test: reader.test_suite(m),
-            check,
-            format,
-            generate,
+            check: check.as_ref().map(|(s, _)| *s),
+            format: format.map(|(s, _)| s),
+            generate: generate.as_ref().map(|(s, _)| *s),
+            check_accepts: check.map(|(_, a)| a).unwrap_or_default(),
+            generate_accepts: generate.map(|(_, a)| a).unwrap_or_default(),
             span,
         }
     });
