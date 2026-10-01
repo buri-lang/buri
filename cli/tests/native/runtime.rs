@@ -30,7 +30,7 @@
 //! 4. **The host capabilities work**, including the byte forms, the write
 //!    ordering between the buffered text stream and `writeBytes`, and the
 //!    append/rename/sync sequence a write-ahead log commits through.
-use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE, h3, net};
+use buri::compiler::backend::runtime_native::{ARCHIVE_NAME, AVAILABLE, h3, net};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -61,10 +61,9 @@ fn driver() -> &'static Path {
     static BUILT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     BUILT.get_or_init(|| {
         let dir = workspace();
-        let archive = dir.join(ARCHIVE_NAME);
+        let archive = crate::shared::runtime_archive();
         let source = dir.join("driver.c");
         let binary = dir.join("driver");
-        std::fs::write(&archive, ARCHIVE).unwrap();
         std::fs::write(&source, DRIVER).unwrap();
 
         // `build/link.rs`'s own driver and trailing arguments
@@ -73,7 +72,7 @@ fn driver() -> &'static Path {
         // so the old `-lpthread -ldl -lm` is not merely stale here, it is a
         // link against the wrong libc.
         let mut cc = crate::shared::product_cc();
-        cc.arg("-std=c11").arg("-O1").arg("-o").arg(&binary).arg(&source).arg(&archive);
+        cc.arg("-std=c11").arg("-O1").arg("-o").arg(&binary).arg(&source).arg(archive);
         cc.args(crate::shared::product_link_args());
         let out = cc.output().unwrap();
         assert!(

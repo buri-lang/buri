@@ -256,6 +256,29 @@ fn staged() -> &'static (PathBuf, Vec<String>) {
     })
 }
 
+/// The runtime archive, written once per test run.
+///
+/// It's 16 MB. One copy per process was one per *test* under nextest, about
+/// 3 GB left behind by a full run. Processes of one run race to write it, so
+/// each writes its own copy and renames it into place, which is atomic.
+pub fn runtime_archive() -> &'static Path {
+    use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME};
+    static WRITTEN: OnceLock<PathBuf> = OnceLock::new();
+    WRITTEN.get_or_init(|| {
+        crate::sweep::once();
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("runtime-archive-{}", crate::sweep::run_name()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(ARCHIVE_NAME);
+        if !path.exists() {
+            let partial = dir.join(format!("{ARCHIVE_NAME}.{}", std::process::id()));
+            std::fs::write(&partial, ARCHIVE).unwrap();
+            std::fs::rename(&partial, &path).unwrap();
+        }
+        path
+    })
+}
+
 // ---------------------------------------------------------------------------
 // A Buri server, and a client that is not one
 // ---------------------------------------------------------------------------

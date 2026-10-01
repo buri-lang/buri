@@ -110,27 +110,6 @@ fn workspace(name: &str) -> PathBuf {
     dir
 }
 
-/// The runtime archive, written once for the process rather than once per
-/// test.
-///
-/// It is six megabytes and it is the same six megabytes every time, so a copy
-/// per workspace is a quarter of a gigabyte written and then left behind under
-/// `CARGO_TARGET_TMPDIR`. Immutable once written and named by the process id,
-/// so `#[test]`s running concurrently share it safely and two `cargo test`
-/// runs in two shells still do not — `native/llvm.rs::archive` is the same
-/// lock for the same reason.
-fn archive() -> &'static Path {
-    static WRITTEN: OnceLock<PathBuf> = OnceLock::new();
-    WRITTEN.get_or_init(|| {
-        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-            .join(format!("native-stencil-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join(ARCHIVE_NAME);
-        std::fs::write(&path, ARCHIVE).unwrap();
-        path
-    })
-}
-
 /// A C shim linked beside the program, whose destructor reports the
 /// runtime's allocation counters once `main` has returned.
 ///
@@ -238,7 +217,7 @@ pub fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     for o in &objects {
         cc.arg(o);
     }
-    cc.arg(archive());
+    cc.arg(crate::shared::runtime_archive());
     cc.args(shared::product_link_args());
     let out = cc.output().unwrap();
     assert!(
@@ -2609,7 +2588,7 @@ fn link_and_run(path: &str, units: &[Emitted], sheet: &str) -> Ran {
     for o in &objects {
         cc.arg(o);
     }
-    cc.arg(archive());
+    cc.arg(crate::shared::runtime_archive());
     cc.args(shared::product_link_args());
     let out = cc.output().unwrap();
     assert!(
@@ -3796,7 +3775,7 @@ fn build_tests_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     for o in &objects {
         cc.arg(o);
     }
-    cc.arg(archive());
+    cc.arg(crate::shared::runtime_archive());
     cc.args(shared::product_link_args());
     let out = cc.output().unwrap();
     assert!(out.status.success(), "the link failed:\n{}", String::from_utf8_lossy(&out.stderr));

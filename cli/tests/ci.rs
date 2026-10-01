@@ -674,35 +674,45 @@ fn every_job_declares_a_timeout() {
     println!("{found} job(s), each with a `timeout-minutes` of its own");
 }
 
-/// No runner configuration in the tree promises a cap nothing enforces.
+/// The local runner's config only schedules tests: it never kills, retries or
+/// filters one.
 ///
-/// `.config/nextest.toml` set `slow-timeout = { period = "60s", terminate-after
-/// = 5 }` for two slices and could never fire: every invocation in `ci.yml` is
-/// `cargo test`, which does not read that file. The file was deleted; the cap it
-/// described lives in `cli/tests/harness/hang.rs` and is proved to fire by a
-/// test beside it. This is what stops the config coming back as a promise again.
+/// CI runs `cargo test`, which never reads `.config/nextest.toml`. So a
+/// `terminate-after` there is a cap CI doesn't enforce (the real one is
+/// `cli/tests/harness/hang.rs`), and a retry or a default filter would make a
+/// local green mean less than a CI green.
 ///
 /// Assembled rather than written, because this file is one of the files the
 /// other tests here walk.
 #[test]
-fn no_runner_config_promises_a_cap_nothing_reads() {
+fn the_runner_config_never_kills_retries_or_filters_a_test() {
     let runner = format!("next{}", "est");
     let config = repo_root().join(".config").join(format!("{runner}.toml"));
-    assert!(
-        !config.exists(),
-        "{} is back. Nothing in this repository runs that runner — every invocation in ci.yml is \
-         `cargo test -p buri`, which never reads it — so a timeout written there is a sentence \
-         and not a cap. The real one is `cli/tests/harness/hang.rs`, which caps one CLI \
-         invocation and names the test it killed; the outer bound is each job's \
-         `timeout-minutes`, asserted above.",
-        config.display()
-    );
+    let text = std::fs::read_to_string(&config).unwrap_or_default();
+    let settings: Vec<&str> =
+        text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).collect();
+    for forbidden in ["terminate-after", "default-filter"] {
+        assert!(
+            !settings.iter().any(|l| l.contains(forbidden)),
+            "{} sets `{forbidden}`. CI's `cargo test` never reads that file, so the local run would \
+             kill or skip what CI runs. The hang cap is `cli/tests/harness/hang.rs`.",
+            config.display()
+        );
+    }
+    for line in settings.iter().filter(|l| l.contains("retries")) {
+        assert_eq!(
+            line.replace(' ', ""),
+            "retries=0",
+            "{} retries a failing test. A test that passes on its second try is flaky, and \
+             flaky tests get fixed, not rerun.",
+            config.display()
+        );
+    }
     let workflow = workflow();
     assert!(
         !workflow.contains(&runner),
-        "ci.yml invokes `{runner}`. Nothing else in this repository does, so the timeout that \
-         config describes would be a sentence rather than a cap — and a second test runner is a \
-         second set of rules about what counts as a skip, on top of the ones this file holds."
+        "ci.yml invokes `{runner}`. CI runs `cargo test` with its binaries overlapped, and the \
+         tests in this file hold that step's rules about what counts as the whole suite."
     );
 }
 
