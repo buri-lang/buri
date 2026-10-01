@@ -11,9 +11,14 @@ reproduction: none
 { "$schema": "orders.schema.json", "tables": [] }
 ```
 
+```textproto ignore why="a data file, not a build file"
+# proto-file: other.proto
+# proto-message: Route
+```
+
 A tool with a contract reads a typed value, so the file is checked against the
-contract's `type_schema`. A different `"$schema"` would say the file is
-something else.
+contract's `type_schema`. A different `"$schema"`, or a text format header
+naming another schema or message, would say the file is something else.
 
 Two tools with different contracts reading one file is the same mistake: one
 file cannot have two schemas.
