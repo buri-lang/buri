@@ -265,7 +265,7 @@ backends.
 ## Running them
 
 ```
-cargo test -p buri                                    # everything
+cargo nextest run -p buri && cargo test -p buri --doc # everything
 cargo test -p buri --test language                    # one domain
 cargo test -p buri --test language conformance::      # one suite in it
 cargo test -p buri --test native -- --skip float_parity
@@ -276,7 +276,22 @@ BURI_RECOVERY_CAP=0 cargo test -p buri --test recovery   # every case, not a str
 A module is a name prefix, so `--test language conformance::` selects exactly
 what `--test conformance` used to, and `--skip` takes a module out the same way.
 
-The first line is the whole suite, and the `release` job runs exactly that. The
+The first line is the whole suite. `cargo test -p buri` runs the same set, but
+one binary after another, which is over ten minutes on a ten-core mac. nextest
+runs every test in a process of its own and keeps the machine busy instead.
+It doesn't run doctests, hence the second command. `.config/nextest.toml` only
+schedules: it starts the longest tests first and never kills, retries or
+filters one (`ci.rs::the_runner_config_never_kills_retries_or_filters_a_test`).
+
+Bless with `cargo test`, not nextest. A blessing corpus is written once per
+process, so one process per test would write it from several at once.
+
+Process per test also means a `OnceLock` no longer shares work across a
+binary's tests. Two things still need to be shared by the whole run, so they
+are named for it (`sweep::run_name`): the corpus pool's permits, and the
+native suites' runtime archive.
+
+The `release` job runs `cargo test -p buri`. The
 `test` legs run **the same set with its binaries overlapped**, in four lines of
 inline shell in `.github/workflows/ci.yml`:
 
@@ -314,9 +329,9 @@ Two rules keep that from changing what a run says. **The order is the
 corpus's**: each case fills a `Golden` of its own and they are absorbed in the
 order the case directories sort in, so a failing run prints exactly what a
 one-case-at-a-time run printed, and the earliest case to panic is the one
-re-raised. **The width is the test binary's**: cargo already runs a binary's
-`#[test]`s on their own threads, so every case takes a permit from one gate
-shared by the process and the number in flight is `available_parallelism`
+re-raised. **The width is the run's**: tests run side by side, so every case
+takes a permit from one gate shared by the run (lock files, so it spans
+nextest's processes) and the number in flight is `available_parallelism`
 however many corpora are going. Nothing else is shared — a scratch tree is
 named for the process and a counter, goldens live one directory per case, and
 no case in a corpus that comes through `run_corpus` opens a socket.
@@ -424,7 +439,7 @@ reports the bar's wall time against the budget in its verification section.
 The bar is this sequence:
 
 ```
-cargo test -p buri
+cargo nextest run -p buri && cargo test -p buri --doc
 cargo test -p buri --features backend-llvm --lib compiler::backend::llvm::
 cargo test -p buri --features backend-llvm --test native -- llvm:: agreement:: e2e::
 cargo test -p buri --features backend-llvm --test fuzz
