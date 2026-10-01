@@ -7,6 +7,6 @@ message Routes {
 }
 
 message Route {
-    string url = 1;
+    string path = 1;
     int32 port = 2;
 }

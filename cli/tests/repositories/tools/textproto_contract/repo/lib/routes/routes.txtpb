@@ -1,9 +1,9 @@
 # No header: the tool's contract names the message.
 route {
-    url: "/"
+    path: "/"
     port: 80
 }
 route {
-    url: "/api"
+    path: "/api"
     port: 8080
 }
