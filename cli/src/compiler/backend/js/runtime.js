@@ -3470,12 +3470,41 @@ async function $host_HostWebSocketClient_connectReceive(self, socket) {
 // back. Nothing else here waits.
 const $actors = [];
 
-// How long a `stateTake` waits for another task's step before it answers
-// `.None`: `cli/runtime/rt.rs`'s `ACTOR_DEADLINE`, for its reason. The wait is
-// one a program can make unbounded — two steps each sending to the actor the
-// other is stepping — so it carries a number, and the number is long enough
-// that reaching it is a bug.
+// How long `mailboxPush` waits for room and `stateTake` waits for another
+// task's step before each answers `.TimedOut`: `cli/runtime/rt.rs`'s
+// `ACTOR_DEADLINE`, for its reason. Both waits are ones a program can make
+// unbounded — two actors each posting into the other's full mailbox, two steps
+// each sending to the actor the other is stepping — so they carry a number, and
+// the number is long enough that reaching it is a bug.
 const $ACTOR_DEADLINE_MS = 30000;
+
+// `core/actor`'s `SendError`, by variant: what `mailboxPush` and `stateTake`
+// answer in `.Err`.
+const $SEND_STOPPED = 0;
+const $SEND_TIMED_OUT = 1;
+const $SEND_WOULD_DEADLOCK = 2;
+
+// Waits on `list` until something calls the resolver it pushed there with
+// `true`, or until `deadline`. Answers which it was, and a wait that ran out
+// takes its resolver back off the list.
+async function $actorWait(list, deadline) {
+  const left = deadline - Date.now();
+  if (left <= 0) return false;
+  $aboutToBlock();
+  let wake;
+  let alarm;
+  const woken = await new Promise((resolve) => {
+    wake = resolve;
+    list.push(resolve);
+    alarm = setTimeout(() => resolve(false), left);
+  });
+  clearTimeout(alarm);
+  if (!woken) {
+    const at = list.indexOf(wake);
+    if (at >= 0) list.splice(at, 1);
+  }
+  return woken;
+}
 
 // **A task is the context it was handed.** `stateTake` has to tell a sender
 // that may wait for the step holding the state from one that is part of that
@@ -3541,14 +3570,14 @@ function $actorAt(handle) {
 
 async function $actor_mailboxPush(c, handle, message) {
   const a = $actorAt(handle);
-  if (a === undefined || a.closed) return undefined;
+  if (a === undefined || a.closed) return $err($SEND_STOPPED);
+  const deadline = Date.now() + $ACTOR_DEADLINE_MS;
   while (a.queue.length >= a.bound) {
-    $aboutToBlock();
-    await new Promise((resolve) => a.room.push(resolve));
-    if (a.closed) return undefined;
+    if (!(await $actorWait(a.room, deadline))) return $err($SEND_TIMED_OUT);
+    if (a.closed) return $err($SEND_STOPPED);
   }
   a.queue.push($share(message));
-  return $some(BigInt(a.queue.length));
+  return $ok(BigInt(a.queue.length));
 }
 
 function $actor_mailboxPop(c, handle) {
@@ -3556,7 +3585,7 @@ function $actor_mailboxPop(c, handle) {
   if (a === undefined || a.queue.length === 0) return undefined;
   const held = a.queue.shift();
   const wake = a.room.shift();
-  if (wake !== undefined) wake();
+  if (wake !== undefined) wake(true);
   return $some(held);
 }
 
@@ -3564,7 +3593,7 @@ async function $actor_mailboxClose(c, handle) {
   const a = $actorAt(handle);
   if (a === undefined || a.closed) return undefined;
   a.closed = true;
-  for (const wake of a.room.splice(0)) wake();
+  for (const wake of a.room.splice(0)) wake(true);
   // A `stateTake` still waiting is answered now rather than at its deadline:
   // there is no state left to wait for.
   for (const wake of a.takers.splice(0)) wake(true);
@@ -3582,50 +3611,35 @@ async function $actor_mailboxClose(c, handle) {
 
 // **Waits while another task is stepping the actor**, so a sender that arrives
 // mid-step gets its answer once that step is done (buri-lang/buri#205). Never
-// for itself: `.None` at once where the state is held by the caller's own step,
-// and `.None` for a stopped actor or a wait past the deadline.
+// for itself: `.WouldDeadlock` at once where the state is held by the caller's
+// own step. `.Stopped` for a stopped actor, and `.TimedOut` past the deadline.
 //
 // Not `async` on the path that does not wait, so a send to an idle actor pays
 // the one `await` at its call and nothing more.
 function $actor_stateTake(c, handle) {
   const a = $actorAt(handle);
-  if (a === undefined || a.closed) return undefined;
+  if (a === undefined || a.closed) return $err($SEND_STOPPED);
   if (a.baton) return $actorHanded(a, c);
-  if ($actorWithin(a.holder, c)) return undefined;
+  if ($actorWithin(a.holder, c)) return $err($SEND_WOULD_DEADLOCK);
   return $actorAwaitState(a, c, Date.now() + $ACTOR_DEADLINE_MS);
 }
 
 async function $actorAwaitState(a, c, deadline) {
   for (;;) {
-    const left = deadline - Date.now();
-    if (left <= 0) return undefined;
-    $aboutToBlock();
-    let wake;
-    let alarm;
-    const woken = await new Promise((resolve) => {
-      wake = resolve;
-      a.takers.push(resolve);
-      alarm = setTimeout(() => resolve(false), left);
-    });
-    clearTimeout(alarm);
-    if (!woken) {
-      const at = a.takers.indexOf(wake);
-      if (at >= 0) a.takers.splice(at, 1);
-      return undefined;
-    }
-    if (a.closed) return undefined;
+    if (!(await $actorWait(a.takers, deadline))) return $err($SEND_TIMED_OUT);
+    if (a.closed) return $err($SEND_STOPPED);
     if (a.baton) return $actorHanded(a, c);
   }
 }
 
 // The state out of `a`, to `c`, whose baton it now is.
 function $actorHanded(a, c) {
-  if (a.state === undefined) return undefined;
+  if (a.state === undefined) return $err($SEND_STOPPED);
   a.baton = false;
   a.holder = c;
   const held = a.state;
   a.state = undefined;
-  return $some(held);
+  return $ok(held);
 }
 
 function $actor_statePut(c, handle, state) {

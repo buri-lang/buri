@@ -1,7 +1,7 @@
 refused 0
 stepped 8
-direct answered 0
-fanned answered 0
+direct answered 2
+fanned answered 4
 refused at once true
 stepped 11
 stopped true

@@ -867,7 +867,7 @@ pub const ENTRIES: &[Entry] = &[
         key: "actor.mailboxPush",
         symbol: "buri_rt_actor_mailbox_push",
         args: &[Arg::Dropped, Arg::Scalar, Arg::List],
-        ret: Ret::Sum,
+        ret: Ret::Res,
     },
     Entry {
         key: "actor.mailboxPop",
@@ -885,7 +885,7 @@ pub const ENTRIES: &[Entry] = &[
         key: "actor.stateTake",
         symbol: "buri_rt_actor_state_take",
         args: &[Arg::Dropped, Arg::Scalar],
-        ret: Ret::Sum,
+        ret: Ret::Res,
     },
     Entry {
         key: "actor.statePut",

@@ -262,18 +262,19 @@ test "a step that sends to its own actor is refused, and the message still arriv
     };
     let counted = actor.start(ctx, reentrant());
     // The step holds the state while it runs, so the send below posts its
-    // message and then finds nothing to step it with. Taking the state stays
-    // non-blocking, so the answer is `.Err(.Stopped)` rather than a deadlock.
+    // message and then finds nothing to step it with. Waiting for the state
+    // would be waiting for itself, so the answer is `.Err(.WouldDeadlock)`.
     let refused = counted.sendMessage(
         ctx,
         .Reenter(fn(c) => {
             match (counted.sendMessage(c, .Tick)) {
                 .Ok(_answered) => 1,
-                .Err(_gone) => 0,
+                .Err(.WouldDeadlock) => 2,
+                .Err(_other) => 0,
             }
         }),
     );
-    assert.equal(refused, .Ok(.Reentered(0)));
+    assert.equal(refused, .Ok(.Reentered(2)));
     // Refused is not lost. The `.Tick` is in the mailbox, and the loop that was
     // already running steps it — once — before it puts the state back.
     assert.equal(counted.sendMessage(ctx, .Get), .Ok(.Count(1)));

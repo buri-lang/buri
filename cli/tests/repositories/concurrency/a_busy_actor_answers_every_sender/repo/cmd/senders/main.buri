@@ -80,16 +80,18 @@ export fn main(): Result<(), Str> {
     let _ = io.println(ctx, "refused ${refusals.sum()}").ignore();
     let _ = io.println(ctx, "stepped ${counted(ctx, mailbox)}").ignore();
 
-    // A step that sends to its own actor is refused at once, and so is a task
-    // that step fanned out. Neither message is lost: the loop already running
-    // steps all three before it puts the state back.
+    // A step that sends to its own actor is refused at once with
+    // `.WouldDeadlock`, and so is a task that step fanned out. Neither message
+    // is lost: the loop already running steps all three before it puts the
+    // state back.
     let started = time.monotonic(ctx);
     let direct = mailbox.sendMessage(
         ctx,
         .Reenter(fn(c) => {
             match (mailbox.sendMessage(c, .Increment)) {
                 .Ok(_count) => 1,
-                .Err(_gone) => 0,
+                .Err(.WouldDeadlock) => 2,
+                .Err(_other) => 0,
             }
         }),
     );
@@ -99,7 +101,8 @@ export fn main(): Result<(), Str> {
             let sent = tasks.parallel(c, [0, 1], fn(c2, _i, _n) => {
                 match (mailbox.sendMessage(c2, .Increment)) {
                     .Ok(_count) => 1,
-                    .Err(_gone) => 0,
+                    .Err(.WouldDeadlock) => 2,
+                    .Err(_other) => 0,
                 }
             });
             sent.sum()
