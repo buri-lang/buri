@@ -557,6 +557,10 @@
 
           packages = [
               pkgs.cargo
+              # Runs the local full suite with every test binary at once
+              # rather than one after another. `.config/nextest.toml` has the
+              # limits, and cli/tests/README.md the command.
+              pkgs.cargo-nextest
               pkgs.bun
               # `elan`, not `lean4`: elan honours `formal/lean-toolchain`, which
               # is how a Lean project pins its compiler. It fetches that
