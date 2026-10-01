@@ -859,7 +859,8 @@ fn best_of(
 /// BURI_PERF=1 cargo test --release -p buri --test build repositories::language_server_speed
 /// ```
 ///
-/// The session has three parts. First the restore: an editor coming back to a
+/// The session has three parts, after a server that has already paid its own
+/// startup (`Editor::warmed`). First the restore: an editor coming back to a
 /// project opens every tab it had, so every `.buri` file in the repository is
 /// opened one after another and **each open is held to the budget** — what an
 /// open costs is the target it opened, and the buffers already open are a hash
@@ -886,7 +887,7 @@ fn language_server_speed() {
     let budget = language_server_budget();
     let mut timings = best_of(budget, || {
         let scratch = Scratch::copy_of("lsp-speed", &example_repo());
-        let mut editor = Editor::open(&scratch.root);
+        let mut editor = Editor::warmed(&scratch);
 
         let mut timings = Vec::new();
         for file in sources_of(&scratch.root) {
@@ -973,7 +974,7 @@ fn language_server_open_cost() {
     let budget = language_server_budget();
     let timings = best_of(budget, || {
         let scratch = generated_repository("lsp-open-scale", 24, 4, 86);
-        let mut editor = Editor::open(&scratch.root);
+        let mut editor = Editor::warmed(&scratch);
         let mut timings = Vec::new();
         for file in sources_of(&scratch.root) {
             timings.push(editor.opened(&file));
@@ -1033,7 +1034,8 @@ fn listed(rows: &[(String, std::time::Duration)]) -> String {
 }
 
 /// Every `.buri` file in a repository, relative to its root and sorted — which
-/// is every tab an editor could have had open in it.
+/// is every tab an editor could have had open in it, less [`WARM_UP`], which
+/// was open before the clock started.
 fn sources_of(root: &Path) -> Vec<String> {
     let mut found = Vec::new();
     let mut stack = vec![root.to_path_buf()];
@@ -1043,7 +1045,8 @@ fn sources_of(root: &Path) -> Vec<String> {
             let path = entry.path();
             if path.is_dir() {
                 // What a build wrote is not a tab anyone had open.
-                if !matches!(path.file_name().and_then(|n| n.to_str()), Some(".buri" | "out")) {
+                let name = path.file_name().and_then(|n| n.to_str());
+                if !matches!(name, Some(".buri" | "out")) && path != root.join(WARM_UP) {
                     stack.push(path);
                 }
             } else if path.extension().and_then(|e| e.to_str()) == Some("buri") {
@@ -1109,6 +1112,10 @@ fn generated_repository(
     scratch
 }
 
+/// The package [`Editor::warmed`] writes into a timed session's repository and
+/// opens before anything is timed.
+const WARM_UP: &str = "warmup";
+
 /// A client for the timed session: one `buri lsp` on a pipe, and the framing
 /// around it.
 ///
@@ -1142,6 +1149,47 @@ impl Editor {
         let params = format!(r#"{{"rootUri":"{}"}}"#, editor.root);
         editor.timed("initialize", &params);
         editor.notify("initialized", "{}");
+        editor
+    }
+
+    /// A server that has already read the standard library.
+    ///
+    /// The standard library is source embedded in the binary, and a server
+    /// parses a module of it the first time any target's closure reaches it,
+    /// then keeps the parse for the rest of the session. So whichever open
+    /// reaches a module first pays for it, whatever that open's own target is.
+    /// In the restore that was `cmd/basket/BUILD.buri`, first in sort order and
+    /// the one closure that reaches `ui/*`, the platform modules and the test
+    /// host together: 37 files parsed, 32 of them the library's, and about five
+    /// of its twelve milliseconds spent on text that is the same in every
+    /// repository. That is why it stood at twice the next open, and why
+    /// it was the one request a runner running at a third of its usual speed
+    /// pushed over the bar.
+    ///
+    /// It is a cost of the server starting, not of the target opened,
+    /// so it is paid here, by one file that imports every module the library
+    /// has, in a package the restore never opens. What it leaves alone is the
+    /// point: [`WARM_UP`] is a target of its own, so every target the session
+    /// times still has its own files read, parsed and checked by its first open.
+    fn warmed(scratch: &Scratch) -> Editor {
+        let imports: String = buri::compiler::standard_library::MODULES
+            .iter()
+            .enumerate()
+            .map(|(n, module)| format!("from \"{}\" import * as m{n};\n", module.path))
+            .collect();
+        // A binary, because only an entry may import `core/host`, and a test,
+        // because only a test may import a `testing` module.
+        scratch.write(
+            &format!("{WARM_UP}/BUILD.buri"),
+            "binary {\n    test {\n        sources: [\"test/warm.buri\"]\n    }\n}\n",
+        );
+        scratch.write(
+            &format!("{WARM_UP}/main.buri"),
+            &format!("{imports}\nexport fn main(): Result<(), Str> {{\n    Ok(())\n}}\n"),
+        );
+        scratch.write(&format!("{WARM_UP}/test/warm.buri"), &imports);
+        let mut editor = Editor::open(&scratch.root);
+        editor.opened(&format!("{WARM_UP}/main.buri"));
         editor
     }
 
