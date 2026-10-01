@@ -11,7 +11,7 @@
 //! Four kinds of file, one command, one layout:
 //!
 //!   * **source** and **build files**, through the two printers below;
-//!   * **JSON, JSONC, JSON5 and `.proto`** that a rule's `inputs` lists,
+//!   * **JSON, JSONC, JSON5, `.proto` and text format** that a rule's `inputs` lists,
 //!     through `crate::languages`. Any other such file is not the repository's
 //!     to format;
 //!   * **markdown**, where every ```` ```buri ```` fence is laid out and the

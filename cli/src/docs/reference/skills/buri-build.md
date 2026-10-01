@@ -79,8 +79,8 @@ language {
 }
 ```
 
-`language` gives a built-in language (`json`, `jsonc`, `json5`, `proto`) more
-extensions, and nothing else.
+`language` gives a built-in language (`json`, `jsonc`, `json5`, `proto`,
+`textproto`) more extensions, and nothing else.
 
 `lint` says where the lint catalogue runs, what a finding costs, and which
 rules run. `check_during_build` makes `buri build` and `buri test` run it too.

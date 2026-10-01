@@ -102,7 +102,9 @@ unordered, so it answers `.Equal` for a pair it could not order.
 [`core/codegen`](../../compiler/standard_library/sources/codegen.buri),
 [`std/codegen/proto/schema`](../../compiler/standard_library/sources/codegen_proto_schema.buri),
 [`std/codegen/proto`](../../compiler/standard_library/sources/codegen_proto.buri),
-[`std/proto`](../../compiler/standard_library/sources/proto_tool.buri).
+[`std/proto`](../../compiler/standard_library/sources/proto_tool.buri),
+[`std/textproto/read`](../../compiler/standard_library/sources/textproto_read.buri),
+[`std/textproto`](../../compiler/standard_library/sources/textproto_tool.buri).
 
 - **`core/str`** — a `Str` measures in Unicode scalar values everywhere. `len`
   counts them, `charAt` and `slice` index by them, and `compare` orders by them.
@@ -351,6 +353,17 @@ unordered, so it answers `.Equal` for a pair it could not order.
 - **`std/proto`** — the `.proto` tool: its `generate` is `emit` over a
   `core/tool` request. `generators: [{ tool: "std/proto", ... }]` compiles it
   and runs it the same way it runs a tool of your own.
+
+- **`std/textproto/read`** — the text format, read against a message of a
+  `.proto` schema. `parse` gives a tree with a span on every node; `check`
+  holds it to the message and answers the value as the proto3 JSON the
+  message's `decode…Json` reads. One pass over the text, then one over the
+  tree; each field is found by a scan of its message's fields, so a file of
+  `n` fields in messages of `f` fields costs O(n·f).
+
+- **`std/textproto`** — the text format tool: `check` and `generate` over
+  `std/textproto/read`. [The guide](../guides/textproto.md) has what it holds a
+  file to.
 
 ## Collections
 
