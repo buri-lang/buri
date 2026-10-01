@@ -78,10 +78,19 @@
 //! ## 2. What creates a second thread, and what still does not
 //!
 //! [`buri_rt_host_tasks_parallel`] does: it fans a `Tasks.parallel` call's
-//! steps onto the pool, one thread each, and waits for them. That is the only
-//! thing in a Buri program that starts a thread today — [`task_start`] and
-//! the table below are the shape track F's `core/actor` needs and nothing
-//! calls them yet.
+//! steps out as tasks on the pool and waits for them. Every thread a Buri
+//! program starts comes through its [`fan_out`], and `core/tasks` reaches it
+//! two ways:
+//!
+//! * `parallel` calls it directly.
+//! * A scope that runs its spawned tasks beside its body
+//!   ([`buri_rt_tasks_scope_beside`]) does it through a two-step `parallel`:
+//!   the body is one step, and draining the scope is the other.
+//!
+//! `core/actor` starts no thread. An actor's state, messages and answers sit
+//! in this file's tables, and whichever thread drives the actor steps it, so
+//! they cross threads without a thread being started for them. [`task_start`]
+//! and the task table below are reached by nothing but this file's tests.
 //!
 //! It does it only where **both** statements the artifact makes about itself
 //! are true, and they are different facts:
@@ -125,8 +134,8 @@
 //! assembly block cannot call a Rust function without a C symbol between them,
 //! so the caller is not a prediction but a file three directories away in the
 //! same commit. [`task_start`], [`task_join`] and [`task_is_live`] stay
-//! Rust-only, because `core/actor` still does not exist and their signatures
-//! would still be guesses.
+//! Rust-only: nothing in a Buri program starts, joins or polls one task on its
+//! own, so their signatures would still be guesses.
 //!
 //! [slp]: crate::buri_rt_host_clock_sleep_milliseconds
 //! [fch]: crate::buri_rt_host_network_fetch
@@ -1064,8 +1073,9 @@ fn install(slot: Slot) -> i64 {
 /// Buri code waited for the starter to suspend. Now it runs, and the values it
 /// and its starter share are the marked ones (§1).
 ///
-/// Nothing in a Buri program reaches this yet — track F's `core/actor` is what
-/// does — so what the change costs today is one line of this file and one
+/// Nothing in a Buri program reaches this. `core/actor` steps an actor on the
+/// thread that drives it, and every thread a program starts comes through
+/// `fan_out`. So what the change costs is one line of this file and one
 /// assertion in `a_task_runs_beside_the_thread_that_started_it`.
 pub fn task_start(f: impl FnOnce() + Send + 'static) -> i64 {
     install(Slot::Running(on_thread(f)))
@@ -1561,11 +1571,20 @@ pub unsafe extern "C" fn buri_rt_actor_mailbox_open(ptr: *mut u8, len: u64, boun
 /// here at all — so it is priced as "long enough that reaching it is a bug"
 /// rather than as a latency budget.
 ///
-/// What expiry *means* is stated at each of the three callers, because the
-/// answers differ and neither is a new variant: a program that wants to tell a
-/// deadlock from a stop needs one, and that is a `core/actor` change rather
-/// than a runtime one.
+/// Expiry is [`TIMED_OUT`] for the two waits a `sendMessage` makes, and
+/// `.None` for `mailboxClose`, which is what a second close answers.
 const ACTOR_DEADLINE: Duration = Duration::from_secs(30);
+
+/// `core/actor`'s `SendError`, by index (`lib.rs` §2.1): what `mailboxPush` and
+/// `stateTake` answer instead of [`crate::BURI_OK`].
+///
+/// The actor is closed.
+const STOPPED: i32 = 0;
+/// A wait ran past [`ACTOR_DEADLINE`].
+const TIMED_OUT: i32 = 1;
+/// The state is held by the caller's own step, or by a step the caller was
+/// started from, so waiting for it would never end.
+const WOULD_DEADLOCK: i32 = 2;
 
 /// Take a permit from `sem`, or give up at `deadline`.
 ///
@@ -1577,15 +1596,18 @@ const ACTOR_DEADLINE: Duration = Duration::from_secs(30);
 /// `http.rs`'s `fetch_within`. A test that wanted to watch [`ACTOR_DEADLINE`]
 /// fire would take thirty seconds, and a test nobody runs is the state every
 /// hang this repository has had was found in.
+///
+/// `Err` says which ending it was: [`STOPPED`] for a semaphore closed under the
+/// wait, [`TIMED_OUT`] for a wait that ran out.
 fn permit_within(
     sem: &tokio::sync::Semaphore,
     deadline: Duration,
-) -> Option<tokio::sync::SemaphorePermit<'_>> {
+) -> Result<tokio::sync::SemaphorePermit<'_>, i32> {
     park_on(async {
         match tokio::time::timeout(deadline, sem.acquire()).await {
-            Ok(Ok(permit)) => Some(permit),
-            // Closed under the wait, or the wait ran out.
-            Ok(Err(_)) | Err(_) => None,
+            Ok(Ok(permit)) => Ok(permit),
+            Ok(Err(_)) => Err(STOPPED),
+            Err(_) => Err(TIMED_OUT),
         }
     })
 }
@@ -1599,8 +1621,8 @@ fn at(table: &mut [Mailbox], handle: i64) -> Option<&mut Mailbox> {
     usize::try_from(handle).ok().and_then(move |i| table.get_mut(i))
 }
 
-/// `actor.mailboxPush(ctx, handle, message) -> Option<Int>` — the number
-/// waiting, or `.None` for a closed mailbox.
+/// `actor.mailboxPush(ctx, handle, message) -> Result<Int, SendError>` — the
+/// number waiting, [`STOPPED`] for a closed mailbox, or [`TIMED_OUT`].
 ///
 /// **Waits while the mailbox is full**, on the permit `mailboxPop` gives back.
 /// `core/actor::sendMessage` runs the mailbox down after every post, so a
@@ -1637,31 +1659,26 @@ unsafe fn push_within(
         let mut table = actors();
         match at(&mut table, handle) {
             Some(mailbox) if !mailbox.closed => Arc::clone(&mailbox.room),
-            _ => return 0,
+            _ => return STOPPED,
         }
     };
     // Outside the table's lock: the permit that frees this one is given back by
     // `mailboxPop`, which takes the same lock.
     //
-    // **Bounded**, which is [`ACTOR_DEADLINE`]'s row. `.None` is the answer to
-    // both endings, and it is the same `.Err(.Stopped)`
-    // `core/actor::sendMessage` renders for a closed mailbox — so a post that
-    // waited out the deadline is reported as a stop rather than as a deadlock. That is the honest limit
-    // of what can be said without a variant `core/actor` does not have, and it
-    // is the right way round: the block is not taken, so the caller's own
-    // release frees it, and a sender told "stopped" stops rather than retrying
-    // into the same wait.
-    let Some(permit) = permit_within(&room, deadline) else {
-        return 0;
+    // **Bounded**, which is [`ACTOR_DEADLINE`]'s row. Either ending leaves the
+    // block untaken, so the caller's own release frees it.
+    let permit = match permit_within(&room, deadline) {
+        Ok(permit) => permit,
+        Err(why) => return why,
     };
     permit.forget();
     let mut table = actors();
-    let Some(mailbox) = at(&mut table, handle) else { return 0 };
+    let Some(mailbox) = at(&mut table, handle) else { return STOPPED };
     if mailbox.closed {
         // Closed between the permit and the lock. The permit is not given back
         // — a closed semaphore hands out no more anyway — and the block is not
         // taken, so the caller's own release frees it.
-        return 0;
+        return STOPPED;
     }
     mailbox.queue.push_back(Held::keep(BuriList { ptr, len }));
     let waiting = mailbox.queue.len() as i64;
@@ -1732,7 +1749,7 @@ unsafe fn close_within(handle: i64, out: *mut BuriList, deadline: Duration) -> i
     // then `None` for exactly as long as the step still holds it, which is the
     // `.None` a *second* close already answers. So an `onStop` may not run for
     // an actor whose step never finished, and that is the only thing lost.
-    if let Some(permit) = permit_within(&baton, deadline) {
+    if let Ok(permit) = permit_within(&baton, deadline) {
         // Kept, never given back: the baton is what a `stateTake` needs, so
         // holding it forever is what makes a stopped actor unsteppable.
         permit.forget();
@@ -1748,8 +1765,8 @@ unsafe fn close_within(handle: i64, out: *mut BuriList, deadline: Duration) -> i
     crate::BURI_OK
 }
 
-/// `actor.stateTake(ctx, handle) -> Option<[Carried<S>]>` — the state, and with
-/// it the right to step this actor.
+/// `actor.stateTake(ctx, handle) -> Result<[Carried<S>], SendError>` — the
+/// state, and with it the right to step this actor.
 ///
 /// **Waits while another task is stepping it**, for the baton that task gives
 /// back when it puts the state back, so a sender that arrives mid-step drives
@@ -1757,13 +1774,12 @@ unsafe fn close_within(handle: i64, out: *mut BuriList, deadline: Duration) -> i
 /// Answering `.None` there instead was buri-lang/buri#205: the message was
 /// posted and stepped, and the answer went nowhere.
 ///
-/// **Never waits for itself.** `.None` at once where the state is held by the
-/// caller, or by a task the caller was started from — a step sending to its
-/// own actor, directly or from a fan-out it made. That state goes back only
-/// after the caller has answered, and the loop that holds it steps the message
-/// before it does. `.None` too for a stopped actor, and for a wait that ran
-/// past [`ACTOR_DEADLINE`]; `core/actor::drive` reads every `.None` as "not
-/// mine to run".
+/// **Never waits for itself.** [`WOULD_DEADLOCK`] at once where the state is
+/// held by the caller, or by a task the caller was started from — a step
+/// sending to its own actor, directly or from a fan-out it made. That state
+/// goes back only after the caller has answered, and the loop that holds it
+/// steps the message before it does. [`STOPPED`] for a stopped actor, and
+/// [`TIMED_OUT`] for a wait that ran past [`ACTOR_DEADLINE`].
 ///
 /// # Safety
 /// `out` is writable and aligned for a [`BuriList`].
@@ -1781,9 +1797,9 @@ pub unsafe extern "C" fn buri_rt_actor_state_take(handle: i64, out: *mut BuriLis
 unsafe fn take_within(handle: i64, out: *mut BuriList, deadline: Duration) -> i32 {
     let baton = {
         let mut table = actors();
-        let Some(mailbox) = at(&mut table, handle) else { return 0 };
+        let Some(mailbox) = at(&mut table, handle) else { return STOPPED };
         if mailbox.closed {
-            return 0;
+            return STOPPED;
         }
         let free = match mailbox.baton.try_acquire() {
             Ok(permit) => {
@@ -1797,24 +1813,24 @@ unsafe fn take_within(handle: i64, out: *mut BuriList, deadline: Duration) -> i3
             return unsafe { handed(mailbox, out) };
         }
         match mailbox.holder {
-            Some(holder) if within(holder) => return 0,
+            Some(holder) if within(holder) => return WOULD_DEADLOCK,
             _ => Arc::clone(&mailbox.baton),
         }
     };
     // Outside the lock: the step this waits for takes it to put the state
-    // back. **Bounded**, which is [`ACTOR_DEADLINE`]'s row, and expiry is the
-    // same `.None` a stopped actor answers.
-    let Some(permit) = permit_within(&baton, deadline) else {
-        return 0;
+    // back. **Bounded**, which is [`ACTOR_DEADLINE`]'s row.
+    let permit = match permit_within(&baton, deadline) {
+        Ok(permit) => permit,
+        Err(why) => return why,
     };
     permit.forget();
     let mut table = actors();
-    let Some(mailbox) = at(&mut table, handle) else { return 0 };
+    let Some(mailbox) = at(&mut table, handle) else { return STOPPED };
     if mailbox.closed {
         // Closed while this waited, and the close is waiting for this very
         // baton: give it straight back.
         mailbox.baton.add_permits(1);
-        return 0;
+        return STOPPED;
     }
     // SAFETY: forwarded.
     unsafe { handed(mailbox, out) }
@@ -1827,7 +1843,7 @@ unsafe fn take_within(handle: i64, out: *mut BuriList, deadline: Duration) -> i3
 unsafe fn handed(mailbox: &mut Mailbox, out: *mut BuriList) -> i32 {
     let Some(held) = mailbox.state.take() else {
         mailbox.baton.add_permits(1);
-        return 0;
+        return STOPPED;
     };
     mailbox.holder = Some(who());
     // SAFETY: the caller promises a writable, aligned destination.
@@ -4337,7 +4353,7 @@ mod tests {
             push_within(actor, second.ptr, second.len, &raw mut depth, Duration::from_millis(80))
         };
         let waited = started.elapsed();
-        assert_eq!(answer, 0, "a mailbox nobody drains accepted a post");
+        assert_eq!(answer, TIMED_OUT, "a mailbox nobody drains accepted a post");
         assert!(waited >= Duration::from_millis(60), "{waited:?} is not a wait at all");
         assert!(waited < SOON, "the post waited {waited:?}");
         // The block was not taken, so this side still owns it — which is the
@@ -4389,8 +4405,58 @@ mod tests {
         // happened, so nothing may step this actor again.
         let mut refused = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut refused) }, 0);
+        assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut refused) }, STOPPED);
         drop_ref(&held);
+    }
+
+    /// **A take says why it got no state**: [`WOULD_DEADLOCK`] at once for the
+    /// caller's own step, and [`TIMED_OUT`] for another thread's step that
+    /// outlasts the deadline.
+    ///
+    /// These are the two answers `core/actor::sendMessage` hands a program as
+    /// `.WouldDeadlock` and `.TimedOut`. The deadline is the test's own, so the
+    /// timeout takes eighty milliseconds rather than thirty seconds.
+    #[test]
+    fn a_take_answers_would_deadlock_for_itself_and_timed_out_for_a_step_that_outlasts_it() {
+        let state = carried(5);
+        // SAFETY: a live one-element block.
+        let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 4) };
+        drop_ref(&state);
+
+        let mut held = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut held) }, crate::BURI_OK);
+
+        let mut again = nothing();
+        let started = Instant::now();
+        // SAFETY: a writable, aligned destination.
+        let answer = unsafe { take_within(actor, &raw mut again, Duration::from_secs(20)) };
+        assert_eq!(answer, WOULD_DEADLOCK, "the holder's own take was not refused");
+        assert!(started.elapsed() < SOON, "the holder's own take waited");
+
+        let other = thread::spawn(move || {
+            let mut got = nothing();
+            let started = Instant::now();
+            // SAFETY: a writable, aligned destination.
+            let answer = unsafe { take_within(actor, &raw mut got, Duration::from_millis(80)) };
+            (answer, started.elapsed())
+        });
+        let (answer, waited) = other.join().unwrap();
+        assert_eq!(answer, TIMED_OUT, "a take behind a step that outlasted it was not a timeout");
+        assert!(waited >= Duration::from_millis(60), "{waited:?} is not a wait at all");
+        assert!(waited < SOON, "the take waited {waited:?}");
+
+        let mut waiting = 0i64;
+        // SAFETY: a live one-element block, and a writable `i64`.
+        assert_eq!(
+            unsafe { buri_rt_actor_state_put(actor, held.ptr, held.len, &raw mut waiting) },
+            crate::BURI_OK
+        );
+        drop_ref(&held);
+        let mut out = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) }, crate::BURI_OK);
+        drop_ref(&out);
     }
 
     /// **A take from a second thread waits for the step the first is running,
@@ -4518,10 +4584,11 @@ mod tests {
         assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut held) }, crate::BURI_OK);
         // SAFETY: the block the runtime handed back, still counted here.
         assert_eq!(unsafe { mark_of(&held) }, 7);
-        // A second take finds the baton gone, and does not wait for it.
+        // A second take by the holder finds the baton gone, and does not wait
+        // for it.
         let mut again = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut again) }, 0);
+        assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut again) }, WOULD_DEADLOCK);
 
         let next = carried(8);
         let mut depth = 0i64;

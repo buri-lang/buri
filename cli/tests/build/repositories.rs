@@ -245,7 +245,7 @@ fn test_suites() {
 /// so what is recorded is the real answer and not an assertion about one.
 #[test]
 fn concurrency_and_memory() {
-    run_corpus(&tests_dir().join("repositories/concurrency"), "concurrency", 7);
+    run_corpus(&tests_dir().join("repositories/concurrency"), "concurrency", 8);
 }
 
 /// The host a program is handed, on the platform this toolchain does not build

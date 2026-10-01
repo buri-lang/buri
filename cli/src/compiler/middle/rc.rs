@@ -1708,18 +1708,18 @@ pub fn suspends(key: &str) -> bool {
                 // wait — and a test whose spawned task waits reads what the
                 // task did rather than what it had got to.
                 | "host_testing.TestTasks.parallel"
-                // `core/actor`'s two waits, and they wait on the program's own
-                // actors for `Tasks.parallel`'s reason rather than on the
+                // `core/actor`'s three waits, and they wait on the program's
+                // own actors for `Tasks.parallel`'s reason rather than on the
                 // world. `mailboxPush` waits for room in a full mailbox;
                 // `mailboxClose` waits for the step in flight to put the state
                 // back, which is what "`stop` lets the current message finish"
-                // means. The other seven never wait — `stateTake` answers
-                // `.None` rather than blocking, which is the whole reason two
-                // threads can reach one actor without either of them
-                // stopping — and listing the family by prefix would have
-                // claimed otherwise.
+                // means; `stateTake` waits for a step another task is running,
+                // so a sender that arrives mid-step gets its answer
+                // (buri-lang/buri#205). The other six never wait, and listing
+                // the family by prefix would have claimed otherwise.
                 | "actor.mailboxPush"
                 | "actor.mailboxClose"
+                | "actor.stateTake"
         )
         // A `core/lazy` chunk node. It waits on a file the program has not
         // fetched yet, which is the longest wait in the list on a cold page —
@@ -6333,9 +6333,10 @@ export fn main(): Result<(), Str> {
             "host.HostStdin.readBytes",
             "host.HostWebSocketClient.connectSocket",
             "host.HostWebSocketClient.connectReceive",
-            // `core/actor`'s two, and they are the family's *only* two.
+            // `core/actor`'s three, and they are the family's *only* three.
             "actor.mailboxPush",
             "actor.mailboxClose",
+            "actor.stateTake",
             // The scheduler double, which is the one `host_testing` key that
             // waits: it runs a step to completion, and a spawned task that
             // sleeps or asks an actor waits inside one.
@@ -6354,14 +6355,11 @@ export fn main(): Result<(), Str> {
             "host_testing.TestWebSocketClient.connectSocket",
             "host_testing.TestWebSocketClient.connectReceive",
             "derivePrimHash",
-            // The other seven `actor.*` keys. Listing them is the half a
-            // prefix rule would have got wrong: `stateTake` answers `.None`
-            // where another thread is stepping rather than waiting for it,
-            // and a `send` that had to park to find that out would be a
-            // scheduler this module does not have.
+            // The other six `actor.*` keys. Listing them is the half a
+            // prefix rule would have got wrong: none of them waits for
+            // anything, so none of them makes its caller `async`.
             "actor.mailboxOpen",
             "actor.mailboxPop",
-            "actor.stateTake",
             "actor.statePut",
             "actor.replyOpen",
             "actor.replyPut",

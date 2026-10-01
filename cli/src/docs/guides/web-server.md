@@ -167,9 +167,9 @@ $ curl -s http://127.0.0.1:3000/health
 {"status":"ok","served":3}
 ```
 
-`sendMessage` answers a `Result`, `.Err(.Stopped)` once the actor has stopped. A
-handler that cannot act on a stopped counter drops it with `withDefault` or
-`ignore`, and
+`sendMessage` answers a `Result`, and its `SendError` says why a send failed:
+`.Err(.Stopped)` once the actor has stopped, for one. A handler that cannot act
+on a failed send drops it with `withDefault` or `ignore`, and
 [`discarded-result`](../reference/lints/discarded-result.md) reports every such
 decision in one list. [Tasks and actors](./concurrency.md) is the rest of the
 model.

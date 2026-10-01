@@ -1,0 +1,40 @@
+# Several senders, one actor, on the JavaScript backend (buri-lang/buri#205).
+#
+# The counter's step sleeps while it holds the state, so the other senders post
+# while it is out, on every run: the first task to drive the actor is asleep in
+# its step before the second one asks for the state. A sender that finds
+# another task stepping waits for that step and then reads its own answer, so
+# nothing is refused and every message is stepped.
+#
+# The second half is the case that must not wait: a step sending to its own
+# actor, directly and from a fan-out it made. Waiting there would be waiting
+# for itself until the runtime's thirty-second deadline, so the program times
+# both sends and says whether they came back at once.
+#
+# `cli/tests/native/e2e.rs` holds the same two claims on the native backends.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a sender waits for a step another task is running, and a step sending to its own actor is refused at once"
+
+run {
+  args: ["run", "//cmd/senders"]
+  exit: 0
+  golden: "answered.txt"
+}
+
+# The negative twin: the same senders, after a stop. Every send is refused and
+# the counter answers nothing, which is what a refusal looks like when there is
+# one. The counts above are only worth reading because this one is not zero.
+edit {
+  file: "cmd/senders/main.buri"
+  replace: "    let senders = [0, 1, 2, 3];"
+  with: "    let _ = mailbox.stop(ctx).ignore();\n    let senders = [0, 1, 2, 3];"
+}
+
+run {
+  args: ["run", "//cmd/senders"]
+  exit: 0
+  golden: "stopped_first.txt"
+}
