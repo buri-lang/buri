@@ -78,10 +78,19 @@
 //! ## 2. What creates a second thread, and what still does not
 //!
 //! [`buri_rt_host_tasks_parallel`] does: it fans a `Tasks.parallel` call's
-//! steps onto the pool, one thread each, and waits for them. That is the only
-//! thing in a Buri program that starts a thread today — [`task_start`] and
-//! the table below are the shape track F's `core/actor` needs and nothing
-//! calls them yet.
+//! steps out as tasks on the pool and waits for them. Every thread a Buri
+//! program starts comes through its [`fan_out`], and `core/tasks` reaches it
+//! two ways:
+//!
+//! * `parallel` calls it directly.
+//! * A scope that runs its spawned tasks beside its body
+//!   ([`buri_rt_tasks_scope_beside`]) does it through a two-step `parallel`:
+//!   the body is one step, and draining the scope is the other.
+//!
+//! `core/actor` starts no thread. An actor's state, messages and answers sit
+//! in this file's tables, and whichever thread drives the actor steps it, so
+//! they cross threads without a thread being started for them. [`task_start`]
+//! and the task table below are reached by nothing but this file's tests.
 //!
 //! It does it only where **both** statements the artifact makes about itself
 //! are true, and they are different facts:
@@ -125,8 +134,8 @@
 //! assembly block cannot call a Rust function without a C symbol between them,
 //! so the caller is not a prediction but a file three directories away in the
 //! same commit. [`task_start`], [`task_join`] and [`task_is_live`] stay
-//! Rust-only, because `core/actor` still does not exist and their signatures
-//! would still be guesses.
+//! Rust-only: nothing in a Buri program starts, joins or polls one task on its
+//! own, so their signatures would still be guesses.
 //!
 //! [slp]: crate::buri_rt_host_clock_sleep_milliseconds
 //! [fch]: crate::buri_rt_host_network_fetch
@@ -1064,8 +1073,9 @@ fn install(slot: Slot) -> i64 {
 /// Buri code waited for the starter to suspend. Now it runs, and the values it
 /// and its starter share are the marked ones (§1).
 ///
-/// Nothing in a Buri program reaches this yet — track F's `core/actor` is what
-/// does — so what the change costs today is one line of this file and one
+/// Nothing in a Buri program reaches this. `core/actor` steps an actor on the
+/// thread that drives it, and every thread a program starts comes through
+/// `fan_out`. So what the change costs is one line of this file and one
 /// assertion in `a_task_runs_beside_the_thread_that_started_it`.
 pub fn task_start(f: impl FnOnce() + Send + 'static) -> i64 {
     install(Slot::Running(on_thread(f)))
