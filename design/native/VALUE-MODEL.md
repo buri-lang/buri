@@ -242,9 +242,8 @@ without changing what `[T]` is. It is `cli/runtime/list.rs`'s `append_dest`,
 behind `list.push` and `list.concat` on both backends, with the capacity coming
 from doubling on the reallocating path. The native suite's
 `a_unique_push_loop_allocates_logarithmically` states the amortization as an
-allocation count. The one restriction is that an element type holding counted
-references — `[Str]` — still copies; MEMORY.md §5.3 says why, and it is a
-property of the drop glue rather than of `[T]`.
+allocation count. An element type holding counted references — `[Str]` — takes
+the same paths over zeroed headroom (MEMORY.md §5.3).
 
 ### 4.2 `..rest` allocates, and the arm owns what it binds
 

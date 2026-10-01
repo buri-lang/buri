@@ -474,10 +474,10 @@ bitcode emission and a second link step — and nothing here forecloses it.
 
 ### 6.1 New actions
 
-`cache::Action` gains one variant:
+`cache::Action` gains one variant, `Codegen`:
 
 ```rust
-pub enum Action { Proto, Compile, Codegen, Link, Test }
+pub enum Action { Generate, Check, Format, Compile, Codegen, Link, Test }
 ```
 
 `Codegen` is one action per codegen unit. `Compile` stays the front-end key that
@@ -486,7 +486,7 @@ pub enum Action { Proto, Compile, Codegen, Link, Test }
 Per profile the graph is the same shape; only the backend differs:
 
 ```
-proto?   ->  compile (per closure member)  ->  codegen (per unit)  ->  link
+generate?  ->  compile (per closure member)  ->  codegen (per unit)  ->  link
 ```
 
 ### 6.2 Keys

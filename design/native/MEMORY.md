@@ -342,7 +342,8 @@ optimizing are the two that build the first two, and both are done:
   more reference; *grown* when it is unique and out of capacity, allocating
   `max(needed * 2, 64)` so the next append is in place; *exact* otherwise. A
   loop of `n` pushes therefore allocates O(log n) times, which is where
-  VALUE-MODEL.md §4.1's amortized O(1) comes from.
+  VALUE-MODEL.md §4.1's amortized O(1) comes from. A counted element type —
+  `[Str]`, `[(Str, Int)]` — takes all three, with two more rules below.
 - **`Str` concatenation — `llvm/emit.rs`'s `concat` and
   `cli/runtime/text.rs`'s `buri_rt_str_concat`.** The same three paths, with
   the capacity test allowing for a view that starts inside its block:
@@ -383,6 +384,23 @@ still holding uncounted words copied out of it. Neither was visible to the
 balance checker, which counts operations rather than orders them; both were
 visible the moment an allocation reused the freed block.
 
+**Counted elements need spare slots.** The generated release and copy glue
+for a `[T]` block walk **`cap / stride`** elements (`stencil/glue.rs`'s
+`Elems`, `llvm/emit.rs`'s `Job::ReleaseElems`), so headroom is slots those
+walks meet. Two rules keep that sound, both in `append_dest`:
+
+- **The grown path zeroes the headroom**, and both backends' walks skip an
+  all-zero slot (`unless_spare` in each). That skip is exact: a reference is a
+  non-null pointer, so an all-zero element holds none, whether it is headroom
+  or a `.None` that really was pushed.
+- **The in-place path writes only over all-zero slots.** A slot past one
+  descriptor's end can hold an element a *longer*, now-dead descriptor put
+  there, and the block still owns that reference. Writing over it would drop it
+  without a `decref`, so that case takes the grown path, and the old element
+  dies with the old block.
+
+A scalar element type needs neither: its bytes hold nothing to release.
+
 **Growth policy: doubling with a floor of 64 bytes**, applied only when the
 left operand is uniquely owned. A shared operand is not the one being built,
 so it gets an exact allocation and no speculative capacity. The floor is
@@ -398,17 +416,6 @@ places, and the three have to allocate the same number of times.
 
 #### What is excluded, and why
 
-- **A counted element type — `[Str]`, `[(Str, Int)]` — takes neither the
-  in-place path nor the over-allocation.** Two correctness reasons. Writing at
-  index `len` would drop whatever reference that slot already held without a
-  `decref`, because a slot past the end of one descriptor may hold an element
-  a *longer*, now-dead descriptor put there. And the generated release glue
-  for a `[T]` block walks **`cap / stride`** elements (`stencil/glue.rs`'s
-  `Elems`, `llvm/emit.rs`'s `Job::ReleaseElems`), so spare capacity would have
-  the drop walk slots nothing ever wrote. Lifting it means adding a
-  per-element *release* glue beside the `retain` this ABI already passes, and
-  making that walk follow the element count rather than the capacity — a
-  change in both backends rather than in the runtime.
 - **Aggregate-cell reuse — the `S { ..old, field: new }` that Perceus is
   famous for — has no cell to reuse.** `middle::rc` computes the pairing
   (`FuncPlan::reuse`, behind `Options::reuse`, on by default) and it is
@@ -486,9 +493,9 @@ The heap accounting (`buri_rt_heap_stats`) counts capacity, so `live_bytes`
 after a build loop is up to twice the bytes
 the values hold — it measures `malloc`, and §7's charge is a definition over
 the *types*, so nothing a program can observe moves. And the release glue for
-a `[T]` block walks `cap / stride` elements, which is why §5.3's fast paths
-are restricted to element types that hold no counted references: spare
-capacity and a capacity-driven drop walk cannot both be right.
+a `[T]` block walks `cap / stride` elements, which is why §5.3's grown path
+zeroes the headroom of a block of counted elements and the walk skips an
+all-zero slot.
 
 When the size-class allocator lands it will round a request up to its class,
 so `cap` will exceed the request even without §5.3, and
@@ -527,9 +534,9 @@ decisions in that sentence:
 - **Exact sizes, not size classes.** A class allocator rounds a request up, so
   `cap` comes back larger than the payload asked for, and the release glue of
   a `[T]` would then walk slots nothing wrote.
-  `buri_rt_grown_capacity` may overshoot only because the fast paths using it
-  are restricted to element types holding no references; a cache is under no
-  such restriction, since every block in the program passes through it. Keying
+  `buri_rt_grown_capacity` may overshoot only because §5.3's grown path zeroes
+  that headroom for element types holding references; a cache hands out blocks
+  nobody zeroed, since every block in the program passes through it. Keying
   on the exact size gives a cache with *no* semantic footprint. When the
   size-class allocator of the growth path lands, it is the thing that decides
   `cap`, and this cache becomes its per-thread front end rather than a second
@@ -876,6 +883,13 @@ no way to stash a value where a scope cannot see it, and the runtime's own
 tables (`testing.rs`, `net.rs`) keep Rust copies rather than Buri blocks. The
 alternative — keep every arena alive for ever in case something escaped — is
 rejected: an arena that is never released is not an arena.
+
+**The runtime's queues are the one other way out, and they copy too.** An
+actor's state, message and answer, and a spawned task, outlive the call that
+hands them over, so each crosses through `core/alloc::copyAcross`, the same
+copy with every arena left behind. `core/actor` skips it while no arena in the
+process holds a page (`buri_rt_actor_scopes_live`), because then no block is in
+one. `spawn` always copies.
 
 A **closure** costs one word for this. `Ty::Fn` does not record what was
 captured, so the environment block has always carried its own release function

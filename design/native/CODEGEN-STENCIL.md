@@ -895,7 +895,7 @@ value model rather than of an emitter:
 |---|---|
 | `Thunk` | A closure's `code` takes its environment as a *pointer*; a lifted lambda takes it as an aggregate parameter, flat in its frame. Something has to convert. |
 | `Walk` | The per-type counted-pointer walk as a C `fn(*mut u8)`: the drop glue `buri_rt_decref` calls, and the per-element retain `cli/runtime/list.rs` is handed. |
-| `Elems` | The same over a whole `[T]` block, whose element count is `cap / stride`. |
+| `Elems` | The same over a whole `[T]` block, whose element count is `cap / stride`, skipping an all-zero slot. |
 | `EnvGlue` | The one indirection that lets a closure environment carry its own release function: `Ty::Fn` does not record what was captured. |
 
 The `calli` stencil enters a thunk, which is an ordinary frame-threaded body.
