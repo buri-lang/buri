@@ -1471,6 +1471,16 @@ mutation. The language has no associated functions, since a function inside an
 `http.request`, `http.textRequest`, `http.status`, `http.ok`, `http.text`,
 `http.json`, `http.html`.
 
+`http.send` works on every platform, over `http://` and `https://`. JavaScript
+uses the platform's `fetch`. A native binary differs from it in three ways:
+
+- **HTTP/1.1 only.**
+- **Redirects aren't followed.** A `3xx` comes back as the response, where
+  JavaScript follows it.
+- **Certificates are checked against the system's PEM bundle**, which on macOS
+  is `/etc/ssl/cert.pem` and not the keychain. Set `SSL_CERT_FILE` to a PEM
+  file to trust its roots instead.
+
 `core/host/testing` is `core/host`'s surface for a test. It has the same names —
 `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`, `entropy`,
 `env`, `proc`, `sockets`, `tcp` — but you **call** them rather than refer to
