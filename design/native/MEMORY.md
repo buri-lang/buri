@@ -4,24 +4,44 @@ The design notes state the problem and offer two answers: "the language has no
 mutation and no destructors, so native either ships a GC or does escape
 analysis with an arena per `Allocator` scope."
 
-Both are wrong, and §3 and §4 say why. The answer is **non-atomic reference
-counting with static elision and in-place reuse**, over a size-class
-allocator, with `Allocator` as a *defined* accounting model rather than a
-measurement.
+Both are wrong, and §3 and §4 say why. The answer is **reference counting
+with static elision and in-place reuse**, non-atomic unless the program can
+hand a value to another thread (§5.1), over a size-class allocator, with
+`Allocator` as a *defined* accounting model rather than a measurement.
 
 ## 1. What the language gives us
 
-Four properties, and every decision below is downstream of them.
+Three properties, and every decision below is downstream of them. Threads
+are a fact about the runtime rather than the language, and they come after.
 
 - **No mutation.** A value's fields are written once, at construction. There
   is no assignment, no interior mutability, no `&mut`.
 - **No destructors.** Freeing is the implementation's business entirely;
   nothing in a program can observe when it happens or run code at that point.
-- **No threads.** The language has no concurrency construct, `core/effect`
-  grants no effect that produces one, and nothing in the standard library
-  spawns anything.
 - **Effect-carrying values cannot be captured.** SPEC 10.6, checked. So a
   closure's environment is plain data.
+
+**Threads.** A native `--release` build runs tasks on threads of their own:
+
+- `Tasks.parallel` fans its steps out, one thread each
+  (`buri_rt_host_tasks_parallel`).
+- A `core/tasks` scope runs its spawned tasks beside its body
+  (`buri_rt_tasks_scope_beside`).
+- An actor's state, messages and answers sit in runtime queues and are stepped
+  by whichever thread drives the actor. They cross through
+  `core/alloc::copyAcross`, which `core/actor` skips while no arena holds a
+  page (`buri_rt_actor_scopes_live`).
+
+Both fan-outs need two statements from the artifact: its frames are per thread
+(only the LLVM backend says so) and its values may cross tasks. Without either,
+tasks run one after another on the calling thread, which is what the
+frame-threaded backend and a test binary do.
+
+So the counts cannot assume one thread. A program that reaches a task boundary
+(`middle::rc::crosses_tasks`) marks every block it allocates, a marked block is
+counted atomically, and a marked block is never unique, so it is never written
+in place. A program that cannot reach one keeps the non-atomic counts and the
+`rc == 1` licence. §5.1 has the details.
 
 ## 2. Immutability implies acyclicity, and that is the whole argument
 
@@ -210,9 +230,10 @@ over-set bit costs a copy, an under-set one is a silent aliasing bug.
 Three pieces, each in the one place that can hold it:
 
 - **`middle::rc::crosses_tasks`** asks the whole post-monomorphization program
-  whether any intrinsic it can reach hands a value to another thread — the
-  `host.HostTasks` surface, by prefix, so a row track F adds is covered on the
-  day it lands. The answer rides on `ir::Program::crosses_tasks`.
+  whether any intrinsic it can reach hands a value to another thread. It
+  matches keys by prefix — `host.HostTasks.`, `actor.` and `tasks.scope` — so
+  a new row on any of those surfaces is covered on the day it lands. The
+  answer rides on `ir::Program::crosses_tasks`.
 - **Both native backends** emit one call in `main` when it is true:
   `buri_rt_values_may_cross_tasks()`, immediately after `buri_rt_argv_init`
   and before anything allocates. The frame-threaded backend makes it too, even
@@ -232,12 +253,13 @@ program-wide answer is sound by construction rather than by audit: a value
 that reaches a thread by a route the compiler cannot see — a block the
 runtime built itself, a `Str` from `host.rs`, whatever an FFI hands in one day
 — is marked anyway, because the *allocator* is what marks. What it costs is
-atomic reference counting throughout a program that uses `core/tasks`, which
-is the price §5.4 puts on threads. Narrowing it later is an optimisation over
-an answer that is already correct.
+atomic reference counting throughout a program that uses `core/tasks` or
+`core/actor`, which is the price §5.4 puts on threads. Narrowing it later is
+an optimisation over an answer that is already correct.
 
-The runtime's fan-out is gated on the same latch as well as on the frames one,
-so an artifact that failed to make the call runs its tasks one after another —
+Both of the runtime's fan-outs, `Tasks.parallel` and a scope running tasks
+beside its body, are gated on the same latch as well as on the frames one, so
+an artifact that failed to make the call runs its tasks one after another —
 slow, and never two threads counting an unmarked block.
 
 Two properties of the count survive the fork, and preserving them is why the
@@ -457,7 +479,7 @@ calls the paradigm this enables *functional but in-place*.
 The order of work is: more static ownership (fewer `rc == 1` tests, not faster
 ones), then cross-block reuse, then reuse across a function boundary. What is
 explicitly **not** on the path is a tracing collector beside the counts (§3),
-or atomic counts before the language has threads (§5.4).
+or atomic counts in a program that never reaches a task boundary (§5.1).
 
 - Reinking, Xie, de Moura and Leijen, *Perceus: Garbage Free Reference Counting
   with Reuse*, PLDI 2021 — the algorithm, and the FBIP framing.
@@ -467,7 +489,9 @@ or atomic counts before the language has threads (§5.4).
 
 ### 5.4 The allocator underneath
 
-Single-threaded, no locks, no atomics.
+No lock on the hot path. A block of up to 256 bytes comes from the calling
+thread's own cache, anything else from `malloc`, and the heap counters are
+relaxed atomics.
 
 **v1 is `malloc`-backed and has no size classes.** `buri_rt_alloc(payload)` is
 one allocation of `16 + payload` bytes at 16-byte alignment with the header
@@ -479,7 +503,8 @@ reads the same field, and §7's cost model is **defined** rather than measured,
 so not one number a program can see moves when the free lists land. That makes
 the allocator replaceable under a green test suite.
 
-What it costs until then: an allocation is a `malloc` call rather than six
+What it costs until then: an allocation that misses the per-thread cache
+(below) is a `malloc` call rather than six
 inline instructions, roughly twenty cycles against roughly five on the fast
 path. That is the right one to pay first, because a size-class allocator that
 is wrong is a heap corruption and a `malloc` that is slow is a profile.
@@ -519,12 +544,11 @@ The growth path, in full:
   free list is entirely free, and it is a runtime change with no compiler
   involvement.
 
-Non-atomic counts and a lock-free-because-single-threaded allocator both
-depend on the language having no threads (§1). If threads are ever added, the
-cost is: reference operations become atomic — roughly 2-3× the uncontended
-cost of non-atomic — and the allocator grows per-thread caches. Both halves
-are now in the tree and neither has been paid. The first is §5.1's fork, two
-instructions until something sets the bit. The second is this:
+Threads (§1) cost two things: reference operations become atomic — roughly
+2-3× the uncontended cost of non-atomic — and the allocator grows per-thread
+caches. Only a program that reaches a task boundary pays the first, through
+§5.1's fork; every other program pays two instructions per operation for the
+test. Every program has the second:
 
 **The per-thread caches.** A free list per thread in front of `malloc`, keyed
 on the **exact** payload size for payloads up to 256 bytes, with a byte budget
@@ -840,7 +864,10 @@ delegation. `Allocator` is the one that does not.
 **The arena is a real bump allocator over its own `mmap`s.** `arenaCreate`
 maps nothing. A charge reserves its bytes from a 64 KiB block, mapping another
 when that one is full, and a right-sized one of its own when the charge is
-bigger than a block. `arenaRelease` `munmap`s every block when `body` returns.
+bigger than a block. `arenaRelease` gives every block back when `body` returns: a standard block
+goes to a small pool (eight blocks, `ARENA_POOL_MAX`) for the next scope, and
+anything else is `munmap`ed. The arena table and the pool sit behind
+`Mutex`es, because tasks on different threads open scopes at once.
 `buri_rt_heap_stats` grew `arena_bytes` and `arena_released_bytes` so that "it
 reserved pages **and** gave them back" is one assertion rather than two
 half-ones.
@@ -852,7 +879,7 @@ calls `buri_rt_alloc_arena_enter` before `body` and `buri_rt_alloc_arena_leave`
 after, and for that dynamic extent — on that thread — `buri_rt_alloc` serves
 out of the arena and stamps `CAP_ARENA` (bit 62 of `cap`) into the header.
 `buri_rt_free` reads that bit, does the accounting and returns; the pages go
-back in one `munmap`.
+back when the scope ends.
 
 That is an *over*-approximation of "charged to the `Scoped`": every allocation
 in the extent is the scope's, whoever asked. It is the safe end of §5.5's

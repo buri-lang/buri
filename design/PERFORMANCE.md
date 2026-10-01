@@ -916,8 +916,9 @@ the row meets it by 2.5×. It is not a volume effect: between the two commits th
 anchor's monomorphized function count *fell* 13,162 → 12,735 and its emitted
 JavaScript grew only 1,317,286 → 1,347,614 bytes, so the same row is **+18.3%
 per monomorphized function** and **−10.7% per emitted byte**. The `ctx`
-parameter every module function now threads, `println`'s `Result`, and the actor
-and carrier lowerings are what arrived in `backend/js` over those 413 commits.
+parameter every module function now threads, `println`'s `Result`, the actor
+runtime in `runtime.js`, and the `async`/`await` printed around every call that
+can wait are what arrived in `backend/js` over those 413 commits.
 Which of them owns the 12.4% is a profile away (§7).
 
 **`lower+macos-arm64` moved because a new emitter replaced the old one.**
@@ -1058,7 +1059,8 @@ one.
 - **`lower+js`'s 12.4%.** The one row on this page that fell over the
   concurrency-and-servers program (§6.1). It needs a profile first (§7) over the
   JavaScript lowering call, to say whether the threaded `ctx` parameter,
-  `println`'s `Result`, or the actor and carrier lowerings own it.
+  `println`'s `Result`, the actor runtime, or the `async`/`await` around calls
+  that can wait own it.
 - **The producer half of fusion.** `range` is still materialized.
 - **Derived `Show`**, which needs the design decision in §6.4 rather than more
   tuning.
