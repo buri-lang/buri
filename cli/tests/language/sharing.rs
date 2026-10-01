@@ -24,7 +24,9 @@
 //!    process's wall time, and the two halves of a ratio are always answers
 //!    about the same machine a moment apart. Two dozen such pairs, and the
 //!    median is the answer: what load does to a pair, it does to both halves,
-//!    and a ratio divides it out.
+//!    and a ratio divides it out. Where one update grows two lists, and where
+//!    `core/buri/ast`'s lexer pushes each token, the claim is a count instead:
+//!    how many elements every `Array.prototype.slice` copied.
 //!
 //! ```text
 //! cargo test -p buri --test language sharing::
@@ -778,5 +780,56 @@ fn growing_two_lists_in_one_update_copies_neither() {
     assert!(
         copied < 40_000,
         "folding four thousand elements into two lists copied {copied} elements"
+    );
+}
+
+/// `core/buri/ast`'s lexer, run over a source of a few thousand tokens that
+/// reaches every scanner: words, numbers in each base, strings, templates,
+/// characters, every kind of comment, and punctuation.
+///
+/// The lexer threads one record through the scan and pushes each token onto a
+/// list in it. A scanner that kept the record it started from alive beside the
+/// one it advanced left two records holding the same list, so every push copied
+/// the whole list so far: tokenizing was quadratic in the number of tokens.
+const TOKENIZE: &str = r#"
+from "core/buri/ast" import * as ast;
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+fn line<C: Allocator>(ctx: C, i: Int): Str {
+  let n = i.show(ctx);
+  str.format(ctx, "/// doc ${n}\nlet x${n} = f(${n}, 0x1f, 2.5e3, \"s\\n\", \"a\${n}b\${n}c\", 'c', '\\u{41}') <= y; // ${n}\n/* a /* ${n} */ b */\n")
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let source = list.range(ctx, 0, 250).mapCtx(ctx, fn(c, i) => line(c, i)).join(ctx, "");
+  let tokens = ast.tokenize(ctx, source);
+  let _ = io.println(ctx, tokens.length().show(ctx)).ignore();
+  .Ok(())
+}
+"#;
+
+/// Tokenizing about seven thousand tokens copies a few of them, not the tens of
+/// millions a copy per push costs.
+#[test]
+fn tokenizing_a_source_copies_no_token_list() {
+    let scratch = Scratch::repo("js-sharing-tokenize");
+    scratch.write("cmd/lex/BUILD.buri", JS_BINARY);
+    scratch.write("cmd/lex/main.buri", TOKENIZE);
+    scratch.run(&["build", "//cmd/lex", "--force"]).ok();
+
+    let (copied, stdout) = copied_by_slice(&scratch, "cmd/lex");
+    assert_eq!(stdout, "7250\n");
+    // A copy per push is about twenty-five million elements here: seven
+    // thousand pushes onto a list growing to seven thousand. Writing in place
+    // copies none of them; the bound leaves room for whatever a runtime copies
+    // on its own account.
+    assert!(
+        copied < 70_000,
+        "tokenizing seven thousand tokens copied {copied} elements"
     );
 }
