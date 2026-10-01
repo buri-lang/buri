@@ -3114,7 +3114,10 @@ async function $host_HostSpawn_spawnProcess(self, plan, environment, replace, in
 // is how passing the wrong one stayed invisible.
 async function $host_HostTasks_parallel(self, ctx, xs, f) {
   $aboutToBlock();
-  const out = await Promise.all(xs.map((x, i) => f(ctx, BigInt(i), $share(x))));
+  // Each task is handed a context of its own, which is how `core/actor` tells
+  // two of them apart: see `$taskFrom`.
+  const line = $lineFrom(ctx);
+  const out = await Promise.all(xs.map((x, i) => f($taskFrom(ctx, line), BigInt(i), $share(x))));
   return $own(out);
 }
 
@@ -3461,10 +3464,59 @@ async function $host_HostWebSocketClient_connectReceive(self, socket) {
 // backend allocated must stop being writable in place the moment there are two
 // names for it.
 //
-// The two waits are `async` because `middle/rc.rs`'s `suspends` says they are,
-// and the two lists must agree: `mailboxPush` waits for room, `mailboxClose`
-// waits for the step in flight to give the state back. Nothing else here waits.
+// The three waits are `async` because `middle/rc.rs`'s `suspends` says they
+// are, and the two lists must agree: `mailboxPush` waits for room, and
+// `mailboxClose` and `stateTake` wait for the step in flight to give the state
+// back. Nothing else here waits.
 const $actors = [];
+
+// How long a `stateTake` waits for another task's step before it answers
+// `.None`: `cli/runtime/rt.rs`'s `ACTOR_DEADLINE`, for its reason. The wait is
+// one a program can make unbounded — two steps each sending to the actor the
+// other is stepping — so it carries a number, and the number is long enough
+// that reaching it is a bug.
+const $ACTOR_DEADLINE_MS = 30000;
+
+// **A task is the context it was handed.** `stateTake` has to tell a sender
+// that may wait for the step holding the state from one that is part of that
+// step, which would be waiting for itself, and the native runtime asks the
+// thread and the tasks that started it. JavaScript has neither. What it has is
+// the context: a lambda may not capture one and only an entry may build one
+// (SPEC 10.6, 11.3), so the context a step was handed reaches everything that
+// step calls, and nothing else. A drive records the context it took the state
+// with, and a send is part of that step when its context is that one, or one a
+// task started from it was handed.
+//
+// The one place two tasks are handed one context is where the runtime starts
+// them, so that is where each gets a copy of its own: `$taskFrom` for a task
+// its caller waits for, which carries the caller in its lineage, and
+// `$taskApart` for a handler nobody waits for, which carries none. A copy
+// reads the same effects, because a context is an array of handles and the
+// handles are shared.
+function $taskFrom(ctx, line) {
+  if (!Array.isArray(ctx)) return ctx;
+  const child = ctx.slice();
+  child.$line = line;
+  return child;
+}
+
+// The lineage every task `$taskFrom` starts from `ctx` carries.
+function $lineFrom(ctx) {
+  if (!Array.isArray(ctx)) return undefined;
+  return ctx.$line === undefined ? [ctx] : ctx.$line.concat([ctx]);
+}
+
+function $taskApart(ctx) {
+  return Array.isArray(ctx) ? ctx.slice() : ctx;
+}
+
+// Whether the state `holder` took is held by `c`'s own step: `c` is the
+// context that step was handed, or one a task it started was.
+function $actorWithin(holder, c) {
+  if (holder === c) return true;
+  const line = Array.isArray(c) ? c.$line : undefined;
+  return line !== undefined && line.includes(holder);
+}
 
 function $actor_mailboxOpen(c, state, bound) {
   const room = Number(bound) > 0 ? Number(bound) : 1;
@@ -3475,7 +3527,9 @@ function $actor_mailboxOpen(c, state, bound) {
     bound: room,
     room: [],
     baton: true,
+    holder: undefined,
     free: [],
+    takers: [],
   });
   return BigInt($actors.length - 1);
 }
@@ -3511,6 +3565,9 @@ async function $actor_mailboxClose(c, handle) {
   if (a === undefined || a.closed) return undefined;
   a.closed = true;
   for (const wake of a.room.splice(0)) wake();
+  // A `stateTake` still waiting is answered now rather than at its deadline:
+  // there is no state left to wait for.
+  for (const wake of a.takers.splice(0)) wake(true);
   while (!a.baton) {
     $aboutToBlock();
     await new Promise((resolve) => a.free.push(resolve));
@@ -3523,10 +3580,49 @@ async function $actor_mailboxClose(c, handle) {
   return held === undefined ? undefined : $some(held);
 }
 
+// **Waits while another task is stepping the actor**, so a sender that arrives
+// mid-step gets its answer once that step is done (buri-lang/buri#205). Never
+// for itself: `.None` at once where the state is held by the caller's own step,
+// and `.None` for a stopped actor or a wait past the deadline.
+//
+// Not `async` on the path that does not wait, so a send to an idle actor pays
+// the one `await` at its call and nothing more.
 function $actor_stateTake(c, handle) {
   const a = $actorAt(handle);
-  if (a === undefined || a.closed || !a.baton || a.state === undefined) return undefined;
+  if (a === undefined || a.closed) return undefined;
+  if (a.baton) return $actorHanded(a, c);
+  if ($actorWithin(a.holder, c)) return undefined;
+  return $actorAwaitState(a, c, Date.now() + $ACTOR_DEADLINE_MS);
+}
+
+async function $actorAwaitState(a, c, deadline) {
+  for (;;) {
+    const left = deadline - Date.now();
+    if (left <= 0) return undefined;
+    $aboutToBlock();
+    let wake;
+    let alarm;
+    const woken = await new Promise((resolve) => {
+      wake = resolve;
+      a.takers.push(resolve);
+      alarm = setTimeout(() => resolve(false), left);
+    });
+    clearTimeout(alarm);
+    if (!woken) {
+      const at = a.takers.indexOf(wake);
+      if (at >= 0) a.takers.splice(at, 1);
+      return undefined;
+    }
+    if (a.closed) return undefined;
+    if (a.baton) return $actorHanded(a, c);
+  }
+}
+
+// The state out of `a`, to `c`, whose baton it now is.
+function $actorHanded(a, c) {
+  if (a.state === undefined) return undefined;
   a.baton = false;
+  a.holder = c;
   const held = a.state;
   a.state = undefined;
   return $some(held);
@@ -3537,7 +3633,9 @@ function $actor_statePut(c, handle, state) {
   if (a === undefined) return undefined;
   a.state = $share(state);
   a.baton = true;
+  a.holder = undefined;
   for (const wake of a.free.splice(0)) wake();
+  for (const wake of a.takers.splice(0)) wake(true);
   return $some(BigInt(a.queue.length));
 }
 
@@ -5409,21 +5507,21 @@ function $tree_events(ctx, element, events) {
   const onHover = events[0];
   if (onHover !== undefined) {
     // Pointer enter is `true`, leave is `false` — the two edges of a hover.
-    $dom_listen(element, "mouseenter", () => $ui_flush(() => onHover(ctx, true)));
-    $dom_listen(element, "mouseleave", () => $ui_flush(() => onHover(ctx, false)));
+    $dom_listen(element, "mouseenter", () => $ui_flush(() => onHover($taskApart(ctx), true)));
+    $dom_listen(element, "mouseleave", () => $ui_flush(() => onHover($taskApart(ctx), false)));
   }
   const onFocus = events[1];
   if (onFocus !== undefined) {
     // `focusin`/`focusout` rather than `focus`/`blur`, so focus moving *within*
     // the subtree is one thing gaining focus rather than a leave and an enter.
-    $dom_listen(element, "focusin", () => $ui_flush(() => onFocus(ctx, true)));
-    $dom_listen(element, "focusout", () => $ui_flush(() => onFocus(ctx, false)));
+    $dom_listen(element, "focusin", () => $ui_flush(() => onFocus($taskApart(ctx), true)));
+    $dom_listen(element, "focusout", () => $ui_flush(() => onFocus($taskApart(ctx), false)));
   }
   const onScroll = events[2];
   if (onScroll !== undefined) {
     // A `ScrollOffset` is the struct `{x, y}`, so an array of the two.
     $dom_listen(element, "scroll", () =>
-      $ui_flush(() => onScroll(ctx, [element.scrollLeft, element.scrollTop])),
+      $ui_flush(() => onScroll($taskApart(ctx), [element.scrollLeft, element.scrollTop])),
     );
   }
   const onKey = events[3];
@@ -5438,7 +5536,7 @@ function $tree_events(ctx, element, events) {
     $dom_listen(element, "keydown", (event) => {
       let consumed = false;
       $ui_flush(() => {
-        consumed = onKey(ctx, event.key);
+        consumed = onKey($taskApart(ctx), event.key);
         return consumed;
       });
       if (consumed === true) event.preventDefault();
@@ -5454,7 +5552,7 @@ function $tree_events(ctx, element, events) {
     const onDown = (event) => {
       const target = event ? event.target : null;
       if (target !== null && target !== undefined && $dom_within(element, target)) return;
-      $ui_flush(() => onPressOutside(ctx));
+      $ui_flush(() => onPressOutside($taskApart(ctx)));
     };
     $ui_dispose_with($dom_outside(element, onDown));
   }
@@ -5534,7 +5632,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     $dom_listen(element, "click", () =>
       // One transaction, so that a handler which writes three signals causes
       // one pass over the watchers rather than three.
-      $ui_flush(() => onPress(ctx, [0])),
+      $ui_flush(() => onPress($taskApart(ctx), [0])),
     );
     $tree_events(ctx, element, node[8]);
     return;
@@ -5569,7 +5667,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
         event.preventDefault();
         // One transaction, the way a press is.
-        $ui_flush(() => onFollow(ctx, dest));
+        $ui_flush(() => onFollow($taskApart(ctx), dest));
       });
     }
     // Styles and children the reactive way `stack` does them (issue #164), so a
@@ -5785,7 +5883,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
       // The page must not navigate: submission is the handler, and there is
       // nowhere for a browser to post to.
       if (event && event.preventDefault) event.preventDefault();
-      $ui_flush(() => onSubmit(ctx, [0]));
+      $ui_flush(() => onSubmit($taskApart(ctx), [0]));
     });
     $tree_children(ctx, element, node[2], node[3]);
     $tree_events(ctx, element, node[4]);
@@ -5953,7 +6051,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
       const size = BigInt(file.size);
       // A refused file is never read: over the cap, it may be any size at all.
       if (admit(name, type, size) !== "") {
-        $ui_flush(() => land(ctx, [name, type, size, undefined]));
+        $ui_flush(() => land($taskApart(ctx), [name, type, size, undefined]));
         return;
       }
       file.arrayBuffer().then(
@@ -5966,9 +6064,9 @@ function $tree_render(ctx, wrapper, parent, anchor) {
           } catch {
             text = undefined;
           }
-          $ui_flush(() => land(ctx, [name, type, size, text]));
+          $ui_flush(() => land($taskApart(ctx), [name, type, size, text]));
         },
-        () => $ui_flush(() => land(ctx, [name, type, size, undefined])),
+        () => $ui_flush(() => land($taskApart(ctx), [name, type, size, undefined])),
       );
     });
     $tree_events(ctx, button, node[7]);
@@ -6722,7 +6820,7 @@ function $ui_node_registerPress(builder, onPress) {
   const doc = $scene_of(builder);
   const record = doc.records[$scene_openElement(doc)];
   if (record !== undefined) {
-    record.press = () => $ui_flush(() => onPress(doc.ctx, [0n]));
+    record.press = () => $ui_flush(() => onPress($taskApart(doc.ctx), [0n]));
   }
 }
 
@@ -6735,7 +6833,7 @@ function $ui_node_registerOutside(builder, handler) {
   const doc = $scene_of(builder);
   const elem = $scene_openElement(doc);
   const entry = {
-    fire: () => $ui_flush(() => handler(doc.ctx, [0n])),
+    fire: () => $ui_flush(() => handler($taskApart(doc.ctx), [0n])),
     elem,
     alive: true,
   };
@@ -6776,7 +6874,7 @@ function $ui_node_registerFollow(builder, dest, onFollow) {
   const doc = $scene_of(builder);
   const record = doc.records[$scene_openElement(doc)];
   if (record !== undefined) {
-    record.follow = () => $ui_flush(() => onFollow(doc.ctx, dest));
+    record.follow = () => $ui_flush(() => onFollow($taskApart(doc.ctx), dest));
   }
 }
 
@@ -6793,7 +6891,7 @@ function $ui_node_registerPick(builder, onPick) {
   const doc = $scene_of(builder);
   const record = doc.records[$scene_openElement(doc)];
   if (record !== undefined) {
-    record.pick = () => $ui_flush(() => onPick(doc.ctx, [0n]));
+    record.pick = () => $ui_flush(() => onPick($taskApart(doc.ctx), [0n]));
   }
 }
 

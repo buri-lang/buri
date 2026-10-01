@@ -291,11 +291,17 @@ impl<C: Allocator + Tasks, S, M, R> Address<C, S, M, R> {
     /// The message crosses through `across`, so the mailbox holds a block on
     /// the platform allocator whatever scope this call was made inside.
     ///
-    /// `.Err(.Stopped)` covers three cases: the actor was gone before the
-    /// message was posted, it went before the answer came, or the caller is a
-    /// step of this same actor and is holding the state, so the drive below
-    /// finds nothing to step with. Only the last one leaves the message in the
-    /// mailbox, where the loop that is already running steps it.
+    /// `.Err(.Stopped)` covers five cases:
+    ///
+    /// - The actor was gone before the message was posted.
+    /// - It went before the answer came.
+    /// - The mailbox stayed full past the runtime's thirty-second deadline.
+    /// - The caller is a step of this same actor, or a task that step started,
+    ///   so the state is out and the drive below finds nothing to step with.
+    /// - Another task's step held the state past that same deadline.
+    ///
+    /// The last two leave the message in the mailbox, where the loop that holds
+    /// the state steps it.
     export fn sendMessage(self, ctx: C, message: M): Result<R, Stopped> {
         let reply = Reply(replyOpen(ctx));
         let posted = Posted { slot: reply.0, message: message };
