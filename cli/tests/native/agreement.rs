@@ -3825,7 +3825,7 @@ fn a_waiting_step_runs_under_every_ctx_combinator_on_every_backend() {
         "list *Ctx with a waiting step",
         r#"
 from "core/actor" import * as actor;
-from "core/actor" import { Actor, Address, Stepped, Stopped };
+from "core/actor" import { Actor, Address, SendError, Stepped };
 from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -3853,14 +3853,14 @@ fn recorder<C: Allocator + Tasks>(): Actor<C, Int, Note, Heard> {
   }
 }
 
-fn noted(r: Result<Heard, Stopped>): Int {
+fn noted(r: Result<Heard, SendError>): Int {
   match (r) {
     .Ok(.Noted(n)) => n,
     _otherwise => -1,
   }
 }
 
-fn heardSoFar(r: Result<Heard, Stopped>): Int {
+fn heardSoFar(r: Result<Heard, SendError>): Int {
   match (r) {
     .Ok(.Log(n)) => n,
     _otherwise => -1,
@@ -4060,7 +4060,7 @@ fn an_actor_counts_the_same_on_every_backend() {
         "actor counter",
         r#"
 from "core/actor" import * as actor;
-from "core/actor" import { Actor, Address, Stepped, Stopped };
+from "core/actor" import { Actor, Address, SendError, Stepped, Stopped };
 from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -4104,7 +4104,7 @@ fn pump<C: Allocator + Stdout + Tasks>(
   }
 }
 
-fn total(r: Result<CounterAnswer, Stopped>): Int {
+fn total(r: Result<CounterAnswer, SendError>): Int {
   match (r) {
     .Ok(.Count(n)) => n,
     .Ok(_other) => -1,
@@ -4158,7 +4158,7 @@ fn gone(r: Result<(), Stopped>): Str {
   }
 }
 
-fn gone2(r: Result<CounterAnswer, Stopped>): Str {
+fn gone2(r: Result<CounterAnswer, SendError>): Str {
   match (r) {
     .Ok(_ok) => "ran",
     .Err(_e) => "stopped",
@@ -4199,7 +4199,7 @@ fn a_step_that_sends_to_its_own_actor_is_refused_on_every_backend() {
         "actor reentrancy",
         r#"
 from "core/actor" import * as actor;
-from "core/actor" import { Actor, Address, Stepped, Stopped };
+from "core/actor" import { Actor, Address, SendError, Stepped };
 from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -4271,7 +4271,7 @@ fn says<C: Allocator + Tasks>(
   }
 }
 
-fn number(answered: Result<Reentered, Stopped>): Int {
+fn number(answered: Result<Reentered, SendError>): Int {
   match (answered) {
     .Ok(.Reentered(n)) => n,
     .Ok(.Count(n)) => n,
@@ -4281,7 +4281,7 @@ fn number(answered: Result<Reentered, Stopped>): Int {
   }
 }
 
-fn said(answered: Result<Reentered, Stopped>): Str {
+fn said(answered: Result<Reentered, SendError>): Str {
   match (answered) {
     .Ok(.Said(word)) => word,
     _otherwise => "?",
@@ -4358,7 +4358,7 @@ fn what_an_actors_messages_carry_agrees_on_every_backend() {
         "actor payloads",
         r#"
 from "core/actor" import * as actor;
-from "core/actor" import { Actor, Address, Stepped, Stopped };
+from "core/actor" import { Actor, Address, SendError, Stepped };
 from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -4378,7 +4378,7 @@ fn silent<C: Allocator + Stdout + Tasks>(): Actor<C, (), Ping, ()> {
   }
 }
 
-fn answered(r: Result<(), Stopped>): Str {
+fn answered(r: Result<(), SendError>): Str {
   match (r) {
     .Ok(_ok) => "yes",
     .Err(_e) => "no",
@@ -4414,7 +4414,7 @@ fn bag<C: Allocator + Tasks>(): Actor<C, [Int], Bag, Bagged> {
   }
 }
 
-fn drained(r: Result<Bagged, Stopped>): Int {
+fn drained(r: Result<Bagged, SendError>): Int {
   match (r) {
     .Ok(.Held(xs)) => xs.length(),
     .Ok(.Kept(n)) => n,
@@ -4444,7 +4444,7 @@ fn scribe<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Say, Said> {
   }
 }
 
-fn told(r: Result<Said, Stopped>): Str {
+fn told(r: Result<Said, SendError>): Str {
   match (r) {
     .Ok(.Text(s)) => s,
     .Ok(.Scalars(n)) => "read back a count",
@@ -4452,7 +4452,7 @@ fn told(r: Result<Said, Stopped>): Str {
   }
 }
 
-fn counted(r: Result<Said, Stopped>): Int {
+fn counted(r: Result<Said, SendError>): Int {
   match (r) {
     .Ok(.Scalars(n)) => n,
     .Ok(.Text(s)) => s.length(),
@@ -4502,7 +4502,7 @@ fn record(name: Str, note: Option<Str>): Record {
   }
 }
 
-fn shown<C: Allocator>(ctx: C, r: Result<Filed, Stopped>): Str {
+fn shown<C: Allocator>(ctx: C, r: Result<Filed, SendError>): Str {
   match (r) {
     .Ok(.Was(rec)) => {
       let note = match (rec.note) {
@@ -4578,7 +4578,7 @@ fn desk<C: Allocator + Tasks>(
   }
 }
 
-fn front(r: Result<Desked, Stopped>): Str {
+fn front(r: Result<Desked, SendError>): Str {
   match (r) {
     .Ok(.Total(_n)) => "a total",
     .Ok(.Noted) => "noted",
@@ -4587,7 +4587,7 @@ fn front(r: Result<Desked, Stopped>): Str {
   }
 }
 
-fn totalled(r: Result<Desked, Stopped>): Int {
+fn totalled(r: Result<Desked, SendError>): Int {
   match (r) {
     .Ok(.Total(n)) => n,
     .Ok(_other) => -1,
@@ -4676,7 +4676,7 @@ fn an_actor_driven_inside_a_scope_keeps_its_values_on_every_backend() {
         "actor in a scope",
         r#"
 from "core/actor" import * as actor;
-from "core/actor" import { Actor, Address, Stepped, Stopped };
+from "core/actor" import { Actor, Address, SendError, Stepped, Stopped };
 from "core/alloc" import * as alloc;
 from "core/alloc" import { Scoped };
 from "core/effect" import { Allocator, Stdout, Tasks };
@@ -4718,7 +4718,7 @@ fn big<C: Allocator>(ctx: C, unit: Str): Str {
   unit.repeat(ctx, 70000)
 }
 
-fn same(got: Result<Kept, Stopped>, want: Str): Str {
+fn same(got: Result<Kept, SendError>, want: Str): Str {
   match (got) {
     .Err(_e) => "stopped",
     .Ok(.Stored) => "different",
@@ -4787,7 +4787,7 @@ fn a_large_state_survives_many_messages_on_every_backend() {
         "actor large state",
         r#"
 from "core/actor" import * as actor;
-from "core/actor" import { Actor, Address, Stepped, Stopped };
+from "core/actor" import { Actor, Address, SendError, Stepped };
 from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -4856,7 +4856,7 @@ fn sending<C: Allocator + Tasks>(
   }
 }
 
-fn whole(got: Result<Poked, Stopped>): OrderedMap<Int, Str> {
+fn whole(got: Result<Poked, SendError>): OrderedMap<Int, Str> {
   match (got) {
     .Ok(.Whole(map)) => map,
     _otherwise => orderedmap.empty(),

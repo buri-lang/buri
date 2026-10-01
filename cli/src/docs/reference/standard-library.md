@@ -1415,6 +1415,14 @@ and hands that answer back. `stop` closes the mailbox, discards what is left,
 and runs `onStop` once with the final state. Everything after that answers
 `.Err(.Stopped)`.
 
+`sendMessage` fails with a `SendError`, and the variant says why:
+
+- `.Stopped`: the actor stopped before or while handling the message.
+- `.TimedOut`: the send waited thirty seconds, for room in the mailbox or for
+  another task's step, and gave up.
+- `.WouldDeadlock`: the caller is the actor's own step, or a task that step
+  started.
+
 ```buri
 from "core/actor" import { Actor, Stepped };
 
@@ -1441,8 +1449,8 @@ you test an actor by calling it. The mailbox holds sixty-four messages and you
 cannot configure it. **The actor steps on the task that drives it.**
 `sendMessage` runs the mailbox down before it answers, and `stop` before it runs
 `onStop`. So an actor is not yet a way to get work done in the background. A
-step that sends to its own actor gets `.Err(.Stopped)` rather than waiting for
-itself, and the message it posted is stepped once the step returns. That is also
+step that sends to its own actor gets `.Err(.WouldDeadlock)` rather than
+waiting for itself, and the message it posted is stepped once the step returns. That is also
 the only way to reach the bound, since nothing drains while a step holds the
 state, so a step that posts a sixty-fifth message waits for room nobody is
 coming to make.
