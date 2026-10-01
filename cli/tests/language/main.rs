@@ -16,7 +16,7 @@
 //! | [`js_streams`] | four generated programs | Does everything a program printed reach the stream, whichever of the three ways it ended and whether the stream is a pipe or a file? |
 //! | [`round_trip`] | `conformance/`, `example/`'s generated modules | Does `core/buri/ast`'s `parse` read back what the compiler reads — the whole corpus rewritten by `parse` then `print`, and run — and is printing a fixed point? |
 //! | [`scoped_bodies`] | `repositories/lsp/*/repo`, `example/` | Does an analysis that checks one file's bodies answer what a whole-closure one answers, for that file? |
-//! | [`sharing`] | `runtime.js`, four generated programs | Is a list this backend did not allocate never written to, is growing one in a loop linear — beside another field as well as alone — and is `core/buri/ast`'s printer linear because of it? |
+//! | [`sharing`] | `runtime.js`, five generated programs | Is a list this backend did not allocate never written to, is growing one in a loop linear — beside another field as well as alone — and are `core/buri/ast`'s printer and lexer linear because of it? |
 //! | [`symbols`] | `example/`, `repositories/testing/*/repo` | Does every function a program will define have a mangled symbol of its own? |
 //!
 //! [`debug_suite`] is not a suite: it holds the one run of the unmodified
