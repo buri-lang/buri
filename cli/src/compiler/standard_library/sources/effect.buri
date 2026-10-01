@@ -999,8 +999,8 @@ impl Request {
 }
 
 impl Response {
-    /// `2xx`. A redirect is not a success, and a caller that wants to follow one
-    /// has to say so.
+    /// `2xx`. A redirect is not a success: natively `fetch` hands one back
+    /// unfollowed, and a caller that wants its target sends to its `location`.
     export fn isOk(self): Bool {
         self.status >= 200 && self.status < 300
     }
