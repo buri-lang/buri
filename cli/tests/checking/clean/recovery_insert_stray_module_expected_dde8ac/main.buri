@@ -1,0 +1,53 @@
+// A character with no visible shape leaves as an escape, however it came in.
+export fn byteOrderMark(): Str {
+    "\u{feff}"
+}
+
+export fn zeroWidth(): Str {
+    "a\u{200b}b\u{200c}c\u{200d}d\u{200e}e\u{200f}f"
+}
+
+export fn separators(): Str {
+    "a\u{a0}b\u{2028}c\u{2029}d\u{3000}e\u{ad}f"
+}
+
+export fn bidi(): Str {
+    "\u{202a}\u{202b}\u{202c}\u{202d}\u{202e}\u{2066}\u{2067}\u{2068}\u{2069}"
+}
+
+// The C1 controls are controls too, not only the C0 ones.
+export fn c1(): Str {
+    "a\u{80}b\u{85}c\u{9f}d"
+}
+
+// Written as the characters themselves: a right-to-left override hidden in a
+// string is how source reads one way and runs another.
+export fn written(): Str {
+    "a\u{202e}b\u{200b}c\u{feff}d\u{a0}e"
+}
+
+export fn template(n: Int): Template {
+    "\u{feff}${n}\u{202e}"
+}
+
+export fn marks(c: Char): Int {
+    match (c) {
+        '\u{feff}' => 1,
+        '\u{202e}' => 2,
+        '\u{a0}' => 3,
+        '\u{2069}' => 4,
+        _ => 0,
+    }
+}
+
+export fn kind(s: Str@ ): Int {
+    match (s) {
+        "\u{2066}" => 1,
+        _ => 0,
+    }
+}
+
+// A visible character, however far from ASCII, is still written as itself.
+export fn visible(): Str {
+    "é😀中"
+}

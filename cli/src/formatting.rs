@@ -80,6 +80,7 @@
 //! layout pass. `IfBreak` propagates neither branch, because both of them are
 //! conditional on the answer the propagation is trying to compute.
 
+use crate::compiler::standard_library;
 use crate::diagnostics::{Diagnostic, FileId, Span};
 use crate::parsing::flat::{
     ArmData, BlockId, CtxBodyId, ExprId, ExprView, InitData, Kind, LambdaParamData, Location,
@@ -3100,17 +3101,22 @@ pub fn type_text(t: &Tree, id: TypeId) -> String {
 /// How a literal prints a character that has no printable shape of its own, or
 /// `None` for one that prints as itself.
 ///
-/// The rule, and it is the same in every literal: a control character is
-/// written as an escape and every other scalar is written as itself. `\n`,
-/// `\r`, `\t` and `\0` have names; the rest of the C0 range and `DEL` go as
-/// `\u{…}`. What is left — a letter, an accent, an emoji — is its own bytes,
-/// so an author's `\u{41}` comes back as `A`.
+/// The rule, and it is the same in every literal and in `core/buri/ast`'s
+/// printer: a character `Char.isPrintable` says no to is written as an escape
+/// and every other scalar is written as itself. `\n`, `\r`, `\t` and `\0` have
+/// names; the rest go as `\u{…}` in lowercase hex. What is left — a letter, an
+/// accent, an emoji — is its own bytes, so an author's `\u{41}` comes back as
+/// `A`.
 ///
-/// **Every control has to leave as an escape**, not only the two that are easy
-/// to remember. A carriage return once printed as itself, so the file held a
-/// bare `\r` in the middle of a string; an editor and a scripted edit both
-/// read the line as ending there, and `buri format` had changed what the
-/// program said. `\0` and `DEL` had the same hole.
+/// **Every unprintable character has to leave as an escape**, not only the
+/// controls that are easy to remember. A carriage return once printed as
+/// itself, so the file held a bare `\r` in the middle of a string; an editor
+/// and a scripted edit both read the line as ending there, and `buri format`
+/// had changed what the program said. `\0` and `DEL` had the same hole. So did
+/// everything outside the C0 range: a `\u{feff}` came back as a byte-order
+/// mark nobody could see, and a bidirectional override such as `\u{202e}` came
+/// back as the character itself, which makes the line display in an order
+/// other than the one it runs in.
 ///
 /// The delimiters are the caller's business, because which of `"`, `'` and `$`
 /// needs a backslash depends on what the literal is delimited by.
@@ -3120,7 +3126,7 @@ fn control_escape(c: char) -> Option<String> {
         '\r' => Some("\\r".into()),
         '\t' => Some("\\t".into()),
         '\0' => Some("\\0".into()),
-        c if (c as u32) < 0x20 || c == '\u{7f}' => Some(format!("\\u{{{:x}}}", c as u32)),
+        c if !standard_library::is_printable(c) => Some(format!("\\u{{{:x}}}", u32::from(c))),
         _ => None,
     }
 }

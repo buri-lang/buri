@@ -10,29 +10,26 @@ from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 
-// The characters with no shape of their own, named once each.
-//
-// `buri format` stores a literal as the character it denotes rather than as the
-// escape somebody wrote, so `'\u{7f}'` in an assertion below would come back as
-// the byte — unreadable inline, and fine behind a name.
+// The characters the assertions below ask about, named once each so that an
+// assertion says which character it means rather than which code point.
 
 /// U+007F DELETE, the last of the C0 controls.
 let DELETE: Char = '\u{7f}';
 
 /// U+0080 PADDING CHARACTER, the first of the C1 ones.
-let PADDING: Char = '';
+let PADDING: Char = '\u{80}';
 
 /// U+0085 NEXT LINE.
-let NEXT_LINE: Char = '';
+let NEXT_LINE: Char = '\u{85}';
 
 /// U+009F APPLICATION PROGRAM COMMAND, the last C1 one.
-let LAST_CONTROL: Char = '';
+let LAST_CONTROL: Char = '\u{9f}';
 
 /// U+00A0 NO-BREAK SPACE, General Category Zs.
-let NO_BREAK_SPACE: Char = ' ';
+let NO_BREAK_SPACE: Char = '\u{a0}';
 
 /// U+0378, which Unicode has assigned nothing to.
-let UNASSIGNED: Char = '͸';
+let UNASSIGNED: Char = '\u{378}';
 
 /// U+07FF, the last scalar UTF-8 writes in two bytes.
 let LAST_TWO_BYTE: Char = '߿';
@@ -41,25 +38,25 @@ let LAST_TWO_BYTE: Char = '߿';
 let FIRST_THREE_BYTE: Char = 'ࠀ';
 
 /// U+200D ZERO WIDTH JOINER, General Category Cf.
-let ZERO_WIDTH_JOINER: Char = '‍';
+let ZERO_WIDTH_JOINER: Char = '\u{200d}';
 
 /// U+2028 LINE SEPARATOR, General Category Zl.
-let LINE_SEPARATOR: Char = ' ';
+let LINE_SEPARATOR: Char = '\u{2028}';
 
 /// U+2029 PARAGRAPH SEPARATOR, General Category Zp.
-let PARAGRAPH_SEPARATOR: Char = ' ';
+let PARAGRAPH_SEPARATOR: Char = '\u{2029}';
 
 /// U+E000, the first private-use character.
-let PRIVATE_USE: Char = '';
+let PRIVATE_USE: Char = '\u{e000}';
 
 /// U+FFFF, the last scalar UTF-8 writes in three bytes.
-let LAST_THREE_BYTE: Char = '￿';
+let LAST_THREE_BYTE: Char = '\u{ffff}';
 
 /// U+10000, the first it writes in four.
 let FIRST_FOUR_BYTE: Char = '𐀀';
 
 /// U+10FFFF, the last code point there is.
-let LAST_CODE_POINT: Char = '􏿿';
+let LAST_CODE_POINT: Char = '\u{10ffff}';
 
 // --- isAscii --------------------------------------------------------------------
 

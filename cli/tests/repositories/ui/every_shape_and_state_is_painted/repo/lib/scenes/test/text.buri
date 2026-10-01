@@ -27,7 +27,7 @@ test "combining marks, emoji and a right-to-left run" {
             ],
             children: [
                 ui.text({ content: .Const("é́́ äo̊u̧") }),
-                ui.text({ content: .Const("🙂 🇯🇵 👩‍💻 ❤️") }),
+                ui.text({ content: .Const("🙂 🇯🇵 👩\u{200d}💻 ❤️") }),
                 ui.text({ content: .Const("مرحبا بالعالم") }),
                 ui.text({ content: .Const("שלום ada עולם") }),
                 ui.text({ content: .Const("") }),
