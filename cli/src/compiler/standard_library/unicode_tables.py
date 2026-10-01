@@ -74,8 +74,13 @@ def b36(n, width):
     return out
 
 
-def quote(text):
-    """The literal the Buri formatter would print for `text`."""
+def quote(text, category):
+    """The literal the Buri formatter would print for `text`.
+
+    A character outside General Categories `C` and `Z`, or the space, is
+    written as itself and every other one as a `\\u{...}` escape, which is
+    `Char.isPrintable` and the rule `buri format` prints a literal by.
+    """
     out = ['"']
     for c in text:
         if c == '"':
@@ -86,10 +91,10 @@ def quote(text):
             out.append("\\n")
         elif c == "\t":
             out.append("\\t")
-        elif ord(c) < 0x20 or ord(c) == 0x7F:
-            raise ValueError(f"U+{ord(c):04X} would not survive a format")
-        else:
+        elif c == " " or category.get(ord(c), "Cn")[0] not in "CZ":
             out.append(c)
+        else:
+            out.append(f"\\u{{{ord(c):x}}}")
     out.append('"')
     return "".join(out)
 
@@ -324,7 +329,7 @@ def build(ucd):
     }
 
 
-def render(tables):
+def render(tables, category):
     out = [
         START + " (Unicode 16.0) ---------------------------",
         "//",
@@ -334,7 +339,7 @@ def render(tables):
     for name, why, text in tables:
         out.append("")
         out.append(f"/// {why}")
-        out.append(f"let {name}: Str = {quote(text)};")
+        out.append(f"let {name}: Str = {quote(text, category)};")
     out.append("")
     out.append(END + " -------------------")
     return "\n".join(out) + "\n"
@@ -358,8 +363,9 @@ def main():
     args = parser.parse_args()
     here = os.path.dirname(os.path.abspath(__file__))
     tables = build(args.ucd)
+    category = read_unicode_data(args.ucd)[0]
     for relative, entries in tables.items():
-        splice(os.path.join(here, relative), render(entries))
+        splice(os.path.join(here, relative), render(entries, category))
         total = sum(len(text) for _, _, text in entries)
         print(f"{relative}: {total} characters", file=sys.stderr)
         for name, _, text in entries:

@@ -140,6 +140,33 @@ test "a string literal comes back spelled the way it was written" {
     assert.equal(strLine(ctx, "a\${b"), "let X: Int = \"a\\\${b\";\n");
 }
 
+// A character with no visible shape is spelled as an escape, whatever its
+// category: a byte-order mark, a zero-width space, a separator, a C1 control,
+// and the bidirectional overrides that make a line display in one order and run
+// in another. A visible character outside ASCII is still itself.
+test "an invisible character comes back as an escape" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(strLine(ctx, "\u{feff}"), "let X: Int = \"\\u{feff}\";\n");
+    assert.equal(strLine(ctx, "a\u{200b}b"), "let X: Int = \"a\\u{200b}b\";\n");
+    assert.equal(strLine(ctx, "a\u{a0}b"), "let X: Int = \"a\\u{a0}b\";\n");
+    assert.equal(strLine(ctx, "a\u{2028}b"), "let X: Int = \"a\\u{2028}b\";\n");
+    assert.equal(strLine(ctx, "a\u{85}b"), "let X: Int = \"a\\u{85}b\";\n");
+    assert.equal(
+        strLine(ctx, "\u{202e}\u{2066}\u{2069}"),
+        "let X: Int = \"\\u{202e}\\u{2066}\\u{2069}\";\n",
+    );
+    assert.equal(strLine(ctx, "é中"), "let X: Int = \"é中\";\n");
+    assert.equal(charLine(ctx, '\u{feff}'), "let X: Int = '\\u{feff}';\n");
+    assert.equal(charLine(ctx, '\u{202e}'), "let X: Int = '\\u{202e}';\n");
+    let marked = ex(.Template([.Text("\u{feff}"), .Hole(id("count"))]));
+    let wanted = "let X: Int = \"\\u{feff}"
+        .concat(ctx, hole(ctx, "count"))
+        .concat(ctx, "\";\n");
+    assert.equal(ast.print(ctx, letOf(marked)).text, wanted);
+}
+
 test "a template escapes the dollar its own text carries" {
     let ctx = context {
         Allocator: alloc(),

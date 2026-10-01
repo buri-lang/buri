@@ -1,0 +1,9 @@
+error: expected `{`, found `,` [unexpected-token]
+  --> main.buri:22:15
+   |
+22 |     match (c) , { '\u{feff}' => 1, '\u{202E}' => 2, '\u{a0}' => 3, '⁩' => 4, _ => 0 }
+   |               ^
+   |
+   = expected: `{`
+   = actual: `,`
+   = fix: write `{` here

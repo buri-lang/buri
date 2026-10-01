@@ -435,6 +435,46 @@ pub fn defining_module(p: Prim) -> &'static str {
     }
 }
 
+/// `Char.isPrintable`, for the compiler's own use: whether `c` is outside
+/// General Categories `C` and `Z`, or is the space.
+///
+/// Read from `core/character`'s own `PRINTABLE` table rather than a copy of
+/// it, so the formatter and `core/buri/ast`'s printer, which both escape a
+/// literal's unprintable characters, cannot disagree about which ones those
+/// are. The table is ranges of eight base-36 digits, as `unicode_tables.py`
+/// writes it. A table that does not read answers `false` for everything
+/// outside printable ASCII, which escapes more than it needs to and never
+/// writes an invisible character into a file.
+pub fn is_printable(c: char) -> bool {
+    static RANGES: std::sync::OnceLock<Vec<(u32, u32)>> = std::sync::OnceLock::new();
+    if (' '..='~').contains(&c) {
+        return true;
+    }
+    let ranges = RANGES.get_or_init(|| printable_ranges().unwrap_or_default());
+    let cp = u32::from(c);
+    let at = ranges.partition_point(|&(_, last)| last < cp);
+    ranges.get(at).is_some_and(|&(first, _)| first <= cp)
+}
+
+/// The `PRINTABLE` table out of `core/character`'s source.
+fn printable_ranges() -> Option<Vec<(u32, u32)>> {
+    let source = source("core/character")?;
+    let (_, after) = source.split_once("let PRINTABLE: Str =")?;
+    let (_, quoted) = after.split_once('"')?;
+    let (table, _) = quoted.split_once('"')?;
+    let code = |digits: &[char]| -> Option<u32> {
+        digits.iter().try_fold(0u32, |n, d| n.checked_mul(36)?.checked_add(d.to_digit(36)?))
+    };
+    let digits: Vec<char> = table.chars().collect();
+    digits
+        .chunks(8)
+        .map(|range| match range {
+            [a, b, c, d, e, f, g, h] => Some((code(&[*a, *b, *c, *d])?, code(&[*e, *f, *g, *h])?)),
+            _ => None,
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // What each platform's host grants
 // ---------------------------------------------------------------------------
@@ -902,6 +942,20 @@ impl Wrapper {
 mod tests {
     use super::*;
 
+    /// `is_printable` falls back to escaping everything non-ASCII when the
+    /// table does not read, which no test of the formatter's output would
+    /// notice on ASCII and Latin text. This one would.
+    #[test]
+    fn the_printable_table_reads_out_of_core_character() {
+        let ranges = printable_ranges().expect("`PRINTABLE` reads");
+        assert!(ranges.len() > 100, "{} range(s)", ranges.len());
+        for c in ['a', ' ', 'é', '中', '😀'] {
+            assert!(is_printable(c), "{c:?}");
+        }
+        for c in ['\u{7f}', '\u{85}', '\u{a0}', '\u{200b}', '\u{202e}', '\u{2028}', '\u{feff}'] {
+            assert!(!is_printable(c), "{c:?}");
+        }
+    }
 
     /// The declared effect methods, read off the two platform sources that may
     /// declare an effect: `(effect, method)`, in declaration order.

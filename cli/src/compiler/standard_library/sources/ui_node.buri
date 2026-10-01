@@ -2070,14 +2070,13 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
 fn offered(builder: Builder): Offer {
     let mem = alloc.generalPurpose();
     let content = offeredBytes(builder);
-    // U+FEFF, the byte-order mark, as the three bytes UTF-8 spells it with.
-    let unmarked = if (bytes.startsWith(content, [239, 187, 191])) {
-        content.drop(mem, 3)
-    } else {
-        content
-    };
-    let text: Option<Str> = match (bytes.fromUtf8(mem, unmarked)) {
-        .Ok(decoded) => .Some(decoded),
+    let text: Option<Str> = match (bytes.fromUtf8(mem, content)) {
+        .Ok(decoded) => {
+            match (decoded.stripPrefix("\u{feff}")) {
+                .Some(rest) => .Some(rest),
+                .None => .Some(decoded),
+            }
+        },
         .Err(_) => .None,
     };
     Offer {
