@@ -128,7 +128,6 @@
 //!   That is `native/conformance.rs`'s pattern, for its reason.
 use buri::build::actions;
 use buri::build::buildfile::{Arch, Platform};
-use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME};
 use buri::compiler::backend::{self, Backend, Options, Profile, Target};
 use buri::compiler::driver;
 use buri::compiler::middle::monomorphize;
@@ -138,7 +137,6 @@ use buri::diagnostics::{Diagnostics, SourceMap};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::OnceLock;
 
 // -------------------------------------------------------------------
 // The backends under test
@@ -341,26 +339,6 @@ fn workspace(name: &str) -> PathBuf {
     dir
 }
 
-/// The runtime archive, written once for the process.
-///
-/// Six megabytes, and the same six megabytes for every row: a copy per
-/// workspace is a third of a gigabyte written, linked against, and then left
-/// behind under `CARGO_TARGET_TMPDIR`. Immutable once written and named by the
-/// process id, so the concurrency `#[test]`s run under is fine and two
-/// `cargo test` runs in two shells still do not share it —
-/// `native/llvm.rs::archive` is the same lock for the same reason.
-fn archive() -> &'static Path {
-    static WRITTEN: OnceLock<PathBuf> = OnceLock::new();
-    WRITTEN.get_or_init(|| {
-        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-            .join(format!("backend-agreement-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join(ARCHIVE_NAME);
-        std::fs::write(&path, ARCHIVE).unwrap();
-        path
-    })
-}
-
 /// The front end, once. Both pipelines are handed the same analysis, which
 /// is what makes a difference between them a difference between backends.
 fn analyze(row: &str, source: &str) -> (Checked, Vec<String>) {
@@ -514,7 +492,7 @@ fn run_native(row: &str, native: Native, checked: &Checked, paths: &[String]) ->
     for object in &objects {
         link.arg(object);
     }
-    link.arg(archive());
+    link.arg(crate::shared::runtime_archive());
     link.args(crate::shared::product_link_args());
     let linked = link.output().unwrap();
     assert!(

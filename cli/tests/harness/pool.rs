@@ -13,54 +13,54 @@
 //!   them. A case that panics is re-raised after every worker has stopped, and
 //!   the one re-raised is the *first* in corpus order — again what a
 //!   one-at-a-time run would have reported.
-//! * **The width is the binary's, not the caller's.** Cargo already runs this
+//! * **The width is the run's, not the caller's.** Cargo already runs this
 //!   binary's `#[test]`s on their own threads, so fifteen corpora each opening
 //!   `available_parallelism` workers would be a hundred and fifty `buri`
 //!   processes on a ten-core machine. Every case takes a permit from one gate
-//!   shared by the whole process instead, so the number in flight is the
-//!   machine's width however many corpora are running.
+//!   instead, so the number in flight is the machine's width however many
+//!   corpora are running. The permits are lock files named for the run
+//!   ([`super::sweep::run_name`]), because nextest runs each test in a process
+//!   of its own and an in-process gate would be one gate per corpus.
 //!
 //! Nothing else is shared. A case's scratch tree is named for the process and a
 //! counter ([`super::Scratch::empty`]), its goldens live in its own directory,
 //! and no case in a corpus that comes through here opens a socket.
 use std::any::Any;
-use std::sync::{Condvar, Mutex, OnceLock};
+use std::fs::File;
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
-/// How many cases may be running anywhere in this test binary at once.
+/// How many cases may be running anywhere in this test run at once.
 fn width() -> usize {
     std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
 }
 
-/// The permits, and somewhere to wait for one.
-struct Gate {
-    free: Mutex<usize>,
-    room: Condvar,
+/// One lock file per permit, shared by every process in the run.
+fn seats() -> &'static [PathBuf] {
+    static SEATS: OnceLock<Vec<PathBuf>> = OnceLock::new();
+    SEATS.get_or_init(|| {
+        super::sweep::once();
+        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("pool-{}", super::sweep::run_name()));
+        std::fs::create_dir_all(&dir).unwrap();
+        (0..width()).map(|n| dir.join(format!("seat-{n}"))).collect()
+    })
 }
 
-fn gate() -> &'static Gate {
-    static GATE: OnceLock<Gate> = OnceLock::new();
-    GATE.get_or_init(|| Gate { free: Mutex::new(width()), room: Condvar::new() })
-}
-
-/// A seat at the machine, given back when it drops — including when the case
-/// holding it panics, because unwinding runs this.
-struct Permit;
+/// A seat at the machine. Closing the file releases its lock, including when
+/// the case holding it panics, and the OS releases it if the process dies.
+struct Permit(#[allow(dead_code)] File);
 
 fn permit() -> Permit {
-    let gate = gate();
-    let mut free = gate.free.lock().unwrap_or_else(|e| e.into_inner());
-    while *free == 0 {
-        free = gate.room.wait(free).unwrap_or_else(|e| e.into_inner());
-    }
-    *free -= 1;
-    Permit
-}
-
-impl Drop for Permit {
-    fn drop(&mut self) {
-        let gate = gate();
-        *gate.free.lock().unwrap_or_else(|e| e.into_inner()) += 1;
-        gate.room.notify_one();
+    loop {
+        for seat in seats() {
+            let file = File::options().create(true).append(true).open(seat).unwrap();
+            if file.try_lock().is_ok() {
+                return Permit(file);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
 

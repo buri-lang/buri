@@ -35,6 +35,15 @@ use std::time::Duration;
 /// not accumulate a disk's worth.
 const STALE: Duration = Duration::from_secs(2 * 60 * 60);
 
+/// A name every process of one test run shares, for what the run shares.
+///
+/// `cargo nextest` starts a process per test and hands each the same
+/// `NEXTEST_RUN_ID`. Under `cargo test` a binary is one process, so its id is
+/// the run's.
+pub fn run_name() -> String {
+    std::env::var("NEXTEST_RUN_ID").unwrap_or_else(|_| std::process::id().to_string())
+}
+
 /// Sweeps once per test binary, whenever it is called.
 ///
 /// Best effort throughout: a tree another process is deleting at the same
