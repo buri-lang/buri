@@ -2214,6 +2214,10 @@ export struct Token {
     export span: Span,
 }
 
+/// The lexer's whole state. There is only ever one of these alive: a scanner
+/// reads ahead with a [`Cursor`] and hands the record and the cursor it stopped
+/// at to [`pushToken`] together, so nothing else holds `tokens` and each push
+/// writes into the list rather than copying it.
 struct Lex {
     source: Str,
     chars: [Char],
@@ -2221,6 +2225,15 @@ struct Lex {
     at: Int,
     tokens: [Token],
     modes: [Int],
+}
+
+/// A position a scanner has read up to: the scalar index into `chars`, and the
+/// byte offset beside it. It carries no tokens, so reading ahead with one leaves
+/// the [`Lex`] it started from the only holder of its list.
+struct Cursor {
+    chars: [Char],
+    index: Int,
+    at: Int,
 }
 
 /// A `{` is on the mode stack, so the `}` that matches it is punctuation.
@@ -2281,7 +2294,8 @@ fn lexRun<C: Allocator>(ctx: C, lx: Lex): Lex {
 fn lexStep<C: Allocator>(ctx: C, lx: Lex): Lex {
     let c = charOf(lx.chars, lx.index);
     if (isWhitespace(c)) {
-        scanWhitespace(lx)
+        let end = scanWhitespace(cursor(lx));
+        Lex { ..lx, index: end.index, at: end.at }
     } else if (c == '/') {
         scanSlash(ctx, lx)
     } else if (c == '"') {
@@ -2321,34 +2335,50 @@ fn utf8Width(c: Char): Int {
     if (u < 128) { 1 } else if (u < 2048) { 2 } else if (u < 65536) { 3 } else { 4 }
 }
 
-fn nextChar(lx: Lex): Lex {
-    Lex { ..lx, index: lx.index + 1, at: lx.at + utf8Width(charOf(lx.chars, lx.index)) }
+/// Where `lx` is, to read ahead from.
+fn cursor(lx: Lex): Cursor {
+    Cursor { chars: lx.chars, index: lx.index, at: lx.at }
 }
 
-fn skipChars(lx: Lex, count: Int): Lex {
-    if (count <= 0) { lx } else { skipChars(nextChar(lx), count - 1) }
+fn nextChar(cur: Cursor): Cursor {
+    Cursor {
+        ..cur,
+        index: cur.index + 1,
+        at: cur.at + utf8Width(charOf(cur.chars, cur.index)),
+    }
 }
 
-fn atEnd(lx: Lex): Bool {
-    lx.index >= lx.chars.length()
+fn skipChars(cur: Cursor, count: Int): Cursor {
+    if (count <= 0) { cur } else { skipChars(nextChar(cur), count - 1) }
 }
 
-fn pushToken<C: Allocator>(ctx: C, lx: Lex, kind: TokenKind, opened: Lex): Lex {
+fn atEnd(cur: Cursor): Bool {
+    cur.index >= cur.chars.length()
+}
+
+/// The token from where `lx` is to `end`, pushed, with `lx` moved to `end`.
+///
+/// A scanner binds `end` before it calls this, so `lx` is not read again after
+/// it is passed here.
+fn pushToken<C: Allocator>(ctx: C, lx: Lex, kind: TokenKind, end: Cursor): Lex {
     Lex {
         ..lx,
+        index: end.index,
+        at: end.at,
         tokens: lx
             .tokens
             .push(ctx, Token {
                 kind: kind,
-                text: lx.source.slice(opened.index, lx.index),
-                span: Span { start: opened.at, end: lx.at },
+                text: lx.source.slice(lx.index, end.index),
+                span: Span { start: lx.at, end: end.at },
             }),
     }
 }
 
 /// One character, as its own token.
 fn oneChar<C: Allocator>(ctx: C, lx: Lex, kind: TokenKind): Lex {
-    pushToken(ctx, nextChar(lx), kind, lx)
+    let end = nextChar(cursor(lx));
+    pushToken(ctx, lx, kind, end)
 }
 
 // --- classes ------------------------------------------------------------------
@@ -2379,11 +2409,11 @@ fn isHexDigit(c: Char): Bool {
 
 // --- whitespace and comments ----------------------------------------------------
 
-fn scanWhitespace(lx: Lex): Lex {
-    if (atEnd(lx) == false && isWhitespace(charOf(lx.chars, lx.index))) {
-        scanWhitespace(nextChar(lx))
+fn scanWhitespace(cur: Cursor): Cursor {
+    if (atEnd(cur) == false && isWhitespace(charOf(cur.chars, cur.index))) {
+        scanWhitespace(nextChar(cur))
     } else {
-        lx
+        cur
     }
 }
 
@@ -2410,35 +2440,37 @@ fn scanLineComment<C: Allocator>(ctx: C, lx: Lex): Lex {
     } else {
         TokenKind.LineComment
     };
-    pushToken(ctx, scanToEndOfLine(lx), kind, lx)
+    let end = scanToEndOfLine(cursor(lx));
+    pushToken(ctx, lx, kind, end)
 }
 
-fn scanToEndOfLine(lx: Lex): Lex {
-    if (atEnd(lx) == false && charOf(lx.chars, lx.index) != '\n') {
-        scanToEndOfLine(nextChar(lx))
+fn scanToEndOfLine(cur: Cursor): Cursor {
+    if (atEnd(cur) == false && charOf(cur.chars, cur.index) != '\n') {
+        scanToEndOfLine(nextChar(cur))
     } else {
-        lx
+        cur
     }
 }
 
 fn scanBlockComment<C: Allocator>(ctx: C, lx: Lex): Lex {
-    pushToken(ctx, scanNesting(skipChars(lx, 2), 1), TokenKind.BlockComment, lx)
+    let end = scanNesting(skipChars(cursor(lx), 2), 1);
+    pushToken(ctx, lx, TokenKind.BlockComment, end)
 }
 
 /// Block comments nest, so the scan carries a depth rather than stopping at the
 /// first `*/`.
-fn scanNesting(lx: Lex, depth: Int): Lex {
-    if (depth <= 0 || atEnd(lx)) {
-        lx
+fn scanNesting(cur: Cursor, depth: Int): Cursor {
+    if (depth <= 0 || atEnd(cur)) {
+        cur
     } else {
-        let c = charOf(lx.chars, lx.index);
-        let next = charOf(lx.chars, lx.index + 1);
+        let c = charOf(cur.chars, cur.index);
+        let next = charOf(cur.chars, cur.index + 1);
         if (c == '/' && next == '*') {
-            scanNesting(skipChars(lx, 2), depth + 1)
+            scanNesting(skipChars(cur, 2), depth + 1)
         } else if (c == '*' && next == '/') {
-            scanNesting(skipChars(lx, 2), depth - 1)
+            scanNesting(skipChars(cur, 2), depth - 1)
         } else {
-            scanNesting(nextChar(lx), depth)
+            scanNesting(nextChar(cur), depth)
         }
     }
 }
@@ -2446,7 +2478,7 @@ fn scanNesting(lx: Lex, depth: Int): Lex {
 // --- words ---------------------------------------------------------------------
 
 fn scanWord<C: Allocator>(ctx: C, lx: Lex): Lex {
-    let end = scanWordEnd(nextChar(lx));
+    let end = scanWordEnd(nextChar(cursor(lx)));
     let spelling = lx.source.slice(lx.index, end.index);
     let kind = if (spelling == "_") {
         TokenKind.Punctuation
@@ -2457,14 +2489,14 @@ fn scanWord<C: Allocator>(ctx: C, lx: Lex): Lex {
     } else {
         TokenKind.Identifier
     };
-    pushToken(ctx, end, kind, lx)
+    pushToken(ctx, lx, kind, end)
 }
 
-fn scanWordEnd(lx: Lex): Lex {
-    if (atEnd(lx) == false && isWordPart(charOf(lx.chars, lx.index))) {
-        scanWordEnd(nextChar(lx))
+fn scanWordEnd(cur: Cursor): Cursor {
+    if (atEnd(cur) == false && isWordPart(charOf(cur.chars, cur.index))) {
+        scanWordEnd(nextChar(cur))
     } else {
-        lx
+        cur
     }
 }
 
@@ -2530,34 +2562,35 @@ fn scanNumber<C: Allocator>(ctx: C, lx: Lex): Lex {
     if (
         charOf(lx.chars, lx.index) == '0' && (next == 'x' || next == 'o' || next == 'b')
     ) {
-        pushToken(ctx, scanRadixDigits(skipChars(lx, 2)), TokenKind.Int, lx)
+        let end = scanRadixDigits(skipChars(cursor(lx), 2));
+        pushToken(ctx, lx, TokenKind.Int, end)
     } else {
         scanDecimal(ctx, lx)
     }
 }
 
-fn scanRadixDigits(lx: Lex): Lex {
-    let c = charOf(lx.chars, lx.index);
-    if (atEnd(lx) == false && (isHexDigit(c) || c == '_')) {
-        scanRadixDigits(nextChar(lx))
+fn scanRadixDigits(cur: Cursor): Cursor {
+    let c = charOf(cur.chars, cur.index);
+    if (atEnd(cur) == false && (isHexDigit(c) || c == '_')) {
+        scanRadixDigits(nextChar(cur))
     } else {
-        lx
+        cur
     }
 }
 
-fn scanDecimalDigits(lx: Lex): Lex {
-    let c = charOf(lx.chars, lx.index);
-    if (atEnd(lx) == false && (isDigit(c) || c == '_')) {
-        scanDecimalDigits(nextChar(lx))
+fn scanDecimalDigits(cur: Cursor): Cursor {
+    let c = charOf(cur.chars, cur.index);
+    if (atEnd(cur) == false && (isDigit(c) || c == '_')) {
+        scanDecimalDigits(nextChar(cur))
     } else {
-        lx
+        cur
     }
 }
 
 /// A float must begin with a digit and carry a digit after the point, which is
 /// what makes `pair.0` a tuple index rather than a float.
 fn scanDecimal<C: Allocator>(ctx: C, lx: Lex): Lex {
-    let whole = scanDecimalDigits(lx);
+    let whole = scanDecimalDigits(cursor(lx));
     let afterPoint = if (
         charOf(whole.chars, whole.index) == '.'
             && isDigit(charOf(whole.chars, whole.index + 1))
@@ -2577,12 +2610,8 @@ fn scanDecimal<C: Allocator>(ctx: C, lx: Lex): Lex {
     } else {
         afterPoint
     };
-    pushToken(
-        ctx,
-        end,
-        if (float || hasExponent) { TokenKind.Float } else { TokenKind.Int },
-        lx,
-    )
+    let kind = if (float || hasExponent) { TokenKind.Float } else { TokenKind.Int };
+    pushToken(ctx, lx, kind, end)
 }
 
 // --- text ----------------------------------------------------------------------
@@ -2591,16 +2620,16 @@ fn scanDecimal<C: Allocator>(ctx: C, lx: Lex): Lex {
 /// quote. The mode stack is what tells the `}` that closes a block inside a hole
 /// from the `}` that resumes template text.
 fn scanText<C: Allocator>(ctx: C, lx: Lex): Lex {
-    let (end, hole) = scanStrBody(nextChar(lx));
+    let (end, hole) = scanStrBody(nextChar(cursor(lx)));
     if (hole) {
         pushToken(
             ctx,
-            Lex { ..end, modes: end.modes.push(ctx, HOLE) },
+            Lex { ..lx, modes: lx.modes.push(ctx, HOLE) },
             TokenKind.TemplateHead,
-            lx,
+            end,
         )
     } else {
-        pushToken(ctx, end, TokenKind.Str, lx)
+        pushToken(ctx, lx, TokenKind.Str, end)
     }
 }
 
@@ -2608,81 +2637,78 @@ fn scanText<C: Allocator>(ctx: C, lx: Lex): Lex {
 fn scanCloser<C: Allocator>(ctx: C, lx: Lex): Lex {
     match (lx.modes.last()) {
         .Some(mode) => {
-            let outer = Lex { ..lx, modes: lx.modes.take(ctx, lx.modes.length() - 1) };
             if (mode == HOLE) {
-                let (end, hole) = scanStrBody(nextChar(lx));
+                let (end, hole) = scanStrBody(nextChar(cursor(lx)));
                 if (hole) {
-                    pushToken(ctx, end, TokenKind.TemplateSpan, lx)
+                    pushToken(ctx, lx, TokenKind.TemplateSpan, end)
                 } else {
-                    pushToken(
-                        ctx,
-                        Lex { ..end, modes: outer.modes },
-                        TokenKind.TemplateTail,
-                        lx,
-                    )
+                    pushToken(ctx, popMode(ctx, lx), TokenKind.TemplateTail, end)
                 }
             } else {
-                pushToken(
-                    ctx,
-                    nextChar(Lex { ..lx, modes: outer.modes }),
-                    TokenKind.Punctuation,
-                    lx,
-                )
+                let end = nextChar(cursor(lx));
+                pushToken(ctx, popMode(ctx, lx), TokenKind.Punctuation, end)
             }
         },
         .None => oneChar(ctx, lx, TokenKind.Punctuation),
     }
 }
 
+/// `lx` with the innermost mode taken off the stack.
+fn popMode<C: Allocator>(ctx: C, lx: Lex): Lex {
+    Lex { ..lx, modes: lx.modes.take(ctx, lx.modes.length() - 1) }
+}
+
 /// Scans to the `"` that ends a string or the `${` that opens a hole, and says
 /// which of the two it found. The opener is already consumed.
-fn scanStrBody(lx: Lex): (Lex, Bool) {
-    if (atEnd(lx)) {
-        (lx, false)
+fn scanStrBody(cur: Cursor): (Cursor, Bool) {
+    if (atEnd(cur)) {
+        (cur, false)
     } else {
-        let c = charOf(lx.chars, lx.index);
+        let c = charOf(cur.chars, cur.index);
         if (c == '"') {
-            (nextChar(lx), false)
+            (nextChar(cur), false)
         } else if (c == '\\') {
-            scanStrBody(skipChars(lx, 2))
-        } else if (c == '$' && charOf(lx.chars, lx.index + 1) == '{') {
-            (skipChars(lx, 2), true)
+            scanStrBody(skipChars(cur, 2))
+        } else if (c == '$' && charOf(cur.chars, cur.index + 1) == '{') {
+            (skipChars(cur, 2), true)
         } else {
-            scanStrBody(nextChar(lx))
+            scanStrBody(nextChar(cur))
         }
     }
 }
 
 fn scanChar<C: Allocator>(ctx: C, lx: Lex): Lex {
     let body = if (charOf(lx.chars, lx.index + 1) == '\\') {
-        scanEscape(skipChars(lx, 2))
+        scanEscape(skipChars(cursor(lx), 2))
     } else {
-        skipChars(lx, 2)
+        skipChars(cursor(lx), 2)
     };
     let end = if (charOf(body.chars, body.index) == '\'') {
         nextChar(body)
     } else {
         body
     };
-    pushToken(ctx, end, TokenKind.Char, lx)
+    pushToken(ctx, lx, TokenKind.Char, end)
 }
 
 /// The escape's own characters: one for `\n`, and `u{...}`'s whole brace group.
-fn scanEscape(lx: Lex): Lex {
-    if (charOf(lx.chars, lx.index) == 'u' && charOf(lx.chars, lx.index + 1) == '{') {
-        scanToCurly(skipChars(lx, 2))
+fn scanEscape(cur: Cursor): Cursor {
+    if (
+        charOf(cur.chars, cur.index) == 'u' && charOf(cur.chars, cur.index + 1) == '{'
+    ) {
+        scanToCurly(skipChars(cur, 2))
     } else {
-        nextChar(lx)
+        nextChar(cur)
     }
 }
 
-fn scanToCurly(lx: Lex): Lex {
-    if (atEnd(lx)) {
-        lx
-    } else if (charOf(lx.chars, lx.index) == '}') {
-        nextChar(lx)
+fn scanToCurly(cur: Cursor): Cursor {
+    if (atEnd(cur)) {
+        cur
+    } else if (charOf(cur.chars, cur.index) == '}') {
+        nextChar(cur)
     } else {
-        scanToCurly(nextChar(lx))
+        scanToCurly(nextChar(cur))
     }
 }
 
@@ -2702,7 +2728,8 @@ fn scanPunctuation<C: Allocator>(ctx: C, lx: Lex): Lex {
         || two == "&&"
         || two == "||";
     if (paired) {
-        pushToken(ctx, skipChars(lx, 2), TokenKind.Punctuation, lx)
+        let end = skipChars(cursor(lx), 2);
+        pushToken(ctx, lx, TokenKind.Punctuation, end)
     } else if (isPunctuation(charOf(lx.chars, lx.index))) {
         oneChar(ctx, lx, TokenKind.Punctuation)
     } else {
