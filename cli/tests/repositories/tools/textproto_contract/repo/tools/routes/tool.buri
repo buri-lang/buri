@@ -1,0 +1,54 @@
+//! One module, `table`: each route as a line, and every value as it arrived.
+
+from "core/buri/ast" import * as ast;
+from "core/effect" import { Allocator };
+from "core/str" import * as str;
+from "core/tool" import { Generated, GenerateRequest };
+from "//tools/routes/textproto" import { Route, Routes };
+
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Routes>): Generated {
+    let lines = request
+        .inputs
+        .flatMapCtx(ctx, fn(c, input) => {
+            input.value.route.mapCtx(c, fn(c2, r) => line(c2, r))
+        })
+        .join(ctx, "; ");
+    let shown = request
+        .inputs
+        .mapCtx(ctx, fn(c, input) => str.format(c, "${input.value}"))
+        .join(ctx, "; ");
+    Generated {
+        modules: [
+            (
+                "table",
+                ast.Module {
+                    items: [text("table", lines), text("shown", shown)],
+                    docs: [],
+                },
+            ),
+        ],
+        diagnostics: [],
+        needs: [],
+    }
+}
+
+fn line<C: Allocator>(ctx: C, r: Route): Str {
+    let path = r.path.withDefault("?");
+    let port = r.port.withDefault(0);
+    str.format(ctx, "${path} -> ${port}")
+}
+
+/// `export let <name>: Str = <value>;`
+fn text(name: Str, value: Str): ast.Item {
+    let ty = ast.Name { text: "Str", origin: ast.nowhere() };
+    ast.Item {
+        kind: .Let(ast.LetDecl {
+            name: ast.Name { text: name, origin: ast.nowhere() },
+            ty: ast.Type { kind: .Named(ty, []), origin: ast.nowhere() },
+            value: ast.Expr { kind: .Str(value), origin: ast.nowhere() },
+            exported: true,
+            docs: [],
+        }),
+        origin: ast.nowhere(),
+    }
+}

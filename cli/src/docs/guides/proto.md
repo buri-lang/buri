@@ -119,6 +119,12 @@ message Point {
 Depend on the library and use what its `lib.buri` re-exported. One schema may
 `import` another, and then both must belong to the same rule.
 
+## Write a message's values
+
+A `.txtpb` file holds one value of a message, in protobuf's text format, and
+the build checks it against the schema:
+[check text format files against a message](./textproto.md).
+
 ---
 
 [`proto.md`](../reference/build/proto.md) is the mapping: what each proto

@@ -1,0 +1,28 @@
+edition = "2026";
+
+package shop.v1;
+
+enum Size {
+    SIZE_UNSPECIFIED = 0;
+    SMALL = 1;
+}
+
+message Order {
+    string id = 1;
+    int32 count = 2;
+    Size size = 3;
+    Line line = 4;
+    repeated string tags = 5;
+    bool gift = 6;
+    uint32 weight = 7;
+    oneof delivery {
+        string address = 8;
+        string locker = 9;
+    }
+    Line backup = 10;
+    int32 count_by = 11;
+}
+
+message Line {
+    string sku = 1;
+}

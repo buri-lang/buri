@@ -1,0 +1,51 @@
+error: "//lib/routes/table" names no file (lib/routes/table.buri) [module-not-found]
+ --> lib/routes/lib.buri:1:6
+  |
+1 | from "//lib/routes/table" export { shown, table };
+  |      ^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    What to do
+    ──────────
+
+    Create the file the path names, or correct the path.
+
+    Why
+    ───
+
+    A module path maps to exactly one file, with no search path and no fallback,
+    so there is never a question of which of two candidates a path meant.
+
+    A program that provokes it
+    ──────────────────────────
+
+    This snippet resolves against the worked monorepo in cli/tests/example,
+    which has no lib/nope.
+
+error: `port` is of type `int32`, and this is not a whole number [textproto-wrong-value]
+ --> lib/routes/routes.txtpb:8:11
+  |
+8 |     port: "8080"
+  |           ^^^^^^
+  |
+  = fix: write a whole number
+
+      port: "80"        # an `int32` takes a whole number
+      port: 99999999999 # that fits 32 bits
+      tier: SILVER      # an enum takes one of its values' names, or a number
+      limits: 4         # a message is written `limits { ... }`
+      name: ["a", "b"]  # a field that is not `repeated` takes one value
+
+      Field          Value
+      string         a quoted string whose bytes are UTF-8
+      bytes          a quoted string
+      bool           true, True, t, false, False, f, 1 or 0
+      the integers   a decimal, 0x hex or 0 octal number in the type's range
+      float, double  a number, or inf, infinity or nan
+      an enum        a value's name, or a 32-bit number
+      a message      { ... } or < ... >
+
+    A uint64 or fixed64 past what a Buri Int holds is refused, because the
+    generated field is an Int.
+

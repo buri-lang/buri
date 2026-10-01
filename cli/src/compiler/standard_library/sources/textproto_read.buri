@@ -1,0 +1,1671 @@
+//! std/textproto/read — protobuf's text format, read against a `.proto` schema.
+//!
+//! ```text
+//! # proto-file: lib/deploy/server.proto
+//! # proto-message: Server
+//! name: "api"
+//! ports: [80, 443]
+//! limits { cpu: 0.5 }
+//! ```
+//!
+//! [`parse`] reads the text into a tree whose every node carries its span.
+//! [`check`] measures the tree against a message, and answers the value as the
+//! proto3 JSON the message's generated `decode...Json` reads. That makes one
+//! walk serve the check, the value a data file exports, and the typed value a
+//! tool under a contract is handed.
+//!
+//! The grammar is the one protobuf.dev's text format specification states. An
+//! extension or `Any` field, written `[name]`, is refused by name.
+
+from "core/buri/ast" import * as ast;
+from "core/bytes" import * as bytes;
+from "core/codegen" import { Diagnostic };
+from "core/effect" import { Allocator };
+from "core/json" import { Json };
+from "core/proto" import { ProtoError };
+from "core/str" import * as str;
+from "std/codegen/proto" import * as proto;
+from "std/codegen/proto/schema" import * as schema;
+
+// -----------------------------------------------------------------------------
+// The tree
+// -----------------------------------------------------------------------------
+
+/// One value, as written.
+export enum Value {
+    /// `{ ... }` or `< ... >`.
+    Message([Field], ast.Origin),
+    /// `[a, b]`.
+    List([Value], ast.Origin),
+    /// One or more adjacent quoted strings, as the bytes their escapes spell.
+    Bytes([Int], ast.Origin),
+    /// A number as written, sign included: `-0x1f`, `1.5f`.
+    Number(Str, ast.Origin),
+    /// A bare word, sign included: `RED`, `true`, `-inf`.
+    Word(Str, ast.Origin),
+}
+
+/// `name: value`, or `name { ... }`.
+export struct Field {
+    export name: Str,
+    export nameAt: ast.Origin,
+    export value: Value,
+}
+
+/// A `# key: value` comment above the first field.
+export struct Header {
+    export key: Str,
+    export value: Str,
+    /// The value's span.
+    export at: ast.Origin,
+}
+
+export struct Document {
+    export fields: [Field],
+    export headers: [Header],
+}
+
+fn originOf(v: Value): ast.Origin {
+    match (v) {
+        .Message(_f, o) => o,
+        .List(_v, o) => o,
+        .Bytes(_b, o) => o,
+        .Number(_n, o) => o,
+        .Word(_w, o) => o,
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Reading the text
+// -----------------------------------------------------------------------------
+
+enum Kind {
+    Word,
+    Number,
+    Text,
+    Symbol,
+    End,
+}
+
+struct Token {
+    kind: Kind,
+    text: Str,
+    /// A quoted string's bytes, escapes applied.
+    bytes: [Int],
+    start: Int,
+    end: Int,
+}
+
+struct L {
+    cs: [Char],
+    /// The byte offset of each character, one longer than `cs`.
+    offsets: [Int],
+    file: Str,
+    at: Int,
+    tokens: [Token],
+    headers: [Header],
+}
+
+fn syntax<C: Allocator>(
+    ctx: C,
+    file: Str,
+    start: Int,
+    end: Int,
+    message: Str,
+    fix: Str,
+): Diagnostic {
+    Diagnostic {
+        code: "textproto-syntax",
+        message: message,
+        note: .None,
+        fix: .Some(fix),
+        origin: .Some(ast.origin(file, start, end)),
+    }
+}
+
+fn byteOf(l: L, index: Int): Int {
+    match (l.offsets.get(index)) {
+        .Some(b) => b,
+        .None => l.offsets.last().withDefault(0),
+    }
+}
+
+fn charAt(l: L, index: Int): Char {
+    l.cs.get(index).withDefault('\0')
+}
+
+fn utf8Len(c: Char): Int {
+    let v = c.toU32().toI64();
+    if (v < 128) { 1 } else if (v < 2048) { 2 } else if (v < 65536) { 3 } else { 4 }
+}
+
+fn offsetsOf<C: Allocator>(ctx: C, cs: [Char]): [Int] {
+    let first: [Int] = [0];
+    cs.foldCtx(
+        ctx,
+        fn(c, acc: [Int], ch) => acc.push(c, acc.last().withDefault(0) + utf8Len(ch)),
+        first,
+    )
+}
+
+fn isWordStart(c: Char): Bool {
+    c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_'
+}
+
+fn isWordPart(c: Char): Bool {
+    isWordStart(c) || c.isDigit()
+}
+
+/// Reads `text` as the document at `file`. The first thing that does not parse
+/// is the one diagnostic.
+export fn parse<C: Allocator>(
+    ctx: C,
+    text: Str,
+    file: Str,
+): Result<Document, Diagnostic> {
+    let cs = text.chars(ctx);
+    let start = L {
+        cs: cs,
+        offsets: offsetsOf(ctx, cs),
+        file: file,
+        at: 0,
+        tokens: [],
+        headers: [],
+    };
+    let lexed = lex(ctx, start)?;
+    let end = byteOf(lexed, lexed.cs.length());
+    let tokens = lexed
+        .tokens
+        .push(ctx, Token { kind: .End, text: "", bytes: [], start: end, end: end });
+    let (at, fields) = fieldsUntil(ctx, tokens, file, 0, "", [])?;
+    let _ = at;
+    .Ok(Document { fields: fields, headers: lexed.headers })
+}
+
+fn lex<C: Allocator>(ctx: C, l: L): Result<L, Diagnostic> {
+    if (l.at >= l.cs.length()) {
+        .Ok(l)
+    } else {
+        let c = charAt(l, l.at);
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '﻿') {
+            lex(ctx, L { ..l, at: l.at + 1 })
+        } else if (c == '#') {
+            lex(ctx, comment(ctx, l))
+        } else if (isWordStart(c)) {
+            let end = wordEnd(l, l.at);
+            lex(ctx, push(ctx, l, .Word, end, []))
+        } else if (c.isDigit() || c == '.' && charAt(l, l.at + 1).isDigit()) {
+            lex(
+                ctx,
+                push(
+                    ctx,
+                    l,
+                    .Number,
+                    numberEnd(
+                        l,
+                        l.at + 1,
+                        c == '0'
+                            && (charAt(l, l.at + 1) == 'x'
+                                || charAt(l, l.at + 1) == 'X'),
+                    ),
+                    [],
+                ),
+            )
+        } else if (c == '"' || c == '\'') {
+            let (end, spelled) = quoted(ctx, l, l.at + 1, c, [])?;
+            lex(ctx, push(ctx, l, .Text, end, spelled))
+        } else {
+            lex(ctx, push(ctx, l, .Symbol, l.at + 1, []))
+        }
+    }
+}
+
+fn push<C: Allocator>(ctx: C, l: L, kind: Kind, end: Int, spelled: [Int]): L {
+    let t = Token {
+        kind: kind,
+        text: str.fromChars(ctx, l.cs.slice(ctx, l.at, end)),
+        bytes: spelled,
+        start: byteOf(l, l.at),
+        end: byteOf(l, end),
+    };
+    L { ..l, at: end, tokens: l.tokens.push(ctx, t) }
+}
+
+fn wordEnd(l: L, index: Int): Int {
+    if (index < l.cs.length() && isWordPart(charAt(l, index))) {
+        wordEnd(l, index + 1)
+    } else {
+        index
+    }
+}
+
+/// Past the digits, letters, points and exponent signs of one number. Which of
+/// them make a valid number is the check's business.
+fn numberEnd(l: L, index: Int, hex: Bool): Int {
+    let c = charAt(l, index);
+    let exponent = (c == '+' || c == '-')
+        && !hex
+        && (charAt(l, index - 1) == 'e' || charAt(l, index - 1) == 'E');
+    if (index < l.cs.length() && (isWordPart(c) || c == '.' || exponent)) {
+        numberEnd(l, index + 1, hex)
+    } else {
+        index
+    }
+}
+
+/// A `#` comment. One above the first token whose text is `key: value` is a
+/// header.
+fn comment<C: Allocator>(ctx: C, l: L): L {
+    let end = lineEnd(l, l.at);
+    if (!l.tokens.isEmpty()) {
+        L { ..l, at: end }
+    } else {
+        let body = str.fromChars(ctx, l.cs.slice(ctx, l.at + 1, end));
+        let header: Option<Header> = match (body.splitOnce(":")) {
+            .None => .None,
+            .Some(pair) => {
+                let key = pair.0.trim();
+                if (
+                    key == "proto-file"
+                        || key == "proto-message"
+                        || key == "proto-import"
+                ) {
+                    let value = pair.1.trim();
+                    // Where the value starts: past the key, the colon and any
+                    // space after it.
+                    let colon = l.at + 1 + pair.0.length() + 1;
+                    let lead = pair.1.length() - pair.1.trimStart().length();
+                    let begin = colon + lead;
+                    .Some(Header {
+                        key: key,
+                        value: value,
+                        at: ast.origin(
+                            l.file,
+                            byteOf(l, begin),
+                            byteOf(l, begin + value.length()),
+                        ),
+                    })
+                } else {
+                    .None
+                }
+            },
+        };
+        match (header) {
+            .Some(h) => L { ..l, at: end, headers: l.headers.push(ctx, h) },
+            .None => L { ..l, at: end },
+        }
+    }
+}
+
+fn lineEnd(l: L, index: Int): Int {
+    if (index >= l.cs.length() || charAt(l, index) == '\n') {
+        index
+    } else {
+        lineEnd(l, index + 1)
+    }
+}
+
+/// The rest of a quoted string from `index`, just past its opening quote: where
+/// it ends, and the bytes it spells.
+fn quoted<C: Allocator>(
+    ctx: C,
+    l: L,
+    index: Int,
+    quote: Char,
+    acc: [Int],
+): Result<(Int, [Int]), Diagnostic> {
+    if (index >= l.cs.length() || charAt(l, index) == '\n') {
+        .Err(
+            syntax(
+                ctx,
+                l.file,
+                byteOf(l, l.at),
+                byteOf(l, index),
+                "this string does not close",
+                "close it with a quote on the same line",
+            ),
+        )
+    } else {
+        let c = charAt(l, index);
+        if (c == quote) {
+            .Ok((index + 1, acc))
+        } else if (c == '\\') {
+            let (next, spelled) = escape(ctx, l, index)?;
+            quoted(ctx, l, next, quote, acc.concat(ctx, spelled))
+        } else {
+            quoted(
+                ctx,
+                l,
+                index + 1,
+                quote,
+                acc.concat(ctx, utf8(ctx, c.toU32().toI64())),
+            )
+        }
+    }
+}
+
+/// One escape, from its `\`: where it ends, and its bytes.
+fn escape<C: Allocator>(ctx: C, l: L, index: Int): Result<(Int, [Int]), Diagnostic> {
+    let e = charAt(l, index + 1);
+    let simple: Option<Int> = if (e == 'a') {
+        .Some(7)
+    } else if (e == 'b') {
+        .Some(8)
+    } else if (e == 'f') {
+        .Some(12)
+    } else if (e == 'n') {
+        .Some(10)
+    } else if (e == 'r') {
+        .Some(13)
+    } else if (e == 't') {
+        .Some(9)
+    } else if (e == 'v') {
+        .Some(11)
+    } else if (e == '?' || e == '\\' || e == '\'' || e == '"') {
+        .Some(e.toU32().toI64())
+    } else {
+        .None
+    };
+    match (simple) {
+        .Some(b) => .Ok((index + 2, [b])),
+        .None => {
+            if (e >= '0' && e <= '7') {
+                let end = digitsEnd(l, index + 1, 8, 3);
+                .Ok((end, [digitsValue(ctx, l, index + 1, end, 8) % 256]))
+            } else if (e == 'x' || e == 'X') {
+                let end = digitsEnd(l, index + 2, 16, 2);
+                if (end == index + 2) {
+                    .Err(badEscape(ctx, l, index, end + 1))
+                } else {
+                    .Ok((end, [digitsValue(ctx, l, index + 2, end, 16)]))
+                }
+            } else if (e == 'u' || e == 'U') {
+                let width = if (e == 'u') { 4 } else { 8 };
+                let end = digitsEnd(l, index + 2, 16, width);
+                let point = digitsValue(ctx, l, index + 2, end, 16);
+                if (
+                    end != index + 2 + width
+                        || point > 1114111
+                        || point >= 55296 && point <= 57343
+                ) {
+                    .Err(badEscape(ctx, l, index, end))
+                } else {
+                    .Ok((end, utf8(ctx, point)))
+                }
+            } else {
+                .Err(badEscape(ctx, l, index, index + 2))
+            }
+        },
+    }
+}
+
+fn badEscape<C: Allocator>(ctx: C, l: L, start: Int, end: Int): Diagnostic {
+    let written = str.fromChars(ctx, l.cs.slice(ctx, start, end));
+    syntax(
+        ctx,
+        l.file,
+        byteOf(l, start),
+        byteOf(l, end),
+        str.format(ctx, "`${written}` is not an escape"),
+        "write `\\n`, `\\t`, `\\\\`, `\\\"`, `\\x41`, `\\101` or `\\u00e9`",
+    )
+}
+
+fn digitsEnd(l: L, index: Int, radix: Int, most: Int): Int {
+    if (most > 0 && index < l.cs.length() && charAt(l, index).toDigit(radix).isSome()) {
+        digitsEnd(l, index + 1, radix, most - 1)
+    } else {
+        index
+    }
+}
+
+fn digitsValue<C: Allocator>(ctx: C, l: L, start: Int, end: Int, radix: Int): Int {
+    l
+        .cs
+        .slice(ctx, start, end)
+        .fold(fn(acc, c) => acc * radix + c.toDigit(radix).withDefault(0), 0)
+}
+
+/// The UTF-8 bytes of one code point.
+fn utf8<C: Allocator>(ctx: C, n: Int): [Int] {
+    if (n < 128) {
+        [n]
+    } else if (n < 2048) {
+        [192 + n / 64, 128 + n % 64]
+    } else if (n < 65536) {
+        [224 + n / 4096, 128 + n / 64 % 64, 128 + n % 64]
+    } else {
+        [240 + n / 262144, 128 + n / 4096 % 64, 128 + n / 64 % 64, 128 + n % 64]
+    }
+}
+
+// --- the grammar --------------------------------------------------------------
+
+fn tok(ts: [Token], i: Int): Token {
+    match (ts.get(i)) {
+        .Some(t) => t,
+        .None => {
+            ts
+                .last()
+                .withDefault(Token {
+                    kind: .End,
+                    text: "",
+                    bytes: [],
+                    start: 0,
+                    end: 0,
+                })
+        },
+    }
+}
+
+fn isSymbol(t: Token, s: Str): Bool {
+    match (t.kind) {
+        .Symbol => t.text == s,
+        _other => false,
+    }
+}
+
+fn isEnd(t: Token): Bool {
+    match (t.kind) {
+        .End => true,
+        _other => false,
+    }
+}
+
+fn describe<C: Allocator>(ctx: C, t: Token): Str {
+    match (t.kind) {
+        .End => "the end of the file",
+        .Text => "a string",
+        _other => str.format(ctx, "`${t.text}`"),
+    }
+}
+
+fn at(file: Str, t: Token): ast.Origin {
+    ast.origin(file, t.start, t.end)
+}
+
+fn expected<C: Allocator>(
+    ctx: C,
+    file: Str,
+    t: Token,
+    what: Str,
+    fix: Str,
+): Diagnostic {
+    let found = describe(ctx, t);
+    syntax(
+        ctx,
+        file,
+        t.start,
+        t.end,
+        str.format(ctx, "expected ${what}, found ${found}"),
+        fix,
+    )
+}
+
+/// Fields up to `close`, or to the end of the file when `close` is empty: the
+/// index of the token that ended them, and the fields.
+fn fieldsUntil<C: Allocator>(
+    ctx: C,
+    ts: [Token],
+    file: Str,
+    i: Int,
+    close: Str,
+    acc: [Field],
+): Result<(Int, [Field]), Diagnostic> {
+    let t = tok(ts, i);
+    if (close.isEmpty() && isEnd(t) || !close.isEmpty() && isSymbol(t, close)) {
+        .Ok((i, acc))
+    } else if (isEnd(t)) {
+        .Err(
+            expected(
+                ctx,
+                file,
+                t,
+                str.format(ctx, "`${close}`"),
+                str.format(ctx, "close the message with `${close}`"),
+            ),
+        )
+    } else {
+        let (next, f) = field(ctx, ts, file, i)?;
+        let sep = tok(ts, next);
+        let after = if (isSymbol(sep, ";") || isSymbol(sep, ",")) {
+            next + 1
+        } else {
+            next
+        };
+        fieldsUntil(ctx, ts, file, after, close, acc.push(ctx, f))
+    }
+}
+
+fn field<C: Allocator>(
+    ctx: C,
+    ts: [Token],
+    file: Str,
+    i: Int,
+): Result<(Int, Field), Diagnostic> {
+    let t = tok(ts, i);
+    match (t.kind) {
+        .Word => {
+            let colon = isSymbol(tok(ts, i + 1), ":");
+            let j = if (colon) { i + 2 } else { i + 1 };
+            let v = tok(ts, j);
+            let message = isSymbol(v, "{") || isSymbol(v, "<");
+            if (!colon && !message && !isSymbol(v, "[")) {
+                .Err(
+                    expected(
+                        ctx,
+                        file,
+                        v,
+                        str.format(ctx, "`:` after `${t.text}`"),
+                        "write `name: value`, or `name { ... }` for a message",
+                    ),
+                )
+            } else {
+                let (next, value) = valueAt(ctx, ts, file, j)?;
+                let scalars = match (value) {
+                    .List(items, _o) => {
+                        items.any(fn(x) => {
+                            match (x) {
+                                .Message(_f, _p) => false,
+                                _other => true,
+                            }
+                        })
+                    },
+                    _other => false,
+                };
+                if (!colon && scalars) {
+                    .Err(
+                        expected(
+                            ctx,
+                            file,
+                            v,
+                            str.format(ctx, "`:` after `${t.text}`"),
+                            "a list of values takes a `:`: write `name: [1, 2]`",
+                        ),
+                    )
+                } else {
+                    .Ok(
+                        (
+                            next,
+                            Field { name: t.text, nameAt: at(file, t), value: value },
+                        ),
+                    )
+                }
+            }
+        },
+        .Symbol => {
+            if (t.text == "[") {
+                let close = closing(ts, i + 1);
+                let last = tok(ts, close);
+                .Err(Diagnostic {
+                    code: "textproto-unsupported",
+                    message: "an extension or `Any` field, written `[name]`, is not supported",
+                    note: .Some(
+                        "a `.proto` schema here declares no extensions, and an `Any` would name a type the schema does not",
+                    ),
+                    fix: .Some("write the message's own fields"),
+                    origin: .Some(ast.origin(file, t.start, last.end)),
+                })
+            } else {
+                .Err(expected(ctx, file, t, "a field name", "write a field name here"))
+            }
+        },
+        _other => {
+            .Err(expected(ctx, file, t, "a field name", "write a field name here"))
+        },
+    }
+}
+
+/// The index of the `]` that ends a bracketed name, or of the end.
+fn closing(ts: [Token], i: Int): Int {
+    let t = tok(ts, i);
+    if (isEnd(t) || isSymbol(t, "]")) { i } else { closing(ts, i + 1) }
+}
+
+fn valueAt<C: Allocator>(
+    ctx: C,
+    ts: [Token],
+    file: Str,
+    i: Int,
+): Result<(Int, Value), Diagnostic> {
+    let t = tok(ts, i);
+    match (t.kind) {
+        .Number => .Ok((i + 1, Value.Number(t.text, at(file, t)))),
+        .Word => .Ok((i + 1, Value.Word(t.text, at(file, t)))),
+        .Text => .Ok(strings(ctx, ts, file, i + 1, t.bytes, t.start, t.end)),
+        .Symbol => {
+            if (t.text == "{" || t.text == "<") {
+                let close = if (t.text == "{") { "}" } else { ">" };
+                let (end, fields) = fieldsUntil(ctx, ts, file, i + 1, close, [])?;
+                .Ok(
+                    (
+                        end + 1,
+                        Value.Message(
+                            fields,
+                            ast.origin(file, t.start, tok(ts, end).end),
+                        ),
+                    ),
+                )
+            } else if (t.text == "[") {
+                listFrom(ctx, ts, file, i + 1, t.start, [])
+            } else if (t.text == "-") {
+                let n = tok(ts, i + 1);
+                let o = ast.origin(file, t.start, n.end);
+                match (n.kind) {
+                    .Number => {
+                        .Ok((i + 2, Value.Number(str.format(ctx, "-${n.text}"), o)))
+                    },
+                    .Word => .Ok((i + 2, Value.Word(str.format(ctx, "-${n.text}"), o))),
+                    _other => {
+                        .Err(
+                            expected(
+                                ctx,
+                                file,
+                                n,
+                                "a number after `-`",
+                                "write the number right after the `-`",
+                            ),
+                        )
+                    },
+                }
+            } else {
+                .Err(
+                    expected(
+                        ctx,
+                        file,
+                        t,
+                        "a value",
+                        "write a value: a number, a string, a word or `{ ... }`",
+                    ),
+                )
+            }
+        },
+        .End => {
+            .Err(
+                expected(
+                    ctx,
+                    file,
+                    t,
+                    "a value",
+                    "write a value: a number, a string, a word or `{ ... }`",
+                ),
+            )
+        },
+    }
+}
+
+/// Adjacent strings are one value: `"a" "b"` is `"ab"`.
+fn strings<C: Allocator>(
+    ctx: C,
+    ts: [Token],
+    file: Str,
+    i: Int,
+    acc: [Int],
+    start: Int,
+    end: Int,
+): (Int, Value) {
+    let t = tok(ts, i);
+    match (t.kind) {
+        .Text => strings(ctx, ts, file, i + 1, acc.concat(ctx, t.bytes), start, t.end),
+        _other => (i, Value.Bytes(acc, ast.origin(file, start, end))),
+    }
+}
+
+fn listFrom<C: Allocator>(
+    ctx: C,
+    ts: [Token],
+    file: Str,
+    i: Int,
+    start: Int,
+    acc: [Value],
+): Result<(Int, Value), Diagnostic> {
+    let t = tok(ts, i);
+    if (isSymbol(t, "]") && acc.isEmpty()) {
+        .Ok((i + 1, Value.List(acc, ast.origin(file, start, t.end))))
+    } else {
+        let (next, v) = valueAt(ctx, ts, file, i)?;
+        let items = acc.push(ctx, v);
+        let after = tok(ts, next);
+        if (isSymbol(after, ",")) {
+            listFrom(ctx, ts, file, next + 1, start, items)
+        } else if (isSymbol(after, "]")) {
+            .Ok((next + 1, Value.List(items, ast.origin(file, start, after.end))))
+        } else {
+            .Err(
+                expected(
+                    ctx,
+                    file,
+                    after,
+                    "`,` or `]`",
+                    "separate the values with `,` and close the list with `]`",
+                ),
+            )
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// The schemas
+// -----------------------------------------------------------------------------
+
+enum Declared {
+    Message(schema.Message),
+    Enum(schema.Enum),
+}
+
+/// One message or enum, wherever it was declared.
+struct Decl {
+    buri: Str,
+    file: Str,
+    package: Str,
+    /// The messages it is nested in, outermost first.
+    scope: [Str],
+    /// The features of what encloses it.
+    inherited: schema.Features,
+    declared: Declared,
+}
+
+/// Every schema a check reads, indexed.
+export struct Schemas {
+    files: [(Str, schema.Schema)],
+    decls: [Decl],
+}
+
+/// A message, found.
+export struct Message {
+    decl: Decl,
+    message: schema.Message,
+}
+
+/// Indexes the schemas at their repository paths.
+export fn schemas<C: Allocator>(ctx: C, files: [(Str, schema.Schema)]): Schemas {
+    let decls = files.flatMapCtx(ctx, fn(c, f) => {
+        let package = f.1.package.withDefault("");
+        let top = f.1.features.over(schema.editionDefaults());
+        let enums = f.1
+            .enums
+            .mapCtx(c, fn(d, e) => enumDecl(d, f.0, package, [], top, e));
+        enums.concat(
+            c,
+            f.1
+                .messages
+                .flatMapCtx(c, fn(d, m) => messageDecls(d, f.0, package, [], top, m)),
+        )
+    });
+    Schemas { files: files, decls: decls }
+}
+
+fn enumDecl<C: Allocator>(
+    ctx: C,
+    file: Str,
+    package: Str,
+    scope: [Str],
+    inherited: schema.Features,
+    e: schema.Enum,
+): Decl {
+    Decl {
+        buri: scope.push(ctx, e.name).join(ctx, "_"),
+        file: file,
+        package: package,
+        scope: scope,
+        inherited: inherited,
+        declared: .Enum(e),
+    }
+}
+
+fn messageDecls<C: Allocator>(
+    ctx: C,
+    file: Str,
+    package: Str,
+    scope: [Str],
+    inherited: schema.Features,
+    m: schema.Message,
+): [Decl] {
+    let path = scope.push(ctx, m.name);
+    let inner = m.features.over(inherited);
+    let own = Decl {
+        buri: path.join(ctx, "_"),
+        file: file,
+        package: package,
+        scope: scope,
+        inherited: inherited,
+        declared: .Message(m),
+    };
+    let enums = m
+        .enums
+        .mapCtx(ctx, fn(c, e) => enumDecl(c, file, package, path, inner, e));
+    [own]
+        .concat(ctx, enums)
+        .concat(
+            ctx,
+            m
+                .messages
+                .flatMapCtx(ctx, fn(c, n) => {
+                    messageDecls(c, file, package, path, inner, n)
+                }),
+        )
+}
+
+/// The repository path an `import` in a schema names.
+export fn importPath<C: Allocator>(ctx: C, written: Str): Str {
+    let modulePath = proto.importModulePath(ctx, written);
+    modulePath.slice(2, modulePath.length())
+}
+
+/// The names a field in `file` can reach: its own declarations, and its
+/// imports'.
+fn tableOf<C: Allocator>(ctx: C, s: Schemas, file: Str): proto.Table {
+    let none: Option<Str> = .None;
+    match (s.files.find(fn(f) => f.0 == file)) {
+        .None => proto.emptyTable(),
+        .Some(own) => {
+            let start = proto.collect(ctx, proto.emptyTable(), own.1, none);
+            own.1
+                .imports
+                .foldCtx(
+                    ctx,
+                    fn(c, t, i) => {
+                        let path = importPath(c, i.path);
+                        match (s.files.find(fn(f) => f.0 == path)) {
+                            .Some(dep) => {
+                                proto.collect(
+                                    c,
+                                    t,
+                                    dep.1,
+                                    .Some(proto.importModulePath(c, i.path)),
+                                )
+                            },
+                            .None => t,
+                        }
+                    },
+                    start,
+                )
+        },
+    }
+}
+
+fn declOf(s: Schemas, e: proto.Entry): Option<Decl> {
+    s.decls.find(fn(d) => d.buri == e.buri && d.file == e.origin.file)
+}
+
+/// The message `name` names, read from `file`: package-relative, or whole
+/// with a leading `.`.
+export fn message<C: Allocator>(
+    ctx: C,
+    s: Schemas,
+    file: Str,
+    name: Str,
+): Option<Message> {
+    let package = match (s.files.find(fn(f) => f.0 == file)) {
+        .Some(f) => f.1.package.withDefault(""),
+        .None => "",
+    };
+    let table = tableOf(ctx, s, file);
+    let found = proto.resolveName(ctx, table, name, [], package);
+    match (found) {
+        .None => .None,
+        .Some(hit) => {
+            match (declOf(s, hit.1)) {
+                .Some(d) => {
+                    match (d.declared) {
+                        .Message(m) => .Some(Message { decl: d, message: m }),
+                        .Enum(_e) => .None,
+                    }
+                },
+                .None => .None,
+            }
+        },
+    }
+}
+
+impl Message {
+    /// The Buri name of the struct the message becomes.
+    export fn buri(self): Str {
+        self.decl.buri
+    }
+
+    /// The fully-qualified name: `pkg.Outer.Inner`.
+    export fn fullName<C: Allocator>(self, ctx: C): Str {
+        let relative = self.decl.scope.push(ctx, self.message.name).join(ctx, ".");
+        if (self.decl.package.isEmpty()) {
+            relative
+        } else {
+            str.format(ctx, "${self.decl.package}.${relative}")
+        }
+    }
+
+    /// The file it is declared in.
+    export fn file(self): Str {
+        self.decl.file
+    }
+}
+
+/// The fields of a message, resolved.
+export fn shapeOf<C: Allocator>(ctx: C, s: Schemas, m: Message): proto.Shape {
+    proto.shape(
+        ctx,
+        tableOf(ctx, s, m.decl.file),
+        m.decl.package,
+        m.message,
+        m.decl.scope,
+        m.decl.inherited,
+    )
+}
+
+/// The message a field of message type holds.
+export fn messageOf(s: Schemas, e: proto.Entry): Option<Message> {
+    match (declOf(s, e)) {
+        .Some(d) => {
+            match (d.declared) {
+                .Message(m) => .Some(Message { decl: d, message: m }),
+                .Enum(_e) => .None,
+            }
+        },
+        .None => .None,
+    }
+}
+
+/// The enum a field of enum type holds.
+export fn enumOf(s: Schemas, e: proto.Entry): Option<schema.Enum> {
+    match (declOf(s, e)) {
+        .Some(d) => {
+            match (d.declared) {
+                .Enum(x) => .Some(x),
+                .Message(_m) => .None,
+            }
+        },
+        .None => .None,
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Checking a value against a message
+// -----------------------------------------------------------------------------
+
+/// Where a field's name led.
+enum Target {
+    Plain(proto.ResolvedField),
+    /// A case of a `oneof`: the oneof's Buri field, and the case.
+    Case(Str, proto.ResolvedField),
+}
+
+/// What reading one message's fields has built so far.
+struct Acc {
+    members: [(Str, Json)],
+    /// Singular fields already set, by declared name.
+    set: [Str],
+    /// `(oneof, case)` for each oneof already chosen.
+    chosen: [(Str, Str)],
+    diagnostics: [Diagnostic],
+}
+
+fn problem<C: Allocator>(
+    ctx: C,
+    code: Str,
+    o: ast.Origin,
+    message: Str,
+    fix: Str,
+): Diagnostic {
+    Diagnostic {
+        code: code,
+        message: message,
+        note: .None,
+        fix: .Some(fix),
+        origin: .Some(o),
+    }
+}
+
+fn wrong<C: Allocator>(ctx: C, o: ast.Origin, message: Str, fix: Str): [Diagnostic] {
+    [problem(ctx, "textproto-wrong-value", o, message, fix)]
+}
+
+/// Checks `fields` as a value of `m`, and answers it as proto3 JSON. The JSON
+/// is whole only when there are no diagnostics.
+export fn check<C: Allocator>(
+    ctx: C,
+    s: Schemas,
+    m: Message,
+    fields: [Field],
+): (Json, [Diagnostic]) {
+    let shape = shapeOf(ctx, s, m);
+    let name = m.message.name;
+    let start = Acc { members: [], set: [], chosen: [], diagnostics: [] };
+    let done = fields.foldCtx(
+        ctx,
+        fn(c, acc, f) => fieldInto(c, s, shape, name, acc, f),
+        start,
+    );
+    (Json.Object(done.members), done.diagnostics)
+}
+
+fn targetOf(shape: proto.Shape, name: Str): Option<Target> {
+    match (shape.fields.find(fn(f) => f.declared == name)) {
+        .Some(f) => .Some(.Plain(f)),
+        .None => {
+            let hit = shape
+                .oneofs
+                .find(fn(o) => o.cases.any(fn(k) => k.declared == name));
+            match (hit) {
+                .Some(o) => {
+                    match (o.cases.find(fn(k) => k.declared == name)) {
+                        .Some(k) => .Some(.Case(o.field, k)),
+                        .None => .None,
+                    }
+                },
+                .None => .None,
+            }
+        },
+    }
+}
+
+fn fieldInto<C: Allocator>(
+    ctx: C,
+    s: Schemas,
+    shape: proto.Shape,
+    owner: Str,
+    acc: Acc,
+    f: Field,
+): Acc {
+    match (targetOf(shape, f.name)) {
+        .None => {
+            let known = shape
+                .fields
+                .map(ctx, fn(x) => x.declared)
+                .concat(
+                    ctx,
+                    shape
+                        .oneofs
+                        .flatMapCtx(ctx, fn(c, o) => {
+                            o.cases.map(c, fn(k) => k.declared)
+                        }),
+                );
+            let listed = known
+                .mapCtx(ctx, fn(c, k) => str.format(c, "`${k}`"))
+                .join(ctx, ", ");
+            let fix = if (known.isEmpty()) {
+                str.format(ctx, "`${owner}` has no fields: delete this one")
+            } else {
+                str.format(ctx, "write one of ${listed}")
+            };
+            let d = problem(
+                ctx,
+                "textproto-unknown-field",
+                f.nameAt,
+                str.format(ctx, "`${owner}` has no field `${f.name}`"),
+                fix,
+            );
+            Acc { ..acc, diagnostics: acc.diagnostics.push(ctx, d) }
+        },
+        .Some(.Plain(field)) => {
+            if (proto.isRepeated(field)) {
+                repeatedInto(ctx, s, acc, field, f)
+            } else {
+                singularInto(ctx, s, acc, field, f)
+            }
+        },
+        .Some(.Case(oneof, k)) => {
+            match (acc.chosen.find(fn(p) => p.0 == oneof)) {
+                .Some(taken) => {
+                    let d = problem(
+                        ctx,
+                        "textproto-field-repeated",
+                        f.nameAt,
+                        str.format(
+                            ctx,
+                            "`${f.name}` and `${taken.1}` are cases of one `oneof`, which holds one of them",
+                        ),
+                        "keep one of the two",
+                    );
+                    Acc { ..acc, diagnostics: acc.diagnostics.push(ctx, d) }
+                },
+                .None => {
+                    let chosen = Acc {
+                        ..acc,
+                        chosen: acc.chosen.push(ctx, (oneof, f.name)),
+                    };
+                    singularInto(ctx, s, chosen, k, f)
+                },
+            }
+        },
+    }
+}
+
+fn singularInto<C: Allocator>(
+    ctx: C,
+    s: Schemas,
+    acc: Acc,
+    field: proto.ResolvedField,
+    f: Field,
+): Acc {
+    if (acc.set.contains(f.name)) {
+        let d = problem(
+            ctx,
+            "textproto-field-repeated",
+            f.nameAt,
+            str.format(ctx, "`${f.name}` is set twice, and it holds one value"),
+            "delete one of the two, or make the field `repeated` in the schema",
+        );
+        Acc { ..acc, diagnostics: acc.diagnostics.push(ctx, d) }
+    } else {
+        let marked = Acc { ..acc, set: acc.set.push(ctx, f.name) };
+        match (f.value) {
+            .List(_items, o) => {
+                let d = problem(
+                    ctx,
+                    "textproto-wrong-value",
+                    o,
+                    str.format(
+                        ctx,
+                        "`${f.name}` is not `repeated`, so it holds one value, not a list",
+                    ),
+                    "write one value without `[` and `]`",
+                );
+                Acc { ..marked, diagnostics: marked.diagnostics.push(ctx, d) }
+            },
+            v => {
+                match (valueOf(ctx, s, field, v)) {
+                    .Ok(json) => {
+                        Acc {
+                            ..marked,
+                            members: marked.members.push(ctx, (field.declared, json)),
+                        }
+                    },
+                    .Err(ds) => {
+                        Acc {
+                            ..marked,
+                            diagnostics: marked.diagnostics.concat(ctx, ds),
+                        }
+                    },
+                }
+            },
+        }
+    }
+}
+
+fn repeatedInto<C: Allocator>(
+    ctx: C,
+    s: Schemas,
+    acc: Acc,
+    field: proto.ResolvedField,
+    f: Field,
+): Acc {
+    let values = match (f.value) {
+        .List(items, _o) => items,
+        v => [v],
+    };
+    let seed: ([Json], [Diagnostic]) = ([], []);
+    let read = values.foldCtx(
+        ctx,
+        fn(c, got: ([Json], [Diagnostic]), v) => {
+            match (valueOf(c, s, field, v)) {
+                .Ok(json) => (got.0.push(c, json), got.1),
+                .Err(ds) => (got.0, got.1.concat(c, ds)),
+            }
+        },
+        seed,
+    );
+    let earlier = acc.members.findIndex(fn(m) => m.0 == field.declared);
+    let members = match (earlier) {
+        .None => acc.members.push(ctx, (field.declared, Json.Array(read.0))),
+        .Some(i) => {
+            let before = match (acc.members.get(i)) {
+                .Some(m) => m.1.asArray().withDefault([]),
+                .None => [],
+            };
+            acc
+                .members
+                .replaceAt(
+                    ctx,
+                    i,
+                    (field.declared, Json.Array(before.concat(ctx, read.0))),
+                )
+        },
+    };
+    Acc { ..acc, members: members, diagnostics: acc.diagnostics.concat(ctx, read.1) }
+}
+
+/// One value of `field`, as proto3 JSON.
+fn valueOf<C: Allocator>(
+    ctx: C,
+    s: Schemas,
+    field: proto.ResolvedField,
+    v: Value,
+): Result<Json, [Diagnostic]> {
+    let name = field.declared;
+    match (field.ty) {
+        .Scalar(k) => {
+            let kind = proto.scalarName(k);
+            match (v) {
+                .Message(_f, o) => {
+                    .Err(
+                        wrong(
+                            ctx,
+                            o,
+                            str.format(
+                                ctx,
+                                "`${name}` is of type `${kind}`, not a message",
+                            ),
+                            "write a value rather than `{ ... }`",
+                        ),
+                    )
+                },
+                .List(_v, o) => {
+                    .Err(
+                        wrong(
+                            ctx,
+                            o,
+                            str.format(
+                                ctx,
+                                "a list inside a list is not a value of `${name}`",
+                            ),
+                            "write the values in one list",
+                        ),
+                    )
+                },
+                other => scalar(ctx, name, k, other),
+            }
+        },
+        .Named(e) => {
+            match (e.kind) {
+                .Enum => {
+                    match (enumOf(s, e)) {
+                        .Some(x) => enumValue(ctx, name, e.buri, x, v),
+                        .None => .Err([]),
+                    }
+                },
+                .Message => {
+                    match (v) {
+                        .Message(fields, _o) => {
+                            match (messageOf(s, e)) {
+                                .Some(inner) => {
+                                    let (json, ds) = check(ctx, s, inner, fields);
+                                    if (ds.isEmpty()) { .Ok(json) } else { .Err(ds) }
+                                },
+                                .None => .Err([]),
+                            }
+                        },
+                        other => {
+                            .Err(
+                                wrong(
+                                    ctx,
+                                    originOf(other),
+                                    str.format(
+                                        ctx,
+                                        "`${name}` is a `${e.buri}` message, written `${name} { ... }`",
+                                    ),
+                                    str.format(
+                                        ctx,
+                                        "write the message's fields inside `${name} { ... }`",
+                                    ),
+                                ),
+                            )
+                        },
+                    }
+                },
+            }
+        },
+    }
+}
+
+fn enumValue<C: Allocator>(
+    ctx: C,
+    name: Str,
+    enumName: Str,
+    x: schema.Enum,
+    v: Value,
+): Result<Json, [Diagnostic]> {
+    let names = x
+        .values
+        .mapCtx(ctx, fn(c, value) => str.format(c, "`${value.name}`"))
+        .join(ctx, ", ");
+    let fix = str.format(ctx, "write one of ${names}, or a number");
+    match (v) {
+        .Word(w, o) => {
+            if (x.values.any(fn(value) => value.name == w)) {
+                .Ok(Json.Str(w))
+            } else {
+                .Err(
+                    wrong(
+                        ctx,
+                        o,
+                        str.format(ctx, "`${w}` is not a value of `${enumName}`"),
+                        fix,
+                    ),
+                )
+            }
+        },
+        .Number(n, o) => {
+            match (integer(n)) {
+                .Some(i) => {
+                    if (i < -2147483648 || i > 2147483647) {
+                        .Err(
+                            wrong(
+                                ctx,
+                                o,
+                                str.format(
+                                    ctx,
+                                    "`${n}` does not fit an enum, which is 32 bits",
+                                ),
+                                fix,
+                            ),
+                        )
+                    } else {
+                        .Ok(Json.Num(i.toF64()))
+                    }
+                },
+                .None => {
+                    .Err(
+                        wrong(
+                            ctx,
+                            o,
+                            str.format(ctx, "`${n}` is not a value of `${enumName}`"),
+                            fix,
+                        ),
+                    )
+                },
+            }
+        },
+        other => {
+            .Err(
+                wrong(
+                    ctx,
+                    originOf(other),
+                    str.format(ctx, "`${name}` is a `${enumName}`, not a string"),
+                    fix,
+                ),
+            )
+        },
+    }
+}
+
+fn notA<C: Allocator>(
+    ctx: C,
+    o: ast.Origin,
+    name: Str,
+    kind: Str,
+    want: Str,
+): [Diagnostic] {
+    wrong(
+        ctx,
+        o,
+        str.format(ctx, "`${name}` is of type `${kind}`, and this is not ${want}"),
+        str.format(ctx, "write ${want}"),
+    )
+}
+
+fn scalar<C: Allocator>(
+    ctx: C,
+    name: Str,
+    k: schema.Scalar,
+    v: Value,
+): Result<Json, [Diagnostic]> {
+    let kind = proto.scalarName(k);
+    let o = originOf(v);
+    if (kind == "string") {
+        match (v) {
+            .Bytes(b, _o) => {
+                match (bytes.fromUtf8(ctx, b.map(ctx, fn(x) => x.wrapToU8()))) {
+                    .Ok(text) => .Ok(Json.Str(text)),
+                    .Err(_e) => {
+                        .Err(
+                            wrong(
+                                ctx,
+                                o,
+                                str.format(
+                                    ctx,
+                                    "`${name}` is a `string`, and these bytes are not UTF-8",
+                                ),
+                                "write text, or make the field `bytes`",
+                            ),
+                        )
+                    },
+                }
+            },
+            _other => .Err(notA(ctx, o, name, kind, "a quoted string")),
+        }
+    } else if (kind == "bytes") {
+        match (v) {
+            .Bytes(b, _o) => {
+                .Ok(Json.Str(bytes.toBase64(ctx, b.map(ctx, fn(x) => x.wrapToU8()))))
+            },
+            _other => .Err(notA(ctx, o, name, kind, "a quoted string")),
+        }
+    } else if (kind == "bool") {
+        let truth: Option<Bool> = match (v) {
+            .Word(w, _o) => {
+                if (w == "true" || w == "True" || w == "t") {
+                    .Some(true)
+                } else if (w == "false" || w == "False" || w == "f") {
+                    .Some(false)
+                } else {
+                    .None
+                }
+            },
+            .Number(n, _o) => {
+                if (n == "1") {
+                    .Some(true)
+                } else if (n == "0") {
+                    .Some(false)
+                } else {
+                    .None
+                }
+            },
+            _other => .None,
+        };
+        match (truth) {
+            .Some(b) => .Ok(Json.Bool(b)),
+            .None => .Err(notA(ctx, o, name, kind, "`true` or `false`")),
+        }
+    } else if (kind == "double" || kind == "float") {
+        match (v) {
+            .Number(n, _o) => {
+                match (floating(ctx, n)) {
+                    .Some(x) => .Ok(Json.Num(x)),
+                    .None => .Err(notA(ctx, o, name, kind, "a number")),
+                }
+            },
+            .Word(w, _o) => {
+                let lower = w.toLower(ctx);
+                if (lower == "inf" || lower == "infinity") {
+                    .Ok(Json.Str("Infinity"))
+                } else if (lower == "-inf" || lower == "-infinity") {
+                    .Ok(Json.Str("-Infinity"))
+                } else if (lower == "nan" || lower == "-nan") {
+                    .Ok(Json.Str("NaN"))
+                } else {
+                    .Err(notA(ctx, o, name, kind, "a number"))
+                }
+            },
+            _other => .Err(notA(ctx, o, name, kind, "a number")),
+        }
+    } else {
+        let (lo, hi) = range(kind);
+        match (v) {
+            .Number(n, _o) => {
+                match (integer(n)) {
+                    .Some(i) => {
+                        if (i < lo || i > hi) {
+                            .Err(
+                                wrong(
+                                    ctx,
+                                    o,
+                                    str.format(
+                                        ctx,
+                                        "`${n}` does not fit `${name}`, of type `${kind}`",
+                                    ),
+                                    str.format(
+                                        ctx,
+                                        "write a whole number from ${lo} to ${hi}",
+                                    ),
+                                ),
+                            )
+                        } else {
+                            .Ok(Json.Str(str.fromInt(ctx, i)))
+                        }
+                    },
+                    .None => {
+                        if (integerShaped(n)) {
+                            .Err(
+                                wrong(
+                                    ctx,
+                                    o,
+                                    str.format(
+                                        ctx,
+                                        "`${n}` does not fit `${name}`, of type `${kind}`",
+                                    ),
+                                    str.format(
+                                        ctx,
+                                        "write a whole number from ${lo} to ${hi}",
+                                    ),
+                                ),
+                            )
+                        } else {
+                            .Err(notA(ctx, o, name, kind, "a whole number"))
+                        }
+                    },
+                }
+            },
+            _other => .Err(notA(ctx, o, name, kind, "a whole number")),
+        }
+    }
+}
+
+/// The values an integer kind holds. Every one is written as a JSON string,
+/// which the generated readers take for any width. An unsigned 64-bit value past what a Buri `Int` holds is refused,
+/// because the generated field is an `Int`.
+fn range(kind: Str): (Int, Int) {
+    if (kind == "int32" || kind == "sint32" || kind == "sfixed32") {
+        (-2147483648, 2147483647)
+    } else if (kind == "uint32" || kind == "fixed32") {
+        (0, 4294967295)
+    } else if (kind == "uint64" || kind == "fixed64") {
+        (0, 9223372036854775807)
+    } else {
+        (-9223372036854775807 - 1, 9223372036854775807)
+    }
+}
+
+/// An integer as the text format writes one: decimal, `0x` hex, or `0` octal,
+/// with an optional `-`.
+fn integer(text: Str): Option<Int> {
+    let negative = text.startsWith("-");
+    let body = if (negative) { text.slice(1, text.length()) } else { text };
+    let magnitude = if (body.startsWith("0x") || body.startsWith("0X")) {
+        digitsOnly(body.slice(2, body.length()), 16)
+    } else if (body.length() > 1 && body.startsWith("0")) {
+        digitsOnly(body.slice(1, body.length()), 8)
+    } else {
+        digitsOnly(body, 10)
+    };
+    match (magnitude) {
+        .Some(m) => if (negative) { .Some(0 - m) } else { .Some(m) },
+        .None => .None,
+    }
+}
+
+/// Digits that read as an integer were it not too wide.
+fn integerShaped(text: Str): Bool {
+    let body = if (text.startsWith("-")) { text.slice(1, text.length()) } else { text };
+    let hex = body.startsWith("0x") || body.startsWith("0X");
+    let digits = if (hex) { body.slice(2, body.length()) } else { body };
+    let radix = if (hex) { 16 } else { 10 };
+    !digits.isEmpty() && digits.indexWhere(fn(c) => c.toDigit(radix).isNone()).isNone()
+}
+
+fn digitsOnly(text: Str, radix: Int): Option<Int> {
+    if (
+        text.isEmpty() || text.indexWhere(fn(c) => c.toDigit(radix).isNone()).isSome()
+    ) {
+        .None
+    } else {
+        text.toRadix(radix)
+    }
+}
+
+/// A float as the text format writes one: `1.5`, `.5`, `1e3`, `2f`, or any
+/// integer.
+fn floating<C: Allocator>(ctx: C, text: Str): Option<Float> {
+    match (integer(text)) {
+        .Some(i) => .Some(i.toF64()),
+        .None => {
+            let hex = text.contains("x") || text.contains("X");
+            let body = if (!hex && (text.endsWith("f") || text.endsWith("F"))) {
+                text.slice(0, text.length() - 1)
+            } else {
+                text
+            };
+            let negative = body.startsWith("-");
+            let magnitude = if (negative) {
+                body.slice(1, body.length())
+            } else {
+                body
+            };
+            let led = if (magnitude.startsWith(".")) {
+                str.format(ctx, "0${magnitude}")
+            } else {
+                magnitude
+            };
+            let filled = led.replace(ctx, ".e", ".0e").replace(ctx, ".E", ".0E");
+            let whole = if (filled.endsWith(".")) {
+                str.format(ctx, "${filled}0")
+            } else {
+                filled
+            };
+            let wellFormed = !hex
+                && !whole.isEmpty()
+                && whole.charAt(0).withDefault('x').isDigit()
+                && whole
+                    .indexWhere(fn(c) => {
+                        !(c.isDigit()
+                            || c == '.'
+                            || c == 'e'
+                            || c == 'E'
+                            || c == '+'
+                            || c == '-')
+                    })
+                    .isNone();
+            if (!wellFormed) {
+                .None
+            } else {
+                match (whole.toFloat()) {
+                    .Some(x) => if (negative) { .Some(0.0 - x) } else { .Some(x) },
+                    .None => .None,
+                }
+            }
+        },
+    }
+}
+
+// -----------------------------------------------------------------------------
+// A tool's input, decoded
+// -----------------------------------------------------------------------------
+
+/// Reads `text` as the message `name` of the schema at `file`, given every
+/// schema it reaches as `(path, text)`, and hands the proto3 JSON to `decode`.
+///
+/// What a contract module's `decode` calls: the build checked the input before
+/// any tool sees it, so a failure here names the first problem and no more.
+export fn decode<T, C: Allocator>(
+    ctx: C,
+    text: Str,
+    sources: [(Str, Str)],
+    file: Str,
+    name: Str,
+    read: fn(C, Json) => Result<T, ProtoError>,
+): Result<T, Str> {
+    let parsed = parse(ctx, text, "input").mapErr(fn(d) => d.message)?;
+    let files = sources.mapCtx(ctx, fn(c, f) => {
+        (f.0, schema.parse(c, f.1, f.0).schema)
+    });
+    let s = schemas(ctx, files);
+    let m = message(ctx, s, file, name).okOr(
+        "the contract's message is not in its schema",
+    )?;
+    let (json, problems) = check(ctx, s, m, parsed.fields);
+    match (problems.first()) {
+        .Some(d) => .Err(d.message),
+        .None => {
+            read(ctx, json).mapErr(fn(_e) => "the value does not read as its message")
+        },
+    }
+}

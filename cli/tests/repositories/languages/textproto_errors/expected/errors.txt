@@ -1,0 +1,270 @@
+error: this file has no `# proto-file:` and `# proto-message:` header [textproto-without-header]
+ --> lib/bad/bare.txtpb:1:1
+  |
+1 | id: "o-1"
+  | ^
+  |
+  = a text format file a build reads is checked against its message before any generator reads it
+  = fix: start the file with `# proto-file: <schema path>` and `# proto-message: <Message>`: a path relative to this file, or a `//` path
+
+      # proto-file: server.proto
+      # proto-message: Server
+
+      name: "api"
+
+    The two comments above the first field are the text format's header
+    (https://protobuf.dev/reference/protobuf/textformat-spec/#header).
+    proto-file is the schema: a path relative to the file, or a // path from the
+    repository root. proto-message is the message, by its name or with its
+    package, as deploy.v1.Server.
+
+    Without them, a typo in a field name reaches the generator as data. A file
+    read by a tool with a contract (../build/tools.md#input-contracts) may leave
+    both out, because the contract names the message.
+
+error: `b` and `a` both use field number 1 [proto-field-reused]
+ --> lib/bad/broken.proto:5:5
+  |
+5 |     int32 b = 1;
+  |     ^^^^^^^^^^^^
+  |
+  = a number is what names a field on the wire, and a name what names it in JSON, so a second use would read as the first field
+  = fix: give each field of a message its own number
+
+      message Order {
+        reserved 3, 10 to 19;
+        reserved legacy_total;
+
+        string id = 1;
+        string note = 1;        // `note` and `id` both use field number 1
+        int64 total = 12;       // `Order` reserves 12
+        int64 legacy_total = 4; // `Order` reserves the name
+      }
+
+    A oneof's cases count as fields of the message around them. reserved keeps a
+    deleted field's number and name from coming back with a new meaning, so a
+    field may use neither.
+
+error: an extension or `Any` field, written `[name]`, is not supported [textproto-unsupported]
+ --> lib/bad/extension.txtpb:3:1
+  |
+3 | [shop.v1.note]: "x"
+  | ^^^^^^^^^^^^^^
+  |
+  = a `.proto` schema here declares no extensions, and an `Any` would name a type the schema does not
+  = fix: write the message's own fields
+
+      # proto-import: other.proto
+      [pkg.ext]: 1
+      [type.googleapis.com/pkg.Point] { x: 1 }
+
+    - `# proto-import:`. The specification gives it no meaning. proto-file
+    names the schema, and the schema's own imports bring in what it uses.
+
+    - `[name]` fields. An extension or an expanded Any. The schemas this
+    toolchain reads declare no extensions, and an Any names a type its schema
+    does not.
+
+error: `# proto-import:` is not supported [textproto-unsupported]
+ --> lib/bad/import.txtpb:3:17
+  |
+3 | # proto-import: other.proto
+  |                 ^^^^^^^^^^^
+  |
+  = the text format's specification gives it no meaning, so nothing reads it the same way twice
+  = fix: delete the line: `# proto-file:` names the schema, and its own imports bring the rest
+error: there is no schema at `lib/bad/gone.proto` [schema-not-found]
+ --> lib/bad/missing.txtpb:1:15
+  |
+1 | # proto-file: gone.proto
+  |               ^^^^^^^^^^
+  |
+  = fix: create the schema, or correct the path
+
+    A relative path is read from the directory of the file that holds it, the
+    way a browser resolves a link. A path starting // is read from the
+    repository root.
+
+error: this file has no `# proto-message:` header [textproto-without-header]
+ --> lib/bad/no_message.txtpb:1:1
+  |
+1 | # proto-file: shop.proto
+  | ^
+  |
+  = a text format file a build reads is checked against its message before any generator reads it
+  = fix: start the file with `# proto-file: <schema path>` and `# proto-message: <Message>`: a path relative to this file, or a `//` path
+error: `../../../shop.proto` is not a file in this repository [schema-not-local]
+ --> lib/bad/outside.txtpb:1:15
+  |
+1 | # proto-file: ../../../shop.proto
+  |               ^^^^^^^^^^^^^^^^^^^
+  |
+  = a schema is read from the repository and never fetched, so every machine checks against the same one
+  = fix: check the schema in, and name it by a path relative to this file or a `//` path
+
+    "$schema", and every $ref to another file, names a file in this repository:
+
+      { "$schema": "regions.schema.json" }
+      { "$schema": "//schemas/regions.schema.json" }
+
+    A URL, an absolute path, or a relative path that climbs out of the
+    repository is refused. Fetching one would put the network in the build, and
+    two machines could check one file against two different schemas.
+
+    The one URL known by name is the JSON Schema 2020-12 meta-schema,
+    https://json-schema.org/draft/2020-12/schema, which marks a file as a
+    schema.
+
+error: `https://example.com/shop.proto` is not a file in this repository [schema-not-local]
+ --> lib/bad/remote.txtpb:1:15
+  |
+1 | # proto-file: https://example.com/shop.proto
+  |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = a schema is read from the repository and never fetched, so every machine checks against the same one
+  = fix: check the schema in, and name it by a path relative to this file or a `//` path
+error: expected `,` or `]`, found `count` [textproto-syntax]
+ --> lib/bad/syntax.txtpb:4:1
+  |
+4 | count 3
+  | ^^^^^
+  |
+  = fix: separate the values with `,` and close the list with `]`
+
+      name: "api"
+      ports: [80 443]
+
+    The first thing that does not parse is reported, and nothing after it is
+    checked. A scalar takes :, a message takes { ... } or < ... >, and a list
+    separates its values with ,.
+
+error: `lib/bad/shop.proto` declares no message `Ordr` [textproto-unknown-message]
+ --> lib/bad/unknown_message.txtpb:2:18
+  |
+2 | # proto-message: Ordr
+  |                  ^^^^
+  |
+  = fix: name a message the schema declares, by its name or with its package as in `pkg.Config`
+
+      # proto-file: server.proto
+      # proto-message: Sever
+
+    proto-message is read the way a field's type is: relative to the schema's
+    package, or whole with a leading .. A contract's type_schema names its
+    message after a :, as server.proto:Server.
+
+error: `id` is set twice, and it holds one value [textproto-field-repeated]
+ --> lib/bad/values.txtpb:5:1
+  |
+5 | id: "o-2"
+  | ^^
+  |
+  = fix: delete one of the two, or make the field `repeated` in the schema
+
+      name: "api"
+      name: "web"        # `name` is set twice
+      region: "eu"
+      zone: "eu-west-1a" # `region` and `zone` are cases of one `oneof`
+
+    A repeated field may be written any number of times, and its values join in
+    order. Any other field holds one value, and so does a oneof, whichever case
+    holds it.
+
+error: `count` is of type `int32`, and this is not a whole number [textproto-wrong-value]
+ --> lib/bad/values.txtpb:6:8
+  |
+6 | count: "3"
+  |        ^^^
+  |
+  = fix: write a whole number
+
+      port: "80"        # an `int32` takes a whole number
+      port: 99999999999 # that fits 32 bits
+      tier: SILVER      # an enum takes one of its values' names, or a number
+      limits: 4         # a message is written `limits { ... }`
+      name: ["a", "b"]  # a field that is not `repeated` takes one value
+
+      Field          Value
+      string         a quoted string whose bytes are UTF-8
+      bytes          a quoted string
+      bool           true, True, t, false, False, f, 1 or 0
+      the integers   a decimal, 0x hex or 0 octal number in the type's range
+      float, double  a number, or inf, infinity or nan
+      an enum        a value's name, or a 32-bit number
+      a message      { ... } or < ... >
+
+    A uint64 or fixed64 past what a Buri Int holds is refused, because the
+    generated field is an Int.
+
+error: `-1` does not fit `weight`, of type `uint32` [textproto-wrong-value]
+ --> lib/bad/values.txtpb:7:9
+  |
+7 | weight: -1
+  |         ^^
+  |
+  = fix: write a whole number from 0 to 4294967295
+error: `LARGE` is not a value of `Size` [textproto-wrong-value]
+ --> lib/bad/values.txtpb:8:7
+  |
+8 | size: LARGE
+  |       ^^^^^
+  |
+  = fix: write one of `SIZE_UNSPECIFIED`, `SMALL`, or a number
+error: `backup` is a `Line` message, written `backup { ... }` [textproto-wrong-value]
+ --> lib/bad/values.txtpb:9:9
+  |
+9 | backup: "sku-1"
+  |         ^^^^^^^
+  |
+  = fix: write the message's fields inside `backup { ... }`
+error: `sku` is of type `string`, and this is not a quoted string [textproto-wrong-value]
+  --> lib/bad/values.txtpb:10:13
+   |
+10 | line { sku: 4 colour: "red" }
+   |             ^
+   |
+   = fix: write a quoted string
+error: `Line` has no field `colour` [textproto-unknown-field]
+  --> lib/bad/values.txtpb:10:15
+   |
+10 | line { sku: 4 colour: "red" }
+   |               ^^^^^^
+   |
+   = fix: write one of `sku`
+
+       # proto-file: server.proto
+       # proto-message: Server
+
+       name: "api"
+       prot: 80 # `Server` has no field `prot`
+
+     A field is written by the name the schema gives it, not its JSON name.
+
+error: `count_by` is of type `int32`, not a message [textproto-wrong-value]
+  --> lib/bad/values.txtpb:11:10
+   |
+11 | count_by { }
+   |          ^^^
+   |
+   = fix: write a value rather than `{ ... }`
+error: `tags` is of type `string`, and this is not a quoted string [textproto-wrong-value]
+  --> lib/bad/values.txtpb:13:13
+   |
+13 | tags: ["b", 7]
+   |             ^
+   |
+   = fix: write a quoted string
+error: `gift` is not `repeated`, so it holds one value, not a list [textproto-wrong-value]
+  --> lib/bad/values.txtpb:14:7
+   |
+14 | gift: [true]
+   |       ^^^^^^
+   |
+   = fix: write one value without `[` and `]`
+error: `locker` and `address` are cases of one `oneof`, which holds one of them [textproto-field-repeated]
+  --> lib/bad/values.txtpb:16:1
+   |
+16 | locker: "L4"
+   | ^^^^^^
+   |
+   = fix: keep one of the two

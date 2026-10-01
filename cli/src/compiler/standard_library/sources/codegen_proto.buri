@@ -489,7 +489,7 @@ export enum FieldType {
 }
 
 /// The keyword a schema writes this scalar as.
-fn scalarName(s: schema.Scalar): Str {
+export fn scalarName(s: schema.Scalar): Str {
     match (s) {
         .Int32 => "int32",
         .Int64 => "int64",
@@ -595,7 +595,7 @@ export struct ResolvedOneof {
     export origin: ast.Origin,
 }
 
-fn isRepeated(f: ResolvedField): Bool {
+export fn isRepeated(f: ResolvedField): Bool {
     match (f.label) {
         .Repeated => true,
         _other => false,
@@ -619,7 +619,7 @@ fn isMessageField(f: ResolvedField): Bool {
 /// Under editions `features.field_presence` is EXPLICIT unless something says
 /// otherwise, so a singular field is an `Option` by default. A message field
 /// tracks presence whatever the feature says.
-fn isOptional(f: ResolvedField): Bool {
+export fn isOptional(f: ResolvedField): Bool {
     let explicit = match (f.presence) {
         .Explicit => true,
         _other => false,
@@ -1185,7 +1185,7 @@ fn structItem<C: Allocator>(
 // A message: the defaults
 // -----------------------------------------------------------------------------
 
-fn defaultOf(f: ResolvedField): ast.Expr {
+export fn defaultOf(f: ResolvedField): ast.Expr {
     if (isRepeated(f)) {
         emptyList(baseType(f.ty))
     } else if (isOptional(f)) {
@@ -2086,10 +2086,18 @@ fn oneofJsonFn<C: Allocator>(ctx: C, o: ResolvedOneof): ast.Item {
     })
 }
 
+/// The local a field's value is bound to in `decodeMJsonAt`. A field may be
+/// called `path` or `doc`, which the decoder already uses; a Buri field name
+/// has no `_` but a keyword's trailing one, so `f_path` is always free.
+fn local<C: Allocator>(ctx: C, field: Str): Str {
+    str.format(ctx, "f_${field}")
+}
+
 /// The bindings one field contributes to `decodeMJsonAt`.
 ///
 /// Every binding is annotated: a `.None` arm has no type to infer from.
 fn fieldLets<C: Allocator>(ctx: C, f: ResolvedField): [ast.Stmt] {
+    let held = local(ctx, f.name);
     let at = nsCall("proto", "at", [id("ctx"), id("path"), strE(f.json)]);
     if (isRepeated(f)) {
         let pathName = str.format(ctx, "p_${f.name}");
@@ -2114,7 +2122,7 @@ fn fieldLets<C: Allocator>(ctx: C, f: ResolvedField): [ast.Stmt] {
         [
             letS(pathName, [tyNamed("Str")], at),
             letS(
-                f.name,
+                held,
                 [fieldType(f)],
                 matchE(memberCall(f), [
                     armOf(dotP0("None"), emptyList(base)),
@@ -2126,7 +2134,7 @@ fn fieldLets<C: Allocator>(ctx: C, f: ResolvedField): [ast.Stmt] {
         let read = jsonRead(ctx, f, id("v"), at, id("ctx"));
         [
             letS(
-                f.name,
+                held,
                 [fieldType(f)],
                 matchE(memberCall(f), [
                     armOf(dotP0("None"), variantE("None")),
@@ -2138,7 +2146,7 @@ fn fieldLets<C: Allocator>(ctx: C, f: ResolvedField): [ast.Stmt] {
         let read = jsonRead(ctx, f, id("v"), at, id("ctx"));
         [
             letS(
-                f.name,
+                held,
                 [fieldType(f)],
                 matchE(memberCall(f), [
                     armOf(dotP0("None"), defaultOf(f)),
@@ -2163,7 +2171,7 @@ fn jsonDecodeFns<C: Allocator>(
             ctx,
             oneofs.mapCtx(ctx, fn(c, o) => {
                 letS(
-                    o.field,
+                    local(c, o.field),
                     [],
                     tryE(
                         callName(str.format(c, "read${o.enumName}"), [
@@ -2176,8 +2184,11 @@ fn jsonDecodeFns<C: Allocator>(
             }),
         );
     let inits = fields
-        .map(ctx, fn(f) => initOf(f.name, id(f.name)))
-        .concat(ctx, oneofs.map(ctx, fn(o) => initOf(o.field, id(o.field))));
+        .mapCtx(ctx, fn(c, f) => initOf(f.name, id(local(c, f.name))))
+        .concat(
+            ctx,
+            oneofs.mapCtx(ctx, fn(c, o) => initOf(o.field, id(local(c, o.field)))),
+        );
     let objectArm = blockE(blk(bound, [variantCall("Ok", [structE(name, inits)])]));
     let atItem = fnItem(ast.FnDecl {
         name: nm(str.format(ctx, "decode${name}JsonAt")),
@@ -2525,6 +2536,44 @@ fn genMessage<C: Allocator>(
             fn(c, acc, inner) => genMessage(c, acc, inner, path, features),
             withEnums,
         )
+}
+
+/// A message's fields and oneofs, resolved the way [`generate`] resolves them.
+export struct Shape {
+    export fields: [ResolvedField],
+    export oneofs: [ResolvedOneof],
+}
+
+/// The fields of `m`, declared inside `scope`, against `table`. `inherited` is
+/// the features of what encloses it: the file's over the edition's defaults,
+/// then each enclosing message's. A field whose type names nothing is left out.
+export fn shape<C: Allocator>(
+    ctx: C,
+    table: Table,
+    package: Str,
+    m: schema.Message,
+    scope: [Str],
+    inherited: schema.Features,
+): Shape {
+    let path = scope.push(ctx, m.name);
+    let features = m.features.over(inherited);
+    let start = Gen {
+        table: table,
+        package: package,
+        used: orderedmap.empty<Str, Entry>(),
+        diagnostics: [],
+        items: [],
+    };
+    let withFields = resolveFields(ctx, start, m, path, features);
+    let withOneofs = resolveOneofs(
+        ctx,
+        withFields.0,
+        m,
+        path,
+        path.join(ctx, "_"),
+        features,
+    );
+    Shape { fields: withFields.1, oneofs: withOneofs.1 }
 }
 
 // -----------------------------------------------------------------------------

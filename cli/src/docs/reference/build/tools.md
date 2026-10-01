@@ -73,8 +73,9 @@ a tool without that entry point is
 [`tool-without-entry-point`](../errors/tool-without-entry-point.md), and a name
 that is no tool is [`no-such-tool`](../errors/no-such-tool.md).
 
-The toolchain ships two, each with `check`, `format` and `generate`: `std/json`
-for `json`, `jsonc` and `json5`, and `std/proto` for `.proto` schemas. The old
+The toolchain ships three, each with `check`, `format` and `generate`:
+`std/json` for `json`, `jsonc` and `json5`, `std/proto` for `.proto` schemas,
+and `std/textproto` for [text format files](../../guides/textproto.md). The old
 `std/codegen/proto` is [`retired-tool-name`](../errors/retired-tool-name.md).
 
 ## What an entry point is handed
@@ -148,6 +149,9 @@ export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Config>): Gene
 - **`type_schema` belongs to the language.** For `json`, `jsonc` and `json5`
   it is a JSON Schema path relative to the tool's package, or a `//` path.
   [`guides/json`](../../guides/json.md#generating-types) has the type mapping.
+  For `textproto` it is a schema path and a message, `routes.proto:Routes`,
+  and a file under it may leave out its `# proto-file:` and `# proto-message:`
+  header or name the same ones.
   `proto` takes no contract, because a `.proto` file holds no value
   ([`proto-contract-unsupported`](../errors/proto-contract-unsupported.md)).
 - **One entry per language.** An input in a language no entry lists is
@@ -163,9 +167,22 @@ The module holds the types and
 `decode<C: Allocator>(ctx: C, text: Str): Result<Config, Str>`, which the
 `main` the build writes calls on each input before the entry point sees it. A
 JSON input arrives as strict JSON, whatever its dialect, so comments and
-JSON5 syntax never reach `decode`. A language of your own supplies types by
-answering a `generate` whose `typesOf` is set: one module, with the root type
-and this `decode`, which reads the input's text.
+JSON5 syntax never reach `decode`. A text format input arrives as its text,
+and its `decode` reads it against the schema. A language of your own supplies
+types by answering a `generate` whose `typesOf` is set: one module, with the
+root type and this `decode`, which reads the input's text.
+
+A `textproto` contract names a schema and a message, and the tool imports the
+message from `<tool label>/textproto`:
+
+```textproto schema=build
+# tools/routes/BUILD.buri
+tool {
+    generate {
+        accepts: [{ language: "textproto", type_schema: "routes.proto:Routes" }]
+    }
+}
+```
 
 ## The cache
 
