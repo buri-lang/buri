@@ -188,10 +188,10 @@ test "a field's Buri name is protoc's json_name, and a keyword gets an underscor
     assert.contains(out, "                .Some(x) => [(\"userName\", Json.Str(x))],");
     assert.contains(
         out,
-        "            let type_: Option<Str> = match (proto.member(doc, \"type\")) {",
+        "            let f_type_: Option<Str> = match (proto.member(doc, \"type\")) {",
     );
     assert.contains(
         out,
-        "            let userName: Option<Str> = match (proto.memberEither(doc, \"userName\", \"user_name\")) {",
+        "            let f_userName: Option<Str> = match (proto.memberEither(doc, \"userName\", \"user_name\")) {",
     );
 }

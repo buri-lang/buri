@@ -2185,7 +2185,10 @@ fn jsonDecodeFns<C: Allocator>(
         );
     let inits = fields
         .mapCtx(ctx, fn(c, f) => initOf(f.name, id(local(c, f.name))))
-        .concat(ctx, oneofs.mapCtx(ctx, fn(c, o) => initOf(o.field, id(local(c, o.field)))));
+        .concat(
+            ctx,
+            oneofs.mapCtx(ctx, fn(c, o) => initOf(o.field, id(local(c, o.field)))),
+        );
     let objectArm = blockE(blk(bound, [variantCall("Ok", [structE(name, inits)])]));
     let atItem = fnItem(ast.FnDecl {
         name: nm(str.format(ctx, "decode${name}JsonAt")),
