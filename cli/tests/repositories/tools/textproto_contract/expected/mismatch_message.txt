@@ -1,0 +1,43 @@
+error: "//lib/routes/table" names no file (lib/routes/table.buri) [module-not-found]
+ --> lib/routes/lib.buri:1:6
+  |
+1 | from "//lib/routes/table" export { shown, table };
+  |      ^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    What to do
+    ──────────
+
+    Create the file the path names, or correct the path.
+
+    Why
+    ───
+
+    A module path maps to exactly one file, with no search path and no fallback,
+    so there is never a question of which of two candidates a path meant.
+
+    A program that provokes it
+    ──────────────────────────
+
+    This snippet resolves against the worked monorepo in cli/tests/example,
+    which has no lib/nope.
+
+error: `Route` is not `routes.v1.Routes`, what the tool reading this file checks it against [schema-mismatch]
+ --> lib/routes/routes.txtpb:2:18
+  |
+2 | # proto-message: Route
+  |                  ^^^^^
+  |
+  = under a contract a file may leave out its headers, or name the contract's schema and message
+  = fix: delete the header, or name `routes.v1.Routes`
+
+      { "$schema": "orders.schema.json", "tables": [] }
+
+    A tool with a contract reads a typed value, so the file is checked against
+    the contract's type_schema. A different "$schema" would say the file is
+    something else.
+
+    Two tools with different contracts reading one file is the same mistake: one
+    file cannot have two schemas.
+

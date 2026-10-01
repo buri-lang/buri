@@ -1,0 +1,15 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The file checks, so opening it publishes nothing to fix.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/deploy/server.txtpb", "languageId": "textproto", "version": 1, "text": "# proto-file: server.proto\n# proto-message: Server\n\nname: \"api\"\nport: 80\n"}}}
+# A field the message does not declare, and a value of the wrong type, found as typed.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/deploy/server.txtpb", "version": 2}, "contentChanges": [{"text": "# proto-file: server.proto\n# proto-message: Server\n\nname: \"api\"\nport: \"80\"\nhost: \"x\"\n"}]}}
+# A header that names no message.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/deploy/server.txtpb", "version": 3}, "contentChanges": [{"text": "# proto-file: server.proto\n# proto-message: Sever\n\nname: \"api\"\nport: 80\n"}]}}
+# Put right, and the file is clean again.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/deploy/server.txtpb", "version": 4}, "contentChanges": [{"text": "# proto-file: server.proto\n# proto-message: Server\nname:\"api\";port:80\n"}]}}
+# Formatting answers with the built-in layout.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/formatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/deploy/server.txtpb"}, "options": {"tabSize": 4, "insertSpaces": true}}}
+{"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

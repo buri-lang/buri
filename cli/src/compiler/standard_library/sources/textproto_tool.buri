@@ -1,0 +1,988 @@
+//! std/textproto — the text format tool this toolchain ships.
+
+from "core/buri/ast" import * as ast;
+from "core/bytes" import * as bytes;
+from "core/codegen" import { Diagnostic };
+from "core/effect" import { Allocator };
+from "core/json" import { Json };
+from "core/proto" import * as wire;
+from "core/str" import * as str;
+from "core/tool" import {
+    Checked, CheckRequest, Generated, GenerateRequest, Input, TypeSchema,
+};
+from "std/codegen/proto" import * as proto;
+from "std/codegen/proto/schema" import * as schema;
+from "std/textproto/read" import * as read;
+
+/// The module a contract's `decode` reads the text through.
+let READ_MODULE: Str = "std/textproto/read";
+
+// -----------------------------------------------------------------------------
+// Which message a file is
+// -----------------------------------------------------------------------------
+
+/// The schema and message one input is read as, and where to say so.
+struct Target {
+    /// Repository-relative.
+    file: Str,
+    message: Str,
+    /// The header that named the file, or nowhere for a contract.
+    fileAt: ast.Origin,
+    messageAt: ast.Origin,
+    /// The message a header named, to hold against a contract's.
+    claimed: Option<(Str, ast.Origin)>,
+}
+
+fn nowhereIn(file: Str): ast.Origin {
+    ast.origin(file, 0, 0)
+}
+
+fn diagnostic(
+    code: Str,
+    o: ast.Origin,
+    message: Str,
+    note: Option<Str>,
+    fix: Str,
+): Diagnostic {
+    Diagnostic {
+        code: code,
+        message: message,
+        note: note,
+        fix: .Some(fix),
+        origin: .Some(o),
+    }
+}
+
+/// A path relative to `dir`, or a `//` path, as a repository path. `None` for
+/// one that leaves the repository: a URL, an absolute path, or one that climbs
+/// out.
+fn local<C: Allocator>(ctx: C, dir: Str, written: Str): Option<Str> {
+    if (
+        written.contains(":")
+            || written.contains("\\")
+            || written.startsWith("/") && !written.startsWith("//")
+    ) {
+        .None
+    } else {
+        let joined = if (written.startsWith("//")) {
+            written.slice(2, written.length())
+        } else if (dir.isEmpty()) {
+            written
+        } else {
+            str.format(ctx, "${dir}/${written}")
+        };
+        match (walk(ctx, joined.split(ctx, "/"), [])) {
+            .Some(parts) => {
+                if (parts.isEmpty()) { .None } else { .Some(parts.join(ctx, "/")) }
+            },
+            .None => .None,
+        }
+    }
+}
+
+/// The segments of a path with `.` and `..` applied. `None` when `..` climbs
+/// past the root.
+fn walk<C: Allocator>(ctx: C, segments: [Str], parts: [Str]): Option<[Str]> {
+    match (segments.splitFirst(ctx)) {
+        .None => .Some(parts),
+        .Some(pair) => {
+            let (segment, rest) = pair;
+            if (segment.isEmpty() || segment == ".") {
+                walk(ctx, rest, parts)
+            } else if (segment == "..") {
+                if (parts.isEmpty()) {
+                    .None
+                } else {
+                    walk(ctx, rest, parts.take(ctx, parts.length() - 1))
+                }
+            } else {
+                walk(ctx, rest, parts.push(ctx, segment))
+            }
+        },
+    }
+}
+
+fn dirOf<C: Allocator>(ctx: C, path: Str): Str {
+    match (path.splitOnceFromEnd("/")) {
+        .Some(pair) => pair.0,
+        .None => "",
+    }
+}
+
+fn notLocal<C: Allocator>(ctx: C, o: ast.Origin, written: Str, fix: Str): Diagnostic {
+    diagnostic(
+        "schema-not-local",
+        o,
+        str.format(ctx, "`${written}` is not a file in this repository"),
+        .Some(
+            "a schema is read from the repository and never fetched, so every machine checks against the same one",
+        ),
+        fix,
+    )
+}
+
+/// `config.proto:Config`, as a contract's `type_schema` writes it.
+fn contractTarget<C: Allocator>(
+    ctx: C,
+    t: TypeSchema,
+    o: ast.Origin,
+): Result<Target, [Diagnostic]> {
+    match (t.text.splitOnceFromEnd(":")) {
+        .None => {
+            .Err([
+                diagnostic(
+                    "textproto-unknown-message",
+                    o,
+                    str.format(
+                        ctx,
+                        "the contract's `type_schema`, `${t.text}`, names no message",
+                    ),
+                    .None,
+                    "write the schema and the message, as in `config.proto:Config`",
+                ),
+            ])
+        },
+        .Some(pair) => {
+            match (local(ctx, t.package, pair.0)) {
+                .None => {
+                    .Err([
+                        notLocal(
+                            ctx,
+                            o,
+                            pair.0,
+                            "check the schema in, and name it by a path relative to the tool or a `//` path",
+                        ),
+                    ])
+                },
+                .Some(file) => {
+                    .Ok(Target {
+                        file: file,
+                        message: pair.1,
+                        fileAt: o,
+                        messageAt: o,
+                        claimed: .None,
+                    })
+                },
+            }
+        },
+    }
+}
+
+/// What the headers of `doc` say, held against the contract when there is one.
+fn targetOf<C: Allocator>(
+    ctx: C,
+    input: Input<Str>,
+    doc: read.Document,
+): Result<Target, [Diagnostic]> {
+    let header = fn(key: Str) => doc.headers.find(fn(h) => h.key == key);
+    let start = nowhereIn(input.path);
+    match (header("proto-import")) {
+        .Some(h) => {
+            .Err([
+                diagnostic(
+                    "textproto-unsupported",
+                    h.at,
+                    "`# proto-import:` is not supported",
+                    .Some(
+                        "the text format's specification gives it no meaning, so nothing reads it the same way twice",
+                    ),
+                    "delete the line: `# proto-file:` names the schema, and its own imports bring the rest",
+                ),
+            ])
+        },
+        .None => {
+            let file = header("proto-file");
+            let message = header("proto-message");
+            match (input.typeSchema) {
+                .Some(t) => {
+                    let contract = contractTarget(ctx, t, start)?;
+                    match (file) {
+                        .Some(h) => {
+                            let named = local(ctx, dirOf(ctx, input.path), h.value);
+                            if (named != .Some(contract.file)) {
+                                .Err([
+                                    mismatch(
+                                        ctx,
+                                        h.at,
+                                        h.value,
+                                        str.format(ctx, "//${contract.file}"),
+                                    ),
+                                ])
+                            } else {
+                                .Ok(Target {
+                                    ..contract,
+                                    claimed: message.map(fn(m) => (m.value, m.at)),
+                                })
+                            }
+                        },
+                        .None => {
+                            .Ok(Target {
+                                ..contract,
+                                claimed: message.map(fn(m) => (m.value, m.at)),
+                            })
+                        },
+                    }
+                },
+                .None => {
+                    match ((file, message)) {
+                        (.Some(f), .Some(m)) => {
+                            match (local(ctx, dirOf(ctx, input.path), f.value)) {
+                                .None => {
+                                    .Err([
+                                        notLocal(
+                                            ctx,
+                                            f.at,
+                                            f.value,
+                                            "check the schema in, and name it by a path relative to this file or a `//` path",
+                                        ),
+                                    ])
+                                },
+                                .Some(path) => {
+                                    .Ok(Target {
+                                        file: path,
+                                        message: m.value,
+                                        fileAt: f.at,
+                                        messageAt: m.at,
+                                        claimed: .None,
+                                    })
+                                },
+                            }
+                        },
+                        (f, m) => {
+                            let missing = if (f.isNone() && m.isNone()) {
+                                "`# proto-file:` and `# proto-message:`"
+                            } else if (f.isNone()) {
+                                "`# proto-file:`"
+                            } else {
+                                "`# proto-message:`"
+                            };
+                            .Err([
+                                diagnostic(
+                                    "textproto-without-header",
+                                    start,
+                                    str.format(
+                                        ctx,
+                                        "this file has no ${missing} header",
+                                    ),
+                                    .Some(
+                                        "a text format file a build reads is checked against its message before any generator reads it",
+                                    ),
+                                    "start the file with `# proto-file: <schema path>` and `# proto-message: <Message>`: a path relative to this file, or a `//` path",
+                                ),
+                            ])
+                        },
+                    }
+                },
+            }
+        },
+    }
+}
+
+fn mismatch<C: Allocator>(
+    ctx: C,
+    o: ast.Origin,
+    written: Str,
+    wanted: Str,
+): Diagnostic {
+    diagnostic(
+        "schema-mismatch",
+        o,
+        str.format(
+            ctx,
+            "`${written}` is not `${wanted}`, what the tool reading this file checks it against",
+        ),
+        .Some(
+            "under a contract a file may leave out its headers, or name the contract's schema and message",
+        ),
+        str.format(ctx, "delete the header, or name `${wanted}`"),
+    )
+}
+
+// -----------------------------------------------------------------------------
+// Reading the schemas
+// -----------------------------------------------------------------------------
+
+/// Every schema `file` reaches, read from `files`, and every path that should
+/// be there.
+struct Loaded {
+    schemas: read.Schemas,
+    /// What the target file's own reading and generation had to say.
+    problems: [Diagnostic],
+    wanted: [Str],
+    present: Bool,
+    /// The target file's types, as `std/proto` generates them.
+    types: ast.Module,
+}
+
+fn load<C: Allocator>(ctx: C, file: Str, files: [(Str, Str)]): Loaded {
+    let read0: [(Str, schema.Parsed)] = [];
+    let (parsed, wanted) = reach(ctx, [file], files, read0, []);
+    let schemas = read.schemas(ctx, parsed.mapCtx(ctx, fn(c, p) => (p.0, p.1.schema)));
+    match (parsed.find(fn(p) => p.0 == file)) {
+        .None => {
+            Loaded {
+                schemas: schemas,
+                problems: [],
+                wanted: wanted,
+                present: false,
+                types: ast.Module { items: [], docs: [] },
+            }
+        },
+        .Some(own) => {
+            let deps = own.1
+                .schema
+                .imports
+                .filterMapCtx(ctx, fn(c, i) => {
+                    let path = read.importPath(c, i.path);
+                    let modulePath = proto.importModulePath(c, i.path);
+                    parsed
+                        .find(fn(p) => p.0 == path)
+                        .map(fn(p) => (modulePath, p.1.schema))
+                });
+            let generated = proto.generate(ctx, file, own.1.schema, deps);
+            let missing = own.1
+                .schema
+                .imports
+                .filterMapCtx(ctx, fn(c, i) => {
+                    let path = read.importPath(c, i.path);
+                    if (parsed.any(fn(p) => p.0 == path)) {
+                        .None
+                    } else {
+                        .Some(
+                            diagnostic(
+                                "proto-import-not-found",
+                                i.origin,
+                                str.format(
+                                    c,
+                                    "\"${i.path}\" names no schema in this repository",
+                                ),
+                                .Some(
+                                    "an import inside a schema is written from the repository root, the way protoc resolves one against `-I.`",
+                                ),
+                                "write the path from the repository root, as in `import \"proto/address.proto\";`",
+                            ),
+                        )
+                    }
+                });
+            Loaded {
+                schemas: schemas,
+                problems: own.1
+                    .errors
+                    .concat(ctx, missing)
+                    .concat(ctx, generated.diagnostics),
+                wanted: wanted,
+                present: true,
+                types: generated.tree,
+            }
+        },
+    }
+}
+
+/// Reads each path in `queue` that `files` holds, and the imports of each.
+fn reach<C: Allocator>(
+    ctx: C,
+    queue: [Str],
+    files: [(Str, Str)],
+    done: [(Str, schema.Parsed)],
+    wanted: [Str],
+): ([(Str, schema.Parsed)], [Str]) {
+    match (queue.splitFirst(ctx)) {
+        .None => (done, wanted),
+        .Some(pair) => {
+            let (path, rest) = pair;
+            if (wanted.contains(path)) {
+                reach(ctx, rest, files, done, wanted)
+            } else {
+                match (files.find(fn(f) => f.0 == path)) {
+                    .None => reach(ctx, rest, files, done, wanted.push(ctx, path)),
+                    .Some(f) => {
+                        let parsed = schema.parse(ctx, f.1, path);
+                        let imports = parsed
+                            .schema
+                            .imports
+                            .mapCtx(ctx, fn(c, i) => read.importPath(c, i.path));
+                        reach(
+                            ctx,
+                            rest.concat(ctx, imports),
+                            files,
+                            done.push(ctx, (path, parsed)),
+                            wanted.push(ctx, path),
+                        )
+                    },
+                }
+            }
+        },
+    }
+}
+
+// -----------------------------------------------------------------------------
+// One input
+// -----------------------------------------------------------------------------
+
+/// An input that checks: its message, the module its schema becomes, and its
+/// value as proto3 JSON.
+struct Found {
+    schemas: read.Schemas,
+    message: read.Message,
+    types: ast.Module,
+    value: Json,
+}
+
+/// What reading one input came to: the message and its value as proto3 JSON,
+/// or what is wrong.
+struct Reading {
+    found: Option<Found>,
+    diagnostics: [Diagnostic],
+    needs: [Str],
+}
+
+fn failed(diagnostics: [Diagnostic], needs: [Str]): Reading {
+    Reading { found: .None, diagnostics: diagnostics, needs: needs }
+}
+
+fn readInput<C: Allocator>(ctx: C, input: Input<Str>, files: [(Str, Str)]): Reading {
+    match (read.parse(ctx, input.value, input.path)) {
+        .Err(d) => failed([d], []),
+        .Ok(doc) => {
+            match (targetOf(ctx, input, doc)) {
+                .Err(ds) => failed(ds, []),
+                .Ok(target) => {
+                    let loaded = load(ctx, target.file, files);
+                    if (!loaded.present) {
+                        let d = diagnostic(
+                            "schema-not-found",
+                            target.fileAt,
+                            str.format(ctx, "there is no schema at `${target.file}`"),
+                            .None,
+                            "create the schema, or correct the path",
+                        );
+                        failed([d], loaded.wanted)
+                    } else if (!loaded.problems.isEmpty()) {
+                        failed(loaded.problems, loaded.wanted)
+                    } else {
+                        match (
+                            read.message(
+                                ctx,
+                                loaded.schemas,
+                                target.file,
+                                target.message,
+                            )
+                        ) {
+                            .None => {
+                                let d = diagnostic(
+                                    "textproto-unknown-message",
+                                    target.messageAt,
+                                    str.format(
+                                        ctx,
+                                        "`${target.file}` declares no message `${target.message}`",
+                                    ),
+                                    .None,
+                                    "name a message the schema declares, by its name or with its package as in `pkg.Config`",
+                                );
+                                failed([d], loaded.wanted)
+                            },
+                            .Some(m) => {
+                                let claimed: Option<Diagnostic> = match (
+                                    target.claimed
+                                ) {
+                                    .None => .None,
+                                    .Some(c) => {
+                                        let same = match (
+                                            read.message(
+                                                ctx,
+                                                loaded.schemas,
+                                                target.file,
+                                                c.0,
+                                            )
+                                        ) {
+                                            .Some(x) => {
+                                                x.fullName(ctx) == m.fullName(ctx)
+                                            },
+                                            .None => false,
+                                        };
+                                        if (same) {
+                                            .None
+                                        } else {
+                                            .Some(
+                                                mismatch(
+                                                    ctx,
+                                                    c.1,
+                                                    c.0,
+                                                    m.fullName(ctx),
+                                                ),
+                                            )
+                                        }
+                                    },
+                                };
+                                match (claimed) {
+                                    .Some(d) => failed([d], loaded.wanted),
+                                    .None => {
+                                        let (value, ds) = read.check(
+                                            ctx,
+                                            loaded.schemas,
+                                            m,
+                                            doc.fields,
+                                        );
+                                        if (ds.isEmpty()) {
+                                            let found = Found {
+                                                schemas: loaded.schemas,
+                                                message: m,
+                                                types: loaded.types,
+                                                value: value,
+                                            };
+                                            Reading {
+                                                found: .Some(found),
+                                                diagnostics: [],
+                                                needs: loaded.wanted,
+                                            }
+                                        } else {
+                                            failed(ds, loaded.wanted)
+                                        }
+                                    },
+                                }
+                            },
+                        }
+                    }
+                },
+            }
+        },
+    }
+}
+
+// -----------------------------------------------------------------------------
+// The entry points
+// -----------------------------------------------------------------------------
+
+/// Every input, checked against its message.
+export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
+    let readings = request
+        .inputs
+        .mapCtx(ctx, fn(c, input) => readInput(c, input, request.files));
+    Checked {
+        diagnostics: readings.flatMapCtx(ctx, fn(c, r) => r.diagnostics),
+        needs: readings.flatMapCtx(ctx, fn(c, r) => r.needs),
+    }
+}
+
+/// Each input's module, or, for `typesOf`, the contract's types and `decode`.
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+    match (request.typesOf) {
+        .Some(t) => typesOf(ctx, t, request.files),
+        .None => {
+            let readings = request
+                .inputs
+                .mapCtx(ctx, fn(c, input) => {
+                    (input.path, readInput(c, input, request.files))
+                });
+            Generated {
+                modules: readings.filterMapCtx(ctx, fn(c, r) => {
+                    match (r.1.found) {
+                        .Some(f) => {
+                            Option.Some((baseName(c, r.0), dataModule(c, r.0, f)))
+                        },
+                        .None => Option.None,
+                    }
+                }),
+                diagnostics: readings.flatMapCtx(ctx, fn(c, r) => r.1.diagnostics),
+                needs: readings.flatMapCtx(ctx, fn(c, r) => r.1.needs),
+            }
+        },
+    }
+}
+
+/// The module a schema path implies: the file's own name.
+fn baseName<C: Allocator>(ctx: C, path: Str): Str {
+    match (path.splitOnceFromEnd("/")) {
+        .Some(pair) => pair.1,
+        .None => path,
+    }
+}
+
+/// `lower` camel case of a file's name up to its first `.`:
+/// `max-connections.txtpb` is `maxConnections`.
+fn valueName<C: Allocator>(ctx: C, path: Str): Str {
+    let stem = baseName(ctx, path).split(ctx, ".").first().withDefault("value");
+    let words = stem.splitAny(ctx, "-_ ").filter(ctx, fn(w) => !w.isEmpty());
+    let joined = words
+        .mapIndexedCtx(ctx, fn(c, i, w) => {
+            if (i == 0) { w.toLower(c) } else { proto.upperFirst(c, w) }
+        })
+        .join(ctx, "");
+    let named = if (joined.isEmpty()) {
+        "value"
+    } else if (joined.charAt(0).withDefault('a').isDigit()) {
+        str.format(ctx, "v${joined}")
+    } else {
+        joined
+    };
+    proto.escape(ctx, named)
+}
+
+fn nm(text: Str): ast.Name {
+    ast.Name { text: text, origin: ast.nowhere() }
+}
+
+fn tyNamed(text: Str): ast.Type {
+    ast.Type { kind: .Named(nm(text), []), origin: ast.nowhere() }
+}
+
+fn ex(kind: ast.ExprKind): ast.Expr {
+    ast.Expr { kind: kind, origin: ast.nowhere() }
+}
+
+fn id(text: Str): ast.Expr {
+    ex(.Ident(nm(text)))
+}
+
+fn dot(base: ast.Expr, member: Str): ast.Expr {
+    ex(.Field([base], nm(member)))
+}
+
+fn callOf(callee: ast.Expr, args: [ast.Expr]): ast.Expr {
+    ex(.Call([callee], args))
+}
+
+fn some(value: ast.Expr): ast.Expr {
+    callOf(ex(.DotVariant(nm("Some"))), [value])
+}
+
+/// A data file's module: its schema's types, and its value as
+/// `export let <name>: <Message>`.
+fn dataModule<C: Allocator>(ctx: C, path: Str, f: Found): ast.Module {
+    let item = ast.Item {
+        kind: .Let(ast.LetDecl {
+            name: nm(valueName(ctx, path)),
+            ty: tyNamed(f.message.buri()),
+            value: messageLiteral(ctx, f.schemas, f.message, f.value),
+            exported: true,
+            docs: [],
+        }),
+        origin: ast.origin(path, 0, 0),
+    };
+    let full = f.message.fullName(ctx);
+    ast.Module {
+        items: f.types.items.push(ctx, item),
+        docs: [
+            str.format(
+                ctx,
+                "Generated by `std/textproto` from `${path}`, a `${full}`.",
+            ),
+            "Not a file to edit: the text is the source.",
+        ],
+    }
+}
+
+fn messageLiteral<C: Allocator>(
+    ctx: C,
+    s: read.Schemas,
+    m: read.Message,
+    doc: Json,
+): ast.Expr {
+    let shape = read.shapeOf(ctx, s, m);
+    let plain = shape
+        .fields
+        .mapCtx(ctx, fn(c, f) => {
+            ast.Init {
+                name: nm(f.name),
+                value: [fieldLiteral(c, s, f, wire.member(doc, f.declared))],
+            }
+        });
+    let held = shape
+        .oneofs
+        .mapCtx(ctx, fn(c, o) => {
+            ast.Init {
+                name: nm(o.field),
+                value: [oneofLiteral(c, s, o.enumName, o.cases, doc)],
+            }
+        });
+    ex(.StructLit([id(m.buri())], [], plain.concat(ctx, held)))
+}
+
+fn fieldLiteral<C: Allocator>(
+    ctx: C,
+    s: read.Schemas,
+    f: proto.ResolvedField,
+    v: Option<Json>,
+): ast.Expr {
+    match (v) {
+        .None => {
+            if (proto.isRepeated(f)) { ex(.Array([])) } else { proto.defaultOf(f) }
+        },
+        .Some(x) => {
+            if (proto.isRepeated(f)) {
+                let items = x.asArray().withDefault([]);
+                ex(.Array(items.mapCtx(ctx, fn(c, item) => element(c, s, f.ty, item))))
+            } else if (proto.isOptional(f)) {
+                some(element(ctx, s, f.ty, x))
+            } else {
+                element(ctx, s, f.ty, x)
+            }
+        },
+    }
+}
+
+/// The case of a oneof the value holds, if it holds one.
+fn oneofLiteral<C: Allocator>(
+    ctx: C,
+    s: read.Schemas,
+    enumName: Str,
+    cases: [proto.ResolvedField],
+    doc: Json,
+): ast.Expr {
+    match (cases.splitFirst(ctx)) {
+        .None => ex(.DotVariant(nm("None"))),
+        .Some(pair) => {
+            let (k, rest) = pair;
+            match (wire.member(doc, k.declared)) {
+                .Some(v) => {
+                    some(
+                        callOf(dot(id(enumName), proto.upperFirst(ctx, k.name)), [
+                            element(ctx, s, k.ty, v),
+                        ]),
+                    )
+                },
+                .None => oneofLiteral(ctx, s, enumName, rest, doc),
+            }
+        },
+    }
+}
+
+fn element<C: Allocator>(
+    ctx: C,
+    s: read.Schemas,
+    t: proto.FieldType,
+    v: Json,
+): ast.Expr {
+    match (t) {
+        .Scalar(k) => {
+            let kind = proto.scalarName(k);
+            if (kind == "bool") {
+                ex(.Bool(v.asBool().withDefault(false)))
+            } else if (kind == "string") {
+                ex(.Str(v.asStr().withDefault("")))
+            } else if (kind == "bytes") {
+                let raw = match (bytes.fromBase64(ctx, v.asStr().withDefault(""))) {
+                    .Ok(b) => b,
+                    .Err(_e) => [],
+                };
+                ex(.Array(raw.map(ctx, fn(b) => ex(.Int(b.toI64())))))
+            } else if (kind == "double" || kind == "float") {
+                floatLiteral(v)
+            } else {
+                ex(.Int(v.asStr().andThen(fn(text) => text.toInt()).withDefault(0)))
+            }
+        },
+        .Named(e) => {
+            match (e.kind) {
+                .Enum => {
+                    match (read.enumOf(s, e)) {
+                        .Some(x) => enumLiteral(ctx, e.buri, x, v),
+                        .None => ex(.Unit),
+                    }
+                },
+                .Message => {
+                    match (read.messageOf(s, e)) {
+                        .Some(inner) => messageLiteral(ctx, s, inner, v),
+                        .None => ex(.Unit),
+                    }
+                },
+            }
+        },
+    }
+}
+
+fn enumLiteral<C: Allocator>(ctx: C, name: Str, x: schema.Enum, v: Json): ast.Expr {
+    match (v) {
+        .Str(written) => dot(id(name), proto.escape(ctx, written)),
+        .Num(n) => {
+            let number = n.wrapToI64();
+            match (x.values.find(fn(value) => value.number == number)) {
+                .Some(value) => dot(id(name), proto.escape(ctx, value.name)),
+                .None => {
+                    callOf(dot(id(name), proto.unrecognizedName(ctx, x)), [
+                        ex(.Int(number)),
+                    ])
+                },
+            }
+        },
+        _other => ex(.Unit),
+    }
+}
+
+/// JSON has no infinities and no NaN, and neither has a Buri literal.
+fn floatLiteral(v: Json): ast.Expr {
+    let divided = fn(top: Float) => {
+        ex(.Binary(.Div, [ex(.Float(top))], [ex(.Float(0.0))]))
+    };
+    match (v) {
+        .Num(x) => ex(.Float(x)),
+        .Str(text) => {
+            if (text == "Infinity") {
+                divided(1.0)
+            } else if (text == "-Infinity") {
+                divided(-1.0)
+            } else {
+                divided(0.0)
+            }
+        },
+        _other => ex(.Float(0.0)),
+    }
+}
+
+/// The module a contract's `typesOf` asks for: the message's schema's types,
+/// and `decode`, which reads an input's text as the message.
+fn typesOf<C: Allocator>(ctx: C, t: TypeSchema, files: [(Str, Str)]): Generated {
+    let none = fn(ds: [Diagnostic]) => {
+        Generated { modules: [], diagnostics: ds, needs: [] }
+    };
+    match (contractTarget(ctx, t, ast.nowhere())) {
+        .Err(ds) => none(ds),
+        .Ok(target) => {
+            let loaded = load(ctx, target.file, files);
+            if (!loaded.present) {
+                let d = Diagnostic {
+                    code: "schema-not-found",
+                    message: str.format(ctx, "there is no schema at `${target.file}`"),
+                    note: .None,
+                    fix: .Some("create the schema, or correct the path"),
+                    origin: .None,
+                };
+                Generated { modules: [], diagnostics: [d], needs: loaded.wanted }
+            } else if (!loaded.problems.isEmpty()) {
+                Generated {
+                    modules: [],
+                    diagnostics: loaded.problems,
+                    needs: loaded.wanted,
+                }
+            } else {
+                match (read.message(ctx, loaded.schemas, target.file, target.message)) {
+                    .None => {
+                        let d = Diagnostic {
+                            code: "textproto-unknown-message",
+                            message: str.format(
+                                ctx,
+                                "`${target.file}` declares no message `${target.message}`",
+                            ),
+                            note: .None,
+                            fix: .Some(
+                                "name a message the schema declares, as in `config.proto:Config`",
+                            ),
+                            origin: .None,
+                        };
+                        Generated {
+                            modules: [],
+                            diagnostics: [d],
+                            needs: loaded.wanted,
+                        }
+                    },
+                    .Some(m) => {
+                        let sources = files.filter(ctx, fn(f) => {
+                            loaded.wanted.contains(f.0)
+                        });
+                        let made = contractModule(
+                            ctx,
+                            loaded.types,
+                            m,
+                            target.file,
+                            sources,
+                        );
+                        Generated {
+                            modules: [("textproto", made)],
+                            diagnostics: [],
+                            needs: loaded.wanted,
+                        }
+                    },
+                }
+            }
+        },
+    }
+}
+
+fn contractModule<C: Allocator>(
+    ctx: C,
+    types: ast.Module,
+    m: read.Message,
+    file: Str,
+    sources: [(Str, Str)],
+): ast.Module {
+    let root = m.buri();
+    let reader = ast.Item {
+        kind: .Import(ast.Import {
+            path: READ_MODULE,
+            clause: .Namespace(nm("textprotoRead")),
+        }),
+        origin: ast.nowhere(),
+    };
+    let pairs = sources.map(ctx, fn(f) => ex(.Tuple([ex(.Str(f.0)), ex(.Str(f.1))])));
+    let schemas = ast.Item {
+        kind: .Let(ast.LetDecl {
+            name: nm("SCHEMAS"),
+            ty: ast.Type {
+                kind: .Array([
+                    ast.Type {
+                        kind: .Tuple([tyNamed("Str"), tyNamed("Str")]),
+                        origin: ast.nowhere(),
+                    },
+                ]),
+                origin: ast.nowhere(),
+            },
+            value: ex(.Array(pairs)),
+            exported: false,
+            docs: ["The schemas the message is read against, as `(path, text)`."],
+        }),
+        origin: ast.nowhere(),
+    };
+    let reads = ex(
+        .Lambda(
+            [
+                ast.LambdaParam { name: nm("c"), ty: [] },
+                ast.LambdaParam { name: nm("doc"), ty: [] },
+            ],
+            [],
+            [callOf(id(str.format(ctx, "decode${root}Json")), [id("c"), id("doc")])],
+        ),
+    );
+    let body = callOf(dot(id("textprotoRead"), "decode"), [
+        id("ctx"),
+        id("text"),
+        id("SCHEMAS"),
+        ex(.Str(file)),
+        ex(.Str(str.format(ctx, ".${m.fullName(ctx)}"))),
+        reads,
+    ]);
+    let decode = ast.Item {
+        kind: .Fn(ast.FnDecl {
+            name: nm("decode"),
+            generics: [
+                ast.GenericParam { name: nm("C"), bounds: [tyNamed("Allocator")] },
+            ],
+            params: [
+                ast.Param { name: nm("ctx"), ty: [tyNamed("C")] },
+                ast.Param { name: nm("text"), ty: [tyNamed("Str")] },
+            ],
+            ret: ast.Type {
+                kind: .Named(nm("Result"), [tyNamed(root), tyNamed("Str")]),
+                origin: ast.nowhere(),
+            },
+            body: [ast.Block { stmts: [], tail: [body], origin: ast.nowhere() }],
+            exported: true,
+            docs: [
+                str.format(
+                    ctx,
+                    "Reads the text a tool under this contract is handed as a `${root}`.",
+                ),
+            ],
+        }),
+        origin: ast.nowhere(),
+    };
+    let full = m.fullName(ctx);
+    ast.Module {
+        items: [reader].concat(ctx, types.items).push(ctx, schemas).push(ctx, decode),
+        docs: [
+            str.format(
+                ctx,
+                "Generated by `std/textproto`: `${full}` from `${file}`, and `decode`.",
+            ),
+        ],
+    }
+}

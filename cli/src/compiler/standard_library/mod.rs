@@ -150,6 +150,11 @@ pub const MODULES: &[StdModule] = &[
     m("core/format", include_str!("sources/format.buri")),
     m("core/tool", include_str!("sources/tool.buri")),
     m("std/proto", include_str!("sources/proto_tool.buri")),
+    // The text format: a reader that holds a file against a message of the
+    // `.proto` reader above, and the tool built on it. A contract module's
+    // `decode` calls the reader at run time.
+    m("std/textproto/read", include_str!("sources/textproto_read.buri")),
+    m("std/textproto", include_str!("sources/textproto_tool.buri")),
     m("core/map", include_str!("sources/map.buri")),
     m("core/set", include_str!("sources/set.buri")),
     m("core/orderedmap", include_str!("sources/orderedmap.buri")),

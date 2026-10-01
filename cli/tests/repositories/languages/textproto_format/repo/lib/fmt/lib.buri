@@ -1,0 +1,1 @@
+from "//lib/fmt/order.textproto" export { Order, order };

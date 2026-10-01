@@ -1,0 +1,16 @@
+# proto-file: shop.proto
+# proto-message: Order
+
+id: "o-1"
+id: "o-2"
+count: "3"
+weight: -1
+size: LARGE
+backup: "sku-1"
+line { sku: 4 colour: "red" }
+count_by { }
+tags: "a"
+tags: ["b", 7]
+gift: [true]
+address: "1 Main St"
+locker: "L4"
