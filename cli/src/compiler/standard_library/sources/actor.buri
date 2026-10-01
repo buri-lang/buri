@@ -111,16 +111,18 @@
 //! - `onStop` runs once, with the final state.
 //!
 //! Two tasks may send at once. A sender that finds another task stepping the
-//! actor waits for that step to finish, then gets its own answer.
+//! actor waits for that step to finish, then gets its own answer. It waits
+//! thirty seconds at most, then gets `.Err(.TimedOut)`.
 //!
-//! A step that sends to the actor running it gets `.Err(.Stopped)`, and so does
-//! a task that step fanned out. That send would wait for itself, so it doesn't
-//! wait at all. The message is not lost: the loop already running steps it
-//! before it puts the state back.
+//! A step that sends to the actor running it gets `.Err(.WouldDeadlock)`, and
+//! so does a task that step fanned out. That send would wait for itself, so it
+//! doesn't wait at all. The message is not lost: the loop already running steps
+//! it before it puts the state back.
 //!
 //! That is also the only way to fill the mailbox, which holds sixty-four:
 //! nothing drains while a step holds the state. A step that posts a
-//! sixty-fifth message waits there for room nobody is coming to make.
+//! sixty-fifth message waits there for room nobody is coming to make, and gets
+//! `.Err(.TimedOut)` after thirty seconds.
 //!
 //! An actor does not run *between* the calls that drive it, so it is not yet a
 //! way to get work done in the background.
@@ -205,10 +207,25 @@ export struct Address<C, S, M, R> {
 struct Reply<R>(Int);
 
 derive Equal, Show for Stopped;
-/// The one way an actor operation fails: there is no actor any more.
+/// The one way `stop` fails: there is no actor any more.
 export enum Stopped {
     /// The mailbox is closed. `stop` did it, and nothing reopens it.
     Stopped,
+}
+
+derive Equal, Show for SendError;
+/// Why `sendMessage` came back without an answer.
+export enum SendError {
+    /// The actor was stopped before or while handling the message.
+    Stopped,
+    /// The send waited thirty seconds, for room in the mailbox or for another
+    /// task's step to finish, and gave up.
+    TimedOut,
+    /// The caller is the actor's own step, or a task that step started. The
+    /// state comes back only after the caller returns, so waiting for it would
+    /// never end. The message still gets stepped, by the loop that holds the
+    /// state.
+    WouldDeadlock,
 }
 
 /// One value on its way through the runtime.
@@ -291,29 +308,43 @@ impl<C: Allocator + Tasks, S, M, R> Address<C, S, M, R> {
     /// The message crosses through `across`, so the mailbox holds a block on
     /// the platform allocator whatever scope this call was made inside.
     ///
-    /// `.Err(.Stopped)` covers three cases: the actor was gone before the
-    /// message was posted, it went before the answer came, or the caller is a
-    /// step of this same actor and is holding the state, so the drive below
-    /// finds nothing to step with. Only the last one leaves the message in the
-    /// mailbox, where the loop that is already running steps it.
-    export fn sendMessage(self, ctx: C, message: M): Result<R, Stopped> {
+    /// The runtime says which `SendError` it was:
+    ///
+    /// - `.Stopped`: the actor was gone before the message was posted, or went
+    ///   before the answer came.
+    /// - `.TimedOut`: the mailbox stayed full, or another task's step held the
+    ///   state, past the thirty-second deadline.
+    /// - `.WouldDeadlock`: the caller is a step of this same actor, or a task
+    ///   that step started.
+    ///
+    /// A state wait that timed out and `.WouldDeadlock` both leave the message
+    /// in the mailbox, where the loop that holds the state steps it.
+    export fn sendMessage(self, ctx: C, message: M): Result<R, SendError> {
         let reply = Reply(replyOpen(ctx));
         let posted = Posted { slot: reply.0, message: message };
         match (mailboxPush(ctx, self.handle, across([carried(posted)]))) {
-            .None => {
+            .Err(refused) => {
                 // The slot is nobody's now, and taking it is what gives it
                 // back to the next `sendMessage`.
                 let _abandoned = answering(ctx, reply);
-                .Err(.Stopped)
+                .Err(refused)
             },
-            .Some(_waiting) => {
-                let _ = drive(ctx, self);
+            .Ok(_waiting) => {
+                let driven = drive(ctx, self);
                 match (answering(ctx, reply)) {
-                    .None => .Err(.Stopped),
+                    // Answered, even where this drive could not run: the loop
+                    // that held the state stepped the message first.
                     .Some(answered) => {
                         match (answered.first()) {
                             .None => .Err(.Stopped),
                             .Some(carrier) => .Ok(carrier.value),
+                        }
+                    },
+                    // Unanswered after a drive that ran: a `stop` discarded it.
+                    .None => {
+                        match (driven) {
+                            .Ok(()) => .Err(.Stopped),
+                            .Err(why) => .Err(why),
                         }
                     },
                 }
@@ -325,7 +356,7 @@ impl<C: Allocator + Tasks, S, M, R> Address<C, S, M, R> {
     /// once with the final state.
     ///
     /// A second `stop` answers `.Err(.Stopped)`, and so does every
-    /// `sendMessage` after this one.
+    /// `sendMessage` after this one, with `SendError`'s `.Stopped`.
     export fn stop(self, ctx: C): Result<(), Stopped> {
         match (closing(ctx, self)) {
             .None => .Err(.Stopped),
@@ -378,24 +409,26 @@ fn draining<C: Allocator + Tasks, S, M, R>(
 
 /// Takes the state, runs the mailbox down, puts the state back.
 ///
-/// `false` where there was no state to take — a stopped actor, or one this
-/// caller's own step is holding. Neither is a failure a caller can do anything
-/// about, so this answers a `Bool` and not a `Result`. A state another task is
-/// holding is waited for rather than refused.
+/// `.Err` where there was no state to take, saying why: a stopped actor, one
+/// this caller's own step is holding, or a wait for another task's step that
+/// ran out.
 ///
 /// The state going back crosses through `across`, for `start`'s reason: a step
 /// that ran inside an `alloc.scoped` body built the next state *there*, and the
 /// runtime keeps it long after that body has answered.
-fn drive<C: Allocator + Tasks, S, M, R>(ctx: C, address: Address<C, S, M, R>): Bool {
+fn drive<C: Allocator + Tasks, S, M, R>(
+    ctx: C,
+    address: Address<C, S, M, R>,
+): Result<(), SendError> {
     match (taking(ctx, address)) {
-        .None => false,
-        .Some(held) => {
+        .Err(why) => .Err(why),
+        .Ok(held) => {
             match (held.first()) {
-                .None => false,
+                .None => .Err(.Stopped),
                 .Some(state) => {
                     let ended = draining(ctx, address, state.value);
                     let _ = statePut(ctx, address.handle, across([carried(ended)]));
-                    true
+                    .Ok(())
                 },
             }
         },
@@ -463,7 +496,7 @@ fn popped<C: Tasks, S, M, R>(
 fn taking<C: Tasks, S, M, R>(
     ctx: C,
     address: Address<C, S, M, R>,
-): Option<[Carried<S>]> {
+): Result<[Carried<S>], SendError> {
     stateTake(ctx, address.handle)
 }
 
@@ -511,12 +544,17 @@ fn filling<C: Allocator + Tasks, R>(ctx: C, reply: Reply<R>, value: R): Option<I
 /// answers its handle. A negative bound asks the runtime for its own.
 fn mailboxOpen<C: Tasks, S>(ctx: C, state: [Carried<S>], bound: Int): Int;
 
-/// Posts one message and answers how many are now waiting. `.None` once the
-/// mailbox is closed, and the block is not taken on that path.
+/// Posts one message and answers how many are now waiting. `.Stopped` once
+/// the mailbox is closed and `.TimedOut` past the deadline, and the block is not
+/// taken on either path.
 ///
 /// **Waits while the mailbox is full.** That and `stateTake` are the two places
 /// another task's actor can suspend a caller of this module.
-fn mailboxPush<C: Tasks, M>(ctx: C, handle: Int, message: [Carried<M>]): Option<Int>;
+fn mailboxPush<C: Tasks, M>(
+    ctx: C,
+    handle: Int,
+    message: [Carried<M>],
+): Result<Int, SendError>;
 
 /// Takes the oldest message, or `.None` for an empty mailbox. A closed mailbox
 /// still hands back what was in it, which is what `stop`'s discard loop reads.
@@ -528,12 +566,12 @@ fn mailboxPop<C: Tasks, M>(ctx: C, handle: Int): Option<[Carried<M>]>;
 /// **Waits for the state**, so a `stop` racing a step lets that step finish.
 fn mailboxClose<C: Tasks, S>(ctx: C, handle: Int): Option<[Carried<S>]>;
 
-/// Takes the state out. `.None` for a closed actor, or one the caller's own step
-/// is holding.
+/// Takes the state out. `.Stopped` for a closed actor, `.WouldDeadlock` for one
+/// the caller's own step is holding, and `.TimedOut` past the deadline.
 ///
 /// **Waits while another task holds the state**, so a sender that arrives
 /// mid-step gets its answer once that step is done.
-fn stateTake<C: Tasks, S>(ctx: C, handle: Int): Option<[Carried<S>]>;
+fn stateTake<C: Tasks, S>(ctx: C, handle: Int): Result<[Carried<S>], SendError>;
 
 /// Puts a state back, and answers how many messages are waiting. `.None` for a
 /// closed actor, and the block is not taken on that path.

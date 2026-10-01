@@ -27,7 +27,7 @@
 // not merely how many there were.
 
 from "core/actor" import * as actor;
-from "core/actor" import { Actor, Stepped, Stopped };
+from "core/actor" import { Actor, SendError, Stepped };
 from "core/effect" import { Allocator, Tasks };
 from "core/host/testing" import { alloc, tasks };
 from "core/list" import * as list;
@@ -60,7 +60,7 @@ fn recorder<C: Allocator + Tasks>(): Actor<C, Int, Note, Heard> {
 }
 
 /// What a `Saw` answered, or `-1` where the actor had already stopped.
-fn noted(r: Result<Heard, Stopped>): Int {
+fn noted(r: Result<Heard, SendError>): Int {
     match (r) {
         .Ok(.Noted(n)) => n,
         _otherwise => -1,
@@ -68,7 +68,7 @@ fn noted(r: Result<Heard, Stopped>): Int {
 }
 
 /// What the recorder has heard, in order.
-fn heardSoFar(r: Result<Heard, Stopped>): Int {
+fn heardSoFar(r: Result<Heard, SendError>): Int {
     match (r) {
         .Ok(.Log(n)) => n,
         _otherwise => -1,
