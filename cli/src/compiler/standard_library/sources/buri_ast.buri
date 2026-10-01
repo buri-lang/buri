@@ -2110,9 +2110,10 @@ fn quote<C: Allocator>(ctx: C, text: Str): Str {
 
 /// The escape a character takes inside a literal, or the character itself.
 ///
-/// A literal writes every control character as an escape and every other
-/// scalar as itself. `\n`, `\r`, `\t` and `\0` have names of their own; the
-/// rest of the C0 range and `DEL` go as `\u{...}`.
+/// A literal writes every character `Char.isPrintable` says no to as an escape
+/// and every other scalar as itself, the rule `buri format` follows. `\n`,
+/// `\r`, `\t` and `\0` have names of their own; the rest go as `\u{...}`, so a
+/// byte-order mark or a bidirectional override is spelled where it can be seen.
 fn escapeChar<C: Allocator>(ctx: C, ch: Char): Str {
     if (ch == '"') {
         "\\\""
@@ -2126,7 +2127,7 @@ fn escapeChar<C: Allocator>(ctx: C, ch: Char): Str {
         "\\t"
     } else if (ch == '\0') {
         "\\0"
-    } else if (isControl(ch)) {
+    } else if (isUnprintable(ch)) {
         let digits = number.toHex(ctx, ch.toU32().toI64(), 1);
         str.format(ctx, "\\u{${digits}}")
     } else {
@@ -2134,10 +2135,10 @@ fn escapeChar<C: Allocator>(ctx: C, ch: Char): Str {
     }
 }
 
-/// The characters no literal holds as themselves: the C0 range, and `DEL`.
-fn isControl(ch: Char): Bool {
-    let code = ch.toU32().toI64();
-    code < 32 || code == 127
+/// The characters no literal holds as themselves: everything in General
+/// Categories `C` and `Z` but the space.
+fn isUnprintable(ch: Char): Bool {
+    !ch.isPrintable()
 }
 
 /// The text of a template, where `$` is an escape as well.
@@ -2163,7 +2164,7 @@ fn quoteChar<C: Allocator>(ctx: C, ch: Char): Str {
         "'\\t'"
     } else if (ch == '\0') {
         "'\\0'"
-    } else if (isControl(ch)) {
+    } else if (isUnprintable(ch)) {
         let digits = number.toHex(ctx, ch.toU32().toI64(), 1);
         str.format(ctx, "'\\u{${digits}}'")
     } else {

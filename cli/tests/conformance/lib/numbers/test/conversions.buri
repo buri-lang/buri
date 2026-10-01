@@ -279,7 +279,7 @@ test "U32 into Char succeeds for a scalar value" {
     let c: U32 = 0;
     assert.equal(assert.ok(c.toChar()), '\0');
     let d: U32 = 1114111;
-    assert.equal(assert.ok(d.toChar()), '􏿿');
+    assert.equal(assert.ok(d.toChar()), '\u{10ffff}');
 }
 
 test "U32 into Char fails for a surrogate or a value past the last scalar" {
