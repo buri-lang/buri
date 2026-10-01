@@ -1,0 +1,12 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:43:22
+   |
+43 | export fn kind(s: Str@ ): Int {
+   |                      ^
+   |
+  --> main.buri:43:15
+   |
+43 | export fn kind(s: Str@ ): Int {
+   |               ^ opened here
+   |
+   = fix: write `)` here
