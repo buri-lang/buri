@@ -217,7 +217,22 @@ be a request handler's shared state, or another actor's.
 
 `stop` closes the mailbox, discards what is still in it, and runs `onStop` once
 with the final state. Every `sendMessage` and second `stop` after that answers
-`.Err(.Stopped)`, which is the one way an actor operation fails.
+`.Err(.Stopped)`.
+
+`sendMessage` fails with a `SendError`, which says why:
+
+```buri
+from "core/actor" import { SendError };
+
+export fn shown(answer: Result<Int, SendError>): Str {
+    match (answer) {
+        .Ok(_count) => "answered",
+        .Err(.Stopped) => "the actor was stopped",
+        .Err(.TimedOut) => "waited thirty seconds and gave up",
+        .Err(.WouldDeadlock) => "sent from the actor's own step",
+    }
+}
+```
 
 **The actor steps on the task that drives it.** `sendMessage` posts, runs the
 mailbox down until its own answer is there, and hands that answer back. `stop`
@@ -225,10 +240,14 @@ closes and then runs the hook. One sender's messages arrive in order, the actor
 steps each message exactly once, and a send sees the state its own message left.
 So an actor is not yet a way to get work done in the background.
 
-A step that sends to the actor running it gets `.Err(.Stopped)` back. The state
-is already out — waiting for it would be waiting for itself — so the send does
-not wait. The message is posted all the same, and the loop already running
-steps it before it puts the state back.
+Two tasks may send at once. A sender that finds another task stepping the actor
+waits for that step to finish, then gets its own answer, or `.Err(.TimedOut)`
+after thirty seconds.
+
+A step that sends to the actor running it gets `.Err(.WouldDeadlock)` back, and
+so does a task that step started. The state is already out, and waiting for it
+would be waiting for itself, so the send doesn't wait. The message is posted all
+the same, and the loop already running steps it before it puts the state back.
 
 ## Why the state goes behind a mailbox
 

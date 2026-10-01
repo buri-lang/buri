@@ -2915,7 +2915,7 @@ fn actor_payloads() -> String {
     String::from(
         r#"
 from "core/actor" import * as actor;
-from "core/actor" import { Actor, Stepped, Stopped };
+from "core/actor" import { Actor, SendError, Stepped };
 from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -2942,7 +2942,7 @@ fn keeper<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Note, Noted> {
     }
 }
 
-fn size(answered: Result<Noted, Stopped>): Int {
+fn size(answered: Result<Noted, SendError>): Int {
     match (answered) {
         .Ok(.Held(s)) => s.length(),
         .Ok(.Stored) => -1,
@@ -3130,8 +3130,8 @@ export fn main(): Result<(), Str> {
 /// **Every sender gets its own answer, however many post at once**
 /// (buri-lang/buri#205).
 ///
-/// `core/actor` names three cases for `.Err(.Stopped)`, and none of them
-/// happens here: the actor is live throughout, and no sender is a step. The
+/// None of `core/actor`'s `SendError` cases happens here: the actor is live
+/// throughout, no sender is a step, and no wait comes near the deadline. The
 /// bug this row pins answered `.Err(.Stopped)` to a sender that found another
 /// task stepping the actor, *after* its message had been posted — so the
 /// message was stepped and its answer went nowhere. `stepped 128` next to
@@ -3164,7 +3164,7 @@ fn reentering_senders() -> String {
     String::from(
         r#"
 from "core/actor" import * as actor;
-from "core/actor" import { Actor, Stepped, Stopped };
+from "core/actor" import { Actor, SendError, Stepped };
 from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -3198,7 +3198,7 @@ fn reentrant<C: Allocator + Tasks>(): Actor<C, Int, Reentrant<C>, Reentered> {
     }
 }
 
-fn shown<C: Stdout>(ctx: C, label: Str, answer: Result<Reentered, Stopped>): () {
+fn shown<C: Stdout>(ctx: C, label: Str, answer: Result<Reentered, SendError>): () {
     let printed = match (answer) {
         .Ok(.Reentered(n)) => io.println(ctx, "${label} answered ${n}"),
         .Ok(.Count(n)) => io.println(ctx, "${label} count ${n}"),
@@ -3215,21 +3215,24 @@ export fn main(): Result<(), Str> {
         Tasks: host.tasks,
     };
     let counted = actor.start(ctx, reentrant());
-    // Straight from the step: one tick, refused on the spot.
+    // Straight from the step: one tick, refused on the spot as `.WouldDeadlock`.
     let direct = counted.sendMessage(ctx, .Reenter(fn(c) => {
         match (counted.sendMessage(c, .Tick)) {
             .Ok(_ticked) => 1,
-            .Err(_gone) => 0,
+            .Err(.WouldDeadlock) => 2,
+            .Err(_other) => 0,
         }
     }));
     let _ = shown(ctx, "direct", direct);
-    // From two tasks the step fanned out: two ticks, both refused on the spot,
-    // because the step that made them is still holding the state.
+    // From two tasks the step fanned out: two ticks, both refused on the spot
+    // as `.WouldDeadlock`, because the step that made them is still holding the
+    // state.
     let fanned = counted.sendMessage(ctx, .Reenter(fn(c) => {
         let sent = tasks.parallel(c, [0, 1], fn(c2, _i, _n) => {
             match (counted.sendMessage(c2, .Tick)) {
                 .Ok(_ticked) => 1,
-                .Err(_gone) => 0,
+                .Err(.WouldDeadlock) => 2,
+                .Err(_other) => 0,
             }
         });
         sent.sum()
@@ -3248,9 +3251,9 @@ export fn main(): Result<(), Str> {
 /// **A step that sends to its own actor is still refused at once**, on every
 /// backend — and so is a task that step fanned out.
 ///
-/// `core/actor` promises `.Err(.Stopped)` to "a step of this same actor" that
-/// sends to it, because the state is out and the send would otherwise wait
-/// for itself. Now that a sender *does* wait for a state another task is
+/// `core/actor` promises `.Err(.WouldDeadlock)` to a step of this same actor
+/// that sends to it, because the state is out and the send would otherwise
+/// wait for itself. Now that a sender *does* wait for a state another task is
 /// holding, this is the row that says the wait knows the difference: a step's
 /// own fan-out answers in a moment rather than waiting for the step that is
 /// waiting for it. The deadline is far below the runtime's own thirty-second
@@ -3263,7 +3266,7 @@ fn a_step_sending_to_its_own_actor_is_refused_at_once() {
     assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
     assert_eq!(
         out.stdout.lines().collect::<Vec<_>>(),
-        vec!["direct answered 0", "fanned answered 0", "then count 3", "stopped true"],
+        vec!["direct answered 2", "fanned answered 4", "then count 3", "stopped true"],
         "stderr:\n{}",
         out.stderr
     );

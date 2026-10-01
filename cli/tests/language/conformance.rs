@@ -3333,3 +3333,196 @@ console.log(`the timer waited: ${Date.now() - started >= 20}`);
         "a spawn on a page or in a worker did not run:\n{stderr}"
     );
 }
+
+/// **A second press waits for the actor step the first press is running**, on
+/// a page (buri-lang/buri#205).
+///
+/// Every handler on a page is handed the page's context, so the runtime gives
+/// each press a context of its own, and that is what tells two presses apart.
+/// Without it, the second press found the state out, took the step holding it
+/// for its own, and answered `.Err(.Stopped)` at once, though its message was
+/// stepped a moment later. The step sleeps, so the second press always arrives
+/// while the first is still holding the state.
+#[test]
+fn a_second_press_waits_for_the_actor_step_the_first_is_running() {
+    let scratch = Scratch::repo("web-actor");
+    scratch.write(
+        "cmd/page/BUILD.buri",
+        "binary {\n    outputs: [\n        { platform: WEB, entry: \"main\" },\n    ]\n}\n",
+    );
+    scratch.write(
+        "cmd/page/main.buri",
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Address, Stepped };
+from "core/effect" import { Allocator, Clock, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/str" import * as str;
+from "core/time" import * as time;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import * as signal;
+from "ui/signal" import { Signal };
+
+enum Tick {
+    Tick,
+}
+
+/// A counter whose step sleeps while it holds the state.
+fn counter<C: Allocator + Clock + Tasks>(): Actor<C, Int, Tick, Int> {
+    Actor {
+        state: 0,
+        step: fn(c, count, _tick) => {
+            let _ = time.sleep(c, time.milliseconds(20));
+            Stepped { state: count + 1, answer: count + 1 }
+        },
+    }
+}
+
+/// A button whose every press sends one tick and writes down the answer.
+fn page<C: Allocator + Clock + Tasks + Ui + Watch>(
+    ctx: C,
+    ticks: Address<C, Int, Tick, Int>,
+    log: Signal<Str>,
+): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Column)],
+        children: [
+            ui.button({
+                label: .Const("tick"),
+                styles: [],
+                onPress: .Some(fn(c) => {
+                    // `-1` for a press that was refused.
+                    let answer = match (ticks.sendMessage(c, .Tick)) {
+                        .Ok(n) => n,
+                        .Err(_gone) => -1,
+                    };
+                    log.set(c, str.format(c, "${log.get(c)} ${answer}"))
+                }),
+            }),
+            ui.text({ content: .Cell(log) }),
+        ],
+    })
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Clock: host.clock,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+        Ui: host.ui,
+        Watch: host.watch,
+    };
+    let ticks = actor.start(ctx, counter());
+    let log = signal.signal(ctx, "log:");
+    ui.mount(ctx, page(ctx, ticks, log), [])
+}
+"#,
+    );
+    scratch.run(&["build", "//cmd/page"]).ok();
+
+    // The smallest document the renderer works against, as in
+    // `a_page_spawns_from_a_handler_after_main_returned`.
+    let driver = scratch.write(
+        "drive.mjs",
+        r##"
+class Element_ {
+  constructor(name) {
+    this.nodeName = name;
+    this.childNodes = [];
+    this.parentNode = null;
+    this.listeners = {};
+    this.attributes = {};
+    this.className = "";
+    this.data = "";
+    this.textContent = "";
+    this.style = { cssText: "", setProperty() {} };
+  }
+  get nextSibling() {
+    const parent = this.parentNode;
+    if (parent === null) return null;
+    const at = parent.childNodes.indexOf(this);
+    return at < 0 || at + 1 >= parent.childNodes.length ? null : parent.childNodes[at + 1];
+  }
+  setAttribute(name, value) {
+    this.attributes[name] = value;
+  }
+  removeAttribute(name) {
+    delete this.attributes[name];
+  }
+  addEventListener(type, handler) {
+    this.listeners[type] = handler;
+  }
+  appendChild(node) {
+    return this.insertBefore(node, null);
+  }
+  insertBefore(node, before) {
+    if (node.parentNode !== null) node.parentNode.removeChild(node);
+    node.parentNode = this;
+    const at =
+      before === null || before === undefined
+        ? this.childNodes.length
+        : this.childNodes.indexOf(before);
+    this.childNodes.splice(at, 0, node);
+    return node;
+  }
+  removeChild(node) {
+    const at = this.childNodes.indexOf(node);
+    if (at >= 0) this.childNodes.splice(at, 1);
+    node.parentNode = null;
+    return node;
+  }
+}
+
+const text_ = (node) =>
+  node.childNodes.length === 0 ? node.data : node.childNodes.map(text_).join("");
+const find_ = (node, wanted) => {
+  if (node.listeners[wanted] !== undefined) return node;
+  for (const child of node.childNodes) {
+    const hit = find_(child, wanted);
+    if (hit !== null) return hit;
+  }
+  return null;
+};
+
+globalThis.document = {
+  body: new Element_("body"),
+  head: new Element_("head"),
+  createElement: (name) => new Element_(name),
+  createTextNode: (data) => Object.assign(new Element_("#text"), { data }),
+  createComment: () => new Element_("#comment"),
+  getElementById: () => null,
+};
+
+await import("./.buri/out/web/cmd/page/main.mjs");
+
+// Two presses, one straight after the other: the second arrives while the
+// first press's step is asleep holding the state.
+const button = find_(document.body, "click");
+button.listeners.click({});
+button.listeners.click({});
+
+// Polled rather than slept for, until both presses have written their line.
+const deadline = Date.now() + 30000;
+const lines = () => text_(document.body).split(" ").length - 1;
+while (lines() < 2 && Date.now() < deadline) {
+  await new Promise((wake) => setTimeout(wake, 5));
+}
+console.log(text_(document.body));
+"##,
+    );
+
+    let out = Command::new(js_runtime())
+        .arg(&driver)
+        .output()
+        .expect("the javascript runtime runs");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "the page did not answer:\n{stdout}{stderr}");
+    assert_eq!(
+        stdout, "ticklog: 1 2\n",
+        "a press that found the actor busy did not get its answer:\n{stderr}"
+    );
+}

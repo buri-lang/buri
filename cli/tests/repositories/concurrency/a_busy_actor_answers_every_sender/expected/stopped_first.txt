@@ -1,0 +1,7 @@
+refused 8
+stepped -1
+direct answered -1
+fanned answered -1
+refused at once true
+stepped -1
+stopped false

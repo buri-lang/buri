@@ -983,24 +983,27 @@ pub const ENTRIES: &[Entry] = &[
     // authority in its bound, `core/list`'s shape — so argument 0 is the
     // context and the C signature has no parameter for it.
     //
-    // `Ret::Opt` on six of them, and the `.None`s are all one sentence: there
-    // is no actor, or there is nothing there yet. The payload is an `Int` for
-    // the two that answer a depth and a `[T]` for the four that answer a
-    // block; both are written through the trailing out-pointer at `.Some`'s
-    // own offset, so a niche `Option<[T]>` is settled by the non-null block
-    // pointer the runtime wrote — and `core/actor`'s `Carried<T>` is what
-    // guarantees that pointer is non-null, since a zero-stride element would
-    // have made the block empty and the niche `.None`.
+    // `Ret::Opt` on four of them, and the `.None`s are all one sentence: there
+    // is no actor, or there is nothing there yet. `Ret::Res` on the two a
+    // `sendMessage` reads a reason from, `mailboxPush` and `stateTake`: their
+    // `.Err` is a `SendError` named by its index, `Stopped`, `TimedOut` or
+    // `WouldDeadlock`. The payload is an `Int` for the two that answer a depth
+    // and a `[T]` for the four that answer a block; both are written through
+    // the trailing out-pointer at the success arm's own offset, so a niche
+    // `Option<[T]>` is settled by the non-null block pointer the runtime wrote
+    // — and `core/actor`'s `Carried<T>` is what guarantees that pointer is
+    // non-null, since a zero-stride element would have made the block empty
+    // and the niche `.None`.
     //
     // The bodies are in `cli/runtime/rt.rs` behind feature `net`, so
     // `runtime_native::net_intrinsic` names the `actor.*` family too: a
     // toolchain built without the reactor refuses these keys with a sentence
     // before code generation rather than with a missing symbol from `cc`.
     cx(e("actor.mailboxOpen", "buri_rt_actor_mailbox_open", Ret::Scalar), 0),
-    cx(e("actor.mailboxPush", "buri_rt_actor_mailbox_push", Ret::Opt), 0),
+    cx(e("actor.mailboxPush", "buri_rt_actor_mailbox_push", Ret::Res), 0),
     cx(e("actor.mailboxPop", "buri_rt_actor_mailbox_pop", Ret::Opt), 0),
     cx(e("actor.mailboxClose", "buri_rt_actor_mailbox_close", Ret::Opt), 0),
-    cx(e("actor.stateTake", "buri_rt_actor_state_take", Ret::Opt), 0),
+    cx(e("actor.stateTake", "buri_rt_actor_state_take", Ret::Res), 0),
     cx(e("actor.statePut", "buri_rt_actor_state_put", Ret::Opt), 0),
     cx(e("actor.replyOpen", "buri_rt_actor_reply_open", Ret::Scalar), 0),
     cx(e("actor.replyPut", "buri_rt_actor_reply_put", Ret::Opt), 0),
