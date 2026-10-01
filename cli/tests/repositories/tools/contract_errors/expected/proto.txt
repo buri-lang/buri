@@ -4,7 +4,7 @@ error: `generate` cannot take `proto` inputs typed: a `.proto` file is a schema,
 5 |             { language: "proto", type_schema: "config.proto:Config" },
   |                         ^^^^^^^
   |
-  = fix: drop the `proto` entry from `accepts`, and read the schema's text
+  = fix: accept `textproto` instead, whose files are values of the message: `{ language: "textproto", type_schema: "config.proto:Config" }`
 
       tool {
           generate {
@@ -12,9 +12,17 @@ error: `generate` cannot take `proto` inputs typed: a `.proto` file is a schema,
           }
       }
 
-    A contract hands a tool each input as a value of the contract's root type.
-    An input in the proto language is a .proto file, which declares messages and
-    holds none, so there is no Config to read out of it.
+    A contract hands a tool each input as a value of the contract's root type. A
+    .proto file declares messages and holds none, so there is no Config to read
+    out of it.
 
-    Leave proto out of accepts, and generate gets the schema's text.
+    The values live in text format files. Accept those:
+
+      tool {
+          generate {
+              accepts: [{ language: "textproto", type_schema: "config.proto:Config" }]
+          }
+      }
+
+    Or leave proto out of accepts, and generate gets the schema's text.
 

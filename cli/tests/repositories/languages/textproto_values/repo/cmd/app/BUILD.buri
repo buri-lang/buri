@@ -1,0 +1,7 @@
+binary {
+    dependencies: ["//lib/deploy"]
+
+    outputs: [
+        { platform: JS },
+    ]
+}

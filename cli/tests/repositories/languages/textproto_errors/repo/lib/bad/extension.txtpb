@@ -1,0 +1,3 @@
+# proto-file: shop.proto
+# proto-message: Order
+[shop.v1.note]: "x"

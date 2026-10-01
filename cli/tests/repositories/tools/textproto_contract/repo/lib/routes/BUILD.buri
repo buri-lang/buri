@@ -1,0 +1,7 @@
+library {
+    generators: [
+        { tool: "//tools/routes", inputs: ["routes.txtpb"] },
+    ]
+
+    visibility: ["//visibility:public"]
+}

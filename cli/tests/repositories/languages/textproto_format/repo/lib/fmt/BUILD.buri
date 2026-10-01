@@ -1,0 +1,5 @@
+library {
+    generators: [
+        { tool: "std/textproto", inputs: ["broken.txtpb", "order.textproto"] },
+    ]
+}

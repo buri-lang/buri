@@ -1,0 +1,17 @@
+edition = "2026";
+
+package shop.v1;
+
+message Order {
+    string id = 1;
+    repeated string items = 2;
+    Address ship_to = 3;
+    repeated Address stops = 4;
+    double total = 5;
+    string note = 6;
+}
+
+message Address {
+    string street = 1;
+    string city = 2;
+}

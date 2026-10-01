@@ -1,0 +1,12 @@
+from "core/effect" import { Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "//lib/deploy" import { Server, server };
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Stdout: host.stdout,
+    };
+    let typed: Server = server;
+    io.println(ctx, "${typed}").mapErr(fn(_e) => "could not print")
+}

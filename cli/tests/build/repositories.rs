@@ -129,6 +129,9 @@ fn generators() {
 /// `json_format` is `buri format` over them; `repo_languages` is `REPO.buri`'s
 /// `language` block, and each way one is refused; `custom_language` is a
 /// language of the repository's own, checked and formatted by its tool rule.
+/// `textproto_values` is a text format file's value through `std/textproto`,
+/// and a `.proto` edit re-checking it; `textproto_errors` is every way the
+/// check refuses one; `textproto_format` is `buri format` over them.
 #[test]
 fn languages() {
     run_corpus(&tests_dir().join("repositories/languages"), "languages", 5);
@@ -136,8 +139,10 @@ fn languages() {
 
 /// `tool` rules: every way a tool name or a tool's entry points are refused;
 /// `contract_generate` is a tool with a json contract reading typed values,
-/// `contract_errors` every way a contract is refused, and `json_generate` is
-/// `std/json` generating types and a data file's value.
+/// `contract_errors` every way a contract is refused, `json_generate` is
+/// `std/json` generating types and a data file's value, and
+/// `textproto_contract` is a tool with a textproto contract reading typed
+/// messages.
 #[test]
 fn tools() {
     run_corpus(&tests_dir().join("repositories/tools"), "tools", 4);

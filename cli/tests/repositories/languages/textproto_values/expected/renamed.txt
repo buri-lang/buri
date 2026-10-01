@@ -1,0 +1,41 @@
+error: "//lib/deploy/server.txtpb" names no file (lib/deploy/server.txtpb.buri) [module-not-found]
+ --> lib/deploy/lib.buri:1:6
+  |
+1 | from "//lib/deploy/server.txtpb" export { Server, server };
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    What to do
+    ──────────
+
+    Create the file the path names, or correct the path.
+
+    Why
+    ───
+
+    A module path maps to exactly one file, with no search path and no fallback,
+    so there is never a question of which of two candidates a path meant.
+
+    A program that provokes it
+    ──────────────────────────
+
+    This snippet resolves against the worked monorepo in cli/tests/example,
+    which has no lib/nope.
+
+error: `Server` has no field `name` [textproto-unknown-field]
+ --> lib/deploy/server.txtpb:5:1
+  |
+5 | name: "api" "-eu" # adjacent strings are one
+  | ^^^^
+  |
+  = fix: write one of `label`, `ports`, `limits`, `tier`, `token`, `ratio`, `big`, `on`, `weight`, `history`, `region`, `zone`
+
+      # proto-file: server.proto
+      # proto-message: Server
+
+      name: "api"
+      prot: 80 # `Server` has no field `prot`
+
+    A field is written by the name the schema gives it, not its JSON name.
+

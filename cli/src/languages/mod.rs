@@ -9,15 +9,17 @@
 //! ```
 //!
 //! The extension decides the language. The built-in languages are `json`,
-//! `jsonc` and `json5`, which `std/json` checks and formats natively, and
-//! `proto`, which `std/proto` checks and this crate formats; a `REPO.buri` may
-//! give one of them more extensions and nothing else. A
+//! `jsonc` and `json5`, which `std/json` checks and formats natively, `proto`,
+//! which `std/proto` checks and this crate formats, and `textproto`, which
+//! `std/textproto` checks and this crate formats; a `REPO.buri` may give one of
+//! them more extensions and nothing else. A
 //! language of a repository's own names the `tool` rules that check, format
 //! and generate from it. Only a file some rule's `inputs` lists is checked or
 //! formatted, so a `package.json` beside the sources is left alone.
 
 pub mod json;
 pub mod proto;
+pub mod textproto;
 
 use crate::build::buildfile::Spanned;
 use crate::diagnostics::{Diagnostic, Span};
@@ -38,6 +40,9 @@ pub enum Kind {
     BuiltIn(json::Dialect),
     /// `proto`: `std/proto` checks it, and [`proto::format`] lays it out.
     Proto,
+    /// `textproto`: `std/textproto` checks it against the message its header
+    /// or a contract names, and [`textproto::format`] lays it out.
+    Textproto,
     /// A language a `REPO.buri` declared. Each field is the tool it names, as
     /// written; the entry point of the same name on that tool does the work.
     Custom(Tools),
@@ -68,7 +73,7 @@ impl Language {
     pub fn dialect(&self) -> Option<json::Dialect> {
         match &self.kind {
             Kind::BuiltIn(d) => Some(*d),
-            Kind::Proto | Kind::Custom(_) => None,
+            Kind::Proto | Kind::Textproto | Kind::Custom(_) => None,
         }
     }
 
@@ -80,7 +85,7 @@ impl Language {
     /// The tools a repository's own language names, or `None` for a built-in.
     pub fn tools(&self) -> Option<&Tools> {
         match &self.kind {
-            Kind::BuiltIn(_) | Kind::Proto => None,
+            Kind::BuiltIn(_) | Kind::Proto | Kind::Textproto => None,
             Kind::Custom(t) => Some(t),
         }
     }
@@ -95,17 +100,19 @@ pub struct Languages {
 
 impl Default for Languages {
     fn default() -> Languages {
-        let builtin = |name: &str, extension: &str, kind| Language {
+        let builtin = |name: &str, extensions: &[&str], kind| Language {
             name: name.to_string(),
-            extensions: vec![Spanned::new(extension.to_string(), Span::NONE)],
+            extensions: extensions.iter().map(|e| Spanned::new(e.to_string(), Span::NONE)).collect(),
             kind,
         };
         Languages {
             all: vec![
-                builtin("json", ".json", Kind::BuiltIn(json::Dialect::Json)),
-                builtin("jsonc", ".jsonc", Kind::BuiltIn(json::Dialect::Jsonc)),
-                builtin("json5", ".json5", Kind::BuiltIn(json::Dialect::Json5)),
-                builtin("proto", ".proto", Kind::Proto),
+                builtin("json", &[".json"], Kind::BuiltIn(json::Dialect::Json)),
+                builtin("jsonc", &[".jsonc"], Kind::BuiltIn(json::Dialect::Jsonc)),
+                builtin("json5", &[".json5"], Kind::BuiltIn(json::Dialect::Json5)),
+                builtin("proto", &[".proto"], Kind::Proto),
+                // The text format specification's extension, and its legacy one.
+                builtin("textproto", &[".txtpb", ".textproto"], Kind::Textproto),
             ],
         }
     }
@@ -325,6 +332,7 @@ pub fn format(languages: &Languages, path: &str, text: &str) -> Option<String> {
     match language.kind {
         Kind::BuiltIn(dialect) => json::format(text, dialect),
         Kind::Proto => proto::format(text),
+        Kind::Textproto => textproto::format(text),
         Kind::Custom(_) => None,
     }
 }

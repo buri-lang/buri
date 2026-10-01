@@ -1,0 +1,6 @@
+edition = "2026";
+
+message Broken {
+    int32 a = 1;
+    int32 b = 1;
+}

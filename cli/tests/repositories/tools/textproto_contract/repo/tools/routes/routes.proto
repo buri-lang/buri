@@ -1,0 +1,12 @@
+edition = "2026";
+
+package routes.v1;
+
+message Routes {
+    repeated Route route = 1;
+}
+
+message Route {
+    string url = 1;
+    int32 port = 2;
+}
