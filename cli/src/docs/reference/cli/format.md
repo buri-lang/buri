@@ -119,6 +119,22 @@ formatter never adds `"$schema"`.
 
 A file that does not parse is left as it is, and `--check` exits `1` for it.
 
+## Text format files
+
+A `.txtpb` or `.textproto` file a rule's `inputs` lists is laid out one field
+per line, the same way. A scalar takes `:`, a message takes `{ }`, `< >`
+becomes `{ }`, and the `;` or `,` after a field goes. A list, and a message
+inside one, stays on a line when it fits. Strings, numbers and words keep their
+spelling, and every comment survives.
+
+```textproto ignore why="a data file, not a build file"
+name: "api"
+ports: [80, 443]
+limits {
+    cpu: 0.5
+}
+```
+
 ## Files in a language of your own
 
 A file in a language `REPO.buri` declares is laid out by the `format` of the

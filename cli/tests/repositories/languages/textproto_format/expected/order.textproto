@@ -1,0 +1,20 @@
+# proto-file: order.proto
+# proto-message: Order
+
+id: "o-1" # opaque
+items: ["apple", "pear"]
+items: "a very long item name that goes on"
+items: [
+    "another long item name",
+    "and one more long item name",
+    "and a third so the list breaks"
+]
+ship_to {
+    street: "1 Main St"
+    city: "Springfield" # where it goes
+}
+
+# Two stops on the way.
+stops: [{ street: "2 Elm St" }, { city: "Shelbyville" }]
+total: -12.5
+note: "split " "across lines"

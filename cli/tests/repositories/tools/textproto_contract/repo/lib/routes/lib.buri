@@ -1,0 +1,1 @@
+from "//lib/routes/table" export { shown, table };

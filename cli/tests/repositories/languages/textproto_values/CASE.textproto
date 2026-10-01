@@ -1,0 +1,48 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "std/textproto in generators gives a .txtpb's module: its schema's types and its value as an export let named after the file, read in every form the text format allows; editing the .proto checks the file again, and the fix generates again"
+
+# Adjacent strings, hex, a sign, `t`, `-inf`, `2f`, a list of messages, an
+# implicit field left out, and a oneof, each as a typed value.
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run.txt"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 0
+}
+
+# The schema is part of the check's key: renaming a field it reads is found at
+# once, in the file that uses the old name.
+edit {
+  file: "lib/deploy/server.proto"
+  replace: "string name = 1;"
+  with: "string label = 1;"
+}
+
+run {
+  args: ["build", "//lib/deploy"]
+  exit: 1
+  golden: "renamed.txt"
+}
+
+edit {
+  file: "lib/deploy/server.txtpb"
+  replace: "name: \"api\" \"-eu\""
+  with: "label: \"api\" \"-eu\""
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run_label.txt"
+}

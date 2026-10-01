@@ -1,0 +1,1 @@
+Server { label: .Some("api-eu"), ports: [80, 443, 8080], limits: .Some(Server_Limits { cpu: .Some(0.5) }), tier: .Some(.GOLD), token: .Some([0, 1, 97, 98]), ratio: .Some(-inf), big: .Some(-9000000000), on: .Some(true), weight: 0, history: [Server_Limits { cpu: .Some(1.0) }, Server_Limits { cpu: .Some(2.0) }], where_: .Some(.Region("eu")) }

@@ -460,6 +460,14 @@ pub const TOPICS: &[Topic] = &[
         &["build/proto"],
     ),
     tagged(
+        "guides/textproto",
+        "Check text format files against a message",
+        Kind::Guide,
+        include_str!("../docs/guides/textproto.md"),
+        &["textproto", "txtpb", "text format", "protobuf", "config", "language"],
+        &["guides/proto", "build/tools"],
+    ),
+    tagged(
         "guides/json",
         "Check JSON against a schema",
         Kind::Guide,

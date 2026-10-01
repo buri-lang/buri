@@ -1,0 +1,95 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a tool whose generate declares a textproto contract: the consumer's .txtpb omits its headers and is checked against the contract's message, the tool reads typed messages through the module std/textproto generates into it, editing the contract's .proto checks and generates again, headers naming the contract's schema and message are accepted, and headers naming another file or message are schema-mismatch"
+
+# `routes.txtpb` has no header; the contract supplies it, and the tool reads
+# `Routes` values. A `Route`'s `path` is a name the generated JSON reader also
+# uses for its own parameter, and must not shadow it.
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run.txt"
+}
+
+run {
+  args: ["lint"]
+  exit: 0
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 0
+}
+
+# The contract's message is checked, not one of the file's choosing.
+edit {
+  file: "lib/routes/routes.txtpb"
+  replace: "port: 8080"
+  with: "port: \"8080\""
+}
+
+run {
+  args: ["build", "//lib/routes"]
+  exit: 1
+  golden: "violation.txt"
+}
+
+edit {
+  file: "lib/routes/routes.txtpb"
+  replace: "port: \"8080\""
+  with: "port: 8080"
+}
+
+# Editing the contract's schema checks the file again, and regenerates the
+# types the tool reads.
+edit {
+  file: "tools/routes/routes.proto"
+  replace: "int32 port = 2;"
+  with: "int32 port = 2;\n    bool tls = 3;"
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run_tls.txt"
+}
+
+# Headers may name the contract's schema and message, in any spelling of them.
+edit {
+  file: "lib/routes/routes.txtpb"
+  replace: "# No header: the tool's contract names the message.\n"
+  with: "# proto-file: //tools/routes/routes.proto\n# proto-message: routes.v1.Routes\n"
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run_tls.txt"
+}
+
+# Any other message is a mismatch.
+edit {
+  file: "lib/routes/routes.txtpb"
+  replace: "# proto-message: routes.v1.Routes"
+  with: "# proto-message: Route"
+}
+
+run {
+  args: ["build", "//lib/routes"]
+  exit: 1
+  golden: "mismatch_message.txt"
+}
+
+# And so is any other schema.
+edit {
+  file: "lib/routes/routes.txtpb"
+  replace: "# proto-file: //tools/routes/routes.proto\n# proto-message: Route"
+  with: "# proto-file: other.proto\n# proto-message: Routes"
+}
+
+run {
+  args: ["build", "//lib/routes"]
+  exit: 1
+  golden: "mismatch_file.txt"
+}

@@ -1,0 +1,4 @@
+# proto-file: shop.proto
+# proto-message: shop.v1.Order
+tags: ["a" "b" "c"
+count 3

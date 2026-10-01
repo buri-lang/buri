@@ -1,0 +1,17 @@
+library {
+    generators: [
+        { tool: "std/textproto", inputs: [
+            "bare.txtpb",
+            "no_message.txtpb",
+            "remote.txtpb",
+            "outside.txtpb",
+            "missing.txtpb",
+            "unknown_message.txtpb",
+            "import.txtpb",
+            "extension.txtpb",
+            "syntax.txtpb",
+            "values.txtpb",
+            "broken_schema.txtpb",
+        ] },
+    ]
+}

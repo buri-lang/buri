@@ -23,9 +23,10 @@
 //! does.
 //!
 //! The toolchain's own tools are `std/json`, whose entry points are native
-//! ([`crate::languages::json`]), and `std/proto`, whose `check` and `generate`
-//! are a Buri program like any other tool and whose `format` is native
-//! ([`crate::languages::proto`]).
+//! ([`crate::languages::json`]), and `std/proto` and `std/textproto`, whose
+//! `check` and `generate` are Buri programs like any other tool and whose
+//! `format` is native ([`crate::languages::proto`],
+//! [`crate::languages::textproto`]).
 
 use crate::build::buildfile::{self, Output, Platform, Spanned};
 use crate::build::cache::{Action, ActionKey, Cache, KeyBuilder};
@@ -47,6 +48,9 @@ pub const JSON: &str = "std/json";
 /// The built-in `.proto` tool: `check`, `format` and `generate`.
 pub const PROTO: &str = "std/proto";
 
+/// The built-in text format tool: `check`, `format` and `generate`.
+pub const TEXTPROTO: &str = "std/textproto";
+
 /// What a tool name refers to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
@@ -54,6 +58,7 @@ pub enum Tool {
     Repo(TargetId),
     Json,
     Proto,
+    Textproto,
 }
 
 /// Why a name names no tool.
@@ -69,6 +74,7 @@ pub fn resolve(workspace: &Workspace, name: &str) -> Result<Tool, Unresolved> {
     match name {
         JSON => return Ok(Tool::Json),
         PROTO => return Ok(Tool::Proto),
+        TEXTPROTO => return Ok(Tool::Textproto),
         _ => {}
     }
     let path = name.strip_prefix("//").ok_or(Unresolved::Nothing)?;
@@ -87,7 +93,7 @@ impl Tool {
             Tool::Repo(t) => {
                 workspace.package(t.package).build.tool.as_ref().is_some_and(|r| r.block(entry).is_some())
             }
-            Tool::Json | Tool::Proto => ENTRY_POINTS.contains(&entry),
+            Tool::Json | Tool::Proto | Tool::Textproto => ENTRY_POINTS.contains(&entry),
         }
     }
 
@@ -97,6 +103,7 @@ impl Tool {
             Tool::Repo(t) => workspace.label(t),
             Tool::Json => JSON.to_string(),
             Tool::Proto => PROTO.to_string(),
+            Tool::Textproto => TEXTPROTO.to_string(),
         }
     }
 }
@@ -382,19 +389,29 @@ impl Contract {
         if crate::languages::json::schema::has_scheme(text) {
             return None;
         }
-        let from = match self.package.is_empty() {
-            true => "BUILD.buri".to_string(),
-            false => format!("{}/BUILD.buri", self.package),
-        };
-        crate::languages::json::schema::local_path(&from, text)
+        crate::languages::json::schema::local_path(&self.build_file(), text)
     }
 
-    /// What tells two contracts apart: the schema a JSON one names, or the
-    /// text and package of any other.
-    pub fn identity(&self, json: bool) -> String {
-        match (json, self.json_path()) {
-            (true, Some(path)) => format!("//{path}"),
-            _ => format!("{}:{}", self.package, self.type_schema),
+    /// What tells two contracts apart: the schema a JSON one names, the
+    /// schema and message a text format one names, or the text and package of
+    /// any other.
+    pub fn identity(&self, kind: &Kind) -> String {
+        let named = match kind {
+            Kind::BuiltIn(_) => self.json_path().map(|path| format!("//{path}")),
+            Kind::Textproto => self.type_schema.rsplit_once(':').and_then(|(file, message)| {
+                let path = crate::languages::json::schema::local_path(&self.build_file(), file)?;
+                Some(format!("//{path}:{message}"))
+            }),
+            Kind::Proto | Kind::Custom(_) => None,
+        };
+        named.unwrap_or_else(|| format!("{}:{}", self.package, self.type_schema))
+    }
+
+    /// The tool's `BUILD.buri`, which a relative `type_schema` is read from.
+    fn build_file(&self) -> String {
+        match self.package.is_empty() {
+            true => "BUILD.buri".to_string(),
+            false => format!("{}/BUILD.buri", self.package),
         }
     }
 
@@ -508,9 +525,12 @@ fn source(workspace: &Workspace, tool: Tool) -> Option<(Option<crate::build::wor
             let main = harness(&module, &|e| tool.provides(workspace, e), &|e| typed(workspace, tool, e));
             Some((Some(t.package), package.module_path("(tool main)"), main))
         }
+        // `format` is in-tree, so the program serves the other two.
         Tool::Proto => {
-            // `format` is in-tree, so the program serves the other two.
-            Some((None, "(std/proto main)".to_string(), harness("std/proto", &|e| e != "format", &|_| Vec::new())))
+            Some((None, "(std/proto main)".to_string(), harness(PROTO, &|e| e != "format", &|_| Vec::new())))
+        }
+        Tool::Textproto => {
+            Some((None, "(std/textproto main)".to_string(), harness(TEXTPROTO, &|e| e != "format", &|_| Vec::new())))
         }
         Tool::Json => None,
     }
@@ -783,6 +803,7 @@ pub fn check_file(
     let (tool, name) = match &language.kind {
         Kind::BuiltIn(_) => return Some(check_json(session, language, rel, text, contract, read, flags)),
         Kind::Proto => (Tool::Proto, PROTO.to_string()),
+        Kind::Textproto => (Tool::Textproto, TEXTPROTO.to_string()),
         Kind::Custom(tools) => {
             let named = tools.check.as_ref()?;
             (resolve(&session.workspace, &named.value).ok()?, named.value.clone())
@@ -899,6 +920,7 @@ pub fn format_file(session: &Session, rel: &str, text: &str, flags: &Flags) -> F
     let named = match &language.kind {
         Kind::BuiltIn(dialect) => return refused(crate::languages::json::format(text, *dialect)),
         Kind::Proto => return refused(crate::languages::proto::format(text)),
+        Kind::Textproto => return refused(crate::languages::textproto::format(text)),
         Kind::Custom(tools) => match &tools.format {
             Some(named) => named,
             None => return Formatted::Unformatted,
@@ -907,6 +929,7 @@ pub fn format_file(session: &Session, rel: &str, text: &str, flags: &Flags) -> F
     let tool = match resolve(&session.workspace, &named.value) {
         Ok(Tool::Json) => return refused(crate::languages::json::format(text, crate::languages::json::Dialect::Json)),
         Ok(Tool::Proto) => return refused(crate::languages::proto::format(text)),
+        Ok(Tool::Textproto) => return refused(crate::languages::textproto::format(text)),
         Ok(tool) => tool,
         Err(_) => return Formatted::Unformatted,
     };

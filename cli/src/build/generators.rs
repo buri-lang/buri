@@ -1,6 +1,7 @@
 //! `generators`: a tool the build runs, whose output becomes a module.
 //!
-//! A `generators` entry names a `tool` rule, or `std/proto`, and the build asks
+//! A `generators` entry names a `tool` rule, or a toolchain tool such as
+//! `std/proto`, and the build asks
 //! its `generate` entry point about the entry's inputs
 //! ([`crate::build::tools`]). Every module it answers with is loaded the way a
 //! source is: through the real parser, into the rule that declared the entry,
@@ -1010,8 +1011,8 @@ fn ensure(
 /// `generate`, on its `type_schema`, as the module `<label>/<language>`.
 ///
 /// For `std/json` that is [`crate::languages::json::contract`]: the types and
-/// `decode`. A language of a repository's own is asked with `typesOf`, and its
-/// one module is filed under the language's name.
+/// `decode`. `std/textproto`, and a language of a repository's own, is asked
+/// with `typesOf`, and its one module is filed under the language's name.
 fn run_contracts(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Overlay) {
     let workspace = Rc::clone(&session.workspace);
     let package = workspace.package(target.package);
@@ -1064,7 +1065,11 @@ fn run_contracts(session: &mut Session, target: TargetId, flags: &Flags, overlay
             }
             None => {
                 let generate = language.tools().and_then(|t| t.generate.as_ref());
-                let Some(tool) = generate.and_then(|g| tools::resolve(&workspace, &g.value).ok()) else { continue };
+                let tool = match language.kind {
+                    crate::languages::Kind::Textproto => Some(Tool::Textproto),
+                    _ => generate.and_then(|g| tools::resolve(&workspace, &g.value).ok()),
+                };
+                let Some(tool) = tool else { continue };
                 let label = workspace.label(target);
                 let ask = tools::Ask {
                     tool,
@@ -1074,7 +1079,7 @@ fn run_contracts(session: &mut Session, target: TargetId, flags: &Flags, overlay
                 };
                 let failed = |why: String| Diagnostic {
                     code: "tool-failed".to_string(),
-                    message: generate.map(|g| g.value.clone()).unwrap_or_default(),
+                    message: tool.name(&workspace),
                     note: Some(why),
                     fix: None,
                     origin: None,
@@ -1235,8 +1240,8 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
             .collect();
         let mut failed = false;
         for (((rel, text), contract), input) in inputs.iter().zip(&contracts).zip(&generator.inputs) {
-            let json = workspace.repo.languages.of(rel).is_some_and(|l| l.dialect().is_some());
-            let identity = contract.as_ref().map(|c| c.identity(json));
+            let kind = workspace.repo.languages.of(rel).map(|l| &l.kind);
+            let identity = contract.as_ref().zip(kind).map(|(c, k)| c.identity(k));
             match checks.contracts.get(rel) {
                 Some((first, _)) if identity.is_some() && first.is_some() && *first != identity => {
                     failed = true;

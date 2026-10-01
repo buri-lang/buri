@@ -1,0 +1,17 @@
+# proto-file: server.proto
+# proto-message: Server
+
+# Each field in the form a person writes it.
+name: "api" "-eu" # adjacent strings are one
+ports: [80, 0x1bb]
+ports: 8080
+limits {
+    cpu: 0.5
+}
+tier: GOLD
+token: "\x00\001ab"
+ratio: -inf
+big: -9000000000
+on: t
+region: "eu"
+history: [{ cpu: 1 }, { cpu: 2f }]

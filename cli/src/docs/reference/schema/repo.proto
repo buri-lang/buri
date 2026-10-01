@@ -39,8 +39,8 @@ message RepoConfig {
 
 // What a file some rule's `inputs` lists is written in, decided by its
 // extension. The built-in languages are `json` (`.json`), `jsonc` (`.jsonc`),
-// `json5` (`.json5`) and `proto` (`.proto`), and every `REPO.buri` has them
-// without a block.
+// `json5` (`.json5`), `proto` (`.proto`) and `textproto` (`.txtpb`,
+// `.textproto`), and every `REPO.buri` has them without a block.
 //
 // A block naming a built-in language adds extensions to it and nothing else:
 // a built-in language's check means the same thing in every repository, so

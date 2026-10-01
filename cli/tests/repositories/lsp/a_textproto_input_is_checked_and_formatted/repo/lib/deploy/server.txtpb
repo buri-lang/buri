@@ -1,0 +1,5 @@
+# proto-file: server.proto
+# proto-message: Server
+
+name: "api"
+port: 80
