@@ -33,7 +33,7 @@
 //! which is what a multi-column index wants.
 //!
 //! `equals` rather than `derive Equal`: two maps holding the same entries need not
-//! have the same tree, because the shape follows the order the keys arrived in.
+//! have the same tree, because the shape follows how the map was built.
 //!
 //! ```buri run
 //! from "core/effect" import { Allocator, Stdout };
@@ -106,14 +106,11 @@ export fn groupBy<A, K: Ordered, C: Allocator>(
     items: [A],
     key: fn(A) => K,
 ): OrderedMap<K, [A]> {
-    items.foldCtx(
+    collected(
         ctx,
-        fn(c, acc: OrderedMap<K, [A]>, x) => {
-            let k = key(x);
-            let group = acc.get(k).withDefault(list.empty<A>());
-            acc.insert(c, k, group.push(c, x))
-        },
-        empty<K, [A]>(),
+        items.map(ctx, fn(x) => (key(x), x)),
+        fn(_c, x) => [x],
+        fn(c, group, x) => group.push(c, x),
     )
 }
 
@@ -124,13 +121,11 @@ export fn countBy<A, K: Ordered, C: Allocator>(
     xs: [A],
     key: fn(A) => K,
 ): OrderedMap<K, Int> {
-    xs.foldCtx(
+    collected(
         ctx,
-        fn(c, acc: OrderedMap<K, Int>, x) => {
-            let k = key(x);
-            acc.insert(c, k, acc.get(k).withDefault(0) + 1)
-        },
-        empty<K, Int>(),
+        xs.map(ctx, fn(x) => (key(x), 1)),
+        fn(_c, one) => one,
+        fn(_c, n, one) => n + one,
     )
 }
 
@@ -141,23 +136,316 @@ export fn indexBy<A, K: Ordered, C: Allocator>(
     items: [A],
     key: fn(A) => K,
 ): OrderedMap<K, A> {
-    items.foldCtx(
-        ctx,
-        fn(c, acc: OrderedMap<K, A>, x) => acc.insert(c, key(x), x),
-        empty<K, A>(),
-    )
+    of(ctx, items.map(ctx, fn(x) => (key(x), x)))
 }
 
 /// A map holding the given entries, later ones winning.
+///
+/// Entries already in key order are built in one pass, as `fromSorted` builds
+/// them. Any others are sorted first, which costs O(n log n) comparisons but
+/// far less than an insert per key, because an insert copies a root-to-leaf
+/// path.
 export fn of<K: Ordered, V, C: Allocator>(ctx: C, entries: [(K, V)]): OrderedMap<K, V> {
-    entries.foldCtx(
-        ctx,
-        fn(c, acc, e) => {
-            let (k, v) = e;
-            acc.insert(c, k, v)
+    match (unsorted(entries)) {
+        .None => sorted(ctx, entries),
+        .Some(_at) => collected(ctx, entries, fn(_c, v) => v, fn(_c, _old, v) => v),
+    }
+}
+
+/// The map of `pairs` sorted by key, each run of equal keys collapsed into one
+/// entry: `first` makes it from the run's first value and `next` adds each
+/// later one. The sort is stable, so a run is in arrival order, and the key
+/// kept is the run's last, as an insert would keep it.
+fn collected<K: Ordered, V, W, C: Allocator>(
+    ctx: C,
+    pairs: [(K, V)],
+    first: fn(C, V) => W,
+    next: fn(C, W, V) => W,
+): OrderedMap<K, W> {
+    let inOrder = pairs.sortBy(ctx, fn(a, b) => {
+        let (ka, _va) = a;
+        let (kb, _vb) = b;
+        ka.compare(kb)
+    });
+    sorted(ctx, runs(ctx, inOrder, first, next, 0, list.empty<(K, W)>()))
+}
+
+fn runs<K: Ordered, V, W, C: Allocator>(
+    ctx: C,
+    pairs: [(K, V)],
+    first: fn(C, V) => W,
+    next: fn(C, W, V) => W,
+    at: Int,
+    acc: [(K, W)],
+): [(K, W)] {
+    match (pairs.get(at)) {
+        .None => acc,
+        .Some(p) => {
+            let (k, v) = p;
+            let (end, run) = runFrom(ctx, pairs, next, at + 1, (k, first(ctx, v)));
+            runs(ctx, pairs, first, next, end, acc.push(ctx, run))
         },
-        empty<K, V>(),
-    )
+    }
+}
+
+/// The run that `run` began, extended over every following pair with an equal
+/// key, and the index just past it.
+fn runFrom<K: Ordered, V, W, C: Allocator>(
+    ctx: C,
+    pairs: [(K, V)],
+    next: fn(C, W, V) => W,
+    at: Int,
+    run: (K, W),
+): (Int, (K, W)) {
+    let (k, w) = run;
+    match (pairs.get(at)) {
+        .None => (at, run),
+        .Some(p) => {
+            let (pk, v) = p;
+            if (k.compare(pk).isEqual()) {
+                runFrom(ctx, pairs, next, at + 1, (pk, next(ctx, w, v)))
+            } else {
+                (at, run)
+            }
+        },
+    }
+}
+
+/// A map of entries already in key order, built in one O(n) pass rather than
+/// one insert per key.
+///
+/// The keys must be strictly increasing. Otherwise the answer is `.Err(i)`, the
+/// index of the first entry whose key is not greater than the one before it.
+///
+/// ```buri run
+/// from "core/effect" import { Allocator, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+/// from "core/orderedmap" import * as orderedmap;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Allocator: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     let days = match (
+///         orderedmap.fromSorted(ctx, [(1, "mon"), (2, "tue"), (3, "wed")])
+///     ) {
+///         .Ok(m) => m.length(),
+///         .Err(_at) => 0,
+///     };
+///     // Key 2 comes after key 3, so index 2 is the first out of order.
+///     let refused = match (
+///         orderedmap.fromSorted(ctx, [(1, "mon"), (3, "wed"), (2, "tue")])
+///     ) {
+///         .Ok(_m) => -1,
+///         .Err(at) => at,
+///     };
+///     let _ = io.println(ctx, "${days} days; out of order at ${refused}").ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// 3 days; out of order at 2
+/// ```
+export fn fromSorted<K: Ordered, V, C: Allocator>(
+    ctx: C,
+    entries: [(K, V)],
+): Result<OrderedMap<K, V>, Int> {
+    match (unsorted(entries)) {
+        .None => .Ok(sorted(ctx, entries)),
+        .Some(at) => .Err(at),
+    }
+}
+
+/// The index of the first entry whose key is not greater than the one before
+/// it.
+fn unsorted<K: Ordered, V>(entries: [(K, V)]): Option<Int> {
+    match (entries.get(0)) {
+        .None => .None,
+        .Some(e) => {
+            let (k, _v) = e;
+            unsortedAfter(entries, k, 1)
+        },
+    }
+}
+
+fn unsortedAfter<K: Ordered, V>(entries: [(K, V)], before: K, at: Int): Option<Int> {
+    match (entries.get(at)) {
+        .None => .None,
+        .Some(e) => {
+            let (k, _v) = e;
+            if (before.compare(k).isLess()) {
+                unsortedAfter(entries, k, at + 1)
+            } else {
+                .Some(at)
+            }
+        },
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Building bottom-up
+//
+// Each level is built from the one below it. The leaves come from the entries,
+// with one entry held back between each pair of neighbours. The entries held
+// back are the next level's entries, and the nodes just built are its
+// children. A level that fits in one node is the root.
+//
+// A level of n entries makes `ceil((n + 1) / (MAX_ENTRIES + 1))` nodes: the
+// fewest that hold n once the separators between them are taken out. The
+// entries left are spread evenly, so no two nodes on a level differ by more
+// than one, the last included. For n above `MAX_ENTRIES` that is at least
+// `MIN_ENTRIES` a node, so every node but the root starts at or above its
+// minimum, and every leaf sits at the same depth. That is all insert and
+// remove ask of a tree. The nodes are nearly full, which keeps the tree
+// shallow and its node count low; an insert into a full one splits it the way
+// any insert would.
+// -----------------------------------------------------------------------------
+
+/// A map of `entries`, which the caller knows are strictly increasing by key.
+fn sorted<K, V, C: Allocator>(ctx: C, entries: [(K, V)]): OrderedMap<K, V> {
+    OrderedMap {
+        root: level(ctx, entries, list.empty<Node<K, V>>()),
+        size: entries.length(),
+    }
+}
+
+/// The tree over `entries` and the `children` between them: none for the
+/// leaves, one more than there are entries above them.
+fn level<K, V, C: Allocator>(
+    ctx: C,
+    entries: [(K, V)],
+    children: [Node<K, V>],
+): Node<K, V> {
+    let n = entries.length();
+    if (n <= MAX_ENTRIES) {
+        node(entries, children)
+    } else {
+        let count = (n + MAX_ENTRIES + 1) / (MAX_ENTRIES + 1);
+        let held = n - (count - 1);
+        let (separators, nodes) = group(
+            ctx,
+            entries,
+            children,
+            held / count,
+            held % count,
+            0,
+            list.empty<(K, V)>(),
+            list.empty<Node<K, V>>(),
+        );
+        level(ctx, separators, nodes)
+    }
+}
+
+/// The nodes of one level, starting at entry `at`, and the entries between
+/// them. The first `extra` nodes take one entry more than `base`.
+fn group<K, V, C: Allocator>(
+    ctx: C,
+    entries: [(K, V)],
+    children: [Node<K, V>],
+    base: Int,
+    extra: Int,
+    at: Int,
+    separators: [(K, V)],
+    nodes: [Node<K, V>],
+): ([(K, V)], [Node<K, V>]) {
+    let size = if (nodes.length() < extra) { base + 1 } else { base };
+    let below = if (children.isEmpty()) {
+        children
+    } else {
+        children.slice(ctx, at, at + size + 1)
+    };
+    let built = nodes.push(ctx, node(entries.slice(ctx, at, at + size), below));
+    match (entries.get(at + size)) {
+        .None => (separators, built),
+        .Some(separator) => {
+            group(
+                ctx,
+                entries,
+                children,
+                base,
+                extra,
+                at + size + 1,
+                separators.push(ctx, separator),
+                built,
+            )
+        },
+    }
+}
+
+/// Whether a merge of `few` keys into `many` should insert them one at a time
+/// rather than walk both maps and build a new one.
+fn fewInto(few: Int, many: Int): Bool {
+    few * ENTRIES_PER_INSERT < many
+}
+
+/// Roughly how many entries a merge can walk and build for the cost of one
+/// insert, which copies a root-to-leaf path. Measured at about 40 on a map of
+/// 150,000, natively; this errs toward inserting.
+let ENTRIES_PER_INSERT: Int = 32;
+
+/// Two entry lists in key order, merged into one, with `combine(mine, theirs)`
+/// deciding a key in both. The key kept is `theirs`, as an insert would keep
+/// it.
+fn interleave<K: Ordered, V, C: Allocator>(
+    ctx: C,
+    mine: [(K, V)],
+    theirs: [(K, V)],
+    combine: fn(V, V) => V,
+    i: Int,
+    j: Int,
+    acc: [(K, V)],
+): [(K, V)] {
+    match (mine.get(i)) {
+        .None => acc.concat(ctx, theirs.drop(ctx, j)),
+        .Some(a) => {
+            match (theirs.get(j)) {
+                .None => acc.concat(ctx, mine.drop(ctx, i)),
+                .Some(b) => {
+                    let (ka, va) = a;
+                    let (kb, vb) = b;
+                    match (ka.compare(kb)) {
+                        .Less => {
+                            interleave(
+                                ctx,
+                                mine,
+                                theirs,
+                                combine,
+                                i + 1,
+                                j,
+                                acc.push(ctx, a),
+                            )
+                        },
+                        .Greater => {
+                            interleave(
+                                ctx,
+                                mine,
+                                theirs,
+                                combine,
+                                i,
+                                j + 1,
+                                acc.push(ctx, b),
+                            )
+                        },
+                        .Equal => {
+                            let both = (kb, combine(va, vb));
+                            interleave(
+                                ctx,
+                                mine,
+                                theirs,
+                                combine,
+                                i + 1,
+                                j + 1,
+                                acc.push(ctx, both),
+                            )
+                        },
+                    }
+                },
+            }
+        },
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -949,16 +1237,29 @@ impl<K: Ordered, V> OrderedMap<K, V> {
         ctx: C,
         other: OrderedMap<K, V>,
     ): OrderedMap<K, V> {
-        other
-            .entries(ctx)
-            .foldCtx(
+        if (fewInto(other.size, self.size)) {
+            other
+                .entries(ctx)
+                .foldCtx(
+                    ctx,
+                    fn(c, acc: OrderedMap<K, V>, e) => {
+                        let (k, v) = e;
+                        acc.insert(c, k, v)
+                    },
+                    self,
+                )
+        } else {
+            let both = interleave(
                 ctx,
-                fn(c, acc: OrderedMap<K, V>, e) => {
-                    let (k, v) = e;
-                    acc.insert(c, k, v)
-                },
-                self,
-            )
+                self.entries(ctx),
+                other.entries(ctx),
+                fn(_mine, theirs) => theirs,
+                0,
+                0,
+                list.empty<(K, V)>(),
+            );
+            sorted(ctx, both)
+        }
     }
 
     /// Both maps' entries, with `combine(mine, theirs)` deciding a key that is
@@ -969,19 +1270,32 @@ impl<K: Ordered, V> OrderedMap<K, V> {
         other: OrderedMap<K, V>,
         combine: fn(V, V) => V,
     ): OrderedMap<K, V> {
-        other
-            .entries(ctx)
-            .foldCtx(
+        if (fewInto(other.size, self.size)) {
+            other
+                .entries(ctx)
+                .foldCtx(
+                    ctx,
+                    fn(c, acc: OrderedMap<K, V>, e) => {
+                        let (k, v) = e;
+                        match (acc.get(k)) {
+                            .None => acc.insert(c, k, v),
+                            .Some(mine) => acc.insert(c, k, combine(mine, v)),
+                        }
+                    },
+                    self,
+                )
+        } else {
+            let both = interleave(
                 ctx,
-                fn(c, acc: OrderedMap<K, V>, e) => {
-                    let (k, v) = e;
-                    match (acc.get(k)) {
-                        .None => acc.insert(c, k, v),
-                        .Some(mine) => acc.insert(c, k, combine(mine, v)),
-                    }
-                },
-                self,
-            )
+                self.entries(ctx),
+                other.entries(ctx),
+                combine,
+                0,
+                0,
+                list.empty<(K, V)>(),
+            );
+            sorted(ctx, both)
+        }
     }
 
     /// The entries `keep` answers true for, still in key order.
@@ -990,37 +1304,31 @@ impl<K: Ordered, V> OrderedMap<K, V> {
         ctx: C,
         keep: fn(K, V) => Bool,
     ): OrderedMap<K, V> {
-        self
+        let kept = self
             .entries(ctx)
-            .foldCtx(
-                ctx,
-                fn(c, acc: OrderedMap<K, V>, e) => {
-                    let (k, v) = e;
-                    if (keep(k, v)) { acc.insert(c, k, v) } else { acc }
-                },
-                empty<K, V>(),
-            )
+            .filter(ctx, fn(e) => {
+                let (k, v) = e;
+                keep(k, v)
+            });
+        sorted(ctx, kept)
     }
 
     /// The same keys, every value put through `transform`.
     ///
-    /// Nothing touches the keys, so the order cannot change. It rebuilds the
-    /// tree rather than copying it node for node, so it costs O(n log n).
+    /// Nothing touches the keys, so the order cannot change, and the tree is
+    /// built bottom-up in O(n).
     export fn mapValues<W, C: Allocator>(
         self,
         ctx: C,
         transform: fn(V) => W,
     ): OrderedMap<K, W> {
-        self
+        let mapped = self
             .entries(ctx)
-            .foldCtx(
-                ctx,
-                fn(c, acc: OrderedMap<K, W>, e) => {
-                    let (k, v) = e;
-                    acc.insert(c, k, transform(v))
-                },
-                empty<K, W>(),
-            )
+            .map(ctx, fn(e) => {
+                let (k, v) = e;
+                (k, transform(v))
+            });
+        sorted(ctx, mapped)
     }
 
     /// The entry with the smallest key. Pure: it is a walk down the left spine.

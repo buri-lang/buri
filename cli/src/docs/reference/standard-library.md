@@ -420,7 +420,11 @@ is in both. `filter`, `pop`, `takeKeys` and `dropKeys` are the rest.
 `OrderedMap.popFirst` and `popLast` take an entry off an end in **one descent**,
 where `first` and then `remove` is two — which is what a sorted work queue does
 on every step — and `floor` and `ceiling` answer the nearest key at or below, or
-at or above, which `range` cannot.
+at or above, which `range` cannot. `orderedmap.fromSorted(ctx, entries)` builds
+the tree bottom-up in O(n) from entries already in key order, and answers
+`.Err(i)` at the first entry whose key is not greater than the one before it.
+`of` takes the same path for its sorted leading run, and `filter`, `mapValues`
+and `merge` build their result the same way.
 
 **Beside the set operations.** `symmetricDifference` is the members in exactly
 one side, `isSupersetOf` is `isSubsetOf` read from the other end, and
