@@ -2,12 +2,9 @@
 //!
 //! `.config/nextest.toml` used to make this promise — `slow-timeout = { period
 //! = "60s", terminate-after = 5 }`, a five-minute cap with the test's name on
-//! it — and it could never keep it: nothing in this repository runs `nextest`,
-//! and nothing it does run reads that file. Every suite in `ci.yml` is
-//! `cargo test`, which has never opened `.config/`. Adopting the runner is not
-//! the fix either — a second test runner is a second set of rules about what
-//! counts as a skip, on top of the ones `cli/tests/ci.rs` already holds. The
-//! config was deleted and this module is what replaced it.
+//! it — and it could never keep it, because CI runs `cargo test`, which never
+//! reads that file. Local runs use nextest now, but CI still does not, so the
+//! cap lives here where both runners enforce it.
 //!
 //! ## What it caps, exactly
 //!

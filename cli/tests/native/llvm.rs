@@ -31,7 +31,7 @@
 //! machine for this host's triple must be constructible. A host that fails any
 //! of those skips with a message rather than failing.
 use buri::build::buildfile::{Arch, Platform};
-use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
+use buri::compiler::backend::runtime_native::AVAILABLE;
 use buri::compiler::backend::{llvm, Backend, Options, Profile, Target};
 use buri::compiler::driver;
 use buri::compiler::middle;
@@ -137,16 +137,6 @@ fn workspace() -> PathBuf {
         .join(format!("native-llvm-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
-}
-
-/// The runtime archive, written once and reused.
-fn archive() -> &'static Path {
-    static WRITTEN: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    WRITTEN.get_or_init(|| {
-        let path = workspace().join(ARCHIVE_NAME);
-        std::fs::write(&path, ARCHIVE).unwrap();
-        path
-    })
 }
 
 /// Whether this host can link and run what the backend emits.
@@ -295,7 +285,7 @@ pub fn build_at(name: &str, source: &str, probe: Option<&str>, profile: Profile)
     for object in &objects {
         link.arg(object);
     }
-    link.arg(archive());
+    link.arg(crate::shared::runtime_archive());
     link.args(crate::shared::product_link_args());
     let linked = link.output().unwrap();
     assert!(
@@ -364,7 +354,7 @@ fn build_tests(name: &str, source: &str) -> PathBuf {
     for object in &objects {
         link.arg(object);
     }
-    link.arg(archive());
+    link.arg(crate::shared::runtime_archive());
     link.args(crate::shared::product_link_args());
     let linked = link.output().unwrap();
     assert!(

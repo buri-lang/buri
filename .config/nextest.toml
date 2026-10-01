@@ -1,0 +1,26 @@
+# The local full suite. cli/tests/README.md ("Running them") has the command.
+# CI runs `cargo test` and never reads this file, so it only schedules tests:
+# cli/tests/ci.rs forbids killing, retrying or filtering one here.
+
+[profile.default]
+fail-fast = false
+retries = 0
+
+# The longest tests start first, so none of them is the last thing running.
+[[profile.default.overrides]]
+filter = '''
+  test(=differential::every_corpus_package_agrees_with_the_reference_backend)
+  | test(=conformance::the_native_set_passes)
+  | test(=a_hostile_schema_is_a_diagnostic)
+  | test(=repositories::snapshots)
+  | test(=a_syntax_error_does_not_become_a_type_error)
+  | test(=the_default_backend_prints_the_report_the_javascript_one_does)
+  | test(=documents::every_manifest_id_is_fetchable)
+  | (binary(checking) & test(/^(a_case_is_in_the_half|a_broken_file_reports|the_generated_corpus_is)/))
+  | test(=examples::standard_library_doc_comments)
+  | test(=cross::a_linux_x86_64_artifact_is_a_real_elf_and_runs_in_a_container)
+  | test(=conformance::rejected_programs_are_rejected)
+  | test(=runtime::the_runtime_crate_answers_its_own_tests)
+  | test(=stencil::the_corpus_files_it_compiles_pass)
+'''
+priority = 100

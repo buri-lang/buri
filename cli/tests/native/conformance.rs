@@ -199,7 +199,7 @@
 use buri::build::buildfile::Platform;
 use buri::build::workspace::Workspace;
 use buri::compiler::backend::stencil::{unavailable_reason as stencil_unavailable_reason, Stencil};
-use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
+use buri::compiler::backend::runtime_native::AVAILABLE;
 use buri::compiler::backend::{Backend, Options, Profile, Target};
 use buri::compiler::driver;
 use buri::compiler::middle::{self, monomorphize};
@@ -958,20 +958,6 @@ fn workspace(name: &str) -> PathBuf {
     dir
 }
 
-/// The runtime archive, written once for the process rather than once per
-/// case, for the reason `native/stencil.rs::archive` gives.
-fn archive() -> &'static Path {
-    static WRITTEN: OnceLock<PathBuf> = OnceLock::new();
-    WRITTEN.get_or_init(|| {
-        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-            .join(format!("native-conformance-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join(ARCHIVE_NAME);
-        std::fs::write(&path, ARCHIVE).unwrap();
-        path
-    })
-}
-
 /// What compiling one conformance file as a test binary produced.
 #[derive(Clone)]
 pub(crate) enum Built {
@@ -1080,7 +1066,7 @@ fn build(name: &str, source: &str) -> Built {
     for o in &objects {
         cc.arg(o);
     }
-    cc.arg(archive());
+    cc.arg(crate::shared::runtime_archive());
     cc.args(crate::shared::product_link_args());
     let built = cc.output().unwrap();
     assert!(
