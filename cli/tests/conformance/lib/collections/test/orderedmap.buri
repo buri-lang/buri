@@ -1080,3 +1080,335 @@ test "orderedset.of over a list mapped inside the call keeps every item" {
         40,
     );
 }
+
+// --- fromSorted -------------------------------------------------------------------
+//
+// A bottom-up build makes its own shape rather than the one inserts leave, so
+// most cases here go on to insert and remove. A node built below its minimum,
+// or a level built uneven, shows up afterwards as a lost key or a wrong size.
+// The sizes sit either side of where a tree gains a level: 7, 63, 511 and 4095
+// are the most that one, two, three and four full levels hold.
+
+/// `0..n`, each key with `2 * key`, in key order.
+fn sortedEntries<C: Allocator>(ctx: C, n: Int): [(Int, Int)] {
+    list.range(ctx, 0, n).map(ctx, fn(i) => (i, i * 2))
+}
+
+fn built<C: Allocator>(ctx: C, entries: [(Int, Int)]): OrderedMap<Int, Int> {
+    assert.ok(orderedmap.fromSorted(ctx, entries))
+}
+
+/// Whether the map `fromSorted` builds of `0..n` answers like the one inserts
+/// build.
+fn buildsLikeInserts<C: Allocator>(ctx: C, n: Int): Bool {
+    let entries = sortedEntries(ctx, n);
+    let m = built(ctx, entries);
+    let found = entries.all(fn(e) => {
+        let (k, v) = e;
+        m.get(k) == .Some(v)
+    });
+    m.length() == n
+        && m.entries(ctx) == entries
+        && m.equals(ctx, orderedmap.of(ctx, entries))
+        && found
+        && m.get(-1).isNone()
+        && m.get(n).isNone()
+        && m.range(ctx, 1, n - 1) == entries.slice(ctx, 1, n - 1)
+}
+
+/// The even keys below `2n`, built bottom-up. Then every odd key goes in and
+/// every even one comes out, last first, and the built map is drained from
+/// each end.
+fn survivesEdits<C: Allocator>(ctx: C, n: Int): Bool {
+    let evens = list.range(ctx, 0, n).map(ctx, fn(i) => (2 * i, 4 * i));
+    let odds = list.range(ctx, 0, n).map(ctx, fn(i) => 2 * i + 1);
+    let m = built(ctx, evens);
+    let grown = odds.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Int, Int>, k) => acc.insert(c, k, k * 2),
+        m,
+    );
+    let shrunk = evens
+        .reverse(ctx)
+        .foldCtx(
+            ctx,
+            fn(c, acc: OrderedMap<Int, Int>, e) => {
+                let (k, _v) = e;
+                acc.remove(c, k)
+            },
+            grown,
+        );
+    let evenKeys = evens.map(ctx, fn(e) => keyOf(e));
+    let left = odds.all(fn(k) => shrunk.get(k) == .Some(k * 2));
+    grown.length() == 2 * n
+        && grown.keys(ctx) == list.range(ctx, 0, 2 * n)
+        && shrunk.length() == n
+        && shrunk.keys(ctx) == odds
+        && left
+        && evenKeys.all(fn(k) => !shrunk.has(k))
+        && drainFirst(ctx, m, list.empty<Int>()) == evenKeys
+        && drainLast(ctx, m, list.empty<Int>()) == evenKeys.reverse(ctx)
+}
+
+/// Either side of the most a tree of one to four full levels holds.
+fn boundaries(): [Int] {
+    [
+        0,
+        1,
+        2,
+        3,
+        4,
+        6,
+        7,
+        8,
+        9,
+        15,
+        16,
+        62,
+        63,
+        64,
+        65,
+        71,
+        72,
+        510,
+        511,
+        512,
+        513,
+        4094,
+        4095,
+        4096,
+        4097,
+    ]
+}
+
+test "fromSorted of no entries is the empty map, and grows like one" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = built(ctx, list.empty<(Int, Int)>());
+    assert.isTrue(m.isEmpty());
+    assert.isTrue(m.first().isNone());
+    assert.equal(m.entries(ctx), list.empty<(Int, Int)>());
+    let grown = m.insert(ctx, 1, 2);
+    assert.equal(grown.entries(ctx), [(1, 2)]);
+    assert.isTrue(grown.remove(ctx, 1).isEmpty());
+}
+
+test "fromSorted of one entry" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = assert.ok(orderedmap.fromSorted(ctx, [("only", 1)]));
+    assert.equal(m.length(), 1);
+    assert.equal(assert.some(m.get("only")), 1);
+    assert.equal(m.keys(ctx), ["only"]);
+    assert.isTrue(m.remove(ctx, "only").isEmpty());
+    assert.equal(m.insert(ctx, "a", 0).keys(ctx), ["a", "only"]);
+}
+
+test "fromSorted answers like inserts at every size up to three hundred" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let wrong = list
+        .range(ctx, 0, 301)
+        .filterCtx(ctx, fn(c, n) => !buildsLikeInserts(c, n));
+    assert.equal(wrong, list.empty<Int>());
+}
+
+test "fromSorted answers like inserts either side of every level boundary" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let wrong = boundaries().filterCtx(ctx, fn(c, n) => !buildsLikeInserts(c, n));
+    assert.equal(wrong, list.empty<Int>());
+}
+
+test "a map fromSorted survives inserts and removes at every size up to 130" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let wrong = list
+        .range(ctx, 0, 131)
+        .filterCtx(ctx, fn(c, n) => !survivesEdits(c, n));
+    assert.equal(wrong, list.empty<Int>());
+}
+
+test "a map fromSorted survives inserts and removes either side of every level boundary" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let wrong = boundaries().filterCtx(ctx, fn(c, n) => !survivesEdits(c, n));
+    assert.equal(wrong, list.empty<Int>());
+}
+
+test "a thousand mixed operations on a map fromSorted agree with a sorted list" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // Every third key below 400, so inserts land both between built keys and on them.
+    let keys = list.range(ctx, 0, 134).map(ctx, fn(i) => i * 3);
+    let m = built(ctx, keys.map(ctx, fn(k) => (k, k * 2)));
+    let start = (m, keys, 11);
+    let run = fn(c, acc: (OrderedMap<Int, Int>, [Int], Int), i) => step(c, acc, i);
+    let (after, model, _) = list.range(ctx, 0, 1000).foldCtx(ctx, run, start);
+    assert.equal(after.length(), model.length());
+    assert.equal(after.keys(ctx), model);
+    assert.equal(after.values(ctx), model.map(ctx, fn(k) => k * 2));
+    assert.isTrue(model.all(fn(k) => after.get(k) == .Some(k * 2)));
+    let scanned = after.range(ctx, 100, 300).map(ctx, fn(e) => keyOf(e));
+    assert.equal(scanned, model.filterCtx(ctx, fn(_c, k) => k >= 100 && k < 300));
+}
+
+test "fromSorted builds a hundred thousand entries that read and edit like any map" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let n = 100_000;
+    let m = built(ctx, sortedEntries(ctx, n));
+    assert.equal(m.length(), n);
+    assert.equal(m.keys(ctx), list.range(ctx, 0, n));
+    assert.equal(assert.some(m.first()), (0, 0));
+    assert.equal(assert.some(m.last()), (n - 1, 2 * (n - 1)));
+    assert.isTrue(
+        list.range(ctx, 0, 1000).all(fn(i) => m.get(i * 97) == .Some(i * 194)),
+    );
+    assert.equal(m.range(ctx, 50_000, 50_003), [
+        (50_000, 100_000),
+        (50_001, 100_002),
+        (50_002, 100_004),
+    ]);
+    assert.equal(assert.some(m.floor(n + 5)), (n - 1, 2 * (n - 1)));
+    // A thousand keys out, scattered, and a thousand in past either end.
+    let gone = list.range(ctx, 0, 1000).map(ctx, fn(i) => i * 97 + 1);
+    let removed = gone.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Int, Int>, k) => acc.remove(c, k),
+        m,
+    );
+    let edited = list
+        .range(ctx, 0, 1000)
+        .foldCtx(
+            ctx,
+            fn(c, acc: OrderedMap<Int, Int>, i) => {
+                acc.insert(c, -1 - i, 0).insert(c, n + i, 0)
+            },
+            removed,
+        );
+    assert.equal(edited.length(), n + 1000);
+    assert.isTrue(gone.all(fn(k) => !edited.has(k)));
+    assert.equal(keyOf(assert.some(edited.first())), -1000);
+    assert.equal(keyOf(assert.some(edited.last())), n + 999);
+    assert.equal(edited.range(ctx, 0, 4), [(0, 0), (2, 4), (3, 6)]);
+    // The map it was built as is unchanged.
+    assert.equal(m.length(), n);
+    assert.equal(assert.some(m.get(1)), 2);
+}
+
+test "fromSorted refuses entries out of order with the index of the first" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(assert.err(orderedmap.fromSorted(ctx, [(2, "b"), (1, "a")])), 1);
+    assert.equal(
+        assert.err(orderedmap.fromSorted(ctx, [("a", 1), ("c", 3), ("b", 2)])),
+        2,
+    );
+    // Only the first is reported.
+    assert.equal(
+        assert.err(orderedmap.fromSorted(ctx, [(1, 1), (3, 3), (2, 2), (0, 0)])),
+        2,
+    );
+    let shuffled = sortedEntries(ctx, 1000).replaceAt(ctx, 500, (10, 0));
+    assert.equal(assert.err(orderedmap.fromSorted(ctx, shuffled)), 500);
+    let reversed = sortedEntries(ctx, 1000).reverse(ctx);
+    assert.equal(assert.err(orderedmap.fromSorted(ctx, reversed)), 1);
+}
+
+test "fromSorted refuses a duplicate key with the index of its second entry" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(assert.err(orderedmap.fromSorted(ctx, [(1, 1), (1, 2), (2, 2)])), 1);
+    assert.equal(
+        assert.err(orderedmap.fromSorted(ctx, [(1, 1), (2, 2), (3, 3), (3, 4)])),
+        3,
+    );
+    let twice = sortedEntries(ctx, 1000).insertAt(ctx, 700, (699, 0));
+    assert.equal(assert.err(orderedmap.fromSorted(ctx, twice)), 700);
+}
+
+// --- filter, mapValues and merge over larger maps ------------------------------------
+
+test "filter over a thousand keys keeps the rest, and the result edits like any map" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = scattered(ctx, 1000);
+    let thirds = m.filter(ctx, fn(k, _v) => k % 3 == 0);
+    let model = list.range(ctx, 0, 1000).filterCtx(ctx, fn(_c, k) => k % 3 == 0);
+    assert.equal(thirds.length(), model.length());
+    assert.equal(thirds.keys(ctx), model);
+    assert.equal(thirds.values(ctx), model.map(ctx, fn(k) => k * 2));
+    assert.equal(drainFirst(ctx, thirds, list.empty<Int>()), model);
+    assert.equal(drainLast(ctx, thirds, list.empty<Int>()), model.reverse(ctx));
+    assert.equal(thirds.insert(ctx, 1, 2).remove(ctx, 0).length(), model.length());
+}
+
+test "mapValues over a thousand keys keeps them, and the result edits like any map" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = scattered(ctx, 1000);
+    let halved = m.mapValues(ctx, fn(v) => v / 2);
+    assert.equal(halved.keys(ctx), list.range(ctx, 0, 1000));
+    assert.equal(halved.values(ctx), list.range(ctx, 0, 1000));
+    let doubled = halved.mapValues(ctx, fn(v) => v * 2);
+    assert.equal(drainFirst(ctx, doubled, list.empty<Int>()), list.range(ctx, 0, 1000));
+    assert.equal(doubled.remove(ctx, 500).insert(ctx, 2000, 4000).length(), 1000);
+}
+
+test "merge and mergeWith over overlapping maps of six hundred keys each" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let low = orderedmap.of(ctx, list.range(ctx, 0, 600).map(ctx, fn(k) => (k, k)));
+    let high = orderedmap.of(
+        ctx,
+        list.range(ctx, 300, 900).map(ctx, fn(k) => (k, 0 - k)),
+    );
+    let merged = low.merge(ctx, high);
+    assert.equal(merged.keys(ctx), list.range(ctx, 0, 900));
+    assert.equal(
+        merged.values(ctx),
+        list.range(ctx, 0, 900).map(ctx, fn(k) => if (k < 300) { k } else { 0 - k }),
+    );
+    let summed = low.mergeWith(ctx, high, fn(mine, theirs) => mine * 1000 + theirs);
+    assert.equal(summed.keys(ctx), list.range(ctx, 0, 900));
+    assert.equal(assert.some(summed.get(299)), 299);
+    assert.equal(assert.some(summed.get(300)), 299_700);
+    assert.equal(assert.some(summed.get(599)), 598_401);
+    assert.equal(assert.some(summed.get(600)), -600);
+    let doubled = merged.mapValues(ctx, fn(_v) => 0).filter(ctx, fn(_k, _v) => true);
+    assert.equal(doubled.remove(ctx, 450).insert(ctx, -1, 0).length(), 900);
+}
+
+test "merge of a few keys into many, and of many into a few" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let many = orderedmap.of(ctx, list.range(ctx, 0, 2000).map(ctx, fn(k) => (k, k)));
+    let few = orderedmap.of(ctx, [(-1, 7), (500, 7), (2000, 7)]);
+    let one = many.merge(ctx, few);
+    assert.equal(one.length(), 2002);
+    assert.equal(assert.some(one.get(500)), 7);
+    assert.equal(assert.some(one.get(501)), 501);
+    let other = few.merge(ctx, many);
+    assert.equal(other.length(), 2002);
+    assert.equal(assert.some(other.get(500)), 500);
+    assert.equal(assert.some(other.get(-1)), 7);
+    assert.equal(other.keys(ctx), one.keys(ctx));
+    let combined = few.mergeWith(ctx, many, fn(mine, theirs) => mine + theirs);
+    assert.equal(assert.some(combined.get(500)), 507);
+    assert.equal(assert.some(combined.get(2000)), 7);
+}
