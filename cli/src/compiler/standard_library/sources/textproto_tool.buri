@@ -1,4 +1,20 @@
 //! std/textproto — the text format tool this toolchain ships.
+//!
+//! ```text
+//! # proto-file: server.proto
+//! # proto-message: Server
+//! name: "api"
+//! ```
+//!
+//! [`check`] reads each input's header, asks for the schema it names and every
+//! schema that one imports through `needs`, and holds the input to the message
+//! with `std/textproto/read`. Under a contract the `typeSchema`,
+//! `server.proto:Server`, names the message, and a header may only agree.
+//!
+//! [`generate`] answers each input with a module named after the file: the
+//! schema's types, as `std/codegen/proto` writes them, and the value as an
+//! `export let`. Asked for `typesOf`, it answers the contract's types and a
+//! `decode` that reads an input's text at run time. Formatting is in-tree.
 
 from "core/buri/ast" import * as ast;
 from "core/bytes" import * as bytes;
