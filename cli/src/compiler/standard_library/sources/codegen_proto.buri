@@ -2086,10 +2086,18 @@ fn oneofJsonFn<C: Allocator>(ctx: C, o: ResolvedOneof): ast.Item {
     })
 }
 
+/// The local a field's value is bound to in `decodeMJsonAt`. A field may be
+/// called `path` or `doc`, which the decoder already uses; a Buri field name
+/// has no `_` but a keyword's trailing one, so `f_path` is always free.
+fn local<C: Allocator>(ctx: C, field: Str): Str {
+    str.format(ctx, "f_${field}")
+}
+
 /// The bindings one field contributes to `decodeMJsonAt`.
 ///
 /// Every binding is annotated: a `.None` arm has no type to infer from.
 fn fieldLets<C: Allocator>(ctx: C, f: ResolvedField): [ast.Stmt] {
+    let held = local(ctx, f.name);
     let at = nsCall("proto", "at", [id("ctx"), id("path"), strE(f.json)]);
     if (isRepeated(f)) {
         let pathName = str.format(ctx, "p_${f.name}");
@@ -2114,7 +2122,7 @@ fn fieldLets<C: Allocator>(ctx: C, f: ResolvedField): [ast.Stmt] {
         [
             letS(pathName, [tyNamed("Str")], at),
             letS(
-                f.name,
+                held,
                 [fieldType(f)],
                 matchE(memberCall(f), [
                     armOf(dotP0("None"), emptyList(base)),
@@ -2126,7 +2134,7 @@ fn fieldLets<C: Allocator>(ctx: C, f: ResolvedField): [ast.Stmt] {
         let read = jsonRead(ctx, f, id("v"), at, id("ctx"));
         [
             letS(
-                f.name,
+                held,
                 [fieldType(f)],
                 matchE(memberCall(f), [
                     armOf(dotP0("None"), variantE("None")),
@@ -2138,7 +2146,7 @@ fn fieldLets<C: Allocator>(ctx: C, f: ResolvedField): [ast.Stmt] {
         let read = jsonRead(ctx, f, id("v"), at, id("ctx"));
         [
             letS(
-                f.name,
+                held,
                 [fieldType(f)],
                 matchE(memberCall(f), [
                     armOf(dotP0("None"), defaultOf(f)),
@@ -2163,7 +2171,7 @@ fn jsonDecodeFns<C: Allocator>(
             ctx,
             oneofs.mapCtx(ctx, fn(c, o) => {
                 letS(
-                    o.field,
+                    local(c, o.field),
                     [],
                     tryE(
                         callName(str.format(c, "read${o.enumName}"), [
@@ -2176,8 +2184,8 @@ fn jsonDecodeFns<C: Allocator>(
             }),
         );
     let inits = fields
-        .map(ctx, fn(f) => initOf(f.name, id(f.name)))
-        .concat(ctx, oneofs.map(ctx, fn(o) => initOf(o.field, id(o.field))));
+        .mapCtx(ctx, fn(c, f) => initOf(f.name, id(local(c, f.name))))
+        .concat(ctx, oneofs.mapCtx(ctx, fn(c, o) => initOf(o.field, id(local(c, o.field)))));
     let objectArm = blockE(blk(bound, [variantCall("Ok", [structE(name, inits)])]));
     let atItem = fnItem(ast.FnDecl {
         name: nm(str.format(ctx, "decode${name}JsonAt")),

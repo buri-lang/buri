@@ -33,9 +33,9 @@ export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Routes>): Gene
 }
 
 fn line<C: Allocator>(ctx: C, r: Route): Str {
-    let url = r.url.withDefault("?");
+    let path = r.path.withDefault("?");
     let port = r.port.withDefault(0);
-    str.format(ctx, "${url} -> ${port}")
+    str.format(ctx, "${path} -> ${port}")
 }
 
 /// `export let <name>: Str = <value>;`

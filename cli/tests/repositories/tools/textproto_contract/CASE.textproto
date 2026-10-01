@@ -4,7 +4,8 @@
 doc: "a tool whose generate declares a textproto contract: the consumer's .txtpb omits its headers and is checked against the contract's message, the tool reads typed messages through the module std/textproto generates into it, editing the contract's .proto checks and generates again, headers naming the contract's schema and message are accepted, and headers naming another file or message are schema-mismatch"
 
 # `routes.txtpb` has no header; the contract supplies it, and the tool reads
-# `Routes` values.
+# `Routes` values. A `Route`'s `path` is a name the generated JSON reader also
+# uses for its own parameter, and must not shadow it.
 run {
   args: ["run", "//cmd/app"]
   exit: 0
