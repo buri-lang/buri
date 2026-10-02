@@ -236,6 +236,51 @@ impl Rendered {
         deliverFile(self, label)
     }
 
+    /// Presses the pointer on the element named `label`, at (`x`, `y`).
+    ///
+    /// ```text
+    /// page.pointerDown("Apples", 4.0, 10.0);
+    /// page.pointerMove("Pears", 4.0, 60.0);
+    /// page.pointerUp("Pears", 4.0, 60.0);
+    /// ```
+    ///
+    /// An element's name is its label, or else its text, the way `follow`
+    /// names a link; the innermost element with that name is the one pressed.
+    /// The press bubbles: every element from there out to the root that has an
+    /// `onPointerDown` runs it. The nearest one with any pointer handler
+    /// captures the pointer, so `pointerMove` and `pointerUp` reach it until the
+    /// release, wherever they land. The press also reaches `onPressOutside`.
+    ///
+    /// A headless document has no layout, so every element sits at the
+    /// viewport's origin: a handler's `x` and `viewportX` are both `x`. An
+    /// element under a `Passthrough(true)` or behind an open `dialog` is not
+    /// pressed. Aborts when no element has that name.
+    export fn pointerDown(self, label: Str, x: Float, y: Float): ();
+
+    /// Moves the pointer over the element named `over`, to (`x`, `y`).
+    ///
+    /// While a press is held the move reaches the element that captured it,
+    /// not `over`. Otherwise it reaches `over`. Either way it bubbles, and
+    /// `over` is what each handler's `overRow` is read from.
+    export fn pointerMove(self, over: Str, x: Float, y: Float): ();
+
+    /// Releases the pointer over the element named `over`, at (`x`, `y`), and
+    /// ends the capture. It is routed the way `pointerMove` is.
+    export fn pointerUp(self, over: Str, x: Float, y: Float): ();
+
+    /// Drags the element named `label` onto the element named `to`: a
+    /// `pointerDown` on the one, then a `pointerMove` and a `pointerUp` over the
+    /// other, all at the origin.
+    ///
+    /// ```text
+    /// page.drag("Apples", "Cherries");
+    /// ```
+    export fn drag(self, label: Str, to: Str): () {
+        let _ = self.pointerDown(label, 0.0, 0.0);
+        let _ = self.pointerMove(to, 0.0, 0.0);
+        self.pointerUp(to, 0.0, 0.0)
+    }
+
     /// Submits the `index`th form, oldest first — what pressing Enter in one of
     /// its fields does.
     ///

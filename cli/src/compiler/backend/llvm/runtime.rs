@@ -2572,6 +2572,56 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar, Arg::Scalar],
         ret: Ret::Void,
     },
+    // The pointer (#220): a kept handler under its phase, the four readers of
+    // the `PointerAt` in flight, and the three dispatches.
+    Entry {
+        key: "ui_node.registerPointer",
+        symbol: "buri_rt_ui_node_register_pointer",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Press],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_node.pointerX",
+        symbol: "buri_rt_ui_node_pointer_x",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "ui_node.pointerY",
+        symbol: "buri_rt_ui_node_pointer_y",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "ui_node.pointerOverRow",
+        symbol: "buri_rt_ui_node_pointer_over_row",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "ui_node.pointerRow",
+        symbol: "buri_rt_ui_node_pointer_row",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_testing.Rendered.pointerDown",
+        symbol: "buri_rt_ui_testing_rendered_pointer_down",
+        args: &[Arg::Scalar, Arg::Str, Arg::Scalar, Arg::Scalar],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_testing.Rendered.pointerMove",
+        symbol: "buri_rt_ui_testing_rendered_pointer_move",
+        args: &[Arg::Scalar, Arg::Str, Arg::Scalar, Arg::Scalar],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_testing.Rendered.pointerUp",
+        symbol: "buri_rt_ui_testing_rendered_pointer_up",
+        args: &[Arg::Scalar, Arg::Str, Arg::Scalar, Arg::Scalar],
+        ret: Ret::Void,
+    },
 ];
 
 pub fn entry(key: &str) -> Option<&'static Entry> {
@@ -3134,10 +3184,10 @@ mod tests {
             }
         }
         assert_eq!(
-            checked, 4,
+            checked, 5,
             "the renderer's kept handlers: `registerPress`, the `registerOutside` and \
-             `registerFollow` added with `onPressOutside` and `routeLink` (#53), and a file \
-             picker's `registerPick` (#209)"
+             `registerFollow` added with `onPressOutside` and `routeLink` (#53), a file \
+             picker's `registerPick` (#209), and the pointer's `registerPointer` (#220)"
         );
     }
 

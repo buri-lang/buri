@@ -1558,6 +1558,18 @@ pub const ENTRIES: &[Entry] = &[
     e("ui_testing.Rendered.select", "buri_rt_ui_testing_rendered_select", Ret::Void),
     e("ui_testing.Rendered.flip", "buri_rt_ui_testing_rendered_flip", Ret::Void),
     e("ui_testing.Rendered.submit", "buri_rt_ui_testing_rendered_submit", Ret::Void),
+    // The pointer (#220). `registerPointer` keeps one of an element's three
+    // pointer handlers under its phase, an `ep` like `registerPress`; the four
+    // readers answer the `PointerAt` the dispatch in flight set, and
+    // `pointerDown`/`pointerMove`/`pointerUp` are that dispatch.
+    ep("ui_node.registerPointer", "buri_rt_ui_node_register_pointer", Ret::Void),
+    e("ui_node.pointerX", "buri_rt_ui_node_pointer_x", Ret::Scalar),
+    e("ui_node.pointerY", "buri_rt_ui_node_pointer_y", Ret::Scalar),
+    e("ui_node.pointerOverRow", "buri_rt_ui_node_pointer_over_row", Ret::Scalar),
+    e("ui_node.pointerRow", "buri_rt_ui_node_pointer_row", Ret::Out),
+    e("ui_testing.Rendered.pointerDown", "buri_rt_ui_testing_rendered_pointer_down", Ret::Void),
+    e("ui_testing.Rendered.pointerMove", "buri_rt_ui_testing_rendered_pointer_move", Ret::Void),
+    e("ui_testing.Rendered.pointerUp", "buri_rt_ui_testing_rendered_pointer_up", Ret::Void),
 ];
 
 /// The entry for a key, or `None` where this backend has no body for it.
