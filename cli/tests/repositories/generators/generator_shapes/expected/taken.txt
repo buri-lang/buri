@@ -1,8 +1,8 @@
 error: `//lib/wire/nothing` is a module of this rule already [generator-module-taken]
  --> lib/wire/BUILD.buri:8:9
   |
-8 |         { tool: "//cmd/gen", inputs: [] },
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+8 |         { tool: "//tool/gen", inputs: [] },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = a generator on this rule has already named it
   = fix: give the generated module a name the package does not already declare

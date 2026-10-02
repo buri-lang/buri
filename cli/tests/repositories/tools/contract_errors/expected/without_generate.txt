@@ -1,5 +1,5 @@
 error: `lines` has no `generate`, so nothing turns its schema into types [accepts-language-without-generate]
- --> tools/b/BUILD.buri:5:25
+ --> tool/b/BUILD.buri:5:25
   |
 5 |             { language: "lines", type_schema: "b.schema.json" },
   |                         ^^^^^^^
@@ -9,8 +9,8 @@ error: `lines` has no `generate`, so nothing turns its schema into types [accept
       language {
           name: "yaml"
           extensions: [".yaml"]
-          check: "//tools/yaml"
-          generate: "//tools/yaml_types"
+          check: "//tool/yaml"
+          generate: "//tool/yaml_types"
       }
 
     A contract means typed values, and the types come from the language's

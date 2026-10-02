@@ -1,8 +1,8 @@
-error: `//tools/good` did not answer [tool-failed]
+error: `//tool/good` did not answer [tool-failed]
  --> lib/app/BUILD.buri:3:9
   |
-3 |         { tool: "//tools/good", inputs: ["input.txt"] },
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+3 |         { tool: "//tool/good", inputs: ["input.txt"] },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = the tool does not build: `tool.buri` exports no `check`
   = fix: fix what the note names; `buri test` on the tool runs its own tests

@@ -5,7 +5,7 @@ error: `purple` is not in the dictionary [tool-diagnostic]
   | ^^^^^^
   |
   = the tool reported this as `lines-unknown-word`, which is not a code this toolchain has a page for
-  = fix: add it to tools/lines/dictionary.txt
+  = fix: add it to tool/lines/dictionary.txt
 
     The sentence above is the tool's own. Only the code is this page's: a tool
     cannot invent a catalogue entry, and a code with no page has no wording

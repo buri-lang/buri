@@ -1,5 +1,5 @@
 error: `tool.buri` exports no `check` [tool-entry-point-not-exported]
- --> tools/good/BUILD.buri:4:11
+ --> tool/good/BUILD.buri:4:11
   |
 4 |     check {}
   |           ^^

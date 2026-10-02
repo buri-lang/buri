@@ -41,14 +41,14 @@ error: there is nothing named `height` in scope [unresolved-name]
    |                                  ^^^^^^
    |
    = fix: declare `height`, or import it — a name is in scope only from this module's own declarations and its imports
-error: `//cmd/gen` did not answer [tool-failed]
+error: `//tool/gen` did not answer [tool-failed]
  --> lib/wire/BUILD.buri:3:9
   |
-3 |         { tool: "//cmd/gen", inputs: ["spare.txt", "units.txt"] },
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+3 |         { tool: "//tool/gen", inputs: ["spare.txt", "units.txt"] },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = the tool does not build: error: expected `I64`, found `Str` [type-mismatch]
-      --> cmd/gen/tool.buri:36:43
+      --> tool/gen/tool.buri:36:43
        |
     36 |     let value = split.1.trim().toInt()? + "one";
        |                                           ^^^^^ the left operand's type is `I64`

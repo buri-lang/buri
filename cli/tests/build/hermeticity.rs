@@ -205,13 +205,13 @@ fn generated_only(name: &str, reads_the_disk: bool) -> Scratch {
     let scratch = Scratch::repo(name);
     scratch.write(
         "lib/wire/BUILD.buri",
-        "library {\n    generators: [{ tool: \"//tools/gen\", inputs: [\"units.txt\"] }]\n\n    \
+        "library {\n    generators: [{ tool: \"//tool/gen\", inputs: [\"units.txt\"] }]\n\n    \
          visibility: [\"//visibility:public\"]\n}\n",
     );
     scratch.write("lib/wire/units.txt", "3\n");
     scratch.write("lib/wire/lib.buri", "from \"//lib/wire/units\" export { width };\n");
-    scratch.write("tools/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
-    scratch.write("tools/gen/tool.buri", &generator(reads_the_disk));
+    scratch.write("tool/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
+    scratch.write("tool/gen/tool.buri", &generator(reads_the_disk));
     scratch.write(
         "cmd/app/BUILD.buri",
         "binary {\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [{ platform: JS }]\n}\n",

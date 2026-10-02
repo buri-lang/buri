@@ -3,18 +3,18 @@
 
 doc: "every way a contract is refused: two tools with different contracts reading one file, an accepts entry missing a field, naming an unknown language, a language twice, a language with no generate, or proto, a type_schema outside the repository, and a type_schema with no Buri type, which the tool reports and its consumer sees as a tool that did not build"
 
-# `//tools/a` reads `config.json` under `//schemas/names.schema.json`, a `//`
+# `//tool/a` reads `config.json` under `//schemas/names.schema.json`, a `//`
 # type_schema.
 run {
-  args: ["build", "//lib/x", "//tools/a", "//tools/b"]
+  args: ["build", "//lib/x", "//tool/a", "//tool/b"]
   exit: 0
 }
 
-# `//tools/b` has a different contract for the same file.
+# `//tool/b` has a different contract for the same file.
 edit {
   file: "lib/x/BUILD.buri"
-  replace: "        { tool: \"//tools/a\", inputs: [\"config.json\"] },\n"
-  with: "        { tool: \"//tools/a\", inputs: [\"config.json\"] },\n        { tool: \"//tools/b\", inputs: [\"config.json\"] },\n"
+  replace: "        { tool: \"//tool/a\", inputs: [\"config.json\"] },\n"
+  with: "        { tool: \"//tool/a\", inputs: [\"config.json\"] },\n        { tool: \"//tool/b\", inputs: [\"config.json\"] },\n"
 }
 
 run {
@@ -25,91 +25,91 @@ run {
 
 edit {
   file: "lib/x/BUILD.buri"
-  replace: "        { tool: \"//tools/b\", inputs: [\"config.json\"] },\n"
+  replace: "        { tool: \"//tool/b\", inputs: [\"config.json\"] },\n"
   with: ""
 }
 
 edit {
-  file: "tools/b/BUILD.buri"
+  file: "tool/b/BUILD.buri"
   replace: "{ language: \"json\", type_schema: \"b.schema.json\" },"
   with: "{ language: \"json\" },"
 }
 
 run {
-  args: ["build", "//tools/b"]
+  args: ["build", "//tool/b"]
   exit: 2
   golden: "incomplete.txt"
 }
 
 edit {
-  file: "tools/b/BUILD.buri"
+  file: "tool/b/BUILD.buri"
   replace: "{ language: \"json\" },"
   with: "{ language: \"yaml\", type_schema: \"b.schema.json\" },"
 }
 
 run {
-  args: ["build", "//tools/b"]
+  args: ["build", "//tool/b"]
   exit: 2
   golden: "unknown_language.txt"
 }
 
 edit {
-  file: "tools/b/BUILD.buri"
+  file: "tool/b/BUILD.buri"
   replace: "{ language: \"yaml\", type_schema: \"b.schema.json\" },"
   with: "{ language: \"json\", type_schema: \"b.schema.json\" },\n            { language: \"json\", type_schema: \"other.schema.json\" },"
 }
 
 run {
-  args: ["build", "//tools/b"]
+  args: ["build", "//tool/b"]
   exit: 2
   golden: "twice.txt"
 }
 
 edit {
-  file: "tools/b/BUILD.buri"
+  file: "tool/b/BUILD.buri"
   replace: "\n            { language: \"json\", type_schema: \"other.schema.json\" },"
   with: "\n            { language: \"lines\", type_schema: \"b.schema.json\" },"
 }
 
 run {
-  args: ["build", "//tools/b"]
+  args: ["build", "//tool/b"]
   exit: 2
   golden: "without_generate.txt"
 }
 
 # A `.proto` file is a schema and holds no value, so `proto` takes no contract.
 edit {
-  file: "tools/b/BUILD.buri"
+  file: "tool/b/BUILD.buri"
   replace: "\n            { language: \"lines\", type_schema: \"b.schema.json\" },"
   with: "\n            { language: \"proto\", type_schema: \"config.proto:Config\" },"
 }
 
 run {
-  args: ["build", "//tools/b"]
+  args: ["build", "//tool/b"]
   exit: 2
   golden: "proto.txt"
 }
 
 edit {
-  file: "tools/b/BUILD.buri"
+  file: "tool/b/BUILD.buri"
   replace: "\n            { language: \"proto\", type_schema: \"config.proto:Config\" },"
   with: ""
 }
 
 edit {
-  file: "tools/b/BUILD.buri"
+  file: "tool/b/BUILD.buri"
   replace: "type_schema: \"b.schema.json\""
   with: "type_schema: \"https://example.com/b.schema.json\""
 }
 
 run {
-  args: ["build", "//tools/b"]
+  args: ["build", "//tool/b"]
   exit: 1
   golden: "not_local.txt"
 }
 
 edit {
-  file: "tools/b/BUILD.buri"
+  file: "tool/b/BUILD.buri"
   replace: "type_schema: \"https://example.com/b.schema.json\""
   with: "type_schema: \"b.schema.json\""
 }
@@ -117,21 +117,21 @@ edit {
 # A schema with no Buri type is the tool's error, and a consumer's tool did not
 # build.
 edit {
-  file: "tools/b/b.schema.json"
+  file: "tool/b/b.schema.json"
   replace: "\"type\": \"array\","
   with: "\"type\": \"array\", \"prefixItems\": [{ \"type\": \"string\" }],"
 }
 
 run {
-  args: ["build", "//tools/b"]
+  args: ["build", "//tool/b"]
   exit: 1
   golden: "no_type.txt"
 }
 
 edit {
   file: "lib/x/BUILD.buri"
-  replace: "tool: \"//tools/a\""
-  with: "tool: \"//tools/b\""
+  replace: "tool: \"//tool/a\""
+  with: "tool: \"//tool/b\""
 }
 
 run {

@@ -8,7 +8,7 @@ source does.
 # lib/wire/BUILD.buri
 library {
     generators: [
-        { tool: "//tools/units", inputs: ["units.txt"] },
+        { tool: "//tool/units", inputs: ["units.txt"] },
     ]
 }
 ```
@@ -39,14 +39,14 @@ whatever it likes, so a `README.md` is still nobody's.
 ## Writing one
 
 ```textproto schema=build
-# tools/units/BUILD.buri
+# tool/units/BUILD.buri
 tool {
     generate {}
 }
 ```
 
 ```buri
-// tools/units/tool.buri
+// tool/units/tool.buri
 from "core/buri/ast" import * as ast;
 from "core/effect" import { Allocator };
 from "core/tool" import { Generated, GenerateRequest };
@@ -89,7 +89,8 @@ you build out of it anchors the same way what you built by hand does.
 
 A generator used to be a `binary` whose `main` called `core/codegen`'s `run`.
 Naming one is [`generator-is-a-binary`](../errors/generator-is-a-binary.md):
-move `main.buri` to `tool.buri`, export `generate`, and declare `generate {}`.
+move the package under `tool/`, move `main.buri` to `tool.buri`, export
+`generate`, and declare `generate {}`.
 
 ## The modules it produces
 

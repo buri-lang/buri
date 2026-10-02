@@ -1,6 +1,6 @@
 # One JSON-RPC request per line. `<scratch>` becomes the copied repository.
 #
-# `//lib/wire` runs `//cmd/gen` over `units.txt`. `width` is written on a line
+# `//lib/wire` runs `//tool/gen` over `units.txt`. `width` is written on a line
 # of that file and the generator anchored it there; `spare` is a `~` line, which
 # the generator printed and anchored nowhere. Both are ordinary names in the
 # buffer below, and the whole case is that the server tells them apart.

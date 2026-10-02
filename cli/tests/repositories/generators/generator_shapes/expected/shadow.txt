@@ -1,8 +1,8 @@
 error: `//lib/wire/spare.buri` is a module of this rule already [generator-module-taken]
  --> lib/wire/BUILD.buri:7:9
   |
-7 |         { tool: "//cmd/gen", inputs: ["mode.txt"] },
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+7 |         { tool: "//tool/gen", inputs: ["mode.txt"] },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = `spare.buri` is a source of this package
   = fix: give the generated module a name the package does not already declare

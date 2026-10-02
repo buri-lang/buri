@@ -1,5 +1,5 @@
 error: `https://example.com/b.schema.json` is not a file in this repository [schema-not-local]
- --> tools/b/BUILD.buri:4:46
+ --> tool/b/BUILD.buri:4:46
   |
 4 |             { language: "json", type_schema: "https://example.com/b.schema.json" },
   |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -19,11 +19,11 @@ error: `https://example.com/b.schema.json` is not a file in this repository [sch
     https://json-schema.org/draft/2020-12/schema, which marks a file as a
     schema.
 
-error: "//tools/b/json" names no file (tools/b/json.buri) [module-not-found]
- --> tools/b/tool.buri:6:6
+error: "//tool/b/json" names no file (tool/b/json.buri) [module-not-found]
+ --> tool/b/tool.buri:6:6
   |
-6 | from "//tools/b/json" import * as a;
-  |      ^^^^^^^^^^^^^^^^
+6 | from "//tool/b/json" import * as a;
+  |      ^^^^^^^^^^^^^^^
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
 
@@ -45,7 +45,7 @@ error: "//tools/b/json" names no file (tools/b/json.buri) [module-not-found]
     which has no lib/nope.
 
 error: there is no type `a.Names` [unresolved-type]
- --> tools/b/tool.buri:8:67
+ --> tool/b/tool.buri:8:67
   |
 8 | export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<a.Names>): Generated {
   |                                                                   ^^^^^^^

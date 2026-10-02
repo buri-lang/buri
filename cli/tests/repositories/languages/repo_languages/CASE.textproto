@@ -45,7 +45,7 @@ edit {
 edit {
   file: "REPO.buri"
   replace: "extensions: [\".code-workspace\"]\n}\n"
-  with: "extensions: [\".code-workspace\"]\n}\n\nlanguage {\n    name: \"yaml\"\n    extensions: [\".yaml\"]\n    check: \"//tools/yaml\"\n}\n\nlanguage {\n    name: \"yaml\"\n    extensions: [\".yml\"]\n}\n\nlanguage {\n    name: \"json\"\n    extensions: [\".code-workspace\", \"json5\", \".json\"]\n    check: \"//tools/json\"\n}\n\nlanguage {\n    extensions: [\".x\"]\n}\n"
+  with: "extensions: [\".code-workspace\"]\n}\n\nlanguage {\n    name: \"yaml\"\n    extensions: [\".yaml\"]\n    check: \"//tool/yaml\"\n}\n\nlanguage {\n    name: \"yaml\"\n    extensions: [\".yml\"]\n}\n\nlanguage {\n    name: \"json\"\n    extensions: [\".code-workspace\", \"json5\", \".json\"]\n    check: \"//tool/json\"\n}\n\nlanguage {\n    extensions: [\".x\"]\n}\n"
 }
 
 # A `REPO.buri` that does not read stops every command before it starts.

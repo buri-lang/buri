@@ -1,6 +1,6 @@
 binary {
     generators: [
-        { tool: "//cmd/gen", inputs: ["units.txt"] },
+        { tool: "//tool/gen", inputs: ["units.txt"] },
     ]
 
     outputs: [

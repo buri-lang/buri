@@ -1,0 +1,99 @@
+//! `.lines`: one word a line, and every word in the dictionary.
+
+from "core/buri/ast" import * as ast;
+from "core/effect" import { Allocator };
+from "core/format" import { Doc };
+from "core/str" import * as str;
+from "core/tool" import { Checked, CheckRequest, Diagnostic, FormatRequest, Input };
+
+let DICTIONARY: Str = "tool/lines/dictionary.txt";
+
+/// Asks for the dictionary first, then checks each line against it.
+export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
+    match (request.files.find(fn(f) => f.0 == DICTIONARY)) {
+        .None => Checked { diagnostics: [], needs: [DICTIONARY] },
+        .Some(dictionary) => {
+            let known = dictionary.1.lines(ctx);
+            let diagnostics = request
+                .inputs
+                .foldCtx(
+                    ctx,
+                    fn(c, all: [Diagnostic], input) => {
+                        all.concat(c, unknown(c, input, known))
+                    },
+                    [],
+                );
+            Checked { diagnostics: diagnostics, needs: [] }
+        },
+    }
+}
+
+/// One word a line, trimmed, with the blank lines gone. A line holding `!` is
+/// not a word, and the file is left as it is.
+export fn format<C: Allocator>(
+    ctx: C,
+    request: FormatRequest,
+): Result<Doc, [Diagnostic]> {
+    let input = request.input;
+    let words = input
+        .value
+        .lines(ctx)
+        .map(ctx, fn(l) => l.trim())
+        .filter(ctx, fn(w) => !w.isEmpty());
+    match (words.find(fn(w) => w.contains("!"))) {
+        .Some(_) => {
+            .Err([
+                Diagnostic {
+                    code: "lines-not-a-word",
+                    message: "a line holds a word",
+                    note: .None,
+                    fix: .None,
+                    origin: .None,
+                },
+            ])
+        },
+        .None => {
+            .Ok(.Concat(words.map(ctx, fn(w) => Doc.Concat([.Text(w), .HardLine]))))
+        },
+    }
+}
+
+fn unknown<C: Allocator>(ctx: C, input: Input<Str>, known: [Str]): [Diagnostic] {
+    let (_, found) = input
+        .value
+        .lines(ctx)
+        .foldCtx(
+            ctx,
+            fn(c, acc: (Int, [Diagnostic]), line) => {
+                let (at, found) = acc;
+                let next = at + line.length() + 1;
+                let word = line.trim();
+                if (word.isEmpty() || known.contains(word)) {
+                    (next, found)
+                } else {
+                    (
+                        next,
+                        found.push(c, notInDictionary(c, input.path, at, line, word)),
+                    )
+                }
+            },
+            (0, []),
+        );
+    found
+}
+
+fn notInDictionary<C: Allocator>(
+    ctx: C,
+    path: Str,
+    at: Int,
+    line: Str,
+    word: Str,
+): Diagnostic {
+    Diagnostic {
+        code: "lines-unknown-word",
+        message: str.format(ctx, "`${word}` is not in the dictionary"),
+        note: .None,
+        fix: .Some("add it to tool/lines/dictionary.txt"),
+        origin: .Some(ast.origin(path, at, at + line.length())),
+    }
+}
