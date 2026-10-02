@@ -205,6 +205,7 @@ use buri::compiler::driver;
 use buri::compiler::middle::{self, monomorphize};
 use buri::compiler::modules::Role;
 use buri::diagnostics::{Diagnostics, SourceMap};
+use crate::shard;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -936,28 +937,6 @@ fn analyze(case_path: &str, source: &str, map: &mut SourceMap) -> driver::Analys
     )
 }
 
-/// A directory this *process* owns, per case.
-///
-/// The process id is in the name because two overlapping `cargo test` runs
-/// otherwise share it, and the second overwrites the binary the first is
-/// executing — which on macOS is a child that never returns rather than an
-/// error.
-fn workspace(name: &str) -> PathBuf {
-    crate::sweep::once();
-    // A counter as well as the name: [`linked`] keeps every binary it builds,
-    // so two builds of one file — which is what [`the_native_set_can_fail`]
-    // asks for, the second from an edited source — must not be two builds into
-    // one directory, where the second would delete the first mid-run.
-    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("native-conformance-{}", std::process::id()))
-        .join(format!("{}-{n}", name.replace('/', "-")));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
 /// What compiling one conformance file as a test binary produced.
 #[derive(Clone)]
 pub(crate) enum Built {
@@ -973,6 +952,29 @@ pub(crate) enum Built {
     Unsupported(String),
 }
 
+impl Built {
+    /// The verdict file [`linked_for_the_run`] leaves beside a build.
+    fn written(&self) -> String {
+        match self {
+            Built::Linked(_, blocks) => format!("linked {blocks}"),
+            Built::FrontEnd => String::from("front end"),
+            Built::Unsupported(why) => format!("unsupported {why}"),
+        }
+    }
+
+    /// [`Built::written`] read back, for the build in `dir`.
+    fn read(said: &str, dir: &Path) -> Built {
+        if let Some(blocks) = said.strip_prefix("linked ") {
+            return Built::Linked(dir.join("program"), blocks.parse().unwrap());
+        }
+        if let Some(why) = said.strip_prefix("unsupported ") {
+            return Built::Unsupported(why.to_string());
+        }
+        assert_eq!(said, "front end", "{} is not a verdict", dir.display());
+        Built::FrontEnd
+    }
+}
+
 /// Compile one conformance file as a **test binary**, link it, and answer
 /// where the executable is and how many `test` declarations it holds.
 ///
@@ -983,6 +985,11 @@ pub(crate) enum Built {
 /// rather than the path because [`the_native_set_can_fail`] edits one
 /// assertion and recompiles, and a cache keyed by name would hand it the
 /// binary it is trying to break.
+///
+/// **And shared by the whole run.** nextest runs every test in a process of
+/// its own, so a memo in this process would build the corpus once per shard
+/// that asks. [`linked_for_the_run`] keeps one build per source on disk for
+/// the run instead.
 pub(crate) fn linked(name: &str, source: &str) -> Built {
     static BUILT: OnceLock<std::sync::Mutex<HashMap<(String, String), Built>>> = OnceLock::new();
     let cache = BUILT.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
@@ -990,8 +997,37 @@ pub(crate) fn linked(name: &str, source: &str) -> Built {
     if let Some(hit) = cache.lock().unwrap().get(&key) {
         return hit.clone();
     }
-    let built = build(name, source);
+    let built = linked_for_the_run(name, source);
     cache.lock().unwrap().insert(key, built.clone());
+    built
+}
+
+/// One build per source per test run, in a directory named for both
+/// (`sweep::run_name`), the way `shared::runtime_archive` is one archive per
+/// run.
+///
+/// The first process to take the directory's lock builds and writes its
+/// verdict beside the binary; every later one waits for the lock and reads the
+/// verdict. A build that panics leaves no verdict, so the next one to ask
+/// builds again and panics with the same message.
+fn linked_for_the_run(name: &str, source: &str) -> Built {
+    use std::hash::{Hash, Hasher};
+    crate::sweep::once();
+    // The same binary in every process, so the same hash for the same source.
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (name, source).hash(&mut hasher);
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("native-linked-{}", crate::sweep::run_name()))
+        .join(format!("{}-{:016x}", name.replace('/', "-"), hasher.finish()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let lock = std::fs::File::options().create(true).append(true).open(dir.join("lock")).unwrap();
+    lock.lock().unwrap();
+    let verdict = dir.join("verdict");
+    if let Ok(said) = std::fs::read_to_string(&verdict) {
+        return Built::read(&said, &dir);
+    }
+    let built = build(name, source, &dir);
+    std::fs::write(&verdict, built.written()).unwrap();
     built
 }
 
@@ -1003,8 +1039,8 @@ pub(crate) fn linked_if_supported(name: &str, source: &str) -> Option<(PathBuf, 
     }
 }
 
-/// [`linked`] without the memo, which is where the work is.
-fn build(name: &str, source: &str) -> Built {
+/// [`linked`] without the memo, which is where the work is, into `dir`.
+fn build(name: &str, source: &str, dir: &Path) -> Built {
     let mut map = SourceMap::new();
     let analysis = analyze(name, source, &mut map);
     if analysis.diagnostics.has_errors() {
@@ -1042,7 +1078,6 @@ fn build(name: &str, source: &str) -> Built {
         }
     };
 
-    let dir = workspace(name);
     let mut objects = Vec::new();
     for unit in &units {
         let path = dir.join(&unit.name);
@@ -1302,17 +1337,23 @@ fn the_excluded_packages_are_excluded_for_the_stated_reason() {
 /// The bar is the block count, not the exit status alone: a file that
 /// compiled to no tests at all would exit zero and prove nothing, which is
 /// the same reason `language/conformance.rs` counts its assertions.
-#[test]
-fn the_native_set_passes() {
+///
+/// The set is eight tests, `the_native_set_passes::shard_0` to `shard_7`, so
+/// nextest can run them side by side (`harness/shard.rs`). Each shard holds
+/// itself to having run at least one file, which the eight together make
+/// stronger than the one-test bar of at least one file in the whole set.
+fn native_set_shard(at: usize, count: usize) {
     if !supported() {
         return;
     }
+    let set = native_set();
+    let mine = shard::of(&set, at, count);
     let mut total = 0usize;
     let mut ran = 0usize;
     let mut skipped: Vec<String> = Vec::new();
     let mut leaking: Vec<String> = Vec::new();
     let mut failures: Vec<String> = Vec::new();
-    for case in PACKAGES.iter().filter(|c| c.out.is_none()) {
+    for &&case in &mine {
         let source = read(case);
         // A file the *front end* refuses is not this file's failure: the
         // corpus is shared with `language/conformance.rs` and may be mid-change.
@@ -1363,14 +1404,6 @@ fn the_native_set_passes() {
         total += blocks;
         ran += 1;
     }
-    // A ledger row for a file that is not in the native set at all is a row
-    // nothing can retire, so it is checked here rather than left to rot.
-    for (path, _, _) in KNOWN_LEAKS {
-        assert!(
-            PACKAGES.iter().any(|c| c.path == *path && c.out.is_none()),
-            "`{path}` is in `KNOWN_LEAKS` and is not a file the native set runs"
-        );
-    }
     // Every failing file, not the first: two platforms failing on two
     // different files is one report here and two runs otherwise.
     assert!(failures.is_empty(), "{} files failed:\n{}", failures.len(), failures.join("\n"));
@@ -1381,11 +1414,38 @@ fn the_native_set_passes() {
         eprintln!("native conformance: known leak {l}");
     }
     eprintln!(
-        "native conformance: {ran} files, {total} test blocks, 0 failures, \
-         {} of {ran} came back with an empty heap",
+        "native conformance, shard {at} of {count}: {ran} files, {total} test blocks, \
+         0 failures, {} of {ran} came back with an empty heap",
         ran - leaking.len()
     );
-    assert!(ran > 0, "no conformance file ran natively");
+    assert!(ran > 0, "no conformance file in shard {at} of {count} ran natively");
+}
+
+shards! {
+    the_native_set_passes(native_set_shard, native_set_size) =
+        shard_0 shard_1 shard_2 shard_3 shard_4 shard_5 shard_6 shard_7;
+}
+
+/// The files [`native_set_shard`] runs: every [`PACKAGES`] row with no
+/// exclusion.
+fn native_set() -> Vec<&'static Case> {
+    PACKAGES.iter().filter(|c| c.out.is_none()).collect()
+}
+
+fn native_set_size() -> usize {
+    native_set().len()
+}
+
+/// A ledger row for a file that is not in the native set at all is a row
+/// nothing can retire, so it is checked rather than left to rot.
+#[test]
+fn every_leak_row_names_a_file_the_native_set_runs() {
+    for (path, _, _) in KNOWN_LEAKS {
+        assert!(
+            native_set().iter().any(|c| c.path == *path),
+            "`{path}` is in `KNOWN_LEAKS` and is not a file the native set runs"
+        );
+    }
 }
 
 /// `core/host/testing`, natively, against the numbers and strings the

@@ -256,7 +256,7 @@ fn seeds() -> Vec<Source> {
 /// The membership is computed, not remembered: a case moves between `clean/`
 /// and `cascades/` when the toolchain changes, and that move is the diff the
 /// next round of recovery work is read from.
-fn picks() -> Vec<(pinned::Pick, bool, String)> {
+fn picks() -> Vec<(Chosen, bool, String)> {
     let sources = seeds();
     let mut keep = |m: &mutation::Mutation| !syntax_codes(&m.source).is_empty();
     let chosen = pinned::select(&sources, BASE_SEED, TOTAL, &mut keep);
@@ -266,9 +266,56 @@ fn picks() -> Vec<(pinned::Pick, bool, String)> {
         .zip(reports)
         .map(|(p, (text, codes))| {
             let cascade = cascaded(&codes, &syntax_codes(&p.mutation.source));
-            (p, cascade, text)
+            (Chosen { name: p.name, cell: p.cell, source: p.mutation.source }, cascade, text)
         })
         .collect()
+}
+
+/// What the tests read of a [`pinned::Pick`]: its directory name, the coverage
+/// row it was chosen for, and the mutated source.
+struct Chosen {
+    name: String,
+    cell: String,
+    source: String,
+}
+
+/// One case as [`corpus`] writes it for the rest of the run: each field's
+/// length on a line, then the fields.
+fn written(picks: &[(Chosen, bool, String)]) -> String {
+    let mut out = String::new();
+    for (p, cascade, text) in picks {
+        let fields = [p.name.as_str(), p.cell.as_str(), p.source.as_str(), text.as_str()];
+        let lengths: Vec<String> = fields.iter().map(|f| f.len().to_string()).collect();
+        out.push_str(&format!("{} {}\n", lengths.join(" "), u8::from(*cascade)));
+        for f in fields {
+            out.push_str(f);
+        }
+    }
+    out
+}
+
+/// [`written`] read back.
+fn read_back(mut text: &str) -> Vec<(Chosen, bool, String)> {
+    let mut out = Vec::new();
+    while let Some((head, rest)) = text.split_once('\n') {
+        let numbers: Vec<usize> = head.split(' ').map(|n| n.parse().unwrap()).collect();
+        let [name, cell, source, report, cascade] = numbers[..] else {
+            panic!("{head:?} is not a case header");
+        };
+        let mut fields = Vec::new();
+        let mut rest = rest;
+        for n in [name, cell, source, report] {
+            fields.push(rest[..n].to_string());
+            rest = &rest[n..];
+        }
+        let report = fields.pop().unwrap();
+        let source = fields.pop().unwrap();
+        let cell = fields.pop().unwrap();
+        let name = fields.pop().unwrap();
+        out.push((Chosen { name, cell, source }, cascade == 1, report));
+        text = rest;
+    }
+    out
 }
 
 /// The directory a case with this verdict lives in.
@@ -281,7 +328,7 @@ fn home(cascade: bool) -> PathBuf {
 }
 
 /// Writes the corpus, and deletes what the sampler no longer chooses.
-fn write_corpus(picks: &[(pinned::Pick, bool, String)]) {
+fn write_corpus(picks: &[(Chosen, bool, String)]) {
     let mut wanted: BTreeMap<PathBuf, BTreeSet<String>> = BTreeMap::new();
     for (p, cascade, _) in picks {
         wanted.entry(home(*cascade)).or_default().insert(p.name.clone());
@@ -299,25 +346,38 @@ fn write_corpus(picks: &[(pinned::Pick, bool, String)]) {
     for (p, cascade, text) in picks {
         let case = home(*cascade).join(&p.name);
         std::fs::create_dir_all(&case).unwrap();
-        std::fs::write(case.join("main.buri"), &p.mutation.source).unwrap();
+        std::fs::write(case.join("main.buri"), &p.source).unwrap();
         std::fs::write(case.join("expected.txt"), text).unwrap();
     }
 }
 
-/// The corpus, computed once for the whole binary and written first if this
-/// run is a blessing one.
+/// The corpus, computed once for the whole run and written first if this run
+/// is a blessing one.
 ///
-/// Once, because the analysis behind it is seconds rather than milliseconds
-/// and four tests ask for it — and because a blessing run must have finished
-/// writing before any of them reads the tree.
-fn corpus() -> &'static [(pinned::Pick, bool, String)] {
-    static CORPUS: std::sync::OnceLock<Vec<(pinned::Pick, bool, String)>> =
-        std::sync::OnceLock::new();
+/// Once, because the analysis behind it is two CPU-minutes and four tests ask
+/// for it — and because a blessing run must have finished writing before any
+/// of them reads the tree. nextest runs each test in a process of its own, so
+/// the first process to take the run's lock computes it and leaves it on disk
+/// for the rest (`sweep::run_name`), the way `native/shared.rs` leaves the
+/// runtime archive.
+fn corpus() -> &'static [(Chosen, bool, String)] {
+    static CORPUS: std::sync::OnceLock<Vec<(Chosen, bool, String)>> = std::sync::OnceLock::new();
     CORPUS.get_or_init(|| {
+        harness::sweep::once();
+        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("checking-corpus-{}", harness::sweep::run_name()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lock = std::fs::File::options().create(true).append(true).open(dir.join("lock")).unwrap();
+        lock.lock().unwrap();
+        let path = dir.join("corpus");
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            return read_back(&text);
+        }
         let picks = picks();
         if std::env::var_os("BURI_BLESS").is_some() {
             write_corpus(&picks);
         }
+        std::fs::write(&path, written(&picks)).unwrap();
         picks
     })
 }
@@ -326,6 +386,24 @@ fn corpus() -> &'static [(pinned::Pick, bool, String)] {
 // The tests
 // ---------------------------------------------------------------------------
 
+/// Under `cargo test` the corpus never leaves the process, so nothing else
+/// reads [`written`] back. This does, with the bytes a case can hold.
+#[test]
+fn the_corpus_reads_back_as_it_was_written() {
+    let case = |name: &str, cascade, report: &str| {
+        let source = format!("fn {name}() {{\n  let s = \"é 🙂 \\n\";\n}}\n");
+        (Chosen { name: name.to_string(), cell: format!("{name} cell"), source }, cascade, report.to_string())
+    };
+    let picks = vec![case("a", true, "error: one\n  |\n"), case("b", false, ""), case("c", true, "3 4 1\n")];
+    let back = read_back(&written(&picks));
+    let fields = |all: &[(Chosen, bool, String)]| -> Vec<(String, String, String, bool, String)> {
+        all.iter()
+            .map(|(p, c, t)| (p.name.clone(), p.cell.clone(), p.source.clone(), *c, t.clone()))
+            .collect()
+    };
+    assert_eq!(fields(&back), fields(&picks));
+}
+
 /// **Every case reports what is recorded beside it, and nothing else.**
 ///
 /// One test rather than one per case: a reworded diagnostic moves every case
@@ -333,7 +411,7 @@ fn corpus() -> &'static [(pinned::Pick, bool, String)] {
 /// recording them.
 #[test]
 fn a_broken_file_reports_what_is_recorded() {
-    let picks: &[(pinned::Pick, bool, String)] = corpus();
+    let picks: &[(Chosen, bool, String)] = corpus();
     let mut g = Golden::new();
     for (p, cascade, text) in picks {
         let case = home(*cascade).join(&p.name);
@@ -347,7 +425,7 @@ fn a_broken_file_reports_what_is_recorded() {
             continue;
         }
         if std::fs::read_to_string(case.join("main.buri")).unwrap_or_default()
-            != p.mutation.source
+            != p.source
         {
             g.fail(format!("{side}/{}/main.buri is not what the mutator writes", p.name));
             continue;
@@ -366,7 +444,7 @@ fn a_broken_file_reports_what_is_recorded() {
 /// read rather than a silent change of what the corpus means.
 #[test]
 fn a_case_is_in_the_half_its_report_belongs_in() {
-    let picks: &[(pinned::Pick, bool, String)] = corpus();
+    let picks: &[(Chosen, bool, String)] = corpus();
     let mut moved = Vec::new();
     for (p, cascade, _) in picks {
         let here = home(*cascade).join(&p.name);
@@ -396,7 +474,7 @@ fn a_case_is_in_the_half_its_report_belongs_in() {
 /// is therefore an idempotent operation, and a case edited by hand fails here.
 #[test]
 fn the_generated_corpus_is_what_the_generator_writes() {
-    let picks: &[(pinned::Pick, bool, String)] = corpus();
+    let picks: &[(Chosen, bool, String)] = corpus();
     let mut wanted: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
     for (p, cascade, _) in picks {
         let side = if *cascade { "cascades" } else { "clean" };

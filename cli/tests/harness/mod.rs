@@ -19,6 +19,8 @@ mod case;
 pub mod ci;
 pub mod hang;
 pub mod pool;
+#[macro_use]
+pub mod shard;
 pub mod sweep;
 // The far side of a `core/net/websocket` row: a hand-written server, because a
 // client needs somebody to dial and this repository may not depend on an RFC

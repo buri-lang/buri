@@ -287,9 +287,28 @@ Bless with `cargo test`, not nextest. A blessing corpus is written once per
 process, so one process per test would write it from several at once.
 
 Process per test also means a `OnceLock` no longer shares work across a
-binary's tests. Two things still need to be shared by the whole run, so they
-are named for it (`sweep::run_name`): the corpus pool's permits, and the
-native suites' runtime archive.
+binary's tests. Four things still need to be shared by the whole run, so they
+are named for it (`sweep::run_name`): the corpus pool's permits, the native
+suites' runtime archive, the conformance binaries `native::conformance` and
+`native::differential` both run (`conformance::linked`), and `checking`'s
+corpus, two CPU-minutes that four tests read. The first process to take a
+lock file builds the shared thing and the rest read it.
+
+**A long corpus is several tests.** nextest can't spread one test over cores,
+so a corpus that a single test walks holds the run open for as long as it
+takes. `shards!` (`harness/shard.rs`) turns one into a module of tests, where
+`shard_k` of `n` checks every `n`th case from `k`:
+
+```
+conformance::rejected_programs_are_rejected::shard_0 … shard_7
+conformance::rejected_programs_are_rejected::every_case_is_in_exactly_one_shard
+```
+
+The second line is the coverage check: the shards together hold every case of
+the real corpus, once each. A corpus-wide floor, like `differential`'s forty
+files, becomes each shard's share of it rounded up, so passing shards always
+add up to at least the old floor. Selecting by name still works, because a
+module is a prefix: `cargo test -p buri --test language conformance::rejected`.
 
 The `release` job runs `cargo test -p buri`. The
 `test` legs run **the same set with its binaries overlapped**, in four lines of
@@ -332,7 +351,10 @@ one-case-at-a-time run printed, and the earliest case to panic is the one
 re-raised. **The width is the run's**: tests run side by side, so every case
 takes a permit from one gate shared by the run (lock files, so it spans
 nextest's processes) and the number in flight is `available_parallelism`
-however many corpora are going. Nothing else is shared — a scratch tree is
+however many corpora are going. A waiting thread asks for a seat every 10 ms
+through handles it opened once, because a full run spends hours of thread time
+waiting, and opening each seat per ask was about 150 CPU-seconds of it.
+Nothing else is shared — a scratch tree is
 named for the process and a counter, goldens live one directory per case, and
 no case in a corpus that comes through `run_corpus` opens a socket.
 
@@ -451,6 +473,17 @@ cargo clippy -p buri --all-targets --features backend-llvm
 `LLVM_SYS_211_PREFIX` has to be set for the three feature lines and for the
 second clippy. On a quiet ten-core M-series mac it is 122 s warm and 176 s after
 a `cli/src` edit, which is the column that matters because it is the loop.
+
+**That number is stale, and the first line alone is over budget.** It takes
+about 440 s on a ten-core mac, and the machine is under 3% idle for the whole of
+it. So it's bound by processor time, not by how the tests are scheduled: about
+3,100 CPU-seconds, which can't fit in five minutes of ten cores. The biggest
+single cost is `recovery::a_syntax_error_does_not_become_a_type_error`, about
+650 CPU-seconds, because each of its 5,200 analyses type-checks the whole
+standard library (`driver::analyze_snippet_on` calls `load_all_std`). After it
+come `build::repositories::snapshots` and the reject corpus, about 260 each, and
+the manifest ids, about 225. Getting under the line takes the compiler doing
+less work per case, not a different split.
 
 **Why the feature leg is three lines rather than one.** A plain
 `cargo test -p buri --features backend-llvm` runs 917 tests, and 843 of them are
