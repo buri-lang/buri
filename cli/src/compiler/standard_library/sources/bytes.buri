@@ -16,11 +16,11 @@
 //!
 //! ```buri run
 //! from "core/bytes" import * as bytes;
-//! from "core/effect" import { Allocator, Stdout };
-//! from "core/host" import * as host;
 //! from "core/io" import * as io;
+//! from "node" import { NodeHost };
+//! from "platform/effect" import { Allocator, Stdout };
 //!
-//! export fn main(): Result<(), Str> {
+//! export fn main(host: NodeHost): Result<(), Str> {
 //!     let ctx = context {
 //!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
@@ -46,9 +46,9 @@
 
 from "core/bits" import * as bits;
 from "core/character" import * as character;
-from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
+from "platform/effect" import { Allocator };
 
 derive Equal, Show for Utf8Error;
 /// Where a byte sequence stopped being UTF-8: the index of the first byte that
@@ -80,11 +80,11 @@ export fn fromUtf8<C: Allocator>(ctx: C, bytes: [U8]): Result<Str, Utf8Error>;
 ///
 /// ```buri run
 /// from "core/bytes" import * as bytes;
-/// from "core/effect" import { Allocator, Stdout };
-/// from "core/host" import * as host;
 /// from "core/io" import * as io;
+/// from "node" import { NodeHost };
+/// from "platform/effect" import { Allocator, Stdout };
 ///
-/// export fn main(): Result<(), Str> {
+/// export fn main(host: NodeHost): Result<(), Str> {
 ///     let ctx = context {
 ///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
@@ -269,11 +269,11 @@ export fn toBase64<C: Allocator>(ctx: C, bytes: [U8]): Str {
 ///
 /// ```buri run
 /// from "core/bytes" import * as bytes;
-/// from "core/effect" import { Allocator, Stdout };
-/// from "core/host" import * as host;
 /// from "core/io" import * as io;
+/// from "node" import { NodeHost };
+/// from "platform/effect" import { Allocator, Stdout };
 ///
-/// export fn main(): Result<(), Str> {
+/// export fn main(host: NodeHost): Result<(), Str> {
 ///     let ctx = context {
 ///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
@@ -898,11 +898,11 @@ impl Reader {
     ///
     /// ```buri run
     /// from "core/bytes" import * as bytes;
-    /// from "core/effect" import { Allocator, Stdout };
-    /// from "core/host" import * as host;
     /// from "core/io" import * as io;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Allocator, Stdout };
     ///
-    /// export fn main(): Result<(), Str> {
+    /// export fn main(host: NodeHost): Result<(), Str> {
     ///     let ctx = context {
     ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,

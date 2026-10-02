@@ -3,8 +3,8 @@
 // either part of the world or part of your data (SPEC 10.1). `Holder<C>`
 // implements `Equal` and stores a `C`, so `Holder<ctx>` is effect-carrying and
 // must not reach a `T: Equal` — otherwise `hide` could launder a context again.
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 
 struct Holder<C> { export inner: C }
 
@@ -16,7 +16,7 @@ fn hide<T: Equal>(x: T): fn() => T {
   fn() => x
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let smuggler = hide(Holder { inner: ctx });
   let _ = smuggler().inner.println("laundered through Equal");

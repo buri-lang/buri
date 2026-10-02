@@ -14,12 +14,12 @@
 // drives a built artifact against a document holding what the worker sent, and
 // presses the button.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/json" import * as json;
 from "core/json" import { DecodeError, FromJson, Json, ToJson };
 from "core/net/http" import * as http;
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "ui/effect" import { Location, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };

@@ -1,6 +1,6 @@
 //! core/net/http — HTTP over the `Network` effect.
 //!
-//! `Request` and `Response` are declared in `core/effect` and re-exported here.
+//! `Request` and `Response` are declared in `platform/effect` and re-exported here.
 //! This module holds the things that build them *out of text*.
 //!
 //! * **free functions make a message** — `request`, `textRequest`, `status`,
@@ -20,12 +20,12 @@
 //! follows redirects.
 //!
 //! ```buri
-//! from "core/effect" import { Allocator, Stdout };
-//! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/net/http" import * as http;
+//! from "node" import { NodeHost };
+//! from "platform/effect" import { Allocator, Stdout };
 //!
-//! export fn main(): Result<(), Str> {
+//! export fn main(host: NodeHost): Result<(), Str> {
 //!     let ctx = context {
 //!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
@@ -37,11 +37,11 @@
 //! }
 //! ```
 
-from "core/effect" import {
+from "platform/effect" import {
     Allocator, Header, Method, NetError, Network, Request, Response,
 };
 
-from "core/effect" export { Header, Method, NetError, Request, Response };
+from "platform/effect" export { Header, Method, NetError, Request, Response };
 
 from "core/bytes" import * as bytes;
 
@@ -147,7 +147,7 @@ export fn post<C: Allocator + Network>(
 }
 
 /// A sentence for a `NetError`. It is a free function because `NetError`
-/// belongs to `core/effect`.
+/// belongs to `platform/effect`.
 export fn errorText(error: NetError): Str {
     match (error) {
         .Timeout => "the request timed out",
@@ -163,9 +163,9 @@ export fn errorText(error: NetError): Str {
 /// The `name=value` pairs of a request's `Cookie` field.
 ///
 /// ```buri
-/// from "core/effect" import { Allocator };
 /// from "core/net/http" import * as http;
 /// from "core/net/http" import { Request };
+/// from "platform/effect" import { Allocator };
 ///
 /// export fn session<C: Allocator>(ctx: C, request: Request): Option<Str> {
 ///     http.cookies(ctx, request).find(fn(kv) => kv.0 == "session").map(fn(kv) => kv.1)
@@ -220,14 +220,14 @@ export struct Cookie {
 /// One more `set-cookie` field on a response.
 ///
 /// ```buri run
-/// from "core/effect" import { Allocator, Stdout };
-/// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/net/http" import * as http;
 /// from "core/net/http" import { Cookie };
 /// from "core/time" import * as time;
+/// from "node" import { NodeHost };
+/// from "platform/effect" import { Allocator, Stdout };
 ///
-/// export fn main(): Result<(), Str> {
+/// export fn main(host: NodeHost): Result<(), Str> {
 ///     let ctx = context {
 ///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
@@ -303,9 +303,9 @@ fn sameSiteText(rule: SameSite): Str {
 /// A request whose body is `application/x-www-form-urlencoded`.
 ///
 /// ```buri
-/// from "core/effect" import { Allocator };
 /// from "core/net/http" import * as http;
 /// from "core/net/http" import { Request };
+/// from "platform/effect" import { Allocator };
 ///
 /// export fn signIn<C: Allocator>(ctx: C, who: Str): Request {
 ///     http.formRequest(ctx, .Post, "https://example.com/session", [("user", who)])
@@ -331,9 +331,9 @@ export fn formRequest<C: Allocator>(
 ///
 /// ```buri
 /// from "core/bytes" import { Utf8Error };
-/// from "core/effect" import { Allocator };
 /// from "core/net/http" import * as http;
 /// from "core/net/http" import { Request };
+/// from "platform/effect" import { Allocator };
 ///
 /// export fn submitted<C: Allocator>(
 ///     ctx: C,
@@ -358,12 +358,12 @@ export fn formBody<C: Allocator>(ctx: C, body: [U8]): Result<[(Str, Str)], Utf8E
 /// The `content-type` of a response, as its media type and its parameters.
 ///
 /// ```buri run
-/// from "core/effect" import { Allocator, Stdout };
-/// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/net/http" import * as http;
+/// from "node" import { NodeHost };
+/// from "platform/effect" import { Allocator, Stdout };
 ///
-/// export fn main(): Result<(), Str> {
+/// export fn main(host: NodeHost): Result<(), Str> {
 ///     let ctx = context {
 ///         Allocator: host.alloc,
 ///         Stdout: host.stdout,

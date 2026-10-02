@@ -7,7 +7,7 @@
 #     //lib/money                    the same library, from its own suite
 #     //lib/money/testing            a testing surface, from either
 #     //lib/wire                     a library whose surface is a schema
-#     core/effect, core/host         the standard library
+#     platform/effect, core/host         the standard library
 #
 #   everything else is a file, and only its own package may name it
 #     //cmd/app/routes.buri          a file beside the one importing it

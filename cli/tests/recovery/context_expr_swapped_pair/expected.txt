@@ -3,3 +3,8 @@ message: expected `let`, found `ctx`
 fix: write `let` first: `let ctx`
 edit: 6:3-6:10 "let ctx"
 
+error [context-not-allowed] 6:13-6:65
+message: a context may not be constructed here
+fix: build it in the entry and pass it down as a `ctx` parameter, or make this a test source, where a context may be built per test
+note: only in an entry's body, in a test source, or in a test-only module — and never inside a lambda, since a closure that could mint authority would make the capture rule meaningless
+

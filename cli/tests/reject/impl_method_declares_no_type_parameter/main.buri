@@ -18,7 +18,9 @@ impl Pack for Crate {
   fn wrap(self, value: Int): Int { self.weight + value }
 }
 
-export fn main(): Result<(), Str> {
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
   let crate = Crate { weight: 2 };
   let _ = crate.wrap(3);
   .Ok(())

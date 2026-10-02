@@ -1,5 +1,5 @@
-from "core/effect" import { Allocator };
 from "core/order" import { Show };
+from "platform/effect" import { Allocator };
 
 derive Equal for Money;
 /// `Equal` is derived and `Show` is written by hand, so the two sides of a failure

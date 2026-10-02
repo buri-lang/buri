@@ -1,0 +1,9 @@
+error: expected `let`, found `ctx` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_a35a1e/main.buri:19:5
+   |
+19 |     ctx let = "not a context";
+   |     ^^^
+   |
+   = expected: `let`
+   = actual: `ctx`
+   = fix: write `let` first: `let ctx`

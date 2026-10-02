@@ -10,12 +10,12 @@
 //! effect somebody handed it.
 //!
 //! ```buri run
-//! from "core/effect" import { Allocator, Stdout };
-//! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/random" import * as random;
+//! from "node" import { NodeHost };
+//! from "platform/effect" import { Allocator, Stdout };
 //!
-//! export fn main(): Result<(), Str> {
+//! export fn main(host: NodeHost): Result<(), Str> {
 //!     let ctx = context {
 //!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
@@ -46,12 +46,12 @@
 //! cryptographic generator behind the `Entropy` effect.
 
 from "core/bits" import * as bits;
-from "core/effect" import { Allocator, Random };
 from "core/list" import * as list;
 from "core/math" import * as math;
 from "core/number" import * as number;
 from "core/orderedmap" import * as orderedmap;
 from "core/orderedmap" import { OrderedMap };
+from "platform/effect" import { Allocator, Random };
 
 /// Uniform in `[lo, hi)`. An empty range aborts: there is no value to return
 /// and no `Option` in the signature to say so.
@@ -256,8 +256,8 @@ fn gather<C: Allocator>(
 /// The items in a random order.
 ///
 /// ```buri
-/// from "core/effect" import { Allocator, Random };
 /// from "core/random" import * as random;
+/// from "platform/effect" import { Allocator, Random };
 ///
 /// export fn deal<C: Allocator + Random>(ctx: C, cards: [Str]): [Str] {
 ///     random.shuffle(ctx, cards)
@@ -275,8 +275,8 @@ export fn shuffle<T, C: Allocator + Random>(ctx: C, items: [T]): [T] {
 /// One item, uniformly, or `.None` from an empty list.
 ///
 /// ```buri
-/// from "core/effect" import { Random };
 /// from "core/random" import * as random;
+/// from "platform/effect" import { Random };
 ///
 /// export fn greeting<C: Random>(ctx: C, hellos: [Str]): Option<Str> {
 ///     random.pick(ctx, hellos)
@@ -293,8 +293,8 @@ export fn pick<T, C: Random>(ctx: C, items: [T]): Option<T> {
 /// `count` items, drawn without replacement and in a random order.
 ///
 /// ```buri
-/// from "core/effect" import { Allocator, Random };
 /// from "core/random" import * as random;
+/// from "platform/effect" import { Allocator, Random };
 ///
 /// export fn threeOf<C: Allocator + Random>(ctx: C, everything: [Int]): [Int] {
 ///     random.sample(ctx, everything, 3)
@@ -314,8 +314,8 @@ impl Generator {
     /// generator.
     ///
     /// ```buri
-    /// from "core/effect" import { Allocator };
     /// from "core/random" import * as random;
+    /// from "platform/effect" import { Allocator };
     ///
     /// export fn dealt<C: Allocator>(ctx: C, cards: [Str]): [Str] {
     ///     let (hand, _) = random.seeded(1).nextShuffle(ctx, cards);
@@ -368,8 +368,8 @@ impl Generator {
     /// generator.
     ///
     /// ```buri
-    /// from "core/effect" import { Allocator };
     /// from "core/random" import * as random;
+    /// from "platform/effect" import { Allocator };
     ///
     /// export fn three<C: Allocator>(ctx: C, everything: [Int]): [Int] {
     ///     let (some, _) = random.seeded(5).nextSample(ctx, everything, 3);

@@ -2,11 +2,11 @@
 # and the README beside this file.
 name = derive-heavy-100k
 profile = derive-heavy
-generator_revision = 7
-revision = 7
-recorded = 2026-08-31
+generator_revision = 8
+revision = 8
+recorded = 2026-10-02
 params = derives=6 lines=100000 w_enum=4 w_struct=4
 lines = 101067
-bytes = 3390692
+bytes = 3445902
 modules = 339
-digest = afd8a86dbcae7a2224d8ad6a5ecee42a4e7797ee776f445b2606bbaa84b85f98
+digest = 9d47f7b77b7c620887e1b8d3caecc56e1639ed3374754e793c15c0c4068251e2

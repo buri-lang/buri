@@ -2,11 +2,11 @@
 // and passes; the second names a call the code under test never makes, and the
 // runner fails it on the way out of the block with the fault's own spelling.
 
-from "core/effect" import { Allocator };
 from "core/fs" import { FileSystemWrite };
-from "core/host/testing" import { alloc, fs, readFile, writeFile };
 from "core/path" import * as path;
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc, fs, readFile, writeFile };
 from "//lib/journal" import { record };
 
 test "a fault the code under test reaches is a fault that fired" {

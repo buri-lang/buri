@@ -1,80 +1,36 @@
-error: `fs` implements `FileSystemRead` or `FileSystemWrite`, which is not allowed on the web platform [effect-not-on-platform]
-  --> cmd/host_effect_named_import_on_web/main.buri:17:42
+error: "platform/host" is importable only by a platform [host-import-outside-platform]
+  --> cmd/host_import_outside_platform/main.buri:11:6
    |
-17 | from "core/host" import { alloc, stdout, fs };
-   |                                          ^^
+11 | from "platform/host" import { HostFileSystem };
+   |      ^^^^^^^^^^^^^^^
    |
-   = a platform is the set of effects its host exports; neither a page nor a worker has a filesystem to read
-   = fix: drop `FileSystemRead` or `FileSystemWrite` from the context, or build this target for a platform that grants it: native, node
+   = a production value is authority, and an entry receives it through its host rather than importing it
+   = fix: take the platform's host as the entry's parameter, `export fn main(host: NativeHost)`, and bind its fields
 
      What to do
      ──────────
 
-     Drop the effect from the context, or build this target for a platform that
-     grants it. If the fix names no platform to build for, no platform grants
-     the effect yet, and dropping it is the whole fix.
+     Take the host as the entry's parameter and bind its fields:
 
-     The error lands on the import when the program imported the name directly,
-     and on the member reference when the host came in as * as host — a
-     namespace import names no effect, so there is nothing to refuse until the
-     program reaches for a member.
+       from "core/io" import * as io;
+       from "node" import { NodeHost };
+       from "platform/effect" import { Allocator, Stdout };
 
-     Which platforms it is checked against
-     ─────────────────────────────────────
+       export fn main(host: NodeHost): Result<(), Str> {
+           let ctx = context {
+               Allocator: host.alloc,
+               Stdout: host.stdout,
+           };
+           io.println(ctx, "hello").mapErr(fn(_e) => "could not write")
+       }
 
-     - A build producing one output is checked against that output, so
-     buri build --output=node on a binary that also declares web compiles only
-     the node one. A snippet pinned with platform= on its fence works the same
-     way.
-
-     - An entry's own body is checked against the outputs that enter through
-     *that* entry, plus every platform its suite names in test.backends. So a
-     binary whose page enters at main and whose worker enters at fetch may bind
-     Ui: host.ui in main and Network: host.net in fetch, and neither refuses the
-     other.
-
-     - Anywhere else in `main.buri` — a helper, a top-level named import — is
-     checked against every platform the outputs name, because any of them may
-     reach it. So a binary declaring native and web outputs whose helper binds
-     FileSystemRead: host.fs is refused, naming web.
-
-     - Every other module is checked against the platforms **its own rule
-     declared**. A rule that declared none is never checked, because a library
-     that says nothing about backends or platforms is platform-generic.
-
-     An effect type is never platform-bound. from "core/fs" import {
-     FileSystemRead } is legal on every platform, a page included, and so is
-     core/host/testing's double for every effect. A platform binds the host half
-     — the value main binds.
+     A test binds test implementations from platform/effect/testing instead.
 
      Why
      ───
 
-     A platform *is* the set of effects its host exports, so a platform that
-     does not grant an effect exports no name for it. The check needs only the
-     build file and the import line, both of which the editor has, so the
-     language server reports it as you type. The refusals that stay late —
-     native-run-not-available, cryptography-not-available,
-     networking-not-available — are about what *this toolchain* was built with
-     instead.
-
-     An effect nobody grants yet gets the same sentence, from an empty row in
-     the same table. Listen is granted on native, where holding a port open is a
-     native program's authority, and never will be on node, web or
-     CLOUDFLARE_WORKER. A row says who grants an effect now, not when the rest
-     will fill — and it can widen too: Sockets was granted with Listen and only
-     with it, until WebSocketClient let a page get a socket without accepting
-     one.
-
-     Tasks shows the other direction. It landed granted by nobody, then on the
-     platforms that are not a page, and now on every one — one edit to one row
-     each time, and nothing to change in a program already written against the
-     signature.
-
-     A program that provokes it
-     ──────────────────────────
-
-     The same source under platform: "web" compiles and mounts. platform=node
-     tells the documentation harness which output to check the snippet as;
-     without one it checks with the whole host granted.
+     platform/host holds the structs a platform lists as its host type's fields.
+     Anything that could import them could mint authority, so only a platform's
+     platform.buri may. core/host is the old way in and is kept only for a
+     CLOUDFLARE_WORKER entry, whose fetch takes no host yet.
 

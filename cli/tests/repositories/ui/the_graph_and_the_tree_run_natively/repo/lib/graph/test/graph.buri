@@ -7,9 +7,9 @@
 // it in tail position, and the recursion is what once released the row before
 // it read it.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "ui/effect" import { Scope, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/prop" import { memo };

@@ -52,19 +52,22 @@ const SURFACE: &str = "from \"//lib/proto/demo.proto\" export {\n    decodeEvery
 /// encodes, the bytes are the wire format's, and the decoder reads them back
 /// into the value they came from. A program that merely named a generated type
 /// would link the same way and prove less.
+///
+/// Its entry is `native`'s; [`TWICE`] is the same program entered from node
+/// and from a page, each through a function of its own.
 const PROGRAM: &str = r#"from "core/bytes" import * as bytes;
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
 from "core/io" import * as io;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout };
 from "//lib/proto" import {
     decodeEverything, defaultEverything, encodeEverything, Everything, Shade,
 };
 
-export fn main(): Result<(), Str> {
-    let ctx = context {
-        Allocator: host.alloc,
-        Stdout: host.stdout,
-    };
+export fn main(host: NativeHost): Result<(), Str> {
+    run(context { Allocator: host.alloc, Stdout: host.stdout })
+}
+
+fn run<C: Allocator + Stdout>(ctx: C): Result<(), Str> {
     let v = Everything {
         ..defaultEverything(),
         count: .Some(300),
@@ -78,6 +81,21 @@ export fn main(): Result<(), Str> {
         .mapErr(fn(_e) => "could not write to standard output")
 }
 "#;
+
+/// [`PROGRAM`] for a node output entering at `mainForNode` and a page entering
+/// at `mainForWeb`.
+fn twice() -> String {
+    PROGRAM
+        .replace(
+            "from \"native\" import { NativeHost };",
+            "from \"node\" import { NodeHost };\nfrom \"web\" import { WebHost };",
+        )
+        .replace(
+            "export fn main(host: NativeHost): Result<(), Str> {\n    run(context { Allocator: host.alloc, Stdout: host.stdout })\n}",
+            "export fn mainForNode(host: NodeHost): Result<(), Str> {\n    run(context { Allocator: host.alloc, Stdout: host.stdout })\n}\n\n\
+             export fn mainForWeb(host: WebHost): Result<(), Str> {\n    run(context { Allocator: host.alloc, Stdout: host.stdout })\n}",
+        )
+}
 
 /// The repository every row here runs in.
 ///
@@ -193,9 +211,9 @@ fn the_toolchain_generator_is_compiled_once_per_repository() {
     // this row has to mean the same thing on every machine.
     scratch.write(
         "cmd/twice/BUILD.buri",
-        "binary {\n    dependencies: [\"//lib/proto\"]\n\n    outputs: [{ platform: \"node\" }, { platform: \"web\" }]\n}\n",
+        "binary {\n    dependencies: [\"//lib/proto\"]\n\n    outputs: [\n        { platform: \"node\", entries: { main: \"mainForNode\" } },\n        { platform: \"web\", entries: { main: \"mainForWeb\" } },\n    ]\n}\n",
     );
-    scratch.write("cmd/twice/main.buri", PROGRAM);
+    scratch.write("cmd/twice/main.buri", &twice());
 
     scratch.run(&["build", "//lib/proto"]).ok();
     let after_first = toolchain_artifacts(&scratch);
@@ -303,11 +321,11 @@ fn an_input_larger_than_a_pipe_crosses_it_whole() {
     );
     scratch.write(
         "cmd/app/main.buri",
-        "from \"core/effect\" import { Allocator, Stdout };\n\
-         from \"core/host\" import * as host;\n\
+        "from \"platform/effect\" import { Allocator, Stdout };\n\
+         from \"node\" import { NodeHost };\n\
          from \"core/io\" import * as io;\n\
          from \"//lib/wire\" import { echoed, size };\n\n\
-         export fn main(): Result<(), Str> {\n  \
+         export fn main(host: NodeHost): Result<(), Str> {\n  \
          let ctx = context { Allocator: host.alloc, Stdout: host.stdout };\n  \
          let _ = io.println(ctx, \"size=${size} echoed=${echoed.length()}\").ignore();\n  \
          .Ok(())\n\
@@ -320,7 +338,7 @@ fn an_input_larger_than_a_pipe_crosses_it_whole() {
 /// A generator that answers with the bytes it was handed and how many there
 /// were.
 const MEASURING_GENERATOR: &str = r#"from "core/buri/ast" import * as ast;
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 from "core/str" import * as str;
 from "core/tool" import { Generated, GenerateRequest };
 

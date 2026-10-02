@@ -3,8 +3,8 @@
 // Both are used, and the report says nothing about either: the rules that read
 // bodies stay silent for the body that failed, not for the file or the target.
 
-from "core/effect" import { Allocator };
 from "core/str" import { fromInt };
+from "platform/effect" import { Allocator };
 
 export fn describe<C: Allocator>(ctx: C): Str {
     let amount = 3;

@@ -23,8 +23,8 @@
 //! There is no `fail`. A test that has to fail asserts on the value it has: a
 //! verdict rendered as a `Str`, or the `Option` itself.
 
-from "core/effect" import { Allocator };
 from "core/order" import { Equal };
+from "platform/effect" import { Allocator };
 
 /// Fails unless `a == b`. Requires `Equal`, and nothing else.
 ///
@@ -49,10 +49,10 @@ export fn notEqual<T: Equal>(actual: T, expected: T): () {
 /// names neither map.
 ///
 /// ```buri role=test
-/// from "core/effect" import { Allocator };
-/// from "core/host/testing" import { alloc };
 /// from "core/map" import * as map;
 /// from "core/testing/assert" import * as assert;
+/// from "platform/effect" import { Allocator };
+/// from "platform/effect/testing" import { alloc };
 ///
 /// test "two maps built in different orders hold the same entries" {
 ///     let ctx = context {
@@ -154,9 +154,9 @@ export fn length<T>(items: [T], expected: Int): () {
 /// up beside sorted.
 ///
 /// ```buri role=test
-/// from "core/effect" import { Allocator };
-/// from "core/host/testing" import { alloc };
 /// from "core/testing/assert" import * as assert;
+/// from "platform/effect" import { Allocator };
+/// from "platform/effect/testing" import { alloc };
 ///
 /// test "the keys are all there, whatever order they came out in" {
 ///     let ctx = context {

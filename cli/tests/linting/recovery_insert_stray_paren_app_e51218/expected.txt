@@ -1,0 +1,9 @@
+error: expected an expression, found `?` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_app_e51218/main.buri:10:13
+   |
+10 |     if (n > ? 0) {
+   |             ^
+   |
+   = expected: an expression
+   = actual: `?`
+   = fix: write a value here

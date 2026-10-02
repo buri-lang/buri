@@ -325,14 +325,14 @@ pub const SERVER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(
 /// between is a flake rather than a failure.
 pub fn one_shot_server() -> String {
     String::from(
-        r#"from "core/effect" import { Allocator, Listen, Stdout, Tasks };
-from "core/host" import * as host;
+        r#"from "platform/effect" import { Allocator, Listen, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/time" import * as time;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc,
     Listen: host.listen,
@@ -379,14 +379,14 @@ export fn main(): Result<(), Str> {
 /// assertion predictable, and `net.rs` says so where it is declared.
 pub fn concurrent_server(requests: usize, sleep_milliseconds: usize) -> String {
     format!(
-        r#"from "core/effect" import {{ Allocator, Clock, Listen, Stdout, Tasks }};
-from "core/host" import * as host;
+        r#"from "platform/effect" import {{ Allocator, Clock, Listen, Stdout, Tasks }};
+from "native" import {{ NativeHost }};
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/time" import * as time;
 
-export fn main(): Result<(), Str> {{
+export fn main(host: NativeHost): Result<(), Str> {{
   let ctx = context {{
     Allocator: host.alloc,
     Clock: host.clock,
@@ -673,14 +673,14 @@ unsafe extern "C" {
 /// the test sees that line, the request is provably inside a handler.
 pub fn draining_server(sleep_milliseconds: usize) -> String {
     format!(
-        r#"from "core/effect" import {{ Allocator, Clock, Listen, Stdout, Tasks }};
-from "core/host" import * as host;
+        r#"from "platform/effect" import {{ Allocator, Clock, Listen, Stdout, Tasks }};
+from "native" import {{ NativeHost }};
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/time" import * as time;
 
-export fn main(): Result<(), Str> {{
+export fn main(host: NativeHost): Result<(), Str> {{
   let ctx = context {{
     Allocator: host.alloc,
     Clock: host.clock,
@@ -1136,14 +1136,14 @@ pub fn tls_identity(row: &str) -> (PathBuf, PathBuf, PathBuf) {
 ///   the pair.
 pub fn tls_server(certificate: &Path, key: &Path, absent: &Path) -> String {
     format!(
-        r#"from "core/effect" import {{ Allocator, Listen, Stdout, Tasks }};
-from "core/host" import * as host;
+        r#"from "platform/effect" import {{ Allocator, Listen, Stdout, Tasks }};
+from "native" import {{ NativeHost }};
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/time" import * as time;
 
-export fn main(): Result<(), Str> {{
+export fn main(host: NativeHost): Result<(), Str> {{
   let ctx = context {{
     Allocator: host.alloc,
     Listen: host.listen,
@@ -1277,8 +1277,8 @@ pub fn counting_socket_server() -> String {
     String::from(
         r#"from "core/actor" import * as actor;
 from "core/actor" import { Actor, Stepped };
-from "core/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
@@ -1300,7 +1300,7 @@ fn counter<C: Allocator + Tasks>(): Actor<C, Int, Counting, Int> {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc,
     Listen: host.listen,
@@ -1372,8 +1372,8 @@ pub fn broadcasting_socket_server(members: usize) -> String {
     format!(
         r#"from "core/actor" import * as actor;
 from "core/actor" import {{ Actor, Stepped }};
-from "core/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
-from "core/host" import * as host;
+from "platform/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
+from "native" import {{ NativeHost }};
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
@@ -1412,7 +1412,7 @@ fn room<C: Allocator + Sockets + Tasks>(): Actor<C, [Socket], Room, Int> {{
   }}
 }}
 
-export fn main(): Result<(), Str> {{
+export fn main(host: NativeHost): Result<(), Str> {{
   let ctx = context {{
     Allocator: host.alloc,
     Listen: host.listen,

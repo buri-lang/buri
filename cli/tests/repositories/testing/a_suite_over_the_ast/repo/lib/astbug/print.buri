@@ -1,5 +1,5 @@
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 
 /// Source text in, source text out.
 export fn roundTrip<C: Allocator>(ctx: C, source: Str): Str {

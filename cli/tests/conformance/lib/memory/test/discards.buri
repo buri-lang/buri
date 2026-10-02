@@ -27,10 +27,10 @@
 // over-release is a use-after-free, which the heap check's quarantine stops
 // with a different message than a leak.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 
 derive Equal, Show for Token;
 /// One token, the shape the `.proto` reader steps over: a word this program

@@ -5,9 +5,9 @@
 // builder that reaches it answers a promise instead — a blank page (#152). The
 // `load` belongs on the press or the route that reaches the subtree, not in the
 // builder.
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "core/lazy" import * as lazy;
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
@@ -17,7 +17,7 @@ fn page<C>(): Node<C> {
     ui.text({ content: .Const("page") })
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
     let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
     ui.mount(ctx, ui.computed(fn(_scope) => {
         let build = lazy.load(page);

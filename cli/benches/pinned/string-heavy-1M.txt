@@ -2,12 +2,12 @@
 # and the README beside this file.
 name = string-heavy-1M
 profile = mixed
-generator_revision = 7
-revision = 7
-recorded = 2026-08-31
+generator_revision = 8
+revision = 8
+recorded = 2026-10-02
 params = lines=1000000 seed=0x0b001a575eed0011 w_string_fn=8
 lines = 1010626
-bytes = 39089138
+bytes = 39597914
 modules = 3513
-digest = 445ce37a847f804088ba224ea6cc3acb90d744ed9f1ea965cfa3da0b4dcdea3e
+digest = 6772d3df281f234ac28e686bb89dc9ad269233a6e018932c116ad5deb6011e7f
 native = false

@@ -1,0 +1,30 @@
+warning: str is imported but not used [unused-import]
+ --> lib/recovery_insert_stray_brace_cents_7c86ac/lib.buri:4:29
+  |
+4 | from "core/str" import * as str;
+  |                             ^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+error: "platform/effect" does not export `extra` [no-such-export]
+ --> lib/recovery_insert_stray_brace_cents_7c86ac/lib.buri:5:33
+  |
+5 | from "platform/effect" import { extra Allocator };
+  |                                 ^^^^^
+  |
+  = fix: check the spelling, or add `export` to `extra`'s declaration in "platform/effect"
+warning: extra is imported but not used [unused-import]
+ --> lib/recovery_insert_stray_brace_cents_7c86ac/lib.buri:5:33
+  |
+5 | from "platform/effect" import { extra Allocator };
+  |                                 ^^^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+error: an import name ends with `,` [missing-separator]
+ --> lib/recovery_insert_stray_brace_cents_7c86ac/lib.buri:5:38
+  |
+5 | from "platform/effect" import { extra Allocator };
+  |                                      ^
+  |
+  = fix: write `,` here

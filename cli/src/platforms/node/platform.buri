@@ -9,7 +9,10 @@
 //! from "node" import { NodeHost };
 //!
 //! export fn main(host: NodeHost): Result<(), Str> {
-//!     run(context { Allocator: host.alloc, Stdout: host.stdout })
+//!     run(context {
+//!         Allocator: host.alloc,
+//!         Stdout: host.stdout,
+//!     })
 //! }
 //! ```
 

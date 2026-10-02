@@ -2,11 +2,11 @@
 # and the README beside this file.
 name = mixed-10k
 profile = mixed
-generator_revision = 7
-revision = 8
-recorded = 2026-09-08
+generator_revision = 8
+revision = 9
+recorded = 2026-10-02
 params = 
 lines = 10151
-bytes = 353664
+bytes = 353792
 modules = 36
-digest = 88a06a5893d02ec92adc7ea64f5aaf62523c5a61013600f9756e36ba4648cd7d
+digest = de1267574371d59f9297401acbd1ff8cf5e811e982a565ba6af7171c589e86b0

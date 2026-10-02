@@ -1,0 +1,23 @@
+error: `main` is the entry of the node platform, and nothing calls it [entry-declaration-imported]
+ --> cmd/entry_declaration_imported/main.buri:5:22
+  |
+5 | from "node" import { main, NodeHost };
+  |                      ^^^^
+  |
+  = a platform declares its entries without a body; the program exports one of the same name, and the platform calls that
+  = fix: import the host type instead, and export your own `main`
+
+    What to do
+    ──────────
+
+    Import only the host type:
+
+      from "native" import { NativeHost };
+
+      export fn main(host: NativeHost): Result<(), Str> {
+          .Ok(())
+      }
+
+    To share code between an entry and its tests, move it into a function the
+    entry calls with ctx.
+

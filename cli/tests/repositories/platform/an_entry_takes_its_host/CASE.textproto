@@ -1,0 +1,50 @@
+# **An entry takes its platform's host.** `main(host: NodeHost)` and
+# `main(host: NativeHost)` each bind the host's fields in a `context` and print,
+# and `.Err` exits 1 on both backends.
+#
+# Then the old shape, `fn main()` with no host, refused with the fix that shows
+# the new one, word for word.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an entry takes its platform's host and binds its fields, on node and natively, and the old host-less shape is refused with the new one as its fix"
+
+run {
+  args: ["run", "//cmd/node"]
+  exit: 0
+  golden: "node.txt"
+  stream: OUT
+}
+
+run {
+  args: ["run", "//cmd/node", "--", "fail"]
+  exit: 1
+  golden: "node_fails.txt"
+}
+
+run {
+  args: ["run", "//cmd/native"]
+  exit: 0
+  golden: "native.txt"
+  stream: OUT
+}
+
+run {
+  args: ["run", "//cmd/native", "--", "fail"]
+  exit: 1
+  golden: "native_fails.txt"
+}
+
+# The old shape: `main` builds its context from nothing.
+edit {
+  file: "cmd/native/main.buri"
+  replace: "export fn main(host: NativeHost): Result<(), Str> {\n    run(context {\n        Allocator: host.alloc,\n        Environment: host.env,\n        Stdout: host.stdout,\n    })\n}"
+  with: "export fn main(): Result<(), Str> {\n    .Ok(())\n}"
+}
+
+run {
+  args: ["build", "//cmd/native"]
+  exit: 1
+  golden: "entry_without_host.txt"
+}

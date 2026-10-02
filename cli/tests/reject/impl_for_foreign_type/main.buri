@@ -1,6 +1,6 @@
 // EXPECT: `Region` is not declared in this module
-from "core/effect" import { Allocator, Stdout, Region };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Region };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/order" import { Ordered, Order };
 
@@ -8,7 +8,7 @@ impl Ordered for Region {
   fn compare(self, other: Region): Order { .Equal }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "hi").ignore();
   .Ok(())

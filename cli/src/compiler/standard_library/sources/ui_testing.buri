@@ -2,11 +2,11 @@
 //!
 //! Test-only, by the `testing` path segment: only a test source may import it
 //! (SPEC rule 35). One implementation per effect, the same shape as
-//! `core/host/testing`, so a test builds the context it wants instead of
+//! `platform/effect/testing`, so a test builds the context it wants instead of
 //! taking a whole world.
 //!
 //! The two graph effects live here, and the address bar over them. For a page's
-//! requests, the double is `core/host/testing`'s `net()`, which refuses every
+//! requests, the double is `platform/effect/testing`'s `net()`, which refuses every
 //! request until `respond` says what to answer.
 //!
 //! The implementations are the real reactive runtime with no document attached.
@@ -17,7 +17,7 @@
 //! runtime holds, which needs no isolating: a cell is named by an index nothing
 //! else can produce, so a test can only reach the cells it made.
 
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 from "ui/effect" import { Location, Scope, Ui, Watch };
 from "ui/node" import * as node;
 from "ui/node" import { Builder, Node };
@@ -454,7 +454,7 @@ fn stateName(state: State): Str {
 /// A reactive computation gets a `Scope`, so it cannot write a signal to say
 /// that it ran. This is how a test sees the order the runtime scheduled watchers
 /// in, and how many times a memo recomputed. The log lives on the runner's side
-/// and this value names it, the same shape as `core/host/testing`'s captured
+/// and this value names it, the same shape as `platform/effect/testing`'s captured
 /// stdout.
 ///
 /// Holds no authority, so a lambda may capture one.

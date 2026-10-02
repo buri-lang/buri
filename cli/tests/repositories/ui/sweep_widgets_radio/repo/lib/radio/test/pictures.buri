@@ -6,9 +6,9 @@
 // the answer `checked:true`, an unchecked one carries neither, and a key no
 // option holds carries no dot at all.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/signal" import { signal };

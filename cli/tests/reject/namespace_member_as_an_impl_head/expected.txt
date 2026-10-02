@@ -1,7 +1,7 @@
 error: "core/order" has no member `Comparable` [no-such-member]
- --> cmd/namespace_member_as_an_impl_head/main.buri:7:6
+ --> cmd/namespace_member_as_an_impl_head/main.buri:8:6
   |
-7 | impl order.Comparable for Bag {
+8 | impl order.Comparable for Bag {
   |      ^^^^^^^^^^^^^^^^
   |
   = the module exports 19 names

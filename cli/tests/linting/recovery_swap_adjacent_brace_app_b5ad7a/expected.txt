@@ -1,9 +1,0 @@
-error: expected `=`, found a string literal [unexpected-token]
-  --> lib/recovery_swap_adjacent_brace_app_b5ad7a/main.buri:19:13
-   |
-19 |     let ctx "not a context" =;
-   |             ^^^^^^^^^^^^^^^
-   |
-   = expected: `=`
-   = actual: a string literal
-   = fix: write `=` here

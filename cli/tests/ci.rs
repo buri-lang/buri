@@ -1751,10 +1751,10 @@ fn a_linked_linux_artifact_is_a_static_pie_that_runs() {
         .unwrap();
         std::fs::write(
             dir.join("cmd/app/main.buri"),
-            "from \"core/host\" import { stdout };\n\
+            "from \"node\" import { NodeHost };\n\
              from \"core/io\" import * as io;\n\
-             export fn main(): Result<(), Str> {\n\
-             \x20 match (io.println(stdout, \"reproducible\")) {\n\
+             export fn main(host: NodeHost): Result<(), Str> {\n\
+             \x20 match (io.println(host.stdout, \"reproducible\")) {\n\
              \x20   .Ok(_) => .Ok(()),\n\
              \x20   .Err(_) => .Err(\"could not write to standard output\"),\n\
              \x20 }\n\

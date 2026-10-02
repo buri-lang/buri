@@ -634,7 +634,7 @@ fn read_standard_library(root: &Path, pages: &mut Vec<Page>) {
 ///
 /// The table in `compiler::standard_library` holds a module's path and the
 /// text `include_str!` embedded, and not the name of the file that text came
-/// from: `core/host/testing` is `host_testing.buri` and `core/net/http` is
+/// from: `platform/effect/testing` is `host_testing.buri` and `core/net/http` is
 /// `http.buri`, so the file cannot be derived from the path. Matching on the
 /// bytes is exact, because the embedded copy *is* the file.
 fn std_sources(root: &Path) -> Vec<(String, String)> {

@@ -1,8 +1,8 @@
 //! One module, `words`, holding how many words its inputs hold.
 
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Allocator };
 from "core/tool" import { Generated, GenerateRequest };
+from "platform/effect" import { Allocator };
 
 export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
     let total = request

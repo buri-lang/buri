@@ -3,9 +3,9 @@
 //! checks those inputs before this runs, and does not run it when one fails.
 
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Allocator };
 from "core/str" import * as str;
 from "core/tool" import { Generated, GenerateRequest };
+from "platform/effect" import { Allocator };
 
 export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
     let text = str.format(

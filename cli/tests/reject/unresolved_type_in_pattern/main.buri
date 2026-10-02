@@ -5,6 +5,8 @@ fn describe(n: Int): Int {
   }
 }
 
-export fn main(): Result<(), Str> {
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
   .Ok(())
 }

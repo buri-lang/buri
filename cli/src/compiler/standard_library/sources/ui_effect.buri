@@ -18,8 +18,8 @@
 //! A page asks for `Network` like every other platform: there is no fetch effect
 //! here.
 
-from "core/effect" import { Allocator, Region };
 from "core/time" import { Duration };
+from "platform/effect" import { Allocator, Region };
 
 /// Reading signals, alone.
 ///
@@ -142,7 +142,7 @@ impl Watch for Scope {
 /// Allocating hands out nothing: `Allocator` is the one effect whose
 /// implementation carries no authority, because a `Region` is a number
 /// (`core/alloc`'s own header says why that module is importable anywhere).
-/// So a `Scope` charges the request and counts nothing, exactly as `core/host`'s
+/// So a `Scope` charges the request and counts nothing, exactly as the host's
 /// allocator does — a derived value is reclaimed when the last reference to it
 /// goes, and no budget is attached to a computation.
 ///

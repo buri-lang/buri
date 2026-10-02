@@ -4,13 +4,13 @@
 // here is about what the module does and about what the code under test asked
 // for. A real socket is `native::e2e`'s row.
 
-from "core/effect" import { Allocator, IoError, Tcp };
-from "core/host/testing" import * as testing;
-from "core/host/testing" import { alloc, tcp, TestTcp };
 from "core/list" import * as list;
 from "core/net/tcp" import * as stream;
 from "core/net/tcp" import { Stream };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, IoError, Tcp };
+from "platform/effect/testing" import * as testing;
+from "platform/effect/testing" import { alloc, tcp, TestTcp };
 
 // "PONG\n", as the octets a script is written in.
 let PONG: [U8] = [80, 79, 78, 71, 10];

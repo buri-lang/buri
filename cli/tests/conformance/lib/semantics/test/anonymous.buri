@@ -11,9 +11,9 @@
 // The two strings the grammar keeps for blocks, `{ }` and `{ name }`, are
 // pinned here too: they still mean what they meant.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "//lib/semantics" import {
     anonHere, anonHidden, anonMatch, hidden, hiddenPrivate, Holder, takesWorld, World,
     Wrap,

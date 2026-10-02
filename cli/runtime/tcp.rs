@@ -35,7 +35,7 @@
 //! that came back would let a program that closed a stream write to somebody
 //! else's. The counter only goes up. A handle naming nothing is treated as one
 //! already closed — `IoError.NotFound` from a read or a write, and nothing at
-//! all from a close — which is what `core/effect` promises.
+//! all from a close — which is what `platform/effect` promises.
 
 use crate::value::{list_of_bytes, str_of, BuriList, BuriStr};
 use crate::BURI_OK;
@@ -144,7 +144,7 @@ fn resolve(host: &str, port: u16) -> Result<SocketAddr, (i32, String)> {
 /// The stream is **taken out of the table for the duration**, so two threads
 /// reading one handle do not hold the lock across a syscall that waits — which
 /// is what a read on this effect does on purpose. A handle whose stream is out
-/// looks closed to anybody else, and `core/effect` says a handle that names no
+/// looks closed to anybody else, and `platform/effect` says a handle that names no
 /// open stream counts as one already closed.
 fn with_stream<T>(handle: i64, f: impl FnOnce(&mut TcpStream) -> T) -> Option<T> {
     let mut taken = {
@@ -299,7 +299,7 @@ pub unsafe extern "C" fn buri_rt_host_tcp_write(
 ///
 /// Dropping the `TcpStream` closes the descriptor. A handle this table does not
 /// hold is one already closed, and closing one twice is nothing happening the
-/// second time — which is what `core/effect` promises and why this returns
+/// second time — which is what `platform/effect` promises and why this returns
 /// nothing at all.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_tcp_close(handle: i64) {

@@ -1,30 +1,31 @@
-const $k0=['port','8080'];
-const $k1=['host','local'];
-const $k2=[$k0,$k1];
-const $k3=[0,0];
+const $k0=[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]];
+const $k1=['port','8080'];
+const $k2=['host','local'];
+const $k3=[$k1,$k2];
+const $k4=[0,0];
 function __cmd_x_main_buri$main(){
-  const ctx_0=[[],[]];
-  const self_7=__cmd_x_main_buri$lookup($k2,'missing');
+  const ctx_1=[$k0[0],$k0[1]];
+  const self_8=__cmd_x_main_buri$lookup($k3,'missing');
   let $t1;
-  if(self_7!==void 0){
-    $t1=self_7;
-  }else if(self_7===void 0){
+  if(self_8!==void 0){
+    $t1=self_8;
+  }else if(self_8===void 0){
     $t1='none';
   }else{
     $abort('no arm matched');
   }
-  const fallback_2=$t1;
-  const self_12=$host_HostStdout_println(ctx_0[1],fallback_2);
+  const fallback_3=$t1;
+  const self_13=$host_HostStdout_println(ctx_1[1],fallback_3);
   let $t3;
-  if(self_12[0]===0){
+  if(self_13[0]===0){
     $t3=0;
-  }else if(self_12[0]===1){
+  }else if(self_13[0]===1){
     $t3=0;
   }else{
     $abort('no arm matched');
   }
   let $t5;
-  const $t6=__cmd_x_main_buri$port($k2);
+  const $t6=__cmd_x_main_buri$port($k3);
   if($t6[0]===0){
     $t5='port '+String($t6[1]);
   }else if($t6[0]===1){
@@ -41,12 +42,12 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const text_19=$t5;
-  const self_20=$host_HostStdout_println(ctx_0[1],text_19);
+  const text_20=$t5;
+  const self_21=$host_HostStdout_println(ctx_1[1],text_20);
   let $t9;
-  if(self_20[0]===0){
+  if(self_21[0]===0){
     $t9=0;
-  }else if(self_20[0]===1){
+  }else if(self_21[0]===1){
     $t9=0;
   }else{
     $abort('no arm matched');
@@ -69,17 +70,17 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const text_27=$t11;
-  const self_28=$host_HostStdout_println(ctx_0[1],text_27);
+  const text_28=$t11;
+  const self_29=$host_HostStdout_println(ctx_1[1],text_28);
   let $t15;
-  if(self_28[0]===0){
+  if(self_29[0]===0){
     $t15=0;
-  }else if(self_28[0]===1){
+  }else if(self_29[0]===1){
     $t15=0;
   }else{
     $abort('no arm matched');
   }
-  return $k3;
+  return $k4;
 }
 function __cmd_x_main_buri$lookup(pairs_0,key_1){
   const $t1=$list_find(pairs_0,p_2=>p_2[0]===key_1);

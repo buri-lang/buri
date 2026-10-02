@@ -7,10 +7,10 @@
 //! the markup that arrived.
 //!
 //! ```buri
-//! from "core/effect" import { Allocator };
 //! from "core/json" import { Json };
 //! from "core/net/http" import * as http;
 //! from "core/net/http" import { Response };
+//! from "platform/effect" import { Allocator };
 //! from "ui/node" import * as ui;
 //! from "ui/node" import { Node };
 //! from "ui/prop" import { Prop };
@@ -68,9 +68,9 @@
 //! `navigate`, `replace` and `routeLink` are ordinary Buri over the graph, and
 //! run wherever a `Location` does.
 
-from "core/effect" import { Allocator };
 from "core/json" import * as json;
 from "core/json" import { Json };
+from "platform/effect" import { Allocator };
 from "ui/effect" import { Location, Ui, Watch };
 from "ui/node" import * as node;
 from "ui/node" import { Node };

@@ -3,7 +3,7 @@
 // reaches the rest of the library by absolute path, with no visibility rules
 // between them, because a subdirectory is not a boundary.
 
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 from "//lib/ledger/entry.buri" import { Entry };
 
 export enum Rule {

@@ -7,9 +7,9 @@
 //
 // The fix the diagnostic names is the real one: hover on a value that varies is
 // the reactive tier's job, and the reactive tier is applied inline.
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/style" import { Color, Style };
@@ -18,7 +18,7 @@ fn highlighted(accent: Color): Style {
   .On(.Hover, [.Background(accent)])
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   ui.mount(ctx, ui.stack({ styles: [highlighted(.Rgb(29, 78, 216))], children: [] }), [])
 }

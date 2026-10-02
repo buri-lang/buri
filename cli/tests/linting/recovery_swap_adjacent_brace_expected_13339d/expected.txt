@@ -1,9 +1,0 @@
-error: expected `=`, found a string literal [unexpected-token]
-  --> lib/recovery_swap_adjacent_brace_expected_13339d/main.buri:43:15
-   |
-43 |     let label "ledger" =;
-   |               ^^^^^^^^
-   |
-   = expected: `=`
-   = actual: a string literal
-   = fix: write `=` here

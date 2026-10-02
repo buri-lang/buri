@@ -1,11 +1,12 @@
-// The double, on every platform. `core/host/testing` is not a host — it is a
+// The double, on every platform. `platform/effect/testing` is not a host — it is a
 // value a test builds — so nothing here is platform-bound, and this suite
 // compiles under the same rule that refuses `host.fs` on a page.
-from "core/effect" import { Allocator };
+
 from "core/fs" import { FileSystemRead };
-from "core/host/testing" import { alloc, fs };
 from "core/path" import * as path;
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc, fs };
 from "//lib/reader" import { readOrEmpty };
 
 test "a file that is there" {

@@ -119,8 +119,8 @@ edit {
 # `ctx` has an allocator and nothing else.
 edit {
   file: "tool/good/tool.buri"
-  replace: "from \"core/effect\" import { Allocator };\n"
-  with: "from \"core/effect\" import { Allocator, Stdout };\n"
+  replace: "from \"platform/effect\" import { Allocator };\n"
+  with: "from \"platform/effect\" import { Allocator, Stdout };\n"
 }
 
 edit {
@@ -143,8 +143,8 @@ edit {
 
 edit {
   file: "tool/good/tool.buri"
-  replace: "from \"core/effect\" import { Allocator, Stdout };\n"
-  with: "from \"core/effect\" import { Allocator };\n"
+  replace: "from \"platform/effect\" import { Allocator, Stdout };\n"
+  with: "from \"platform/effect\" import { Allocator };\n"
 }
 
 # A tool that does not build has not answered, and the rule it runs for says so.

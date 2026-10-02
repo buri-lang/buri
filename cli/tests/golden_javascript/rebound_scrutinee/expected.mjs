@@ -1,12 +1,13 @@
-const $k3=[0,0];
+const $k0=[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]];
+const $k4=[0,0];
 function __cmd_x_main_buri$main(){
-  const ctx_0=[[],[]];
-  const text_8=String(7n)+' '+String(9n);
-  const self_9=$host_HostStdout_println(ctx_0[1],text_8);
+  const ctx_1=[$k0[0],$k0[1]];
+  const text_9=String(7n)+' '+String(9n);
+  const self_10=$host_HostStdout_println(ctx_1[1],text_9);
   let $t5;
-  if(self_9[0]===0){
+  if(self_10[0]===0){
     $t5=0;
-  }else if(self_9[0]===1){
+  }else if(self_10[0]===1){
     $t5=0;
   }else{
     $abort('no arm matched');
@@ -27,15 +28,15 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const text_19=String(3n)+' '+String($t9)+' '+String($t11);
-  const self_20=$host_HostStdout_println(ctx_0[1],text_19);
+  const text_20=String(3n)+' '+String($t9)+' '+String($t11);
+  const self_21=$host_HostStdout_println(ctx_1[1],text_20);
   let $t13;
-  if(self_20[0]===0){
+  if(self_21[0]===0){
     $t13=0;
-  }else if(self_20[0]===1){
+  }else if(self_21[0]===1){
     $t13=0;
   }else{
     $abort('no arm matched');
   }
-  return $k3;
+  return $k4;
 }

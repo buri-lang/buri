@@ -69,7 +69,7 @@ fn survived(run: &Run, what: &str) {
 /// caller is about to replace with something hostile.
 fn app(name: &str) -> Scratch {
     let s = Scratch::repo(name);
-    s.binary_package("app", "export fn main(): Result<(), Str> {\n  .Ok(())\n}\n");
+    s.binary_package("app", "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n  .Ok(())\n}\n");
     s
 }
 
@@ -85,11 +85,11 @@ fn app(name: &str) -> Scratch {
 fn a_character_outside_ascii_is_a_diagnostic_rather_than_a_panic() {
     let s = app("adversarial-non-ascii");
     for (what, text) in [
-        ("a multiplication sign", "export fn main(): Result<(), Str> {\n  let x = 5 × 3;\n  .Ok(())\n}\n"),
-        ("an emoji", "export fn main(): Result<(), Str> {\n  🙂\n  .Ok(())\n}\n"),
-        ("a non-breaking space", "export fn main(): Result<(), Str> {\n\u{a0} .Ok(())\n}\n"),
-        ("a NUL byte", "export fn main(): Result<(), Str> {\n\u{0}  .Ok(())\n}\n"),
-        ("a right-to-left mark", "export fn main(): Result<(), Str> {\n  \u{200f}.Ok(())\n}\n"),
+        ("a multiplication sign", "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n  let x = 5 × 3;\n  .Ok(())\n}\n"),
+        ("an emoji", "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n  🙂\n  .Ok(())\n}\n"),
+        ("a non-breaking space", "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n\u{a0} .Ok(())\n}\n"),
+        ("a NUL byte", "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n\u{0}  .Ok(())\n}\n"),
+        ("a right-to-left mark", "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n  \u{200f}.Ok(())\n}\n"),
     ] {
         s.write("app/main.buri", text);
         let run = s.run(&["build", "//app"]);
@@ -105,7 +105,7 @@ fn a_character_outside_ascii_is_a_diagnostic_rather_than_a_panic() {
 #[test]
 fn an_invisible_character_is_named_by_its_code_point() {
     let s = app("adversarial-invisible");
-    s.write("app/main.buri", "export fn main(): Result<(), Str> {\n\u{a0} .Ok(())\n}\n");
+    s.write("app/main.buri", "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n\u{a0} .Ok(())\n}\n");
     s.run(&["build", "//app"]).exits(1).says("U+00A0");
 }
 
@@ -114,7 +114,7 @@ fn an_invisible_character_is_named_by_its_code_point() {
 #[test]
 fn a_source_file_that_is_not_utf8_is_refused() {
     let s = app("adversarial-not-utf8");
-    std::fs::write(s.path("app/main.buri"), b"export fn main(): Result<(), Str> {\n\xff\xfe\n}\n")
+    std::fs::write(s.path("app/main.buri"), b"from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n\xff\xfe\n}\n")
         .unwrap();
     let run = s.run(&["build", "//app"]);
     survived(&run, "invalid UTF-8 in a source file");
@@ -136,12 +136,12 @@ fn an_empty_source_file_is_a_diagnostic() {
 fn everything_left_unterminated_is_a_diagnostic() {
     let s = app("adversarial-unterminated");
     for (what, text) in [
-        ("a string", "export fn main(): Result<(), Str> {\n  let s = \"abc\n"),
-        ("a character", "export fn main(): Result<(), Str> {\n  let c = 'a\n"),
-        ("a block comment", "export fn main(): Result<(), Str> {\n  /* open\n"),
-        ("a template hole", "export fn main(): Result<(), Str> {\n  let s = \"a${\n"),
-        ("a unicode escape", "export fn main(): Result<(), Str> {\n  let s = \"\\u{1F60\n"),
-        ("a block", "export fn main(): Result<(), Str> {\n  let x = 1;\n"),
+        ("a string", "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n  let s = \"abc\n"),
+        ("a character", "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n  let c = 'a\n"),
+        ("a block comment", "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n  /* open\n"),
+        ("a template hole", "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n  let s = \"a${\n"),
+        ("a unicode escape", "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n  let s = \"\\u{1F60\n"),
+        ("a block", "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n  let x = 1;\n"),
     ] {
         s.write("app/main.buri", text);
         let run = s.run(&["build", "//app"]);
@@ -162,13 +162,13 @@ fn nesting_deeper_than_the_limit_is_a_diagnostic() {
     let s = app("adversarial-nesting");
     let n = 10_000;
     for (what, text) in [
-        ("parentheses", format!("export fn main(): Result<(), Str> {{\n  let x = {}1{};\n  .Ok(())\n}}\n", "(".repeat(n), ")".repeat(n))),
-        ("array literals", format!("export fn main(): Result<(), Str> {{\n  let x = {}1{};\n  .Ok(())\n}}\n", "[".repeat(n), "]".repeat(n))),
-        ("blocks", format!("export fn main(): Result<(), Str> {{\n  let x = {}1{};\n  .Ok(())\n}}\n", "{".repeat(n), "}".repeat(n))),
-        ("type arguments", format!("export fn main(): Result<(), Str> {{\n  let x: {}I32{} = list.empty();\n  .Ok(())\n}}\n", "List<".repeat(n), ">".repeat(n))),
-        ("template holes", format!("export fn main(): Result<(), Str> {{\n  let x = {}1{};\n  .Ok(())\n}}\n", "\"a${".repeat(n), "}b\"".repeat(n))),
-        ("array patterns", format!("export fn main(): Result<(), Str> {{\n  let x = match ([1]) {{ {}a{} => 1, _ => 0 }};\n  .Ok(())\n}}\n", "[".repeat(n), "]".repeat(n))),
-        ("lambdas", format!("export fn main(): Result<(), Str> {{\n  let x = {}1;\n  .Ok(())\n}}\n", "fn(a) => ".repeat(n))),
+        ("parentheses", format!("from \"node\" import {{ NodeHost }};\n\nexport fn main(host: NodeHost): Result<(), Str> {{\n  let x = {}1{};\n  .Ok(())\n}}\n", "(".repeat(n), ")".repeat(n))),
+        ("array literals", format!("from \"node\" import {{ NodeHost }};\n\nexport fn main(host: NodeHost): Result<(), Str> {{\n  let x = {}1{};\n  .Ok(())\n}}\n", "[".repeat(n), "]".repeat(n))),
+        ("blocks", format!("from \"node\" import {{ NodeHost }};\n\nexport fn main(host: NodeHost): Result<(), Str> {{\n  let x = {}1{};\n  .Ok(())\n}}\n", "{".repeat(n), "}".repeat(n))),
+        ("type arguments", format!("from \"node\" import {{ NodeHost }};\n\nexport fn main(host: NodeHost): Result<(), Str> {{\n  let x: {}I32{} = list.empty();\n  .Ok(())\n}}\n", "List<".repeat(n), ">".repeat(n))),
+        ("template holes", format!("from \"node\" import {{ NodeHost }};\n\nexport fn main(host: NodeHost): Result<(), Str> {{\n  let x = {}1{};\n  .Ok(())\n}}\n", "\"a${".repeat(n), "}b\"".repeat(n))),
+        ("array patterns", format!("from \"node\" import {{ NodeHost }};\n\nexport fn main(host: NodeHost): Result<(), Str> {{\n  let x = match ([1]) {{ {}a{} => 1, _ => 0 }};\n  .Ok(())\n}}\n", "[".repeat(n), "]".repeat(n))),
+        ("lambdas", format!("from \"node\" import {{ NodeHost }};\n\nexport fn main(host: NodeHost): Result<(), Str> {{\n  let x = {}1;\n  .Ok(())\n}}\n", "fn(a) => ".repeat(n))),
     ] {
         s.write("app/main.buri", &text);
         let run = s.run(&["build", "//app"]);
@@ -192,7 +192,7 @@ fn type_arguments_in_an_expression_do_not_look_ahead_forever() {
         (
             "unclosed type arguments",
             format!(
-                "export fn main(): Result<(), Str> {{\n  let x = {}b;\n  .Ok(())\n}}\n",
+                "from \"node\" import {{ NodeHost }};\n\nexport fn main(host: NodeHost): Result<(), Str> {{\n  let x = {}b;\n  .Ok(())\n}}\n",
                 "a<".repeat(20_000)
             ),
         ),
@@ -201,7 +201,7 @@ fn type_arguments_in_an_expression_do_not_look_ahead_forever() {
         (
             "type arguments nested past the look",
             format!(
-                "export fn main(): Result<(), Str> {{\n  let x = {}b{}(c);\n  .Ok(())\n}}\n",
+                "from \"node\" import {{ NodeHost }};\n\nexport fn main(host: NodeHost): Result<(), Str> {{\n  let x = {}b{}(c);\n  .Ok(())\n}}\n",
                 "a<".repeat(5_000),
                 ">".repeat(5_000)
             ),
@@ -222,7 +222,7 @@ fn a_prefix_operator_chain_is_bounded() {
     let s = app("adversarial-prefix");
     for op in ["!", "-", "~"] {
         let text = format!(
-            "export fn main(): Result<(), Str> {{\n  let x = {}1;\n  .Ok(())\n}}\n",
+            "from \"node\" import {{ NodeHost }};\n\nexport fn main(host: NodeHost): Result<(), Str> {{\n  let x = {}1;\n  .Ok(())\n}}\n",
             op.repeat(100_000)
         );
         s.write("app/main.buri", &text);
@@ -241,9 +241,9 @@ fn a_chain_longer_than_the_limit_is_a_diagnostic() {
     let s = app("adversarial-chains");
     let n = 100_000;
     for (what, text) in [
-        ("binary operators", format!("export fn main(): Result<(), Str> {{\n  let x = 1{};\n  .Ok(())\n}}\n", " + 1".repeat(n))),
-        ("logical operators", format!("export fn main(): Result<(), Str> {{\n  let x = true{};\n  .Ok(())\n}}\n", " && true".repeat(n))),
-        ("method calls", format!("export fn main(): Result<(), Str> {{\n  let x = 1{};\n  .Ok(())\n}}\n", ".abs()".repeat(n))),
+        ("binary operators", format!("from \"node\" import {{ NodeHost }};\n\nexport fn main(host: NodeHost): Result<(), Str> {{\n  let x = 1{};\n  .Ok(())\n}}\n", " + 1".repeat(n))),
+        ("logical operators", format!("from \"node\" import {{ NodeHost }};\n\nexport fn main(host: NodeHost): Result<(), Str> {{\n  let x = true{};\n  .Ok(())\n}}\n", " && true".repeat(n))),
+        ("method calls", format!("from \"node\" import {{ NodeHost }};\n\nexport fn main(host: NodeHost): Result<(), Str> {{\n  let x = 1{};\n  .Ok(())\n}}\n", ".abs()".repeat(n))),
     ] {
         s.write("app/main.buri", &text);
         let run = s.run(&["build", "//app"]);
@@ -263,8 +263,8 @@ fn an_else_if_chain_compiles_at_the_size_generated_code_reaches() {
     s.write(
         "app/main.buri",
         &format!(
-            "fn pick(x: I32): I32 {{\n  {ok}{{ -1 }}\n}}\n\
-             export fn main(): Result<(), Str> {{\n  let _ = pick(1);\n  .Ok(())\n}}\n"
+            "from \"node\" import {{ NodeHost }};\nfn pick(x: I32): I32 {{\n  {ok}{{ -1 }}\n}}\n\
+             export fn main(host: NodeHost): Result<(), Str> {{\n  let _ = pick(1);\n  .Ok(())\n}}\n"
         ),
     );
     let run = s.run(&["build", "//app"]);
@@ -395,7 +395,7 @@ fn wide_match_build_file(native: bool) -> String {
     let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
     match os.filter(|_| native) {
         Some(os) => format!(
-            "binary {{\n  outputs: [{{ platform: \"node\" }}, {{ platform: \"native\", variant: \"{os}-{arch}\" }}]\n}}\n"
+            "binary {{\n  outputs: [{{ platform: \"node\" }}, {{ platform: \"native\", variant: \"{os}-{arch}\", entries: {{ main: \"mainNative\" }} }}]\n}}\n"
         ),
         None => JS_BINARY.to_string(),
     }
@@ -403,7 +403,9 @@ fn wide_match_build_file(native: bool) -> String {
 
 /// An enum of `arms` variants and a match that covers every one of them.
 fn wide_match_source(arms: usize) -> String {
-    let mut s = String::from("export enum Wide {\n");
+    let mut s = String::from(
+        "from \"native\" import { NativeHost };\nfrom \"node\" import { NodeHost };\n\nexport enum Wide {\n",
+    );
     for i in 0..arms {
         s.push_str(&format!("  V{i}(I32),\n"));
     }
@@ -411,7 +413,9 @@ fn wide_match_source(arms: usize) -> String {
     for i in 0..arms {
         s.push_str(&format!("    .V{i}(n) => n + {i},\n"));
     }
-    s.push_str("  }\n}\n\nexport fn main(): Result<(), Str> {\n");
+    s.push_str("  }\n}\n\nexport fn main(host: NodeHost): Result<(), Str> {\n  run()\n}\n\n");
+    s.push_str("export fn mainNative(host: NativeHost): Result<(), Str> {\n  run()\n}\n\n");
+    s.push_str("fn run(): Result<(), Str> {\n");
     s.push_str("  if (classify(.V0(1)) == 0) { .Err(\"zero\") } else { .Ok(()) }\n}\n");
     s
 }
@@ -432,8 +436,8 @@ fn diagnostics_in_one_enormous_line_do_not_fill_the_disk() {
     s.write(
         "app/main.buri",
         &format!(
-            "fn pick(x: I32): I32 {{ {chain}{{ -1 }} }}\n\
-             export fn main(): Result<(), Str> {{\n  let _ = pick(1);\n  .Ok(())\n}}\n"
+            "from \"node\" import {{ NodeHost }};\nfn pick(x: I32): I32 {{ {chain}{{ -1 }} }}\n\
+             export fn main(host: NodeHost): Result<(), Str> {{\n  let _ = pick(1);\n  .Ok(())\n}}\n"
         ),
     );
     let run = s.run(&["build", "//app"]);
@@ -461,7 +465,7 @@ fn absurd_literals_are_diagnostics() {
     ] {
         s.write(
             "app/main.buri",
-            &format!("export fn main(): Result<(), Str> {{\n  let x = {value};\n  .Ok(())\n}}\n"),
+            &format!("from \"node\" import {{ NodeHost }};\n\nexport fn main(host: NodeHost): Result<(), Str> {{\n  let x = {value};\n  .Ok(())\n}}\n"),
         );
         let run = s.run(&["build", "//app"]);
         survived(&run, what);
@@ -626,7 +630,7 @@ fn a_position_the_client_made_up_is_answered_rather_than_indexed() {
     let root = s.root.display().to_string();
     let uri = format!("file://{root}/app/main.buri");
     // `café 🙂` puts a two-byte and a four-byte character on line 1.
-    let text = "export fn main(): Result<(), Str> {\\n  let s = \\\"café 🙂\\\";\\n  .Ok(())\\n}\\n";
+    let text = "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\\n  let s = \\\"café 🙂\\\";\\n  .Ok(())\\n}\\n";
     let mut session = String::new();
     let mut push = |line: &str| {
         session.push_str(&format!("Content-Length: {}\r\n\r\n{line}", line.len()));

@@ -8,13 +8,17 @@
 //! from "web" import { WebHost };
 //!
 //! export fn main(host: WebHost): Result<(), Str> {
-//!     run(context { Allocator: host.alloc, Ui: host.ui })
+//!     run(context {
+//!         Allocator: host.alloc,
+//!         Ui: host.ui,
+//!     })
 //! }
 //! ```
 
 from "platform/host" import {
     HostAllocator, HostClock, HostEntropy, HostLocation, HostNetwork, HostRandom,
-    HostSockets, HostStderr, HostStdout, HostTasks, HostUi, HostWatch, HostWebSocketClient,
+    HostSockets, HostStderr, HostStdout, HostTasks, HostUi, HostWatch,
+    HostWebSocketClient,
 };
 
 /// What a `web` entry is handed.

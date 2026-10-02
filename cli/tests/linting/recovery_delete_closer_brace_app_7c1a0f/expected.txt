@@ -1,0 +1,36 @@
+warning: `write` is 41 lines long [oversized-function]
+  --> lib/recovery_delete_closer_brace_app_7c1a0f/main.buri:17:4
+   |
+17 | fn write<C: Stdout>(ctx: C, line: Str): Result<Int, Str> {
+   |    ^^^^^
+   |
+   = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+   = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: a `match` used as a statement ends with `;` [missing-terminator]
+  --> lib/recovery_delete_closer_brace_app_7c1a0f/main.buri:22:2
+   |
+22 | }
+   |  ^
+   |
+   = fix: write `;` here
+error: expected `(`, found `say` [unexpected-token]
+  --> lib/recovery_delete_closer_brace_app_7c1a0f/main.buri:24:4
+   |
+24 | fn say<C: Stdout>(ctx: C, line: Str): () {
+   |    ^^^
+   |
+   = expected: `(`
+   = actual: `say`
+   = fix: write `(` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_7c1a0f/main.buri:62:1
+   |
+62 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_brace_app_7c1a0f/main.buri:17:58
+   |
+17 | fn write<C: Stdout>(ctx: C, line: Str): Result<Int, Str> {
+   |                                                          ^ opened here
+   |
+   = fix: write `}` here

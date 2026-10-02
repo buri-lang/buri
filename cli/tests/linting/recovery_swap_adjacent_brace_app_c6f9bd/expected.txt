@@ -1,0 +1,9 @@
+error: expected `else`, found `{` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_c6f9bd/main.buri:14:47
+   |
+14 |                     if (n > 10000) { "huge" } { else "large" }
+   |                                               ^
+   |
+   = expected: `else`
+   = actual: `{`
+   = fix: delete it — the `else` branch follows

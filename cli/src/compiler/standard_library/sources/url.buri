@@ -5,12 +5,12 @@
 //! put back together again.
 //!
 //! ```buri run
-//! from "core/effect" import { Allocator, Stdout };
-//! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/net/url" import * as url;
+//! from "node" import { NodeHost };
+//! from "platform/effect" import { Allocator, Stdout };
 //!
-//! export fn main(): Result<(), Str> {
+//! export fn main(host: NodeHost): Result<(), Str> {
 //!     let ctx = context {
 //!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
@@ -55,9 +55,9 @@
 from "core/bytes" import * as bytes;
 from "core/bytes" import { DecodeError };
 from "core/character" import * as character;
-from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
+from "platform/effect" import { Allocator };
 
 from "core/bytes" export { DecodeError };
 
@@ -114,8 +114,8 @@ export let EMPTY: Url = Url {
 /// bytes. So `/` is escaped: this encodes a segment, not a path.
 ///
 /// ```buri
-/// from "core/effect" import { Allocator };
 /// from "core/net/url" import * as url;
+/// from "platform/effect" import { Allocator };
 ///
 /// export fn slug<C: Allocator>(ctx: C, title: Str): Str {
 ///     url.encodeComponent(ctx, title)
@@ -133,8 +133,8 @@ export fn encodeComponent<C: Allocator>(ctx: C, text: Str): Str {
 /// path is one string; use [`encodeComponent`] when you are joining segments.
 ///
 /// ```buri
-/// from "core/effect" import { Allocator };
 /// from "core/net/url" import * as url;
+/// from "platform/effect" import { Allocator };
 ///
 /// export fn encoded<C: Allocator>(ctx: C, path: Str): Str {
 ///     url.encodePath(ctx, path)
@@ -153,8 +153,8 @@ export fn encodePath<C: Allocator>(ctx: C, text: Str): Str {
 ///
 /// ```buri
 /// from "core/bytes" import { DecodeError };
-/// from "core/effect" import { Allocator };
 /// from "core/net/url" import * as url;
+/// from "platform/effect" import { Allocator };
 ///
 /// export fn plain<C: Allocator>(ctx: C, text: Str): Result<Str, DecodeError> {
 ///     url.decodeComponent(ctx, text)
@@ -185,8 +185,8 @@ export fn decodeComponent<C: Allocator>(ctx: C, text: Str): Result<Str, DecodeEr
 /// query string is where forms arrive. `%2B` is still a plus.
 ///
 /// ```buri
-/// from "core/effect" import { Allocator };
 /// from "core/net/url" import * as url;
+/// from "platform/effect" import { Allocator };
 ///
 /// export fn page<C: Allocator>(ctx: C, query: Str): Option<Str> {
 ///     url.parseQuery(ctx, query).find(fn(kv) => kv.0 == "page").map(fn(kv) => kv.1)
@@ -202,8 +202,8 @@ export fn parseQuery<C: Allocator>(ctx: C, query: Str): [(Str, Str)] {
 /// [`parseQuery`] and by every server, and `%20` is the one RFC 3986 defines.
 ///
 /// ```buri
-/// from "core/effect" import { Allocator };
 /// from "core/net/url" import * as url;
+/// from "platform/effect" import { Allocator };
 ///
 /// export fn search<C: Allocator>(ctx: C, term: Str): Str {
 ///     url.encodeQuery(ctx, [("q", term), ("page", "2")])
@@ -222,9 +222,9 @@ export fn encodeQuery<C: Allocator>(ctx: C, pairs: [(Str, Str)]): Str {
 /// The URL this text spells.
 ///
 /// ```buri
-/// from "core/effect" import { Allocator };
 /// from "core/net/url" import * as url;
 /// from "core/net/url" import { Url, UrlError };
+/// from "platform/effect" import { Allocator };
 ///
 /// export fn read<C: Allocator>(ctx: C, text: Str): Result<Url, UrlError> {
 ///     url.parse(ctx, text)
@@ -259,9 +259,9 @@ impl Url {
     /// The URL as one string, which is [`parse`] backwards.
     ///
     /// ```buri
-    /// from "core/effect" import { Allocator };
     /// from "core/net/url" import * as url;
     /// from "core/net/url" import { Url };
+    /// from "platform/effect" import { Allocator };
     ///
     /// export fn shown<C: Allocator>(ctx: C, u: Url): Str {
     ///     u.text(ctx)
@@ -336,12 +336,12 @@ impl Url {
     /// §5.2, dot segments and all.
     ///
     /// ```buri run
-    /// from "core/effect" import { Allocator, Stdout };
-    /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/net/url" import * as url;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Allocator, Stdout };
     ///
-    /// export fn main(): Result<(), Str> {
+    /// export fn main(host: NodeHost): Result<(), Str> {
     ///     let ctx = context {
     ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,

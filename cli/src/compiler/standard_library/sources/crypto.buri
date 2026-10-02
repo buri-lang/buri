@@ -8,14 +8,14 @@
 //!
 //! `randomBytes` and `token` are **not** written in the language. They perform
 //! the `Entropy` effect, and the octets come from the operating system's
-//! generator through `core/host`'s `entropy`.
+//! generator through the host's `entropy`.
 //!
 //! They live here rather than in `core/random`, which is *seeded and
 //! reproducible on purpose*. `core/random.bytes` is uniform. These are
 //! unpredictable, and a program says which it meant by which it imports.
 //!
 //! **Neither takes a `Generator`.** A token you can replay is a token somebody can
-//! predict. The seeded path a test needs is `core/host/testing`'s `entropy()`, a
+//! predict. The seeded path a test needs is `platform/effect/testing`'s `entropy()`, a
 //! seeded implementation of the same effect that only a test source can reach.
 //!
 //! # Sealing and signatures
@@ -36,11 +36,11 @@
 //!
 //! ```buri run
 //! from "core/crypto" import * as crypto;
-//! from "core/effect" import { Allocator, Stdout };
-//! from "core/host" import * as host;
 //! from "core/io" import * as io;
+//! from "node" import { NodeHost };
+//! from "platform/effect" import { Allocator, Stdout };
 //!
-//! export fn main(): Result<(), Str> {
+//! export fn main(host: NodeHost): Result<(), Str> {
 //!     let ctx = context {
 //!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
@@ -59,11 +59,11 @@
 //!
 //! ```buri run
 //! from "core/crypto" import * as crypto;
-//! from "core/effect" import { Allocator, Entropy, Stdout };
-//! from "core/host" import * as host;
 //! from "core/io" import * as io;
+//! from "node" import { NodeHost };
+//! from "platform/effect" import { Allocator, Entropy, Stdout };
 //!
-//! export fn main(): Result<(), Str> {
+//! export fn main(host: NodeHost): Result<(), Str> {
 //!     let ctx = context {
 //!         Allocator: host.alloc,
 //!         Entropy: host.entropy,
@@ -83,8 +83,8 @@
 
 from "core/bits" import * as bits;
 from "core/bytes" import * as bytes;
-from "core/effect" import { Allocator, Entropy };
 from "core/list" import * as list;
+from "platform/effect" import { Allocator, Entropy };
 
 derive Equal, Show for Digest;
 /// A digest, as many bytes as the function that made it: 32 from SHA-256, 64
@@ -596,11 +596,11 @@ fn blocks512<C: Allocator>(ctx: C, padded: [U8], state: [U64], i: Int): [U64] {
 /// ```buri run
 /// from "core/bytes" import * as bytes;
 /// from "core/crypto" import * as crypto;
-/// from "core/effect" import { Allocator, Stdout };
-/// from "core/host" import * as host;
 /// from "core/io" import * as io;
+/// from "node" import { NodeHost };
+/// from "platform/effect" import { Allocator, Stdout };
 ///
-/// export fn main(): Result<(), Str> {
+/// export fn main(host: NodeHost): Result<(), Str> {
 ///     let ctx = context {
 ///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
@@ -783,7 +783,7 @@ export fn hmacSha512<C: Allocator>(ctx: C, key: [U8], message: [U8]): Digest {
 ///
 /// `getrandom(2)` or `getentropy(2)` under a native binary,
 /// `crypto.getRandomValues` under a JavaScript one. It does not reproduce. A
-/// test that needs the same octets twice binds `core/host/testing`'s
+/// test that needs the same octets twice binds `platform/effect/testing`'s
 /// `entropy()`.
 ///
 /// A negative `count` aborts, and so does a platform that cannot answer. Neither
@@ -863,11 +863,11 @@ let TAG_BYTES: Int = 16;
 /// ```buri run
 /// from "core/bytes" import * as bytes;
 /// from "core/crypto" import * as crypto;
-/// from "core/effect" import { Allocator, Entropy, Stdout };
-/// from "core/host" import * as host;
 /// from "core/io" import * as io;
+/// from "node" import { NodeHost };
+/// from "platform/effect" import { Allocator, Entropy, Stdout };
 ///
-/// export fn main(): Result<(), Str> {
+/// export fn main(host: NodeHost): Result<(), Str> {
 ///     let ctx = context {
 ///         Allocator: host.alloc,
 ///         Entropy: host.entropy,
@@ -955,7 +955,7 @@ export struct P256PublicKey([U8]);
 ///
 /// ```buri
 /// from "core/crypto" import * as crypto;
-/// from "core/effect" import { Allocator };
+/// from "platform/effect" import { Allocator };
 ///
 /// export fn rfcKey<C: Allocator>(ctx: C): Result<crypto.P256PublicKey, Str> {
 ///     crypto.p256PublicKeyFromJwk(
@@ -1049,8 +1049,8 @@ export fn p256PublicKeyFromSpki<C: Allocator>(
 /// ```buri
 /// from "core/bytes" import * as bytes;
 /// from "core/crypto" import * as crypto;
-/// from "core/effect" import { Allocator };
 /// from "core/str" import * as str;
+/// from "platform/effect" import { Allocator };
 ///
 /// export fn checks<C: Allocator>(ctx: C, key: crypto.P256PublicKey, jwt: Str): Bool {
 ///     let parts = jwt.split(ctx, ".");
@@ -1089,15 +1089,15 @@ export fn ed25519PublicKeyFromRaw(raw: [U8]): Result<Ed25519PublicKey, Str> {
 /// ```buri run
 /// from "core/bytes" import * as bytes;
 /// from "core/crypto" import * as crypto;
-/// from "core/effect" import { Allocator, Stdout };
-/// from "core/host" import * as host;
 /// from "core/io" import * as io;
+/// from "node" import { NodeHost };
+/// from "platform/effect" import { Allocator, Stdout };
 ///
 /// fn hex<C: Allocator>(ctx: C, text: Str): [U8] {
 ///     bytes.fromHex(ctx, text).withDefault([])
 /// }
 ///
-/// export fn main(): Result<(), Str> {
+/// export fn main(host: NodeHost): Result<(), Str> {
 ///     let ctx = context {
 ///         Allocator: host.alloc,
 ///         Stdout: host.stdout,

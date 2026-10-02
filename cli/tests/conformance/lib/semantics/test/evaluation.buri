@@ -6,14 +6,14 @@
 // `captured` read back. Specified evaluation order is what makes effect
 // sequencing meaningful (SPEC 8.2), so the transcript is the observation.
 
-from "core/effect" import { Allocator, Clock, Stdout };
 from "core/fs" import * as fs;
 from "core/fs" import { FileSystemRead };
-from "core/host/testing" import { alloc, clock, fs, stdout };
 from "core/list" import * as list;
 from "core/path" import * as path;
 from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
+from "platform/effect" import { Allocator, Clock, Stdout };
+from "platform/effect/testing" import { alloc, clock, fs, stdout };
 from "//lib/semantics" import {
     applyTwice, callWith, compose, composeThrice, defaulted, defaultedResult, fourStrs,
     hypotenuse, lambdaTry, lambdaTryResult, Level, makeAdder, makeScaler, Meters,

@@ -1,8 +1,8 @@
-from "core/effect" import { Allocator, Environment, Stdout };
-from "core/host" import * as host;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
 from "//libs/convert" import { run };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Environment: host.env,

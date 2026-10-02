@@ -3,14 +3,14 @@
 // Whether a control is failing changes while the page is open, so it is a
 // `Prop<Bool>` like every other value that varies. A bare `true` is the one
 // that never changes, and it is written `.Const(true)`.
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/signal" import { signal };
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let typed = signal(ctx, "");
   ui.mount(ctx, ui.field({ label: .Const("Email"), kind: .Email, value: typed, styles: [], isInvalid: .Some(true) }), [])

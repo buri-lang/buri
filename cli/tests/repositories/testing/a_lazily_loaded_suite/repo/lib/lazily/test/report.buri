@@ -1,6 +1,6 @@
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "//lib/lazily" import { render };
 
 test "a lazily loaded builder answers what it always did" {

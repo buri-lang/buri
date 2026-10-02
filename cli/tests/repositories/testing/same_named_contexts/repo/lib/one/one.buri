@@ -1,4 +1,4 @@
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 
 /// A list only an allocator can build, so a caller has to hand this one a
 /// context and the context it hands over is observable in the artifact.

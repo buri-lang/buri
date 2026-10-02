@@ -1,9 +1,0 @@
-error: expected `;`, found `@` [unexpected-token]
-  --> lib/recovery_insert_stray_brace_app_33ddc5/main.buri:19:30
-   |
-19 |     let ctx = "not a context"@ ;
-   |                              ^
-   |
-   = expected: `;`
-   = actual: `@`
-   = fix: write `;` here

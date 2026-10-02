@@ -8,10 +8,10 @@
 //    JavaScript stack. Every depth here is past what an engine gives a
 //    recursive function, so the failure is a crash, not a slow test.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "//lib/codegen" import {
     adders, addersEven, allBelow, countDownAnd, countDownOr, evenAnd, hexDigitsFrom,
     lengthNever, pairs, scalers, walkSkipping,

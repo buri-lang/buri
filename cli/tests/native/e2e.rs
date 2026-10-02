@@ -165,14 +165,14 @@ macro_rules! unless_ready {
 /// process is provably still running.
 fn announcing_server() -> String {
     String::from(
-        r#"from "core/effect" import { Allocator, Clock, Listen, Stdout, Tasks };
-from "core/host" import * as host;
+        r#"from "platform/effect" import { Allocator, Clock, Listen, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/time" import * as time;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Clock: host.clock,
@@ -222,14 +222,14 @@ export fn main(): Result<(), Str> {
 fn tcp_client() -> String {
     String::from(
         r#"from "core/bytes" import * as bytes;
-from "core/effect" import { Allocator, Environment, Stdout, Tcp };
+from "platform/effect" import { Allocator, Environment, Stdout, Tcp };
 from "core/env" import * as env;
-from "core/host" import * as host;
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/tcp" import * as tcp;
 from "core/net/tcp" import { Stream };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Environment: host.env,
@@ -302,14 +302,14 @@ fn said<C: Allocator + Stdout + Tcp>(ctx: C, stream: Stream, answer: [U8]): Resu
 /// sentence naming the switch that would have said yes.
 fn quic_server() -> String {
     String::from(
-        r#"from "core/effect" import { Allocator, Listen, Stdout };
-from "core/host" import * as host;
+        r#"from "platform/effect" import { Allocator, Listen, Stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/time" import * as time;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Listen: host.listen,
@@ -343,14 +343,14 @@ export fn main(): Result<(), Str> {
 /// any other**.
 fn tls_running_server(certificate: &std::path::Path, key: &std::path::Path) -> String {
     format!(
-        r#"from "core/effect" import {{ Allocator, Listen, Stdout, Tasks }};
-from "core/host" import * as host;
+        r#"from "platform/effect" import {{ Allocator, Listen, Stdout, Tasks }};
+from "native" import {{ NativeHost }};
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/time" import * as time;
 
-export fn main(): Result<(), Str> {{
+export fn main(host: NativeHost): Result<(), Str> {{
     let ctx = context {{
         Allocator: host.alloc,
         Listen: host.listen,
@@ -394,15 +394,15 @@ export fn main(): Result<(), Str> {{
 /// once the socket closes the next `listenAccept` is `.Closed`.
 fn path_scoped_socket_server() -> String {
     String::from(
-        r#"from "core/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
-from "core/host" import * as host;
+        r#"from "platform/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/str" import * as str;
 from "core/time" import * as time;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Listen: host.listen,
@@ -461,15 +461,15 @@ export fn main(): Result<(), Str> {
 /// do WebSockets answers is its own business.
 fn no_hooks_server() -> String {
     String::from(
-        r#"from "core/effect" import { Allocator, Listen, Stdout, Tasks };
-from "core/host" import * as host;
+        r#"from "platform/effect" import { Allocator, Listen, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/str" import * as str;
 from "core/time" import * as time;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Listen: host.listen,
@@ -523,8 +523,8 @@ export fn main(): Result<(), Str> {
 ///   socket ending and not a server falling over.
 fn overflowing_socket_server(flood: usize) -> String {
     format!(
-        r#"from "core/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
-from "core/host" import * as host;
+        r#"from "platform/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
+from "native" import {{ NativeHost }};
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
@@ -540,7 +540,7 @@ fn flood<C: Sockets>(ctx: C, socket: Socket, left: Int): Int {{
     }}
 }}
 
-export fn main(): Result<(), Str> {{
+export fn main(host: NativeHost): Result<(), Str> {{
     let ctx = context {{
         Allocator: host.alloc,
         Listen: host.listen,
@@ -606,8 +606,8 @@ export fn main(): Result<(), Str> {{
 /// that cannot reach runner-side state can record nothing at all.
 fn both_worlds_server() -> String {
     String::from(
-        r#"from "core/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
-from "core/host" import * as host;
+        r#"from "platform/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
@@ -653,7 +653,7 @@ impl<C: Allocator + Stdout> Sockets for Paper<C> {
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Listen: host.listen,
@@ -1578,15 +1578,15 @@ mod read_loop_tests {
 /// that a program can leave the filesystem as it found it.
 fn host_surface() -> String {
     String::from(
-        r#"from "core/effect" import { Allocator, Environment, Stdout };
+        r#"from "platform/effect" import { Allocator, Environment, Stdout };
 from "core/env" import * as env;
 from "core/fs" import { FileSystemRead, FileSystemWrite };
 from "core/fs" import * as fs;
-from "core/host" import * as host;
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/path" import * as filepath;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Environment: host.env,
@@ -1639,10 +1639,10 @@ export fn main(): Result<(), Str> {
 /// nothing to flush for.
 fn read_only_surface() -> String {
     String::from(
-        r#"from "core/effect" import { Allocator, Stdout };
+        r#"from "platform/effect" import { Allocator, Stdout };
 from "core/fs" import { FileSystemRead, FileSystemWrite, Path };
 from "core/fs" import * as fs;
-from "core/host" import * as host;
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/path" import * as filepath;
 from "core/str" import * as str;
@@ -1657,7 +1657,7 @@ fn describe<C: Allocator + FileSystemRead>(ctx: C, at: Path): Str {
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         FileSystemRead: host.fs,
@@ -1827,7 +1827,7 @@ fn a_native_binary_speaks_over_a_socket_it_dialled() {
             // Both halves of the answer, so the read loop ran.
             "got pong",
             // And the stream is gone once it is closed: a handle that names
-            // nothing is one already closed, which `core/effect` promises and
+            // nothing is one already closed, which `platform/effect` promises and
             // `IoError.NotFound` is how it says so.
             "after close .NotFound",
         ],
@@ -1898,11 +1898,11 @@ fn a_native_binary_touches_files_and_reads_its_own_arguments() {
 /// `EntryKind` exists for, and a walk that followed one would not come back.
 fn real_tree() -> String {
     String::from(
-        r#"from "core/effect" import { Allocator, Entropy, Environment, IoError, Stdout };
+        r#"from "platform/effect" import { Allocator, Entropy, Environment, IoError, Stdout };
 from "core/env" import * as env;
 from "core/fs" import { EntryKind, FileSystemRead, FileSystemWrite };
 from "core/fs" import * as fs;
-from "core/host" import * as host;
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/path" import * as path;
 from "core/path" import { Path };
@@ -2013,7 +2013,7 @@ fn harnessMade<C: Allocator + Environment + FileSystemRead + FileSystemWrite + S
         .mapErr(fn(_e) => "print")
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Entropy: host.entropy,
@@ -2377,10 +2377,10 @@ fn permissions(mode: u32) -> std::fs::Permissions {
 fn child_processes() -> String {
     String::from(
         r#"from "core/bytes" import * as bytes;
-from "core/effect" import { Allocator, Environment, IoError, Stdin, Stdout };
+from "platform/effect" import { Allocator, Environment, IoError, Stdin, Stdout };
 from "core/env" import * as env;
 from "core/fs" import { FileSystemRead };
-from "core/host" import * as host;
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/path" import { Path };
@@ -2456,7 +2456,7 @@ fn lookups<C: Allocator + Environment + FileSystemRead + Stdout>(ctx: C): Result
         .mapErr(fn(_e) => "print")
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Environment: host.env,
@@ -2822,8 +2822,8 @@ fn heap_checked(name: &str, source: &str) -> (Vec<String>, String) {
 fn replaced_fields() -> String {
     String::from(
         r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 struct Basket {
@@ -2831,7 +2831,7 @@ struct Basket {
     export items: [Str],
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
@@ -2883,8 +2883,8 @@ fn a_functional_update_releases_the_field_it_replaced() {
 fn early_return() -> String {
     String::from(
         r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 struct Frame {
@@ -2901,7 +2901,7 @@ fn step(frame: Frame): Result<(Int, Frame), Str> {
     .Ok((next, frame))
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
@@ -2955,8 +2955,8 @@ fn actor_payloads() -> String {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, SendError, Stepped };
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 enum Note {
@@ -2989,7 +2989,7 @@ fn size(answered: Result<Noted, SendError>): Int {
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
@@ -3100,8 +3100,8 @@ fn many_senders() -> String {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
-from "core/effect" import { Allocator, Clock, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Clock, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 from "core/time" import * as time;
@@ -3143,7 +3143,7 @@ fn sending<C: Allocator + Clock + Tasks>(
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Clock: host.clock,
@@ -3204,8 +3204,8 @@ fn reentering_senders() -> String {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, SendError, Stepped };
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 
@@ -3247,7 +3247,7 @@ fn shown<C: Stdout>(ctx: C, label: Str, answer: Result<Reentered, SendError>): (
     printed.ignore()
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
@@ -3336,8 +3336,8 @@ fn beside_the_body() -> String {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
-from "core/effect" import { Allocator, Clock, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Clock, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 from "core/time" import * as time;
@@ -3390,7 +3390,7 @@ fn waiting<C: Allocator + Clock + Stdout + Tasks>(
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Clock: host.clock,
@@ -3472,8 +3472,8 @@ from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
 from "core/alloc" import * as alloc;
 from "core/alloc" import { Scoped };
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 from "core/tasks" import * as tasks;
@@ -3513,7 +3513,7 @@ fn built<C: Allocator>(ctx: C): [Str] {
     [0, 1, 2, 3, 4, 5, 6, 7].mapCtx(ctx, fn(k, n) => big(k, str.format(k, "${n}")))
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
@@ -3581,8 +3581,8 @@ fn an_actor_keeps_what_fanned_out_steps_posted_inside_a_scope() {
 fn chained_projection() -> String {
     String::from(
         r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 struct Inner { lines: [Str] }
@@ -3597,7 +3597,7 @@ fn outer<C: Allocator>(ctx: C, n: Int): Outer {
 
 fn identity<T>(value: T): T { value }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
     let held = identity(outer(ctx, 3)).inner.lines.length();
     let joined = identity(outer(ctx, 4)).inner.lines.join(ctx, ",").length();
@@ -3619,8 +3619,8 @@ export fn main(): Result<(), Str> {
 fn defaulted_projection() -> String {
     String::from(
         r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 struct Wrapper { octets: [U8] }
@@ -3633,7 +3633,7 @@ fn size(held: Option<Wrapper>, fallback: Wrapper): Int {
     held.withDefault(fallback).octets.length()
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
     let present = size(
         .Some(Wrapper { octets: payload(ctx, 10) }),
@@ -3736,8 +3736,8 @@ fn heap_is_clean(name: &str, source: &str, lines: &[&str]) {
 fn early_return_out_of_an_arm() -> String {
     String::from(
         r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 fn refused(at: Int): Result<Int, Str> {
@@ -3760,7 +3760,7 @@ fn through_an_arm<C: Allocator>(ctx: C, seed: Str, at: Int): Result<Int, Str> {
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
     let wrote = through_an_arm(ctx, "a", 0);
     let failed = through_an_arm(ctx, "b", 7);
@@ -3776,12 +3776,12 @@ export fn main(): Result<(), Str> {
 /// The pattern binds nothing, so there was no name for the "bound and never
 /// read" drop to hang on and the initializer's value had no owner at all. It is
 /// the shape a discarded `assert.ok(…)` in a test source is written in, which
-/// is how nineteen of `core/host/testing`'s answers went missing.
+/// is how nineteen of `platform/effect/testing`'s answers went missing.
 fn discarded_bindings() -> String {
     String::from(
         r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 fn made<C: Allocator>(ctx: C, seed: Str): Str {
@@ -3797,7 +3797,7 @@ fn taken(r: Result<Str, Str>, fallback: Str): Str {
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
     // Discarded outright.
     let _ = made(ctx, "a");
@@ -3872,15 +3872,15 @@ fn echoing_socket_server() -> String {
 /// reconnect row needs two of.
 fn echoing_socket_server_for(sockets: u32) -> String {
     format!(
-        r#"from "core/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
-from "core/host" import * as host;
+        r#"from "platform/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
+from "native" import {{ NativeHost }};
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/str" import * as str;
 from "core/time" import * as time;
 
-export fn main(): Result<(), Str> {{
+export fn main(host: NativeHost): Result<(), Str> {{
     let ctx = context {{
         Allocator: host.alloc,
         Listen: host.listen,
@@ -3949,15 +3949,15 @@ export fn main(): Result<(), Str> {{
 /// one to hold a socket.
 fn dialling_client() -> String {
     String::from(
-        r#"from "core/effect" import { Allocator, Environment, Sockets, Stdout, WebSocketClient };
+        r#"from "platform/effect" import { Allocator, Environment, Sockets, Stdout, WebSocketClient };
 from "core/env" import * as env;
-from "core/host" import * as host;
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/websocket" import * as websocket;
 from "core/net/websocket" import { Client };
 from "core/str" import * as str;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Environment: host.env,
@@ -4264,9 +4264,9 @@ fn a_client_handed_a_signature_for_another_handshake_refuses_it() {
 /// could know.
 fn reconnecting_client() -> String {
     String::from(
-        r#"from "core/effect" import { Allocator, Clock, Environment, Sockets, Stdout, WebSocketClient };
+        r#"from "platform/effect" import { Allocator, Clock, Environment, Sockets, Stdout, WebSocketClient };
 from "core/env" import * as env;
-from "core/host" import * as host;
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/server" import { CloseReason };
 from "core/net/websocket" import * as websocket;
@@ -4326,7 +4326,7 @@ fn following<C: Allocator + Clock + Sockets + Stdout + WebSocketClient>(
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Clock: host.clock,
@@ -4425,9 +4425,9 @@ fn a_client_reconnects_by_calling_connect_again() {
 /// and this prints the reason the program was handed for it.
 fn rounds_client() -> String {
     String::from(
-        r#"from "core/effect" import { Allocator, Environment, Sockets, Stdout, WebSocketClient };
+        r#"from "platform/effect" import { Allocator, Environment, Sockets, Stdout, WebSocketClient };
 from "core/env" import * as env;
-from "core/host" import * as host;
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/websocket" import * as websocket;
 from "core/net/websocket" import { Client };
@@ -4458,7 +4458,7 @@ fn dialling<C: Allocator + Sockets + Stdout + WebSocketClient>(ctx: C, url: Str,
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Environment: host.env,
@@ -4550,9 +4550,9 @@ fn a_client_reads_every_close_a_far_side_can_send() {
 /// two — is a different header on each side of the wire.
 fn sizing_client() -> String {
     String::from(
-        r#"from "core/effect" import { Allocator, Environment, Sockets, Stdout, WebSocketClient };
+        r#"from "platform/effect" import { Allocator, Environment, Sockets, Stdout, WebSocketClient };
 from "core/env" import * as env;
-from "core/host" import * as host;
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/net/websocket" import * as websocket;
@@ -4592,7 +4592,7 @@ fn feed<C: Allocator + Sockets + Stdout + WebSocketClient>(url: Str, large: Int)
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Environment: host.env,
@@ -4783,15 +4783,15 @@ fn a_server_that_answers_nothing_at_all_is_a_socket_that_never_opened() {
 /// catch an abort.
 fn aborting_client() -> String {
     String::from(
-        r#"from "core/effect" import { Allocator, Environment, Sockets, Stdout, WebSocketClient };
+        r#"from "platform/effect" import { Allocator, Environment, Sockets, Stdout, WebSocketClient };
 from "core/env" import * as env;
-from "core/host" import * as host;
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/websocket" import * as websocket;
 from "core/net/websocket" import { Client };
 from "core/str" import * as str;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Environment: host.env,
@@ -4880,15 +4880,15 @@ fn a_hook_that_aborts_stops_the_program_rather_than_the_socket() {
 /// what a user acts on, so the rows below read it.
 fn fetching_client() -> String {
     String::from(
-        r#"from "core/effect" import { Allocator, Environment, Network, Stdout };
+        r#"from "platform/effect" import { Allocator, Environment, Network, Stdout };
 from "core/env" import * as env;
-from "core/host" import * as host;
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/http" import { NetError, Response };
 from "core/str" import * as str;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Environment: host.env,

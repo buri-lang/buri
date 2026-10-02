@@ -14,8 +14,8 @@
 //! imports, and answers only what it found. Formatting is in-tree.
 
 from "core/codegen" import { Request };
-from "core/effect" import { Allocator };
 from "core/tool" import { Checked, CheckRequest, Generated, GenerateRequest };
+from "platform/effect" import { Allocator };
 from "std/codegen/proto" import * as proto;
 from "std/codegen/proto/schema" import * as schema;
 

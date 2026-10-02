@@ -1,4 +1,4 @@
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 
 derive Equal, Show for Cents;
 /// A whole number of cents. The field is not exported, so arithmetic on the

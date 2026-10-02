@@ -1,0 +1,17 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_swap_adjacent_brace_app_ac6f4b/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: expected `let`, found `ctx` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_ac6f4b/main.buri:15:5
+   |
+15 |     ctx let = context {
+   |     ^^^
+   |
+   = expected: `let`
+   = actual: `ctx`
+   = fix: write `let` first: `let ctx`

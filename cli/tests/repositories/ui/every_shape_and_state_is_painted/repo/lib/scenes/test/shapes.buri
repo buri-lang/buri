@@ -2,8 +2,8 @@
 // a hundred boxes deep, a thousand boxes wide, and three lists that differ
 // only by what marks their items.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };

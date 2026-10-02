@@ -23,9 +23,9 @@
 // captured environment, and a recursive type whose field is behind a box.
 
 from "core/alloc" import * as alloc;
-from "core/effect" import { Allocator };
-from "core/host/testing" import * as testing;
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import * as testing;
 
 derive Equal, Show for Labelled;
 // -----------------------------------------------------------------------------

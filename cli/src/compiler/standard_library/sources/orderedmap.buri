@@ -36,12 +36,12 @@
 //! have the same tree, because the shape follows how the map was built.
 //!
 //! ```buri run
-//! from "core/effect" import { Allocator, Stdout };
-//! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/orderedmap" import * as orderedmap;
+//! from "node" import { NodeHost };
+//! from "platform/effect" import { Allocator, Stdout };
 //!
-//! export fn main(): Result<(), Str> {
+//! export fn main(host: NodeHost): Result<(), Str> {
 //!     let ctx = context {
 //!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
@@ -60,8 +60,8 @@
 //! alice bob carol: 2 in [alice, carol)
 //! ```
 
-from "core/effect" import { Allocator };
 from "core/list" import * as list;
+from "platform/effect" import { Allocator };
 
 /// The most entries a node may hold: minimum degree four, so `2 * 4 - 1`.
 /// The module comment says why four.
@@ -218,12 +218,12 @@ fn runFrom<K: Ordered, V, W, C: Allocator>(
 /// index of the first entry whose key is not greater than the one before it.
 ///
 /// ```buri run
-/// from "core/effect" import { Allocator, Stdout };
-/// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/orderedmap" import * as orderedmap;
+/// from "node" import { NodeHost };
+/// from "platform/effect" import { Allocator, Stdout };
 ///
-/// export fn main(): Result<(), Str> {
+/// export fn main(host: NodeHost): Result<(), Str> {
 ///     let ctx = context {
 ///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
@@ -1082,12 +1082,12 @@ impl<K: Ordered, V> OrderedMap<K, V> {
     /// empty ones.
     ///
     /// ```buri run
-    /// from "core/effect" import { Allocator, Stdout };
-    /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/orderedmap" import * as orderedmap;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Allocator, Stdout };
     ///
-    /// export fn main(): Result<(), Str> {
+    /// export fn main(host: NodeHost): Result<(), Str> {
     ///     let ctx = context {
     ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
@@ -1137,12 +1137,12 @@ impl<K: Ordered, V> OrderedMap<K, V> {
     /// every step.
     ///
     /// ```buri run
-    /// from "core/effect" import { Allocator, Stdout };
-    /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/orderedmap" import * as orderedmap;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Allocator, Stdout };
     ///
-    /// export fn main(): Result<(), Str> {
+    /// export fn main(host: NodeHost): Result<(), Str> {
     ///     let ctx = context {
     ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
@@ -1191,12 +1191,12 @@ impl<K: Ordered, V> OrderedMap<K, V> {
     /// only one. O(log n), and pure.
     ///
     /// ```buri run
-    /// from "core/effect" import { Allocator, Stdout };
-    /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/orderedmap" import * as orderedmap;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Allocator, Stdout };
     ///
-    /// export fn main(): Result<(), Str> {
+    /// export fn main(host: NodeHost): Result<(), Str> {
     ///     let ctx = context {
     ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,

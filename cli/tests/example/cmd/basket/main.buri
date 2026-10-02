@@ -10,11 +10,11 @@
 // `host.fs` does not compile for this one. The error lands on the line that
 // asked, at build time.
 
-from "core/effect" import { Allocator, Network };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Network };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/theme" import * as theme;
+from "web" import { WebHost };
 from "//cmd/basket/state.buri" import { newState };
 from "//cmd/basket/theme.buri" import { appThemed, day, kitTheme, night };
 from "//cmd/basket/view.buri" import { page };
@@ -45,7 +45,7 @@ from "//cmd/basket/view.buri" export { page };
 /// request blocked the thread that asked, and a page granted a callback-shaped
 /// `Fetch` in its place; a suspending call blocks nothing now, so this line is
 /// the same one //cmd/web writes.
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Network: host.net,

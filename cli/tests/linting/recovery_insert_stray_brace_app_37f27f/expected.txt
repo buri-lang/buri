@@ -1,9 +1,0 @@
-error: expected `else`, found `extra` [unexpected-token]
-  --> lib/recovery_insert_stray_brace_app_37f27f/main.buri:15:19
-   |
-15 |                 } extra else {
-   |                   ^^^^^
-   |
-   = expected: `else`
-   = actual: `extra`
-   = fix: delete it — the `else` branch follows

@@ -1,6 +1,6 @@
-from "core/effect" import { Allocator };
 from "core/fs" import { FileSystemWrite };
-from "core/host/testing" import { alloc, fs as disk };
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc, fs as disk };
 
 /// A context that can allocate and write, and cannot read. `//lib/two` exports
 /// one under this same name binding a different set — two declarations, two

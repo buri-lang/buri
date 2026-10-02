@@ -1,5 +1,7 @@
 //! Stress shape: one very wide enum and one very wide match.
 
+from "node" import { NodeHost };
+
 export enum Wide {
     V0(Int),
     V1(Int),
@@ -998,6 +1000,6 @@ export fn classify(w: Wide): Int {
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
     if (classify(.V0(1)) == 0) { .Err("zero") } else { .Ok(()) }
 }

@@ -1,12 +1,13 @@
-//! core/host/testing — the test runner's platform, one double per effect.
+//! platform/effect/testing — the effects' test implementations, one double per
+//! effect.
 //!
-//! Only the module that exports `main` may import `core/host`. This is the same
-//! surface for a test source, and the `testing` segment in the path is the whole
-//! of that rule (SPEC 4.1.1).
+//! A program's entry receives the production implementations as its host's
+//! fields. A test source binds these instead, and the `testing` segment in the
+//! path is what keeps them out of everything else (SPEC 4.1.1).
 //!
-//! Every name here is `core/host`'s name — `alloc`, `stdout`, `stderr`,
+//! Every name here is a host field's name — `alloc`, `stdout`, `stderr`,
 //! `stdin`, `fs`, `net`, `clock`, `rand`, `entropy`, `env`, `proc`, `sockets` —
-//! but **called** rather than referred to. `core/host`'s `clock` is one clock
+//! but **called** rather than referred to. The host's `clock` is one clock
 //! because a process has one. `clock()` is a fresh one every call, so what one
 //! test does to it is invisible to the next.
 //!
@@ -107,21 +108,15 @@
 //!
 //! A type's methods are one map keyed by name, so the reader and the builder
 //! cannot both be `arguments`. The reader is the one that takes the name:
-//! `arguments(self): [Str]` on `core/effect`'s `Environment`, the same name `core/env`
+//! `arguments(self): [Str]` on `platform/effect`'s `Environment`, the same name `core/env`
 //! spells. That leaves `TestEnvironment.withArguments([Str])` as the builder, which is
 //! how the rest of this module names a method that answers a **new** double.
-
-from "core/effect" import {
-    Allocator, Clock, Connected, Entropy, Environment, Frame, Header, IoError, Method,
-    NetError, Network, Process, Random, Received, Region, Request, Response, ServeError,
-    Sockets, Stderr, Stdin, Stdout, Tasks, Tcp, WebSocketClient,
-};
 
 // The filesystem's two effects, declared in `core/fs` because their methods
 // name a `Path`.
 from "core/fs" import { FileSystemRead, FileSystemWrite, Metadata };
 
-// The one module above `core/effect` this one imports, and it is the surface
+// The one module above `platform/effect` this one imports, and it is the surface
 // rather than the authority: `Socket` and `Message` are inert data that
 // `core/net/server` declares.
 from "core/net/server" import { Message, Socket };
@@ -130,13 +125,18 @@ from "core/path" import { Path };
 // And `Spawn`, which `core/proc` declares for the same reason: it answers that
 // module's own `Output`.
 from "core/process" import { Output, Spawn };
+from "platform/effect" import {
+    Allocator, Clock, Connected, Entropy, Environment, Frame, Header, IoError, Method,
+    NetError, Network, Process, Random, Received, Region, Request, Response, ServeError,
+    Sockets, Stderr, Stdin, Stdout, Tasks, Tcp, WebSocketClient,
+};
 
 // --- Allocator --------------------------------------------------------------------
 
 /// Real, from a per-test arena the runner reclaims.
 ///
 /// The one double with no state at all. The charge comes from the *types*
-/// (`core/effect`'s `Allocator`), so `allocate` answers the byte count it was asked
+/// (`platform/effect`'s `Allocator`), so `allocate` answers the byte count it was asked
 /// for and the handle names nothing.
 export struct TestAllocator(I64);
 
@@ -193,7 +193,7 @@ impl TestStderr {
 /// End of input, until a test says otherwise: `readLine` and `readBytes` both
 /// answer `.None`.
 ///
-/// `core/host`'s `stdin` is the process's, which a test must never read: a suite
+/// The host's `stdin` is the process's, which a test must never read: a suite
 /// that blocked on a pipe nobody was writing to would hang rather than fail.
 export struct TestStdin(I64);
 
@@ -570,7 +570,7 @@ fn describeFsPlan(handle: I64, plan: [FsFault], i: Int): () {
     }
 }
 
-/// An `IoError`'s index in its own declaration order, which `core/effect` states
+/// An `IoError`'s index in its own declaration order, which `platform/effect` states
 /// is the ABI — `methodCode`'s rule, for the other enum this module hands over.
 fn ioCode(error: IoError): Int {
     match (error) {
@@ -767,7 +767,7 @@ fn addNetFault(handle: I64, url: Str): ();
 ///
 /// The request arrives in pieces: a `Method` is its variant index by the time the
 /// runner sees it (`methodCode`), and the runner puts the five values back
-/// together on the way out. They are the five `core/host`'s real `fetch` hands
+/// together on the way out. They are the five the host's real `fetch` hands
 /// over, in the same order.
 fn recordFetch(
     handle: I64,
@@ -778,7 +778,7 @@ fn recordFetch(
     timeoutMillis: Int,
 ): ();
 
-/// A `Method`'s index in its own declaration order, which `core/effect` states is
+/// A `Method`'s index in its own declaration order, which `platform/effect` states is
 /// the ABI. This is the one place in this module that spells it out.
 fn methodCode(method: Method): Int {
     match (method) {
@@ -979,9 +979,9 @@ impl TestRandom {
 /// Seeded, like `rand()`, and that is the **only** thing in this language allowed
 /// to answer `Entropy` predictably.
 ///
-/// `core/effect`'s `Entropy` promises octets nobody can guess, and a test needs
+/// `platform/effect`'s `Entropy` promises octets nobody can guess, and a test needs
 /// the opposite: the same octets every run. A test source is the only place
-/// `entropy()` can be named, and `core/host`'s `entropy` is the only thing a
+/// `entropy()` can be named, and the host's `entropy` is the only thing a
 /// program can name.
 ///
 /// The sequence is `rand()`'s, byte for byte and seed for seed, and it is the
@@ -1248,7 +1248,7 @@ impl TestSockets {
 /// two payload fields of which a framing names one.
 ///
 /// Private, because `sent` is the surface and this is only the crossing. `Frame`
-/// is `core/effect`'s, and its `.Closed` is unreachable here, because only the two
+/// is `platform/effect`'s, and its `.Closed` is unreachable here, because only the two
 /// sends ever write this log.
 struct Sent {
     socket: Int,
@@ -1293,10 +1293,10 @@ fn socketsIsOpen(handle: I64, socket: Int): Bool;
 /// `self` (`effect-param-not-ctx`).
 ///
 /// ```buri ignore why="a test source is the one place a `test` block is legal, and this file is not one"
-/// from "core/effect" import { Sockets, WebSocketClient };
-/// from "core/host/testing" import * as testing;
 /// from "core/net/websocket" import * as websocket;
 /// from "core/testing/assert" import * as assert;
+/// from "platform/effect" import { Sockets, WebSocketClient };
+/// from "platform/effect/testing" import * as testing;
 ///
 /// test "a client counts what it was pushed" {
 ///     let pushes = testing.sockets();
@@ -1485,10 +1485,10 @@ export fn fetch(request: Request): NetCall {
 /// A connection with nothing behind it: reads come off a script a test wrote,
 /// writes are recorded, and no socket is opened anywhere.
 ///
-/// ```buri ignore why="a test source is the one place `core/host/testing` may be imported, and this file is not one"
-/// from "core/effect" import { Allocator, Tcp };
-/// from "core/host/testing" import { alloc, tcp };
+/// ```buri ignore why="a test source is the one place `platform/effect/testing` may be imported, and this file is not one"
 /// from "core/net/tcp" import * as stream;
+/// from "platform/effect" import { Allocator, Tcp };
+/// from "platform/effect/testing" import { alloc, tcp };
 ///
 /// export fn howMuchCameBack(): Int {
 ///     let peer = tcp().bytes([80, 79, 78, 71]);
@@ -1514,7 +1514,7 @@ export fn fetch(request: Request): NetCall {
 /// real effect answers when the far side has gone.
 ///
 /// **A handle this double did not mint, or one it has been told to close, is
-/// `.Err(.NotFound)`** — the same promise `core/effect` makes about the real
+/// `.Err(.NotFound)`** — the same promise `platform/effect` makes about the real
 /// one.
 export struct TestTcp(I64);
 

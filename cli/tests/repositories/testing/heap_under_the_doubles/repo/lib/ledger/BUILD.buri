@@ -1,4 +1,4 @@
-# A library and the suite that drives it through `core/host/testing`'s doubles.
+# A library and the suite that drives it through `platform/effect/testing`'s doubles.
 #
 # Nothing here names a platform: `buri test` runs the suite wherever the
 # invocation says, which on a toolchain with a native backend is a linked test

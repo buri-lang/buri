@@ -32,10 +32,10 @@
 
 from "core/bits" import * as bits;
 from "core/character" import * as character;
-from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/order" import { Equal, Order, Ordered, Show };
 from "core/str" import * as str;
+from "platform/effect" import { Allocator };
 
 derive Equal, Show for RangeError;
 /// The error a narrowing conversion returns. A conversion's return type says
@@ -466,8 +466,8 @@ export fn absoluteDifference(a: Int, b: Int): Int {
 /// nine.
 ///
 /// ```buri
-/// from "core/effect" import { Allocator };
 /// from "core/number" import * as number;
+/// from "platform/effect" import { Allocator };
 ///
 /// export fn binary<C: Allocator>(ctx: C, n: Int): Str {
 ///     number.toRadix(ctx, n, 2)

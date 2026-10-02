@@ -5,9 +5,9 @@
 // context" rests on. Its field is private, so the type is nameable everywhere
 // and constructible nowhere, and reading a signal outside a computation the
 // runtime started is not expressible rather than merely discouraged.
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "ui/effect" import { Scope, Ui, Watch };
 from "ui/signal" import { Signal, signal };
 
@@ -15,7 +15,7 @@ fn peek(n: Signal<Int>): Int {
   n.get(Scope(0))
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let n = signal(ctx, 1);
   let _ = peek(n);

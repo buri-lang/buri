@@ -1,0 +1,28 @@
+error: expected `Bool`, found `I64` [type-mismatch]
+  --> lib/recovery_swap_adjacent_paren_app_01b26d/main.buri:21:9
+   |
+21 |     if (left right <) { .Less } else if (left > right) { .Greater } else { .Equal }
+   |         ^^^^ an `if` condition is `Bool`
+   |
+   = expected: `Bool`
+   = actual: `I64`
+error: this `if` condition is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_paren_app_01b26d/main.buri:21:14
+   |
+21 |     if (left right <) { .Less } else if (left > right) { .Greater } else { .Equal }
+   |              ^^^^^
+   |
+  --> lib/recovery_swap_adjacent_paren_app_01b26d/main.buri:21:8
+   |
+21 |     if (left right <) { .Less } else if (left > right) { .Greater } else { .Equal }
+   |        ^ opened here
+   |
+   = fix: write `)` here
+warning: this is `order.bool`, written out [hand-rolled-comparator]
+  --> lib/recovery_swap_adjacent_paren_app_01b26d/main.buri:24:4
+   |
+24 | fn compareBools(left: Bool, right: Bool): Order {
+   |    ^^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ordered` impl both take
+   = fix: call `order.bool` with the two operands, and delete the chain

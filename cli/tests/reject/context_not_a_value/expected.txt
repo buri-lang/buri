@@ -1,3 +1,18 @@
+error: there is nothing named `host` in scope [unresolved-name]
+ --> cmd/context_not_a_value/main.buri:7:11
+  |
+7 |   Stdout: host.stdout,
+  |           ^^^^
+  |
+  = fix: declare `host`, or import it — a name is in scope only from this module's own declarations and its imports
+
+    Why
+    ───
+
+    There is no prelude and no ambient scope. A module's available names are the
+    ones it declares plus the ones its own imports name, which is what makes the
+    suggestion trustworthy.
+
 error: `Console` is a context; construct one by calling it [context-not-a-value]
   --> cmd/context_not_a_value/main.buri:11:22
    |

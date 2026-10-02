@@ -29,11 +29,11 @@
 
 from "core/buri/ast" import * as ast;
 from "core/codegen" import { Diagnostic, Request, Response };
-from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/orderedmap" import * as orderedmap;
 from "core/orderedmap" import { OrderedMap };
 from "core/str" import * as str;
+from "platform/effect" import { Allocator };
 from "std/codegen/proto/schema" import * as schema;
 
 // -----------------------------------------------------------------------------
@@ -2626,7 +2626,7 @@ fn foreignImports<C: Allocator>(ctx: C, used: OrderedMap<Str, Entry>): [ast.Item
 
 fn importItems<C: Allocator>(ctx: C, used: OrderedMap<Str, Entry>): [ast.Item] {
     [
-        namedImport(ctx, "core/effect", ["Allocator"]),
+        namedImport(ctx, "platform/effect", ["Allocator"]),
         namespaceImport("core/bytes", "bytes"),
         namedImport(ctx, "core/json", ["Json"]),
         namespaceImport("core/list", "list"),

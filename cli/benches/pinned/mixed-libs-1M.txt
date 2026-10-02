@@ -2,11 +2,11 @@
 # and the README beside this file.
 name = mixed-libs-1M
 profile = mixed-libs
-generator_revision = 7
-revision = 7
-recorded = 2026-08-31
+generator_revision = 8
+revision = 8
+recorded = 2026-10-02
 params = clusters=12 cross_cluster=8 lines=1000000
 lines = 1010491
-bytes = 35558131
+bytes = 36010795
 modules = 3472
-digest = 6e133b3b8c5f349c48a8036f77238819c274cfc6d3c19443327815156522e194
+digest = ba4e5a3410d40ae34eab02a549c8dc6266d970d02290b06619db13334226a616

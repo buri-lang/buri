@@ -10,15 +10,12 @@
 //!
 //! ```buri ignore why="an entry takes its platform's host, and this page is not one"
 //! export fn main(host: NativeHost): Result<(), Str> {
-//!     run(context { Allocator: host.alloc, Stdout: host.stdout })
+//!     run(context {
+//!         Allocator: host.alloc,
+//!         Stdout: host.stdout,
+//!     })
 //! }
 //! ```
-
-from "platform/effect" import {
-    Allocator, Clock, Connected, Entropy, Environment, Header, IoError, Listen,
-    Listener, NetError, Network, Process, Random, Received, Region, Request, Response,
-    Serve, ServeError, Sockets, Stderr, Stdin, Stdout, Tasks, Tcp, WebSocketClient,
-};
 
 // The filesystem's two effects are declared in `core/fs` rather than
 // `platform/effect`, because their methods name `Path`. See that module's header.
@@ -28,6 +25,11 @@ from "core/path" import { Path };
 // And `Spawn` is declared in `core/proc` for the same reason: it names that
 // module's own `Command` and `Output`.
 from "core/process" import { Output, Spawn };
+from "platform/effect" import {
+    Allocator, Clock, Connected, Entropy, Environment, Header, IoError, Listen,
+    Listener, NetError, Network, Process, Random, Received, Region, Request, Response,
+    Serve, ServeError, Sockets, Stderr, Stdin, Stdout, Tasks, Tcp, WebSocketClient,
+};
 
 // One `Request`, and it is `platform/effect`'s.
 from "ui/effect" import { Location, Scope, Ui, Watch };
@@ -66,7 +68,7 @@ impl Stdin for HostStdin {
 
 /// The platform's filesystem.
 ///
-/// **Granted on LINUX, MACOS and JS.** Not on WEB: a page has no filesystem.
+/// **On `NativeHost` and `NodeHost`.** Not on `WebHost`: a page has no filesystem.
 ///
 /// One value and two effects. A program that binds `FileSystemRead: host.fs` and no
 /// `FileSystemWrite` cannot write anywhere in its transitive call graph.
@@ -110,8 +112,8 @@ impl FileSystemWrite for HostFileSystem {
 
 /// HTTP and HTTPS requests out.
 ///
-/// **Granted on every platform.** On JavaScript it is the platform's own
-/// `fetch`. On LINUX and MACOS it is an HTTP/1.1 client, and two things differ:
+/// **On every host.** On JavaScript it is the platform's own `fetch`. On
+/// `native` it is an HTTP/1.1 client, and two things differ:
 ///
 /// * **Redirects come back as they are.** A `3xx` is the response, where
 ///   JavaScript follows it and answers the final one.
@@ -145,7 +147,7 @@ impl Random for HostRandom {
 /// The operating system's own generator, for the one thing `HostRandom` does not
 /// promise.
 ///
-/// **Granted on every platform.** The toolchain varies instead: a runtime archive
+/// **On every host.** The toolchain varies instead: a runtime archive
 /// built without the `crypto` feature answers `cryptography-not-available` before
 /// code generation, the way `net` does.
 export struct HostEntropy {}
@@ -156,7 +158,7 @@ impl Entropy for HostEntropy {
 
 /// The process's variables and arguments.
 ///
-/// **Granted on LINUX, MACOS, JS and CLOUDFLARE_WORKER.** A worker's variables
+/// **On `NativeHost` and `NodeHost`, and a worker's `core/host`.** A worker's variables
 /// are the string bindings in the `env` its platform calls it with — its vars
 /// and its secrets — and it has no arguments.
 export struct HostEnvironment {}
@@ -181,7 +183,7 @@ impl Process for HostProcess {
 
 /// Running another program.
 ///
-/// **Granted on LINUX, MACOS and JS.** Not on WEB or a worker: neither has a
+/// **On `NativeHost` and `NodeHost`.** Not on a page or a worker: neither has a
 /// process table to put a child in.
 ///
 /// It is a separate grant from `HostProcess` because starting a program is a
@@ -202,7 +204,7 @@ impl Spawn for HostSpawn {
 
 /// Running the program's own work concurrently.
 ///
-/// **Granted on every platform, WEB included.** A page's concurrency is its
+/// **On every host, `WebHost` included.** A page's concurrency is its
 /// event loop, and `core/tasks`'s `spawn` is how a program puts work on one:
 /// a socket that stays open, a retry, a timer. `effect Tasks` has the argument.
 ///
@@ -215,8 +217,8 @@ impl Tasks for HostTasks {
 
 /// Being a server rather than talking to one.
 ///
-/// **Granted on LINUX and MACOS**, together with `HostSockets`, and never on
-/// `JS` or `WEB`: a page does not hold a port open.
+/// **On `NativeHost` alone**, and never on a JavaScript host: a page does not
+/// hold a port open.
 ///
 /// The acceptor is `cli/runtime/net.rs`: an HTTP/1.1 server that reads one
 /// request at a time on one connection at a time, with a deadline on every
@@ -255,7 +257,7 @@ impl Listen for HostListen {
 
 /// A connection dialled out, with bytes each way and no protocol over them.
 ///
-/// **Granted on LINUX and MACOS**, beside `HostListen`: a page and a worker have
+/// **On `NativeHost` alone**, beside `HostListen`: a page and a worker have
 /// no sockets of their own. The client is `cli/runtime/tcp.rs`, and it is plain
 /// `std::net` — no TLS, so a program that needs it speaks it itself or uses
 /// `HostNetwork`.
@@ -273,7 +275,7 @@ impl Tcp for HostTcp {
 
 /// Pushing on a connection that is already open.
 ///
-/// **Granted on every platform**, because there are two ways to come by a socket
+/// **On every host**, because there are two ways to come by a socket
 /// and only one of them belongs to a server. `HostListen.listenUpgrade` mints
 /// one where a program can accept connections;
 /// `HostWebSocketClient.connectSocket` mints one anywhere, a page included. A
@@ -291,8 +293,8 @@ impl Sockets for HostSockets {
 
 /// Dialling somebody else's WebSocket.
 ///
-/// **Granted on every platform.** Holding a port open is a native program's
-/// authority; dialling out is not, and a page does it every day. On `WEB` both
+/// **On every host.** Holding a port open is a native program's
+/// authority; dialling out is not, and a page does it every day. On `web` both
 /// methods suspend without holding the event loop, which is the same thing that
 /// let `HostNetwork` onto a page.
 ///
@@ -341,7 +343,7 @@ impl Watch for HostWatch {
 /// The address bar. A page binds it to route on the path it was opened at and
 /// to re-route when the reader navigates.
 ///
-/// **Granted on WEB alone**, because nothing else has one. A worker reads the
+/// **On `WebHost` alone**, because nothing else has one. A worker reads the
 /// path off the request it was handed, which is `Request.path` and no authority
 /// at all.
 export struct HostLocation {}

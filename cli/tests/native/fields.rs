@@ -34,8 +34,8 @@ fn run_each(name: &str, source: &str) -> Vec<(&'static str, Ran)> {
 #[test]
 fn a_list_grown_through_a_dying_records_field_allocates_logarithmically() {
     let source = r#"
-from "core/effect" import { Allocator };
-from "core/host" import { stdout, alloc };
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
@@ -78,13 +78,13 @@ fn nested<C: Allocator>(ctx: C, o: Outer, i: Int): Outer {
   }
 }
 
-export fn main(): Result<(), Str> {
-  let out = write(alloc, Out { pieces: [], at: 0 }, 2000);
-  let p = prepare(alloc, Prep { tokens: [], docs: [], pending: 0 }, 2000);
-  let o = nested(alloc, Outer { inner: Out { pieces: [], at: 0 }, n: 0 }, 2000);
+export fn main(host: NativeHost): Result<(), Str> {
+  let out = write(host.alloc, Out { pieces: [], at: 0 }, 2000);
+  let p = prepare(host.alloc, Prep { tokens: [], docs: [], pending: 0 }, 2000);
+  let o = nested(host.alloc, Outer { inner: Out { pieces: [], at: 0 }, n: 0 }, 2000);
   let last = match (p.docs.last()) { .Some(d) => d, .None => -1 };
   let _ = io.println(
-    stdout,
+    host.stdout,
     "${out.pieces.length()} ${out.at} ${p.tokens.length()} ${last} ${o.inner.pieces.length()} ${o.n}",
   ).ignore();
   .Ok(())
@@ -109,8 +109,8 @@ export fn main(): Result<(), Str> {
 #[test]
 fn a_number_read_from_a_record_after_it_was_handed_on_does_not_make_its_list_copy() {
     let source = r#"
-from "core/effect" import { Allocator };
-from "core/host" import { stdout, alloc };
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
@@ -134,10 +134,10 @@ fn lines<C: Allocator>(ctx: C, out: Out, i: Int): Out {
   if (i == 0) { out } else { lines(ctx, line(ctx, out, "l"), i - 1) }
 }
 
-export fn main(): Result<(), Str> {
-  let out = lines(alloc, Out { pieces: [], at: 0, marks: [] }, 2000);
+export fn main(host: NativeHost): Result<(), Str> {
+  let out = lines(host.alloc, Out { pieces: [], at: 0, marks: [] }, 2000);
   let last = match (out.marks.last()) { .Some(m) => m, .None => -1 };
-  let _ = io.println(stdout, "${out.pieces.length()} ${out.at} ${out.marks.length()} ${last}").ignore();
+  let _ = io.println(host.stdout, "${out.pieces.length()} ${out.at} ${out.marks.length()} ${last}").ignore();
   .Ok(())
 }
 "#;
@@ -160,8 +160,8 @@ export fn main(): Result<(), Str> {
 #[test]
 fn a_record_handed_to_a_fold_as_its_seed_grows_in_place() {
     let source = r#"
-from "core/effect" import { Allocator };
-from "core/host" import { stdout, alloc };
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
@@ -184,9 +184,9 @@ fn blocks<C: Allocator>(ctx: C, out: Out, two: [Str], one: [Str], i: Int): Out {
   if (i == 0) { out } else { blocks(ctx, checked(ctx, block(ctx, out, two), one), two, one, i - 1) }
 }
 
-export fn main(): Result<(), Str> {
-  let out = blocks(alloc, Out { pieces: [], at: 0 }, ["a", "b"], ["c"], 1000);
-  let _ = io.println(stdout, "${out.pieces.length()} ${out.at}").ignore();
+export fn main(host: NativeHost): Result<(), Str> {
+  let out = blocks(host.alloc, Out { pieces: [], at: 0 }, ["a", "b"], ["c"], 1000);
+  let _ = io.println(host.stdout, "${out.pieces.length()} ${out.at}").ignore();
   .Ok(())
 }
 "#;
@@ -208,8 +208,8 @@ export fn main(): Result<(), Str> {
 #[test]
 fn a_field_grown_from_a_record_with_a_second_reader_leaves_the_old_value_alone() {
     let source = r#"
-from "core/effect" import { Allocator };
-from "core/host" import { stdout, alloc };
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -270,14 +270,14 @@ fn grown<C: Allocator>(ctx: C, xs: [Str]): [Str] {
   xs.concat(ctx, list.empty<Str>())
 }
 
-export fn main(): Result<(), Str> {
-  let ctx = alloc;
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
   let base = raw(ctx, raw(ctx, Out { pieces: [], at: 0 }, "a"), "b");
   let next = raw(ctx, base, "c");
   let again = raw(ctx, base, "d");
   let inline = Out { ..base, pieces: base.pieces.push(ctx, "e"), at: 9 };
   let _ = io.println(
-    stdout,
+    host.stdout,
     "kept ${show(ctx, base.pieces)} ${show(ctx, next.pieces)} ${show(ctx, again.pieces)} ${show(ctx, inline.pieces)} ${base.at}",
   ).ignore();
 
@@ -285,26 +285,26 @@ export fn main(): Result<(), Str> {
   let once = swap(ctx, pair);
   let thrice = swap(ctx, swap(ctx, swap(ctx, pair)));
   let _ = io.println(
-    stdout,
+    host.stdout,
     "swap ${show(ctx, once.left)} ${show(ctx, once.right)} ${show(ctx, thrice.left)} ${show(ctx, thrice.right)} ${show(ctx, pair.left)} ${show(ctx, pair.right)}",
   ).ignore();
 
   let read = twice(ctx, twice(ctx, twice(ctx, Out { pieces: grown(ctx, ["x"]), at: 0 }, "y"), "z"), "w");
   let numbered = counted(ctx, counted(ctx, counted(ctx, Out { pieces: [], at: 0 })));
-  let _ = io.println(stdout, "twice ${show(ctx, read.pieces)} ${read.at} ${show(ctx, numbered.pieces)}").ignore();
+  let _ = io.println(host.stdout, "twice ${show(ctx, read.pieces)} ${read.at} ${show(ctx, numbered.pieces)}").ignore();
 
   let one = grown(ctx, ["s"]);
   let shared = raw(ctx, Out { pieces: one, at: 0 }, "t");
   let both = swap(ctx, Two { left: one, right: one });
   let _ = io.println(
-    stdout,
+    host.stdout,
     "shared ${show(ctx, one)} ${show(ctx, shared.pieces)} ${show(ctx, both.left)} ${show(ctx, both.right)}",
   ).ignore();
 
   let outer = deep(ctx, Outer { inner: Out { pieces: grown(ctx, ["o"]), at: 0 }, n: 0 }, "p");
   let deeper = deep(ctx, deep(ctx, outer, "q"), "r");
   let _ = io.println(
-    stdout,
+    host.stdout,
     "nested ${show(ctx, outer.inner.pieces)} ${show(ctx, deeper.inner.pieces)} ${deeper.n}",
   ).ignore();
 
@@ -313,22 +313,22 @@ export fn main(): Result<(), Str> {
   let h2 = hold(ctx, h1, 4);
   let h3 = hold(ctx, h2, 5);
   let _ = io.println(
-    stdout,
+    host.stdout,
     "captured ${h1.size()} ${h2.size()} ${h3.size()} ${h3.xs.length()} ${h0.xs.length()}",
   ).ignore();
 
   let via = handed(ctx, handed(ctx, Out { pieces: grown(ctx, ["h"]), at: 0 }, "i"), "j");
-  let _ = io.println(stdout, "handed ${show(ctx, via.pieces)}").ignore();
+  let _ = io.println(host.stdout, "handed ${show(ctx, via.pieces)}").ignore();
 
   let src = raw(ctx, Out { pieces: grown(ctx, ["n"]), at: 5 }, "m");
   let onward = raw(ctx, src, "o");
-  let _ = io.println(stdout, "number ${show(ctx, onward.pieces)} ${src.at} ${onward.at}").ignore();
+  let _ = io.println(host.stdout, "number ${show(ctx, onward.pieces)} ${src.at} ${onward.at}").ignore();
 
   let seed = raw(ctx, Out { pieces: grown(ctx, ["f"]), at: 0 }, "g");
   let folded = ["h", "i"].foldCtx(ctx, fn(c, acc: Out, l) => raw(c, acc, l), seed);
   let empty = list.empty<Str>().foldCtx(ctx, fn(c, acc: Out, l) => raw(c, acc, l), seed);
   let _ = io.println(
-    stdout,
+    host.stdout,
     "seed ${show(ctx, seed.pieces)} ${show(ctx, folded.pieces)} ${show(ctx, empty.pieces)}",
   ).ignore();
 
@@ -336,7 +336,7 @@ export fn main(): Result<(), Str> {
   let bad = tryRaw(ctx, Out { pieces: grown(ctx, ["g"]), at: 0 }, "bad");
   let said = match (good) { .Ok(o) => show(ctx, o.pieces), .Err(e) => e };
   let refused = match (bad) { .Ok(o) => show(ctx, o.pieces), .Err(e) => e };
-  let _ = io.println(stdout, "escape ${said} ${refused}").ignore();
+  let _ = io.println(host.stdout, "escape ${said} ${refused}").ignore();
   .Ok(())
 }
 "#;

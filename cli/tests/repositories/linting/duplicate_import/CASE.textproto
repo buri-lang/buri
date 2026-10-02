@@ -18,8 +18,8 @@ run {
 # Merging is the whole fix, and it is one statement naming both.
 edit {
   file: "cmd/app/main.buri"
-  replace: "from \"core/effect\" import { Allocator };\nfrom \"core/effect\" import { Stdout };\n"
-  with: "from \"core/effect\" import { Allocator, Stdout };\n"
+  replace: "from \"platform/effect\" import { Allocator };\nfrom \"platform/effect\" import { Stdout };\n"
+  with: "from \"platform/effect\" import { Allocator, Stdout };\n"
 }
 
 run {

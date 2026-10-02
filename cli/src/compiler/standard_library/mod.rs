@@ -1512,13 +1512,11 @@ mod tests {
         assert_eq!(grant.effect, "`Tasks`");
         assert_eq!(grant.platforms_phrase(), "native, node, web, CLOUDFLARE_WORKER");
         for platform in Platform::ALL {
-            for name in ["tasks"] {
-                assert!(
-                    !host_withholds(platform, name),
-                    "`{}` withholds `{name}`",
-                    platform.proto()
-                );
-            }
+            assert!(
+                !host_withholds(platform, "tasks"),
+                "`{}` withholds `tasks`",
+                platform.proto()
+            );
         }
         // The claim the row used to make, now asserted the other way round: a
         // page has no filesystem and does have tasks, so the two rows have
@@ -1548,22 +1546,18 @@ mod tests {
         assert_eq!(grant.effect, "`Spawn`");
         assert_eq!(grant.platforms_phrase(), "native, node");
         for platform in [Platform::Web, Platform::CloudflareWorker] {
-            for name in ["spawn"] {
-                assert!(
-                    host_withholds(platform, name),
-                    "`{}` grants `{name}`, and it has no process table to put a child in",
-                    platform.proto()
-                );
-            }
+            assert!(
+                host_withholds(platform, "spawn"),
+                "`{}` grants `spawn`, and it has no process table to put a child in",
+                platform.proto()
+            );
         }
         for platform in [Platform::Linux, Platform::Macos, Platform::Js] {
-            for name in ["spawn"] {
-                assert!(
-                    !host_withholds(platform, name),
-                    "`{}` withholds `{name}`",
-                    platform.proto()
-                );
-            }
+            assert!(
+                !host_withholds(platform, "spawn"),
+                "`{}` withholds `spawn`",
+                platform.proto()
+            );
         }
         // Ending this process and starting another are two authorities, so the
         // two rows are separate declarations that happen to name one set. A
@@ -1617,14 +1611,12 @@ mod tests {
             listen.platforms_phrase()
         );
         for platform in [Platform::Js, Platform::Web] {
-            for name in ["listen"] {
-                assert!(
-                    host_withholds(platform, name),
-                    "`{}` grants `{name}`; a page is served rather than serving, and that is \
-                     a permanent row rather than an empty one waiting to be filled",
-                    platform.proto()
-                );
-            }
+            assert!(
+                host_withholds(platform, "listen"),
+                "`{}` grants `listen`; a page is served rather than serving, and that is \
+                 a permanent row rather than an empty one waiting to be filled",
+                platform.proto()
+            );
         }
         for platform in Platform::ALL {
             for name in ["sockets", "websocketClient"] {

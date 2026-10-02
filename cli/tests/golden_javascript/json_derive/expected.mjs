@@ -1,7 +1,8 @@
-const $k0=[1n,2n];
-const $k1=[1,3n,4n];
-const $k2=[0];
-const $k3=[0,0];
+const $k0=[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]];
+const $k1=[1n,2n];
+const $k2=[1,3n,4n];
+const $k3=[0];
+const $k4=[0,0];
 const $D0=[];
 const $D1=[];
 const $D2=[];
@@ -55,49 +56,49 @@ function $eqD3(a,b){
   }
 }
 function __cmd_x_main_buri$main(){
-  const ctx_0=[[],[]];
-  const text_7=core_json$stringify$u3rqgv(ctx_0,$json_of($k0,$D1));
-  const self_8=$host_HostStdout_println(ctx_0[1],text_7);
+  const ctx_1=[$k0[0],$k0[1]];
+  const text_8=core_json$stringify$u3rqgv(ctx_1,$json_of($k1,$D1));
+  const self_9=$host_HostStdout_println(ctx_1[1],text_8);
   let $t1;
-  if(self_8[0]===0){
+  if(self_9[0]===0){
     $t1=0;
-  }else if(self_8[0]===1){
+  }else if(self_9[0]===1){
     $t1=0;
   }else{
     $abort('no arm matched');
   }
-  const text_14=core_json$stringify$u3rqgv(ctx_0,$json_of($k1,$D5));
-  const self_15=$host_HostStdout_println(ctx_0[1],text_14);
+  const text_15=core_json$stringify$u3rqgv(ctx_1,$json_of($k2,$D5));
+  const self_16=$host_HostStdout_println(ctx_1[1],text_15);
   let $t3;
-  if(self_15[0]===0){
+  if(self_16[0]===0){
     $t3=0;
-  }else if(self_15[0]===1){
+  }else if(self_16[0]===1){
     $t3=0;
   }else{
     $abort('no arm matched');
   }
-  const text_21=core_json$stringify$u3rqgv(ctx_0,$json_of($k2,$D5));
-  const self_22=$host_HostStdout_println(ctx_0[1],text_21);
+  const text_22=core_json$stringify$u3rqgv(ctx_1,$json_of($k3,$D5));
+  const self_23=$host_HostStdout_println(ctx_1[1],text_22);
   let $t5;
-  if(self_22[0]===0){
+  if(self_23[0]===0){
     $t5=0;
-  }else if(self_22[0]===1){
+  }else if(self_23[0]===1){
     $t5=0;
   }else{
     $abort('no arm matched');
   }
-  const back_3=$json_decode($json_of($k0,$D1),$D1);
-  const text_28=$str($eqD0(back_3,[0,$k0]));
-  const self_29=$host_HostStdout_println(ctx_0[1],text_28);
+  const back_4=$json_decode($json_of($k1,$D1),$D1);
+  const text_29=$str($eqD0(back_4,[0,$k1]));
+  const self_30=$host_HostStdout_println(ctx_1[1],text_29);
   let $t7;
-  if(self_29[0]===0){
+  if(self_30[0]===0){
     $t7=0;
-  }else if(self_29[0]===1){
+  }else if(self_30[0]===1){
     $t7=0;
   }else{
     $abort('no arm matched');
   }
-  return $k3;
+  return $k4;
 }
 function core_json$stringify$u3rqgv(ctx_0,value_1){
   switch(value_1[0]){
