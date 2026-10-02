@@ -48,17 +48,31 @@ fn seats() -> &'static [PathBuf] {
     })
 }
 
-/// A seat at the machine. Closing the file releases its lock, including when
-/// the case holding it panics, and the OS releases it if the process dies.
-struct Permit(#[allow(dead_code)] File);
+thread_local! {
+    /// This thread's handle on every seat, opened once: an open per ask cost
+    /// about 150 CPU-seconds a run in waiting threads. See `README.md`.
+    static HANDLES: Vec<File> = seats()
+        .iter()
+        .map(|seat| File::options().create(true).append(true).open(seat).unwrap())
+        .collect();
+}
+
+/// A seat at the machine, by its index in [`HANDLES`]. Dropping it unlocks the
+/// seat, including when the case holding it panics, and the OS releases it if
+/// the process dies. Never sent: the lock belongs to this thread's handle.
+struct Permit(usize, std::marker::PhantomData<*const ()>);
+
+impl Drop for Permit {
+    fn drop(&mut self) {
+        HANDLES.with(|seats| seats[self.0].unlock().unwrap());
+    }
+}
 
 fn permit() -> Permit {
     loop {
-        for seat in seats() {
-            let file = File::options().create(true).append(true).open(seat).unwrap();
-            if file.try_lock().is_ok() {
-                return Permit(file);
-            }
+        let taken = HANDLES.with(|seats| seats.iter().position(|seat| seat.try_lock().is_ok()));
+        if let Some(seat) = taken {
+            return Permit(seat, std::marker::PhantomData);
         }
         std::thread::sleep(Duration::from_millis(10));
     }

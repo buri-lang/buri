@@ -6,8 +6,7 @@
 //! still matches what `buri docs assemble` produces.
 use buri::documentation::{assemble, markdown, topics};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use crate::{pool, shard};
 
 fn repo_root() -> PathBuf {
     // CARGO_MANIFEST_DIR is <root>/cli.
@@ -318,8 +317,40 @@ fn every_topic_is_servable() {
 /// The manifest is the contract an agent reads before it asks for anything.
 /// Every id it advertises must answer with exit 0 — otherwise the contract is
 /// a lie and the agent's first request fails.
-#[test]
-fn every_manifest_id_is_fetchable() {
+///
+/// The ids are four tests, `every_manifest_id_is_fetchable::shard_0` to
+/// `shard_3`, so nextest can run them side by side (`harness/shard.rs`).
+fn manifest_shard(at: usize, count: usize) {
+    let ids = manifest_ids();
+    let mine = shard::of(&ids, at, count);
+
+    // One process per id, as a user's agent would ask — but not one *at a
+    // time*. The manifest advertises some two thousand pages and a debug
+    // `buri docs` takes fifty milliseconds, so a sequential loop is minutes.
+    // The work is independent and the assertion is per-id, so it goes through
+    // the run's pool (`harness/pool.rs`) rather than being batched into one
+    // invocation: what is being checked is that *a fresh process* answers,
+    // and a batched form would no longer check it.
+    let answered = pool::map(&mine, |id| {
+        ran(&std::env::temp_dir(), &["docs", id, "--format=json"]).status.success()
+    });
+    let mut broken: Vec<&String> =
+        mine.iter().zip(answered).filter(|(_, ok)| !ok).map(|(id, _)| *id).collect();
+    broken.sort();
+    assert!(broken.is_empty(), "the manifest advertises pages that do not exist: {broken:?}");
+}
+
+shards! {
+    every_manifest_id_is_fetchable(manifest_shard, manifest_id_count) =
+        shard_0 shard_1 shard_2 shard_3;
+}
+
+fn manifest_id_count() -> usize {
+    manifest_ids().len()
+}
+
+/// Every id `buri docs manifest` advertises, in its order.
+fn manifest_ids() -> Vec<String> {
     let out = ran(&std::env::temp_dir(), &["docs", "manifest"]);
     assert!(out.status.success(), "`buri docs manifest` failed");
     let text = String::from_utf8_lossy(&out.stdout);
@@ -337,32 +368,7 @@ fn every_manifest_id_is_fetchable() {
         rest = &rest[end..];
     }
     assert!(ids.len() > 30, "the manifest advertises only {} pages", ids.len());
-
-    // One process per id, as a user's agent would ask — but not one *at a
-    // time*. The manifest advertises some seven hundred pages and a debug
-    // `buri docs` takes fifty milliseconds, so a sequential loop is over half
-    // a minute and is the whole cost of this binary. The work is independent
-    // and the assertion is per-id, so the loop is fanned out over the cores
-    // rather than batched into one invocation: what is being checked is that
-    // *a fresh process* answers, and a batched form would no longer check it.
-    let next = AtomicUsize::new(0);
-    let broken = Mutex::new(Vec::new());
-    let workers = std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
-    std::thread::scope(|scope| {
-        for _ in 0..workers {
-            scope.spawn(|| loop {
-                let i = next.fetch_add(1, Ordering::Relaxed);
-                let Some(id) = ids.get(i) else { return };
-                let got = ran(&std::env::temp_dir(), &["docs", id, "--format=json"]);
-                if !got.status.success() {
-                    broken.lock().unwrap().push(id.clone());
-                }
-            });
-        }
-    });
-    let mut broken = broken.into_inner().unwrap();
-    broken.sort();
-    assert!(broken.is_empty(), "the manifest advertises pages that do not exist: {broken:?}");
+    ids
 }
 
 /// `buri docs` has to work where there is no repository — that is most of

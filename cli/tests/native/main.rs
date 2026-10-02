@@ -148,6 +148,10 @@ mod ci;
 #[path = "../harness/websocket.rs"]
 mod websocket;
 
+#[macro_use]
+#[path = "../harness/shard.rs"]
+mod shard;
+
 // What more than one backend suite needs: the allocation probe, the shape a
 // run produces, the conformance corpus as a repository, and the product's own
 // link line. One copy, because what those suites assert is that the backends

@@ -77,6 +77,7 @@
               drives the toolchain is not the toolchain."
 )]
 
+#[macro_use]
 #[path = "harness/mod.rs"]
 mod harness;
 
@@ -87,7 +88,7 @@ use buri::compiler::driver;
 use buri::compiler::modules::Role;
 use buri::diagnostics::{Diagnostic, FileId, Severity, SourceMap};
 use buri::formatting::{token_shape, Shape};
-use harness::{case_dirs, indent, require_annotation, tests_dir, Golden, Scratch};
+use harness::{case_dirs, indent, require_annotation, shard, tests_dir, Golden, Scratch};
 use mutation::{Kind, Mutation, Source};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -1260,12 +1261,14 @@ const BROKEN: &str = "export struct Route {\n    export name: Str,\n}\n\n\
 /// ```text
 /// BURI_BLESS=1 cargo test -p buri --test recovery recorded
 /// ```
-#[test]
-fn recovery_cases_are_recorded() {
-    let dir = tests_dir().join("recovery");
-    let cases = case_dirs(&dir, "main.buri", 40);
+///
+/// The corpus is four tests, `recovery_cases_are_recorded::shard_0` to
+/// `shard_3`, so nextest can run them side by side (`harness/shard.rs`).
+fn recorded_shard(at: usize, count: usize) {
+    let cases = recorded_corpus();
+    let mine = shard::of(&cases, at, count);
     let mut g = Golden::new();
-    for case in &cases {
+    for case in &mine {
         let name = case.file_name().unwrap().to_string_lossy().to_string();
         let text = std::fs::read_to_string(case.join("main.buri")).unwrap();
         require_annotation(&text, "// EXPECT:", &name);
@@ -1302,7 +1305,20 @@ fn recovery_cases_are_recorded() {
         }
         g.check(&case.join("expected.txt"), &format!("{name}/expected.txt"), &record);
     }
-    g.finish("recovery", cases.len());
+    g.finish(&format!("recovery shard {at} of {count}"), mine.len());
+}
+
+shards! {
+    recovery_cases_are_recorded(recorded_shard, recorded_cases) =
+        shard_0 shard_1 shard_2 shard_3;
+}
+
+fn recorded_corpus() -> Vec<std::path::PathBuf> {
+    case_dirs(&tests_dir().join("recovery"), "main.buri", 40)
+}
+
+fn recorded_cases() -> usize {
+    recorded_corpus().len()
 }
 
 /// One diagnostic, as the four or five lines a case records.
