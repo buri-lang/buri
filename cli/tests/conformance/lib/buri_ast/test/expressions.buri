@@ -167,6 +167,57 @@ test "an invisible character comes back as an escape" {
     assert.equal(ast.print(ctx, letOf(marked)).text, wanted);
 }
 
+// An emoji sequence is written as itself, though a zero-width joiner and a tag
+// character have no visible shape alone: a family, a profession, a flag built
+// with a joiner, a subdivision flag built from tags, a keycap and skin tones.
+test "an emoji sequence comes back as it was written" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(strLine(ctx, "👨‍👩‍👦"), "let X: Int = \"👨‍👩‍👦\";\n");
+    assert.equal(strLine(ctx, "👩🏽‍🚀"), "let X: Int = \"👩🏽‍🚀\";\n");
+    assert.equal(strLine(ctx, "🧑‍💻"), "let X: Int = \"🧑‍💻\";\n");
+    assert.equal(strLine(ctx, "🏳️‍🌈"), "let X: Int = \"🏳️‍🌈\";\n");
+    assert.equal(strLine(ctx, "🏴󠁧󠁢󠁥󠁮󠁧󠁿"), "let X: Int = \"🏴󠁧󠁢󠁥󠁮󠁧󠁿\";\n");
+    assert.equal(strLine(ctx, "1️⃣"), "let X: Int = \"1️⃣\";\n");
+    assert.equal(strLine(ctx, "👋🏻👋🏿"), "let X: Int = \"👋🏻👋🏿\";\n");
+    let family = ex(.Template([.Text("👨‍👩‍👦 "), .Hole(id("count"))]));
+    let wanted = "let X: Int = \"👨‍👩‍👦 "
+        .concat(ctx, hole(ctx, "count"))
+        .concat(ctx, "\";\n");
+    assert.equal(ast.print(ctx, letOf(family)).text, wanted);
+}
+
+// A joiner or a tag outside an emoji sequence is the hidden character it looks
+// like, so it is still an escape: alone, between letters, beside one emoji or
+// a template's hole, and a tag with no flag around it.
+test "a joiner or a tag outside an emoji sequence comes back as an escape" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(strLine(ctx, "\u{200d}"), "let X: Int = \"\\u{200d}\";\n");
+    assert.equal(strLine(ctx, "a\u{200d}b"), "let X: Int = \"a\\u{200d}b\";\n");
+    assert.equal(
+        strLine(ctx, "👨\u{200d} \u{200d}👩"),
+        "let X: Int = \"👨\\u{200d} \\u{200d}👩\";\n",
+    );
+    assert.equal(strLine(ctx, "a\u{e0067}b"), "let X: Int = \"a\\u{e0067}b\";\n");
+    assert.equal(
+        strLine(ctx, "🏴\u{e0067} 🏴\u{e007f}"),
+        "let X: Int = \"🏴\\u{e0067} 🏴\\u{e007f}\";\n",
+    );
+    assert.equal(
+        strLine(ctx, "👨\u{202e}👩\u{feff}"),
+        "let X: Int = \"👨\\u{202e}👩\\u{feff}\";\n",
+    );
+    assert.equal(charLine(ctx, '\u{200d}'), "let X: Int = '\\u{200d}';\n");
+    let joined = ex(.Template([.Text("👨\u{200d}"), .Hole(id("count"))]));
+    let wanted = "let X: Int = \"👨\\u{200d}"
+        .concat(ctx, hole(ctx, "count"))
+        .concat(ctx, "\";\n");
+    assert.equal(ast.print(ctx, letOf(joined)).text, wanted);
+}
+
 test "a template escapes the dollar its own text carries" {
     let ctx = context {
         Allocator: alloc(),

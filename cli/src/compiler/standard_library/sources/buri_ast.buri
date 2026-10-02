@@ -2100,12 +2100,26 @@ fn floatText<C: Allocator>(ctx: C, x: Float): Str {
 /// the start of a hole, which would make this a template rather than the
 /// string it came from.
 fn quote<C: Allocator>(ctx: C, text: Str): Str {
-    let inner = text
-        .chars(ctx)
-        .mapCtx(ctx, fn(c, ch) => escapeChar(c, ch))
-        .join(ctx, "")
-        .replace(ctx, "\${", "\\\${");
+    let inner = escapeText(ctx, text, false).replace(ctx, "\${", "\\\${");
     str.format(ctx, "\"${inner}\"")
+}
+
+/// `text` as a literal's body: each character as `escapeChar` spells it, but
+/// as itself where an emoji sequence holds it, and each `$` escaped too when
+/// `dollar` says so.
+fn escapeText<C: Allocator>(ctx: C, text: Str, dollar: Bool): Str {
+    let cs = text.chars(ctx);
+    cs
+        .mapIndexedCtx(ctx, fn(c, i, ch) => {
+            if (dollar && ch == '$') {
+                "\\$"
+            } else if (inEmojiSequence(cs, i)) {
+                str.fromChars(c, [ch])
+            } else {
+                escapeChar(c, ch)
+            }
+        })
+        .join(ctx, "")
 }
 
 /// The escape a character takes inside a literal, or the character itself.
@@ -2141,14 +2155,130 @@ fn isUnprintable(ch: Char): Bool {
     !ch.isPrintable()
 }
 
+/// Whether the character at `index` is an unprintable one that an emoji
+/// sequence (UTS #51) holds, and so stays itself: a zero-width joiner between
+/// two emoji, or a tag character inside a flag's tag sequence. A joiner or a
+/// tag anywhere else is an escape like any other invisible character.
+///
+/// The variation selectors, the keycap mark and the skin tones are printable
+/// already. `buri format` keeps the same rule, read off the same
+/// `PICTOGRAPHIC` table, in `cli/src/formatting.rs`.
+fn inEmojiSequence(cs: [Char], index: Int): Bool {
+    let ch = charAtOr(cs, index);
+    if (ch == '\u{200d}') {
+        joinsEmoji(cs, index)
+    } else if (isTagSpec(ch) || ch == '\u{e007f}') {
+        inFlagTag(cs, index)
+    } else {
+        false
+    }
+}
+
+/// A joiner joins emoji when an Extended_Pictographic character follows it and
+/// one comes before it, maybe carrying a `U+FE0F` or a skin tone: a family, a
+/// rainbow flag, an astronaut with a skin tone.
+fn joinsEmoji(cs: [Char], index: Int): Bool {
+    let before = charAtOr(cs, index - 1);
+    let code = before.toU32().toI64();
+    let base = if (code == 0xfe0f || code >= 0x1f3fb && code <= 0x1f3ff) {
+        index - 2
+    } else {
+        index - 1
+    };
+    base >= 0
+        && isPictographic(charAtOr(cs, base))
+        && isPictographic(charAtOr(cs, index + 1))
+}
+
+/// A flag's tag sequence: `U+1F3F4`, one or more of `U+E0020` to `U+E007E`,
+/// and the cancel tag `U+E007F`, which is how England's flag is spelled.
+fn inFlagTag(cs: [Char], index: Int): Bool {
+    let end = if (charAtOr(cs, index) == '\u{e007f}') {
+        index
+    } else {
+        tagSpecEnd(cs, index)
+    };
+    let start = tagSpecStart(cs, end);
+    start < end
+        && start >= 1
+        && charAtOr(cs, start - 1) == '🏴'
+        && charAtOr(cs, end) == '\u{e007f}'
+}
+
+/// The first index from `index` on that is not a tag spec character.
+fn tagSpecEnd(cs: [Char], index: Int): Int {
+    if (index < cs.length() && isTagSpec(charAtOr(cs, index))) {
+        tagSpecEnd(cs, index + 1)
+    } else {
+        index
+    }
+}
+
+/// Where the run of tag spec characters that ends just before `index` starts.
+fn tagSpecStart(cs: [Char], index: Int): Int {
+    if (index >= 1 && isTagSpec(charAtOr(cs, index - 1))) {
+        tagSpecStart(cs, index - 1)
+    } else {
+        index
+    }
+}
+
+/// `U+E0020` to `U+E007E`, the tag characters that spell a flag's region.
+fn isTagSpec(ch: Char): Bool {
+    let code = ch.toU32().toI64();
+    code >= 0xe0020 && code <= 0xe007e
+}
+
+fn isPictographic(ch: Char): Bool {
+    inRanges(PICTOGRAPHIC, ch.toU32().toI64(), 0, PICTOGRAPHIC.length() / 8)
+}
+
+/// Whether `cp` is inside one of `table`'s ranges, eight base-36 digits each.
+/// `core/character` carries the same three helpers for its own tables.
+fn inRanges(table: Str, cp: Int, lo: Int, hi: Int): Bool {
+    if (lo >= hi) {
+        false
+    } else {
+        let mid = lo + (hi - lo) / 2;
+        if (cp < codeAt(table, mid * 8)) {
+            inRanges(table, cp, lo, mid)
+        } else if (cp <= codeAt(table, mid * 8 + 4)) {
+            true
+        } else {
+            inRanges(table, cp, mid + 1, hi)
+        }
+    }
+}
+
+/// The four base-36 digits at `at`, as a number.
+fn codeAt(table: Str, at: Int): Int {
+    digitAt(table, at) * 46656
+        + digitAt(table, at + 1) * 1296
+        + digitAt(table, at + 2) * 36
+        + digitAt(table, at + 3)
+}
+
+fn digitAt(table: Str, at: Int): Int {
+    match (table.charAt(at)) {
+        .Some(c) => c.toDigit(36).withDefault(0),
+        .None => 0,
+    }
+}
+
+// --- Generated Unicode tables (Unicode 16.0) ---------------------------
+//
+// Written by `cli/src/compiler/standard_library/unicode_tables.py`, which
+// says what the fields are. Regenerate rather than edit.
+
+/// Extended_Pictographic, less what is unassigned: what an emoji ZWJ sequence joins.
+let PICTOGRAPHIC: Str =
+    "004p004p004u004u06d806d806dl06dl06jm06jm06k906k906ms06mx06nd06ne06xm06xn06y006y0070o070o072n072n073d073n073s073u079e079e07fu07fv07g607g607gg07gg07i307i607i807id07if07iq07is07lx07m807ph07pk07pu07pw07pw07py07py07q507q507q907q907qg07qg07qr07qs07r807r807rb07rb07rg07rg07ri07ri07rn07rp07rr07rr07s307s707th07tj07tt07tt07u807u807un07un0850085108hx08hz08ij08ik08k008k008k508k509io09io09j109j109zr09zr09zt09zt2pz42q0b2q0g2q372q3k2q3y2q412q4f2q4h2q4v2q4x2q5x2q6l2q6n2q7j2q7j2q982q9d2q9q2q9r2qa62qa62qa92qai2qb12qb12qdd2qde2qe22qe22qen2qen2qeq2qey2qfk2qfl2qg02qg52qkg2qre2qrk2r0d2r0m2r7z2r9c2rbr2rbw2rcc2rcg2rcs2rg42rg62rgb2rgf2rit2rix2rj42rjf2rjk2rjk2row2rp72rpc2rpd2rrg2rsq2rss2rt12rt32s0j2s0w2s192s1c2s1o2s1s2s212s272s3q2s3y2s4c2s4f2s4p2s4w2s54";
+
+// --- End of the generated Unicode tables -------------------
+
 /// The text of a template, where `$` is an escape as well.
 fn escapeTemplate<C: Allocator>(ctx: C, text: Str): Str {
-    text
-        .chars(ctx)
-        .mapCtx(ctx, fn(c, ch) => {
-            if (ch == '$') { "\\$" } else { escapeChar(c, ch) }
-        })
-        .join(ctx, "")
+    escapeText(ctx, text, true)
 }
 
 fn quoteChar<C: Allocator>(ctx: C, ch: Char): Str {
