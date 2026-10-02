@@ -21,8 +21,9 @@ path {
   exists: true
 }
 
-# A Linux artifact builds on any host, so a mac builds the cross variant too,
-# beside the host's.
+# A Linux artifact builds on any host and a macOS one only on a macOS host, so
+# the two hosts answer the cross variant differently and each step names the
+# host it is about. A mac builds its cross variant (Linux) beside the host's.
 run {
   args: ["build", "//cmd/app", "--output=native/{{CROSS_VARIANT}}"]
   exit: 0
@@ -32,6 +33,21 @@ run {
 path {
   path: ".buri/out/native/{{CROSS_VARIANT}}/cmd/app/app"
   exists: true
+  host: MACOS
+}
+
+# A Linux host's cross variant is macOS, which it cannot build: the build is
+# refused, and the refusal leaves nothing in the cross variant's directory.
+run {
+  args: ["build", "//cmd/app", "--output=native/{{CROSS_VARIANT}}"]
+  exit: 1
+  host: LINUX
+}
+
+path {
+  path: ".buri/out/native/{{CROSS_VARIANT}}/cmd/app/app"
+  exists: false
+  host: LINUX
 }
 
 path {

@@ -1,11 +1,11 @@
-error: no native artifact for {{CROSS_PLATFORM}}/{{CROSS_ARCH}} [native-artifact-not-available]
+error: no native artifact for {{CROSS_VARIANT}} [native-artifact-not-available]
  --> cmd/native/BUILD.buri:7:9
   |
-7 |         { platform: {{CROSS_PLATFORM_PROTO}}, arch: {{CROSS_ARCH_PROTO}} },
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+7 |         { platform: "native", variant: "{{CROSS_VARIANT}}" },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = this toolchain builds a native artifact for its own host only: the runtime archive, the C library and the linker are all the host's
-  = fix: build this output on a {{CROSS_PLATFORM}}/{{CROSS_ARCH}} host, or add `{ platform: JS }` to `outputs`
+  = fix: build this output on a {{CROSS_VARIANT}} host, or add `{ platform: "node" }` to `outputs`
 
     The note names which of three things is missing. Each has its own answer.
 
@@ -19,7 +19,7 @@ error: no native artifact for {{CROSS_PLATFORM}}/{{CROSS_ARCH}} [native-artifact
     not license for redistribution, so only a macOS host builds one. This
     diagnostic names the one direction left over: a macOS output on a machine
     that is not a macOS host of that architecture. Build it on such a machine,
-    or declare a JS output and run the module anywhere.
+    or declare a node output and run the module anywhere.
 
     The runtime archive
     ───────────────────
