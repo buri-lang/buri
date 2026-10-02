@@ -130,7 +130,7 @@ library {
 | Field | Meaning |
 |---|---|
 | `sources` | Every `.buri` in the package belonging to this library, **excluding** `lib.buri` and the test sources. Package-relative, may descend. |
-| `generators` | Tools the build runs, whose `generate` answers with modules of this library. Each entry names a `tool` rule and its `inputs`. A `.proto` schema goes here, under `std/proto`. |
+| `generators` | Tools the build runs, whose `generate` answers with modules of this library. Each entry names a `tool` rule by `//label`, or a built-in tool by its bare name (`json`, `proto`, `textproto`), and its `inputs`. A `.proto` schema goes here, under `proto`. |
 | `dependencies` | Labels of libraries this one may use. Libraries only. |
 | `tags` | Labels saying what this code is. The policy lives in `REPO.buri`. |
 | `platforms` | Omit unless the code is genuinely platform-specific. Unset means all. |

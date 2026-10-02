@@ -1839,7 +1839,7 @@ fn capabilities() -> Value {
 ///
 /// One pattern covers all four kinds: a source, a `BUILD.buri` and a
 /// `REPO.buri` all wear the `.buri` extension, and a `.proto` a `generators`
-/// entry hands to `std/proto` becomes a module like any of them — so an
+/// entry hands to the `proto` tool becomes a module like any of them — so an
 /// edit to one is an edit to the code, and a server that did not hear about it
 /// would keep answering from the module the old schema became. `**/` in the
 /// protocol's glob matches any number of path segments *including none*, so

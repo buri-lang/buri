@@ -1,11 +1,12 @@
-//! std/proto — the `.proto` tool this toolchain ships.
+//! std/proto — the program behind `proto`, the `.proto` tool this toolchain
+//! ships.
 //!
 //! [`generate`] turns each schema a `generators` entry lists into a module
 //! named after the file, through `std/codegen/proto`'s `emit`:
 //!
 //! ```text
 //! library {
-//!     generators: [{ tool: "std/proto", inputs: ["point.proto"] }]
+//!     generators: [{ tool: "proto", inputs: ["point.proto"] }]
 //! }
 //! ```
 //!

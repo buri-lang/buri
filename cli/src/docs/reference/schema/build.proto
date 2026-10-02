@@ -59,7 +59,7 @@ message Library {
   // becoming a module. Retired: it was a generator the build could not name,
   // running one program on one language, so a repository wanting a second kind
   // of generated code had no way to ask. A schema is a generator's input now,
-  // handed to `std/codegen/proto` through `generators`. The number is not
+  // handed to the `proto` tool through `generators`. The number is not
   // reused.
   reserved 8;
   reserved "proto_sources";
@@ -230,8 +230,9 @@ message Accepts {
 // `//lib/wire/point.proto`.
 message Generator {
   // Which tool to run: a `//label` naming a `tool` rule with a `generate {}`
-  // block, `std/json` or `std/proto`. A binary is refused, and so is the
-  // retired name `std/codegen/proto`.
+  // block, or a built-in: `json`, `proto` or `textproto`. A binary is refused,
+  // and so are the retired names `std/json`, `std/proto`, `std/textproto` and
+  // `std/codegen/proto`.
   string tool = 1;
 
   // The files handed to the generator, package-relative, no globs. Their

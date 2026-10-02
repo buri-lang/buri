@@ -1,7 +1,7 @@
 ---
 title: A tool name names a tool
 message: '`{tool}` names no tool'
-note: a tool is a `//label` naming a `tool` rule in this repository, or `std/json` or `std/proto`
+note: a tool is a `//label` naming a `tool` rule in this repository, or a built-in: `json`, `proto` or `textproto`
 fix: name a package whose BUILD.buri declares a `tool` rule
 reproduction: none
 ---

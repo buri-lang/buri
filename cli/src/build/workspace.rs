@@ -864,7 +864,7 @@ impl Workspace {
                 "main" | "main.buri" => (ModuleKind::BinaryEntry, package.dir.join("main.buri")),
                 // A `.proto` names a schema, and a schema is a generator's
                 // input rather than a module of its own. The only module one
-                // produces is the one `std/proto` handed back, which
+                // produces is the one the `proto` tool handed back, which
                 // the lookup above already answered — so reaching here means its
                 // check failed, or no `generators` entry declares it, and the
                 // sentence says which.

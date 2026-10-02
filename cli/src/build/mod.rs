@@ -12,7 +12,7 @@
 //! runs, and what the program answers *becomes* a Buri module, so that
 //! `from "//proto/person.proto" import { Person };` resolves to types and
 //! codecs that no one had to write down twice. The `.proto` generator is one
-//! of those programs — `std/proto`, written in Buri — and not a path
+//! of those programs — the `proto` tool, written in Buri — and not a path
 //! of its own.
 //!
 //! `link` is the last action in the graph for a native artifact: the C driver

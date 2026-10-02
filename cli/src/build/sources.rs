@@ -525,7 +525,7 @@ mod tests {
         let _ = std::fs::write(dir.join("REPO.buri"), "");
         let _ = std::fs::write(
             dir.join("lib/wire/BUILD.buri"),
-            "library {\n    generators: [{ tool: \"std/proto\", inputs: [\"point.proto\"] }]\n}\n",
+            "library {\n    generators: [{ tool: \"proto\", inputs: [\"point.proto\"] }]\n}\n",
         );
         let _ = std::fs::write(
             dir.join("lib/wire/lib.buri"),

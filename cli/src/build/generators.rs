@@ -1,11 +1,10 @@
 //! `generators`: a tool the build runs, whose output becomes a module.
 //!
 //! A `generators` entry names a `tool` rule, or a toolchain tool such as
-//! `std/proto`, and the build asks
-//! its `generate` entry point about the entry's inputs
-//! ([`crate::build::tools`]). Every module it answers with is loaded the way a
-//! source is: through the real parser, into the rule that declared the entry,
-//! with no file on disk.
+//! `proto`, and the build asks its `generate` entry point about the entry's
+//! inputs ([`crate::build::tools`]). Every module it answers with is loaded
+//! the way a source is: through the real parser, into the rule that declared
+//! the entry, with no file on disk.
 //!
 //! ```text
 //! <- {"modules":[{"name":"point.proto","text":"export struct Point {}\n","anchors":[]}],
@@ -1010,8 +1009,8 @@ fn ensure(
 /// Generates a tool's contracts into it: each `accepts` entry's language's
 /// `generate`, on its `type_schema`, as the module `<label>/<language>`.
 ///
-/// For `std/json` that is [`crate::languages::json::contract`]: the types and
-/// `decode`. `std/textproto`, and a language of a repository's own, is asked
+/// For the `json` tool that is [`crate::languages::json::contract`]: the types and
+/// `decode`. The `textproto` tool, and a language of a repository's own, is asked
 /// with `typesOf`, and its one module is filed under the language's name.
 fn run_contracts(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Overlay) {
     let workspace = Rc::clone(&session.workspace);
@@ -1134,7 +1133,7 @@ fn not_local(path: &str) -> Diagnostic {
     }
 }
 
-/// A module `std/json` generated, under `name`.
+/// A module the `json` tool generated, under `name`.
 fn module_of(name: &str, module: crate::languages::json::types::Module) -> GeneratedModule {
     GeneratedModule {
         name: name.to_string(),
@@ -1372,7 +1371,7 @@ impl Checks {
 }
 
 /// One entry's answer, every path the tool asked to read, and what the
-/// in-tree `std/json` found.
+/// in-tree `json` tool found.
 type Answered = (Response, BTreeSet<String>, Vec<crate::languages::Finding>);
 
 fn answer(
@@ -1425,7 +1424,7 @@ fn answer(
     Ok((response, answer.asked, Vec::new()))
 }
 
-/// `std/json`'s `generate`, in-tree: a module per input, named as the entry
+/// The `json` tool's `generate`, in-tree: a module per input, named as the entry
 /// lists it. A schema gives its types; a data file its schema's types and its
 /// contents as a value.
 fn generate_json(
@@ -1445,7 +1444,7 @@ fn generate_json(
                 (0, 0),
                 vec![
                     ("keyword", "$schema".to_string()),
-                    ("why", "`std/json` generates from `json`, `jsonc` and `json5` files, and this is none of them".to_string()),
+                    ("why", "the `json` tool generates from `json`, `jsonc` and `json5` files, and this is none of them".to_string()),
                 ],
             ));
             continue;
@@ -1544,7 +1543,7 @@ fn keep_the_names_that_are_free(
 ///
 /// Only the names that resolve to a *module* of the package count, which is why
 /// this is a short list rather than "a file with this name exists":
-/// `std/codegen/proto` names its module `point.proto` and `lib/wire/point.proto`
+/// the `proto` tool names its module `point.proto` and `lib/wire/point.proto`
 /// is a file on disk, and those two are not a collision — a schema is the
 /// generator's input, not a module anybody imports.
 fn shadowed_source(dir: &std::path::Path, name: &str) -> Option<String> {

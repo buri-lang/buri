@@ -20,7 +20,7 @@ error: `//lib/wire/nothing` is a module of this rule already [generator-module-t
     surface, so a generator that took it over would decide what leaves the
     library, and nothing in the package would say so.
 
-    A schema is not a collision. std/proto names its module point.proto and
+    A schema is not a collision. proto names its module point.proto and
     lib/wire/point.proto is a file on disk; that file is the generator's input,
     not a module anybody imports.
 

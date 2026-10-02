@@ -7,7 +7,7 @@ reads it:
 ```textproto schema=build
 library {
     generators: [
-        { tool: "std/textproto", inputs: ["server.txtpb"] },
+        { tool: "textproto", inputs: ["server.txtpb"] },
     ]
 }
 ```
@@ -98,7 +98,7 @@ out. If it keeps one, it names the contract's schema and message.
 
 Under edition 2026 no field is required: a missing field is unset, or its zero
 value where `features.field_presence = IMPLICIT`. The schema is checked too,
-the way [`std/proto`](./proto.md) checks it.
+the way [`proto`](./proto.md) checks it.
 
 An extension or `Any` field, written `[name]`, is refused as
 [`textproto-unsupported`](../reference/errors/textproto-unsupported.md).
@@ -125,7 +125,7 @@ changes. A file that does not parse is left as it is, and
 
 ## Generating its value
 
-`std/textproto` in `generators` gives a module named after the file, holding
+`textproto` in `generators` gives a module named after the file, holding
 the message's types and the file's value:
 
 ```buri ignore why="it imports a module the build generates from the text format file"
@@ -134,9 +134,9 @@ from "//lib/deploy/server.txtpb" import { Server, server };
 
 The value is an `export let` named after the file up to its first `.`, in
 camel case: `server: Server`. The types are the ones
-[`std/proto`](../reference/build/proto.md) generates from the schema. A type
+[`proto`](../reference/build/proto.md) generates from the schema. A type
 the schema imports from another file comes from that file's own module, so list
-that schema under `std/proto` too.
+that schema under `proto` too.
 
 A tool with a `textproto` [contract](../reference/build/tools.md#input-contracts)
 gets the same types, generated into the tool, and each file as a typed value.

@@ -46,7 +46,7 @@ fn host_platform() -> &'static str {
     }
 }
 
-const LIBRARY: &str = "library {\n    generators: [\n        { tool: \"std/proto\", inputs: [\"address.proto\", \"demo.proto\"] },\n    ]\n\n    visibility: [\"//visibility:public\"]\n}\n";
+const LIBRARY: &str = "library {\n    generators: [\n        { tool: \"proto\", inputs: [\"address.proto\", \"demo.proto\"] },\n    ]\n\n    visibility: [\"//visibility:public\"]\n}\n";
 
 const SURFACE: &str = "from \"//lib/proto/demo.proto\" export {\n    decodeEverything, defaultEverything, encodeEverything, Everything, Shade,\n};\n";
 
@@ -176,7 +176,7 @@ fn a_generated_module_links_into_a_release_artifact_or_is_refused_by_name() {
 
 /// The generator the toolchain ships is compiled **once per repository**.
 ///
-/// `std/proto` is a Buri program, and the build compiles it to an
+/// The `proto` tool is a Buri program, and the build compiles it to an
 /// `.mjs` under `.buri/out/tools/` the first time anything needs a schema
 /// read. The file's name is its action key, so the claim this row holds is
 /// two-sided: after two builds, of two targets, across three platforms, that
@@ -238,7 +238,7 @@ fn an_input_that_is_not_text_is_reported_as_unreadable_rather_than_absent() {
     scratch.write(
         "lib/wire/BUILD.buri",
         "library {\n    sources: [\"beside.buri\"]\n\n    \
-         generators: [{ tool: \"std/proto\", inputs: [\"point.proto\"] }]\n}\n",
+         generators: [{ tool: \"proto\", inputs: [\"point.proto\"] }]\n}\n",
     );
     scratch.write("lib/wire/lib.buri", "export fn here(): Int { 1 }\n");
     scratch.write("lib/wire/beside.buri", "export fn beside(): Int { 2 }\n");

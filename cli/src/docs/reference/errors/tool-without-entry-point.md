@@ -15,5 +15,5 @@ tool {
 ```
 
 This tool has `check` and `format`, so a language may name it for either, and a
-`generators` entry may not name it at all. `std/json` and `std/proto` have all
+`generators` entry may not name it at all. `json`, `proto` and `textproto` have all
 three.
