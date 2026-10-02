@@ -25,28 +25,30 @@ binary {
 That is two artifacts out of one build: `.buri/out/web/cmd/site/site.mjs` and
 `.buri/out/cloudflare-worker/cmd/site/fetch.mjs`. Each entry is its own
 dead-code root, so the page never carries the renderer the worker uses and the
-worker never carries the page's half. Each entry is also checked against its own
-platform's grants, which is what lets `main` bind `Ui: host.ui` beside a `fetch`
-that cannot. [Build files](../reference/build/build-files.md) has the rules.
+worker never carries the page's half. `main` takes `WebHost` and binds
+`Ui: host.ui`; `fetch` takes no host yet and binds `core/host`'s values, which
+`main`'s `host` parameter shadows inside `main`.
+[Build files](../reference/build/build-files.md) has the rules.
 
 ## The whole program
 
 ```buri repo=cli/tests/repositories/concurrency/website/repo package=//cmd/site role=entry
 // A website: one binary, two entries, one tree.
 
-from "core/effect" import { Allocator, Request, Response, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/json" import * as json;
 from "core/json" import { FromJson, ToJson };
 from "core/net/http" import * as http;
 from "core/str" import * as str;
+from "platform/effect" import { Allocator, Request, Response, Stdout };
 from "ui/effect" import { Location, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
 from "ui/signal" import { signal };
 from "ui/web" import * as web;
+from "web" import { WebHost };
 
 derive FromJson, ToJson for Site;
 /// What the page is rendered from. The worker sends it with the document, and
@@ -120,7 +122,7 @@ fn at<C>(path: Str): Node<C> {
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,

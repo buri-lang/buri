@@ -192,7 +192,7 @@ through its receiver's type, so calling `e.amount.format(ctx)` on a `Cents` that
 arrived from `//lib/money` uses that library even when no import names it:
 
 ```buri repo=cli/tests/example
-# from "core/effect" import { Allocator };
+# from "platform/effect" import { Allocator };
 from "//lib/ledger" import { Entry };
 
 // `amount` is a Cents from //lib/money, and `format` is one of its methods —

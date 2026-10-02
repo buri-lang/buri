@@ -15,12 +15,15 @@ error: "platform/host" is importable only by a platform [host-import-outside-pla
 Take the host as the entry's parameter and bind its fields:
 
 ```buri
-from "platform/effect" import { Allocator, Stdout };
 from "core/io" import * as io;
 from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
 
 export fn main(host: NodeHost): Result<(), Str> {
-    let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
     io.println(ctx, "hello").mapErr(fn(_e) => "could not write")
 }
 ```

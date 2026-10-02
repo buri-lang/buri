@@ -138,7 +138,7 @@ joining; the template supplies the backticks.
 |---|---|
 | `{arity}` | The number of elements a tuple or a tuple pattern has. Always the *N* in `{arity}-tuple`. |
 | `{artifact}` | What a non-native platform produces, as the fix's subject: `JavaScript`, `a page`. |
-| `{because}` | The clause saying why a platform withholds a `core/host` grant. |
+| `{because}` | The clause saying why a worker withholds a `core/host` grant. |
 | `{block}` | Where an unknown build-file field was written, already described: `` a `binary` rule ``, `` a `tag` block ``, `REPO.buri`. |
 | `{candidates}` | The schemas that could claim an ambiguous proto type name, sorted and joined with `, or `. |
 | `{character}` | The character the lexer could not start a token with, as the source wrote it. |
@@ -211,7 +211,7 @@ joining; the template supplies the backticks.
 | `{reason}` | Why a proto construct is refused, or which of `build/actions.rs`'s three native gaps was hit (`NativeGap::reason`). |
 | `{fix}` | The whole fix sentence, supplied by the call site, where the fix depends on which of several causes the diagnostic found (`NativeGap::fix`). |
 | `{remedy}` | The whole fix sentence, supplied by the call site. |
-| `{requirement}` | One of `main`'s three requirements, as a phrase (`takes no parameters`). |
+| `{requirement}` | One of an entry's requirements, as a phrase (`declares no generic parameters`). |
 | `{roots}` | `standard_library::roots_phrase()` — the reserved module roots as a finished phrase. |
 | `{rule}` | The rule kind that owns the empty `test` block: `library` or `binary`. |
 | `{second_origin}` | The second of the two schemas that declare one proto type. |

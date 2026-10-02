@@ -15,9 +15,9 @@ error: `load` takes the name of a function, and this is Int [lazy-not-a-function
 Write the function down somewhere and hand `load` its name.
 
 ```buri
-from "core/effect" import { Stdout };
 from "core/io" import * as io;
 from "core/lazy" import * as lazy;
+from "platform/effect" import { Stdout };
 
 fn admin<C: Stdout>(ctx: C): () {
     io.println(ctx, "admin").ignore()

@@ -46,14 +46,42 @@ against the whole graph:
 binary {
     outputs: [
         { platform: "native", variant: "linux-x86_64" },
-        { platform: "node" },
+        { platform: "node", entries { main: "mainForNode" } },
     ]
 }
 ```
 
+Each platform hands its entry its own host, so each output enters through a
+function of its own, and both call one function that takes `ctx`:
+
+```buri ignore why="`mainForNode` is an entry only where a build file names it, and a fence has no build file"
+# from "core/io" import * as io;
+from "native" import { NativeHost };
+from "node" import { NodeHost };
+# from "platform/effect" import { Allocator, Stdout };
+
+export fn main(host: NativeHost): Result<(), Str> {
+    run(context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    })
+}
+
+export fn mainForNode(host: NodeHost): Result<(), Str> {
+    run(context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    })
+}
+
+fn run<C: Allocator + Stdout>(ctx: C): Result<(), Str> {
+    io.println(ctx, "hello").mapErr(fn(_e) => "could not write")
+}
+```
+
 `buri build` produces both. `--output=node` picks one, and so does
-`buri run --output=node`. The compiler checks the two independently, so a
-binary can pass for `native` and fail for `node`, because node grants less.
+`buri run --output=node`. `NodeHost` has no `listen` or `tcp`, so `mainForNode`
+can't bind them.
 
 ## A page in a browser
 
@@ -107,13 +135,14 @@ $ buri build //cmd/site
 ```
 
 Two entries out of one `main.buri`, and the platform fixes each one's signature:
-a page is `fn main(): Result<(), Str>`, a worker is
+a page is `fn main(host: WebHost): Result<(), Str>`, a worker is
 `fn fetch(request: Request): Response`. The wrong shape is a type error.
 
 Each entry is its own dead-code root, so the page carries nothing only the
-worker reaches and the worker carries nothing only the page does. Each is
-checked against its own platform's grants too, which is what lets `main` bind
-`Ui: host.ui` beside a `fetch` that cannot.
+worker reaches and the worker carries nothing only the page does. A worker's
+`fetch` takes no host yet: it binds `core/host`'s values, which only a worker's
+module may import, and `main`'s `host` parameter shadows that import inside
+`main`.
 
 The worker's module ends in `export default { fetch }` instead of the
 self-starting epilogue every other JavaScript output gets. `buri run` never runs
@@ -123,10 +152,10 @@ one: there is nothing to start. Build it, and let the platform call it.
 A worker reads its vars and secrets through `Environment`:
 
 ```buri repo=cli/tests/repositories/build-files/several_entries/repo package=//cmd/worker role=entry
-from "core/effect" import { Allocator, Environment, Request, Response };
 from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/net/http" import * as http;
+from "platform/effect" import { Allocator, Environment, Request, Response };
 
 export fn fetch(request: Request): Response {
     let ctx = context {
@@ -153,9 +182,9 @@ empty.
 file beside the artifact:
 
 ```buri
-from "core/effect" import { Stdout };
 from "core/io" import * as io;
 from "core/lazy" import * as lazy;
+from "platform/effect" import { Stdout };
 
 fn editor<C: Stdout>(ctx: C): () {
     io.println(ctx, "editing").ignore()
@@ -186,11 +215,11 @@ function straight back.
 
 ## What changes about the program
 
-**The effects `main` may ask for.** A platform *is* the set of effects its host
-exports. Under `web`, `core/host` exports no `fs`, `stdin`, `env` or `proc`, and
-exports `ui` and `watch` there and nowhere else. Ask for one a platform does not
-grant and you get `effect-not-on-platform` on the line that asked.
-`buri docs error effect-not-on-platform` has the table.
+**The effects `main` may ask for.** A platform's host type *is* the set of
+effects it offers. `WebHost` has no `fs`, `stdin`, `env` or `proc`, and has `ui`
+and `watch`, which no other host has. Ask for one a platform does not offer and
+you get `no-such-field` on the line that asked, with a note naming the
+platforms that do.
 
 **Nothing else.** No source file changes meaning across platforms, because there
 is no conditional compilation. Numbers included: an `Int` is an `I64`

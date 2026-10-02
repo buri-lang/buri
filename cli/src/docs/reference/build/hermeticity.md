@@ -37,11 +37,12 @@ system uses none, because the language already gives it:
 - **Every ambient read is an intrinsic.** The language has no ambient I/O.
   Reading the clock, the environment, a file, or a socket goes through a
   `$host_*` intrinsic and nowhere else.
-- **Only `main` can name one.** Only the module that exports `main` may import
-  `core/host` ([`language/programs.md` §11](../../language/programs.md)). The
-  compiler rejects `from "core/host" import …` in a library, an inner module,
-  or a test source, with `host-import`. No code taking part in an action has a
-  *name* for ambient state.
+- **Only `main` holds one.** The production implementations arrive as the
+  fields of the host `main` takes, which only the CLI builds
+  ([`language/programs.md` §11](../../language/programs.md)). The compiler
+  rejects `from "platform/host" import …` anywhere but a platform's
+  `platform.buri`, with `host-import-outside-platform`. No code taking part in
+  an action has a *name* for ambient state.
 - **A test's capabilities are fakes.** The runner hands a suite a context it
   built itself: an in-memory filesystem holding exactly what the suite gave it,
   one store behind both `FileSystemRead` and `FileSystemWrite`, a clock the test sets, a seeded
@@ -81,7 +82,7 @@ catches that class of bug instead:
 
 | The bug | What catches it |
 |---|---|
-| A library or test reaching for ambient state | The type system, at compile time, through `host-import` and the effect bounds on `ctx`. The reject corpus pins both. |
+| A library or test reaching for ambient state | The type system, at compile time, through `host-import-outside-platform`, the host an entry takes, and the effect bounds on `ctx`. The reject corpus pins both. |
 | A test depending on a real clock, a real `Random`, a real `Entropy`, or a real filesystem | It cannot. Those capabilities are injected fakes, and a suite wanting a real one would have to be handed it. |
 | A toolchain bug that leaks an intrinsic, or a code generator that embeds a path, a hostname, or a date | Two builds of one tree disagreeing. `buri build --check-reproducible` asks, and so does `two_checkouts_of_one_tree_build_identical_bytes` in the toolchain's own suite. The model rests on this check. |
 | A machine's time zone or locale changing what an action produces | The explicit spawn environment and the frozen clock. `build/hermeticity.rs` builds and tests under a perturbed parent environment. |

@@ -26,10 +26,10 @@ eliminated — or with a fold. `design/non-goals.md` records why.
 ### 1.1 A taste
 
 ```buri run
-# from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
+from "native" import { NativeHost };
+# from "platform/effect" import { Allocator, Stdout };
 
 struct Point {
     x: Float,
@@ -57,7 +57,7 @@ impl Shape {
 // `main` builds the one context the program has. Its bindings are the program's
 // complete effect budget: neither half of the filesystem is here, so nothing
 // this program transitively calls can read a file, let alone write one.
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,

@@ -6,7 +6,7 @@ toolchain, and are never listed in a `dependencies`.
 
 `ui/effect` declares `Watch` and `Ui`, and the `Scope` a reactive closure is
 handed — which reads the graph and allocates. Requests are not among them: a page
-asks for `core/effect`'s `Network` like every other platform. `ui/signal` is `Signal<T>` —
+asks for `platform/effect`'s `Network` like every other platform. `ui/signal` is `Signal<T>` —
 `get`, `set`, `update` — plus `signal` and `watch`. `ui/prop` is `Prop<T>` and
 `memo`. `ui/testing` is a headless platform, a renderer for looking at what a
 tree became, and `snapshot`, which paints one and holds it to a golden PNG. Only
@@ -81,7 +81,7 @@ signal it read would be a loop the runtime schedules rather than a value it
 caches — so `set` and `update` inside a derivation are a compile error.
 
 Nothing is counted. `allocate` on a `Scope` answers the bytes it was asked for,
-as `core/host`'s own allocator does: a derived value is reclaimed when the last
+as the host's own allocator does: a derived value is reclaimed when the last
 reference to it goes, and there is no budget on a computation.
 
 ## The tree
@@ -688,9 +688,9 @@ browser would report and the bytes:
 
 ```buri role=test
 from "core/bytes" import * as bytes;
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { PickedFile };
@@ -818,9 +818,9 @@ an omittable `fn(C, PointerAt) => ()` on every element. Here a reader picks a
 row up and drops it onto another, which takes its place:
 
 ```buri role=test
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
@@ -986,14 +986,14 @@ tokens declares its own closed vocabulary as an ordinary enum, with a
 constructor answering a colour:
 
 ```buri
-from "core/effect" import { Allocator };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator };
 from "ui/effect" import { Scope, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/style" import * as style;
 from "ui/style" import { Color };
 from "ui/theme" import * as theme;
 from "ui/theme" import { Theme };
+from "web" import { WebHost };
 
 /// `cardlib`'s vocabulary, and the constructor that names each of its tokens.
 export enum Token {
@@ -1032,7 +1032,7 @@ fn cardTheme(t: Token): Color {
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Ui: host.ui,
@@ -1132,8 +1132,8 @@ a class reads one, so switching the values switches the page.
 against a golden checked in beside the suite:
 
 ```buri role=test
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };

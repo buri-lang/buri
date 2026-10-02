@@ -538,7 +538,7 @@ so a measurement taken from two `Instant`s can come out negative for work that
 really happened. `time.monotonic(ctx)` reads a clock that only goes forward, in
 nanoseconds, and `time.elapsed(ctx, started)` is the difference. The reading has
 no epoch and means nothing on its own, which is why it is a separate type. Every
-platform that grants `Clock` grants it, and `core/host/testing`'s `clock()`
+platform that grants `Clock` grants it, and `platform/effect/testing`'s `clock()`
 moves both readings together, so a test can assert an elapsed time without
 waiting for one.
 
@@ -655,7 +655,7 @@ merely uniform. See
 
 ```buri
 from "core/crypto" import * as crypto;
-from "core/effect" import { Allocator, Entropy };
+from "platform/effect" import { Allocator, Entropy };
 
 export fn roundTrip<C: Allocator + Entropy>(
     ctx: C,
@@ -686,7 +686,7 @@ a JWT from an identity provider or a signed webhook. There is no signing.
 ```buri
 from "core/bytes" import * as bytes;
 from "core/crypto" import * as crypto;
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 
 // `x` and `y` come from the provider's JWKS entry.
 export fn fromProvider<C: Allocator>(
@@ -979,10 +979,10 @@ the state it rendered from with it; the page reads that state back, builds the
 same tree, and resumes on the markup that arrived.
 
 ```buri
-from "core/effect" import { Allocator };
 from "core/json" import { Json };
 from "core/net/http" import * as http;
 from "core/net/http" import { Response };
+from "platform/effect" import { Allocator };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
@@ -1057,12 +1057,32 @@ the same reason `navigate` does.
 
 ## The platform
 
-[`core/effect`](../../compiler/standard_library/sources/effect.buri) declares
-most of the effects, and
+```buri
+# from "core/io" import * as io;
+from "node" import { NodeHost };
+# from "platform/effect" import { Allocator, Stdout };
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    io.println(ctx, "hello").mapErr(fn(_e) => "could not write")
+}
+```
+
+| Module | What it is | Who may import it |
+|---|---|---|
+| [`platform/effect`](../../compiler/standard_library/sources/effect.buri) | Most of the effect declarations: `Allocator`, `Stdout`, `Network`, `Clock` and the rest | Anyone |
+| [`platform/host`](../../compiler/standard_library/sources/platform_host.buri) | The backends' production implementations, `HostAllocator`, `HostFileSystem` and the rest | A platform's `platform.buri`; anywhere else is `host-import-outside-platform` |
+| [`platform/effect/testing`](../../compiler/standard_library/sources/host_testing.buri) | A test implementation of every effect | A test source |
+| [`native`](../../platforms/native/platform.buri), [`node`](../../platforms/node/platform.buri), [`web`](../../platforms/web/platform.buri) | Each bundled platform's host type, `NativeHost`, `NodeHost` or `WebHost`, and its bodiless `main` | Anyone, for the host type; importing `main` is `entry-declaration-imported` |
+| [`core/host`](../../compiler/standard_library/sources/host.buri) | The host values a `CLOUDFLARE_WORKER` entry binds, until a worker takes a host | A worker entry's module |
+
 [`core/fs`](../../compiler/standard_library/sources/fs.buri) declares the
-filesystem's two.
-[`core/host`](../../compiler/standard_library/sources/host.buri)
-implements them all, and only the module that exports `main` may import it.
+filesystem's two effects, and `core/process` declares `Spawn`. `core/effect`
+and `core/host/testing` are retired: their names are `platform/effect` and
+`platform/effect/testing`.
 [`core/alloc`](../../compiler/standard_library/sources/alloc.buri),
 [`core/io`](../../compiler/standard_library/sources/io.buri),
 [`core/fs`](../../compiler/standard_library/sources/fs.buri),
@@ -1088,7 +1108,7 @@ compiler refuses `ctx.println(text)`.
 Only a test source may import
 [`core/testing/assert`](../../compiler/standard_library/sources/assert.buri),
 [`core/testing/check`](../../compiler/standard_library/sources/check.buri) or
-[`core/host/testing`](../../compiler/standard_library/sources/host_testing.buri).
+[`platform/effect/testing`](../../compiler/standard_library/sources/host_testing.buri).
 `assert` is deliberately wide — `equal`,
 `equalWith`, `notEqual`, `isTrue`, `isFalse`, `contains`, `containsText`,
 `startsWith`, `isEmpty`, `notEmpty`, `len`, `unordered`, `gt`,
@@ -1163,7 +1183,7 @@ one, or fires the command. A parse error goes to stderr with the usage under it
 and comes back as `.Err`, which `main`'s contract turns into exit 1. A handler
 takes an `Arguments` and asks it by name — `on`, `value`, `many`, `arg`,
 `positionals` — rather than a struct of its own fields. Everything under `run`
-sits at the `Allocator` tier, which lets a test hand it `core/host/testing`'s
+sits at the `Allocator` tier, which lets a test hand it `platform/effect/testing`'s
 `env().withArguments([...])` and read the answer out of a captured stream.
 `buri docs core/cli` is the module's own page, with the five spellings a flag
 may take and a program worked end to end.
@@ -1372,8 +1392,8 @@ finished in, handing each call the item's own index. Every task finishes before
 `parallel` returns, so nothing outlives the context that granted it:
 
 ```buri
-from "core/effect" import { Allocator, Tasks };
 from "core/tasks" import * as tasks;
+from "platform/effect" import { Allocator, Tasks };
 
 fn squares<C: Allocator + Tasks>(ctx: C, ns: [Int]): [Int] {
     tasks.parallel(ctx, ns, fn(c, i, n) => n * n)
@@ -1397,10 +1417,10 @@ have finished, so the waiting moves from the call to the scope and nothing
 still escapes the context that granted it:
 
 ```buri
-from "core/effect" import { Allocator, Clock, Stdout, Tasks };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 from "core/time" import * as time;
+from "platform/effect" import { Allocator, Clock, Stdout, Tasks };
 
 fn page<C: Allocator + Clock + Stdout + Tasks>(ctx: C): () {
     tasks.scope(ctx, fn(c, here) => {
@@ -1483,13 +1503,13 @@ state, so a step that posts a sixty-fifth message waits for room nobody is
 coming to make.
 
 `core/net/http` documents `Request` and `Response`, the two types `Network.fetch`
-speaks in. It re-exports them from `core/effect`, where the effect's own
+speaks in. It re-exports them from `platform/effect`, where the effect's own
 signature names them. You build a message with a free function and then by
 chaining:
 
 ```buri
-from "core/effect" import { Allocator, Network };
 from "core/net/http" import * as http;
+from "platform/effect" import { Allocator, Network };
 
 fn ping<C: Allocator + Network>(ctx: C): Str {
     match (http.send(ctx, http.request(.Get, "http://example.com/ping"))) {
@@ -1516,11 +1536,10 @@ uses the platform's `fetch`. A native binary differs from it in three ways:
   is `/etc/ssl/cert.pem` and not the keychain. Set `SSL_CERT_FILE` to a PEM
   file to trust its roots instead.
 
-`core/host/testing` is `core/host`'s surface for a test. It has the same names —
-`alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`, `entropy`,
-`env`, `proc`, `sockets`, `tcp` — but you **call** them rather than refer to
-them, so
-each call mints a fresh double. A method configures one by answering a new one:
+`platform/effect/testing` names its test implementations after the host's
+fields — `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`,
+`entropy`, `env`, `proc`, `sockets`, `tcp` — but you **call** them rather than
+refer to them, so each call mints a fresh double. A method configures one by answering a new one:
 `clock().at(1000)`, `rand().seed(7)`, `entropy().seed(7)`,
 `env().variables([...]).withArguments([...])`, `fs().files([...]).readOnly()`.
 
@@ -1576,7 +1595,7 @@ promises, and the only place in this language where these octets are predictable
 on purpose. It draws from `rand()`'s own generator at `rand()`'s own seeds, so a
 token minted in a test is a value you can write an assertion against, and it is
 the same value on both backends. A program cannot reach it, because only a test
-source may import `core/host/testing`. See [testing](./build/testing.md).
+source may import `platform/effect/testing`. See [testing](./build/testing.md).
 
 ### State for a test implementation
 
@@ -1623,9 +1642,9 @@ has been granted nothing.
 
 ```buri
 from "core/alloc" import * as alloc;
-from "core/effect" import { Allocator };
 from "core/fs" import * as fs;
 from "core/fs" import { FileSystemRead, Path };
+from "platform/effect" import { Allocator };
 
 fn inAScope<C: Allocator + FileSystemRead>(ctx: C, at: Path): Bool {
     alloc.scoped(ctx, fn(c) => fs.exists(c, at))
@@ -1654,7 +1673,7 @@ backends: **every `allocate(ctx, n)`, and nothing else.** The charge for an
 operation is *defined* rather than measured. A `Str` of *n* UTF-8 bytes charges
 `16 + n`, a `[T]` of *n* charges `16 + n * stride(T)`, and a view charges
 nothing. Those rows are charged by definition and reported to no allocator. The
-model sits beside `Allocator` in `core/effect`.
+model sits beside `Allocator` in `platform/effect`.
 
 ## Loading code later
 
@@ -1662,9 +1681,9 @@ model sits beside `Allocator` in `core/effect`.
 declaration, `load`.
 
 ```buri
-from "core/effect" import { Stdout };
 from "core/io" import * as io;
 from "core/lazy" import * as lazy;
+from "platform/effect" import { Stdout };
 
 fn admin<C: Stdout>(ctx: C): () {
     io.println(ctx, "admin").ignore()

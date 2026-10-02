@@ -867,7 +867,7 @@ Two rows deserve their reasons:
 
 Making it a definition also makes it a **commitment**: a change to any row is
 a breaking change to observable behaviour. The table sits above
-`effect Allocator` in `core/effect`'s own source. `middle::layout`'s
+`effect Allocator` in `platform/effect`'s own source. `middle::layout`'s
 `charge_list`, `charge_str`, `charge_closure_env`, `charge_allocate` and
 `CHARGE_VIEW` are the same rows as code, and `core/alloc`'s `strBytes`,
 `listBytes` and `closureBytes` are them again as something a program can call.
@@ -886,7 +886,7 @@ allocators.
   **As built, the total is not *in* the type.** Buri has no mutation, so a
   running total cannot live in the struct that reports it. `GeneralPurpose` is
   a handle into a counter table in `memory.rs`, exactly as
-  `core/host/testing`'s captured stdout is a handle. The type still exposes
+  `platform/effect/testing`'s captured stdout is a handle. The type still exposes
   the total through `gp.stats()`. One consequence a program can see: a copy of
   an allocator shares its counter, because the handle is the identity.
 - **`FixedBuffer(n)`** — a budget of *n* bytes. Exceeding it **aborts**. That

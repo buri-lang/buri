@@ -1,13 +1,13 @@
 ---
 title: A platform's entry is filled, not called
-message: '`{entry}` is the {platform} platform''s entry, and nothing calls it'
+message: '`{entry}` is the entry of the {platform} platform, and nothing calls it'
 note: a platform declares its entries without a body; the program exports one of the same name, and the platform calls that
 fix: import the host type instead, and export your own `{entry}`
 ---
 # A platform's entry is filled, not called
 
 ```text
-error: `main` is the native platform's entry, and nothing calls it [entry-declaration-imported]
+error: `main` is the entry of the native platform, and nothing calls it [entry-declaration-imported]
 ```
 
 ## What to do

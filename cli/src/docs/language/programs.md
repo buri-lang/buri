@@ -3,10 +3,10 @@
 A program is a module that exports `main`:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Allocator, Environment, Stdout };
-from "core/host" import * as host;
+# from "platform/effect" import { Allocator, Environment, Stdout };
+from "native" import { NativeHost };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context {
     Allocator:  host.alloc,
     Stdout: host.stdout,
@@ -16,22 +16,23 @@ export fn main(): Result<(), Str> {
 }
 ```
 
-- `main` must take no parameters and declare no generic parameters.
+- `main` takes one parameter, its platform's host — `NativeHost`, `NodeHost` or
+  `WebHost` — and declares no generic parameters (Section 10.3). The old
+  host-less `main()` is `entry-without-host`.
 - `main` must return `Result<(), Str>`.
 - `.Ok(())` exits 0. `.Err(msg)` prints `msg` to stderr and exits 1.
 - An **entry's** body is the only place in a program that may construct a context
-  (Section 11.3), and only the module exporting it may import `core/host`
-  (Section 10.3). The context an entry builds is that artifact's complete effect
-  budget.
+  (Section 11.3), and its host is the only way authority enters. The context an
+  entry builds is that artifact's complete effect budget.
 
 An entry is a function a build file's `outputs` names, and `main` is the one it
 names by default. A binary may declare several — a page entering at `main` and a
-worker at `fetch`, out of one module — and each platform fixes the signature of
-the entry it calls
+node program at `mainForNode`, out of one module — and each platform fixes the
+signature of the entry it calls
 ([`cli/src/docs/reference/build/build-files.md`](./cli/src/docs/reference/build/build-files.md)).
 
-An entry receives nothing it can be handed a double for, so there is no fake to
-pass it and nothing in it worth testing. Put logic you want to test in a function
+Nothing but the CLI can build a host, so there is no fake to pass an entry and
+nothing in it worth testing. Put logic you want to test in a function
 it calls, taking an ordinary bounded `ctx`
 ([`cli/src/docs/reference/build/testing.md`](./cli/src/docs/reference/build/testing.md)).
 
@@ -70,9 +71,9 @@ sources ([`cli/src/docs/reference/build/testing.md`](./cli/src/docs/reference/bu
 test helpers are ordinary library code.
 
 ```buri repo=cli/tests/example role=test
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "//lib/money" import { fromCents };
 
 test "pads the cents place" {
@@ -92,9 +93,9 @@ report identifies a failing test and how `--filter` selects one. Two *different*
 files may use the same name.
 
 A test that needs a context builds one, with the same form `main` uses (Section
-11.3). `core/host/testing` is a **platform module**, the test runner's platform:
-`core/host`'s surface written out for a test, with the same names **called**
-rather than referred to, so each call answers a fresh double.
+11.3). `platform/effect/testing` holds the effects' test implementations,
+named as the host's fields but **called** rather than referred to, so each call
+answers a fresh double.
 
 | Member | Effect | What it does |
 |---|---|---|
@@ -211,7 +212,7 @@ implements it. `main` and a test use the same form.
 **As an expression**, anonymous:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Allocator, Stdout };
+# from "platform/effect" import { Allocator, Stdout };
 # from "core/fs" import { FileSystemRead };
 let ctx = context {
   Allocator:  host.alloc,
@@ -224,10 +225,10 @@ let ctx = context {
 or exported from a test-only module and shared across files:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import {
+# from "core/fs" import { FileSystemRead };
+# from "platform/effect" import {
 #     Allocator, Clock, Environment, Network, Random, Stderr, Stdout,
 # };
-# from "core/fs" import { FileSystemRead };
 
 context Sandbox {
     Allocator: alloc(),
@@ -284,7 +285,7 @@ own, and either may start from another and change one line.
 | A test-only module (a `testing` path segment) | yes, and may be exported | anywhere in the file |
 | Anywhere else | no | no |
 
-That table is the whole restriction, and together with `core/host`'s import rule
+That table is the whole restriction, and together with `platform/host`'s import rule
 (Section 4.1.1) it is why the purity theorem's last clause is vacuous in ordinary
 code. Neither a `context` expression nor a call to a named context may appear
 inside a lambda, even where both are otherwise legal. Without that, a closure

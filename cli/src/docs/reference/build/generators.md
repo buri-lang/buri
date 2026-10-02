@@ -48,8 +48,8 @@ tool {
 ```buri
 // tool/units/tool.buri
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Allocator };
 from "core/tool" import { Generated, GenerateRequest };
+from "platform/effect" import { Allocator };
 
 /// One module named `units`, holding an `export let` per input.
 export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {

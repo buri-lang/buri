@@ -23,9 +23,9 @@ Buri the compiler answers them.
 A whole program, with every one of those answers visible in it:
 
 ```buri run
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
 from "core/io" import * as io;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout };
 
 enum Entry {
     Deposit(Int),
@@ -47,7 +47,7 @@ impl Entry {
 
 // `main` takes no arguments and builds the program's one context. Those two
 // bindings are the whole budget, so nothing here can touch the filesystem.
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
@@ -77,7 +77,7 @@ something.
 | **Fast to run** | Strict evaluation in a fully specified order, so no thunks and no space leaks. Monomorphized generics, no dictionaries. Guaranteed tail calls, lowered to loops where the host lacks them. Immutability lets the runtime reuse memory in place when a value is provably unshared. *Costs:* a function that allocates says so in its signature, and that propagates to its callers. |
 | **Fast to compile** | An unambiguous grammar, LR(1) but for one production. Nothing feeds name resolution or types back into the parser, so parsing is one parallel pass. Mandatory signatures keep inference inside each function body, so modules check independently. No macros, no reflection, no overload resolution. Conformance is nominal, so a bound is a table lookup rather than a search. *Costs:* annotations you would rather infer, and one concession — method resolution needs the receiver's type, so name resolution and inference interleave. |
 | **Friendly** | Errors name a fix rather than a symptom, and each one has a page: `buri docs error <code>` prints the diagnostic, the program that provokes it, and the way out. Lints argue about architecture, not whitespace. The toolchain is one binary that builds, tests, formats, lints, generates build files, and serves this documentation. *Costs:* friendliness loses the other three arguments — parenthesized conditions and a mandatory `else` are here because the parser wants them. |
-| **Binary and JS** | Nothing in the semantics assumes a machine word: `Int` is `I64` everywhere, integer overflow is undefined rather than quietly wrapping, and evaluation order is specified rather than left to the backend. A JS target simply exports a different `core/host`. *Costs:* the 64-bit integer types are `BigInt`s on the JavaScript backend, which is correct and slower than a `number`. |
+| **Binary and JS** | Nothing in the semantics assumes a machine word: `Int` is `I64` everywhere, integer overflow is undefined rather than quietly wrapping, and evaluation order is specified rather than left to the backend. A JS platform simply hands its entry a different host. *Costs:* the 64-bit integer types are `BigInt`s on the JavaScript backend, which is correct and slower than a `number`. |
 
 Where the goals pull against each other, the compiler absorbs the strain, not
 the language: guaranteed tail calls become loops on a JS target, since no
@@ -102,7 +102,7 @@ only platform modules may declare one. A function names the effects it needs as
 bounds on its context parameter:
 
 ```buri sig role=platform
-# from "core/effect" import { Allocator, IoError };
+# from "platform/effect" import { Allocator, IoError };
 
 # struct User(Int);
 
@@ -127,19 +127,19 @@ fn loadUser<C: Allocator + FileSystemRead>(ctx: C, id: Str): Result<User, LoadEr
 or position, so you answer "can this function touch the world?" by reading the
 first two parameters. No type may implement both an effect and a trait.
 
-The implementations that really do anything live in `core/host`, and only the
-file exporting `main` may import it. `main` takes no parameters: it names the
-effects it wants, binds each to one of those implementations, and passes the
-result down. A program whose `main` never binds `Network` cannot open a socket
+The implementations that really do anything reach a program one way: `main`
+takes its platform's host, `main(host: NodeHost)`, whose fields are those
+implementations. `main` names the effects it wants, binds each to a field, and
+passes the result down. A program whose `main` never binds `Network` cannot open a socket
 anywhere in its call graph, because nothing anywhere can obtain a value bounded
 by `Network`. To hand a callee less of the world, name fewer bounds. The bound is
 what confines it:
 
 ```buri
-# from "core/effect" import { Stdout };
 # from "core/fs" import * as fs;
 # from "core/fs" import { FileSystemRead, Path };
 # from "core/io" import * as io;
+# from "platform/effect" import { Stdout };
 
 /// A caller may hand this the context that also carries `FileSystemRead`. The value is
 /// the same one; the bound is what this function can do with it.

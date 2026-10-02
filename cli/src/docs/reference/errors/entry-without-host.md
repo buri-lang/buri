@@ -19,12 +19,15 @@ Import the host type from the platform and take it as the entry's one
 parameter:
 
 ```buri
-from "platform/effect" import { Allocator, Stdout };
 from "core/io" import * as io;
 from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout };
 
 export fn main(host: NativeHost): Result<(), Str> {
-    let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
     io.println(ctx, "hello").mapErr(fn(_e) => "could not write")
 }
 ```

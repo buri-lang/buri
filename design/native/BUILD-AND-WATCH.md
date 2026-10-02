@@ -458,7 +458,9 @@ no profile key for it:
 
   ```text
   libburi_rt.a                          6 035 480 bytes
-  export fn main() { .Ok(()) }            370 288    6.1% of it
+  from "native" import { NativeHost };
+
+  export fn main(host: NativeHost) { .Ok(()) }            370 288    6.1% of it
   hello world                             374 640    6.2%
   ```
 

@@ -1,89 +1,54 @@
 ---
-title: A platform grants the effects its host exports
+title: A worker grants the effects `core/host` exports for it
 message: '`{name}` implements {effect}, which is not allowed on {platforms}'
 note: a platform is the set of effects its host exports; {because}
 fix: drop {effect} from the context{elsewhere}
+reproduction: none
 ---
-# A platform grants the effects its host exports
+# A worker grants the effects `core/host` exports for it
 
 ```text
-error: `ui` implements `Ui`, which is not allowed on the node platform [effect-not-on-platform]
+error: `ui` implements `Ui`, which is not allowed on the CLOUDFLARE_WORKER platform [effect-not-on-platform]
 ```
 
 ## What to do
 
 Drop the effect from the context, or build this target for a platform that
-grants it. If the fix names no platform to build for, no platform grants the
-effect yet, and dropping it is the whole fix.
+grants it.
 
 The error lands on the import when the program imported the name directly, and
-on the member reference when the host came in as `* as host` — a namespace
-import names no effect, so there is nothing to refuse until the program reaches
-for a member.
+on the member reference when it came in as `* as host` — a namespace import
+names no effect, so there is nothing to refuse until the program reaches for a
+member.
 
-## Which platforms it is checked against
+## Where it fires
 
-- **A build producing one output** is checked against that output, so
-  `buri build --output=node` on a binary that also declares `web` compiles
-  only the `node` one. A snippet pinned with `platform=` on its fence works the same way.
+Only on a name from `core/host`, which only a `CLOUDFLARE_WORKER` entry's module
+may import: a worker's `fetch(request: Request)` takes no host yet. Every other
+entry takes its platform's host, and a field the host lacks is `no-such-field`
+instead, with a note naming the platforms that offer it.
+
 - **An entry's own body** is checked against the outputs that enter through
-  *that* entry, plus every platform its suite names in `test.backends`. So a
-  binary whose page enters at `main` and whose worker enters at `fetch` may bind
-  `Ui: host.ui` in `main` and `Network: host.net` in `fetch`, and neither refuses
-  the other.
+  *that* entry. So a binary whose page enters at `main` and whose worker enters
+  at `fetch` may bind `Network: host.net` in `fetch`.
 - **Anywhere else in `main.buri`** — a helper, a top-level named import — is
   checked against every platform the `outputs` name, because any of them may
-  reach it. So a binary declaring `native` and `web` outputs whose helper binds
-  `FileSystemRead: host.fs` is refused, naming `web`.
-- **Every other module** is checked against the platforms **its own rule
-  declared**. A rule that declared none is never checked, because a library that
-  says nothing about `backends` or `platforms` is platform-generic.
+  reach it. So a helper beside a worker's `fetch` that reads `host.ui` is
+  refused, naming the worker.
 
 An **effect type** is never platform-bound. `from "core/fs" import { FileSystemRead }`
-is legal on every platform, a page included, and so is `core/host/testing`'s
-double for every effect. A platform binds the **host** half — the value `main`
-binds.
+is legal on every platform, and so is `platform/effect/testing`'s test
+implementation of every effect.
 
 ## Why
 
-A platform *is* the set of effects its host exports, so a platform that does not
+A platform *is* the set of effects its host exports, so a worker that does not
 grant an effect exports no name for it. The check needs only the build file and
 the import line, both of which the editor has, so the language server reports it
-as you type. The refusals that stay late — `native-run-not-available`,
-`cryptography-not-available`, `networking-not-available` — are about what *this
-toolchain* was built with instead.
-
-An effect nobody grants yet gets the same sentence, from an empty row in the
-same table. `Listen` is granted on `native`, where holding a port
-open is a native program's authority, and never will be on `node`, `web` or
-`CLOUDFLARE_WORKER`. A row says who grants an effect now, not when the rest will
-fill — and it can widen too: `Sockets` was granted with `Listen` and only with
-it, until `WebSocketClient` let a page get a socket without accepting one.
-
-`Tasks` shows the other direction. It landed granted by nobody, then on the
-platforms that are not a page, and now on every one — one edit to one row each
-time, and nothing to change in a program already written against the signature.
+as you type.
 
 ## A program that provokes it
 
-```buri fail code=effect-not-on-platform platform=node
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
-from "core/io" import * as io;
-from "ui/effect" import { Ui, Watch };
-
-export fn main(): Result<(), Str> {
-    let ctx = context {
-        Allocator: host.alloc,
-        Stdout: host.stdout,
-        Ui: host.ui,
-        Watch: host.watch,
-    };
-    let _ = io.println(ctx, "this program has no page to mount into").ignore();
-    .Ok(())
-}
-```
-
-The same source under `platform: "web"` compiles and mounts. `platform=node` tells
-the documentation harness which output to check the snippet as; without one it
-checks with the whole host granted.
+It needs a build file naming a worker:
+`cli/tests/repositories/build-files/several_entries` reads `host.ui` in a helper
+beside a worker's `fetch`.

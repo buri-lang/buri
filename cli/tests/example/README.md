@@ -156,7 +156,7 @@ which is what an untagged library is *for*.
   between the two builds is visible in those two files.
 - **Then compare all three `main.buri`s at once.** `//cmd/server` binds `FileSystem`
   and `Environment`, `//cmd/web` binds neither, and `//cmd/basket` binds `Ui` and
-  `Watch`, which `core/host` exports under `platform: "web"` and under no other —
+  `Watch`, which `WebHost` has and no other host does —
   plus `Network`, which every platform grants. None of the three would build for
   either of the others' outputs, and the error lands on the line that asked for
   the effect.
@@ -273,12 +273,12 @@ fence needs `repo=` only when the example lives in a *different* repository's
 documentation.
 
 ```buri run
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
 from "core/io" import * as io;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout };
 from "//lib/money" import { fromCents };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
