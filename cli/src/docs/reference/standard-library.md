@@ -1005,7 +1005,7 @@ names the language, both escaped. `defaultDocument` is the one to write over,
 so a page names the fields it differs in and nothing else. Routing is a match,
 so a page's title is one too. A page that *mounts* says the same thing with
 `web.title(ctx, text)`, which takes a `Prop<Str>` and rewrites the tab whenever
-it changes — the `.html` a WEB output writes carries the artifact's name and
+it changes — the `.html` a `web` output writes carries the artifact's name and
 knows nothing about the route.
 
 On the page, `web.state(ctx)` reads that state back and `web.resume(ctx, tree)`
@@ -1024,7 +1024,7 @@ second call answers that same `.Err`.
 
 Routing is a match. A page function takes the path as a `Prop<Str>`: the worker
 passes `.Const(request.path())` and the page passes `web.route(ctx)`, which is
-the address bar as a cell. `Location` is granted on WEB alone, and it is what
+the address bar as a cell. `Location` is granted on `web` alone, and it is what
 makes navigating re-run the smallest thing that read the path.
 
 `web.navigate(ctx, path)` is how a page goes somewhere itself: a history entry,
@@ -1203,7 +1203,7 @@ only with TLS, because ALPN chooses it inside the handshake: a `Server` naming
 no `protocols` offers HTTP/1.1. The server answers as many requests at once as
 the acceptor said it would host, because `run` puts each handler on a task of
 its own, which is why `serve` needs `Tasks` and `Allocator` beside `Listen`. Only
-`LINUX` and `MACOS` grant `Listen`, so only they can serve — `Tasks` itself is
+`native` grants `Listen`, so only it can serve — `Tasks` itself is
 granted everywhere, a page included.
 
 **A `Server` with a `websocket` speaks WebSockets, and the upgrade is
@@ -1256,7 +1256,7 @@ stays open until the process ends, because a Buri value has no destructor.
 
 **No TLS and no listening.** Wrapping a stream needs the TLS the runtime keeps
 for `core/net/http` and `core/net/server`, and accepting is `Listen`'s. `Tcp` is
-granted on `LINUX` and `MACOS` beside `Listen`, because a page and a worker have
+granted on `native` beside `Listen`, because a page and a worker have
 no sockets of their own — the one connection a browser can dial is a WebSocket,
 and `WebSocketClient` is granted everywhere for it.
 
@@ -1280,11 +1280,11 @@ of one.
 
 `onOpen` is handed the `Response` that opened the socket where a server's is
 handed the `Request` that asked, and that is the whole difference. It is where a
-negotiated subprotocol arrives, and on `LINUX` and `MACOS` it is the head the
+negotiated subprotocol arrives, and on `native` it is the head the
 server really sent; a page cannot see its own handshake, so there `Response`
 carries the subprotocol and the extensions and nothing else.
 
-`LINUX` and `MACOS` write the handshake here and check every clause of the
+`native` writes the handshake here and checks every clause of the
 answer, so a `101` signing another handshake's key is `.Err(.Transport)` naming
 that check. Everywhere else the engine's own `WebSocket` owns the handshake and
 decides how strictly to check it — `node` refuses that `101` and `bun` accepts
@@ -1292,7 +1292,7 @@ it — because a page never sees the key it sent.
 
 `connect` is bounded `WebSocketClient + Sockets`. The first dials and the second
 pushes, and the hooks are handed your context, so both have to be in it.
-**Every platform grants both**, `WEB` and `CLOUDFLARE_WORKER` included: holding
+**Every platform grants both**, `web` and `CLOUDFLARE_WORKER` included: holding
 a port open is a native program's authority, and dialling out is not. On a page
 `connect` follows `ui.mount` — it suspends without holding the event loop, so an
 interface goes on rendering while the socket is idle and a pushed frame wakes it
@@ -1648,7 +1648,7 @@ fn route<C: Stdout>(ctx: C, path: Str): () {
 }
 ```
 
-`load(f)` answers `f`. On `JS`, `WEB` and `CLOUDFLARE_WORKER` it also moves `f`,
+`load(f)` answers `f`. On `node`, `web` and `CLOUDFLARE_WORKER` it also moves `f`,
 and everything only `f` reaches, into a chunk beside the artifact —
 `<artifact>.0.mjs` — which the program fetches when it reaches the `load`. A
 native build has one file and ignores the whole thing.

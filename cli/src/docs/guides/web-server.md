@@ -16,13 +16,13 @@ where `Request` and `Response` are documented. A handler answers with the same
 # cmd/server/BUILD.buri
 binary {
     outputs: [
-        { platform: MACOS, arch: ARM64 },
+        { platform: "native", variant: "macos-arm64" },
     ]
 }
 ```
 
-`LINUX` and `MACOS` are the platforms that grant `Listen`. A binary that
-declares no `outputs` builds for JS, which grants neither `Listen` nor
+`native` is the platform that grants `Listen`. A binary that
+declares no `outputs` builds `node`, which grants neither `Listen` nor
 `Sockets`. See [what refuses to serve](#what-refuses-to-serve).
 
 ```buri
@@ -64,7 +64,7 @@ export fn main(): Result<(), Str> {
 
 ```text
 $ buri build //cmd/server
-.buri/out/macos-arm64/cmd/server/server (2031008 bytes)
+.buri/out/native/macos-arm64/cmd/server/server (2031008 bytes)
 $ buri run //cmd/server &
 $ curl -i http://127.0.0.1:3000/health
 HTTP/1.1 200 OK
@@ -292,7 +292,7 @@ server, and the pushes your hooks make land in that `sockets()` double's
 `connect` follows `ui.mount`: it suspends without holding the event loop, so an
 interface goes on rendering while the socket is idle and a pushed frame wakes it
 like a click. What differs off the native platforms is who writes the handshake.
-`LINUX` and `MACOS` write it here and check every clause of the answer;
+`native` writes it here and checks every clause of the answer;
 everywhere else the engine's own `WebSocket` does, so how strictly it refuses a
 bad `101` is that engine's decision, and `onOpen`'s `Response` carries the
 negotiated subprotocol and extensions rather than the head the server sent.
@@ -305,7 +305,7 @@ is closed. So `serve` returns `.Ok(())` and whatever a program does after `serve
 still happens:
 
 ```text
-$ ./.buri/out/macos-arm64/cmd/server/server &
+$ ./.buri/out/native/macos-arm64/cmd/server/server &
 $ curl -s http://127.0.0.1:3000/health
 {"status":"ok","served":1}
 $ kill -TERM %1
@@ -379,25 +379,25 @@ into runner-side state, and the deciding half does not.
 
 | Effect | Granted on |
 |---|---|
-| `Listen`, `Sockets` | `LINUX`, `MACOS` |
+| `Listen`, `Sockets` | `native` |
 
-Under `platform: WEB` the compiler refuses this program on the line that asked
+Under `platform: "web"` the compiler refuses this program on the line that asked
 for a listener. `Tasks` is granted everywhere, so it is not one of them:
 
 ```text
 $ buri build //cmd/server
-error: `listen` implements `Listen`, which is not allowed on the WEB platform [effect-not-on-platform]
+error: `listen` implements `Listen`, which is not allowed on the web platform [effect-not-on-platform]
   --> cmd/server/main.buri:57:22
    |
 57 |         Listen: host.listen,
    |                      ^^^^^^
    |
    = a platform is the set of effects its host exports; holding a port open is a native program's authority; a page is served rather than serving, and its host has no way to accept a connection
-   = fix: drop `Listen` from the context, or build this target for a platform that grants it: LINUX, MACOS
+   = fix: drop `Listen` from the context, or build this target for a platform that grants it: native
 ```
 
 The compiler checks each entry of `outputs` against the whole graph separately,
-so a binary can pass for MACOS and fail for JS.
+so a binary can pass for `native` and fail for `node`.
 [Compile to JavaScript](./compile-to-js.md) is that half.
 
 ## Next

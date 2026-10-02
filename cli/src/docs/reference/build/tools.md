@@ -15,7 +15,7 @@ tool {
 
 Every `tool` rule lives under the repository's top-level `tool/` directory, at
 any depth: `//tool/lines`, `//tool/db/schema`. Anywhere else is
-[`tool-outside-tool-directory`](../errors/tool-outside-tool-directory.md). The
+[`rule-outside-its-directory`](../errors/rule-outside-its-directory.md). The
 rule only goes one way, so a library or a binary may live under `tool/` too.
 
 Its root is `tool.buri`, which exports one function per block:
@@ -117,7 +117,9 @@ tool {
     sources: ["emit.buri"]
 
     generate {
-        accepts: [{ language: "json", type_schema: "config.schema.json" }]
+        accepts: [
+            { language: "json", type_schema: "config.schema.json" },
+        ]
     }
 }
 ```
@@ -186,7 +188,9 @@ message from `<tool label>/textproto`:
 # tool/routes/BUILD.buri
 tool {
     generate {
-        accepts: [{ language: "textproto", type_schema: "routes.proto:Routes" }]
+        accepts: [
+            { language: "textproto", type_schema: "routes.proto:Routes" },
+        ]
     }
 }
 ```
