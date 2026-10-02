@@ -1727,6 +1727,107 @@ test "a list handed to the same inlinable call twice is not written through" {
     assert.equal(xs, [1, 2]);
 }
 
+// --- an update whose record dies in it --------------------------------------
+//
+// Natively, an update that is the last use of its record takes the record's own
+// reference rather than a second one, and a field it replaces and reads once is
+// moved out of the record rather than shared. `design/native/MEMORY.md` §5.3.
+// These are the shapes where that could reach too far: a field read twice, a
+// closure that captures the record, a nested update, a field handed to a
+// function that owns it, and a `?` that leaves part-way through.
+
+/// A list and a closure over the record it came from.
+struct Held {
+    xs: [Int],
+    size: fn() => Int,
+}
+
+derive Equal, Show for Nest;
+/// A record inside a record.
+struct Nest {
+    out: Out,
+    n: Int,
+}
+
+fn grownAndCounted<C: Allocator>(ctx: C, out: Out, x: Int): Out {
+    Out { ..out, pieces: out.pieces.push(ctx, x), at: out.pieces.length() }
+}
+
+fn holding<C: Allocator>(ctx: C, h: Held, x: Int): Held {
+    Held { ..h, xs: h.xs.push(ctx, x), size: fn() => h.xs.length() }
+}
+
+fn nestedGrow<C: Allocator>(ctx: C, n: Nest, x: Int): Nest {
+    Nest { ..n, out: Out { ..n.out, pieces: n.out.pieces.push(ctx, x) }, n: n.n + 1 }
+}
+
+fn handedOn<C: Allocator>(ctx: C, n: Nest, x: Int): Nest {
+    Nest { ..n, out: wrote(ctx, n.out, x) }
+}
+
+fn positive(x: Int): Result<Int, Str> {
+    if (x > 0) { .Ok(x) } else { .Err("not positive") }
+}
+
+fn wroteChecked<C: Allocator>(ctx: C, out: Out, x: Int): Result<Out, Str> {
+    .Ok(Out { ..out, pieces: out.pieces.push(ctx, positive(x)?), at: out.at + 1 })
+}
+
+test "a field one update reads twice is its old value both times" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let once = grownAndCounted(ctx, Out { pieces: [1].concat(ctx, [2]), at: 0 }, 3);
+    let twice = grownAndCounted(ctx, once, 4);
+    assert.equal(once, Out { pieces: [1, 2, 3], at: 2 });
+    assert.equal(twice, Out { pieces: [1, 2, 3, 4], at: 3 });
+}
+
+test "a closure that captures a dying record sees the record it captured" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let first = holding(ctx, Held { xs: [1].concat(ctx, [2]), size: fn() => 0 }, 3);
+    let second = holding(ctx, first, 4);
+    let third = holding(ctx, second, 5);
+    assert.equal(first.size(), 2);
+    assert.equal(second.size(), 3);
+    assert.equal(third.size(), 4);
+    assert.equal(third.xs, [1, 2, 3, 4, 5]);
+}
+
+test "a nested update over a dying record answers what a copy would" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let one = nestedGrow(ctx, Nest { out: Out { pieces: list.empty<Int>(), at: 0 }, n: 0 }, 1);
+    let three = nestedGrow(ctx, nestedGrow(ctx, one, 2), 3);
+    assert.equal(one, Nest { out: Out { pieces: [1], at: 0 }, n: 1 });
+    assert.equal(three, Nest { out: Out { pieces: [1, 2, 3], at: 0 }, n: 3 });
+}
+
+test "a field handed from a dying record to a function that owns it answers what a copy would" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let one = handedOn(ctx, Nest { out: Out { pieces: list.empty<Int>(), at: 0 }, n: 0 }, 1);
+    let three = handedOn(ctx, handedOn(ctx, one, 2), 3);
+    let other = handedOn(ctx, one, 9);
+    assert.equal(one.out, Out { pieces: [1], at: 1 });
+    assert.equal(three.out, Out { pieces: [1, 2, 3], at: 3 });
+    assert.equal(other.out, Out { pieces: [1, 9], at: 2 });
+}
+
+test "a question mark inside an update over a dying record answers either way" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let kept = wroteChecked(ctx, Out { pieces: [1].concat(ctx, [2]), at: 0 }, 3);
+    let left = wroteChecked(ctx, Out { pieces: [1].concat(ctx, [2]), at: 0 }, 0);
+    assert.equal(kept, .Ok(Out { pieces: [1, 2, 3], at: 1 }));
+    assert.equal(left, .Err("not positive"));
+}
+
 // --- a fold's seed, in every fold that takes one ------------------------------
 //
 // The four seeds `middle::rc` hands over rather than lends. Handing one over is
