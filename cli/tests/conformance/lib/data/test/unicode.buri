@@ -67,7 +67,7 @@ test "a zero-width joiner sequence is one cluster" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal("👨\u{200d}👩\u{200d}👦".graphemeCount(), 1);
+    assert.equal("👨‍👩‍👦".graphemeCount(), 1);
     assert.equal("👍🏽".graphemeCount(), 1);
     assert.equal("👨👩".graphemeCount(), 2);
 }
@@ -108,7 +108,7 @@ test "graphemeCount agrees with graphemes" {
     let ctx = context {
         Allocator: alloc(),
     };
-    let text = "á🇬🇧👨\u{200d}👩z";
+    let text = "á🇬🇧👨‍👩z";
     assert.equal(text.graphemeCount(), text.graphemes(ctx).length());
     assert.equal(text.graphemeCount(), 4);
 }

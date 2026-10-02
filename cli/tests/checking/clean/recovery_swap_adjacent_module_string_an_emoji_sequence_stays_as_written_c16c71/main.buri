@@ -1,0 +1,34 @@
+// An emoji sequence comes back as it was written, though the joiners and the
+// tag characters it is built from have no visible shape on their own.
+export fn family(): Str { "👨‍👩‍👦" }
+
+export fn familySpelled(): Str { "👨\u{200d}👩\u{200D}👧\u{200d}👦" }
+
+export fn professions(): Str { "👩🏽\u{200d}🚀 🧑‍💻 👨‍⚕️" }
+
+export fn flags(): Str { "🏳️\u{200d}🌈 🏳️‍⚧️ 🇯🇵" }
+
+export fn england(): Str { "🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}" }
+
+export fn scotland(): Str { "🏴󠁧󠁢󠁳󠁣󠁴󠁿" }
+
+export fn keycaps(): Str { "1\u{fe0f}\u{20e3} #️⃣" }
+
+export fn skinTones(): Str { "👋🏻👋\u{1f3ff}" }
+
+export fn template(n: Int): Template { "👨‍👩‍👦 ${n} 🏴󠁧󠁢󠁥󠁮󠁧󠁿" }
+
+// A joiner or a tag anywhere else is the invisible character it looks like.
+export fn loneJoiner(): Str { "‍" }
+
+export fn betweenLetters(): Str "a‍b" { }
+
+export fn besideOneEmoji(): Str { "👨‍ ‍👩 👨‍a" }
+
+export fn besideAHole(n: Int): Template { "👨‍${n}‍👩" }
+
+export fn loneTags(): Str { "a󠁧b 🏴󠁧 󠁧󠁿 🏴󠁿" }
+
+export fn joiner(): Char { '‍' }
+
+export fn hidden(): Str { "👨‮👩﻿" }

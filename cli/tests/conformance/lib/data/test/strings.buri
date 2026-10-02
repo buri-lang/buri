@@ -875,7 +875,7 @@ test "format escapes a literal dollar sign" {
 }
 
 test "a ZWJ emoji sequence counts as its scalar values" {
-    assert.equal("👨\u{200d}👩\u{200d}👦".length(), 5);
+    assert.equal("👨‍👩‍👦".length(), 5);
 }
 
 test "a combining mark is its own scalar value" {

@@ -456,6 +456,23 @@ pub fn is_printable(c: char) -> bool {
         return true;
     }
     let ranges = RANGES.get_or_init(|| printable_ranges().unwrap_or_default());
+    in_ranges(ranges, c)
+}
+
+/// Whether `c` is Extended_Pictographic and assigned: what a zero-width joiner
+/// joins in an emoji ZWJ sequence.
+///
+/// Read from `core/buri/ast`'s own `PICTOGRAPHIC` table, for the reason
+/// `is_printable` reads `core/character`'s: the formatter and that printer
+/// keep an emoji's joiners by one rule, and this is its data. A table that
+/// does not read answers `false`, which escapes the joiner.
+pub fn is_pictographic(c: char) -> bool {
+    static RANGES: std::sync::OnceLock<Vec<(u32, u32)>> = std::sync::OnceLock::new();
+    let ranges = RANGES.get_or_init(|| pictographic_ranges().unwrap_or_default());
+    in_ranges(ranges, c)
+}
+
+fn in_ranges(ranges: &[(u32, u32)], c: char) -> bool {
     let cp = u32::from(c);
     let at = ranges.partition_point(|&(_, last)| last < cp);
     ranges.get(at).is_some_and(|&(first, _)| first <= cp)
@@ -463,8 +480,18 @@ pub fn is_printable(c: char) -> bool {
 
 /// The `PRINTABLE` table out of `core/character`'s source.
 fn printable_ranges() -> Option<Vec<(u32, u32)>> {
-    let source = source("core/character")?;
-    let (_, after) = source.split_once("let PRINTABLE: Str =")?;
+    range_table("core/character", "PRINTABLE")
+}
+
+/// The `PICTOGRAPHIC` table out of `core/buri/ast`'s source.
+fn pictographic_ranges() -> Option<Vec<(u32, u32)>> {
+    range_table("core/buri/ast", "PICTOGRAPHIC")
+}
+
+/// The range table `let {name}: Str` in `module`'s source.
+fn range_table(module: &str, name: &str) -> Option<Vec<(u32, u32)>> {
+    let source = source(module)?;
+    let (_, after) = source.split_once(&format!("let {name}: Str ="))?;
     let (_, quoted) = after.split_once('"')?;
     let (table, _) = quoted.split_once('"')?;
     let code = |digits: &[char]| -> Option<u32> {
@@ -959,6 +986,20 @@ mod tests {
         }
         for c in ['\u{7f}', '\u{85}', '\u{a0}', '\u{200b}', '\u{202e}', '\u{2028}', '\u{feff}'] {
             assert!(!is_printable(c), "{c:?}");
+        }
+    }
+
+    /// The same for `is_pictographic`, which would otherwise escape every
+    /// emoji's joiners without a word.
+    #[test]
+    fn the_pictographic_table_reads_out_of_core_buri_ast() {
+        let ranges = pictographic_ranges().expect("`PICTOGRAPHIC` reads");
+        assert!(ranges.len() > 50, "{} range(s)", ranges.len());
+        for c in ['\u{a9}', '\u{2764}', '\u{1f3f4}', '\u{1f468}', '\u{1f680}'] {
+            assert!(is_pictographic(c), "{c:?}");
+        }
+        for c in ['a', '\u{200d}', '\u{fe0f}', '\u{1f3fb}', '\u{1f1e6}', '\u{1fc00}'] {
+            assert!(!is_pictographic(c), "{c:?}");
         }
     }
 
