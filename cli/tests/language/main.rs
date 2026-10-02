@@ -44,6 +44,7 @@
               `#[test]` functions already; this covers the helpers around them."
 )]
 
+#[macro_use]
 #[path = "../harness/mod.rs"]
 mod harness;
 

@@ -518,27 +518,72 @@ fn a_source_file_that_is_a_directory_is_a_diagnostic() {
     assert!(run.code != 0, "a directory named main.buri built successfully");
 }
 
-#[test]
-fn a_hostile_schema_is_a_diagnostic() {
+/// A hostile schema is a diagnostic. One test per schema, each in a repository
+/// of its own, because each is a `std/proto` build and seven of them one after
+/// another were the longest test in the suite.
+fn a_hostile_schema_is_a_diagnostic(what: &str, text: &str) {
     let s = Scratch::repo("adversarial-schema");
     s.write(
         "lib/bad/BUILD.buri",
         "library {\n  generators: [{ tool: \"std/proto\", inputs: [\"bad.proto\"] }]\n}\n",
     );
     s.write("lib/bad/lib.buri", "from \"//lib/bad/bad.proto\" export { M };\n");
-    for (what, text) in [
-        ("nested messages", format!("edition = \"2026\";\npackage p;\n{}{}", "message M {".repeat(10_000), "}".repeat(10_000))),
-        ("a field number nothing holds", "edition = \"2026\";\npackage p;\nmessage M { int32 a = 999999999999999999999; }\n".to_string()),
-        ("a negative field number", "edition = \"2026\";\npackage p;\nmessage M { int32 a = -1; }\n".to_string()),
-        ("an escape of a character outside ASCII", "edition = \"2026\";\npackage p;\nmessage M { string s = 1 [default = \"\\é\"]; }\n".to_string()),
-        ("a message that contains itself", "edition = \"2026\";\npackage p;\nmessage M { M m = 1; }\n".to_string()),
-        ("a file that imports itself", "edition = \"2026\";\nimport \"lib/bad/bad.proto\";\npackage p;\nmessage M { int32 a = 1; }\n".to_string()),
-        ("nothing at all", String::new()),
-    ] {
-        s.write("lib/bad/bad.proto", &text);
-        let run = s.run(&["build", "//lib/bad"]);
-        survived(&run, what);
-    }
+    s.write("lib/bad/bad.proto", text);
+    let run = s.run(&["build", "//lib/bad"]);
+    survived(&run, what);
+}
+
+#[test]
+fn a_hostile_schema_of_nested_messages_is_a_diagnostic() {
+    a_hostile_schema_is_a_diagnostic(
+        "nested messages",
+        &format!("edition = \"2026\";\npackage p;\n{}{}", "message M {".repeat(10_000), "}".repeat(10_000)),
+    );
+}
+
+#[test]
+fn a_hostile_schema_with_a_field_number_nothing_holds_is_a_diagnostic() {
+    a_hostile_schema_is_a_diagnostic(
+        "a field number nothing holds",
+        "edition = \"2026\";\npackage p;\nmessage M { int32 a = 999999999999999999999; }\n",
+    );
+}
+
+#[test]
+fn a_hostile_schema_with_a_negative_field_number_is_a_diagnostic() {
+    a_hostile_schema_is_a_diagnostic(
+        "a negative field number",
+        "edition = \"2026\";\npackage p;\nmessage M { int32 a = -1; }\n",
+    );
+}
+
+#[test]
+fn a_hostile_schema_escaping_a_character_outside_ascii_is_a_diagnostic() {
+    a_hostile_schema_is_a_diagnostic(
+        "an escape of a character outside ASCII",
+        "edition = \"2026\";\npackage p;\nmessage M { string s = 1 [default = \"\\é\"]; }\n",
+    );
+}
+
+#[test]
+fn a_hostile_schema_with_a_message_that_contains_itself_is_a_diagnostic() {
+    a_hostile_schema_is_a_diagnostic(
+        "a message that contains itself",
+        "edition = \"2026\";\npackage p;\nmessage M { M m = 1; }\n",
+    );
+}
+
+#[test]
+fn a_hostile_schema_that_imports_itself_is_a_diagnostic() {
+    a_hostile_schema_is_a_diagnostic(
+        "a file that imports itself",
+        "edition = \"2026\";\nimport \"lib/bad/bad.proto\";\npackage p;\nmessage M { int32 a = 1; }\n",
+    );
+}
+
+#[test]
+fn an_empty_schema_is_a_diagnostic() {
+    a_hostile_schema_is_a_diagnostic("nothing at all", "");
 }
 
 // ---------------------------------------------------------------------------

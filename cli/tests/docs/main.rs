@@ -26,5 +26,15 @@
               `#[test]` functions already; this covers the helpers around them."
 )]
 
+#[path = "../harness/sweep.rs"]
+mod sweep;
+
+#[path = "../harness/pool.rs"]
+mod pool;
+
+#[macro_use]
+#[path = "../harness/shard.rs"]
+mod shard;
+
 mod documents;
 mod examples;

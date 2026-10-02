@@ -110,6 +110,7 @@
               `#[test]` functions already; this covers the helpers around them."
 )]
 
+#[macro_use]
 #[path = "harness/mod.rs"]
 mod harness;
 
@@ -302,19 +303,27 @@ fn every_case_documents_itself_and_runs_the_test_command() {
 /// The known differences are listed rather than excluded: a case that stops
 /// differing fails here just as loudly as one that starts. **The list is
 /// empty** — every step of every case in this corpus agrees to the byte.
-#[test]
-fn the_default_backend_prints_the_report_the_javascript_one_does() {
+///
+/// The corpus is four tests, `the_default_backend_prints_the_report_the_javascript_one_does::shard_0`
+/// to `shard_3`, so nextest can run them side by side (`harness/shard.rs`).
+fn default_backend_shard(at: usize, count: usize) {
     if let Some(why) = no_native_default() {
         // One backend, so there is nothing to compare it against. The refusal
         // itself is asserted where it belongs, in `build::incrementality`.
         eprintln!("skipped: {why}");
         return;
     }
-    let known: &[(&str, usize)] = &[];
+    let cases = default_backend_corpus();
+    let mine = shard::of(&cases, at, count);
+    let known: Vec<(&str, usize)> = KNOWN_DIFFERENCES
+        .iter()
+        .copied()
+        .filter(|(name, _)| mine.iter().any(|dir| dir.ends_with(name)))
+        .collect();
     let mut differ: Vec<(String, usize)> = Vec::new();
     let mut how: Vec<String> = Vec::new();
-    for dir in case_dirs(&corpus(), "CASE.textproto", 21) {
-        let case = load_case(&dir);
+    for dir in mine {
+        let case = load_case(dir);
         let pinned = transcript(&case, false);
         let default = transcript(&case, true);
         for (i, (a, b)) in pinned.iter().zip(default.iter()).enumerate() {
@@ -341,6 +350,25 @@ fn the_default_backend_prints_the_report_the_javascript_one_does() {
          already say they do:\n{}",
         how.join("\n")
     );
+}
+
+/// The `(case, step)` pairs where the default path and `--output=js` are known
+/// to differ.
+const KNOWN_DIFFERENCES: &[(&str, usize)] = &[];
+
+shards! {
+    the_default_backend_prints_the_report_the_javascript_one_does(
+        default_backend_shard,
+        default_backend_cases
+    ) = shard_0 shard_1 shard_2 shard_3;
+}
+
+fn default_backend_corpus() -> Vec<PathBuf> {
+    case_dirs(&corpus(), "CASE.textproto", 21)
+}
+
+fn default_backend_cases() -> usize {
+    default_backend_corpus().len()
 }
 
 /// One case's `run` steps, as `(exit status, standard output)`, on the pinned

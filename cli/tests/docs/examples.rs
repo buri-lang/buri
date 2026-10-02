@@ -18,6 +18,7 @@
 //! there may be, so an untested example is a reviewable line in a diff rather
 //! than a silence.
 use buri::documentation::{examples, layout, topics};
+use crate::shard;
 use std::path::{Path, PathBuf};
 
 fn repo_root() -> PathBuf {
@@ -287,13 +288,47 @@ fn most_examples_are_actually_compiled() {
 /// into a document with the source's own line numbers, so a failure points at
 /// the `.buri` line the example is written on rather than at an offset into
 /// something synthetic.
-#[test]
-fn standard_library_doc_comments() {
+///
+/// The modules are four tests, `standard_library_doc_comments::shard_0` to
+/// `shard_3`, so nextest can run them side by side (`harness/shard.rs`).
+fn doc_comments_shard(at: usize, count: usize) {
     let root = repo_root();
+    let all = documented_modules(&root);
+    let mine = shard::of(&all, at, count);
     let mut failures = Vec::new();
     let mut blocks = 0;
-    let mut modules = 0;
+    for (rel, text, found) in mine.iter().copied() {
+        blocks += found;
+        failures.extend(examples::run_file_at(&root, rel, text));
+    }
+    let modules = mine.len();
 
+    assert!(
+        failures.is_empty(),
+        "{} example(s) in standard library documentation comments do not do what they say:\n\n{}",
+        failures.len(),
+        examples::report(&failures)
+    );
+    // A corpus that discovers nothing passes every assertion. The whole corpus
+    // owes eight examples across four modules, and each shard its share of
+    // that, rounded up.
+    let (least_blocks, least_modules) = (8usize.div_ceil(count), 4usize.div_ceil(count));
+    assert!(
+        blocks >= least_blocks && modules >= least_modules,
+        "shard {at} of {count} has only {blocks} example(s) across {modules} module(s), \
+         under its share of {least_blocks} across {least_modules}; the extractor is missing them"
+    );
+}
+
+shards! {
+    standard_library_doc_comments(doc_comments_shard, documented_module_count) =
+        shard_0 shard_1 shard_2 shard_3;
+}
+
+/// Every standard library module with an example in its doc comments: where it
+/// lives, the document its comments make, and how many examples are compiled.
+fn documented_modules(root: &Path) -> Vec<(String, String, usize)> {
+    let mut out = Vec::new();
     for module in buri::compiler::standard_library::MODULES {
         // The source is a field of the entry rather than a second table keyed
         // by path, so a listed module with no source is unrepresentable.
@@ -303,10 +338,10 @@ fn standard_library_doc_comments() {
         }
         // The name a failure reports: where the module actually lives, so the
         // line number is one an editor can open.
-        let Some(rel) = source_path(&root, compiled_in) else {
+        let Some(rel) = source_path(root, compiled_in) else {
             continue;
         };
-        let text = examples::doc_comments(&source_text(&root, &rel, compiled_in));
+        let text = examples::doc_comments(&source_text(root, &rel, compiled_in));
         let found = examples::extract(&rel, &text)
             .blocks
             .iter()
@@ -315,22 +350,13 @@ fn standard_library_doc_comments() {
         if found == 0 {
             continue;
         }
-        modules += 1;
-        blocks += found;
-        failures.extend(examples::run_file_at(&root, &rel, &text));
+        out.push((rel, text, found));
     }
+    out
+}
 
-    assert!(
-        failures.is_empty(),
-        "{} example(s) in standard library documentation comments do not do what they say:\n\n{}",
-        failures.len(),
-        examples::report(&failures)
-    );
-    // A corpus that discovers nothing passes every assertion.
-    assert!(
-        blocks >= 8 && modules >= 4,
-        "only {blocks} example(s) across {modules} module(s); the extractor is missing them"
-    );
+fn documented_module_count() -> usize {
+    documented_modules(&repo_root()).len()
 }
 
 /// How many fences the formatter is allowed to have nothing to say about.
