@@ -25,7 +25,7 @@ run {
 # `doubled` leaves the testing surface, and the call stops at the boundary.
 edit {
   file: "widget/testing/lib.buri"
-  replace: "export { Fake, doubled, fake };"
+  replace: "export { doubled, Fake, fake };"
   with: "export { Fake, fake };"
 }
 
@@ -67,7 +67,7 @@ run {
 edit {
   file: "widget/testing/lib.buri"
   replace: "export { Fake, fake };"
-  with: "export { Fake, doubled, fake };"
+  with: "export { doubled, Fake, fake };"
 }
 
 run {
