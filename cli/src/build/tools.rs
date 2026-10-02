@@ -1,7 +1,7 @@
 //! `tool` rules: programs the build runs on a language's files.
 //!
 //! ```text
-//! tool {                      // tools/lines/BUILD.buri
+//! tool {                      // tool/lines/BUILD.buri
 //!     check {}
 //!     format {}
 //! }
@@ -988,9 +988,9 @@ mod tests {
 
     #[test]
     fn the_harness_calls_only_what_the_tool_has() {
-        let main = harness("//tools/lines/tool.buri", &|e| e == "check", &|_| Vec::new());
+        let main = harness("//tool/lines/tool.buri", &|e| e == "check", &|_| Vec::new());
         assert!(main.contains("check: .Some(fn(c, request) => entry.check(c, request))"), "{main}");
         assert!(main.contains("format: .None"), "{main}");
-        assert!(main.contains("from \"//tools/lines/tool.buri\" import * as entry;"), "{main}");
+        assert!(main.contains("from \"//tool/lines/tool.buri\" import * as entry;"), "{main}");
     }
 }

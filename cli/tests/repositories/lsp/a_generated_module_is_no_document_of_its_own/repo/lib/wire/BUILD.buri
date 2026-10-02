@@ -2,6 +2,6 @@ library {
     sources: ["plate.buri"]
 
     generators: [
-        { tool: "//cmd/gen", inputs: ["units.txt"] },
+        { tool: "//tool/gen", inputs: ["units.txt"] },
     ]
 }

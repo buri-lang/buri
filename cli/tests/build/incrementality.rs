@@ -1641,7 +1641,7 @@ fn fail_on_finding_reaches_a_cached_finding() {
 
 /// A repository whose generated code depends on three separate things.
 ///
-/// `//tools/gen` writes one `export let` whose value is the number in its input
+/// `//tool/gen` writes one `export let` whose value is the number in its input
 /// times a constant it imports from `//lib/factor`. So the generated module
 /// moves when the input moves, when the tool's own source moves, and when the
 /// *tool's dependency* moves — three edits reaching one artifact by three
@@ -1652,13 +1652,13 @@ fn generated_repository(name: &str) -> Scratch {
         .write("lib/factor/BUILD.buri", "library {\n    visibility: [\"//visibility:public\"]\n}\n");
     scratch.write("lib/factor/lib.buri", "export fn factor(): Int { 2 }\n");
     scratch.write(
-        "tools/gen/BUILD.buri",
+        "tool/gen/BUILD.buri",
         "tool {\n    dependencies: [\"//lib/factor\"]\n\n    generate {}\n}\n",
     );
-    scratch.write("tools/gen/tool.buri", GENERATOR);
+    scratch.write("tool/gen/tool.buri", GENERATOR);
     scratch.write(
         "lib/wire/BUILD.buri",
-        "library {\n    generators: [{ tool: \"//tools/gen\", inputs: [\"units.txt\"] }]\n\n    \
+        "library {\n    generators: [{ tool: \"//tool/gen\", inputs: [\"units.txt\"] }]\n\n    \
          visibility: [\"//visibility:public\"]\n}\n",
     );
     scratch.write("lib/wire/units.txt", "3\n");
@@ -1759,7 +1759,7 @@ fn a_generate_key_moves_with_the_input_the_tool_and_the_tools_own_dependency() {
     // The tool's own source. Both move, and no source of `//lib/wire` was
     // touched.
     let before = after;
-    scratch.edit("tools/gen/tool.buri", "* factor()", "* factor() + 1");
+    scratch.edit("tool/gen/tool.buri", "* factor()", "* factor() + 1");
     let after = keys(scratch.run(&["build", "//...", "--explain"]).ok());
     assert_ne!(tool_programs(&scratch), tools, "editing the tool did not rebuild it");
     assert_ne!(

@@ -10,10 +10,10 @@ reproduction: none
 ```textproto schema=build
 library {
     generators: [
-        { tool: "//tools/database_schema_codegen", inputs: ["schema.json", "notes.jsonc"] },
+        { tool: "//tool/database_schema_codegen", inputs: ["schema.json", "notes.jsonc"] },
     ]
 }
 ```
 
-`//tools/database_schema_codegen` accepts `json` only, so `notes.jsonc` has no
+`//tool/database_schema_codegen` accepts `json` only, so `notes.jsonc` has no
 type to be read as.

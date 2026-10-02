@@ -1,8 +1,8 @@
-error: `//tools/good` has no `format` entry point [tool-without-entry-point]
+error: `//tool/good` has no `format` entry point [tool-without-entry-point]
  --> REPO.buri:7:13
   |
-7 |     format: "//tools/good"
-  |             ^^^^^^^^^^^^^^
+7 |     format: "//tool/good"
+  |             ^^^^^^^^^^^^^
   |
   = a `generators` entry runs its tool's `generate`, and a language's `check`, `format` and `generate` each run the entry point of that name
   = fix: add `format {}` to the `tool` rule and export `format` from its `tool.buri`, or name a tool that has one

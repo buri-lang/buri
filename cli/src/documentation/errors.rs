@@ -319,6 +319,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("tool-entry-point-not-exported", "A tool exports the entry point each block declares", &["build/tools"]),
     e!("tool-entry-point-undeclared", "A tool declares every entry point it exports", &["build/tools"]),
     e!("tool-failed", "A tool answers", &["build/tools"]),
+    e!("tool-outside-tool-directory", "A tool rule lives under the repository's tool/ directory", &["build/tools", "build/build-files"]),
     e!("tool-request-type", "A tool with a contract takes its root type", &["build/tools"]),
     e!("tool-source-import", "Nothing imports a tool's modules", &["build/tools"]),
     e!("tool-without-entry-point", "A tool has the entry point it is asked for", &["build/tools"]),

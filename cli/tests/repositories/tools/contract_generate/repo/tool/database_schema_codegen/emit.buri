@@ -1,0 +1,18 @@
+//! One table as a line of SQL.
+
+from "core/effect" import { Allocator };
+from "core/str" import * as str;
+from "//tool/database_schema_codegen/json" import { Column, Table };
+
+export fn table<C: Allocator>(ctx: C, t: Table): Str {
+    let columns = t.columns.mapCtx(ctx, fn(c2, c) => column(c2, c)).join(ctx, ", ");
+    str.format(ctx, "CREATE TABLE ${t.name} (${columns})")
+}
+
+fn column<C: Allocator>(ctx: C, c: Column): Str {
+    let null = match (c.nullable) {
+        .Some(true) => "",
+        _ => " NOT NULL",
+    };
+    str.format(ctx, "${c.name} ${c.type_}${null}")
+}

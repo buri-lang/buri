@@ -1,0 +1,18 @@
+error: //tools/gen declares a `tool` rule outside //tool/ [tool-outside-tool-directory]
+ --> tools/gen/BUILD.buri:1:1
+  |
+1 | tool {
+  | ^^^^ a tool rule here
+  |
+  = every tool a repository runs lives under its top-level `tool/` directory, so one place lists them all
+  = fix: move this package under //tool/, as //tool/gen, and rename every label that names it
+
+      # tool/routes/BUILD.buri
+      tool {
+          generate {}
+      }
+
+    Any depth under tool/ works, so //tool/db/schema is a tool too. A library or
+    a binary may live under tool/ beside a tool, and anywhere else. See
+    `tools.md` (../build/tools.md).
+

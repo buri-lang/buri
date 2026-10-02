@@ -1,0 +1,5 @@
+library {
+    generators: [
+        { tool: "//tool/db/schema", inputs: ["input.txt"] },
+    ]
+}

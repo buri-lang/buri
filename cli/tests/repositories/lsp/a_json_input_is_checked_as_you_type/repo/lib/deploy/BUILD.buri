@@ -1,5 +1,5 @@
 library {
     generators: [
-        { tool: "//cmd/gen", inputs: ["regions.json"] },
+        { tool: "//tool/gen", inputs: ["regions.json"] },
     ]
 }
