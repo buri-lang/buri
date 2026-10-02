@@ -72,17 +72,11 @@ pub fn command_build(args: &arguments::Args) -> i32 {
         if target.kind != RuleKind::Binary {
             let mut diagnostics = crate::diagnostics::Diagnostics::new();
             // A library declares no outputs, so there is no platform this is
-            // *for*; `Js` is the toolchain's default and is what this asked
-            // before there was a fourth platform to pick wrongly. The only
-            // thing it decides is a tag's `requires { platforms }`, which a
-            // library is asked about again — per output — by every binary that
-            // depends on it.
-            actions::check_policy(
-                &session,
-                target,
-                crate::build::buildfile::Platform::Js,
-                &mut diagnostics,
-            );
+            // *for*, and none to check. Every binary that depends on it asks
+            // about its tags' platforms again, per output; a library that
+            // admits none at all is `unsatisfiable-target`.
+            actions::check_visibility(&session, target, &mut diagnostics);
+            actions::check_tags(&session, target, &mut diagnostics);
             if !diagnostics.has_errors() {
                 let unit = crate::compiler::modules::Unit {
                     target: Some(target),

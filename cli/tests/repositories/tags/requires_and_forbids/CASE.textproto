@@ -1,0 +1,59 @@
+# A platform is admitted when every whitelist in the closure names it — a tag's
+# `requires { platforms }`, a library's `platforms` — and no tag in the closure
+# forbids it. `server` admits LINUX and MACOS, `epoll` forbids MACOS, so
+# `//cmd/daemon` admits LINUX alone.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "requires and forbids combine across a closure: every whitelist, minus every forbidden platform"
+
+run {
+  args: ["query", "platforms(//cmd/daemon)"]
+  exit: 0
+  golden: "platforms.txt"
+}
+
+# The whitelist admits MACOS; the forbid list is what rules it out.
+run {
+  args: ["lint", "//cmd/daemon"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# A library's own `platforms` minus its tag's forbidden ones can be nothing.
+edit {
+  file: "lib/poll/BUILD.buri"
+  replace: "platforms: [LINUX, MACOS]"
+  with: "platforms: [MACOS]"
+}
+
+run {
+  args: ["query", "platforms(//lib/poll)"]
+  exit: 0
+  golden: "nothing.txt"
+}
+
+run {
+  args: ["lint", "//lib/poll"]
+  exit: 1
+  golden: "unsatisfiable.txt"
+}
+
+edit {
+  file: "lib/poll/BUILD.buri"
+  replace: "platforms: [MACOS]"
+  with: "platforms: [LINUX, MACOS]"
+}
+
+edit {
+  file: "cmd/daemon/BUILD.buri"
+  replace: "platform: MACOS"
+  with: "platform: LINUX"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

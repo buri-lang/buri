@@ -248,17 +248,23 @@ message Tag {
     // and reachability does not have a direction.
     repeated string tags = 1;
 
-    // There is deliberately no `platforms` here. A platform restriction is
-    // always written as a whitelist under `requires`, so that adding a platform
-    // to the toolchain cannot silently widen code written before it existed.
-    // "Not JS" would not survive the arrival of WASM; "linux and macos" does.
+    // Platforms code carrying this tag may not be built, or tested, for.
+    // Every other platform stays open, including one the toolchain gains
+    // later. Use `requires.platforms` when a new platform should stay out
+    // until someone lists it.
+    //
+    // A tag admits `requires.platforms` (all, when unset) minus these. A
+    // closure admits what every whitelist in it names and no tag in it
+    // forbids. Naming a platform here and under `requires` is an error.
+    repeated Platform platforms = 2;
   }
 
   message Requires {
     // The only platforms code carrying this tag may be built for. Unset means
     // all of them. Same meaning as `Library.platforms` — this is where it goes
     // when the restriction is policy spanning many libraries rather than a fact
-    // about one of them.
+    // about one of them. A whitelist, so a platform the toolchain gains later
+    // stays out until listed here.
     repeated Platform platforms = 1;
 
     // There is deliberately no `tags` here. Requiring that every dependency

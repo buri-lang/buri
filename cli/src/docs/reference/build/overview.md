@@ -47,8 +47,9 @@ from them:
 A tag is a label saying what the code *is*, and it means the same thing on a
 library and on a binary. `REPO.buri` declares once, on the tag itself, what
 follows from wearing it. `forbids` names tags that may not appear anywhere in
-the same dependency closure. `requires` whitelists the platforms the code may
-build for. [`tags.md`](./tags.md) has the rules and the error messages.
+the same dependency closure, and platforms it may not be built for. `requires`
+whitelists the platforms the code may build for. [`tags.md`](./tags.md) has
+the rules and the error messages.
 
 ## What the language buys the build system
 

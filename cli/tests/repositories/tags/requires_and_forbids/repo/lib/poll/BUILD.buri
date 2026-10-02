@@ -1,0 +1,6 @@
+library {
+    sources: ["m.buri"]
+    tags: ["epoll"]
+    platforms: [LINUX, MACOS]
+    visibility: ["//visibility:public"]
+}

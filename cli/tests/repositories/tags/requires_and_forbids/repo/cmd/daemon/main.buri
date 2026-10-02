@@ -1,0 +1,16 @@
+from "core/effect" import { Allocator, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "//lib/poll" import { poll };
+from "//lib/server" import { serve };
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io
+        .println(ctx, serve())
+        .mapErr(fn(_e) => "could not write to standard output")?;
+    io.println(ctx, poll()).mapErr(fn(_e) => "could not write to standard output")
+}

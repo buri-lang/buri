@@ -51,6 +51,16 @@ pub struct TargetId {
 /// This is what makes the `core/host` check and the entry-signature check per
 /// *entry* rather than per target. A binary with a page and a worker in it
 /// declares two of these out of one `main.buri`.
+/// The member of a closure that rules a platform out, and why.
+#[derive(Clone, Debug)]
+pub struct PlatformBlocker {
+    pub member: TargetId,
+    pub why: String,
+    /// A tag's `forbids.platforms` names it, rather than a whitelist leaving
+    /// it out.
+    pub forbidden: bool,
+}
+
 #[derive(Clone, Debug)]
 pub struct DeclaredEntry {
     pub name: String,
@@ -986,7 +996,8 @@ impl Workspace {
     /// - A **library** commits to its `platforms` field, narrowed by the
     ///   `requires.platforms` of the tags it carries — the same two sources
     ///   [`Workspace::platforms`] reads, asked of this rule alone rather than
-    ///   of its closure.
+    ///   of its closure. Its tags' `forbids.platforms` then take platforms out
+    ///   of that set, but never create one.
     pub fn declared_platforms(&self, target: TargetId) -> Option<BTreeSet<Platform>> {
         let pkg = self.package(target.package);
         match target.kind {
@@ -1020,6 +1031,15 @@ impl Workspace {
                         }
                     }
                 }
+                // A forbid list narrows a commitment but never makes one: a
+                // library that only rules JS out has not asked for the rest.
+                if let Some(set) = declared.as_mut() {
+                    for tag in &lib.tags {
+                        if let Some(decl) = self.repo.tag(&tag.value) {
+                            set.retain(|p| !decl.forbids(*p));
+                        }
+                    }
+                }
                 declared
             }
             // A tool always runs where the build runs, as JavaScript, and says
@@ -1029,8 +1049,9 @@ impl Workspace {
     }
 
     /// The platforms a target can be built for: the intersection, over every
-    /// target in its closure, of that target's `platforms` and the
-    /// `requires.platforms` of every tag it carries — treating unset as "all".
+    /// target in its closure, of that target's `platforms` and what every tag
+    /// it carries admits — its `requires.platforms` (unset is "all") minus its
+    /// `forbids.platforms`.
     pub fn platforms(&self, target: TargetId) -> BTreeSet<Platform> {
         let mut allowed: BTreeSet<Platform> = Platform::ALL.into_iter().collect();
         for member in self.closure(target) {
@@ -1043,11 +1064,7 @@ impl Workspace {
             }
             for tag in self.tags(member) {
                 if let Some(decl) = self.repo.tag(&tag.value) {
-                    if !decl.requires_platforms.is_empty() {
-                        let required: BTreeSet<Platform> =
-                            decl.requires_platforms.iter().map(|p| p.value).collect();
-                        allowed = allowed.intersection(&required).copied().collect();
-                    }
+                    allowed.retain(|p| decl.admits(*p));
                 }
             }
         }
@@ -1060,7 +1077,7 @@ impl Workspace {
         &self,
         target: TargetId,
         platform: Platform,
-    ) -> Option<(TargetId, String)> {
+    ) -> Option<PlatformBlocker> {
         for member in self.closure(target) {
             if let Some(lib) = &self.package(member.package).build.library {
                 if member.kind == RuleKind::Library
@@ -1069,10 +1086,15 @@ impl Workspace {
                 {
                     let list: Vec<&str> =
                         lib.platforms.iter().map(|p| p.value.slug()).collect();
-                    return Some((
+                    return Some(PlatformBlocker {
                         member,
-                        format!("{} declares platforms {}", self.label(member), list.join(", ")),
-                    ));
+                        why: format!(
+                            "{} declares platforms {}",
+                            self.label(member),
+                            list.join(", ")
+                        ),
+                        forbidden: false,
+                    });
                 }
             }
             for tag in self.tags(member) {
@@ -1082,15 +1104,28 @@ impl Workspace {
                     {
                         let list: Vec<&str> =
                             decl.requires_platforms.iter().map(|p| p.value.slug()).collect();
-                        return Some((
+                        return Some(PlatformBlocker {
                             member,
-                            format!(
+                            why: format!(
                                 "{} is tagged \"{}\", which requires {}",
                                 self.label(member),
                                 tag.value,
                                 list.join(", ")
                             ),
-                        ));
+                            forbidden: false,
+                        });
+                    }
+                    if decl.forbids(platform) {
+                        return Some(PlatformBlocker {
+                            member,
+                            why: format!(
+                                "{} is tagged \"{}\", which forbids {}",
+                                self.label(member),
+                                tag.value,
+                                platform.slug()
+                            ),
+                            forbidden: true,
+                        });
                     }
                 }
             }

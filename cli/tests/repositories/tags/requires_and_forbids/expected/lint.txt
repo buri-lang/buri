@@ -1,0 +1,10 @@
+error: //cmd/daemon cannot be built for macos [platform-violation]
+ --> cmd/daemon/BUILD.buri:4:9
+  |
+4 |         { platform: MACOS, arch: X86_64 },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = //lib/poll is tagged "epoll", which forbids macos
+  = reached by: //cmd/daemon -> //lib/poll
+  = "epoll": polls with epoll, which macOS does not have
+  = fix: drop the macos output, or take MACOS out of the tag's `forbids { platforms }` in REPO.buri

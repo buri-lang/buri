@@ -1,0 +1,74 @@
+# `legacy` forbids JS. A binary whose closure carries it, directly or through
+# an untagged library, may not have a JS output, and the diagnostic names the
+# tag, its policy and the path that brought it in. Every other platform stays
+# admitted: a forbid list is not a whitelist.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a tag's forbids { platforms } refuses that platform's output for every closure carrying the tag, and admits every other platform"
+
+run {
+  args: ["lint", "//cmd/direct"]
+  exit: 1
+  golden: "direct.txt"
+}
+
+run {
+  args: ["lint", "//cmd/transitive"]
+  exit: 1
+  golden: "transitive.txt"
+}
+
+run {
+  args: ["lint", "//cmd/transitive", "--error-format=json"]
+  exit: 1
+  golden: "transitive.json"
+}
+
+# The editor shows the same finding on the build file that asks for JS.
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}
+
+run {
+  args: ["build", "//cmd/transitive"]
+  exit: 1
+  golden: "build.txt"
+  stream: ERR
+}
+
+# Everything but the forbidden platform.
+run {
+  args: ["query", "platforms(//lib/store)"]
+  exit: 0
+  golden: "platforms.txt"
+}
+
+# A library has no output, so there is no platform to refuse it for.
+run {
+  args: ["build", "//lib/driver"]
+  exit: 0
+}
+
+edit {
+  file: "cmd/direct/BUILD.buri"
+  replace: "{ platform: JS },"
+  with: "{ platform: LINUX, arch: X86_64 },"
+}
+
+edit {
+  file: "cmd/transitive/BUILD.buri"
+  replace: "{ platform: JS },"
+  with: "{ platform: MACOS, arch: X86_64 },"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

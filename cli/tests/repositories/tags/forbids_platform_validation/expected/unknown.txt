@@ -1,0 +1,7 @@
+error: `JSS` is not a platform [unknown-bare-word]
+ --> REPO.buri:6:21
+  |
+6 |         platforms: [JSS]
+  |                     ^^^
+  |
+  = fix: did you mean `JS`?

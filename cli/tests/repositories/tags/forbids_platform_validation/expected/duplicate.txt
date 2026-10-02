@@ -1,0 +1,12 @@
+error: `JS` is listed twice in `forbids` [duplicate-platform]
+ --> REPO.buri:6:25
+  |
+6 |         platforms: [JS, JS]
+  |                         ^^
+  |
+ --> REPO.buri:6:21
+  |
+6 |         platforms: [JS, JS]
+  |                     ^^ first listed here
+  |
+  = fix: delete the second `JS`

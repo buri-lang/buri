@@ -539,7 +539,7 @@ pub fn schema_order(message: &str) -> &'static [&'static str] {
         "outputs" => &["platform", "arch", "entry", "artifact_name", "js"],
         "js" => &["module"],
         "tag" => &["name", "doc", "forbids", "requires"],
-        "forbids" => &["tags"],
+        "forbids" => &["tags", "platforms"],
         "requires" => &["platforms"],
         "lint" => &["check_during_build", "fail_on_finding", "rules"],
         "language" => &["name", "extensions", "check", "format", "generate"],

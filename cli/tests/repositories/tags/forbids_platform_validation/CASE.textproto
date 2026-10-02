@@ -1,0 +1,62 @@
+# A tag's `forbids { platforms }` is read like `requires { platforms }`: an
+# unknown name is rejected with a near miss, a platform is listed once, and a
+# tag cannot both require and forbid the same platform.
+#
+# Exit 2: an unreadable REPO.buri is the thing you asked *with* being wrong.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "forbids { platforms } rejects an unknown platform, a duplicate, and a platform the same tag requires"
+
+run {
+  args: ["build", "//lib/ok"]
+  exit: 2
+  golden: "duplicate.txt"
+  stream: ERR
+}
+
+edit {
+  file: "REPO.buri"
+  replace: "platforms: [JS, JS]"
+  with: "platforms: [JSS]"
+}
+
+run {
+  args: ["build", "//lib/ok"]
+  exit: 2
+  golden: "unknown.txt"
+  stream: ERR
+}
+
+edit {
+  file: "REPO.buri"
+  replace: "platforms: [JSS]\n    }\n"
+  with: "platforms: [JS]\n    }\n\n    requires {\n        platforms: [LINUX, JS]\n    }\n"
+}
+
+run {
+  args: ["build", "//lib/ok"]
+  exit: 2
+  golden: "contradiction.txt"
+  stream: ERR
+}
+
+run {
+  args: ["build", "//lib/ok", "--error-format=json"]
+  exit: 2
+  golden: "contradiction.json"
+  stream: ERR
+}
+
+# The fix the diagnostic names: keep JS on one side only.
+edit {
+  file: "REPO.buri"
+  replace: "platforms: [LINUX, JS]"
+  with: "platforms: [LINUX]"
+}
+
+run {
+  args: ["build", "//lib/ok"]
+  exit: 0
+}

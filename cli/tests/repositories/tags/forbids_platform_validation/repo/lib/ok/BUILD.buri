@@ -1,0 +1,4 @@
+library {
+    sources: ["m.buri"]
+    tags: ["legacy"]
+}

@@ -1,0 +1,10 @@
+# `legacy` rules one platform out and admits every other, including any
+# platform added to the toolchain later.
+tag {
+    name: "legacy"
+    doc: "wraps the old storage driver, which has no JavaScript port"
+
+    forbids {
+        platforms: [JS]
+    }
+}

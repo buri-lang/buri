@@ -134,9 +134,9 @@ pub fn command_query(args: &arguments::Args) -> i32 {
                 );
                 let mut why = Vec::new();
                 for p in Platform::ALL {
-                    if let Some((_, reason)) = session.workspace.platform_blocker(t, p) {
-                        if !why.contains(&reason) {
-                            why.push(reason);
+                    if let Some(blocker) = session.workspace.platform_blocker(t, p) {
+                        if !why.contains(&blocker.why) {
+                            why.push(blocker.why);
                         }
                     }
                 }

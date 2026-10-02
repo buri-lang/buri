@@ -2,8 +2,8 @@
 
 Two questions, checked two ways: *may this code end up in that program*, and
 *which platforms may this code build for*. The first is a tag. The second is a
-platform whitelist. Neither has a composition mode, a default, or a resolution
-order.
+platform list, either a whitelist or an exclusion. Neither has a composition
+mode, a default, or a resolution order.
 
 **Tags mean the same thing on a library and on a binary.** There is no second
 mechanism for entry points.
@@ -42,9 +42,9 @@ that. Adding a library that reuses an existing tag never touches `REPO.buri`,
 and changing what `server` means never touches a library.
 
 Each block's name states its polarity, so anyone scanning `REPO.buri` sees at a
-glance what a tag rules out and what it demands. Each takes exactly one kind of
-thing, and the omissions are deliberate
-([see below](#why-forbids-has-no-platforms)).
+glance what a tag rules out and what it demands. `forbids` takes tags and
+platforms. `requires` takes only platforms, and that omission is deliberate
+([see below](#why-requires-has-no-tags)).
 
 ### The vocabulary is closed
 
@@ -107,26 +107,48 @@ restriction is policy across many libraries rather than a fact about one.
 `server` requires `[LINUX, MACOS]` above, so every library tagged `server`
 inherits that without repeating it.
 
-It is a **whitelist**, never an exclusion. You write "anything but JS" by listing
-what is allowed, which stays correct when the toolchain gains a platform. The
-rule:
+It is a **whitelist**. A platform the toolchain gains later stays out until
+someone adds it.
+
+## `forbids { platforms: [...] }`
+
+The opposite polarity: code carrying the tag may not be built, or tested, for
+these platforms, and every other platform stays open.
+
+```textproto ignore why="a fragment of a build file, not a whole one"
+tag {
+    name: "legacy"
+    doc: "wraps the old storage driver, which has no JavaScript port"
+
+    forbids {
+        platforms: [JS]
+    }
+}
+```
+
+Pick the list by what should happen when the toolchain gains a platform. A
+forbid list admits it the day it arrives. `legacy` above means "anywhere but
+JS", and a new platform is "anywhere". A `requires` list keeps it out until you
+add it, so use `requires` when the new platform should be a decision rather
+than a default.
+
+One tag may carry both. It admits its `requires.platforms`, or every platform
+when that is unset, minus its `forbids.platforms`. Naming the same platform in
+both is `platform-required-and-forbidden`, and naming one twice in a list is
+`duplicate-platform`.
+
+## The platform rule
 
 > *platforms(T)* is the intersection, over every target in *closure(T)*, of that
-> target's `platforms` and the `requires.platforms` of every tag it carries,
-> treating unset as "all". Each of a binary's `outputs` must name a platform in
-> *platforms(binary)*.
+> target's `platforms` and what every tag it carries admits. Each of a binary's
+> `outputs` must name a platform in *platforms(binary)*.
 
 Intersection, so restrictions accumulate downward. Depending on POSIX-only code
-makes you POSIX-only. An empty intersection means nothing can ever build the
-target, which is an error at the target rather than at whichever binary reaches
-it first.
+makes you POSIX-only, and depending on `legacy` code takes JS away. An empty
+intersection means nothing can ever build the target, which is an error at the
+target rather than at whichever binary reaches it first.
 
-### Why `forbids` has no platforms
-
-**`forbids { platforms: ... }` does not exist.** It would write the same
-restriction as a negation, and a negation does not survive a new platform.
-`server` forbidding JS silently permits WASM the day WASM arrives, while
-`server` requiring linux and macos keeps meaning what its author meant.
+### Why `requires` has no tags
 
 **`requires { tags: ... }` does not exist.** Most targets carry no tags at all,
 so the rule would force `server` transitively onto every library in the
@@ -195,7 +217,7 @@ That is how you write "this must behave identically on both backends". `I64` on
 the JS target ([a `BigInt`, not a
 `number`](../../guides/compile-to-js.md)) is the standing reason it exists. A
 platform listed here must be one the target admits. Asking for a JS run of a
-`[LINUX, MACOS]` library is an error, not a skip.
+`[LINUX, MACOS]` library, or of a `legacy` one, is an error, not a skip.
 
 A native platform runs as a native binary on the host that can *execute* one,
 which is the host's own platform. `buri build` cross-compiles a Linux artifact
@@ -247,9 +269,10 @@ own, where a diagnostic can name the one suite it belongs to.
 
 ## What tags are not
 
-- **Not a boolean expression language.** A tag declaration has one list of
-  forbidden tags and one whitelist of platforms. There is no `or`, no nesting,
-  and no expression that mentions three tags at once. If you cannot write a rule
+- **Not a boolean expression language.** A tag declaration has a list of
+  forbidden tags, a list of forbidden platforms and a whitelist of platforms.
+  There is no `or`, no nesting, and no expression that mentions three tags at
+  once. If you cannot write a rule
   as "these two may not coexist," it is probably a visibility rule.
 - **Not conditional compilation.** No source file changes meaning across
   platforms, and there is no `#if`. A library that needs two implementations

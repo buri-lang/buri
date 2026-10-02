@@ -1,0 +1,19 @@
+# `server` admits LINUX and MACOS; `epoll` rules MACOS out. A closure carrying
+# both admits what is left: LINUX.
+tag {
+    name: "server"
+    doc: "runs on infrastructure we operate"
+
+    requires {
+        platforms: [LINUX, MACOS]
+    }
+}
+
+tag {
+    name: "epoll"
+    doc: "polls with epoll, which macOS does not have"
+
+    forbids {
+        platforms: [MACOS]
+    }
+}
