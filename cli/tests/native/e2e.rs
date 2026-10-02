@@ -96,6 +96,19 @@ fn built(name: &str, source: &str) -> PathBuf {
     crate::stencil::build_with(name, source, None)
 }
 
+/// [`built`] with a C probe linked in, for `strings.rs`, whose rows read a
+/// runtime counter at exit. Here so the feature gate stays in this file.
+#[cfg(feature = "backend-llvm")]
+pub(crate) fn built_probed(name: &str, source: &str, probe: &str) -> Option<PathBuf> {
+    ready().then(|| crate::llvm::build_at(name, source, Some(probe), Profile::Release))
+}
+
+/// The same, on the backend a default build carries.
+#[cfg(all(not(feature = "backend-llvm"), feature = "backend-stencil"))]
+pub(crate) fn built_probed(name: &str, source: &str, probe: &str) -> Option<PathBuf> {
+    ready().then(|| crate::stencil::build_with(name, source, Some(probe)))
+}
+
 macro_rules! unless_ready {
     () => {
         if !ready() {

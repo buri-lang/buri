@@ -1,5 +1,6 @@
-//! Scalar indices into long strings, natively, on every native backend this
-//! toolchain has.
+//! Scalar indices into long strings, natively, on the native backend this
+//! toolchain has: copy-and-patch on the default leg, LLVM on the
+//! `backend-llvm` one.
 //!
 //! `core/str` indexes in Unicode scalars and a native `Str` is UTF-8, so
 //! `slice`, `charAt` and `indexOf` turn a scalar index into a byte offset. On a
@@ -19,7 +20,6 @@
 //! block freed under one, fails the status.
 
 use crate::shared::{probed, ran_checked, Ran, ALLOC_PROBE};
-use std::path::PathBuf;
 
 /// [`ALLOC_PROBE`], plus a line with the bytes the runtime read to turn scalar
 /// indices into byte offsets over the whole run.
@@ -45,39 +45,12 @@ fn scanned(stderr: &str) -> u64 {
         .unwrap()
 }
 
-/// A backend's name, and how it builds `(name, source, probe)` into a binary.
-type Backend = (&'static str, fn(&str, &str, &str) -> PathBuf);
-
-/// Every native backend built into this toolchain that can run here.
-fn backends() -> Vec<Backend> {
-    let mut out: Vec<Backend> = Vec::new();
-    #[cfg(feature = "backend-stencil")]
-    if crate::stencil::supported() {
-        out.push(("stencil", |name, source, probe| {
-            crate::stencil::build_with(&format!("{name}-stencil"), source, Some(probe))
-        }));
-    }
-    #[cfg(feature = "backend-llvm")]
-    if crate::llvm::can_execute().is_none_or(|why| !crate::ci::skipped("llvm", why)) {
-        out.push(("llvm", |name, source, probe| {
-            crate::llvm::build_at(
-                &format!("{name}-llvm"),
-                source,
-                Some(probe),
-                buri::compiler::backend::Profile::Release,
-            )
-        }));
-    }
-    out
-}
-
-/// One program on every backend, each run under the heap check.
-fn run_everywhere(name: &str, source: &str) -> Vec<(&'static str, Ran)> {
-    let probe = scan_probe();
-    backends()
-        .into_iter()
-        .map(|(backend, build)| (backend, ran_checked(&build(name, source, &probe))))
-        .collect()
+/// One program on whichever native backend this toolchain has, run under the
+/// heap check, or `None` where none can run here. As in `e2e.rs`, the default
+/// leg runs the copy-and-patch backend and the `backend-llvm` leg the release
+/// one.
+fn run(name: &str, source: &str) -> Option<Ran> {
+    crate::e2e::built_probed(name, source, &scan_probe()).map(|binary| ran_checked(&binary))
 }
 
 /// A lexer's loop: a long string with one non-ASCII scalar in it, sliced once
@@ -110,19 +83,17 @@ export fn main(): Result<(), Str> {
   .Ok(())
 }
 "#;
-    let runs = run_everywhere("scan-per-scalar", source);
-    for (backend, r) in &runs {
-        assert_eq!(r.stdout, "20001 20002 10\n", "{backend}: stderr: {}", r.stderr);
-        let (_, live) = probed(&r.stderr);
-        assert_eq!(live, 0, "{backend}: blocks still live at exit");
-        let bytes = 20_002u64;
-        let read = scanned(&r.stderr);
-        assert!(
-            read < 200 * bytes,
-            "{backend}: twenty thousand slices of a {bytes}-byte string read {read} bytes to \
-             find their scalars, which is a walk from the front per slice"
-        );
-    }
+    let Some(r) = run("scan-per-scalar", source) else { return };
+    assert_eq!(r.stdout, "20001 20002 10\n", "stderr: {}", r.stderr);
+    let (_, live) = probed(&r.stderr);
+    assert_eq!(live, 0, "blocks still live at exit");
+    let bytes = 20_002u64;
+    let read = scanned(&r.stderr);
+    assert!(
+        read < 200 * bytes,
+        "twenty thousand slices of a {bytes}-byte string read {read} bytes to find their \
+         scalars, which is a walk from the front per slice"
+    );
 }
 
 /// MEMORY.md §5.3's in-place concatenation can write a short string's tail
@@ -162,9 +133,8 @@ export fn main(): Result<(), Str> {
   .Ok(())
 }
 "#;
-    for (backend, r) in run_everywhere("grown-over-index", source) {
-        assert_eq!(r.stdout, "310 233,97,98,-1 abc abc 12\n", "{backend}: stderr: {}", r.stderr);
-        let (_, live) = probed(&r.stderr);
-        assert_eq!(live, 0, "{backend}: blocks still live at exit");
-    }
+    let Some(r) = run("grown-over-index", source) else { return };
+    assert_eq!(r.stdout, "310 233,97,98,-1 abc abc 12\n", "stderr: {}", r.stderr);
+    let (_, live) = probed(&r.stderr);
+    assert_eq!(live, 0, "blocks still live at exit");
 }
