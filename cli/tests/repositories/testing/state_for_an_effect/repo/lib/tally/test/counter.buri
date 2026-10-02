@@ -1,0 +1,51 @@
+from "core/testing/assert" import * as assert;
+from "//platform/effect/counter/testing" import { counter };
+
+test "update answers what its function answered" {
+    assert.equal(counter().add(2), 2);
+}
+
+test "the value persists across calls" {
+    let c = counter();
+    let _ = c.add(1);
+    let _ = c.add(1);
+    assert.equal(c.add(1), 3);
+}
+
+test "read sees the update before it" {
+    let c = counter();
+    let _ = c.add(7);
+    assert.equal(c.count(), 7);
+}
+
+test "two states are independent" {
+    let a = counter();
+    let b = counter();
+    let _ = a.add(5);
+    assert.equal(a.count(), 5);
+    assert.equal(b.count(), 0);
+}
+
+test "a copy shares its value" {
+    let a = counter();
+    let b = a;
+    let _ = a.add(4);
+    assert.equal(b.count(), 4);
+}
+
+test "lists of strings are kept and given back" {
+    let c = counter();
+    let _ = c.note("one");
+    let _ = c.note("two");
+    assert.equal(c.note("three"), 3);
+    assert.equal(c.notes(), [["one", "one"], ["two", "two"], ["three", "three"]]);
+}
+
+test "an update may update another state" {
+    let source = counter();
+    let target = counter();
+    let _ = source.add(3);
+    source.moveTo(target);
+    assert.equal(source.count(), 0);
+    assert.equal(target.count(), 3);
+}

@@ -283,6 +283,10 @@ pub const MODULES: &[StdModule] = &[
     // The `testing` segment in the path is what keeps it out of a library
     // source, exactly as it does for `core/testing/assert`.
     m("core/testing/check", include_str!("sources/check.buri")),
+    // State for an effect's test implementation. Not a platform module: it
+    // declares no effect. The `testing` segment keeps it out of production code,
+    // and `platform-testing-only-import` keeps it out of ordinary tests too.
+    m("core/platforms/testing/state", include_str!("sources/platforms_testing_state.buri")),
     // `ui/*`. A user interface is not one of the deliberately small
     // essentials, and its vocabulary is large, so it gets its own reserved
     // root rather than growing `core/`. Only `ui/effect` is a platform module —
@@ -514,6 +518,16 @@ fn range_table(module: &str, name: &str) -> Option<Vec<(u32, u32)>> {
 
 /// The path of the one module whose exports vary by platform.
 pub const HOST_MODULE: &str = "core/host";
+
+/// The module only an effect's testing surface may import.
+pub const PLATFORM_STATE_MODULE: &str = "core/platforms/testing/state";
+
+/// Whether a module path is part of an effect's testing surface: under
+/// `platform/effect/` and with a `testing` segment, bundled or `//`.
+pub fn is_effect_testing_path(path: &str) -> bool {
+    let bare = path.trim_start_matches("//");
+    bare.starts_with("platform/effect/") && bare.split('/').any(|seg| seg == "testing")
+}
 
 /// One effect `core/host` can grant, and the platforms that grant it.
 ///
@@ -974,6 +988,30 @@ impl Wrapper {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The repository spelling is enforced today; the bundled one is ready for
+    /// when `platform/effect` ships.
+    #[test]
+    fn an_effect_testing_path_is_under_platform_effect_with_a_testing_segment() {
+        for yes in [
+            "//platform/effect/kv/testing",
+            "//platform/effect/kv/testing/store.buri",
+            "platform/effect/testing",
+            "platform/effect/kv/testing/lib.buri",
+        ] {
+            assert!(is_effect_testing_path(yes), "{yes}");
+        }
+        for no in [
+            "//platform/effect/kv",
+            "//lib/kv/testing",
+            "//platform/node/testing",
+            "//platform/effect/kv/testing.buri",
+            "core/host/testing",
+            "main.buri",
+        ] {
+            assert!(!is_effect_testing_path(no), "{no}");
+        }
+    }
 
     /// `is_printable` falls back to escaping everything non-ASCII when the
     /// table does not read, which no test of the formatter's output would

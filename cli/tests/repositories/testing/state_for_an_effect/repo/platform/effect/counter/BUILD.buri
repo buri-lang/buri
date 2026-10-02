@@ -1,0 +1,10 @@
+# An effect package, before a repository can declare effects: a library whose
+# testing surface keeps its state in core/platforms/testing/state.
+library {
+    sources: []
+    visibility: ["//lib/tally"]
+
+    testing {
+        sources: ["testing/counter.buri"]
+    }
+}

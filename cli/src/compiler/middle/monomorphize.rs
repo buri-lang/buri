@@ -2454,6 +2454,12 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // so the erasure is repaired by there being no runtime call to erase into.
     "number.maxValue",
     "number.minValue",
+    // `core/platforms/testing/state`, carried the way `ui_testing.Headless`'s
+    // value is: a stride, a retain and a release, with `Carrier::Value`.
+    "platforms_testing_state.stateNew",
+    "platforms_testing_state.statePut",
+    "platforms_testing_state.stateRead",
+    "platforms_testing_state.stateTake",
     // `core/str`. Every one names `C: Allocator` for the block it builds and
     // nothing else; `Str` is three leaves at every instantiation, so there is
     // no element pair to supply and `runtime_table` gives them `Extra::None`.

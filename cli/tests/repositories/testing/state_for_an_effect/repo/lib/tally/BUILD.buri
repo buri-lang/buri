@@ -1,0 +1,10 @@
+# No `platforms`: the suite runs natively by default, and the case runs it on
+# JavaScript with `--output=js`.
+library {
+    sources: []
+
+    test {
+        sources: ["test/counter.buri"]
+        dependencies: ["//platform/effect/counter/testing"]
+    }
+}

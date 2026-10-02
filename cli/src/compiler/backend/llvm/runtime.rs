@@ -2207,6 +2207,39 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar, Arg::Scalar, Arg::Stride, Arg::Retain],
         ret: Ret::Out,
     },
+    // `core/platforms/testing/state`, in `Headless`'s shapes: see the other
+    // table's comment.
+    Entry {
+        key: "platforms_testing_state.stateNew",
+        symbol: "buri_rt_platforms_testing_state_state_new",
+        args: &[Arg::Spilled, Arg::Stride, Arg::Retain, Arg::Release, Arg::Equal],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "platforms_testing_state.stateRead",
+        symbol: "buri_rt_platforms_testing_state_state_read",
+        args: &[Arg::Scalar, Arg::Stride, Arg::Retain],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "platforms_testing_state.stateTake",
+        symbol: "buri_rt_platforms_testing_state_state_take",
+        args: &[Arg::Scalar, Arg::Stride, Arg::Retain],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "platforms_testing_state.statePut",
+        symbol: "buri_rt_platforms_testing_state_state_put",
+        args: &[
+            Arg::Scalar,
+            Arg::Spilled,
+            Arg::Stride,
+            Arg::Retain,
+            Arg::Release,
+            Arg::Equal,
+        ],
+        ret: Ret::Void,
+    },
     Entry {
         key: "ui_testing.headless",
         symbol: "buri_rt_ui_testing_headless",
