@@ -16,13 +16,13 @@ does with one.
 # cmd/site/BUILD.buri
 binary {
     outputs: [
-        { platform: WEB, entry: "main" },
-        { platform: CLOUDFLARE_WORKER, entry: "fetch" },
+        { platform: "web" },
+        { platform: CLOUDFLARE_WORKER },
     ]
 }
 ```
 
-That is two artifacts out of one build: `.buri/out/web/cmd/site/main.mjs` and
+That is two artifacts out of one build: `.buri/out/web/cmd/site/site.mjs` and
 `.buri/out/cloudflare-worker/cmd/site/fetch.mjs`. Each entry is its own
 dead-code root, so the page never carries the renderer the worker uses and the
 worker never carries the page's half. Each entry is also checked against its own
@@ -237,7 +237,7 @@ fn document(path: Str): web.Document {
 Hand that to `shell` beside the tree the same match built, and each route names
 its own tab.
 
-The page's half is `web.title`, because the `.html` a WEB output writes carries
+The page's half is `web.title`, because the `.html` a `web` output writes carries
 the artifact's name and nothing about the route:
 
 ```buri
@@ -427,7 +427,7 @@ that mounts rather than resumes.
 
 | Effect | Granted on |
 |---|---|
-| `Location` | `WEB` |
+| `Location` | `web` |
 
 A worker has no address bar. It is handed a request and reads the path off that,
 which is `Request.path` and no authority at all. So a `fetch` that asks for one
@@ -442,7 +442,7 @@ error: `location` implements `Location`, which is not allowed on the CLOUDFLARE_
     |                        ^^^^^^^^
    |
    = a platform is the set of effects its host exports; only a page has an address bar; a worker reads the path off the request it was handed
-   = fix: drop `Location` from the context, or build this target for a platform that grants it: WEB
+   = fix: drop `Location` from the context, or build this target for a platform that grants it: web
 ```
 
 ## Look at it locally

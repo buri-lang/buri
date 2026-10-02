@@ -635,7 +635,7 @@ longer costs a suite a backend.
 ## Running
 
 A suite runs as a native binary for the host unless something sends it to
-JavaScript: its own `test { platforms }`, `--output=js`, or the fallback for a
+JavaScript: its own `test { backends }`, `--output=js`, or the fallback for a
 toolchain that cannot build one (`buri docs cli test`). The fallback prints one
 line on standard error per suite. It never changes what the suite means, because
 both backends owe the same answers ([`tags.md`](./tags.md#tags-and-tests)). A

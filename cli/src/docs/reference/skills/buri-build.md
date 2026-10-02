@@ -63,7 +63,7 @@ tag {
 
     forbids { tags: ["client"] }
 
-    requires { platforms: [LINUX, MACOS] }
+    requires { backends: [NATIVE] }
 }
 
 tag {
@@ -133,7 +133,8 @@ library {
 | `generators` | Tools the build runs, whose `generate` answers with modules of this library. Each entry names a `tool` rule by `//label`, or a built-in tool by its bare name (`json`, `proto`, `textproto`), and its `inputs`. A `.proto` schema goes here, under `proto`. |
 | `dependencies` | Labels of libraries this one may use. Libraries only. |
 | `tags` | Labels saying what this code is. The policy lives in `REPO.buri`. |
-| `platforms` | Omit unless the code is genuinely platform-specific. Unset means all. |
+| `backends` | `NATIVE` or `JS`. Omit unless the code relies on one backend. Unset means both. |
+| `platforms` | `"native"`, `"node"` or `"web"`. Omit unless the code means something on one platform only. Unset means all. |
 | `visibility` | Who may depend on it. Default is private. |
 | `test` | The suite. See the `buri-testing` skill. |
 | `testing` | Utilities for *other people's* tests, rooted at `testing/lib.buri`. |
@@ -148,9 +149,9 @@ binary {
     tags: ["server"]
 
     outputs: [
-        { platform: LINUX, arch: X86_64 },
-        { platform: MACOS, arch: ARM64 },
-        { platform: JS },
+        { platform: "native", variant: "linux-x86_64" },
+        { platform: "native", variant: "macos-arm64" },
+        { platform: "node" },
     ]
 
     test {
@@ -162,8 +163,14 @@ binary {
 `main.buri` is required, and you leave it out of `sources` as you leave out
 `lib.buri`. A `binary` takes **no `visibility`** and no `platforms`; `outputs`
 says where it runs. Each output is a separate artifact and a separate check of
-the whole graph, so a build can succeed for Linux and fail for JS. Name an
+the whole graph, so a build can succeed for `native` and fail for `node`. Name an
 artifact with `artifact_name` on the output, not on the rule.
+
+A `native` output names its `variant`: `linux-arm64`, `linux-x86_64`,
+`macos-arm64` or `macos-x86_64`. Each platform's entry, `main`, is filled by the
+function of that name, and `entries: { main: "other" }` fills it from another.
+`LINUX`, `JS`, `arch`, `entry` and `js {}` are retired spellings, refused as
+`retired-platform-name`.
 
 An empty rule is enough to start, and `gen` never invents one:
 
@@ -242,24 +249,26 @@ What follows from a tag is declared once, on the tag:
 - `forbids { tags: [...] }` — two tags that forbid each other may not appear
   anywhere in the same dependency closure. It is symmetric, checked at every
   target, and a **union over the closure** rather than a path.
-- `forbids { platforms: [...] }` — platforms code carrying the tag may not be
-  built or tested for. A platform added later is admitted.
-- `requires { platforms: [...] }` — a **whitelist**. A platform added later is
-  not admitted until listed.
-- A tag admits its `requires` platforms (all, when unset) minus its `forbids`
-  platforms. `platforms(T)` is the intersection over the closure, and an empty
+- `forbids { backends: [...], platforms: [...] }` — what code carrying the tag
+  may not be built or tested for. A platform added later is admitted.
+- `requires { backends: [...], platforms: [...] }` — a **whitelist**. A
+  platform added later is not admitted until listed.
+- `backends` are `NATIVE` and `JS`; `platforms` are `"native"`, `"node"` and
+  `"web"`. A tag admits what its `requires` admits (all, when unset) minus what
+  its `forbids` names. `platforms(T)` is the intersection over the closure, and an empty
   intersection is an error at the target itself (`unsatisfiable-target`).
 
 The vocabulary is **closed**: a `tags` entry naming no `tag` block in
 `REPO.buri` is an error (`unknown-tag`).
 
-`Platform` is `LINUX`, `MACOS`, `JS`, `WEB`, and adding one is a compiler
-change. A platform *is* the set of effects its host exports, so a `main` binding
-`Ui: host.ui` under `platform: JS` fails with `effect-not-on-platform` as you
+The platforms are `"native"`, `"node"` and `"web"`, and adding one is a
+toolchain change. A platform *is* the set of effects its host exports, so a `main` binding
+`Ui: host.ui` under `platform: "node"` fails with `effect-not-on-platform` as you
 edit the file, on every output the binary declares.
 
 There is no `#if` and no conditional compilation: two implementations means two
-libraries with different `platforms` and one dependent that picks. Tags are not
+libraries with different `backends` or `platforms` and one dependent that
+picks. Tags are not
 visibility, and not a boolean expression language.
 
 ## Caching and hermeticity

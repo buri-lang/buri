@@ -30,9 +30,10 @@ those were.
 ## Where a suite runs
 
 Natively, on the host, in the development profile. A suite that says otherwise
-in `test { platforms }` gets what it asked for, and `--output=js` says it for
-one invocation without editing a build file. Those two are the whole list: a
-suite that named no platform runs natively or does not run.
+in `test { backends }` gets what it asked for, and `--output=js` or
+`--output=native` says it for one invocation without editing a build file. On
+`buri test` the selector names a backend. Those two are the whole list: a suite
+that named no backend runs natively or does not run.
 
 Sometimes a native run is not available, because this toolchain has no backend
 for the host in this profile, no runtime archive, or no C compiler to link with.
@@ -45,10 +46,10 @@ the development backend.
 **A program the native backend has no body for is refused too**, naming the
 intrinsic and the backend. Falling back onto JavaScript would pass the suite on
 a backend nobody chose, turning a named gap into a wrong answer. A suite that
-belongs on JavaScript says so with `test { platforms: [JS] }`; anything else is
+belongs on JavaScript says so with `test { backends: [JS] }`; anything else is
 a toolchain bug worth hearing about.
 
-**A `platforms: [JS]` suite cannot paint a snapshot.** There is no painter in
+**A `backends: [JS]` suite cannot paint a snapshot.** There is no painter in
 the JavaScript runtime, so a `snapshot` call there fails the test saying so.
 
 ## Snapshots

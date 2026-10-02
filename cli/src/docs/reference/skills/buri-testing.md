@@ -31,7 +31,7 @@ library {
         ]
         dependencies: ["//lib/ledger/testing"]
         timeout_seconds: 30
-        platforms: [LINUX, JS]
+        backends: [NATIVE, JS]
     }
 }
 ```
@@ -250,7 +250,7 @@ as a value in the suite's own source, so every backend can have one.
 buri test //...                      every test in the repository
 buri test //lib/money                one package's suites
 buri test //lib/money --filter=pads  substring match on test names
-buri test //... --output=js          send the suites that name no platform to JS
+buri test //... --output=js          send the suites that name no backend to JS
 buri test //... --watch              re-run on every change to a declared input
 buri test //... --explain            one line per action: ran, or served by the cache
 ```
@@ -273,13 +273,13 @@ Tests are otherwise ordinary build actions: a suite whose sources, target,
 dependencies and toolchain are unchanged does not run again and reports as
 **cached**. The runner shards and reorders freely, and no flag turns that off.
 
-A suite runs natively on the host. Only `test { platforms: [JS] }` or
+A suite runs natively on the host. Only `test { backends: [JS] }` or
 `--output=js` sends it to JavaScript. A program the backend has no body for, or
 a toolchain that cannot build for this host, is an **error**
 (`native-run-not-available` or `platform-not-implemented`), never a reroute.
 
-Suites naming no platform go into one binary per tag-compatible batch, linked
-once. Verdicts, caching and reports stay per suite. A `test { platforms }`,
+Suites naming no backend go into one binary per tag-compatible batch, linked
+once. Verdicts, caching and reports stay per suite. A `test { backends }`,
 `timeout_seconds` or `--output=` keeps a suite out of a batch.
 
 ## Lint findings about tests

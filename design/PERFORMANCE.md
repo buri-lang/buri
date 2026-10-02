@@ -632,7 +632,7 @@ Three native triples by default — `aarch64-apple-darwin`,
 the suite runs on. A cross triple is *more* reproducible than the host one: the
 host ISA comes from the running CPU's features, while a cross ISA is the
 baseline for its triple. The refusal to cross-*link* stays in `link::can_link`
-and `actions::native_ready`, which is what `buri build --output=linux/x86_64` on
+and `actions::native_ready`, which is what `buri build --output=native/linux-x86_64` on
 a mac answers to.
 
 **You can take a debug row only where the debug backend has a stencil library

@@ -107,8 +107,8 @@ export fn main(): Result<(), Str> {
 `main` takes no parameters and returns `Result<(), Str>`. It is an *entry*, and
 only an entry may build a context; only `main.buri` may import `core/host`.
 `.Ok(())` exits 0. `.Err(msg)` prints `msg` on stderr and exits 1. A build file's
-`outputs` may name a second entry — `{ platform: CLOUDFLARE_WORKER, entry:
-"fetch" }` enters at `fn fetch(request: Request): Response`.
+`outputs` may name a second entry — `{ platform: CLOUDFLARE_WORKER }` enters
+at `fn fetch(request: Request): Response`.
 
 **Import the effect names.** `context { Allocator: host.alloc }` without
 `from "core/effect" import { Allocator };` above it fails with `not-an-effect`.
