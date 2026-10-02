@@ -13,15 +13,12 @@ error: this module is only for an effect's test implementation [platform-testing
 
 ## What to do
 
-Import the effect's test implementation instead:
+Import the effect's test implementation instead, such as
+`//platform/effect/kv/testing`'s `kv()`.
 
-```buri ignore why="names a repository effect that this page has no repository for"
-from "//platform/effect/kv/testing" import { kv };
-```
-
-`core/platforms/testing/state` gives an effect's test implementation, such as
-`//platform/effect/kv/testing`'s `TestKv`, a value that outlives one call. A
-test checks values it already holds, so it doesn't need one.
+`core/platforms/testing/state` gives an effect's test implementation a value
+that outlives one call. A test checks values it already holds, so it doesn't
+need one.
 
 ## A program that provokes it
 

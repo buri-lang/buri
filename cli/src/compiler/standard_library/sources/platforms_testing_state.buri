@@ -6,7 +6,9 @@
 //! from "core/map" import { Map };
 //! from "core/platforms/testing/state" import * as state;
 //!
-//! export struct TestKv { store: state.State<Map<Str, Str>> }
+//! export struct TestKv {
+//!     store: state.State<Map<Str, Str>>,
+//! }
 //!
 //! impl TestKv {
 //!     export fn get(self, key: Str): Option<Str> {
@@ -18,7 +20,9 @@
 //!     }
 //! }
 //!
-//! export fn kv(): TestKv { TestKv { store: state.new(map.empty()) } }
+//! export fn kv(): TestKv {
+//!     TestKv { store: state.new(map.empty()) }
+//! }
 //! ```
 //!
 //! An effect method gets no `ctx`, and Buri has no mutation, so a test
@@ -80,7 +84,7 @@ export fn read<T>(s: State<T>): T {
 /// returns. Stops the program when called inside an `update` of `s` itself.
 export fn update<T, A>(s: State<T>, f: fn(StateAllocator, T) => (T, A)): A {
     let held: T = stateTake(s.0);
-    let (next, answer) = f(StateAllocator {}, held);
+    let (next, answer) = f(StateAllocator { }, held);
     let _ = statePut(s.0, alloc.copyAcross(next));
     answer
 }
