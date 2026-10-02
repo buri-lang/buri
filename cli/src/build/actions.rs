@@ -564,9 +564,9 @@ pub fn emit_all(
             // chooses between, and reporting it here without the other two would
             // be this site disagreeing with that one about what is wrong.
             let gap = native_gap(target, profile).unwrap_or_else(|| NativeGap {
-                output: target.platform.slug().to_string(),
+                output: target.platform.machine().to_string(),
                 reason: "this toolchain has no backend for it".to_string(),
-                fix: "add `{ platform: JS }` to `outputs`".to_string(),
+                fix: "add `{ platform: \"node\" }` to `outputs`".to_string(),
             });
             diagnostics.push(no_native_artifact(&gap, Span::NONE));
             return Err(std::mem::take(diagnostics));
@@ -915,10 +915,10 @@ pub struct NativeGap {
 /// one whose fix is about the *invocation* rather than about the machine.
 pub fn native_gap(target: Target, profile: Profile) -> Option<NativeGap> {
     let output = match target.arch {
-        Some(arch) => format!("{}/{}", target.platform.slug(), arch.slug()),
-        None => target.platform.slug().to_string(),
+        Some(arch) => format!("{}-{}", target.platform.machine(), arch.slug()),
+        None => target.platform.machine().to_string(),
     };
-    let js = "add `{ platform: JS }` to `outputs`";
+    let js = "add `{ platform: \"node\" }` to `outputs`";
     // The host, first: a cross target is refused on every profile and by a
     // constant this file cannot change.
     if !link::can_link(target) {
@@ -1908,13 +1908,12 @@ pub fn artifact_path(session: &Session, target: TargetId, output: &Output) -> Pa
         // is the empty one.
         package.path.rsplit('/').next().unwrap_or(&package.path).to_string()
     };
-    // An output that enters somewhere other than `main` is named after its
-    // entry, because two outputs of one binary otherwise write one path. A
-    // page's `main` keeps the directory's name, which is what every binary
-    // written before entries were nameable is called.
-    let default = match output.entry {
-        None => dir_name,
-        Some(_) => output.entry_name().to_string(),
+    // An output that enters somewhere other than `main` is named after the
+    // function it enters through, because two outputs of one binary otherwise
+    // write one path. One entering through `main` keeps the directory's name.
+    let default = match output.entry_name() {
+        "main" => dir_name,
+        entry => entry.to_string(),
     };
     let base = output.artifact_name.clone().unwrap_or(default);
     // The catch-all this used to end in would have given a WEB artifact no
@@ -2275,11 +2274,10 @@ pub fn check_platform(
     if let Some(found) = session.workspace.platform_blocker(target, platform) {
         let blocker = found.member;
         d = d.with_note(found.why);
-        if found.forbidden {
+        if let Some(word) = found.forbidden {
             d = d.with_fix(format!(
-                "drop the {} output, or take {} out of the tag's `forbids {{ platforms }}` in REPO.buri",
-                platform.slug(),
-                platform.proto()
+                "drop the {} output, or take {word} out of the tag's `forbids` in REPO.buri",
+                platform.slug()
             ));
         }
         if let Some(path) = session.workspace.dep_path(target, blocker) {
@@ -2549,7 +2547,7 @@ mod tests {
         for profile in [Profile::Debug, Profile::Release] {
             let gap = native_gap(target, profile)
                 .unwrap_or_else(|| panic!("{target:?} was not refused in {profile:?}"));
-            assert_eq!(gap.output, format!("{}/{}", target.platform.slug(), arch.slug()));
+            assert_eq!(gap.output, format!("{}-{}", target.platform.machine(), arch.slug()));
             assert!(gap.reason.contains("own host only"), "{}", gap.reason);
             assert!(
                 gap.fix.contains(&format!("on a {} host", gap.output)),

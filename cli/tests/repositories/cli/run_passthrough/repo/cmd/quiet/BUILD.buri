@@ -2,6 +2,6 @@
 # and has to refuse.
 binary {
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
 }

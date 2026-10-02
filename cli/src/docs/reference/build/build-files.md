@@ -73,7 +73,7 @@ package's directory name, and you override it on the output that wants it:
 
 ```textproto ignore why="a fragment of a build file, not a whole one"
 outputs: [
-    { platform: LINUX, arch: X86_64, artifact_name: "report-cli" },
+    { platform: "native", variant: "linux-x86_64", artifact_name: "report-cli" },
 ]
 ```
 
@@ -116,7 +116,8 @@ library {
 | `generators` | Programs the build runs, whose output becomes a module of this library. Each entry names a `tool` and the `inputs` handed to it. Hand-authored — `buri gen` never writes it. See [`generators.md`](./generators.md). |
 | `dependencies` | Labels of libraries this one may use. |
 | `tags` | Labels saying what this code is. `REPO.buri` declares the policy they carry. See [`tags.md`](./tags.md). |
-| `platforms` | The platforms it can build for. Omit unless the code is genuinely platform-specific; unset means all of them. |
+| `backends` | The backends it can be built with, `NATIVE` or `JS`. Omit unless the code relies on one backend's behaviour; unset means both. |
+| `platforms` | The platforms it can build for, `"native"`, `"node"` or `"web"`. Omit unless the code means something on one platform only; unset means all of them. |
 | `visibility` | Who may depend on it. Defaults below. |
 | `test` | The test suite for this library. See [`testing.md`](./testing.md). |
 | `testing` | The library's utilities *for other people's tests*, rooted at `testing/lib.buri`. See below. |
@@ -173,9 +174,9 @@ binary {
     tags: ["server"]
 
     outputs: [
-        { platform: LINUX, arch: X86_64 },
-        { platform: LINUX, arch: ARM64 },
-        { platform: MACOS, arch: ARM64 },
+        { platform: "native", variant: "linux-x86_64" },
+        { platform: "native", variant: "linux-arm64" },
+        { platform: "native", variant: "macos-arm64" },
     ]
 
     test {
@@ -188,15 +189,34 @@ binary {
 each output enters through, and it is the only module in the binary that may
 import `core/host`.
 
-### Outputs and entries
+### Outputs
 
-An output names the function its artifact starts at. Unset means `main`:
+Every output names one platform bundled with the toolchain:
+
+| Platform | What it builds |
+|---|---|
+| `"native"` | One executable. `variant` is required: `linux-arm64`, `linux-x86_64`, `macos-arm64` or `macos-x86_64`. |
+| `"node"` | One `.mjs` for node or bun. |
+| `"web"` | A page: an `.mjs`, a `.css` and an `.html` shell. |
+
+A binary with no `outputs` builds `node`. Each output lands in a directory of
+its own: `.buri/out/native/linux-arm64/`, `.buri/out/node/`, `.buri/out/web/`.
+`buri build --output=native/linux-arm64` builds one output, and
+`--output=native` every `native` one.
+
+`CLOUDFLARE_WORKER`, written bare, is the one older spelling still read; every
+other is `retired-platform-name`.
+
+### Entries
+
+Each platform offers entries, and `main.buri` fills each with the function of
+the same name. The bundled platforms offer `main`; a worker offers `fetch`:
 
 ```textproto schema=build
 binary {
     outputs: [
-        { platform: WEB },
-        { platform: CLOUDFLARE_WORKER, entry: "fetch" },
+        { platform: "web" },
+        { platform: CLOUDFLARE_WORKER },
     ]
 }
 ```
@@ -218,16 +238,28 @@ export fn fetch(request: Request): Response {
 ```
 
 That is one binary and two artifacts: `.buri/out/web/cmd/site/site.mjs` and
-`.buri/out/cloudflare-worker/cmd/site/fetch.mjs`. An output that names an entry
-is named after it, because two outputs of one binary would otherwise write one
-path; `artifact_name` overrides that as it always did.
+`.buri/out/cloudflare-worker/cmd/site/fetch.mjs`. `entries` fills an entry from
+another function:
+
+```textproto schema=build
+binary {
+    outputs: [
+        { platform: "web" },
+        { platform: "node", entries { main: "mainForNode" } },
+    ]
+}
+```
+
+An artifact entered through a function other than `main` is named after it,
+`mainForNode.mjs` here, because two outputs of one binary would otherwise write
+one path. `artifact_name` overrides that.
 
 **The platform fixes the entry's signature.** The wrong shape is a type error at
 the function, reported as `main-signature`.
 
 | Platform | The entry |
 |---|---|
-| `LINUX`, `MACOS`, `JS`, `WEB` | `fn <entry>(): Result<(), Str>` |
+| `native`, `node`, `web` | `fn <entry>(): Result<(), Str>` |
 | `CLOUDFLARE_WORKER` | `fn <entry>(request: Request): Response` |
 
 `Request` and `Response` are `core/effect`'s, which `core/net/http` re-exports.
@@ -245,12 +277,13 @@ against every platform the `outputs` name, because any of them may reach it.
 named entry, so the page carries nothing only `fetch` reaches and the worker
 carries nothing only `main` reaches.
 
-An `entry` naming a function `main.buri` does not export is `entry-not-found`,
-and its page lists what the module does export.
+A function `main.buri` does not export is `entry-not-found`, and its page lists
+what the module does export. A key in `entries` the platform does not offer is
+`no-such-entry`.
 
 ### The page's head
 
-A `WEB` output writes an `.html` beside its module, and the build rule says
+A `web` output writes an `.html` beside its module, and the build rule says
 nothing about it: the tab is the artifact's name until the page renames it, and
 the page does that from code. `web.title(ctx, text)` names it at mount and
 renames it on every navigation; a server-rendered page hands the same name to
@@ -267,16 +300,17 @@ serve the artifact directory at the site's root.
 A platform *is* the set of effects its host exports. A platform that does not
 grant an effect does not export the name for it, so asking for it fails to
 compile at the line that asked, as `effect-not-on-platform`. An entry binding
-`Ui: host.ui` under `platform: JS` does not compile, and neither does one
-binding `FileSystemRead: host.fs` under `platform: WEB`.
+`Ui: host.ui` under `platform: "node"` does not compile, and neither does one
+binding `FileSystemRead: host.fs` under `platform: "web"`.
 `buri docs error effect-not-on-platform` has the table of what each platform
 grants.
 
 The check does not wait for a build. An entry's body is checked against the
-outputs that enter through it, plus every platform its suite names in
-`test.platforms`, since a test binary links the entry point in. Everything else
-in `main.buri` is checked against every platform the `outputs` name. So a binary
-declaring `[MACOS, WEB]` whose helper binds `FileSystemRead: host.fs` is refused
+outputs that enter through it, plus the platform each backend in its suite's
+`test.backends` runs as, since a test binary links the entry point in.
+Everything else in `main.buri` is checked against every platform the `outputs`
+name. So a binary declaring `native` and `web` outputs whose helper binds
+`FileSystemRead: host.fs` is refused
 whichever output you ask for, and `buri lint`, `buri test` and the language
 server all refuse it before anything is produced. Every other module is checked
 against the platforms **its own rule declared**, and a rule that declared none is
@@ -284,9 +318,9 @@ never checked.
 
 `outputs` is a list because one program commonly ships several ways. The compiler
 checks the whole dependency graph against each output separately, so
-`buri build //cmd/server` may succeed for Linux and fail for JS. Build one with
-`buri build //cmd/server --output=js`. A binary has no `platforms` field of its
-own, because `outputs` already says.
+`buri build //cmd/server` may succeed for `native` and fail for `node`. Build
+one with `buri build //cmd/server --output=node`. A binary has no `platforms`
+field of its own, because `outputs` already says.
 
 Where an output can be built follows one rule: a Linux artifact is a
 self-contained static-PIE musl executable, so **any host builds a Linux output**
@@ -329,7 +363,7 @@ points. `buri build //tool/lines` checks it.
 
 A `tool` rule lives under the top-level `tool/` directory, at any depth, and
 nowhere else
-([`tool-outside-tool-directory`](../errors/tool-outside-tool-directory.md)).
+([`rule-outside-its-directory`](../errors/rule-outside-its-directory.md)).
 Libraries and binaries may live there too. [`tools.md`](./tools.md) has the
 entry points and what each is handed.
 
@@ -364,7 +398,7 @@ binary {
     sources: ["flags.buri"]
     tags: ["server"]
     outputs: [
-        { platform: LINUX, arch: X86_64 },
+        { platform: "native", variant: "linux-x86_64" },
     ]
 
     test {
@@ -486,7 +520,7 @@ error: cmd/server/routes.buri imports //lib/money, which is not in dependencies
 `buri gen //lib/money` rewrites the fields that restate the sources and touches
 nothing else. `buri docs cli gen` lists those fields.
 
-**`gen` preserves the contents of `tags`, `platforms`, and `timeout_seconds`**,
+**`gen` preserves the contents of `tags`, `backends`, `platforms`, and `timeout_seconds`**,
 along with `visibility`, `outputs`, and every comment. Somebody decided those
 fields; you cannot derive them from the sources. So `buri gen //...` across the
 whole repository can add and remove dependency edges, and cannot change what the

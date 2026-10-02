@@ -1,6 +1,6 @@
 binary {
   sources: ["main.buri"]
-  outputs: [{ platform: JS }]
+  outputs: [{ platform: "node" }]
 }
 
 library {

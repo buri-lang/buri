@@ -6,6 +6,6 @@ binary {
     sources: ["format.buri"]
     dependencies: ["//lib/money"]
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
 }

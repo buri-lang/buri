@@ -1,0 +1,6 @@
+from "core/testing/assert" import * as assert;
+from "//lib/greet" import { greeting };
+
+test "greets" {
+    assert.equal(greeting(), "hello");
+}

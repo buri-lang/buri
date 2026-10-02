@@ -8,6 +8,6 @@ library {
 binary {
     sources: ["render.buri"]
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
 }

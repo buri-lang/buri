@@ -170,7 +170,7 @@ disambiguate: `Ordered.compare(x, y)`.
 An **effect** is an interface declared with `effect` instead of `trait`, and
 only platform modules may declare one. `core/effect` declares `Allocator`, `Network`,
 `Clock`, `Random`, `Environment`, `Stdin`, `Stdout`, `Stderr`, `Process`, `Tasks`, `Listen`
-(`LINUX` and `MACOS`, where a program serves a page), and `Sockets` and
+(`native`, where a program serves a page), and `Sockets` and
 `WebSocketClient` (everywhere: a page dials a socket, and never accepts one).
 `core/fs` is a platform module too, and it declares the filesystem's
 two, `FileSystemRead` and `FileSystemWrite`: reading your configuration does not earn you the

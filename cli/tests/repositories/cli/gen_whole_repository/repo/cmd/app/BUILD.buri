@@ -4,6 +4,6 @@
 # a `gen` that means `//...`.
 binary {
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
 }

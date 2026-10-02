@@ -55,7 +55,7 @@ read it, and naming one elsewhere is an error that says which commands do.
 | Flag | Commands | Meaning |
 |---|---|---|
 | `--release` / `--debug` | build, test, run | optimize and minify, or the readable default. Exclusive. |
-| `--output=<selector>` | build, test, run | which output to build, or which a suite runs on — `--output=js`, `--output=linux/x86_64` |
+| `--output=<selector>` | build, test, run | which output to build — `--output=node`, `--output=native/linux-x86_64` — or, on `test`, which backend a suite runs on: `js` or `native` |
 | `--force` | build, test, run | ignore the cache and run the action |
 | `--explain` | build, test, run | one line per action: whether it ran or the cache served it, and the key |
 | `--check-reproducible` | build | build twice in separate directories and compare byte for byte |
@@ -155,7 +155,7 @@ It builds exactly one binary and executes it, with real authority: the real
 filesystem, the real environment. The context its `main` builds still bounds
 what the program can do.
 
-A `WEB` output has no process to start, so it is served instead — the address is
+A `web` output has no process to start, so it is served instead — the address is
 printed once, files under the artifact directory are answered as themselves, and
 every other path gets the entry shell, so the page's own router sees the address
 that was typed. Nothing is cached, `--watch` rebuilds into the next request, and

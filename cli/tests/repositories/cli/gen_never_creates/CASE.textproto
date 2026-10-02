@@ -64,7 +64,7 @@ run {
 edit {
   file: "lib/tools/BUILD.buri"
   replace: "sources: [\"helper.buri\"]\n}"
-  with: "sources: [\"helper.buri\"]\n}\n\nbinary {\n  outputs: [{ platform: JS }]\n}"
+  with: "sources: [\"helper.buri\"]\n}\n\nbinary {\n  outputs: [{ platform: \"node\" }]\n}"
 }
 
 run {

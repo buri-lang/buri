@@ -2,7 +2,7 @@
 title: A suite that names no platform runs natively, so this toolchain has to be able to build one
 message: this toolchain cannot build a {platform} test binary in the {profile} profile
 note: a native run needs a code generator for this profile compiled into this toolchain, a runtime archive for this host, and a C toolchain to link them with
-fix: run the suite on JavaScript with `buri test --output=js`, or declare `test {{ platforms: [JS] }}` if that is where it belongs
+fix: run the suite on JavaScript with `buri test --output=js`, or declare `test {{ backends: [JS] }}` if that is where it belongs
 reproduction: none
 ---
 # A suite that names no platform runs natively, so this toolchain has to be able to build one
@@ -17,7 +17,7 @@ Either give this invocation a backend it can use, or say out loud that the suite
 runs on JavaScript.
 
 `buri test --output=js` says it for one invocation and changes nothing in the
-repository. `test { platforms: [JS] }` says it for the suite, which is the right
+repository. `test { backends: [JS] }` says it for the suite, which is the right
 answer when the suite belongs there for good.
 
 The other direction is to fix the toolchain. The two profiles need different

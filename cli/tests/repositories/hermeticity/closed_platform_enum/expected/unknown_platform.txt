@@ -1,14 +1,18 @@
-error: an output must name a platform [output-without-a-platform]
- --> cmd/ok/BUILD.buri:3:9
-  |
-3 |         { platform: WINDOWS },
-  |         ^^^^^^^^^^^^^^^^^^^^^
-  |
-  = fix: add `platform: LINUX`, `MACOS`, `JS`, or `WEB`
-error: `WINDOWS` is not a platform [unknown-bare-word]
+error: `windows` is not a platform [no-such-platform]
  --> cmd/ok/BUILD.buri:3:21
   |
-3 |         { platform: WINDOWS },
-  |                     ^^^^^^^
+3 |         { platform: "windows" },
+  |                     ^^^^^^^^^
   |
-  = fix: the platforms are LINUX, MACOS, JS, WEB, CLOUDFLARE_WORKER
+  = the platforms bundled with the toolchain are `"native"`, `"node"` and `"web"`
+  = fix: name one of them
+
+      binary {
+          outputs: [
+              { platform: "node" },
+          ]
+      }
+
+    A platform name is a string. node runs under bun or Node, web is a page in a
+    browser, and native is an executable for the variant it names.
+

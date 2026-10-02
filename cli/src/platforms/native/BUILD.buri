@@ -1,0 +1,13 @@
+platform {
+    variants: [
+        "linux-arm64",
+        "linux-x86_64",
+        "macos-arm64",
+        "macos-x86_64",
+    ]
+
+    entry {
+        name: "main"
+        backend: NATIVE
+    }
+}

@@ -78,7 +78,7 @@ pub fn command_run(args: &arguments::Args) -> i32 {
             return 2;
         }
         eprintln!(
-            "  = fix: add `{{ platform: JS }}` to outputs, or declare the host's platform and \
+            "  = fix: add `{{ platform: \"node\" }}` to outputs, or declare the host's platform and \
              build a toolchain with a native backend"
         );
         return 2;
@@ -328,8 +328,11 @@ fn choose(
     flags: &crate::commands::arguments::Flags,
 ) -> Option<crate::build::buildfile::Output> {
     let host = crate::compiler::driver::host_native_platform();
+    // The host's own variant: a Linux host links any Linux variant, and runs
+    // only its own architecture.
     let runnable = |o: &&crate::build::buildfile::Output| {
-        actions::native_ready(actions::target_of(o), actions::profile_of(flags))
+        o.arch().is_none_or(|a| Some(a) == crate::build::link::host_arch())
+            && actions::native_ready(actions::target_of(o), actions::profile_of(flags))
     };
     outputs
         .iter()

@@ -21,7 +21,7 @@ tag {
     }
 
     requires {
-        platforms: [LINUX, MACOS]
+        backends: [NATIVE]
     }
 }
 
@@ -56,11 +56,11 @@ for their polarity:
 | | |
 |---|---|
 | `forbids { tags: [...] }` | Tags that may not appear anywhere in the same dependency closure. Symmetric. |
-| `forbids { platforms: [...] }` | Platforms code carrying this tag may not be built or tested for. Every other platform, including one added later, stays open. |
-| `requires { platforms: [...] }` | The only platforms code carrying this tag may be built for. A whitelist; unset means all. |
+| `forbids { backends: [...], platforms: [...] }` | Backends and platforms code carrying this tag may not be built or tested for. Every other platform, including one added later, stays open. |
+| `requires { backends: [...], platforms: [...] }` | The only backends and platforms code carrying this tag may be built for. A whitelist; unset means all. |
 
-A tag admits its `requires` platforms, or all of them when unset, minus its
-`forbids` platforms. A platform named on both sides is an error. `requires`
+A tag admits what its `requires` admits, or everything when unset, minus what
+its `forbids` names. A backend or platform named on both sides is an error. `requires`
 takes no tags, for the reason [`tags.md`](./tags.md) gives.
 
 This file is the only place that introduces a tag name, and the vocabulary is
@@ -69,11 +69,11 @@ either resolves to a block here or fails. A tag declared twice is an error, and
 one declared nowhere is an error rather than a typo that turns into an unchecked
 build.
 
-`Platform` is a closed enum in the schema, `LINUX`, `MACOS`, `JS`, `WEB`, and so
-is `Arch`. Adding one is a compiler change rather than a configuration change,
-so there is nothing to declare here. With no library or tag naming a platform,
-nothing constrains anything, and the build attempts a JS build only when some
-binary lists a JS output.
+The bundled platforms, `native`, `node` and `web`, are closed, and so are
+`Backend` and `native`'s variants. Adding one is a toolchain change rather than
+a configuration change, so there is nothing to declare here. With no library or
+tag naming a platform, nothing constrains anything, and the build attempts a
+`node` build only when some binary lists a `node` output.
 
 ## `lint`
 

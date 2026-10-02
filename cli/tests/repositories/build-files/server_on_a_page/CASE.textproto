@@ -44,8 +44,8 @@ run {
 # the pair.
 edit {
   file: "cmd/app/BUILD.buri"
-  replace: "{ platform: JS }"
-  with: "{ platform: WEB }"
+  replace: "{ platform: \"node\" }"
+  with: "{ platform: \"web\" }"
 }
 
 run {

@@ -8,7 +8,7 @@ To re-run a case, drop it into a scratch repo as a JS binary package and build i
 
 ```text
 REPO.buri               empty; its presence is what makes the directory a root
-cmd/<case>/BUILD.buri   binary { outputs: [{ platform: JS }] }
+cmd/<case>/BUILD.buri   binary { outputs: [{ platform: "node" }] }
 cmd/<case>/main.buri    the case
 ```
 

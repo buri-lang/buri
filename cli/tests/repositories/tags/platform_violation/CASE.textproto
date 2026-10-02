@@ -30,8 +30,8 @@ run {
 # Asking for a platform the closure admits.
 edit {
   file: "cmd/web/BUILD.buri"
-  replace: "{ platform: JS },"
-  with: "{ platform: LINUX, arch: X86_64 },"
+  replace: "{ platform: \"node\" },"
+  with: "{ platform: \"native\", variant: \"linux-x86_64\" },"
 }
 
 run {

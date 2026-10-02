@@ -281,7 +281,7 @@ Five things about this signature are decisions:
   so the backend answers.
 - **`missing_intrinsics` takes the program**, not the `&[String]` an emitter
   accumulated as a side effect of emission. Asking up front means
-  `buri build --output=linux/arm64` on a program using an unimplemented
+  `buri build --output=native/linux-arm64` on a program using an unimplemented
   intrinsic reports it before spending a second in LLVM.
 - **`emit_units` alongside `emit`, with a default.** Its absence was measurable:
   at 118k lines a one-line edit cost 2,622 ms, of which 64% was `emit`
@@ -357,7 +357,7 @@ whether or not it named one.
 
 **`buri test`'s default has flipped; `selected_outputs`' has not.** A suite that
 names no platforms runs **natively**, in the dev profile. A binary that declares
-no outputs still gets `JS`, because an artifact that silently changed platform
+no outputs still gets `node`, because an artifact that silently changed platform
 would change what `buri run` executes and what a release ships. That flip stays
 what it is — one line, when the refusal goes quiet across the conformance corpus.
 
@@ -375,7 +375,7 @@ the other backend agrees with itself. So:
   `native-run-not-available` and naming the profile that was asked for.
 
 The only two ways a suite reaches JavaScript are the two ways to say so out
-loud: `--output=js` for an invocation, `test { platforms: [JS] }` for a suite.
+loud: `--output=js` for an invocation, `test { backends: [JS] }` for a suite.
 The measured reason for spending the old fallback is `design/PERFORMANCE.md` §6:
 the native dev loop is now the faster one on both halves of a 104k-line
 edit-test cycle.
@@ -395,7 +395,7 @@ be a golden, because what `--release` answers for the host's own target depends
 on which leg of `cli/tests/README.md`'s bar the toolchain was built on.
 
 **Those two cases now depend on one thing they did not:** the *host*. On a Linux
-x86_64 machine `--output=linux/x86_64` is no longer refused — it builds — so both
+x86_64 machine `--output=native/linux-x86_64` is no longer refused — it builds — so both
 fixtures pass on macOS and on a host whose platform they do not name, and fail on
 the host they do. Fixing that needs the harness to know which platform is the
 host and which is the cross one, since the refusal names a platform and the
@@ -619,7 +619,7 @@ backend".
   looks one up by triple rather than by the running CPU, cross-building both of
   its Linux libraries on a macOS host with no Linux sysroot (CODEGEN-STENCIL.md
   §3.2), and LLVM targets everything (`design/PERFORMANCE.md` §3). What was
-  refused was the *link*, and it no longer is: `buri build --output=linux/x86_64`
+  refused was the *link*, and it no longer is: `buri build --output=native/linux-x86_64`
   on a macOS host now produces a runnable static-PIE musl executable.
 
   The shape is fixed and asymmetric: **any host builds any Linux target, a macOS

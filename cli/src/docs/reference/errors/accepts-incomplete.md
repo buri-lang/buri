@@ -9,7 +9,9 @@ reproduction: none
 ```textproto schema=build
 tool {
     generate {
-        accepts: [{ language: "json", type_schema: "config.schema.json" }]
+        accepts: [
+            { language: "json", type_schema: "config.schema.json" },
+        ]
     }
 }
 ```

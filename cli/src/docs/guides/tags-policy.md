@@ -14,7 +14,7 @@ tag {
     doc: "opens sockets"
 
     requires {
-        platforms: [LINUX, MACOS]
+        backends: [NATIVE]
     }
 }
 
@@ -54,7 +54,7 @@ binary {
     tags: ["sandboxed"]
 
     outputs: [
-        { platform: MACOS, arch: ARM64 },
+        { platform: "native", variant: "macos-arm64" },
     ]
 }
 ```
@@ -101,24 +101,25 @@ $ buri query 'path(//apps/scan, //libs/socket)'
 
 ## Restrict a tag to platforms
 
-`requires { platforms: [...] }` is a whitelist, and it accumulates down the
-closure. Above, `net` requires Linux and macOS, so every library tagged `net`
-inherits that, and a binary asking for a JavaScript output fails a second way:
+`requires { backends: [...] }` is a whitelist, and it accumulates down the
+closure. Above, `net` requires `NATIVE`, so every library tagged `net` inherits
+that, and a binary asking for a `node` output fails a second way:
 
 ```text
-error: //apps/scan cannot be built for js [platform-violation]
-  = //libs/socket is tagged "net", which requires linux, macos
+error: //apps/scan cannot be built for node [platform-violation]
+  = //libs/socket is tagged "net", which requires backends NATIVE
   = reached by: //apps/scan -> //libs/socket
   = "net": opens sockets
-  = fix: drop the js output, or widen the tag's `requires { platforms }` in REPO.buri
+  = fix: drop the node output, or widen the tag's `requires` in REPO.buri
 ```
 
 One declaration, enforced from both ends.
 `buri query 'platforms(//apps/scan)'` prints what the closure has left.
 
 To rule out one platform and keep the rest open, including platforms the
-toolchain gains later, use `forbids { platforms: [...] }` instead. The diagnostic
-then reads `which forbids js`.
+toolchain gains later, use `forbids` instead. `forbids { backends: [JS] }`
+reads `which forbids JS`, and `forbids { platforms: ["web"] }` reads
+`which forbids web`.
 
 ---
 

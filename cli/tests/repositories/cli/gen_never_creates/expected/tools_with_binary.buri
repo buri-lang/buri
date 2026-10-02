@@ -7,6 +7,6 @@ library {
 
 binary {
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
 }

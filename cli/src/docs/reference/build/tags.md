@@ -2,7 +2,7 @@
 
 Two questions, checked two ways: *may this code end up in that program*, and
 *which platforms may this code build for*. The first is a tag. The second is a
-platform list, either a whitelist or an exclusion. Neither has a composition
+pair of lists, `backends` and `platforms`, either a whitelist or an exclusion. Neither has a composition
 mode, a default, or a resolution order.
 
 **Tags mean the same thing on a library and on a binary.** There is no second
@@ -32,7 +32,7 @@ tag {
     }
 
     requires {
-        platforms: [LINUX, MACOS]
+        backends: [NATIVE]
     }
 }
 ```
@@ -42,8 +42,9 @@ that. Adding a library that reuses an existing tag never touches `REPO.buri`,
 and changing what `server` means never touches a library.
 
 Each block's name states its polarity, so anyone scanning `REPO.buri` sees at a
-glance what a tag rules out and what it demands. `forbids` takes tags and
-platforms. `requires` takes only platforms, and that omission is deliberate
+glance what a tag rules out and what it demands. `forbids` takes tags,
+backends and platforms. `requires` takes only backends and platforms, and that
+omission is deliberate
 ([see below](#why-requires-has-no-tags)).
 
 ### The vocabulary is closed
@@ -82,10 +83,15 @@ reaches the other. It would still be one artifact containing both.
 binary" are the same reachability question asked from opposite ends. One walk
 checks both `server` forbidding `client` and `experimental` forbidding `stable`.
 
-## `requires { platforms: [...] }`
+## `requires { backends: [...], platforms: [...] }`
 
 A platform is not a tag. You select a platform rather than merely constrain it,
-because the compiler has to pick a backend. So it stays a typed field.
+because the compiler has to pick a backend. So it stays a field of its own.
+
+Two lists say where code may go. `backends` names how it is compiled, `NATIVE`
+or `JS`, for code that relies on one backend's behaviour. `platforms` names
+bundled platforms, `"native"`, `"node"` or `"web"`, for code that means
+something on one platform only. A platform must satisfy every list written.
 
 A binary names its platforms in `outputs`. A library names them only when it is
 genuinely platform-specific, and writes them as a plain field:
@@ -93,8 +99,8 @@ genuinely platform-specific, and writes them as a plain field:
 ```textproto schema=build
 # lib/posix_paths/BUILD.buri
 library {
-    platforms: [LINUX, MACOS]
-    # this code does not mean anything on JS
+    backends: [NATIVE]
+    # this code does not mean anything in JavaScript
 }
 ```
 
@@ -104,13 +110,13 @@ build everywhere.
 
 The same list appears under a tag's `requires`, with the same meaning, when the
 restriction is policy across many libraries rather than a fact about one.
-`server` requires `[LINUX, MACOS]` above, so every library tagged `server`
+`server` requires `backends: [NATIVE]` above, so every library tagged `server`
 inherits that without repeating it.
 
 It is a **whitelist**. A platform the toolchain gains later stays out until
 someone adds it.
 
-## `forbids { platforms: [...] }`
+## `forbids { backends: [...], platforms: [...] }`
 
 The opposite polarity: code carrying the tag may not be built, or tested, for
 these platforms, and every other platform stays open.
@@ -121,7 +127,7 @@ tag {
     doc: "wraps the old storage driver, which has no JavaScript port"
 
     forbids {
-        platforms: [JS]
+        backends: [JS]
     }
 }
 ```
@@ -132,19 +138,19 @@ JS", and a new platform is "anywhere". A `requires` list keeps it out until you
 add it, so use `requires` when the new platform should be a decision rather
 than a default.
 
-One tag may carry both. It admits its `requires.platforms`, or every platform
-when that is unset, minus its `forbids.platforms`. Naming the same platform in
-both is `platform-required-and-forbidden`, and naming one twice in a list is
-`duplicate-platform`.
+One tag may carry both. It admits what its `requires` admits, or every
+platform when that is unset, minus what its `forbids` names. Naming the same
+backend or platform in both is `platform-required-and-forbidden`, and naming one
+twice in a list is `duplicate-platform`.
 
 ## The platform rule
 
 > *platforms(T)* is the intersection, over every target in *closure(T)*, of that
-> target's `platforms` and what every tag it carries admits. Each of a binary's
+> target's `backends` and `platforms` and what every tag it carries admits. Each of a binary's
 > `outputs` must name a platform in *platforms(binary)*.
 
 Intersection, so restrictions accumulate downward. Depending on POSIX-only code
-makes you POSIX-only, and depending on `legacy` code takes JS away. An empty
+makes you native-only, and depending on `legacy` code takes JavaScript away. An empty
 intersection means nothing can ever build the target, which is an error at the
 target rather than at whichever binary reaches it first.
 
@@ -162,15 +168,15 @@ repository. Weaken it to what people actually mean, "nothing under this may be
 binary {
     tags: ["server"]
     outputs: [
-        { platform: LINUX, arch: X86_64 },
-        { platform: MACOS, arch: ARM64 },
+        { platform: "native", variant: "linux-x86_64" },
+        { platform: "native", variant: "macos-arm64" },
     ]
 }
 ```
 
 Each entry is a separate artifact and a separate check of the whole graph,
 because each names a different platform. `buri build //cmd/server` builds both,
-and `--output=linux/x86_64` picks one. The tag check does not vary between them,
+and `--output=native/linux-x86_64` picks one. The tag check does not vary between them,
 so it runs once.
 
 ## What a failure reports
@@ -196,8 +202,8 @@ nothing about maturity gets no maturity check.
 A test suite inherits its target's tags and platform restrictions, so a suite for
 a `server` library gets checked as server code without saying anything.
 
-By default a suite runs once, on the host platform, as a native binary. A suite
-that must run in more than one lists them:
+By default a suite runs once, natively, on the host. A suite that must run on
+more than one backend lists them:
 
 ```textproto schema=build
 # lib/codec/BUILD.buri
@@ -207,26 +213,23 @@ library {
     test {
         sources: ["test/codec.buri"]
 
-        # One run per platform; the JS run goes through the JS backend.
-        platforms: [LINUX, JS]
+        # One run per backend.
+        backends: [NATIVE, JS]
     }
 }
 ```
 
 That is how you write "this must behave identically on both backends". `I64` on
-the JS target ([a `BigInt`, not a
-`number`](../../guides/compile-to-js.md)) is the standing reason it exists. A
-platform listed here must be one the target admits. Asking for a JS run of a
-`[LINUX, MACOS]` library, or of a `legacy` one, is an error, not a skip.
+JavaScript ([a `BigInt`, not a `number`](../../guides/compile-to-js.md)) is the
+standing reason it exists. The platform each run builds must be one the target
+admits. Asking for a JS run of a `backends: [NATIVE]` library, or of a `legacy`
+one, is an error, not a skip.
 
-A native platform runs as a native binary on the host that can *execute* one,
-which is the host's own platform. `buri build` cross-compiles a Linux artifact
-from any host, but a suite has to run, and a Linux binary does not run on a Mac —
-so a `LINUX` run happens on a Linux machine and a `MACOS` run on a Mac. The
-runner refuses a cross platform with `platform-not-implemented` rather than
-quietly running it through JavaScript.
+A `NATIVE` run builds the host's own variant, because a suite has to run where
+it was built. A `JS` run builds the first JavaScript platform the target's
+outputs name, or else the first it admits: `node`, then `web`.
 
-A suite that names no platforms also runs on the host natively. Where this
+A suite that names no backends also runs on the host natively. Where this
 toolchain cannot build a binary for the host, or where the suite's program
 reaches something the backend has no body for yet, the runner **refuses**:
 `native-run-not-available` for the first, and a message naming the intrinsic and
@@ -235,7 +238,7 @@ backend nobody chose would report a pass about the other backend.
 
 The two refusals say different things, because the two are different problems.
 `native-run-not-available` is about your toolchain, so it names the two ways to
-ask for JavaScript: `test { platforms: [JS] }` in the build file, and `buri test
+ask for JavaScript: `test { backends: [JS] }` in the build file, and `buri test
 --output=js` for a whole invocation. A missing body is about the *toolchain's*
 gap rather than yours, so it says to report it — a program the front end
 accepted is one the backend should compile. `--output=js` gets you moving in the
@@ -254,7 +257,7 @@ artifact, so two tags that forbid each other may not both be in it. A `client`
 suite and a `server` suite are therefore two binaries. The tags that count are
 those of the suite's production closure *and* of its `test { dependencies }`,
 everything the binary would actually link. Three more conditions keep a suite
-out of a batch: a declared `test { platforms }`, which is a request served on
+out of a batch: a declared `test { backends }`, which is a request served on
 its own; a declared `timeout_seconds`, since one suite's limit would become
 everybody's in a shared process; and `--output=` on the invocation.
 
@@ -270,13 +273,15 @@ own, where a diagnostic can name the one suite it belongs to.
 ## What tags are not
 
 - **Not a boolean expression language.** A tag declaration has a list of
-  forbidden tags, a list of forbidden platforms and a whitelist of platforms.
+  forbidden tags, lists of forbidden backends and platforms, and whitelists of
+  both.
   There is no `or`, no nesting, and no expression that mentions three tags at
   once. If you cannot write a rule
   as "these two may not coexist," it is probably a visibility rule.
 - **Not conditional compilation.** No source file changes meaning across
   platforms, and there is no `#if`. A library that needs two implementations
-  becomes two libraries with different `platforms` and one dependent that picks.
+  becomes two libraries with different `backends` or `platforms` and one
+  dependent that picks.
 - **Not a substitute for visibility.** Visibility answers "who may write this
   dependency edge", one edge at a time. Tags answer "what may end up in one
   artifact", over the whole closure.

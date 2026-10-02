@@ -1,0 +1,44 @@
+error: `LINUX` is retired [retired-platform-name]
+ --> lib/greet/BUILD.buri:3:17
+  |
+3 |     platforms: [LINUX, MACOS]
+  |                 ^^^^^
+  |
+  = an output names a platform as a string, `"native"`, `"node"` or `"web"`, and code that relies on one backend says so in `backends`
+  = fix: write `backends: [NATIVE]`
+
+      binary {
+          outputs: [
+              { platform: "native", variant: "linux-arm64" },
+              { platform: "node", entries { main: "mainForNode" } },
+              { platform: "web" },
+          ]
+
+          test {
+              backends: [JS]
+          }
+      }
+
+      Was                           Now
+      platform: LINUX, arch: ARM64  platform: "native", variant: "linux-arm64"
+      platform: JS                  platform: "node"
+      platform: WEB                 platform: "web"
+      entry: "run"                  entries: { main: "run" }
+      js { module: ESM }            nothing: every JavaScript output is an ES
+                                    module
+      test { platforms: [JS] }      test { backends: [JS] }
+      platforms: [LINUX, MACOS]     backends: [NATIVE]
+      platforms: [JS]               backends: [JS]
+      platforms: [WEB]              platforms: ["web"]
+
+    A library or a tag's requires and forbids take both lists, and a platform
+    must satisfy every list written.
+
+error: `MACOS` is retired [retired-platform-name]
+ --> lib/greet/BUILD.buri:3:24
+  |
+3 |     platforms: [LINUX, MACOS]
+  |                        ^^^^^
+  |
+  = an output names a platform as a string, `"native"`, `"node"` or `"web"`, and code that relies on one backend says so in `backends`
+  = fix: write `backends: [NATIVE]`

@@ -2,7 +2,7 @@
 
 **This has shipped.** What a user needs lives where the suites can check it: the
 `ui/*` modules' own documentation (`buri docs ui/node` and its neighbours), the
-guide's "User interfaces" section, and — for the `WEB` output — `cli/src/docs/build/`.
+guide's "User interfaces" section, and — for the `web` output — `cli/src/docs/build/`.
 What stays here is the **argument**: why the shape is this shape, what was
 refused, and, in "As built" below, every place compiling it overruled the
 argument. The fragments illustrate the reasoning; they are not the signatures of
@@ -546,7 +546,7 @@ signal was created.
   landed** — an interpreter over the typed tree, reading purity off the
   function's own signature — rather than generated token modules: it improves an
   ordinary style helper as much as it improves a token.
-- **A `WEB` build writes three files**, not one: the `.mjs`, the `.css` the
+- **A `web` build writes three files**, not one: the `.mjs`, the `.css` the
   extractor produced, and an `.html` shell that links the sheet and loads the
   module. The shell's `<link id="buri-styles">` carries the id the runtime's own
   installer looks for, so the rules are in the page before the first paint.
@@ -592,7 +592,7 @@ exits on an `.Err`, and registered listeners keep running.
 That program is in the corpus at `cli/tests/golden_javascript/ui_counter/`. A
 whole application — a keyed list, a form, both style tiers, one library's tokens
 themed by an app, and a request that answers through a callback — is
-`cli/tests/example/cmd/basket/`, built as a `WEB` artifact and tested with no
+`cli/tests/example/cmd/basket/`, built as a `web` artifact and tested with no
 browser.
 
 ## Targets
@@ -604,31 +604,30 @@ language one, and the existing machinery covers it:
   neutral types (`Node`, `Style`, `Role`), cannot construct a context, and
   cannot import `core/host` — platform-agnostic by construction, the way a pure
   library is effect-free by construction. A genuinely target-specific library
-  uses the existing `platforms` field on its build rule.
-- **Apps declare targets in `outputs`.** The closed `Platform` enum is
-  `LINUX | MACOS | JS | WEB` today:
+  uses the existing `backends` or `platforms` field on its build rule.
+- **Apps declare targets in `outputs`.** The bundled platforms are `native`,
+  `node` and `web` today:
 
   ```textproto
   outputs: [
-    { platform: WEB },
+    { platform: "web" },
   ]
   ```
 
-  `ANDROID` and `EMAIL` are the shapes it was widened for, and neither is in the
-  enum yet. Each would cost a row in the grant table and a backend, and nothing
+  An Android app and an email are the shapes it was widened for, and neither is
+  a platform yet. Each would cost a row in the grant table and a backend, and nothing
   above would change.
 
-  A `WEB` output takes no `arch`, because JavaScript has none, and no
-  `js { module }`, because a browser loads an ES module and there is no second
-  kind. Naming either is a build-file error rather than a field the toolchain
-  then quietly ignores.
+  A `web` output takes no `variant`, because there is no machine under a page.
+  Naming one is a build-file error rather than a field the toolchain then
+  quietly ignores.
 - **Enforcement is a compile error, over every output at once.** `main` is the
   only module that can import `core/host`, and the compiler checks `main.buri`
   against the platforms its rule's `outputs` name — every one of them, plus
-  every platform its suite names in `test.platforms`, because a test binary
-  links `main` in. So it refuses `Ui: host.ui` under `platform: LINUX`, refuses
-  `FileSystemRead: host.fs` under `platform: WEB`, and refuses a binary declaring both
-  `MACOS` and `WEB` for the second whichever one is being built. The diagnostic
+  every platform its suite names in `test.backends`, because a test binary
+  links `main` in. So it refuses `Ui: host.ui` under `platform: "native"`, refuses
+  `FileSystemRead: host.fs` under `platform: "web"`, and refuses a binary declaring both
+  `native` and `web` for the second whichever one is being built. The diagnostic
   is `effect-not-on-platform`, and it names the effect, the platforms that do
   not allow it, and the platforms that *do* grant it. A platform *is* the set of
   effects its host exports; there is no second declaration.
@@ -649,10 +648,10 @@ language one, and the existing machinery covers it:
   bound — `FileSystemRead` taken as a bound rather than bound to a host — legal
   everywhere, a page included.
 
-  WEB grants `Allocator`, `Stdout`, `Stderr`, `Clock`, `Random`, `Network`, `Tasks`, `Ui`
+  `web` grants `Allocator`, `Stdout`, `Stderr`, `Clock`, `Random`, `Network`, `Tasks`, `Ui`
   and `Watch`, and withholds `FileSystemRead`, `FileSystemWrite`, `Stdin`, `Environment`, `Process`,
-  `Listen` and `Sockets`. `LINUX` and `MACOS` grant all fourteen non-UI effects
-  and neither UI one; `JS` grants twelve of the fourteen — everything but
+  `Listen` and `Sockets`. `native` grants all fourteen non-UI effects
+  and neither UI one; `node` grants twelve of the fourteen — everything but
   `Listen` and `Sockets`.
 
   **A row may name no platform at all**, and that is the route `Tasks`, `Listen`
@@ -662,7 +661,7 @@ language one, and the existing machinery covers it:
   against the reviewed signature had to change when the runtime arrived.
   `Listen` and `Sockets` were granted **together**, because being a server is
   one authority in two halves: accepting a connection, and writing to one
-  somebody already accepted. `JS` and `WEB` will never have them — a page is
+  somebody already accepted. `node` and `web` will never have them — a page is
   served rather than serving — which bounds what an empty row ever claimed: not
   that everybody eventually grants this. `Tasks` came down it too and then
   widened again: granted by nobody, then on the three platforms that are
@@ -688,7 +687,7 @@ repositories land, `ui/...` can migrate out wholesale.
 | Module | Kind | Exports |
 |---|---|---|
 | `ui/effect` | platform | `effect Watch`, `effect Ui`, `effect Fetch`, `Scope`, `Event`, `Request`, `FetchError`, `fetch` |
-| `core/host` (WEB, …) | platform | adds `ui`, `watch`, `fetch` — the implementations `main` binds |
+| `core/host` (web, …) | platform | adds `ui`, `watch`, `fetch` — the implementations `main` binds |
 | `ui/signal` | library | `Signal<T>` (`get`/`set`/`update`), `signal`, `watch` |
 | `ui/prop` | library | `Prop<T>` (`read`), `memo` |
 | `ui/node` | library | `Node<C>`, `Role`, `FieldKind`, `nothing`, `stack`, `region`, `row`, `column`, `spacer`, `text`, `heading`, `button`, `link`, `image`, `field`, `toggle`, `form`, `submit`, `onPressOutside`, `routeLink`, `radioGroup`, `progress`, `disclosure`, `choose`, `computed`, `each`, `icon`, `mount` |
@@ -774,7 +773,7 @@ this document's first draft, with the reason.
 
 ## Open
 
-- **`Tasks` on `WEB`.** Granted on the other three, withheld from the page:
+- **`Tasks` on `web`.** Granted on the other three, withheld from the page:
   `parallel` waits for its last task, and a page has an interface where that
   wait shows. A page would want the callback shape `Fetch` already has, and that
   belongs to the concurrency work, not to this document.

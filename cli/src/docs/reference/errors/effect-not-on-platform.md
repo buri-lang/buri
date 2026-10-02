@@ -7,7 +7,7 @@ fix: drop {effect} from the context{elsewhere}
 # A platform grants the effects its host exports
 
 ```text
-error: `ui` implements `Ui`, which is not allowed on the JS platform [effect-not-on-platform]
+error: `ui` implements `Ui`, which is not allowed on the node platform [effect-not-on-platform]
 ```
 
 ## What to do
@@ -24,20 +24,20 @@ for a member.
 ## Which platforms it is checked against
 
 - **A build producing one output** is checked against that output, so
-  `buri build --output=js` on a binary that also declares WEB compiles only the
-  JS one. A snippet pinned with `platform=` on its fence works the same way.
+  `buri build --output=node` on a binary that also declares `web` compiles
+  only the `node` one. A snippet pinned with `platform=` on its fence works the same way.
 - **An entry's own body** is checked against the outputs that enter through
-  *that* entry, plus every platform its suite names in `test.platforms`. So a
+  *that* entry, plus every platform its suite names in `test.backends`. So a
   binary whose page enters at `main` and whose worker enters at `fetch` may bind
   `Ui: host.ui` in `main` and `Network: host.net` in `fetch`, and neither refuses
   the other.
 - **Anywhere else in `main.buri`** — a helper, a top-level named import — is
   checked against every platform the `outputs` name, because any of them may
-  reach it. So a binary declaring `[MACOS, WEB]` whose helper binds
-  `FileSystemRead: host.fs` is refused, naming WEB.
+  reach it. So a binary declaring `native` and `web` outputs whose helper binds
+  `FileSystemRead: host.fs` is refused, naming `web`.
 - **Every other module** is checked against the platforms **its own rule
   declared**. A rule that declared none is never checked, because a library that
-  says nothing about `platforms` is platform-generic.
+  says nothing about `backends` or `platforms` is platform-generic.
 
 An **effect type** is never platform-bound. `from "core/fs" import { FileSystemRead }`
 is legal on every platform, a page included, and so is `core/host/testing`'s
@@ -54,8 +54,8 @@ as you type. The refusals that stay late — `native-run-not-available`,
 toolchain* was built with instead.
 
 An effect nobody grants yet gets the same sentence, from an empty row in the
-same table. `Listen` is granted on `LINUX` and `MACOS`, where holding a port
-open is a native program's authority, and never will be on `JS`, `WEB` or
+same table. `Listen` is granted on `native`, where holding a port
+open is a native program's authority, and never will be on `node`, `web` or
 `CLOUDFLARE_WORKER`. A row says who grants an effect now, not when the rest will
 fill — and it can widen too: `Sockets` was granted with `Listen` and only with
 it, until `WebSocketClient` let a page get a socket without accepting one.
@@ -66,7 +66,7 @@ time, and nothing to change in a program already written against the signature.
 
 ## A program that provokes it
 
-```buri fail code=effect-not-on-platform platform=JS
+```buri fail code=effect-not-on-platform platform=node
 from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -84,6 +84,6 @@ export fn main(): Result<(), Str> {
 }
 ```
 
-The same source under `platform: WEB` compiles and mounts. `platform=JS` tells
+The same source under `platform: "web"` compiles and mounts. `platform=node` tells
 the documentation harness which output to check the snippet as; without one it
 checks with the whole host granted.

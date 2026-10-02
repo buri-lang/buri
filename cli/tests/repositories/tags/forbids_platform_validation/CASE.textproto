@@ -1,13 +1,13 @@
-# A tag's `forbids { platforms }` is read like `requires { platforms }`: an
-# unknown name is rejected with a near miss, a platform is listed once, and a
-# tag cannot both require and forbid the same platform.
+# A tag's `forbids` is read like its `requires`: an unknown backend or
+# platform is rejected with a near miss, each is listed once, and a tag cannot
+# both require and forbid the same one.
 #
 # Exit 2: an unreadable REPO.buri is the thing you asked *with* being wrong.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "forbids { platforms } rejects an unknown platform, a duplicate, and a platform the same tag requires"
+doc: "forbids rejects an unknown backend or platform, a duplicate, and one the same tag requires"
 
 run {
   args: ["build", "//lib/ok"]
@@ -18,8 +18,8 @@ run {
 
 edit {
   file: "REPO.buri"
-  replace: "platforms: [JS, JS]"
-  with: "platforms: [JSS]"
+  replace: "backends: [JS, JS]"
+  with: "backends: [JSS]"
 }
 
 run {
@@ -31,8 +31,21 @@ run {
 
 edit {
   file: "REPO.buri"
-  replace: "platforms: [JSS]\n    }\n"
-  with: "platforms: [JS]\n    }\n\n    requires {\n        platforms: [LINUX, JS]\n    }\n"
+  replace: "backends: [JSS]"
+  with: "platforms: [\"wbe\"]"
+}
+
+run {
+  args: ["build", "//lib/ok"]
+  exit: 2
+  golden: "unknown_platform.txt"
+  stream: ERR
+}
+
+edit {
+  file: "REPO.buri"
+  replace: "platforms: [\"wbe\"]\n    }\n"
+  with: "backends: [JS]\n    }\n\n    requires {\n        backends: [NATIVE, JS]\n    }\n"
 }
 
 run {
@@ -52,8 +65,8 @@ run {
 # The fix the diagnostic names: keep JS on one side only.
 edit {
   file: "REPO.buri"
-  replace: "platforms: [LINUX, JS]"
-  with: "platforms: [LINUX]"
+  replace: "backends: [NATIVE, JS]"
+  with: "backends: [NATIVE]"
 }
 
 run {

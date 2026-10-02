@@ -230,13 +230,9 @@ impl<'a> Loader<'a> {
         // platforms under the package would put them on a binary entry point
         // that its run never touches.
         if unit.with_tests && target.kind == RuleKind::Binary {
-            if let Some(suite) = pkg.test_suite(target.kind) {
-                if !suite.platforms.is_empty() {
-                    self.test_platforms
-                        .entry(target.package)
-                        .or_default()
-                        .extend(suite.platforms.iter().map(|p| p.value));
-                }
+            let platforms = ws.suite_platforms(target);
+            if !platforms.is_empty() {
+                self.test_platforms.entry(target.package).or_default().extend(platforms);
             }
         }
 

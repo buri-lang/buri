@@ -38,12 +38,10 @@ use crate::harness::{ci, tests_dir, Run, Scratch};
 /// Named rather than defaulted, for `heap.rs`'s reason: a binary with no
 /// outputs builds for JavaScript, and a JavaScript artifact would take the
 /// generated module nowhere near a backend or a linker.
-fn host_platform() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "MACOS"
-    } else {
-        "LINUX"
-    }
+fn host_platform() -> String {
+    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
+    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    format!("\"native\", variant: \"{os}-{arch}\"")
 }
 
 const LIBRARY: &str = "library {\n    generators: [\n        { tool: \"proto\", inputs: [\"address.proto\", \"demo.proto\"] },\n    ]\n\n    visibility: [\"//visibility:public\"]\n}\n";
@@ -195,7 +193,7 @@ fn the_toolchain_generator_is_compiled_once_per_repository() {
     // this row has to mean the same thing on every machine.
     scratch.write(
         "cmd/twice/BUILD.buri",
-        "binary {\n    dependencies: [\"//lib/proto\"]\n\n    outputs: [{ platform: JS }, { platform: WEB }]\n}\n",
+        "binary {\n    dependencies: [\"//lib/proto\"]\n\n    outputs: [{ platform: \"node\" }, { platform: \"web\" }]\n}\n",
     );
     scratch.write("cmd/twice/main.buri", PROGRAM);
 
@@ -301,7 +299,7 @@ fn an_input_larger_than_a_pipe_crosses_it_whole() {
     scratch.write("tool/gen/tool.buri", MEASURING_GENERATOR);
     scratch.write(
         "cmd/app/BUILD.buri",
-        "binary {\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [{ platform: JS }]\n}\n",
+        "binary {\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [{ platform: \"node\" }]\n}\n",
     );
     scratch.write(
         "cmd/app/main.buri",

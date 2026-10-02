@@ -348,8 +348,8 @@ mod tests {
 
     #[test]
     fn an_enum_value_in_a_build_file_reads_as_a_type() {
-        let html = block("textproto", "outputs: [{ platform: LINUX }]\n");
-        assert!(classes(&html).contains(&("type".to_string(), "LINUX".to_string())), "{html}");
+        let html = block("textproto", "library { backends: [NATIVE] }\n");
+        assert!(classes(&html).contains(&("type".to_string(), "NATIVE".to_string())), "{html}");
     }
 
     #[test]

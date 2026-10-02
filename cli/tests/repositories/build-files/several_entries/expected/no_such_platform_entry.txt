@@ -1,0 +1,18 @@
+error: `CLOUDFLARE_WORKER` has no entry `main` [no-such-entry]
+ --> cmd/site/BUILD.buri:4:51
+  |
+4 |         { platform: CLOUDFLARE_WORKER, entries: { main: "fetch" } },
+  |                                                   ^^^^
+  |
+  = each key in `entries` is one of the platform's entries, and its value is the function that fills it
+  = fix: its entries are fetch
+
+      binary {
+          outputs: [
+              { platform: "node", entries { main: "mainForNode" } },
+          ]
+      }
+
+    Without entries, each entry is filled by the function of the same name in
+    main.buri. The bundled platforms each have one entry, main.
+

@@ -32,8 +32,8 @@ binary {
     tags: ["server"]
 
     outputs: [
-        { platform: LINUX, arch: X86_64 },
-        { platform: MACOS, arch: ARM64 },
+        { platform: "native", variant: "linux-x86_64" },
+        { platform: "native", variant: "macos-arm64" },
     ]
 
     test {

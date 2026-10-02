@@ -9,7 +9,9 @@ error: `yaml` is not a language this repository has [accepts-unknown-language]
 
       tool {
           generate {
-              accepts: [{ language: "yaml", type_schema: "config.schema.yaml" }]
+              accepts: [
+                  { language: "yaml", type_schema: "config.schema.yaml" },
+              ]
           }
       }
 

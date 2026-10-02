@@ -2,6 +2,6 @@
 # an output names is what `main.buri` is checked against.
 binary {
     outputs: [
-        { platform: WEB },
+        { platform: "web" },
     ]
 }

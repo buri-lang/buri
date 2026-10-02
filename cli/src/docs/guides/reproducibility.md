@@ -32,7 +32,7 @@ $ buri build //apps/hello --explain
 keyed  compile //apps/hello js 07d2690d5c30
 keyed  compile //libs/greeting js f291f47ffcc5
 run    link //apps/hello js 8ff7ca2c1024
-.buri/out/js/apps/hello/hello.mjs (2889 bytes)
+.buri/out/node/apps/hello/hello.mjs (2889 bytes)
 run    lint //apps/hello - 3d291ec80592
 ```
 
@@ -46,7 +46,7 @@ Build again and the keys are the same, which is the point:
 keyed  compile //apps/hello js 07d2690d5c30
 keyed  compile //libs/greeting js f291f47ffcc5
 cached link //apps/hello js 8ff7ca2c1024
-.buri/out/js/apps/hello/hello.mjs (2889 bytes, cached)
+.buri/out/node/apps/hello/hello.mjs (2889 bytes, cached)
 cached lint //apps/hello - 3d291ec80592
 ```
 

@@ -13,8 +13,8 @@
 //!   test { sources: ["test/cents.buri"] }
 //! }
 //! outputs: [
-//!   { platform: LINUX, arch: X86_64 },
-//!   { platform: JS, js { module: ESM } },
+//!   { platform: "native", variant: "linux-x86_64" },
+//!   { platform: "node", entries { main: "run" } },
 //! ]
 //! ```
 //!
@@ -508,12 +508,13 @@ pub fn schema_order(message: &str) -> &'static [&'static str] {
         // does not know which kind it is looking at — which is why the top
         // level is the one place `buildfile.rs` keeps its own lists, and a test
         // below holds the two halves to this union.
-        "" => &["library", "binary", "tool", "tag", "lint", "language"],
+        "" => &["library", "binary", "tool", "platform", "tag", "lint", "language"],
         "library" => &[
             "sources",
             "generators",
             "dependencies",
             "tags",
+            "backends",
             "platforms",
             "visibility",
             "test",
@@ -534,13 +535,14 @@ pub fn schema_order(message: &str) -> &'static [&'static str] {
         "format" => &[],
         "accepts" => &["language", "type_schema"],
         "generators" => &["tool", "inputs"],
-        "test" => &["sources", "dependencies", "timeout_seconds", "platforms"],
+        "test" => &["sources", "dependencies", "timeout_seconds", "backends"],
         "testing" => &["sources", "dependencies"],
-        "outputs" => &["platform", "arch", "entry", "artifact_name", "js"],
-        "js" => &["module"],
+        "outputs" => &["platform", "variant", "entries", "artifact_name"],
+        "platform" => &["sources", "dependencies", "variants", "entry", "assets"],
+        "entry" => &["name", "backend", "js"],
         "tag" => &["name", "doc", "forbids", "requires"],
-        "forbids" => &["tags", "platforms"],
-        "requires" => &["platforms"],
+        "forbids" => &["tags", "backends", "platforms"],
+        "requires" => &["backends", "platforms"],
         "lint" => &["check_during_build", "fail_on_finding", "rules"],
         "language" => &["name", "extensions", "check", "format", "generate"],
         // The one message whose fields are not written down: `rules` holds a
@@ -746,7 +748,7 @@ mod tests {
 
     #[test]
     fn list_of_messages_with_commas_between_fields() {
-        let d = p("outputs: [\n  { platform: LINUX, arch: X86_64 },\n  { platform: JS, js { module: ESM } },\n]\n");
+        let d = p("outputs: [\n  { platform: \"native\", variant: \"linux-x86_64\" },\n  { platform: \"node\", entries { main: \"run\" } },\n]\n");
         let Value::List(items, _) = &d.fields[0].value else { panic!() };
         assert_eq!(items.len(), 2);
         let Value::Message(m, _) = &items[1] else { panic!() };

@@ -214,7 +214,7 @@ fn generated_only(name: &str, reads_the_disk: bool) -> Scratch {
     scratch.write("tool/gen/tool.buri", &generator(reads_the_disk));
     scratch.write(
         "cmd/app/BUILD.buri",
-        "binary {\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [{ platform: JS }]\n}\n",
+        "binary {\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [{ platform: \"node\" }]\n}\n",
     );
     scratch.write(
         "cmd/app/main.buri",

@@ -43,7 +43,7 @@ pub struct Block {
 
 pub struct Constant {
     pub name: String,
-    /// `Platform.LINUX = 1`, which is the whole of what an enum constant
+    /// `Backend.NATIVE = 1`, which is the whole of what an enum constant
     /// declares.
     pub signature: String,
     pub docs: Vec<String>,
@@ -115,7 +115,7 @@ impl Schema {
 /// two root messages.
 ///
 /// A build file names its blocks by *field*, and the schema names them by
-/// type, so `outputs { platform: JS }` is an `Output` reached through
+/// type, so `outputs { platform: "node" }` is an `Output` reached through
 /// `Binary.outputs`. Walking the fields is what maps one onto the other, and it
 /// is why nothing here holds a hand-written table of the pairing.
 fn message_blocks(blocks: &[Block]) -> HashMap<String, Vec<usize>> {
@@ -278,7 +278,7 @@ mod tests {
     fn every_block_a_build_file_writes_is_found() {
         let schema = schema();
         for name in
-            ["library", "binary", "test", "testing", "outputs", "js", "tag", "lint", "rules"]
+            ["library", "binary", "test", "testing", "outputs", "platform", "entry", "tag", "lint", "rules"]
         {
             assert!(schema.block(name).is_some(), "no message for `{name}`");
         }
@@ -294,7 +294,10 @@ mod tests {
     fn the_field_lists_agree_with_the_formatter() {
         let schema = schema();
         for block in
-            ["", "library", "binary", "tool", "test", "testing", "outputs", "js", "tag", "lint", "rules"]
+            [
+                "", "library", "binary", "tool", "platform", "entry", "test", "testing", "outputs", "tag",
+                "forbids", "requires", "lint", "rules",
+            ]
         {
             let mut ordered: Vec<&str> = crate::build::textproto::schema_order(block).to_vec();
             let mut declared: Vec<&str> =
@@ -351,12 +354,14 @@ mod tests {
     }
 
     #[test]
-    fn a_platform_field_names_the_enum_its_values_come_from() {
-        let platform = schema().enumeration("library", "platforms").expect("Platform");
-        let names: Vec<&str> = platform.constants.iter().map(|c| c.name.as_str()).collect();
-        assert_eq!(names, ["PLATFORM_UNSPECIFIED", "LINUX", "MACOS", "JS", "WEB", "CLOUDFLARE_WORKER"]);
-        let web = platform.constants.iter().find(|c| c.name == "WEB").expect("WEB");
-        assert_eq!(web.signature, "Platform.WEB = 4");
-        assert!(web.docs[0].starts_with("A page in a browser"), "{:?}", web.docs);
+    fn a_backends_field_names_the_enum_its_values_come_from() {
+        let backend = schema().enumeration("library", "backends").expect("Backend");
+        let names: Vec<&str> = backend.constants.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["BACKEND_UNSPECIFIED", "NATIVE", "JS"]);
+        let js = backend.constants.iter().find(|c| c.name == "JS").expect("JS");
+        assert_eq!(js.signature, "Backend.JS = 2");
+        assert!(js.docs[0].starts_with("One ES module"), "{:?}", js.docs);
+        // A platform is a string, so it draws from no enum.
+        assert!(schema().enumeration("outputs", "platform").is_none());
     }
 }

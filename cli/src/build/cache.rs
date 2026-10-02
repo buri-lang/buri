@@ -554,8 +554,8 @@ impl KeyBuilder {
     /// whether a build is allowed, never what it produces, so tagging a
     /// library differently invalidates no cache entry.
     pub fn platform(&mut self, platform: Platform, arch: Option<buildfile::Arch>) {
-        self.hasher.text(platform.proto());
-        self.hasher.text(arch.map(|a| a.proto()).unwrap_or("-"));
+        self.hasher.text(platform.machine());
+        self.hasher.text(arch.map(|a| a.slug()).unwrap_or("-"));
     }
 
     /// The function an output enters through.

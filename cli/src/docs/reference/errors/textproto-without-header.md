@@ -10,7 +10,6 @@ reproduction: none
 ```textproto ignore why="a data file, not a build file"
 # proto-file: server.proto
 # proto-message: Server
-
 name: "api"
 ```
 

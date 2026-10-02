@@ -23,7 +23,7 @@ library {
         # A suite that renders a tree names where it runs. The reactive graph
         # and the document a rendered tree goes into are intrinsics of the
         # JavaScript backend, and no native backend has either — so the host's
-        # own platform is the one place this suite could not run.
-        platforms: [WEB]
+        # own machine is the one place this suite could not run.
+        backends: [JS]
     }
 }

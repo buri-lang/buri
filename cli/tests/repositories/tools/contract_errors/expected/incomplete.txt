@@ -8,7 +8,9 @@ error: this `accepts` entry has no `type_schema` [accepts-incomplete]
 
       tool {
           generate {
-              accepts: [{ language: "json", type_schema: "config.schema.json" }]
+              accepts: [
+                  { language: "json", type_schema: "config.schema.json" },
+              ]
           }
       }
 

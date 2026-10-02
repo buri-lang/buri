@@ -40,9 +40,9 @@
 //! run  { args: [...]  exit: 1  golden: "cross.txt"  host: LINUX }
 //! edit { file: "cmd/app/BUILD.buri"  replace: "..."  with: "..." }
 //! file { path: "cmd/f/main.buri"  golden: "formatted.buri" }
-//! file { path: ".buri/out/js/cmd/app/app.mjs"  absent: "a marker" }
+//! file { path: ".buri/out/node/cmd/app/app.mjs"  absent: "a marker" }
 //! path { path: ".buri/out"  exists: false }
-//! path { path: "out"  symlink: ".buri/out/js" }
+//! path { path: "out"  symlink: ".buri/out/node" }
 //! ```
 //!
 //! `not_a_repository` says the tree under `repo/` has no `REPO.buri` on
@@ -80,12 +80,12 @@
 //!
 //! # Placeholders
 //!
-//! A case that is about *the platform this toolchain is not* cannot write the
-//! platform down: `linux` names a machine the toolchain cannot build for from
-//! a mac and names the host on a Linux runner, and the goldens are the text of
-//! a message that says so. So a case writes `{{CROSS_PLATFORM}}` instead, and
-//! the harness fills it in with a platform chosen from a table keyed on the
-//! host ([`platforms_for`]).
+//! A case that is about *the machine this toolchain is not* cannot write the
+//! variant down: `linux-x86_64` names a machine the toolchain cannot run from
+//! a mac and the host on a Linux runner, and the goldens are the text of a
+//! message that says so. So a case writes `{{CROSS_VARIANT}}` instead, and the
+//! harness fills it in with a variant chosen from a table keyed on the host
+//! ([`platforms_for`]). `{{HOST_VARIANT}}` is the machine's own.
 //!
 //! The substitution reaches all three places a platform can be written, which
 //! is the only way it is worth anything:
@@ -100,7 +100,7 @@
 //! That last direction is the same trick [`super::normalise`] already plays
 //! with the scratch path: the golden holds `<scratch>`, and what is compared
 //! against it is the printed text with the real path put back. A golden here
-//! holds `{{CROSS_PLATFORM}}` for the same reason and by the same mechanism.
+//! holds `{{CROSS_VARIANT}}` for the same reason and by the same mechanism.
 use std::path::{Path, PathBuf};
 
 use super::{indent, run_in, run_in_merged, Golden, Scratch};
@@ -184,7 +184,7 @@ pub enum Step {
 pub enum PathExpectation {
     Exists(bool),
     /// A symlink, and where it points. The link's own target is read rather
-    /// than followed: `out -> .buri/out/js` is the claim, and a resolved path
+    /// than followed: `out -> .buri/out/node` is the claim, and a resolved path
     /// would pass just as well for a copied directory.
     Symlink(String),
 }
@@ -202,95 +202,68 @@ pub struct Case {
 // Placeholders: the platform that is not this host
 // ---------------------------------------------------------------------------
 
-/// A platform in the two spellings the toolchain writes: `linux` in a
-/// diagnostic, an `--output=` selector and an artifact path, and `LINUX` in a
-/// build file.
-///
-/// Both, because a case needs both and deriving one from the other would be
-/// the string munging this table exists to avoid — `Platform::slug` and
-/// `Platform::proto` are two functions in the product for the same reason.
+/// A native variant: its operating system, and the whole `<os>-<arch>` an
+/// output's `variant` and an artifact path write.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Platform {
-    pub slug: &'static str,
-    pub proto: &'static str,
+pub struct Variant {
+    pub os: &'static str,
+    pub variant: &'static str,
 }
 
-const LINUX: Platform = Platform { slug: "linux", proto: "LINUX" };
-const MACOS: Platform = Platform { slug: "macos", proto: "MACOS" };
+const LINUX_X86_64: Variant = Variant { os: "linux", variant: "linux-x86_64" };
+const MACOS_X86_64: Variant = Variant { os: "macos", variant: "macos-x86_64" };
 
-/// A platform and an architecture: everything `{ platform: .., arch: .. }` and
-/// `--output=linux/x86_64` need.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct PlatformAndArch {
-    pub platform: Platform,
-    pub arch: &'static str,
-    pub arch_proto: &'static str,
-}
-
-const LINUX_X86_64: PlatformAndArch =
-    PlatformAndArch { platform: LINUX, arch: "x86_64", arch_proto: "X86_64" };
-const MACOS_X86_64: PlatformAndArch =
-    PlatformAndArch { platform: MACOS, arch: "x86_64", arch_proto: "X86_64" };
-
-/// The host's platform, and a platform/arch pair that is deliberately **not**
+/// The host's operating system, and a variant that is deliberately **not**
 /// the host's.
 ///
 /// A table keyed on the host rather than anything computed, because what a
-/// case needs from it is a promise — that the pair names a target this
-/// toolchain refuses — and a promise is checked against a table by reading it.
-/// The refusal it rests on is `build/link.rs::can_link`: a native build is
-/// linked only when the host platform *is* the target's, because the runtime
-/// archive `cli/build.rs` embeds is built for the host and there is no cross
-/// runtime, cross libc or sysroot (`design/native/ARCHITECTURE.md` §9). So a
-/// cross pair fails `native_ready`'s conjunction on this machine and on the CI
-/// runner alike, whatever backend is compiled in.
+/// case needs from it is a promise — that the variant names a machine this
+/// toolchain does not run on — and a promise is checked against a table by
+/// reading it.
 ///
 /// The architecture is `x86_64` on both rows, and that is not an oversight. A
 /// diagnostic's caret run is as wide as the source text it underlines, and a
-/// golden records the carets; `MACOS`/`LINUX` are the same width but `ARM64`
-/// and `X86_64` are not, so an arm64 row would move a caret run between hosts
-/// and no placeholder can stand in for one. `macos/x86_64` is a real target
-/// (an Intel mac) and is cross from every Linux host, which is all that is
-/// asked of it.
-pub fn platforms_for(host_os: &str) -> (Option<Platform>, PlatformAndArch) {
+/// golden records the carets; `arm64` and `x86_64` are not the same width, so
+/// an arm64 row would move a caret run between hosts. `macos-x86_64` is a real
+/// target (an Intel mac) and is cross from every Linux host.
+pub fn platforms_for(host_os: &str) -> (Option<&'static str>, Variant) {
     match host_os {
-        "macos" => (Some(MACOS), LINUX_X86_64),
-        "linux" => (Some(LINUX), MACOS_X86_64),
-        // A host `cli/build.rs` builds no runtime for. Neither platform is
-        // this one, so either is a cross one, and this is the row the goldens
-        // were written against.
+        "macos" => (Some("macos"), LINUX_X86_64),
+        "linux" => (Some("linux"), MACOS_X86_64),
+        // A host `cli/build.rs` builds no runtime for. Neither variant is
+        // this one, so either is a cross one.
         _ => (None, LINUX_X86_64),
     }
 }
 
+/// The host's own variant, as `buri test` and `buri run` build it.
+fn host_variant(host_os: &str) -> Option<String> {
+    let arch = match std::env::consts::ARCH {
+        "aarch64" => "arm64",
+        "x86_64" => "x86_64",
+        _ => return None,
+    };
+    Some(format!("{host_os}-{arch}"))
+}
+
 /// The whole vocabulary for a host, grouped into the facts it states.
 ///
-/// A *fact* is "the platform that is not this host", and the toolchain writes
-/// it two ways: `LINUX` in a build file and `linux` in the diagnostic about
-/// that build file. A case names the fact by writing either spelling, and gets
-/// both — because a case that declares the output in one spelling always has a
-/// golden holding the other, and a placeholder that stopped at the spelling
-/// the manifest happened to use would leave a bare `linux` in a recorded file
-/// on one host and `macos` on the next.
+/// A *fact* is "the machine that is not this host", and the toolchain writes
+/// it two ways: `linux-x86_64` in a build file and an artifact path, and
+/// `linux` in a message about the machine. A case names the fact by writing
+/// either spelling, and gets both, because a golden often holds the other.
 ///
-/// The architecture is a second fact rather than part of the first, so that a
-/// case naming only a platform does not have `x86_64` rewritten underneath it
-/// somewhere it meant the host's.
-///
-/// There is no `HOST_ARCH`. A CI runner's architecture is not a property of
-/// the toolchain, and a golden that named one would pin the machine rather
-/// than the product.
-pub fn families(host_os: &str) -> Vec<Vec<(&'static str, &'static str)>> {
+/// `{{HOST_VARIANT}}` holds the host's architecture, which a golden must not
+/// pin: it is hidden again before anything is compared, and a case that writes
+/// it underlines nothing with it, so no caret run depends on its width.
+pub fn families(host_os: &str) -> Vec<Vec<(&'static str, String)>> {
     let (host, cross) = platforms_for(host_os);
-    let mut v = vec![
-        vec![
-            ("CROSS_PLATFORM", cross.platform.slug),
-            ("CROSS_PLATFORM_PROTO", cross.platform.proto),
-        ],
-        vec![("CROSS_ARCH", cross.arch), ("CROSS_ARCH_PROTO", cross.arch_proto)],
-    ];
-    if let Some(h) = host {
-        v.push(vec![("HOST_PLATFORM", h.slug), ("HOST_PLATFORM_PROTO", h.proto)]);
+    let mut v = vec![vec![
+        ("CROSS_PLATFORM", cross.os.to_string()),
+        ("CROSS_VARIANT", cross.variant.to_string()),
+    ]];
+    if let (Some(h), Some(variant)) = (host, host_variant(host_os)) {
+        v.push(vec![("HOST_PLATFORM", h.to_string()), ("HOST_VARIANT", variant)]);
     }
     v
 }
@@ -303,7 +276,7 @@ pub fn families(host_os: &str) -> Vec<Vec<(&'static str, &'static str)>> {
 /// in both directions, which is what every other case in the corpus has.
 #[derive(Clone, Default)]
 pub struct Subst {
-    used: Vec<(&'static str, &'static str)>,
+    used: Vec<(&'static str, String)>,
 }
 
 impl Subst {
@@ -323,7 +296,7 @@ impl Subst {
         for text in texts {
             written.extend(placeholders(text));
         }
-        let mut used: Vec<(&'static str, &'static str)> = Vec::new();
+        let mut used: Vec<(&'static str, String)> = Vec::new();
         for name in &written {
             let Some(family) = vocabulary.iter().find(|f| f.iter().any(|(n, _)| n == name)) else {
                 panic!(
@@ -338,9 +311,9 @@ impl Subst {
                 )
             };
             // The whole family, not the spelling that happened to be written.
-            for &(n, v) in family {
-                if !used.iter().any(|(u, _)| *u == n) {
-                    used.push((n, v));
+            for (n, v) in family {
+                if !used.iter().any(|(u, _)| u == n) {
+                    used.push((n, v.clone()));
                 }
             }
         }
@@ -366,16 +339,16 @@ impl Subst {
         self.used.is_empty()
     }
 
-    /// `{{CROSS_PLATFORM}}` -> `linux`. What the toolchain is handed.
+    /// `{{CROSS_VARIANT}}` -> `linux-x86_64`. What the toolchain is handed.
     pub fn fill(&self, text: &str) -> String {
         let mut s = text.to_string();
         for (name, value) in &self.used {
-            s = s.replace(&format!("{{{{{name}}}}}"), value);
+            s = s.replace(&format!("{{{{{name}}}}}"), value.as_str());
         }
         s
     }
 
-    /// `linux` -> `{{CROSS_PLATFORM}}`. What is compared against a golden and
+    /// `linux-x86_64` -> `{{CROSS_VARIANT}}`. What is compared against a golden and
     /// what `BURI_BLESS=1` records, so that blessing writes the placeholder
     /// back rather than this host's answer.
     ///
@@ -1367,37 +1340,32 @@ mod placeholder_tests {
     /// Everything a case writes, in one string, so the substitution is
     /// exercised on the shapes it actually meets.
     const CASE: &str = "run { args: [\"build\", \"//cmd/native\", \
-                        \"--output={{CROSS_PLATFORM}}/{{CROSS_ARCH}}\"] }\n\
-                        run { args: [\"--output={{CROSS_PLATFORM}}-{{CROSS_ARCH}}\"] }\n\
-                        { platform: {{CROSS_PLATFORM_PROTO}}, arch: {{CROSS_ARCH_PROTO}} },\n";
+                        \"--output=native/{{CROSS_VARIANT}}\"] }\n\
+                        { platform: \"native\", variant: \"{{CROSS_VARIANT}}\" },\n";
 
     fn subst(host: &str) -> Subst {
         Subst::of("test", host, &[CASE.to_string()])
     }
 
-    /// The promise the table makes, and the only one a case rests on: the pair
-    /// is not the host, so `link.rs::can_link` refuses it — the runtime
-    /// archive is the host's and there is no cross one.
+    /// The promise the table makes, and the only one a case rests on: the
+    /// cross variant is not the host's.
     #[test]
-    fn the_cross_pair_is_never_the_host() {
+    fn the_cross_variant_is_never_the_host() {
         for host in ["macos", "linux", "windows"] {
-            let (host_plat, cross) = platforms_for(host);
-            assert_ne!(
-                host_plat.map(|p| p.slug),
-                Some(cross.platform.slug),
-                "{host}: the cross platform is the host's, so the build would succeed"
-            );
+            let (host_os, cross) = platforms_for(host);
+            assert_ne!(host_os, Some(cross.os), "{host}: the cross variant is the host's");
         }
     }
 
     /// The one thing in a golden no placeholder can stand in for is a caret
     /// run: `^^^^` is as wide as the source text it underlines, and that text
-    /// is a filled-in fixture. So the two hosts have to spell every fact at the
-    /// same width, or a golden recorded on one would not hold on the other.
+    /// is a filled-in fixture. So the two hosts have to spell every cross fact
+    /// at the same width, or a golden recorded on one would not hold on the
+    /// other.
     #[test]
     fn the_two_hosts_spell_every_fact_at_the_same_width() {
         for (mac, lin) in families("macos").iter().zip(&families("linux")) {
-            for (&(name, here), &(also, there)) in mac.iter().zip(lin) {
+            for ((name, here), (also, there)) in mac.iter().zip(lin) {
                 assert_eq!(name, also, "the two hosts have different vocabularies");
                 assert_eq!(
                     here.len(),
@@ -1413,29 +1381,21 @@ mod placeholder_tests {
     /// The Linux answer is the one that cannot be observed by running the
     /// suite here, so it is asserted rather than run.
     #[test]
-    fn each_host_gets_the_other_platform() {
-        assert_eq!(
-            subst("macos").fill("--output={{CROSS_PLATFORM}}/{{CROSS_ARCH}}"),
-            "--output=linux/x86_64"
-        );
-        assert_eq!(
-            subst("linux").fill("--output={{CROSS_PLATFORM}}/{{CROSS_ARCH}}"),
-            "--output=macos/x86_64"
-        );
-        assert_eq!(
-            subst("linux").fill("{ platform: {{CROSS_PLATFORM_PROTO}} }"),
-            "{ platform: MACOS }"
-        );
+    fn each_host_gets_the_other_variant() {
+        assert_eq!(subst("macos").fill("--output=native/{{CROSS_VARIANT}}"), "--output=native/linux-x86_64");
+        assert_eq!(subst("linux").fill("--output=native/{{CROSS_VARIANT}}"), "--output=native/macos-x86_64");
+        let host = Subst::of("test", "macos", &["{{HOST_VARIANT}}".to_string()]);
+        assert!(host.fill("{{HOST_VARIANT}}").starts_with("macos-"));
     }
 
     /// What a Linux runner records is what the repository already holds. This
     /// is the round trip `BURI_BLESS=1` performs, with the host forced.
     #[test]
     fn blessing_records_the_placeholder_on_either_host() {
-        let recorded = "error: the {{CROSS_PLATFORM}} backend is not implemented\n \
+        let recorded = "error: no native artifact for {{CROSS_VARIANT}}\n \
                         --> cmd/native/BUILD.buri:6:9\n  \
-                        = fix: drop the {{CROSS_PLATFORM}} output\n\
-                        .buri/out/{{CROSS_PLATFORM}}-{{CROSS_ARCH}}/cmd/native/native\n";
+                        = fix: build this output on a {{CROSS_PLATFORM}} host\n\
+                        .buri/out/native/{{CROSS_VARIANT}}/cmd/native/native\n";
         for host in ["macos", "linux"] {
             let s = subst(host);
             let printed = s.fill(recorded);
@@ -1450,7 +1410,7 @@ mod placeholder_tests {
     fn only_whole_tokens_of_a_declared_placeholder_are_hidden() {
         let s = subst("macos");
         assert_eq!(s.hide("linuxish linux-x86_64 delinux /linux/"),
-                   "linuxish {{CROSS_PLATFORM}}-{{CROSS_ARCH}} delinux /{{CROSS_PLATFORM}}/");
+                   "linuxish {{CROSS_VARIANT}} delinux /{{CROSS_PLATFORM}}/");
         // A macOS host's own platform is not in this case's vocabulary, so it
         // is left exactly as the toolchain printed it.
         assert_eq!(s.hide("built for macos"), "built for macos");
@@ -1466,13 +1426,13 @@ mod placeholder_tests {
     #[test]
     #[should_panic(expected = "is not a placeholder the harness knows")]
     fn an_unknown_placeholder_is_a_mistake_in_the_case() {
-        Subst::of("test", "macos", &["--output={{CROSS_PLATFROM}}".to_string()]);
+        Subst::of("test", "macos", &["--output={{CROSS_VARAINT}}".to_string()]);
     }
 
     /// `{{` means something in other languages, and a fixture is a program.
     #[test]
     fn lowercase_braces_are_not_placeholders() {
         assert!(placeholders("let x = {{ a: 1 }};").is_empty());
-        assert_eq!(placeholders("{{CROSS_ARCH}}"), vec!["CROSS_ARCH".to_string()]);
+        assert_eq!(placeholders("{{CROSS_VARIANT}}"), vec!["CROSS_VARIANT".to_string()]);
     }
 }

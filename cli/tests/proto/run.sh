@@ -55,7 +55,7 @@ fi
 
 echo "building the testee"
 (cd "$repo" && "$buri" build //cmd/testee --force >/dev/null)
-artifact="$repo/.buri/out/js/cmd/testee/testee.mjs"
+artifact="$repo/.buri/out/node/cmd/testee/testee.mjs"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
