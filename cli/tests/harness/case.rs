@@ -42,6 +42,7 @@
 //! file { path: "cmd/f/main.buri"  golden: "formatted.buri" }
 //! file { path: ".buri/out/node/cmd/app/app.mjs"  absent: "a marker" }
 //! path { path: ".buri/out"  exists: false }
+//! path { path: ".buri/out/native/{{CROSS_VARIANT}}"  exists: false  host: LINUX }
 //! path { path: "out"  symlink: ".buri/out/node" }
 //! ```
 //!
@@ -178,6 +179,10 @@ pub enum Step {
     Path {
         path: String,
         expect: PathExpectation,
+        /// The host this claim is about, as for `run`. A run named for one
+        /// host leaves a different tree on each, so what is on disk after it
+        /// is a claim about that host too.
+        host: Option<String>,
     },
 }
 
@@ -280,11 +285,16 @@ pub struct Subst {
 }
 
 impl Subst {
-    /// The placeholders written anywhere in a case: its manifest, and every
-    /// file of the repository it copies.
+    /// The placeholders written anywhere in a case: its manifest, every file
+    /// of the repository it copies, and its goldens.
+    ///
+    /// The goldens are read so that a placeholder the harness no longer knows
+    /// fails on every host. A golden can belong to a run named for another
+    /// host, and without this its stale spelling would only show on that host.
     pub fn for_case(case: &str, dir: &Path, manifest: &str) -> Subst {
         let mut texts = vec![manifest.to_string()];
         collect_texts(&dir.join("repo"), &mut texts);
+        collect_texts(&dir.join("expected"), &mut texts);
         Subst::of(case, std::env::consts::OS, &texts)
     }
 
@@ -516,14 +526,7 @@ pub fn load_case(dir: &Path) -> Case {
                             "{name}: run.stream is {other}, not one of ALL, OUT, ERR, MERGED"
                         ),
                     },
-                    host: match optional_ident(&name, "run.host", &message).as_deref() {
-                        None => None,
-                        Some("MACOS") => Some(String::from("macos")),
-                        Some("LINUX") => Some(String::from("linux")),
-                        Some(other) => {
-                            panic!("{name}: run.host is {other}, not one of MACOS, LINUX")
-                        }
-                    },
+                    host: host_of(&name, "run.host", &message),
                 });
             }
             "edit" => {
@@ -568,6 +571,7 @@ pub fn load_case(dir: &Path) -> Case {
                 });
                 steps.push(Step::Path {
                     path: required_str(&name, "path", "path", &message),
+                    host: host_of(&name, "path.host", &message),
                     expect: match (exists, symlink) {
                         (Some(_), Some(_)) => panic!(
                             "{name}: a `path` step says both `exists` and `symlink`; one claim each"
@@ -637,6 +641,16 @@ fn required_str(case: &str, block: &str, field: &str, message: &Message) -> Stri
 fn optional_str(case: &str, what: &str, message: &Message) -> Option<String> {
     let field = what.rsplit('.').next().unwrap();
     message.get(field).map(|f| as_str(case, what, &f.value))
+}
+
+/// A step's `host`: `MACOS` or `LINUX`, as `std::env::consts::OS` spells it.
+fn host_of(case: &str, what: &str, message: &Message) -> Option<String> {
+    match optional_ident(case, what, message).as_deref() {
+        None => None,
+        Some("MACOS") => Some(String::from("macos")),
+        Some("LINUX") => Some(String::from("linux")),
+        Some(other) => panic!("{case}: {what} is {other}, not one of MACOS, LINUX"),
+    }
 }
 
 fn optional_ident(case: &str, what: &str, message: &Message) -> Option<String> {
@@ -834,7 +848,10 @@ pub fn run_case(case: &Case, g: &mut Golden) {
                     }
                 }
             }
-            Step::Path { path, expect } => {
+            Step::Path { path, expect, host } => {
+                if host.as_deref().is_some_and(|h| h != std::env::consts::OS) {
+                    continue;
+                }
                 let full = scratch.path(path);
                 match expect {
                     // `symlink_metadata`, not `exists`: a dangling symlink is
@@ -1386,6 +1403,33 @@ mod placeholder_tests {
         assert_eq!(subst("linux").fill("--output=native/{{CROSS_VARIANT}}"), "--output=native/macos-x86_64");
         let host = Subst::of("test", "macos", &["{{HOST_VARIANT}}".to_string()]);
         assert!(host.fill("{{HOST_VARIANT}}").starts_with("macos-"));
+    }
+
+    /// The checked-in refusal, filled in for each host, quotes the line the
+    /// filled-in fixture holds and underlines all of it. That is what a Linux
+    /// runner compares, and a mac never runs the refusal, so it is asserted
+    /// here for both hosts from the files themselves.
+    #[test]
+    fn the_cross_refusal_golden_expands_to_the_fixture_on_either_host() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/repositories/cli/output_selection");
+        let read = |rel: &str| std::fs::read_to_string(dir.join(rel)).unwrap();
+        let (fixture, golden) = (read("repo/cmd/native/BUILD.buri"), read("expected/native_cross.txt"));
+        for (host, cross) in [("linux", "macos-x86_64"), ("macos", "linux-x86_64")] {
+            let s = Subst::of("test", host, &[fixture.clone(), golden.clone()]);
+            let (fixture, golden) = (s.fill(&fixture), s.fill(&golden));
+            assert!(!golden.contains("{{"), "{host}: a placeholder survived the fill");
+            assert!(golden.starts_with(&format!("error: no native artifact for {cross} ")), "{host}");
+            assert!(golden.contains(&format!("build this output on a {cross} host")), "{host}");
+            let quoted = golden.lines().find_map(|l| l.strip_prefix("7 |         ")).unwrap();
+            assert_eq!(fixture.lines().nth(6).unwrap().trim(), quoted, "{host}");
+            assert_eq!(quoted, format!("{{ platform: \"native\", variant: \"{cross}\" }},"), "{host}");
+            let carets = golden.lines().find_map(|l| l.strip_prefix("  |         ")).unwrap();
+            assert_eq!(carets, "^".repeat(quoted.len() - 1), "{host}: the carets do not span the output");
+            assert!(s.hide(&golden) == read("expected/native_cross.txt"), "{host}: the round trip lost something");
+        }
+        assert!(Subst::of("test", "linux", &["{{HOST_VARIANT}}".to_string()])
+            .fill("{{HOST_VARIANT}}")
+            .starts_with("linux-"));
     }
 
     /// What a Linux runner records is what the repository already holds. This

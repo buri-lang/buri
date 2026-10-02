@@ -688,23 +688,30 @@ Goldens stay path-stable without scrubbing, because every file enters the source
 map under a repository-relative name. So `--> cmd/app/main.buri:9:6` in a
 recorded file is also a path you can open.
 
-A case about *the platform this toolchain is not* cannot write the platform
-down, because `linux` names a target a mac refuses and names the host on a Linux
+A case about *the machine this toolchain is not* cannot write the variant down,
+because `linux-x86_64` is a cross target on a mac and the host on a Linux
 runner. Such a case writes a placeholder instead:
 
 ```
-run { args: ["build", "//cmd/native", "--output={{CROSS_PLATFORM}}/{{CROSS_ARCH}}"] exit: 1 }
-{ platform: {{CROSS_PLATFORM_PROTO}}, arch: {{CROSS_ARCH_PROTO}} },   # in a BUILD.buri fixture
-error: the {{CROSS_PLATFORM}} backend is not implemented              # in a golden
+run { args: ["build", "//cmd/native", "--output=native/{{CROSS_VARIANT}}"] exit: 1  host: LINUX }
+path { path: ".buri/out/native/{{CROSS_VARIANT}}/cmd/native/native"  exists: false  host: LINUX }
+{ platform: "native", variant: "{{CROSS_VARIANT}}" },   # in a BUILD.buri fixture
+error: no native artifact for {{CROSS_VARIANT}}         # in a golden
 ```
 
-The harness fills these in from a table keyed on the host — `linux/x86_64` on a
-mac, `macos/x86_64` on Linux — in the fixtures it copies into the scratch tree,
-in the manifest's own strings, and in reverse on the way back out. So blessing
-on either machine writes the same file. The two hosts' spellings are the same
-width on purpose: a caret run is as wide as the line it underlines. The harness
-substitutes only the facts a case actually names, so every other case's goldens
-come back byte for byte.
+Any host builds a Linux artifact, but only a mac builds a macOS one. So a cross
+build succeeds on a mac and is refused on Linux, and a `run` or `path` step
+about it names its host with `host:`. The harness skips it on the other host.
+
+The harness fills placeholders in from a table keyed on the host — `linux-x86_64`
+on a mac, `macos-x86_64` on Linux. `{{HOST_VARIANT}}` is the machine's own. It
+fills them in the fixtures it copies into the scratch tree, in the manifest's
+own strings, and in reverse on the way back out. So blessing on either machine
+writes the same file. The two hosts' spellings are the same width on purpose: a
+caret run is as wide as the line it underlines. The harness substitutes only the
+facts a case actually names, so every other case's goldens come back byte for
+byte. It also reads every golden for placeholders, so a stale one fails on both
+hosts, even when only the other host's run compares it.
 
 **The incrementality suite** reads `buri build --explain`, which prints one line
 per action with its key and whether the cache served it. It compares keys
