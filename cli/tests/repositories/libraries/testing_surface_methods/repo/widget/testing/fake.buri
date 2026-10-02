@@ -1,0 +1,13 @@
+export struct Fake {
+    export n: Int,
+}
+
+impl Fake {
+    export fn doubled(self): Int {
+        self.n * 2
+    }
+}
+
+export fn fake(n: Int): Fake {
+    Fake { n: n }
+}

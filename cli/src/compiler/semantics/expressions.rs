@@ -1668,7 +1668,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         )
     }
 
-    /// A name is on a library's surface if its `lib.buri` exports it, and a
+    /// A name is on a library's surface if its `lib.buri` exports it — or, for
+    /// a method declared under `testing/`, its `testing/lib.buri` — and a
     /// method call from outside the library resolves only to names on the
     /// surface. Resolution itself does not change — one type, one module, one
     /// lookup — with a visibility filter applied after it.
@@ -1702,15 +1703,24 @@ impl<'a, 'b> Infer<'a, 'b> {
         if here == there {
             return;
         }
-        if let Some(surface) = self.c.surfaces.get(&there) {
+        let Some(ws) = self.c.ws else { return };
+        let package = ws.package(there);
+        // A package has two surfaces, and a method answers to the one in front
+        // of the directory it is declared in: `testing/lib.buri` for a method
+        // under `testing/`, `lib.buri` for every other. Which surfaces the
+        // caller imported does not enter into it.
+        let testing = self.c.module(module).path.starts_with(&package.module_path("testing/"));
+        let (surfaces, label, file) = match testing {
+            true => (&self.c.testing_surfaces, package.module_path("testing"), "testing/lib.buri"),
+            false => (&self.c.surfaces, package.label(), "lib.buri"),
+        };
+        if let Some(surface) = surfaces.get(&there) {
             if !surface.contains(&self.c.tables.fn_info(f).name) {
                 let name = self.c.tables.fn_info(f).name.clone();
-                let label =
-                    self.c.ws.map(|w| w.package(there).label()).unwrap_or_default();
                 self.templated("not-on-the-surface", span)
                     .bind("name", name.clone())
                     .bind("owner", label)
-                    .fix(format!("re-export `{name}` from that library's lib.buri, if it is part of the API"));
+                    .fix(format!("re-export `{name}` from that library's {file}, if it is part of the API"));
             }
         }
     }

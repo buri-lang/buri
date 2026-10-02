@@ -1,0 +1,5 @@
+// The surface of //widget/testing, a second entry point of //widget. A method
+// declared under testing/ is reachable from outside exactly when this file
+// exports it.
+
+from "//widget/testing/fake.buri" export { Fake, doubled, fake };
