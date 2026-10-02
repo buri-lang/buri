@@ -181,6 +181,55 @@ export fn main(): Result<(), Str> {
     }
 }
 
+/// The printer's third shape: a block's lines are a fold whose seed is
+/// everything printed so far. The fold takes the seed over, so its first step
+/// finds the list unique; lent, the first step of every fold copied it. Both
+/// folds that take a seed and a context, one block of two lines per round.
+#[test]
+fn a_record_handed_to_a_fold_as_its_seed_grows_in_place() {
+    let source = r#"
+from "core/effect" import { Allocator };
+from "core/host" import { stdout, alloc };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+struct Out { pieces: [Str], at: Int }
+
+fn raw<C: Allocator>(ctx: C, out: Out, t: Str): Out {
+  Out { ..out, pieces: out.pieces.push(ctx, t), at: out.at + 1 }
+}
+
+fn block<C: Allocator>(ctx: C, out: Out, lines: [Str]): Out {
+  lines.foldCtx(ctx, fn(c, acc: (Out, Bool), l) => { (raw(c, acc.0, l), true) }, (out, false)).0
+}
+
+fn checked<C: Allocator>(ctx: C, out: Out, lines: [Str]): Out {
+  let done: Result<Out, Str> = lines.foldResultCtx(ctx, fn(c, acc: Out, l) => { .Ok(raw(c, acc, l)) }, out);
+  match (done) { .Ok(o) => o, .Err(_e) => Out { pieces: [], at: -1 } }
+}
+
+fn blocks<C: Allocator>(ctx: C, out: Out, two: [Str], one: [Str], i: Int): Out {
+  if (i == 0) { out } else { blocks(ctx, checked(ctx, block(ctx, out, two), one), two, one, i - 1) }
+}
+
+export fn main(): Result<(), Str> {
+  let out = blocks(alloc, Out { pieces: [], at: 0 }, ["a", "b"], ["c"], 1000);
+  let _ = io.println(stdout, "${out.pieces.length()} ${out.at}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("field-push-fold-seed", source) {
+        assert_eq!(r.stdout, "3000 3000\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 60,
+            "{backend}: two thousand folds allocated {blocks} blocks: the fold lent its seed to \
+             the first step, so the step's first push copied the list"
+        );
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}
+
 /// What every update answers when its record, or a list in it, has a second
 /// reader: the old value is unchanged and the new one is what a copy would
 /// be. Each line is one way to have that second reader.
@@ -303,6 +352,14 @@ export fn main(): Result<(), Str> {
   let onward = raw(ctx, src, "o");
   let _ = io.println(stdout, "number ${show(ctx, onward.pieces)} ${src.at} ${onward.at}").ignore();
 
+  let seed = raw(ctx, Out { pieces: grown(ctx, ["f"]), at: 0 }, "g");
+  let folded = ["h", "i"].foldCtx(ctx, fn(c, acc: Out, l) => raw(c, acc, l), seed);
+  let empty = list.empty<Str>().foldCtx(ctx, fn(c, acc: Out, l) => raw(c, acc, l), seed);
+  let _ = io.println(
+    stdout,
+    "seed ${show(ctx, seed.pieces)} ${show(ctx, folded.pieces)} ${show(ctx, empty.pieces)}",
+  ).ignore();
+
   let good = tryRaw(ctx, Out { pieces: grown(ctx, ["g"]), at: 0 }, "ok");
   let bad = tryRaw(ctx, Out { pieces: grown(ctx, ["g"]), at: 0 }, "bad");
   let said = match (good) { .Ok(o) => show(ctx, o.pieces), .Err(e) => e };
@@ -320,6 +377,7 @@ nested [o,p] [o,p,q,r] 3
 captured 2 3 4 5 2
 handed [h,i,j]
 number [n,m,o] 6 7
+seed [f,g] [f,g,h,i] [f,g]
 escape [g,ok] refused bad
 ";
     for (backend, r) in run_each("field-push-readers", source) {
