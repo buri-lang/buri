@@ -2,4 +2,4 @@
 // declared under testing/ is reachable from outside exactly when this file
 // exports it.
 
-from "//widget/testing/fake.buri" export { Fake, doubled, fake };
+from "//widget/testing/fake.buri" export { doubled, Fake, fake };
