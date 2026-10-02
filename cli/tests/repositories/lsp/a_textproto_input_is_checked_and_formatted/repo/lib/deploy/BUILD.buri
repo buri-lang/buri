@@ -1,5 +1,5 @@
 library {
     generators: [
-        { tool: "std/textproto", inputs: ["server.txtpb"] },
+        { tool: "textproto", inputs: ["server.txtpb"] },
     ]
 }

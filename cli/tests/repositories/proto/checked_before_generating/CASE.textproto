@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a .proto a generator lists is checked by std/proto before the generator runs: an import it reads from the repository, one that names nothing or leaves the repository, a field number or name used twice or reserved, a type that names nothing, and a statement that does not parse, each where it is written"
+doc: "a .proto a generator lists is checked by the proto tool before the generator runs: an import it reads from the repository, one that names nothing or leaves the repository, a field number or name used twice or reserved, a type that names nothing, and a statement that does not parse, each where it is written"
 
 # `shape.proto` imports `colour.proto`, which the check reads to resolve
 # `Colour`, and `reserved` holds numbers and a name no field uses.

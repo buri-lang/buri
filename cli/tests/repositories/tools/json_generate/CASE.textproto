@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "std/json as a generator: a schema gives Buri types for every construct that has one, a data file gives its schema's types and its contents as a value named after the file, JSON5's Infinity reads as F64, editing the data file generates again, and a construct with no type is refused where the schema writes it"
+doc: "json as a generator: a schema gives Buri types for every construct that has one, a data file gives its schema's types and its contents as a value named after the file, JSON5's Infinity reads as F64, editing the data file generates again, and a construct with no type is refused where the schema writes it"
 
 run {
   args: ["run", "//cmd/app"]

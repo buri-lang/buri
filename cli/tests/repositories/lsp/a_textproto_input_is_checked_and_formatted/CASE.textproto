@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a .txtpb a generator lists is checked by std/textproto against its message as it is typed, with each finding on the file's own span, and formatting it answers with the built-in layout"
+doc: "a .txtpb a generator lists is checked by the textproto tool against its message as it is typed, with each finding on the file's own span, and formatting it answers with the built-in layout"
 
 run {
   args: ["lsp"]

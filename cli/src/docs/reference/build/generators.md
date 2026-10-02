@@ -18,7 +18,7 @@ step to forget to run.
 
 | Field | Meaning |
 |---|---|
-| `tool` | A `//label` naming a `tool` rule with a `generate` entry point, `std/json` for [types from JSON](../../guides/json.md#generating-types), `std/proto` for `.proto` schemas, or `std/textproto` for [a text format file's value](../../guides/textproto.md#generating-its-value). |
+| `tool` | A `//label` naming a `tool` rule with a `generate` entry point, `json` for [types from JSON](../../guides/json.md#generating-types), `proto` for `.proto` schemas, or `textproto` for [a text format file's value](../../guides/textproto.md#generating-its-value). |
 | `inputs` | The files handed to the tool, package-relative, no globs. |
 
 `generators` is hand-authored, like `visibility` and `outputs`. `buri gen`
@@ -152,6 +152,6 @@ the tool does the same, and `--check-reproducible` covers a generator for free.
 [Hermeticity](./hermeticity.md) has the rest of the model.
 
 A tool is compiled to JavaScript and run under the JavaScript runtime on the
-machine doing the build. `std/proto` takes the same path: it is a Buri program
+machine doing the build. `proto` takes the same path: it is a Buri program
 whose `generate` calls the `emit` of `std/codegen/proto`, compiled the first
 time a build needs it and kept under `.buri/out/tools` by its key.

@@ -16,12 +16,12 @@ forget to run.
 
 ## Declaring the schema
 
-A `.proto` is a generator's input, and `std/proto` is the generator:
+A `.proto` is a generator's input, and `proto` is the generator:
 
 ```textproto schema=build
 library {
     generators: [
-        { tool: "std/proto", inputs: ["address.proto", "demo.proto"] },
+        { tool: "proto", inputs: ["address.proto", "demo.proto"] },
     ]
 }
 ```
@@ -48,7 +48,7 @@ person to make an edit, and here there is no file to edit.
 ## Checking
 
 `proto` is a built-in language, like `json`: every `.proto` a rule's `inputs`
-lists is checked by `std/proto` before any generator reads it, by `buri build`,
+lists is checked by the `proto` tool before any generator reads it, by `buri build`,
 `buri test`, `buri lint` and the language server as you type. A `REPO.buri` may
 give it more extensions and nothing else.
 

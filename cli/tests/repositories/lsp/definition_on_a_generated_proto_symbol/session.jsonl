@@ -1,6 +1,6 @@
 # One JSON-RPC request per line. `<scratch>` becomes the copied repository.
 #
-# `//lib/wire` runs `std/codegen/proto` over `point.proto`. `Point` is a
+# `//lib/wire` runs `proto` over `point.proto`. `Point` is a
 # `message` in that file and the generator anchored the struct it wrote on it;
 # `defaultPoint` is a name the generator made up, anchored nowhere. Both are
 # ordinary names in the buffer below, and the whole case is that the server

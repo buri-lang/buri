@@ -4,7 +4,7 @@ error: `//tool/yaml` names no tool [no-such-tool]
 10 |     check: "//tool/yaml"
    |            ^^^^^^^^^^^^^
    |
-   = a tool is a `//label` naming a `tool` rule in this repository, or `std/json` or `std/proto`
+   = a tool is a `//label` naming a `tool` rule in this repository, or a built-in: `json`, `proto` or `textproto`
    = fix: name a package whose BUILD.buri declares a `tool` rule
 
        library {

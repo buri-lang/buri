@@ -22,7 +22,7 @@ message Point {
 
 ## Declare it
 
-A schema is a generator's input, and `std/proto` is the generator. Write
+A schema is a generator's input, and `proto` is the generator. Write
 the entry yourself — `buri gen` cannot know which generator owns a file, so it
 leaves `generators` alone:
 
@@ -30,7 +30,7 @@ leaves `generators` alone:
 # libs/wire/BUILD.buri
 library {
     generators: [
-        { tool: "std/proto", inputs: ["point.proto"] },
+        { tool: "proto", inputs: ["point.proto"] },
     ]
     visibility: ["//visibility:public"]
 }

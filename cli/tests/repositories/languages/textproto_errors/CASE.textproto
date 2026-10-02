@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "each way std/textproto refuses a text format file: no header, a schema that is not local or not there, a message the schema does not declare, a proto-import header, an extension field, a syntax error, a broken schema, and every value that is not its field's: an unknown field, a wrong type, a value out of range, an unknown enum value, a scalar for a message and a message for a scalar, a list for a singular field, a field set twice and two cases of one oneof"
+doc: "each way the textproto tool refuses a text format file: no header, a schema that is not local or not there, a message the schema does not declare, a proto-import header, an extension field, a syntax error, a broken schema, and every value that is not its field's: an unknown field, a wrong type, a value out of range, an unknown enum value, a scalar for a message and a message for a scalar, a list for a singular field, a field set twice and two cases of one oneof"
 
 # Every refusal at once, each at the place it is about: the header for what the
 # header names, the value for what the value is, the schema for what is wrong

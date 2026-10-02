@@ -1,8 +1,8 @@
 ---
 title: A schema is a generator's input
 message: '`proto_sources` is retired'
-note: the field was the one hard-wired generator in the build, and `.proto` was the one language it knew — `generators` runs any tool's `generate`, and `std/proto` is the tool for schemas
-fix: move the schemas into `generators: [{{ tool: "std/proto", inputs: [...] }}]`
+note: the field was the one hard-wired generator in the build, and `.proto` was the one language it knew — `generators` runs any tool's `generate`, and `proto` is the tool for schemas
+fix: move the schemas into `generators: [{{ tool: "proto", inputs: [...] }}]`
 reproduction: none
 ---
 # A schema is a generator's input
@@ -14,12 +14,12 @@ error: `proto_sources` is retired [retired-proto-sources]
 ## What to do
 
 Move every schema the field listed into a `generators` entry, and hand it to
-`std/proto`:
+`proto`:
 
 ```textproto schema=build
 library {
     generators: [
-        { tool: "std/proto", inputs: ["address.proto", "point.proto"] },
+        { tool: "proto", inputs: ["address.proto", "point.proto"] },
     ]
     visibility: ["//visibility:public"]
 }
@@ -41,7 +41,7 @@ which generator owns a new file. A schema no entry lists is
 program, on one language, and a repository that wanted a second kind of
 generated code had no way to ask for one.
 
-`generators` is the same idea with the program written down. `std/proto` is a
+`generators` is the same idea with the program written down. `proto` is a
 tool written in Buri, and its `generate` is what the field always ran — so the
 schemas, the diagnostics and the generated modules are the ones you already
 had, reached through a rule a tool of your own can also use. See

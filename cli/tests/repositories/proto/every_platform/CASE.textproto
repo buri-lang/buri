@@ -54,7 +54,7 @@ run {
 # outputs are the generator's doing rather than a module that was there anyway.
 edit {
   file: "lib/wire/BUILD.buri"
-  replace: "    generators: [\n        { tool: \"std/proto\", inputs: [\"point.proto\"] },\n    ]\n\n"
+  replace: "    generators: [\n        { tool: \"proto\", inputs: [\"point.proto\"] },\n    ]\n\n"
   with: ""
 }
 

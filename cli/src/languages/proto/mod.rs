@@ -1,4 +1,4 @@
-//! The built-in `proto` language: `std/proto` checks it, and [`format`] lays
+//! The built-in `proto` language: the `proto` tool checks it, and [`format`] lays
 //! it out.
 //!
 //! ```text
