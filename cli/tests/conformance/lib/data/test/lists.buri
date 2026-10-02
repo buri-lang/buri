@@ -1800,7 +1800,11 @@ test "a nested update over a dying record answers what a copy would" {
     let ctx = context {
         Allocator: alloc(),
     };
-    let one = nestedGrow(ctx, Nest { out: Out { pieces: list.empty<Int>(), at: 0 }, n: 0 }, 1);
+    let one = nestedGrow(
+        ctx,
+        Nest { out: Out { pieces: list.empty<Int>(), at: 0 }, n: 0 },
+        1,
+    );
     let three = nestedGrow(ctx, nestedGrow(ctx, one, 2), 3);
     assert.equal(one, Nest { out: Out { pieces: [1], at: 0 }, n: 1 });
     assert.equal(three, Nest { out: Out { pieces: [1, 2, 3], at: 0 }, n: 3 });
@@ -1810,7 +1814,11 @@ test "a field handed from a dying record to a function that owns it answers what
     let ctx = context {
         Allocator: alloc(),
     };
-    let one = handedOn(ctx, Nest { out: Out { pieces: list.empty<Int>(), at: 0 }, n: 0 }, 1);
+    let one = handedOn(
+        ctx,
+        Nest { out: Out { pieces: list.empty<Int>(), at: 0 }, n: 0 },
+        1,
+    );
     let three = handedOn(ctx, handedOn(ctx, one, 2), 3);
     let other = handedOn(ctx, one, 9);
     assert.equal(one.out, Out { pieces: [1], at: 1 });

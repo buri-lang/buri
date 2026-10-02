@@ -109,6 +109,32 @@ pub(crate) fn built_probed(name: &str, source: &str, probe: &str) -> Option<Path
     ready().then(|| crate::stencil::build_with(name, source, Some(probe)))
 }
 
+/// Builds a named program into an executable with `shared::ALLOC_PROBE` linked
+/// in.
+pub(crate) type ProbedBuild = fn(&str, &str) -> PathBuf;
+
+/// Every native backend built in that can run here, by name, each building with
+/// the allocation probe linked in — for `fields.rs`, whose rows hold on both.
+/// Here so the feature gates stay in this file.
+pub(crate) fn probed_backends() -> Vec<(&'static str, ProbedBuild)> {
+    let mut out: Vec<(&'static str, ProbedBuild)> = Vec::new();
+    #[cfg(feature = "backend-stencil")]
+    if crate::stencil::supported() {
+        out.push(("stencil", |name, source| {
+            let probe = Some(crate::shared::ALLOC_PROBE);
+            crate::stencil::build_with(&format!("{name}-stencil"), source, probe)
+        }));
+    }
+    #[cfg(feature = "backend-llvm")]
+    if ready() {
+        out.push(("llvm", |name, source| {
+            let probe = Some(crate::shared::ALLOC_PROBE);
+            crate::llvm::build_at(&format!("{name}-llvm"), source, probe, Profile::Release)
+        }));
+    }
+    out
+}
+
 macro_rules! unless_ready {
     () => {
         if !ready() {
