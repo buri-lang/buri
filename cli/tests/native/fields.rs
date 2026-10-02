@@ -16,10 +16,13 @@
 use crate::shared::{probed, ran_checked, Ran, ALLOC_PROBE};
 use std::path::PathBuf;
 
+/// Builds a named program into an executable with [`ALLOC_PROBE`] linked in.
+type Build = fn(&str, &str) -> PathBuf;
+
 /// Each native backend built into this toolchain that can run here, by name,
 /// with the function that builds a program on it.
-fn backends() -> Vec<(&'static str, fn(&str, &str) -> PathBuf)> {
-    let mut out: Vec<(&'static str, fn(&str, &str) -> PathBuf)> = Vec::new();
+fn backends() -> Vec<(&'static str, Build)> {
+    let mut out: Vec<(&'static str, Build)> = Vec::new();
     #[cfg(feature = "backend-stencil")]
     if crate::stencil::supported() {
         out.push(("stencil", |name, source| {
