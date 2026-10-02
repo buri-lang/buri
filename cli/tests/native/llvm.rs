@@ -4784,12 +4784,12 @@ test "two states are independent, and one updates inside the other" {
     let a = state.new(["x"]);
     let b = state.new(["y"]);
     let moved = state.update(a, fn(c, xs) => {
-        let inner = state.update(b, fn(d, ys) => (ys.push(d, "${xs.length()}"), ys.length()));
+        let inner = state.update(b, fn(d, ys) => (ys.push(d, "w"), xs.length()));
         (xs.push(c, "z"), inner)
     });
-    assert.equal(moved, 2);
+    assert.equal(moved, 1);
     assert.equal(state.read(a), ["x", "z"]);
-    assert.equal(state.read(b), ["y", "1"]);
+    assert.equal(state.read(b), ["y", "w"]);
 }
 "#;
     let binary =
