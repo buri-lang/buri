@@ -1578,6 +1578,29 @@ token minted in a test is a value you can write an assertion against, and it is
 the same value on both backends. A program cannot reach it, because only a test
 source may import `core/host/testing`. See [testing](./build/testing.md).
 
+### State for a test implementation
+
+[`core/platforms/testing/state`](../../compiler/standard_library/sources/platforms_testing_state.buri)
+gives an effect's test implementation a value that outlives one call. Its
+header has a worked `TestKv`.
+
+| Function | What it does | Cost |
+|---|---|---|
+| `new(initial)` | A fresh `State<T>` holding `initial` | O(size) copy |
+| `read(s)` | The value now | O(1) |
+| `update(s, f)` | Replaces the value with `f`'s first answer, returns its second | O(size) copy |
+
+- **A copy of a `State` shares its value.** Each `new` is a fresh one.
+- **`update` is atomic.** No other `read` or `update` runs while `f` does, on
+  either backend, `Tasks.parallel` included. `f` gets a `StateAllocator`
+  because building the next value usually allocates.
+- **Using a state inside its own `update` stops the program.** `f` already holds
+  the value. Updating a different state there is fine.
+- **Only an effect's testing surface may import it**: a module under
+  `platform/effect/` with a `testing` segment, such as
+  `//platform/effect/kv/testing`. Anything else, an ordinary test included, is
+  [`platform-testing-only-import`](./errors/platform-testing-only-import.md).
+
 ## Allocators
 
 [`core/alloc`](../../compiler/standard_library/sources/alloc.buri) —

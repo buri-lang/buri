@@ -1,0 +1,20 @@
+error: this module is only for an effect's test implementation [platform-testing-only-import]
+ --> lib/tally/test/counter.buri:2:6
+  |
+2 | from "core/platforms/testing/state" import * as state;
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ importable only from platform/effect/**/testing
+  |
+  = core/platforms/testing/state may be imported only from a module under platform/effect/ with a testing segment
+  = //lib/tally/test/counter.buri is not one
+  = fix: keep the state in the effect's testing surface, and import the test implementation it exports
+
+    What to do
+    ──────────
+
+    Import the effect's test implementation instead, such as
+    //platform/effect/kv/testing's kv().
+
+    core/platforms/testing/state gives an effect's test implementation a value
+    that outlives one call. A test checks values it already holds, so it doesn't
+    need one.
+

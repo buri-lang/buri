@@ -946,6 +946,18 @@ impl<'a> Loader<'a> {
             return false;
         }
 
+        // `core/platforms/testing/state` narrows the rule above to an effect's
+        // testing surface. An ordinary test has its own values and needs none.
+        if standard_library::canonical(path) == Some(standard_library::PLATFORM_STATE_MODULE)
+            && !standard_library::is_effect_testing_path(importer_path)
+        {
+            self.diags.push(
+                Diagnostic::templated("platform-testing-only-import", span)
+                    .with_note(format!("{importer_path} is not one")),
+            );
+            return false;
+        }
+
         let Some(ws) = self.ws else { return true };
         if !path.starts_with("//") {
             return true;

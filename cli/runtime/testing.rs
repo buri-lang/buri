@@ -4222,6 +4222,261 @@ pub extern "C" fn buri_rt_test_replay(index: i64) -> u8 {
     1
 }
 
+// ---------------------------------------------------------------------------
+// core/platforms/testing/state
+// ---------------------------------------------------------------------------
+//
+// One whole `T` per handle, kept as bytes beside its release glue, the way
+// `ui.rs` keeps a signal's value. Why it is sound:
+//
+// - **Counting.** Every parameter is borrowed (`lib.rs` §3), so `new` and `put`
+//   retain the bytes they keep and the caller releases its own. `read` copies
+//   and retains, so the caller owns what it gets. `take` moves the kept
+//   reference out without retaining, and marks the slot empty until `put`.
+// - **Lifetime.** A slot lives for the whole process, because a handle is an
+//   `Int` and nothing says when the last copy goes. At exit, [`give_back`]
+//   releases every value still kept, registered after the heap audit so it
+//   runs first. `core/platforms/testing/state` copies a value with
+//   `alloc.copyAcross` before handing it over, so no `alloc.scoped` arena owns
+//   any block a slot points at.
+// - **Threads.** A kept value is reachable from a second thread only through a
+//   handle that got there, and a handle crosses only through a key
+//   `middle::rc::crosses_tasks` already lists. Such a program counts every
+//   block atomically, and so do the retain and release glue it hands this
+//   side. A program with no crossing has one thread, so plain counts are
+//   right. These keys hand nothing to another task themselves, so they are
+//   not on that list.
+// - **Atomic `update`.** `take` waits until no other thread is inside an
+//   update, then makes the calling thread the owner; `put` gives ownership up
+//   and wakes the waiters. `read` and `new` wait the same way. The lock is one
+//   for every state and re-entrant per thread, so `f` may update another state
+//   without two threads ever taking two locks in opposite orders. `f` can't
+//   park while it holds the lock: it gets a `StateAllocator` and nothing else,
+//   and a lambda can't capture a context (SPEC 10.6), so no other task runs on
+//   the owner's thread in between and no waiter waits for long.
+// - **Re-entry.** A `read` or `take` of a slot whose value is out is the
+//   program using a state inside its own `update`. There is no value to
+//   answer, so the program stops with [`NESTED`], as `runtime.js` does.
+
+use crate::list::{Release, Retain};
+use std::sync::{Condvar, MutexGuard};
+use std::thread::ThreadId;
+
+/// `runtime.js`'s message, word for word.
+const NESTED: &str = "a state was used inside its own update";
+
+/// One kept value.
+struct Kept {
+    /// The value's bytes, in words so the glue reads aligned pointers.
+    words: Vec<u64>,
+    /// The glue that gives the value back.
+    release: Release,
+    /// Whether an `update` has the value right now.
+    out: bool,
+}
+
+struct States {
+    kept: Vec<Kept>,
+    /// The thread inside an `update`, and how many `update`s deep.
+    owner: Option<ThreadId>,
+    depth: usize,
+}
+
+static STATES: Mutex<States> = Mutex::new(States { kept: Vec::new(), owner: None, depth: 0 });
+
+/// Signalled when the owner's last `update` puts its value back.
+static UNOWNED: Condvar = Condvar::new();
+
+/// The table, once no other thread is inside an `update`.
+fn settled() -> MutexGuard<'static, States> {
+    let me = std::thread::current().id();
+    let mut g = match STATES.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    while g.owner.is_some_and(|o| o != me) {
+        g = match UNOWNED.wait(g) {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+    }
+    g
+}
+
+/// The slot `handle` names. Stops the program on a handle nothing made, or on
+/// one whose value is out.
+fn slot(g: MutexGuard<'static, States>, handle: i64) -> (MutexGuard<'static, States>, usize) {
+    let at = usize::try_from(handle).ok().filter(|&i| i < g.kept.len());
+    match at {
+        Some(i) if !g.kept[i].out => (g, i),
+        Some(_) => {
+            drop(g);
+            crate::abort::die(&[NESTED.as_bytes()])
+        }
+        None => {
+            drop(g);
+            crate::abort::die(&[b"this state does not exist"])
+        }
+    }
+}
+
+/// Runs a retain or release over one value, where there is one to run.
+///
+/// # Safety
+/// `at` addresses a whole value of the type `glue` was generated for.
+unsafe fn walk(glue: Retain, at: *mut u8) {
+    if let Some(f) = glue {
+        // SAFETY: forwarded to the caller's promise.
+        unsafe { f(at) };
+    }
+}
+
+/// `stride` bytes at `from`, in words.
+///
+/// # Safety
+/// `from` is readable for `stride` bytes.
+unsafe fn copied(from: *const u8, stride: usize) -> Vec<u64> {
+    let mut words = vec![0u64; stride.div_ceil(8)];
+    if stride > 0 {
+        // SAFETY: the caller promises `stride` readable bytes, and `words` has
+        // at least that many.
+        unsafe { std::ptr::copy_nonoverlapping(from, words.as_mut_ptr().cast(), stride) };
+    }
+    words
+}
+
+/// Registers [`give_back`] after the heap audit, once, so it runs first.
+fn give_back_at_exit() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        crate::memory::arm_heap_audit();
+        // SAFETY: `give_back` is an `extern "C" fn()` taking no arguments and
+        // returning normally, which is the whole of `atexit`'s contract.
+        unsafe { atexit(give_back) };
+    });
+}
+
+unsafe extern "C" {
+    fn atexit(f: extern "C" fn()) -> i32;
+}
+
+/// Every value still kept, released. `try_lock` for `ui.rs`'s reason: an abort
+/// can exit while this lock is held, and then the audit is quiet anyway.
+extern "C" fn give_back() {
+    let Ok(mut g) = STATES.try_lock() else { return };
+    for k in &mut g.kept {
+        if !k.out && !k.words.is_empty() {
+            // SAFETY: the slot holds one whole value of the type `release` was
+            // generated for, and nothing names it after this.
+            unsafe { walk(k.release, k.words.as_mut_ptr().cast()) };
+        }
+        k.words.clear();
+    }
+}
+
+/// `stateNew(value)`: keeps a retained copy, and answers its handle.
+///
+/// # Safety
+/// `value` points at `stride` readable bytes, and the glue is for that type.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_platforms_testing_state_state_new(
+    value: *const u8,
+    stride: usize,
+    retain: Retain,
+    release: Release,
+    _same: crate::ui::Equal,
+) -> i64 {
+    give_back_at_exit();
+    // SAFETY: forwarded to the caller's promise.
+    let mut words = unsafe { copied(value, stride) };
+    if stride > 0 {
+        // SAFETY: `words` holds one whole value of that type.
+        unsafe { walk(retain, words.as_mut_ptr().cast()) };
+    }
+    let mut g = settled();
+    g.kept.push(Kept { words, release, out: false });
+    i64::try_from(g.kept.len() - 1).unwrap_or(i64::MAX)
+}
+
+/// `stateRead(handle)`: a retained copy of the kept value.
+///
+/// # Safety
+/// `out` is writable for `stride` bytes, and `retain` is for that type.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_platforms_testing_state_state_read(
+    handle: i64,
+    stride: usize,
+    retain: Retain,
+    out: *mut u8,
+) {
+    let (g, i) = slot(settled(), handle);
+    if stride == 0 {
+        return;
+    }
+    // SAFETY: the slot holds `stride` bytes and `out` is writable for as many.
+    unsafe {
+        std::ptr::copy_nonoverlapping(g.kept[i].words.as_ptr().cast::<u8>(), out, stride);
+        walk(retain, out);
+    }
+}
+
+/// `stateTake(handle)`: makes this thread the owner and moves the value out.
+///
+/// # Safety
+/// As [`buri_rt_platforms_testing_state_state_read`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_platforms_testing_state_state_take(
+    handle: i64,
+    stride: usize,
+    _retain: Retain,
+    out: *mut u8,
+) {
+    let (mut g, i) = slot(settled(), handle);
+    g.owner = Some(std::thread::current().id());
+    g.depth += 1;
+    g.kept[i].out = true;
+    if stride > 0 {
+        // SAFETY: as in `read`. The kept reference moves to the caller.
+        unsafe {
+            std::ptr::copy_nonoverlapping(g.kept[i].words.as_ptr().cast::<u8>(), out, stride);
+        }
+    }
+}
+
+/// `statePut(handle, value)`: keeps a retained copy and, at the outermost
+/// `update`, gives up ownership.
+///
+/// # Safety
+/// As [`buri_rt_platforms_testing_state_state_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_platforms_testing_state_state_put(
+    handle: i64,
+    value: *const u8,
+    stride: usize,
+    retain: Retain,
+    _release: Release,
+    _same: crate::ui::Equal,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let mut words = unsafe { copied(value, stride) };
+    if stride > 0 {
+        // SAFETY: `words` holds one whole value of that type.
+        unsafe { walk(retain, words.as_mut_ptr().cast()) };
+    }
+    let mut g = settled();
+    let Some(k) = usize::try_from(handle).ok().and_then(|i| g.kept.get_mut(i)) else {
+        drop(g);
+        crate::abort::die(&[b"this state does not exist"])
+    };
+    k.words = words;
+    k.out = false;
+    g.depth = g.depth.saturating_sub(1);
+    if g.depth == 0 {
+        g.owner = None;
+        UNOWNED.notify_all();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4832,5 +5087,53 @@ mod tests {
         // SAFETY: written by the call above.
         assert_eq!(unsafe { second.text.as_str() }, "");
         assert_eq!(first.data.len, 0);
+    }
+
+    /// Eight threads, each taking and putting one state a thousand times,
+    /// lose no update: `take` to `put` is one critical section.
+    #[test]
+    fn a_state_update_is_atomic_across_threads() {
+        let zero = 0_i64;
+        // SAFETY: `zero` is eight readable bytes, and an `Int` has no glue.
+        let handle = unsafe {
+            buri_rt_platforms_testing_state_state_new((&raw const zero).cast(), 8, None, None, None)
+        };
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                std::thread::spawn(move || {
+                    for _ in 0..1000 {
+                        let mut n = 0_i64;
+                        // SAFETY: `n` is eight writable and readable bytes.
+                        unsafe {
+                            buri_rt_platforms_testing_state_state_take(
+                                handle,
+                                8,
+                                None,
+                                (&raw mut n).cast(),
+                            );
+                            std::thread::yield_now();
+                            let next = n + 1;
+                            buri_rt_platforms_testing_state_state_put(
+                                handle,
+                                (&raw const next).cast(),
+                                8,
+                                None,
+                                None,
+                                None,
+                            );
+                        }
+                    }
+                })
+            })
+            .collect();
+        for w in workers {
+            w.join().unwrap();
+        }
+        let mut total = 0_i64;
+        // SAFETY: as above.
+        unsafe {
+            buri_rt_platforms_testing_state_state_read(handle, 8, None, (&raw mut total).cast());
+        }
+        assert_eq!(total, 8000);
     }
 }

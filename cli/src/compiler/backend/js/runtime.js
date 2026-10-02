@@ -8625,6 +8625,45 @@ function $host_testing_fsCopyFile(h, from, to) {
   return $host_testing_logged(s, call, $ok(0));
 }
 
+// --- core/platforms/testing/state ---------------------------------------------
+//
+// One value per handle, as `cli/runtime/testing.rs` keeps it. A value going in
+// is `$share`d, because the table holding it is a second reference. One thread,
+// and `update` never awaits, so `take` and `put` need no lock: the `out` mark is
+// only for a state used inside its own update.
+const $states = [];
+
+function $platforms_testing_state_kept(handle) {
+  const s = $states[Number(handle)];
+  if (s === undefined) $abort("this state does not exist");
+  if (s.out) $abort("a state was used inside its own update");
+  return s;
+}
+
+function $platforms_testing_state_stateNew(value) {
+  $states.push({ value: $share(value), out: false });
+  return BigInt($states.length - 1);
+}
+
+function $platforms_testing_state_stateRead(handle) {
+  return $share($platforms_testing_state_kept(handle).value);
+}
+
+function $platforms_testing_state_stateTake(handle) {
+  const s = $platforms_testing_state_kept(handle);
+  s.out = true;
+  const value = s.value;
+  s.value = undefined;
+  return value;
+}
+
+function $platforms_testing_state_statePut(handle, value) {
+  const s = $states[Number(handle)];
+  s.value = $share(value);
+  s.out = false;
+  return 0;
+}
+
 // Millis in and milliseconds out are both `I64`, so this one counts in `BigInt`.
 function $host_testing_clock() {
   return $handle({ now: 0n });
