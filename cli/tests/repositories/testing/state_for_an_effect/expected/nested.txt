@@ -1,0 +1,5 @@
+FAIL //lib/tally  test/counter.buri  "update answers what its function answered"
+  a state was used inside its own update
+  --> lib/tally/test/counter.buri:4:1
+
+6 passed, 1 failed, 0 skipped (0.0s)

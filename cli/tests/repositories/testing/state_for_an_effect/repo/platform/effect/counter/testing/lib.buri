@@ -1,0 +1,5 @@
+// The surface of //platform/effect/counter/testing.
+
+from "//platform/effect/counter/testing/counter.buri" export {
+    add, count, counter, moveTo, note, notes, readInside, TestCounter,
+};

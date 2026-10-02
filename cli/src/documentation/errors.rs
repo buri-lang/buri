@@ -249,6 +249,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("pattern-type-mismatch", "A pattern matches the shape of the scrutinee"),
     e!("platform-not-implemented", "A test runs only on a platform this toolchain can build", &["build/tags"]),
     e!("platform-required-and-forbidden", "A tag never requires and forbids the same platform", &["build/tags"]),
+    e!("platform-testing-only-import", "Only an effect's testing surface keeps state", &["build/libraries"]),
     e!("platform-violation", "A target is built only for a platform its closure admits", &["build/tags"]),
     e!("postfix-on-a-block", "A block-like expression is not the head of a postfix chain"),
     e!("private-to-module", "A private declaration is private to its module", &["build/libraries"]),

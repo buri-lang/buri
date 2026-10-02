@@ -1,0 +1,49 @@
+// A test counter: a count and a log of notes, each in a state.
+
+from "core/platforms/testing/state" import * as state;
+from "core/platforms/testing/state" import { State };
+
+export struct TestCounter {
+    total: State<Int>,
+    log: State<[[Str]]>,
+}
+
+/// A fresh counter at zero, with an empty log.
+export fn counter(): TestCounter {
+    TestCounter { total: state.new(0), log: state.new([]) }
+}
+
+impl TestCounter {
+    /// Adds `by` and answers the new count.
+    export fn add(self, by: Int): Int {
+        state.update(self.total, fn(c, n) => (n + by, n + by))
+    }
+
+    export fn count(self): Int {
+        state.read(self.total)
+    }
+
+    /// Appends `[word, word]` to the log and answers how many notes it holds.
+    export fn note(self, word: Str): Int {
+        state.update(self.log, fn(c, notes) => {
+            let next = notes.push(c, [word, word]);
+            (next, next.length())
+        })
+    }
+
+    export fn notes(self): [[Str]] {
+        state.read(self.log)
+    }
+
+    /// Moves this counter's count onto `to`, from inside this one's update.
+    export fn moveTo(self, to: TestCounter): () {
+        let _moved = state.update(self.total, fn(c, n) => (0, to.add(n)));
+        ()
+    }
+
+    /// Reads this counter from inside its own update, which stops the program.
+    export fn readInside(self): Int {
+        let total = self.total;
+        state.update(total, fn(c, n) => (n, state.read(total)))
+    }
+}
