@@ -2736,6 +2736,11 @@ pub const I128_CHECKED_ENTRY: Entry = Entry {
 /// `str.length`, called only where the ASCII flag is clear.
 pub const STR_SCALAR_LEN: &str = "buri_rt_str_scalar_len";
 
+/// `buri_rt_str_written(base)` — the in-place arm of the open-coded
+/// `str.concat` is about to write into `base`'s block, so any scalar index the
+/// runtime keeps of the block's bytes is dropped (`cli/runtime/scalars.rs`).
+pub const STR_WRITTEN: &str = "buri_rt_str_written";
+
 // -- rendering: a template hole, and `derivePrimShow` ------------------------
 //
 // These have no intrinsic *key* — a template hole arrives as
