@@ -3,8 +3,8 @@
 
 doc: "a language REPO.buri declares, checked and formatted by a tool rule of the repository: build, lint and format use its check and format, a generator is a tool's generate, and editing the tool, the file or a file the check needs asks the tool again"
 
-# `colors.lines` passes `//tools/lines`'s check, which reads the dictionary
-# through `needs`, and `//tools/count` generates the module the binary prints.
+# `colors.lines` passes `//tool/lines`'s check, which reads the dictionary
+# through `needs`, and `//tool/count` generates the module the binary prints.
 run {
   args: ["run", "//cmd/app"]
   exit: 0
@@ -19,7 +19,7 @@ run {
 
 # A tool's own suite calls its entry points directly.
 run {
-  args: ["test", "//tools/lines"]
+  args: ["test", "//tool/lines"]
   exit: 0
   golden: "tool_test.txt"
 }
@@ -69,7 +69,7 @@ run {
 
 # The check is keyed on the file it needed: adding the word re-checks.
 edit {
-  file: "tools/lines/dictionary.txt"
+  file: "tool/lines/dictionary.txt"
   replace: "blue\n"
   with: "blue\npurple\n"
 }
@@ -82,7 +82,7 @@ run {
 
 # Editing a generator's source generates again.
 edit {
-  file: "tools/count/tool.buri"
+  file: "tool/count/tool.buri"
   replace: "            0,\n"
   with: "            10,\n"
 }
@@ -95,7 +95,7 @@ run {
 
 # Editing a check's source checks again.
 edit {
-  file: "tools/lines/tool.buri"
+  file: "tool/lines/tool.buri"
   replace: "if (word.isEmpty() || known.contains(word)) {"
   with: "if (word.isEmpty() || (known.contains(word) && word.length() < 5)) {"
 }

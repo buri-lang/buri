@@ -1,10 +1,10 @@
-error: `//cmd/gen` is built from //lib/wire, which is the target that runs it [generator-cycle]
+error: `//tool/gen` is built from //lib/wire, which is the target that runs it [generator-cycle]
  --> lib/wire/BUILD.buri:3:17
   |
-3 |         { tool: "//cmd/gen", inputs: ["units.txt"] },
-  |                 ^^^^^^^^^^^
+3 |         { tool: "//tool/gen", inputs: ["units.txt"] },
+  |                 ^^^^^^^^^^^^
   |
-  = the tool reaches back through //cmd/gen -> //lib/wire
+  = the tool reaches back through //tool/gen -> //lib/wire
   = fix: move what the tool needs into a third library, or run the generator from a target the tool does not depend on
 
     A tool is an ordinary target. The build has to link it before it can run it,

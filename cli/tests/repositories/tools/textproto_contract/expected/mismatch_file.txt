@@ -23,14 +23,14 @@ error: "//lib/routes/table" names no file (lib/routes/table.buri) [module-not-fo
     This snippet resolves against the worked monorepo in cli/tests/example,
     which has no lib/nope.
 
-error: `other.proto` is not `//tools/routes/routes.proto`, what the tool reading this file checks it against [schema-mismatch]
+error: `other.proto` is not `//tool/routes/routes.proto`, what the tool reading this file checks it against [schema-mismatch]
  --> lib/routes/routes.txtpb:1:15
   |
 1 | # proto-file: other.proto
   |               ^^^^^^^^^^^
   |
   = under a contract a file may leave out its headers, or name the contract's schema and message
-  = fix: delete the header, or name `//tools/routes/routes.proto`
+  = fix: delete the header, or name `//tool/routes/routes.proto`
 
       { "$schema": "orders.schema.json", "tables": [] }
 

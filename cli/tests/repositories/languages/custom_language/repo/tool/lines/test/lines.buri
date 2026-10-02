@@ -1,0 +1,34 @@
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "core/tool" import { CheckRequest, Input };
+from "//tool/lines/tool.buri" import { check };
+
+fn request(text: Str, dictionary: Str): CheckRequest<Str> {
+    CheckRequest {
+        inputs: [
+            Input {
+                path: "a.lines",
+                language: "lines",
+                typeSchema: .None,
+                value: text,
+            },
+        ],
+        files: [("tool/lines/dictionary.txt", dictionary)],
+    }
+}
+
+test "a word the dictionary has passes" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(check(ctx, request("red\n", "red\n")).diagnostics.length(), 0);
+}
+
+test "a word it lacks is reported" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let found = check(ctx, request("red\nteal\n", "red\n")).diagnostics;
+    assert.equal(found.map(ctx, fn(d) => d.code), ["lines-unknown-word"]);
+}

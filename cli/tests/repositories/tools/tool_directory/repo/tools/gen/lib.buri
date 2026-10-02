@@ -1,0 +1,2 @@
+/// A library may live in any directory.
+export let BASE: Int = 42;

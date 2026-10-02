@@ -10,10 +10,10 @@ reproduction: none
 ```textproto schema=build
 library {
     generators: [
-        { tool: "//tools/routes", inputs: ["regions.json"] },
+        { tool: "//tool/routes", inputs: ["regions.json"] },
     ]
 }
 ```
 
-`//tools/routes` is a package whose `BUILD.buri` holds `tool { generate {} }`.
+`//tool/routes` is a package whose `BUILD.buri` holds `tool { generate {} }`.
 See [`tools.md`](../build/tools.md).

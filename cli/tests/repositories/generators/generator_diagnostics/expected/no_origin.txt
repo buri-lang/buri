@@ -1,8 +1,8 @@
 error: no input declares a unit [tool-diagnostic]
  --> cmd/app/BUILD.buri:3:9
   |
-3 |         { tool: "//cmd/gen", inputs: ["units.txt"] },
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+3 |         { tool: "//tool/gen", inputs: ["units.txt"] },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = the tool reported this as `units-declares-nothing`, which is not a code this toolchain has a page for
   = fix: report it under a code the catalogue declares — `buri docs error <code>` is what a reader runs next

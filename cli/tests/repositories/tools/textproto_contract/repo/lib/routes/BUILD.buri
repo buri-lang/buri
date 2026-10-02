@@ -1,6 +1,6 @@
 library {
     generators: [
-        { tool: "//tools/routes", inputs: ["routes.txtpb"] },
+        { tool: "//tool/routes", inputs: ["routes.txtpb"] },
     ]
 
     visibility: ["//visibility:public"]
