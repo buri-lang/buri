@@ -1,5 +1,5 @@
 error: `yaml` is not a language this repository has [accepts-unknown-language]
- --> tools/b/BUILD.buri:4:25
+ --> tool/b/BUILD.buri:4:25
   |
 4 |             { language: "yaml", type_schema: "b.schema.json" },
   |                         ^^^^^^

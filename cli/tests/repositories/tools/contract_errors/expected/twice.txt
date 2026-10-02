@@ -1,5 +1,5 @@
 error: `json` has two contracts on this tool [accepts-language-twice]
- --> tools/b/BUILD.buri:5:25
+ --> tool/b/BUILD.buri:5:25
   |
 5 |             { language: "json", type_schema: "other.schema.json" },
   |                         ^^^^^^

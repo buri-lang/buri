@@ -1,6 +1,6 @@
 # One JSON-RPC request per line. `<scratch>` becomes the copied repository.
 #
-# `//lib/wire` runs `//cmd/gen` over `units.txt`, whose one line becomes a
+# `//lib/wire` runs `//tool/gen` over `units.txt`, whose one line becomes a
 # struct and a value of it. `lib.buri` re-exports both, and `//cmd/app` reads
 # them across the package boundary — so every request below is asked about a
 # generated name at the seam a person actually meets it on.

@@ -1,8 +1,8 @@
-error: `//cmd/gen` did not answer [tool-failed]
+error: `//tool/gen` did not answer [tool-failed]
  --> lib/wire/BUILD.buri:7:9
   |
-7 |         { tool: "//cmd/gen", inputs: ["mode.txt"] },
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+7 |         { tool: "//tool/gen", inputs: ["mode.txt"] },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = the tool exited with 1
     division by zero

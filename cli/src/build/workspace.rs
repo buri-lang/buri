@@ -377,6 +377,11 @@ pub fn is_test_only_path(path: &str) -> bool {
     path.trim_start_matches("//").split('/').any(|seg| seg == "testing")
 }
 
+/// A `tool` rule may only be declared in `tool/` or a package below it.
+fn is_tool_directory(package_path: &str) -> bool {
+    package_path.split('/').next() == Some("tool")
+}
+
 // ---------------------------------------------------------------------------
 // Loading
 // ---------------------------------------------------------------------------
@@ -423,6 +428,14 @@ impl Workspace {
             let id = map.load(&rel, &build_path)?;
             let read = buildfile::read_build_file(map.text(id), id);
             diagnostics.extend(read.errors);
+            if read.value.tool.is_some() && !is_tool_directory(&path) {
+                let rule = read.document.as_message().get("tool").map_or(Span::point(id, 0), |f| f.name_span);
+                diagnostics.push(
+                    Diagnostic::templated("tool-outside-tool-directory", rule)
+                        .with_bind("package", format!("//{path}"))
+                        .with_bind("name", path.rsplit('/').next().filter(|n| !n.is_empty()).unwrap_or("<name>")),
+                );
+            }
             if read.value.library.is_none() && read.value.binary.is_none() && read.value.tool.is_none() {
                 diagnostics.push(
                     Diagnostic::templated("package-without-a-rule", Span::point(id, 0))

@@ -157,15 +157,15 @@ fn a_generators_input_and_the_tool_that_reads_it_are_watched() {
     let scratch = Scratch::repo("watch-generators");
     scratch.write(
         "lib/wire/BUILD.buri",
-        "library {\n  generators: [{ tool: \"//tools/gen\", inputs: [\"units.txt\"] }]\n}\n",
+        "library {\n  generators: [{ tool: \"//tool/gen\", inputs: [\"units.txt\"] }]\n}\n",
     );
     scratch.write("lib/wire/units.txt", "width 3\n");
     scratch.write("lib/wire/lib.buri", "export fn here(): Int { 1 }\n");
-    scratch.write("tools/gen/BUILD.buri", "tool {\n  generate {}\n}\n");
-    scratch.write("tools/gen/tool.buri", "export fn generate(): Int { 1 }\n");
+    scratch.write("tool/gen/BUILD.buri", "tool {\n  generate {}\n}\n");
+    scratch.write("tool/gen/tool.buri", "export fn generate(): Int { 1 }\n");
 
     let listed = names(&scratch.root, &declared_set(&scratch.root));
-    for want in ["lib/wire/units.txt", "tools/gen/tool.buri", "tools/gen/BUILD.buri"] {
+    for want in ["lib/wire/units.txt", "tool/gen/tool.buri", "tool/gen/BUILD.buri"] {
         assert!(
             listed.iter().any(|p| p == want),
             "the declared set does not name {want}:\n{}",

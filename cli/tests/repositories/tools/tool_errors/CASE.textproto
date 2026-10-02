@@ -6,13 +6,13 @@ doc: "what a tool name may name and what a tool rule must hold: a binary, nothin
 # The shape everything below is one edit away from: a generator that is a tool
 # rule, whose `tool.buri` reads the library beside it.
 run {
-  args: ["build", "//lib/app", "//tools/good"]
+  args: ["build", "//lib/app", "//tool/good"]
   exit: 0
 }
 
 edit {
   file: "lib/app/BUILD.buri"
-  replace: "tool: \"//tools/good\""
+  replace: "tool: \"//tool/good\""
   with: "tool: \"//cmd/bin\""
 }
 
@@ -50,14 +50,14 @@ run {
 edit {
   file: "lib/app/BUILD.buri"
   replace: "tool: \"std/codegen/proto\""
-  with: "tool: \"//tools/good\""
+  with: "tool: \"//tool/good\""
 }
 
-# `//tools/good` generates; it has no `format`.
+# `//tool/good` generates; it has no `format`.
 edit {
   file: "REPO.buri"
   replace: "repository root.\n"
-  with: "repository root.\n\nlanguage {\n    name: \"text\"\n    extensions: [\".txt\"]\n    format: \"//tools/good\"\n}\n"
+  with: "repository root.\n\nlanguage {\n    name: \"text\"\n    extensions: [\".txt\"]\n    format: \"//tool/good\"\n}\n"
 }
 
 run {
@@ -68,19 +68,19 @@ run {
 
 edit {
   file: "REPO.buri"
-  replace: "\n\nlanguage {\n    name: \"text\"\n    extensions: [\".txt\"]\n    format: \"//tools/good\"\n}\n"
+  replace: "\n\nlanguage {\n    name: \"text\"\n    extensions: [\".txt\"]\n    format: \"//tool/good\"\n}\n"
   with: "\n"
 }
 
 # A block with no function: the tool says so, and so does every rule it runs for.
 edit {
-  file: "tools/good/BUILD.buri"
+  file: "tool/good/BUILD.buri"
   replace: "    generate {}\n"
   with: "    check {}\n    generate {}\n"
 }
 
 run {
-  args: ["build", "//tools/good"]
+  args: ["build", "//tool/good"]
   exit: 1
   golden: "not_exported.txt"
 }
@@ -93,63 +93,63 @@ run {
 
 # A function with no block.
 edit {
-  file: "tools/good/BUILD.buri"
+  file: "tool/good/BUILD.buri"
   replace: "    check {}\n    generate {}\n"
   with: "    generate {}\n"
 }
 
 edit {
-  file: "tools/good/tool.buri"
+  file: "tool/good/tool.buri"
   replace: "from \"core/tool\" import { Generated, GenerateRequest };\n"
   with: "from \"core/tool\" import { Checked, CheckRequest, Generated, GenerateRequest };\n\nexport fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {\n    Checked { diagnostics: [], needs: [] }\n}\n"
 }
 
 run {
-  args: ["lint", "//tools/good"]
+  args: ["lint", "//tool/good"]
   exit: 1
   golden: "undeclared.txt"
 }
 
 edit {
-  file: "tools/good/tool.buri"
+  file: "tool/good/tool.buri"
   replace: "from \"core/tool\" import { Checked, CheckRequest, Generated, GenerateRequest };\n\nexport fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {\n    Checked { diagnostics: [], needs: [] }\n}\n"
   with: "from \"core/tool\" import { Generated, GenerateRequest };\n"
 }
 
 # `ctx` has an allocator and nothing else.
 edit {
-  file: "tools/good/tool.buri"
+  file: "tool/good/tool.buri"
   replace: "from \"core/effect\" import { Allocator };\n"
   with: "from \"core/effect\" import { Allocator, Stdout };\n"
 }
 
 edit {
-  file: "tools/good/tool.buri"
+  file: "tool/good/tool.buri"
   replace: "generate<C: Allocator>"
   with: "generate<C: Allocator + Stdout>"
 }
 
 run {
-  args: ["build", "//tools/good"]
+  args: ["build", "//tool/good"]
   exit: 1
   golden: "wider_context.txt"
 }
 
 edit {
-  file: "tools/good/tool.buri"
+  file: "tool/good/tool.buri"
   replace: "generate<C: Allocator + Stdout>"
   with: "generate<C: Allocator>"
 }
 
 edit {
-  file: "tools/good/tool.buri"
+  file: "tool/good/tool.buri"
   replace: "from \"core/effect\" import { Allocator, Stdout };\n"
   with: "from \"core/effect\" import { Allocator };\n"
 }
 
 # A tool that does not build has not answered, and the rule it runs for says so.
 edit {
-  file: "tools/good/tool.buri"
+  file: "tool/good/tool.buri"
   replace: ".Int(BASE)"
   with: ".Int(\"forty-two\")"
 }
@@ -161,7 +161,7 @@ run {
 }
 
 edit {
-  file: "tools/good/tool.buri"
+  file: "tool/good/tool.buri"
   replace: ".Int(\"forty-two\")"
   with: ".Int(BASE)"
 }
@@ -173,13 +173,13 @@ run {
 
 # The library beside a tool may not reach into it.
 edit {
-  file: "tools/good/lib.buri"
+  file: "tool/good/lib.buri"
   replace: "/// What every generated"
-  with: "from \"//tools/good/tool.buri\" import { generate };\n\n/// What every generated"
+  with: "from \"//tool/good/tool.buri\" import { generate };\n\n/// What every generated"
 }
 
 run {
-  args: ["build", "//tools/good"]
+  args: ["build", "//tool/good"]
   exit: 1
   golden: "source_import.txt"
 }

@@ -41,11 +41,11 @@ error: there is nothing named `height` in scope [unresolved-name]
    |                                  ^^^^^^
    |
    = fix: declare `height`, or import it — a name is in scope only from this module's own declarations and its imports
-error: `//cmd/gen` did not answer [tool-failed]
+error: `//tool/gen` did not answer [tool-failed]
  --> lib/wire/BUILD.buri:3:9
   |
-3 |         { tool: "//cmd/gen", inputs: ["spare.txt", "units.txt"] },
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+3 |         { tool: "//tool/gen", inputs: ["spare.txt", "units.txt"] },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = the tool exited with 1
     division by zero

@@ -37,7 +37,7 @@ run {
 # Editing the contract schema checks the file again, and regenerates the types
 # the tool reads.
 edit {
-  file: "tools/database_schema_codegen/config.schema.json"
+  file: "tool/database_schema_codegen/config.schema.json"
   replace: "\"enum\": [\"int\", \"text\"]"
   with: "\"enum\": [\"int\", \"text\", \"bool\"]"
 }
@@ -52,7 +52,7 @@ run {
 edit {
   file: "lib/orders/schema.json"
   replace: "{\n    \"tables\""
-  with: "{\n    \"$schema\": \"//tools/database_schema_codegen/config.schema.json\",\n    \"tables\""
+  with: "{\n    \"$schema\": \"//tool/database_schema_codegen/config.schema.json\",\n    \"tables\""
 }
 
 run {
@@ -64,7 +64,7 @@ run {
 # Any other schema is a mismatch.
 edit {
   file: "lib/orders/schema.json"
-  replace: "\"$schema\": \"//tools/database_schema_codegen/config.schema.json\""
+  replace: "\"$schema\": \"//tool/database_schema_codegen/config.schema.json\""
   with: "\"$schema\": \"orders.schema.json\""
 }
 
@@ -82,19 +82,19 @@ edit {
 
 # The entry point takes the contract's root type, and nothing else.
 edit {
-  file: "tools/database_schema_codegen/tool.buri"
+  file: "tool/database_schema_codegen/tool.buri"
   replace: "request: GenerateRequest<Config>"
   with: "request: GenerateRequest<Str>"
 }
 
 run {
-  args: ["build", "//tools/database_schema_codegen"]
+  args: ["build", "//tool/database_schema_codegen"]
   exit: 1
   golden: "request_type.txt"
 }
 
 edit {
-  file: "tools/database_schema_codegen/tool.buri"
+  file: "tool/database_schema_codegen/tool.buri"
   replace: "request: GenerateRequest<Str>"
   with: "request: GenerateRequest<Config>"
 }

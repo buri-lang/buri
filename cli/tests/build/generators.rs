@@ -287,7 +287,7 @@ fn an_input_larger_than_a_pipe_crosses_it_whole() {
     let scratch = Scratch::repo("generators-large-input");
     scratch.write(
         "lib/wire/BUILD.buri",
-        "library {\n    generators: [{ tool: \"//tools/gen\", inputs: [\"big.txt\"] }]\n\n    \
+        "library {\n    generators: [{ tool: \"//tool/gen\", inputs: [\"big.txt\"] }]\n\n    \
          visibility: [\"//visibility:public\"]\n}\n",
     );
     // One megabyte, which no pipe buffer on either platform holds.
@@ -297,8 +297,8 @@ fn an_input_larger_than_a_pipe_crosses_it_whole() {
         "lib/wire/lib.buri",
         "from \"//lib/wire/units\" export { echoed, size };\n",
     );
-    scratch.write("tools/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
-    scratch.write("tools/gen/tool.buri", MEASURING_GENERATOR);
+    scratch.write("tool/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
+    scratch.write("tool/gen/tool.buri", MEASURING_GENERATOR);
     scratch.write(
         "cmd/app/BUILD.buri",
         "binary {\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [{ platform: JS }]\n}\n",
