@@ -552,7 +552,7 @@ pub fn rendered(body: &str) -> String {
 /// the host value)`.
 ///
 /// The set is what a fence's generated `main` can actually *bind*, which is a
-/// smaller thing than what `core/effect` declares. The three UI effects are
+/// smaller thing than what `platform/effect` declares. The three UI effects are
 /// absent because a fence builds no output and so has no platform, and a fence
 /// naming one would fail at a line its author never wrote.
 ///
@@ -565,7 +565,7 @@ pub fn rendered(body: &str) -> String {
 ///
 /// **The type is qualified because the effects are not all in one module.**
 /// `core/fs` declares `FileSystemRead` and `FileSystemWrite` — their methods name a `Path`, and
-/// `core/path` names `Allocator`, so `core/effect` is below the type they take —
+/// `core/path` names `Allocator`, so `platform/effect` is below the type they take —
 /// and a row that named only `FileSystemRead` would build a wrapper importing it from
 /// the module that does not have it. `fs` is deliberately not a row: the
 /// filesystem is two grants, and a fence says which one it wants.
@@ -695,12 +695,18 @@ pub fn assemble(
     match block.wrap {
         Wrap::Module => {}
         Wrap::Body | Wrap::Expr => {
-            body.push_str("from \"core/effect\" import * as __effect;\n");
+            body.push_str("from \"platform/effect\" import * as __effect;\n");
             // `core/fs` beside it, and hidden for the same reason: it is where
             // `FileSystemRead` and `FileSystemWrite` are declared, so a fence naming either has
             // to reach a second module for a name it never writes.
             body.push_str("from \"core/fs\" import * as __fs;\n");
-            body.push_str("from \"core/host\" import * as __host;\n");
+            // The host of the platform the block is pinned to, and `native`'s —
+            // every effect a fragment can name — where it is pinned to none.
+            let (owner, host) = block
+                .platform
+                .and_then(crate::compiler::standard_library::host_type)
+                .unwrap_or(("native", "NativeHost"));
+            body.push_str(&format!("from \"{owner}\" import {{ {host} as __Host }};\n"));
             // `core/io` under its ordinary name, and it is the one import here
             // that is not `__`-prefixed — deliberately, because a fragment
             // writes `io.println(ctx, ...)` and that spelling is the thing
@@ -710,7 +716,7 @@ pub fn assemble(
             // inside `main` is not a statement. The two above are hidden
             // because nothing writes them; this one is written constantly.
             body.push_str("from \"core/io\" import * as io;\n");
-            body.push_str("export fn main(): Result<(), Str> {\n");
+            body.push_str("export fn main(__host: __Host): Result<(), Str> {\n");
             body.push_str("  let ctx = context {\n");
             for e in &block.effects {
                 let (trait_name, host_value) = effect_binding(e)

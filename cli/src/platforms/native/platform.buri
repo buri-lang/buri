@@ -1,0 +1,46 @@
+//! native — a program that runs on a machine as one executable.
+//!
+//! `main` is handed a `NativeHost`: one production value per effect the
+//! `NATIVE` backend implements. The program binds the ones it needs in a
+//! `context` and passes that down, so a function's bound says what it can do
+//! and nothing reaches an effect its entry did not bind.
+//!
+//! ```buri ignore why="an entry is checked against its platform, and this page is the platform"
+//! from "native" import { NativeHost };
+//!
+//! export fn main(host: NativeHost): Result<(), Str> {
+//!     run(context { Allocator: host.alloc, Stdout: host.stdout })
+//! }
+//! ```
+
+from "platform/host" import {
+    HostAllocator, HostClock, HostEntropy, HostEnvironment, HostFileSystem, HostListen,
+    HostNetwork, HostProcess, HostRandom, HostSockets, HostSpawn, HostStderr, HostStdin,
+    HostStdout, HostTasks, HostTcp, HostWebSocketClient,
+};
+
+/// What a `native` entry is handed: every bundled effect but the three only a
+/// page has, `Ui`, `Watch` and `Location`.
+export struct NativeHost {
+    export alloc: HostAllocator,
+    export stdout: HostStdout,
+    export stderr: HostStderr,
+    export stdin: HostStdin,
+    export fs: HostFileSystem,
+    export net: HostNetwork,
+    export clock: HostClock,
+    export rand: HostRandom,
+    export entropy: HostEntropy,
+    export env: HostEnvironment,
+    export proc: HostProcess,
+    export spawn: HostSpawn,
+    export tasks: HostTasks,
+    export listen: HostListen,
+    export sockets: HostSockets,
+    export tcp: HostTcp,
+    export websocketClient: HostWebSocketClient,
+}
+
+/// The program. `.Ok(())` exits 0; `.Err(msg)` prints `msg` to standard error
+/// and exits 1.
+export fn main(host: NativeHost): Result<(), Str>;

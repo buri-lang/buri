@@ -2091,18 +2091,62 @@ impl<'a, 'b> Infer<'a, 'b> {
             let refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
             near = nearest(name, &refs).map(str::to_string);
         }
+        let elsewhere = self.host_field_elsewhere(ty, name);
         let d = self
             .templated("no-such-field", span)
             .bind("type", shown.clone())
             .bind("field", name.to_string());
         // After the binds: every `bind` re-renders the page's own fix over it.
-        if let Some(n) = near {
+        if let Some((note, fix)) = elsewhere {
+            d.notes.push(note);
+            d.fix(fix);
+        } else if let Some(n) = near {
             d.notes.push(format!("did you mean `{n}`?"));
             d.fix(crate::diagnostics::candidate_fix(
                 &n,
                 &format!("`{shown}`'s declaration lists its fields"),
             ));
         }
+    }
+
+    /// The note and fix for a field a bundled platform's host lacks and
+    /// another's has: `web` does not offer `FileSystemRead`, and `native` and
+    /// `node` do.
+    ///
+    /// A host type is the platform's list of effects, so a missing field is
+    /// a platform that does not offer the effect — and the reader is owed which
+    /// platforms do, since "check the spelling" sends them hunting for a typo
+    /// in a name that is spelled right.
+    fn host_field_elsewhere(&self, ty: &Ty, name: &str) -> Option<(String, String)> {
+        use crate::compiler::standard_library as stdlib;
+        let Ty::Con(con, _) = ty else { return None };
+        let tycon = self.c.tables.tycon(*con);
+        let module = self.c.loaded.module(tycon.module).path.as_str();
+        let (platform, _) = stdlib::host_type_of(module).filter(|(_, h)| *h == tycon.name)?;
+        let offered: Vec<(&str, &str)> = stdlib::PLATFORMS
+            .iter()
+            .filter_map(|p| stdlib::host_field(p, name).map(|t| (*p, t)))
+            .collect();
+        let (_, field_ty) = offered.first()?;
+        let effects: Vec<String> =
+            stdlib::effects_of_host_struct(field_ty).iter().map(|e| format!("`{e}`")).collect();
+        let effects = effects.join(" or ");
+        let names: Vec<&str> = offered.iter().map(|(p, _)| *p).collect();
+        let (does, either) = match names.split_last() {
+            Some((last, [])) => (format!("{last} does"), (*last).to_string()),
+            Some((last, rest)) => (
+                format!("{} and {last} do", rest.join(", ")),
+                format!("{} or {last}", rest.join(", ")),
+            ),
+            None => return None,
+        };
+        Some((
+            format!("{platform} does not offer {effects}; {does}"),
+            format!(
+                "build this output for {either}, or drop {effects} from the context — a \
+                 program for two platforms gives each output an entry of its own"
+            ),
+        ))
     }
 
     fn check_dot_variant(
@@ -3561,7 +3605,7 @@ mod tests {
     ///
     /// The second thing is that a platform module may **declare an effect**,
     /// which is why the snippet mints its own `Accept` rather than borrowing
-    /// one from `core/effect`. No standard-library effect spells `Self` in a
+    /// one from `platform/effect`. No standard-library effect spells `Self` in a
     /// callback any more — `Listen` used to, and its request handler moved
     /// into `core/net/server`'s own loop — so the rule outlived its last
     /// in-tree instance, and a test that depended on one would have died with
@@ -3593,7 +3637,7 @@ mod tests {
     fn snippet(handler: &str) -> String {
         format!(
             r#"
-from "core/effect" import {{ Network, NetError, Request, Response }};
+from "platform/effect" import {{ Network, NetError, Request, Response }};
 
 effect Accept {{
   fn accept(self, address: Str, onRequest: fn(Self, Request) => Response): Bool;
@@ -3615,7 +3659,9 @@ impl Network for Caller {{
   }}
 }}
 
-export fn main(): Result<(), Str> {{
+from "node" import {{ NodeHost }};
+
+export fn main(host: NodeHost): Result<(), Str> {{
   let ctx = context {{ Accept: Server {{ mark: 7 }}, Network: Caller {{}} }};
   match (ctx.accept("a", fn(acceptor, request) => Response {{
     status: {handler},

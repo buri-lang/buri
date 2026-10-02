@@ -501,13 +501,13 @@ pub fn harness(
     let typed_imports: String =
         imports.iter().enumerate().map(|(i, p)| format!("from \"{p}\" import * as typed{i};\n")).collect();
     format!(
-        "from \"core/effect\" import {{ Allocator, Stdin, Stdout }};\n\
-         from \"core/host\" import * as host;\n\
+        "from \"platform/effect\" import {{ Allocator, Stdin, Stdout }};\n\
          from \"core/tool\" import * as tool;\n\
+         from \"node\" import {{ NodeHost }};\n\
          from \"{module}\" import * as entry;\n\
          {typed_imports}\
          \n\
-         export fn main(): Result<(), Str> {{\n\
+         export fn main(host: NodeHost): Result<(), Str> {{\n\
          \x20   let ctx = context {{\n\
          \x20       Allocator: host.alloc,\n\
          \x20       Stdin: host.stdin,\n\
