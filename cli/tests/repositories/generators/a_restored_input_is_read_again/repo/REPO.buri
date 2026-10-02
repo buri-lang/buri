@@ -1,0 +1,6 @@
+# `buri build` lints what it builds, and a finding fails it, so a stale lint
+# answer is one `buri build` would report too.
+lint {
+    check_during_build: true
+    fail_on_finding: true
+}

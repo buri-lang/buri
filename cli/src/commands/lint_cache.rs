@@ -10,7 +10,10 @@
 //!
 //! Two things and no more are stored: the closure — each file the analysis
 //! read, named repository-relatively, with a hash of its bytes — and the
-//! findings. Deliberately **not** the parse trees or the analysis tables: they
+//! findings. The closure is [`crate::build::sources::closure_of`]'s, so it
+//! holds what a generated module was worked out from as well as the files a
+//! module was read from: the inputs, present or not, the files a check or a
+//! tool asked for, and the tool's own sources. Deliberately **not** the parse trees or the analysis tables: they
 //! are large, and every release changes their shape, so a stale one would be a
 //! wrong answer rather than a slow one. The parse reuse inside one run comes
 //! from [`crate::build::sources`] instead.

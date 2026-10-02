@@ -154,6 +154,13 @@ pub enum Step {
         from: String,
         to: String,
     },
+    /// A file renamed inside the scratch copy. Moving one out of the way and
+    /// back is how a case takes a file away and restores it byte for byte,
+    /// which no `edit` can do: an edit leaves the file there.
+    Move {
+        from: String,
+        to: String,
+    },
     File {
         path: String,
         golden: Option<String>,
@@ -554,6 +561,13 @@ pub fn load_case(dir: &Path) -> Case {
                     to: required_str(&name, "edit", "with", &message),
                 });
             }
+            "move" => {
+                let message = as_message(&name, "move", &field.value);
+                steps.push(Step::Move {
+                    from: required_str(&name, "move", "from", &message),
+                    to: required_str(&name, "move", "to", &message),
+                });
+            }
             "file" => {
                 let message = as_message(&name, "file", &field.value);
                 let step = Step::File {
@@ -595,7 +609,7 @@ pub fn load_case(dir: &Path) -> Case {
             }
             other => panic!(
                 "{name}: CASE.textproto has no field `{other}`; the forms are doc, \
-                 not_a_repository, run, edit, file, path"
+                 not_a_repository, run, edit, move, file, path"
             ),
         }
     }
@@ -812,6 +826,12 @@ pub fn run_case(case: &Case, g: &mut Golden) {
                 }
             }
             Step::Edit { file, from, to } => scratch.edit(file, from, to),
+            Step::Move { from, to } => {
+                let (source, dest) = (scratch.path(from), scratch.path(to));
+                std::fs::rename(&source, &dest).unwrap_or_else(|e| {
+                    panic!("{}: step {} cannot move {from} to {to}: {e}", case.name, i + 1)
+                });
+            }
             Step::File { path, golden, contains, absent } => {
                 let text = scratch.read(path);
                 if let Some(golden) = golden {

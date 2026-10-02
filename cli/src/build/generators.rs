@@ -29,6 +29,7 @@ use crate::build::workspace::{RuleKind, TargetId, Workspace};
 use crate::commands::arguments::Flags;
 use crate::diagnostics::Span;
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -721,7 +722,7 @@ pub fn rule_key(
     }
     for rel in &paths {
         let full = package.dir.join(rel);
-        k.input(&session.workspace.rel_of(&full), &std::fs::read(&full).unwrap_or_default());
+        k.file(&session.workspace.rel_of(&full), std::fs::read(&full).ok().as_deref());
     }
     k.finish()
 }
@@ -973,23 +974,7 @@ fn ensure(
         return;
     }
     let workspace = Rc::clone(&session.workspace);
-    // The tools this rule runs: each entry's own, and the check of each input's
-    // language. A tool's contracts run each language's `generate`.
-    let mut tools: Vec<TargetId> = Vec::new();
-    if let Some(rule) = workspace.package(target.package).build.tool.as_ref().filter(|_| target.kind == RuleKind::Tool) {
-        for a in rule.contracts() {
-            let generate = workspace.repo.languages.named(&a.language.value).and_then(|l| l.tools()?.generate.clone());
-            tools.extend(generate.and_then(|g| tool_target(&workspace, &g.value)));
-        }
-    }
-    for generator in declared(&workspace, target) {
-        tools.extend(tool_target(&workspace, &generator.tool.value));
-        for input in &generator.inputs {
-            let check = workspace.repo.languages.of(&input.value).and_then(|l| l.tools()?.check.clone());
-            tools.extend(check.and_then(|c| tool_target(&workspace, &c.value)));
-        }
-    }
-    for tool in tools {
+    for tool in tools_of(&workspace, target) {
         if cycle(&workspace, target, tool).is_some() {
             continue;
         }
@@ -1004,6 +989,72 @@ fn ensure(
         run_contracts(session, target, flags, overlay);
     } else {
         run_rule(session, target, flags, overlay);
+    }
+}
+
+/// The repository's own tools one rule's generated code comes from: each
+/// entry's tool, and the check of each input's language. A tool's contracts
+/// run each language's `generate`. The shipped tools are not among them: they
+/// are compiled into this binary, and its identity is the toolchain version.
+fn tools_of(workspace: &Workspace, target: TargetId) -> Vec<TargetId> {
+    let mut tools: Vec<TargetId> = Vec::new();
+    if let Some(rule) = workspace.package(target.package).build.tool.as_ref().filter(|_| target.kind == RuleKind::Tool) {
+        for a in rule.contracts() {
+            let generate = workspace.repo.languages.named(&a.language.value).and_then(|l| l.tools()?.generate.clone());
+            tools.extend(generate.and_then(|g| tool_target(workspace, &g.value)));
+        }
+    }
+    for generator in declared(workspace, target) {
+        tools.extend(tool_target(workspace, &generator.tool.value));
+        for input in &generator.inputs {
+            let check = workspace.repo.languages.of(&input.value).and_then(|l| l.tools()?.check.clone());
+            tools.extend(check.and_then(|c| tool_target(workspace, &c.value)));
+        }
+    }
+    tools
+}
+
+/// Every file on disk one rule's generated code is worked out from, as
+/// absolute paths: its inputs, whether or not they are there; every file a
+/// check or a tool asked for through `needs`, a contract's schema among them;
+/// and every file each tool it ran is built from, through the same walk for
+/// whatever generated code the tool is itself built from.
+///
+/// This is what lets a closure of *files* stand in for a generated module,
+/// which has no file of its own: the module, the diagnostics and the findings
+/// a rule produced are a function of exactly these bytes and the toolchain.
+/// The tool's files are the part that is easy to leave out, because no import
+/// names them — editing a tool changes the module every dependent reads.
+pub fn worked_out_from(workspace: &Workspace, rule: TargetId) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let mut seen = BTreeSet::new();
+    walk_worked_out_from(workspace, rule, &mut seen, &mut files);
+    files.sort();
+    files.dedup();
+    files
+}
+
+fn walk_worked_out_from(
+    workspace: &Workspace,
+    rule: TargetId,
+    seen: &mut BTreeSet<TargetId>,
+    files: &mut Vec<PathBuf>,
+) {
+    if !seen.insert(rule) {
+        return;
+    }
+    let dir = &workspace.package(rule.package).dir;
+    files.extend(inputs(workspace, rule).iter().map(|input| dir.join(input)));
+    let reads = workspace.generated.outcome(rule).map(|o| o.reads).unwrap_or_default();
+    files.extend(reads.iter().map(|rel| workspace.root.join(rel)));
+    for tool in tools_of(workspace, rule) {
+        for member in workspace.closure(tool).into_iter().chain([tool]) {
+            let package = &workspace.package(member.package).dir;
+            files.extend(crate::build::actions::rule_files(workspace, member).iter().map(|f| package.join(f)));
+            if !declared(workspace, member).is_empty() || has_contracts(workspace, member) {
+                walk_worked_out_from(workspace, member, seen, files);
+            }
+        }
     }
 }
 

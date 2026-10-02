@@ -1,0 +1,12 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an analysis the server keeps is only reused while everything it was worked out from still stands: the file a language's check reads through `needs`, and the check tool itself, each edited and put back, re-analyse the file that imports what the checked input generates"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

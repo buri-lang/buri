@@ -381,22 +381,23 @@ impl Sources {
 
 /// The files on disk one analysis read, which is what its answer depends on.
 ///
-/// The modules' own files, and — for a module nothing read off the disk —
-/// every input of the rule whose generator produced it, the schema behind a
-/// `.proto` module included. A generated module carries no path of its own, so
-/// stopping at the modules would leave an input edit out of every key built
-/// from this list. The standard library is not among them — it is compiled into
-/// this binary, and its identity is the toolchain version.
+/// The modules' own files, and — for every rule whose generated code the
+/// analysis loaded — everything [`generators::worked_out_from`] names: the
+/// rule's inputs, the schemas its checks and its tools asked for, and the
+/// files its tools are built from. A generated module carries no path of its
+/// own, so stopping at the modules would leave all of those out of every key
+/// built from this list. The standard library is not among them — it is
+/// compiled into this binary, and its identity is the toolchain version.
+///
+/// By rule rather than by module, because a rule that failed produced no
+/// module to find it by: a missing input is exactly the file whose return
+/// has to move the key (buri-lang/buri#219).
+///
+/// [`generators::worked_out_from`]: crate::build::generators::worked_out_from
 pub fn closure_of(workspace: &Workspace, analysis: &Analysis) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    // A rule whose input failed its check produced no module to find it by.
     for rule in &analysis.loaded.generated_rules {
-        let dir = &workspace.package(rule.package).dir;
-        for input in crate::build::generators::inputs(workspace, *rule) {
-            files.push(dir.join(input));
-        }
-        let reads = workspace.generated.outcome(*rule).map(|o| o.reads).unwrap_or_default();
-        files.extend(reads.iter().map(|rel| workspace.root.join(rel)));
+        files.extend(crate::build::generators::worked_out_from(workspace, *rule));
     }
     for module in &analysis.loaded.modules {
         if let Some(disk) = &module.disk {
@@ -404,11 +405,7 @@ pub fn closure_of(workspace: &Workspace, analysis: &Analysis) -> Vec<PathBuf> {
             continue;
         }
         if let Some(owner) = workspace.generated.owner(&module.path) {
-            let dir = &workspace.package(owner.package).dir;
-            for input in crate::build::generators::inputs(workspace, owner) {
-                files.push(dir.join(input));
-            }
-            continue;
+            files.extend(crate::build::generators::worked_out_from(workspace, owner));
         }
     }
     files.sort();

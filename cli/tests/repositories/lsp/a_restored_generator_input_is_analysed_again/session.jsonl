@@ -1,0 +1,38 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+# A `!` line is the harness acting as the editor would; see harness/case.rs.
+#
+# `//lib/schemas` hands `a.txt` and `b.txt` to `//tool/embed`, and
+# `schemas.buri` imports `A_TXT` from the module that comes back. Neither the
+# inputs nor the tool are in that file, so every answer below is one a key
+# that left them out would get wrong.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "trace": "verbose", "capabilities": {"workspace": {"didChangeWatchedFiles": {"dynamicRegistration": true}}}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "id": "buri/watchers", "result": null}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/schemas/schemas.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/schemas/files\" import { A_TXT };\n\n/// The text of a.txt.\nexport fn a(): Str {\n    A_TXT\n}\n"}}}
+# Clean.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/schemas/schemas.buri"}}}
+# An input goes away: no module, so `A_TXT` names nothing.
+!wait 2
+!move lib/schemas/b.txt b.txt.away
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/lib/schemas/b.txt", "type": 3}]}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/schemas/schemas.buri"}, "previousResultId": "1"}}
+# It comes back byte for byte, and the file is clean again.
+!wait 3
+!move b.txt.away lib/schemas/b.txt
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/lib/schemas/b.txt", "type": 1}]}}
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/schemas/schemas.buri"}, "previousResultId": "2"}}
+# The tool now writes lower-case names, so `A_TXT` is not exported. The line
+# the second half of the case is for: neither the buffer nor an input moved.
+!wait 4
+!move tool/embed/tool.buri tool.buri.upper
+!move tool/embed/tool.buri.lower tool/embed/tool.buri
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/tool/embed/tool.buri", "type": 2}]}}
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/schemas/schemas.buri"}, "previousResultId": "3"}}
+# And back.
+!wait 5
+!move tool/embed/tool.buri tool/embed/tool.buri.lower
+!move tool.buri.upper tool/embed/tool.buri
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/tool/embed/tool.buri", "type": 2}]}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/schemas/schemas.buri"}, "previousResultId": "4"}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
