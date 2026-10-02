@@ -153,10 +153,11 @@ handler runs inside a transaction, so three writes cause one pass over the
 watchers rather than three. A field and a toggle have no change event at all —
 they are bound to a `Signal`, and what the reader typed is in it.
 
-Every element node carries five more handlers, each an omittable `onX`:
-`onHover`, `onFocus`, `onScroll`, `onKey` and `onPressOutside`. They are how a
-box learns about the pointer, focus, scrolling, a keypress, or a press that
-landed elsewhere, without any of them being a required parameter. There is no
+Every element node carries eight more handlers, each an omittable `onX`:
+`onHover`, `onFocus`, `onScroll`, `onKey`, `onPressOutside`, `onPointerDown`,
+`onPointerMove` and `onPointerUp`. They are how a box learns about the pointer,
+focus, scrolling, a keypress, a press that landed elsewhere, or a drag, without
+any of them being a required parameter. There is no
 generic `onTap`: activating something is a `button`'s or a `link`'s job.
 
 **A form ends in a `.Submit` button.** Enter in a field is the browser's own
@@ -783,7 +784,7 @@ a page is.
 **An overlay that is not modal dismisses itself with `onPressOutside`.** A
 dialog gets Escape and a backdrop press from the platform, but a menu, a popover
 or a select does not — nothing watches for a press that lands elsewhere.
-`onPressOutside` is one of the five generic handlers every element node carries,
+`onPressOutside` is one of the generic handlers every element node carries,
 so set it on the panel — or on a `stack` around it — and write the overlay shut
 there:
 
@@ -811,6 +812,83 @@ reach for instead cannot do — it swallows the press and costs a focusable
 element in the tab order besides. It adds no element of its own, so a picture is
 a picture of the node's children, and a native painter, having no pointer to
 press with, leaves the handler inert.
+
+**Drag and drop is `onPointerDown`, `onPointerMove` and `onPointerUp`.** Each is
+an omittable `fn(C, PointerAt) => ()` on every element. Here a reader picks a
+row up and drops it onto another, which takes its place:
+
+```buri role=test
+from "core/effect" import { Allocator };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal, signal };
+from "ui/testing" import { headless, observer, render };
+
+fn fruits<C: Allocator + Ui + Watch>(items: Signal<[Str]>, held: Signal<Str>): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.each(.Cell(items), fn(item) => item, fn(_c, item, _index) => {
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const(item) })],
+                    role: .Some(.ListItem),
+                    onPointerDown: .Some(fn(c, _at) => held.set(c, item)),
+                    onPointerUp: .Some(fn(c, at) => {
+                        match (at.overRow) {
+                            .Some(onto) => {
+                                items.set(c, moved(c, items.get(c), held.get(c), onto))
+                            },
+                            .None => {
+                            },
+                        }
+                    }),
+                })
+            }),
+        ],
+        role: .Some(.List),
+    })
+}
+
+/// `picked` taken out of `items` and put back where `onto` stood.
+fn moved<C: Allocator>(ctx: C, items: [Str], picked: Str, onto: Str): [Str] {
+    match (items.indexOf(onto)) {
+        .Some(at) => {
+            items.filter(ctx, fn(key) => key != picked).insertAt(ctx, at, picked)
+        },
+        .None => items,
+    }
+}
+
+test "a row dropped onto another takes its place" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let items = signal(ctx, ["Apples", "Pears", "Cherries"]);
+    let page = render(ctx, fruits(items, signal(ctx, "")));
+    let _ = page.drag("Apples", "Cherries");
+    assert.equal(page.text(), "Pears Cherries Apples");
+}
+```
+
+The press captures the pointer, the way `setPointerCapture` does, so the moves
+and the release reach the pressed element even once the pointer outruns it.
+`PointerAt` has the position against the element (`x`, `y`) and against the
+viewport (`viewportX`, `viewportY`). It also has `overRow`: the key of the row
+under the pointer, in the `each` the element is a row of. So a drop reads as
+"onto row X" without measuring a single box. It looks through the element's
+own row, so a row that follows the pointer still reports the row beneath it.
+
+In a test, `drag(label, to)` picks up one element and drops it on another.
+`pointerDown`, `pointerMove` and `pointerUp` take a name and a position, for a
+test that cares where the pointer is. A test document has no layout, so the
+name says what the pointer is over, and an element's `x` equals its
+`viewportX`. A native painter has no pointer, so it leaves all three inert.
 
 **A single choice is a `picker`, not a stack of buttons.** A radio group is
 the browser's own model — one tab stop for the group, the arrow keys that move

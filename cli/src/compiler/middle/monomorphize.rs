@@ -2526,6 +2526,9 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // `registerPick` keeps a file picker's `fn(C, Event) => ()`, its `C` dropped
     // the same way `registerPress`'s is.
     "ui_node.registerPick",
+    // `registerPointer` keeps a pointer handler's `fn(C, Event) => ()`, its `C`
+    // dropped the same way `registerPress`'s is.
+    "ui_node.registerPointer",
     // `registerPress` keeps a `fn(C, Event) => ()` on an element; its `C` is
     // dropped exactly as a walk's is, occurring only inside the handler the
     // runtime fires, never in a value that crosses.
@@ -2864,7 +2867,7 @@ mod tests {
         testing_assert.failExpected testing_assert.report \
         ui_effect.Scope.read ui_node.mount ui_node.rebuildRegion \
         ui_node.reconcile ui_node.registerFollow ui_node.registerOutside \
-        ui_node.registerPick ui_node.registerPress \
+        ui_node.registerPick ui_node.registerPointer ui_node.registerPress \
         ui_testing.Headless.memo ui_testing.Headless.read \
         ui_testing.Headless.signal ui_testing.Headless.write \
         ui_testing.Observer.read ui_testing.mount \

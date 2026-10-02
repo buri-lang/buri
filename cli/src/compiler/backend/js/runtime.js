@@ -4529,7 +4529,7 @@ function $dom_click(node, modified) {
 //  14 Submit  15 Dialog 16 Disclosure 17 Progress 18 When 19 Computed 20 Each
 //  21 Raw     22 Fragment
 //
-// Every element-producing node ends with an `Events` struct — five optional
+// Every element-producing node ends with an `Events` struct — eight optional
 // listeners `$tree_events` wires on — and `Raw` and `Fragment` are the
 // renderer's own, minted by a reactive widget's rebuild rather than by any
 // program.
@@ -5265,7 +5265,12 @@ function $tree_row(ctx, parent, anchor, owner, key, index, rowAt) {
     return 0;
   });
   if (adopting) $dom_insert(parent, end, $adopt.ops.at(parent));
-  return { key, start, end, owner: rowOwner };
+  // `list` names the `each` the row is in. The markers carry the row, which is
+  // how a pointer finds the row it is over (`$tree_rowOf`).
+  const row = { key, start, end, owner: rowOwner, list: owner };
+  start.$row = row;
+  end.$row = row;
+  return row;
 }
 
 function $tree_detach(parent, row) {
@@ -5511,9 +5516,9 @@ function $tree_icon(parent, styles, source, anchor) {
   return root;
 }
 
-// The five generic listeners a node may carry, wired onto its element. `events`
+// The eight generic listeners a node may carry, wired onto its element. `events`
 // is the `Events` struct every element-producing node ends with — an array of
-// five `Option<fn>`, each the handler itself or `undefined` — so a node that
+// eight `Option<fn>`, each the handler itself or `undefined` — so a node that
 // listens for nothing registers nothing. Every side-effecting call runs inside
 // one transaction, the rule a press already follows: a handler that writes three
 // signals causes one pass over the watchers rather than three.
@@ -5570,6 +5575,82 @@ function $tree_events(ctx, element, events) {
     };
     $ui_dispose_with($dom_outside(element, onDown));
   }
+  const onPointerDown = events[5];
+  const onPointerMove = events[6];
+  const onPointerUp = events[7];
+  if (onPointerDown !== undefined || onPointerMove !== undefined || onPointerUp !== undefined) {
+    // The innermost element with a pointer handler captures the pointer, so the
+    // moves and the release reach it after the pointer leaves it — a drag
+    // outrunning its row keeps going. The press bubbles on to the handlers
+    // around it, which the event's mark keeps from taking the capture over.
+    $dom_listen(element, "pointerdown", (event) => {
+      if (event.$captured !== true && element.setPointerCapture !== undefined) {
+        event.$captured = true;
+        element.setPointerCapture(event.pointerId);
+      }
+      if (onPointerDown !== undefined) {
+        $ui_flush(() => onPointerDown($taskApart(ctx), $tree_pointerAt(element, event)));
+      }
+    });
+    if (onPointerMove !== undefined) {
+      $dom_listen(element, "pointermove", (event) =>
+        $ui_flush(() => onPointerMove($taskApart(ctx), $tree_pointerAt(element, event))),
+      );
+    }
+    if (onPointerUp !== undefined) {
+      $dom_listen(element, "pointerup", (event) =>
+        $ui_flush(() => onPointerUp($taskApart(ctx), $tree_pointerAt(element, event))),
+      );
+    }
+  }
+}
+
+// A `PointerAt`: the pointer against `element`'s box and against the viewport,
+// and the key of the row under it in the list `element` is a row of.
+function $tree_pointerAt(element, event) {
+  const box = element.getBoundingClientRect();
+  return [
+    event.clientX - box.left,
+    event.clientY - box.top,
+    event.clientX,
+    event.clientY,
+    $tree_overRow(element, event.clientX, event.clientY),
+  ];
+}
+
+// The innermost keyed row holding `node`, or null. `$tree_row` marks its two
+// markers with the row, so walking back over the siblings finds the start of
+// the row the node is in — skipping any row whose end came first, which is a
+// whole row nested beside it — and a level up when there is none.
+function $tree_rowOf(node) {
+  for (let at = node; at !== null && at.parentNode !== null; at = at.parentNode) {
+    const ended = new Set();
+    for (let n = at.previousSibling; n !== null; n = n.previousSibling) {
+      const row = n.$row;
+      if (row === undefined) continue;
+      if (n === row.end) ended.add(row);
+      else if (!ended.has(row)) return row;
+    }
+  }
+  return null;
+}
+
+// The key of the row of `element`'s list under the viewport point, looking
+// through `element`'s own row so a row that follows the pointer reports the
+// row beneath it — undefined when there is none.
+function $tree_overRow(element, x, y) {
+  const own = $tree_rowOf(element);
+  if (own === null) return undefined;
+  let found = undefined;
+  for (const hit of element.ownerDocument.elementsFromPoint(x, y)) {
+    for (let row = $tree_rowOf(hit); row !== null; row = $tree_rowOf(row.start)) {
+      if (row.list !== own.list) continue;
+      if (row !== own) return row.key;
+      found = own.key;
+      break;
+    }
+  }
+  return found;
 }
 
 // Renders one node into `parent`, before `anchor` — or at the end of `parent`
@@ -6552,6 +6633,11 @@ function $scene_open(ctx) {
     outside: [],
     // The file `pickFile` last offered, which a picker's handler reads back.
     offer: { name: "", type: "", content: [] },
+    // The element holding the pointer since a `pointerDown`, or -1.
+    capture: -1,
+    // What the pointer handler being fired reads back: where the pointer is and
+    // the row under it (undefined for none).
+    pointer: { x: 0, y: 0, row: undefined },
     ctx,
   };
 }
@@ -6583,6 +6669,8 @@ function $scene_record(kind, name, body, text) {
     follow: null,
     // A file picker's handler thunk, or null — `pickFile` fires it.
     pick: null,
+    // The pointer handler thunks, down/move/up, each null when unset.
+    pointer: [null, null, null],
   };
 }
 
@@ -6907,6 +6995,34 @@ function $ui_node_registerPick(builder, onPick) {
   if (record !== undefined) {
     record.pick = () => $ui_flush(() => onPick($taskApart(doc.ctx), [0n]));
   }
+}
+
+// A pointer handler, kept on the open element under its phase (0 down, 1 move,
+// 2 up) for the `pointerDown`/`pointerMove`/`pointerUp` dispatch to fire.
+function $ui_node_registerPointer(builder, phase, handler) {
+  const doc = $scene_of(builder);
+  const record = doc.records[$scene_openElement(doc)];
+  if (record !== undefined) {
+    record.pointer[Number(phase)] = () => $ui_flush(() => handler($taskApart(doc.ctx), [0n]));
+  }
+}
+
+// Where the pointer is for the handler being fired, read back by its `PointerAt`.
+function $ui_node_pointerX(builder) {
+  return $scene_of(builder).pointer.x;
+}
+
+function $ui_node_pointerY(builder) {
+  return $scene_of(builder).pointer.y;
+}
+
+function $ui_node_pointerOverRow(builder) {
+  return $scene_of(builder).pointer.row !== undefined;
+}
+
+function $ui_node_pointerRow(builder) {
+  const row = $scene_of(builder).pointer.row;
+  return row === undefined ? "" : row;
 }
 
 // The file `pickFile` offered, read back by the picker's handler.
@@ -7287,6 +7403,138 @@ function $ui_testing_Rendered_submit(self, at) {
   if ((hasSubmit || blocking === 1) && doc.records[form].press !== null) {
     doc.records[form].press();
   }
+  return 0;
+}
+
+// The innermost element whose name — its label, or else its text — is `label`,
+// or `-1`: the first such element in document order, then down through any
+// child element that has the same name. The native `Document::named`.
+function $scene_named(doc, label) {
+  const matches = (i) => {
+    const r = doc.records[i];
+    if (r.kind !== 0) return false;
+    return (r.label === "" ? $scene_accessibleName(doc, i) : r.label) === label;
+  };
+  let found = -1;
+  for (const [i] of $scene_ordered(doc)) {
+    if (matches(i)) {
+      found = i;
+      break;
+    }
+  }
+  if (found < 0) return -1;
+  for (;;) {
+    const inner = doc.records[found].children.find(matches);
+    if (inner === undefined) return found;
+    found = inner;
+  }
+}
+
+// The innermost keyed row holding `node`, as `{ list, key, start }`, or null —
+// read off the row markers the reconciler keeps: at each level up, the row of
+// an `each` under that parent whose two markers stand either side of the node.
+// The native `Document::row_of`.
+function $scene_rowOf(doc, node) {
+  let at = node;
+  for (;;) {
+    const parent = doc.records[at].parent;
+    if (parent === null || parent === undefined) return null;
+    const children = doc.records[parent].children;
+    const pos = children.indexOf(at);
+    let best = null;
+    let bestStart = -1;
+    doc.eachRegions.forEach((region, list) => {
+      if (region.parent !== parent) return;
+      for (const row of region.rows) {
+        const s = children.indexOf(row.start);
+        const e = children.indexOf(row.end);
+        if (s >= 0 && s < pos && pos < e && s > bestStart) {
+          best = { list, key: row.key, start: row.start };
+          bestStart = s;
+        }
+      }
+    });
+    if (best !== null) return best;
+    at = parent;
+  }
+}
+
+// The key of the row under the pointer, `over`, in the list the element `at`
+// is a row of — undefined when `at` is in no row or `over` in none of that
+// list's. The native `Document::over_row`.
+function $scene_overRow(doc, at, over) {
+  const own = $scene_rowOf(doc, at);
+  if (own === null) return undefined;
+  for (let row = $scene_rowOf(doc, over); row !== null; row = $scene_rowOf(doc, row.start)) {
+    if (row.list === own.list) return row.key;
+  }
+  return undefined;
+}
+
+// Fires `phase`'s handler on `target` and on every element out to the root,
+// the way a pointer event bubbles. The path is taken first, as a browser's is,
+// so a handler that rebuilds the tree does not change who hears this event.
+function $scene_firePointer(doc, phase, target, over, x, y) {
+  const path = [];
+  for (let at = target; at !== null && at !== undefined; at = doc.records[at].parent) {
+    const handler = doc.records[at].pointer[phase];
+    if (handler !== null) path.push([handler, $scene_overRow(doc, at, over)]);
+  }
+  for (const [handler, row] of path) {
+    doc.pointer = { x, y, row };
+    handler();
+  }
+}
+
+// The element `label` names, or an abort — what every pointer method starts by.
+function $scene_pointerTarget(doc, label) {
+  const node = $scene_named(doc, label);
+  if (node < 0) $abort('this tree has no element named "' + label + '"');
+  return node;
+}
+
+function $ui_testing_Rendered_pointerDown(self, label, x, y) {
+  const doc = $scene_of(self);
+  const target = $scene_pointerTarget(doc, label);
+  if (!$scene_reachable(doc, target) || $scene_inert(doc, target)) return 0;
+  // A press reaches an overlay watching for one outside itself, as `press` does.
+  for (const entry of doc.outside) {
+    if (entry.alive && !$scene_within(doc, entry.elem, target)) entry.fire();
+  }
+  // The nearest element with a pointer handler captures the pointer.
+  doc.capture = -1;
+  for (let at = target; at !== null && at !== undefined; at = doc.records[at].parent) {
+    if (doc.records[at].pointer.some((h) => h !== null)) {
+      doc.capture = at;
+      break;
+    }
+  }
+  $scene_firePointer(doc, 0, target, target, x, y);
+  return 0;
+}
+
+// Where a move or a release goes: the element holding the capture while it is
+// still in the tree, and otherwise what the pointer is over, if it is reached.
+function $scene_pointerRoute(doc, over) {
+  if (doc.capture >= 0 && $scene_within(doc, 0, doc.capture)) return doc.capture;
+  if (!$scene_reachable(doc, over) || $scene_inert(doc, over)) return -1;
+  return over;
+}
+
+function $ui_testing_Rendered_pointerMove(self, label, x, y) {
+  const doc = $scene_of(self);
+  const over = $scene_pointerTarget(doc, label);
+  const target = $scene_pointerRoute(doc, over);
+  if (target >= 0) $scene_firePointer(doc, 1, target, over, x, y);
+  return 0;
+}
+
+function $ui_testing_Rendered_pointerUp(self, label, x, y) {
+  const doc = $scene_of(self);
+  const over = $scene_pointerTarget(doc, label);
+  const target = $scene_pointerRoute(doc, over);
+  doc.capture = -1;
+  if (target >= 0) $scene_firePointer(doc, 2, target, over, x, y);
   return 0;
 }
 
