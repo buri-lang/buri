@@ -619,14 +619,15 @@ fn a_filtered_run_never_comes_from_the_cache() {
 #[test]
 fn a_native_build_re_emits_the_unit_an_edit_landed_in() {
     let host = if cfg!(target_os = "macos") { "macos" } else { "linux" };
+    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
     let scratch = Scratch::repo("explain-native");
     scratch.write(
         "cmd/c/BUILD.buri",
-        &format!("binary {{\n  outputs: [{{ platform: {} }}]\n}}\n", host.to_uppercase()),
+        &format!("binary {{\n  outputs: [{{ platform: \"native\", variant: \"{host}-{arch}\" }}]\n}}\n"),
     );
     scratch.write("cmd/c/main.buri", &program(1));
 
-    let selector = format!("--output={host}");
+    let selector = "--output=native".to_string();
     let first = scratch.run(&["build", "//cmd/c", &selector, "--explain"]);
     if first.all().contains("backend is not implemented") {
         // The half that holds until the CLI is wired to a native backend:
@@ -795,7 +796,9 @@ export fn main(): Result<(), Str> {
 /// move it.
 #[test]
 fn an_incremental_rebuild_after_a_dependency_struct_changes_shape_is_not_miscompiled() {
-    let host = if cfg!(target_os = "macos") { "MACOS" } else { "LINUX" };
+    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
+    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let host = format!("\"native\", variant: \"{os}-{arch}\"");
     let scratch = Scratch::repo("shape-change");
 
     scratch.write(
@@ -855,14 +858,10 @@ fn an_incremental_rebuild_after_a_dependency_struct_changes_shape_is_not_miscomp
 /// naming the other one is refused whichever machine this is.
 #[test]
 fn a_suite_naming_the_host_platform_runs_natively() {
-    let host = if cfg!(target_os = "macos") { "MACOS" } else { "LINUX" };
     let scratch = Scratch::repo("native-suite");
     scratch.write(
         "lib/n/BUILD.buri",
-        &format!(
-            "library {{\n  test {{\n    sources: [\"test/n.buri\"]\n    \
-             platforms: [{host}]\n  }}\n}}\n"
-        ),
+        "library {\n  test {\n    sources: [\"test/n.buri\"]\n    backends: [NATIVE]\n  }\n}\n",
     );
     scratch.write("lib/n/lib.buri", "export fn answer(): Int { 21 }\n");
     scratch.write(
@@ -964,7 +963,7 @@ fn a_suite_naming_no_platform_runs_natively() {
     assert_eq!(run.tests_passed(), 1, "the default backend ran no tests:\n{}", indent(&run.all()));
     assert_ne!(
         platform_of(&run, "test //lib/n"),
-        "js",
+        "node",
         "a suite that named no platform was routed to javascript:\n{}",
         indent(&run.all())
     );
@@ -983,7 +982,7 @@ fn a_suite_naming_no_platform_runs_natively() {
     // explained, because nothing gave way.
     let js = scratch.run(&["test", "//lib/n", "--explain", "--force", "--output=js"]);
     js.ok();
-    assert_eq!(platform_of(&js, "test //lib/n"), "js");
+    assert_eq!(platform_of(&js, "test //lib/n"), "node");
     assert!(
         !js.stderr.contains("runs on javascript"),
         "an asked-for JavaScript run was reported as a fallback:\n{}",
@@ -995,11 +994,11 @@ fn a_suite_naming_no_platform_runs_natively() {
     // nothing about a fallback either.
     scratch.write(
         "lib/n/BUILD.buri",
-        "library {\n  test {\n    sources: [\"test/n.buri\"]\n    platforms: [JS]\n  }\n}\n",
+        "library {\n  test {\n    sources: [\"test/n.buri\"]\n    backends: [JS]\n  }\n}\n",
     );
     let declared = scratch.run(&["test", "//lib/n", "--explain"]);
     declared.ok();
-    assert_eq!(platform_of(&declared, "test //lib/n"), "js");
+    assert_eq!(platform_of(&declared, "test //lib/n"), "node");
     assert_eq!(
         declared.tests_passed(),
         1,
@@ -1060,7 +1059,7 @@ fn a_release_run_this_toolchain_cannot_produce_is_refused() {
         // The fix is somebody saying where the suite runs, not the runner
         // deciding for them.
         assert!(
-            run.stderr.contains("--output=js") && run.stderr.contains("platforms: [JS]"),
+            run.stderr.contains("--output=js") && run.stderr.contains("backends: [JS]"),
             "the refusal did not say what to do about it:\n{}",
             indent(&run.all())
         );
@@ -1069,7 +1068,7 @@ fn a_release_run_this_toolchain_cannot_produce_is_refused() {
     run.ok();
     assert_ne!(
         platform_of(&run, "test //lib/n"),
-        "js",
+        "node",
         "a release run was served by the javascript backend:\n{}",
         indent(&run.all())
     );
@@ -1117,7 +1116,7 @@ fn a_suite_the_native_backend_cannot_compile_is_refused() {
         indent(&run.all())
     );
     assert!(
-        run.stderr.contains("platforms: [JS]"),
+        run.stderr.contains("backends: [JS]"),
         "the refusal did not say what to do about it:\n{}",
         indent(&run.all())
     );
@@ -1130,7 +1129,7 @@ fn a_suite_the_native_backend_cannot_compile_is_refused() {
     // The suite says where it belongs, and then it runs there.
     scratch.write(
         "lib/g/BUILD.buri",
-        "library {\n  test {\n    sources: [\"test/g.buri\"]\n    platforms: [JS]\n  }\n}\n",
+        "library {\n  test {\n    sources: [\"test/g.buri\"]\n    backends: [JS]\n  }\n}\n",
     );
     let named = scratch.run(&["test", "//lib/g"]);
     named.ok();
@@ -1171,7 +1170,7 @@ fn renaming_a_source_moves_the_key_though_the_bytes_did_not() {
     let scratch = Scratch::repo("explain-rule-identity");
     scratch.write(
         "cmd/c/BUILD.buri",
-        "binary {\n  sources: [\"extra.buri\"]\n  outputs: [{ platform: JS }]\n}\n",
+        "binary {\n  sources: [\"extra.buri\"]\n  outputs: [{ platform: \"node\" }]\n}\n",
     );
     scratch.write("cmd/c/main.buri", &program(3));
     scratch.write("cmd/c/extra.buri", "export fn spare(): Int { 1 }\n");
@@ -1669,7 +1668,7 @@ fn generated_repository(name: &str) -> Scratch {
     scratch.write(
         "cmd/app/BUILD.buri",
         "binary {\n    dependencies: [\"//lib/other\", \"//lib/wire\"]\n\n    \
-         outputs: [{ platform: JS }]\n}\n",
+         outputs: [{ platform: \"node\" }]\n}\n",
     );
     scratch.write(
         "cmd/app/main.buri",

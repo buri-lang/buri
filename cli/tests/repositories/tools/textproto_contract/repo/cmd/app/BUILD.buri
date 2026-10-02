@@ -2,6 +2,6 @@ binary {
     dependencies: ["//lib/routes"]
 
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
 }

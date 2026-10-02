@@ -3,7 +3,7 @@
 #
 # The user-interfaces guide says `signal`, `memo`, `watch` and the `Recorder`
 # are all native, so a suite that reads and writes signals needs no
-# `platforms: [JS]`. Two bugs said otherwise by aborting the binary with no
+# `backends: [JS]`. Two bugs said otherwise by aborting the binary with no
 # message at all, and an abort with no message is the worst report a runner can
 # give: it names no facility, it points at no line, and it takes the verdicts of
 # every other block in the same binary down with it.

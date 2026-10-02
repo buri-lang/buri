@@ -49,19 +49,19 @@ file {
 # The page's half, and neither of the worker's. A page that carried the
 # server's renderer would be shipping the server.
 file {
-  path: ".buri/out/web/cmd/site/main.mjs"
+  path: ".buri/out/web/cmd/site/site.mjs"
   contains: "$ui_web_resume"
 }
 
 file {
-  path: ".buri/out/web/cmd/site/main.mjs"
+  path: ".buri/out/web/cmd/site/site.mjs"
   absent: "$ui_web_render"
 }
 
 # The address bar is a cell of the same graph, so the page carries it and the
 # worker has never heard of it.
 file {
-  path: ".buri/out/web/cmd/site/main.mjs"
+  path: ".buri/out/web/cmd/site/site.mjs"
   contains: "$host_HostLocation_path"
 }
 
@@ -74,12 +74,12 @@ file {
 # the one in front of it, which is the browser's own address bar and nothing a
 # worker has.
 file {
-  path: ".buri/out/web/cmd/site/main.mjs"
+  path: ".buri/out/web/cmd/site/site.mjs"
   contains: "$host_HostLocation_push"
 }
 
 file {
-  path: ".buri/out/web/cmd/site/main.mjs"
+  path: ".buri/out/web/cmd/site/site.mjs"
   contains: "$host_HostLocation_replace"
 }
 
@@ -93,7 +93,7 @@ file {
 # `<title>` into the document it sends. So the page carries the writer and the
 # worker has no use for one.
 file {
-  path: ".buri/out/web/cmd/site/main.mjs"
+  path: ".buri/out/web/cmd/site/site.mjs"
   contains: "$ui_web_setTitle"
 }
 

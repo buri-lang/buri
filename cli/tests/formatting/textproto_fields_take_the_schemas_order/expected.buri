@@ -11,7 +11,7 @@ binary {
     sources: ["main.buri"]
     dependencies: ["//lib/money"]
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
     test {
         sources: ["test/a.buri"]

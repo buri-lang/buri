@@ -2,6 +2,6 @@
 # writes this field, so `--fix` calls it rather than editing the text.
 binary {
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
 }

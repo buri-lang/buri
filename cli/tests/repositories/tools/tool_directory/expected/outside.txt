@@ -1,18 +1,28 @@
-error: //tools/gen declares a `tool` rule outside //tool/ [tool-outside-tool-directory]
+error: //tools/gen declares a `tool` rule outside //tool/ [rule-outside-its-directory]
  --> tools/gen/BUILD.buri:1:1
   |
 1 | tool {
   | ^^^^ a tool rule here
   |
-  = every tool a repository runs lives under its top-level `tool/` directory, so one place lists them all
-  = fix: move this package under //tool/, as //tool/gen, and rename every label that names it
+  = every tool lives under the repository's top-level `tool/` directory, and every platform under `platform/`, so one place lists each
+  = fix: move this package to //tool/gen, and rename every label that names it
 
       # tool/routes/BUILD.buri
       tool {
           generate {}
       }
 
-    Any depth under tool/ works, so //tool/db/schema is a tool too. A library or
-    a binary may live under tool/ beside a tool, and anywhere else. See
-    `tools.md` (../build/tools.md).
+      # platform/lambda/BUILD.buri
+      platform {
+          variants: ["linux-arm64", "linux-x86_64"]
+          entry {
+              name: "bootstrap"
+              backend: NATIVE
+          }
+      }
+
+    Any depth works, so //tool/db/schema is a tool too. platform/effect/ holds
+    effects, so no platform lives there. A library or a binary may live beside
+    either rule, and anywhere else. See `tools.md` (../build/tools.md) and
+    `build-files.md` (../build/build-files.md).
 

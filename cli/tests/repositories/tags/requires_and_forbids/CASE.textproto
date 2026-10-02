@@ -1,7 +1,7 @@
 # A platform is admitted when every whitelist in the closure names it — a tag's
-# `requires { platforms }`, a library's `platforms` — and no tag in the closure
-# forbids it. `server` admits LINUX and MACOS, `epoll` forbids MACOS, so
-# `//cmd/daemon` admits LINUX alone.
+# `requires`, a library's `backends` and `platforms` — and no tag in the
+# closure forbids it. `server` admits the JavaScript backend's platforms,
+# `headless` forbids `web`, so `//cmd/daemon` admits the rest.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
@@ -14,7 +14,7 @@ run {
   golden: "platforms.txt"
 }
 
-# The whitelist admits MACOS; the forbid list is what rules it out.
+# The whitelist admits `web`; the forbid list is what rules it out.
 run {
   args: ["lint", "//cmd/daemon"]
   exit: 1
@@ -24,8 +24,8 @@ run {
 # A library's own `platforms` minus its tag's forbidden ones can be nothing.
 edit {
   file: "lib/poll/BUILD.buri"
-  replace: "platforms: [LINUX, MACOS]"
-  with: "platforms: [MACOS]"
+  replace: "backends: [JS]"
+  with: "platforms: [\"web\"]"
 }
 
 run {
@@ -42,14 +42,14 @@ run {
 
 edit {
   file: "lib/poll/BUILD.buri"
-  replace: "platforms: [MACOS]"
-  with: "platforms: [LINUX, MACOS]"
+  replace: "platforms: [\"web\"]"
+  with: "backends: [JS]"
 }
 
 edit {
   file: "cmd/daemon/BUILD.buri"
-  replace: "platform: MACOS"
-  with: "platform: LINUX"
+  replace: "platform: \"web\""
+  with: "platform: \"node\""
 }
 
 run {

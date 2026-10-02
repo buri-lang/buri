@@ -3,7 +3,7 @@
 binary {
     dependencies: ["//lib/widget"]
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
 
     test {

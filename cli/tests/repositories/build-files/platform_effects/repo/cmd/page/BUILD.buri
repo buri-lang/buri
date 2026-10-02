@@ -1,7 +1,7 @@
 binary {
     dependencies: ["//lib/reader"]
     outputs: [
-        { platform: WEB },
+        { platform: "web" },
     ]
 
     test {

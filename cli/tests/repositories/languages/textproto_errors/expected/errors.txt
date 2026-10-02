@@ -9,7 +9,6 @@ error: this file has no `# proto-file:` and `# proto-message:` header [textproto
 
       # proto-file: server.proto
       # proto-message: Server
-
       name: "api"
 
     The two comments above the first field are the text format's header
@@ -132,7 +131,7 @@ error: expected `,` or `]`, found `count` [textproto-syntax]
   = fix: separate the values with `,` and close the list with `]`
 
       name: "api"
-      ports: [80 443]
+      ports: [80, 443]
 
     The first thing that does not parse is reported, and nothing after it is
     checked. A scalar takes :, a message takes { ... } or < ... >, and a list
@@ -162,9 +161,12 @@ error: `id` is set twice, and it holds one value [textproto-field-repeated]
   = fix: delete one of the two, or make the field `repeated` in the schema
 
       name: "api"
-      name: "web"        # `name` is set twice
+      name: "web"
+
+      # `name` is set twice
       region: "eu"
-      zone: "eu-west-1a" # `region` and `zone` are cases of one `oneof`
+      zone: "eu-west-1a"
+      # `region` and `zone` are cases of one `oneof`
 
     A repeated field may be written any number of times, and its values join in
     order. Any other field holds one value, and so does a oneof, whichever case
@@ -178,11 +180,20 @@ error: `count` is of type `int32`, and this is not a whole number [textproto-wro
   |
   = fix: write a whole number
 
-      port: "80"        # an `int32` takes a whole number
-      port: 99999999999 # that fits 32 bits
-      tier: SILVER      # an enum takes one of its values' names, or a number
-      limits: 4         # a message is written `limits { ... }`
-      name: ["a", "b"]  # a field that is not `repeated` takes one value
+      port: "80"
+
+      # an `int32` takes a whole number
+      port: 99999999999
+
+      # that fits 32 bits
+      tier: SILVER
+
+      # an enum takes one of its values' names, or a number
+      limits: 4
+
+      # a message is written `limits { ... }`
+      name: ["a", "b"]
+      # a field that is not `repeated` takes one value
 
       Field          Value
       string         a quoted string whose bytes are UTF-8
@@ -234,9 +245,9 @@ error: `Line` has no field `colour` [textproto-unknown-field]
 
        # proto-file: server.proto
        # proto-message: Server
-
        name: "api"
-       prot: 80 # `Server` has no field `prot`
+       prot: 80
+       # `Server` has no field `prot`
 
      A field is written by the name the schema gives it, not its JSON name.
 

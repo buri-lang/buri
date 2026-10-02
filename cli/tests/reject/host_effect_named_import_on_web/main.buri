@@ -1,4 +1,4 @@
-// EXPECT: `fs` implements `FileSystemRead` or `FileSystemWrite`, which is not allowed on the WEB platform
+// EXPECT: `fs` implements `FileSystemRead` or `FileSystemWrite`, which is not allowed on the web platform
 //
 // The **import** half of the platform rule, and the one the sibling cases
 // cannot show: `host_effect_not_granted_on_web` reaches for the filesystem

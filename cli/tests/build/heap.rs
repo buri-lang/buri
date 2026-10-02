@@ -45,12 +45,10 @@ use crate::harness::{ci, Run, Scratch};
 /// outputs builds for JavaScript, and a JavaScript artifact is a module `bun`
 /// runs — the heap check is the *native* runtime's, so a defaulted binary would
 /// be a test that asserted nothing and said so nowhere.
-fn host_platform() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "MACOS"
-    } else {
-        "LINUX"
-    }
+fn host_platform() -> String {
+    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
+    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    format!("\"native\", variant: \"{os}-{arch}\"")
 }
 
 fn native_binary(platform: &str) -> String {
@@ -111,7 +109,7 @@ fn no_native_run(what: &str, run: &Run) {
 #[test]
 fn an_artifact_buri_ran_is_asked_for_its_blocks_back() {
     let scratch = Scratch::repo("heap-run");
-    scratch.write("cmd/counting/BUILD.buri", &native_binary(host_platform()));
+    scratch.write("cmd/counting/BUILD.buri", &native_binary(&host_platform()));
     scratch.write("cmd/counting/main.buri", COUNTING);
 
     let run =
@@ -171,7 +169,7 @@ fn buri_test_runs_its_test_binaries_under_the_heap_check() {
 #[test]
 fn a_release_artifact_is_asked_for_its_blocks_back_or_is_refused_by_name() {
     let scratch = Scratch::repo("heap-release");
-    scratch.write("cmd/counting/BUILD.buri", &native_binary(host_platform()));
+    scratch.write("cmd/counting/BUILD.buri", &native_binary(&host_platform()));
     scratch.write("cmd/counting/main.buri", COUNTING);
 
     let run = scratch

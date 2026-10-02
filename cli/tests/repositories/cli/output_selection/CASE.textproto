@@ -21,10 +21,10 @@
 # `a_release_refusal_names_the_profile_rather_than_the_platform` is where that
 # half lives, with an arm for each leg.
 #
-# **Which platform that is depends on the machine**, so the case does not name
-# one. `{{CROSS_PLATFORM}}` and `{{CROSS_ARCH}}` are filled in by the harness
-# (cli/tests/harness/case.rs) with a platform/arch pair that is not the host's:
-# linux/x86_64 on a mac, macos/x86_64 on Linux. The goldens hold the
+# **Which variant that is depends on the machine**, so the case does not name
+# one. `{{CROSS_VARIANT}}` is filled in by the harness
+# (cli/tests/harness/case.rs) with a variant that is not the host's:
+# linux-x86_64 on a mac, macos-x86_64 on Linux. The goldens hold the
 # placeholder, so blessing on either machine records the same file.
 #
 # The two hosts do *not* answer a cross selector the same way, and that is the
@@ -50,7 +50,7 @@
 doc: "--output selects one declared output, names the declared ones when it selects none, and reaches the backend for a platform with none"
 
 run {
-  args: ["build", "//cmd/app", "--output=js"]
+  args: ["build", "//cmd/app", "--output=node"]
   exit: 0
   golden: "app_js.txt"
 }
@@ -59,7 +59,7 @@ run {
 # all used to build nothing and exit 0, which is a build system reporting
 # success for work it did not do.
 run {
-  args: ["build", "//cmd/app", "--output={{CROSS_PLATFORM}}/{{CROSS_ARCH}}"]
+  args: ["build", "//cmd/app", "--output=native/{{CROSS_VARIANT}}"]
   exit: 2
   golden: "no_such_output.txt"
 }
@@ -67,13 +67,13 @@ run {
 # //cmd/native declares two. Selecting the one that exists builds it and
 # nothing else.
 run {
-  args: ["build", "//cmd/native", "--output=js"]
+  args: ["build", "//cmd/native", "--output=node"]
   exit: 0
   golden: "native_js.txt"
 }
 
-# Selecting the other one. `{{CROSS_PLATFORM}}` is the platform that is not the
-# host, and a Linux artifact builds on any host while a macOS one builds only on
+# Selecting the other one. `{{CROSS_VARIANT}}` is the variant that is not the
+# host's, and a Linux artifact builds on any host while a macOS one builds only on
 # a macOS host (design/native/ARCHITECTURE.md §9) — so the two hosts answer this
 # differently and each run names the host it is about.
 #
@@ -81,16 +81,16 @@ run {
 # build, so the backend refusal is what this selects. Exit 1: the selector was a
 # real output, so the invocation was fine.
 run {
-  args: ["build", "//cmd/native", "--output={{CROSS_PLATFORM}}/{{CROSS_ARCH}}"]
+  args: ["build", "//cmd/native", "--output=native/{{CROSS_VARIANT}}"]
   exit: 1
   golden: "native_cross.txt"
   host: LINUX
 }
 
-# The dash spelling is the directory under `.buri/out`, and selects the same
-# entry as the slash spelling.
+# The platform's name alone selects every output of that platform, which here
+# is the same one.
 run {
-  args: ["build", "//cmd/native", "--output={{CROSS_PLATFORM}}-{{CROSS_ARCH}}"]
+  args: ["build", "//cmd/native", "--output=native"]
   exit: 1
   golden: "native_cross.txt"
   host: LINUX
@@ -101,7 +101,7 @@ run {
 # caches them in `~/.buri`, and links a static-PIE executable. So the same
 # selector that refuses on Linux succeeds here, and this is the artifact.
 run {
-  args: ["build", "//cmd/native", "--output={{CROSS_PLATFORM}}/{{CROSS_ARCH}}"]
+  args: ["build", "//cmd/native", "--output=native/{{CROSS_VARIANT}}"]
   exit: 0
   golden: "native_cross_built.txt"
   host: MACOS

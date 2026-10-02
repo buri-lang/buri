@@ -85,11 +85,11 @@ pub const REPO_BURI: &str =
 
 /// The build file for a single-package JS binary, which is what most scratch
 /// repositories are.
-pub const JS_BINARY: &str = "binary {\n  outputs: [{ platform: JS }]\n}\n";
+pub const JS_BINARY: &str = "binary {\n  outputs: [{ platform: \"node\" }]\n}\n";
 
 /// The same for a page. A program that binds `Ui` builds only here, because a
 /// platform is the set of effects its host exports and `JS` exports no `ui`.
-pub const WEB_BINARY: &str = "binary {\n  outputs: [{ platform: WEB }]\n}\n";
+pub const WEB_BINARY: &str = "binary {\n  outputs: [{ platform: \"web\" }]\n}\n";
 
 /// The annotation a corpus program writes to ask for a platform other than
 /// `JS`: `// PLATFORM: WEB` on a line of its own.
@@ -119,7 +119,7 @@ pub fn build_file_for(source: &str) -> &'static str {
 pub fn output_dir_for(source: &str) -> &'static str {
     match asked_platform(source).as_deref() {
         Some("WEB") => "web",
-        _ => "js",
+        _ => "node",
     }
 }
 
@@ -690,7 +690,7 @@ impl Scratch {
 
     /// The artifact `//<package_path>` builds to, under the JS runtime.
     pub fn artifact(&self, package_path: &str) -> PathBuf {
-        self.artifact_in("js", package_path)
+        self.artifact_in("node", package_path)
     }
 
     /// The same, in a named output directory — `web` for a page, whose module
@@ -703,7 +703,7 @@ impl Scratch {
     /// Runs that artifact. Not through `buri run`, because several suites need
     /// the artifact's own exit code and streams rather than the CLI's.
     pub fn exec_js(&self, package_path: &str) -> Run {
-        self.exec_js_in("js", package_path)
+        self.exec_js_in("node", package_path)
     }
 
     /// Runs that artifact with both streams redirected to **files** rather
@@ -716,7 +716,7 @@ impl Scratch {
     /// what `output()` does — cannot see that difference, so the flushing
     /// claims are asserted through both.
     pub fn exec_js_to_files(&self, package_path: &str) -> Run {
-        let artifact = self.artifact_in("js", package_path);
+        let artifact = self.artifact_in("node", package_path);
         let leaf = package_path.rsplit('/').next().unwrap();
         let out_path = self.path(&format!(".buri/{leaf}.stdout"));
         let err_path = self.path(&format!(".buri/{leaf}.stderr"));

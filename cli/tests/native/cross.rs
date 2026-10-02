@@ -67,7 +67,7 @@ fn write_repo(dir: &Path) {
     std::fs::write(dir.join("REPO.buri"), b"").expect("write REPO.buri");
     std::fs::write(
         pkg.join("BUILD.buri"),
-        b"binary {\n    outputs: [\n        { platform: LINUX, arch: X86_64 },\n    ]\n}\n",
+        b"binary {\n    outputs: [\n        { platform: \"native\", variant: \"linux-x86_64\" },\n    ]\n}\n",
     )
     .expect("write BUILD.buri");
     std::fs::write(pkg.join("main.buri"), HELLO).expect("write main.buri");
@@ -111,7 +111,7 @@ fn a_linux_x86_64_artifact_is_a_real_elf_and_runs_in_a_container() {
     std::fs::create_dir_all(&home).expect("create the scratch BURI_HOME");
 
     let out = buri(&repo, &home)
-        .args(["build", "//cmd/hello", "--output=linux/x86_64"])
+        .args(["build", "//cmd/hello", "--output=native/linux-x86_64"])
         .output()
         .expect("run buri build");
     assert!(
@@ -121,7 +121,7 @@ fn a_linux_x86_64_artifact_is_a_real_elf_and_runs_in_a_container() {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    let artifact = repo.join(".buri/out/linux-x86_64/cmd/hello/hello");
+    let artifact = repo.join(".buri/out/native/linux-x86_64/cmd/hello/hello");
     let bytes = std::fs::read(&artifact).unwrap_or_else(|e| {
         panic!("the artifact {} is missing: {e}", artifact.display());
     });

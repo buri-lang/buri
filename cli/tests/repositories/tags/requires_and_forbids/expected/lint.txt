@@ -1,10 +1,10 @@
-error: //cmd/daemon cannot be built for macos [platform-violation]
+error: //cmd/daemon cannot be built for web [platform-violation]
  --> cmd/daemon/BUILD.buri:4:9
   |
-4 |         { platform: MACOS, arch: X86_64 },
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+4 |         { platform: "web" },
+  |         ^^^^^^^^^^^^^^^^^^^
   |
-  = //lib/poll is tagged "epoll", which forbids macos
+  = //lib/poll is tagged "headless", which forbids web
   = reached by: //cmd/daemon -> //lib/poll
-  = "epoll": polls with epoll, which macOS does not have
-  = fix: drop the macos output, or take MACOS out of the tag's `forbids { platforms }` in REPO.buri
+  = "headless": has no document to draw into
+  = fix: drop the web output, or take web out of the tag's `forbids` in REPO.buri

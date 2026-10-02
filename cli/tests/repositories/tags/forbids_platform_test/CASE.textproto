@@ -16,7 +16,7 @@ run {
 
 edit {
   file: "lib/codec/BUILD.buri"
-  replace: "        platforms: [JS]\n"
+  replace: "        backends: [JS]\n"
   with: ""
 }
 

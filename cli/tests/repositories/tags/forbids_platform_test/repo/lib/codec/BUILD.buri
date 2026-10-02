@@ -5,6 +5,6 @@ library {
 
     test {
         sources: ["test/codec.buri"]
-        platforms: [JS]
+        backends: [JS]
     }
 }

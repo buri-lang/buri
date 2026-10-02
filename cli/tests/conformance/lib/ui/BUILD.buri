@@ -25,11 +25,11 @@ library {
         # driver's, which has no such need.
         #
         # The one block that reached `ui/node`'s real page `mount` is split into
-        # `lib/ui_mount`, which keeps `platforms: [JS]` for the mount that cannot
+        # `lib/ui_mount`, which keeps `backends: [JS]` for the mount that cannot
         # cross. `test/render.buri` is not listed — it is the native renderer's
         # own parity file, driven by `native::conformance` alone. The retired
         # `test/fetch.buri` covered `ui/effect`'s callback-shaped `Fetch`; a page
         # grants `Network` now and `semantics/test/http.buri` pins a request.
-        platforms: [JS]
+        backends: [JS]
     }
 }

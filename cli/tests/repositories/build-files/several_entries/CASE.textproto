@@ -3,8 +3,8 @@
 #
 #   * **Two artifacts, one per output.** The page is `.buri/out/web/`, the
 #     worker is `.buri/out/cloudflare-worker/`, and the worker's file is named
-#     after its entry because two outputs of one binary otherwise write one
-#     path.
+#     after its entry, `fetch`, because two outputs of one binary otherwise
+#     write one path.
 #   * **The platform calls a worker.** Its module ends in a default export the
 #     worker runtime invokes; the page's ends in the self-starting epilogue
 #     every other JavaScript platform gets.
@@ -30,8 +30,12 @@
 #     `main` is refused in a function beside it, naming the worker, because a
 #     `core/host` name outside an entry's body is checked against every output.
 #
-# Then the refusals, one per way an `entry` can be wrong: a name the binary does
-# not export, a name that is a keyword, a name that is exported and is not a
+#   * **`entries` fills an entry from another function.** `//cmd/both`'s
+#     JavaScript program enters through `mainForNode`, and its artifact is
+#     named after it.
+#
+# Then the refusals, one per way `entries` can be wrong: an entry the platform
+# does not have, a name the binary does not export, a name that is a keyword, a name that is exported and is not a
 # function, a name that is not a name at all and the empty one, an entry with
 # type parameters, and an entry whose parameter or answer is not the one its
 # platform fixes.
@@ -105,8 +109,8 @@ run {
 # lists what it does export, because the mistake is almost always a spelling.
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "entry: \"fetch\""
-  with: "entry: \"handle\""
+  replace: "{ platform: CLOUDFLARE_WORKER }"
+  with: "{ platform: CLOUDFLARE_WORKER, entries: { fetch: \"handle\" } }"
 }
 
 run {
@@ -119,8 +123,8 @@ run {
 # leaving it in a note the reader has to act on themselves.
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "entry: \"handle\""
-  with: "entry: \"fetsh\""
+  replace: "{ platform: CLOUDFLARE_WORKER, entries: { fetch: \"handle\" } }"
+  with: "{ platform: CLOUDFLARE_WORKER, entries: { fetch: \"fetsh\" } }"
 }
 
 run {
@@ -131,8 +135,8 @@ run {
 
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "entry: \"fetsh\""
-  with: "entry: \"fetch\""
+  replace: "{ platform: CLOUDFLARE_WORKER, entries: { fetch: \"fetsh\" } }"
+  with: "{ platform: CLOUDFLARE_WORKER }"
 }
 
 # Refusal two: the entry is there and has the wrong shape. A worker's entry
@@ -167,12 +171,12 @@ edit {
   with: "    http.text(ctx, request.path())"
 }
 
-# Refusal three: an `entry` that could not be a function name at all. The
+# Refusal three: an entry that could not be a function name at all. The
 # compiler has nothing to look up, so the reader refuses it where it is written.
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "entry: \"fetch\""
-  with: "entry: \"fetch handler\""
+  replace: "{ platform: CLOUDFLARE_WORKER }"
+  with: "{ platform: CLOUDFLARE_WORKER, entries: { fetch: \"fetch handler\" } }"
 }
 
 run {
@@ -183,8 +187,8 @@ run {
 
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "entry: \"fetch handler\""
-  with: "entry: \"\""
+  replace: "{ platform: CLOUDFLARE_WORKER, entries: { fetch: \"fetch handler\" } }"
+  with: "{ platform: CLOUDFLARE_WORKER, entries: { fetch: \"\" } }"
 }
 
 run {
@@ -195,8 +199,28 @@ run {
 
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "entry: \"\""
-  with: "entry: \"fetch\""
+  replace: "{ platform: CLOUDFLARE_WORKER, entries: { fetch: \"\" } }"
+  with: "{ platform: CLOUDFLARE_WORKER }"
+}
+
+# And a key in `entries` the platform does not offer: a worker is entered
+# through `fetch`, never `main`.
+edit {
+  file: "cmd/site/BUILD.buri"
+  replace: "{ platform: CLOUDFLARE_WORKER }"
+  with: "{ platform: CLOUDFLARE_WORKER, entries: { main: \"fetch\" } }"
+}
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 2
+  golden: "no_such_platform_entry.txt"
+}
+
+edit {
+  file: "cmd/site/BUILD.buri"
+  replace: "{ platform: CLOUDFLARE_WORKER, entries: { main: \"fetch\" } }"
+  with: "{ platform: CLOUDFLARE_WORKER }"
 }
 
 # Refusal four: the entry has the right arity and the wrong argument. The
@@ -328,13 +352,50 @@ edit {
   with: "from \"core/io\" import * as io;"
 }
 
+# **`entries` fills an entry from another function.** The JavaScript program
+# enters through `mainForNode`, and its artifact is named after it.
+edit {
+  file: "cmd/both/main.buri"
+  replace: "export fn main(): Result<(), Str> {"
+  with: "export fn mainForNode(): Result<(), Str> {\n    main()\n}\n\nexport fn main(): Result<(), Str> {"
+}
+
+edit {
+  file: "cmd/both/BUILD.buri"
+  replace: "{ platform: \"node\" }"
+  with: "{ platform: \"node\", entries: { main: \"mainForNode\" } }"
+}
+
+run {
+  args: ["build", "//cmd/both"]
+  exit: 0
+  golden: "entries_built.txt"
+}
+
+file {
+  path: ".buri/out/node/cmd/both/mainForNode.mjs"
+  contains: "mainForNode"
+}
+
+edit {
+  file: "cmd/both/BUILD.buri"
+  replace: "{ platform: \"node\", entries: { main: \"mainForNode\" } }"
+  with: "{ platform: \"node\" }"
+}
+
+edit {
+  file: "cmd/both/main.buri"
+  replace: "export fn mainForNode(): Result<(), Str> {\n    main()\n}\n\nexport fn main(): Result<(), Str> {"
+  with: "export fn main(): Result<(), Str> {"
+}
+
 # An entry the binary exports, and it is not a function. The entries table holds
 # the exported free functions and nothing else, so a struct is as absent as a
 # name nobody wrote.
 edit {
   file: "cmd/both/BUILD.buri"
-  replace: "{ platform: WEB, entry: \"main\" }"
-  with: "{ platform: WEB, entry: \"Page\" }"
+  replace: "{ platform: \"web\" }"
+  with: "{ platform: \"web\", entries: { main: \"Page\" } }"
 }
 
 run {
@@ -348,8 +409,8 @@ run {
 # export one.
 edit {
   file: "cmd/both/BUILD.buri"
-  replace: "{ platform: WEB, entry: \"Page\" }"
-  with: "{ platform: WEB, entry: \"match\" }"
+  replace: "{ platform: \"web\", entries: { main: \"Page\" } }"
+  with: "{ platform: \"web\", entries: { main: \"match\" } }"
 }
 
 run {
@@ -360,8 +421,8 @@ run {
 
 edit {
   file: "cmd/both/BUILD.buri"
-  replace: "{ platform: WEB, entry: \"match\" }"
-  with: "{ platform: WEB, entry: \"main\" }"
+  replace: "{ platform: \"web\", entries: { main: \"match\" } }"
+  with: "{ platform: \"web\" }"
 }
 
 # An entry with type parameters. The runtime calls it, so there is nothing to

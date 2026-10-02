@@ -1,9 +1,9 @@
 .buri/out/web/cmd/site/site.mjs (N bytes, cached)
 error: //cmd/site exports no `fetsh` [entry-not-found]
- --> cmd/site/BUILD.buri:4:47
+ --> cmd/site/BUILD.buri:4:58
   |
-4 |         { platform: CLOUDFLARE_WORKER, entry: "fetsh" },
-  |                                               ^^^^^^^
+4 |         { platform: CLOUDFLARE_WORKER, entries: { fetch: "fetsh" } },
+  |                                                          ^^^^^^^
   |
   = did you mean `fetch`?
   = `main.buri` exports: fetch, main
@@ -27,8 +27,8 @@ error: //cmd/site exports no `fetsh` [entry-not-found]
 
       binary {
           outputs: [
-              { platform: WEB },
-              { platform: CLOUDFLARE_WORKER, entry: "fetch" },
+              { platform: "web" },
+              { platform: CLOUDFLARE_WORKER },
           ]
       }
 
@@ -43,9 +43,9 @@ error: //cmd/site exports no `fetsh` [entry-not-found]
     always a spelling — and where one of them is a near miss the fix names it:
     "if you meant fetch, use that; if not, export fetsh from its main.buri".
 
-    An output that names no entry enters through main, and a binary with no main
-    gets no-main instead. Those are different mistakes: one binary has not
-    written its entry point, the other wrote the name twice and spelled it
+    An output whose entries names nothing enters through main, and a binary with
+    no main gets no-main instead. Those are different mistakes: one binary has
+    not written its entry point, the other wrote the name twice and spelled it
     differently once.
 
 error: a context may not be constructed here [context-not-allowed]

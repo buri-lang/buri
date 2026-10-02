@@ -15,7 +15,7 @@ binary {
     sources: ["argv.buri", "flags.buri"]
 
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
 
     test {

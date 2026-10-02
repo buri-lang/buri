@@ -31,11 +31,20 @@ error: `port` is of type `int32`, and this is not a whole number [textproto-wron
   |
   = fix: write a whole number
 
-      port: "80"        # an `int32` takes a whole number
-      port: 99999999999 # that fits 32 bits
-      tier: SILVER      # an enum takes one of its values' names, or a number
-      limits: 4         # a message is written `limits { ... }`
-      name: ["a", "b"]  # a field that is not `repeated` takes one value
+      port: "80"
+
+      # an `int32` takes a whole number
+      port: 99999999999
+
+      # that fits 32 bits
+      tier: SILVER
+
+      # an enum takes one of its values' names, or a number
+      limits: 4
+
+      # a message is written `limits { ... }`
+      name: ["a", "b"]
+      # a field that is not `repeated` takes one value
 
       Field          Value
       string         a quoted string whose bytes are UTF-8

@@ -1,0 +1,8 @@
+# Two variants of one platform. The harness fills in this machine's variant
+# and one that is not this machine's — see cli/tests/harness/case.rs.
+binary {
+    outputs: [
+        { platform: "native", variant: "{{CROSS_VARIANT}}" },
+        { platform: "native", variant: "{{HOST_VARIANT}}" },
+    ]
+}

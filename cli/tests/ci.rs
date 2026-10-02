@@ -1732,7 +1732,7 @@ fn a_linked_linux_artifact_is_a_static_pie_that_runs() {
     }
 
     let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
-    let selector = if cfg!(target_arch = "aarch64") { "ARM64" } else { "X86_64" };
+    let selector = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
     let root = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("ci-static-pie-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -1746,7 +1746,7 @@ fn a_linked_linux_artifact_is_a_static_pie_that_runs() {
         std::fs::write(dir.join("REPO.buri"), "# a repository with no tags\n").unwrap();
         std::fs::write(
             dir.join("cmd/app/BUILD.buri"),
-            format!("binary {{\n    outputs: [\n        {{ platform: LINUX, arch: {selector} }},\n    ]\n}}\n"),
+            format!("binary {{\n    outputs: [\n        {{ platform: \"native\", variant: \"linux-{selector}\" }},\n    ]\n}}\n"),
         )
         .unwrap();
         std::fs::write(
@@ -1765,7 +1765,7 @@ fn a_linked_linux_artifact_is_a_static_pie_that_runs() {
     };
 
     let buri = env!("CARGO_BIN_EXE_buri");
-    let output = format!("--output=linux/{arch}");
+    let output = format!("--output=native/linux-{arch}");
 
     let mut linked = 0;
     for linker in ["mold", "lld"] {

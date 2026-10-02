@@ -1,9 +1,9 @@
-error: //lib/codec cannot be built for js [platform-violation]
+error: //lib/codec cannot be built for node [platform-violation]
  --> lib/codec/BUILD.buri:1:1
   |
 1 | # The suite inherits the library's tags, so a JS run is one it may not ask for.
   | ^
   |
-  = //lib/codec is tagged "native", which forbids js
+  = //lib/codec is tagged "native", which forbids JS
   = "native": calls into the host's C library, which JavaScript cannot reach
-  = fix: drop the js output, or take JS out of the tag's `forbids { platforms }` in REPO.buri
+  = fix: drop the node output, or take JS out of the tag's `forbids` in REPO.buri

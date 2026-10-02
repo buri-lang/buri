@@ -1,5 +1,5 @@
-keyed  compile //cmd/app js <key>
-keyed  generate //lib/wire js <key>
-keyed  compile //lib/wire js <key>
-cached link //cmd/app js <key>
-.buri/out/js/cmd/app/app.mjs (N bytes, cached)
+keyed  compile //cmd/app node <key>
+keyed  generate //lib/wire node <key>
+keyed  compile //lib/wire node <key>
+cached link //cmd/app node <key>
+.buri/out/node/cmd/app/app.mjs (N bytes, cached)

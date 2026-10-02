@@ -20,9 +20,9 @@
 #     no effect;
 #   * a binary with two outputs, one of which grants the effect: refused, and
 #     the message names the output that does not;
-#   * a suite that declares `platforms: [WEB]` over a binary whose `outputs`
-#     say `JS`: refused, because a test binary links `main` in and `main` has
-#     to compile for the platform the suite runs on;
+#   * a suite that declares `backends: [JS]` over a binary whose `outputs`
+#     say `native`: refused, because a test binary links `main` in and `main`
+#     has to compile for the platform the suite runs on;
 #   * a library that declares `platforms` and imports `core/host` anyway, which
 #     meets `host-import` rather than this rule — `core/host` is importable
 #     only from the module that exports `main`, so a library's declared
@@ -99,8 +99,8 @@ run {
 # message names the one that does not grant it rather than the whole list.
 edit {
   file: "cmd/page/BUILD.buri"
-  replace: "        { platform: WEB },"
-  with: "        { platform: MACOS },\n        { platform: WEB },"
+  replace: "        { platform: \"web\" },"
+  with: "        { platform: \"node\" },\n        { platform: \"web\" },"
 }
 
 run {
@@ -113,8 +113,8 @@ run {
 # over the same file.
 edit {
   file: "cmd/page/BUILD.buri"
-  replace: "        { platform: MACOS },\n        { platform: WEB },"
-  with: "        { platform: JS },"
+  replace: "        { platform: \"node\" },\n        { platform: \"web\" },"
+  with: "        { platform: \"node\" },"
 }
 
 run {
@@ -123,13 +123,32 @@ run {
   golden: "js_grants_it.txt"
 }
 
-# A suite is where the platform comes from next. `outputs` says JS, which
-# grants a filesystem; `test.platforms` says WEB, which does not — and a test
-# binary links `main` in, so `main.buri` has to compile for WEB too.
+# A suite is where the platform comes from next. `outputs` says `native`,
+# which grants a port to listen on; `test.backends` says JS, which builds
+# `node`, which does not — and a test binary links `main` in, so `main.buri`
+# has to compile for `node` too.
+edit {
+  file: "cmd/page/BUILD.buri"
+  replace: "        { platform: \"node\" },"
+  with: "        { platform: \"native\", variant: \"linux-x86_64\" },"
+}
+
+edit {
+  file: "cmd/page/main.buri"
+  replace: "import { Allocator, Stdout };"
+  with: "import { Allocator, Listen, Stdout };"
+}
+
+edit {
+  file: "cmd/page/main.buri"
+  replace: "        FileSystemRead: host.fs,"
+  with: "        FileSystemRead: host.fs,\n        Listen: host.listen,"
+}
+
 edit {
   file: "cmd/page/BUILD.buri"
   replace: "        sources: [\"test/page.buri\"]"
-  with: "        sources: [\"test/page.buri\"]\n        platforms: [WEB]"
+  with: "        sources: [\"test/page.buri\"]\n        backends: [JS]"
 }
 
 run {
@@ -139,7 +158,7 @@ run {
 }
 
 # The library half of the rule, and the reason it has nothing to refuse.
-# `lib/native` declares `platforms: [LINUX, MACOS]` and imports `core/fs` — an
+# `lib/native` declares `backends: [NATIVE]` and imports `core/fs` — an
 # effect *type*, legal everywhere. Reaching for the host itself is refused by
 # `host-import` before a platform is ever consulted: `core/host` is importable
 # only from the module that exports `main`.

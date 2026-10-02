@@ -1,9 +1,9 @@
-.buri/out/js/cmd/both/main.mjs (N bytes, cached)
+.buri/out/node/cmd/both/both.mjs (N bytes, cached)
 error: //cmd/both exports no `match` [entry-not-found]
- --> cmd/both/BUILD.buri:3:33
+ --> cmd/both/BUILD.buri:3:45
   |
-3 |         { platform: WEB, entry: "match" },
-  |                                 ^^^^^^^
+3 |         { platform: "web", entries: { main: "match" } },
+  |                                             ^^^^^^^
   |
   = `main.buri` exports: main
   = fix: export `match` from its `main.buri`, or point this output at a function it does export
@@ -26,8 +26,8 @@ error: //cmd/both exports no `match` [entry-not-found]
 
       binary {
           outputs: [
-              { platform: WEB },
-              { platform: CLOUDFLARE_WORKER, entry: "fetch" },
+              { platform: "web" },
+              { platform: CLOUDFLARE_WORKER },
           ]
       }
 
@@ -42,8 +42,8 @@ error: //cmd/both exports no `match` [entry-not-found]
     always a spelling — and where one of them is a near miss the fix names it:
     "if you meant fetch, use that; if not, export fetsh from its main.buri".
 
-    An output that names no entry enters through main, and a binary with no main
-    gets no-main instead. Those are different mistakes: one binary has not
-    written its entry point, the other wrote the name twice and spelled it
+    An output whose entries names nothing enters through main, and a binary with
+    no main gets no-main instead. Those are different mistakes: one binary has
+    not written its entry point, the other wrote the name twice and spelled it
     differently once.
 

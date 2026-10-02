@@ -1,0 +1,19 @@
+error: a `native` output names a variant [variant-required]
+ --> cmd/ok/BUILD.buri:3:9
+  |
+3 |         { platform: "native" },
+  |         ^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = a variant says how an output is built: here, the operating system and the architecture
+  = fix: add one of linux-arm64, linux-x86_64, macos-arm64, macos-x86_64, as `variant: "linux-arm64"`
+
+      binary {
+          outputs: [
+              { platform: "native", variant: "linux-arm64" },
+              { platform: "native", variant: "macos-arm64" },
+          ]
+      }
+
+    Each variant builds into its own directory, .buri/out/native/<variant>/.
+    buri test and buri run build the machine's own variant without being told.
+

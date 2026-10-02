@@ -2,6 +2,6 @@ binary {
     dependencies: ["//lib/rpc"]
 
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
 }

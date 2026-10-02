@@ -385,17 +385,18 @@ fn a_match_with_an_arm_per_variant_builds() {
 
 /// A binary that emits JavaScript, and the host's native platform beside it.
 fn wide_match_build_file(native: bool) -> String {
-    let host = if cfg!(target_os = "macos") {
-        Some("MACOS")
+    let os = if cfg!(target_os = "macos") {
+        Some("macos")
     } else if cfg!(target_os = "linux") {
-        Some("LINUX")
+        Some("linux")
     } else {
         None
     };
-    match host.filter(|_| native) {
-        Some(platform) => {
-            format!("binary {{\n  outputs: [{{ platform: JS }}, {{ platform: {platform} }}]\n}}\n")
-        }
+    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    match os.filter(|_| native) {
+        Some(os) => format!(
+            "binary {{\n  outputs: [{{ platform: \"node\" }}, {{ platform: \"native\", variant: \"{os}-{arch}\" }}]\n}}\n"
+        ),
         None => JS_BINARY.to_string(),
     }
 }

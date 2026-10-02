@@ -103,7 +103,7 @@ fn replay(scratch: &Scratch) {
     );
 
     scratch.run(&["build", "//cmd/testee"]).ok();
-    let artifact = scratch.path(".buri/out/js/cmd/testee/testee.mjs");
+    let artifact = scratch.path(".buri/out/node/cmd/testee/testee.mjs");
     assert!(artifact.is_file(), "the testee did not build");
 
     let mut stdin = Vec::new();

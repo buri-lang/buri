@@ -1,7 +1,7 @@
-error: `JSS` is not a platform [unknown-bare-word]
- --> REPO.buri:6:21
+error: `JSS` is not a backend [unknown-bare-word]
+ --> REPO.buri:6:20
   |
-6 |         platforms: [JSS]
-  |                     ^^^
+6 |         backends: [JSS]
+  |                    ^^^
   |
   = fix: did you mean `JS`?
