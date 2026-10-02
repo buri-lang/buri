@@ -4349,12 +4349,12 @@ mod tests {
     fn only_a_program_that_can_reach_a_task_boundary_is_marked() {
         let plain = run(&compile(
             r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, str.format(ctx, "${1 + 1}")).ignore();
   .Ok(())
@@ -4368,13 +4368,13 @@ export fn main(): Result<(), Str> {
 
         let program = compile(
             r#"
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 from "core/tasks" import * as tasks;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let doubled = tasks.parallel(ctx, [1, 2, 3], fn(c, i, n) => n * 2);
   let _ = io.println(ctx, str.format(ctx, "${doubled.length()}")).ignore();
@@ -4861,8 +4861,8 @@ export fn main(): Result<(), Str> {
     /// past the match, a borrow across a call, and two branches that use
     /// different values.
     const TREE: &str = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 enum Tree { Leaf, Node(Str, [Tree]) }
@@ -4874,7 +4874,7 @@ export fn label(t: Tree, other: Str): Str {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let t = Tree.Node("root", [Tree.Leaf]);
   let _ = io.println(ctx, label(t, "none")).ignore();
@@ -4883,8 +4883,8 @@ export fn main(): Result<(), Str> {
 "#;
 
     const PROGRAM: &str = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 struct P { name: Str, n: Int }
@@ -4904,7 +4904,7 @@ export fn twice(s: Str): [Str] {
   [s, s]
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let p = P { name: "a", n: 1 };
   let n = size(p);
@@ -4931,8 +4931,8 @@ export fn main(): Result<(), Str> {
     /// shape the LLVM backend's live-block test leaked three blocks an
     /// iteration on.
     const CHURN: &str = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 struct Row { name: Str, tags: [Str] }
@@ -4947,7 +4947,7 @@ export fn churn<C: Allocator>(ctx: C, n: Int, acc: [Str]): [Str] {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let out = churn(ctx, 3, []);
   let _ = io.println(ctx, "${out.length()}").ignore();
@@ -4995,8 +4995,8 @@ export fn main(): Result<(), Str> {
     /// A tail-recursive drain: every iteration builds *both* of its loop
     /// variables, and neither is the caller's to keep alive.
     const DRAIN: &str = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
@@ -5007,7 +5007,7 @@ export fn drain<C: Allocator>(ctx: C, xs: [Int], acc: [Int]): [Int] {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let out = drain(ctx, [1, 2, 3, 4], []);
   let _ = io.println(ctx, "${out.length()}").ignore();
@@ -5098,8 +5098,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_rest_binding_is_dropped_and_never_increfed() {
         let src = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -5118,7 +5118,7 @@ export fn take<C: Allocator>(ctx: C, xs: [Str]): [Str] {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${tell(ctx, ["a", "b"])} ${take(ctx, ["a", "b"]).length()}").ignore();
   .Ok(())
@@ -5211,8 +5211,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn an_unread_binding_is_dropped_after_its_own_incref() {
         let src = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 struct Pair { n: Int, tags: [Str] }
@@ -5231,7 +5231,7 @@ export fn aliased(tags: [Str]): Int {
   tags.length()
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let p = Pair { n: 1, tags: ["a"] };
   let _ = io.println(ctx, "${projected(p)} ${aliased(["b"])}").ignore();
@@ -5287,8 +5287,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_merged_group_balances_at_every_entry() {
         let src = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 export fn even(n: Int, s: Str, t: Str): Str {
@@ -5299,7 +5299,7 @@ export fn odd(n: Int, s: Str, t: Str): Str {
   if (n <= 0) { t } else { even(n - 1, s, t) }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, even(4, "a", "b")).ignore();
   .Ok(())
@@ -5325,8 +5325,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_closure_in_a_loop_captures_by_incrementing() {
         let src = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 export fn tag<C: Allocator>(ctx: C, n: Int, prefix: Str, acc: [Str]): [Str] {
@@ -5338,7 +5338,7 @@ export fn tag<C: Allocator>(ctx: C, n: Int, prefix: Str, acc: [Str]): [Str] {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let out = tag(ctx, 2, "p", ["a"]);
   let _ = io.println(ctx, "${out.length()}").ignore();
@@ -5398,8 +5398,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_jumping_arm_drops_the_matched_value_after_its_arguments() {
         let src = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 
@@ -5416,7 +5416,7 @@ export fn forced<C: Allocator>(ctx: C, held: Box, depth: Int): Str {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let name = str.format(ctx, "leaf");
   let held = Box(.Deferred(fn(_i) => .Ready(name)));
@@ -5521,13 +5521,13 @@ export fn main(): Result<(), Str> {
     fn a_capture_is_marked_and_a_lambda_parameter_is_not() {
         let program = compile(
             r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let xs = list.range(ctx, 0, 3)
     .foldCtx(ctx, fn(c, acc: [Int], i) => acc.push(c, i), list.empty());
@@ -5596,15 +5596,15 @@ export fn main(): Result<(), Str> {
         let args: Vec<String> = (0..LINKS).map(|i| format!("\"x{i}\", \"x{i}\"")).collect();
         let src = format!(
             r#"
-from "core/effect" import {{ Allocator, Stdout }};
-from "core/host" import * as host;
+from "platform/effect" import {{ Allocator, Stdout }};
+from "node" import {{ NodeHost }};
 from "core/io" import * as io;
 
 export fn same({params}): Bool {{
   {chain}
 }}
 
-export fn main(): Result<(), Str> {{
+export fn main(host: NodeHost): Result<(), Str> {{
   let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
   let _ = io.println(ctx, "${{same({args})}}").ignore();
   .Ok(())
@@ -5634,11 +5634,11 @@ export fn main(): Result<(), Str> {{
     #[test]
     fn a_deferred_scrutinee_is_not_consumed_by_the_match_that_reads_it() {
         const SRC: &str = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let o: Option<Str> = .Some("s".concat(ctx, "x"));
   let flag = 1 < 2;
@@ -5737,7 +5737,9 @@ struct Pair { a: [Int], b: [Int] }
 fn one(xs: [Int]): Int { xs.length() }
 fn two(n: Int, ys: [Int]): Int { n + ys.length() }
 
-export fn main(): Result<(), Str> {
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
   let p = Pair { a: [1], b: [2, 3] };
   let n = two(one(p.a), p.b);
   .Ok(())
@@ -5776,7 +5778,9 @@ export fn some(o: Option<Str>): Str {
   }
 }
 
-export fn main(): Result<(), Str> {
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
   let _ = some(make("x"));
   .Ok(())
 }
@@ -5811,8 +5815,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_scrutinee_the_match_built_is_dropped_after_the_arms() {
         const SRC: &str = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
@@ -5826,7 +5830,7 @@ export fn sizes<C: Allocator>(ctx: C, n: Int): Int {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${sizes(ctx, 2)}").ignore();
   .Ok(())
@@ -5851,8 +5855,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_fresh_value_behind_a_branch_is_still_dropped() {
         const SRC: &str = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 
@@ -5862,7 +5866,7 @@ export fn shown<C: Allocator>(ctx: C, n: Int): Int {
   size(if (n > 0) { str.format(ctx, "v${n}") } else { str.format(ctx, "z") })
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${shown(ctx, 2)}").ignore();
   .Ok(())
@@ -5888,14 +5892,14 @@ export fn main(): Result<(), Str> {
     #[test]
     fn the_standard_library_balances_too() {
         let src = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
 struct Row { name: Str, tags: [Str] }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let rows = [
     Row { name: "a", tags: ["x", "y"] },
@@ -5924,8 +5928,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_dying_value_is_paired_with_a_construction() {
         let src = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 enum Pair { One(Str), Two(Str, Str) }
@@ -5937,7 +5941,7 @@ export fn swap(p: Pair): Pair {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let p = Pair.Two("a", "b");
   let q = swap(p);
@@ -5970,8 +5974,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_value_used_after_the_construction_is_not_paired() {
         let src = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 enum Pair { One(Str), Two(Str, Str) }
@@ -5994,7 +5998,7 @@ export fn swapped(p: Pair, other: Pair): Pair {
   if (n == 1) { q } else { other }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, first(swapped(Pair.Two("a", "b"), Pair.One("c")))).ignore();
   .Ok(())
@@ -6022,8 +6026,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn only_a_construction_pairs_and_it_carries_its_own_shape() {
         let src = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 enum Shape { Nil, One(Str), Two(Str, Str) }
@@ -6048,7 +6052,7 @@ export fn pick(s: Shape, d: Str): Str {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a = reshape(Shape.Two("a", "b"), "z");
   let _ = io.println(ctx, pick(a, "z")).ignore();
@@ -6089,15 +6093,15 @@ export fn main(): Result<(), Str> {
     #[test]
     fn purity_is_a_fixpoint_over_the_call_graph() {
         let src = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 export fn double(n: Int): Int { n * 2 }
 
 export fn quadruple(n: Int): Int { double(double(n)) }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${quadruple(2)}").ignore();
   .Ok(())
@@ -6153,8 +6157,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_context_and_an_option_no_literal_builds_are_both_counted() {
         const SRC: &str = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -6163,7 +6167,7 @@ export fn showFirst<C: Allocator>(ctx: C, o: Option<Str>): Str {
   match (o) { .Some(v) => str.format(ctx, "S${v}"), .None => "N" }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let built = list.range(ctx, 0, 3).mapCtx(ctx, fn(c, i) => str.format(c, "n${i}"));
   let _ = io.println(ctx, showFirst(ctx, built.get(1))).ignore();
@@ -6201,8 +6205,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_fresh_scrutinee_is_dropped_on_the_arm_that_jumps_too() {
         const SRC: &str = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
@@ -6223,7 +6227,7 @@ export fn drain<C: Allocator>(ctx: C, xs: [Int], acc: [Int]): [Int] {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${drain(ctx, [1, 2], []).length()}").ignore();
   .Ok(())
@@ -6280,8 +6284,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_called_closure_is_not_consumed_by_the_call() {
         const SRC: &str = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 export fn twice<C: Allocator>(ctx: C, n: Int): Int {
@@ -6289,7 +6293,7 @@ export fn twice<C: Allocator>(ctx: C, n: Int): Int {
   g(100) + g(200)
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${twice(ctx, 1)}").ignore();
   .Ok(())
@@ -6336,8 +6340,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_projection_of_a_temporary_releases_it() {
         const SRC: &str = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
@@ -6349,7 +6353,7 @@ export fn firstLen<C: Allocator>(ctx: C): Int { mk(ctx).a.length() }
 
 export fn keep<C: Allocator>(ctx: C): [Str] { mk(ctx).a }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${firstLen(ctx)} ${keep(ctx).length()}").ignore();
   .Ok(())
@@ -6401,8 +6405,8 @@ export fn main(): Result<(), Str> {
     /// each is handed. `applyN` is the third shape — the one the *type* rules
     /// out on its own.
     const PRECISION: &str = r#"
-from "core/effect" import { Allocator, Clock, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Clock, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/time" import * as time;
 
@@ -6418,7 +6422,7 @@ fn applyN(n: Int, x: Int, f: fn(Int) => Int): Int {
   if (n <= 0) { x } else { applyN(n - 1, f(x), f) }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let slow = sleepy(ctx, 2, fn(c) => {
     let _ = time.sleep(c, time.milliseconds(1));
@@ -6432,16 +6436,19 @@ export fn main(): Result<(), Str> {
 "#;
 
     /// The golden of `the_parking_count_of_a_representative_program_is_a_golden`.
-    const GOLDEN_PARKING: usize = 4;
+    const GOLDEN_PARKING: usize = 5;
     // Twelve since `sleepMs` went away: the snippet now writes
     // `time.sleep(c, time.milliseconds(1))`, which is a `Duration`
     // constructor and its two saturating helpers where a bare `Int` used to
-    // cross. Four of the twelve park, which is the number this golden is about.
-    const GOLDEN_FUNCS: usize = 12;
+    // cross. Thirteen since `main` took a host, for the function that builds
+    // it — and that one parks too, because it calls `main`, which is what
+    // keeps a host call awaited all the way out to the epilogue.
+    const GOLDEN_FUNCS: usize = 13;
     const GOLDEN_NAMES: [&str; GOLDEN_PARKING] = [
-        "core/host:HostClock.sleepMilliseconds",
         "core/time:sleep",
+        "platform/host:HostClock.sleepMilliseconds",
         "rc_test.buri:main",
+        "rc_test.buri:main, building its host",
         "rc_test.buri:sleepy",
     ];
 
@@ -6849,10 +6856,10 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_compiled_program_agrees() {
         let src = r#"
-from "core/effect" import { Allocator, Stdout };
+from "platform/effect" import { Allocator, Stdout };
 from "core/fs" import { FileSystemRead, Path };
 from "core/fs" import * as fs;
-from "core/host" import * as host;
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/path" import * as filepath;
 
@@ -6862,7 +6869,7 @@ export fn load<C: Allocator + FileSystemRead>(ctx: C, at: Path): Str {
   match (fs.readText(ctx, at)) { .Ok(text) => text, .Err(_) => "" }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, FileSystemRead: host.fs };
   let text = load(ctx, filepath.of(ctx, "a.txt"));
   let _ = io.println(ctx, "${text}${double(2)}").ignore();
