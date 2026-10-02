@@ -33,11 +33,13 @@
 //! directions:
 //!
 //!  * *"A runtime intrinsic borrows its arguments and returns a fresh count."*
-//!    The source list, the step and `fold`'s initial accumulator arrive
-//!    borrowed; nothing here releases one.
-//!  * *"A call through a function value owns its arguments."* So every value
-//!    handed to a step **through a function value** is retained first, the step
-//!    consumes that count, and it answers a fresh one.
+//!    The source list and the step arrive borrowed; nothing here releases one.
+//!    A fold's initial accumulator is the exception: `middle::rc` hands it
+//!    over (`rc::is_fold`), so it arrives owned and the first step consumes
+//!    that count without a retain here.
+//!  * *"A call through a function value owns its arguments."* So every other
+//!    value handed to a step **through a function value** is retained first,
+//!    the step consumes that count, and it answers a fresh one.
 //!
 //! The second rule is about a call through a function value. A **direct** call
 //! obeys the callee's own `Facts::params` instead — and rather than reproduce
@@ -185,7 +187,6 @@ struct LoopOps {
     /// `fold`'s initial accumulator.
     init: Option<u32>,
     acc_w: u32,
-    acc_counted: Option<Ty>,
     si: u32,
     elem_w: u32,
     elem_counted: Option<Ty>,
@@ -671,7 +672,6 @@ impl<'a> Jit<'a> {
             ctx,
             init,
             acc_w: self.slot_bytes_of(prog, dest_ty),
-            acc_counted: self.counted(prog, dest_ty),
             si,
             elem_w,
             elem_counted,
@@ -741,15 +741,14 @@ impl<'a> Jit<'a> {
             Step::Filter => self.imm_to(s_k, 0),
             Step::Fold => {
                 let init = ops.init.unwrap_or(dslot);
+                // The initial accumulator arrives **owned** — `middle::rc`
+                // hands a fold's seed over (`rc::is_fold`) — and the first
+                // step consumes that count. Each step answers another, and the
+                // last one is the result's, which is what makes a fold
+                // balance. Retaining it here as well would leave the seed's
+                // owner and the first step both holding it, and that step's
+                // first push into it would copy the whole list.
                 self.mv(dslot, init, ops.acc_w);
-                // "A runtime intrinsic borrows its arguments": the initial
-                // accumulator arrives borrowed, and the first step consumes a
-                // count, so one is taken here. Each step answers another, and
-                // the last one is the result's — which is what makes a fold
-                // balance.
-                if let Some(t) = ops.acc_counted.clone() {
-                    self.retain_value(st, &t, dslot);
-                }
             }
             Step::Any | Step::Count => self.imm_to(dslot, 0),
             Step::All => self.imm_to(dslot, 1),
@@ -1273,10 +1272,11 @@ impl Jit<'_> {
     /// remaining elements being visited. `.Ok` is variant 0 because
     /// `core/result` declares it first.
     ///
-    /// One retain on the accumulator, on the way in, because a call through a
-    /// function value owns its arguments and the initial accumulator arrives
-    /// borrowed. After that each step consumes the count it is handed and
-    /// answers another inside its `.Ok`, so the early exit leaks nothing.
+    /// No retain on the accumulator: `middle::rc` hands a fold's seed over
+    /// (`rc::is_fold`), so the count the first step consumes is the caller's.
+    /// After that each step consumes the count it is handed and answers
+    /// another inside its `.Ok`, so the early exit leaks nothing. An empty list
+    /// answers `.Ok(init)` with the seed's own count.
     fn list_fold_result(
         &mut self,
         prog: &ir::Program,
@@ -1304,7 +1304,6 @@ impl Jit<'_> {
         // payload the step answers is only as wide as this, but sits in a slot
         // sized for the widest variant (buri-lang/buri#191).
         let acc_lw = self.value_bytes_of(prog, it);
-        let acc_ty = self.counted(prog, it);
 
         // The accumulator, in the staging area: it is read by the step, written
         // by the step's answer and read again by the exit, and one address for
@@ -1312,9 +1311,6 @@ impl Jit<'_> {
         // slot here whose size comes from a *type* and so the one with a bound.
         let Some(acc) = self.stage(st, acc_w) else { return true };
         self.mv_acc(acc, init, acc_w, acc_lw);
-        if let Some(a) = acc_ty.clone() {
-            self.retain_value(st, &a, acc);
-        }
 
         let i = st.scratch + t(8);
         self.imm_to(i, 0);

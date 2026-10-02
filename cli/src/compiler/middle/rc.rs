@@ -1221,8 +1221,10 @@ pub fn release_then_retain<V: Copy + PartialEq>(ops: &[(RcOp, V)]) -> Option<V> 
 ///
 /// Under [`Options::sharing`] each of these consumes the argument, so a caller
 /// that keeps the value duplicates it and the duplication is a mark the backend
-/// can see. Native needs none of it: `cli/runtime/list.rs`'s `append_dest` asks
-/// the count at run time, and a count is the thing JavaScript does not have.
+/// can see. Native needs none of the six receivers: `cli/runtime/list.rs`'s
+/// `append_dest` asks the count at run time, and a count is the thing
+/// JavaScript does not have. It does need the folds' seed, for the same reason
+/// with a count in place of a mark ([`is_fold`]).
 ///
 /// Two families:
 ///
@@ -1249,6 +1251,21 @@ const TAKEN_BY: &[(&str, usize)] = &[
     ("list.foldResultCtx", 3),
 ];
 
+/// Whether an intrinsic key is one of [`TAKEN_BY`]'s four folds, whose seed is
+/// handed over on the native branch too.
+///
+/// **A contract with both native backends**: `stencil/lists.rs`'s
+/// `emit_list_loop` and `list_fold_result`, and `llvm/emit.rs`'s `list_fold`
+/// and `list_fold_result`, take the seed's count from the caller and give it
+/// to the first step. Lent instead, they had to retain it, and the seed's
+/// owner and the first step then each held the accumulator: the step's first
+/// push into it copied the whole list, once per fold. `core/buri/ast`'s
+/// printer folds over every block, pattern and annotation it prints, with
+/// everything printed so far as the seed.
+fn is_fold(key: &str) -> bool {
+    matches!(key, "list.fold" | "list.foldCtx" | "list.foldResult" | "list.foldResultCtx")
+}
+
 fn infer_ownership(
     program: &Program,
     counted: &mut dyn Counted,
@@ -1274,18 +1291,21 @@ fn infer_ownership(
         })
         .collect();
     // An intrinsic borrows what it is given (see the module docs), so its row
-    // never moves — except for the growing list operations under `sharing`,
-    // whose receiver is seeded owned before the fixpoint so that callers are
-    // promoted against it.
-    if opts.sharing {
-        for (i, f) in program.funcs.iter().enumerate() {
-            let FuncKind::Intrinsic(key) = &f.kind else { continue };
-            let Some((_, at)) = TAKEN_BY.iter().find(|(k, _)| *k == key.as_str()) else {
-                continue;
-            };
-            if let Some(slot) = own.get_mut(i).and_then(|r| r.get_mut(*at)) {
-                *slot = ir::Ownership::Own;
-            }
+    // never moves — except for [`TAKEN_BY`], whose parameter is seeded owned
+    // before the fixpoint so that callers are promoted against it. Under
+    // `sharing`, all ten. Natively, the four folds' seed alone: both native
+    // backends hand the seed to the first step without a retain of their own,
+    // which is what lets that step find a list in it unique.
+    for (i, f) in program.funcs.iter().enumerate() {
+        let FuncKind::Intrinsic(key) = &f.kind else { continue };
+        let Some((_, at)) = TAKEN_BY.iter().find(|(k, _)| *k == key.as_str()) else {
+            continue;
+        };
+        if !opts.sharing && !is_fold(key) {
+            continue;
+        }
+        if let Some(slot) = own.get_mut(i).and_then(|r| r.get_mut(*at)) {
+            *slot = ir::Ownership::Own;
         }
     }
     // The fixpoint is monotone — a parameter only ever moves `Borrow -> Own`,
@@ -1301,17 +1321,18 @@ fn infer_ownership(
     // settles in a single pass. `super::strongly_connected` yields the
     // components callees-first, which is the order this needs.
     let deps = ownership_dependencies(program);
+    let pieces = !opts.sharing;
     for scc in super::strongly_connected(&deps) {
         // A non-recursive singleton reads only rows that are already final, so
         // one evaluation is its fixed point: a second pass would read the same
         // inputs and change nothing.
         if let &[only] = scc.as_slice() {
             if !deps.get(only).is_some_and(|e| e.contains(&only)) {
-                promote_consuming(program, counted, only, &mut own);
+                promote_consuming(program, counted, only, &mut own, pieces);
                 continue;
             }
         }
-        converge_scc(program, counted, &scc, &mut own);
+        converge_scc(program, counted, &scc, &mut own, pieces);
     }
     own
 }
@@ -1366,11 +1387,12 @@ fn promote_consuming(
     counted: &mut dyn Counted,
     i: usize,
     own: &mut [Vec<ir::Ownership>],
+    pieces: bool,
 ) -> bool {
     let Some(f) = program.funcs.get(i) else { return false };
     let Some(body) = f.body() else { return false };
     let mut consumed: HashSet<LocalId> = HashSet::default();
-    consuming_uses(body, own, counted, i, &mut consumed);
+    consuming_uses(body, own, counted, i, &mut consumed, pieces);
     let Some(row) = own.get(i) else { return false };
     let promoted: Vec<ir::Ownership> = f
         .params
@@ -1402,11 +1424,12 @@ fn converge_scc(
     counted: &mut dyn Counted,
     scc: &[usize],
     own: &mut [Vec<ir::Ownership>],
+    pieces: bool,
 ) {
     loop {
         let mut changed = false;
         for &i in scc {
-            changed |= promote_consuming(program, counted, i, own);
+            changed |= promote_consuming(program, counted, i, own, pieces);
         }
         for (target, k) in loop_variables_taken(program, own, scc) {
             match own.get_mut(target).and_then(|r| r.get_mut(k)) {
@@ -1474,6 +1497,7 @@ fn consuming_uses(
     counted: &mut dyn Counted,
     self_index: usize,
     out: &mut HashSet<LocalId>,
+    pieces: bool,
 ) {
     // Repeated to a fixpoint: whether a `match` consumes its scrutinee depends
     // on whether the payloads it binds are consumed, and those are found by
@@ -1481,7 +1505,7 @@ fn consuming_uses(
     // by the function's locals.
     loop {
         let before = out.len();
-        collect_consuming(body, own, counted, self_index, out);
+        collect_consuming(body, own, counted, self_index, out, pieces);
         if out.len() == before {
             return;
         }
@@ -1494,13 +1518,31 @@ fn collect_consuming(
     counted: &mut dyn Counted,
     self_index: usize,
     out: &mut HashSet<LocalId>,
+    pieces: bool,
 ) {
     // The tail of a function is returned, and a `let` transfers into a local
     // whose own last use decides the rest, so both count as consuming.
-    let consume = |e: &Expr, out: &mut HashSet<LocalId>| {
-        if let ExprKind::Local(l) = &e.kind {
+    //
+    // Natively (`pieces`), so is handing on a **counted piece** of a local —
+    // `nl(ctx, acc.0)`, `raw(ctx, o.inner, t)` — for the tail rule's reason
+    // below: the piece is taken, so the whole is. Borrowed, the piece needs a
+    // count of its own while the caller's count on the whole still holds it,
+    // so a list in it is at two when the callee pushes and the push copies.
+    // Owned, the whole is released as the piece is taken, and the list is at
+    // one. Not under `sharing`, whose marks are a different question and
+    // whose answers `language::sharing` pins.
+    let consume = |e: &Expr, out: &mut HashSet<LocalId>, counted: &mut dyn Counted| match &e.kind {
+        ExprKind::Local(l) => {
             out.insert(*l);
         }
+        ExprKind::Field { .. } | ExprKind::TupleIndex { .. } if pieces => {
+            if let Some(root) = field_root(e) {
+                if counted.counted(&e.ty) == Answer::Yes {
+                    out.insert(root);
+                }
+            }
+        }
+        _ => {}
     };
     typed::walk(body, &mut |e| match &e.kind {
         ExprKind::StructLit { fields: args, .. }
@@ -1509,12 +1551,12 @@ fn collect_consuming(
         | ExprKind::Array(args)
         | ExprKind::Closure { env: args, .. }
         | ExprKind::CallValue { args, .. } => {
-            args.iter().for_each(|a| consume(a, out));
+            args.iter().for_each(|a| consume(a, out, counted));
         }
-        ExprKind::CtxLit { bindings } => bindings.iter().for_each(|(_, a)| consume(a, out)),
+        ExprKind::CtxLit { bindings } => bindings.iter().for_each(|(_, a)| consume(a, out, counted)),
         ExprKind::StructUpdate { base, updates, .. } => {
-            consume(base, out);
-            updates.iter().for_each(|(_, a)| consume(a, out));
+            consume(base, out, counted);
+            updates.iter().for_each(|(_, a)| consume(a, out, counted));
         }
         ExprKind::Lambda { captures, .. } => out.extend(captures.iter().copied()),
         // `let p = l;` gives `l` a second name, so consuming `p` consumes `l`.
@@ -1539,7 +1581,7 @@ fn collect_consuming(
                 let Stmt::Let { pattern, value, .. } = st else { continue };
                 let typed::PatKind::Bind { local, sub: None } = &pattern.kind else { continue };
                 if out.contains(local) {
-                    consume(value, out);
+                    consume(value, out, counted);
                 }
             }
         }
@@ -1554,7 +1596,7 @@ fn collect_consuming(
                 bound.iter().any(|b| out.contains(b))
             });
             if kept {
-                consume(scrutinee, out);
+                consume(scrutinee, out, counted);
             }
         }
         ExprKind::CallFn { func, args } => {
@@ -1562,7 +1604,7 @@ fn collect_consuming(
             for (k, a) in args.iter().enumerate() {
                 let owns = row.and_then(|r| r.get(k)).copied().unwrap_or(ir::Ownership::Own);
                 if owns == ir::Ownership::Own {
-                    consume(a, out);
+                    consume(a, out, counted);
                 }
             }
         }
@@ -1575,7 +1617,7 @@ fn collect_consuming(
             for (k, a) in args.iter().enumerate() {
                 let owns = row.and_then(|r| r.get(k)).copied().unwrap_or(ir::Ownership::Own);
                 if owns == ir::Ownership::Own {
-                    consume(a, out);
+                    consume(a, out, counted);
                 }
             }
         }
@@ -1603,7 +1645,7 @@ fn collect_consuming(
             Some(root) => {
                 out.insert(root);
             }
-            None => consume(t, out),
+            None => consume(t, out, counted),
         }
     }
 }
