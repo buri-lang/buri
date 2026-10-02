@@ -100,19 +100,34 @@ fn conformance_suite_can_fail() {
 /// ```text
 /// BURI_BLESS=1 cargo test -p buri --test language conformance::rejected_programs
 /// ```
-#[test]
-fn rejected_programs_are_rejected() {
-    let dir = tests_dir().join("reject");
-    let cases = case_dirs(&dir, "main.buri", 25);
+///
+/// The corpus is eight tests, `rejected_programs_are_rejected::shard_0` to
+/// `shard_7`, so nextest can run them side by side (`harness/shard.rs`).
+fn rejected_shard(at: usize, count: usize) {
+    let cases = rejected_corpus();
+    let mine = shard::of(&cases, at, count);
 
     // The cases run at once through the shared pool, each with a `Golden` of
     // its own, absorbed afterwards in the corpus's order — so a failing run
     // reports what a one-case-at-a-time run reported.
     let mut g = Golden::new();
-    for one in pool::map(&cases, |case| rejected_case(case, &cases)) {
+    for one in pool::map(&mine, |case| rejected_case(case, &cases)) {
         g.absorb(one);
     }
-    g.finish("reject", cases.len());
+    g.finish(&format!("reject shard {at} of {count}"), mine.len());
+}
+
+shards! {
+    rejected_programs_are_rejected(rejected_shard, rejected_cases) =
+        shard_0 shard_1 shard_2 shard_3 shard_4 shard_5 shard_6 shard_7;
+}
+
+fn rejected_corpus() -> Vec<std::path::PathBuf> {
+    case_dirs(&tests_dir().join("reject"), "main.buri", 25)
+}
+
+fn rejected_cases() -> usize {
+    rejected_corpus().len()
 }
 
 /// One case of `rejected_programs_are_rejected`, in a scratch repository of its

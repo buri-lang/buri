@@ -61,6 +61,7 @@ use buri::compiler::driver;
 use buri::compiler::middle::monomorphize;
 use buri::compiler::modules::Role;
 use buri::diagnostics::{Diagnostics, SourceMap};
+use crate::shard;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -351,8 +352,10 @@ fn field_number(chunk: &str, name: &str) -> Option<i64> {
 }
 
 /// **Every corpus package, both backends, verdict by verdict.**
-#[test]
-fn every_corpus_package_agrees_with_the_reference_backend() {
+///
+/// The corpus is eight tests, `every_corpus_package_agrees_with_the_reference_backend::shard_0`
+/// to `shard_7`, so nextest can run them side by side (`harness/shard.rs`).
+fn agreement_shard(at: usize, count: usize) {
     if let Some(why) = crate::conformance::skip_reason() {
         crate::ci::skipped("corpus differential", &why);
         return;
@@ -365,7 +368,9 @@ fn every_corpus_package_agrees_with_the_reference_backend() {
     let mut blocks = 0usize;
     let mut skipped: Vec<String> = Vec::new();
     let mut failures: Vec<String> = Vec::new();
-    for path in corpus_files() {
+    let files = corpus_files();
+    let mine = shard::of(&files, at, count);
+    for path in mine.iter().copied() {
         if NATIVE_ONLY.contains(&path.as_str()) {
             skipped.push(format!("{path} (native-only by design)"));
             continue;
@@ -417,9 +422,29 @@ fn every_corpus_package_agrees_with_the_reference_backend() {
     // A sweep that compared nothing passes, so what it covered is asserted as
     // well as printed. The floor is the size of the native set on the day this
     // was written, less a little slack for a file the corpus may take out.
-    eprintln!("corpus differential: {compared} files, {blocks} test blocks, 0 disagreements");
-    assert!(
-        compared >= 40,
-        "the sweep only compared {compared} files, which is fewer than the corpus has"
+    //
+    // Each shard holds its share of that floor, rounded up, so eight passing
+    // shards compared at least the forty one sweep had to.
+    let floor = (FLOOR * mine.len()).div_ceil(files.len().max(1));
+    eprintln!(
+        "corpus differential, shard {at} of {count}: {compared} files, {blocks} test blocks, \
+         0 disagreements"
     );
+    assert!(
+        compared >= floor,
+        "shard {at} of {count} only compared {compared} files, which is fewer than its \
+         share ({floor}) of the {FLOOR} the corpus has"
+    );
+}
+
+/// The fewest files the whole corpus may compare.
+const FLOOR: usize = 40;
+
+shards! {
+    every_corpus_package_agrees_with_the_reference_backend(agreement_shard, corpus_size) =
+        shard_0 shard_1 shard_2 shard_3 shard_4 shard_5 shard_6 shard_7;
+}
+
+fn corpus_size() -> usize {
+    corpus_files().len()
 }
