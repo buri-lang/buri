@@ -2,5 +2,5 @@
 language {
     name: "lines"
     extensions: [".lines"]
-    check: "std/json"
+    check: "json"
 }

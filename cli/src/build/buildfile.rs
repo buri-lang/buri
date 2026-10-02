@@ -40,9 +40,15 @@ const RETIRED_LIBRARY_FIELDS: &[&str] = &["proto_sources"];
 const RETIRED_BINARY_FIELDS: &[&str] = &["proto_sources"];
 
 /// The tool names this toolchain used to answer to, and what each is called
-/// now. A toolchain tool is `std/<language>`; the proto generator was named
+/// now. A built-in tool is its language's bare name, as a built-in platform
+/// is; it was `std/<language>` before that, and the proto generator was named
 /// for what it did before it was named for its language.
-pub const RETIRED_TOOL_NAMES: &[(&str, &str)] = &[("std/codegen/proto", "std/proto")];
+pub const RETIRED_TOOL_NAMES: &[(&str, &str)] = &[
+    ("std/codegen/proto", "proto"),
+    ("std/json", "json"),
+    ("std/proto", "proto"),
+    ("std/textproto", "textproto"),
+];
 
 #[derive(Clone, Debug)]
 pub struct Spanned<T> {

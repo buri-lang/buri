@@ -1,0 +1,22 @@
+error: `std/proto` is retired [retired-tool-name]
+ --> lib/wire/BUILD.buri:3:17
+  |
+3 |         { tool: "std/proto", inputs: ["point.proto"] },
+  |                 ^^^^^^^^^^^
+  |
+  = a tool this toolchain ships is named for its language with no prefix, and a `//label` names one of your own
+  = fix: name it `proto`
+
+      library {
+          generators: [
+              { tool: "proto", inputs: ["point.proto"] },
+          ]
+      }
+
+    A built-in tool has a bare name: json, proto or textproto. A label starting
+    with // names a tool of your own, so the two never collide.
+
+    The built-ins used to be std/json, std/proto and std/textproto, and before
+    that the proto generator was std/codegen/proto, named for what it did. Each
+    old name is refused rather than kept as a second spelling.
+

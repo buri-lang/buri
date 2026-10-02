@@ -225,7 +225,7 @@ fn schema_set(
     Ok(out)
 }
 
-/// `std/json`'s `generate` on one input: a schema gives its types, and a data
+/// The `json` tool's `generate` on one input: a schema gives its types, and a data
 /// file its schema's types and its contents as a value. `files` is what
 /// [`schema_files`] read for it.
 pub fn generate(

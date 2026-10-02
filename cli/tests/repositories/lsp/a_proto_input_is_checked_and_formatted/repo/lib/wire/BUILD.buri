@@ -1,5 +1,5 @@
 library {
     generators: [
-        { tool: "std/proto", inputs: ["point.proto"] },
+        { tool: "proto", inputs: ["point.proto"] },
     ]
 }

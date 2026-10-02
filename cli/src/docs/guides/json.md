@@ -46,9 +46,9 @@ error: expected a string, found an integer [json-schema-violation]
 
 `buri build`, `buri test` and `buri lint` all run the check, `buri format` lays
 the file out, and the language server checks it as you type. The check and the
-formatter are `std/json`, the tool this toolchain ships for JSON; `//tool/routes`
+formatter are `json`, the tool this toolchain ships for JSON; `//tool/routes`
 is a [tool](../reference/build/tools.md) of your own with a `generate` entry
-point.
+point. A built-in tool has a bare name, and a tool of your own is a `//label`.
 
 ## Which files
 
@@ -118,12 +118,12 @@ is left as it is, and `buri format --check` names it.
 
 ## Generating types
 
-`std/json` in `generators` gives a module named after each file:
+`json` in `generators` gives a module named after each file:
 
 ```textproto schema=build
 library {
     generators: [
-        { tool: "std/json", inputs: ["regions.schema.json", "regions.json"] },
+        { tool: "json", inputs: ["regions.schema.json", "regions.json"] },
     ]
 }
 ```

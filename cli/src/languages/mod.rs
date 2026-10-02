@@ -9,10 +9,10 @@
 //! ```
 //!
 //! The extension decides the language. The built-in languages are `json`,
-//! `jsonc` and `json5`, which `std/json` checks and formats natively, `proto`,
-//! which `std/proto` checks and this crate formats, and `textproto`, which
-//! `std/textproto` checks and this crate formats; a `REPO.buri` may give one of
-//! them more extensions and nothing else. A
+//! `jsonc` and `json5`, which the `json` tool checks and formats natively,
+//! `proto`, which the `proto` tool checks and this crate formats, and
+//! `textproto`, which the `textproto` tool checks and this crate formats; a
+//! `REPO.buri` may give one of them more extensions and nothing else. A
 //! language of a repository's own names the `tool` rules that check, format
 //! and generate from it. Only a file some rule's `inputs` lists is checked or
 //! formatted, so a `package.json` beside the sources is left alone.
@@ -36,11 +36,11 @@ pub struct Language {
 /// Who checks and formats a language's files.
 #[derive(Clone, Debug)]
 pub enum Kind {
-    /// `json`, `jsonc` or `json5`: `std/json`, in-tree.
+    /// `json`, `jsonc` or `json5`: the `json` tool, in-tree.
     BuiltIn(json::Dialect),
-    /// `proto`: `std/proto` checks it, and [`proto::format`] lays it out.
+    /// `proto`: the `proto` tool checks it, and [`proto::format`] lays it out.
     Proto,
-    /// `textproto`: `std/textproto` checks it against the message its header
+    /// `textproto`: the `textproto` tool checks it against the message its header
     /// or a contract names, and [`textproto::format`] lays it out.
     Textproto,
     /// A language a `REPO.buri` declared. Each field is the tool it names, as
@@ -69,7 +69,7 @@ impl Tools {
 }
 
 impl Language {
-    /// The dialect `std/json` reads this language as, for a built-in one.
+    /// The dialect the `json` tool reads this language as, for a built-in one.
     pub fn dialect(&self) -> Option<json::Dialect> {
         match &self.kind {
             Kind::BuiltIn(d) => Some(*d),

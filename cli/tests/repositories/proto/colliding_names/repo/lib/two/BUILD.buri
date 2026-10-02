@@ -1,5 +1,5 @@
 library {
     generators: [
-        { tool: "std/proto", inputs: ["left.proto", "right.proto", "use.proto"] },
+        { tool: "proto", inputs: ["left.proto", "right.proto", "use.proto"] },
     ]
 }

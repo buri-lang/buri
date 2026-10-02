@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "std/textproto in generators gives a .txtpb's module: its schema's types and its value as an export let named after the file, read in every form the text format allows; editing the .proto checks the file again, and the fix generates again"
+doc: "textproto in generators gives a .txtpb's module: its schema's types and its value as an export let named after the file, read in every form the text format allows; editing the .proto checks the file again, and the fix generates again"
 
 # Adjacent strings, hex, a sign, `t`, `-inf`, `2f`, a list of messages, an
 # implicit field left out, and a oneof, each as a typed value.

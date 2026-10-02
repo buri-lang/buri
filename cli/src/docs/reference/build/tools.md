@@ -79,9 +79,11 @@ a tool without that entry point is
 that is no tool is [`no-such-tool`](../errors/no-such-tool.md).
 
 The toolchain ships three, each with `check`, `format` and `generate`:
-`std/json` for `json`, `jsonc` and `json5`, `std/proto` for `.proto` schemas,
-and `std/textproto` for [text format files](../../guides/textproto.md). The old
-`std/codegen/proto` is [`retired-tool-name`](../errors/retired-tool-name.md).
+`json` for `json`, `jsonc` and `json5`, `proto` for `.proto` schemas, and
+`textproto` for [text format files](../../guides/textproto.md). A built-in
+tool has a bare name and a tool of your own is a `//label`, so the two never
+collide. The old names, `std/json`, `std/proto`, `std/textproto` and
+`std/codegen/proto`, are [`retired-tool-name`](../errors/retired-tool-name.md).
 
 ## What an entry point is handed
 
@@ -146,7 +148,7 @@ export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Config>): Gene
 }
 ```
 
-- **The check uses the contract's schema.** `std/json` checks `schema.json`
+- **The check uses the contract's schema.** `json` checks `schema.json`
   against `config.schema.json`, wherever the tool is used. The file's own
   `"$schema"` may be left out or name the same schema; anything else is
   [`schema-mismatch`](../errors/schema-mismatch.md), and so is one file read
