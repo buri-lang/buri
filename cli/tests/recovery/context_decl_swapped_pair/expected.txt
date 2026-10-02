@@ -1,19 +1,5 @@
-error [unexpected-token] 5:1-5:8
+error [unexpected-token] 7:1-7:8
 message: expected `context`, found `Console`
 fix: write `context` first: `context Console`
-edit: 5:1-5:16 "context Console"
-
-error [context-declaration-not-allowed] 5:1-7:2
-message: a `context` declaration is not allowed here
-fix: Accept a context variable as an argument, and pass it into the function from a main.buri, a test file, or a test-only module
-note: context may be declared only in a main.buri, a test file, or a test-only module
-
-error [context-not-allowed] 5:1-7:2
-message: a context may not be constructed here
-fix: build it in the entry and pass it down as a `ctx` parameter, or make this a test source, where a context may be built per test
-note: only in an entry's body, in a test source, or in a test-only module — and never inside a lambda, since a closure that could mint authority would make the capture rule meaningless
-
-error [unresolved-name] 6:11-6:15
-message: there is nothing named `host` in scope
-fix: declare `host`, or import it — a name is in scope only from this module's own declarations and its imports
+edit: 7:1-7:16 "context Console"
 

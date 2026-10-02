@@ -1,4 +1,4 @@
-error [unexpected-token] 9:1-9:7
+error [unexpected-token] 11:1-11:7
 message: expected an identifier, found `export`
 fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
 

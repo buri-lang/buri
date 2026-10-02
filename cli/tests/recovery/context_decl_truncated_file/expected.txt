@@ -1,9 +1,4 @@
-error [host-import-outside-platform] 3:6-3:17
-message: "core/host" is importable only by a platform
-fix: take the platform's host as the entry's parameter, `export fn main(host: NativeHost)`, and bind its fields
-note: a production value is authority, and an entry receives it through its host rather than importing it
-
-error [unexpected-token] 6:1-6:1
+error [unexpected-token] 7:1-7:1
 message: expected an identifier, found end of file
 fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
 
