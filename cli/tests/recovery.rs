@@ -1266,7 +1266,7 @@ fn recorded_shard(at: usize, count: usize) {
     let cases = recorded_corpus();
     let mine = shard::of(&cases, at, count);
     let mut g = Golden::new();
-    for case in mine.iter().copied() {
+    for case in &mine {
         let name = case.file_name().unwrap().to_string_lossy().to_string();
         let text = std::fs::read_to_string(case.join("main.buri")).unwrap();
         require_annotation(&text, "// EXPECT:", &name);
