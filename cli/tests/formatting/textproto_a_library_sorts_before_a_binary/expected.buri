@@ -5,6 +5,6 @@ library {
 binary {
     sources: ["main.buri"]
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
 }

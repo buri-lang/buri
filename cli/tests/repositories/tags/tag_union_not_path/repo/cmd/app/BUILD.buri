@@ -1,6 +1,6 @@
 binary {
     dependencies: ["//lib/left", "//lib/right"]
     outputs: [
-        { platform: LINUX, arch: X86_64 },
+        { platform: "native", variant: "linux-x86_64" },
     ]
 }

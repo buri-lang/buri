@@ -830,7 +830,7 @@ const PACKAGES: &[Case] = &[
              owns, WEB-only with none on this side to render into. It is the one \
              block of the render suite that reaches `mount` rather than the \
              test-only `render`; #53 phase 6 split it here so `ui/tree.buri` can \
-             run on both backends, and it keeps `platforms: [JS]`",
+             run on both backends, and it keeps `backends: [JS]`",
     ),
     excluded(
         "ui_mount/effect.buri",
@@ -838,7 +838,7 @@ const PACKAGES: &[Case] = &[
              has passed, and a page's timers run on a real clock. The headless \
              double queues them against a virtual one that `ui/testing`'s \
              `elapse` drives, which this side has; the native runtime carries no \
-             such scheduler, so this stays `platforms: [JS]` beside its sibling",
+             such scheduler, so this stays `backends: [JS]` beside its sibling",
     ),
     excluded(
         "web/document.buri",

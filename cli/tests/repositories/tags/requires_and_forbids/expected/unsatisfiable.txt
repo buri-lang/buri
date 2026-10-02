@@ -1,8 +1,8 @@
 warning: //lib/poll can never be built [unsatisfiable-target]
  --> lib/poll/BUILD.buri:3:12
   |
-3 |     tags: ["epoll"]
-  |            ^^^^^^^
+3 |     tags: ["headless"]
+  |            ^^^^^^^^^^
   |
   = its dependency closure admits no platform at all
-  = fix: widen a tag's `requires { platforms }` or shorten its `forbids { platforms }` in REPO.buri, or drop the dependency that narrows it to nothing
+  = fix: widen a tag's `requires` or shorten its `forbids` in REPO.buri, or drop the dependency that narrows it to nothing

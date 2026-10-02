@@ -1,37 +1,17 @@
-# TAGS.md:266-291. A suite that must run in more than one place lists them, one
-# run per platform — and a platform listed there must be one the target admits.
-# Asking for a run the target's tags rule out is an error, not a skip, which is
-# the whole difference between a policy and a preference: a skip would let a
-# suite quietly stop covering the platform it was written for.
+# TAGS.md:266-291. A suite that must run in more than one place lists the
+# backends it runs on, one run each — and the platform a run builds must be one
+# the target admits. Asking for a run the target's tags rule out is an error,
+# not a skip, which is the whole difference between a policy and a preference:
+# a skip would let a suite quietly stop covering the backend it was written
+# for.
 #
-# The last step is the honest boundary, and what stands behind it has moved. A
-# suite naming a platform this toolchain cannot produce a binary for is still
-# told so rather than run through the backend that does exist and reported as
-# if it had run natively — but "cannot produce" is now three questions (a
-# backend compiled in, a runtime archive, a linker for this host) rather than
-# "there is only JavaScript".
-#
-# So the platform the suite asks for is not written down here. `{{CROSS_PLATFORM_PROTO}}`
-# is filled in by the harness (cli/tests/harness/case.rs) with a platform that
-# is not this host's: LINUX on a mac, MACOS on Linux. A **test** suite is
-# refused for any such platform on every machine, and the reason is the same on
-# both even though `buri build` now differs between them: a suite must *run*, so
-# its artifact has to be one the host can execute — its own. `buri build`
-# cross-links a Linux artifact from a mac (design/native/ARCHITECTURE.md §9), but
-# that artifact cannot be run where it was built, so `buri test` for a cross
-# platform is refused — `commands/test.rs`'s `native_ready` narrows to
-# `build/link.rs::is_host_target` for exactly this reason. A macOS host asked for
-# Linux can build the artifact but not run it; a Linux host asked for macOS
-# cannot even build it; the sentence this step records is the one true of both.
-#
-# The middle steps need the same platform for a different reason: `browser`
-# admits only JS, so any native platform is one the target does not admit, and
-# whichever the harness picks is a platform the diagnostic has to name.
+# `NATIVE` runs on this machine's own variant, so the platform the diagnostic
+# names is `native` on every host.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "test { platforms: [...] } runs the suite once per platform; a platform the target does not admit is an error rather than a skip"
+doc: "test { backends: [...] } runs the suite once per backend; a backend the target does not admit is an error rather than a skip"
 
 run {
   args: ["test", "//lib/codec", "--force"]
@@ -40,13 +20,13 @@ run {
   stream: OUT
 }
 
-# A native platform is not in `browser`'s whitelist, so it is not the suite's to
-# ask for. The diagnostic is the target's, because the restriction is the
+# `NATIVE` is not in `browser`'s whitelist, so it is not the suite's to ask
+# for. The diagnostic is the target's, because the restriction is the
 # target's.
 edit {
   file: "lib/codec/BUILD.buri"
-  replace: "platforms: [JS]"
-  with: "platforms: [JS, {{CROSS_PLATFORM_PROTO}}]"
+  replace: "backends: [JS]"
+  with: "backends: [JS, NATIVE]"
 }
 
 run {
@@ -63,23 +43,16 @@ run {
   stream: ERR
 }
 
-# Now the tag admits it and the toolchain does not, which is a different
-# sentence and a different fix.
+# Now the tag admits it, and the suite runs on both backends.
 edit {
   file: "lib/codec/BUILD.buri"
   replace: "    tags: [\"browser\"]\n"
   with: ""
 }
 
-edit {
-  file: "lib/codec/BUILD.buri"
-  replace: "platforms: [JS, {{CROSS_PLATFORM_PROTO}}]"
-  with: "platforms: [{{CROSS_PLATFORM_PROTO}}]"
-}
-
 run {
   args: ["test", "//lib/codec", "--force"]
-  exit: 1
-  golden: "not_implemented.txt"
-  stream: ERR
+  exit: 0
+  golden: "both.txt"
+  stream: OUT
 }

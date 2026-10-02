@@ -3,6 +3,6 @@
 # environment and a real process table.
 binary {
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
 }

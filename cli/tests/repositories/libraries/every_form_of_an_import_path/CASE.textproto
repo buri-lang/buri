@@ -36,7 +36,7 @@
 doc: "every shape of module path in one repository that builds, and the two ways a path that names a file can still name nothing"
 
 run {
-  args: ["build", "//...", "--output=js"]
+  args: ["build", "//...", "--output=node"]
   exit: 0
 }
 
@@ -54,7 +54,7 @@ edit {
 }
 
 run {
-  args: ["build", "//cmd/app", "--output=js"]
+  args: ["build", "//cmd/app", "--output=node"]
   exit: 1
   golden: "no_such_file.txt"
 }
@@ -69,7 +69,7 @@ edit {
 }
 
 run {
-  args: ["build", "//cmd/app", "--output=js"]
+  args: ["build", "//cmd/app", "--output=node"]
   exit: 1
   golden: "no_such_surface.txt"
 }

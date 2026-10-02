@@ -11,7 +11,7 @@ tag {
     }
 
     requires {
-        platforms: [LINUX, MACOS]
+        backends: [NATIVE]
     }
 }
 
@@ -25,6 +25,6 @@ tag {
     doc: "runs in a web page, and nowhere else"
 
     requires {
-        platforms: [JS]
+        backends: [JS]
     }
 }

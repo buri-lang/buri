@@ -12,6 +12,6 @@ library {
 binary {
     sources: ["flags.buri"]
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
 }

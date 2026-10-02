@@ -1,5 +1,5 @@
 binary {
     outputs: [
-        { platform: MACOS, arch: ARM64 },
+        { platform: "native", variant: "macos-arm64" },
     ]
 }

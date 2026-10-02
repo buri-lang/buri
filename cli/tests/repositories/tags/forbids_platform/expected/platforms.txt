@@ -1,4 +1,1 @@
-linux
-macos
-web
-cloudflare-worker
+native

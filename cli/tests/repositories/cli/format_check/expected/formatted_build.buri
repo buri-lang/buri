@@ -2,6 +2,6 @@
 binary {
     dependencies: []
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
 }

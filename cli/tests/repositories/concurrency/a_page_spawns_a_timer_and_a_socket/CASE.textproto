@@ -4,7 +4,7 @@
 # binary and runs it.
 #
 # The conformance corpus holds `scope` and `spawn`'s semantics and holds them on
-# every backend, and its build file says `platforms: [JS]` so that the reference
+# every backend, and its build file says `backends: [JS]` so that the reference
 # run stays the reference one. What it cannot say is what a person gets: a
 # package that exposes a `run` and cannot spawn it, an application that can, and
 # one command. That is this case.

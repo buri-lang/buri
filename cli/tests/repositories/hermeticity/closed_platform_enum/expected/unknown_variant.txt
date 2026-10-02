@@ -1,0 +1,18 @@
+error: `linux-riscv` is not a variant of `native` [no-such-platform-variant]
+ --> cmd/ok/BUILD.buri:3:40
+  |
+3 |         { platform: "native", variant: "linux-riscv" },
+  |                                        ^^^^^^^^^^^^^
+  |
+  = fix: the variants are linux-arm64, linux-x86_64, macos-arm64, macos-x86_64
+
+      binary {
+          outputs: [
+              { platform: "native", variant: "linux-x86_64" },
+          ]
+      }
+
+    native's variants are linux-arm64, linux-x86_64, macos-arm64 and
+    macos-x86_64. node and web have none, so an output of either names no
+    variant.
+

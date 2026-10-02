@@ -51,10 +51,10 @@ cmd/
     routes.buri
     test/
       routes.buri
-  web/                        //cmd/web           one JS output
+  web/                        //cmd/web           one `node` output
     BUILD.buri
     main.buri
-  basket/                     //cmd/basket        one WEB output: a page
+  basket/                     //cmd/basket        one `web` output: a page
     BUILD.buri
     main.buri
     model.buri
@@ -128,7 +128,7 @@ which is what an untagged library is *for*.
 | [`lib/kit/card.buri`](./lib/kit/card.buri) | Components as plain functions of no context at all, the static style tier, and the one place the computed tier earns its keep |
 | [`cmd/server/main.buri`](./cmd/server/main.buri) | The effect budget as the context `main` builds, and re-exporting for the test suite |
 | [`cmd/web/BUILD.buri`](./cmd/web/BUILD.buri) | The tag error, spelled out, and why dropping the tag does not avoid it |
-| [`cmd/basket/BUILD.buri`](./cmd/basket/BUILD.buri) | Why `platform: WEB` is a different set of effects rather than a flag on a JavaScript output, and the three files it writes |
+| [`cmd/basket/BUILD.buri`](./cmd/basket/BUILD.buri) | Why `platform: "web"` is a different set of effects rather than a flag on a JavaScript output, and the three files it writes |
 | [`cmd/basket/main.buri`](./cmd/basket/main.buri) | A page's effect budget, and one theme per package whose tokens the program uses |
 | [`cmd/basket/theme.buri`](./cmd/basket/theme.buri) | The contract between a library's tokens and an app, as a `match` that stops compiling |
 | [`cmd/basket/view.buri`](./cmd/basket/view.buri) | Which of the three reactive constructors to reach for, and what each one re-runs |
@@ -156,7 +156,7 @@ which is what an untagged library is *for*.
   between the two builds is visible in those two files.
 - **Then compare all three `main.buri`s at once.** `//cmd/server` binds `FileSystem`
   and `Environment`, `//cmd/web` binds neither, and `//cmd/basket` binds `Ui` and
-  `Watch`, which `core/host` exports under `platform: WEB` and under no other —
+  `Watch`, which `core/host` exports under `platform: "web"` and under no other —
   plus `Network`, which every platform grants. None of the three would build for
   either of the others' outputs, and the error lands on the line that asked for
   the effect.
@@ -164,7 +164,7 @@ which is what an untagged library is *for*.
   a name //lib/kit chose. `cmd/basket/theme.buri` says it is worth this app's
   `Shade.Raised`; `day` and `night` say what *that* is worth; and `main.buri`
   hands both mappings to `mount`. Three files, one chain, resolved once.
-- **Notice how few `platforms` fields there are.** Two, both inside a `test`
+- **Notice how few `backends` fields there are.** Two, both inside a `test`
   block, and both saying where a *suite* runs rather than what a library
   supports — a suite that renders a tree needs the reactive graph, a
   JavaScript-backend intrinsic. No library or binary rule names a platform at
@@ -195,7 +195,7 @@ A component is an ordinary function returning a value. It takes no context, no
 allocator and no authority, because building a tree is fixed-size construction —
 so a component cannot do anything, and there is nothing to mock:
 
-```buri package=//cmd/basket platform=WEB
+```buri package=//cmd/basket platform=web
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { Signal };
@@ -227,7 +227,7 @@ fn runningTotal<C>(lines: Signal<[Entry]>): Node<C> {
 A library that uses design tokens declares its own closed vocabulary and styles
 itself against that. The app closes the loop with one `match`:
 
-```buri package=//cmd/basket platform=WEB
+```buri package=//cmd/basket platform=web
 from "ui/style" import { Color };
 from "ui/theme" import { Theme };
 from "//lib/kit" import { themed, Token };
@@ -252,7 +252,7 @@ That `match` is the whole contract, and the language checks it by not compiling.
 Leave a token out, and the day //lib/kit adds a fifth one is the day this stops
 building — the only moment the omission is still cheap to fix:
 
-```buri fail code=match-not-exhaustive package=//cmd/basket platform=WEB
+```buri fail code=match-not-exhaustive package=//cmd/basket platform=web
 from "ui/style" import { Color };
 from "//lib/kit" import { Token };
 

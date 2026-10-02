@@ -5,6 +5,6 @@ tag {
     doc: "wraps the old storage driver, which has no JavaScript port"
 
     forbids {
-        platforms: [JS]
+        backends: [JS]
     }
 }

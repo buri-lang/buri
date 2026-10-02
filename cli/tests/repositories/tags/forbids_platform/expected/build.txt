@@ -1,10 +1,10 @@
-error: //cmd/transitive cannot be built for js [platform-violation]
+error: //cmd/transitive cannot be built for node [platform-violation]
  --> cmd/transitive/BUILD.buri:4:9
   |
-4 |         { platform: JS },
-  |         ^^^^^^^^^^^^^^^^
+4 |         { platform: "node" },
+  |         ^^^^^^^^^^^^^^^^^^^^
   |
-  = //lib/driver is tagged "legacy", which forbids js
+  = //lib/driver is tagged "legacy", which forbids JS
   = reached by: //cmd/transitive -> //lib/store -> //lib/driver
   = "legacy": wraps the old storage driver, which has no JavaScript port
-  = fix: drop the js output, or take JS out of the tag's `forbids { platforms }` in REPO.buri
+  = fix: drop the node output, or take JS out of the tag's `forbids` in REPO.buri

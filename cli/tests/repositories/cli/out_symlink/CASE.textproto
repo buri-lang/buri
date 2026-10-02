@@ -4,7 +4,7 @@
 # built without typing `.buri/out/<platform>`.
 #
 # The honest boundary: this toolchain emits JavaScript and nothing else, so
-# every build produces `.buri/out/js` and "most recent" has one possible
+# every build produces `.buri/out/node` and "most recent" has one possible
 # answer. What is pinned here is everything that can be: the link exists, it is
 # a link rather than a directory, it names the platform directory relatively,
 # both artifacts are reachable through it, and a build after the link is
@@ -24,7 +24,7 @@ run {
 
 path {
   path: "out"
-  symlink: ".buri/out/js"
+  symlink: ".buri/out/node"
 }
 
 path {
@@ -40,7 +40,7 @@ run {
 
 path {
   path: "out"
-  symlink: ".buri/out/js"
+  symlink: ".buri/out/node"
 }
 
 path {
@@ -70,5 +70,5 @@ run {
 
 path {
   path: "out"
-  symlink: ".buri/out/js"
+  symlink: ".buri/out/node"
 }

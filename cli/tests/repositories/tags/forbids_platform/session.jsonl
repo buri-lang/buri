@@ -2,6 +2,6 @@
 # and turns `<scratch>` into wherever the copy of repo/ landed.
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"rootUri":"file://<scratch>"}}
 {"jsonrpc":"2.0","method":"initialized","params":{}}
-{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file://<scratch>/cmd/transitive/BUILD.buri","languageId":"buri","version":1,"text":"binary {\n    dependencies: [\"//lib/store\"]\n    outputs: [\n        { platform: JS },\n    ]\n}\n"}}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file://<scratch>/cmd/transitive/BUILD.buri","languageId":"buri","version":1,"text":"binary {\n    dependencies: [\"//lib/store\"]\n    outputs: [\n        { platform: \"node\" },\n    ]\n}\n"}}}
 {"jsonrpc":"2.0","id":2,"method":"shutdown"}
 {"jsonrpc":"2.0","method":"exit"}

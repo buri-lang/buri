@@ -2,10 +2,10 @@ binary {
     dependencies: ["//lib/wire"]
 
     outputs: [
-        { platform: JS },
-        { platform: WEB },
-        { platform: CLOUDFLARE_WORKER, entry: "handle" },
-        { platform: LINUX },
-        { platform: MACOS },
+        { platform: "node" },
+        { platform: "web" },
+        { platform: CLOUDFLARE_WORKER, entries { fetch: "handle" } },
+        { platform: "native", variant: "linux-x86_64" },
+        { platform: "native", variant: "macos-arm64" },
     ]
 }

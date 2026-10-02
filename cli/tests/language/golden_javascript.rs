@@ -473,14 +473,14 @@ export fn main(): Result<(), Str> {
     // stalled process missed, so a loaded machine legitimately shows one where
     // an idle one shows thirty. A blocking sleep shows none, ever.
     scratch.write(
-        ".buri/out/js/cmd/x/probe.mjs",
+        ".buri/out/node/cmd/x/probe.mjs",
         "let ticks = 0;\n\
          const beat = setInterval(() => { ticks += 1; }, 10);\n\
          await import(\"./x.mjs\");\n\
          clearInterval(beat);\n\
          console.log(\"ticks \" + ticks);\n",
     );
-    let probe = scratch.path(".buri/out/js/cmd/x/probe.mjs");
+    let probe = scratch.path(".buri/out/node/cmd/x/probe.mjs");
     let out = std::process::Command::new(js_runtime())
         .arg(&probe)
         .output()

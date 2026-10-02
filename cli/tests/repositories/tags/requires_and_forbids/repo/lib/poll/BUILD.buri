@@ -1,6 +1,6 @@
 library {
     sources: ["m.buri"]
-    tags: ["epoll"]
-    platforms: [LINUX, MACOS]
+    tags: ["headless"]
+    backends: [JS]
     visibility: ["//visibility:public"]
 }

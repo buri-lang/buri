@@ -7,6 +7,6 @@ library {
         # The reference run, on the reference backend: `native::conformance`
         # drives this same file through the copy-and-patch backend
         # (cli/tests/README.md).
-        platforms: [JS]
+        backends: [JS]
     }
 }
