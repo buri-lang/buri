@@ -255,6 +255,17 @@ unsafe fn is_arena(h: *const Header) -> bool {
     unsafe { (*h).cap & BURI_RT_CAP_ARENA != 0 }
 }
 
+/// Whether the block at payload pointer `p` was served out of a scoped arena,
+/// for `scalars.rs`, which keeps no index of a block whose pages can go back
+/// without a free.
+///
+/// # Safety
+/// `p` is a live payload pointer.
+pub(crate) unsafe fn in_arena(p: *mut u8) -> bool {
+    // SAFETY: the caller promises a live payload pointer.
+    unsafe { is_arena(header(p)) }
+}
+
 /// Whether `h`'s block carries [`BURI_RT_CAP_SHARED`] — the G2 fork.
 ///
 /// True for **every** block of a program whose artifact said its values may
@@ -1084,6 +1095,9 @@ pub unsafe extern "C" fn buri_rt_realloc(p: *mut u8, payload: u64) -> *mut u8 {
     if unsafe { is_quarantined(p) } {
         heap_use_after_free(b"realloc");
     }
+    // The block is about to move or grow, so an index of its bytes would be
+    // about a block that is gone (`scalars.rs`).
+    crate::scalars::forget(p);
     // SAFETY: the caller promises a live payload pointer.
     let (old_cap, rc, flags) = unsafe {
         let h = header(p);
@@ -1193,6 +1207,9 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
     LIVE_BLOCKS.fetch_sub(1, Ordering::Relaxed);
     LIVE_BYTES.fetch_sub(cap, Ordering::Relaxed);
     trace_free(p);
+    // Before the address can be handed to another block: an index of this
+    // block's bytes must not answer for the next one's (`scalars.rs`).
+    crate::scalars::forget(p);
     // G5: a block a scope served is not the platform allocator's, and it is not
     // this thread's cache's either. The accounting above has already run — so
     // the block is not live and is not a leak — and the pages under it go back

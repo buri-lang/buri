@@ -6455,6 +6455,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 .build_in_bounds_gep(self.ctx.i8_type(), a_ptr, &[a_len], "cat.end")
                 .unwrap_or(a_ptr)
         };
+        // The write can land on bytes a longer, dead view of this block was
+        // indexed over, so the runtime drops any index of the block first
+        // (`cli/runtime/scalars.rs`). `buri_rt_str_concat`, which the
+        // copy-and-patch backend calls instead, does the same.
+        let ptr_ty = self.ptr_ty();
+        let written = self.declare_rt(runtime::STR_WRITTEN, &[ptr_ty.into()], None);
+        if let Ok(call) = self.builder.build_call(written, &[a_base.into()], "") {
+            attrs::set_call_convention(call, attrs::C);
+        }
         let _ = self.builder.build_memmove(at, 1, b_ptr, 1, b_len);
         self.incref_pointer(state, a_base, Counted::NonNull);
         // Both halves of MEMORY.md §5.3 write through `a_base`, which is
