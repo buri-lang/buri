@@ -1736,3 +1736,118 @@ test "fromFloatFixed asked for many digits, and for a whole number" {
     assert.equal(str.fromFloatFixed(ctx, 100.0, 2), "100.00");
     assert.equal(str.fromFloatFixed(ctx, 0.001, 2), "0.00");
 }
+
+// --- Scalar indices into long strings ---------------------------------------------
+
+// Every case above indexes a short literal. These index strings built at run
+// time and long enough that a native runtime keeps a table of where their
+// scalars start rather than counting from the front, and every index is checked
+// against `chars`, which counts from the front by construction.
+
+test "a long mixed string answers charAt and slice at every index" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // One, two, four and three UTF-8 bytes, a hundred times over.
+    let text = "aé😀語".repeat(ctx, 100);
+    let cs = text.chars(ctx);
+    assert.equal(text.length(), 400);
+    assert.equal(cs.length(), 400);
+    let indices = list.range(ctx, 0, 400);
+    assert.isTrue(indices.all(fn(i) => text.charAt(i) == cs.get(i)));
+    assert.isTrue(indices.all(fn(i) => text.slice(i, i + 1).charAt(0) == cs.get(i)));
+    assert.isTrue(indices.all(fn(i) => text.slice(i, i + 1).length() == 1));
+    assert.isTrue(indices.all(fn(i) => text.slice(0, i).length() == i));
+    assert.isTrue(indices.all(fn(i) => text.slice(i, 400).length() == 400 - i));
+    assert.isTrue(indices.all(fn(i) => text.slice(i, 999).charAt(0) == cs.get(i)));
+}
+
+test "a long mixed string clamps every out-of-range index" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = "aé😀語".repeat(ctx, 100);
+    assert.none(text.charAt(400));
+    assert.none(text.charAt(4000));
+    assert.none(text.charAt(-1));
+    assert.equal(text.slice(398, 999), "😀語");
+    assert.equal(text.slice(-5, 2), "aé");
+    assert.equal(text.slice(5, 3), "");
+    assert.equal(text.slice(400, 401), "");
+    assert.equal(text.slice(-3, -1), "");
+    assert.equal(text.slice(0, 400), text);
+}
+
+test "a long mixed string answers indexOf in scalars" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = "aé😀語".repeat(ctx, 100).concat(ctx, "end");
+    assert.equal(assert.some(text.indexOf("a")), 0);
+    assert.equal(assert.some(text.indexOf("語a")), 3);
+    assert.equal(assert.some(text.indexOf("😀")), 2);
+    assert.equal(assert.some(text.indexOf("end")), 400);
+    assert.equal(assert.some(text.indexOfFrom("😀", 300)), 302);
+    assert.equal(assert.some(text.indexOfFrom("e", 397)), 400);
+    assert.none(text.indexOf("x"));
+    assert.equal(assert.some(text.lastIndexOf("語")), 399);
+}
+
+test "a slice of a long string indexes from its own start" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = "aé😀語".repeat(ctx, 100);
+    let inner = text.slice(101, 350);
+    assert.equal(inner.length(), 249);
+    assert.equal(assert.some(inner.charAt(0)), 'é');
+    assert.equal(assert.some(inner.charAt(248)), assert.some(text.charAt(349)));
+    assert.none(inner.charAt(249));
+    assert.equal(inner.slice(10, 13), text.slice(111, 114));
+    assert.equal(assert.some(inner.indexOf("a")), 3);
+    let innermost = inner.slice(3, 200);
+    assert.equal(assert.some(innermost.charAt(0)), 'a');
+    assert.equal(innermost.length(), 197);
+    assert.equal(innermost.slice(0, 4), "aé😀語");
+}
+
+test "a long ASCII string is indexed the same way" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = "abc".repeat(ctx, 200);
+    assert.equal(assert.some(text.charAt(599)), 'c');
+    assert.none(text.charAt(600));
+    assert.equal(text.slice(299, 303), "cabc");
+    assert.equal(assert.some(text.indexOf("cab")), 2);
+}
+
+// A string built onto a short slice of a longer one can reuse the longer one's
+// bytes. Whatever a runtime knew about those bytes is about the old text.
+test "a string grown from a slice of a long one reads its own scalars" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let grown = grownFromPrefix(ctx);
+    assert.equal(grown.length(), 310);
+    assert.equal(assert.some(grown.charAt(9)), 'é');
+    assert.equal(assert.some(grown.charAt(10)), 'a');
+    assert.equal(assert.some(grown.charAt(11)), 'b');
+    assert.equal(grown.slice(10, 13), "abc");
+    assert.equal(grown.slice(307, 310), "abc");
+    assert.equal(assert.some(grown.indexOf("c")), 12);
+}
+
+fn grownFromPrefix<C: Allocator>(ctx: C): Str {
+    let prefix = longPrefix(ctx);
+    prefix.concat(ctx, "abc".repeat(ctx, 100))
+}
+
+fn longPrefix<C: Allocator>(ctx: C): Str {
+    let long = "é".repeat(ctx, 300);
+    // Asked about at its far end, so the whole of it has been read.
+    match (long.charAt(299)) {
+        .Some(_c) => long.slice(0, 10),
+        .None => "",
+    }
+}

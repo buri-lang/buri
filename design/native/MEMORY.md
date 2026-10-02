@@ -371,6 +371,11 @@ optimizing are the two that build the first two, and both are done:
   the capacity test allowing for a view that starts inside its block:
   `(ptr - base) + alen + blen <= cap`. A template of *k* holes, or a fold that
   concatenates, is the shape this turns from O(k) allocations into O(log k).
+  The in-place arm can write over bytes a longer, now-dead view of the block
+  put there, so before it writes it drops any scalar index the runtime keeps
+  of the block (VALUE-MODEL.md §3.1): `buri_rt_str_concat` calls
+  `scalars::forget`, and the release backend's open-coded arm calls
+  `buri_rt_str_written`.
 
   Two implementations rather than the list's one, because `str.concat` is
   **open-coded** where a backend can afford it. The release backend emits the
@@ -502,6 +507,13 @@ the same 16 bytes, `cap` means the same thing, §5.3's in-place reuse test
 reads the same field, and §7's cost model is **defined** rather than measured,
 so not one number a program can see moves when the free lists land. That makes
 the allocator replaceable under a green test suite.
+
+`buri_rt_free` and `buri_rt_realloc` each read four more words before they do
+anything else: the keys of the scalar indices `cli/runtime/scalars.rs` keeps
+of long non-ASCII strings (VALUE-MODEL.md §3.1). A block whose address is one
+of them has its index dropped under that file's lock, so a reused address is
+never answered from the last block's bytes. Every other block pays four relaxed
+loads and four compares.
 
 What it costs until then: an allocation that misses the per-thread cache
 (below) is a `malloc` call rather than six
