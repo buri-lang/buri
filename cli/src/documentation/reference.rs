@@ -777,7 +777,7 @@ mod tests {
         let (_, len) = find_item(&modules, "core/list.length").expect("core/list.length");
         assert!(len.api.effects().is_empty(), "len is pure");
 
-        let (_, alloc) = find_item(&modules, "core/effect.Allocator").expect("core/effect.Allocator");
+        let (_, alloc) = find_item(&modules, "platform/effect.Allocator").expect("platform/effect.Allocator");
         assert_eq!(alloc.kind(), ItemKind::Effect);
         assert!(alloc.api.members().iter().any(|m| m.name == "allocate"));
     }

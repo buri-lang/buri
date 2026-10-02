@@ -4,8 +4,8 @@
 // Resting state throughout: no style here is inside an `On`, so the
 // state a snapshot is taken in contributes nothing to any of them.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/testing" import { headless, snapshot };
 from "//lib/sweep" import {

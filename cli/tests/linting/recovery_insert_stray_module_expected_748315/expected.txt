@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_module_expected_748315/main.buri:18:1
+   |
+18 | @ }
+   | ^
+   |
+  --> lib/recovery_insert_stray_module_expected_748315/main.buri:16:41
+   |
+16 | fn width<C: Allocator>(label: Str): Int {
+   |                                         ^ opened here
+   |
+   = fix: write `}` here

@@ -4,14 +4,14 @@
 // state is a `Signal<Bool>` the platform writes back and not a `Prop` the
 // program alone controls. This is `dialog`'s rule for the same reason: a `Prop`
 // would leave the program's idea of the section behind the reader's.
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/prop" import { Prop };
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let open: Prop<Bool> = .Const(true);
   ui.mount(ctx, ui.disclosure({ summary: .Const("Details"), isOpen: open, children: [], styles: [] }), [])

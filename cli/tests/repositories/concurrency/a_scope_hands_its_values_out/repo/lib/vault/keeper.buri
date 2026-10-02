@@ -3,7 +3,7 @@
 // a gamble.
 
 from "core/actor" import { Actor, Stepped };
-from "core/effect" import { Allocator, Tasks };
+from "platform/effect" import { Allocator, Tasks };
 
 /// Bigger than one standard arena block, so a value this long is given a
 /// mapping of its own and that mapping is unmapped rather than pooled.

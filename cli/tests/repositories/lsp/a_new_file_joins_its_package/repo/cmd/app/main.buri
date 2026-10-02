@@ -1,7 +1,8 @@
+from "native" import { NativeHost };
 from "//cmd/app" import { helper };
 from "//lib/counter" import { counter, Tally };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let _ = counter(Tally { total: helper() });
     .Ok(())
 }

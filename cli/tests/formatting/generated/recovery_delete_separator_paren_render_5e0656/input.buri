@@ -5,9 +5,9 @@
 // library, declared in `test.dependencies`, that no production target can
 // import because its path contains a `testing` segment.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "//lib/ledger/testing" import { oneOff, sample };
 from "//tools/report" import { render };
 
@@ -15,7 +15,7 @@ test "the terse report is one line" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(render(ctx, oneOff() false), "\ntotal $4.50");
+    assert.equal(render(ctx oneOff(), false), "\ntotal $4.50");
 }
 
 test "verbose lists every entry" {

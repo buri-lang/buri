@@ -1,0 +1,11 @@
+// EXPECT: `main` takes `NativeHost`, and the node platform hands its entry a `NodeHost`
+//
+// A host type is one platform's list of effects, so an entry built for node
+// takes `NodeHost` and nothing else — even a host with more in it.
+//
+// No `// PLATFORM:` line, so the corpus builds this for node.
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
+  .Ok(())
+}

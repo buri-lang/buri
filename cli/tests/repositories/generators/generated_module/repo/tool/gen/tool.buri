@@ -6,9 +6,9 @@
 //! all, which lands on the `generators` entry instead.
 
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Allocator };
 from "core/str" import * as str;
 from "core/tool" import { Diagnostic, Generated, GenerateRequest, Input };
+from "platform/effect" import { Allocator };
 
 export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
     let items = request.inputs.mapCtx(ctx, fn(c, i) => itemsOf(c, i)).flatten(ctx);

@@ -1,9 +1,10 @@
+from "core/list" import * as list;
+
 /// An accumulator folded one word at a time.
 ///
 /// The shape `core/cli`'s own parser is written in: each word is added through
 /// a `..acc` update whose new list is grown out of the field it replaces.
-from "core/effect" import { Allocator };
-from "core/list" import * as list;
+from "platform/effect" import { Allocator };
 
 /// The words seen so far, and the last of them.
 export struct Ledger {

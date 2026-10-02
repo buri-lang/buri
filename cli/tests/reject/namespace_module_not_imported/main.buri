@@ -6,11 +6,11 @@
 // import put the namespace there. `FileSystemRead` is imported *by name*, which binds
 // a type and not a namespace, so `fs` is still unbound; the did-you-mean note
 // names whatever is nearest in scope and is not what this case pins.
-from "core/effect" import { Allocator, Stdout };
+from "platform/effect" import { Allocator, Stdout };
 from "core/fs" import { FileSystemRead };
-from "core/host" import * as host;
+from "node" import { NodeHost };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, FileSystemRead: host.fs };
   let _ = fs.readText(ctx, "wal");
   .Ok(())

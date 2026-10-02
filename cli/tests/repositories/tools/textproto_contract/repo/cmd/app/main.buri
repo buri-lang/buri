@@ -1,9 +1,9 @@
-from "core/effect" import { Stdout };
-from "core/host" import * as host;
 from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Stdout };
 from "//lib/routes" import { shown, table };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
     let ctx = context {
         Stdout: host.stdout,
     };

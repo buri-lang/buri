@@ -1,8 +1,9 @@
 // The shelf edge, written so that every colour this server can produce
 // appears at least once.
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+
 from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
 from "//lib/shop" import { Item, listing, Stock };
 
 /* A block comment sits in the gap between two tokens, so it is read from the
@@ -24,7 +25,7 @@ fn first<A, B>(pair: (A, B)): A {
     pair.0
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,

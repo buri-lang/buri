@@ -1,7 +1,7 @@
 error: "core/order" has no member `Ordering` [no-such-member]
- --> cmd/namespace_member_missing_for_a_variant/main.buri:8:21
+ --> cmd/namespace_member_missing_for_a_variant/main.buri:9:21
   |
-8 |   let first = order.Ordering.Less;
+9 |   let first = order.Ordering.Less;
   |                     ^^^^^^^^
   |
   = the module exports 19 names

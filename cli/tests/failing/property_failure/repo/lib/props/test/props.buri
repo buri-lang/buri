@@ -4,10 +4,10 @@
 // draws and breaks on the hundredth — which is what says the runner draws every
 // case it promised rather than stopping early.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/check" import * as check;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 
 test "a draw under a hundred is under fifty" {
     check.forAll(check.int(0, 100), fn(n) => n < 50);

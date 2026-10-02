@@ -2121,7 +2121,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         use crate::compiler::standard_library as stdlib;
         let Ty::Con(con, _) = ty else { return None };
         let tycon = self.c.tables.tycon(*con);
-        let module = self.c.loaded.module(tycon.module).path.as_str();
+        // A built-in type has no module, and is no host.
+        let module = self.c.loaded.modules.get(tycon.module.index())?.path.as_str();
         let (platform, _) = stdlib::host_type_of(module).filter(|(_, h)| *h == tycon.name)?;
         let offered: Vec<(&str, &str)> = stdlib::PLATFORMS
             .iter()

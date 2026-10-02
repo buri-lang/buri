@@ -635,7 +635,7 @@ pub fn contract_module(files: &[SchemaFile], path: &str) -> Result<Module, Vec<F
     }
     let mut w = Writer::default();
     header(&mut w, path);
-    w.line("from \"core/effect\" import { Allocator };");
+    w.line("from \"platform/effect\" import { Allocator };");
     w.line("from \"core/json\" import * as json;");
     w.line("from \"core/json\" import { Json };");
     w.line("");

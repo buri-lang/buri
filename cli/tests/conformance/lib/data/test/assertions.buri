@@ -9,14 +9,14 @@
 // A passing assertion has no value to inspect, so what each test asserts is
 // that the run *reaches the line after it*.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/map" import * as map;
 from "core/orderedmap" import * as orderedmap;
 from "core/queue" import * as queue;
 from "core/set" import * as set;
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 
 // --- contains ---------------------------------------------------------------------
 

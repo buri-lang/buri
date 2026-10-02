@@ -61,10 +61,36 @@ edit {
   with: "{ platform: \"native\", variant: \"linux-x86_64\" },"
 }
 
+# The entry takes the host of the platform it now builds for.
+edit {
+  file: "cmd/direct/main.buri"
+  replace: "from \"node\" import { NodeHost };"
+  with: "from \"native\" import { NativeHost };"
+}
+
+edit {
+  file: "cmd/direct/main.buri"
+  replace: "host: NodeHost"
+  with: "host: NativeHost"
+}
+
 edit {
   file: "cmd/transitive/BUILD.buri"
   replace: "{ platform: \"node\" },"
   with: "{ platform: \"native\", variant: \"macos-x86_64\" },"
+}
+
+# The entry takes the host of the platform it now builds for.
+edit {
+  file: "cmd/transitive/main.buri"
+  replace: "from \"node\" import { NodeHost };"
+  with: "from \"native\" import { NativeHost };"
+}
+
+edit {
+  file: "cmd/transitive/main.buri"
+  replace: "host: NodeHost"
+  with: "host: NativeHost"
 }
 
 run {

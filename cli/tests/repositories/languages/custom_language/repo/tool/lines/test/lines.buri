@@ -1,7 +1,7 @@
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "core/tool" import { CheckRequest, Input };
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "//tool/lines/tool.buri" import { check };
 
 fn request(text: Str, dictionary: Str): CheckRequest<Str> {

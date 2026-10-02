@@ -6,9 +6,9 @@
 //! for is the caret each of them draws.
 
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Allocator };
 from "core/str" import * as str;
 from "core/tool" import { Diagnostic, Generated, GenerateRequest };
+from "platform/effect" import { Allocator };
 
 export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
     let first = request.inputs.get(0).map(fn(i) => i.path).withDefault("");

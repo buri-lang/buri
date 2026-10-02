@@ -820,8 +820,8 @@ impl Workspace {
             ));
         }
         if crate::compiler::standard_library::is_std_path(path) {
-            // Canonical here too, and for the same reason: `core/effect` and
-            // `core/effect/lib.buri` are one module or they are two copies of
+            // Canonical here too, and for the same reason: `platform/effect` and
+            // `platform/effect/lib.buri` are one module or they are two copies of
             // `Allocator`. A path the library does not have keeps its spelling, so
             // that `no-such-module` quotes back what was written.
             let canonical = crate::compiler::standard_library::canonical(path).unwrap_or(path);

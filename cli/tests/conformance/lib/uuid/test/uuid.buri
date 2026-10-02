@@ -10,14 +10,14 @@
 // come out of the runtime on every backend.
 
 from "core/bytes" import * as bytes;
-from "core/effect" import { Allocator, Clock, Entropy };
-from "core/host/testing" import { alloc, clock, entropy };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
 from "core/uuid" import * as uuid;
 from "core/uuid" import { Uuid };
+from "platform/effect" import { Allocator, Clock, Entropy };
+from "platform/effect/testing" import { alloc, clock, entropy };
 
 let CANONICAL: Str = "550e8400-e29b-41d4-a716-446655440000";
 

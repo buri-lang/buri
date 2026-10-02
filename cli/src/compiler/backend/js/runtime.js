@@ -3237,7 +3237,7 @@ const $wsLive = new Map();
 let $wsNext = 1;
 
 // `Frame`'s three variants and the three `ServeFailure` causes this file
-// answers with, as the indices `core/effect` declares them in. A payloadless
+// answers with, as the indices `platform/effect` declares them in. A payloadless
 // enum is its variant index in generated code, so these are the whole of the
 // mapping.
 const $FRAME_TEXT = 0;
@@ -7581,7 +7581,7 @@ function $slot(x) {
   return $t.h[Number(x[0])];
 }
 
-// --- core/host/testing --------------------------------------------------------------
+// --- platform/effect/testing --------------------------------------------------------------
 //
 // `core/host`'s names, called rather than referred to, over the `$t.h` table:
 // one handle store, and the Buri type of the value carrying a handle says which
@@ -7800,7 +7800,7 @@ function $host_testing_spelled(b) {
 // `cli/runtime/testing.rs`'s `Slot::Plan` is the same three fields for the same
 // reason, and the two are held together by the conformance corpus.
 
-// `IoError`'s and `NetError`'s variant names, in `core/effect`'s declaration
+// `IoError`'s and `NetError`'s variant names, in `platform/effect`'s declaration
 // order — `ioCode`'s and `netCode`'s indices.
 const $ioErrors = [
   ".NotFound",
@@ -8225,7 +8225,7 @@ function $host_testing_TestSockets_socketClose(self, socket, code, reason) {
 // **Nothing here waits.** There is no timer, no promise and no deadline in any
 // of it — the script is already in hand, so answering the next message is a
 // read of an array. Both bodies are therefore plain functions, which is what
-// `core/host/testing` declares. And two `dialling(...)` calls are two
+// `platform/effect/testing` declares. And two `dialling(...)` calls are two
 // independent worlds, exactly as two `sockets()` calls are.
 function $host_testing_socketsDialling(handle, messages) {
   return $tmint({

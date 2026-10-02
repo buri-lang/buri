@@ -9,7 +9,10 @@
 //! from "native" import { NativeHost };
 //!
 //! export fn main(host: NativeHost): Result<(), Str> {
-//!     run(context { Allocator: host.alloc, Stdout: host.stdout })
+//!     run(context {
+//!         Allocator: host.alloc,
+//!         Stdout: host.stdout,
+//!     })
 //! }
 //! ```
 

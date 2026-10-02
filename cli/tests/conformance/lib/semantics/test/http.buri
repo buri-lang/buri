@@ -6,16 +6,16 @@
 // recorded `fetch` against a `Request` *value*, so equality on these types is
 // load-bearing.
 //
-// The types are declared in `core/effect`, because `effect Network`'s own signature
+// The types are declared in `platform/effect`, because `effect Network`'s own signature
 // names them, and re-exported by `core/net/http`. They are imported here
 // through the re-export, which is where a program is meant to meet them.
 
 from "core/bytes" import * as bytes;
-from "core/effect" import { Allocator, Network };
-from "core/host/testing" import { alloc, net };
 from "core/net/http" import * as http;
 from "core/net/http" import { Header, Method, NetError, Request, Response };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Network };
+from "platform/effect/testing" import { alloc, net };
 
 // -----------------------------------------------------------------------------
 // Method — seven variants, and no wire spelling anywhere in Buri

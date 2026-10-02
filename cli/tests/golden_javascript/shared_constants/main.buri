@@ -1,9 +1,10 @@
 // Constant aggregates built inside a function that runs many times. Each of
 // these used to allocate a fresh array per call for a value with no contents
 // and no identity anyone can observe.
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+
 from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
 
 enum Token {
     Blank,
@@ -46,7 +47,7 @@ fn tally(n: Int, acc: Int): Int {
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,

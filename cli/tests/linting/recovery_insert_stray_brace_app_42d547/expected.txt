@@ -1,0 +1,12 @@
+error: this context is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_app_42d547/main.buri:13:28
+   |
+13 |         Stdout: host.stdout@ ,
+   |                            ^
+   |
+  --> lib/recovery_insert_stray_brace_app_42d547/main.buri:11:23
+   |
+11 |     let ctx = context {
+   |                       ^ opened here
+   |
+   = fix: write `}` here

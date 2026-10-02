@@ -11,9 +11,9 @@ error: `Colour` has no variant `Purple` [no-such-variant]
      declaration is the list, and the diagnostic prints it.
 
 error: `Colour` has no variant `Purple` [no-such-variant]
-  --> cmd/no_such_variant_in_a_pattern_and_an_expression/main.buri:19:24
+  --> cmd/no_such_variant_in_a_pattern_and_an_expression/main.buri:21:24
    |
-19 |   let colour: Colour = .Purple;
+21 |   let colour: Colour = .Purple;
    |                        ^^^^^^^
    |
    = its variants are `Red` and `Green`

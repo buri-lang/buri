@@ -16,6 +16,8 @@ fn walk(c: Chain, n: Node): Link {
   here
 }
 
-export fn main(): Result<(), Str> {
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
   .Ok(())
 }

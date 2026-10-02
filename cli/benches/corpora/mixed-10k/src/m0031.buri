@@ -4,9 +4,9 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
+from "platform/effect" import { Allocator };
 from "//bench/m0001.buri" import { blend1, Node1, reach1, seed1 };
 from "//bench/m0003.buri" import { blend3, Node3, reach3, seed3 };
 from "//bench/m0014.buri" import { blend14, Node14, reach14, seed14 };

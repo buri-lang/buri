@@ -1,5 +1,7 @@
 // EXPECT: a tuple has arity 2 or more
-export fn main(): Result<(), Str> {
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
   let t = (1,);
   .Ok(())
 }

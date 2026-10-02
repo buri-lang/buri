@@ -5,8 +5,8 @@
 // make, and it is why the passing test sits at the bottom of this file.
 
 from "core/alloc" import * as alloc;
-from "core/effect" import { Allocator };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
 from "//lib/arith" import { leftover, push, ratio };
 
 test "division by zero" {

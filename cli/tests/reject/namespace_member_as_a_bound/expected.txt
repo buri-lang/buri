@@ -1,7 +1,7 @@
 error: "core/order" has no member `Comparable` [no-such-member]
- --> cmd/namespace_member_as_a_bound/main.buri:7:15
+ --> cmd/namespace_member_as_a_bound/main.buri:8:15
   |
-7 | fn biggest<T: order.Comparable>(a: T, b: T): T { a }
+8 | fn biggest<T: order.Comparable>(a: T, b: T): T { a }
   |               ^^^^^^^^^^^^^^^^
   |
   = the module exports 19 names

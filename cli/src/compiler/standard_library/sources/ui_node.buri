@@ -33,8 +33,8 @@
 
 from "core/alloc" import * as alloc;
 from "core/bytes" import * as bytes;
-from "core/effect" import { Allocator };
 from "core/str" import * as str;
+from "platform/effect" import { Allocator };
 from "ui/effect" import { Event, Scope, Ui };
 from "ui/prop" import { Prop };
 from "ui/signal" import { Signal };

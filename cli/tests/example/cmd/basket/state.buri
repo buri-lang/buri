@@ -6,9 +6,9 @@
 // one. The authority arrives as a parameter, every time, and that split is what
 // the rest of this package is shaped around.
 
-from "core/effect" import { Allocator, NetError, Network, Response };
 from "core/net/http" import * as http;
 from "core/str" import * as str;
+from "platform/effect" import { Allocator, NetError, Network, Response };
 from "ui/effect" import { Ui, Watch };
 from "ui/signal" import { Signal, signal };
 from "//cmd/basket/model.buri" import { draft, entriesFrom, flip, LEDGER_URL };

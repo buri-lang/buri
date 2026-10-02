@@ -1,4 +1,4 @@
-# `core/host/testing`'s `.faults([...])` is a fixture *and* a promise: success
+# `platform/effect/testing`'s `.faults([...])` is a fixture *and* a promise: success
 # comes from the environment, failure comes from the plan, and **a fault whose
 # call never happens fails the test**. A plan is a claim about what the code
 # under test does, and a claim nothing exercised is one the next change to that

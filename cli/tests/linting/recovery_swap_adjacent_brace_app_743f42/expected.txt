@@ -1,0 +1,37 @@
+warning: this is `order.int`, written out [hand-rolled-comparator]
+  --> lib/recovery_swap_adjacent_brace_app_743f42/main.buri:20:4
+   |
+20 | fn compareInts(left: Int, right: Int): Order {
+   |    ^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ordered` impl both take
+   = fix: call `order.int` with the two operands, and delete the chain
+warning: this is `order.bool`, written out [hand-rolled-comparator]
+  --> lib/recovery_swap_adjacent_brace_app_743f42/main.buri:24:4
+   |
+24 | fn compareBools(left: Bool, right: Bool): Order {
+   |    ^^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ordered` impl both take
+   = fix: call `order.bool` with the two operands, and delete the chain
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_app_743f42/main.buri:38:32
+   |
+38 |         if (math.isNan(right){ ) .Equal } else { .Greater }
+   |                                ^
+   |
+  --> lib/recovery_swap_adjacent_brace_app_743f42/main.buri:38:30
+   |
+38 |         if (math.isNan(right){ ) .Equal } else { .Greater }
+   |                              ^ opened here
+   |
+   = fix: write `}` here
+error: expected `{`, found `.` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_743f42/main.buri:38:34
+   |
+38 |         if (math.isNan(right){ ) .Equal } else { .Greater }
+   |                                  ^
+   |
+   = expected: `{`
+   = actual: `.`
+   = fix: write `{` here

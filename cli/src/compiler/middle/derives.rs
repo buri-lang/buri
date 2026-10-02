@@ -2267,14 +2267,14 @@ mod tests {
     }
 
     const POINT: &str = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 struct P { x: Int, y: Str }
 derive Equal, Ordered, Show, Hash for P;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a = P { x: 1, y: "a" };
   let b = P { x: 2, y: "b" };
@@ -2537,8 +2537,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn one_joiner_serves_every_shape_of_the_same_width() {
         let src = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 struct A { x: Int, y: Int }
@@ -2546,7 +2546,7 @@ struct B { p: Int, q: Int }
 derive Show for A;
 derive Show for B;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, A { x: 1, y: 2 }.show(ctx)).ignore();
   let _ = io.println(ctx, B { p: 3, q: 4 }.show(ctx)).ignore();
@@ -2580,14 +2580,14 @@ export fn main(): Result<(), Str> {
     #[test]
     fn an_enum_is_a_match_on_the_tag() {
         let src = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 enum Shape { Dot, Line(Int, Int) }
 derive Equal, Show for Shape;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a = Shape.Line(1, 2);
   let _ = io.println(ctx, "${a == .Dot}").ignore();
@@ -2620,14 +2620,14 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_list_is_the_element_function_and_a_helper() {
         let src = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 struct P { x: Int }
 derive Equal, Show for P;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let xs = [P { x: 1 }];
   let _ = io.println(ctx, "${xs == [P { x: 2 }]}").ignore();
@@ -2648,8 +2648,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn layout_identical_types_share_the_operations_that_read_no_names() {
         let src = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 struct Meters { v: Int }
@@ -2657,7 +2657,7 @@ struct Seconds { v: Int }
 derive Equal, Show for Meters;
 derive Equal, Show for Seconds;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a = Meters { v: 1 };
   let b = Seconds { v: 1 };
@@ -2685,14 +2685,14 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_recursive_type_generates_a_recursive_function() {
         let src = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 enum Rose { Leaf(Int), Node([Rose]) }
 derive Equal for Rose;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a = Rose.Node([Rose.Leaf(1)]);
   let _ = io.println(ctx, "${a == Rose.Leaf(2)}").ignore();
@@ -2724,8 +2724,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn from_json_is_recorded_as_a_seam() {
         let src = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/json" import { DecodeError, ToJson, FromJson };
 from "core/json" import * as json;
@@ -2733,7 +2733,7 @@ from "core/json" import * as json;
 struct P { x: Int }
 derive Equal, ToJson, FromJson for P;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let p = P { x: 1 };
   let back: Result<P, DecodeError> = json.decode(ctx, json.encode(ctx, p));
@@ -2760,8 +2760,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_call_site_inside_a_loop_is_rewritten_too() {
         let src = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 struct P { x: Int }
@@ -2777,7 +2777,7 @@ export fn seek(n: Int, needle: P): Int {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${seek(3, P { x: 2 })}").ignore();
   .Ok(())

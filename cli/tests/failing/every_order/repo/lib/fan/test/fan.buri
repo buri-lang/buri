@@ -6,11 +6,11 @@
 // fails it on the way out; and the block that asks for a seventh task's worth of
 // orders is refused before it runs, so it never reaches an assertion at all.
 
-from "core/effect" import { Allocator, Tasks };
-from "core/host/testing" import { alloc, task, tasks };
 from "core/tasks" import * as tasks;
 from "core/tasks" import { Scope };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Tasks };
+from "platform/effect/testing" import { alloc, task, tasks };
 from "//lib/fan" import { labelled };
 
 test "everyOrder reaches the sixth order of three tasks" {

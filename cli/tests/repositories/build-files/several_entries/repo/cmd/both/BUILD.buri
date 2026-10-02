@@ -1,6 +1,6 @@
 binary {
     outputs: [
         { platform: "web" },
-        { platform: "node" },
+        { platform: "node", entries { main: "mainForNode" } },
     ]
 }

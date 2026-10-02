@@ -6,9 +6,9 @@
 // the other five states', and the resting document carries no state class at
 // all.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/testing" import { headless, snapshot };

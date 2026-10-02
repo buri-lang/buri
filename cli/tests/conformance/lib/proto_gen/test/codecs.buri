@@ -2,9 +2,9 @@
 // and the imports that make them resolve.
 
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "//lib/proto_gen" import { block, generatedWith, HEAD, lines };
 
 test "a module says where it came from and imports what it uses" {
@@ -26,11 +26,11 @@ test "a module says where it came from and imports what it uses" {
             "//! What the mapping is, and why: `buri docs build/proto`.",
             "",
             "from \"core/bytes\" import * as bytes;",
-            "from \"core/effect\" import { Allocator };",
             "from \"core/json\" import { Json };",
             "from \"core/list\" import * as list;",
             "from \"core/proto\" import * as proto;",
             "from \"core/proto\" import { ProtoError };",
+            "from \"platform/effect\" import { Allocator };",
         ],
     );
 }

@@ -1,5 +1,5 @@
-from "core/effect" import { Allocator, Tasks };
 from "core/tasks" import * as tasks;
+from "platform/effect" import { Allocator, Tasks };
 
 /// Every item labelled with its own index, one task each.
 export fn labelled<C: Allocator + Tasks>(ctx: C, items: [Int]): [Int] {

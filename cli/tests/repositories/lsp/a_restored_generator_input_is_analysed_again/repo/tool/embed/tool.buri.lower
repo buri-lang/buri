@@ -1,7 +1,7 @@
 //! One module, `files`, with an exported `Str` per input holding its text.
 
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 from "core/tool" import { Generated, GenerateRequest };
 
 export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {

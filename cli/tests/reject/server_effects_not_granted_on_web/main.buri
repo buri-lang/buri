@@ -1,34 +1,26 @@
-// EXPECT: `HostListen` implements `Listen`, which is not allowed on the web platform
+// EXPECT: `WebHost` has no field `listen`
 //
-// The same refusal on the one platform whose grant set is otherwise the odd
-// one out. A page grants three effects nothing else does, so "WEB has it and
-// the rest do not" is the shape a reader expects here — and a page is also the
-// platform that is *still* refused `Listen` now that `core/net/server` has an
-// acceptor behind it, because a document does not hold a port open. This
-// fixture was written before the grant landed and asserted the same thing then;
-// that it did not move is the whole of what it is for.
+// The same refusal on a page, which is still refused `Listen` now that
+// `core/net/server` has an acceptor behind it, because a document does not
+// hold a port open.
 //
 // **`Sockets` and `WebSocketClient` are bound here and are not refused**, and
-// that is the other half of the case rather than an oversight. They used to be
-// refused beside `Listen`, on the ground that a page neither accepts
-// connections nor holds one to push on. The second clause stopped being true
-// when a page could dial: `core/net/websocket` mints a socket on every
-// platform, so writing on one belongs on every platform too. What a page still
-// cannot do is *accept*, and that is the one line left with a caret under it.
+// that is the other half of the case rather than an oversight. A page can dial
+// a socket, so writing on one belongs on a page too. What a page still cannot
+// do is *accept*, and that is the one line left with a caret under it.
 //
-// PLATFORM: WEB — and the forged struct is refused with the value, as
-// everywhere else a grant is withheld: `Listen: host.HostListen {}` is not the
-// way round it either.
-from "core/effect" import { Allocator, Listen, Sockets, Stdout, WebSocketClient };
-from "core/host" import * as host;
+// PLATFORM: WEB — and there is no way round it: `HostListen` is named only by
+// `platform/host`, which no program may import.
+from "platform/effect" import { Allocator, Listen, Sockets, Stdout, WebSocketClient };
 from "core/io" import * as io;
 from "ui/effect" import { Ui, Watch };
+from "web" import { WebHost };
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc,
     Stdout: host.stdout,
-    Listen: host.HostListen {},
+    Listen: host.listen,
     Sockets: host.sockets,
     WebSocketClient: host.websocketClient,
     Ui: host.ui,

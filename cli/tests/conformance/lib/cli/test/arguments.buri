@@ -1,7 +1,7 @@
 // core/cli — one declaration, read four ways.
 //
 // `run` is the module's whole exported surface, so every claim below is made
-// through it: an argument list goes in through `core/host/testing`'s
+// through it: an argument list goes in through `platform/effect/testing`'s
 // environment double and what comes back is a captured stream, a `.Ok(())` or
 // the message `main` would exit 1 with. That is the same path a real program
 // takes, minus the host.
@@ -11,12 +11,14 @@
 // to write down.
 
 from "core/cli" import * as cli;
-from "core/effect" import { Allocator, Environment, Stderr, Stdout };
-from "core/host/testing" import { alloc, env, stderr, stdout, TestStderr, TestStdout };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Environment, Stderr, Stdout };
+from "platform/effect/testing" import {
+    alloc, env, stderr, stdout, TestStderr, TestStdout,
+};
 
 // --- the tool under test -------------------------------------------------------
 

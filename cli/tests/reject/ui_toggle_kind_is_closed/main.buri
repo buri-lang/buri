@@ -4,9 +4,9 @@
 // style: the two shapes a design system has are `Checkbox` and `Switch`, and
 // there is no third to name. So a program cannot ask for a mark the runtime
 // and the painter have no drawing for.
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
@@ -16,7 +16,7 @@ fn done<C>(value: Signal<Bool>): Node<C> {
   ui.toggle({ label: .Const("done"), kind: .Tick, isOn: value, styles: [] })
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let value = signal(ctx, false);
   ui.mount(ctx, done(value), [])

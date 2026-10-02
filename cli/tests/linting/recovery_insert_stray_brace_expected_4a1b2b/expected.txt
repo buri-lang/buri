@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_expected_4a1b2b/main.buri:49:63
+   |
+49 |         .mapErr(fn(_e) => "could not write to standard output"@ )?;
+   |                                                               ^
+   |
+  --> lib/recovery_insert_stray_brace_expected_4a1b2b/main.buri:49:16
+   |
+49 |         .mapErr(fn(_e) => "could not write to standard output"@ )?;
+   |                ^ opened here
+   |
+   = fix: write `)` here

@@ -334,10 +334,10 @@ fn golden_case(case: &std::path::Path) -> CaseResult {
 #[test]
 fn only_the_functions_that_can_park_are_async() {
     let program = "\
-from \"core/effect\" import { Allocator, Stdout };
+from \"platform/effect\" import { Allocator, Stdout };
 from \"core/fs\" import { FileSystemRead, Path };
 from \"core/fs\" import * as fs;
-from \"core/host\" import * as host;
+from \"node\" import { NodeHost };
 from \"core/io\" import * as io;
 from \"core/path\" import * as filepath;
 
@@ -356,7 +356,7 @@ fn count(n: Int, acc: Int): Int {
   if (n <= 0) { acc } else { count(n - 1, acc + 2) }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, FileSystemRead: host.fs, Stdout: host.stdout };
   let total = load(ctx, filepath.of(ctx, \"a.txt\"), 3);
   let _ = io.println(ctx, \"${total} ${count(4, 0)}\").ignore();
@@ -398,7 +398,9 @@ export fn main(): Result<(), Str> {
         );
     }
     // The entry epilogue, which `program_only` filters out of the record, is
-    // where the artifact leaves the synchronous world behind.
+    // where the artifact leaves the synchronous world behind. It calls the
+    // function that builds `main`'s host and calls `main` with it, so this
+    // `await` is also what says a host call is still awaited through it.
     assert!(
         artifact.contains("try{const r=await "),
         "`main` reaches `load`, so the epilogue awaits it\n\n{artifact}"
@@ -439,12 +441,12 @@ export fn main(): Result<(), Str> {
 #[test]
 fn a_sleeping_program_leaves_the_event_loop_free() {
     let program = "\
-from \"core/effect\" import { Allocator, Clock, Stdout };
-from \"core/host\" import * as host;
+from \"platform/effect\" import { Allocator, Clock, Stdout };
+from \"node\" import { NodeHost };
 from \"core/io\" import * as io;
 from \"core/time\" import * as time;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let _ = time.sleep(ctx, time.milliseconds(150));
   let _ = time.sleep(ctx, time.milliseconds(150));
@@ -522,11 +524,11 @@ export fn main(): Result<(), Str> {
 #[test]
 fn writing_octets_asks_for_the_prologue_and_a_page_never_resolves_it() {
     let program = "\
-from \"core/effect\" import { Allocator, Stdout };
-from \"core/host\" import * as host;
+from \"platform/effect\" import { Allocator, Stdout };
+from \"node\" import { NodeHost };
 from \"core/io\" import * as io;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.writeBytes(ctx, [104, 105, 10]).ignore();
   .Ok(())
@@ -567,13 +569,13 @@ export fn main(): Result<(), Str> {
     // would try to resolve `node:module` for it.
     let page = "\
 // PLATFORM: WEB — a page, and one that reaches neither the filesystem nor `writeBytes`.
-from \"core/effect\" import { Allocator, Stdout };
-from \"core/host\" import * as host;
+from \"platform/effect\" import { Allocator, Stdout };
+from \"web\" import { WebHost };
 from \"core/io\" import * as io;
 from \"ui/effect\" import { Ui, Watch };
 from \"ui/signal\" import { signal };
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc, Stdout: host.stdout, Ui: host.ui, Watch: host.watch,
   };
@@ -614,8 +616,8 @@ export fn main(): Result<(), Str> {
 #[test]
 fn generics_over_different_contexts_do_not_share_a_symbol() {
     let program = "\
-from \"core/effect\" import { Allocator, IoError, Stdout };
-from \"core/host\" import * as host;
+from \"platform/effect\" import { Allocator, IoError, Stdout };
+from \"node\" import { NodeHost };
 from \"core/io\" import * as io;
 
 struct Loud(Str);
@@ -636,7 +638,7 @@ fn shout<C: Stdout>(ctx: C, what: Str, n: Int): Int {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let real = context { Allocator: host.alloc, Stdout: host.stdout };
   let mine = context { Allocator: host.alloc, Stdout: Loud(\"x\") };
   let _ = shout(real, \"a\", 2);
@@ -688,8 +690,8 @@ export fn main(): Result<(), Str> {
 #[test]
 fn a_parking_callback_called_through_a_function_value_is_awaited() {
     let program = "\
-from \"core/effect\" import { Allocator, Clock, Stdout };
-from \"core/host\" import * as host;
+from \"platform/effect\" import { Allocator, Clock, Stdout };
+from \"node\" import { NodeHost };
 from \"core/io\" import * as io;
 from \"core/time\" import * as time;
 
@@ -697,7 +699,7 @@ fn wrapped<C, T>(ctx: C, body: fn(C) => T): T {
   body(ctx)
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let n = wrapped(ctx, fn(c) => {
     let _ = time.sleep(c, time.milliseconds(20));
@@ -731,8 +733,8 @@ export fn main(): Result<(), Str> {
 #[test]
 fn the_wrapper_reproduction_from_g5_answers_a_list_rather_than_a_promise() {
     let program = "\
-from \"core/effect\" import { Allocator, Clock, Stdout, Tasks };
-from \"core/host\" import * as host;
+from \"platform/effect\" import { Allocator, Clock, Stdout, Tasks };
+from \"node\" import { NodeHost };
 from \"core/io\" import * as io;
 from \"core/str\" import * as str;
 from \"core/tasks\" import * as tasks;
@@ -741,7 +743,7 @@ fn wrapped<C, T>(ctx: C, body: fn(C) => T): T {
   body(ctx)
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks, Clock: host.clock,
   };
@@ -797,8 +799,8 @@ fn declaration(generated: &str, name: &str) -> String {
 #[test]
 fn a_callback_that_does_not_park_leaves_its_wrapper_synchronous() {
     let program = "\
-from \"core/effect\" import { Allocator, Clock, Stdout };
-from \"core/host\" import * as host;
+from \"platform/effect\" import { Allocator, Clock, Stdout };
+from \"node\" import { NodeHost };
 from \"core/io\" import * as io;
 from \"core/time\" import * as time;
 
@@ -810,7 +812,7 @@ fn applyN(n: Int, x: Int, f: fn(Int) => Int): Int {
   if (n <= 0) { x } else { applyN(n - 1, f(x), f) }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let slow = sleepy(ctx, 2, fn(c) => {
     let _ = time.sleep(c, time.milliseconds(1));
@@ -869,13 +871,13 @@ export fn main(): Result<(), Str> {
 #[test]
 fn a_combinator_awaits_its_step_only_when_the_step_waits() {
     let program = "\
-from \"core/effect\" import { Allocator, Clock, Stdout };
-from \"core/host\" import * as host;
+from \"platform/effect\" import { Allocator, Clock, Stdout };
+from \"node\" import { NodeHost };
 from \"core/io\" import * as io;
 from \"core/str\" import * as str;
 from \"core/time\" import * as time;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let slow = [1, 2, 3].mapCtx(ctx, fn(c, x) => {
     let _ = time.sleep(c, time.milliseconds(1));
@@ -939,8 +941,8 @@ export fn main(): Result<(), Str> {
 #[test]
 fn an_unfollowed_callback_is_answered_by_its_type() {
     let program = "\
-from \"core/effect\" import { Allocator, Clock, Stdout };
-from \"core/host\" import * as host;
+from \"platform/effect\" import { Allocator, Clock, Stdout };
+from \"node\" import { NodeHost };
 from \"core/io\" import * as io;
 from \"core/time\" import * as time;
 
@@ -964,7 +966,7 @@ fn wrapped<C: Clock>(ctx: C, n: Int, body: fn(C) => Int): Int {
   if (n <= 0) { 0 } else { body(ctx) + wrapped(ctx, n - 1, body) }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let slow = wrapped(ctx, 2, fn(c) => {
     let _ = time.sleep(c, time.milliseconds(1));

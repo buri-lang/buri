@@ -1,9 +1,0 @@
-error: expected `fn`, found `describe` [unexpected-token]
-  --> lib/recovery_swap_adjacent_module_app_a3bed0/main.buri:18:1
-   |
-18 | describe fn(): Str {
-   | ^^^^^^^^
-   |
-   = expected: `fn`
-   = actual: `describe`
-   = fix: write `fn` first: `fn describe`

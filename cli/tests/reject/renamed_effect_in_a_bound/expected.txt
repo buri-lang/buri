@@ -1,8 +1,8 @@
-error: "core/effect" does not export `Alloc` [no-such-export]
- --> cmd/renamed_effect_in_a_bound/main.buri:4:29
+error: "platform/effect" does not export `Alloc` [no-such-export]
+ --> cmd/renamed_effect_in_a_bound/main.buri:5:33
   |
-4 | from "core/effect" import { Alloc, Stdout };
-  |                             ^^^^^
+5 | from "platform/effect" import { Alloc, Stdout };
+  |                                 ^^^^^
   |
   = `Alloc` was renamed to `Allocator`
   = fix: write `Allocator`
@@ -14,9 +14,9 @@ error: "core/effect" does not export `Alloc` [no-such-export]
     surface is never wider than the modules it is built from.
 
 error: `Alloc` is not a trait or effect [not-a-trait]
- --> cmd/renamed_effect_in_a_bound/main.buri:7:20
+ --> cmd/renamed_effect_in_a_bound/main.buri:8:20
   |
-7 | export fn greet<C: Alloc + Stdout>(ctx: C): () {
+8 | export fn greet<C: Alloc + Stdout>(ctx: C): () {
   |                    ^^^^^
   |
   = `Alloc` was renamed to `Allocator`

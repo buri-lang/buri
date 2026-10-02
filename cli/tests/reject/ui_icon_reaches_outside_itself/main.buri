@@ -4,13 +4,13 @@
 // point of an icon is that the drawing is *in* the tree, where the colour
 // around it reaches it — a snapshot fetches nothing, and a page should not have
 // to either.
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   ui.mount(
     ctx,

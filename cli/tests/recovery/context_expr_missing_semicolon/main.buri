@@ -1,8 +1,8 @@
 // EXPECT: a statement ends with `;`
-from "core/effect" import { Allocator, Clock };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Clock };
+from "node" import { NodeHost };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Clock: host.clock }
   let _ = ctx;
   .Ok(())

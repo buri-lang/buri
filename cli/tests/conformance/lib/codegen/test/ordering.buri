@@ -15,11 +15,11 @@
 // literals the compiler is free to share one and a comparison would be answered
 // by identity.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/order" import { Order };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "//lib/codegen" import { mkLeaf, mkLeaves, mkOctets, mkWords, Tagged };
 
 // --- a scalar element ----------------------------------------------------------------

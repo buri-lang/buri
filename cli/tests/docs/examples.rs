@@ -91,9 +91,10 @@ pub fn document(root: &Path, rel: &str, compiled_in: &str) -> String {
 /// that does not exist for eight of them, so a failure in one pointed at
 /// nothing. This asks the only thing that cannot be wrong — the bytes.
 fn source_path(root: &Path, text: &str) -> Option<String> {
-    const DIR: &str = "cli/src/compiler/standard_library/sources";
+    // The standard library's sources, and the bundled platforms' `platform.buri`.
+    const DIRS: [&str; 2] = ["cli/src/compiler/standard_library/sources", "cli/src/platforms"];
     let mut found = None;
-    let mut stack = vec![root.join(DIR)];
+    let mut stack: Vec<_> = DIRS.iter().map(|d| root.join(d)).collect();
     while let Some(dir) = stack.pop() {
         for entry in std::fs::read_dir(&dir).ok()? {
             let path = entry.ok()?.path();

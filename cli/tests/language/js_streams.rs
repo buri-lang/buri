@@ -36,8 +36,8 @@ fn expected_stdout() -> String {
 fn program(ending: &str) -> String {
     format!(
         "\
-from \"core/effect\" import {{ Allocator, Process, Stderr, Stdout }};
-from \"core/host\" import * as host;
+from \"platform/effect\" import {{ Allocator, Process, Stderr, Stdout }};
+from \"node\" import {{ NodeHost }};
 from \"core/io\" import * as io;
 from \"core/process\" import * as process;
 
@@ -51,7 +51,7 @@ fn shout<C: Allocator + Stdout>(ctx: C, line: Str, n: Int): Int {{
     }}
 }}
 
-export fn main(): Result<(), Str> {{
+export fn main(host: NodeHost): Result<(), Str> {{
     let ctx = context {{
         Allocator: host.alloc,
         Process: host.proc,

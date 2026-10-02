@@ -46,9 +46,9 @@ from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
 from "core/alloc" import * as alloc;
 from "core/alloc" import { Scoped };
-from "core/effect" import { Allocator, Tasks };
-from "core/host/testing" import { alloc as testAlloc, tasks };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Tasks };
+from "platform/effect/testing" import { alloc as testAlloc, tasks };
 
 /// Bigger than one standard arena block, so a value this long is given a
 /// mapping of its own and that mapping is unmapped rather than pooled.

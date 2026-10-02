@@ -5,9 +5,9 @@
 // parameter could be a context. `ui.each`'s three closures capture the list
 // they are indexing, so `each` carries the bound and a caller who has not
 // carried it is told where it stopped.
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
@@ -17,7 +17,7 @@ fn rows<C, T>(items: Prop<[T]>, name: fn(T) => Str): Node<C> {
   ui.each(items, name, fn(c, item, index) => ui.text({ content: .Const(name(item)) }))
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let empty: Prop<[Str]> = .Const([]);
   ui.mount(ctx, rows(empty, fn(s) => s), [])

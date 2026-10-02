@@ -1,4 +1,4 @@
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 
 /// `//lib/one`'s `hold` under another name, so each library's tests reach
 /// their own generic with their own context.

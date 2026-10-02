@@ -1,6 +1,6 @@
 // EXPECT: `self` is written without a type
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 export struct Square {
@@ -17,7 +17,7 @@ impl Square {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${Square { side: 3 }.area()}").ignore();
   .Ok(())

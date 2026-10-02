@@ -8,7 +8,7 @@
 // how much of it overlaps: that is the platform's business, and it is the same
 // line `core/actor` draws.
 //
-// The order the work runs in is not left to chance either. `core/host/testing`
+// The order the work runs in is not left to chance either. `platform/effect/testing`
 // already makes it a value a test writes down, because a spawned task is run
 // through `Tasks.parallel` — so `tasks()` is program order, `seed(n)` is one
 // numbered order, and both answer the same thing.

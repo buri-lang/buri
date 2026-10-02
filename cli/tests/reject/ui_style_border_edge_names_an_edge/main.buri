@@ -5,16 +5,16 @@
 // radius rounds the place two sides meet. Naming a corner where an edge belongs
 // is the mistake the pair invites, so the type system answers it rather than a
 // painter drawing a line nobody asked for.
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/style" import { Style };
 
 let hairline: Style = .BorderEdge(.TopStart, .Px(1));
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   ui.mount(ctx, ui.stack({ styles: [hairline], children: [] }), [])
 }

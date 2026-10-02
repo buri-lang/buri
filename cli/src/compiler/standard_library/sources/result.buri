@@ -108,15 +108,15 @@ impl<T, E> Result<T, E> {
     /// successes; this chains the failures.
     ///
     /// ```buri run
-    /// from "core/effect" import { Stdout };
-    /// from "core/host" import * as host;
     /// from "core/io" import * as io;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Stdout };
     ///
     /// fn cached(key: Str): Result<Int, Str> {
     ///     if (key == "size") { .Err("cold") } else { .Ok(1) }
     /// }
     ///
-    /// export fn main(): Result<(), Str> {
+    /// export fn main(host: NodeHost): Result<(), Str> {
     ///     let ctx = context {
     ///         Stdout: host.stdout,
     ///     };

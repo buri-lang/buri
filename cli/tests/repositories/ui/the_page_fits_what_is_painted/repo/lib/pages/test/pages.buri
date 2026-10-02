@@ -4,9 +4,9 @@
 // the one thing no other tier can ask: the scene says `fit`, and what `fit`
 // came to is in the PNG's header.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/testing" import { headless, snapshot, snapshotWide };

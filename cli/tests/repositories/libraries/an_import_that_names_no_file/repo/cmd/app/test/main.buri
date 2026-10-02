@@ -4,8 +4,8 @@
 // else.
 
 from "core/testing/assert" import * as assert;
-from "//cmd/app/main" import { main };
+from "//cmd/app/main" import { name };
 
-test "main is reachable from its own suite" {
-    assert.isTrue(main() == .Ok(()));
+test "main.buri is reachable from its own suite" {
+    assert.equal(name(), "app");
 }

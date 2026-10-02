@@ -2,9 +2,10 @@
 // The namespace spends the first segment, so `order.Order` is the enum named
 // with no variant after it — not an enum whose variant happens to be spelt
 // `Order`, which is what the pattern would read if it counted from the end.
+from "node" import { NodeHost };
 from "core/order" import * as order;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let n = match (order.int(1, 2)) {
     order.Order => 0,
   };

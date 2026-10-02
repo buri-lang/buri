@@ -1,0 +1,7 @@
+error: an import declaration ends with `;` [missing-terminator]
+  --> main.buri:17:48
+   |
+17 | from "platform/effect/testing" import { alloc }
+   |                                                ^
+   |
+   = fix: write `;` here

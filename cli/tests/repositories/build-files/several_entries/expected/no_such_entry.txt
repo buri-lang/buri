@@ -14,9 +14,10 @@ error: //cmd/site exports no `handle` [entry-not-found]
     Export the function the output names, or name one the binary already
     exports.
 
-      from "core/effect" import { Request, Response };
+      from "platform/effect" import { Request, Response };
+      from "web" import { WebHost };
 
-      export fn main(): Result<(), Str> {
+      export fn main(host: WebHost): Result<(), Str> {
           .Ok(())
       }
 
@@ -48,9 +49,9 @@ error: //cmd/site exports no `handle` [entry-not-found]
     differently once.
 
 error: a context may not be constructed here [context-not-allowed]
-  --> cmd/site/main.buri:29:15
+  --> cmd/site/main.buri:32:15
    |
-29 |     let ctx = context {
+32 |     let ctx = context {
    |               ^^^^^^^^^
    |
    = only in an entry's body, in a test source, or in a test-only module — and never inside a lambda, since a closure that could mint authority would make the capture rule meaningless

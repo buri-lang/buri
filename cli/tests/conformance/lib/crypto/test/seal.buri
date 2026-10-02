@@ -5,10 +5,10 @@
 
 from "core/bytes" import * as bytes;
 from "core/crypto" import * as crypto;
-from "core/effect" import { Allocator, Entropy };
-from "core/host/testing" import { alloc, entropy };
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Entropy };
+from "platform/effect/testing" import { alloc, entropy };
 
 struct FixedNonce([U8]);
 

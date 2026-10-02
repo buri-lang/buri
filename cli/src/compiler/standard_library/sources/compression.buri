@@ -6,11 +6,11 @@
 //! ```buri run
 //! from "core/bytes" import * as bytes;
 //! from "core/compression" import * as compression;
-//! from "core/effect" import { Allocator, Stdout };
-//! from "core/host" import * as host;
 //! from "core/io" import * as io;
+//! from "node" import { NodeHost };
+//! from "platform/effect" import { Allocator, Stdout };
 //!
-//! export fn main(): Result<(), Str> {
+//! export fn main(host: NodeHost): Result<(), Str> {
 //!     let ctx = context {
 //!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
@@ -53,8 +53,8 @@
 from "core/bits" import * as bits;
 from "core/bytes" import * as bytes;
 from "core/bytes" import { DecodeError };
-from "core/effect" import { Allocator };
 from "core/list" import * as list;
+from "platform/effect" import { Allocator };
 
 from "core/bytes" export { DecodeError };
 
@@ -64,7 +64,7 @@ from "core/bytes" export { DecodeError };
 ///
 /// ```buri
 /// from "core/compression" import * as compression;
-/// from "core/effect" import { Allocator };
+/// from "platform/effect" import { Allocator };
 ///
 /// export fn packed<C: Allocator>(ctx: C, raw: [U8]): [U8] {
 ///     compression.deflate(ctx, raw)
@@ -86,7 +86,7 @@ export fn deflate<C: Allocator>(ctx: C, raw: [U8]): [U8] {
 /// ```buri
 /// from "core/bytes" import { DecodeError };
 /// from "core/compression" import * as compression;
-/// from "core/effect" import { Allocator };
+/// from "platform/effect" import { Allocator };
 ///
 /// export fn unpacked<C: Allocator>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
 ///     compression.inflate(ctx, body)
@@ -110,7 +110,7 @@ export fn inflate<C: Allocator>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
 ///
 /// ```buri
 /// from "core/compression" import * as compression;
-/// from "core/effect" import { Allocator };
+/// from "platform/effect" import { Allocator };
 ///
 /// export fn wrapped<C: Allocator>(ctx: C, raw: [U8]): [U8] {
 ///     compression.gzip(ctx, raw)
@@ -134,7 +134,7 @@ export fn gzip<C: Allocator>(ctx: C, raw: [U8]): [U8] {
 /// ```buri
 /// from "core/bytes" import { DecodeError };
 /// from "core/compression" import * as compression;
-/// from "core/effect" import { Allocator };
+/// from "platform/effect" import { Allocator };
 ///
 /// export fn unwrapped<C: Allocator>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
 ///     compression.gunzip(ctx, body)

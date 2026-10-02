@@ -1,11 +1,11 @@
 // EXPECT: expected an identifier, found `@`
-from "core/effect" import { Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Stdout };
+from "node" import { NodeHost };
 
 context @ Console {
   Stdout: host.stdout,
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   .Ok(())
 }

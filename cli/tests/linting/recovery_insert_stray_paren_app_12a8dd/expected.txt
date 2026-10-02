@@ -1,0 +1,54 @@
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_insert_stray_paren_app_12a8dd/main.buri:15:16
+   |
+15 | fn announce<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_insert_stray_paren_app_12a8dd/main.buri:22:13
+   |
+22 | fn shout<C: Allocator + Clock + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |             ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Clock` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_insert_stray_paren_app_12a8dd/main.buri:22:25
+   |
+22 | fn shout<C: Allocator + Clock + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                         ^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_insert_stray_paren_app_12a8dd/main.buri:54:9
+   |
+54 |         "could not write to standard output"
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `Str`, not `()` [statement-not-unit]
+  --> lib/recovery_insert_stray_paren_app_12a8dd/main.buri:54:9
+   |
+54 |         "could not write to standard output"
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: bind it with `let _ = ...;`
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_insert_stray_paren_app_12a8dd/main.buri:54:45
+   |
+54 |         "could not write to standard output"
+   |                                             ^
+   |
+   = fix: write `;` here
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_paren_app_12a8dd/main.buri:55:5
+   |
+55 |     extra })?;
+   |     ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

@@ -9,9 +9,9 @@
 //! `split` returns `[Str]` and allocates.
 
 from "core/character" import * as character;
-from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/order" import { Order };
+from "platform/effect" import { Allocator };
 
 // --- Pure ---------------------------------------------------------------------
 
@@ -65,11 +65,11 @@ impl Str {
     /// agrees with Rust's `str::cmp`, Go's `<` and Python's `<`:
     ///
     /// ```buri run
-    /// from "core/effect" import { Stdout };
-    /// from "core/host" import * as host;
     /// from "core/io" import * as io;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Stdout };
     ///
-    /// export fn main(): Result<(), Str> {
+    /// export fn main(host: NodeHost): Result<(), Str> {
     ///     let ctx = context {
     ///         Stdout: host.stdout,
     ///     };
@@ -462,11 +462,11 @@ impl Str {
     /// agrees, not where the column does.
     ///
     /// ```buri run
-    /// from "core/effect" import { Allocator, Stdout };
-    /// from "core/host" import * as host;
     /// from "core/io" import * as io;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Allocator, Stdout };
     ///
-    /// export fn main(): Result<(), Str> {
+    /// export fn main(host: NodeHost): Result<(), Str> {
     ///     let ctx = context {
     ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
@@ -612,12 +612,12 @@ fn wrapFrom<C: Allocator>(
 /// from the right. A negative number keeps its `-` and groups the rest.
 ///
 /// ```buri run
-/// from "core/effect" import { Allocator, Stdout };
-/// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/str" import * as str;
+/// from "node" import { NodeHost };
+/// from "platform/effect" import { Allocator, Stdout };
 ///
-/// export fn main(): Result<(), Str> {
+/// export fn main(host: NodeHost): Result<(), Str> {
 ///     let ctx = context {
 ///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
@@ -673,12 +673,12 @@ fn groupedFrom<C: Allocator>(
 /// `NaN`, `inf` and `-inf` come back as themselves.
 ///
 /// ```buri run
-/// from "core/effect" import { Allocator, Stdout };
-/// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/str" import * as str;
+/// from "node" import { NodeHost };
+/// from "platform/effect" import { Allocator, Stdout };
 ///
-/// export fn main(): Result<(), Str> {
+/// export fn main(host: NodeHost): Result<(), Str> {
 ///     let ctx = context {
 ///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
@@ -842,11 +842,11 @@ impl Str {
     /// conjunct. So `"👨‍👩‍👦"` is one piece where `chars` gives five.
     ///
     /// ```buri run
-    /// from "core/effect" import { Allocator, Stdout };
-    /// from "core/host" import * as host;
     /// from "core/io" import * as io;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Allocator, Stdout };
     ///
-    /// export fn main(): Result<(), Str> {
+    /// export fn main(host: NodeHost): Result<(), Str> {
     ///     let ctx = context {
     ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
@@ -909,12 +909,12 @@ impl Str {
     /// entries.
     ///
     /// ```buri run
-    /// from "core/effect" import { Allocator, Stdout };
-    /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/str" import { Normalization };
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Allocator, Stdout };
     ///
-    /// export fn main(): Result<(), Str> {
+    /// export fn main(host: NodeHost): Result<(), Str> {
     ///     let ctx = context {
     ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
@@ -1014,11 +1014,11 @@ impl Str {
     /// both sides and compare, and do not show the answer to anyone.
     ///
     /// ```buri run
-    /// from "core/effect" import { Allocator, Stdout };
-    /// from "core/host" import * as host;
     /// from "core/io" import * as io;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Allocator, Stdout };
     ///
-    /// export fn main(): Result<(), Str> {
+    /// export fn main(host: NodeHost): Result<(), Str> {
     ///     let ctx = context {
     ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,

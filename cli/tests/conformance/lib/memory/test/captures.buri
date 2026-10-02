@@ -20,10 +20,10 @@
 // (VALUE-MODEL.md §5.2), so it can never be the unique owner these operations
 // are looking for and would prove nothing.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 
 /// A list this program grew, rather than one the compiler interned.
 ///

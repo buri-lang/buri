@@ -1214,7 +1214,7 @@ fn format_check_refuses_an_unparseable_file() {
 }
 
 /// A file that is already exactly what the formatter would print.
-const CLEAN: &str = "export fn main(): Int {\n    1\n}\n";
+const CLEAN: &str = "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Int {\n    1\n}\n";
 
 /// The maintainer's example, with the comma still missing.
 const BROKEN: &str = "export struct Route {\n    export name: Str,\n}\n\n\

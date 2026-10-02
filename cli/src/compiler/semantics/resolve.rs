@@ -1803,7 +1803,8 @@ impl<'a> Checker<'a> {
             return None;
         }
         let tycon = self.tables.tycon(*con);
-        let module = self.loaded.module(tycon.module).path.as_str();
+        // A built-in type has no module, and is no host.
+        let module = self.loaded.modules.get(tycon.module.index())?.path.as_str();
         standard_library::PLATFORMS
             .iter()
             .filter_map(|p| standard_library::host_type_of(p))
