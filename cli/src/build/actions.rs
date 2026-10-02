@@ -340,44 +340,7 @@ pub fn action_key(
 fn contribute(session: &Session, member: TargetId, k: &mut KeyBuilder) {
     let package = session.workspace.package(member.package);
     let kind = member.kind.name();
-    let mut sources: Vec<String> = Vec::new();
-    let entry = match member.kind {
-        RuleKind::Library => "lib.buri",
-        RuleKind::Binary => "main.buri",
-        RuleKind::Tool => "tool.buri",
-    };
-    sources.push(entry.to_string());
-    match member.kind {
-        RuleKind::Library => {
-            if let Some(lib) = &package.build.library {
-                sources.extend(lib.sources.iter().map(|x| x.value.clone()));
-                // A generator's input is an input like any other: the modules
-                // it becomes are a pure function of its bytes, so editing one
-                // changes this key exactly as editing a source does.
-                sources.extend(
-                    lib.generators.iter().flat_map(|g| g.inputs.iter().map(|x| x.value.clone())),
-                );
-                if let Some(testing) = &lib.testing {
-                    sources.push("testing/lib.buri".into());
-                    sources.extend(testing.sources.iter().map(|x| x.value.clone()));
-                }
-            }
-        }
-        RuleKind::Binary => {
-            if let Some(bin) = &package.build.binary {
-                sources.extend(bin.sources.iter().map(|x| x.value.clone()));
-                sources.extend(
-                    bin.generators.iter().flat_map(|g| g.inputs.iter().map(|x| x.value.clone())),
-                );
-            }
-        }
-        RuleKind::Tool => {
-            if let Some(tool) = &package.build.tool {
-                sources.extend(tool.sources.iter().map(|x| x.value.clone()));
-            }
-        }
-    }
-    sources.sort();
+    let sources = rule_files(&session.workspace, member);
     k.rule_identity(&package.label(), kind, &sources);
     // What a generator produced, rather than only what it was given. The
     // inputs above catch an edit to a declared file; this catches everything
@@ -394,15 +357,58 @@ fn contribute(session: &Session, member: TargetId, k: &mut KeyBuilder) {
     // `open`/`read`/`close` round trips, and those are what the cores are idle
     // for. `parallel::map` returns in index order, so the bytes reach the
     // builder in the order `sources` is in.
-    let contents: Vec<Vec<u8>> = crate::parallel::map(sources.len(), |i| {
-        sources
-            .get(i)
-            .map(|rel| std::fs::read(package.dir.join(rel)).unwrap_or_default())
-            .unwrap_or_default()
+    let contents: Vec<Option<Vec<u8>>> = crate::parallel::map(sources.len(), |i| {
+        sources.get(i).and_then(|rel| std::fs::read(package.dir.join(rel)).ok())
     });
     for (rel, contents) in sources.iter().zip(&contents) {
-        k.input(&session.workspace.rel_of(&package.dir.join(rel)), contents);
+        k.file(&session.workspace.rel_of(&package.dir.join(rel)), contents.as_deref());
     }
+}
+
+/// Every file one rule names, package-relative and sorted: its entry module,
+/// its `sources`, its `testing` sources, and its generators' inputs.
+///
+/// One enumeration, because two answers are built from it and must agree: a
+/// build's action key, and the closure a remembered lint answer or a kept
+/// language-server analysis is checked against
+/// ([`crate::build::sources::closure_of`]). A file in one list and not the
+/// other is a file whose edit one of them does not see.
+///
+/// A generator's input is in it like any other source: the modules it
+/// becomes are a function of its bytes, so editing one moves the key exactly
+/// as editing a source does.
+pub fn rule_files(workspace: &crate::build::workspace::Workspace, member: TargetId) -> Vec<String> {
+    let package = workspace.package(member.package);
+    let entry = match member.kind {
+        RuleKind::Library => "lib.buri",
+        RuleKind::Binary => "main.buri",
+        RuleKind::Tool => "tool.buri",
+    };
+    let mut files: Vec<String> = vec![entry.to_string()];
+    match member.kind {
+        RuleKind::Library => {
+            if let Some(lib) = &package.build.library {
+                files.extend(lib.sources.iter().map(|x| x.value.clone()));
+                if let Some(testing) = &lib.testing {
+                    files.push("testing/lib.buri".into());
+                    files.extend(testing.sources.iter().map(|x| x.value.clone()));
+                }
+            }
+        }
+        RuleKind::Binary => {
+            if let Some(bin) = &package.build.binary {
+                files.extend(bin.sources.iter().map(|x| x.value.clone()));
+            }
+        }
+        RuleKind::Tool => {
+            if let Some(tool) = &package.build.tool {
+                files.extend(tool.sources.iter().map(|x| x.value.clone()));
+            }
+        }
+    }
+    files.extend(crate::build::generators::inputs(workspace, member));
+    files.sort();
+    files
 }
 
 /// The key for one target's own compilation: its identity and its own sources'
@@ -499,7 +505,7 @@ pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
         k.rule_identity(&package.label(), "test", &files);
         for rel in &files {
             let full = package.dir.join(rel);
-            k.input(rel, &std::fs::read(&full).unwrap_or_default());
+            k.file(rel, std::fs::read(&full).ok().as_deref());
         }
     }
     // A recording run and a comparing run are two kinds of result and must not

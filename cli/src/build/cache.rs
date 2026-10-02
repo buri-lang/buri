@@ -586,6 +586,22 @@ impl KeyBuilder {
         self.hasher.field(contents);
     }
 
+    /// A file the action reads, or the fact that it is not there.
+    ///
+    /// **Absent is not empty.** A declared file that is missing makes the
+    /// action fail, and an empty one may not, so the two hash as different
+    /// values rather than both as zero bytes.
+    pub fn file(&mut self, repo_relative_name: &str, contents: Option<&[u8]>) {
+        self.hasher.text(repo_relative_name);
+        match contents {
+            Some(bytes) => {
+                self.hasher.text("present");
+                self.hasher.field(bytes);
+            }
+            None => self.hasher.text("absent"),
+        }
+    }
+
     /// A dependency enters as its key, not its contents, so a body edit does
     /// not propagate past the interface it did not change.
     pub fn dependency(&mut self, key: &ActionKey) {
@@ -781,6 +797,21 @@ mod tests {
             key("//lib/money", "library", &["cents.buri", "extra.buri"]),
             "adding a source did not change the key"
         );
+    }
+
+    /// A file that is not there and a file that holds nothing are two keys. A
+    /// missing generator input fails the rule and an empty one may not, so a
+    /// key that read both as zero bytes would file one answer under the other.
+    #[test]
+    fn a_missing_file_is_not_an_empty_one() {
+        let key = |contents: Option<&[u8]>| {
+            let mut k = KeyBuilder::new(Action::Compile, BuildMode::Debug);
+            k.file("lib/schemas/b.txt", contents);
+            k.finish()
+        };
+        assert_ne!(key(None), key(Some(b"")), "absent and empty share a key");
+        assert_ne!(key(Some(b"")), key(Some(b"x")), "the contents are not in the key");
+        assert_eq!(key(None), key(None));
     }
 
     /// A dependency enters as its key, never as its contents. What follows is
