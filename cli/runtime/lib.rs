@@ -651,6 +651,9 @@ mod net;
 #[cfg(feature = "paint")]
 mod paint;
 mod rng;
+/// Scalar indices into a long non-ASCII `Str`: the kept tables that make
+/// `slice`, `charAt` and `indexOf` a lookup rather than a walk.
+mod scalars;
 /// The thread runtime — the tokio handle, the thread pool, the task table
 /// and the stack switch a park is made of. (The run baton this line used to
 /// name was deleted in G3; `rt.rs` §1 is what stands in its place.) Behind `net` in full: without the feature there is no
@@ -695,6 +698,7 @@ pub use list::*;
 pub use math::*;
 pub use memory::*;
 pub use net::*;
+pub use scalars::*;
 pub use testing::*;
 pub use text::*;
 pub use value::*;
