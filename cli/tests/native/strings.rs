@@ -45,10 +45,12 @@ fn scanned(stderr: &str) -> u64 {
         .unwrap()
 }
 
-/// Every native backend built into this toolchain that can run here, with a
-/// builder for each.
-fn backends() -> Vec<(&'static str, fn(&str, &str, &str) -> PathBuf)> {
-    let mut out: Vec<(&'static str, fn(&str, &str, &str) -> PathBuf)> = Vec::new();
+/// A backend's name, and how it builds `(name, source, probe)` into a binary.
+type Backend = (&'static str, fn(&str, &str, &str) -> PathBuf);
+
+/// Every native backend built into this toolchain that can run here.
+fn backends() -> Vec<Backend> {
+    let mut out: Vec<Backend> = Vec::new();
     #[cfg(feature = "backend-stencil")]
     if crate::stencil::supported() {
         out.push(("stencil", |name, source, probe| {
