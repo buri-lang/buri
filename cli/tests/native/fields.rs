@@ -13,39 +13,11 @@
 //! count taken and not given back, or a block freed while something still
 //! reads it, fails the status.
 
-use crate::shared::{probed, ran_checked, Ran, ALLOC_PROBE};
-use std::path::PathBuf;
-
-/// Builds a named program into an executable with [`ALLOC_PROBE`] linked in.
-type Build = fn(&str, &str) -> PathBuf;
-
-/// Each native backend built into this toolchain that can run here, by name,
-/// with the function that builds a program on it.
-fn backends() -> Vec<(&'static str, Build)> {
-    let mut out: Vec<(&'static str, Build)> = Vec::new();
-    #[cfg(feature = "backend-stencil")]
-    if crate::stencil::supported() {
-        out.push(("stencil", |name, source| {
-            crate::stencil::build_with(&format!("{name}-stencil"), source, Some(ALLOC_PROBE))
-        }));
-    }
-    #[cfg(feature = "backend-llvm")]
-    if crate::llvm::can_execute().is_none_or(|why| !crate::ci::skipped("llvm", why)) {
-        out.push(("llvm", |name, source| {
-            crate::llvm::build_at(
-                &format!("{name}-llvm"),
-                source,
-                Some(ALLOC_PROBE),
-                buri::compiler::backend::Profile::Release,
-            )
-        }));
-    }
-    out
-}
+use crate::shared::{probed, ran_checked, Ran};
 
 /// One program on every backend, under the heap check.
 fn run_each(name: &str, source: &str) -> Vec<(&'static str, Ran)> {
-    backends()
+    crate::e2e::probed_backends()
         .into_iter()
         .map(|(backend, build)| (backend, ran_checked(&build(name, source))))
         .collect()
