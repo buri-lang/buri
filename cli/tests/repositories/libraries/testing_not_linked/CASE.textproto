@@ -33,7 +33,7 @@ run {
 }
 
 file {
-  path: ".buri/out/js/cmd/app/app.mjs"
+  path: ".buri/out/node/cmd/app/app.mjs"
   contains: "WIDGET-PRODUCTION-MARKER"
   absent: "WIDGET-TESTING-ONLY-MARKER"
 }
@@ -46,7 +46,7 @@ run {
 }
 
 file {
-  path: ".buri/out/js/cmd/app/app.mjs"
+  path: ".buri/out/node/cmd/app/app.mjs"
   contains: "WIDGET-PRODUCTION-MARKER"
   absent: "WIDGET-TESTING-ONLY-MARKER"
 }

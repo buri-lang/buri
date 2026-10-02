@@ -1,20 +1,17 @@
-# REPO-CONFIG.md: "`Platform` is a closed enum in the schema — `LINUX`, `MACOS`,
-# `JS`, `WEB` — and `Arch` likewise. Adding one is a compiler change, not a
-# configuration change, so there is nothing to declare here."
+# The bundled platforms, `native`, `node` and `web`, are closed: adding one is
+# a toolchain change, not a configuration change. So is `Backend`, and so are
+# a platform's variants.
 #
-# The goldens name every platform, which is the point of recording them: adding
-# one is meant to show up here as a diff a reviewer reads, and `WEB` did.
-#
-# Closed means an unknown name is rejected rather than ignored. Three places can
-# write one — an output's `platform`, an output's `arch`, and a tag's
-# `requires { platforms }` — and all three are recorded, because a check that
-# fires in two of the three is a check nobody can rely on.
+# Closed means an unknown name is rejected rather than ignored. Four places can
+# write one — an output's `platform`, an output's `variant`, and a tag's
+# `backends` and `platforms` — and all four are recorded, because a check that
+# fires in some of them is a check nobody can rely on.
 #
 # Exit 2: an unreadable build file is the thing you asked *with* being wrong.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
-doc: "an unknown Platform or Arch name is rejected in all three places one can be written"
+doc: "an unknown platform, variant or backend is rejected in every place one can be written"
 
 run {
   args: ["build", "//cmd/ok"]
@@ -23,8 +20,8 @@ run {
 
 edit {
   file: "cmd/ok/BUILD.buri"
-  replace: "platform: JS"
-  with: "platform: WINDOWS"
+  replace: "platform: \"node\""
+  with: "platform: \"windows\""
 }
 
 run {
@@ -35,35 +32,59 @@ run {
 
 edit {
   file: "cmd/ok/BUILD.buri"
-  replace: "platform: WINDOWS"
-  with: "platform: JS"
-}
-
-edit {
-  file: "cmd/ok/BUILD.buri"
-  replace: "{ platform: JS }"
-  with: "{ platform: JS  arch: RISCV }"
+  replace: "platform: \"windows\""
+  with: "platform: \"native\", variant: \"linux-riscv\""
 }
 
 run {
   args: ["build", "//cmd/ok"]
   exit: 2
-  golden: "unknown_arch.txt"
+  golden: "unknown_variant.txt"
+}
+
+# And a native output names one at all.
+edit {
+  file: "cmd/ok/BUILD.buri"
+  replace: "platform: \"native\", variant: \"linux-riscv\""
+  with: "platform: \"native\""
+}
+
+run {
+  args: ["build", "//cmd/ok"]
+  exit: 2
+  golden: "no_variant.txt"
 }
 
 edit {
   file: "cmd/ok/BUILD.buri"
-  replace: "{ platform: JS  arch: RISCV }"
-  with: "{ platform: JS }"
+  replace: "platform: \"native\""
+  with: "platform: \"native\", variant: \"linux-riscv\""
 }
 
-# The third place: a tag's platform whitelist. A near miss gets the "did you
-# mean" that the other two do not, because this is the list a person types by
-# hand rather than one the generator writes.
+edit {
+  file: "cmd/ok/BUILD.buri"
+  replace: "platform: \"native\", variant: \"linux-riscv\""
+  with: "platform: \"node\""
+}
+
+# A tag's two lists. A near miss gets a "did you mean", because these are the
+# lists a person types by hand rather than ones the generator writes.
 edit {
   file: "REPO.buri"
   replace: "can be written.\n"
-  with: "can be written.\n\ntag {\n  name: \"server\"\n  requires { platforms: [LINUXX] }\n}\n"
+  with: "can be written.\n\ntag {\n  name: \"server\"\n  requires { backends: [NATIVEE] }\n}\n"
+}
+
+run {
+  args: ["build", "//cmd/ok"]
+  exit: 2
+  golden: "unknown_tag_backend.txt"
+}
+
+edit {
+  file: "REPO.buri"
+  replace: "backends: [NATIVEE]"
+  with: "platforms: [\"nod\"]"
 }
 
 run {
@@ -75,8 +96,8 @@ run {
 # And the fix each of them named.
 edit {
   file: "REPO.buri"
-  replace: "platforms: [LINUXX]"
-  with: "platforms: [LINUX]"
+  replace: "platforms: [\"nod\"]"
+  with: "platforms: [\"node\"]"
 }
 
 run {

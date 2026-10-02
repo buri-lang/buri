@@ -17,13 +17,16 @@
 {"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 6}, "contentChanges": [{"text": "binary {\n    sources: []\n    tags: [\"ser\"]\n}\n"}]}}
 # A tag, from the vocabulary `REPO.buri` declares.
 {"jsonrpc": "2.0", "id": 6, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 2, "character": 15}, "context": {"triggerKind": 1}}}
-{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 7}, "contentChanges": [{"text": "binary {\n    sources: []\n    outputs: [{ platform: LINUX }]\n}\n"}]}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 7}, "contentChanges": [{"text": "binary {\n    sources: []\n    outputs: [{ platform: \"\" }]\n}\n"}]}}
+# A platform, by the bare name a bundled one has.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 2, "character": 27}, "context": {"triggerKind": 1}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 8}, "contentChanges": [{"text": "binary {\n    sources: []\n    outputs: [{ platform: \"native\", variant: \"linux-a\" }]\n}\n"}]}}
+# A variant, part-way through, in a nested block.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 2, "character": 53}, "context": {"triggerKind": 1}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 9}, "contentChanges": [{"text": "library {\n    backends: [N]\n}\n"}]}}
 # An enum constant, which is written unquoted.
-{"jsonrpc": "2.0", "id": 7, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 2, "character": 26}, "context": {"triggerKind": 1}}}
-{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 8}, "contentChanges": [{"text": "binary {\n    sources: []\n    outputs: [{ platform: LINUX, arch: AR }]\n}\n"}]}}
-# The same, part-way through, in a nested block.
-{"jsonrpc": "2.0", "id": 8, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 2, "character": 41}, "context": {"triggerKind": 1}}}
-{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 9}, "contentChanges": [{"text": "# A comment, which textproto has.\nbinary {\n    sources: []\n    visibility: [\"//vis\"]\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 12, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 1, "character": 16}, "context": {"triggerKind": 1}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 10}, "contentChanges": [{"text": "# A comment, which textproto has.\nbinary {\n    sources: []\n    visibility: [\"//vis\"]\n}\n"}]}}
 # A visibility. The `#` comment above it is a comment, not an error.
 {"jsonrpc": "2.0", "id": 9, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 3, "character": 23}, "context": {"triggerKind": 1}}}
 {"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/REPO.buri", "languageId": "buri", "version": 1, "text": "# The tag vocabulary this repository draws from.\ntag {\n    name: \"server\"\n    doc: \"Runs on a machine we operate. Nothing carrying it may reach a browser.\"\n}\n\ntag {\n    name: \"experimental\"\n    doc: \"Not covered by the compatibility promise yet.\"\n}\n"}}}

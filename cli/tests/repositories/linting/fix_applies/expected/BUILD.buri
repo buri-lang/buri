@@ -3,6 +3,6 @@
 binary {
     dependencies: ["//lib/money"]
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
 }

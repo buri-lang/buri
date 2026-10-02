@@ -12,6 +12,6 @@ tag {
         tags: ["zebra"]
     }
     requires {
-        platforms: [LINUX]
+        backends: [NATIVE]
     }
 }

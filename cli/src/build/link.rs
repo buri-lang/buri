@@ -698,7 +698,7 @@ pub fn warm(target: Target) {
 pub fn select(target: Target) -> Result<CDriver, Refusal> {
     if !can_link(target) {
         return Err(Refusal::new(
-            format!("this toolchain cannot link {} artifacts on this machine", target.platform.slug()),
+            format!("this toolchain cannot link {} artifacts on this machine", target.platform.machine()),
             "build for this machine's platform, or run the build on one of the target's",
         ));
     }

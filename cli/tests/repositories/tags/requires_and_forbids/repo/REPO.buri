@@ -1,19 +1,19 @@
-# `server` admits LINUX and MACOS; `epoll` rules MACOS out. A closure carrying
-# both admits what is left: LINUX.
+# `server` admits the JavaScript backend; `headless` rules `web` out. A
+# closure carrying both admits what is left.
 tag {
     name: "server"
     doc: "runs on infrastructure we operate"
 
     requires {
-        platforms: [LINUX, MACOS]
+        backends: [JS]
     }
 }
 
 tag {
-    name: "epoll"
-    doc: "polls with epoll, which macOS does not have"
+    name: "headless"
+    doc: "has no document to draw into"
 
     forbids {
-        platforms: [MACOS]
+        platforms: ["web"]
     }
 }

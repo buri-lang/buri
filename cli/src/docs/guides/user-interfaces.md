@@ -1179,7 +1179,7 @@ hinting is off, layout rounds in exactly one place, and the PNG encoder is
 written for this. So the same tree paints the same bytes on Linux and on macOS,
 the comparison needs no tolerance, and a golden is worth checking in.
 
-**Snapshots run natively.** A suite that says `test { platforms: [JS] }` fails
+**Snapshots run natively.** A suite that says `test { backends: [JS] }` fails
 the call, because the JavaScript runtime has no painter:
 
 ```text
@@ -1187,7 +1187,7 @@ the snapshot "card" was not painted: snapshots run natively, and this suite is J
 ```
 
 The graph runs there too: `signal`, `memo`, `watch` and the `Recorder` are all
-native, so a suite that reads and writes signals needs no `platforms: [JS]`
+native, so a suite that reads and writes signals needs no `backends: [JS]`
 either. `ui/testing`'s `render` is the part that still does — it wants a
 document, and only a browser has one.
 

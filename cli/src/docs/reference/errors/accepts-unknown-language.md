@@ -10,7 +10,9 @@ reproduction: none
 ```textproto schema=build
 tool {
     generate {
-        accepts: [{ language: "yaml", type_schema: "config.schema.yaml" }]
+        accepts: [
+            { language: "yaml", type_schema: "config.schema.yaml" },
+        ]
     }
 }
 ```

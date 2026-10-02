@@ -3,7 +3,7 @@
 # links a real binary and runs it.
 #
 # The conformance corpus holds `core/actor`'s semantics and holds them on
-# *every* backend, and its build file says `platforms: [JS]` so that the
+# *every* backend, and its build file says `backends: [JS]` so that the
 # reference run stays the reference one. What it cannot say is what a person
 # gets: a package, a suite, one command. That is this case, and it is why the
 # same claims appear twice.

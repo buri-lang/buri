@@ -165,9 +165,8 @@ pub fn command_test(args: &arguments::Args) -> i32 {
     // the fix can name all of it.
     if args.flags.output.is_some() && selected_platform(&args.flags).is_none() {
         let selector = args.flags.output.as_deref().unwrap_or_default();
-        let names: Vec<&str> = Platform::ALL.iter().map(|p| p.slug()).collect();
-        eprintln!("error: no platform matches `--output={selector}`");
-        eprintln!("  = a suite runs on one of: {}", names.join(", "));
+        eprintln!("error: no backend matches `--output={selector}`");
+        eprintln!("  = a suite runs on one of: native, js");
         eprintln!("  = fix: name one of them, as in `--output=js`");
         return 2;
     }
@@ -454,12 +453,7 @@ fn run_suite(
     // for a `server` library is checked as server code without saying
     // anything. A suite that names no platforms runs once on the host, and the
     // host here is the machine, not the JavaScript the backend emits.
-    let declared: Vec<Platform> = suite(session, target)
-        .map(|x| x.platforms)
-        .unwrap_or_default()
-        .iter()
-        .map(|p| p.value)
-        .collect();
+    let declared: Vec<Platform> = session.workspace.suite_platforms(target);
     let checked: Vec<Platform> = if declared.is_empty() {
         vec![crate::compiler::driver::host_native_platform()]
     } else {
@@ -677,7 +671,7 @@ fn run_on(
     ));
 
     let dir =
-        session.root.join(".buri/out/js").join(&session.workspace.package(target.package).path);
+        session.root.join(".buri/out/node").join(&session.workspace.package(target.package).path);
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join("test.mjs");
     if let Err(e) = std::fs::write(&path, &source) {
@@ -781,18 +775,16 @@ fn linker_name() -> String {
 
 /// The platform `--output=` names, if it names one.
 ///
-/// The same selector `buri build --output=` takes and the same matcher, so
-/// `js`, `macos` and `linux/x86_64` mean here what they mean there. A selector
-/// naming nothing is not an error at this seam: `command_test` refuses it once,
-/// for the invocation, rather than once per suite.
+/// On `buri test` the selector names a backend, `js` or `native`, because a
+/// suite runs on a backend. A selector naming nothing is not an error at this
+/// seam: `command_test` refuses it once, for the invocation, rather than once
+/// per suite.
 fn selected_platform(flags: &arguments::Flags) -> Option<Platform> {
-    let selector = flags.output.as_ref()?;
-    Platform::ALL
-        .into_iter()
-        .find(|p| {
-            crate::build::buildfile::Output::for_platform(*p, Span::NONE)
-                .matches_selector(selector)
-        })
+    match flags.output.as_deref()? {
+        "js" => Some(Platform::Js),
+        "native" => Some(crate::compiler::driver::host_native_platform()),
+        _ => None,
+    }
 }
 
 /// A native run this toolchain cannot produce, refused.
@@ -830,32 +822,17 @@ fn not_ready(
             // suites natively, and is the same wrong sentence
             // buri-lang/buri#25 and buri-lang/buri#26 were about on the
             // build side.
+            // A suite asking for `NATIVE` runs on this host's own variant, so
+            // what is missing is the toolchain's half.
             let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
             let target = actions::target_of(&output);
-            let why = if platform.is_native()
-                && !crate::build::link::is_host_target(target)
-            {
-                // A cross platform: the artifact does not run on this host,
-                // whether or not it can be built here. The same sentence on
-                // both hosts — a Linux host asked for macOS (which it cannot
-                // build) and a macOS host asked for Linux (which it can build
-                // but not execute) — because for a *test* the operative fact is
-                // the same: the suite must run where its artifact runs.
-                "a test suite runs where its artifact runs, and this toolchain executes a \
-                 native suite on its own host only — a cross artifact it can build, it cannot \
-                 run"
-                    .to_string()
-            } else {
-                actions::native_gap(target, actions::profile_of(flags))
-                    .map(|gap| gap.reason)
-                    .unwrap_or_else(|| {
-                        "this host has no C toolchain to link one with".to_string()
-                    })
-            };
+            let why = actions::native_gap(target, actions::profile_of(flags))
+                .map(|gap| gap.reason)
+                .unwrap_or_else(|| "this host has no C toolchain to link one with".to_string());
             Diagnostic::templated("platform-not-implemented", span)
                 .with_bind("platform", platform.slug())
                 .with_bind("reason", why)
-                .with_bind("platform_in_build_file", platform.proto())
+                .with_bind("backend", platform.backend().proto())
         }
         Chosen::Default => Diagnostic::templated("native-run-not-available", span)
             .with_bind("platform", platform.slug())
@@ -938,7 +915,7 @@ fn native_gap(
 /// Naming a platform is a statement in the build file rather than a decision
 /// the runner takes on a program's behalf, which is the whole difference
 /// between this and what it replaced.
-const GAP_FIX: &str = "declare `test { platforms: [JS] }` for this suite if it belongs \
+const GAP_FIX: &str = "declare `test { backends: [JS] }` for this suite if it belongs \
                        on JavaScript, or report the gap: a program the front end \
                        accepted is one the backend should compile";
 
@@ -1709,7 +1686,7 @@ fn run_batches(
 /// timeout has to bound one suite's process rather than several suites'.
 fn may_batch(session: &Session, target: TargetId) -> bool {
     let Some(suite) = suite(session, target) else { return false };
-    suite.platforms.is_empty() && suite.timeout_seconds.is_none()
+    suite.backends.is_empty() && suite.timeout_seconds.is_none()
 }
 
 /// Whether this suite's verdict is already on disk under its own key.

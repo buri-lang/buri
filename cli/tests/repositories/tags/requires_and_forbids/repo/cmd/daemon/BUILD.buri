@@ -1,6 +1,6 @@
 binary {
     dependencies: ["//lib/server", "//lib/poll"]
     outputs: [
-        { platform: MACOS, arch: X86_64 },
+        { platform: "web" },
     ]
 }

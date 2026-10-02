@@ -15,7 +15,7 @@ syntax = "proto3";
 
 package buri.build.v1;
 
-// `Platform` is declared alongside the rules that select one.
+// `Backend` is declared alongside the rules that select one.
 import "build.proto";
 
 message RepoConfig {
@@ -249,24 +249,33 @@ message Tag {
     // and reachability does not have a direction.
     repeated string tags = 1;
 
-    // Platforms code carrying this tag may not be built, or tested, for.
-    // Every other platform stays open, including one the toolchain gains
-    // later. Use `requires.platforms` when a new platform should stay out
-    // until someone lists it.
+    // Backends code carrying this tag may not be built, or tested, with.
+    repeated Backend backends = 3;
+
+    // Platforms code carrying this tag may not be built for: `"native"`,
+    // `"node"` or `"web"`. Every other platform stays open, including one the
+    // toolchain gains later. Use `requires` when a new platform should stay
+    // out until someone lists it.
     //
-    // A tag admits `requires.platforms` (all, when unset) minus these. A
-    // closure admits what every whitelist in it names and no tag in it
-    // forbids. Naming a platform here and under `requires` is an error.
-    repeated Platform platforms = 2;
+    // A tag admits what `requires` admits (all, when unset) minus what these
+    // two lists name. A closure admits what every whitelist in it names and no
+    // tag in it forbids. Naming a backend or a platform here and under
+    // `requires` is an error.
+    repeated string platforms = 2;
   }
 
   message Requires {
+    // The only backends code carrying this tag may be built with. Unset means
+    // both.
+    repeated Backend backends = 2;
+
     // The only platforms code carrying this tag may be built for. Unset means
-    // all of them. Same meaning as `Library.platforms` — this is where it goes
+    // all of them. Same meaning as `Library.platforms`: this is where it goes
     // when the restriction is policy spanning many libraries rather than a fact
     // about one of them. A whitelist, so a platform the toolchain gains later
-    // stays out until listed here.
-    repeated Platform platforms = 1;
+    // stays out until listed here. With `backends` too, a platform must
+    // satisfy both.
+    repeated string platforms = 1;
 
     // There is deliberately no `tags` here. Requiring that every dependency
     // also carry this tag would be unusable: carrying no tags at all is the

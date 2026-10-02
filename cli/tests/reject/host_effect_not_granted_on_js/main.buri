@@ -1,11 +1,11 @@
-// EXPECT: `ui` implements `Ui`, which is not allowed on the JS platform
+// EXPECT: `ui` implements `Ui`, which is not allowed on the node platform
 //
 // A platform *is* the set of effects its host exports, so a platform that does
 // not grant one does not export the name for it, and asking is an ordinary
 // unresolved name at the one line that asked. This is the direction the design
-// states as "the same rule that makes `FileSystemRead: host.fs` under `platform: JS` an
-// unresolved name makes `Ui: host.ui` under `platform: LINUX` one", and it is
-// checked per *output*: the same source under `platform: WEB` compiles, which
+// states as "the same rule that makes `FileSystemRead: host.fs` under `platform: "node"` an
+// unresolved name makes `Ui: host.ui` under `platform: "native"` one", and it is
+// checked per *output*: the same source under `platform: "web"` compiles, which
 // `repositories/build-files/web_output` builds.
 //
 // No `// PLATFORM:` line, so the corpus builds this for JS.

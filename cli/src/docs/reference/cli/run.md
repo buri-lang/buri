@@ -28,7 +28,7 @@ error: //cmd/worker declares no output this toolchain can run
 
 ## A page is served
 
-A `WEB` output is a document a browser loads, so there is no process to start.
+A `web` output is a document a browser loads, so there is no process to start.
 `buri run` builds it and serves it on a local port instead:
 
 ```text

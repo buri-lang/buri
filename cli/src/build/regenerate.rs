@@ -42,10 +42,10 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
     }
     let mut document = parsed.document;
 
-    // A package holding a tool is left as written. Which of three rules a new
+    // A package holding a tool or a platform is left as written. Which of three rules a new
     // file belongs to is a question `gen` cannot answer from imports alone —
     // nothing but the toolchain imports `tool.buri` — so it does not guess.
-    if document.get("tool").is_some() {
+    if document.get("tool").is_some() || document.get("platform").is_some() {
         return Ok(None);
     }
 

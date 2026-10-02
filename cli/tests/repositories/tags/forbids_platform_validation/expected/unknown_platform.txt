@@ -1,0 +1,18 @@
+error: `wbe` is not a platform [no-such-platform]
+ --> REPO.buri:6:21
+  |
+6 |         platforms: ["wbe"]
+  |                     ^^^^^
+  |
+  = the platforms bundled with the toolchain are `"native"`, `"node"` and `"web"`
+  = fix: did you mean `"web"`?
+
+      binary {
+          outputs: [
+              { platform: "node" },
+          ]
+      }
+
+    A platform name is a string. node runs under bun or Node, web is a page in a
+    browser, and native is an executable for the variant it names.
+

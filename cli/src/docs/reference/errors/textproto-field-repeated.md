@@ -8,9 +8,12 @@ reproduction: none
 
 ```textproto ignore why="a data file, not a build file"
 name: "api"
-name: "web"        # `name` is set twice
+name: "web"
+
+# `name` is set twice
 region: "eu"
-zone: "eu-west-1a" # `region` and `zone` are cases of one `oneof`
+zone: "eu-west-1a"
+# `region` and `zone` are cases of one `oneof`
 ```
 
 A `repeated` field may be written any number of times, and its values join in

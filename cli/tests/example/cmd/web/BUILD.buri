@@ -19,6 +19,6 @@ binary {
     tags: ["client"]
 
     outputs: [
-        { platform: JS, js { module: ESM } },
+        { platform: "node" },
     ]
 }

@@ -1,6 +1,6 @@
 binary {
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
 
     test {

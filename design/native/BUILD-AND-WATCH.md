@@ -169,7 +169,7 @@ toolchain is what has to change.
 Two of the three families have callers. `host.HostTasks.parallel` is answered
 by `cli/runtime/rt.rs`, so on a `BURI_RUNTIME_NET=0` toolchain a program that
 calls `core/tasks` is refused by name before code generation. `Listen` is
-granted on `LINUX` and `MACOS`, `core/net/server` runs the accept loop over
+granted on `native`, `core/net/server` runs the accept loop over
 `listenBind`, `listenAccept`, `listenRespond` and `listenClose`, and
 `cli/runtime/net.rs` answers all four with a hand-framed HTTP/1.1 server
 behind that same feature. `host.HostSockets.*` has bodies in that file too
@@ -343,7 +343,7 @@ JavaScript artifact. `buri test` does **not** quietly follow: a suite that
 names no platform is refused with `native-run-not-available`, naming the
 platform and the profile, because a suite run on a backend nobody chose
 reports a pass about the other backend (ARCHITECTURE.md §4). `--output=js`, or
-`test { platforms: [JS] }`, is how a suite runs there on purpose.
+`test { backends: [JS] }`, is how a suite runs there on purpose.
 
 **`backend-llvm` is off by default.** It needs LLVM 21 installed and
 `LLVM_SYS_211_PREFIX` set (CODEGEN-LLVM.md §8). `cargo install buri` must not

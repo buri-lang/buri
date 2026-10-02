@@ -99,7 +99,7 @@ top level because suites share them: `language::conformance` reads
 `conformance/` on the JavaScript backend while `native::conformance` and
 `native::stencil` read it on the copy-and-patch one, and four suites read
 `crash/`. That split is written into the corpus — each
-`conformance/lib/*/BUILD.buri` declares `test { platforms: [JS] }`, because
+`conformance/lib/*/BUILD.buri` declares `test { backends: [JS] }`, because
 `buri test` runs a suite natively by default and the reference run has to stay
 the reference one. A divergence then means one backend is wrong, rather than two
 sets of assertions disagreeing.
@@ -468,7 +468,7 @@ reads every `.rs` file under `cli/src` and `cli/tests` and fails if a
 `cfg(feature = "backend-llvm")` appears outside those files. One hole it cannot
 cover: `backend::select` answers with LLVM for a *native release* build, so a
 test driving one through the CLI would differ under the feature with no `cfg` of
-its own. Every `--release` in the suite today builds a `platform: JS` output,
+its own. Every `--release` in the suite today builds a `platform: "node"` output,
 and `native_ready` rejects `Js` before anything reaches `select`. A change that
 adds a native `--release` test owes this paragraph a second look —
 `compiler::backend::a_release_refusal_names_the_profile_rather_than_the_platform`
@@ -623,7 +623,7 @@ edit { file: "cmd/app/BUILD.buri"  replace: "..."  with: "..." }
 move { from: "lib/a/input.txt"  to: "input.txt.away" }
 file { path: "cmd/f/main.buri"  golden: "formatted.buri" }
 path { path: ".buri/out"  exists: false }
-path { path: "out"  symlink: ".buri/out/js" }
+path { path: "out"  symlink: ".buri/out/node" }
 ```
 
 `not_a_repository` says the tree under `repo/` has no `REPO.buri` on purpose.

@@ -30,7 +30,7 @@ tag {
         # Server code is never shipped to a browser. Declared here rather than on
         # each library, and a whitelist rather than "not JS", so adding a platform
         # to the toolchain does not silently widen anything written before it.
-        platforms: [LINUX, MACOS]
+        backends: [NATIVE]
     }
 }
 

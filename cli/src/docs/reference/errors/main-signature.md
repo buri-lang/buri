@@ -14,7 +14,7 @@ Give the entry the signature its platform fixes.
 
 | Platform | The entry |
 |---|---|
-| `LINUX`, `MACOS`, `JS`, `WEB` | `fn <entry>(): Result<(), Str>` |
+| `native`, `node`, `web` | `fn <entry>(): Result<(), Str>` |
 | `CLOUDFLARE_WORKER` | `fn <entry>(request: Request): Response` |
 
 No entry declares generic parameters.

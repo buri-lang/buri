@@ -1,0 +1,8 @@
+library {
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/greet.buri"]
+        backends: [JS]
+    }
+}

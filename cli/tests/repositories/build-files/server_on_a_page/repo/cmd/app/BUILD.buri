@@ -3,6 +3,6 @@
 # `host.listen` is not one of JavaScript's.
 binary {
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
 }

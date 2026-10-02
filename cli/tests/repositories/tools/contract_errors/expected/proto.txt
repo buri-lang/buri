@@ -8,7 +8,9 @@ error: `generate` cannot take `proto` inputs typed: a `.proto` file is a schema,
 
       tool {
           generate {
-              accepts: [{ language: "proto", type_schema: "config.proto:Config" }]
+              accepts: [
+                  { language: "proto", type_schema: "config.proto:Config" },
+              ]
           }
       }
 
@@ -20,7 +22,9 @@ error: `generate` cannot take `proto` inputs typed: a `.proto` file is a schema,
 
       tool {
           generate {
-              accepts: [{ language: "textproto", type_schema: "config.proto:Config" }]
+              accepts: [
+                  { language: "textproto", type_schema: "config.proto:Config" },
+              ]
           }
       }
 

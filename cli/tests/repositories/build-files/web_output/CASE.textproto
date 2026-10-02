@@ -1,4 +1,4 @@
-# What `buri build` produces for `platform: WEB`, and what a `main` may bind
+# What `buri build` produces for `platform: "web"`, and what a `main` may bind
 # there.
 #
 # Two claims, and they are the same claim from two sides.
@@ -95,8 +95,8 @@ run {
 # so the binding is an unresolved name at the line that asked for it.
 edit {
   file: "cmd/counter/BUILD.buri"
-  replace: "platform: WEB"
-  with: "platform: JS"
+  replace: "platform: \"web\""
+  with: "platform: \"node\""
 }
 
 run {
@@ -107,8 +107,8 @@ run {
 
 edit {
   file: "cmd/counter/BUILD.buri"
-  replace: "platform: JS"
-  with: "platform: WEB"
+  replace: "platform: \"node\""
+  with: "platform: \"web\""
 }
 
 # Direction two: a page reaching for a file. There is no filesystem under a
@@ -158,24 +158,23 @@ edit {
   with: "import { Allocator, Stdout }\n\n;"
 }
 
-# A WEB output takes neither of the two fields a JS output can: an `arch` is
-# meaningless for JavaScript, and a page is always an ES module.
+# A page has no variants: there is no machine under it to choose between.
 edit {
   file: "cmd/counter/BUILD.buri"
-  replace: "{ platform: WEB }"
-  with: "{ platform: WEB  arch: ARM64  js { module: ESM } }"
+  replace: "{ platform: \"web\" }"
+  with: "{ platform: \"web\", variant: \"linux-arm64\" }"
 }
 
 run {
   args: ["build", "//cmd/counter"]
   exit: 2
-  golden: "web_has_no_arch_or_module.txt"
+  golden: "web_has_no_variant.txt"
 }
 
 edit {
   file: "cmd/counter/BUILD.buri"
-  replace: "{ platform: WEB  arch: ARM64  js { module: ESM } }"
-  with: "{ platform: WEB }"
+  replace: "{ platform: \"web\", variant: \"linux-arm64\" }"
+  with: "{ platform: \"web\" }"
 }
 
 # And back, which is a cache hit: nothing about the tree moved, so the artifact

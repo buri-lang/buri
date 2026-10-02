@@ -751,7 +751,7 @@ fn a_worker_answers_the_platforms_request_with_the_platforms_response() {
     let scratch = Scratch::repo("worker-fetch");
     scratch.write(
         "cmd/site/BUILD.buri",
-        "binary {\n    outputs: [\n        { platform: CLOUDFLARE_WORKER, entry: \"fetch\" },\n    ]\n}\n",
+        "binary {\n    outputs: [\n        { platform: CLOUDFLARE_WORKER },\n    ]\n}\n",
     );
     scratch.write(
         "cmd/site/main.buri",
@@ -882,7 +882,7 @@ fn a_worker_reads_its_variables_from_the_env_the_platform_passes() {
     let scratch = Scratch::repo("worker-env");
     scratch.write(
         "cmd/site/BUILD.buri",
-        "binary {\n    outputs: [\n        { platform: CLOUDFLARE_WORKER, entry: \"fetch\" },\n    ]\n}\n",
+        "binary {\n    outputs: [\n        { platform: CLOUDFLARE_WORKER },\n    ]\n}\n",
     );
     scratch.write(
         "cmd/site/main.buri",
@@ -1032,7 +1032,7 @@ fn a_request_with_a_bound_gives_up_on_a_server_that_never_answers() {
     listener.set_nonblocking(true).expect("a listener that can be polled");
 
     let scratch = Scratch::repo("fetch-timeout");
-    scratch.write("cmd/dial/BUILD.buri", "binary {\n    outputs: [{ platform: JS }]\n}\n");
+    scratch.write("cmd/dial/BUILD.buri", "binary {\n    outputs: [{ platform: \"node\" }]\n}\n");
     scratch.write(
         "cmd/dial/main.buri",
         &format!(
@@ -1273,7 +1273,7 @@ fn a_chunk_is_fetched_only_where_the_program_asks_for_it() {
     let scratch = Scratch::repo("lazy-when-fetched");
     scratch.write(
         "cmd/site/BUILD.buri",
-        "binary {\n    outputs: [\n        { platform: CLOUDFLARE_WORKER, entry: \"fetch\" },\n    ]\n}\n",
+        "binary {\n    outputs: [\n        { platform: CLOUDFLARE_WORKER },\n    ]\n}\n",
     );
     scratch.write(
         "cmd/site/main.buri",
@@ -1382,7 +1382,7 @@ fn a_page_mounts_an_interface_and_then_dials_a_socket() {
     let scratch = Scratch::repo("page-dials");
     scratch.write(
         "cmd/page/BUILD.buri",
-        "binary {\n    outputs: [\n        { platform: WEB, entry: \"main\" },\n    ]\n}\n",
+        "binary {\n    outputs: [\n        { platform: \"web\" },\n    ]\n}\n",
     );
     scratch.write(
         "cmd/page/main.buri",
@@ -1489,7 +1489,7 @@ globalThis.WebSocket = class {
   }
 };
 
-await import("./.buri/out/web/cmd/page/main.mjs");
+await import("./.buri/out/web/cmd/page/page.mjs");
 console.log(log.join("\n"));
 "#,
     );
@@ -1595,7 +1595,7 @@ fn a_javascript_client_is_refused_when_a_dial_cannot_open() {
     let scratch = Scratch::repo("js-dial-refused");
     scratch.write(
         "cmd/dial/BUILD.buri",
-        "binary {\n    outputs: [\n        { platform: JS, entry: \"main\" },\n    ]\n}\n",
+        "binary {\n    outputs: [\n        { platform: \"node\" },\n    ]\n}\n",
     );
     scratch.write(
         "cmd/dial/main.buri",
@@ -1666,7 +1666,7 @@ fn silent<C: Allocator + Sockets + Stdout + WebSocketClient>(url: Str): Client<C
         one_answer("HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
 
     let out = Command::new(js_runtime())
-        .arg(scratch.path(".buri/out/js/cmd/dial/main.mjs"))
+        .arg(scratch.path(".buri/out/node/cmd/dial/dial.mjs"))
         .arg(nobody.to_string())
         .arg(not_101.to_string())
         .output()
@@ -1736,7 +1736,7 @@ fn a_javascript_client_carries_every_shape_over_a_real_socket() {
     let scratch = Scratch::repo("js-dial-exchange");
     scratch.write(
         "cmd/dial/BUILD.buri",
-        "binary {\n    outputs: [\n        { platform: JS, entry: \"main\" },\n    ]\n}\n",
+        "binary {\n    outputs: [\n        { platform: \"node\" },\n    ]\n}\n",
     );
     scratch.write(
         "cmd/dial/main.buri",
@@ -1889,7 +1889,7 @@ export fn main(): Result<(), Str> {
     let port = serving.port;
 
     let out = Command::new(js_runtime())
-        .arg(scratch.path(".buri/out/js/cmd/dial/main.mjs"))
+        .arg(scratch.path(".buri/out/node/cmd/dial/dial.mjs"))
         .arg(port.to_string())
         .arg(LARGE.to_string())
         .output()
@@ -1977,7 +1977,7 @@ fn a_worker_dials_a_socket_while_it_answers_a_request() {
     let scratch = Scratch::repo("worker-dials");
     scratch.write(
         "cmd/relay/BUILD.buri",
-        "binary {\n    outputs: [\n        { platform: CLOUDFLARE_WORKER, entry: \"fetch\" },\n    ]\n}\n",
+        "binary {\n    outputs: [\n        { platform: CLOUDFLARE_WORKER },\n    ]\n}\n",
     );
     scratch.write(
         "cmd/relay/main.buri",
@@ -2565,7 +2565,7 @@ console.log(sent);
 
 browser(sent, at, true);
 
-await import("./.buri/out/web/cmd/site/main.mjs");
+await import("./.buri/out/web/cmd/site/site.mjs");
 
 console.log(`made ${made.elements} elements and ${made.text} runs of text`);
 console.log(`at ${location.pathname} over ${history.length}`);
@@ -2621,8 +2621,8 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
     let scratch = Scratch::repo("resume-edges");
     scratch.write(
         "cmd/edges/BUILD.buri",
-        "binary {\n    outputs: [\n        { platform: WEB, entry: \"main\" },\n        \
-         { platform: CLOUDFLARE_WORKER, entry: \"fetch\" },\n    ]\n}\n",
+        "binary {\n    outputs: [\n        { platform: \"web\" },\n        \
+         { platform: CLOUDFLARE_WORKER },\n    ]\n}\n",
     );
     scratch.write("cmd/edges/main.buri", RESUME_EDGES_PAGE);
     scratch.run(&["build", "//cmd/edges"]).ok();
@@ -3074,7 +3074,7 @@ if (how === "right-address") {
 }
 
 const title = findFirst(body, "H1");
-await import("./.buri/out/web/cmd/edges/main.mjs");
+await import("./.buri/out/web/cmd/edges/edges.mjs");
 
 console.log(`made ${made.elements} elements and ${made.text} runs of text`);
 console.log(`showing ${showing()}`);
@@ -3126,8 +3126,8 @@ fn a_page_spawns_from_a_handler_after_main_returned() {
     let scratch = Scratch::repo("web-spawn");
     scratch.write(
         "cmd/page/BUILD.buri",
-        "binary {\n    outputs: [\n        { platform: WEB, entry: \"main\" },\n        \
-         { platform: CLOUDFLARE_WORKER, entry: \"fetch\" },\n    ]\n}\n",
+        "binary {\n    outputs: [\n        { platform: \"web\" },\n        \
+         { platform: CLOUDFLARE_WORKER },\n    ]\n}\n",
     );
     scratch.write(
         "cmd/page/main.buri",
@@ -3296,7 +3296,7 @@ const answer = await worker.default.fetch(new Request("https://example.com/"));
 console.log(`${answer.status} ${await answer.text()}`);
 
 // Then the page, on top of the document above. `main` mounts and returns.
-await import("./.buri/out/web/cmd/page/main.mjs");
+await import("./.buri/out/web/cmd/page/page.mjs");
 console.log(`before the click: ${text_(document.body)}`);
 
 // The click. Nothing waits for the handler — a listener answers at once and
@@ -3348,7 +3348,7 @@ fn a_second_press_waits_for_the_actor_step_the_first_is_running() {
     let scratch = Scratch::repo("web-actor");
     scratch.write(
         "cmd/page/BUILD.buri",
-        "binary {\n    outputs: [\n        { platform: WEB, entry: \"main\" },\n    ]\n}\n",
+        "binary {\n    outputs: [\n        { platform: \"web\" },\n    ]\n}\n",
     );
     scratch.write(
         "cmd/page/main.buri",
@@ -3496,7 +3496,7 @@ globalThis.document = {
   getElementById: () => null,
 };
 
-await import("./.buri/out/web/cmd/page/main.mjs");
+await import("./.buri/out/web/cmd/page/page.mjs");
 
 // Two presses, one straight after the other: the second arrives while the
 // first press's step is asleep holding the state.

@@ -6,7 +6,7 @@ binary {
     dependencies: ["//lib/counter"]
 
     outputs: [
-        { platform: MACOS, arch: ARM64 },
+        { platform: "native", variant: "macos-arm64" },
     ]
 
     test {

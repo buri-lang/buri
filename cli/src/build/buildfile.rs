@@ -15,7 +15,7 @@ use crate::diagnostics::{Diagnostic, FileId, Invariant, Span};
 /// formatter cannot tell the two kinds of file apart, so it carries their
 /// union, while the reader must refuse a `tag` in a build file. The test at
 /// the bottom of this module holds the union to these two halves.
-const BUILD_FILE_RULES: &[&str] = &["library", "binary", "tool"];
+const BUILD_FILE_RULES: &[&str] = &["library", "binary", "tool", "platform"];
 const REPO_FILE_RULES: &[&str] = &["tag", "lint", "language"];
 
 /// The fields a `test` block used to declare and no longer does.
@@ -29,7 +29,7 @@ const REPO_FILE_RULES: &[&str] = &["tag", "lint", "language"];
 ///
 /// Per block rather than one list for the file, because a `data` entry in a
 /// `library` rule is still an unknown field and still gets told so.
-const RETIRED_TEST_FIELDS: &[&str] = &["data"];
+const RETIRED_TEST_FIELDS: &[&str] = &["data", "platforms"];
 
 /// The fields a `library` rule used to declare and no longer does. Same rule as
 /// [`RETIRED_TEST_FIELDS`]: the name is passed over by `check_known` and gets
@@ -38,6 +38,19 @@ const RETIRED_LIBRARY_FIELDS: &[&str] = &["proto_sources"];
 
 /// The same, for a `binary` rule.
 const RETIRED_BINARY_FIELDS: &[&str] = &["proto_sources"];
+
+/// The same, for an `outputs` entry: `variant` replaced `arch`, `entries`
+/// replaced `entry`, and every JavaScript output is an ES module.
+const RETIRED_OUTPUT_FIELDS: &[&str] = &["arch", "js", "entry"];
+
+/// The platform names a build file wrote before platforms were strings, and
+/// the list that says the same thing now.
+const RETIRED_PLATFORM_NAMES: &[(&str, &str)] = &[
+    ("LINUX", "backends: [NATIVE]"),
+    ("MACOS", "backends: [NATIVE]"),
+    ("JS", "backends: [JS]"),
+    ("WEB", "platforms: [\"web\"]"),
+];
 
 /// The tool names this toolchain used to answer to, and what each is called
 /// now. A built-in tool is its language's bare name, as a built-in platform
@@ -90,10 +103,17 @@ pub enum EntryShape {
     Fetch,
 }
 
+/// What gets built: a bundled platform, with `native` split by operating
+/// system because a backend needs to know which one.
+///
+/// A build file never names one of these. It names a platform (`"native"`,
+/// `"node"`, `"web"`) and, for `native`, a variant; [`Output`] turns that
+/// into one of these.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
 pub enum Platform {
     Linux,
     Macos,
+    /// `node`.
     Js,
     /// A page in a browser. The artifact is JavaScript, so it is built by the
     /// same backend `Js` is, but it is a different *platform* because a
@@ -111,56 +131,59 @@ pub enum Platform {
 }
 
 impl Platform {
-    pub fn parse(s: &str) -> Option<Platform> {
-        Some(match s {
-            "LINUX" => Platform::Linux,
-            "MACOS" => Platform::Macos,
-            "JS" => Platform::Js,
-            "WEB" => Platform::Web,
-            "CLOUDFLARE_WORKER" => Platform::CloudflareWorker,
-            _ => return None,
-        })
-    }
-
-    /// The spelling used in `--output=` and in artifact paths.
+    /// The spelling used in `--output=`, in artifact paths and in messages.
     pub fn slug(self) -> &'static str {
         match self {
-            Platform::Linux => "linux",
-            Platform::Macos => "macos",
-            Platform::Js => "js",
+            Platform::Linux | Platform::Macos => "native",
+            Platform::Js => "node",
             Platform::Web => "web",
             Platform::CloudflareWorker => "cloudflare-worker",
         }
     }
 
+    /// The spelling a build file writes.
     pub fn proto(self) -> &'static str {
         match self {
-            Platform::Linux => "LINUX",
-            Platform::Macos => "MACOS",
-            Platform::Js => "JS",
-            Platform::Web => "WEB",
+            Platform::Linux | Platform::Macos => "native",
+            Platform::Js => "node",
+            Platform::Web => "web",
             Platform::CloudflareWorker => "CLOUDFLARE_WORKER",
         }
     }
 
-    /// Whether this platform's artifact is JavaScript.
-    ///
-    /// **This is the question almost every `platform` test in the toolchain is
-    /// really asking**, and it used to be spelled `!= Platform::Js` back when
-    /// there was one JavaScript platform and the two questions could not come
-    /// apart. They can now: a `Web` artifact is emitted by the `js` backend,
-    /// is written as an `.mjs`, runs no native linker and needs no runtime
-    /// archive — so every site that meant "not native" must ask this rather
-    /// than compare against one variant.
+    /// `linux`, `macos`, `node`: the operating system for a native platform,
+    /// for a message about a machine.
+    pub fn machine(self) -> &'static str {
+        self.os().unwrap_or(self.slug())
+    }
+
+    /// The operating system half of a `native` variant.
+    pub fn os(self) -> Option<&'static str> {
+        match self {
+            Platform::Linux => Some("linux"),
+            Platform::Macos => Some("macos"),
+            Platform::Js | Platform::Web | Platform::CloudflareWorker => None,
+        }
+    }
+
+    /// The backend that builds this platform's artifact.
+    pub fn backend(self) -> Backend {
+        match self {
+            Platform::Linux | Platform::Macos => Backend::Native,
+            Platform::Js | Platform::Web | Platform::CloudflareWorker => Backend::Js,
+        }
+    }
+
+    /// Whether this platform's artifact is JavaScript: emitted by the `js`
+    /// backend, written as an `.mjs`, linked by nothing.
     pub fn is_javascript(self) -> bool {
-        matches!(self, Platform::Js | Platform::Web | Platform::CloudflareWorker)
+        self.backend() == Backend::Js
     }
 
     /// Whether this platform is built by a native backend, linked, and run as
-    /// a process. The complement of [`Platform::is_javascript`], written out
-    /// so that a reader of a call site does not have to negate anything.
+    /// a process.
     pub fn is_native(self) -> bool {
-        !self.is_javascript()
+        self.backend() == Backend::Native
     }
 
     pub const ALL: [Platform; 5] = [
@@ -173,11 +196,6 @@ impl Platform {
 
     /// The signature this platform fixes for the function an output enters
     /// through.
-    ///
-    /// **A platform decides the shape of its entry**, which is why the answer
-    /// lives here and not on the function. A worker is called by its runtime
-    /// with a request and answers a response; everything else runs itself and
-    /// reports how it went.
     pub fn entry_shape(self) -> EntryShape {
         match self {
             Platform::CloudflareWorker => EntryShape::Fetch,
@@ -187,37 +205,176 @@ impl Platform {
         }
     }
 
-    /// Every platform's schema spelling, in declaration order.
-    ///
-    /// Derived from [`Platform::ALL`] rather than written out beside it, so
-    /// that adding a variant cannot leave a diagnostic naming three platforms
-    /// when there are four. Three diagnostics offer this list and all three
-    /// read it from here.
-    fn proto_names() -> Vec<&'static str> {
-        Platform::ALL.iter().map(|p| p.proto()).collect()
-    }
-
-    /// `LINUX, MACOS, JS, WEB, CLOUDFLARE_WORKER` — the list as a diagnostic
-    /// writes it.
+    /// `native, node, web`: the bundled platforms, as a diagnostic lists them.
     pub fn names_phrase() -> String {
-        Platform::proto_names().join(", ")
+        PlatformName::BUNDLED.iter().map(|p| p.name()).collect::<Vec<_>>().join(", ")
     }
 
-    /// `the WEB platform`, `the LINUX and MACOS platforms` — platforms named
-    /// inside a sentence rather than listed after a colon.
-    ///
-    /// The whole phrase is built here, article and plural included, because a
-    /// diagnostic template interpolates names and does not conjugate: a
-    /// wording that varied by more than an interpolated phrase would be a
-    /// second diagnostic (`reference/errors/README.md`). One caller binds this
-    /// into `{platforms}` and the sentence reads either way round.
+    /// `the web platform`, `the native and node platforms`: platforms named
+    /// inside a sentence. Linux and macOS are both `native`, so a name is
+    /// written once.
     pub fn sentence_phrase(platforms: &[Platform]) -> String {
-        let names: Vec<&str> = platforms.iter().map(|p| p.proto()).collect();
+        let mut names: Vec<&str> = Vec::new();
+        for p in platforms {
+            if !names.contains(&p.proto()) {
+                names.push(p.proto());
+            }
+        }
         match names.split_last() {
             None => String::new(),
             Some((last, [])) => format!("the {last} platform"),
             Some((last, rest)) => format!("the {} and {last} platforms", rest.join(", ")),
         }
+    }
+}
+
+/// How a program is compiled. Closed: a backend is built into the CLI.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
+pub enum Backend {
+    Native,
+    Js,
+}
+
+impl Backend {
+    pub fn parse(s: &str) -> Option<Backend> {
+        Some(match s {
+            "NATIVE" => Backend::Native,
+            "JS" => Backend::Js,
+            _ => return None,
+        })
+    }
+
+    pub fn proto(self) -> &'static str {
+        match self {
+            Backend::Native => "NATIVE",
+            Backend::Js => "JS",
+        }
+    }
+
+    const NAMES: &'static [&'static str] = &["NATIVE", "JS"];
+
+    /// The platforms this backend builds.
+    pub fn platforms(self) -> &'static [Platform] {
+        match self {
+            Backend::Native => &[Platform::Linux, Platform::Macos],
+            Backend::Js => &[Platform::Js, Platform::Web, Platform::CloudflareWorker],
+        }
+    }
+}
+
+/// A platform as a build file names it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
+pub enum PlatformName {
+    Native,
+    Node,
+    Web,
+    /// The one old spelling still accepted, until Cloudflare is a platform a
+    /// repository writes itself.
+    CloudflareWorker,
+}
+
+impl PlatformName {
+    pub const BUNDLED: [PlatformName; 3] = [PlatformName::Native, PlatformName::Node, PlatformName::Web];
+
+    /// A bundled platform by its bare name.
+    pub fn bundled(s: &str) -> Option<PlatformName> {
+        PlatformName::BUNDLED.into_iter().find(|p| p.name() == s)
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            PlatformName::Native => "native",
+            PlatformName::Node => "node",
+            PlatformName::Web => "web",
+            PlatformName::CloudflareWorker => "CLOUDFLARE_WORKER",
+        }
+    }
+
+    /// What an output the CLI makes up for it builds: `native` builds the
+    /// host's.
+    pub fn host_platform(self) -> Platform {
+        match self {
+            PlatformName::Native => crate::compiler::driver::host_native_platform(),
+            PlatformName::Node => Platform::Js,
+            PlatformName::Web => Platform::Web,
+            PlatformName::CloudflareWorker => Platform::CloudflareWorker,
+        }
+    }
+
+    /// What gets built for it.
+    pub fn platforms(self) -> &'static [Platform] {
+        match self {
+            PlatformName::Native => &[Platform::Linux, Platform::Macos],
+            PlatformName::Node => &[Platform::Js],
+            PlatformName::Web => &[Platform::Web],
+            PlatformName::CloudflareWorker => &[Platform::CloudflareWorker],
+        }
+    }
+
+    /// The platform's rule. `None` for the worker, which has no build file.
+    pub fn rule(self) -> Option<&'static PlatformRule> {
+        crate::build::platforms::bundled(self.name())
+    }
+
+    /// The variants an output picks between. Empty when there are none.
+    pub fn variants(self) -> Vec<&'static str> {
+        self.rule().map(|r| r.variants.iter().map(|v| v.value.as_str()).collect()).unwrap_or_default()
+    }
+
+    /// The names of the platform's entries.
+    pub fn entries(self) -> Vec<&'static str> {
+        match self.rule() {
+            Some(r) => r.entries.iter().map(|e| e.name.value.as_str()).collect(),
+            None => vec!["fetch"],
+        }
+    }
+}
+
+/// The two lists a library, a tag's `requires` and a tag's `forbids` write:
+/// `backends` and `platforms`.
+#[derive(Clone, Debug, Default)]
+pub struct Admitted {
+    pub backends: Vec<Spanned<Backend>>,
+    pub platforms: Vec<Spanned<PlatformName>>,
+}
+
+impl Admitted {
+    pub fn is_empty(&self) -> bool {
+        self.backends.is_empty() && self.platforms.is_empty()
+    }
+
+    /// Whether every list written admits `platform`. Nothing written admits
+    /// everything.
+    pub fn admits(&self, platform: Platform) -> bool {
+        (self.backends.is_empty() || self.backends.iter().any(|b| b.value.platforms().contains(&platform)))
+            && (self.platforms.is_empty()
+                || self.platforms.iter().any(|p| p.value.platforms().contains(&platform)))
+    }
+
+    /// The word written for `platform` in either list, if one names it.
+    pub fn naming(&self, platform: Platform) -> Option<&'static str> {
+        let backend = self.backends.iter().find(|b| b.value.platforms().contains(&platform));
+        let named = self.platforms.iter().find(|p| p.value.platforms().contains(&platform));
+        backend.map(|b| b.value.proto()).or(named.map(|p| p.value.name()))
+    }
+
+    /// What a written list admits, or `None` when nothing is written.
+    pub fn set(&self) -> Option<std::collections::BTreeSet<Platform>> {
+        (!self.is_empty()).then(|| Platform::ALL.into_iter().filter(|p| self.admits(*p)).collect())
+    }
+
+    /// `backends NATIVE`, `platforms web`: the lists as a note writes them.
+    pub fn phrase(&self) -> String {
+        let mut parts = Vec::new();
+        if !self.backends.is_empty() {
+            let names: Vec<&str> = self.backends.iter().map(|b| b.value.proto()).collect();
+            parts.push(format!("backends {}", names.join(", ")));
+        }
+        if !self.platforms.is_empty() {
+            let names: Vec<&str> = self.platforms.iter().map(|p| p.value.name()).collect();
+            parts.push(format!("platforms {}", names.join(", ")));
+        }
+        parts.join(" and ")
     }
 }
 
@@ -230,8 +387,8 @@ pub enum Arch {
 impl Arch {
     pub fn parse(s: &str) -> Option<Arch> {
         Some(match s {
-            "X86_64" => Arch::X86_64,
-            "ARM64" => Arch::Arm64,
+            "x86_64" => Arch::X86_64,
+            "arm64" => Arch::Arm64,
             _ => return None,
         })
     }
@@ -242,22 +399,9 @@ impl Arch {
             Arch::Arm64 => "arm64",
         }
     }
-
-    pub fn proto(self) -> &'static str {
-        match self {
-            Arch::X86_64 => "X86_64",
-            Arch::Arm64 => "ARM64",
-        }
-    }
 }
 
 /// A platform that produces a machine artifact.
-///
-/// `Platform::Js` is deliberately not one of these. JavaScript is not built per
-/// machine, so an `arch` alongside it is meaningless — and the way to say that
-/// is for the two to live in different variants of [`OutputTarget`] rather than
-/// for a diagnostic to be the only thing standing between the reader and a
-/// value whose `arch` half the rest of the toolchain then disagrees about.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NativePlatform {
     Linux,
@@ -273,48 +417,37 @@ impl NativePlatform {
     }
 }
 
-/// What an output is built for. A variant carries exactly the fields its side
-/// has: an `arch` only exists for a native build. `Js` carries nothing — an
-/// ES module is the only kind of module this toolchain emits, so there is no
-/// module field to record.
+/// What an output is built for. Only a native build has an `arch`: it is the
+/// half of the variant after the operating system.
 #[derive(Clone, Debug)]
 pub enum OutputTarget {
+    /// `arch` is `None` for an output the CLI made up, which builds for the
+    /// host's architecture.
     Native { platform: NativePlatform, arch: Option<Spanned<Arch>> },
     Js,
-    /// A browser page. It carries no `arch`: a machine architecture is
-    /// meaningless for JavaScript, and a browser loads an ES module — there
-    /// is no `<script type="commonjs">`.
     Web,
-    /// A Cloudflare Worker. Carries no `arch` and no module kind, for `Web`'s
-    /// reasons: the artifact is an ES module and there is no machine under it.
     CloudflareWorker,
 }
 
 /// One entry of a binary's `outputs`.
-///
-/// A platform is required — the reader rejects an entry without one rather than
-/// producing a value three modules would then each invent a different default
-/// for.
 #[derive(Clone, Debug)]
 pub struct Output {
     pub target: OutputTarget,
     pub artifact_name: Option<String>,
-    /// The exported function this artifact enters through. `None` is `main`.
-    ///
-    /// A binary is one program with several ways in: a page enters through
-    /// `main` and a worker through `fetch`, out of the same sources, each with
-    /// its own context and its own dead-code elimination.
+    /// The function filling the platform's entry, where `entries` names one.
+    /// `None` is the function named after the entry.
     pub entry: Option<Spanned<String>>,
     pub span: Span,
 }
 
 impl Output {
-    /// The default output: this toolchain emits JavaScript.
+    /// The default output, `node`.
     pub fn js(span: Span) -> Output {
         Output { target: OutputTarget::Js, artifact_name: None, entry: None, span }
     }
 
-    /// An output for a platform chosen at run time, as `buri test` does.
+    /// An output for a platform chosen at run time, as `buri test` does. A
+    /// native one builds the host's variant.
     pub fn for_platform(platform: Platform, span: Span) -> Output {
         let target = match platform {
             Platform::Js => OutputTarget::Js,
@@ -339,9 +472,17 @@ impl Output {
         }
     }
 
-    /// The function this output enters through. `main` when it named none.
+    /// The platform's entry this output fills: `main`, or a worker's `fetch`.
+    pub fn entry_point(&self) -> &'static str {
+        match self.platform() {
+            Platform::CloudflareWorker => "fetch",
+            _ => "main",
+        }
+    }
+
+    /// The function this output enters through.
     pub fn entry_name(&self) -> &str {
-        self.entry.as_ref().map_or("main", |e| e.value.as_str())
+        self.entry.as_ref().map_or(self.entry_point(), |e| e.value.as_str())
     }
 
     pub fn arch(&self) -> Option<Arch> {
@@ -351,25 +492,25 @@ impl Output {
         }
     }
 
-    /// `linux-x86_64`, `js`, `web` — the directory under `.buri/out/`.
+    /// `linux-arm64`: a native output's variant, the host's architecture when
+    /// the output named none.
+    pub fn variant(&self) -> Option<String> {
+        let os = self.platform().os()?;
+        let arch = self.arch().or_else(crate::build::link::host_arch)?;
+        Some(format!("{os}-{}", arch.slug()))
+    }
+
+    /// `native/linux-arm64`, `node`, `web`: the directory under `.buri/out/`.
     pub fn dir(&self) -> String {
-        match &self.target {
-            OutputTarget::Js => "js".to_string(),
-            OutputTarget::Web => "web".to_string(),
-            OutputTarget::CloudflareWorker => "cloudflare-worker".to_string(),
-            OutputTarget::Native { platform, arch: Some(a) } => {
-                format!("{}-{}", platform.platform().slug(), a.value.slug())
-            }
-            OutputTarget::Native { platform, arch: None } => {
-                platform.platform().slug().to_string()
-            }
+        match self.variant() {
+            Some(v) => format!("native/{v}"),
+            None => self.platform().slug().to_string(),
         }
     }
 
-    /// Whether `--output=<selector>` selects this entry. Accepts `js`,
-    /// `linux/x86_64`, and `linux-x86_64`.
+    /// Whether `--output=<selector>` selects this output: its directory, or
+    /// its platform's name for every output of that platform.
     pub fn matches_selector(&self, selector: &str) -> bool {
-        let selector = selector.replace('/', "-");
         self.dir() == selector || self.platform().slug() == selector
     }
 }
@@ -379,7 +520,9 @@ pub struct TestSuite {
     pub sources: Vec<Spanned<String>>,
     pub dependencies: Vec<Spanned<String>>,
     pub timeout_seconds: Option<u32>,
-    pub platforms: Vec<Spanned<Platform>>,
+    /// The backends to run the suite on, one run each. Empty is one run,
+    /// natively.
+    pub backends: Vec<Spanned<Backend>>,
     pub span: Span,
 }
 
@@ -414,7 +557,9 @@ pub struct Library {
     pub generators: Vec<Generator>,
     pub dependencies: Vec<Spanned<String>>,
     pub tags: Vec<Spanned<String>>,
-    pub platforms: Vec<Spanned<Platform>>,
+    /// `backends` and `platforms`: where the library may be built. Nothing
+    /// written is everywhere.
+    pub admits: Admitted,
     /// Parsed here rather than at every consumer: an entry that is not a
     /// visibility is a diagnostic, in the same place and the same way a bad
     /// `platforms` entry is, instead of an unparseable string that silently
@@ -495,11 +640,33 @@ impl Tool {
     }
 }
 
+/// A `platform` rule: the entries a platform offers, and how an output of it
+/// may be built.
+#[derive(Clone, Debug, Default)]
+pub struct PlatformRule {
+    pub sources: Vec<Spanned<String>>,
+    pub dependencies: Vec<Spanned<String>>,
+    pub variants: Vec<Spanned<String>>,
+    pub entries: Vec<PlatformEntry>,
+    pub assets: Vec<Spanned<String>>,
+    pub span: Span,
+}
+
+/// One `entry` block of a platform rule.
+#[derive(Clone, Debug)]
+pub struct PlatformEntry {
+    pub name: Spanned<String>,
+    pub backend: Spanned<Backend>,
+    pub js: Option<Spanned<String>>,
+    pub span: Span,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct BuildFile {
     pub library: Option<Library>,
     pub binary: Option<Binary>,
     pub tool: Option<Tool>,
+    pub platform: Option<PlatformRule>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -507,23 +674,20 @@ pub struct Tag {
     pub name: Spanned<String>,
     pub doc: String,
     pub forbids_tags: Vec<Spanned<String>>,
-    pub forbids_platforms: Vec<Spanned<Platform>>,
-    pub requires_platforms: Vec<Spanned<Platform>>,
+    pub forbids: Admitted,
+    pub requires: Admitted,
     pub span: Span,
 }
 
 impl Tag {
-    /// Whether code carrying this tag may be built for `platform`: in
-    /// `requires.platforms` (or that list is unset), and not in
-    /// `forbids.platforms`.
+    /// Whether code carrying this tag may be built for `platform`: admitted by
+    /// `requires` (or nothing is required), and named by nothing in `forbids`.
     pub fn admits(&self, platform: Platform) -> bool {
-        let required = self.requires_platforms.is_empty()
-            || self.requires_platforms.iter().any(|p| p.value == platform);
-        required && !self.forbids(platform)
+        self.requires.admits(platform) && !self.forbids(platform)
     }
 
     pub fn forbids(&self, platform: Platform) -> bool {
-        self.forbids_platforms.iter().any(|p| p.value == platform)
+        self.forbids.naming(platform).is_some()
     }
 }
 
@@ -775,28 +939,33 @@ impl Reader {
         }
     }
 
-    fn platforms(&mut self, message: &Message, name: &str) -> Vec<Spanned<Platform>> {
+    /// Refuses a retired platform or field, naming what replaced it.
+    fn retired(&mut self, span: Span, name: &str, replacement: impl Into<String>) {
+        self.templated("retired-platform-name", span)
+            .bind("name", name)
+            .bind("replacement", replacement);
+    }
+
+    /// `backends: [NATIVE, JS]`.
+    fn backends(&mut self, message: &Message) -> Vec<Spanned<Backend>> {
         let mut out = Vec::new();
-        for f in message.all(name) {
+        for f in message.all("backends") {
             let items: Vec<&Value> = match &f.value {
                 Value::List(items, _) => items.iter().collect(),
                 other => vec![other],
             };
             for item in items {
                 match item {
-                    Value::Ident(s, sp) => match Platform::parse(s) {
-                        Some(p) => out.push(Spanned::new(p, *sp)),
+                    Value::Ident(s, sp) => match Backend::parse(s) {
+                        Some(b) => out.push(Spanned::new(b, *sp)),
                         None => {
-                            let near = nearest(s, &Platform::proto_names());
+                            let near = nearest(s, Backend::NAMES);
                             let d = self
                                 .templated("unknown-bare-word", *sp)
                                 .bind("value", s.clone())
-                                .bind("expected", "a platform")
-                                .bind("expected_plural", "platforms")
-                                .bind("choices", Platform::names_phrase());
-                            // `Platform` is a closed enum in the schema. Adding
-                            // one is a compiler change, not a configuration
-                            // change.
+                                .bind("expected", "a backend")
+                                .bind("expected_plural", "backends")
+                                .bind("choices", "NATIVE and JS");
                             if let Some(n) = near {
                                 d.fix(format!("did you mean `{n}`?"));
                             }
@@ -804,7 +973,7 @@ impl Reader {
                     },
                     other => {
                         let kind = other.kind().to_string();
-                        self.wrong_kind(other.span(), name, "platform names", &kind)
+                        self.wrong_kind(other.span(), "backends", "backend names", &kind)
                     }
                 }
             }
@@ -812,30 +981,87 @@ impl Reader {
         out
     }
 
-    /// A tag's two platform lists: each names a platform once, and no platform
-    /// is both required and forbidden.
-    fn tag_platforms(
-        &mut self,
-        tag: &str,
-        requires: &[Spanned<Platform>],
-        forbids: &[Spanned<Platform>],
-    ) {
-        for (list, field) in [(requires, "requires"), (forbids, "forbids")] {
-            for (i, p) in list.iter().enumerate() {
-                if let Some(first) = list.iter().take(i).find(|q| q.value == p.value) {
-                    self.templated("duplicate-platform", p.span)
-                        .bind("platform", p.value.proto())
+    /// One platform as a build file names it: a bundled name in a string, or
+    /// the worker's old bare word. `None` once refused.
+    fn platform_name(&mut self, value: &Value) -> Option<Spanned<PlatformName>> {
+        match value {
+            Value::Str(s, sp) => match PlatformName::bundled(s) {
+                Some(p) => Some(Spanned::new(p, *sp)),
+                None => {
+                    let names: Vec<&str> = PlatformName::BUNDLED.iter().map(|p| p.name()).collect();
+                    let d = self.templated("no-such-platform", *sp).bind("platform", s.clone());
+                    if let Some(n) = nearest(s, &names) {
+                        d.fix(format!("did you mean `\"{n}\"`?"));
+                    }
+                    None
+                }
+            },
+            Value::Ident(s, sp) if s == "CLOUDFLARE_WORKER" => {
+                Some(Spanned::new(PlatformName::CloudflareWorker, *sp))
+            }
+            Value::Ident(s, sp) => {
+                match RETIRED_PLATFORM_NAMES.iter().find(|(old, _)| old == s) {
+                    Some((_, now)) => self.retired(*sp, s, format!("write `{now}`")),
+                    None => {
+                        self.templated("no-such-platform", *sp).bind("platform", s.clone());
+                    }
+                }
+                None
+            }
+            other => {
+                let kind = other.kind().to_string();
+                self.wrong_kind(other.span(), "platform", "a platform name", &kind);
+                None
+            }
+        }
+    }
+
+    /// `platforms: ["native", "web"]`.
+    fn platform_names(&mut self, message: &Message) -> Vec<Spanned<PlatformName>> {
+        let mut out = Vec::new();
+        for f in message.all("platforms") {
+            let items: Vec<&Value> = match &f.value {
+                Value::List(items, _) => items.iter().collect(),
+                other => vec![other],
+            };
+            for item in items {
+                out.extend(self.platform_name(item));
+            }
+        }
+        out
+    }
+
+    fn admitted(&mut self, message: &Message) -> Admitted {
+        Admitted { backends: self.backends(message), platforms: self.platform_names(message) }
+    }
+
+    /// A tag's two lists: each names a backend or a platform once, and none is
+    /// both required and forbidden.
+    fn tag_platforms(&mut self, tag: &str, requires: &Admitted, forbids: &Admitted) {
+        fn words(a: &Admitted) -> Vec<(&'static str, Span)> {
+            a.backends
+                .iter()
+                .map(|b| (b.value.proto(), b.span))
+                .chain(a.platforms.iter().map(|p| (p.value.name(), p.span)))
+                .collect()
+        }
+        let (requires, forbids) = (words(requires), words(forbids));
+        for (list, field) in [(&requires, "requires"), (&forbids, "forbids")] {
+            for (i, (word, span)) in list.iter().enumerate() {
+                if let Some((_, first)) = list.iter().take(i).find(|(w, _)| w == word) {
+                    self.templated("duplicate-platform", *span)
+                        .bind("platform", *word)
                         .bind("field", field)
-                        .secondary_span(first.span, "first listed here");
+                        .secondary_span(*first, "first listed here");
                 }
             }
         }
-        for p in forbids {
-            if let Some(r) = requires.iter().find(|r| r.value == p.value) {
-                self.templated("platform-required-and-forbidden", p.span)
+        for (word, span) in &forbids {
+            if let Some((_, r)) = requires.iter().find(|(w, _)| w == word) {
+                self.templated("platform-required-and-forbidden", *span)
                     .bind("tag", tag)
-                    .bind("platform", p.value.proto())
-                    .secondary_span(r.span, "required here");
+                    .bind("platform", *word)
+                    .secondary_span(*r, "required here");
             }
         }
     }
@@ -1062,12 +1288,30 @@ impl Reader {
         for f in m.all("data") {
             self.templated("retired-test-data", f.name_span);
         }
+        // A suite runs on a backend, so the list it used to write names one.
+        for f in m.all("platforms") {
+            let items: Vec<&Value> = match &f.value {
+                Value::List(items, _) => items.iter().collect(),
+                other => vec![other],
+            };
+            let mut backends: Vec<&str> = Vec::new();
+            for item in items {
+                let backend = match item {
+                    Value::Ident(s, _) if s == "LINUX" || s == "MACOS" => "NATIVE",
+                    _ => "JS",
+                };
+                if !backends.contains(&backend) {
+                    backends.push(backend);
+                }
+            }
+            self.retired(f.name_span, "platforms", format!("write `backends: [{}]`", backends.join(", ")));
+        }
         self.check_known(m, textproto::schema_order("test"), RETIRED_TEST_FIELDS, "a `test` block");
         Some(TestSuite {
             sources: self.strings(m, "sources"),
             dependencies: self.strings(m, "dependencies"),
             timeout_seconds: self.u32_field(m, "timeout_seconds"),
-            platforms: self.platforms(m, "platforms"),
+            backends: self.backends(m),
             span,
         })
     }
@@ -1138,151 +1382,201 @@ impl Reader {
                     self.wrong_kind(item.span(), "outputs", "a block", &kind);
                     continue;
                 };
-                self.check_known(m, textproto::schema_order("outputs"), &[], "an output");
-
-                let platform = m.get("platform").and_then(|field| match &field.value {
-                    Value::Ident(s, sp) => match Platform::parse(s) {
-                        Some(p) => Some(Spanned::new(p, *sp)),
-                        None => {
-                            self.templated("unknown-bare-word", *sp)
-                                .bind("value", s.clone())
-                                .bind("expected", "a platform")
-                                .bind("expected_plural", "platforms")
-                                .bind("choices", Platform::names_phrase());
-                            None
-                        }
-                    },
-                    other => {
-                        self.templated("not-a-bare-word", other.span())
-                            .bind("field", "platform")
-                            .bind("expected", "a platform")
-                            .bind("choices", Platform::names_phrase());
-                        None
-                    }
-                });
-                let arch = m.get("arch").and_then(|field| match &field.value {
-                    Value::Ident(s, sp) => match Arch::parse(s) {
-                        Some(a) => Some(Spanned::new(a, *sp)),
-                        None => {
-                            self.templated("unknown-bare-word", *sp)
-                                .bind("value", s.clone())
-                                .bind("expected", "an architecture")
-                                .bind("expected_plural", "architectures")
-                                .bind("choices", "X86_64 and ARM64");
-                            None
-                        }
-                    },
-                    other => {
-                        self.templated("not-a-bare-word", other.span())
-                            .bind("field", "arch")
-                            .bind("expected", "an architecture")
-                            .bind("choices", "X86_64 or ARM64");
-                        None
-                    }
-                });
-
-                let artifact_name = self.string(m, "artifact_name");
-                // An entry names an exported function, so it has to look like
-                // one. The compiler reports a name that is spelled right and
-                // does not exist; a name that could not be a function at all is
-                // this reader's own refusal, because there is nothing for the
-                // compiler to look up.
-                let entry = self.spanned_string(m, "entry").filter(|e| {
-                    let ok = !e.value.is_empty()
-                        && e.value.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
-                        && e.value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-                    if !ok {
-                        self.templated("entry-not-a-name", e.span).bind("entry", e.value.clone());
-                    }
-                    ok
-                });
-                let mut js_block: Option<Span> = None;
-                if let Some((js_message, js_span)) = self.sub_message(m, "js") {
-                    js_block = Some(js_span);
-                    self.check_known(js_message, textproto::schema_order("js"), &[], "a `js` block");
-                    // An ES module is the only kind this toolchain emits, so
-                    // the field records nothing — it is validated and dropped.
-                    if let Some(module_field) = js_message.get("module") {
-                        match &module_field.value {
-                            Value::Ident(s, _) if s == "ESM" || s == "MODULE_UNSPECIFIED" => {}
-                            Value::Ident(s, sp) => {
-                                self.templated("unknown-bare-word", *sp)
-                                    .bind("value", s.clone())
-                                    .bind("expected", "a module kind")
-                                    .bind("expected_plural", "module kinds")
-                                    .bind("choices", "ESM");
-                            }
-                            other => {
-                                self.templated("not-a-bare-word", other.span())
-                                    .bind("field", "module")
-                                    .bind("expected", "ESM")
-                                    .bind("choices", "ESM");
-                            }
-                        }
-                    }
+                if let Some(output) = self.output(m, *span) {
+                    out.push(output);
                 }
-
-                // A platform is what an output *is*, so an entry without one is
-                // rejected and dropped rather than carried forward for each
-                // consumer to guess about.
-                let Some(platform) = platform else {
-                    self.templated("output-without-a-platform", *span);
-                    continue;
-                };
-                let target = match platform.value {
-                    Platform::Js => {
-                        // `arch` is ignored, and must be unset, when the
-                        // platform is JS.
-                        if let Some(a) = &arch {
-                            self.templated("output-with-an-architecture", a.span)
-                                .bind("platform", "JS")
-                                .bind("artifact", "JavaScript");
-                        }
-                        OutputTarget::Js
-                    }
-                    Platform::Linux => {
-                        OutputTarget::Native { platform: NativePlatform::Linux, arch }
-                    }
-                    Platform::Macos => {
-                        OutputTarget::Native { platform: NativePlatform::Macos, arch }
-                    }
-                    Platform::Web => {
-                        // The same two refusals as JS, and one more. An `arch`
-                        // is meaningless for JavaScript; a `js { module }` is
-                        // meaningless for a page, because a browser loads an
-                        // ES module and there is no other kind of script tag
-                        // to put a CommonJS artifact in. Saying so here is
-                        // what keeps a field the rest of the toolchain then
-                        // ignores from being writable.
-                        if let Some(a) = &arch {
-                            self.templated("output-with-an-architecture", a.span)
-                                .bind("platform", "WEB")
-                                .bind("artifact", "a page");
-                        }
-                        if let Some(js_span) = js_block {
-                            self.templated("web-output-with-a-js-block", js_span);
-                        }
-                        OutputTarget::Web
-                    }
-                    Platform::CloudflareWorker => {
-                        // A worker is JavaScript with no machine under it and
-                        // no `<script>` to choose a module kind for, so it
-                        // refuses the same two fields a page refuses.
-                        if let Some(a) = &arch {
-                            self.templated("output-with-an-architecture", a.span)
-                                .bind("platform", "CLOUDFLARE_WORKER")
-                                .bind("artifact", "a worker");
-                        }
-                        if let Some(js_span) = js_block {
-                            self.templated("web-output-with-a-js-block", js_span);
-                        }
-                        OutputTarget::CloudflareWorker
-                    }
-                };
-                out.push(Output { target, artifact_name, entry, span: *span });
             }
         }
         out
+    }
+
+    /// One `outputs` entry, or `None` once refused.
+    fn output(&mut self, m: &Message, span: Span) -> Option<Output> {
+        self.check_known(m, textproto::schema_order("outputs"), RETIRED_OUTPUT_FIELDS, "an output");
+        let artifact_name = self.string(m, "artifact_name");
+        let variant = self.spanned_string(m, "variant");
+        if let Some(js) = m.get("js") {
+            self.retired(js.name_span, "js", "remove it; every JavaScript output is an ES module");
+        }
+        // A platform is what an output *is*, so an entry without one is
+        // rejected and dropped rather than carried forward for each consumer
+        // to guess about.
+        let Some(field) = m.get("platform") else {
+            self.templated("output-without-a-platform", span);
+            return None;
+        };
+        let arch = m.get("arch");
+        let platform = match &field.value {
+            Value::Ident(s, sp) if matches!(s.as_str(), "LINUX" | "MACOS" | "JS" | "WEB") => {
+                let replacement = match s.as_str() {
+                    "JS" => "write `platform: \"node\"`".to_string(),
+                    "WEB" => "write `platform: \"web\"`".to_string(),
+                    _ => {
+                        let os = s.to_lowercase();
+                        let written = arch.and_then(|a| match &a.value {
+                            Value::Ident(a, _) => Arch::parse(&a.to_lowercase()),
+                            _ => None,
+                        });
+                        match written {
+                            Some(a) => format!("write `platform: \"native\", variant: \"{os}-{}\"`", a.slug()),
+                            None => format!(
+                                "write `platform: \"native\", variant: \"{os}-arm64\"` or `\"{os}-x86_64\"`"
+                            ),
+                        }
+                    }
+                };
+                self.retired(*sp, s, replacement);
+                return None;
+            }
+            value => self.platform_name(value),
+        };
+        if let Some(a) = arch {
+            self.retired(a.name_span, "arch", "name it in `variant`, as `variant: \"linux-arm64\"`");
+        }
+        let platform = platform?;
+        let entry_names = platform.value.entries();
+        if let Some(e) = m.get("entry") {
+            let written = match &e.value {
+                Value::Str(s, _) => s.clone(),
+                _ => String::from("main"),
+            };
+            let point = entry_names.first().copied().unwrap_or("main");
+            self.retired(e.name_span, "entry", format!("write `entries: {{ {point}: \"{written}\" }}`"));
+        }
+
+        let variants = platform.value.variants();
+        let arch = match &variant {
+            None if !variants.is_empty() => {
+                self.templated("variant-required", span)
+                    .bind("platform", platform.value.name())
+                    .bind("variants", variants.join(", "))
+                    .bind("example", variants.first().copied().unwrap_or_default());
+                return None;
+            }
+            None => None,
+            Some(v) if !variants.contains(&v.value.as_str()) => {
+                let choices = if variants.is_empty() {
+                    format!("remove it; `{}` has no variants", platform.value.name())
+                } else {
+                    format!("the variants are {}", variants.join(", "))
+                };
+                let d = self
+                    .templated("no-such-platform-variant", v.span)
+                    .bind("variant", v.value.clone())
+                    .bind("platform", platform.value.name())
+                    .bind("choices", choices);
+                if let Some(n) = nearest(&v.value, &variants) {
+                    d.fix(format!("did you mean `\"{n}\"`?"));
+                }
+                return None;
+            }
+            Some(v) => v.value.split_once('-').and_then(|(_, a)| Arch::parse(a)).map(|a| Spanned::new(a, v.span)),
+        };
+
+        let entry = self.entries(m, platform.value, &entry_names);
+        let target = match platform.value {
+            PlatformName::Node => OutputTarget::Js,
+            PlatformName::Web => OutputTarget::Web,
+            PlatformName::CloudflareWorker => OutputTarget::CloudflareWorker,
+            PlatformName::Native => {
+                let os = match variant.as_ref().map(|v| v.value.as_str()) {
+                    Some(v) if v.starts_with("macos-") => NativePlatform::Macos,
+                    _ => NativePlatform::Linux,
+                };
+                OutputTarget::Native { platform: os, arch }
+            }
+        };
+        Some(Output { target, artifact_name, entry, span })
+    }
+
+    /// `entries: { main: "mainForNode" }`: the function filling each of the
+    /// platform's entries, where it is not the one named after it.
+    fn entries(
+        &mut self,
+        m: &Message,
+        platform: PlatformName,
+        names: &[&str],
+    ) -> Option<Spanned<String>> {
+        let (entries, _) = self.sub_message(m, "entries")?;
+        let mut found = None;
+        for f in &entries.fields {
+            if !names.contains(&f.name.as_str()) {
+                let d = self
+                    .templated("no-such-entry", f.name_span)
+                    .bind("entry", f.name.clone())
+                    .bind("platform", platform.name())
+                    .bind("entries", names.join(", "));
+                if let Some(n) = nearest(&f.name, names) {
+                    d.fix(format!("did you mean `{n}`?"));
+                }
+                continue;
+            }
+            let Value::Str(s, sp) = &f.value else {
+                let kind = f.value.kind().to_string();
+                self.wrong_kind(f.value.span(), &f.name, "a function name", &kind);
+                continue;
+            };
+            // An entry names an exported function, so it has to look like
+            // one. The compiler reports a name that is spelled right and does
+            // not exist; a name that could not be a function at all is this
+            // reader's own refusal.
+            let ok = !s.is_empty()
+                && s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            if !ok {
+                self.templated("entry-not-a-name", *sp).bind("entry", s.clone());
+                continue;
+            }
+            found = Some(Spanned::new(s.clone(), *sp));
+        }
+        found
+    }
+
+    /// A `platform` rule.
+    fn platform_rule(&mut self, m: &Message, span: Span) -> PlatformRule {
+        self.check_known(m, textproto::schema_order("platform"), &[], "a `platform` rule");
+        let mut entries = Vec::new();
+        for f in m.all("entry") {
+            let Value::Message(e, entry_span) = &f.value else {
+                let kind = f.value.kind().to_string();
+                self.wrong_kind(f.value.span(), "entry", "a block", &kind);
+                continue;
+            };
+            self.check_known(e, textproto::schema_order("entry"), &[], "an `entry` block");
+            let name = self.spanned_string(e, "name");
+            let backend = e.get("backend").and_then(|b| match &b.value {
+                Value::Ident(s, sp) => match Backend::parse(s) {
+                    Some(backend) => Some(Spanned::new(backend, *sp)),
+                    None => {
+                        self.templated("unknown-bare-word", *sp)
+                            .bind("value", s.clone())
+                            .bind("expected", "a backend")
+                            .bind("expected_plural", "backends")
+                            .bind("choices", "NATIVE and JS");
+                        None
+                    }
+                },
+                other => {
+                    self.templated("not-a-bare-word", other.span())
+                        .bind("field", "backend")
+                        .bind("expected", "a backend")
+                        .bind("choices", "NATIVE or JS");
+                    None
+                }
+            });
+            let js = self.spanned_string(e, "js");
+            if let (Some(name), Some(backend)) = (name, backend) {
+                entries.push(PlatformEntry { name, backend, js, span: *entry_span });
+            }
+        }
+        PlatformRule {
+            sources: self.strings(m, "sources"),
+            dependencies: self.strings(m, "dependencies"),
+            variants: self.strings(m, "variants"),
+            entries,
+            assets: self.strings(m, "assets"),
+            span,
+        }
     }
 }
 
@@ -1366,7 +1660,7 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
             generators: reader.generators(m),
             dependencies: reader.strings(m, "dependencies"),
             tags: reader.strings(m, "tags"),
-            platforms: reader.platforms(m, "platforms"),
+            admits: reader.admitted(m),
             visibility: reader.visibility(m),
             test: reader.test_suite(m),
             testing: reader.testing_surface(m),
@@ -1434,8 +1728,10 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
         }
     });
 
+    let platform = reader.sub_message(&message, "platform").map(|(m, span)| reader.platform_rule(m, span));
+
     ReadResult {
-        value: BuildFile { library, binary, tool },
+        value: BuildFile { library, binary, tool, platform },
         document: parsed.document,
         errors: reader.errors,
     }
@@ -1469,22 +1765,22 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
         };
 
         let mut forbids_tags = Vec::new();
-        let mut forbids_platforms = Vec::new();
-        if let Some((forbids, _)) = reader.sub_message(m, "forbids") {
-            reader.check_known(forbids, textproto::schema_order("forbids"), &[], "a `forbids` block");
-            forbids_tags = reader.strings(forbids, "tags");
-            forbids_platforms = reader.platforms(forbids, "platforms");
+        let mut forbids = Admitted::default();
+        if let Some((block, _)) = reader.sub_message(m, "forbids") {
+            reader.check_known(block, textproto::schema_order("forbids"), &[], "a `forbids` block");
+            forbids_tags = reader.strings(block, "tags");
+            forbids = reader.admitted(block);
         }
 
-        let mut requires_platforms = Vec::new();
-        if let Some((requires, _)) = reader.sub_message(m, "requires") {
-            reader.check_known(requires, textproto::schema_order("requires"), &[], "a `requires` block");
-            if let Some(t) = requires.get("tags") {
+        let mut requires = Admitted::default();
+        if let Some((block, _)) = reader.sub_message(m, "requires") {
+            reader.check_known(block, textproto::schema_order("requires"), &[], "a `requires` block");
+            if let Some(t) = block.get("tags") {
                 reader.templated("tags-under-requires", t.name_span);
             }
-            requires_platforms = reader.platforms(requires, "platforms");
+            requires = reader.admitted(block);
         }
-        reader.tag_platforms(&name.value, &requires_platforms, &forbids_platforms);
+        reader.tag_platforms(&name.value, &requires, &forbids);
 
         // Tags form one flat namespace, so a name declared twice is rejected
         // rather than quietly meaning whichever came first.
@@ -1500,8 +1796,8 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
             name,
             doc: reader.string(m, "doc").unwrap_or_default(),
             forbids_tags,
-            forbids_platforms,
-            requires_platforms,
+            forbids,
+            requires,
             span: *span,
         });
     }
@@ -1547,20 +1843,15 @@ mod tests {
         assert_eq!(halves, whole);
     }
 
-    /// The phrase `effect-not-on-platform` writes its platforms with. The
-    /// template interpolates and does not conjugate, so the article and the
-    /// plural are decided here or nowhere.
+    /// The phrase `effect-not-on-platform` writes its platforms with. Linux
+    /// and macOS are both `native`, so it is written once.
     #[test]
     fn platforms_are_named_inside_a_sentence() {
         assert_eq!(Platform::sentence_phrase(&[]), "");
-        assert_eq!(Platform::sentence_phrase(&[Platform::Web]), "the WEB platform");
-        assert_eq!(
-            Platform::sentence_phrase(&[Platform::Macos, Platform::Js]),
-            "the MACOS and JS platforms"
-        );
+        assert_eq!(Platform::sentence_phrase(&[Platform::Web]), "the web platform");
         assert_eq!(
             Platform::sentence_phrase(&[Platform::Linux, Platform::Macos, Platform::Js]),
-            "the LINUX, MACOS and JS platforms"
+            "the native and node platforms"
         );
     }
 
@@ -1586,13 +1877,20 @@ library {
 
     #[test]
     fn reads_outputs() {
-        let src = "binary {\n  outputs: [\n    { platform: LINUX, arch: X86_64 },\n    { platform: JS, js { module: ESM } },\n  ]\n}\n";
+        let src = "binary {\n  outputs: [\n    { platform: \"native\", variant: \"linux-x86_64\" },\n    \
+                   { platform: \"node\", entries { main: \"run\" } },\n    { platform: \"web\" },\n  ]\n}\n";
         let read = read_build_file(src, FileId(0));
         assert!(read.errors.is_empty(), "{:#?}", read.errors);
         let b = read.value.binary.unwrap();
-        assert_eq!(b.outputs.len(), 2);
-        assert_eq!(b.outputs[0].dir(), "linux-x86_64");
-        assert_eq!(b.outputs[1].dir(), "js");
+        assert_eq!(b.outputs.len(), 3);
+        assert_eq!(b.outputs[0].dir(), "native/linux-x86_64");
+        assert_eq!(b.outputs[0].platform(), Platform::Linux);
+        assert!(b.outputs[0].matches_selector("native"));
+        assert!(b.outputs[0].matches_selector("native/linux-x86_64"));
+        assert_eq!(b.outputs[1].dir(), "node");
+        assert_eq!(b.outputs[1].entry_name(), "run");
+        assert_eq!(b.outputs[2].dir(), "web");
+        assert_eq!(b.outputs[2].entry_name(), "main");
     }
 
     /// A page names its own tab from code, so a binary rule has no `web` block
@@ -1604,67 +1902,77 @@ library {
         assert!(!read.errors.is_empty(), "a `web` block must be refused");
     }
 
-    /// Every platform round-trips through its schema spelling, and the two
-    /// questions a call site can ask about one partition it.
-    ///
-    /// The second half is the whole reason `is_javascript` exists: `!= Js` was
-    /// a correct spelling of "native" only while there was one JavaScript
-    /// platform, and a variant that answered neither question — or both —
-    /// would make every site that asks one of them wrong in silence.
+    /// The two questions a call site can ask about a platform partition it.
     #[test]
     fn the_platform_enum_is_total() {
         for p in Platform::ALL {
-            assert_eq!(Platform::parse(p.proto()), Some(p), "`{}` does not round-trip", p.proto());
             assert!(!p.slug().is_empty());
-            assert_ne!(
-                p.is_javascript(),
-                p.is_native(),
-                "`{}` is neither a JavaScript platform nor a native one, or is both",
-                p.proto()
-            );
+            assert_ne!(p.is_javascript(), p.is_native(), "`{}`", p.proto());
         }
         assert!(Platform::Web.is_javascript());
-        assert!(!Platform::Web.is_native());
-        // A worker is JavaScript too: one `.mjs`, no linker, no runtime
-        // archive. What separates it from a page is what its host grants and
-        // the shape of its entry, which is the whole reason it is a platform.
         assert!(Platform::CloudflareWorker.is_javascript());
-        assert!(!Platform::CloudflareWorker.is_native());
-        assert_eq!(Platform::names_phrase(), "LINUX, MACOS, JS, WEB, CLOUDFLARE_WORKER");
+        assert_eq!(Platform::names_phrase(), "native, node, web");
     }
 
-    /// A WEB output carries neither field a JS output can, and both refusals
-    /// name the reason rather than dropping the value silently.
+    fn codes(src: &str) -> Vec<String> {
+        read_build_file(src, FileId(0)).errors.iter().filter_map(|e| e.code.clone()).collect()
+    }
+
+    /// Every spelling a build file wrote before platforms were strings is
+    /// refused, with what replaced it.
     #[test]
-    fn a_web_output_has_no_arch_and_no_module_kind() {
-        let src = "binary {\n  outputs: [\n    { platform: WEB },\n  ]\n}\n";
+    fn retired_spellings_are_refused() {
+        for src in [
+            "binary {\n  outputs: [{ platform: LINUX }]\n}\n",
+            "binary {\n  outputs: [{ platform: \"native\", variant: \"linux-arm64\", arch: ARM64 }]\n}\n",
+            "binary {\n  outputs: [{ platform: \"node\", js { module: ESM } }]\n}\n",
+            "binary {\n  outputs: [{ platform: \"node\", entry: \"run\" }]\n}\n",
+            "library {\n  platforms: [JS]\n}\n",
+            "library {\n  test { platforms: [JS] }\n}\n",
+        ] {
+            assert_eq!(codes(src), ["retired-platform-name"], "{src}");
+        }
+        let read = read_build_file("binary {\n  outputs: [{ platform: MACOS, arch: ARM64 }]\n}\n", FileId(0));
+        let fix = read.errors[0].fix.clone().unwrap_or_default();
+        assert!(fix.contains("variant: \"macos-arm64\""), "{fix}");
+    }
+
+    #[test]
+    fn a_native_output_names_one_of_its_variants() {
+        assert_eq!(codes("binary {\n  outputs: [{ platform: \"native\" }]\n}\n"), ["variant-required"]);
+        assert_eq!(
+            codes("binary {\n  outputs: [{ platform: \"native\", variant: \"linux-mips\" }]\n}\n"),
+            ["no-such-platform-variant"]
+        );
+        assert_eq!(
+            codes("binary {\n  outputs: [{ platform: \"node\", variant: \"linux-arm64\" }]\n}\n"),
+            ["no-such-platform-variant"]
+        );
+        assert_eq!(codes("binary {\n  outputs: [{ platform: \"deno\" }]\n}\n"), ["no-such-platform"]);
+        assert_eq!(
+            codes("binary {\n  outputs: [{ platform: \"node\", entries { fetch: \"go\" } }]\n}\n"),
+            ["no-such-entry"]
+        );
+    }
+
+    #[test]
+    fn a_worker_keeps_its_old_spelling_until_it_is_a_platform_of_its_own() {
+        let read = read_build_file("binary {\n  outputs: [{ platform: CLOUDFLARE_WORKER }]\n}\n", FileId(0));
+        assert!(read.errors.is_empty(), "{:#?}", read.errors);
+        let output = &read.value.binary.unwrap().outputs[0];
+        assert_eq!(output.platform(), Platform::CloudflareWorker);
+        assert_eq!(output.entry_name(), "fetch");
+    }
+
+    #[test]
+    fn a_platform_rule_is_read() {
+        let src = "platform {\n  variants: [\"a\"]\n  entry {\n    name: \"fetch\"\n    backend: JS\n    js: \"fetch.mjs\"\n  }\n}\n";
         let read = read_build_file(src, FileId(0));
         assert!(read.errors.is_empty(), "{:#?}", read.errors);
-        let b = read.value.binary.unwrap();
-        assert_eq!(b.outputs[0].dir(), "web");
-        assert_eq!(b.outputs[0].platform(), Platform::Web);
-        assert_eq!(b.outputs[0].arch(), None);
-        assert!(b.outputs[0].matches_selector("web"));
-
-        let src = "binary {\n  outputs: [{ platform: WEB  arch: ARM64  js { module: ESM } }]\n}\n";
-        let read = read_build_file(src, FileId(0));
-        assert_eq!(read.errors.len(), 2, "{:#?}", read.errors);
-        assert!(read.errors.iter().any(|e| e.message.contains("no architecture")));
-        assert!(read.errors.iter().any(|e| e.message.contains("no `js` block")));
-    }
-
-    /// `CJS` used to parse and then be consulted by nobody — the backend emits
-    /// an ES module either way. Now the value is refused where it is written,
-    /// so a build file cannot ask for an artifact it will not get.
-    #[test]
-    fn a_module_kind_other_than_esm_is_refused() {
-        let src = "binary {\n  outputs: [{ platform: JS  js { module: ESM } }]\n}\n";
-        assert!(read_build_file(src, FileId(0)).errors.is_empty());
-
-        let src = "binary {\n  outputs: [{ platform: JS  js { module: CJS } }]\n}\n";
-        let read = read_build_file(src, FileId(0));
-        assert_eq!(read.errors.len(), 1, "{:#?}", read.errors);
-        assert!(read.errors[0].message.contains("CJS"), "{:#?}", read.errors);
+        let rule = read.value.platform.unwrap();
+        assert_eq!(rule.entries[0].name.value, "fetch");
+        assert_eq!(rule.entries[0].backend.value, Backend::Js);
+        assert_eq!(rule.entries[0].js.as_ref().map(|j| j.value.as_str()), Some("fetch.mjs"));
     }
 
     #[test]
@@ -1694,20 +2002,19 @@ library {
     }
 
     #[test]
-    fn js_output_rejects_arch() {
-        let source = "binary {\n  outputs: [{ platform: JS, arch: ARM64 }]\n}\n";
-        let read = read_build_file(source, FileId(0));
-        assert!(read.errors.iter().any(|e| e.message.contains("no architecture")));
-    }
-
-    #[test]
-    fn forbids_takes_platforms() {
-        let src = "tag {\n  name: \"a\"\n  forbids { platforms: [JS] }\n}\n";
+    fn forbids_takes_backends_and_platforms() {
+        let src = "tag {\n  name: \"a\"\n  forbids { backends: [JS] }\n}\n";
         let read = read_repo_config(src, FileId(0));
         assert!(read.errors.is_empty(), "{:#?}", read.errors);
         let tag = &read.value.tags[0];
         assert!(!tag.admits(Platform::Js));
+        assert!(!tag.admits(Platform::Web));
         assert!(tag.admits(Platform::Linux));
+
+        let src = "tag {\n  name: \"a\"\n  forbids { platforms: [\"web\"] }\n}\n";
+        let tag = &read_repo_config(src, FileId(0)).value.tags[0];
+        assert!(tag.admits(Platform::Js));
+        assert!(!tag.admits(Platform::Web));
     }
 
     #[test]

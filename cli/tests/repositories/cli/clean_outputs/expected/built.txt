@@ -1,1 +1,1 @@
-.buri/out/js/cmd/app/app.mjs (N bytes)
+.buri/out/node/cmd/app/app.mjs (N bytes)

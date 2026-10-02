@@ -17,8 +17,8 @@ musl sysroot are cross-built for the target and cached in `~/.buri`. A macOS
 artifact links against Apple's `libSystem`, which Apple does not license for
 redistribution, so only a macOS host builds one. This diagnostic names the one
 direction left over: a macOS output on a machine that is not a macOS host of
-that architecture. Build it on such a machine, or declare a `JS` output and run
-the module anywhere.
+that architecture. Build it on such a machine, or declare a `node` output and
+run the module anywhere.
 
 ## The runtime archive
 

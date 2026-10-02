@@ -1,7 +1,7 @@
 # Compile to JavaScript
 
-A binary's `outputs` say what it produces. `platform: JS` is a module for node
-or bun, `platform: WEB` is a page, and both emit JavaScript. They are two
+A binary's `outputs` say what it produces. `platform: "node"` is a module for
+node or bun, `platform: "web"` is a page, and both emit JavaScript. They are two
 platforms rather than two modes of one because they grant different effects.
 
 ## A module for node or bun
@@ -13,20 +13,20 @@ binary {
     tags: ["client"]
 
     outputs: [
-        { platform: JS, js { module: ESM } },
+        { platform: "node" },
     ]
 }
 ```
 
 ```text
 $ buri build //cmd/web
-.buri/out/js/cmd/web/web.mjs (3543 bytes)
+.buri/out/node/cmd/web/web.mjs (3543 bytes)
 ```
 
 The artifact is one self-contained ES module:
 
 ```text
-$ node .buri/out/js/cmd/web/web.mjs
+$ node .buri/out/node/cmd/web/web.mjs
 basket total: $36.50
 ```
 
@@ -34,10 +34,7 @@ basket total: $36.50
 `node` from `PATH`, or from `BURI_JS` naming one. You need nothing else: no
 `package.json`, no bundler, no runtime dependency to install.
 
-`module: ESM` is the field's only accepted value, and the compiler refuses
-anything else where you wrote it.
-
-A binary that declares no `outputs` at all builds for JS, which is why
+A binary that declares no `outputs` at all builds `node`, which is why
 `buri run` works in a fresh `buri init` repository.
 
 ## Alongside a native binary
@@ -48,20 +45,19 @@ against the whole graph:
 ```textproto schema=build
 binary {
     outputs: [
-        { platform: LINUX, arch: X86_64 },
-        { platform: JS, js { module: ESM } },
+        { platform: "native", variant: "linux-x86_64" },
+        { platform: "node" },
     ]
 }
 ```
 
-`buri build` produces both. `--output=js` picks one, and so does
-`buri run --output=js`. The compiler checks the two independently, so a binary
-can pass for Linux and fail for JS, because the JS host grants less.
+`buri build` produces both. `--output=node` picks one, and so does
+`buri run --output=node`. The compiler checks the two independently, so a
+binary can pass for `native` and fail for `node`, because node grants less.
 
 ## A page in a browser
 
-`platform: WEB` takes no `arch` and no `js { module }`: a browser loads an ES
-module and there is no other kind.
+`platform: "web"` takes no `variant`: there is no machine under a page.
 
 ```textproto schema=build
 # cmd/basket/BUILD.buri
@@ -71,7 +67,7 @@ binary {
     tags: ["client"]
 
     outputs: [
-        { platform: WEB },
+        { platform: "web" },
     ]
 }
 ```
@@ -92,21 +88,21 @@ other. Serve the directory. Writing the page is
 
 `platform: CLOUDFLARE_WORKER` is the other JavaScript artifact: a module the
 platform *calls*, once per request, rather than a program that starts itself.
-`entry` names the exported function it enters through.
+It enters through `fetch`, or the function `entries: { fetch: "..." }` names.
 
 ```textproto schema=build
 # cmd/site/BUILD.buri
 binary {
     outputs: [
-        { platform: WEB, entry: "main" },
-        { platform: CLOUDFLARE_WORKER, entry: "fetch" },
+        { platform: "web" },
+        { platform: CLOUDFLARE_WORKER },
     ]
 }
 ```
 
 ```text
 $ buri build //cmd/site
-.buri/out/web/cmd/site/main.mjs (47662 bytes)
+.buri/out/web/cmd/site/site.mjs (47662 bytes)
 .buri/out/cloudflare-worker/cmd/site/fetch.mjs (35559 bytes)
 ```
 
@@ -191,7 +187,7 @@ function straight back.
 ## What changes about the program
 
 **The effects `main` may ask for.** A platform *is* the set of effects its host
-exports. Under `WEB`, `core/host` exports no `fs`, `stdin`, `env` or `proc`, and
+exports. Under `web`, `core/host` exports no `fs`, `stdin`, `env` or `proc`, and
 exports `ui` and `watch` there and nowhere else. Ask for one a platform does not
 grant and you get `effect-not-on-platform` on the line that asked.
 `buri docs error effect-not-on-platform` has the table.

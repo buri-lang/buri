@@ -100,7 +100,7 @@ key = H(
   action_kind,             // interface | compile | codegen | link | test
   toolchain_identity,      // a hash of this compiler's own binary
   build_mode,              // --release / --debug
-  platform, arch, entry,   // the only things a build varies along
+  platform, variant, entry, // the only things a build varies along
   rule_identity,           // label, rule kind, and the ordered sources paths
   H(content of each input file),
   key(each input action),  // dependencies enter as keys, not contents

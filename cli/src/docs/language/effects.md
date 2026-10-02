@@ -263,7 +263,7 @@ implementation struct as well as the value.
 
 The build system decides which platforms the module is checked against, not the
 language. The compiler checks `main.buri` against every platform its rule's
-`outputs` name, and against every platform its suite names in `test.platforms`,
+`outputs` name, and against every platform its suite names in `test.backends`,
 because a test binary links `main` in. All of them have to compile. Nothing about
 an **effect type** is platform-bound: `from "core/fs" import { FileSystemRead }` is legal
 everywhere, a page included, because a bound demands an implementation rather
@@ -274,14 +274,14 @@ it, so nothing it reaches can be bounded by `FileSystemWrite`. Binding one half 
 filesystem and not the other is the ordinary case rather than a precaution.
 
 Which platforms grant an effect is a row in a grant table. `Tasks` — "run this
-concurrently" — is granted everywhere, `WEB` included: a page's concurrency is
+concurrently" — is granted everywhere, `web` included: a page's concurrency is
 its event loop, and `core/tasks`'s `spawn` is how a program puts a socket, a
 retry or a timer on one. `FileSystemRead`, `FileSystemWrite`, `Stdin` and
-`Process` are granted on `LINUX`, `MACOS` and `JS`, because a page and a
+`Process` are granted on `native` and `node`, because a page and a
 worker have no filesystem, no standard input and no process to exit.
 `Environment` is granted there and on `CLOUDFLARE_WORKER` too: a worker has no
 command line, but its vars and secrets are its environment. `Listen` — "I accept
-connections" — is granted on `LINUX` and `MACOS` and nowhere else, because
+connections" — is granted on `native` and nowhere else, because
 holding a port open is a native program's authority and a page is served rather
 than serving.
 

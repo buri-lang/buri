@@ -2,6 +2,6 @@ binary {
     dependencies: ["//lib/conformance"]
 
     outputs: [
-        { platform: JS },
+        { platform: "node" },
     ]
 }

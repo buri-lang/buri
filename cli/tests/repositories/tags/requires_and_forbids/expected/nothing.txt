@@ -1,3 +1,3 @@
 no platform: //lib/poll's dependency closure admits none
-  //lib/poll declares platforms macos
-  //lib/poll is tagged "epoll", which forbids macos
+  //lib/poll declares platforms web
+  //lib/poll is tagged "headless", which forbids web

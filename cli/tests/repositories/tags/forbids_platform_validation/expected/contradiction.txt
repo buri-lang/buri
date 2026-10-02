@@ -1,12 +1,12 @@
 error: tag "legacy" both requires and forbids `JS` [platform-required-and-forbidden]
- --> REPO.buri:6:21
+ --> REPO.buri:6:20
   |
-6 |         platforms: [JS]
-  |                     ^^
+6 |         backends: [JS]
+  |                    ^^
   |
   --> REPO.buri:10:28
    |
-10 |         platforms: [LINUX, JS]
+10 |         backends: [NATIVE, JS]
    |                            ^^ required here
    |
    = `requires` admits `JS` and `forbids` rules it out, so one of the two is a mistake

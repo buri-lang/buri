@@ -4,6 +4,6 @@ tag { name: "apple" }
 
 tag {
   name: "middle"
-  requires { platforms: [LINUX] }
+  requires { backends: [NATIVE] }
   forbids { tags: ["zebra"] }
 }

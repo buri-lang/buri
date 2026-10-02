@@ -1,4 +1,4 @@
-// EXPECT: `listen` implements `Listen`, which is not allowed on the JS platform
+// EXPECT: `listen` implements `Listen`, which is not allowed on the node platform
 //
 // Accepting a connection, refused on a platform that cannot. `Listen` is
 // declared in `core/effect`, implemented in `core/host`, granted on the two

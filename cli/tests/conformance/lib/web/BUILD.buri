@@ -12,6 +12,6 @@ library {
         #
         # `test/routing.buri` is in the native set: the router is ordinary Buri
         # over the reactive graph, and there is no document in it.
-        platforms: [JS]
+        backends: [JS]
     }
 }

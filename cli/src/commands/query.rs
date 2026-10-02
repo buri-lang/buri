@@ -144,8 +144,13 @@ pub fn command_query(args: &arguments::Args) -> i32 {
                     println!("  {reason}");
                 }
             }
+            // Linux and macOS are both `native`, so a name is printed once.
+            let mut printed: Vec<&str> = Vec::new();
             for p in allowed {
-                println!("{}", p.slug());
+                if !printed.contains(&p.slug()) {
+                    printed.push(p.slug());
+                    println!("{}", p.slug());
+                }
             }
         }
         "sources" => {

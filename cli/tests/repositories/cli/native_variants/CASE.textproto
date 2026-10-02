@@ -1,0 +1,41 @@
+# One `native` platform, two variants. Each variant builds into a directory of
+# its own, `.buri/out/native/<variant>/`, and `buri run` runs the one this
+# machine is.
+#
+# The cross variant is listed first, so a `run` that took the first native
+# output would try to start a program this machine cannot run.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "two native variants build into two directories, and `buri run` runs the host's"
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "ran.txt"
+  stream: OUT
+}
+
+path {
+  path: ".buri/out/native/{{HOST_VARIANT}}/cmd/app/app"
+  exists: true
+}
+
+# A Linux artifact builds on any host, so a mac builds the cross variant too,
+# beside the host's.
+run {
+  args: ["build", "//cmd/app", "--output=native/{{CROSS_VARIANT}}"]
+  exit: 0
+  host: MACOS
+}
+
+path {
+  path: ".buri/out/native/{{CROSS_VARIANT}}/cmd/app/app"
+  exists: true
+}
+
+path {
+  path: ".buri/out/native/{{HOST_VARIANT}}/cmd/app/app"
+  exists: true
+}
+

@@ -104,7 +104,7 @@ Contexts (Section 11.3):
 34. Only the module that exports `main` may import `"core/host"`, and it may name
     **what the platforms that module is compiled for grant**: every platform its
     rule's `outputs` name, plus every platform its suite names in
-    `test.platforms`. Naming one they do not all grant is a compile error — on
+    `test.backends`. Naming one they do not all grant is a compile error — on
     the name inside the braces for a named import, on the member reference for a
     namespace one (`effect-not-on-platform`, Section 10.3). A rule that declares
     no platforms commits to none, and the checker leaves it alone.

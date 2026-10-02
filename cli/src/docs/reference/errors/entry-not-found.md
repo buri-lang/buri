@@ -29,8 +29,8 @@ export fn fetch(request: Request): Response {
 ```textproto schema=build
 binary {
     outputs: [
-        { platform: WEB },
-        { platform: CLOUDFLARE_WORKER, entry: "fetch" },
+        { platform: "web" },
+        { platform: CLOUDFLARE_WORKER },
     ]
 }
 ```
@@ -45,7 +45,7 @@ The page lists what `main.buri` does export, because the mistake is almost
 always a spelling — and where one of them is a near miss the fix names it:
 "if you meant `fetch`, use that; if not, export `fetsh` from its `main.buri`".
 
-An output that names no `entry` enters through `main`, and a binary with no
-`main` gets `no-main` instead. Those are different mistakes: one binary has not
+An output whose `entries` names nothing enters through `main`, and a binary
+with no `main` gets `no-main` instead. Those are different mistakes: one binary has not
 written its entry point, the other wrote the name twice and spelled it
 differently once.

@@ -1,7 +1,18 @@
-error: `LINUXX` is not a platform [unknown-bare-word]
+error: `nod` is not a platform [no-such-platform]
  --> REPO.buri:6:26
   |
-6 |   requires { platforms: [LINUXX] }
-  |                          ^^^^^^
+6 |   requires { platforms: ["nod"] }
+  |                          ^^^^^
   |
-  = fix: did you mean `LINUX`?
+  = the platforms bundled with the toolchain are `"native"`, `"node"` and `"web"`
+  = fix: did you mean `"node"`?
+
+      binary {
+          outputs: [
+              { platform: "node" },
+          ]
+      }
+
+    A platform name is a string. node runs under bun or Node, web is a page in a
+    browser, and native is an executable for the variant it names.
+
