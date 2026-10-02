@@ -11,7 +11,7 @@ reproduction: none
 { "if": { "required": ["port"] }, "then": { "required": ["host"] } }
 ```
 
-`std/json` turns a schema into types for a contract or a `generators` entry.
+`json` turns a schema into types for a contract or a `generators` entry.
 Keywords about values, such as `pattern`, `minimum` and `format`, stay the
 check's. These change a value's shape in a way no one type follows, so they
 are refused where they are written:

@@ -351,7 +351,7 @@ unordered, so it answers `.Equal` for a pair it could not order.
   [The proto reference](./build/proto.md) is the mapping, and it is a promise.
 
 - **`std/proto`** — the `.proto` tool: its `generate` is `emit` over a
-  `core/tool` request. `generators: [{ tool: "std/proto", ... }]` compiles it
+  `core/tool` request. `generators: [{ tool: "proto", ... }]` compiles it
   and runs it the same way it runs a tool of your own.
 
 - **`std/textproto/read`** — the text format, read against a message of a

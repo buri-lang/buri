@@ -315,7 +315,7 @@ fn wide_schema_repo(name: &str, fields: usize) -> Scratch {
     let s = Scratch::repo(name);
     s.write(
         "lib/big/BUILD.buri",
-        "library {\n  generators: [{ tool: \"std/proto\", inputs: [\"big.proto\"] }]\n}\n",
+        "library {\n  generators: [{ tool: \"proto\", inputs: [\"big.proto\"] }]\n}\n",
     );
     s.write("lib/big/lib.buri", "from \"//lib/big/big.proto\" export { M };\n");
     let lines: String = (0..fields).map(|i| format!("  int32 f{i} = {};\n", i + 1)).collect();
@@ -523,7 +523,7 @@ fn a_hostile_schema_is_a_diagnostic() {
     let s = Scratch::repo("adversarial-schema");
     s.write(
         "lib/bad/BUILD.buri",
-        "library {\n  generators: [{ tool: \"std/proto\", inputs: [\"bad.proto\"] }]\n}\n",
+        "library {\n  generators: [{ tool: \"proto\", inputs: [\"bad.proto\"] }]\n}\n",
     );
     s.write("lib/bad/lib.buri", "from \"//lib/bad/bad.proto\" export { M };\n");
     for (what, text) in [

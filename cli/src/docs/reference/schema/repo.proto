@@ -55,7 +55,8 @@ message Language {
   repeated string extensions = 2;
 
   // The `tool` rules a language of the repository's own is checked, formatted
-  // and generated from, as `//labels`. Each runs the tool's entry point of the
+  // and generated from, as `//labels`, or a built-in tool by its bare name:
+  // `json`, `proto` or `textproto`. Each runs the tool's entry point of the
   // same name, and a tool without it is an error. Refused on a built-in
   // language.
   string check = 3;

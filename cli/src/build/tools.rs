@@ -22,8 +22,8 @@
 //! editing the tool, the file, or a file it read asks again, and nothing else
 //! does.
 //!
-//! The toolchain's own tools are `std/json`, whose entry points are native
-//! ([`crate::languages::json`]), and `std/proto` and `std/textproto`, whose
+//! The toolchain's own tools are `json`, whose entry points are native
+//! ([`crate::languages::json`]), and `proto` and `textproto`, whose
 //! `check` and `generate` are Buri programs like any other tool and whose
 //! `format` is native ([`crate::languages::proto`],
 //! [`crate::languages::textproto`]).
@@ -43,13 +43,16 @@ use std::path::PathBuf;
 pub const ENTRY_POINTS: [&str; 3] = ["check", "format", "generate"];
 
 /// The built-in JSON tool: `check`, `format` and `generate`, in-tree.
-pub const JSON: &str = "std/json";
+///
+/// A built-in tool has a bare name and a repository one is a `//label`, as
+/// with platforms.
+pub const JSON: &str = "json";
 
 /// The built-in `.proto` tool: `check`, `format` and `generate`.
-pub const PROTO: &str = "std/proto";
+pub const PROTO: &str = "proto";
 
 /// The built-in text format tool: `check`, `format` and `generate`.
-pub const TEXTPROTO: &str = "std/textproto";
+pub const TEXTPROTO: &str = "textproto";
 
 /// What a tool name refers to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -525,12 +528,13 @@ fn source(workspace: &Workspace, tool: Tool) -> Option<(Option<crate::build::wor
             let main = harness(&module, &|e| tool.provides(workspace, e), &|e| typed(workspace, tool, e));
             Some((Some(t.package), package.module_path("(tool main)"), main))
         }
-        // `format` is in-tree, so the program serves the other two.
+        // `format` is in-tree, so the program serves the other two. Each is the
+        // standard library module of its name under `std/`.
         Tool::Proto => {
-            Some((None, "(std/proto main)".to_string(), harness(PROTO, &|e| e != "format", &|_| Vec::new())))
+            Some((None, "(std/proto main)".to_string(), harness("std/proto", &|e| e != "format", &|_| Vec::new())))
         }
         Tool::Textproto => {
-            Some((None, "(std/textproto main)".to_string(), harness(TEXTPROTO, &|e| e != "format", &|_| Vec::new())))
+            Some((None, "(std/textproto main)".to_string(), harness("std/textproto", &|e| e != "format", &|_| Vec::new())))
         }
         Tool::Json => None,
     }
@@ -850,7 +854,7 @@ pub fn check_file(
     })
 }
 
-/// `std/json`'s check, in-tree: keyed on the file and every schema it reads.
+/// `json`'s check, in-tree: keyed on the file and every schema it reads.
 fn check_json(
     session: &Session,
     language: &Language,

@@ -13,7 +13,7 @@ file that still writes it is
 The rule this page carried was that the field held schemas and nothing else. A
 `generators` entry has no such rule: a generator reads whatever it likes, and
 what a file has to be is the tool's question rather than the build's. Hand
-`std/proto` something that is not a schema and the reader says so, at
+`proto` something that is not a schema and the reader says so, at
 the line it could not read.
 
 The page is kept because a code that has ever been printed is a code somebody

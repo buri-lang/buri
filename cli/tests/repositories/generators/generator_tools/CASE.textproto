@@ -1,13 +1,27 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "what a `generators` entry may name and what it may not: no tool at all, a tool this toolchain does not ship, a label that is no tool rule, an input that is not there — and `proto_sources`, which a binary may no longer write either"
+doc: "what a `generators` entry may name and what it may not: a bare built-in name, the `std/` one it replaced, no tool at all, a tool this toolchain does not ship, a label that is no tool rule, an input that is not there — and `proto_sources`, which a binary may no longer write either"
 
 # The shape everything below is one edit away from.
 run {
   args: ["run", "//cmd/app"]
   exit: 0
   golden: "clean.txt"
+}
+
+# A built-in tool has a bare name, as a built-in platform does. The name it
+# had before is refused, and the fix names the bare one.
+edit {
+  file: "lib/wire/BUILD.buri"
+  replace: "{ tool: \"proto\", inputs: [\"point.proto\"] },"
+  with: "{ tool: \"std/proto\", inputs: [\"point.proto\"] },"
+}
+
+run {
+  args: ["build", "//lib/wire"]
+  exit: 2
+  golden: "old_name.txt"
 }
 
 # A generator *is* its tool, so an entry with none names nothing to run.
@@ -25,8 +39,8 @@ run {
   golden: "no_tool.txt"
 }
 
-# A name that is not a `//label` names a tool the toolchain ships: `std/json`
-# and `std/proto`. Exit 2, as for any build file naming nothing.
+# A name that is not a `//label` names a tool the toolchain ships: `json`,
+# `proto` and `textproto`. Exit 2, as for any build file naming nothing.
 edit {
   file: "lib/wire/BUILD.buri"
   replace: "{ inputs: [\"point.proto\"] },"
@@ -58,7 +72,7 @@ run {
 edit {
   file: "lib/wire/BUILD.buri"
   replace: "{ tool: \"//lib/wire\", inputs: [\"point.proto\"] },"
-  with: "{ tool: \"std/proto\", inputs: [\"gone.proto\"] },"
+  with: "{ tool: \"proto\", inputs: [\"gone.proto\"] },"
 }
 
 run {
@@ -69,8 +83,8 @@ run {
 
 edit {
   file: "lib/wire/BUILD.buri"
-  replace: "{ tool: \"std/proto\", inputs: [\"gone.proto\"] },"
-  with: "{ tool: \"std/proto\", inputs: [\"point.proto\"] },"
+  replace: "{ tool: \"proto\", inputs: [\"gone.proto\"] },"
+  with: "{ tool: \"proto\", inputs: [\"point.proto\"] },"
 }
 
 # `proto_sources` is retired on a binary as well as on a library, and the two
