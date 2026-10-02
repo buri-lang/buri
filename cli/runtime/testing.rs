@@ -5088,4 +5088,52 @@ mod tests {
         assert_eq!(unsafe { second.text.as_str() }, "");
         assert_eq!(first.data.len, 0);
     }
+
+    /// Eight threads, each taking and putting one state a thousand times,
+    /// lose no update: `take` to `put` is one critical section.
+    #[test]
+    fn a_state_update_is_atomic_across_threads() {
+        let zero = 0_i64;
+        // SAFETY: `zero` is eight readable bytes, and an `Int` has no glue.
+        let handle = unsafe {
+            buri_rt_platforms_testing_state_state_new((&raw const zero).cast(), 8, None, None, None)
+        };
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                std::thread::spawn(move || {
+                    for _ in 0..1000 {
+                        let mut n = 0_i64;
+                        // SAFETY: `n` is eight writable and readable bytes.
+                        unsafe {
+                            buri_rt_platforms_testing_state_state_take(
+                                handle,
+                                8,
+                                None,
+                                (&raw mut n).cast(),
+                            );
+                            std::thread::yield_now();
+                            let next = n + 1;
+                            buri_rt_platforms_testing_state_state_put(
+                                handle,
+                                (&raw const next).cast(),
+                                8,
+                                None,
+                                None,
+                                None,
+                            );
+                        }
+                    }
+                })
+            })
+            .collect();
+        for w in workers {
+            w.join().unwrap();
+        }
+        let mut total = 0_i64;
+        // SAFETY: as above.
+        unsafe {
+            buri_rt_platforms_testing_state_state_read(handle, 8, None, (&raw mut total).cast());
+        }
+        assert_eq!(total, 8000);
+    }
 }
