@@ -1,0 +1,8 @@
+error: `doubled` is not on //widget/testing's surface [not-on-the-surface]
+ --> user/test/user.buri:5:27
+  |
+5 |     assert.equal(fake(21).doubled(), 42);
+  |                           ^^^^^^^
+  |
+  = a method call from outside a library resolves only to names its lib.buri exports
+  = fix: re-export `doubled` from that library's testing/lib.buri, if it is part of the API
