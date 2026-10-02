@@ -501,8 +501,24 @@ pub struct Tag {
     pub name: Spanned<String>,
     pub doc: String,
     pub forbids_tags: Vec<Spanned<String>>,
+    pub forbids_platforms: Vec<Spanned<Platform>>,
     pub requires_platforms: Vec<Spanned<Platform>>,
     pub span: Span,
+}
+
+impl Tag {
+    /// Whether code carrying this tag may be built for `platform`: in
+    /// `requires.platforms` (or that list is unset), and not in
+    /// `forbids.platforms`.
+    pub fn admits(&self, platform: Platform) -> bool {
+        let required = self.requires_platforms.is_empty()
+            || self.requires_platforms.iter().any(|p| p.value == platform);
+        required && !self.forbids(platform)
+    }
+
+    pub fn forbids(&self, platform: Platform) -> bool {
+        self.forbids_platforms.iter().any(|p| p.value == platform)
+    }
 }
 
 /// How hard the lint catalogue is run for this repository.
@@ -788,6 +804,34 @@ impl Reader {
             }
         }
         out
+    }
+
+    /// A tag's two platform lists: each names a platform once, and no platform
+    /// is both required and forbidden.
+    fn tag_platforms(
+        &mut self,
+        tag: &str,
+        requires: &[Spanned<Platform>],
+        forbids: &[Spanned<Platform>],
+    ) {
+        for (list, field) in [(requires, "requires"), (forbids, "forbids")] {
+            for (i, p) in list.iter().enumerate() {
+                if let Some(first) = list.iter().take(i).find(|q| q.value == p.value) {
+                    self.templated("duplicate-platform", p.span)
+                        .bind("platform", p.value.proto())
+                        .bind("field", field)
+                        .secondary_span(first.span, "first listed here");
+                }
+            }
+        }
+        for p in forbids {
+            if let Some(r) = requires.iter().find(|r| r.value == p.value) {
+                self.templated("platform-required-and-forbidden", p.span)
+                    .bind("tag", tag)
+                    .bind("platform", p.value.proto())
+                    .secondary_span(r.span, "required here");
+            }
+        }
     }
 
     /// `visibility`, parsed. The shape mirrors `platforms`: a bad entry is
@@ -1419,14 +1463,11 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
         };
 
         let mut forbids_tags = Vec::new();
+        let mut forbids_platforms = Vec::new();
         if let Some((forbids, _)) = reader.sub_message(m, "forbids") {
-            // There is deliberately no `platforms` under `forbids`: a platform
-            // restriction is always a whitelist under `requires`.
             reader.check_known(forbids, textproto::schema_order("forbids"), &[], "a `forbids` block");
-            if let Some(p) = forbids.get("platforms") {
-                reader.templated("platforms-under-forbids", p.name_span);
-            }
             forbids_tags = reader.strings(forbids, "tags");
+            forbids_platforms = reader.platforms(forbids, "platforms");
         }
 
         let mut requires_platforms = Vec::new();
@@ -1437,6 +1478,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
             }
             requires_platforms = reader.platforms(requires, "platforms");
         }
+        reader.tag_platforms(&name.value, &requires_platforms, &forbids_platforms);
 
         // Tags form one flat namespace, so a name declared twice is rejected
         // rather than quietly meaning whichever came first.
@@ -1452,6 +1494,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
             name,
             doc: reader.string(m, "doc").unwrap_or_default(),
             forbids_tags,
+            forbids_platforms,
             requires_platforms,
             span: *span,
         });
@@ -1652,10 +1695,13 @@ library {
     }
 
     #[test]
-    fn forbids_takes_no_platforms() {
+    fn forbids_takes_platforms() {
         let src = "tag {\n  name: \"a\"\n  forbids { platforms: [JS] }\n}\n";
         let read = read_repo_config(src, FileId(0));
-        assert!(read.errors.iter().any(|e| e.message.contains("no `platforms`")));
+        assert!(read.errors.is_empty(), "{:#?}", read.errors);
+        let tag = &read.value.tags[0];
+        assert!(!tag.admits(Platform::Js));
+        assert!(tag.admits(Platform::Linux));
     }
 
     #[test]

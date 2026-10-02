@@ -56,10 +56,12 @@ for their polarity:
 | | |
 |---|---|
 | `forbids { tags: [...] }` | Tags that may not appear anywhere in the same dependency closure. Symmetric. |
+| `forbids { platforms: [...] }` | Platforms code carrying this tag may not be built or tested for. Every other platform, including one added later, stays open. |
 | `requires { platforms: [...] }` | The only platforms code carrying this tag may be built for. A whitelist; unset means all. |
 
-Those are the only two fields either block accepts. `forbids` takes no platforms
-and `requires` takes no tags, both for reasons [`tags.md`](./tags.md) gives.
+A tag admits its `requires` platforms, or all of them when unset, minus its
+`forbids` platforms. A platform named on both sides is an error. `requires`
+takes no tags, for the reason [`tags.md`](./tags.md) gives.
 
 This file is the only place that introduces a tag name, and the vocabulary is
 **closed**. A build file three directories down writing `tags: ["internal"]`

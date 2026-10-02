@@ -1,0 +1,28 @@
+# `buri test` refuses a run on a platform the suite's tags forbid, the same way
+# it refuses one a `requires` whitelist leaves out: an error, not a skip. With
+# no `platforms`, the suite runs on the host, which `native` admits.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "buri test refuses a suite run on a platform its target's tags forbid"
+
+run {
+  args: ["test", "//lib/codec", "--force"]
+  exit: 1
+  golden: "forbidden.txt"
+  stream: ERR
+}
+
+edit {
+  file: "lib/codec/BUILD.buri"
+  replace: "        platforms: [JS]\n"
+  with: ""
+}
+
+run {
+  args: ["test", "//lib/codec", "--force"]
+  exit: 0
+  golden: "host.txt"
+  stream: OUT
+}

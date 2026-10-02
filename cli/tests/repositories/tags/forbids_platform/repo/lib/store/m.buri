@@ -1,0 +1,5 @@
+from "//lib/driver" import { fromDriver };
+
+export fn fromStore(): Str {
+    fromDriver()
+}

@@ -239,9 +239,13 @@ What follows from a tag is declared once, on the tag:
 - `forbids { tags: [...] }` — two tags that forbid each other may not appear
   anywhere in the same dependency closure. It is symmetric, checked at every
   target, and a **union over the closure** rather than a path.
-- `requires { platforms: [...] }` — a **whitelist**, never an exclusion.
-  `platforms(T)` is the intersection over the closure, and an empty intersection
-  is an error at the target itself (`unsatisfiable-target`).
+- `forbids { platforms: [...] }` — platforms code carrying the tag may not be
+  built or tested for. A platform added later is admitted.
+- `requires { platforms: [...] }` — a **whitelist**. A platform added later is
+  not admitted until listed.
+- A tag admits its `requires` platforms (all, when unset) minus its `forbids`
+  platforms. `platforms(T)` is the intersection over the closure, and an empty
+  intersection is an error at the target itself (`unsatisfiable-target`).
 
 The vocabulary is **closed**: a `tags` entry naming no `tag` block in
 `REPO.buri` is an error (`unknown-tag`).

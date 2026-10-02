@@ -1,0 +1,10 @@
+# The suite inherits the library's tags, so a JS run is one it may not ask for.
+library {
+    sources: ["codec.buri"]
+    tags: ["native"]
+
+    test {
+        sources: ["test/codec.buri"]
+        platforms: [JS]
+    }
+}

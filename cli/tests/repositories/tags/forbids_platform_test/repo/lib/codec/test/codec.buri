@@ -1,0 +1,6 @@
+from "core/testing/assert" import * as assert;
+from "//lib/codec" import { encode };
+
+test "encodes zero" {
+    assert.equal(encode(0), "zero");
+}

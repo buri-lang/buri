@@ -2266,8 +2266,16 @@ pub fn check_platform(
     let mut d = Diagnostic::templated("platform-violation", span)
         .with_bind("target", label.as_str())
         .with_bind("platform", platform.slug());
-    if let Some((blocker, why)) = session.workspace.platform_blocker(target, platform) {
-        d = d.with_note(why);
+    if let Some(found) = session.workspace.platform_blocker(target, platform) {
+        let blocker = found.member;
+        d = d.with_note(found.why);
+        if found.forbidden {
+            d = d.with_fix(format!(
+                "drop the {} output, or take {} out of the tag's `forbids {{ platforms }}` in REPO.buri",
+                platform.slug(),
+                platform.proto()
+            ));
+        }
         if let Some(path) = session.workspace.dep_path(target, blocker) {
             if path.len() > 1 {
                 let names: Vec<String> =

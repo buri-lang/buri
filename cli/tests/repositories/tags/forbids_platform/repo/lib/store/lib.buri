@@ -1,0 +1,1 @@
+from "//lib/store/m.buri" export { fromStore };

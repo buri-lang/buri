@@ -116,9 +116,13 @@ error: //apps/scan cannot be built for js [platform-violation]
 One declaration, enforced from both ends.
 `buri query 'platforms(//apps/scan)'` prints what the closure has left.
 
+To rule out one platform and keep the rest open, including platforms the
+toolchain gains later, use `forbids { platforms: [...] }` instead. The diagnostic
+then reads `which forbids js`.
+
 ---
 
 Tags answer "what may end up in one artifact." For "who may write this
 dependency edge," use `visibility`. [`tags.md`](../reference/build/tags.md) has
-the exact semantics: the closure union, the platform intersection, and why
-`forbids` has no platforms.
+the exact semantics: the closure union, the platform intersection, and when to
+forbid a platform rather than whitelist the rest.

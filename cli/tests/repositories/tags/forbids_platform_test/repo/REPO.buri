@@ -1,0 +1,8 @@
+tag {
+    name: "native"
+    doc: "calls into the host's C library, which JavaScript cannot reach"
+
+    forbids {
+        platforms: [JS]
+    }
+}
