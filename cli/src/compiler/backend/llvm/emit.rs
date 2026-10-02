@@ -6455,6 +6455,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 .build_in_bounds_gep(self.ctx.i8_type(), a_ptr, &[a_len], "cat.end")
                 .unwrap_or(a_ptr)
         };
+        // The write can land on bytes a longer, dead view of this block was
+        // indexed over, so the runtime drops any index of the block first
+        // (`cli/runtime/scalars.rs`). `buri_rt_str_concat`, which the
+        // copy-and-patch backend calls instead, does the same.
+        let ptr_ty = self.ptr_ty();
+        let written = self.declare_rt(runtime::STR_WRITTEN, &[ptr_ty.into()], None);
+        if let Ok(call) = self.builder.build_call(written, &[a_base.into()], "") {
+            attrs::set_call_convention(call, attrs::C);
+        }
         let _ = self.builder.build_memmove(at, 1, b_ptr, 1, b_len);
         self.incref_pointer(state, a_base, Counted::NonNull);
         // Both halves of MEMORY.md §5.3 write through `a_base`, which is
@@ -6656,14 +6665,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// and they point in opposite directions:
     ///
     ///  * **"A runtime intrinsic borrows its arguments and returns a fresh
-    ///    count."** So the source list, the closure and `fold`'s initial
-    ///    accumulator arrive borrowed: nothing here releases one, and the
-    ///    result leaves owning what it holds.
+    ///    count."** So the source list and the closure arrive borrowed:
+    ///    nothing here releases one, and the result leaves owning what it
+    ///    holds. A fold's initial accumulator is the exception: `middle::rc`
+    ///    hands it over (`rc::is_fold`), so it arrives owned.
     ///  * **"A call through a function value owns its arguments."** So every
-    ///    value handed to a step is retained first — the element, the threaded
-    ///    context, and `fold`'s accumulator on the way in — the step consumes
-    ///    that count and answers a fresh one, and [`Unit::build_thunk`]
-    ///    releases it again where the callee only borrowed it.
+    ///    value handed to a step is retained first — the element and the
+    ///    threaded context — the step consumes that count and answers a fresh
+    ///    one, and [`Unit::build_thunk`] releases it again where the callee
+    ///    only borrowed it. A fold's accumulator needs no retain: the first
+    ///    step takes the count the seed arrived with.
     ///
     /// The retain asks [`Unit::rc_counted`] and not the layout table, for the
     /// reason that function states: retaining what rc does not count is one
@@ -7208,12 +7219,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// # The counts
     ///
-    /// One retain, on the way in, for [`Unit::list_fold`]'s reason: a call
-    /// through a function value owns its arguments and the initial accumulator
-    /// arrives borrowed. After that each step consumes the count it is handed
-    /// and answers another inside its `.Ok`, which is what the next step is
-    /// handed. The early exit therefore leaks nothing — the step that answered
-    /// `.Err` consumed the accumulator's count on the way in.
+    /// No retain, for [`Unit::list_fold`]'s reason: the initial accumulator
+    /// arrives owned, and the first step consumes that count. After that each
+    /// step consumes the count it is handed and answers another inside its
+    /// `.Ok`, which is what the next step is handed. The early exit therefore
+    /// leaks nothing — the step that answered `.Err` consumed the
+    /// accumulator's count on the way in — and an empty list answers
+    /// `.Ok(init)` with the seed's own count.
     fn list_fold_result(
         &mut self,
         state: &mut Function<'ctx>,
@@ -7237,13 +7249,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let Some(enum_repr) = enum_repr else { return };
         let acc_slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(init));
         let start = self.get(state, init);
-        if let Some(ty) = self.type_of(code.ty_of(init)) {
-            if self.rc_counted(&ty) {
-                let pieces = repr::disassemble(&self.builder, &acc_slots, start);
-                let place = Place::Registers { slots: acc_slots.clone(), pieces };
-                self.walk_rc(state, &ty, &place, 0, true, 0);
-            }
-        }
         let join = self.ctx.append_basic_block(state.value, "fr.join");
         let Some(l) = self.open_loop(state, src.len, Some(start)) else { return };
         let acc = l.carried.map_or(start, |(p, _)| p.as_basic_value());
@@ -8179,10 +8184,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// `fold` and `foldCtx`: the accumulator, threaded.
     ///
     /// One path and not two: an accumulator of any width is a phi, because
-    /// LLVM's phi takes a first-class aggregate. The counts balance by the
-    /// retain below — the initial accumulator arrives borrowed and the first
-    /// step owns it — after which each step consumes the count it is given and
-    /// answers another, and the last one is the result's.
+    /// LLVM's phi takes a first-class aggregate. The counts balance with no
+    /// retain here: `middle::rc` hands a fold's seed over (`rc::is_fold`), so
+    /// the initial accumulator arrives owned and the first step takes that
+    /// count, after which each step consumes the count it is given and answers
+    /// another, and the last one is the result's. A retain here as well left
+    /// the seed's owner and the first step both holding the accumulator, and
+    /// the step's first push into it copied the whole list.
     fn list_fold(
         &mut self,
         state: &mut Function<'ctx>,
@@ -8195,13 +8203,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let ir_dest = code.ty_of(dest);
         let slots = repr::ir_slots(&mut self.reprs, self.program, ir_dest);
         let start = self.get(state, init);
-        if let Some(ty) = self.type_of(ir_dest) {
-            if self.rc_counted(&ty) {
-                let pieces = repr::disassemble(&self.builder, &slots, start);
-                let place = Place::Registers { slots: slots.clone(), pieces };
-                self.walk_rc(state, &ty, &place, 0, true, 0);
-            }
-        }
         let Some(l) = self.open_loop(state, src.len, Some(start)) else { return };
         let acc = l.carried.map_or(start, |(p, _)| p.as_basic_value());
 

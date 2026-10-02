@@ -186,6 +186,27 @@ flag survives `trim`, `slice` and `splitOnce` for free. Slicing a non-ASCII stri
 leaves the flag clear even where the slice happens to be ASCII: rescanning on
 every slice would cost the thing slicing exists to avoid.
 
+**A scalar index into a long non-ASCII string is a lookup, not a walk.**
+With the flag clear, `slice`, `charAt` and `indexOf` used to walk from the
+start of the view on every call. A parser that slices its source once per token
+was quadratic as soon as the source held one `é`. `cli/runtime/scalars.rs` now
+keeps, for a heap view of 256 bytes or more, how many scalars start in each
+64-byte run. One pass builds it on the first question; after that a question
+is a binary search and a scan of under 64 bytes. It also answers for every
+view inside the one it was built for.
+
+The index lives beside the value, not in it: `Str` and the block header are
+unchanged. Four indices are kept process-wide, keyed by `base`, behind one lock.
+Short views, ASCII views, literals (null `base`) and arena blocks are never
+indexed. An index is dropped before its block's bytes can change or its address
+can be reused: in `buri_rt_free`, in `buri_rt_realloc`, and on `str.concat`'s
+in-place arm (MEMORY.md §5.3), which can overwrite bytes a dead, longer view was
+indexed over. `scalars.rs`'s header argues why the free path can read the keys
+without the lock.
+
+`str.length` still counts: both backends open-code it as a mask or a counting
+loop.
+
 Strings are capped at 2^63 - 1 bytes, which is not a cap.
 
 ### 3.2 No small-string optimization
@@ -295,6 +316,12 @@ A struct or tuple is stored inline wherever it appears — inside another struct
 inside an enum payload, as an array element. It is heap-allocated only when a
 `[T]` of it is built, and then the whole array is one allocation. So `[(A, B)]`
 from `list.zip` is one block, not `n` pairs.
+
+`middle::rc` leans on this. Reading `out.at` out of a struct local reads a word
+of the local's own value and loads through no block, so it stays sound after
+`out`'s count has gone elsewhere. That is why such a read is no use of `out`
+(MEMORY.md §5.3, "Keeping the count at one"). Putting structs or tuples behind
+a pointer would break that rule.
 
 ### 5.1 The calling convention flattens
 

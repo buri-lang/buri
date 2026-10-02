@@ -448,15 +448,18 @@ impl Types {
 struct Sites {
     at: HashMap<(u32, rc::Position), Vec<rc::Site>>,
     ids: HashMap<*const Expr, rc::NodeId>,
+    /// [`rc::FuncPlan::moved`]: the replaced fields whose old value an update
+    /// does not release, because the one read of it took the base's count.
+    moved: Vec<(rc::NodeId, usize)>,
 }
 
 impl Sites {
     fn of(plan: Option<&rc::FuncPlan>, body: Option<&Expr>) -> Sites {
         let (Some(plan), Some(body)) = (plan, body) else { return Sites::default() };
-        if plan.sites.is_empty() {
+        if plan.sites.is_empty() && plan.moved.is_empty() {
             return Sites::default();
         }
-        let mut sites = Sites::default();
+        let mut sites = Sites { moved: plan.moved.clone(), ..Sites::default() };
         rc::preorder(body, &mut |id, e| {
             sites.ids.insert(std::ptr::from_ref(e), id);
         });
@@ -468,6 +471,11 @@ impl Sites {
 
     fn id_of(&self, e: &Expr) -> Option<rc::NodeId> {
         self.ids.get(&std::ptr::from_ref(e)).copied()
+    }
+
+    /// Whether the update at `node` moved field `index` out of its base.
+    fn moved(&self, node: Option<rc::NodeId>, index: usize) -> bool {
+        node.is_some_and(|n| self.moved.binary_search(&(n, index)).is_ok())
     }
 
     fn get(&self, node: rc::NodeId, at: rc::Position) -> &[rc::Site] {
@@ -965,8 +973,17 @@ impl FnLower<'_> {
                 // unique one in place), and that path takes a count of its own,
                 // so the drop below takes back this expression's and not the
                 // result's.
+                //
+                // Except a field `middle::rc` **moved** out of a dying base
+                // (`rc::FuncPlan::moved`): its one read took this
+                // expression's reference instead of a new one, so whoever read
+                // it releases it, and releasing it here too would be twice.
+                let node = self.sites.id_of(e);
                 let mut replaced = Vec::new();
                 for (i, _) in updates {
+                    if self.sites.moved(node, *i) {
+                        continue;
+                    }
                     let f = self.field_type(&base.ty, *i);
                     replaced.push(self.emit(f, |dest| Inst::GetField {
                         dest,
@@ -2605,6 +2622,7 @@ export fn step(n: Int): Int {
                 reuse: Vec::new(),
                 unclassified: Vec::new(),
                 inherits: Vec::new(),
+                moved: Vec::new(),
             });
         }
 
