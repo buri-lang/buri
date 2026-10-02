@@ -13,7 +13,8 @@
 //!   (`str.buri:18`), while a `BuriStr` is a byte range. Every entry below that
 //!   takes an index converts, and the ASCII flag (VALUE-MODEL.md §3.1) is what
 //!   makes that free on the input that matters: set, and a scalar index *is* a
-//!   byte offset.
+//!   byte offset. Clear, and `scalars.rs` answers a long view from a kept index
+//!   and walks a short one.
 //! * **A pure operation returns a view.** `slice`, `trim`, `trimStart`,
 //!   `trimEnd` and `splitOnce` are declared without an `Allocator` bound, which is
 //!   `core/str`'s way of saying they do not copy. So they answer a `BuriStr`
@@ -45,15 +46,17 @@
 //! signature is `Arg::Str` three times over and can be checked against the IR
 //! mechanically rather than per entry.
 //!
-//! A `len` parameter arrives with VALUE-MODEL.md §3.1's ASCII flag masked off,
-//! because what an entry here is handed is a byte count. [`buri_rt_str_concat`]
-//! is the one exception and says why at its own definition.
+//! A `len` parameter is the stored word, with VALUE-MODEL.md §3.1's ASCII flag
+//! still in bit 63: [`view`] masks it off to get the byte count, and the entries
+//! that convert scalar indices read it first, because it is what makes their
+//! conversion free. [`buri_rt_str_concat`] reads it too and says why at its own
+//! definition.
 
 use crate::memory::{
     buri_rt_alloc, buri_rt_incref, buri_rt_unique_cap, BURI_RT_GROWTH_FLOOR,
 };
 use crate::value::{str_of, BuriList, BuriStr, BURI_RT_STR_ASCII, BURI_RT_STR_LEN_MASK};
-use crate::BURI_OK;
+use crate::{scalars, BURI_OK};
 
 /// The discriminant an `Option`-returning entry answers when the value is
 /// absent. `.None` is `Option`'s second variant (`option.buri:9-12`), so its
@@ -114,27 +117,6 @@ unsafe fn slice_of(base: *mut u8, ptr: *const u8, len: u64, from: usize, to: usi
     }
 }
 
-/// The byte offset of scalar `index`, or the byte length when it is past the
-/// end.
-///
-/// O(1) when the ASCII flag is set, and a walk over the non-continuation bytes
-/// otherwise — the same fast path `str.length` takes.
-fn byte_offset(bytes: &[u8], ascii: bool, index: usize) -> usize {
-    if ascii {
-        return index.min(bytes.len());
-    }
-    let mut seen = 0usize;
-    for (at, b) in bytes.iter().enumerate() {
-        if (b & 0xC0) != 0x80 {
-            if seen == index {
-                return at;
-            }
-            seen = seen.saturating_add(1);
-        }
-    }
-    bytes.len()
-}
-
 /// The number of Unicode scalars in `bytes`.
 fn scalar_len(bytes: &[u8], ascii: bool) -> usize {
     if ascii {
@@ -142,6 +124,24 @@ fn scalar_len(bytes: &[u8], ascii: bool) -> usize {
     } else {
         bytes.iter().filter(|b| (**b & 0xC0) != 0x80).count()
     }
+}
+
+/// The scalar that starts at byte `at`, or `None` at or past the end.
+///
+/// The width comes from the lead byte; a sequence that does not decode, which
+/// a `Str` built by this runtime never holds, reads as U+FFFD, as
+/// `from_utf8_lossy` would have read it.
+fn scalar_at(bytes: &[u8], at: usize) -> Option<char> {
+    let lead = *bytes.get(at)?;
+    let width = match lead {
+        0x00..=0x7F => 1,
+        0xC0..=0xDF => 2,
+        0xE0..=0xEF => 3,
+        _ => 4,
+    };
+    let end = at.saturating_add(width).min(bytes.len());
+    let run = bytes.get(at..end).unwrap_or(&[]);
+    Some(String::from_utf8_lossy(run).chars().next().unwrap_or('\u{FFFD}'))
 }
 
 /// The first byte offset at which `needle` occurs in `haystack`.
@@ -253,7 +253,7 @@ unsafe fn list_of_views(
 /// `ptr` covers `len` bytes; `out` is writable and aligned for a `u32`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_str_char_at(
-    _base: *mut u8,
+    base: *mut u8,
     ptr: *const u8,
     len: u64,
     index: i64,
@@ -263,8 +263,11 @@ pub unsafe extern "C" fn buri_rt_str_char_at(
         return BURI_ABSENT;
     }
     // SAFETY: the caller promises `len` readable bytes.
-    let s = unsafe { text(ptr, len) };
-    let Some(c) = s.chars().nth(index as usize) else {
+    let bytes = unsafe { view(ptr, len) };
+    let ascii = len & BURI_RT_STR_ASCII != 0;
+    // SAFETY: `base` is the block `bytes` is a view into.
+    let at = unsafe { scalars::byte_offset(base, bytes, ascii, index as usize) };
+    let Some(c) = scalar_at(bytes, at) else {
         return BURI_ABSENT;
     };
     // SAFETY: the caller promises a writable, aligned destination.
@@ -291,8 +294,8 @@ pub unsafe extern "C" fn buri_rt_str_slice(
     let ascii = len & BURI_RT_STR_ASCII != 0;
     let lo = start.max(0) as usize;
     let hi = end.max(0) as usize;
-    let from = byte_offset(bytes, ascii, lo);
-    let to = byte_offset(bytes, ascii, hi.max(lo));
+    // SAFETY: `base` is the block `bytes` is a view into.
+    let [from, to] = unsafe { scalars::byte_offsets(base, bytes, ascii, [lo, hi.max(lo)]) };
     // SAFETY: `from` and `to` are byte offsets this function derived from
     // `bytes`, so they are inside the block `base` owns.
     unsafe { out.write(slice_of(base, ptr, len, from, to)) }
@@ -423,7 +426,7 @@ pub unsafe extern "C" fn buri_rt_str_contains(
 /// Both ranges are readable; `out` is writable and aligned for an `i64`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_str_index_of(
-    _base: *mut u8,
+    base: *mut u8,
     ptr: *const u8,
     len: u64,
     _nbase: *mut u8,
@@ -435,9 +438,9 @@ pub unsafe extern "C" fn buri_rt_str_index_of(
     let (s, n) = unsafe { (view(ptr, len), view(nptr, nlen)) };
     let Some(at) = find(s, n) else { return BURI_ABSENT };
     let ascii = len & BURI_RT_STR_ASCII != 0;
-    let prefix = s.get(..at).unwrap_or(&[]);
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(scalar_len(prefix, ascii) as i64) };
+    // SAFETY: `base` is the block `s` is a view into; the caller promises a
+    // writable, aligned destination.
+    unsafe { out.write(scalars::scalars_before(base, s, ascii, at) as i64) };
     BURI_OK
 }
 
@@ -708,6 +711,9 @@ pub unsafe extern "C" fn buri_rt_str_concat(
         // part of what has to fit.
         let offset = (a_ptr as usize).saturating_sub(a_base as usize);
         if offset.saturating_add(n) as u64 <= cap {
+            // The write can land on bytes a longer, dead view of this block was
+            // indexed over (`scalars.rs`).
+            scalars::forget(a_base);
             // SAFETY: the block has room for `offset + n` bytes, so the `lb`
             // bytes at `a_ptr + la` are inside it; the ranges may touch, which
             // is what `copy` allows.
@@ -1190,13 +1196,20 @@ mod tests {
     #[test]
     fn a_scalar_index_is_not_a_byte_offset() {
         let bytes = "aé漢".as_bytes();
-        assert_eq!(byte_offset(bytes, false, 0), 0);
-        assert_eq!(byte_offset(bytes, false, 1), 1);
-        assert_eq!(byte_offset(bytes, false, 2), 3);
-        assert_eq!(byte_offset(bytes, false, 3), 6);
+        let at = |i| {
+            // SAFETY: a literal's bytes, with no block, which is never indexed.
+            unsafe { scalars::byte_offset(std::ptr::null_mut(), bytes, false, i) }
+        };
+        assert_eq!(at(0), 0);
+        assert_eq!(at(1), 1);
+        assert_eq!(at(2), 3);
+        assert_eq!(at(3), 6);
         // Past the end clamps to the byte length rather than wrapping.
-        assert_eq!(byte_offset(bytes, false, 9), 6);
+        assert_eq!(at(9), 6);
         assert_eq!(scalar_len(bytes, false), 3);
+        assert_eq!(scalar_at(bytes, 1), Some('é'));
+        assert_eq!(scalar_at(bytes, 3), Some('漢'));
+        assert_eq!(scalar_at(bytes, 6), None);
     }
 
     #[test]

@@ -154,7 +154,10 @@
 //! **Landed.** Own/borrow inference; purity, `can_abort` and `can_park`; the
 //! insertion plan — incref on a duplicating or capturing use, decref at last
 //! use, a drop at the entry of a branch that does not use a live value, a drop
-//! at function entry for an owned parameter nothing reads.
+//! at function entry for an owned parameter nothing reads. A functional update
+//! whose base dies in it takes the base's own count, and moves out of it a
+//! replaced field read once ([`FuncPlan::moved`]), so a push through the field
+//! finds the list unique (`Scan::update_dying`).
 //!
 //! **Analysis only, and deliberately so.** [`FuncPlan::reuse`] pairs a dying
 //! value with a construction in the same arm (MEMORY.md §5.3's "same basic
@@ -400,6 +403,13 @@ pub struct FuncPlan {
     /// the local is a parent this expression is the last use of. Empty unless
     /// [`Options::sharing`] is on. See MEMORY.md §5.5.
     pub inherits: Vec<(NodeId, LocalId)>,
+    /// The fields a native functional update **moves** out of its dying base:
+    /// the update's node, and the index of a field it replaces whose one read
+    /// took the base's count rather than a new one. `lower` releases the old
+    /// value of every replaced field after the struct is built, except these,
+    /// which whoever read them now releases. Sorted. Empty under
+    /// [`Options::sharing`]. See [`Scan::update_dying`] and MEMORY.md §5.3.
+    pub moved: Vec<(NodeId, usize)>,
 }
 
 impl Default for FuncPlan {
@@ -416,6 +426,7 @@ impl Default for FuncPlan {
             reuse: Vec::new(),
             unclassified: Vec::new(),
             inherits: Vec::new(),
+            moved: Vec::new(),
         }
     }
 }
@@ -1022,6 +1033,7 @@ fn scan_func(
             reuse: Vec::new(),
             unclassified: Vec::new(),
             inherits: Vec::new(),
+            moved: Vec::new(),
         };
         if let Some(body) = f.body() {
             let mut sizes: Vec<u32> = Vec::new();
@@ -1047,6 +1059,9 @@ fn scan_func(
                 self_params: plan.params.clone(),
                 inherits: Vec::new(),
                 handed_on: Vec::new(),
+                moving: Vec::new(),
+                moved: Vec::new(),
+                plain: f.params.iter().copied().collect(),
                 tries: Vec::new(),
                 escaped: HashSet::default(),
                 opts,
@@ -1070,6 +1085,7 @@ fn scan_func(
                 }
             });
             for b in bound {
+                scan.plain.insert(b);
                 if scan.is_counted(b) {
                     scan.owned.insert(b);
                 }
@@ -1116,6 +1132,9 @@ fn scan_func(
             plan.reuse = scan.reuse;
             plan.unclassified = scan.unclassified;
             plan.inherits = scan.inherits;
+            plan.moved = scan.moved;
+            plan.moved.sort_unstable();
+            plan.moved.dedup();
             // By node, so `lower` can find one `?`'s list by a binary search
             // and so a plan reads the same way twice. `Scan` keeps the list
             // distinct as it fills it, which is what stops one block being
@@ -1202,8 +1221,10 @@ pub fn release_then_retain<V: Copy + PartialEq>(ops: &[(RcOp, V)]) -> Option<V> 
 ///
 /// Under [`Options::sharing`] each of these consumes the argument, so a caller
 /// that keeps the value duplicates it and the duplication is a mark the backend
-/// can see. Native needs none of it: `cli/runtime/list.rs`'s `append_dest` asks
-/// the count at run time, and a count is the thing JavaScript does not have.
+/// can see. Native needs none of the six receivers: `cli/runtime/list.rs`'s
+/// `append_dest` asks the count at run time, and a count is the thing
+/// JavaScript does not have. It does need the folds' seed, for the same reason
+/// with a count in place of a mark ([`is_fold`]).
 ///
 /// Two families:
 ///
@@ -1230,6 +1251,21 @@ const TAKEN_BY: &[(&str, usize)] = &[
     ("list.foldResultCtx", 3),
 ];
 
+/// Whether an intrinsic key is one of [`TAKEN_BY`]'s four folds, whose seed is
+/// handed over on the native branch too.
+///
+/// **A contract with both native backends**: `stencil/lists.rs`'s
+/// `emit_list_loop` and `list_fold_result`, and `llvm/emit.rs`'s `list_fold`
+/// and `list_fold_result`, take the seed's count from the caller and give it
+/// to the first step. Lent instead, they had to retain it, and the seed's
+/// owner and the first step then each held the accumulator: the step's first
+/// push into it copied the whole list, once per fold. `core/buri/ast`'s
+/// printer folds over every block, pattern and annotation it prints, with
+/// everything printed so far as the seed.
+fn is_fold(key: &str) -> bool {
+    matches!(key, "list.fold" | "list.foldCtx" | "list.foldResult" | "list.foldResultCtx")
+}
+
 fn infer_ownership(
     program: &Program,
     counted: &mut dyn Counted,
@@ -1255,18 +1291,21 @@ fn infer_ownership(
         })
         .collect();
     // An intrinsic borrows what it is given (see the module docs), so its row
-    // never moves — except for the growing list operations under `sharing`,
-    // whose receiver is seeded owned before the fixpoint so that callers are
-    // promoted against it.
-    if opts.sharing {
-        for (i, f) in program.funcs.iter().enumerate() {
-            let FuncKind::Intrinsic(key) = &f.kind else { continue };
-            let Some((_, at)) = TAKEN_BY.iter().find(|(k, _)| *k == key.as_str()) else {
-                continue;
-            };
-            if let Some(slot) = own.get_mut(i).and_then(|r| r.get_mut(*at)) {
-                *slot = ir::Ownership::Own;
-            }
+    // never moves — except for [`TAKEN_BY`], whose parameter is seeded owned
+    // before the fixpoint so that callers are promoted against it. Under
+    // `sharing`, all ten. Natively, the four folds' seed alone: both native
+    // backends hand the seed to the first step without a retain of their own,
+    // which is what lets that step find a list in it unique.
+    for (i, f) in program.funcs.iter().enumerate() {
+        let FuncKind::Intrinsic(key) = &f.kind else { continue };
+        let Some((_, at)) = TAKEN_BY.iter().find(|(k, _)| *k == key.as_str()) else {
+            continue;
+        };
+        if !opts.sharing && !is_fold(key) {
+            continue;
+        }
+        if let Some(slot) = own.get_mut(i).and_then(|r| r.get_mut(*at)) {
+            *slot = ir::Ownership::Own;
         }
     }
     // The fixpoint is monotone — a parameter only ever moves `Borrow -> Own`,
@@ -1282,17 +1321,18 @@ fn infer_ownership(
     // settles in a single pass. `super::strongly_connected` yields the
     // components callees-first, which is the order this needs.
     let deps = ownership_dependencies(program);
+    let pieces = !opts.sharing;
     for scc in super::strongly_connected(&deps) {
         // A non-recursive singleton reads only rows that are already final, so
         // one evaluation is its fixed point: a second pass would read the same
         // inputs and change nothing.
         if let &[only] = scc.as_slice() {
             if !deps.get(only).is_some_and(|e| e.contains(&only)) {
-                promote_consuming(program, counted, only, &mut own);
+                promote_consuming(program, counted, only, &mut own, pieces);
                 continue;
             }
         }
-        converge_scc(program, counted, &scc, &mut own);
+        converge_scc(program, counted, &scc, &mut own, pieces);
     }
     own
 }
@@ -1347,11 +1387,12 @@ fn promote_consuming(
     counted: &mut dyn Counted,
     i: usize,
     own: &mut [Vec<ir::Ownership>],
+    pieces: bool,
 ) -> bool {
     let Some(f) = program.funcs.get(i) else { return false };
     let Some(body) = f.body() else { return false };
     let mut consumed: HashSet<LocalId> = HashSet::default();
-    consuming_uses(body, own, counted, i, &mut consumed);
+    consuming_uses(body, own, counted, i, &mut consumed, pieces);
     let Some(row) = own.get(i) else { return false };
     let promoted: Vec<ir::Ownership> = f
         .params
@@ -1383,11 +1424,12 @@ fn converge_scc(
     counted: &mut dyn Counted,
     scc: &[usize],
     own: &mut [Vec<ir::Ownership>],
+    pieces: bool,
 ) {
     loop {
         let mut changed = false;
         for &i in scc {
-            changed |= promote_consuming(program, counted, i, own);
+            changed |= promote_consuming(program, counted, i, own, pieces);
         }
         for (target, k) in loop_variables_taken(program, own, scc) {
             match own.get_mut(target).and_then(|r| r.get_mut(k)) {
@@ -1455,6 +1497,7 @@ fn consuming_uses(
     counted: &mut dyn Counted,
     self_index: usize,
     out: &mut HashSet<LocalId>,
+    pieces: bool,
 ) {
     // Repeated to a fixpoint: whether a `match` consumes its scrutinee depends
     // on whether the payloads it binds are consumed, and those are found by
@@ -1462,7 +1505,7 @@ fn consuming_uses(
     // by the function's locals.
     loop {
         let before = out.len();
-        collect_consuming(body, own, counted, self_index, out);
+        collect_consuming(body, own, counted, self_index, out, pieces);
         if out.len() == before {
             return;
         }
@@ -1475,13 +1518,31 @@ fn collect_consuming(
     counted: &mut dyn Counted,
     self_index: usize,
     out: &mut HashSet<LocalId>,
+    pieces: bool,
 ) {
     // The tail of a function is returned, and a `let` transfers into a local
     // whose own last use decides the rest, so both count as consuming.
-    let consume = |e: &Expr, out: &mut HashSet<LocalId>| {
-        if let ExprKind::Local(l) = &e.kind {
+    //
+    // Natively (`pieces`), so is handing on a **counted piece** of a local —
+    // `nl(ctx, acc.0)`, `raw(ctx, o.inner, t)` — for the tail rule's reason
+    // below: the piece is taken, so the whole is. Borrowed, the piece needs a
+    // count of its own while the caller's count on the whole still holds it,
+    // so a list in it is at two when the callee pushes and the push copies.
+    // Owned, the whole is released as the piece is taken, and the list is at
+    // one. Not under `sharing`, whose marks are a different question and
+    // whose answers `language::sharing` pins.
+    let consume = |e: &Expr, out: &mut HashSet<LocalId>, counted: &mut dyn Counted| match &e.kind {
+        ExprKind::Local(l) => {
             out.insert(*l);
         }
+        ExprKind::Field { .. } | ExprKind::TupleIndex { .. } if pieces => {
+            if let Some(root) = field_root(e) {
+                if counted.counted(&e.ty) == Answer::Yes {
+                    out.insert(root);
+                }
+            }
+        }
+        _ => {}
     };
     typed::walk(body, &mut |e| match &e.kind {
         ExprKind::StructLit { fields: args, .. }
@@ -1490,12 +1551,12 @@ fn collect_consuming(
         | ExprKind::Array(args)
         | ExprKind::Closure { env: args, .. }
         | ExprKind::CallValue { args, .. } => {
-            args.iter().for_each(|a| consume(a, out));
+            args.iter().for_each(|a| consume(a, out, counted));
         }
-        ExprKind::CtxLit { bindings } => bindings.iter().for_each(|(_, a)| consume(a, out)),
+        ExprKind::CtxLit { bindings } => bindings.iter().for_each(|(_, a)| consume(a, out, counted)),
         ExprKind::StructUpdate { base, updates, .. } => {
-            consume(base, out);
-            updates.iter().for_each(|(_, a)| consume(a, out));
+            consume(base, out, counted);
+            updates.iter().for_each(|(_, a)| consume(a, out, counted));
         }
         ExprKind::Lambda { captures, .. } => out.extend(captures.iter().copied()),
         // `let p = l;` gives `l` a second name, so consuming `p` consumes `l`.
@@ -1520,7 +1581,7 @@ fn collect_consuming(
                 let Stmt::Let { pattern, value, .. } = st else { continue };
                 let typed::PatKind::Bind { local, sub: None } = &pattern.kind else { continue };
                 if out.contains(local) {
-                    consume(value, out);
+                    consume(value, out, counted);
                 }
             }
         }
@@ -1535,7 +1596,7 @@ fn collect_consuming(
                 bound.iter().any(|b| out.contains(b))
             });
             if kept {
-                consume(scrutinee, out);
+                consume(scrutinee, out, counted);
             }
         }
         ExprKind::CallFn { func, args } => {
@@ -1543,7 +1604,7 @@ fn collect_consuming(
             for (k, a) in args.iter().enumerate() {
                 let owns = row.and_then(|r| r.get(k)).copied().unwrap_or(ir::Ownership::Own);
                 if owns == ir::Ownership::Own {
-                    consume(a, out);
+                    consume(a, out, counted);
                 }
             }
         }
@@ -1556,7 +1617,7 @@ fn collect_consuming(
             for (k, a) in args.iter().enumerate() {
                 let owns = row.and_then(|r| r.get(k)).copied().unwrap_or(ir::Ownership::Own);
                 if owns == ir::Ownership::Own {
-                    consume(a, out);
+                    consume(a, out, counted);
                 }
             }
         }
@@ -1584,7 +1645,7 @@ fn collect_consuming(
             Some(root) => {
                 out.insert(root);
             }
-            None => consume(t, out),
+            None => consume(t, out, counted),
         }
     }
 }
@@ -2400,6 +2461,15 @@ struct Scan<'a> {
     /// The fields of a dying base each functional update being scanned hands
     /// on whole — see [`handed_on_fields`]. Innermost last. `sharing` only.
     handed_on: Vec<(LocalId, Vec<usize>)>,
+    /// The fields of a dying base each functional update being scanned may
+    /// move out of it ([`moved_fields`]), with the update's node. Innermost
+    /// last. Native only.
+    moving: Vec<(LocalId, NodeId, Vec<usize>)>,
+    /// [`FuncPlan::moved`], as it is found.
+    moved: Vec<(NodeId, usize)>,
+    /// The function's parameters and every local a `let` binds: the locals
+    /// [`Scan::inline_read`] may read without using.
+    plain: HashSet<LocalId>,
     /// Every `?` node this body holds, in the order the scan reached them.
     ///
     /// The scan runs backwards and a `?` is an exit the tree does not spell,
@@ -2711,7 +2781,10 @@ impl Scan<'_> {
         // somebody has to give back, and [`fresh`] is one half of the pair
         // that says who; [`Scan::drop_temporary`] is the other.
         let nameless = self.opts.sharing && fresh(base) && borrowed_root(base).is_none();
-        if (mode == Mode::Own || takes) && self.counted_ty(&e.ty.clone()) && !nameless {
+        // A field a native functional update moves out of its dying base takes
+        // the base's count for it rather than a new one ([`Scan::moves_out`]).
+        let moved = mode == Mode::Own && !takes && self.moves_out(e, base);
+        if (mode == Mode::Own || takes) && self.counted_ty(&e.ty.clone()) && !nameless && !moved {
             self.push(id, Position::After, RcOp::IncRef, Target::Node(id));
             // Perceus's drop specialisation, with the answer deferred: a field
             // read out of a parent this expression is the last use of is a
@@ -2747,6 +2820,156 @@ impl Scan<'_> {
                 .rev()
                 .find(|(r, _)| *r == root)
                 .is_some_and(|(_, fields)| fields.contains(index))
+    }
+
+    /// Whether `e` is the one read of a field the innermost native update over
+    /// `base` moves out of it ([`moved_fields`]), and records the move if so.
+    ///
+    /// The count the read takes is the one the dying base held for the field,
+    /// so no increment is placed, and [`FuncPlan::moved`] tells `lower` not to
+    /// release the field's old value after the update either: whoever took it
+    /// releases it now. A function the field is handed to, and a push inside
+    /// it, then finds the list at `rc == 1`.
+    fn moves_out(&mut self, e: &Expr, base: &Expr) -> bool {
+        let (ExprKind::Field { index, .. }, ExprKind::Local(l)) = (&e.kind, &base.kind) else {
+            return false;
+        };
+        let update = self
+            .moving
+            .iter()
+            .rev()
+            .find(|(r, _, _)| r == l)
+            .and_then(|(_, update, fields)| fields.contains(index).then_some(*update));
+        let Some(update) = update else { return false };
+        if !self.counted_ty(&e.ty.clone()) {
+            return false;
+        }
+        self.moved.push((update, *index));
+        true
+    }
+
+    /// The base of a functional update that this update is the last use of: a
+    /// counted local this function owns and nothing after the update reads.
+    /// The native question; `sharing` has [`dies_here`].
+    fn dying_base(&mut self, base: &Expr, live: &Live) -> Option<LocalId> {
+        let ExprKind::Local(root) = &base.kind else { return None };
+        (self.owned.contains(root) && !live.contains(root) && self.is_counted(*root))
+            .then_some(*root)
+    }
+
+    /// A functional update whose base dies in it, on the native branch: the
+    /// update **takes the base's own count** and lends the base to its
+    /// replacements, rather than taking a second count and leaving the first
+    /// to a drop after it.
+    ///
+    /// The generic scan ([`Scan::children`]) reads the base first, in
+    /// evaluation order, and the replacements' reads of it after. So
+    /// `Out { ..out, pieces: out.pieces.push(ctx, t) }` saw `out` still live
+    /// past the base, took a second count for `..out` — a retain of every
+    /// counted field, `pieces` included — and dropped `out` after the update.
+    /// The push then ran with the list's count at two, failed MEMORY.md §5.3's
+    /// `rc == 1` test, and copied the whole list: a loop over this shape was
+    /// quadratic, and it is how `core/buri/ast` writes every piece it prints and
+    /// every token it lexes.
+    ///
+    /// Here the replacements are scanned as though `root` outlived them, so no
+    /// read inside them is its last use and none raises a drop; then the base
+    /// is scanned against what is live after the update, where it is the last
+    /// use, and takes `root`'s count with no increment. Nothing else changes:
+    ///
+    ///  * **The base outlives every replacement.** `lower`'s
+    ///    [`ExprKind::StructUpdate`] holds it from `..base` to the struct it
+    ///    builds: the fields it keeps go into that struct with the count the
+    ///    base gave them, and the fields it replaces are released after it. So a
+    ///    replacement that *borrows* `root.f` — a push's receiver, a length —
+    ///    reads a field nothing releases before it has finished.
+    ///  * **A replacement that takes a count still takes one**, with one
+    ///    exception. `root` is live inside the replacements, so an owning read
+    ///    of `root`, a closure that captures `root`, and an owning read of a
+    ///    field the update keeps each increment exactly as they did. Only the
+    ///    duplicate `..base` count is gone, which is why a field shared with
+    ///    anything else — a second field, another record, a capture — still
+    ///    fails the `rc == 1` test at run time and copies.
+    ///  * **The exception is a move.** An owning read of a field the update
+    ///    replaces, read once and on every path ([`moved_fields`]), takes the
+    ///    base's count for that field instead of a new one, and `lower` skips
+    ///    the release of its old value ([`FuncPlan::moved`]). That is
+    ///    `Outer { ..o, inner: raw(ctx, o.inner, t) }`: the field is handed on
+    ///    with the count it had, so the update inside `raw` finds its own base
+    ///    dying too. A nested update written in place,
+    ///    `Out { ..o.inner, pieces: o.inner.pieces.push(…) }`, reads `inner`
+    ///    twice, so it is not a move: it takes a count and the push copies.
+    ///  * **A `?` inside a replacement releases the base.** `root` is in the
+    ///    live set it escapes from, so [`Scan::escape`] drops it, which is the
+    ///    count the update was holding. (The generic scan took a second count
+    ///    for `..base` there, and the escape released only the first: a block
+    ///    leaked per failing `?`.)
+    ///
+    /// A base something reads after the update is not dying, and keeps the
+    /// generic scan: the update then holds a count of its own and the push
+    /// copies, which is what leaves the old value unchanged.
+    fn update_dying(
+        &mut self,
+        base: &Expr,
+        updates: &[(usize, Expr)],
+        id: NodeId,
+        live: &Live,
+    ) -> Live {
+        let Some(root) = self.dying_base(base, live) else { return live.clone() };
+        let mut after = live.clone();
+        after.insert(root);
+        self.moving.push((root, id, moved_fields(root, updates)));
+        for (k, (_, value)) in updates.iter().enumerate().rev() {
+            let kid = self.child(id, k + 1);
+            after = self.expr(value, kid, &after, Mode::Own);
+        }
+        self.moving.pop();
+        after.remove(&root);
+        let bid = self.child(id, 0);
+        let before = self.expr(base, bid, &after, Mode::Own);
+        self.flush(id);
+        before
+    }
+
+    /// Whether `e` reads a value with no count out of a local through fields
+    /// and tuple positions alone, on the native branch — a read that is no use
+    /// of the local at all.
+    ///
+    /// A struct and a tuple are register or stack values in both backends (this
+    /// module's header, on reuse), so `out.at` is a word of `out`'s own value
+    /// and not a load through any block. Releasing `out` releases the blocks
+    /// its counted fields name, and leaves `at` where it was. So the read needs
+    /// neither a count nor `out` to be alive, and treating it as a use is what
+    /// kept `out` live past an update or a call that could have taken it:
+    /// `let started = ready(ctx, out); … anchor(ctx, written, started.at, …)` is
+    /// how `core/buri/ast` prints every statement, pattern and expression, and
+    /// `started` read later made every one of them hand `emit` a second
+    /// reference — so the first push of each copied the whole list.
+    ///
+    /// Not a use means not in the live set, no drop placed after it, and not in
+    /// [`Scan::used`], so a local whose only reads are these is released where
+    /// it arrives or where it is bound, exactly as one nothing reads. Hence the
+    /// three conditions:
+    ///
+    ///  * **The value is answered `No`**, not `Unknown`: a type the classifier
+    ///    cannot answer may hold a reference, and that read would then outlive
+    ///    the block it names.
+    ///  * **The path is fields and tuple positions only** ([`field_root`]). An
+    ///    `Index` loads through a list's block, and `CtxGet` through a context.
+    ///  * **The local is a parameter or a `let` binding.** Those are the locals
+    ///    whose release does not depend on being read: one nothing reads is
+    ///    dropped on entry or where it is bound. A `match` arm's payload is
+    ///    handled by [`Scan::match_`] from its liveness, and is left alone.
+    ///
+    /// `sharing` asks [`Scan::no_reference_path`] instead.
+    fn inline_read(&mut self, e: &Expr) -> bool {
+        if self.opts.sharing || self.counted.counted(&e.ty) != Answer::No {
+            return false;
+        }
+        if !matches!(e.kind, ExprKind::Field { .. } | ExprKind::TupleIndex { .. }) {
+            return false;
+        }
+        field_root(e).is_some_and(|root| self.plain.contains(&root))
     }
 
     /// The local a projection may be scanned **without** keeping alive, because
@@ -3152,6 +3375,9 @@ impl Scan<'_> {
             ExprKind::Field { base, .. }
             | ExprKind::TupleIndex { base, .. }
             | ExprKind::CtxGet { base, .. } => {
+                if self.inline_read(e) {
+                    return live.clone();
+                }
                 let bid = self.child(id, 0);
                 let bmode =
                     if self.tail_shaped_base(base) { Mode::Own } else { Mode::Borrow };
@@ -3212,6 +3438,11 @@ impl Scan<'_> {
                 self.flush(id);
                 after
             }
+            ExprKind::StructUpdate { base, updates, .. }
+                if !self.opts.sharing && self.dying_base(base, live).is_some() =>
+            {
+                self.update_dying(base, updates, id, live)
+            }
             _ => self.children(e, id, live),
         }
     }
@@ -3248,8 +3479,13 @@ impl Scan<'_> {
         //
         // So the root is held live across the arms and dropped by this
         // construct instead, which is [`Scan::children`]'s deferral verbatim.
+        // An uncounted scrutinee read out of the local's own value
+        // ([`Scan::inline_read`]) binds no words of any block, so there is
+        // nothing for the arms to keep alive.
+        let inline = self.inline_read(scrutinee);
         let kept = match token {
             Some(_) => None,
+            None if inline => None,
             None => borrowed_root(scrutinee).filter(|r| {
                 self.is_counted(*r) && self.owned.contains(r) && !live.contains(r)
             }),
@@ -3679,8 +3915,9 @@ impl Scan<'_> {
                 continue;
             }
             // A projection that reads no reference out of its base does not
-            // hold the base open either. [`Scan::no_reference_path`].
-            if self.no_reference_path(kid).is_some() {
+            // hold the base open either. [`Scan::no_reference_path`], and its
+            // native twin [`Scan::inline_read`].
+            if self.no_reference_path(kid).is_some() || self.inline_read(kid) {
                 continue;
             }
             let Some(l) = borrowed_root(kid) else { continue };
@@ -3811,6 +4048,54 @@ fn handed_on_fields(root: LocalId, updates: &[(usize, Expr)]) -> Option<Vec<usiz
     }
     let once = |f: &usize| read.iter().filter(|r| *r == f).count() == 1;
     Some(updates.iter().map(|(f, _)| *f).filter(|f| once(f)).collect())
+}
+
+/// The fields of a dying `root` a native functional update may **move** out of
+/// it rather than count again: [`handed_on_fields`]' fields — replaced, read
+/// exactly once as `root.f`, and `root` never read whole or captured — narrowed
+/// to the reads that run exactly once on every path to the struct the update
+/// builds.
+///
+/// That is what makes skipping both halves of the pair sound. `lower` releases
+/// a replaced field's old value after the struct is built; a move hands that
+/// release to whoever took the field instead, so the read must happen on every
+/// path that reaches the release, and no path that skips the release may have
+/// happened after it. So:
+///
+///  * **not under a branch** — an `if`'s arms, a `match`, either side of a
+///    short circuit — because on the path that skips the read nobody would
+///    release the old value; and
+///  * **no `?` in any replacement**, because the escape releases the whole
+///    base ([`Scan::update_dying`]), and a field already moved out would be
+///    released a second time.
+fn moved_fields(root: LocalId, updates: &[(usize, Expr)]) -> Vec<usize> {
+    fn straight(root: LocalId, e: &Expr, out: &mut Vec<usize>) {
+        match &e.kind {
+            ExprKind::Field { base, index }
+                if matches!(base.kind, ExprKind::Local(l) if l == root) =>
+            {
+                out.push(*index);
+            }
+            ExprKind::If { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::And { .. }
+            | ExprKind::Or { .. }
+            | ExprKind::Lambda { .. } => {}
+            _ => kids(e).into_iter().for_each(|k| straight(root, k, out)),
+        }
+    }
+    fn tries(e: &Expr) -> bool {
+        matches!(e.kind, ExprKind::Try { .. }) || kids(e).into_iter().any(tries)
+    }
+    let Some(once) = handed_on_fields(root, updates) else { return Vec::new() };
+    if updates.iter().any(|(_, v)| tries(v)) {
+        return Vec::new();
+    }
+    let mut read = Vec::new();
+    for (_, value) in updates {
+        straight(root, value, &mut read);
+    }
+    once.into_iter().filter(|f| read.contains(f)).collect()
 }
 
 /// The local a **field path** starts at: `s`, `s.a`, `s.a.1`, and nothing that

@@ -305,14 +305,17 @@ has no mutation at all. The paper is linked from
   value, nor returns it, nor passes it to a function that owns it. A borrowed
   parameter needs no increment at the call and no decrement in the callee: the
   caller's own reference keeps it alive for the whole call.
-- A parameter is **owned** otherwise, and the caller transfers a count.
+- A parameter is **owned** otherwise, and the caller transfers a count. Handing
+  on a counted field of it — `nl(ctx, acc.0)` — counts as passing it on: the
+  field is taken, so the whole is (§5.3, "Keeping the count at one").
 
 The analysis is a fixpoint over the call graph, which is exact
 (`monomorphize.rs`), so the answer is a fact rather than the conservative
 approximation a language with dynamic dispatch would get. Every pure,
-non-constructing operation in the standard library — `xs.fold(f, init)`,
-`xs.any(pred)`, `s.startsWith(p)`, `s.indexOf(n)`, `xs.length()` — borrows
-everything and touches no reference count at all.
+non-constructing operation in the standard library — `xs.any(pred)`,
+`s.startsWith(p)`, `s.indexOf(n)`, `xs.length()` — borrows everything and
+touches no reference count at all. The four folds borrow everything but their
+seed, which they take over (§5.3).
 
 On top of that, three local rules:
 
@@ -371,6 +374,11 @@ optimizing are the two that build the first two, and both are done:
   the capacity test allowing for a view that starts inside its block:
   `(ptr - base) + alen + blen <= cap`. A template of *k* holes, or a fold that
   concatenates, is the shape this turns from O(k) allocations into O(log k).
+  The in-place arm can write over bytes a longer, now-dead view of the block
+  put there, so before it writes it drops any scalar index the runtime keeps
+  of the block (VALUE-MODEL.md §3.1): `buri_rt_str_concat` calls
+  `scalars::forget`, and the release backend's open-coded arm calls
+  `buri_rt_str_written`.
 
   Two implementations rather than the list's one, because `str.concat` is
   **open-coded** where a backend can afford it. The release backend emits the
@@ -435,6 +443,46 @@ append doubles the **old capacity** (`buri_rt_grown_capacity`); a `Str`
 concatenation doubles the **result**, `max(n * 2, floor)`. Both are amortized
 O(1). They are not unified because a `Str`'s growth is written in three
 places, and the three have to allocate the same number of times.
+
+#### Keeping the count at one
+
+The fast paths only fire if the count really is one, and `middle::rc` used to
+leave it at two in the printer's every shape. Four rules keep it at one:
+
+```buri ignore why="illustrative"
+Out { ..out, pieces: out.pieces.push(ctx, t) }      // the update takes out's count
+Outer { ..o, inner: raw(ctx, o.inner, t) }          // o.inner moves out of o
+let started = ready(ctx, out); … started.at         // .at is no use of started
+xs.foldCtx(ctx, step, (out, false))                 // the fold takes the seed over
+```
+
+- **An update whose base dies in it takes the base's count.** The
+  replacements read `out` after `..out`, so the generic scan saw `out` still
+  live and took a second count for the spread. Now the update holds `out`'s own
+  count and lends `out` to its replacements; the fields it keeps go into the
+  new struct and the ones it replaces are released after it is built
+  (`Scan::update_dying`).
+- **A replaced field read once, on every path, moves.** An owning read of it
+  takes the base's count for that field, and `lower` skips releasing its old
+  value (`FuncPlan::moved`). A field read twice, a base read whole or captured,
+  a read under a branch, or a `?` anywhere in the update all keep the plain
+  rule: the read takes a count of its own.
+- **Reading a number out of a struct is no use of it.** A struct and a tuple
+  are stack values, so `started.at` reads a word of `started`, not a block. An
+  uncounted read through fields of a parameter or a `let` binding adds nothing
+  to the live set (`Scan::inline_read`), so `started` can go to `emit` with its
+  own count.
+- **A fold takes its seed over.** Lent, both backends retained the seed before
+  the first step, and the seed's owner and that step both held it. `rc::is_fold`
+  makes the seed an owned parameter, and the fold kernels in
+  `stencil/lists.rs` and `llvm/emit.rs` no longer retain it.
+
+Each one only removes a count that was a duplicate. A list that is really
+shared — kept by the caller, held by two fields, captured by a closure — is
+still at two when the push runs, and the push still copies.
+`cli/tests/native/fields.rs` counts the blocks on both backends, and runs every
+second reader under the heap check. Together the four took the native
+round-trip of `ui/test/tree.buri` from 17 s to 0.05 s.
 
 #### What is excluded, and why
 
@@ -502,6 +550,13 @@ the same 16 bytes, `cap` means the same thing, §5.3's in-place reuse test
 reads the same field, and §7's cost model is **defined** rather than measured,
 so not one number a program can see moves when the free lists land. That makes
 the allocator replaceable under a green test suite.
+
+`buri_rt_free` and `buri_rt_realloc` each read four more words before they do
+anything else: the keys of the scalar indices `cli/runtime/scalars.rs` keeps
+of long non-ASCII strings (VALUE-MODEL.md §3.1). A block whose address is one
+of them has its index dropped under that file's lock, so a reused address is
+never answered from the last block's bytes. Every other block pays four relaxed
+loads and four compares.
 
 What it costs until then: an allocation that misses the per-thread cache
 (below) is a `malloc` call rather than six
@@ -692,7 +747,8 @@ false:
 3. **The base of a functional update is not a duplication.** The projections
    the update reads out of the base keep it live across its own siblings,
    which the generic scan reads as a second reference. True of a count; false
-   of a reference that is being taken over.
+   of a reference that is being taken over. Natively this is a count question
+   too, and §5.3's "Keeping the count at one" is the native answer.
 
 And one thing narrows: the classifier. The native question is "does this value
 hold a counted allocation", which a `Str` and a function value both answer yes

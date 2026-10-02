@@ -187,3 +187,12 @@ mod llvm;
 mod runtime;
 #[cfg(feature = "backend-stencil")]
 mod stencil;
+// Scalar indices into long strings: the work counted rather than timed, and the
+// release backend's open-coded concatenation, on every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod strings;
+// A list grown through a record's field: the pushes counted rather than timed,
+// and every second reader of the record left reading the old value, on every
+// backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod fields;

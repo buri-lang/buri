@@ -96,6 +96,45 @@ fn built(name: &str, source: &str) -> PathBuf {
     crate::stencil::build_with(name, source, None)
 }
 
+/// [`built`] with a C probe linked in, for `strings.rs`, whose rows read a
+/// runtime counter at exit. Here so the feature gate stays in this file.
+#[cfg(feature = "backend-llvm")]
+pub(crate) fn built_probed(name: &str, source: &str, probe: &str) -> Option<PathBuf> {
+    ready().then(|| crate::llvm::build_at(name, source, Some(probe), Profile::Release))
+}
+
+/// The same, on the backend a default build carries.
+#[cfg(all(not(feature = "backend-llvm"), feature = "backend-stencil"))]
+pub(crate) fn built_probed(name: &str, source: &str, probe: &str) -> Option<PathBuf> {
+    ready().then(|| crate::stencil::build_with(name, source, Some(probe)))
+}
+
+/// Builds a named program into an executable with `shared::ALLOC_PROBE` linked
+/// in.
+pub(crate) type ProbedBuild = fn(&str, &str) -> PathBuf;
+
+/// Every native backend built in that can run here, by name, each building with
+/// the allocation probe linked in — for `fields.rs`, whose rows hold on both.
+/// Here so the feature gates stay in this file.
+pub(crate) fn probed_backends() -> Vec<(&'static str, ProbedBuild)> {
+    let mut out: Vec<(&'static str, ProbedBuild)> = Vec::new();
+    #[cfg(feature = "backend-stencil")]
+    if crate::stencil::supported() {
+        out.push(("stencil", |name, source| {
+            let probe = Some(crate::shared::ALLOC_PROBE);
+            crate::stencil::build_with(&format!("{name}-stencil"), source, probe)
+        }));
+    }
+    #[cfg(feature = "backend-llvm")]
+    if ready() {
+        out.push(("llvm", |name, source| {
+            let probe = Some(crate::shared::ALLOC_PROBE);
+            crate::llvm::build_at(&format!("{name}-llvm"), source, probe, Profile::Release)
+        }));
+    }
+    out
+}
+
 macro_rules! unless_ready {
     () => {
         if !ready() {
