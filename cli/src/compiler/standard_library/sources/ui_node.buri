@@ -205,7 +205,26 @@ export struct ScrollOffset {
 /// A key, as the name a browser gives one: `"Escape"`, `"ArrowDown"`, `"Enter"`.
 export type Key = Str;
 
-/// The five generic events any element carries, each an omittable handler.
+/// Where the pointer is, handed to `onPointerDown`, `onPointerMove` and
+/// `onPointerUp`. Positions are CSS pixels.
+export struct PointerAt {
+    /// From the left edge of the element whose handler runs.
+    export x: Float,
+    /// From the top edge of the element whose handler runs.
+    export y: Float,
+    /// From the left edge of the viewport.
+    export viewportX: Float,
+    /// From the top edge of the viewport.
+    export viewportY: Float,
+    /// The key of the row under the pointer, when this element sits in a row of
+    /// an `each`: one of that list's keys, so a drop reads as "onto row X"
+    /// without measuring anything. It looks through the element's own row, so a
+    /// row that follows the pointer still reports the row beneath it. `.None`
+    /// when the pointer is over no row of that list, or the element is in none.
+    export overRow: Option<Str>,
+}
+
+/// The eight generic events any element carries, each an omittable handler.
 ///
 /// Named handlers rather than an `on: [Event]` list — omittable, discoverable,
 /// and consistent with `onPress`/`onSubmit`. There is deliberately **no generic
@@ -213,9 +232,9 @@ export type Key = Str;
 /// plain box is the "clickable div" anti-pattern), so it stays on those nodes.
 ///
 /// A snapshot has no pointer, keyboard or scroll, so every one of these is inert
-/// in `describe`; `onPressOutside` is the one a native mount still registers,
-/// because it is a document listener rather than a paint. In a browser all five
-/// are wired.
+/// in `describe`. `ui/testing`'s `render` registers `onPressOutside` and the
+/// three pointer handlers, which its `press` and `pointerDown` drive. In a
+/// browser all eight are wired.
 struct Events<C> {
     /// True as the pointer enters this element, false as it leaves.
     onHover: Option<fn(C, Bool) => ()>,
@@ -234,6 +253,15 @@ struct Events<C> {
     /// overlay. Lowers to one document-level listener that lives exactly as long
     /// as the element.
     onPressOutside: Option<fn(C) => ()>,
+    /// The pointer pressed on this element. The element captures the pointer
+    /// (`setPointerCapture`), so the moves and the release that follow reach it
+    /// even once the pointer has left it, which is what keeps a drag alive.
+    onPointerDown: Option<fn(C, PointerAt) => ()>,
+    /// The pointer moved over this element, or anywhere while it holds the press.
+    onPointerMove: Option<fn(C, PointerAt) => ()>,
+    /// The pointer released over this element, or anywhere while it holds the
+    /// press. The capture ends here.
+    onPointerUp: Option<fn(C, PointerAt) => ()>,
 }
 
 /// A user interface, as a value.
@@ -255,7 +283,7 @@ export struct Node<C>(NodeKind<C>);
 /// `Region`. The split is the renderer's, kept because each half lowers to a
 /// different element and takes a different reset.
 ///
-/// Every element-producing variant ends in an `Events<C>` — the five generic
+/// Every element-producing variant ends in an `Events<C>` — the eight generic
 /// handlers — which the browser wires and a snapshot ignores.
 enum NodeKind<C> {
     Empty,
@@ -324,15 +352,18 @@ enum NodeKind<C> {
 // reads as that field's default. Required fields are plain, non-`Option` — a
 // label, an `alt`, a `dest`, a `kind` — and that is where the accessibility
 // guarantee lives: you cannot leave one out. Behaviour is named `onX` handlers,
-// gathered from a config's five generic ones into `Events` by `listen`.
+// gathered from a config's eight generic ones into `Events` by `listen`.
 
-/// The five generic handlers a config carries, gathered into one `Events`.
+/// The eight generic handlers a config carries, gathered into one `Events`.
 fn listen<C>(
     onHover: Option<fn(C, Bool) => ()>,
     onFocus: Option<fn(C, Bool) => ()>,
     onScroll: Option<fn(C, ScrollOffset) => ()>,
     onKey: Option<fn(C, Key) => Bool>,
     onPressOutside: Option<fn(C) => ()>,
+    onPointerDown: Option<fn(C, PointerAt) => ()>,
+    onPointerMove: Option<fn(C, PointerAt) => ()>,
+    onPointerUp: Option<fn(C, PointerAt) => ()>,
 ): Events<C> {
     Events {
         onHover: onHover,
@@ -340,6 +371,9 @@ fn listen<C>(
         onScroll: onScroll,
         onKey: onKey,
         onPressOutside: onPressOutside,
+        onPointerDown: onPointerDown,
+        onPointerMove: onPointerMove,
+        onPointerUp: onPointerUp,
     }
 }
 
@@ -351,6 +385,9 @@ fn noEvents<C>(): Events<C> {
         onScroll: .None,
         onKey: .None,
         onPressOutside: .None,
+        onPointerDown: .None,
+        onPointerMove: .None,
+        onPointerUp: .None,
     }
 }
 
@@ -422,6 +459,13 @@ struct Stack<C> {
     export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
+    /// The pointer pressed on this element. It captures the pointer, so the
+    /// moves and the release that follow reach this element wherever they land.
+    export onPointerDown: Option<fn(C, PointerAt) => ()>,
+    /// The pointer moved over this element, or anywhere while it holds the press.
+    export onPointerMove: Option<fn(C, PointerAt) => ()>,
+    /// The pointer released over this element, or anywhere while it holds the press.
+    export onPointerUp: Option<fn(C, PointerAt) => ()>,
 }
 
 export fn stack<C>(config: Stack<C>): Node<C> {
@@ -431,6 +475,9 @@ export fn stack<C>(config: Stack<C>): Node<C> {
         config.onScroll,
         config.onKey,
         config.onPressOutside,
+        config.onPointerDown,
+        config.onPointerMove,
+        config.onPointerUp,
     );
     match (config.role) {
         .Some(role) => Node(.Region(role, config.styles, config.children, events)),
@@ -545,6 +592,13 @@ struct Button<C> {
     export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
+    /// The pointer pressed on this element. It captures the pointer, so the
+    /// moves and the release that follow reach this element wherever they land.
+    export onPointerDown: Option<fn(C, PointerAt) => ()>,
+    /// The pointer moved over this element, or anywhere while it holds the press.
+    export onPointerMove: Option<fn(C, PointerAt) => ()>,
+    /// The pointer released over this element, or anywhere while it holds the press.
+    export onPointerUp: Option<fn(C, PointerAt) => ()>,
 }
 
 export fn button<C>(config: Button<C>): Node<C> {
@@ -554,6 +608,9 @@ export fn button<C>(config: Button<C>): Node<C> {
         config.onScroll,
         config.onKey,
         config.onPressOutside,
+        config.onPointerDown,
+        config.onPointerMove,
+        config.onPointerUp,
     );
     match (config.kind) {
         .Some(.Submit) => {
@@ -631,6 +688,13 @@ struct Link<C> {
     export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
+    /// The pointer pressed on this element. It captures the pointer, so the
+    /// moves and the release that follow reach this element wherever they land.
+    export onPointerDown: Option<fn(C, PointerAt) => ()>,
+    /// The pointer moved over this element, or anywhere while it holds the press.
+    export onPointerMove: Option<fn(C, PointerAt) => ()>,
+    /// The pointer released over this element, or anywhere while it holds the press.
+    export onPointerUp: Option<fn(C, PointerAt) => ()>,
 }
 
 export fn link<C>(config: Link<C>): Node<C> {
@@ -640,6 +704,9 @@ export fn link<C>(config: Link<C>): Node<C> {
         config.onScroll,
         config.onKey,
         config.onPressOutside,
+        config.onPointerDown,
+        config.onPointerMove,
+        config.onPointerUp,
     );
     Node(
         .Link(
@@ -688,6 +755,13 @@ struct Image<C> {
     export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
+    /// The pointer pressed on this element. It captures the pointer, so the
+    /// moves and the release that follow reach this element wherever they land.
+    export onPointerDown: Option<fn(C, PointerAt) => ()>,
+    /// The pointer moved over this element, or anywhere while it holds the press.
+    export onPointerMove: Option<fn(C, PointerAt) => ()>,
+    /// The pointer released over this element, or anywhere while it holds the press.
+    export onPointerUp: Option<fn(C, PointerAt) => ()>,
 }
 
 export fn image<C>(config: Image<C>): Node<C> {
@@ -697,6 +771,9 @@ export fn image<C>(config: Image<C>): Node<C> {
         config.onScroll,
         config.onKey,
         config.onPressOutside,
+        config.onPointerDown,
+        config.onPointerMove,
+        config.onPointerUp,
     );
     match (config.alt) {
         .Decorative => Node(.Icon(config.styles, artworkOf(config.source), events)),
@@ -779,6 +856,13 @@ struct Field<C> {
     export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
+    /// The pointer pressed on this element. It captures the pointer, so the
+    /// moves and the release that follow reach this element wherever they land.
+    export onPointerDown: Option<fn(C, PointerAt) => ()>,
+    /// The pointer moved over this element, or anywhere while it holds the press.
+    export onPointerMove: Option<fn(C, PointerAt) => ()>,
+    /// The pointer released over this element, or anywhere while it holds the press.
+    export onPointerUp: Option<fn(C, PointerAt) => ()>,
 }
 
 export fn field<C>(config: Field<C>): Node<C> {
@@ -788,6 +872,9 @@ export fn field<C>(config: Field<C>): Node<C> {
         config.onScroll,
         config.onKey,
         config.onPressOutside,
+        config.onPointerDown,
+        config.onPointerMove,
+        config.onPointerUp,
     );
     Node(
         .Field(
@@ -845,6 +932,13 @@ struct Slider<C> {
     export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
+    /// The pointer pressed on this element. It captures the pointer, so the
+    /// moves and the release that follow reach this element wherever they land.
+    export onPointerDown: Option<fn(C, PointerAt) => ()>,
+    /// The pointer moved over this element, or anywhere while it holds the press.
+    export onPointerMove: Option<fn(C, PointerAt) => ()>,
+    /// The pointer released over this element, or anywhere while it holds the press.
+    export onPointerUp: Option<fn(C, PointerAt) => ()>,
 }
 
 export fn slider<C>(config: Slider<C>): Node<C> {
@@ -854,6 +948,9 @@ export fn slider<C>(config: Slider<C>): Node<C> {
         config.onScroll,
         config.onKey,
         config.onPressOutside,
+        config.onPointerDown,
+        config.onPointerMove,
+        config.onPointerUp,
     );
     Node(
         .Slider(
@@ -909,6 +1006,13 @@ struct Toggle<C> {
     export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
+    /// The pointer pressed on this element. It captures the pointer, so the
+    /// moves and the release that follow reach this element wherever they land.
+    export onPointerDown: Option<fn(C, PointerAt) => ()>,
+    /// The pointer moved over this element, or anywhere while it holds the press.
+    export onPointerMove: Option<fn(C, PointerAt) => ()>,
+    /// The pointer released over this element, or anywhere while it holds the press.
+    export onPointerUp: Option<fn(C, PointerAt) => ()>,
 }
 
 export fn toggle<C>(config: Toggle<C>): Node<C> {
@@ -918,6 +1022,9 @@ export fn toggle<C>(config: Toggle<C>): Node<C> {
         config.onScroll,
         config.onKey,
         config.onPressOutside,
+        config.onPointerDown,
+        config.onPointerMove,
+        config.onPointerUp,
     );
     Node(
         .Toggle(
@@ -961,6 +1068,13 @@ struct Form<C> {
     export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
+    /// The pointer pressed on this element. It captures the pointer, so the
+    /// moves and the release that follow reach this element wherever they land.
+    export onPointerDown: Option<fn(C, PointerAt) => ()>,
+    /// The pointer moved over this element, or anywhere while it holds the press.
+    export onPointerMove: Option<fn(C, PointerAt) => ()>,
+    /// The pointer released over this element, or anywhere while it holds the press.
+    export onPointerUp: Option<fn(C, PointerAt) => ()>,
 }
 
 export fn form<C>(config: Form<C>): Node<C> {
@@ -970,6 +1084,9 @@ export fn form<C>(config: Form<C>): Node<C> {
         config.onScroll,
         config.onKey,
         config.onPressOutside,
+        config.onPointerDown,
+        config.onPointerMove,
+        config.onPointerUp,
     );
     Node(.Form(submitHandler(config.onSubmit), config.styles, config.children, events))
 }
@@ -1027,6 +1144,13 @@ struct Dialog<C> {
     export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
+    /// The pointer pressed on this element. It captures the pointer, so the
+    /// moves and the release that follow reach this element wherever they land.
+    export onPointerDown: Option<fn(C, PointerAt) => ()>,
+    /// The pointer moved over this element, or anywhere while it holds the press.
+    export onPointerMove: Option<fn(C, PointerAt) => ()>,
+    /// The pointer released over this element, or anywhere while it holds the press.
+    export onPointerUp: Option<fn(C, PointerAt) => ()>,
 }
 
 export fn dialog<C>(config: Dialog<C>): Node<C> {
@@ -1036,6 +1160,9 @@ export fn dialog<C>(config: Dialog<C>): Node<C> {
         config.onScroll,
         config.onKey,
         config.onPressOutside,
+        config.onPointerDown,
+        config.onPointerMove,
+        config.onPointerUp,
     );
     Node(
         .Dialog(
@@ -1097,6 +1224,13 @@ struct Picker<C> {
     export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
+    /// The pointer pressed on this element. It captures the pointer, so the
+    /// moves and the release that follow reach this element wherever they land.
+    export onPointerDown: Option<fn(C, PointerAt) => ()>,
+    /// The pointer moved over this element, or anywhere while it holds the press.
+    export onPointerMove: Option<fn(C, PointerAt) => ()>,
+    /// The pointer released over this element, or anywhere while it holds the press.
+    export onPointerUp: Option<fn(C, PointerAt) => ()>,
 }
 
 export fn picker<C>(config: Picker<C>): Node<C> {
@@ -1106,6 +1240,9 @@ export fn picker<C>(config: Picker<C>): Node<C> {
         config.onScroll,
         config.onKey,
         config.onPressOutside,
+        config.onPointerDown,
+        config.onPointerMove,
+        config.onPointerUp,
     );
     let style = match (config.style) {
         .Some(chosen) => chosen,
@@ -1183,6 +1320,13 @@ struct FilePicker<C> {
     export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
+    /// The pointer pressed on this element. It captures the pointer, so the
+    /// moves and the release that follow reach this element wherever they land.
+    export onPointerDown: Option<fn(C, PointerAt) => ()>,
+    /// The pointer moved over this element, or anywhere while it holds the press.
+    export onPointerMove: Option<fn(C, PointerAt) => ()>,
+    /// The pointer released over this element, or anywhere while it holds the press.
+    export onPointerUp: Option<fn(C, PointerAt) => ()>,
 }
 
 /// On the web it is a `<button>` that opens a hidden `<input type="file">`, so
@@ -1196,6 +1340,9 @@ export fn filePicker<C>(config: FilePicker<C>): Node<C> {
         config.onScroll,
         config.onKey,
         config.onPressOutside,
+        config.onPointerDown,
+        config.onPointerMove,
+        config.onPointerUp,
     );
     let accept = match (config.accept) {
         .Some(entries) => entries,
@@ -1322,6 +1469,13 @@ struct Progress<C> {
     export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
+    /// The pointer pressed on this element. It captures the pointer, so the
+    /// moves and the release that follow reach this element wherever they land.
+    export onPointerDown: Option<fn(C, PointerAt) => ()>,
+    /// The pointer moved over this element, or anywhere while it holds the press.
+    export onPointerMove: Option<fn(C, PointerAt) => ()>,
+    /// The pointer released over this element, or anywhere while it holds the press.
+    export onPointerUp: Option<fn(C, PointerAt) => ()>,
 }
 
 export fn progress<C>(config: Progress<C>): Node<C> {
@@ -1331,6 +1485,9 @@ export fn progress<C>(config: Progress<C>): Node<C> {
         config.onScroll,
         config.onKey,
         config.onPressOutside,
+        config.onPointerDown,
+        config.onPointerMove,
+        config.onPointerUp,
     );
     Node(
         .Progress(
@@ -1375,6 +1532,13 @@ struct Disclosure<C> {
     export onKey: Option<fn(C, Key) => Bool>,
     /// A press that lands anywhere outside this element — what dismisses an overlay.
     export onPressOutside: Option<fn(C) => ()>,
+    /// The pointer pressed on this element. It captures the pointer, so the
+    /// moves and the release that follow reach this element wherever they land.
+    export onPointerDown: Option<fn(C, PointerAt) => ()>,
+    /// The pointer moved over this element, or anywhere while it holds the press.
+    export onPointerMove: Option<fn(C, PointerAt) => ()>,
+    /// The pointer released over this element, or anywhere while it holds the press.
+    export onPointerUp: Option<fn(C, PointerAt) => ()>,
 }
 
 export fn disclosure<C>(config: Disclosure<C>): Node<C> {
@@ -1384,6 +1548,9 @@ export fn disclosure<C>(config: Disclosure<C>): Node<C> {
         config.onScroll,
         config.onKey,
         config.onPressOutside,
+        config.onPointerDown,
+        config.onPointerMove,
+        config.onPointerUp,
     );
     Node(
         .Disclosure(
@@ -2335,18 +2502,52 @@ fn emitSliderControl(
     exitElement(builder)
 }
 
-/// Registers the one generic event a native scene can carry: `onPressOutside`,
-/// a document listener the runtime pairs with the open element, disposed with
-/// the subtree. The other four handlers (`onHover`, `onFocus`, `onScroll`,
-/// `onKey`) are the browser's alone — a snapshot has no pointer, keyboard or
-/// scroll — so they are wired only in `runtime.js`'s `$tree_events`. The public
-/// handler is `fn(C) => ()`, adapted here to the intrinsic's `fn(C, Event)`.
+/// Registers the generic events a scene document can carry: `onPressOutside`, a
+/// document listener the runtime pairs with the open element, disposed with the
+/// subtree, and the three pointer handlers `ui/testing`'s `pointerDown`,
+/// `pointerMove` and `pointerUp` drive. The other four (`onHover`, `onFocus`,
+/// `onScroll`, `onKey`) are the browser's alone, wired only in `runtime.js`'s
+/// `$tree_events`. Each public handler is adapted here to the intrinsic's
+/// `fn(C, Event)`; a pointer handler reads its `PointerAt` back off the document.
 fn registerEvents<C>(builder: Builder, events: Events<C>): () {
-    match (events.onPressOutside) {
+    let _ = match (events.onPressOutside) {
         .Some(handler) => registerOutside(builder, fn(c, _event) => handler(c)),
         .None => {
         },
+    };
+    let _ = registerPointerPhase(builder, 0, events.onPointerDown);
+    let _ = registerPointerPhase(builder, 1, events.onPointerMove);
+    registerPointerPhase(builder, 2, events.onPointerUp)
+}
+
+/// One pointer handler, kept on the open element under `phase` — 0 down, 1
+/// move, 2 up.
+fn registerPointerPhase<C>(
+    builder: Builder,
+    phase: Int,
+    handler: Option<fn(C, PointerAt) => ()>,
+): () {
+    match (handler) {
+        .Some(run) => {
+            registerPointer(builder, phase, fn(c, _event) => run(c, pointerAt(builder)))
+        },
+        .None => {
+        },
     }
+}
+
+/// The `PointerAt` the dispatch in flight set for the handler it is firing. A
+/// scene document has no layout, so the element sits at the viewport's origin
+/// and the two pairs of coordinates agree.
+fn pointerAt(builder: Builder): PointerAt {
+    let x = pointerX(builder);
+    let y = pointerY(builder);
+    let overRow: Option<Str> = if (pointerOverRow(builder)) {
+        .Some(pointerRow(builder))
+    } else {
+        .None
+    };
+    PointerAt { x: x, y: y, viewportX: x, viewportY: y, overRow: overRow }
 }
 
 /// A box: its element, its `onPressOutside` listener, then every child one level
@@ -2750,6 +2951,23 @@ fn registerPress<C>(builder: Builder, onPress: fn(C, Event) => ()): ();
 /// it. The handler lives in the graph, so disposing the subtree it is in takes
 /// the listener with it — the native twin of `$dom_outside`.
 fn registerOutside<C>(builder: Builder, handler: fn(C, Event) => ()): ();
+
+/// Keeps a pointer handler on the open element under `phase` — 0 down, 1 move,
+/// 2 up — for `ui/testing`'s pointer dispatch to fire.
+fn registerPointer<C>(builder: Builder, phase: Int, handler: fn(C, Event) => ()): ();
+
+/// The x of the pointer the dispatch in flight carries.
+fn pointerX(builder: Builder): Float;
+
+/// The y of the pointer the dispatch in flight carries.
+fn pointerY(builder: Builder): Float;
+
+/// Whether the dispatch in flight found a row under the pointer for the
+/// element it is firing at.
+fn pointerOverRow(builder: Builder): Bool;
+
+/// That row's key, or `""` when `pointerOverRow` says there is none.
+fn pointerRow(builder: Builder): Str;
 
 /// Stores the signal a field's or a toggle's value is bound to on the open
 /// element, so `fill` writes it a string and `flip` its negation.

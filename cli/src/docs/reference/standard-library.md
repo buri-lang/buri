@@ -925,18 +925,27 @@ beside a `choose` announces a press that changes nothing. `isOpen` is a
 `Signal<Bool>`, not a `Prop`, because a reader opens and shuts it without asking,
 the rule `dialog`'s `isOpen` follows; an accordion is an `each` of these.
 
-`onPressOutside` is one of the five generic handlers every element node carries —
-`onHover`, `onFocus`, `onScroll`, `onKey` and it — each an omittable `onX` field
-of the config. It fires when a press lands outside that element, so a non-modal
-overlay — a menu, a popover, a select — dismisses itself the way a `dialog` does
-with Escape and its backdrop: set it on the panel, or on a `stack` around it. On
-the web it lowers to one document-level pointer listener, registered while the
-element is mounted and disposed with it, so an overlay that shuts leaves nothing
-on the document. A press inside the element does not fire it, which is what lets
-the one press that dismisses the overlay also act on what it landed on. It adds
-no element of its own, and a native painter, having no pointer, leaves it inert.
-There is deliberately no generic `onTap`: activating something is a `button`'s or
-a `link`'s job.
+`onPressOutside` is one of the eight generic handlers every element node carries
+— `onHover`, `onFocus`, `onScroll`, `onKey`, it, and the three pointer handlers
+below — each an omittable `onX` field of the config. It fires when a press lands
+outside that element, so a non-modal overlay — a menu, a popover, a select —
+dismisses itself the way a `dialog` does with Escape and its backdrop: set it on
+the panel, or on a `stack` around it. On the web it lowers to one document-level
+pointer listener, registered while the element is mounted and disposed with it,
+so an overlay that shuts leaves nothing on the document. A press inside the
+element does not fire it, which is what lets the one press that dismisses the
+overlay also act on what it landed on. It adds no element of its own, and a
+native painter, having no pointer, leaves it inert. There is deliberately no
+generic `onTap`: activating something is a `button`'s or a `link`'s job.
+
+`onPointerDown`, `onPointerMove` and `onPointerUp` are how a row is dragged and
+dropped. Each takes `fn(C, PointerAt) => ()`. The press captures the pointer, so
+the moves and the release reach the pressed element after the pointer leaves
+it. `PointerAt` is the position against the element (`x`, `y`) and the viewport
+(`viewportX`, `viewportY`), and `overRow`: the key of the row under the pointer,
+in the `each` the element is a row of, looking through the element's own row.
+`ui/testing`'s `drag(label, to)`, `pointerDown`, `pointerMove` and `pointerUp`
+drive them. A native painter leaves them inert.
 
 `picker({ label, options, value, styles, style, isDisabled })` is a single choice
 among a few, and it absorbs the old `radioGroup`. Its `ChoiceStyle` picks the
