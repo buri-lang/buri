@@ -8,13 +8,13 @@ program's own work concurrently is authority like any other.
 ## `parallel` runs a list of work
 
 ```buri run
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
 from "core/tasks" import * as tasks;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout, Tasks };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
@@ -64,13 +64,13 @@ else.
 once the body and every task spawned into it have finished.
 
 ```buri run
-from "core/effect" import { Allocator, Clock, Stdout, Tasks };
-from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 from "core/time" import * as time;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Clock, Stdout, Tasks };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Clock: host.clock,
@@ -133,8 +133,8 @@ the messages the enum declares.
 
 ```buri name=books
 from "core/actor" import { Actor, Stepped };
-from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/io" import * as io;
+from "platform/effect" import { Allocator, Stdout, Tasks };
 
 enum Ledger {
     Record(Int),
@@ -181,9 +181,9 @@ coming to make.
 
 ```buri run use=books
 from "core/actor" import * as actor;
-from "core/host" import * as host;
+from "native" import { NativeHost };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
@@ -277,8 +277,8 @@ what one message does calls it: no mailbox, no address, and no context but the
 one the step itself needs.
 
 ```buri role=test use=books
-from "core/host/testing" import { alloc, stdout, tasks };
 from "core/testing/assert" import * as assert;
+from "platform/effect/testing" import { alloc, stdout, tasks };
 
 test "a recorded amount is added to the running total" {
     let ctx = context {

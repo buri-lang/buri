@@ -15,9 +15,10 @@ tool {
 ```
 
 ```buri
-// tool/routes/tool.buri
-from "core/effect" import { Allocator };
 from "core/tool" import { Generated, GenerateRequest };
+
+// tool/routes/tool.buri
+from "platform/effect" import { Allocator };
 
 export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
     Generated { modules: [], diagnostics: [], needs: [] }

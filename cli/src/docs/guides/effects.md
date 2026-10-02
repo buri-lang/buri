@@ -4,9 +4,9 @@ A Buri signature says what a function may do to the world, in one place: a
 parameter named `ctx`, and the bounds written on its type.
 
 ```buri
-# from "core/effect" import { Allocator };
 # from "core/fs" import * as fs;
 # from "core/fs" import { FileSystemRead, Path };
+# from "platform/effect" import { Allocator };
 
 /// No `ctx`, so this cannot allocate, print, read a file, or open a socket —
 /// and neither can anything it calls.
@@ -25,7 +25,7 @@ fn load<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, Str> {
 ## An effect is an interface, and the set of them is fixed
 
 An **effect** is an interface declared with `effect` instead of `trait`, and its
-methods are the operations it grants. `core/effect` declares most of them:
+methods are the operations it grants. `platform/effect` declares most of them:
 `Allocator`, `Network`, `Clock`, `Random`, `Environment`, `Stdin`, `Stdout`, `Stderr`, `Process`,
 `Tasks`, `Listen`, `Sockets` and `WebSocketClient`. `core/fs` is a platform
 module too, and it declares the filesystem's `FileSystemRead` and `FileSystemWrite`. **Only a platform module may
@@ -47,27 +47,26 @@ You do not perform an effect *on* the context: `io.println(ctx, text)` rather
 than `ctx.println(text)`. The operation is a free function in the module that
 wraps the effect, which splits *which* effect from *what* it does.
 
-## Authority starts at `core/host` and passes through `main`
+## Authority starts at the host and passes through `main`
 
-The implementations that really do something live in `core/host`. It exports one
-value per effect the platform grants — `host.alloc`, `host.stdout`, `host.fs`,
-`host.net` and the rest — and **only the module that exports `main` may import
-it**. `main` takes no parameters. It names the effects the program is to have,
-binds each to an implementation, and hands the result down:
+`main` takes its platform's **host**: a struct with one field per effect the
+platform offers — `host.alloc`, `host.stdout`, `host.fs`, `host.net` and the
+rest. The CLI builds it, and nothing else can. `main` names the effects the
+program is to have, binds each to a field, and hands the result down:
 
 ```buri
-# from "core/effect" import { Allocator, Stdout };
 # from "core/fs" import * as fs;
 # from "core/fs" import { FileSystemRead, Path };
-from "core/host" import * as host;
 # from "core/io" import * as io;
 # from "core/path" import * as path;
+from "native" import { NativeHost };
+# from "platform/effect" import { Allocator, Stdout };
 
 # fn load<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, Str> {
 #     fs.readText(ctx, at).mapErr(fn(e) => "could not read the file")
 # }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
@@ -81,9 +80,10 @@ export fn main(): Result<(), Str> {
 That `context` block is the program's entire effect budget, and you audit it by
 reading it. It binds `FileSystemRead` and not `FileSystemWrite`, so this program cannot write a
 file, and it cannot open a socket in its own code, a dependency or a build
-script, because nothing anywhere can obtain a value bounded by `Network`. A platform
-that does not grant an effect does not export it, so asking for one is a compile
-error on the line that asked: `effect-not-on-platform`.
+script, because nothing anywhere can obtain a value bounded by `Network`. A
+platform's host has a field only for the effects it offers: `WebHost` has no
+`fs`, so asking a page for one is `no-such-field` on the line that asked, and
+the note names the platforms that offer it.
 
 ## Giving a callee less is naming fewer bounds
 
@@ -91,19 +91,19 @@ You hand a callee less authority by naming fewer bounds. It receives the same
 value, and cannot use or pass on anything its bounds omit:
 
 ```buri
-# from "core/effect" import { Allocator, Stdout };
 # from "core/fs" import * as fs;
 # from "core/fs" import { FileSystemRead, Path };
-# from "core/host" import * as host;
 # from "core/io" import * as io;
 # from "core/path" import * as path;
+# from "native" import { NativeHost };
+# from "platform/effect" import { Allocator, Stdout };
 
 fn logOnly<C: Stdout>(ctx: C, msg: Str, at: Path): () {
     let _ = io.println(ctx, msg).ignore();
     let _f = fs.readText(ctx, at); // ERROR: `C` does not satisfy `FileSystemRead`
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
@@ -124,9 +124,9 @@ merely be unable to name it. Then wrap the context in a type that satisfies
 fewer effects:
 
 ```buri
-# from "core/effect" import { Allocator, IoError, Region };
 # from "core/fs" import * as fs;
 # from "core/fs" import { FileSystemRead, Path };
+# from "platform/effect" import { Allocator, IoError, Region };
 
 export struct ReadOnly<C>(C);
 
@@ -154,18 +154,18 @@ wrapper at a boundary.
 
 An effect is an ordinary interface, so an implementation is a struct with
 methods, and the standard library has written the ones a test wants.
-`core/host/testing` is `core/host`'s surface for a test source: `alloc()`,
+`platform/effect/testing` holds them, named after the host's fields: `alloc()`,
 `fs()`, `clock()`, `net()` and the rest, each real where it can be and hermetic
 everywhere else. A test builds its context the way `main` does, and the code
 under test does not change:
 
 ```buri role=test
-# from "core/effect" import { Allocator };
 # from "core/fs" import * as fs;
 # from "core/fs" import { FileSystemRead, Path };
-from "core/host/testing" import { alloc, fs as memory };
 # from "core/path" import * as path;
 # from "core/testing/assert" import * as assert;
+# from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc, fs as memory };
 
 # fn load<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, Str> {
 #     fs.readText(ctx, at).mapErr(fn(e) => "could not read the file")

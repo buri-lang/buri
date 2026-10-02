@@ -8,7 +8,7 @@ reproduction: none
 # A tool with a contract takes its root type
 
 ```text
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 from "core/tool" import { Generated, GenerateRequest };
 from "//tool/database_schema_codegen/json" import { Config };
 

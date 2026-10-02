@@ -24,10 +24,10 @@ answered here too. When no import bound the name at all, `fs.readText(...)` is
 ## A program that provokes it
 
 ```buri fail code=no-such-member
-from "core/effect" import { Allocator };
 from "core/fs" import * as fs;
 from "core/fs" import { FileSystemWrite };
 from "core/path" import * as path;
+from "platform/effect" import { Allocator };
 
 export fn appendWal<C: Allocator + FileSystemWrite>(ctx: C): Bool {
     fs.appendBytes(ctx, path.of(ctx, "wal"))
@@ -35,8 +35,8 @@ export fn appendWal<C: Allocator + FileSystemWrite>(ctx: C): Bool {
 ```
 
 ```buri fail code=no-such-member
-from "core/effect" import { Allocator };
 from "core/math" import * as math;
+from "platform/effect" import { Allocator };
 
 export fn root<C: Allocator>(ctx: C): Float {
     math.sqrt(2.0)

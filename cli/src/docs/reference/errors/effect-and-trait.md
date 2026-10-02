@@ -23,8 +23,8 @@ not.
 ## A program that provokes it
 
 ```buri fail code=effect-and-trait
-# from "core/effect" import { Allocator, IoError, Stdout };
 # from "core/order" import { Show };
+# from "platform/effect" import { Allocator, IoError, Stdout };
 
 struct SilentOut {}
 

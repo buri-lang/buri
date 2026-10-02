@@ -6,7 +6,7 @@ An **effect** is an interface declared with `effect` instead of `trait`. Its
 methods are the operations it grants:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-// core/effect
+// platform/effect
 export effect Allocator {
     fn allocate(self, bytes: Int): Region;
 }
@@ -18,7 +18,7 @@ export effect Stdout {
 
 // An effect's signature may name types, and those types are declared here
 // beside it — `IoError` above, `Request` and `Response` below — rather than in
-// the library that wraps the effect, because `core/effect` cannot import a
+// the library that wraps the effect, because `platform/effect` cannot import a
 // module that imports it. The wrapper re-exports them, and that is where a
 // program meets them.
 export enum Method {
@@ -78,7 +78,7 @@ export effect FileSystemWrite {
 }
 ```
 
-`core/effect` declares `Allocator`, `Network`, `Clock`, `Random`, `Entropy`, `Environment`,
+`platform/effect` declares `Allocator`, `Network`, `Clock`, `Random`, `Entropy`, `Environment`,
 `Stdin`, `Stdout`, `Stderr`, `Process`, `Tasks`, `Listen`, `Sockets` and
 `WebSocketClient`, and `core/fs` declares `FileSystemRead` and `FileSystemWrite`. **Only
 platform modules may declare effects**; `effect` in ordinary code is a compile
@@ -88,8 +88,8 @@ error. So a program's platform fixes what that program can do to the world.
 its configuration has not thereby earned the right to delete it. A
 `<C: Allocator + FileSystemRead>` is a promise the compiler keeps: nothing that function
 hands `ctx` to can ask for `FileSystemWrite` from a context that does not bind it. The
-two live in `core/fs` rather than `core/effect` because their methods name
-`Path`, and `core/effect` cannot import a module that imports it. `core/fs`
+two live in `core/fs` rather than `platform/effect` because their methods name
+`Path`, and `platform/effect` cannot import a module that imports it. `core/fs`
 re-exports `Path`, so `from "core/fs" import { FileSystemRead, Path }` is one import.
 
 `Random` and `Entropy` split the same way. `Random` promises a distribution and
@@ -132,8 +132,8 @@ nominal conformance, same `impl`, same bounds. Two rules separate them:
 A function names the effects it needs as **bounds** on its context parameter:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Allocator };
 # from "core/fs" import { FileSystemRead, Path };
+# from "platform/effect" import { Allocator };
 
 fn loadConfig<C: Allocator + FileSystemRead>(
     ctx: C,
@@ -154,7 +154,7 @@ must satisfy.
 name, never any other position, and at most one of each:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Allocator, IoError, Network, Region };
+# from "platform/effect" import { Allocator, IoError, Network, Region };
 # from "core/fs" import { FileSystemRead, Path };
 fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError>    // ok
 fn render<C: Allocator>(self, ctx: C): Str                                    // ok
@@ -228,81 +228,69 @@ Both are fixed positions with fixed names, so you never scan a signature.
 
 ### 10.3 Where effects come from
 
-The platform. `core/host` exports one value per effect the platform grants —
-`host.alloc`, `host.stdout`, `host.stderr`, `host.stdin`, `host.fs`,
-`host.fs`, `host.net`, `host.clock`, `host.rand`, `host.env`, `host.proc`,
-`host.tasks`, on a native
-platform `host.listen` and `host.sockets`, and on a platform with a document
-`host.ui` and `host.watch` — and only the module that exports `main` may import
-it. `main` assembles them into the one context the program has:
+The platform. A program's entry takes its platform's **host**, a struct with
+one field per effect the platform offers, and binds the fields it needs into
+the one context the program has:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Allocator, Stdout };
+```buri
 # from "core/fs" import { FileSystemRead };
-from "core/host" import * as host;
+# from "core/io" import * as io;
+from "native" import { NativeHost };
+# from "platform/effect" import { Allocator, Stdout };
 
-export fn main(): Result<(), Str> {
-  let ctx = context {
-    Allocator:  host.alloc,
-    Stdout: host.stdout,
-    FileSystemRead: host.fs,
-  };
-  ...
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+        FileSystemRead: host.fs,
+    };
+    io.println(ctx, "ready").mapErr(fn(_e) => "could not write")
 }
 ```
 
-Section 11.3 has the form. A program that never names `host.net` cannot open a
-socket anywhere in its transitive call graph — not in a dependency, not in a
-build script, not by accident — because nothing anywhere can obtain a value
-bounded by `Network`. The effect budget is the set of `host` members reachable from
-`main`'s context. A platform that does not grant an effect does not export it, so
-asking for one is `effect-not-on-platform`, reported on the name inside the
-braces where the file imported it, and on the member reference where the host
-came in as a namespace. Both halves of a grant are refused together, the
-implementation struct as well as the value.
+Section 11.3 has the form. The host types are `NativeHost`, `NodeHost` and
+`WebHost`, from the bundled platforms `"native"`, `"node"` and `"web"`. The CLI
+builds the host value and calls `main` with it; nothing else can build one,
+because its fields' types live in `platform/host`, which only a platform's
+`platform.buri` may import (`host-import-outside-platform`).
 
-The build system decides which platforms the module is checked against, not the
-language. The compiler checks `main.buri` against every platform its rule's
-`outputs` name, and against every platform its suite names in `test.backends`,
-because a test binary links `main` in. All of them have to compile. Nothing about
-an **effect type** is platform-bound: `from "core/fs" import { FileSystemRead }` is legal
-everywhere, a page included, because a bound demands an implementation rather
-than being one.
+A program that never names `host.net` cannot open a socket anywhere in its
+transitive call graph — not in a dependency, not in a build script, not by
+accident — because nothing anywhere can obtain a value bounded by `Network`.
+The effect budget is the set of host fields `main`'s context binds.
 
-The context above reads files and cannot write one: `host.fs` is nowhere in
-it, so nothing it reaches can be bounded by `FileSystemWrite`. Binding one half of the
-filesystem and not the other is the ordinary case rather than a precaution.
+The context above reads files and cannot write one: `host.fs` is bound only as
+`FileSystemRead`, so nothing it reaches can be bounded by `FileSystemWrite`.
+Binding one half of the filesystem and not the other is the ordinary case
+rather than a precaution.
 
-Which platforms grant an effect is a row in a grant table. `Tasks` — "run this
-concurrently" — is granted everywhere, `web` included: a page's concurrency is
-its event loop, and `core/tasks`'s `spawn` is how a program puts a socket, a
-retry or a timer on one. `FileSystemRead`, `FileSystemWrite`, `Stdin` and
-`Process` are granted on `native` and `node`, because a page and a
-worker have no filesystem, no standard input and no process to exit.
-`Environment` is granted there and on `CLOUDFLARE_WORKER` too: a worker has no
-command line, but its vars and secrets are its environment. `Listen` — "I accept
-connections" — is granted on `native` and nowhere else, because
-holding a port open is a native program's authority and a page is served rather
-than serving.
+**A host type is its platform's list of effects.** A platform that does not
+offer an effect has no field for it, so asking for one is `no-such-field` on
+the line that asked, with a note naming the platforms that do offer it:
 
-`Sockets` — "I can write to open sockets" — was granted with it and only with
-it, until a page could get a socket without accepting one. `WebSocketClient`
-dials one, so both of those are granted everywhere, and the rule that replaced
-the pairing is that **`Sockets` is granted wherever a socket can be come by**. A
-platform that could obtain a socket and not write on it would be handing out a
-handle nothing can use.
+| Field | Effect | `native` | `node` | `web` |
+|---|---|:-:|:-:|:-:|
+| `alloc`, `stdout`, `stderr`, `net`, `clock`, `rand`, `entropy`, `tasks`, `sockets`, `websocketClient` | `Allocator`, `Stdout`, `Stderr`, `Network`, `Clock`, `Random`, `Entropy`, `Tasks`, `Sockets`, `WebSocketClient` | ✓ | ✓ | ✓ |
+| `stdin`, `fs`, `env`, `proc`, `spawn` | `Stdin`, `FileSystemRead` and `FileSystemWrite`, `Environment`, `Process`, `Spawn` | ✓ | ✓ | |
+| `listen`, `tcp` | `Listen`, `Tcp` | ✓ | | |
+| `ui`, `watch`, `location` | `Ui`, `Watch`, `Location` | | | ✓ |
 
-**A row may name no platform at all**, which is how a declaration lands ahead of
-the runtime that will answer it: `core/effect` declares the effect, `core/host`
-declares the implementation struct and the value, and the row grants it nowhere.
-Every binding is then refused on every target, with the reason rather than with
-"no such name", and granting it later is an edit to that one row. An empty row
-says "nobody grants this today" and never "everybody will".
+A page has no filesystem, standard input or process. Holding a port open is a
+native program's authority, and a page is served rather than serving. A page's
+concurrency is its event loop, and `core/tasks`'s `spawn` is how a program puts
+a socket, a retry or a timer on one, so `Tasks` is everywhere.
 
-A row also widens. `Tasks` is the one that has: declared and granted by nobody,
-then granted on the three platforms that are not a page, and now granted
-everywhere. Each move was an edit to that one row, and nothing changed for a
-program already written against the signature.
+The build system decides which platform an entry is checked against, not the
+language: the platform each `outputs` entry names. One function can't take two
+hosts, so a program built for two platforms gives each output an entry of its
+own — `entries: { main: "mainForNode" }` — and both call one function that
+takes `ctx`. Nothing about an **effect type** is platform-bound:
+`from "core/fs" import { FileSystemRead }` is legal everywhere, a page
+included, because a bound demands an implementation rather than being one.
+
+A `CLOUDFLARE_WORKER` entry, `fetch(request: Request): Response`, takes no host
+yet. It binds the values `core/host` exports, which only such an entry's module
+may import, and an effect the worker does not grant is `effect-not-on-platform`.
 
 None of this stops anyone writing a type that satisfies an effect, and Section
 10.9 does. That is not a forgery hole: a fake `Stdout` still cannot write
@@ -357,7 +345,7 @@ Two consequences:
 ### 10.5 Determinism versus effects
 
 `Allocator` is a **resource** effect: it can fail (out of memory) and it costs
-something, but it is not observable. Every other effect in `core/effect` is
+something, but it is not observable. Every other effect in `platform/effect` is
 **observable**.
 
 A function is **deterministic** if its only effect bound is `Allocator`.
@@ -368,7 +356,7 @@ Tracking allocation is what makes "does no I/O" and "does not allocate"
 separately expressible:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Allocator, IoError };
+# from "platform/effect" import { Allocator, IoError };
 # from "core/fs" import { FileSystemRead, Path };
 fn sum(self): Int                                                      // pure
 fn map<A, B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B]               // deterministic
@@ -476,7 +464,7 @@ read a clock and start a task.
 this. A free function with no receiver takes the context first:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Allocator, IoError };
+# from "platform/effect" import { Allocator, IoError };
 # from "core/fs" import { FileSystemRead, Path };
 export fn map<A, B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B]
 export fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError>
@@ -501,8 +489,9 @@ Two forms, giving different guarantees.
 same value and cannot use, or pass on, anything its bounds do not name:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Allocator, Stdout };
 # from "core/fs" import { FileSystemRead };
+# from "native" import { NativeHost };
+# from "platform/effect" import { Allocator, Stdout };
 
 fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
     let _ = io.println(ctx, msg).ignore();
@@ -510,7 +499,7 @@ fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
     // dangerous(ctx)                      // ERROR: dangerous needs C: FileSystemRead
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
@@ -529,8 +518,8 @@ downstream.
 the callee holds a value that genuinely lacks the rest:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Allocator, IoError, Region };
 # from "core/fs" import { FileSystemRead, Path };
+# from "platform/effect" import { Allocator, IoError, Region };
 
 // module: safe/readonly
 export struct ReadOnly<C>(C);
@@ -576,8 +565,8 @@ out of different implementations, and since effects are ordinary interfaces,
 writing one is writing a struct with methods. The call site does not change.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Allocator, IoError };
 # from "core/fs" import { FileSystemRead, Path };
+# from "platform/effect" import { Allocator, IoError };
 
 struct FakeFs {
     export files: [(Str, Str)],

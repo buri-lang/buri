@@ -7,26 +7,26 @@ fix: Accept a context variable as an argument, and pass it into the function fro
 
 ```buri fail code=context-declaration-not-allowed
 # //libs/print/lib.buri
-from "core/effect" import { Stdout };
-from "core/host" import * as host;
-from "core/io" import * as io;
+from "core/alloc" import * as alloc;
+from "core/str" import * as str;
+from "platform/effect" import { Allocator };
 
-context Console {
-    Stdout: host.stdout,
+context Budget {
+    Allocator: alloc.generalPurpose(),
 }
 
-export fn print(output: Str): () {
-    io.println(Console(), output).ignore()
+export fn shout(text: Str): Str {
+    str.format(Budget(), "${text}!")
 }
 ```
 
 To fix, accept the context as an argument:
 
 ```buri
-from "core/effect" import { Stdout };
-from "core/io" import * as io;
+from "core/str" import * as str;
+from "platform/effect" import { Allocator };
 
-export fn print<C: Stdout>(ctx: C, output: Str): () {
-    io.println(ctx, output).ignore()
+export fn shout<C: Allocator>(ctx: C, text: Str): Str {
+    str.format(ctx, "${text}!")
 }
 ```

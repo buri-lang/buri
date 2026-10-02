@@ -61,8 +61,8 @@ Each message brings a default, a binary codec and a JSON codec: for `Point`,
 take a context — here for an `Address` message in another repository:
 
 ```buri repo=cli/tests/conformance package=//lib/proto
-from "core/effect" import { Allocator };
 from "core/proto" import { ProtoError };
+from "platform/effect" import { Allocator };
 from "//lib/proto/address.proto" import { Address, decodeAddress, encodeAddress };
 
 export fn roundTrip<C: Allocator>(ctx: C, a: Address): Result<Address, ProtoError> {

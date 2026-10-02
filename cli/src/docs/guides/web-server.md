@@ -26,14 +26,15 @@ declares no `outputs` builds `node`, which grants neither `Listen` nor
 `Sockets`. See [what refuses to serve](#what-refuses-to-serve).
 
 ```buri
-// cmd/server/main.buri
-from "core/effect" import { Allocator, Listen, Request, Response, Tasks };
-from "core/host" import * as host;
 from "core/json" import * as json;
 from "core/json" import { Json };
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/str" import * as str;
+from "native" import { NativeHost };
+
+// cmd/server/main.buri
+from "platform/effect" import { Allocator, Listen, Request, Response, Tasks };
 
 /// One request, answered. An ordinary function over an ordinary context.
 export fn route<C: Allocator>(ctx: C, request: Request): Response {
@@ -50,7 +51,7 @@ export fn route<C: Allocator>(ctx: C, request: Request): Response {
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Listen: host.listen,
@@ -105,12 +106,12 @@ of its own.
 ```buri name=counting
 # from "core/actor" import * as actor;
 # from "core/actor" import { Actor, Address, Stepped };
-# from "core/effect" import { Allocator, Request, Response, Sockets, Tasks };
 # from "core/json" import * as json;
 # from "core/json" import { Json };
 # from "core/net/http" import * as http;
 # from "core/net/server" import { Socket };
 # from "core/str" import * as str;
+# from "platform/effect" import { Allocator, Request, Response, Sockets, Tasks };
 
 /// The counter's protocol: what a handler may send, and what it gets back.
 enum Hits {
@@ -196,10 +197,10 @@ three hooks. `connect` dials, runs them, and answers the `CloseReason` the socke
 ended with beside the state `onClose` answered.
 
 ```buri
-# from "core/effect" import { ServeError, Sockets, WebSocketClient };
 # from "core/net/server" import { CloseReason };
 # from "core/net/websocket" import * as websocket;
 # from "core/net/websocket" import { Client };
+# from "platform/effect" import { ServeError, Sockets, WebSocketClient };
 
 /// Subscribes once, then counts every frame the server pushes back.
 fn following<C: Sockets + WebSocketClient>(
@@ -236,11 +237,11 @@ is a session-resume token: it arrives in a frame, lands in the state, and goes
 back on the wire in the next `onOpen`.
 
 ```buri
-# from "core/effect" import { Allocator, Clock, Sockets, WebSocketClient };
 # from "core/net/websocket" import * as websocket;
 # from "core/net/websocket" import { Client };
 # from "core/str" import * as str;
 # from "core/time" import * as time;
+# from "platform/effect" import { Allocator, Clock, Sockets, WebSocketClient };
 
 fn resuming<C: Allocator + Sockets + WebSocketClient>(token: Str): Client<C, Str> {
     Client {
@@ -323,8 +324,8 @@ A handler is a function of a context and a request, so a test calls it. Nothing
 here binds `Listen`, opens a port or starts a server:
 
 ```buri role=test use=counting
-from "core/host/testing" import { alloc, sockets, tasks };
 from "core/testing/assert" import * as assert;
+from "platform/effect/testing" import { alloc, sockets, tasks };
 
 test "an unknown path is a 404" {
     let ctx = context {
@@ -362,7 +363,7 @@ $ buri test //cmd/server
 3 passed, 0 failed, 0 skipped (0.3s)
 ```
 
-Two of the three authorities have a double in `core/host/testing`, and the third
+Two of the three authorities have a double in `platform/effect/testing`, and the third
 does not:
 
 | | |
@@ -377,27 +378,25 @@ into runner-side state, and the deciding half does not.
 
 ## What refuses to serve
 
-| Effect | Granted on |
+| Effect | On the host of |
 |---|---|
-| `Listen`, `Sockets` | `native` |
+| `Listen`, `Tcp` | `native` |
 
-Under `platform: "web"` the compiler refuses this program on the line that asked
-for a listener. `Tasks` is granted everywhere, so it is not one of them:
+`NodeHost` and `WebHost` have no `listen` field, so an entry built for either
+is refused on the line that asked for a listener. `Tasks` and `Sockets` are on
+every host, so they are not among them:
 
 ```text
 $ buri build //cmd/server
-error: `listen` implements `Listen`, which is not allowed on the web platform [effect-not-on-platform]
+error: `WebHost` has no field `listen` [no-such-field]
   --> cmd/server/main.buri:57:22
    |
 57 |         Listen: host.listen,
    |                      ^^^^^^
    |
-   = a platform is the set of effects its host exports; holding a port open is a native program's authority; a page is served rather than serving, and its host has no way to accept a connection
-   = fix: drop `Listen` from the context, or build this target for a platform that grants it: native
+   = web does not offer `Listen`; native does
+   = fix: build this output for native, or drop `Listen` from the context — a program for two platforms gives each output an entry of its own
 ```
-
-The compiler checks each entry of `outputs` against the whole graph separately,
-so a binary can pass for `native` and fail for `node`.
 [Compile to JavaScript](./compile-to-js.md) is that half.
 
 ## Next

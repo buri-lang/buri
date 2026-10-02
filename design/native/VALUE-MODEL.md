@@ -513,10 +513,10 @@ Monomorphization resolves every effect call to a direct call and
 statically known answer and the only question is whether the *implementation
 value* carries data.
 
-Every implementation `core/host` exports is a zero-sized struct — `struct HostFileSystem {}`,
-`struct HostStdout {}`, fifteen of them (`host.buri`), of which any one platform
-grants at most thirteen. A context of zero-sized values is zero-sized. So in a
-program built on `core/host`, **`ctx` is not a parameter**: the layout pass drops
+Every production implementation is a zero-sized struct — `struct HostFileSystem {}`,
+`struct HostStdout {}`, twenty of them (`platform_host.buri`), and a host is a
+struct of them, so it is zero-sized too. A context of zero-sized values is
+zero-sized. So in a program built on its host, **`ctx` is not a parameter**: the layout pass drops
 it from every signature, the way it drops zero-sized parameters everywhere. The
 single largest ergonomic tax in the language — threading `ctx` through every
 allocating function — has zero runtime cost on a native backend.
