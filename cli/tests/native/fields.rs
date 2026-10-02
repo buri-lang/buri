@@ -130,6 +130,57 @@ export fn main(): Result<(), Str> {
     }
 }
 
+/// The printer's other shape: a record handed on to the call that grows it,
+/// and then read again for a number alone — `started.at` after `started` went
+/// to `emit`. A number is a word of the record's own value, so reading it is no
+/// second reader of the list, and the push must still find the list unique.
+#[test]
+fn a_number_read_from_a_record_after_it_was_handed_on_does_not_make_its_list_copy() {
+    let source = r#"
+from "core/effect" import { Allocator };
+from "core/host" import { stdout, alloc };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+struct Out { pieces: [Str], at: Int, marks: [Int] }
+
+fn raw<C: Allocator>(ctx: C, out: Out, t: Str): Out {
+  Out { ..out, pieces: out.pieces.push(ctx, t), at: out.at + 1 }
+}
+
+fn mark<C: Allocator>(ctx: C, out: Out, start: Int): Out {
+  Out { ..out, marks: out.marks.push(ctx, start) }
+}
+
+fn line<C: Allocator>(ctx: C, out: Out, t: Str): Out {
+  let started = raw(ctx, out, "(");
+  let written = raw(ctx, started, t);
+  mark(ctx, written, started.at)
+}
+
+fn lines<C: Allocator>(ctx: C, out: Out, i: Int): Out {
+  if (i == 0) { out } else { lines(ctx, line(ctx, out, "l"), i - 1) }
+}
+
+export fn main(): Result<(), Str> {
+  let out = lines(alloc, Out { pieces: [], at: 0, marks: [] }, 2000);
+  let last = match (out.marks.last()) { .Some(m) => m, .None => -1 };
+  let _ = io.println(stdout, "${out.pieces.length()} ${out.at} ${out.marks.length()} ${last}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("field-push-number-after", source) {
+        assert_eq!(r.stdout, "4000 4000 2000 3999\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 60,
+            "{backend}: six thousand pushes allocated {blocks} blocks: reading a number out of \
+             the record kept it alive, so the call it was handed to got a second reference"
+        );
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}
+
 /// What every update answers when its record, or a list in it, has a second
 /// reader: the old value is unchanged and the new one is what a copy would
 /// be. Each line is one way to have that second reader.
@@ -248,6 +299,10 @@ export fn main(): Result<(), Str> {
   let via = handed(ctx, handed(ctx, Out { pieces: grown(ctx, ["h"]), at: 0 }, "i"), "j");
   let _ = io.println(stdout, "handed ${show(ctx, via.pieces)}").ignore();
 
+  let src = raw(ctx, Out { pieces: grown(ctx, ["n"]), at: 5 }, "m");
+  let onward = raw(ctx, src, "o");
+  let _ = io.println(stdout, "number ${show(ctx, onward.pieces)} ${src.at} ${onward.at}").ignore();
+
   let good = tryRaw(ctx, Out { pieces: grown(ctx, ["g"]), at: 0 }, "ok");
   let bad = tryRaw(ctx, Out { pieces: grown(ctx, ["g"]), at: 0 }, "bad");
   let said = match (good) { .Ok(o) => show(ctx, o.pieces), .Err(e) => e };
@@ -264,6 +319,7 @@ shared [s] [s,t] [s,r] [s,l]
 nested [o,p] [o,p,q,r] 3
 captured 2 3 4 5 2
 handed [h,i,j]
+number [n,m,o] 6 7
 escape [g,ok] refused bad
 ";
     for (backend, r) in run_each("field-push-readers", source) {
