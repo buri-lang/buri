@@ -474,6 +474,17 @@ cargo clippy -p buri --all-targets --features backend-llvm
 second clippy. On a quiet ten-core M-series mac it is 122 s warm and 176 s after
 a `cli/src` edit, which is the column that matters because it is the loop.
 
+**That number is stale, and the first line alone is over budget.** It takes
+about 440 s on a ten-core mac, and the machine is under 3% idle for the whole of
+it. So it's bound by processor time, not by how the tests are scheduled: about
+3,100 CPU-seconds, which can't fit in five minutes of ten cores. The biggest
+single cost is `recovery::a_syntax_error_does_not_become_a_type_error`, about
+650 CPU-seconds, because each of its 5,200 analyses type-checks the whole
+standard library (`driver::analyze_snippet_on` calls `load_all_std`). After it
+come `build::repositories::snapshots` and the reject corpus, about 260 each, and
+the manifest ids, about 225. Getting under the line takes the compiler doing
+less work per case, not a different split.
+
 **Why the feature leg is three lines rather than one.** A plain
 `cargo test -p buri --features backend-llvm` runs 917 tests, and 843 of them are
 what the first line just ran, with the same code, to the same answer. The delta
