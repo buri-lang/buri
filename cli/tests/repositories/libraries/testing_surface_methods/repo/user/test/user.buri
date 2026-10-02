@@ -1,0 +1,11 @@
+from "core/testing/assert" import * as assert;
+from "//widget" import { answer, dial };
+from "//widget/testing" import { fake };
+
+test "a method from the testing surface" {
+    assert.equal(fake(21).doubled(), answer());
+}
+
+test "a method from the library's own surface" {
+    assert.equal(dial(41).turned(), answer());
+}

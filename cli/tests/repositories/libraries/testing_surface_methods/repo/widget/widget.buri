@@ -1,0 +1,17 @@
+export struct Dial {
+    export n: Int,
+}
+
+impl Dial {
+    export fn turned(self): Int {
+        self.n + 1
+    }
+}
+
+export fn dial(n: Int): Dial {
+    Dial { n: n }
+}
+
+export fn answer(): Int {
+    42
+}
