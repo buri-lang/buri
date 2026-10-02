@@ -1,0 +1,34 @@
+error: this is a test-only module [test-only-import]
+ --> user/user.buri:1:6
+  |
+1 | from "//widget/testing" import { fake };
+  |      ^^^^^^^^^^^^^^^^^^ importable only from a test source
+  |
+  = a path containing a `testing` segment may be imported only from a test source
+  = //user/user.buri is not one
+  = fix: import it from a file listed in a target's `test.sources`, or drop the import
+
+    What to do
+    ──────────
+
+    Import it from a test source, or drop the import.
+
+    Any module path with a testing *directory* segment is covered:
+    core/testing/assert, //lib/ledger/testing, //lib/testing/fakes. A file
+    called testing.buri is not one, because that segment is the file's own name.
+
+error: there is nothing named `fake` in scope [unresolved-name]
+ --> user/user.buri:4:5
+  |
+4 |     fake(1).doubled() - 1
+  |     ^^^^
+  |
+  = fix: declare `fake`, or import it — a name is in scope only from this module's own declarations and its imports
+
+    Why
+    ───
+
+    There is no prelude and no ambient scope. A module's available names are the
+    ones it declares plus the ones its own imports name, which is what makes the
+    suggestion trustworthy.
+

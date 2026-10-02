@@ -1,0 +1,4 @@
+// The surface of //widget. `turned` is on it, so a dependent's call to it
+// resolves.
+
+from "//widget/widget.buri" export { Dial, answer, dial, turned };

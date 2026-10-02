@@ -1,0 +1,96 @@
+# build/libraries: `testing/lib.buri` is the complete surface of
+# //widget/testing, and a method call from outside the library resolves only to
+# names on the surface. So a method declared under testing/ resolves from
+# another package's test exactly when `testing/lib.buri` exports it, whether or
+# not the same source also imports //widget itself (issue #218).
+#
+# `method_surface_filter` holds the same rule for `lib.buri`; this is its
+# opposite number one directory down. Each surface answers for the methods
+# declared behind it, so importing one never decides a method of the other.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a method declared under testing/ resolves from a dependent's test exactly when testing/lib.buri exports it, beside a method on the library's own surface"
+
+# Both surfaces in one test source: `doubled` through //widget/testing and
+# `turned` through //widget.
+run {
+  args: ["test", "//user", "--force"]
+  exit: 0
+  golden: "both_surfaces.txt"
+  stream: OUT
+}
+
+# `doubled` leaves the testing surface, and the call stops at the boundary.
+edit {
+  file: "widget/testing/lib.buri"
+  replace: "export { Fake, doubled, fake };"
+  with: "export { Fake, fake };"
+}
+
+run {
+  args: ["test", "//user", "--force"]
+  exit: 1
+  golden: "off_the_testing_surface.txt"
+  stream: ERR
+}
+
+# The same refusal with //widget's own surface out of the source, so the
+# testing surface is what decides and not the import beside it.
+edit {
+  file: "user/test/user.buri"
+  replace: "from \"//widget\" import { answer, dial };\n"
+  with: ""
+}
+
+edit {
+  file: "user/test/user.buri"
+  replace: "assert.equal(fake(21).doubled(), answer());"
+  with: "assert.equal(fake(21).doubled(), 42);"
+}
+
+edit {
+  file: "user/test/user.buri"
+  replace: "assert.equal(dial(41).turned(), answer());"
+  with: "assert.equal(42, 42);"
+}
+
+run {
+  args: ["test", "//user", "--force"]
+  exit: 1
+  golden: "only_the_testing_surface.txt"
+  stream: ERR
+}
+
+# And exporting it again is what makes the call legal.
+edit {
+  file: "widget/testing/lib.buri"
+  replace: "export { Fake, fake };"
+  with: "export { Fake, doubled, fake };"
+}
+
+run {
+  args: ["test", "//user", "--force"]
+  exit: 0
+}
+
+# A production source still cannot reach the testing surface at all, even with
+# the edge declared where the graph permits it.
+edit {
+  file: "user/BUILD.buri"
+  replace: "sources: [\"user.buri\"]\n"
+  with: "sources: [\"user.buri\"]\n    dependencies: [\"//widget/testing\"]\n"
+}
+
+edit {
+  file: "user/user.buri"
+  replace: "export fn one(): Int {\n    1\n}"
+  with: "from \"//widget/testing\" import { fake };\n\nexport fn one(): Int {\n    fake(1).doubled() - 1\n}"
+}
+
+run {
+  args: ["build", "//user"]
+  exit: 1
+  golden: "testing_in_production.txt"
+}

@@ -185,6 +185,10 @@ pub struct Checker<'a> {
     /// Per package, the set of names its `lib.buri` puts on the surface. A
     /// method call from outside a library resolves only to these.
     pub surfaces: HashMap<PackageId, HashSet<String>>,
+    /// Per package, the set of names its `testing/lib.buri` puts on the
+    /// surface of `//pkg/testing`. A method declared under `testing/` is
+    /// filtered by this one rather than by [`Checker::surfaces`].
+    pub testing_surfaces: HashMap<PackageId, HashSet<String>>,
     /// See [`Checked::ctx_rebindings`].
     pub ctx_rebindings: Vec<Span>,
     /// Traits by well-known name, for operators and `derive`.
@@ -288,6 +292,7 @@ impl<'a> Checker<'a> {
             tests: Vec::new(),
             prim_module: ModuleId(u32::MAX),
             surfaces: HashMap::default(),
+            testing_surfaces: HashMap::default(),
             ctx_rebindings: Vec::new(),
             known_traits: HashMap::default(),
             known_types: HashMap::default(),
@@ -2908,19 +2913,23 @@ impl<'a> Checker<'a> {
     }
 
     /// A library's `lib.buri` is its whole public surface, and a method call
-    /// from outside the library resolves only to names on it.
+    /// from outside the library resolves only to names on it. Its
+    /// `testing/lib.buri` is the same for `//pkg/testing`, and kept apart,
+    /// because each one answers for the methods declared behind it.
     fn compute_surfaces(&mut self) {
+        let Some(ws) = self.ws else { return };
         for (module, scope) in self.loaded.modules.iter().zip(&self.scopes) {
             let Some(pkg) = module.pkg else { continue };
-            let is_surface = self
-                .ws
-                .map(|ws| ws.package(pkg).module_path("lib.buri") == module.path)
-                .unwrap_or(false);
-            if !is_surface {
+            let package = ws.package(pkg);
+            let surfaces = if package.module_path("lib.buri") == module.path {
+                &mut self.surfaces
+            } else if package.module_path("testing/lib.buri") == module.path {
+                &mut self.testing_surfaces
+            } else {
                 continue;
-            }
+            };
             let names: HashSet<String> = scope.exports.keys().cloned().collect();
-            self.surfaces.insert(pkg, names);
+            surfaces.insert(pkg, names);
         }
     }
 
