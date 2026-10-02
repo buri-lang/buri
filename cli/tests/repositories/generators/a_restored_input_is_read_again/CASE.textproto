@@ -1,0 +1,86 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a remembered lint answer is only served while everything it was worked out from still stands: a generator input taken away fails `lint` and `build`, putting it back passes both again without `buri clean`, and so does editing the tool that turns the inputs into a module, and editing it back (buri-lang/buri#219)"
+
+run {
+  args: ["lint"]
+  exit: 0
+}
+
+run {
+  args: ["build"]
+  exit: 0
+}
+
+# The input goes away. The generator does not run, so the module `schemas.buri`
+# imports from is not there either.
+move {
+  from: "lib/schemas/b.txt"
+  to: "b.txt.away"
+}
+
+run {
+  args: ["lint"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+run {
+  args: ["build"]
+  exit: 1
+  golden: "missing_build.txt"
+}
+
+# Back byte for byte. The answer recorded while it was missing is not this
+# tree's answer, and neither command may serve it.
+move {
+  from: "b.txt.away"
+  to: "lib/schemas/b.txt"
+}
+
+run {
+  args: ["lint"]
+  exit: 0
+}
+
+run {
+  args: ["build"]
+  exit: 0
+}
+
+# The tool is what turns the inputs into a module, so it is as much a part of
+# the answer as they are. Lower-case names leave `A_TXT` without a definition.
+edit {
+  file: "tool/embed/tool.buri"
+  replace: "file.toUpper(c)"
+  with: "file.toLower(c)"
+}
+
+run {
+  args: ["lint", "//lib/schemas"]
+  exit: 1
+  golden: "renamed.txt"
+}
+
+run {
+  args: ["build"]
+  exit: 1
+  golden: "renamed_build.txt"
+}
+
+edit {
+  file: "tool/embed/tool.buri"
+  replace: "file.toLower(c)"
+  with: "file.toUpper(c)"
+}
+
+run {
+  args: ["lint", "//lib/schemas"]
+  exit: 0
+}
+
+run {
+  args: ["build"]
+  exit: 0
+}

@@ -117,9 +117,13 @@ fn proto_schemas() {
 /// `std/codegen/proto` never writes, so a node kind the printer wrote wrongly
 /// fails as a program that does not compile rather than as a string nobody
 /// re-read.
+///
+/// `a_restored_input_is_read_again` is about the cache rather than the rule:
+/// a lint answer worked out while an input was missing, or under an older
+/// tool, is not served once the input is back or the tool has moved.
 #[test]
 fn generators() {
-    run_corpus(&tests_dir().join("repositories/generators"), "generators", 7);
+    run_corpus(&tests_dir().join("repositories/generators"), "generators", 8);
 }
 
 /// The files a rule references that are not Buri: JSON, JSONC and JSON5 in a
@@ -477,7 +481,7 @@ fn snapshots() {
 /// rather than as an editor behaving differently.
 #[test]
 fn language_server() {
-    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 98);
+    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 100);
 }
 
 /// Every method a 3.17 client can send is answered by the dispatch, and is
