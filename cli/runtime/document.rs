@@ -96,6 +96,8 @@ struct Record {
     /// A file picker's handler graph node, or `-1`. `pickFile` fires it and
     /// `press` never does.
     pick: i64,
+    /// The pointer handler graph nodes, down/move/up, each `-1` when unset.
+    pointer: [i64; 3],
 }
 
 /// A record with no widget state — an element, a run or a marker before any
@@ -116,6 +118,7 @@ fn plain_record(identity: i64, kind: Kind, name: String, body: String, text: Str
         label: String::new(),
         follow: -1,
         pick: -1,
+        pointer: [-1; 3],
     }
 }
 
@@ -126,6 +129,15 @@ struct Offer {
     name: String,
     mime_type: String,
     content: Vec<u8>,
+}
+
+/// Where the pointer is for the handler being fired, and the key of the row
+/// under it, read back into its `PointerAt`.
+#[derive(Default)]
+struct Pointer {
+    x: f64,
+    y: f64,
+    row: Option<String>,
 }
 
 /// Where the next record lands: under `parent`, before `anchor` — or at the end
@@ -188,6 +200,10 @@ struct Document {
     outside: Vec<(i64, usize)>,
     /// The file `pickFile` last offered, which a picker's handler reads back.
     offer: Offer,
+    /// The element holding the pointer since a `pointerDown`.
+    capture: Option<usize>,
+    /// What the pointer handler being fired reads back.
+    pointer: Pointer,
 }
 
 impl Document {
@@ -206,6 +222,8 @@ impl Document {
             each_regions: Vec::new(),
             outside: Vec::new(),
             offer: Offer::default(),
+            capture: None,
+            pointer: Pointer::default(),
         }
     }
 
@@ -1045,6 +1063,65 @@ pub unsafe extern "C" fn buri_rt_ui_node_offered_bytes(handle: i64, out: *mut Bu
     unsafe { out.write(list_of_bytes(&content)) };
 }
 
+/// `registerPointer(builder, phase, handler)` — keeps a pointer handler on a
+/// graph node and stores it on the open element under `phase` (0 down, 1 move,
+/// 2 up), for the pointer dispatch to fire.
+///
+/// # Safety
+/// `entry`/`state`/`bytes`/`frame_at`/`body` are the kept handler's trampoline
+/// arguments.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_register_pointer(
+    handle: i64,
+    phase: i64,
+    entry: ComputeEntry,
+    state: *const u8,
+    bytes: usize,
+    frame_at: i64,
+    body: Release,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let node =
+        unsafe { crate::ui::buri_rt_ui_node_register_handler(entry, state, bytes, frame_at, body) };
+    with_doc(handle, |doc| {
+        let open = open_element(doc);
+        let slot = usize::try_from(phase).ok().filter(|&p| p < 3);
+        if let (Some(r), Some(slot)) = (doc.records.get_mut(open), slot) {
+            r.pointer[slot] = node;
+        }
+    });
+}
+
+/// `pointerX(builder)` — the x the pointer dispatch in flight carries.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_node_pointer_x(handle: i64) -> f64 {
+    with_doc(handle, |doc| doc.pointer.x).unwrap_or(0.0)
+}
+
+/// `pointerY(builder)` — the y the pointer dispatch in flight carries.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_node_pointer_y(handle: i64) -> f64 {
+    with_doc(handle, |doc| doc.pointer.y).unwrap_or(0.0)
+}
+
+/// `pointerOverRow(builder)` — whether the dispatch in flight found a row under
+/// the pointer for the element it is firing at.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_node_pointer_over_row(handle: i64) -> u8 {
+    u8::from(with_doc(handle, |doc| doc.pointer.row.is_some()).unwrap_or(false))
+}
+
+/// `pointerRow(builder)` — that row's key, or `""`.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_pointer_row(handle: i64, out: *mut BuriStr) {
+    let row = with_doc(handle, |doc| doc.pointer.row.clone()).flatten().unwrap_or_default();
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(str_of(&row)) };
+}
+
 impl Document {
     /// The accessible name a reader hears for `node`: every run of text in its
     /// subtree, in document order, joined by a space — the same joining
@@ -1186,6 +1263,82 @@ impl Document {
             }
         }
         None
+    }
+
+    /// The innermost element whose name — its label, or else its text — is
+    /// `label`: the first in document order, then down through any child
+    /// element with the same name. The native `$scene_named`.
+    fn named(&self, label: &str) -> Option<usize> {
+        let matches = |i: usize| {
+            let r = &self.records[i];
+            r.kind == Kind::Element
+                && (if r.label.is_empty() { self.accessible_name(i) } else { r.label.clone() })
+                    == label
+        };
+        let mut found = self.ordered().into_iter().map(|(i, _)| i).find(|&i| matches(i))?;
+        while let Some(&inner) = self.records[found].children.iter().find(|&&c| matches(c)) {
+            found = inner;
+        }
+        Some(found)
+    }
+
+    /// The innermost keyed row holding `node`, as `(list, key, start marker)`:
+    /// at each level up, the row of an `each` under that parent whose markers
+    /// stand either side of the node. The native `$scene_rowOf`.
+    fn row_of(&self, node: usize) -> Option<(usize, String, usize)> {
+        let mut at = node;
+        loop {
+            let parent = self.records[at].parent?;
+            let children = &self.records[parent].children;
+            let index = |n: usize| children.iter().position(|&c| c == n);
+            let pos = index(at)?;
+            let mut best: Option<(usize, (usize, String, usize))> = None;
+            for (list, region) in self.each_regions.iter().enumerate() {
+                if region.parent != parent {
+                    continue;
+                }
+                for row in &region.rows {
+                    let (Some(s), Some(e)) = (index(row.start), index(row.end)) else { continue };
+                    if s < pos && pos < e && best.as_ref().is_none_or(|(b, _)| s > *b) {
+                        best = Some((s, (list, row.key.clone(), row.start)));
+                    }
+                }
+            }
+            if let Some((_, row)) = best {
+                return Some(row);
+            }
+            at = parent;
+        }
+    }
+
+    /// The key of the row under the pointer, `over`, in the list the element
+    /// `at` is a row of. The native `$scene_overRow`.
+    fn over_row(&self, at: usize, over: usize) -> Option<String> {
+        let (own, _, _) = self.row_of(at)?;
+        let mut row = self.row_of(over);
+        while let Some((list, key, start)) = row {
+            if list == own {
+                return Some(key);
+            }
+            row = self.row_of(start);
+        }
+        None
+    }
+
+    /// The pointer handlers `phase` reaches from `target` out to the root, each
+    /// with the row under the pointer as that element sees it — the bubbling
+    /// path, taken before any handler runs.
+    fn pointer_path(&self, phase: usize, target: usize, over: usize) -> Vec<(i64, Option<String>)> {
+        let mut out = Vec::new();
+        let mut at = Some(target);
+        while let Some(i) = at {
+            let handler = self.records[i].pointer[phase];
+            if handler >= 0 {
+                out.push((handler, self.over_row(i, over)));
+            }
+            at = self.records[i].parent;
+        }
+        out
     }
 
     /// Whether a dialog has taken `node` out of the page — the native
@@ -1504,6 +1657,128 @@ pub unsafe extern "C" fn buri_rt_ui_testing_deliver_file(
     .unwrap_or((false, -1));
     if open {
         crate::ui::fire(pick);
+    }
+}
+
+/// Fires `phase`'s handlers from `target` out to the root, each reading back
+/// where the pointer is and the row under it as its own element sees it.
+fn fire_pointer(handle: i64, phase: usize, target: usize, over: usize, x: f64, y: f64) {
+    let path = with_doc(handle, |doc| doc.pointer_path(phase, target, over)).unwrap_or_default();
+    for (handler, row) in path {
+        with_doc(handle, |doc| doc.pointer = Pointer { x, y, row });
+        crate::ui::fire(handler);
+    }
+}
+
+/// The element `label` names, or an abort — what every pointer method starts by.
+///
+/// # Safety
+/// `label` is a readable UTF-8 range, or null with a zero length.
+unsafe fn pointer_target(handle: i64, ptr: *const u8, len: u64) -> usize {
+    // SAFETY: forwarded to the caller's promise.
+    let label = unsafe { text_of(ptr, len) };
+    match with_doc(handle, |doc| doc.named(&label)).flatten() {
+        Some(node) => node,
+        None => crate::abort::die(&[b"this tree has no element named \"", label.as_bytes(), b"\""]),
+    }
+}
+
+/// `Rendered.pointerDown(label, x, y)` — press the element `label` names: an
+/// overlay watching for a press outside sees it, the nearest element with a
+/// pointer handler captures the pointer, and the press bubbles from the target.
+///
+/// # Safety
+/// `label` is a readable UTF-8 range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_rendered_pointer_down(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    x: f64,
+    y: f64,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let target = unsafe { pointer_target(handle, ptr, len) };
+    let reached = with_doc(handle, |doc| doc.reachable(target) && !doc.inert(target)).unwrap_or(false);
+    if !reached {
+        return;
+    }
+    let outside: Vec<i64> = with_doc(handle, |doc| {
+        doc.outside.iter().filter(|(_, elem)| !doc.within(*elem, target)).map(|(n, _)| *n).collect()
+    })
+    .unwrap_or_default();
+    for node in outside {
+        crate::ui::fire(node);
+    }
+    with_doc(handle, |doc| {
+        let mut at = Some(target);
+        doc.capture = None;
+        while let Some(i) = at {
+            if doc.records[i].pointer.iter().any(|&h| h >= 0) {
+                doc.capture = Some(i);
+                break;
+            }
+            at = doc.records[i].parent;
+        }
+    });
+    fire_pointer(handle, 0, target, target, x, y);
+}
+
+/// Where a move or a release goes: the element holding the capture while it is
+/// still in the tree, and otherwise what the pointer is over, if it is reached.
+fn pointer_route(doc: &Document, over: usize) -> Option<usize> {
+    match doc.capture {
+        Some(held) if doc.within(0, held) => Some(held),
+        _ => (doc.reachable(over) && !doc.inert(over)).then_some(over),
+    }
+}
+
+/// `Rendered.pointerMove(over, x, y)` — move the pointer over the element `over`
+/// names; the move reaches the capturing element while a press is held.
+///
+/// # Safety
+/// `over` is a readable UTF-8 range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_rendered_pointer_move(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    x: f64,
+    y: f64,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let over = unsafe { pointer_target(handle, ptr, len) };
+    if let Some(target) = with_doc(handle, |doc| pointer_route(doc, over)).flatten() {
+        fire_pointer(handle, 1, target, over, x, y);
+    }
+}
+
+/// `Rendered.pointerUp(over, x, y)` — release the pointer over the element
+/// `over` names, routed as a move is, and end the capture.
+///
+/// # Safety
+/// `over` is a readable UTF-8 range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_rendered_pointer_up(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    x: f64,
+    y: f64,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let over = unsafe { pointer_target(handle, ptr, len) };
+    let target = with_doc(handle, |doc| {
+        let target = pointer_route(doc, over);
+        doc.capture = None;
+        target
+    })
+    .flatten();
+    if let Some(target) = target {
+        fire_pointer(handle, 2, target, over, x, y);
     }
 }
 

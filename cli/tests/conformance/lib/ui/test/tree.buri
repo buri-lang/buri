@@ -27,7 +27,7 @@ from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
-from "ui/node" import { FieldKind, Node, PickedFile };
+from "ui/node" import { FieldKind, Node, PickedFile, PointerAt };
 from "ui/prop" import { Prop };
 from "ui/signal" import { Signal, signal, watch };
 from "ui/style" import * as style;
@@ -6008,4 +6008,324 @@ test "the counter counts, and both badges follow" {
     let _ = page.press("clicks");
     let _ = page.press("clicks");
     assert.equal(page.text(), "clicks clicks 3 doubled 6");
+}
+
+// --- the pointer -----------------------------------------------------------------------
+
+/// What one pointer handler saw, as one line of the log: the phase, where the
+/// pointer was against the element and against the viewport, and the row
+/// under it.
+fn sawPointer<C: Allocator>(
+    ctx: C,
+    log: Recorder,
+    name: Str,
+    phase: Str,
+    at: PointerAt,
+): () {
+    let row = match (at.overRow) {
+        .Some(key) => key,
+        .None => "-",
+    };
+    log.record(
+        str.format(
+            ctx,
+            "${name} ${phase} ${at.x},${at.y} ${at.viewportX},${at.viewportY} ${row}",
+        ),
+    )
+}
+
+/// A box named `name` that logs all three pointer handlers under that name.
+fn pointerPad<C: Allocator>(log: Recorder, name: Str, inside: [Node<C>]): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.stack({ styles: [], children: inside }),
+        ],
+        onPointerDown: .Some(fn(c, at) => sawPointer(c, log, name, "down", at)),
+        onPointerMove: .Some(fn(c, at) => sawPointer(c, log, name, "move", at)),
+        onPointerUp: .Some(fn(c, at) => sawPointer(c, log, name, "up", at)),
+    })
+}
+
+/// A box holding one word and listening for nothing.
+fn plainBox<C>(name: Str): Node<C> {
+    ui.stack({ styles: [], children: [ui.text({ content: .Const(name) })] })
+}
+
+test "a pointer's down, move and up each reach their handler with where it is" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let log = recorder();
+    let page = render(ctx, pointerPad(log, "Pad", []));
+    let _ = page.pointerDown("Pad", 4.0, 10.5);
+    let _ = page.pointerMove("Pad", 6.0, 12.0);
+    let _ = page.pointerUp("Pad", 8.0, 14.0);
+    assert.equal(log.recorded(), [
+        "Pad down 4.0,10.5 4.0,10.5 -",
+        "Pad move 6.0,12.0 6.0,12.0 -",
+        "Pad up 8.0,14.0 8.0,14.0 -",
+    ]);
+}
+
+test "a press captures the pointer, so the move and the release reach the pressed element after it leaves" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let log = recorder();
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [pointerPad(log, "Row", []), pointerPad(log, "Elsewhere", [])],
+        }),
+    );
+    let _ = page.pointerDown("Row", 1.0, 1.0);
+    let _ = page.pointerMove("Elsewhere", 2.0, 300.0);
+    let _ = page.pointerUp("Elsewhere", 3.0, 400.0);
+    // The release ended the capture, so the next move reaches what it is over.
+    let _ = page.pointerMove("Elsewhere", 4.0, 500.0);
+    assert.equal(log.recorded(), [
+        "Row down 1.0,1.0 1.0,1.0 -",
+        "Row move 2.0,300.0 2.0,300.0 -",
+        "Row up 3.0,400.0 3.0,400.0 -",
+        "Elsewhere move 4.0,500.0 4.0,500.0 -",
+    ]);
+}
+
+test "a press bubbles out to every pointer handler around it, and the nearest one captures" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let log = recorder();
+    let page = render(
+        ctx,
+        pointerPad(log, "Outer", [
+            pointerPad(log, "Inner", []),
+            plainBox("Plain"),
+            pointerPad(log, "Away", []),
+        ]),
+    );
+    let _ = page.pointerDown("Inner", 1.0, 1.0);
+    let _ = page.pointerUp("Away", 2.0, 2.0);
+    // A box with no handler of its own: the press is the outer box's.
+    let _ = page.pointerDown("Plain", 3.0, 3.0);
+    let _ = page.pointerUp("Away", 4.0, 4.0);
+    assert.equal(log.recorded(), [
+        "Inner down 1.0,1.0 1.0,1.0 -",
+        "Outer down 1.0,1.0 1.0,1.0 -",
+        "Inner up 2.0,2.0 2.0,2.0 -",
+        "Outer up 2.0,2.0 2.0,2.0 -",
+        "Outer down 3.0,3.0 3.0,3.0 -",
+        "Outer up 4.0,4.0 4.0,4.0 -",
+    ]);
+}
+
+test "a pointer press is a press outside for an overlay elsewhere" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let fired = signal(ctx, 0);
+    let log = recorder();
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                pointerPad(log, "Row", []),
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("Menu") })],
+                    onPressOutside: .Some(fn(c) => fired.update(c, fn(n) => n + 1)),
+                }),
+            ],
+        }),
+    );
+    let _ = page.pointerDown("Menu", 0.0, 0.0);
+    assert.equal(fired.get(ctx), 0);
+    let _ = page.pointerDown("Row", 0.0, 0.0);
+    assert.equal(fired.get(ctx), 1);
+}
+
+test "a pointer press does not reach an element the pointer passes through" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let log = recorder();
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [.Passthrough(true)],
+            children: [pointerPad(log, "Ghost", [])],
+        }),
+    );
+    let _ = page.pointerDown("Ghost", 0.0, 0.0);
+    let _ = page.pointerUp("Ghost", 0.0, 0.0);
+    assert.equal(log.recorded(), []);
+}
+
+test "pointer handlers change nothing a reader sees or a picture shows" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let log = recorder();
+    let plain = rooted(
+        ctx,
+        ui.stack({
+            styles: [.Padding(.Px(8))],
+            children: [ui.text({ content: .Const("Pad") })],
+        }),
+    );
+    let listening = rooted(
+        ctx,
+        ui.stack({
+            styles: [.Padding(.Px(8))],
+            children: [ui.text({ content: .Const("Pad") })],
+            onPointerDown: .Some(fn(c, at) => sawPointer(c, log, "Pad", "down", at)),
+            onPointerMove: .Some(fn(c, at) => sawPointer(c, log, "Pad", "move", at)),
+            onPointerUp: .Some(fn(c, at) => sawPointer(c, log, "Pad", "up", at)),
+        }),
+    );
+    assert.equal(render(ctx, listening).markup(), render(ctx, plain).markup());
+    assert.equal(ui.describe(ctx, listening, .Hover), ui.describe(ctx, plain, .Hover));
+}
+
+/// A list of pads, one row per item, and a footer under the rows.
+fn padList<C: Allocator>(log: Recorder, items: Signal<[Str]>): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.each(.Cell(items), itself, fn(_c, item, _index) => {
+                pointerPad(log, item, [])
+            }),
+            plainBox("Footer"),
+        ],
+        role: .Some(.List),
+    })
+}
+
+test "overRow names the row of the list the pointer is over" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let log = recorder();
+    let items = signal(ctx, ["a", "b", "c"]);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [padList(log, items), pointerPad(log, "Outside", [])],
+        }),
+    );
+    let _ = page.pointerDown("a", 0.0, 0.0);
+    let _ = page.pointerMove("c", 0.0, 0.0);
+    // Its own row counts too: a drag that comes back is over where it started.
+    let _ = page.pointerMove("a", 0.0, 0.0);
+    // Off the rows, and off the list altogether.
+    let _ = page.pointerMove("Footer", 0.0, 0.0);
+    let _ = page.pointerUp("Outside", 0.0, 0.0);
+    // An element in no list is over no row, wherever the pointer is.
+    let _ = page.pointerDown("Outside", 0.0, 0.0);
+    let _ = page.pointerUp("b", 0.0, 0.0);
+    assert.equal(log.recorded(), [
+        "a down 0.0,0.0 0.0,0.0 a",
+        "a move 0.0,0.0 0.0,0.0 c",
+        "a move 0.0,0.0 0.0,0.0 a",
+        "a move 0.0,0.0 0.0,0.0 -",
+        "a up 0.0,0.0 0.0,0.0 -",
+        "Outside down 0.0,0.0 0.0,0.0 -",
+        "Outside up 0.0,0.0 0.0,0.0 -",
+    ]);
+}
+
+test "overRow follows the list after a reorder" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let log = recorder();
+    let items = signal(ctx, ["a", "b"]);
+    let page = render(ctx, padList(log, items));
+    let _ = items.set(ctx, ["b", "a", "new"]);
+    let _ = page.drag("b", "new");
+    assert.equal(log.recorded(), [
+        "b down 0.0,0.0 0.0,0.0 b",
+        "b move 0.0,0.0 0.0,0.0 new",
+        "b up 0.0,0.0 0.0,0.0 new",
+    ]);
+}
+
+// The issue's program (#220): a list a reader arranges by hand. A row picked up
+// and dropped onto another takes that row's place.
+fn reorderable<C: Allocator + Ui + Watch>(
+    items: Signal<[Str]>,
+    held: Signal<Str>,
+): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.each(.Cell(items), itself, fn(_c, item, _index) => {
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const(item) })],
+                    role: .Some(.ListItem),
+                    onPointerDown: .Some(fn(c, _at) => held.set(c, item)),
+                    onPointerUp: .Some(fn(c, at) => {
+                        match (at.overRow) {
+                            .Some(onto) => {
+                                items.set(c, moved(c, items.get(c), held.get(c), onto))
+                            },
+                            .None => {
+                            },
+                        }
+                    }),
+                })
+            }),
+        ],
+        role: .Some(.List),
+    })
+}
+
+/// `items` with `picked` taken out and put back where `onto` stood.
+fn moved<C: Allocator>(ctx: C, items: [Str], picked: Str, onto: Str): [Str] {
+    match (items.indexOf(onto)) {
+        .Some(at) => {
+            items.filter(ctx, fn(key) => key != picked).insertAt(ctx, at, picked)
+        },
+        .None => items,
+    }
+}
+
+test "a row dragged onto another takes its place" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let items = signal(ctx, ["Apples", "Pears", "Cherries"]);
+    let held = signal(ctx, "");
+    let page = render(ctx, reorderable(items, held));
+    let apples = page.identity("li", 0);
+
+    let _ = page.drag("Apples", "Cherries");
+    assert.equal(page.text(), "Pears Cherries Apples");
+    // Moved, not rebuilt.
+    assert.equal(page.identity("li", 2), apples);
+
+    let _ = page.drag("Apples", "Pears");
+    assert.equal(page.text(), "Apples Pears Cherries");
+
+    // Dropped off the list, it stays where it was.
+    let _ = page.pointerDown("Pears", 0.0, 0.0);
+    let _ = page.pointerUp("Apples Pears Cherries", 0.0, 0.0);
+    assert.equal(page.text(), "Apples Pears Cherries");
 }

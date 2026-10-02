@@ -400,8 +400,10 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // whose `)` is missing is one `unclosed-delimiter` whose fix is
         // `write \`)\` here`, where it used to be a `self-with-a-type` carrying
         // an edit that deleted the return type. 298 of 1704 is 17.5%, and
-        // eighteen is that rounded up.
-        ("the fix names the missing token", "delete-closer") => 18,
+        // eighteen is that rounded up. Read again the day the pointer handlers
+        // landed (#220): the stride moved with the corpus and the same shape
+        // came to 322 of 1784, 18.05%, so nineteen.
+        ("the fix names the missing token", "delete-closer") => 19,
         ("the fix names the missing token", "delete-separator ()") => 5,
         // The same three cases, at this invariant: see the note on
         // `the caret is on the mistake` above. 3 of 716 is 0.5%.
