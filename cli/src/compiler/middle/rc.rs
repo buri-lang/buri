@@ -1061,6 +1061,7 @@ fn scan_func(
                 handed_on: Vec::new(),
                 moving: Vec::new(),
                 moved: Vec::new(),
+                plain: f.params.iter().copied().collect(),
                 tries: Vec::new(),
                 escaped: HashSet::default(),
                 opts,
@@ -1084,6 +1085,7 @@ fn scan_func(
                 }
             });
             for b in bound {
+                scan.plain.insert(b);
                 if scan.is_counted(b) {
                     scan.owned.insert(b);
                 }
@@ -2423,6 +2425,9 @@ struct Scan<'a> {
     moving: Vec<(LocalId, NodeId, Vec<usize>)>,
     /// [`FuncPlan::moved`], as it is found.
     moved: Vec<(NodeId, usize)>,
+    /// The function's parameters and every local a `let` binds: the locals
+    /// [`Scan::inline_read`] may read without using.
+    plain: HashSet<LocalId>,
     /// Every `?` node this body holds, in the order the scan reached them.
     ///
     /// The scan runs backwards and a `?` is an exit the tree does not spell,
@@ -2884,6 +2889,47 @@ impl Scan<'_> {
         before
     }
 
+    /// Whether `e` reads a value with no count out of a local through fields
+    /// and tuple positions alone, on the native branch — a read that is no use
+    /// of the local at all.
+    ///
+    /// A struct and a tuple are register or stack values in both backends (this
+    /// module's header, on reuse), so `out.at` is a word of `out`'s own value
+    /// and not a load through any block. Releasing `out` releases the blocks
+    /// its counted fields name, and leaves `at` where it was. So the read needs
+    /// neither a count nor `out` to be alive, and treating it as a use is what
+    /// kept `out` live past an update or a call that could have taken it:
+    /// `let started = ready(ctx, out); … anchor(ctx, written, started.at, …)` is
+    /// how `core/buri/ast` prints every statement, pattern and expression, and
+    /// `started` read later made every one of them hand `emit` a second
+    /// reference — so the first push of each copied the whole list.
+    ///
+    /// Not a use means not in the live set, no drop placed after it, and not in
+    /// [`Scan::used`], so a local whose only reads are these is released where
+    /// it arrives or where it is bound, exactly as one nothing reads. Hence the
+    /// three conditions:
+    ///
+    ///  * **The value is answered `No`**, not `Unknown`: a type the classifier
+    ///    cannot answer may hold a reference, and that read would then outlive
+    ///    the block it names.
+    ///  * **The path is fields and tuple positions only** ([`field_root`]). An
+    ///    `Index` loads through a list's block, and `CtxGet` through a context.
+    ///  * **The local is a parameter or a `let` binding.** Those are the locals
+    ///    whose release does not depend on being read: one nothing reads is
+    ///    dropped on entry or where it is bound. A `match` arm's payload is
+    ///    handled by [`Scan::match_`] from its liveness, and is left alone.
+    ///
+    /// `sharing` asks [`Scan::no_reference_path`] instead.
+    fn inline_read(&mut self, e: &Expr) -> bool {
+        if self.opts.sharing || self.counted.counted(&e.ty) != Answer::No {
+            return false;
+        }
+        if !matches!(e.kind, ExprKind::Field { .. } | ExprKind::TupleIndex { .. }) {
+            return false;
+        }
+        field_root(e).is_some_and(|root| self.plain.contains(&root))
+    }
+
     /// The local a projection may be scanned **without** keeping alive, because
     /// what it reads out is not a reference to anything.
     ///
@@ -3287,6 +3333,9 @@ impl Scan<'_> {
             ExprKind::Field { base, .. }
             | ExprKind::TupleIndex { base, .. }
             | ExprKind::CtxGet { base, .. } => {
+                if self.inline_read(e) {
+                    return live.clone();
+                }
                 let bid = self.child(id, 0);
                 let bmode =
                     if self.tail_shaped_base(base) { Mode::Own } else { Mode::Borrow };
@@ -3388,8 +3437,13 @@ impl Scan<'_> {
         //
         // So the root is held live across the arms and dropped by this
         // construct instead, which is [`Scan::children`]'s deferral verbatim.
+        // An uncounted scrutinee read out of the local's own value
+        // ([`Scan::inline_read`]) binds no words of any block, so there is
+        // nothing for the arms to keep alive.
+        let inline = self.inline_read(scrutinee);
         let kept = match token {
             Some(_) => None,
+            None if inline => None,
             None => borrowed_root(scrutinee).filter(|r| {
                 self.is_counted(*r) && self.owned.contains(r) && !live.contains(r)
             }),
@@ -3819,8 +3873,9 @@ impl Scan<'_> {
                 continue;
             }
             // A projection that reads no reference out of its base does not
-            // hold the base open either. [`Scan::no_reference_path`].
-            if self.no_reference_path(kid).is_some() {
+            // hold the base open either. [`Scan::no_reference_path`], and its
+            // native twin [`Scan::inline_read`].
+            if self.no_reference_path(kid).is_some() || self.inline_read(kid) {
                 continue;
             }
             let Some(l) = borrowed_root(kid) else { continue };
