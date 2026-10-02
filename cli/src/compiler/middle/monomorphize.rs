@@ -2864,6 +2864,8 @@ mod tests {
         list.range \
         list.repeat list.reverse list.slice list.sortBy list.take list.zip \
         number.maxValue number.minValue \
+        platforms_testing_state.stateNew platforms_testing_state.statePut \
+        platforms_testing_state.stateRead platforms_testing_state.stateTake \
         str.chars str.concat str.format str.fromChars str.fromFloat \
         str.fromInt str.lines str.padEnd str.padStart str.repeat str.replace \
         str.show str.split str.splitAny str.toJson str.toLower str.toUpper \

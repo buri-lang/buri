@@ -1581,27 +1581,8 @@ source may import `core/host/testing`. See [testing](./build/testing.md).
 ### State for a test implementation
 
 [`core/platforms/testing/state`](../../compiler/standard_library/sources/platforms_testing_state.buri)
-gives an effect's test implementation a value that outlives one call:
-
-```buri ignore why="only a module under platform/effect/**/testing may import this, and a page is not one"
-from "core/map" import * as map;
-from "core/map" import { Map };
-from "core/platforms/testing/state" import * as state;
-
-export struct TestKv { store: state.State<Map<Str, Str>> }
-
-impl TestKv {
-    export fn get(self, key: Str): Option<Str> {
-        state.read(self.store).get(key)
-    }
-
-    export fn put(self, key: Str, value: Str): () {
-        state.update(self.store, fn(c, m) => (m.insert(c, key, value), ()))
-    }
-}
-
-export fn kv(): TestKv { TestKv { store: state.new(map.empty()) } }
-```
+gives an effect's test implementation a value that outlives one call. Its
+header has a worked `TestKv`.
 
 | Function | What it does | Cost |
 |---|---|---|
