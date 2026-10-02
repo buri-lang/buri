@@ -10,7 +10,7 @@
 //! 4. Tests live in `test/` and see only the target's surface.
 //! 5. Everything is declared — a file on disk that no rule lists is an error.
 
-use crate::build::buildfile::{self, BuildFile, Platform, RepoConfig, Spanned};
+use crate::build::buildfile::{self, Backend, BuildFile, Platform, RepoConfig, Spanned};
 use crate::build::textproto::Document;
 use crate::diagnostics::{Diagnostic, Diagnostics, FileId, Invariant as _, Span};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -56,9 +56,9 @@ pub struct TargetId {
 pub struct PlatformBlocker {
     pub member: TargetId,
     pub why: String,
-    /// A tag's `forbids.platforms` names it, rather than a whitelist leaving
+    /// The word a tag's `forbids` names it by, rather than a whitelist leaving
     /// it out.
-    pub forbidden: bool,
+    pub forbidden: Option<&'static str>,
 }
 
 #[derive(Clone, Debug)]
@@ -382,6 +382,13 @@ fn is_tool_directory(package_path: &str) -> bool {
     package_path.split('/').next() == Some("tool")
 }
 
+/// A `platform` rule may only be declared below `platform/`, and never in
+/// `platform/effect/`, where effects live.
+fn is_platform_directory(package_path: &str) -> bool {
+    let mut segments = package_path.split('/');
+    segments.next() == Some("platform") && segments.next().is_some_and(|s| s != "effect")
+}
+
 // ---------------------------------------------------------------------------
 // Loading
 // ---------------------------------------------------------------------------
@@ -428,15 +435,34 @@ impl Workspace {
             let id = map.load(&rel, &build_path)?;
             let read = buildfile::read_build_file(map.text(id), id);
             diagnostics.extend(read.errors);
-            if read.value.tool.is_some() && !is_tool_directory(&path) {
-                let rule = read.document.as_message().get("tool").map_or(Span::point(id, 0), |f| f.name_span);
+            let name = path.rsplit('/').next().filter(|n| !n.is_empty()).unwrap_or("<name>");
+            let misplaced = [
+                ("tool", read.value.tool.is_some() && !is_tool_directory(&path), "//tool/", format!("//tool/{name}")),
+                (
+                    "platform",
+                    read.value.platform.is_some() && !is_platform_directory(&path),
+                    "//platform/, outside //platform/effect/",
+                    format!("//platform/{}", if name == "effect" { "<name>" } else { name }),
+                ),
+            ];
+            for (rule, wrong, directory, destination) in misplaced {
+                if !wrong {
+                    continue;
+                }
+                let span = read.document.as_message().get(rule).map_or(Span::point(id, 0), |f| f.name_span);
                 diagnostics.push(
-                    Diagnostic::templated("tool-outside-tool-directory", rule)
+                    Diagnostic::templated("rule-outside-its-directory", span)
                         .with_bind("package", format!("//{path}"))
-                        .with_bind("name", path.rsplit('/').next().filter(|n| !n.is_empty()).unwrap_or("<name>")),
+                        .with_bind("rule", rule)
+                        .with_bind("directory", directory)
+                        .with_bind("destination", destination),
                 );
             }
-            if read.value.library.is_none() && read.value.binary.is_none() && read.value.tool.is_none() {
+            if read.value.library.is_none()
+                && read.value.binary.is_none()
+                && read.value.tool.is_none()
+                && read.value.platform.is_none()
+            {
                 diagnostics.push(
                     Diagnostic::templated("package-without-a-rule", Span::point(id, 0))
                         .with_bind("package_path", path.clone()),
@@ -1034,14 +1060,12 @@ impl Workspace {
                         None => set,
                     });
                 };
-                if !lib.platforms.is_empty() {
-                    narrow(lib.platforms.iter().map(|p| p.value).collect());
+                if let Some(set) = lib.admits.set() {
+                    narrow(set);
                 }
                 for tag in &lib.tags {
-                    if let Some(decl) = self.repo.tag(&tag.value) {
-                        if !decl.requires_platforms.is_empty() {
-                            narrow(decl.requires_platforms.iter().map(|p| p.value).collect());
-                        }
+                    if let Some(set) = self.repo.tag(&tag.value).and_then(|decl| decl.requires.set()) {
+                        narrow(set);
                     }
                 }
                 // A forbid list narrows a commitment but never makes one: a
@@ -1069,10 +1093,8 @@ impl Workspace {
         let mut allowed: BTreeSet<Platform> = Platform::ALL.into_iter().collect();
         for member in self.closure(target) {
             if let Some(lib) = &self.package(member.package).build.library {
-                if member.kind == RuleKind::Library && !lib.platforms.is_empty() {
-                    let declared: BTreeSet<Platform> =
-                        lib.platforms.iter().map(|p| p.value).collect();
-                    allowed = allowed.intersection(&declared).copied().collect();
+                if member.kind == RuleKind::Library {
+                    allowed.retain(|p| lib.admits.admits(*p));
                 }
             }
             for tag in self.tags(member) {
@@ -1084,6 +1106,35 @@ impl Workspace {
         allowed
     }
 
+    /// The platforms a target's suite runs on, one per backend its `test`
+    /// block names: the host for `NATIVE`, and for `JS` the first JavaScript
+    /// platform the target commits to, or else admits. Empty when the block
+    /// names none.
+    pub fn suite_platforms(&self, target: TargetId) -> Vec<Platform> {
+        let Some(suite) = self.package(target.package).test_suite(target.kind) else {
+            return Vec::new();
+        };
+        let allowed = self.platforms(target);
+        let declared = self.declared_platforms(target).unwrap_or_default();
+        let mut out = Vec::new();
+        for backend in &suite.backends {
+            let candidates = match backend.value {
+                Backend::Native => vec![crate::compiler::driver::host_native_platform()],
+                Backend::Js => Backend::Js.platforms().to_vec(),
+            };
+            let chosen = candidates
+                .iter()
+                .find(|p| declared.contains(p) && allowed.contains(p))
+                .or_else(|| candidates.iter().find(|p| allowed.contains(p)))
+                .or(candidates.first())
+                .copied();
+            if let Some(p) = chosen.filter(|p| !out.contains(p)) {
+                out.push(p);
+            }
+        }
+        out
+    }
+
     /// Explains why `platform` is not available to `target`: the member of the
     /// closure that rules it out, and how it was reached.
     pub fn platform_blocker(
@@ -1093,51 +1144,37 @@ impl Workspace {
     ) -> Option<PlatformBlocker> {
         for member in self.closure(target) {
             if let Some(lib) = &self.package(member.package).build.library {
-                if member.kind == RuleKind::Library
-                    && !lib.platforms.is_empty()
-                    && !lib.platforms.iter().any(|p| p.value == platform)
-                {
-                    let list: Vec<&str> =
-                        lib.platforms.iter().map(|p| p.value.slug()).collect();
+                if member.kind == RuleKind::Library && !lib.admits.admits(platform) {
                     return Some(PlatformBlocker {
                         member,
-                        why: format!(
-                            "{} declares platforms {}",
-                            self.label(member),
-                            list.join(", ")
-                        ),
-                        forbidden: false,
+                        why: format!("{} declares {}", self.label(member), lib.admits.phrase()),
+                        forbidden: None,
                     });
                 }
             }
             for tag in self.tags(member) {
                 if let Some(decl) = self.repo.tag(&tag.value) {
-                    if !decl.requires_platforms.is_empty()
-                        && !decl.requires_platforms.iter().any(|p| p.value == platform)
-                    {
-                        let list: Vec<&str> =
-                            decl.requires_platforms.iter().map(|p| p.value.slug()).collect();
+                    if !decl.requires.admits(platform) {
                         return Some(PlatformBlocker {
                             member,
                             why: format!(
                                 "{} is tagged \"{}\", which requires {}",
                                 self.label(member),
                                 tag.value,
-                                list.join(", ")
+                                decl.requires.phrase()
                             ),
-                            forbidden: false,
+                            forbidden: None,
                         });
                     }
-                    if decl.forbids(platform) {
+                    if let Some(word) = decl.forbids.naming(platform) {
                         return Some(PlatformBlocker {
                             member,
                             why: format!(
-                                "{} is tagged \"{}\", which forbids {}",
+                                "{} is tagged \"{}\", which forbids {word}",
                                 self.label(member),
                                 tag.value,
-                                platform.slug()
                             ),
-                            forbidden: true,
+                            forbidden: Some(word),
                         });
                     }
                 }
@@ -1343,12 +1380,12 @@ mod tests {
         let _ = std::fs::write(dir.join("lib/quiet/lib.buri"), "");
         let _ = std::fs::write(
             dir.join("lib/native/BUILD.buri"),
-            "library {\n  platforms: [LINUX, MACOS]\n}\n",
+            "library {\n  backends: [NATIVE]\n}\n",
         );
         let _ = std::fs::write(dir.join("lib/native/lib.buri"), "");
         let _ = std::fs::write(
             dir.join("cmd/page/BUILD.buri"),
-            "binary {\n  outputs: [{ platform: WEB }]\n}\n",
+            "binary {\n  outputs: [{ platform: \"web\" }]\n}\n",
         );
         let _ = std::fs::write(dir.join("cmd/page/main.buri"), "");
         let _ = std::fs::write(dir.join("cmd/anywhere/BUILD.buri"), "binary {\n}\n");

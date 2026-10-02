@@ -156,10 +156,10 @@ joining; the template supplies the backticks.
 | `{effect}` | The effect's name. |
 | `{escape}` | The one character after a backslash that is not an escape. |
 | `{expected}` | What the declaration, the grammar or the schema says: a rendered type, a decimal count, or a finished noun phrase (`` `;` ``, `a block`, `platform names`). |
-| `{expected_plural}` | The plural of what a bare word should have been (`platforms`, `architectures`), because the fix names the whole set. |
+| `{expected_plural}` | The plural of what a bare word should have been (`platforms`, `backends`), because the fix names the whole set. |
 | `{exports}` | The names a test's import asked for, quoted and joined (`` `a`, `b` ``), or the phrase `what the test needs`. |
 | `{feature}` | The `features.<name>` a schema wrote. |
-| `{field}` | A field's name: a build-file field as the schema spells it (`sources`, `arch`), a struct field as the source wrote it, or the `sources`/`generators` a file belongs under. |
+| `{field}` | A field's name: a build-file field as the schema spells it (`sources`, `variant`), a struct field as the source wrote it, or the `sources`/`generators` a file belongs under. |
 | `{field_type}` | The type of the field that blocks a derive. |
 | `{fields}` | The `diagnostics::names` enumeration of the fields with no value, or with no pattern. |
 | `{first_origin}` | The first of the two schemas that declare one proto type. |
@@ -189,7 +189,7 @@ joining; the template supplies the backticks.
 | `{module_file}` | The colliding module's file, from the repository root (`lib/money/cents.buri`). |
 | `{name}` | The identifier the diagnostic is about, where no narrower role name applies. See the note below the table. |
 | `{operations}` | The intrinsic operations a toolchain cannot compile, quoted and joined by `diagnostics::names`. |
-| `{output}` | A declared output, spelled the way a build file and `--output` spell it — `linux/x86_64`, or `macos` where the output named no architecture. **Not a target triple**: a triple carries the host's own architecture whenever the output named none, so a recorded diagnostic holding one pins the runner rather than the product. |
+| `{output}` | A native output's variant, spelled the way a build file spells it — `linux-x86_64`, or `macos` where the output named none. **Not a target triple**: a triple carries the host's own architecture whenever the output named none, so a recorded diagnostic holding one pins the runner rather than the product. |
 | `{operator}` | The operator's source text (`~`, `<<`, `Add`, `Negate`). |
 | `{other}` | The label at the far end of the reported dependency edge. |
 | `{owner}` | The label of the library whose surface or internals are being reached (`//lib/money`). |
@@ -198,9 +198,9 @@ joining; the template supplies the backticks.
 | `{package_path}` | A package's path from the repository root, with no leading `//` — every use already prefixes it. |
 | `{parent_package}` | The package that holds the colliding module. |
 | `{path}` | The module path an import wrote, the schema path an `import` line spells, or the labels a generator's tool reaches its own target through, joined with ` -> `. |
-| `{platform}` | The platform, spelled as the sentence wants it — `Platform::slug()` (`js`, `linux`) in prose, `Platform::proto()` (`JS`) where the sentence quotes a build file. |
-| `{platform_in_build_file}` | `Platform::proto()` — the spelling `test.platforms` uses (`JS`, `LINUX`). Two placeholders rather than one because the sentence and the build file disagree about case. |
-| `{platforms}` | The platforms a host effect is *not* allowed on, named inside the sentence — `Platform::sentence_phrase`, which writes the article and the plural (`the WEB platform`, `the MACOS and JS platforms`). |
+| `{platform}` | The platform as a build file names it: `native`, `node`, `web`. |
+| `{backend}` | A backend as `test.backends` spells it: `NATIVE`, `JS`. |
+| `{platforms}` | The platforms a host effect is *not* allowed on, named inside the sentence — `Platform::sentence_phrase`, which writes the article and the plural (`the web platform`, `the native and node platforms`). |
 | `{position}` | Where `self` may appear, as a phrase: `a function's first parameter`, `the first parameter`. |
 | `{problem}` | The whole message sentence, supplied by the call site. See “When a page binds its whole sentence”. |
 | `{profile}` | The build profile the invocation asked for — `BuildMode::name()`, `debug` or `release`. The two have different requirements, so the sentence about a missing one has to say which was asked for. |

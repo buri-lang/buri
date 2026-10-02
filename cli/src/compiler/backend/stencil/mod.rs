@@ -590,7 +590,7 @@ pub fn supported(target: Target) -> Result<abi::StencilTarget, String> {
         (p, a) => {
             return Err(format!(
                 "the stencil backend has no stencil library for {}-{}",
-                p.slug(),
+                p.machine(),
                 a.slug()
             ))
         }

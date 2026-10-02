@@ -13,8 +13,9 @@
 // `buri gen` rewrites only the fields it can derive from the sources —
 // `sources`, `dependencies`, and their `test`/`testing` counterparts. It may
 // reformat the file as `buri format` would, but the *contents* of the
-// hand-authored fields survive: `tags`, `platforms`, and `timeout_seconds`
-// above all, and `visibility`, `outputs` and `generators` with them. See CLI.md.
+// hand-authored fields survive: `tags`, `backends`, `platforms`, and
+// `timeout_seconds` above all, and `visibility`, `outputs` and `generators`
+// with them. It leaves a `platform` rule as written. See CLI.md.
 
 syntax = "proto3";
 
@@ -24,7 +25,8 @@ package buri.build.v1;
 // subdirectories that do not themselves contain a BUILD.buri belong to the
 // nearest ancestor package.
 //
-// A package declares at most one library, one binary and one tool. That is
+// A package declares at most one library, one binary, one tool and one
+// platform. That is
 // what makes `//lib/money` an unambiguous name for a directory, a library, and
 // the module `lib/money/lib.buri` all at once, and it is why no label in this
 // schema has a `:target` suffix.
@@ -37,6 +39,10 @@ message BuildFile {
 
   // The tool rooted at this package's `tool.buri`.
   Tool tool = 3;
+
+  // A platform outputs can be built for. Lives under the repository's
+  // top-level `platform/` directory, outside `platform/effect/`.
+  Platform platform = 4;
 }
 
 // A `library` requires `lib.buri` in the package directory. That file is the
@@ -89,12 +95,15 @@ message Library {
   // difference between a checked build and an unchecked one. See `buri docs build/tags`.
   repeated string tags = 3;
 
-  // The platforms this library can be built for. Unset means all of them, which
-  // is the common case — set this only for code that is genuinely
-  // platform-specific. A whitelist rather than an exclusion, so adding a
-  // platform to the toolchain never silently widens a library written before it
-  // existed.
-  repeated Platform platforms = 4;
+  // The backends this library can be built with. Unset means both. Set it only
+  // for code that relies on one backend's behaviour.
+  repeated Backend backends = 10;
+
+  // The platforms this library can be built for: `"native"`, `"node"` or
+  // `"web"`. Unset means all of them. Set it only for code that means
+  // something on one platform. With `backends` too, a platform must satisfy
+  // both.
+  repeated string platforms = 4;
 
   // Who may depend on this library. See VISIBILITY in BUILD-FILES.md.
   repeated string visibility = 5;
@@ -144,7 +153,7 @@ message Binary {
   repeated string dependencies = 2;
 
   // Exactly the same meaning as on a library: labels this target carries. A
-  // binary has no `platforms` field — its `outputs` already say which platforms
+  // binary has no `platforms` field: its `outputs` already say which platforms
   // it is built for.
   repeated string tags = 3;
 
@@ -242,73 +251,69 @@ message Generator {
 }
 
 message Output {
-  // The platform this artifact is built for. Every library in the transitive
-  // closure that declares `platforms` must admit it.
-  Platform platform = 1;
+  // A platform bundled with the toolchain: `"native"`, `"node"` or `"web"`.
+  // Every library in the transitive closure must admit it.
+  string platform = 1;
 
-  // Ignored, and must be unset, when the platform is JS, WEB or
-  // CLOUDFLARE_WORKER.
-  Arch arch = 2;
+  // Required when the platform declares variants, and one of them. `native`'s
+  // are `linux-arm64`, `linux-x86_64`, `macos-arm64` and `macos-x86_64`.
+  string variant = 6;
 
-  // The exported function of `main.buri` this artifact enters through. Unset
-  // means `main`.
+  // The function filling each of the platform's entries, where it is not the
+  // one named after the entry: `entries: { main: "mainForNode" }`.
   //
-  // One binary, several ways in: a page enters through `main` and a worker
-  // through `fetch`, out of one set of sources. Each entry builds its own
-  // context, is checked against its own platform's `core/host` grants, and is
-  // the root of its own dead-code elimination — so neither artifact holds what
-  // only the other reaches.
-  //
-  // The platform fixes the signature. LINUX, MACOS, JS and WEB take
-  // `fn <entry>(): Result<(), Str>`; CLOUDFLARE_WORKER takes
-  // `fn <entry>(request: Request): Response`. The wrong shape is a type error.
-  string entry = 5;
+  // One binary, several ways in. Each entry builds its own context and is the
+  // root of its own dead-code elimination, so neither artifact holds what only
+  // the other reaches.
+  map<string,string> entries = 7;
 
   // Artifact filename. Defaults to the package's directory name (plus `.mjs`
-  // for JS and WEB).
+  // for JavaScript).
   string artifact_name = 3;
 
-  // Rejected when the platform is WEB or CLOUDFLARE_WORKER: both are always ES
-  // modules, which is what a browser's `<script type="module">` loads and what
-  // a worker runtime imports.
-  JsOptions js = 4;
+  // Field 2 was `arch`, now the half of `variant` after the operating system.
+  // Field 4 was `js`: every JavaScript output is an ES module. Field 5 was
+  // `entry`, now `entries`. None of the numbers is reused.
+  reserved 2, 4, 5;
+  reserved "arch", "js", "entry";
 }
 
-// A platform is the set of effects its host exports, which is why WEB is one
-// of these and not a mode of JS. Both emit the same JavaScript; they differ in
-// what `core/host` grants, and that difference is checked per output when
-// `main` builds its context.
-enum Platform {
-  PLATFORM_UNSPECIFIED = 0;
-  LINUX = 1;
-  MACOS = 2;
-  JS = 3;
-  // A page in a browser: an `.mjs`, a `.css`, and an `.html` entry shell that
-  // loads them. Grants the reactive graph (`Ui`, `Watch`); grants no
-  // filesystem, standard input, environment or process to exit.
-  WEB = 4;
-  // A Cloudflare Worker: one `.mjs` whose default export the worker runtime
-  // calls per request. The entry is `fn fetch(request: Request): Response`.
-  // Grants a clock, randomness and outbound requests; grants no filesystem,
-  // standard input, environment, process to exit, port to hold open or
-  // document.
-  CLOUDFLARE_WORKER = 5;
+// How a program is compiled. Closed: each backend is built into the CLI.
+enum Backend {
+  BACKEND_UNSPECIFIED = 0;
+  // Machine code, linked into one executable.
+  NATIVE = 1;
+  // One ES module.
+  JS = 2;
 }
 
-enum Arch {
-  ARCH_UNSPECIFIED = 0;
-  X86_64 = 1;
-  ARM64 = 2;
-}
+// A platform: the entries it offers, and how an output of it may be built.
+// `native`, `node` and `web` are rules like this one, bundled with the
+// toolchain.
+message Platform {
+  repeated string sources = 1;
 
-message JsOptions {
-  // An ES module is the only kind this toolchain emits; the field exists so a
-  // build file can say so, and any other value is refused.
-  Module module = 1;
+  repeated string dependencies = 2;
 
-  enum Module {
-    MODULE_UNSPECIFIED = 0;  // ESM
-    ESM = 1;
+  // Names an output picks between with `variant`. A variant changes how an
+  // output is built, never what it may use.
+  repeated string variants = 3;
+
+  // The entries outputs of this platform fill.
+  repeated Entry entry = 4;
+
+  // Files the platform adds to every output.
+  repeated string assets = 5;
+
+  message Entry {
+    // The function an output fills it with, unless its `entries` says
+    // otherwise.
+    string name = 1;
+
+    Backend backend = 2;
+
+    // JS only: the adapter the host calls.
+    string js = 3;
   }
 }
 
@@ -337,7 +342,12 @@ message TestSuite {
   // says so where someone reading it will see it.
   uint32 timeout_seconds = 4;
 
-  // Platforms to run this suite on — one run per entry. Unset means one run, on
-  // the host platform. The suite inherits the target's tags either way.
-  repeated Platform platforms = 5;
+  // Backends to run this suite on, one run each. Unset means one run, natively.
+  // The suite inherits the target's tags either way.
+  repeated Backend backends = 6;
+
+  // Field 5 was `platforms`. A suite runs on a backend, and test
+  // implementations are plain Buri, so one runs anywhere.
+  reserved 5;
+  reserved "platforms";
 }

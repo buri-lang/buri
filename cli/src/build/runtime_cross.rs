@@ -170,7 +170,7 @@ fn resolve_uncached(target: Target) -> Result<Cross, link_refusal::Refusal> {
     if !runtime_src::AVAILABLE {
         return Err(refuse(
             "this toolchain carries no runtime sources to cross-build from",
-            "install a toolchain built on macOS or Linux, or add `{ platform: JS }` to `outputs`",
+            "install a toolchain built on macOS or Linux, or add `{ platform: \"node\" }` to `outputs`",
         ));
     }
     let triple = backend::triple_text(target).ok_or_else(|| {
