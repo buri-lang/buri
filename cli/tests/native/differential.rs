@@ -370,7 +370,8 @@ fn agreement_shard(at: usize, count: usize) {
     let mut failures: Vec<String> = Vec::new();
     let files = corpus_files();
     let mine = shard::of(&files, at, count);
-    for path in mine.iter().copied() {
+    for path in &mine {
+        let path = path.to_string();
         if NATIVE_ONLY.contains(&path.as_str()) {
             skipped.push(format!("{path} (native-only by design)"));
             continue;
