@@ -839,7 +839,9 @@ fn fruits<C: Allocator + Ui + Watch>(items: Signal<[Str]>, held: Signal<Str>): N
                     onPointerDown: .Some(fn(c, _at) => held.set(c, item)),
                     onPointerUp: .Some(fn(c, at) => {
                         match (at.overRow) {
-                            .Some(onto) => items.set(c, moved(c, items.get(c), held.get(c), onto)),
+                            .Some(onto) => {
+                                items.set(c, moved(c, items.get(c), held.get(c), onto))
+                            },
                             .None => {
                             },
                         }
@@ -854,7 +856,9 @@ fn fruits<C: Allocator + Ui + Watch>(items: Signal<[Str]>, held: Signal<Str>): N
 /// `picked` taken out of `items` and put back where `onto` stood.
 fn moved<C: Allocator>(ctx: C, items: [Str], picked: Str, onto: Str): [Str] {
     match (items.indexOf(onto)) {
-        .Some(at) => items.filter(ctx, fn(key) => key != picked).insertAt(ctx, at, picked),
+        .Some(at) => {
+            items.filter(ctx, fn(key) => key != picked).insertAt(ctx, at, picked)
+        },
         .None => items,
     }
 }

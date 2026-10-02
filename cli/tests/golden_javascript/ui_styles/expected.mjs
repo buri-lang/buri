@@ -25,18 +25,16 @@ const $k23=[$k11,$k12,$k22];
 const $k24=[$k23];
 const $k25=[5,$k24];
 const $k26=[$k25];
-const $k27=[$k26,[],void 0,void 0,void 0,void 0,void 0,void 0];
+const $k27=[$k26,[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
 const $k29=[2600n,'shrink-0'];
 const $k30=[$k29];
 const $k31=[$k30];
 const $k32=[5,$k31];
-const $k33=[void 0,void 0,void 0,void 0,void 0];
-const $k34=[$k22];
-const $k35=[$k34];
-const $k36=[5,$k35];
-const $k37=[$k36];
-const $k38=[3,$k37,[],$k33];
-const $k39=[$k38];
+const $k33=[$k22];
+const $k34=[$k33];
+const $k35=[5,$k34];
+const $k36=[$k35];
+const $k37=[void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
 $ui_sheet='*,*::before,*::after{box-sizing:border-box}\n*,*::before,*::after{border-width:0}\n*{overflow-wrap:break-word}\n:where(body){margin:0}\n:where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}\n:where(h1,h2,h3,h4,h5,h6){font-size:inherit;font-weight:inherit;margin:0}\n.lay-col{display:flex;flex-direction:column}\n.lay-row{display:flex;flex-direction:row}\n.grow-1{flex-grow:1}\n.shrink-0{flex-shrink:0}\n.gap-8{gap:8px}\n.p-r1{padding:1rem}\n.px-r0_5{padding-inline:0.5rem}\n.w-var{width:var(--buri-w)}\n.h-var{height:var(--buri-h)}\n.bg-f0f0f5{background-color:rgb(240,240,245)}\n.hover_bg-18181b:hover{background-color:rgb(24,24,27)}\n.fg-18181b{color:rgb(24,24,27)}\n.hover_fg-f0f0f5:hover{color:rgb(240,240,245)}\n.r-6{border-radius:6px}\n@media (min-width:40rem){\n.sm_hover_r-4:hover{border-radius:4px}\n}\n@media (min-width:48rem){\n.md_gap-16{gap:16px}\n.md_p-r2{padding:2rem}\n}\n@media (min-width:64rem){\n.lg_maxw-r64{max-width:64rem}\n}\n';
 $tree_declare_hook=$tree_declare;
 function __cmd_x_main_buri$main(){
@@ -69,21 +67,21 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const $t9=ui_node$stack$u3rqgv([$k21,[$t3],void 0,void 0,void 0,void 0,void 0,void 0]);
+  const $t9=ui_node$stack$u3rqgv([$k21,[$t3],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
   const $t10=ui_node$stack$u3rqgv($k27);
   let $t7;
   const $t8=void 0;
   if($t8!==void 0){
-    $t7=[[3,[[24,$t8],[25,$t8],$k32],[],$k33]];
+    $t7=[[3,[[24,$t8],[25,$t8],$k32],[],ui_node$noEvents$u3rqgv()]];
   }else if($t8===void 0){
-    $t7=$k39;
+    $t7=[[3,$k36,[],ui_node$noEvents$u3rqgv()]];
   }else{
     $abort('no arm matched');
   }
-  return $ui_node_mount(ctx_0,ui_node$stack$u3rqgv([$k10,[$t9,$t10,$t7],void 0,void 0,void 0,void 0,void 0,void 0]),[]);
+  return $ui_node_mount(ctx_0,ui_node$stack$u3rqgv([$k10,[$t9,$t10,$t7],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
 }
 function ui_node$stack$u3rqgv(config_0){
-  const events_1=[config_0[3],config_0[4],config_0[5],config_0[6],config_0[7]];
+  const events_1=[config_0[3],config_0[4],config_0[5],config_0[6],config_0[7],config_0[8],config_0[9],config_0[10]];
   const $t1=config_0[2];
   if($t1!==void 0){
     return [[4,$t1,$share(config_0[0]),$share(config_0[1]),events_1]];
@@ -92,4 +90,7 @@ function ui_node$stack$u3rqgv(config_0){
   }else{
     $abort('no arm matched');
   }
+}
+function ui_node$noEvents$u3rqgv(){
+  return $k37;
 }

@@ -32,12 +32,12 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const $t3=ui_node$stack$u3rqgv([[$k8,[3,[1,lit_1],$k13,$k18]],[],void 0,void 0,void 0,void 0,void 0,void 0]);
-  const $t4=ui_node$stack$u3rqgv([[$k8,[4,scope_3=>[[24,[0,$ui_effect_Scope_read(scope_3,width_2[0])]]]]],[],void 0,void 0,void 0,void 0,void 0,void 0]);
-  return $ui_node_mount(ctx_0,ui_node$stack$u3rqgv([$k4,[$t3,$t4,ui_node$stack$u3rqgv([[$k8,[12,$host_HostWatch_read(ctx_0[3],width_2[0])]],[],void 0,void 0,void 0,void 0,void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0]),[]);
+  const $t3=ui_node$stack$u3rqgv([[$k8,[3,[1,lit_1],$k13,$k18]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+  const $t4=ui_node$stack$u3rqgv([[$k8,[4,scope_3=>[[24,[0,$ui_effect_Scope_read(scope_3,width_2[0])]]]]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+  return $ui_node_mount(ctx_0,ui_node$stack$u3rqgv([$k4,[$t3,$t4,ui_node$stack$u3rqgv([[$k8,[12,$host_HostWatch_read(ctx_0[3],width_2[0])]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
 }
 function ui_node$stack$u3rqgv(config_0){
-  const events_1=[config_0[3],config_0[4],config_0[5],config_0[6],config_0[7]];
+  const events_1=[config_0[3],config_0[4],config_0[5],config_0[6],config_0[7],config_0[8],config_0[9],config_0[10]];
   const $t1=config_0[2];
   if($t1!==void 0){
     return [[4,$t1,$share(config_0[0]),$share(config_0[1]),events_1]];

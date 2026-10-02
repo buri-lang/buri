@@ -36,8 +36,8 @@ function __cmd_x_main_buri$main(){
   }
   const label_10='clicks';
   const count_11=[$host_HostUi_signal(ctx_0[2],0n)];
-  const config_23=[[0,label_10],[],void 0,c_12=>$host_HostUi_write(c_12[2],count_11[0],(n_13=>n_13+1n)($host_HostUi_read(c_12[2],count_11[0]))),void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
-  const events_24=ui_node$listen$u3rqgv(config_23[8],config_23[9],config_23[10],config_23[11],config_23[12]);
+  const config_23=[[0,label_10],[],void 0,c_12=>$host_HostUi_write(c_12[2],count_11[0],(n_13=>n_13+1n)($host_HostUi_read(c_12[2],count_11[0]))),void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
+  const events_24=ui_node$listen$u3rqgv(config_23[8],config_23[9],config_23[10],config_23[11],config_23[12],config_23[13],config_23[14],config_23[15]);
   let $t3;
   const $t4=config_23[4];
   if($t4!==void 0&&$t4===1){
@@ -101,7 +101,7 @@ function __cmd_x_main_buri$main(){
     }
     $t3=[[5,config_23[0],$t12,$t9,$t13,$t15,$t17,$t19,events_24]];
   }
-  const $t22=ui_node$stack$u3rqgv([$k6,[$t3,__cmd_x_main_buri$badge$u3rqgv([0,label_10],[1,count_11])],void 0,void 0,void 0,void 0,void 0,void 0]);
+  const $t22=ui_node$stack$u3rqgv([$k6,[$t3,__cmd_x_main_buri$badge$u3rqgv([0,label_10],[1,count_11])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
   const $t21=ui_theme$themed([[__cmd_x_main_buri$Card_color(0),__cmd_x_main_buri$cardTheme(0)],[__cmd_x_main_buri$Card_color(1),__cmd_x_main_buri$cardTheme(1)],[__cmd_x_main_buri$Card_color(2),__cmd_x_main_buri$cardTheme(2)]]);
   const whenTrue_16=__cmd_x_main_buri$appThemed(__cmd_x_main_buri$night);
   const whenFalse_17=__cmd_x_main_buri$appThemed(__cmd_x_main_buri$day);
@@ -196,10 +196,10 @@ function __cmd_x_main_buri$badge$u3rqgv(title_0,count_1){
       $abort('no arm matched');
     }
     return String($t1);
-  }],void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0]);
+  }],void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
 }
 function ui_node$stack$u3rqgv(config_0){
-  const events_1=[config_0[3],config_0[4],config_0[5],config_0[6],config_0[7]];
+  const events_1=ui_node$listen$u3rqgv(config_0[3],config_0[4],config_0[5],config_0[6],config_0[7],config_0[8],config_0[9],config_0[10]);
   const $t1=config_0[2];
   if($t1!==void 0){
     return [[4,$t1,$share(config_0[0]),$share(config_0[1]),events_1]];
@@ -209,8 +209,8 @@ function ui_node$stack$u3rqgv(config_0){
     $abort('no arm matched');
   }
 }
-function ui_node$listen$u3rqgv(onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4){
-  return [onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4];
+function ui_node$listen$u3rqgv(onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7){
+  return [onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7];
 }
 function ui_node$text$u3rqgv(config_0){
   const $t1=config_0[1];
