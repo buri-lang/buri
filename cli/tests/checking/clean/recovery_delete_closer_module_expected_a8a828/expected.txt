@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:67:1
+   |
+67 | 
+   | ^
+   |
+  --> main.buri:64:25
+   |
+64 | export fn hidden(): Str {
+   |                         ^ opened here
+   |
+   = fix: write `}` here

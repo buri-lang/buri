@@ -2915,12 +2915,13 @@ fn lambda_head(t: &Tree, params: &[LambdaParamData], ret: Option<TypeId>) -> Str
 /// it.
 fn template_text(t: &str) -> String {
     let mut out = String::new();
-    for c in t.chars() {
+    let cs: Vec<char> = t.chars().collect();
+    for (i, &c) in cs.iter().enumerate() {
         match c {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
             '$' => out.push_str("\\$"),
-            c => match control_escape(c) {
+            c => match literal_escape(&cs, i) {
                 Some(e) => out.push_str(&e),
                 None => out.push(c),
             },
@@ -3118,6 +3119,9 @@ pub fn type_text(t: &Tree, id: TypeId) -> String {
 /// back as the character itself, which makes the line display in an order
 /// other than the one it runs in.
 ///
+/// The one exception is inside an emoji sequence, which `literal_escape`
+/// decides because it needs the characters around this one.
+///
 /// The delimiters are the caller's business, because which of `"`, `'` and `$`
 /// needs a backslash depends on what the literal is delimited by.
 fn control_escape(c: char) -> Option<String> {
@@ -3128,6 +3132,61 @@ fn control_escape(c: char) -> Option<String> {
         '\0' => Some("\\0".into()),
         c if !standard_library::is_printable(c) => Some(format!("\\u{{{:x}}}", u32::from(c))),
         _ => None,
+    }
+}
+
+/// `control_escape` for the character at `cs[i]` of a string or a template's
+/// text, where the characters around it can keep an emoji whole.
+///
+/// **An emoji sequence prints as it was written**, though two of the
+/// characters UTS #51 builds one from are invisible on their own. A zero-width
+/// joiner stays itself between two Extended_Pictographic characters, the first
+/// maybe carrying a `U+FE0F` or a skin tone, so a family or an astronaut with
+/// a skin tone is not `👨\u{200d}👩\u{200d}👦`. A tag character stays itself
+/// inside a flag's tag sequence: `U+1F3F4`, one or more of `U+E0020` to
+/// `U+E007E`, then `U+E007F`. A joiner or a tag anywhere else is still an
+/// escape, because there it is exactly the hidden character `control_escape`
+/// is for. The variation selectors, the keycap mark and the skin tones are
+/// printable, so they need no rule.
+///
+/// `core/buri/ast`'s `inEmojiSequence` is the same rule, and both read the
+/// one `PICTOGRAPHIC` table. A template's holes break a sequence: each text
+/// part is judged alone, in both printers.
+fn literal_escape(cs: &[char], i: usize) -> Option<String> {
+    let before = cs.get(..i)?;
+    let (&c, after) = cs.get(i..)?.split_first()?;
+    if in_emoji_sequence(before, c, after) {
+        None
+    } else {
+        control_escape(c)
+    }
+}
+
+/// Whether `c`, between `before` and `after`, is a joiner or a tag that an
+/// emoji sequence holds.
+fn in_emoji_sequence(before: &[char], c: char, after: &[char]) -> bool {
+    let pictographic = |c: Option<&char>| c.is_some_and(|&c| standard_library::is_pictographic(c));
+    let tag_spec = |c: &&char| ('\u{e0020}'..='\u{e007e}').contains(*c);
+    match c {
+        '\u{200d}' => {
+            let base = match before {
+                [.., base, '\u{fe0f}' | '\u{1f3fb}'..='\u{1f3ff}'] => Some(base),
+                [.., base] => Some(base),
+                [] => None,
+            };
+            pictographic(base) && pictographic(after.first())
+        }
+        '\u{e0020}'..='\u{e007f}' => {
+            let spec_before = before.iter().rev().take_while(tag_spec).count();
+            let opened = before.iter().rev().nth(spec_before) == Some(&'\u{1f3f4}');
+            if c == '\u{e007f}' {
+                opened && spec_before > 0
+            } else {
+                let spec_after = after.iter().take_while(tag_spec).count();
+                opened && after.get(spec_after..).and_then(<[char]>::first) == Some(&'\u{e007f}')
+            }
+        }
+        _ => false,
     }
 }
 
@@ -3152,16 +3211,16 @@ fn quote_char(c: char) -> String {
 /// `"$.tags[2]"` does not grow a backslash every time the file is formatted.
 fn quote(s: &str) -> String {
     let mut out = String::from("\"");
-    let mut rest = s.chars().peekable();
-    while let Some(c) = rest.next() {
+    let cs: Vec<char> = s.chars().collect();
+    for (i, &c) in cs.iter().enumerate() {
         match c {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
             // A `$` is ordinary content, except before a `{`: that pair reads
             // back as the start of a hole, which would make this a template
             // rather than the string it came from.
-            '$' if rest.peek() == Some(&'{') => out.push_str("\\$"),
-            c => match control_escape(c) {
+            '$' if matches!(cs.get(i..), Some([_, '{', ..])) => out.push_str("\\$"),
+            c => match literal_escape(&cs, i) {
                 Some(e) => out.push_str(&e),
                 None => out.push(c),
             },

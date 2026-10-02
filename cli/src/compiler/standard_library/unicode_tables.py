@@ -1,4 +1,4 @@
-"""Writes the Unicode tables `core/char` and `core/str` read.
+"""Writes the Unicode tables `core/char`, `core/str` and `core/buri/ast` read.
 
 The tables are checked in, so a build needs no network and no Unicode
 installation. This script is how they were made, and running it again is how
@@ -33,6 +33,7 @@ D36 = "0123456789abcdefghijklmnopqrstuvwxyz"
 
 CHAR_FILE = "sources/character.buri"
 STR_FILE = "sources/str.buri"
+AST_FILE = "sources/buri_ast.buri"
 START = "// --- Generated Unicode tables"
 END = "// --- End of the generated Unicode tables"
 
@@ -80,7 +81,13 @@ def quote(text, category):
     A character outside General Categories `C` and `Z`, or the space, is
     written as itself and every other one as a `\\u{...}` escape, which is
     `Char.isPrintable` and the rule `buri format` prints a literal by.
+
+    `buri format` also keeps a joiner or a tag character raw inside an emoji
+    sequence, which no table holds, so a table that does fails here rather
+    than coming out spelled differently from the formatter.
     """
+    if any(c == "‍" or 0xE0020 <= ord(c) <= 0xE007F for c in text):
+        raise ValueError("a joiner or a tag character would need the emoji rule")
     out = ['"']
     for c in text:
         if c == '"':
@@ -256,6 +263,13 @@ def build(ucd):
         general = category.get(cp, "Cn")
         return 0 if cp == 0x20 or general[0] not in "CZ" else None
 
+    def joinable(cp):
+        # What a zero-width joiner may stand between in an emoji ZWJ sequence
+        # (UTS #51 §1.4.9). An unassigned code point is Extended_Pictographic
+        # too, but it prints as an escape, and a joiner beside an escape would
+        # be the one invisible character left in the literal.
+        return 0 if cp in pictographic and printable(cp) is not None else None
+
     def combining_class(cp):
         return combining.get(cp) or None
 
@@ -279,6 +293,14 @@ def build(ucd):
                 "PRINTABLE",
                 "Everything outside General Categories `C` and `Z`, plus the space.",
                 range_table(to_ranges(printable), 0),
+            ),
+        ],
+        AST_FILE: [
+            (
+                "PICTOGRAPHIC",
+                "Extended_Pictographic, less what is unassigned: what an emoji ZWJ "
+                "sequence joins.",
+                range_table(to_ranges(joinable), 0),
             ),
         ],
         STR_FILE: [
@@ -339,7 +361,12 @@ def render(tables, category):
     for name, why, text in tables:
         out.append("")
         out.append(f"/// {why}")
-        out.append(f"let {name}: Str = {quote(text, category)};")
+        # The layout `buri format` gives it: on the `let`'s own line when it
+        # fits in 88 columns, on the next line, indented, when it does not.
+        line = f"let {name}: Str = {quote(text, category)};"
+        if len(line) > 88:
+            line = f"let {name}: Str =\n    {quote(text, category)};"
+        out.append(line)
     out.append("")
     out.append(END + " -------------------")
     return "\n".join(out) + "\n"
