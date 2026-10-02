@@ -306,16 +306,15 @@ pub fn build_at(name: &str, source: &str, probe: Option<&str>, profile: Profile)
 /// one (SPEC rule 35). So this goes through `Backend::emit`, which is the entry
 /// the *build* uses and the one that knows what a test root is.
 fn build_tests(name: &str, source: &str) -> PathBuf {
+    build_tests_as(name, "main.buri", source)
+}
+
+/// [`build_tests`], with the source standing at module path `file`.
+fn build_tests_as(name: &str, file: &str, source: &str) -> PathBuf {
     let mut map = SourceMap::new();
     let mut cache = buri::parsing::parser::Cache::new();
-    let analysis = driver::analyze_snippet_in(
-        None,
-        &mut map,
-        &mut cache,
-        "main.buri",
-        source,
-        Role::TestSource,
-    );
+    let analysis =
+        driver::analyze_snippet_in(None, &mut map, &mut cache, file, source, Role::TestSource);
     assert!(!analysis.diagnostics.has_errors(), "{}", render(&analysis.diagnostics, &map));
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
@@ -4755,4 +4754,48 @@ test "notEmpty on a one-element list" {
         out.status,
         String::from_utf8_lossy(&out.stderr)
     );
+}
+
+/// `core/platforms/testing/state` on the release backend, under the heap check:
+/// the values it keeps are given back at exit, and nested updates of two states
+/// take the one lock without waiting on themselves.
+///
+/// The source stands at an effect's testing surface, the only place that may
+/// import the module. `repositories/testing/state_for_an_effect` is the same
+/// claim on the debug backend and on JavaScript.
+#[test]
+fn a_state_keeps_its_value_and_gives_it_back_on_the_release_backend() {
+    if let Some(why) = can_execute() {
+        eprintln!("skipped: {why}");
+        return;
+    }
+    let source = r#"
+from "core/platforms/testing/state" import * as state;
+from "core/testing/assert" import * as assert;
+
+test "update answers A and the value persists" {
+    let s = state.new(0);
+    let _ = state.update(s, fn(c, n) => (n + 1, n + 1));
+    assert.equal(state.update(s, fn(c, n) => (n + 1, n + 10)), 11);
+    assert.equal(state.read(s), 2);
+}
+
+test "two states are independent, and one updates inside the other" {
+    let a = state.new(["x"]);
+    let b = state.new(["y"]);
+    let moved = state.update(a, fn(c, xs) => {
+        let inner = state.update(b, fn(d, ys) => (ys.push(d, "${xs.length()}"), ys.length()));
+        (xs.push(c, "z"), inner)
+    });
+    assert.equal(moved, 2);
+    assert.equal(state.read(a), ["x", "z"]);
+    assert.equal(state.read(b), ["y", "1"]);
+}
+"#;
+    let binary =
+        build_tests_as("platform-state", "platform/effect/probe/testing/probe.buri", source);
+    let mut cmd = Command::new(&binary);
+    cmd.env("BURI_TEST_FROM", "0");
+    let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
+    assert_eq!(ran.status, 0, "a state on the release backend:\n{}", ran.stderr);
 }

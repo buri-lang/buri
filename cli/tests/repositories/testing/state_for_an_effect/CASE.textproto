@@ -1,0 +1,63 @@
+# core/platforms/testing/state, through the place it's for: the testing surface
+# of an effect package, //platform/effect/counter/testing. The suite runs on
+# both backends under the heap check, so a value the runtime keeps and never
+# gives back fails it.
+#
+# Then the two refusals: a state used inside its own update stops the program,
+# and an ordinary test source can't import the module at all.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an effect's testing surface keeps state in core/platforms/testing/state on both backends, and an ordinary test source is refused it"
+
+run {
+  args: ["test", "//lib/tally", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+run {
+  args: ["test", "//lib/tally", "--force", "--output=js"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+# A read inside the state's own update has no value to read.
+edit {
+  file: "lib/tally/test/counter.buri"
+  replace: "assert.equal(counter().add(2), 2);"
+  with: "assert.equal(counter().readInside(), 0);"
+}
+
+run {
+  args: ["test", "//lib/tally", "--force"]
+  exit: 1
+  golden: "nested.txt"
+}
+
+run {
+  args: ["test", "//lib/tally", "--force", "--output=js"]
+  exit: 1
+  golden: "nested.txt"
+}
+
+edit {
+  file: "lib/tally/test/counter.buri"
+  replace: "assert.equal(counter().readInside(), 0);"
+  with: "assert.equal(counter().add(2), 2);"
+}
+
+# An ordinary test source keeps its own values and is refused the module.
+edit {
+  file: "lib/tally/test/counter.buri"
+  replace: "from \"core/testing/assert\" import * as assert;\n"
+  with: "from \"core/testing/assert\" import * as assert;\nfrom \"core/platforms/testing/state\" import * as state;\n"
+}
+
+run {
+  args: ["test", "//lib/tally", "--force"]
+  exit: 1
+  golden: "refused.txt"
+  stream: ERR
+}

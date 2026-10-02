@@ -1,0 +1,104 @@
+//! core/platforms/testing/state — a value that outlives one call, for an
+//! effect's test implementation.
+//!
+//! ```buri ignore why="only a module under platform/effect/**/testing may import this, and an example here is not one"
+//! from "core/map" import * as map;
+//! from "core/map" import { Map };
+//! from "core/platforms/testing/state" import * as state;
+//!
+//! export struct TestKv { store: state.State<Map<Str, Str>> }
+//!
+//! impl TestKv {
+//!     export fn get(self, key: Str): Option<Str> {
+//!         state.read(self.store).get(key)
+//!     }
+//!
+//!     export fn put(self, key: Str, value: Str): () {
+//!         state.update(self.store, fn(c, m) => (m.insert(c, key, value), ()))
+//!     }
+//! }
+//!
+//! export fn kv(): TestKv { TestKv { store: state.new(map.empty()) } }
+//! ```
+//!
+//! An effect method gets no `ctx`, and Buri has no mutation, so a test
+//! implementation can't keep what it was told in itself. It keeps a `State`
+//! instead: a handle, with the value held by the runtime. Copies of a handle
+//! share one value, and each `new` is a fresh one.
+//!
+//! - **`update` is one atomic read-modify-write.** No other `read` or
+//!   `update` of any state runs while `f` does, even under `Tasks.parallel`
+//!   on a native release build. `f` gets a `StateAllocator`, because building
+//!   the next value usually allocates.
+//! - **Using a state inside its own `update` stops the program.** `f` already
+//!   holds the value, so a `read` or `update` of the same state there has
+//!   nothing to read. Other states are fine.
+//! - **Only an effect's testing surface may import this**: a module under
+//!   `platform/effect/` with a `testing` segment, bundled or `//`. Anything
+//!   else, an ordinary test source included, is
+//!   `platform-testing-only-import`.
+//!
+//! Every `new` and `update` deep-copies the value into memory no
+//! `alloc.scoped` arena owns, so `update` is O(size of the value). That's fine
+//! for a test double and the reason this isn't a general-purpose mutable box.
+
+from "core/alloc" import * as alloc;
+from "core/effect" import { Allocator, Region };
+
+/// A handle to a value the runtime holds. Copies share the value.
+///
+/// The `[T]` is always empty. It's there so a `State<T>` counts as holding a
+/// `T`: a state can't smuggle a context past the capture rule (SPEC 10.6).
+export struct State<T>(Int, [T]);
+
+/// The allocator `update` hands its function. It charges nothing, like the
+/// platform's own.
+export struct StateAllocator {}
+
+impl Allocator for StateAllocator {
+    fn allocate(self, bytes: Int): Region {
+        Region(bytes)
+    }
+}
+
+/// A fresh state holding `initial`.
+export fn new<T>(initial: T): State<T> {
+    State(stateNew(alloc.copyAcross(initial)), [])
+}
+
+/// The value `s` holds now.
+///
+/// Waits while another thread is inside an `update`. Stops the program when
+/// called inside an `update` of `s` itself.
+export fn read<T>(s: State<T>): T {
+    stateRead(s.0)
+}
+
+/// Replaces the value with `f`'s first answer and returns its second.
+///
+/// One atomic read-modify-write: no other `read` or `update` runs until `f`
+/// returns. Stops the program when called inside an `update` of `s` itself.
+export fn update<T, A>(s: State<T>, f: fn(StateAllocator, T) => (T, A)): A {
+    let held: T = stateTake(s.0);
+    let (next, answer) = f(StateAllocator {}, held);
+    let _ = statePut(s.0, alloc.copyAcross(next));
+    answer
+}
+
+// --- The runtime's half -------------------------------------------------------
+//
+// The runtime keeps a whole `T` per handle, with the release glue to give it
+// back at exit. `stateTake` holds the lock that `statePut` releases, so one
+// `update` is one critical section. `cli/runtime/testing.rs` has the argument.
+
+/// Keeps `value`, and answers its handle.
+fn stateNew<T>(value: T): Int;
+
+/// A new reference to the value `handle` holds.
+fn stateRead<T>(handle: Int): T;
+
+/// Takes the lock and moves the value out.
+fn stateTake<T>(handle: Int): T;
+
+/// Puts a value back and releases the lock.
+fn statePut<T>(handle: Int, value: T): ();

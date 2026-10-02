@@ -1,0 +1,5 @@
+// //platform/effect/counter: nothing in production yet. The test
+// implementation is the point.
+
+/// What a counter starts at.
+export let START: Int = 0;

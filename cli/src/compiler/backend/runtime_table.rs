@@ -1441,6 +1441,33 @@ pub const ENTRIES: &[Entry] = &[
     ec("ui_testing.Headless.memo", "buri_rt_ui_testing_headless_memo", Ret::Scalar),
     ec("ui_testing.Headless.watch", "buri_rt_ui_testing_headless_watch", Ret::Void),
     e("ui_testing.installThemes", "buri_rt_ui_testing_install_themes", Ret::Void),
+    // `core/platforms/testing/state`: a whole `T` per handle, in the shape of
+    // `Headless`'s `signal`, `read` and `write` above. `stateNew` and
+    // `statePut` carry the release so the runtime can give the value back at
+    // exit; `stateTake` moves the value out, so it needs no retain but takes
+    // the pair anyway for `read`'s one C shape.
+    v(eo(
+        "platforms_testing_state.stateNew",
+        "buri_rt_platforms_testing_state_state_new",
+        Ret::Scalar,
+        0,
+    )),
+    v(el(
+        "platforms_testing_state.stateRead",
+        "buri_rt_platforms_testing_state_state_read",
+        Ret::Out,
+    )),
+    v(el(
+        "platforms_testing_state.stateTake",
+        "buri_rt_platforms_testing_state_state_take",
+        Ret::Out,
+    )),
+    v(eo(
+        "platforms_testing_state.statePut",
+        "buri_rt_platforms_testing_state_state_put",
+        Ret::Void,
+        1,
+    )),
     // `stylesheet()` — the extracted sheet, a compile artifact `buri test`
     // writes beside the binary and hands over the way it hands over the snapshot
     // directory (#53 phase 5). The same string the JavaScript backend splices in
