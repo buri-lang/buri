@@ -620,6 +620,7 @@ not_a_repository: true
 run  { args: ["lint", "//cmd/app"]  exit: 1  golden: "lint.txt" }
 run  { args: ["build"]  exit: 0  cwd: "lib/money" }
 edit { file: "cmd/app/BUILD.buri"  replace: "..."  with: "..." }
+move { from: "lib/a/input.txt"  to: "input.txt.away" }
 file { path: "cmd/f/main.buri"  golden: "formatted.buri" }
 path { path: ".buri/out"  exists: false }
 path { path: "out"  symlink: ".buri/out/js" }
@@ -636,6 +637,9 @@ whose contract is about what they leave on disk rather than what they print:
 `clean --outputs` and the `out/` symlink say almost nothing, and an exit code
 cannot tell a cache that survived from one that was deleted and rebuilt. Exactly
 one expectation per `path` step, and like `exit` it is never inferred.
+
+`move` renames a file inside the scratch copy. Moving one away and back takes
+it out of the repository and restores it byte for byte, which an `edit` can't.
 
 `exit` is hand-written and required. Only prose gets blessed, so blessing can
 rewrite what a diagnostic *says* and can never quietly turn a rejection into an
