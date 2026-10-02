@@ -4778,8 +4778,11 @@ mod tests {
         };
         // SAFETY: a live, aligned destination.
         unsafe { buri_rt_heap_stats(&raw mut before) };
+        // Large beside what the other threads allocate meanwhile, so the bound
+        // below tells this reservation apart from their noise.
+        let reserved: u64 = 64 * 1024 * 1024;
         let a = buri_rt_alloc_arena_create();
-        let _ = buri_rt_alloc_arena_allocate(a, 1024 * 1024);
+        let _ = buri_rt_alloc_arena_allocate(a, reserved as i64);
         let mut after = BuriHeapStats {
             live_blocks: 0,
             live_bytes: 0,
@@ -4793,15 +4796,15 @@ mod tests {
         // SAFETY: as above.
         unsafe { buri_rt_heap_stats(&raw mut after) };
         // Not an equality: `cargo test`'s other threads are allocating while
-        // this runs. The claim is about the *megabyte* — whatever else the
-        // binary did meanwhile, none of it was this arena's reservation
-        // arriving on the heap.
+        // this runs. The claim is about the reservation — whatever else the
+        // binary did meanwhile, none of it was this arena's pages arriving on
+        // the heap.
         assert!(
-            after.total_bytes - before.total_bytes < 1024 * 1024,
+            after.total_bytes - before.total_bytes < reserved,
             "an arena's reservation reached the heap: {} bytes of blocks",
             after.total_bytes - before.total_bytes
         );
-        assert!(after.arena_bytes >= before.arena_bytes + 1024 * 1024);
+        assert!(after.arena_bytes >= before.arena_bytes + reserved);
         let _ = buri_rt_alloc_arena_release(a);
     }
 
