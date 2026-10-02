@@ -317,6 +317,12 @@ inside an enum payload, as an array element. It is heap-allocated only when a
 `[T]` of it is built, and then the whole array is one allocation. So `[(A, B)]`
 from `list.zip` is one block, not `n` pairs.
 
+`middle::rc` leans on this. Reading `out.at` out of a struct local reads a word
+of the local's own value and loads through no block, so it stays sound after
+`out`'s count has gone elsewhere. That is why such a read is no use of `out`
+(MEMORY.md §5.3, "Keeping the count at one"). Putting structs or tuples behind
+a pointer would break that rule.
+
 ### 5.1 The calling convention flattens
 
 Buri-to-Buri calls do not use the platform C ABI. Every aggregate parameter is
