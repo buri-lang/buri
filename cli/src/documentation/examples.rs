@@ -143,7 +143,7 @@ pub struct Block {
     /// `None` — the default, and every block but one — grants the whole host,
     /// because a snippet builds no output and a document about `core/fs` must
     /// not fail because the harness picked a platform without a filesystem.
-    /// Writing `platform=JS` is how a document says "and this is what does not
+    /// Writing `platform=node` is how a document says "and this is what does not
     /// compile there", which is the only way an error page for
     /// `effect-not-on-platform` can carry a program that provokes it.
     pub platform: Option<crate::build::buildfile::Platform>,
@@ -441,8 +441,8 @@ fn parse_block(
     // proving nothing.
     let platform = match info.get("platform") {
         None => None,
-        Some(name) => match crate::build::buildfile::Platform::parse(name) {
-            Some(p) => Some(p),
+        Some(name) => match crate::build::buildfile::PlatformName::bundled(name) {
+            Some(p) => Some(p.host_platform()),
             None => {
                 return Err(fail(
                     format!("`{name}` is not a platform"),

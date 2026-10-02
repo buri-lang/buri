@@ -9,7 +9,9 @@ reproduction: none
 ```textproto schema=build
 tool {
     generate {
-        accepts: [{ language: "proto", type_schema: "config.proto:Config" }]
+        accepts: [
+            { language: "proto", type_schema: "config.proto:Config" },
+        ]
     }
 }
 ```
@@ -23,7 +25,9 @@ The values live in text format files. Accept those:
 ```textproto schema=build
 tool {
     generate {
-        accepts: [{ language: "textproto", type_schema: "config.proto:Config" }]
+        accepts: [
+            { language: "textproto", type_schema: "config.proto:Config" },
+        ]
     }
 }
 ```

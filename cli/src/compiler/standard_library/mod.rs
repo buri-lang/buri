@@ -784,10 +784,16 @@ pub fn host_withholds(platform: Platform, export: &str) -> bool {
 }
 
 impl HostGrant {
-    /// `LINUX, MACOS, JS` — the platforms that do grant this, as a diagnostic
+    /// `native, node` — the platforms that do grant this, as a diagnostic
     /// writes them. Empty for a row no platform grants.
     pub fn platforms_phrase(&self) -> String {
-        self.platforms.iter().map(|p| p.proto()).collect::<Vec<_>>().join(", ")
+        let mut names: Vec<&str> = Vec::new();
+        for p in self.platforms {
+            if !names.contains(&p.proto()) {
+                names.push(p.proto());
+            }
+        }
+        names.join(", ")
     }
 
     /// The half of the fix that offers a platform to build for, or nothing.
@@ -1385,7 +1391,7 @@ mod tests {
     fn tasks_is_granted_on_every_platform_including_the_page() {
         let grant = host_grant_of("tasks").expect("`tasks` is in the grant table");
         assert_eq!(grant.effect, "`Tasks`");
-        assert_eq!(grant.platforms_phrase(), "LINUX, MACOS, JS, WEB, CLOUDFLARE_WORKER");
+        assert_eq!(grant.platforms_phrase(), "native, node, web, CLOUDFLARE_WORKER");
         for platform in Platform::ALL {
             for name in ["HostTasks", "tasks"] {
                 assert!(
@@ -1421,7 +1427,7 @@ mod tests {
     fn spawn_is_withheld_from_a_page_and_a_worker() {
         let grant = host_grant_of("spawn").expect("`spawn` is in the grant table");
         assert_eq!(grant.effect, "`Spawn`");
-        assert_eq!(grant.platforms_phrase(), "LINUX, MACOS, JS");
+        assert_eq!(grant.platforms_phrase(), "native, node");
         for platform in [Platform::Web, Platform::CloudflareWorker] {
             for name in ["HostSpawn", "spawn"] {
                 assert!(
@@ -1604,7 +1610,7 @@ mod tests {
         let fs = host_grant_of("fs").expect("`fs` is in the grant table");
         assert_eq!(
             fs.elsewhere_clause(),
-            ", or build this target for a platform that grants it: LINUX, MACOS, JS"
+            ", or build this target for a platform that grants it: native, node"
         );
         // `Tasks` is granted everywhere since the scope landed, so its clause
         // names every platform — which is a clause a reader can still act on,
@@ -1612,7 +1618,7 @@ mod tests {
         let tasks = host_grant_of("tasks").expect("`tasks` is in the grant table");
         assert_eq!(
             tasks.elsewhere_clause(),
-            ", or build this target for a platform that grants it: LINUX, MACOS, JS, WEB, \
+            ", or build this target for a platform that grants it: native, node, web, \
              CLOUDFLARE_WORKER"
         );
     }

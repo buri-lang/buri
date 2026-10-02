@@ -8,7 +8,7 @@ reproduction: none
 
 ```textproto ignore why="a data file that does not parse"
 name: "api"
-ports: [80 443]
+ports: [80, 443]
 ```
 
 ```text

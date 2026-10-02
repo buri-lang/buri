@@ -7,11 +7,20 @@ reproduction: none
 # A value is one its field holds
 
 ```textproto ignore why="a data file, not a build file"
-port: "80"        # an `int32` takes a whole number
-port: 99999999999 # that fits 32 bits
-tier: SILVER      # an enum takes one of its values' names, or a number
-limits: 4         # a message is written `limits { ... }`
-name: ["a", "b"]  # a field that is not `repeated` takes one value
+port: "80"
+
+# an `int32` takes a whole number
+port: 99999999999
+
+# that fits 32 bits
+tier: SILVER
+
+# an enum takes one of its values' names, or a number
+limits: 4
+
+# a message is written `limits { ... }`
+name: ["a", "b"]
+# a field that is not `repeated` takes one value
 ```
 
 | Field | Value |

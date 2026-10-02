@@ -130,7 +130,7 @@ fn string_at(fields: &[Field], offset: u32) -> Option<(&str, &str)> {
         Node::List(items, _) => items.iter().find(|i| covers(i.span(), offset)).and_then(|i| {
             match i {
                 Node::Str(s, _) => Some((field.name.as_str(), s.as_str())),
-                // `outputs: [{ platform: JS }]` — a list of blocks.
+                // `outputs: [{ platform: "node" }]` — a list of blocks.
                 Node::Message(m, _) => string_at(&m.fields, offset),
                 _ => None,
             }
@@ -365,6 +365,8 @@ pub fn completion(session: &Session, path: &Path, text: &str, position: Position
             "visibility" => visibilities(session),
             "sources" => files(path, text),
             "tags" => tags(session),
+            "platform" | "platforms" => platforms(),
+            "variant" => variants(),
             _ => Vec::new(),
         },
         // An unquoted value: an enum constant, or a `true`/`false`.
@@ -501,6 +503,24 @@ fn files(build_file: &Path, text: &str) -> Vec<Entry> {
         .filter(|name| !text.contains(&format!("\"{name}\"")))
         // 17 file.
         .map(|name| (name, 17, String::new(), Vec::new()))
+        .collect()
+}
+
+/// The platforms bundled with the toolchain, by the bare name an output
+/// writes.
+fn platforms() -> Vec<Entry> {
+    crate::build::buildfile::PlatformName::BUNDLED
+        .iter()
+        // 12 value.
+        .map(|p| (p.name().to_string(), 12, "platform".to_string(), Vec::new()))
+        .collect()
+}
+
+/// Every variant a bundled platform declares.
+fn variants() -> Vec<Entry> {
+    crate::build::buildfile::PlatformName::BUNDLED
+        .iter()
+        .flat_map(|p| p.variants().into_iter().map(move |v| (v.to_string(), 12, p.name().to_string(), Vec::new())))
         .collect()
 }
 
