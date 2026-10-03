@@ -1,0 +1,15 @@
+// EXPECT: `println` needs `Stdout`, which this context does not bind
+//
+// `Scoped<C>` is a `Stdout` only where `C` is one, so the context `scoped`
+// wraps has to bind it. The diagnostic lands on this file's call, not inside
+// `core/alloc` where the missing binding is finally asked for.
+from "core/alloc" import * as alloc;
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator };
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context { Allocator: host.alloc };
+    alloc.scoped(ctx, fn(c) => io.println(c, "hi"))
+        .mapErr(fn(_e) => "could not write")
+}

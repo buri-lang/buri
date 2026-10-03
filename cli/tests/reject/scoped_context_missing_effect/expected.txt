@@ -1,0 +1,14 @@
+error: `println` needs `Stdout`, which this context does not bind [unbound-effect]
+  --> cmd/scoped_context_missing_effect/main.buri:13:32
+   |
+13 |     alloc.scoped(ctx, fn(c) => io.println(c, "hi"))
+   |                                ^^^^^^^^^^^^^^^^^^^
+   |
+   = the context binds `Allocator`
+   = fix: bind `Stdout` in the `context { ... }` this call is handed
+
+     alloc.scoped hands its body a Scoped<C>, which is a Stdout only when the
+     context it wraps is one. Type checking takes the wrapper at its word, so
+     the missing binding turns up when the program is compiled for the context
+     it actually got.
+
