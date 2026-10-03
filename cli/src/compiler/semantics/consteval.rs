@@ -36,6 +36,7 @@
 //! deeply nested constant costs a bounded amount of compile time rather than an
 //! unbounded one.
 
+use crate::compiler::semantics::resolve::{BodyMap, ConstMap};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp, Stmt};
 use crate::compiler::semantics::types::{
     ConstId, FnId, LocalId, ParamRole, Prim, Tables,
@@ -121,8 +122,8 @@ pub struct Folder<'a> {
     /// Bodies as they were *before* extraction rewrote any of them. Folding
     /// against a rewritten body would fold a call into an already-extracted
     /// style, which the flattener cannot read back.
-    bodies: &'a crate::compiler::semantics::resolve::BodyMap,
-    consts: &'a crate::compiler::semantics::resolve::ConstMap,
+    bodies: &'a BodyMap,
+    consts: &'a ConstMap,
     steps: u32,
     depth: u32,
     /// Constants currently being evaluated, so a cyclic initializer gives up
@@ -141,8 +142,8 @@ pub struct Env {
 impl<'a> Folder<'a> {
     pub fn new(
         tables: &'a Tables,
-        bodies: &'a crate::compiler::semantics::resolve::BodyMap,
-        consts: &'a crate::compiler::semantics::resolve::ConstMap,
+        bodies: &'a BodyMap,
+        consts: &'a ConstMap,
     ) -> Folder<'a> {
         Folder { tables, bodies, consts, steps: 0, depth: 0, open_consts: Vec::new() }
     }

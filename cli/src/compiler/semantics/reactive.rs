@@ -20,7 +20,8 @@
 //! function that body calls, but never the body of a lambda.
 
 use crate::compiler::modules::Loaded;
-use crate::compiler::semantics::resolve::{ModuleScope, Sym, Walked};
+use crate::compiler::semantics::layered::Layered;
+use crate::compiler::semantics::resolve::{BodyMap, ModuleScope, Sym, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{FnId, Tables};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
@@ -38,8 +39,8 @@ use crate::hash::Set as HashSet;
 pub fn run(
     loaded: &Loaded,
     tables: &Tables,
-    scopes: &crate::compiler::semantics::layered::Layered<ModuleScope>,
-    bodies: &crate::compiler::semantics::resolve::BodyMap,
+    scopes: &Layered<ModuleScope>,
+    bodies: &BodyMap,
     diags: &mut Diagnostics,
     walked: &Walked,
     waiting: &HashSet<FnId>,
@@ -62,20 +63,14 @@ pub fn run(
     // function value, called elsewhere, so `reaches` never crosses one.
     let waiting = waiting_set(bodies, load, walked, waiting);
 
-    let mut ids: Vec<FnId> = bodies.keys().collect();
-    ids.sort_by_key(|f| f.index());
-    for id in ids {
-        if walked.function(tables, id) {
-            if let Some(body) = bodies.get(&id) {
-                walk(&body.expr, &builders, load, &waiting, diags);
-            }
-        }
+    for (_, body) in walked.functions(tables, bodies) {
+        walk(&body.expr, &builders, load, &waiting, diags);
     }
     waiting
 }
 
 /// A named member of a module in the loaded set, when this compilation has it.
-fn fn_of(loaded: &Loaded, scopes: &crate::compiler::semantics::layered::Layered<ModuleScope>, path: &str, name: &str) -> Option<FnId> {
+fn fn_of(loaded: &Loaded, scopes: &Layered<ModuleScope>, path: &str, name: &str) -> Option<FnId> {
     let index = loaded.modules.iter().position(|m| m.path == path)?;
     match scopes.get(index)?.own.get(name)? {
         Sym::Fn(id) => Some(*id),
@@ -91,7 +86,7 @@ fn fn_of(loaded: &Loaded, scopes: &crate::compiler::semantics::layered::Layered<
 /// none of those again: they call nothing declared after them, so nothing
 /// read here can change it.
 fn waiting_set(
-    bodies: &crate::compiler::semantics::resolve::BodyMap,
+    bodies: &BodyMap,
     load: FnId,
     walked: &Walked,
     known: &HashSet<FnId>,
@@ -99,10 +94,7 @@ fn waiting_set(
     let mut set: HashSet<FnId> = known.clone();
     loop {
         let mut changed = false;
-        for (id, body) in bodies {
-            if walked.settled(id) {
-                continue;
-            }
+        for (id, body) in walked.unsettled(bodies) {
             if !set.contains(&id) && reaches(&body.expr, load, &set).is_some() {
                 set.insert(id);
                 changed = true;

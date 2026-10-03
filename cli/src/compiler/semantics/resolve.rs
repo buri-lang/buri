@@ -308,19 +308,30 @@ pub struct Walked {
 }
 
 impl Walked {
-    /// Whether the base walked this function's body.
-    pub fn settled(&self, id: FnId) -> bool {
-        id.index() < self.fns_from
+    /// The bodies the base didn't walk, in id order.
+    pub fn unsettled<'m>(
+        &self,
+        bodies: &'m BodyMap,
+    ) -> impl Iterator<Item = (FnId, &'m std::sync::Arc<typed::Body>)> {
+        bodies.iter_from(self.fns_from)
     }
 
-    /// Whether a pass walks this function's body.
-    pub fn function(&self, tables: &Tables, id: FnId) -> bool {
-        !self.settled(id) && self.wants(tables.fn_info(id).span.file)
+    /// The bodies a pass walks, in id order.
+    pub fn functions<'m>(
+        &'m self,
+        tables: &'m Tables,
+        bodies: &'m BodyMap,
+    ) -> impl Iterator<Item = (FnId, &'m std::sync::Arc<typed::Body>)> {
+        self.unsettled(bodies).filter(|(id, _)| self.wants(tables.fn_info(*id).span.file))
     }
 
-    /// Whether a pass walks this constant's initializer.
-    pub fn constant(&self, tables: &Tables, id: ConstId) -> bool {
-        id.index() >= self.consts_from && self.wants(tables.const_(id).span.file)
+    /// The constants a pass walks, in id order.
+    pub fn constants<'m>(
+        &'m self,
+        tables: &'m Tables,
+        consts: &'m ConstMap,
+    ) -> impl Iterator<Item = (ConstId, &'m typed::Expr)> {
+        consts.iter_from(self.consts_from).filter(|(id, _)| self.wants(tables.const_(*id).span.file))
     }
 
     fn wants(&self, file: FileId) -> bool {
@@ -452,15 +463,10 @@ impl<'a> Checker<'a> {
                 self.diags,
                 &walked,
             );
+            // What the pass rewrote is what it wrote into its own layer.
             styled = crate::compiler::semantics::styles::Styled {
-                bodies: bodies
-                    .iter()
-                    .filter(|(id, body)| {
-                        !self.bodies.get(id).is_some_and(|was| std::sync::Arc::ptr_eq(was, body))
-                    })
-                    .map(|(id, body)| (id, std::sync::Arc::clone(body)))
-                    .collect(),
-                consts,
+                bodies: bodies.written().map(|(id, body)| (id, std::sync::Arc::clone(body))).collect(),
+                consts: consts.written().map(|(id, init)| (id, init.clone())).collect(),
                 ..found
             };
         }
