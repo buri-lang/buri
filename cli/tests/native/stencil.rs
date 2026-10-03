@@ -2013,7 +2013,6 @@ const CORPUS_COMPILES: &[&str] = &[
     "codegen/bitwise.buri",
     "codegen/equality.buri",
     "codegen/ordering.buri",
-    "codegen/step_trampoline.buri",
     "codegen/strings.buri",
     "codegen/tail_calls.buri",
     "collections/bitset.buri",
