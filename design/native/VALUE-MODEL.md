@@ -513,6 +513,15 @@ Monomorphization resolves every effect call to a direct call and
 statically known answer and the only question is whether the *implementation
 value* carries data.
 
+Every `context { … }` expression has a type of its own in the checker, but two
+with the same bindings in the same order have the same layout and resolve every
+effect call the same way. So monomorphization rewrites each context type to the
+first one minted with equal bindings (`canonical_contexts`), and a generic over
+`C: Allocator` is instantiated once per list of bindings rather than once per
+test. Symbols spell a context by its bindings rather than its `CtxTypeId`, so
+adding a context renames nothing. Binding order stays part of the identity
+because it is the layout's order.
+
 Every production implementation is a zero-sized struct — `struct HostFileSystem {}`,
 `struct HostStdout {}`, twenty of them (`platform_host.buri`), and a host is a
 struct of them, so it is zero-sized too. A context of zero-sized values is
