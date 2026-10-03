@@ -22,7 +22,7 @@ whole archive, with a warning in the build log.
 Nothing about the program is wrong. A different toolchain compiles it unchanged.
 
 The same feature carries `ring`, so `core/crypto`'s `seal`, `open`,
-`verifyEs256` and `verifyEd25519` are refused the same way.
+`verifyEs256`, `verifyRs256` and `verifyEd25519` are refused the same way.
 
 ## Why this is a refusal and not a fallback
 
