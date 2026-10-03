@@ -731,7 +731,7 @@ fn outside_a_repository_is_a_bad_invocation() {
 /// prints *inside* one is `repositories/cli/version`.
 ///
 /// `--verbose` is here rather than in that case because its second line is the
-/// hash of whichever `buri` the suite just compiled, which no checked-in
+/// identity of whichever `buri` the suite just compiled, which no checked-in
 /// golden can hold. It is the only way to learn which build of a version is
 /// running, so a bug report can name one.
 #[test]
@@ -744,7 +744,7 @@ fn version_works_outside_a_repository() {
     run.silent_about("REPO.buri");
 
     let verbose = nowhere.run(&["version", "--verbose"]);
-    verbose.ok().says("this executable: sha256 ");
+    verbose.ok().says("this executable: ");
     verbose.silent_about("unreadable");
 }
 

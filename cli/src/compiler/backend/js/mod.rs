@@ -72,6 +72,32 @@ impl Backend for Js {
         tables: &Tables,
         opts: &Options<'_>,
     ) -> Result<Vec<Emitted>, Diagnostics> {
+        self.emit_with(program, tables, opts.profile, true)
+    }
+}
+
+impl Js {
+    /// [`Backend::emit`] for a test bundle: the same program, printed without
+    /// the minifier's passes. A test bundle is written, run once and thrown
+    /// away, so folding, dead-code elimination and mangling buy it nothing and
+    /// cost seconds on a large repository. Every artifact a build writes still
+    /// goes through [`Backend::emit`].
+    pub fn emit_unminified(
+        &self,
+        program: &Program,
+        tables: &Tables,
+        profile: Profile,
+    ) -> Result<Vec<Emitted>, Diagnostics> {
+        self.emit_with(program, tables, profile, false)
+    }
+
+    fn emit_with(
+        &self,
+        program: &Program,
+        tables: &Tables,
+        profile: Profile,
+        minify: bool,
+    ) -> Result<Vec<Emitted>, Diagnostics> {
         let missing = self.missing_intrinsics(program, tables);
         if !missing.is_empty() {
             let mut diags = Diagnostics::new();
@@ -85,11 +111,14 @@ impl Backend for Js {
             return Err(diags);
         }
 
-        let release = opts.profile == Profile::Release;
-        let out = generate::generate(program, tables, opts.profile);
+        let release = profile == Profile::Release;
+        let out = generate::generate(program, tables, profile);
         // Debug builds stay readable: the names are what make a stack trace
         // useful, and `--release` is where size matters.
         let render = |stmts: Vec<javascript::Stmt>, roots: &[String]| {
+            if !minify {
+                return javascript::print(&stmts, true).into_bytes();
+            }
             let stmts = javascript::minify(stmts, roots, release);
             javascript::print(&stmts, !release).into_bytes()
         };

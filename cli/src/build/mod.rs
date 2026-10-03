@@ -28,6 +28,9 @@
 pub mod actions;
 pub mod buildfile;
 pub mod cache;
+/// Which build of `buri` is running: the id the linker wrote into the
+/// executable's header, which the cache key folds in.
+pub mod exe_identity;
 /// `generators`: a program the build runs, whose output becomes a module. The
 /// wire it speaks, the action that runs it, and the store the compiler reads
 /// what it produced through.
