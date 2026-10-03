@@ -591,7 +591,17 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // measures is a name the source did declare being reported as a name
         // nobody declared, and that is what those three take away: 318 of the
         // same 2184 is 14.6%, and fifteen is that rounded up.
-        ("a syntax error stays a syntax error", "insert-stray") => 15,
+        // Re-read when RS256 landed in `core/crypto` (issue 221), with
+        // `conformance/lib/crypto/test/rs256_wycheproof.buri` and a longer
+        // `signatures.buri` beside it. No parser, checker or middle-end file is
+        // in that change: it is the runtimes, `crypto.buri` and tests. The new
+        // tests are rows of `assert.isTrue(rs256(KEY_1, "...", "..."))`, a call
+        // inside an assertion, which is what this row measures. 343 of 2274 is
+        // 15.1%, and sixteen is that rounded up. With the Wycheproof file taken
+        // out and `signatures.buri` and `crypto.buri` at their earlier contents,
+        // the row is back under fifteen, so those files are the whole of the
+        // move.
+        ("a syntax error stays a syntax error", "insert-stray") => 16,
         // Re-read with the same F5 wave the `insert-stray` paragraph above
         // records: the new conformance files moved this row to 24.2% of a
         // grown population (409 of its cases), with no parser or checker code
