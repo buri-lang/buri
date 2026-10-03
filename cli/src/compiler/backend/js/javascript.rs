@@ -500,7 +500,7 @@ impl Stmt {
 
 /// A rewrite of the tree. Each method's default rebuilds the node from its
 /// rewritten children, so a pass overrides only the nodes it acts on.
-pub(crate) trait Rewrite {
+trait Rewrite {
     fn expr(&mut self, e: Expr) -> Expr {
         e.map_children(self)
     }
@@ -514,7 +514,7 @@ pub(crate) trait Rewrite {
 
 /// A read-only walk of the tree. Each method's default visits the node's
 /// children, so a pass overrides only the nodes it looks at.
-pub(crate) trait Visit {
+trait Visit {
     fn expr(&mut self, e: &Expr) {
         e.visit_children(self);
     }

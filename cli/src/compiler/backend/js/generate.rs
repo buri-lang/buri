@@ -25,6 +25,7 @@ use crate::compiler::middle::monomorphize::{self, Desc, FuncKind, Program, Progr
 use crate::compiler::middle::rc;
 use crate::diagnostics::Invariant as _;
 use crate::hash::{Map as HashMap, Set as HashSet};
+use std::sync::OnceLock;
 
 pub struct Output {
     pub stmts: Vec<Stmt>,
@@ -112,7 +113,6 @@ pub struct Gen<'a> {
     /// State for the function currently being emitted.
     func: FnState,
     pub(crate) missing: Vec<String>,
-    runtime: Vec<String>,
     defensive_aborts: bool,
     /// Declarations a helper needed to emit alongside what it returned.
     extra: Vec<Stmt>,
@@ -134,9 +134,30 @@ pub struct Gen<'a> {
 }
 
 /// The runtime's exports, so a missing one is a build error rather than a
-/// `ReferenceError` at run time.
-fn runtime_names() -> Vec<String> {
-    let mut out = Vec::new();
+/// `ReferenceError` at run time. Scanned once per process.
+fn runtime_names() -> &'static HashSet<String> {
+    static NAMES: OnceLock<HashSet<String>> = OnceLock::new();
+    NAMES.get_or_init(scan_runtime_names)
+}
+
+/// The runtime's top-level declarations, as written or stripped. Split and
+/// stripped once per process.
+fn runtime_declarations(pretty: bool) -> &'static [(String, String)] {
+    static WRITTEN: OnceLock<Vec<(String, String)>> = OnceLock::new();
+    static STRIPPED: OnceLock<Vec<(String, String)>> = OnceLock::new();
+    let written = WRITTEN.get_or_init(|| {
+        javascript::split_declarations(crate::compiler::backend::js::runtime_source())
+    });
+    if pretty {
+        return written;
+    }
+    STRIPPED.get_or_init(|| {
+        written.iter().map(|(name, src)| (name.clone(), javascript::strip(src))).collect()
+    })
+}
+
+fn scan_runtime_names() -> HashSet<String> {
+    let mut out = HashSet::default();
     let src = crate::compiler::backend::js::runtime_source();
     let bytes = src.as_bytes();
     // A byte scan: the runtime is mostly ASCII but its comments are not, so
@@ -155,7 +176,7 @@ fn runtime_names() -> Vec<String> {
                     j = j.saturating_add(1);
                 }
                 if let Some(Ok(name)) = bytes.get(start..j).map(std::str::from_utf8) {
-                    out.push(name.to_string());
+                    out.insert(name.to_string());
                 }
             }
         }
@@ -181,7 +202,6 @@ impl<'a> Gen<'a> {
                 marks: Marks::default(),
             },
             missing: Vec::new(),
-            runtime: runtime_names(),
             defensive_aborts: profile.defensive_aborts(),
             extra: Vec::new(),
             consts: Vec::new(),
@@ -322,9 +342,8 @@ pub fn generate(
     // drop what a program does not reach. It is hand-written JavaScript, so it
     // is compacted by the tokenizer in `javascript::strip` rather than by the AST
     // printer.
-    for (name, src) in javascript::split_declarations(crate::compiler::backend::js::runtime_source()) {
-        let src = if profile.pretty() { src } else { javascript::strip(&src) };
-        stmts.push(Stmt::RawDecl { name, src });
+    for (name, src) in runtime_declarations(profile.pretty()) {
+        stmts.push(Stmt::RawDecl { name: name.clone(), src: src.clone() });
     }
     // Where the shared constants go, once the bodies below have said which
     // ones they need.
@@ -851,7 +870,7 @@ fn local_name(i: usize, original: &str) -> String {
 
 impl<'a> Gen<'a> {
     pub(crate) fn runtime_has(&self, name: &str) -> bool {
-        self.runtime.iter().any(|n| n == name)
+        runtime_names().contains(name)
     }
 
     pub(crate) fn prim_of(&self, ty: &Ty) -> Option<Prim> {
