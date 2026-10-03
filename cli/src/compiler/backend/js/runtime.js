@@ -2412,50 +2412,6 @@ async function $host_HostNetwork_fetch(self, request) {
   }
 }
 
-// A worker's entry, behind the one crossing it needs.
-//
-// The platform calls this per request with its own `Request` and sends what it
-// answers, so the module's default export is the whole of the artifact's
-// surface. What crosses is `$host_HostNetwork_fetch`'s crossing in reverse: a Buri
-// `Request` is `[method, url, headers, body, timeoutMillis]` and a `Response` is
-// `[status, headers, body]`, a `Header` is `[name, value]`, a payloadless enum
-// is its variant index, and a `[U8]` is an ordinary array of numbers. A request
-// a worker was *handed* carries no timeout of its own, so that field is zero.
-//
-// The body is read for every method that may carry one. `GET` and `HEAD` never
-// do, and asking a platform for the body of one is an error rather than an
-// empty answer.
-//
-// `await`ed unconditionally: an entry that never parks answers a plain value,
-// and awaiting one costs a microtask on a path that is already asynchronous.
-//
-// `env` is the second argument the platform calls a module worker with: its
-// bindings, vars and secrets among them. It is what `host.env` reads in a
-// worker, so it is kept before the entry runs (`$workerEnv`).
-async function $fetchEntry(entry, request, env) {
-  $workerEnv = env ?? {};
-  const method = $HTTP_METHOD.indexOf(request.method);
-  const headers = [];
-  for (const [name, value] of request.headers) headers.push([name, value]);
-  const carries = request.method !== "GET" && request.method !== "HEAD";
-  const body = carries
-    ? Array.from(new Uint8Array(await request.arrayBuffer()))
-    : [];
-  // A payloadless enum is its variant index as a plain number, and an `Int`
-  // is a `BigInt`: `Method` crosses as the first and `status` as the second.
-  const answer = await entry([
-    method < 0 ? 0 : method,
-    request.url,
-    headers,
-    body,
-    0n,
-  ]);
-  return new Response(new Uint8Array(answer[2]), {
-    status: Number(answer[0]),
-    headers: Array.from(answer[1], (h) => [h[0], h[1]]),
-  });
-}
-
 // --- Crossing to a platform's `js` file ---------------------------------------
 //
 // A repository platform's `js` file calls its entry and implements its
@@ -3033,21 +2989,9 @@ function $crypto_rsaPkcs1Sha256Verify(n, e, message, signature) {
   return diff === 0;
 }
 
-// A worker's environment: the `env` the platform handed `$fetchEntry`, or null
-// in every artifact that is not a worker being called.
-//
-// One variable rather than one per request, because the platform hands every
-// request an isolate serves the same bindings: two requests in flight at once
-// read the same answers whichever set it last. A worker has no process
-// environment of its own to fall back to, so a worker is never answered from
-// `process.env`, even on a runtime that has one.
-let $workerEnv = null;
-
-// Where `variable` and `allVariables` read. In a worker only the bindings whose
-// value is a string are variables — a var and a secret both arrive as one —
-// and a binding to a resource, a KV namespace say, is not.
+// Where `variable` and `allVariables` read: the process environment, where
+// the engine has one.
 function $environmentVariables() {
-  if ($workerEnv !== null) return $workerEnv;
   return typeof process !== "undefined" ? process.env : {};
 }
 
@@ -3057,9 +3001,7 @@ function $host_HostEnvironment_variable(self, name) {
   return typeof v === "string" ? $some(v) : undefined;
 }
 
-// A worker has no command line.
 function $host_HostEnvironment_arguments(self) {
-  if ($workerEnv !== null) return [];
   if (typeof Bun !== "undefined") return Bun.argv.slice(2);
   if (typeof process !== "undefined") return process.argv.slice(2);
   return [];

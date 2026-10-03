@@ -195,10 +195,6 @@ pub const MODULES: &[StdModule] = &[
         platform: true,
         ..m("platform/effect/testing", include_str!("sources/host_testing.buri"))
     },
-    // The host values a `CLOUDFLARE_WORKER` entry binds, and nothing else's:
-    // every other entry takes its platform's host as a parameter. It goes when
-    // Cloudflare becomes a platform a repository writes for itself.
-    m("core/host", include_str!("sources/host.buri")),
     // The bundled platforms' `platform.buri`, each declaring its host type and
     // its bodiless entry. A program imports its host type from here by the
     // platform's bare name: `from "native" import { NativeHost };`.
@@ -371,13 +367,9 @@ pub fn is_entry_declaration(module: &str, name: &str) -> bool {
         .is_some_and(|p| p.entries().contains(&name))
 }
 
-/// The same, for what gets built. `None` for a worker, whose entry takes no
-/// host.
-pub fn host_type(platform: Platform) -> Option<(&'static str, &'static str)> {
-    match platform {
-        Platform::CloudflareWorker => None,
-        _ => host_type_of(platform.proto()),
-    }
+/// The same, for what gets built.
+pub fn host_type(platform: crate::build::buildfile::Platform) -> Option<(&'static str, &'static str)> {
+    host_type_of(platform.proto())
 }
 
 /// The type of the field called `field` on a bundled platform's host, read
@@ -423,8 +415,10 @@ pub fn roots_phrase() -> String {
 /// reader to guess. Most rows are an abbreviation and the same module spelled
 /// out: `core/char` is `core/character`, `core/proc` is `core/process`,
 /// `core/num` is `core/number`, and `core/ordmap` and `core/ordset` are
-/// `core/orderedmap` and `core/orderedset`. The last two moved: effects live
-/// apart from any platform, under `platform/effect`.
+/// `core/orderedmap` and `core/orderedset`. The last three moved: effects live
+/// apart from any platform, under `platform/effect`, and an entry takes its
+/// platform's host rather than importing `core/host`'s values, which
+/// [`retired_note`] says.
 ///
 /// Nothing here is loadable, and [`find`] is asked first, so a name that came
 /// back into service would shadow its own row rather than collide with it.
@@ -437,7 +431,24 @@ pub const RETIRED: &[(&str, &str)] = &[
     ("core/proc", "core/process"),
     ("core/effect", "platform/effect"),
     ("core/host/testing", "platform/effect/testing"),
+    ("core/host", "platform/effect"),
 ];
+
+/// What a retired path's diagnostic adds, where the new path is not the whole
+/// answer: `core/host`'s values are an entry's host now, and only the effects
+/// moved to `platform/effect`. A note, and the fix that replaces the
+/// template's.
+pub fn retired_note(path: &str) -> Option<(&'static str, &'static str)> {
+    let canonical = path.strip_suffix("/lib.buri").unwrap_or(path);
+    (canonical == "core/host").then_some((
+        "an entry takes its platform's host and binds the effects it needs from the host's \
+         fields; the effects themselves are declared in `platform/effect`",
+        "take the host in the entry and bind its fields:\n     \
+         export fn main(host: NodeHost): Result<(), Str> {\n         \
+         run(context { Allocator: host.alloc, Stdout: host.stdout })\n     \
+         }",
+    ))
+}
 
 /// What a retired path is called now, or `None` for a path that never named a
 /// module here. Read with the same `/lib.buri` canonicalisation [`find`] uses,
@@ -594,13 +605,6 @@ fn range_table(module: &str, name: &str) -> Option<Vec<(u32, u32)>> {
         .collect()
 }
 
-// ---------------------------------------------------------------------------
-// What each platform's host grants
-// ---------------------------------------------------------------------------
-
-/// The path of the one module whose exports vary by platform.
-pub const HOST_MODULE: &str = "core/host";
-
 /// The module only an effect's testing surface may import.
 pub const PLATFORM_STATE_MODULE: &str = "core/platforms/testing/state";
 
@@ -609,307 +613,6 @@ pub const PLATFORM_STATE_MODULE: &str = "core/platforms/testing/state";
 pub fn is_effect_testing_path(path: &str) -> bool {
     let bare = path.trim_start_matches("//");
     bare.starts_with("platform/effect/") && bare.split('/').any(|seg| seg == "testing")
-}
-
-/// One effect `core/host` can grant, and the platforms that grant it.
-///
-/// **This table is what makes a platform *be* the set of effects its host
-/// exports** (`design/ui-reactivity.md` §Targets). A platform that does not
-/// grant an effect does not export the names for it, so asking for one is an
-/// unresolved name at the line that asked — not a run-time failure, and not a
-/// convention.
-pub struct HostGrant {
-    /// The effect this implements, as `platform/effect` or `ui/effect` spells it.
-    /// It is the name a reader wrote on the left of the context binding that
-    /// failed, so it is what the diagnostic leads with.
-    pub effect: &'static str,
-    /// The names `core/host` exports for it: the implementation struct, and
-    /// the value `main` binds.
-    ///
-    /// **Both are withheld together**, and that is load-bearing rather than
-    /// tidy. A struct with no private field can be constructed by name from
-    /// anywhere that can see it, so withholding `net` while exporting
-    /// `HostNetwork` would leave the authority one `Network: host.HostNetwork {}` away.
-    pub exports: &'static [&'static str],
-    /// The platforms that grant it. Order follows [`Platform::ALL`], so the
-    /// list a diagnostic prints reads the same way the schema does.
-    pub platforms: &'static [Platform],
-    /// Why the platforms outside that list do not grant it, in one clause. A
-    /// refusal that says only "not granted" tells a reader what happened and
-    /// not what to do about it.
-    pub because: &'static str,
-}
-
-use crate::build::buildfile::Platform;
-
-/// Granted everywhere. Written once rather than repeated on five rows.
-const EVERY_PLATFORM: &[Platform] = &Platform::ALL;
-
-/// Everything a platform's host can grant, and who grants it.
-///
-/// The rows in the first group are granted by every platform, so they never
-/// produce a diagnostic; they are here so that the table is the whole of
-/// `core/host` rather than the interesting half of it, and so that a name
-/// added to `host.buri` and forgotten here is caught by
-/// `every_host_export_is_in_the_grant_table`.
-const HOST_GRANTS: &[HostGrant] = &[
-    HostGrant {
-        effect: "`Allocator`",
-        exports: &["alloc"],
-        platforms: EVERY_PLATFORM,
-        because: "every platform can allocate",
-    },
-    HostGrant {
-        effect: "`Stdout`",
-        exports: &["stdout"],
-        platforms: EVERY_PLATFORM,
-        because: "every platform has somewhere to write a line",
-    },
-    HostGrant {
-        effect: "`Stderr`",
-        exports: &["stderr"],
-        platforms: EVERY_PLATFORM,
-        because: "every platform has somewhere to write a line",
-    },
-    HostGrant {
-        effect: "`Clock`",
-        exports: &["clock"],
-        platforms: EVERY_PLATFORM,
-        because: "every platform can read a clock",
-    },
-    HostGrant {
-        effect: "`Random`",
-        exports: &["rand"],
-        platforms: EVERY_PLATFORM,
-        because: "every platform has a source of randomness",
-    },
-    // `Entropy` is granted everywhere `Random` is, and the two rows reading alike
-    // is the point rather than a copy: what separates the effects is what they
-    // *promise*, not where they are available. Every platform this language
-    // targets has an operating-system generator behind it — `getrandom(2)` and
-    // `getentropy(2)` natively, `crypto.getRandomValues` in every JavaScript
-    // runtime and every browser, secure context or not — so there is no
-    // platform to withhold it from and no program that has to ask whether its
-    // target can keep a secret.
-    //
-    // What can be missing is the *toolchain*: a runtime archive built without
-    // the `crypto` feature has no body for `host.HostEntropy.bytes`, and
-    // `backend::cryptography_gap` turns that into a refusal naming the
-    // operation. That is the same arrangement `net` has, and it is a different
-    // question from this table's.
-    HostGrant {
-        effect: "Entropy",
-        exports: &["entropy"],
-        platforms: EVERY_PLATFORM,
-        because: "every platform has an operating-system generator behind it",
-    },
-    // `Network` was three platforms until a request stopped blocking. The reason
-    // it was withheld from WEB was never authority — a page is the one place
-    // that can already reach any origin it is allowed to — it was that
-    // `Network.fetch` did not return until the answer arrived, and a page whose
-    // one thread is waiting is a frozen page. WEB grants it now, and the
-    // callback-shaped `Fetch` that stood in for it is gone.
-    HostGrant {
-        effect: "`Network`",
-        exports: &["net"],
-        platforms: EVERY_PLATFORM,
-        because: "every platform can make a request",
-    },
-    // The rows that vary. Two platforms have no operating system under them —
-    // a page and a worker — and nothing but a page has a document over it.
-    // One row for two effects, because there is one filesystem: `host.fs`
-    // implements `FileSystemRead` and `FileSystemWrite` both, and which of the two authorities
-    // a program takes is a fact about its *context* rather than about what the
-    // platform offers. A platform either has a filesystem under it or does not.
-    HostGrant {
-        effect: "`FileSystemRead` or `FileSystemWrite`",
-        exports: &["fs"],
-        platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
-        because: "neither a page nor a worker has a filesystem to read",
-    },
-    HostGrant {
-        effect: "`Stdin`",
-        exports: &["stdin"],
-        platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
-        because: "neither a page nor a worker has standard input",
-    },
-    // A worker has no command line, but it does have an environment: the
-    // platform calls it as `fetch(request, env, ctx)`, and `env` carries its
-    // vars and its secrets. That is where a worker's keys belong, so the row
-    // grants it there, backed by that argument (buri-lang/buri#208).
-    HostGrant {
-        effect: "`Environment`",
-        exports: &["env"],
-        platforms: &[Platform::Linux, Platform::Macos, Platform::Js, Platform::CloudflareWorker],
-        because: "a page has no command line or environment",
-    },
-    HostGrant {
-        effect: "`Process`",
-        exports: &["proc"],
-        platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
-        because: "a page has no process to exit — a mounted interface stays live — and a \
-                  worker answers a request rather than running one",
-    },
-    // Starting a program, which is a bigger authority than ending one — a
-    // context that can run `sh` can do anything its user can — so it is its own
-    // row rather than a second export on `Process`'s. The platforms are `Process`'s
-    // for a different reason: a page and a worker have no process table to put
-    // a child in, and node does.
-    HostGrant {
-        effect: "`Spawn`",
-        exports: &["spawn"],
-        platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
-        because: "neither a page nor a worker has a process table to put a child in",
-    },
-    // Granted on every platform, and WEB is the one that had to be argued.
-    //
-    // It was withheld until `core/tasks` gained a `scope`. The argument for
-    // withholding it was `parallel`: it returns only when the last task has
-    // finished, WEB is the one platform where that is reachable from a running
-    // interface rather than from `main`, and a page's own concurrency is its
-    // event loop. What answers it is that the page's event loop is what a task
-    // *is* here — the JavaScript host starts the tasks together and awaits
-    // them together, so a page waiting for a task is a page with an
-    // outstanding promise, which is what every effect it already has does.
-    // `Network` reached WEB the same way, once `fetch` stopped waiting.
-    //
-    // And the reason to want it is the shape that arrived with the scope. A
-    // page's work is a socket that stays open, a retry, a timer: started once
-    // and run beside everything else. `spawn` is how a program says that, and
-    // withholding the grant meant a page could not say it at all.
-    HostGrant {
-        effect: "`Tasks`",
-        exports: &["tasks"],
-        platforms: EVERY_PLATFORM,
-        because: "a page's concurrency is its event loop, and a task is what a program puts \
-                  on it: `spawn` starts a socket, a retry or a timer, and the scope that \
-                  waits for it waits the way every other effect a page has waits",
-    },
-    // The two halves of being a server. They are granted *together* or not at
-    // all, and never on `JS` or `WEB`. Nothing enforces the pairing beyond the
-    // two rows below being edited in one commit — and
-    // `the_server_effects_are_granted_together_and_never_on_a_page`, which is
-    // the assertion that they were.
-    //
-    // These are the first two rows whose platform list is neither everything,
-    // nor the three non-page platforms, nor `WEB`: a native program may hold a
-    // port open and a JavaScript one may not, so `LINUX, MACOS` is a shape the
-    // table now has. `design/ui-reactivity.md`'s open item about host
-    // subsetting among the non-UI platforms is closed by that.
-    HostGrant {
-        effect: "`Listen`",
-        exports: &["listen"],
-        platforms: &[Platform::Linux, Platform::Macos],
-        because: "holding a port open is a native program's authority; a page and a worker \
-                  are served rather than serving, and neither host has a way to accept a \
-                  connection",
-    },
-    // `Sockets` is no longer half of the server pair, and this row moving is
-    // the whole of what F8 changed in this table. There are two ways to come by
-    // a socket now: `Listen` accepts one, and `WebSocketClient` dials one. A
-    // page cannot do the first and does the second every day, so the authority
-    // to *write* on a socket belongs wherever either half is — which today is
-    // everywhere. What used to be here read "a page neither accepts connections
-    // nor holds one to push on", and it was true until a page could dial.
-    // Dialling a connection and speaking whatever is on the other end. It is
-    // granted exactly where `Listen` is, and for the mirror of `Listen`'s
-    // reason: a page and a worker have no sockets of their own at all, and the
-    // one thing a browser can dial — a WebSocket — is `WebSocketClient`'s and
-    // granted everywhere already. So `LINUX, MACOS` is now three rows rather
-    // than two.
-    HostGrant {
-        effect: "`Tcp`",
-        exports: &["tcp"],
-        platforms: &[Platform::Linux, Platform::Macos],
-        because: "a page and a worker have no sockets of their own; the one connection a \
-                  browser can dial is a WebSocket, and `WebSocketClient` is granted \
-                  everywhere for it",
-    },
-    HostGrant {
-        effect: "`Sockets`",
-        exports: &["sockets"],
-        platforms: EVERY_PLATFORM,
-        because: "a socket is come by two ways — accepted or dialled — and every platform \
-                  can dial one",
-    },
-    // Dialling somebody else's socket, which is what a page does. Holding a
-    // port open is the authority `Listen` withholds from a page; nothing about
-    // this one is a server's, so it is granted on every platform. On WEB both
-    // methods suspend without holding the event loop, which is exactly what let
-    // `Network` onto a page.
-    HostGrant {
-        effect: "`WebSocketClient`",
-        exports: &["websocketClient"],
-        platforms: EVERY_PLATFORM,
-        because: "dialling out is not accepting in, and every platform can dial",
-    },
-    HostGrant {
-        effect: "`Ui`",
-        exports: &["ui"],
-        platforms: &[Platform::Web],
-        because: "the reactive graph drives a document, and only a page has one",
-    },
-    HostGrant {
-        effect: "`Watch`",
-        exports: &["watch"],
-        platforms: &[Platform::Web],
-        because: "reading the reactive graph is meaningless where nothing writes it",
-    },
-    // WEB alone, and the worker row is deliberately not widened. A worker is
-    // handed a request and reads the path off it — `Request.path`, which is a
-    // field of a value and no authority at all — so the one platform with an
-    // address of its own is the one with an address bar.
-    HostGrant {
-        effect: "`Location`",
-        exports: &["location"],
-        platforms: &[Platform::Web],
-        because: "only a page has an address bar; a worker reads the path off the request it \
-                  was handed",
-    },
-];
-
-/// The grant a `core/host` export belongs to, or `None` for a name that is not
-/// one of them.
-pub fn host_grant_of(export: &str) -> Option<&'static HostGrant> {
-    HOST_GRANTS.iter().find(|g| g.exports.contains(&export))
-}
-
-/// Whether `platform` withholds `export` from `core/host`.
-pub fn host_withholds(platform: Platform, export: &str) -> bool {
-    host_grant_of(export).is_some_and(|g| !g.platforms.contains(&platform))
-}
-
-impl HostGrant {
-    /// `native, node` — the platforms that do grant this, as a diagnostic
-    /// writes them. Empty for a row no platform grants.
-    pub fn platforms_phrase(&self) -> String {
-        let mut names: Vec<&str> = Vec::new();
-        for p in self.platforms {
-            if !names.contains(&p.proto()) {
-                names.push(p.proto());
-            }
-        }
-        names.join(", ")
-    }
-
-    /// The half of the fix that offers a platform to build for, or nothing.
-    ///
-    /// **A row may name no platform**, and then there is no target to send a
-    /// reader to: "build this for a platform that grants it:" followed by an
-    /// empty list is advice nobody can take, and reads like a bug in the
-    /// compiler rather than a fact about the effect. The whole clause is
-    /// therefore bound rather than only the list, so an ungrantable effect's
-    /// fix stops after the one thing that *is* actionable — drop it from the
-    /// context — and the `note` carries the reason.
-    pub fn elsewhere_clause(&self) -> String {
-        if self.platforms.is_empty() {
-            return String::new();
-        }
-        format!(
-            ", or build this target for a platform that grants it: {}",
-            self.platforms_phrase()
-        )
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1440,195 +1143,6 @@ mod tests {
         assert_eq!(before, seen.len(), "two entries share a path");
     }
 
-    /// Every name `core/host` exports is in the grant table.
-    ///
-    /// The table decides what a platform withholds, so a name missing from it
-    /// is granted by every platform silently — which is exactly the shape of
-    /// the bug this whole mechanism exists to make impossible. Read off the
-    /// source text rather than from a second list, so the two cannot drift.
-    #[test]
-    fn every_host_export_is_in_the_grant_table() {
-        let src = source(HOST_MODULE).expect("core/host is a module");
-        for line in src.lines() {
-            let name = if let Some(rest) = line.strip_prefix("export struct ") {
-                rest.split([' ', '{', '(', ';']).next().unwrap_or("")
-            } else if let Some(rest) = line.strip_prefix("export let ") {
-                rest.split([':', ' ']).next().unwrap_or("")
-            } else {
-                continue;
-            };
-            assert!(
-                host_grant_of(name).is_some(),
-                "`{name}` is exported by core/host and is in no HostGrant row, so every \
-                 platform grants it by omission"
-            );
-        }
-    }
-
-    /// And the other direction: a row naming an export that is not there would
-    /// withhold nothing.
-    ///
-    /// A row may name **no platform**, and that is not the error it looks
-    /// like. An effect nothing grants is an effect nothing can bind, which is
-    /// exactly what a declaration landing ahead of its runtime wants, and the
-    /// row is what makes the refusal say why instead of "no such name". No row
-    /// is empty today — `Tasks` was, for two waves, and now names three
-    /// platforms — so what is asserted here is the *exports*, which a row
-    /// naming none of would withhold nothing on every platform.
-    #[test]
-    fn every_grant_names_exports_that_exist() {
-        let src = source(HOST_MODULE).expect("core/host is a module");
-        for grant in HOST_GRANTS {
-            assert!(!grant.exports.is_empty(), "`{}` withholds nothing", grant.effect);
-            for name in grant.exports {
-                assert!(
-                    src.contains(&format!("export struct {name} "))
-                        || src.contains(&format!("export let {name}:")),
-                    "`{name}` is in a HostGrant row and core/host does not export it"
-                );
-            }
-        }
-    }
-
-    /// `Tasks` is granted where a program is a program, and withheld from the
-    /// page — the same three platforms as `FileSystem`, `Network`, `Stdin`, `Environment` and
-    /// `Process`, and both of its names move together.
-    ///
-    /// The reject corpus can ask for `JS` and `WEB` and no more — a case's
-    /// platform comes from its `// PLATFORM:` line, and the two native ones
-    /// would want a linker — so *every* platform is proved here, over
-    /// `Platform::ALL`.
-    ///
-    /// **The direction that matters now is the other one.** This test was
-    /// written to catch WEB quietly *gaining* the grant; WEB has it, on
-    /// purpose, and what the test catches is a platform quietly losing it. So
-    /// it asserts every name on every platform, and separately that `Tasks` is
-    /// no longer tied to `FileSystem` — the group that varies with the platform is the
-    /// filesystem's and this row left it, which is the whole of what the
-    /// scope bought.
-    #[test]
-    fn tasks_is_granted_on_every_platform_including_the_page() {
-        let grant = host_grant_of("tasks").expect("`tasks` is in the grant table");
-        assert_eq!(grant.effect, "`Tasks`");
-        assert_eq!(grant.platforms_phrase(), "native, node, web, CLOUDFLARE_WORKER");
-        for platform in Platform::ALL {
-            assert!(
-                !host_withholds(platform, "tasks"),
-                "`{}` withholds `tasks`",
-                platform.proto()
-            );
-        }
-        // The claim the row used to make, now asserted the other way round: a
-        // page has no filesystem and does have tasks, so the two rows have
-        // parted and a change that put them back together is a change to this
-        // line rather than a silent one.
-        let fs = host_grant_of("fs").expect("`fs` is in the grant table");
-        assert_ne!(grant.platforms, fs.platforms, "`Tasks` is no longer `FileSystem`'s row");
-        assert!(host_withholds(Platform::Web, "fs"), "a page still has no filesystem");
-    }
-
-    /// `Listen` is granted on the two native platforms and never on a page;
-    /// Starting a program is granted where there is a process table and nowhere
-    /// else.
-    ///
-    /// `Spawn` is the largest authority the standard library hands out — a
-    /// context that can run `sh` can do anything its user can — so both halves
-    /// of its row are asserted: the three platforms that have it, and the two
-    /// that must not gain it by accident. A page and a worker have nowhere to
-    /// put a child.
-    ///
-    /// The reject corpus can ask for `JS` and `WEB` and no more, so
-    /// `reject/host_spawn_not_granted_on_web` pins the sentence a person reads
-    /// and the worker's half is here.
-    #[test]
-    fn spawn_is_withheld_from_a_page_and_a_worker() {
-        let grant = host_grant_of("spawn").expect("`spawn` is in the grant table");
-        assert_eq!(grant.effect, "`Spawn`");
-        assert_eq!(grant.platforms_phrase(), "native, node");
-        for platform in [Platform::Web, Platform::CloudflareWorker] {
-            assert!(
-                host_withholds(platform, "spawn"),
-                "`{}` grants `spawn`, and it has no process table to put a child in",
-                platform.proto()
-            );
-        }
-        for platform in [Platform::Linux, Platform::Macos, Platform::Js] {
-            assert!(
-                !host_withholds(platform, "spawn"),
-                "`{}` withholds `spawn`",
-                platform.proto()
-            );
-        }
-        // Ending this process and starting another are two authorities, so the
-        // two rows are separate declarations that happen to name one set. A
-        // change to either is a change to this line.
-        let ending = host_grant_of("proc").expect("`proc` is in the grant table");
-        assert_eq!(grant.platforms, ending.platforms, "`Spawn` is `Process`'s platforms");
-        assert_ne!(grant.exports, ending.exports, "`Spawn` is not `Process`'s export");
-    }
-
-    /// `Sockets` is granted exactly where a socket can be come by.
-    ///
-    /// The pairing this used to assert — that `Listen` and `Sockets` are
-    /// granted by the same set — was the right invariant while accepting a
-    /// connection was the only way to get a socket. It is not any more.
-    /// `WebSocketClient` dials one, a page can dial, and so the authority to
-    /// *write* on a socket now belongs wherever **either** half is. That union
-    /// is the invariant, and it still fails in both directions: a platform that
-    /// can obtain a socket and cannot write on it would hand out a handle
-    /// nothing can use, and one that can write and cannot obtain one would hand
-    /// out an authority over sockets it can never mint.
-    ///
-    /// `Listen`'s own half is asserted literally, because `LINUX, MACOS` is
-    /// still a permanent no for a page rather than a not-yet: a page is served
-    /// rather than serving.
-    #[test]
-    fn a_platform_that_can_reach_a_socket_can_write_on_one() {
-        let listen = host_grant_of("listen").expect("`listen` is in the grant table");
-        let sockets = host_grant_of("sockets").expect("`sockets` is in the grant table");
-        let client =
-            host_grant_of("websocketClient").expect("`websocketClient` is in the grant table");
-        assert_eq!(listen.effect, "`Listen`");
-        assert_eq!(sockets.effect, "`Sockets`");
-        assert_eq!(client.effect, "`WebSocketClient`");
-        for platform in Platform::ALL {
-            let reachable =
-                listen.platforms.contains(&platform) || client.platforms.contains(&platform);
-            assert_eq!(
-                sockets.platforms.contains(&platform),
-                reachable,
-                "`{}` grants `Sockets` where it can reach no socket, or reaches one it \
-                 cannot write on: `Listen` is granted by [{}] and `WebSocketClient` by [{}]",
-                platform.proto(),
-                listen.platforms_phrase(),
-                client.platforms_phrase()
-            );
-        }
-        assert_eq!(
-            listen.platforms,
-            &[Platform::Linux, Platform::Macos],
-            "granted by {}",
-            listen.platforms_phrase()
-        );
-        for platform in [Platform::Js, Platform::Web] {
-            assert!(
-                host_withholds(platform, "listen"),
-                "`{}` grants `listen`; a page is served rather than serving, and that is \
-                 a permanent row rather than an empty one waiting to be filled",
-                platform.proto()
-            );
-        }
-        for platform in Platform::ALL {
-            for name in ["sockets", "websocketClient"] {
-                assert!(
-                    !host_withholds(platform, name),
-                    "`{}` withholds `{name}`, which every platform answers",
-                    platform.proto()
-                );
-            }
-        }
-    }
-
     /// No method `Listen` or `Sockets` declares is declared by any other
     /// effect.
     ///
@@ -1690,48 +1204,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    /// A row with no platform offers no elsewhere, and a row with platforms
-    /// offers the sentence it always did.
-    ///
-    /// **Two rows are empty today**, `Listen` and `Sockets`, and `Tasks` was
-    /// the one before them — declared with an empty list, then granted on three
-    /// platforms by editing that row. The empty case is still tested against a
-    /// row written here rather than against either of the two in the table,
-    /// which is deliberate: `elsewhere_clause` is what makes *any* effect
-    /// declared ahead of its runtime refuse honestly, so the branch has to hold
-    /// when today's empty rows graduate the way `Tasks` did. Deleting it once
-    /// the table happened to have no empty row would mean rediscovering the
-    /// same "build this for a platform that grants it:" with nothing after the
-    /// colon on the day the next one lands.
-    #[test]
-    fn an_ungrantable_effect_is_not_told_to_build_elsewhere() {
-        let ungrantable = HostGrant {
-            effect: "`Nothing`",
-            exports: &["nothing"],
-            platforms: &[],
-            because: "nothing implements it",
-        };
-        assert_eq!(ungrantable.elsewhere_clause(), "");
-        assert_eq!(ungrantable.platforms_phrase(), "");
-        // `fs` and not `net`: B5 moved `Network` into the every-platform group, and
-        // a clause naming all four platforms would not show that the sentence
-        // is the *subset* a target could be built for instead.
-        let fs = host_grant_of("fs").expect("`fs` is in the grant table");
-        assert_eq!(
-            fs.elsewhere_clause(),
-            ", or build this target for a platform that grants it: native, node"
-        );
-        // `Tasks` is granted everywhere since the scope landed, so its clause
-        // names every platform — which is a clause a reader can still act on,
-        // and the row above is the one that shows a proper subset.
-        let tasks = host_grant_of("tasks").expect("`tasks` is in the grant table");
-        assert_eq!(
-            tasks.elsewhere_clause(),
-            ", or build this target for a platform that grants it: native, node, web, \
-             CLOUDFLARE_WORKER"
-        );
     }
 
     /// Every type a primitive can be must have a module that exists.

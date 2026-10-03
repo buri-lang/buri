@@ -3,7 +3,7 @@
 //!
 //! A source file is a module, named by its path from the repository root.
 //! Loading follows imports, and the restrictions on which module may import
-//! which — the library boundary, `core/host`, and the `testing` segment — are
+//! which — the library boundary, `platform/host`, and the `testing` segment — are
 //! checked here, where the import line is.
 
 use crate::build::buildfile::Platform;
@@ -23,13 +23,13 @@ use std::path::PathBuf;
 pub enum Role {
     /// A `core/...` module, shipping with the toolchain.
     Std,
-    /// A platform module: `platform/effect`, `core/host`, `core/testing/*`. Only
-    /// these may declare effects.
+    /// A platform module: `platform/effect`, `platform/host`, `core/testing/*`.
+    /// Only these may declare effects.
     Platform,
     /// Ordinary library or binary source.
     Source,
-    /// The module exporting `main`. The only one that may import `core/host`,
-    /// and the only place in a program where a context may be built.
+    /// The module exporting `main`, and the only place in a program where a
+    /// context may be built.
     Entry,
     /// A module listed in a rule's `test.sources`. `test` declarations and
     /// imports of test-only modules are legal here and nowhere else.
@@ -78,25 +78,15 @@ pub struct Unit {
     pub target: Option<TargetId>,
     /// The output this unit is being built for, when there is one.
     ///
-    /// `Some(p)` subsets `core/host` to the effects `p` grants, which is what
-    /// makes a platform *be* the set of effects its host exports rather than a
-    /// claim a comment makes: binding `Ui: host.ui` under `platform: LINUX` is
-    /// then an unresolved name at the line that asked for it, and so is
-    /// `Network: host.net` under `platform: WEB`.
-    ///
-    /// `None` is an analysis that is not building an artifact — `buri lint`,
-    /// the language server, the documentation harness, `buri test` — and it
-    /// grants the whole host. Those commands ask the same questions of the
-    /// same modules for every output a target declares at once, so refusing a
-    /// program on behalf of one of them would report a build error in a place
-    /// that is not building. **The check belongs to the build, per output**,
-    /// which is where `design/ui-reactivity.md` §Targets puts it.
+    /// `Some(p)` holds the entry to `p`'s host. `None` is an analysis that is
+    /// not building an artifact — `buri lint`, the language server, the
+    /// documentation harness, `buri test` — which accepts any bundled host.
     pub platform: Option<Platform>,
     /// The exported function the output being built enters through.
     ///
     /// `Some("fetch")` says that this artifact starts at `fetch` and holds only
-    /// what `fetch` reaches, so `main`'s own `core/host` bindings are none of
-    /// this build's business. `None` is every analysis that is not building one
+    /// what `fetch` reaches, so `main`'s own signature is none of this
+    /// build's business. `None` is every analysis that is not building one
     /// artifact, and every build of the default entry.
     pub entry: Option<String>,
     /// Compile the target's `test.sources` too, and run them.
@@ -108,22 +98,13 @@ pub struct Loaded {
     pub by_path: HashMap<String, ModuleId>,
     /// Modules that are test sources, in declaration order.
     pub test_sources: Vec<ModuleId>,
-    /// The output this compilation is for, carried over from [`Unit::platform`]
-    /// so that the checker can subset `core/host` to what that platform
-    /// grants. `None` for every analysis that is not building one.
+    /// The output this compilation is for, carried over from [`Unit::platform`],
+    /// which holds an entry to that platform's host. `None` for every analysis
+    /// that is not building one.
     pub platform: Option<Platform>,
     /// The entry the output being built enters through, carried over from
     /// [`Unit::entry`]. See it for what it decides.
     pub entry: Option<String>,
-    /// The platforms the suites in this compilation declared, by package.
-    ///
-    /// A suite's `test.platforms` is not one of its binary's `outputs`, and it
-    /// is still a platform that binary's entry point has to compile for: a
-    /// batched test binary links `main` in, so a suite that runs on WEB
-    /// compiles `main.buri` for WEB whatever the `outputs` say. Recorded per
-    /// package because `analyze_all` batches many targets into one
-    /// compilation, and each one's suite speaks only for its own entry point.
-    pub test_platforms: HashMap<crate::build::workspace::PackageId, Vec<Platform>>,
     /// The rules whose generators this compilation reported on. Their inputs,
     /// and the schemas those were checked against, are files it read.
     pub generated_rules: Vec<TargetId>,
@@ -164,8 +145,6 @@ pub struct Loader<'a> {
     platform: Option<Platform>,
     /// See [`Loaded::entry`].
     entry: Option<String>,
-    /// See [`Loaded::test_platforms`].
-    test_platforms: HashMap<crate::build::workspace::PackageId, Vec<Platform>>,
     test_sources: Vec<ModuleId>,
     /// See [`Loaded::custom`].
     custom: Option<crate::build::buildfile::CustomPlatform>,
@@ -191,7 +170,6 @@ impl<'a> Loader<'a> {
             test_sources: Vec::new(),
             platform: None,
             entry: None,
-            test_platforms: HashMap::default(),
             custom: None,
         }
     }
@@ -203,7 +181,6 @@ impl<'a> Loader<'a> {
             test_sources: self.test_sources,
             platform: self.platform,
             entry: self.entry,
-            test_platforms: self.test_platforms,
             generated_rules: self.generated_rules.into_iter().collect(),
             custom: self.custom,
         }
@@ -230,20 +207,6 @@ impl<'a> Loader<'a> {
         self.load_builtin_modules();
         let (Some(ws), Some(target)) = (self.ws, unit.target) else { return };
         let pkg = ws.package(target.package);
-        // Recorded before the sources load, so that the entry point this unit
-        // pulls in already knows which platforms its suite runs on.
-        //
-        // A binary's suite only. A library's suite links no `main` — and a
-        // package may hold both rules, so recording a library suite's
-        // platforms under the package would put them on a binary entry point
-        // that its run never touches.
-        if unit.with_tests && target.kind == RuleKind::Binary {
-            let platforms = ws.suite_platforms(target);
-            if !platforms.is_empty() {
-                self.test_platforms.entry(target.package).or_default().extend(platforms);
-            }
-        }
-
         match target.kind {
             RuleKind::Library => {
                 if pkg.build.library.is_none() {
@@ -678,9 +641,15 @@ impl<'a> Loader<'a> {
             // than the rule. It is still a refusal: the old name does not
             // load, so nothing compiles against two spellings of one module.
             let diagnostic = match standard_library::retired(path) {
-                Some(now) => Diagnostic::templated("retired-module", span)
-                    .with_bind("path", path)
-                    .with_bind("now", now),
+                Some(now) => {
+                    let d = Diagnostic::templated("retired-module", span)
+                        .with_bind("path", path)
+                        .with_bind("now", now);
+                    match standard_library::retired_note(path) {
+                        Some((note, fix)) => d.with_note(note).with_fix(fix),
+                        None => d,
+                    }
+                }
                 None => Diagnostic::templated("no-such-module", span)
                     .with_bind("path", path)
                     .with_bind("roots", standard_library::roots_phrase()),
@@ -938,14 +907,6 @@ impl<'a> Loader<'a> {
             )
     }
 
-    /// Whether a package's binary has a `CLOUDFLARE_WORKER` output: the one
-    /// kind of entry that still binds `core/host` rather than taking a host.
-    fn enters_a_worker(&self, pkg: Option<crate::build::workspace::PackageId>) -> bool {
-        let (Some(ws), Some(package)) = (self.ws, pkg) else { return false };
-        let target = TargetId { package, kind: RuleKind::Binary };
-        ws.declared_entries(target).iter().any(|e| e.platform == Platform::CloudflareWorker)
-    }
-
     /// The import restrictions. Each one is visible in the import line, which
     /// is where the person writing it is looking.
     fn check_import_legality(
@@ -963,33 +924,19 @@ impl<'a> Loader<'a> {
             return false;
         }
 
-        // The two host modules, and each has one kind of importer. Asked of the
-        // canonical spelling, so that naming the surface file the long way
-        // round is not a way past the gate.
-        //
         // `platform/host` names the backends' production structs, which a
-        // platform lists as its host type's fields; only a `platform.buri` — a
-        // bundled one, today — may name them. `core/host` is what a
-        // `CLOUDFLARE_WORKER` entry binds, because a worker's `fetch` takes no
-        // host yet; nothing else may import it. Everything else takes its
-        // platform's host as `main`'s parameter, which is where authority
-        // enters a program.
-        let host_module = match standard_library::canonical(path) {
-            Some(p @ standard_library::HOST_STRUCTS_MODULE) => Some((
-                p,
-                standard_library::find(importer_path).is_some()
-                    || self.is_platform_surface(importer_path),
-            )),
-            Some(p @ standard_library::HOST_MODULE) => Some((
-                p,
-                standard_library::find(importer_path).is_some()
-                    || (role == Role::Entry && self.enters_a_worker(importer_pkg)),
-            )),
-            _ => None,
-        };
-        if let Some((host, false)) = host_module {
+        // platform lists as its host type's fields, so only a `platform.buri`
+        // may name them. Everything else takes its platform's host as its
+        // entry's parameter, which is where authority enters a program. Asked
+        // of the canonical spelling, so that naming the surface file the long
+        // way round is not a way past the gate.
+        if standard_library::canonical(path) == Some(standard_library::HOST_STRUCTS_MODULE)
+            && standard_library::find(importer_path).is_none()
+            && !self.is_platform_surface(importer_path)
+        {
             self.diags.push(
-                Diagnostic::templated("host-import-outside-platform", span).with_bind("path", host),
+                Diagnostic::templated("host-import-outside-platform", span)
+                    .with_bind("path", standard_library::HOST_STRUCTS_MODULE),
             );
             return false;
         }

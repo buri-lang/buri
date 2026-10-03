@@ -17,7 +17,7 @@
 //! Only step 5 needs inference, and it never crosses a function boundary,
 //! because top-level signatures are mandatory.
 
-use crate::build::buildfile::{EntryShape, Platform};
+use crate::build::buildfile::Platform;
 use crate::build::workspace::{PackageId, RuleKind, TargetId, Workspace};
 use crate::compiler::modules::{Loaded, Role};
 use crate::compiler::semantics::typed;
@@ -174,14 +174,6 @@ pub struct Checker<'a> {
     /// function of `main.buri`, so a build can look one up and say what it
     /// found. This one is the set that may build a context.
     pub entry_points: HashSet<String>,
-    /// The entry whose body is being checked, when one is.
-    ///
-    /// This is what makes the platform check per entry. A `core/host` name
-    /// reached from inside an entry's own body is checked against the outputs
-    /// that enter through *that* entry; a name reached anywhere else in the
-    /// module — a helper, a top-level import — is checked against every one of
-    /// them, because any output may reach it.
-    pub entry_being_checked: Option<String>,
     pub tests: Vec<TestCase>,
     /// The synthetic module the primitives are declared in.
     pub prim_module: ModuleId,
@@ -291,7 +283,6 @@ impl<'a> Checker<'a> {
             entry: None,
             entries: HashMap::default(),
             entry_points: HashSet::default(),
-            entry_being_checked: None,
             tests: Vec::new(),
             prim_module: ModuleId(u32::MAX),
             surfaces: HashMap::default(),
@@ -725,126 +716,6 @@ impl<'a> Checker<'a> {
     // Phase 2: scopes
     // -----------------------------------------------------------------------
 
-    /// The platforms a module is being compiled for.
-    ///
-    /// **This is the rule the platform diagnostic is decided by**, so it is
-    /// written once and asked from both of the two places a program can name a
-    /// `core/host` export.
-    ///
-    /// * A build — and a documentation snippet pinned with `platform=` — is
-    ///   producing exactly one output, and that output is the answer. It
-    ///   overrides everything below: `buri build --output=js` on a binary that
-    ///   also declares a WEB output is compiling the JS one, and refusing it on
-    ///   WEB's behalf would report an error in a place that is not building.
-    /// * A name inside **an entry's own body** is checked against the outputs
-    ///   that enter through that entry, plus the platforms its suite declares
-    ///   in `test.platforms` — a batched test binary links the entry point in,
-    ///   so a suite that runs on WEB compiles `main.buri` for WEB. This is what
-    ///   lets one `main.buri` hold a page's `main` and a worker's `fetch`.
-    /// * A name **anywhere else in `main.buri`** — a helper, a top-level
-    ///   import — is checked against every platform the `outputs` name,
-    ///   because any output may reach it.
-    /// * Any other module is checked against the platforms **its own rule
-    ///   declared**, and a rule that declared none is never checked. A library
-    ///   that says nothing about platforms is platform-generic: it may end up
-    ///   in a page or in a server, and neither is a fact about the library.
-    ///
-    /// An empty list means "no platform was committed to", which is not the
-    /// same as "no platform is allowed" — nothing is reported for it.
-    fn module_platforms(&self, module: ModuleId) -> Vec<Platform> {
-        let inside = self.entry_being_checked.as_deref();
-        // One output is being built: that output, and nothing else — unless
-        // the body being checked is a *different* entry's, which this artifact
-        // does not contain and whose bindings are the other build's business.
-        if let Some(platform) = self.loaded.platform {
-            let elsewhere = matches!(
-                (inside, self.loaded.entry.as_deref()),
-                (Some(here), Some(built)) if here != built
-            );
-            return if elsewhere { Vec::new() } else { vec![platform] };
-        }
-        let (Some(ws), Some(pkg)) = (self.ws, self.module(module).pkg) else { return Vec::new() };
-        let kind = match self.module(module).role {
-            Role::Entry => RuleKind::Binary,
-            _ => RuleKind::Library,
-        };
-        let target = TargetId { package: pkg, kind };
-        let entries = ws.declared_entries(target);
-        let mut platforms: Vec<Platform> = match inside {
-            // Inside an entry's own body: the outputs that enter through it.
-            Some(name) if kind == RuleKind::Binary && !entries.is_empty() => {
-                entries.iter().filter(|e| e.name == name).map(|e| e.platform).collect()
-            }
-            _ => ws.declared_platforms(target).into_iter().flatten().collect(),
-        };
-        if kind == RuleKind::Binary {
-            for p in self.loaded.test_platforms.get(&pkg).into_iter().flatten() {
-                if !platforms.contains(p) {
-                    platforms.push(*p);
-                }
-            }
-        }
-        platforms.sort();
-        platforms.dedup();
-        platforms
-    }
-
-    /// The grant `name` belongs to and the platforms among `module`'s that
-    /// withhold it, in schema order.
-    ///
-    /// `None` for a name that is not one of `core/host`'s grants, and `None`
-    /// when every platform this module compiles for grants it — the two cases
-    /// a caller has nothing to say about, kept apart from an empty list only
-    /// where it would change what is printed, which is nowhere.
-    fn withheld_by(
-        &self,
-        module: ModuleId,
-        name: &str,
-    ) -> Option<(&'static standard_library::HostGrant, Vec<Platform>)> {
-        let grant = standard_library::host_grant_of(name)?;
-        let withholding: Vec<Platform> = self
-            .module_platforms(module)
-            .into_iter()
-            .filter(|p| !grant.platforms.contains(p))
-            .collect();
-        match withholding.is_empty() {
-            true => None,
-            false => Some((grant, withholding)),
-        }
-    }
-
-    /// Reports naming a `core/host` export that a platform this module is
-    /// compiled for does not allow, answering whether it did.
-    ///
-    /// `true` means the caller has nothing left to say. The alternative it
-    /// replaces is worse in both directions: where the name has been withheld
-    /// from the host's exports, "does not export it" sends a reader looking for
-    /// a typo in a file that spells it right; where it has not — every analysis
-    /// that is not building one output — there is no complaint at all, and the
-    /// program is refused later, by a build.
-    pub fn report_effect_not_on_platform(
-        &mut self,
-        module: ModuleId,
-        span: Span,
-        name: &str,
-    ) -> bool {
-        let Some((grant, withholding)) = self.withheld_by(module, name) else { return false };
-        let (effect, because) = (grant.effect, grant.because);
-        // The whole "or build it elsewhere" clause, not just the list: a row
-        // that names no platform has no elsewhere, and `HostGrant` is where
-        // that sentence is decided.
-        let elsewhere = grant.elsewhere_clause();
-        let platforms = Platform::sentence_phrase(&withholding);
-        let name = name.to_string();
-        self.templated("effect-not-on-platform", span)
-            .bind("platforms", platforms)
-            .bind("name", name)
-            .bind("effect", effect)
-            .bind("because", because)
-            .bind("elsewhere", elsewhere);
-        true
-    }
-
     fn resolve_scopes(&mut self) {
         // Everything a module declares is visible unqualified inside it,
         // before its imports add to that.
@@ -890,7 +761,6 @@ impl<'a> Checker<'a> {
                 self.scope_mut(module).namespaces.insert(t.name(*alias).to_string(), from);
             }
             tree::ImportClause::Named(specs) => {
-                let host = self.loaded.module(from).path == standard_library::HOST_MODULE;
                 let platform = self.loaded.module(from).path.clone();
                 for spec in specs {
                     // A platform's entry is a declaration for the program to
@@ -902,29 +772,6 @@ impl<'a> Checker<'a> {
                             .bind("entry", name.to_string())
                             .bind("platform", platform.clone());
                         continue;
-                    }
-                    // Asked before the lookup, not after it. A named import is
-                    // where the reader wrote the name, so it is where the
-                    // refusal belongs — and the lookup cannot stand in for the
-                    // question, because the export is still there for every
-                    // analysis that is not building one output, and for a
-                    // binary whose other output grants it.
-                    if host {
-                        let name = t.name(spec.name).to_string();
-                        if self.report_effect_not_on_platform(module, spec.name.span, &name) {
-                            // Bound anyway, from what the host module declares
-                            // rather than from what this output exports. The
-                            // program has been refused already; leaving the
-                            // name unbound would add "there is nothing named
-                            // `fs` in scope" underneath, which is a second
-                            // error about the same line and a wrong one — the
-                            // name exists, and the platform is the problem.
-                            if let Some(sym) = self.scope(from).own.get(&name).cloned() {
-                                let local = t.name(spec.local()).to_string();
-                                self.scope_mut(module).names.insert(local, sym);
-                            }
-                            continue;
-                        }
                     }
                     let Some(sym) = self.lookup_export(from, t.name(spec.name)) else {
                         let module_path = imp.path.clone();
@@ -996,19 +843,7 @@ impl<'a> Checker<'a> {
     fn apply_reexport(&mut self, module: ModuleId, re: &tree::ReExport) {
         let Some(from) = self.loaded.find(&re.path) else { return };
         let t = self.tree(module);
-        // The same question a named import is asked, for the same reason.
-        // `main.buri` is the one module that may name `core/host` and the one
-        // module whose test sources may import it, so re-exporting `fs` from
-        // there would otherwise be a way to hand a page's suite an authority
-        // the page does not have.
-        let host = self.loaded.module(from).path == standard_library::HOST_MODULE;
         for spec in &re.specs {
-            if host {
-                let name = t.name(spec.name).to_string();
-                if self.report_effect_not_on_platform(module, spec.name.span, &name) {
-                    continue;
-                }
-            }
             let Some(sym) = self.lookup_export(from, t.name(spec.name)) else {
                 let path = re.path.clone();
                 let name = t.name(spec.name).to_string();
@@ -1443,40 +1278,40 @@ impl<'a> Checker<'a> {
         for custom in self.custom_entries(module, &name).unwrap_or_default() {
             self.check_custom_entry(fid, &d, &name, &custom);
         }
-        for (shape, platform) in self.entry_shapes(module, &name) {
-            self.check_entry_signature(fid, &d, &name, shape, platform);
+        for platform in self.entry_platforms(module, &name) {
+            self.check_entry_signature(fid, &d, &name, platform);
         }
     }
 
-    /// The shapes this function has to have, because an output enters through
-    /// it, each with the platform that fixes it.
+    /// The bundled platforms whose program signature this function has to
+    /// have, because an output enters through it. `None` is any bundled
+    /// platform's host.
     ///
     /// Empty for an exported function no output names, which is an ordinary
     /// function that happens to live in `main.buri`. `main` is always checked
     /// even where no build file was read, because every analysis that has a
-    /// `main` at all expects the one shape — a documentation snippet included.
+    /// `main` at all expects the one signature — a documentation snippet
+    /// included.
     ///
-    /// Two shapes means two outputs fixed two different signatures for one
-    /// function — a worker's and a program's, or two platforms' hosts. Both are
-    /// checked, and at least one of them fails, which is the refusal: a
-    /// function cannot be entered both ways.
-    fn entry_shapes(&self, module: ModuleId, name: &str) -> Vec<(EntryShape, Option<Platform>)> {
+    /// Two platforms means two outputs hand one function two different hosts.
+    /// Both are checked, and at least one of them fails, which is the refusal:
+    /// a function cannot take two hosts.
+    fn entry_platforms(&self, module: ModuleId, name: &str) -> Vec<Option<Platform>> {
         // A build produces one artifact, and that artifact has one entry. Its
-        // output is the whole answer, for the reason `module_platforms` gives:
-        // reporting the other output's requirement here would report it twice,
-        // once per output built.
+        // output is the whole answer: reporting the other output's requirement
+        // here would report it twice, once per output built.
         if let (Some(platform), Some(built)) = (self.loaded.platform, self.loaded.entry.as_deref())
         {
             return match built == name {
                 // A repository platform's entry is its declaration's business.
                 true if self.loaded.custom.is_some() => Vec::new(),
-                true => vec![(platform.entry_shape(), Some(platform))],
+                true => vec![Some(platform)],
                 // Not this artifact's entry. `main` still answers below,
                 // because every analysis that has one expects the one shape.
-                false => self.default_entry_shape(name, None),
+                false => self.default_entry_platform(name, None),
             };
         }
-        let mut declared: Vec<(EntryShape, Option<Platform>)> = Vec::new();
+        let mut declared: Vec<Option<Platform>> = Vec::new();
         let mut outputs = false;
         // Whether a repository platform's output enters here, which holds the
         // function to that platform's declaration instead.
@@ -1491,13 +1326,10 @@ impl<'a> Checker<'a> {
                     }
                     continue;
                 }
-                let shape = (entry.platform.entry_shape(), Some(entry.platform));
                 // `native` is two platforms here, Linux and macOS, and one host.
-                let same = |(s, p): &(EntryShape, Option<Platform>)| {
-                    *s == shape.0 && p.map(Platform::proto) == shape.1.map(Platform::proto)
-                };
+                let same = |p: &Option<Platform>| p.map(Platform::proto) == Some(entry.platform.proto());
                 if entry.name == name && !declared.iter().any(same) {
-                    declared.push(shape);
+                    declared.push(Some(entry.platform));
                 }
             }
         }
@@ -1515,7 +1347,7 @@ impl<'a> Checker<'a> {
             (true, _) => None,
             (false, false) => self.loaded.platform,
         };
-        self.default_entry_shape(name, platform)
+        self.default_entry_platform(name, platform)
     }
 
     /// Whether an `outputs` entry names this function.
@@ -1534,13 +1366,9 @@ impl<'a> Checker<'a> {
 
     /// What `main` is held to where no output names it: the one shape every
     /// analysis expects, a documentation snippet included.
-    fn default_entry_shape(
-        &self,
-        name: &str,
-        platform: Option<Platform>,
-    ) -> Vec<(EntryShape, Option<Platform>)> {
+    fn default_entry_platform(&self, name: &str, platform: Option<Platform>) -> Vec<Option<Platform>> {
         match name {
-            "main" => vec![(EntryShape::Program, platform)],
+            "main" => vec![platform],
             _ => Vec::new(),
         }
     }
@@ -1707,7 +1535,6 @@ impl<'a> Checker<'a> {
         fid: FnId,
         d: &tree::FnDecl,
         name: &str,
-        shape: EntryShape,
         platform: Option<Platform>,
     ) {
         let info = self.tables.fn_info(fid).clone();
@@ -1720,10 +1547,7 @@ impl<'a> Checker<'a> {
                      them from"
                 ));
         }
-        match shape {
-            EntryShape::Program => self.check_program_entry(&info, d, name, platform),
-            EntryShape::Fetch => self.check_fetch_entry(&info, d, name),
-        }
+        self.check_program_entry(&info, d, name, platform);
     }
 
     /// `fn <entry>(host: H): Result<(), Str>` — the program runs itself, handed
@@ -1834,47 +1658,6 @@ impl<'a> Checker<'a> {
             .iter()
             .filter_map(|p| standard_library::host_type_of(p))
             .find(|(owner, host)| *owner == module && *host == tycon.name)
-    }
-
-    /// `fn <entry>(request: Request): Response` — the platform calls it.
-    ///
-    /// `Request` and `Response` are `platform/effect`'s, the ones `core/net/http`
-    /// re-exports and `Network.fetch` already speaks. A worker that has not loaded
-    /// `platform/effect` cannot have named either type, so its parameter and return
-    /// types are unresolved already and this says nothing on top.
-    fn check_fetch_entry(&mut self, info: &FnInfo, d: &tree::FnDecl, name: &str) {
-        let (Some(request), Some(response)) = (
-            self.known_types.get("Request").copied(),
-            self.known_types.get("Response").copied(),
-        ) else {
-            return;
-        };
-        let is = |ty: &Ty, con: TyConId| matches!(ty, Ty::Con(id, args) if *id == con && args.is_empty());
-        let takes_one_request = match info.params.as_slice() {
-            [p] => p.role == ParamRole::Normal && is(&p.ty, request),
-            _ => false,
-        };
-        if !takes_one_request && !info.params.iter().any(|p| p.ty.is_error()) {
-            self.templated("main-signature", d.span)
-                .bind("entry", name.to_string())
-                .bind("requirement", "takes one `Request`")
-                .fix(format!("write it `fn {name}(request: Request): Response`"))
-                .notes
-                .push(
-                "the platform calls it once per request, so the request is the argument and \
-                 there is no context to pass in — build the one it needs in its own body"
-                    .into(),
-            );
-        }
-        if !is(&info.ret, response) && !info.ret.is_error() {
-            let at = self.tree(info.module).type_span(d.ret);
-            self.templated("main-signature", at)
-                .bind("entry", name.to_string())
-                .bind("requirement", "must return `Response`")
-                .fix("change the return type to `Response`")
-                .notes
-                .push("the platform sends what it answers, so there is no exit code to report".into());
-        }
     }
 
     fn record_intrinsic(&mut self, fid: FnId, module: ModuleId, d: &tree::FnDecl) {
