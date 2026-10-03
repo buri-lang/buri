@@ -8,7 +8,7 @@ reproduction: none
 # An effect has a test implementation beside it
 
 ```text
-error: `Kv` has no test implementation in `//platform/effect/kv/testing` [effect-missing-test-impl]
+error: `Kv` has no test implementation in `//platform/effect/kv/testing` [effect-missing-test-implementation]
 ```
 
 A test plugs in a test implementation where production binds a host's field, so
