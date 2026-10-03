@@ -7,20 +7,17 @@ warning: nothing reads `Stamp.note` [unused-field]
    = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
    = fix: delete the field, or read it
 
-     Deleting the field is an edit at every literal, which is the point: those
-     are the sites that were computing a value for nobody.
+     Deleting the field means editing every literal, and those are exactly the
+     places computing a value for nobody.
 
-     If the field is there because a caller outside this library reads it, it is
-     public API, and the answer is the library's surface. The rule never reports
-     the exported fields of a type lib.buri re-exports, because the readers this
-     analysis can see are not the only readers there are. Under testing/, that
-     surface is testing/lib.buri.
+     If callers outside this library read the field, it belongs on the library's
+     surface. The rule never reports exported fields of a type lib.buri
+     re-exports (or testing/lib.buri, under testing/).
 
-     Two things read every field of a type at once, and neither leaves a
-     projection behind to find. A derive is a fold over the whole type
-     definition, so a type with a derived Equal, Ordered, Hash or Show is never
-     reported. A value handed to the runtime, or compared structurally, is the
-     other.
+     Two things read every field at once, so their types are never reported:
+
+     - a derived Equal, Ordered, Hash or Show;
+     - handing the value to the runtime, or comparing it structurally.
 
 warning: nothing uses `Ghost` [unused-type]
   --> lib/money/stamps.buri:18:8
@@ -31,23 +28,17 @@ warning: nothing uses `Ghost` [unused-type]
    = a type nothing names, builds or matches is a shape the program does not have
    = fix: delete it, or use it — a type meant to be published belongs on the library's surface
 
-     A type nothing names is usually one of three things.
+     An unused type is usually one of three things:
 
-     A leftover. The code that used it moved or went away and the declaration
-     stayed. Delete it, and anything that existed only to support it — its impl
-     block, its derive line, the constructor nobody calls.
+     - A leftover. Delete it, with anything that only supported it: its impl,
+     its derive, the constructor nobody calls.
 
-     A shape that was meant to be published. Re-export it from lib.buri. A name
-     on the library's surface is public API, and this rule does not ask about
-     it, because the consumers this analysis can see are not the only ones there
-     are. A type declared under testing/ is measured against testing/lib.buri
-     the same way.
+     - Meant to be published. Re-export it from lib.buri. The rule never
+     reports a name on the surface. Types under testing/ are measured against
+     testing/lib.buri.
 
-     A shape that was meant to be wired in. Somebody wrote it before the code
-     that would build it, and that code was never written. That is the real bug,
-     and finishing it is the fix.
+     - Meant to be wired in. The code that builds it was never written. Write it.
 
-     A type's own impl and derive blocks are not uses of it. They describe the
-     shape rather than reach for it, which is what keeps a dead type with ten
-     methods on it a dead type.
+     A type's own impl and derive blocks don't count as uses, so a dead type
+     with ten methods is still dead.
 

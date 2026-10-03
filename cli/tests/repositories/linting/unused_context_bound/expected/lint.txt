@@ -7,66 +7,50 @@ warning: bound `Allocator` on `C` is not used by this function [unused-context-b
    = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
    = fix: remove the bound
 
-     A ctx parameter says a function touches the world. Its bounds say which
-     parts of it. fn save<C: Allocator + FileSystemWrite>(ctx: C, …) reads as
-     "this allocates and this writes files", and every caller has to be holding
-     a context that can do both. A dead bound spreads, too, because the caller's
-     own signature has to carry it to satisfy the demand.
+     A ctx parameter's bounds say which parts of the world a function touches.
+     fn save<C: Allocator + FileSystemWrite>(ctx: C, …) allocates and writes
+     files, and every caller must hold a context that can do both. A dead bound
+     spreads, because each caller's signature has to carry it too.
 
-     There are exactly two ways a body uses a bound, and each of them is a call:
+     A body uses a bound in exactly two ways, both calls:
 
-     A callee that asks for one of its own. io.println(ctx, …) instantiates the
-     callee's own type parameter at C, and the callee's bounds become demands on
-     C. Every bound the callee names is used; the ones it does not name are not.
+     - A callee that asks for it. io.println(ctx, x) makes its own bounds
+     demands on C, so the bounds it names are used and the rest are not. This is
+     the only way an effect gets used: you call an effect through the module
+     that wraps it, not on the context (SPEC 10.2).
 
-     This is where an *effect* is used, and it is the only place. You call an
-     effect method through the module that wraps the effect rather than on the
-     context (SPEC 10.2), so io.println(ctx, x) is what makes Stdout used.
-
-     A function-typed parameter. render(ctx, label), where render: fn(C, Str) =>
-     Str, hands the whole context to code this function cannot see. So it uses
-     every bound: nothing here can say which parts of it the callback reaches.
+     - A function-typed parameter. render(ctx, label), where
+     render: fn(C, Str) => Str, hands the whole context to unseen code, so it
+     uses every bound.
 
      What is not asked
      ─────────────────
 
-     A method supplied by an `impl` is not asked. Its generics must match the
-     trait's declaration bound for bound, so an implementation cannot drop one.
-     If a bound is dead there, it is dead on the trait.
+     - A method supplied by an `impl`. Its bounds must match the trait's, so a
+     dead bound there is dead on the trait.
 
-     A function with no body is not asked. A trait method's signature, an
-     effect's operation and the standard library's intrinsic declarations
-     describe what an implementation will be handed, and there is no body to
-     read.
+     - A function with no body: a trait method's signature, an effect's
+     operation, a standard library intrinsic.
 
-     A parameter that is not a context is not asked. The rule looks at the type
-     parameter the ctx parameter is declared at, and only where at least one of
-     its bounds is an effect.
+     - A parameter that is not a context. The rule only looks at a ctx
+     parameter's type parameter, and only when at least one bound is an effect.
 
-     A body that did not check is not asked. A bound is used through callees
-     whose own bounds name it, and a callee's name is not a token the lexer can
-     recognise as *this* bound. Where the typed tree is truncated, the evidence
-     is gone and the rule says nothing.
+     - A body that did not type-check. Without the typed tree, the rule can't
+     see which callee uses which bound, so it says nothing.
 
      The fix
      ───────
 
-     Delete the bound. Unlike a ctx parameter, a bound touches no call site: it
-     is something the function demands of its callers, and dropping a demand
-     cannot break one. So the edit stays inside the declaration, and it is
-     offered whether or not the name is on the library's surface.
+     Delete the bound. Unlike a ctx parameter, a bound touches no call site, so
+     the fix is offered even when the name is on the library's surface.
 
-     The bytes are per parameter, not per bound. A bound list is one piece of
-     text with shared separators — the ranges that delete FileSystemWrite and Io
-     from <C: Allocator + FileSystemWrite + Io> both claim the + between them —
-     so removing several is one rewrite. Every finding about one parameter
-     carries that same rewrite, buri lint --fix applies it once, and the run
-     after it is clean.
+     Removing FileSystemWrite and Io from <C: Allocator + FileSystemWrite + Io>
+     is one rewrite, because the bounds share their + separators. Every finding
+     on one parameter carries the same rewrite, buri lint --fix applies it once,
+     and the next run is clean.
 
-     The rule withholds the bytes where the text between the bounds is anything
-     but the separators. A comment written inside a bound list is a reader's
-     sentence about the code, and this edit deletes text rather than
-     reformatting it.
+     The fix is withheld when anything but separators sits between the bounds,
+     so a comment inside a bound list never gets deleted.
 
 warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
   --> cmd/app/main.buri:22:13

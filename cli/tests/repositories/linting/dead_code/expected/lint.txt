@@ -7,38 +7,28 @@ warning: nothing reaches `toDollars` [dead-code]
    = production code is reached from a library's surface or from a binary's `main`, and a declaration nothing reaches is a declaration nothing runs
    = fix: delete it, or re-export it from lib/money/lib.buri to put it on the library's surface
 
-     Inside a library, export means "visible to the rest of this library", and
-     lib.buri decides what leaves it. So an export that lib.buri does not
-     re-export, and that no sibling module imports, is reached by nothing at
-     all.
+     Inside a library, export means "visible to this library", and lib.buri
+     decides what leaves it. An export that lib.buri doesn't re-export and no
+     sibling imports is reached by nothing. The two fixes are opposites, so
+     decide which applies:
 
-     There are two fixes and they are opposites, so decide which one this is
-     before you edit.
+     - It's meant to be published. Add it to the lib.buri re-export of its
+     module. The rule never reports a name on the surface.
 
-     It is meant to be published. Name it in the lib.buri re-export that already
-     carries its module's other names. The lint never reports a name on the
-     surface, because the readers it can see are not the only readers there are.
+     - It's dead. Delete it, along with whatever existed only to support it.
 
-     It is dead. Delete it, along with whatever existed only to support it.
-     Version control remembers it.
+     A module under testing/ is measured against testing/lib.buri instead.
 
-     A module under testing/ answers the same question against its own surface,
-     testing/lib.buri.
+     Using it from a test is not a fix, because a test is not a use. Test it
+     through the function the library publishes. If the logic needs its own
+     tests, make it its own published module.
 
-     Reaching for it from a test is not a fix. Nothing can import a test source,
-     so a test is not a use. Drive the behaviour through the function the
-     library actually publishes; if the logic wants a test of its own, that is
-     the signal it should be its own module, published on the surface in its own
-     right.
+     The rule only looks at module-level declarations. Fields and variants are
+     unused-field's and unused-variant's job, and test sources and test
+     declarations are never reported. It also stays quiet:
 
-     The rule asks only about module-level declarations. A field's or a
-     variant's export is unused-field's and unused-variant's question. It says
-     nothing about a test source, which exports nothing, or about a test
-     declaration.
-
-     Three more things quiet it, each because the evidence is missing. A binary
-     has no surface. A module taken whole by import * as reaches every name it
-     exports. And the rule skips a package whose modules the parser could not
-     all read whole, because the import that reaches this name may sit in the
-     run of declarations the parser skipped.
+     - in a binary, which has no surface;
+     - for a module imported with import * as, which reaches every name it exports;
+     - in a package with a file the parser couldn't read whole, since the missing
+     part might hold the import.
 
