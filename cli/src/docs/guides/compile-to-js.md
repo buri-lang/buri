@@ -46,9 +46,7 @@ against the whole graph:
 binary {
     outputs: [
         { platform: "native", variant: "linux-x86_64" },
-        { platform: "node", entries: [
-            { name: "main", function: "mainForNode" },
-        ] },
+        { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
     ]
 }
 ```

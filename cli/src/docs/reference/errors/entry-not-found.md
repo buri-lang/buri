@@ -31,9 +31,7 @@ export fn mainForNode(host: NodeHost): Result<(), Str> {
 binary {
     outputs: [
         { platform: "web" },
-        { platform: "node", entries: [
-            { name: "main", function: "mainForNode" },
-        ] },
+        { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
     ]
 }
 ```
