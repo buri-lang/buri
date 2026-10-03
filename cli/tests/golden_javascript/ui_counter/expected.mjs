@@ -31,13 +31,13 @@ function __cmd_x_main_buri$main(){
   }
   const label_8='clicks';
   const count_9=[$host_HostUi_signal(ctx_1[2],0n)];
-  return $ui_node_mount(ctx_1,ui_node$stack$u3rqgv([$k5,[ui_node$button$u3rqgv([[0,label_8],[],void 0,c_10=>ui_signal$Signal_update$gb9o2y(count_9,c_10,n_11=>n_11+1n),void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),__cmd_x_main_buri$badge$u3rqgv([0,label_8],[1,count_9]),__cmd_x_main_buri$badge$u3rqgv($k6,[2,c_12=>$effect_Scope_read(c_12,count_9[0])*2n])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
+  return $ui_node_mount(ctx_1,ui_node$stack$zc4oif([$k5,[ui_node$button$zc4oif([[0,label_8],[],void 0,c_10=>ui_signal$Signal_update$9wk8jm(count_9,c_10,n_11=>n_11+1n),void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),__cmd_x_main_buri$badge$zc4oif([0,label_8],[1,count_9]),__cmd_x_main_buri$badge$zc4oif($k6,[2,c_12=>$effect_Scope_read(c_12,count_9[0])*2n])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
 }
-function ui_signal$Signal_update$gb9o2y(self_0,ctx_1,f_2){
+function ui_signal$Signal_update$9wk8jm(self_0,ctx_1,f_2){
   return $host_HostUi_write(ctx_1[2],self_0[0],f_2($host_HostUi_read(ctx_1[2],self_0[0])));
 }
-function ui_node$button$u3rqgv(config_0){
-  const events_1=ui_node$listen$u3rqgv(config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14],config_0[15]);
+function ui_node$button$zc4oif(config_0){
+  const events_1=ui_node$listen$zc4oif(config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14],config_0[15]);
   const $t1=config_0[4];
   if($t1!==void 0&&$t1===1){
     const $t5=$share(config_0[1]);
@@ -101,8 +101,8 @@ function ui_node$button$u3rqgv(config_0){
     return [[5,config_0[0],$t9,$t6,$t10,$t12,$t14,$t16,events_1]];
   }
 }
-function __cmd_x_main_buri$badge$u3rqgv(title_0,count_1){
-  return ui_node$stack$u3rqgv([$k18,[ui_node$text$u3rqgv([title_0,void 0,void 0]),ui_node$text$u3rqgv([[2,c_2=>{
+function __cmd_x_main_buri$badge$zc4oif(title_0,count_1){
+  return ui_node$stack$zc4oif([$k18,[ui_node$text$zc4oif([title_0,void 0,void 0]),ui_node$text$zc4oif([[2,c_2=>{
     let $t1;
     if(count_1[0]===0){
       $t1=count_1[1];
@@ -116,8 +116,8 @@ function __cmd_x_main_buri$badge$u3rqgv(title_0,count_1){
     return String($t1);
   }],void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
 }
-function ui_node$stack$u3rqgv(config_0){
-  const events_1=ui_node$listen$u3rqgv(config_0[3],config_0[4],config_0[5],config_0[6],config_0[7],config_0[8],config_0[9],config_0[10]);
+function ui_node$stack$zc4oif(config_0){
+  const events_1=ui_node$listen$zc4oif(config_0[3],config_0[4],config_0[5],config_0[6],config_0[7],config_0[8],config_0[9],config_0[10]);
   const $t1=config_0[2];
   if($t1!==void 0){
     return [[4,$t1,$share(config_0[0]),$share(config_0[1]),events_1]];
@@ -127,10 +127,10 @@ function ui_node$stack$u3rqgv(config_0){
     $abort('no arm matched');
   }
 }
-function ui_node$listen$u3rqgv(onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7){
+function ui_node$listen$zc4oif(onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7){
   return [onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7];
 }
-function ui_node$text$u3rqgv(config_0){
+function ui_node$text$zc4oif(config_0){
   const $t1=config_0[1];
   if($t1!==void 0){
     const styles_2=$share(config_0[2]);

@@ -49,20 +49,20 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const $t5=ui_node$stack$u3rqgv([$k22,[ui_node$text$u3rqgv([[0,'one'],void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
-  const $t6=ui_node$stack$u3rqgv($k28);
+  const $t5=ui_node$stack$zc4oif([$k22,[ui_node$text$zc4oif([[0,'one'],void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+  const $t6=ui_node$stack$zc4oif($k28);
   let $t3;
   const $t4=void 0;
   if($t4!==void 0){
-    $t3=[[3,[[24,$t4],[25,$t4],$k33],[],ui_node$noEvents$u3rqgv()]];
+    $t3=[[3,[[24,$t4],[25,$t4],$k33],[],ui_node$noEvents$zc4oif()]];
   }else if($t4===void 0){
-    $t3=[[3,$k37,[],ui_node$noEvents$u3rqgv()]];
+    $t3=[[3,$k37,[],ui_node$noEvents$zc4oif()]];
   }else{
     $abort('no arm matched');
   }
-  return $ui_node_mount(ctx_1,ui_node$stack$u3rqgv([$k11,[$t5,$t6,$t3],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
+  return $ui_node_mount(ctx_1,ui_node$stack$zc4oif([$k11,[$t5,$t6,$t3],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
 }
-function ui_node$stack$u3rqgv(config_0){
+function ui_node$stack$zc4oif(config_0){
   const events_1=[config_0[3],config_0[4],config_0[5],config_0[6],config_0[7],config_0[8],config_0[9],config_0[10]];
   const $t1=config_0[2];
   if($t1!==void 0){
@@ -73,10 +73,10 @@ function ui_node$stack$u3rqgv(config_0){
     $abort('no arm matched');
   }
 }
-function ui_node$noEvents$u3rqgv(){
+function ui_node$noEvents$zc4oif(){
   return $k38;
 }
-function ui_node$text$u3rqgv(config_0){
+function ui_node$text$zc4oif(config_0){
   const $t1=config_0[1];
   if($t1!==void 0){
     const styles_2=$share(config_0[2]);
