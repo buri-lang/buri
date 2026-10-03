@@ -1330,6 +1330,24 @@ impl Subst {
         }
     }
 
+    /// [`Subst::resolve`], rewriting `ty` where it stands rather than building
+    /// a copy: a type with no variable in it is left exactly as it was, and
+    /// nothing is allocated for it.
+    pub fn resolve_in_place(&self, ty: &mut Ty) {
+        if let Ty::Var(_) = ty {
+            *ty = self.shallow_ref(ty).clone();
+        }
+        match ty {
+            Ty::Con(_, args) | Ty::Tuple(args) => args.iter_mut().for_each(|a| self.resolve_in_place(a)),
+            Ty::Array(e) => self.resolve_in_place(e),
+            Ty::Fn(ps, r) => {
+                ps.iter_mut().for_each(|p| self.resolve_in_place(p));
+                self.resolve_in_place(r);
+            }
+            _ => {}
+        }
+    }
+
     fn occurs(&self, id: TyVarId, ty: &Ty) -> bool {
         match self.shallow_ref(ty) {
             Ty::Var(v) => *v == id,
