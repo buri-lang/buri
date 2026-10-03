@@ -885,12 +885,14 @@ impl Counted for Syntactic {
 /// here. A binding that carries a sub-pattern is not walked either — the outer
 /// name already covers everything under it, and a second name for one value is
 /// a second release.
-pub fn name_discards(program: &mut Program) {
-    let mut counted = Syntactic::new(program);
+///
+/// `counted` is the classifier the analysis will run with, built over this
+/// program by the caller.
+pub fn name_discards(program: &mut Program, counted: &mut dyn Counted) {
     for f in &mut program.funcs {
         let Func { locals, kind, .. } = f;
         let FuncKind::Body(body) = kind else { continue };
-        name_in(locals, body, &mut counted);
+        name_in(locals, body, counted);
     }
 }
 
@@ -981,8 +983,12 @@ pub fn analyze<C: Counted + Clone + Sync>(
     counted: &mut C,
     opts: &Options,
 ) -> Plan {
-    let ownership = infer_ownership(program, counted, opts);
-    let (purity, can_abort) = infer_effects(program);
+    // One call graph and one callees-first order, shared by both fixpoints
+    // that close over it.
+    let deps = ownership_dependencies(program);
+    let order = super::strongly_connected(&deps);
+    let ownership = infer_ownership(program, counted, opts, &deps, &order);
+    let (purity, can_abort) = infer_effects(program, &deps, &order);
     let parking = parkability(program);
     // One `FuncPlan` per function, across the cores. Every scan is a pure
     // function of its function, the whole-program answers above, and a
@@ -1272,6 +1278,8 @@ fn infer_ownership(
     program: &Program,
     counted: &mut dyn Counted,
     opts: &Options,
+    deps: &[Vec<usize>],
+    order: &[Vec<usize>],
 ) -> Vec<Vec<ir::Ownership>> {
     let mut own: Vec<Vec<ir::Ownership>> = program
         .funcs
@@ -1322,21 +1330,28 @@ fn infer_ownership(
     // — and a function that calls nothing recursive is one component that
     // settles in a single pass. `super::strongly_connected` yields the
     // components callees-first, which is the order this needs.
-    let deps = ownership_dependencies(program);
     let pieces = !opts.sharing;
-    for scc in super::strongly_connected(&deps) {
+    for scc in order {
         // A non-recursive singleton reads only rows that are already final, so
         // one evaluation is its fixed point: a second pass would read the same
         // inputs and change nothing.
-        if let &[only] = scc.as_slice() {
-            if !deps.get(only).is_some_and(|e| e.contains(&only)) {
-                promote_consuming(program, counted, only, &mut own, pieces);
-                continue;
-            }
+        if let Some(only) = settles_once(deps, scc) {
+            promote_consuming(program, counted, only, &mut own, pieces);
+            continue;
         }
-        converge_scc(program, counted, &scc, &mut own, pieces);
+        converge_scc(program, counted, scc, &mut own, pieces);
     }
     own
+}
+
+/// The one member of a component that is not recursive, which reads only rows
+/// already final when the component is reached, so one evaluation is its
+/// fixed point.
+fn settles_once(deps: &[Vec<usize>], scc: &[usize]) -> Option<usize> {
+    match scc {
+        &[only] if !deps.get(only).is_some_and(|e| e.contains(&only)) => Some(only),
+        _ => None,
+    }
 }
 
 /// The call graph the ownership fixpoint closes over, as an influence list:
@@ -1849,7 +1864,18 @@ fn worse(a: ir::Purity, b: ir::Purity) -> ir::Purity {
 /// instantiation. Parkability is the third column and is no longer one of
 /// these two: it needs the argument edges and the function-value types
 /// [`Parking`] collects, so it is a walk of its own.
-fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>) {
+///
+/// Both columns only ever climb, so the answer is the same in any evaluation
+/// order, and the order taken is the ownership fixpoint's: `order` is the
+/// components of `deps` callees first. Every callee and every `Continue` target
+/// a body reads is an edge of `deps`, so a component is reached with all its
+/// inputs final — a non-recursive function is walked once, and a recursive
+/// component is walked until it settles.
+fn infer_effects(
+    program: &Program,
+    deps: &[Vec<usize>],
+    order: &[Vec<usize>],
+) -> (Vec<ir::Purity>, Vec<bool>) {
     let mut purity: Vec<ir::Purity> = program
         .funcs
         .iter()
@@ -1866,68 +1892,83 @@ fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>) {
         .iter()
         .map(|f| matches!(f.kind, FuncKind::Unbuilt | FuncKind::Intrinsic(_)))
         .collect();
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for (i, f) in program.funcs.iter().enumerate() {
-            let Some(body) = f.body() else { continue };
-            let mut p = ir::Purity::Pure;
-            let mut a = false;
-            typed::walk(body, &mut |e| match &e.kind {
-                ExprKind::CallFn { func, .. } => {
-                    if let Some(c) = func.func() {
-                        p = worse(
-                            p,
-                            purity.get(c.index()).copied().unwrap_or(ir::Purity::Effectful),
-                        );
-                        a = a || aborts.get(c.index()).copied().unwrap_or(true);
-                    } else {
-                        p = ir::Purity::Effectful;
-                        a = true;
-                    }
-                }
-                // A jump into another function's loop is a call, and one
-                // whose effects propagate the same way.
-                ExprKind::Continue { func: Some(c), .. } => {
-                    p = worse(p, purity.get(c.index()).copied().unwrap_or(ir::Purity::Effectful));
-                    a = a || aborts.get(c.index()).copied().unwrap_or(true);
-                }
-                // An indirect call reaches a code pointer this pass cannot
-                // name, so it is whatever the worst function in the program is.
-                ExprKind::CallValue { .. } | ExprKind::CallTrait { .. } => {
-                    p = ir::Purity::Effectful;
-                    a = true;
-                }
-                ExprKind::Intrinsic { name, .. } => {
-                    p = worse(p, intrinsic_purity(name));
-                }
-                ExprKind::CtxGet { .. } | ExprKind::CtxLit { .. } | ExprKind::CtxCall { .. } => {
-                    p = ir::Purity::Effectful;
-                }
-                // Division by zero aborts (SPEC 6.9), and so does an
-                // exhausted allocation budget (MEMORY.md §7.2).
-                ExprKind::Prim { op, .. } => {
-                    if matches!(op, typed::PrimOp::Div | typed::PrimOp::Rem) {
-                        a = true;
-                    }
-                }
-                ExprKind::Array(_) | ExprKind::Template { .. } => {
-                    p = worse(p, ir::Purity::Allocating);
-                }
-                _ => {}
-            });
-            if purity.get(i).copied() != Some(p) || aborts.get(i).copied() != Some(a) {
-                if let Some(slot) = purity.get_mut(i) {
-                    *slot = p;
-                }
-                if let Some(slot) = aborts.get_mut(i) {
-                    *slot = a;
-                }
-                changed = true;
+    for scc in order {
+        if let Some(only) = settles_once(deps, scc) {
+            effects_once(program, only, &mut purity, &mut aborts);
+            continue;
+        }
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for &i in scc {
+                changed |= effects_once(program, i, &mut purity, &mut aborts);
             }
         }
     }
     (purity, aborts)
+}
+
+/// One function's purity and abortability, read off its body against the rows
+/// it calls. Returns whether either moved.
+fn effects_once(
+    program: &Program,
+    i: usize,
+    purity: &mut [ir::Purity],
+    aborts: &mut [bool],
+) -> bool {
+    let Some(body) = program.funcs.get(i).and_then(|f| f.body()) else { return false };
+    let mut p = ir::Purity::Pure;
+    let mut a = false;
+    typed::walk(body, &mut |e| match &e.kind {
+        ExprKind::CallFn { func, .. } => {
+            if let Some(c) = func.func() {
+                p = worse(p, purity.get(c.index()).copied().unwrap_or(ir::Purity::Effectful));
+                a = a || aborts.get(c.index()).copied().unwrap_or(true);
+            } else {
+                p = ir::Purity::Effectful;
+                a = true;
+            }
+        }
+        // A jump into another function's loop is a call, and one whose effects
+        // propagate the same way.
+        ExprKind::Continue { func: Some(c), .. } => {
+            p = worse(p, purity.get(c.index()).copied().unwrap_or(ir::Purity::Effectful));
+            a = a || aborts.get(c.index()).copied().unwrap_or(true);
+        }
+        // An indirect call reaches a code pointer this pass cannot name, so it
+        // is whatever the worst function in the program is.
+        ExprKind::CallValue { .. } | ExprKind::CallTrait { .. } => {
+            p = ir::Purity::Effectful;
+            a = true;
+        }
+        ExprKind::Intrinsic { name, .. } => {
+            p = worse(p, intrinsic_purity(name));
+        }
+        ExprKind::CtxGet { .. } | ExprKind::CtxLit { .. } | ExprKind::CtxCall { .. } => {
+            p = ir::Purity::Effectful;
+        }
+        // Division by zero aborts (SPEC 6.9), and so does an exhausted
+        // allocation budget (MEMORY.md §7.2).
+        ExprKind::Prim { op, .. } => {
+            if matches!(op, typed::PrimOp::Div | typed::PrimOp::Rem) {
+                a = true;
+            }
+        }
+        ExprKind::Array(_) | ExprKind::Template { .. } => {
+            p = worse(p, ir::Purity::Allocating);
+        }
+        _ => {}
+    });
+    if purity.get(i).copied() == Some(p) && aborts.get(i).copied() == Some(a) {
+        return false;
+    }
+    if let Some(slot) = purity.get_mut(i) {
+        *slot = p;
+    }
+    if let Some(slot) = aborts.get_mut(i) {
+        *slot = a;
+    }
+    true
 }
 
 // ---------------------------------------------------------------------------
@@ -2018,9 +2059,9 @@ pub struct Parking {
     /// One row per [`Program::funcs`] slot: whether it can park.
     parks: Vec<bool>,
     /// Per slot, the locals whose function value may park.
-    parking: Vec<HashSet<LocalId>>,
+    parking: Vec<LocalSet>,
     /// Per slot, the locals whose function value this pass followed.
-    resolved: Vec<HashSet<LocalId>>,
+    resolved: Vec<LocalSet>,
     /// The types of the parking function values this program builds.
     parking_types: HashSet<Ty>,
     /// Whether the program builds one at all — the answer where there is not
@@ -2062,9 +2103,9 @@ impl Parking {
             ExprKind::Closure { func, .. } => self.parks(func.index()),
             ExprKind::Lambda { body, .. } => self.body_parks(fi, body),
             ExprKind::Local(l) => {
-                if self.parking.get(fi).is_some_and(|s| s.contains(l)) {
+                if self.parking.get(fi).is_some_and(|s| s.contains(*l)) {
                     true
-                } else if self.resolved.get(fi).is_some_and(|s| s.contains(l)) {
+                } else if self.resolved.get(fi).is_some_and(|s| s.contains(*l)) {
                     false
                 } else {
                     self.unfollowed(&e.ty)
@@ -2148,23 +2189,51 @@ fn fn_lets(body: &Expr) -> Vec<(LocalId, &Expr)> {
 /// One of these can be called from a position no `CallFn` names, so nothing can
 /// be proved about what its parameters hold. Every other slot receives
 /// arguments only where this pass can see them.
-fn address_taken(program: &Program) -> HashSet<usize> {
-    let mut out = HashSet::default();
+fn address_taken(program: &Program) -> Vec<bool> {
+    let mut out = vec![false; program.funcs.len()];
     for f in &program.funcs {
         let Some(body) = f.body() else { continue };
-        typed::walk(body, &mut |e| match &e.kind {
-            ExprKind::FnRef(c) => {
-                if let Some(i) = c.func() {
-                    out.insert(i.index());
-                }
+        typed::walk(body, &mut |e| {
+            let taken = match &e.kind {
+                ExprKind::FnRef(c) => c.func(),
+                ExprKind::Closure { func, .. } => Some(*func),
+                _ => None,
+            };
+            if let Some(slot) = taken.and_then(|i| out.get_mut(i.index())) {
+                *slot = true;
             }
-            ExprKind::Closure { func, .. } => {
-                out.insert(func.index());
-            }
-            _ => {}
         });
     }
     out
+}
+
+/// A set of one function's locals, one bit per [`LocalId`]: dense, because a
+/// function's locals are numbered from zero.
+#[derive(Clone, Debug, Default)]
+struct LocalSet(Vec<u64>);
+
+impl LocalSet {
+    fn contains(&self, l: LocalId) -> bool {
+        let i = l.0 as usize;
+        self.0.get(i / 64).is_some_and(|w| (w >> (i % 64)) & 1 == 1)
+    }
+
+    /// Adds `l`, answering whether it was not already there.
+    fn insert(&mut self, l: LocalId) -> bool {
+        let i = l.0 as usize;
+        let word = i / 64;
+        if self.0.len() <= word {
+            self.0.resize(word.saturating_add(1), 0);
+        }
+        let bit = 1u64 << (i % 64);
+        match self.0.get_mut(word) {
+            Some(w) if *w & bit == 0 => {
+                *w |= bit;
+                true
+            }
+            _ => false,
+        }
+    }
 }
 
 /// [`Parking`], computed.
@@ -2185,8 +2254,8 @@ pub fn parkability(program: &Program) -> Parking {
                 FuncKind::Unbuilt | FuncKind::Body(_) => false,
             })
             .collect(),
-        parking: vec![HashSet::default(); n],
-        resolved: vec![HashSet::default(); n],
+        parking: vec![LocalSet::default(); n],
+        resolved: vec![LocalSet::default(); n],
         parking_types: HashSet::default(),
         any_parking_value: false,
         effects: program.shapes.effects.clone(),
@@ -2198,7 +2267,7 @@ pub fn parkability(program: &Program) -> Parking {
         program.funcs.iter().map(|f| f.body().map(fn_lets).unwrap_or_default()).collect();
     for (i, f) in program.funcs.iter().enumerate() {
         let Some(slot) = w.resolved.get_mut(i) else { continue };
-        if !addressed.contains(&i) {
+        if !addressed.get(i).copied().unwrap_or(true) {
             for p in &f.params {
                 slot.insert(*p);
             }
@@ -2208,33 +2277,39 @@ pub fn parkability(program: &Program) -> Parking {
         }
     }
 
+    // Arguments, into the parameters they are bound to, and every node that
+    // *is* a function value — an `FnRef`, a `Closure` or a `Lambda` — with the
+    // slot it is written in. Both are read every round and neither moves.
+    let mut edges: Vec<(usize, usize, &Vec<Expr>)> = Vec::new();
+    let mut values: Vec<(usize, &Expr)> = Vec::new();
+    for (i, f) in program.funcs.iter().enumerate() {
+        let Some(body) = f.body() else { continue };
+        typed::walk(body, &mut |e| match &e.kind {
+            ExprKind::CallFn { func, args } => {
+                if let Some(c) = func.func() {
+                    edges.push((c.index(), i, args));
+                }
+            }
+            // A `Continue` rebinds the parameters of the function it enters, in
+            // order — the dispatch index the backend prepends is not one of
+            // them.
+            ExprKind::Continue { func, args, .. } => {
+                edges.push((func.map_or(i, |c| c.index()), i, args));
+            }
+            ExprKind::FnRef(_) | ExprKind::Closure { .. } | ExprKind::Lambda { .. } => {
+                values.push((i, e));
+            }
+            _ => {}
+        });
+    }
+
     // Monotone in every column — a row only ever climbs — so the loop
     // terminates in at most one pass per edge.
     let mut changed = true;
     while changed {
         changed = false;
 
-        // Arguments, into the parameters they are bound to. Collected first
-        // because reading the columns and writing them cannot overlap.
-        let mut edges: Vec<(usize, usize, &Vec<Expr>)> = Vec::new();
-        for (i, f) in program.funcs.iter().enumerate() {
-            let Some(body) = f.body() else { continue };
-            typed::walk(body, &mut |e| match &e.kind {
-                ExprKind::CallFn { func, args } => {
-                    if let Some(c) = func.func() {
-                        edges.push((c.index(), i, args));
-                    }
-                }
-                // A `Continue` rebinds the parameters of the function it
-                // enters, in order — the dispatch index the backend prepends is
-                // not one of them.
-                ExprKind::Continue { func, args, .. } => {
-                    edges.push((func.map_or(i, |c| c.index()), i, args));
-                }
-                _ => {}
-            });
-        }
-        for (target, from, args) in edges {
+        for &(target, from, args) in &edges {
             let Some(tf) = program.funcs.get(target) else { continue };
             for (j, a) in args.iter().enumerate() {
                 if !is_fn_ty(&a.ty) || !w.value_parks(from, a) {
@@ -2261,21 +2336,18 @@ pub fn parkability(program: &Program) -> Parking {
 
         // The parking function values the program builds, collected by type,
         // which is what every position the two sets above did not follow is
-        // worth. Every node that *is* a function value is one of these three.
+        // worth.
         let mut found: Vec<&Ty> = Vec::new();
-        for (i, f) in program.funcs.iter().enumerate() {
-            let Some(body) = f.body() else { continue };
-            typed::walk(body, &mut |e| {
-                let parks = match &e.kind {
-                    ExprKind::FnRef(c) => c.func().is_none_or(|x| w.parks(x.index())),
-                    ExprKind::Closure { func, .. } => w.parks(func.index()),
-                    ExprKind::Lambda { body, .. } => w.body_parks(i, body),
-                    _ => return,
-                };
-                if parks {
-                    found.push(&e.ty);
-                }
-            });
+        for &(i, e) in &values {
+            let parks = match &e.kind {
+                ExprKind::FnRef(c) => c.func().is_none_or(|x| w.parks(x.index())),
+                ExprKind::Closure { func, .. } => w.parks(func.index()),
+                ExprKind::Lambda { body, .. } => w.body_parks(i, body),
+                _ => false,
+            };
+            if parks {
+                found.push(&e.ty);
+            }
         }
         for ty in found {
             if w.parking_types.insert(ty.clone()) {
@@ -2308,7 +2380,7 @@ pub fn parkability(program: &Program) -> Parking {
             // direction that costs a microtask rather than a result.
             if let FuncKind::Intrinsic(key) = &f.kind {
                 let stepped = intrinsic_keys::ctx_step_key(key)
-                    && f.params.iter().any(|p| w.parking.get(i).is_some_and(|s| s.contains(p)));
+                    && f.params.iter().any(|p| w.parking.get(i).is_some_and(|s| s.contains(*p)));
                 if stepped {
                     if let Some(slot) = w.parks.get_mut(i) {
                         *slot = true;
