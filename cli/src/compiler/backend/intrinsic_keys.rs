@@ -259,12 +259,11 @@ pub struct StepCall {
     /// The context, where the *step* takes one — the index into the Buri
     /// argument list, as [`ListCall::ctx`].
     pub ctx: Option<usize>,
-    /// The closure. **Always the last argument**, which is what lets one C
-    /// signature be described by two tables that disagree about everything
-    /// else: `runtime_table.rs` has no per-argument column and appends the
-    /// step's four words after the flattened arguments, `llvm/runtime.rs` has
-    /// one and writes them at the closure's own position, and the two agree
-    /// because the closure is where the arguments end.
+    /// The closure. **Always the last argument**, which is what lets the two
+    /// backends emit one C signature from one `runtime_table.rs` row: the
+    /// frame-threaded one appends the step's four words after the flattened
+    /// arguments, the LLVM one writes them at the closure's own position, and
+    /// the two agree because the closure is where the arguments end.
     /// `the_step_is_the_last_argument`, below, is that claim as a test.
     pub func: usize,
     /// How many arguments the declaration takes, so that "the closure is last"

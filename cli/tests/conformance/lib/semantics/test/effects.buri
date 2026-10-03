@@ -2301,7 +2301,7 @@ test "an ordinary Buri implementation hands its steps the context" {
 // `Ty::Ctx`, so it spread to a leaf the C signature has no parameter for and
 // shifted every argument after it one register down: the reduced case died in
 // `memmove` before the first block ran. Which argument is the context is now
-// read off the declaration (`backend/runtime_table.rs`'s `Entry::ctx`).
+// read off the declaration (`backend/runtime_table.rs`'s `Arg::Dropped`).
 
 test "a bare implementing value satisfies a context bound" {
     // The reduced repro. `alloc()` is not a context and never was one.
