@@ -1,0 +1,341 @@
+# **What a platform rule and its outputs are held to.** `//platform/pair` has
+# two `JS` entries, `left` and `right`, each with its own `js` file, and
+# `//cmd/app` fills both from one function, `greet`.
+#
+#   * **Each entry gets its own artifact.** One function fills both, and each
+#     artifact still holds its own entry's `js` file: the cache keys an
+#     artifact by its platform and its entry, not only by the function.
+#   * **Two artifacts never share a path.** `artifact_name` on a platform with
+#     two entries, two `web` outputs, and `artifact_name` on a page, whose
+#     `index.html` loads the entry's file by name, are each refused.
+#   * **An output's variant is held to every entry.** An entry that doesn't
+#     declare the variant refuses it, and a `NATIVE` entry's variants are
+#     `<os>-<arch>`.
+#   * **A malformed platform rule is refused** rather than read as less than it
+#     says: an entry missing `name` or `backend`, `js` on a `NATIVE` entry, an
+#     entry name given twice, and a rule with no entries.
+#   * **A host's fields are field-less production structs**, and `Option<()>`
+#     doesn't cross to a `js` file.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a platform rule is checked whole, and each of its entries is its own artifact at its own path"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+}
+
+file {
+  path: ".buri/out/platform/pair/cmd/app/left.mjs"
+  contains: "the left file"
+}
+
+file {
+  path: ".buri/out/platform/pair/cmd/app/right.mjs"
+  contains: "the right file"
+}
+
+file {
+  path: ".buri/out/platform/pair/cmd/app/right.mjs"
+  absent: "the left file"
+}
+
+# `artifact_name` on a platform with two entries names both artifacts the same.
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "{ platform: \"//platform/pair\", entries: ["
+  with: "{ platform: \"//platform/pair\", artifact_name: \"app\", entries: ["
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 2
+  golden: "artifact_name_on_two_entries.txt"
+}
+
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "{ platform: \"//platform/pair\", artifact_name: \"app\", entries: ["
+  with: "{ platform: \"//platform/pair\", entries: ["
+}
+
+# Two `web` outputs write one page.
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "    outputs: [\n"
+  with: "    outputs: [\n        { platform: \"web\" },\n        { platform: \"web\" },\n"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 2
+  golden: "two_pages.txt"
+}
+
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "        { platform: \"web\" },\n        { platform: \"web\" },\n"
+  with: ""
+}
+
+# `index.html` loads `/main.mjs`, so a page's artifact keeps its entry's name.
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "    outputs: [\n"
+  with: "    outputs: [\n        { platform: \"web\", artifact_name: \"site\" },\n"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 2
+  golden: "artifact_name_on_a_page.txt"
+}
+
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "        { platform: \"web\", artifact_name: \"site\" },\n"
+  with: ""
+}
+
+# A `NATIVE` entry's variant names an operating system and an architecture.
+edit {
+  file: "platform/pair/BUILD.buri"
+  replace: "        name: \"right\"\n        backend: JS\n        js: \"right.mjs\"\n"
+  with: "        name: \"right\"\n        backend: NATIVE\n        variants: [\"arm64\"]\n"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 2
+  golden: "native_variant_without_os.txt"
+}
+
+edit {
+  file: "platform/pair/BUILD.buri"
+  replace: "        name: \"right\"\n        backend: NATIVE\n        variants: [\"arm64\"]\n"
+  with: "        name: \"right\"\n        backend: JS\n        js: \"right.mjs\"\n"
+}
+
+# Every entry declares the output's variant, or the output is refused.
+edit {
+  file: "platform/pair/BUILD.buri"
+  replace: "        js: \"left.mjs\"\n"
+  with: "        js: \"left.mjs\"\n        variants: [\"chrome\", \"firefox\"]\n"
+}
+
+edit {
+  file: "platform/pair/BUILD.buri"
+  replace: "        js: \"right.mjs\"\n"
+  with: "        js: \"right.mjs\"\n        variants: [\"chrome\"]\n"
+}
+
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "{ platform: \"//platform/pair\", entries: ["
+  with: "{ platform: \"//platform/pair\", variant: \"firefox\", entries: ["
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 2
+  golden: "variant_one_entry_lacks.txt"
+}
+
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "{ platform: \"//platform/pair\", variant: \"firefox\", entries: ["
+  with: "{ platform: \"//platform/pair\", entries: ["
+}
+
+edit {
+  file: "platform/pair/BUILD.buri"
+  replace: "        variants: [\"chrome\", \"firefox\"]\n"
+  with: ""
+}
+
+edit {
+  file: "platform/pair/BUILD.buri"
+  replace: "        variants: [\"chrome\"]\n"
+  with: ""
+}
+
+# An entry without its `name` or its `backend`.
+edit {
+  file: "platform/pair/BUILD.buri"
+  replace: "        name: \"left\"\n"
+  with: ""
+}
+
+edit {
+  file: "platform/pair/BUILD.buri"
+  replace: "        name: \"right\"\n        backend: JS\n"
+  with: "        name: \"right\"\n"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 2
+  golden: "entry_missing_fields.txt"
+}
+
+edit {
+  file: "platform/pair/BUILD.buri"
+  replace: "    entry {\n        backend: JS\n"
+  with: "    entry {\n        name: \"left\"\n        backend: JS\n"
+}
+
+edit {
+  file: "platform/pair/BUILD.buri"
+  replace: "        name: \"right\"\n"
+  with: "        name: \"right\"\n        backend: JS\n"
+}
+
+# A `js` file is how a `JS` entry is called; a `NATIVE` entry has none.
+edit {
+  file: "platform/pair/BUILD.buri"
+  replace: "        name: \"right\"\n        backend: JS\n"
+  with: "        name: \"right\"\n        backend: NATIVE\n"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 2
+  golden: "js_on_a_native_entry.txt"
+}
+
+edit {
+  file: "platform/pair/BUILD.buri"
+  replace: "        name: \"right\"\n        backend: NATIVE\n"
+  with: "        name: \"right\"\n        backend: JS\n"
+}
+
+# One name, two entries.
+edit {
+  file: "platform/pair/BUILD.buri"
+  replace: "        name: \"right\"\n"
+  with: "        name: \"left\"\n"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 2
+  golden: "duplicate_platform_entry.txt"
+}
+
+edit {
+  file: "platform/pair/BUILD.buri"
+  replace: "        name: \"left\"\n        backend: JS\n        js: \"right.mjs\"\n"
+  with: "        name: \"right\"\n        backend: JS\n        js: \"right.mjs\"\n"
+}
+
+# A platform with no entries has nothing to build, and is refused rather than
+# built as `node`.
+edit {
+  file: "platform/pair/BUILD.buri"
+  replace: "platform {\n    entry {\n        name: \"left\"\n        backend: JS\n        js: \"left.mjs\"\n    }\n    entry {\n        name: \"right\"\n        backend: JS\n        js: \"right.mjs\"\n    }\n}\n"
+  with: "platform {\n}\n"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 2
+  golden: "platform_without_entries.txt"
+}
+
+edit {
+  file: "platform/pair/BUILD.buri"
+  replace: "platform {\n}\n"
+  with: "platform {\n    entry {\n        name: \"left\"\n        backend: JS\n        js: \"left.mjs\"\n    }\n    entry {\n        name: \"right\"\n        backend: JS\n        js: \"right.mjs\"\n    }\n}\n"
+}
+
+# A host field is a production struct, never an `Int`.
+edit {
+  file: "platform/pair/platform.buri"
+  replace: "    export alloc: HostAllocator,\n"
+  with: "    export alloc: HostAllocator,\n    export count: Int,\n"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "host_field_int.txt"
+}
+
+# …and never a struct with fields: the CLI builds the host, and has nothing to
+# fill them with.
+edit {
+  file: "platform/pair/platform.buri"
+  replace: "    export count: Int,\n}\n"
+  with: "    export dice: HostDice,\n}\n\nstruct HostDice { sides: Int }\n"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "host_field_with_fields.txt"
+}
+
+edit {
+  file: "platform/pair/platform.buri"
+  replace: "    export dice: HostDice,\n}\n\nstruct HostDice { sides: Int }\n"
+  with: "}\n"
+}
+
+# `buri:program` exports the artifact's entry by name, and nothing else: no
+# default, and no other entry, which is another artifact's.
+edit {
+  file: "platform/pair/left.mjs"
+  replace: "import { left } from \"buri:program\";"
+  with: "import program from \"buri:program\";"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "js_default_import.txt"
+}
+
+edit {
+  file: "platform/pair/left.mjs"
+  replace: "import program from \"buri:program\";"
+  with: "import { right } from \"buri:program\";"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "js_imports_another_entry.txt"
+}
+
+edit {
+  file: "platform/pair/left.mjs"
+  replace: "import { right } from \"buri:program\";"
+  with: "import { left } from \"buri:program\";"
+}
+
+# `Some(())` and `None` would both be `undefined`, so `Option<()>` doesn't
+# cross.
+edit {
+  file: "platform/pair/platform.buri"
+  replace: "export fn left(host: PairHost, name: Str): Str;"
+  with: "export fn left(host: PairHost, name: Str): Option<()>;"
+}
+
+edit {
+  file: "platform/pair/platform.buri"
+  replace: "export fn right(host: PairHost, name: Str): Str;"
+  with: "export fn right(host: PairHost, name: Str): Option<()>;"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "export fn greet(host: PairHost, name: Str): Str {\n    name\n}"
+  with: "export fn greet(host: PairHost, name: Str): Option<()> {\n    .None\n}"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "option_of_unit.txt"
+}

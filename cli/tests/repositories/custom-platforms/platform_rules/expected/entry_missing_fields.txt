@@ -1,0 +1,26 @@
+error: this `entry` has no `name` [platform-entry-missing-field]
+ --> platform/pair/BUILD.buri:2:11
+  |
+2 |     entry {
+  |           ^
+  |
+  = an entry is named by `name`, which the function filling it matches, and built by `backend`
+  = fix: add `name: "main"`
+
+      # platform/cloudflare_worker/BUILD.buri
+      platform {
+          entry {
+              name: "fetch"
+              backend: JS
+              js: "fetch.mjs"
+          }
+      }
+
+error: this `entry` has no `backend` [platform-entry-missing-field]
+ --> platform/pair/BUILD.buri:6:11
+  |
+6 |     entry {
+  |           ^
+  |
+  = an entry is named by `name`, which the function filling it matches, and built by `backend`
+  = fix: add `backend: JS`

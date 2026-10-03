@@ -12,8 +12,9 @@
 //! whose spawn has to be made deterministic: `build/spawn.rs` gives it an
 //! explicit environment and a clock frozen at `1970-01-01T00:00:00Z`. That is
 //! about determinism rather than confinement — what keeps a suite from reaching
-//! the machine is that a test source has no name for `core/host` at all, and
-//! that its capabilities are fakes this runner injects.
+//! the machine is that a test source is never handed a host: only an entry is,
+//! and only a `platform.buri` may import `platform/host`. Its capabilities are
+//! fakes this runner injects.
 #![allow(
     clippy::print_stdout,
     clippy::print_stderr,
@@ -816,8 +817,8 @@ fn work(job: Job, held: Held, queue: &Queue, shared: &Shared) -> Done {
 /// Compiles slot `i` on its own and queues what is left of it, unless it is
 /// answered or already queued.
 ///
-/// `None`, not the platform, as the unit's platform: a test never binds
-/// `core/host`, so there is no host grant to check it against (`Unit::platform`).
+/// `None`, not the platform, as the unit's platform: a test is never handed a
+/// host, so there is no host to check it against (`Unit::platform`).
 fn solo(
     session: &mut Session,
     args: &arguments::Args,

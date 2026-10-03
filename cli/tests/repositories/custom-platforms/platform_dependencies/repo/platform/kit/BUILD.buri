@@ -1,0 +1,8 @@
+platform {
+    dependencies: ["//lib/words"]
+
+    entry {
+        name: "main"
+        backend: JS
+    }
+}

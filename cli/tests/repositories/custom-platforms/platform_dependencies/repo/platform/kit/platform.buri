@@ -1,0 +1,15 @@
+// A platform whose `platform.buri` reaches a library of the repository's.
+from "platform/host" import { HostAllocator, HostStdout };
+from "//lib/words" import * as words;
+
+export struct KitHost {
+    export alloc: HostAllocator,
+    export stdout: HostStdout,
+}
+
+export fn main(host: KitHost): Result<(), Str>;
+
+/// The library's greeting, handed on.
+export fn greeting(): Str {
+    words.greeting()
+}

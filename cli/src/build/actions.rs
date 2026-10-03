@@ -484,6 +484,22 @@ fn host_file(
     };
     let text = session.map.text(file).to_string();
     let exports = crate::build::hosted::read(&text);
+    // `buri:program` holds this artifact's entry and nothing else, and
+    // `buri:ui` its two functions. Any other name would arrive `undefined`.
+    for (module, name, at) in &exports.named {
+        let offered: &[&str] = if *module == "buri:program" { &[point] } else { &["signal", "write"] };
+        if !offered.contains(&name.as_str()) {
+            diagnostics.push(
+                Diagnostic::templated("unknown-export", Span::new(file, *at, *at))
+                    .with_bind("path", *module)
+                    .with_bind("name", name.as_str())
+                    .with_note(format!("`{module}` exports {}", offered.iter().map(|o| format!("`{o}`")).collect::<Vec<_>>().join(" and "))),
+            );
+        }
+    }
+    if diagnostics.has_errors() {
+        return Err(std::mem::take(diagnostics));
+    }
     let gaps = crate::build::hosted::gaps(&exports, &needed);
     for gap in &gaps {
         let mut d = Diagnostic::templated("host-file-missing-method", Span::new(file, gap.at, gap.at))
@@ -525,8 +541,7 @@ pub fn action_key(
     action: Action,
 ) -> ActionKey {
     let mut k = KeyBuilder::new(action, flags.mode);
-    k.platform(output.platform(), output.arch());
-    k.entry(output.entry_name());
+    k.output(output);
     // Which backend will produce the bytes, and the identity of everything
     // outside the program that they depend on. The toolchain version does not
     // catch the second: `llvm-sys` links against whatever `llvm-config` found
@@ -560,19 +575,34 @@ pub fn action_key(
 /// One repository platform's contribution to a key. See [`action_key`].
 fn contribute_platform(session: &Session, label: &str, closure: &[TargetId], k: &mut KeyBuilder) {
     let workspace = &session.workspace;
-    let Some((pid, rule)) = workspace.platform_rule(label) else { return };
+    let Some((pid, files, members)) = platform_inputs(workspace, label) else { return };
     let package = workspace.package(pid);
+    k.rule_identity(&package.label(), "platform", &files);
+    for rel in &files {
+        let disk = package.dir.join(rel);
+        k.file(&workspace.rel_of(&disk), std::fs::read(&disk).ok().as_deref());
+    }
+    for member in members.into_iter().filter(|m| !closure.contains(m)) {
+        contribute(session, member, k);
+    }
+}
+
+/// What a repository platform's outputs are built from beside the binary: its
+/// package, its own files package-relative and sorted (`BUILD.buri`,
+/// `platform.buri`, sources, `js` files and assets), and every library in its
+/// dependencies' closures. One enumeration, so the key and `--watch`'s input
+/// set can't disagree.
+pub fn platform_inputs(
+    workspace: &crate::build::workspace::Workspace,
+    label: &str,
+) -> Option<(crate::build::workspace::PackageId, Vec<String>, Vec<TargetId>)> {
+    let (pid, rule) = workspace.platform_rule(label)?;
     let mut files: Vec<String> = vec![String::from("BUILD.buri"), String::from("platform.buri")];
     files.extend(rule.sources.iter().map(|s| s.value.clone()));
     files.extend(rule.entries.iter().filter_map(|e| e.js.as_ref().map(|j| j.value.clone())));
     files.extend(rule.assets.iter().map(|a| a.value.clone()));
     files.sort();
     files.dedup();
-    k.rule_identity(&package.label(), "platform", &files);
-    for rel in &files {
-        let disk = package.dir.join(rel);
-        k.file(&workspace.rel_of(&disk), std::fs::read(&disk).ok().as_deref());
-    }
     let mut members: Vec<TargetId> = Vec::new();
     for dep in &rule.dependencies {
         if let Some(t) = workspace.dep_target(&dep.value) {
@@ -581,9 +611,7 @@ fn contribute_platform(session: &Session, label: &str, closure: &[TargetId], k: 
     }
     members.sort();
     members.dedup();
-    for member in members.into_iter().filter(|m| !closure.contains(m)) {
-        contribute(session, member, k);
-    }
+    Some((pid, files, members))
 }
 
 /// One target's own contribution to a key: its rule identity, and the contents
@@ -709,8 +737,7 @@ pub fn rule_files(workspace: &crate::build::workspace::Workspace, member: Target
 /// it and the tests compare it between two states of one tree.
 fn compile_key(session: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Compile, flags.mode);
-    k.platform(output.platform(), output.arch());
-    k.entry(output.entry_name());
+    k.output(output);
     contribute(session, target, &mut k);
     k.finish()
 }
@@ -825,16 +852,24 @@ pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
 /// directory lists in. Its being absent adds nothing, which is what a package
 /// with no goldens has always keyed.
 fn goldens(package_dir: &std::path::Path, k: &mut KeyBuilder) {
-    let dir = package_dir.join("test").join("__snapshots__");
-    let Ok(entries) = std::fs::read_dir(&dir) else { return };
+    for rel in golden_files(package_dir) {
+        k.file(&rel, std::fs::read(package_dir.join(&rel)).ok().as_deref());
+    }
+}
+
+/// The goldens [`goldens`] keys, package-relative and sorted. `--watch`
+/// watches the same list.
+pub fn golden_files(package_dir: &std::path::Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(package_dir.join("test").join("__snapshots__")) else {
+        return Vec::new();
+    };
     let mut names: Vec<String> = entries
         .filter_map(|e| e.ok()?.file_name().into_string().ok())
         .filter(|n| n.ends_with(".png") && !n.ends_with(".diff.png"))
+        .map(|n| format!("test/__snapshots__/{n}"))
         .collect();
     names.sort();
-    for name in names {
-        k.file(&format!("test/__snapshots__/{name}"), std::fs::read(dir.join(&name)).ok().as_deref());
-    }
+    names
 }
 
 /// The middle end and then a backend, over one monomorphized program.
@@ -1097,8 +1132,7 @@ pub fn codegen_key(
     layout_hash: &str,
 ) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Codegen, flags.mode);
-    k.platform(output.platform(), output.arch());
-    k.entry(output.entry_name());
+    k.output(output);
     k.backend(backend_name, backend_identity);
     k.input("prefix", unit_prefix.as_bytes());
     k.input("ir", ir_hash.as_bytes());
@@ -2166,13 +2200,19 @@ fn write_executable(entry: &std::path::Path, path: &std::path::Path) -> std::io:
 
 pub fn artifact_path(session: &Session, target: TargetId, output: &Output) -> PathBuf {
     let package = session.workspace.package(target.package);
-    let dir_name = if package.path.is_empty() {
-        session.root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or("main".into())
+    session.root.join(artifact_relative(&session.root, &package.path, output))
+}
+
+/// Where an output's artifact lands, relative to the repository `root`, for
+/// the binary in the package at `package_path`.
+pub fn artifact_relative(root: &Path, package_path: &str, output: &Output) -> PathBuf {
+    let dir_name = if package_path.is_empty() {
+        root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or("main".into())
     } else {
         // `rsplit` yields the whole string when there is no separator, so the
         // last segment is there for any non-empty path — and the branch above
         // is the empty one.
-        package.path.rsplit('/').next().unwrap_or(&package.path).to_string()
+        package_path.rsplit('/').next().unwrap_or(package_path).to_string()
     };
     // An output that enters somewhere other than `main` is named after the
     // function it enters through, because two outputs of one binary otherwise
@@ -2190,13 +2230,13 @@ pub fn artifact_path(session: &Session, target: TargetId, output: &Output) -> Pa
         (None, "main") => dir_name,
         (None, entry) => entry.to_string(),
     };
-    let base = output.artifact_name.clone().unwrap_or(default);
+    let base = output.artifact_name.as_ref().map_or(default, |a| a.value.clone());
     // The catch-all this used to end in would have given a WEB artifact no
     // extension at all. Every JavaScript platform writes an `.mjs`, and a
     // native one writes the bare name, so the match is over the two answers
     // rather than over one platform and everything else.
     let name = if output.platform().is_javascript() { format!("{base}.mjs") } else { base };
-    session.root.join(".buri/out").join(output.dir()).join(&package.path).join(name)
+    Path::new(".buri/out").join(output.dir()).join(package_path).join(name)
 }
 
 /// Where chunk `n` of a module sits: `<artifact>.<n>.mjs`, beside it.
@@ -2332,8 +2372,46 @@ pub fn check_policy(
     diagnostics: &mut Diagnostics,
 ) {
     check_visibility(session, target, diagnostics);
-    check_tags(session, target, diagnostics);
+    check_platform_visibility(session, platform, diagnostics);
+    check_tags_of(session, target, &session.workspace.policy_members(target, platform), diagnostics);
     check_platform(session, target, platform, diagnostics);
+}
+
+/// A repository platform's dependencies, held to visibility like a binary's:
+/// each is visible to the platform's package, and so is every edge below it.
+fn check_platform_visibility(session: &Session, platform: &OutputPlatform, diagnostics: &mut Diagnostics) {
+    let OutputPlatform::Repository { label, .. } = platform else { return };
+    let ws = &session.workspace;
+    let Some((pid, rule)) = ws.platform_rule(label) else { return };
+    let mut edges: Vec<(crate::build::workspace::PackageId, TargetId, Span)> = Vec::new();
+    let mut members: Vec<TargetId> = Vec::new();
+    for dep in &rule.dependencies {
+        if let Some(t) = ws.dep_target(&dep.value) {
+            edges.push((pid, t, dep.span));
+            members.extend(ws.closure(t));
+        }
+    }
+    members.sort();
+    members.dedup();
+    for member in members {
+        for (dep, span) in ws.dep_edges(member) {
+            if let Some(span) = span {
+                edges.push((member.package, dep, span));
+            }
+        }
+    }
+    for (from, dep, span) in edges {
+        if ws.visible(from, dep) {
+            continue;
+        }
+        diagnostics.push(
+            Diagnostic::templated("visibility-violation", span)
+                .with_bind("from_target", ws.package(from).label())
+                .with_bind("to_target", ws.label(dep))
+                .with_bind("visible_to", ws.visibility_list(dep))
+                .with_bind("to_package_path", ws.package(dep.package).path.clone()),
+        );
+    }
 }
 
 pub fn check_visibility(session: &Session, target: TargetId, diagnostics: &mut Diagnostics) {
@@ -2373,8 +2451,14 @@ pub fn check_visibility(session: &Session, target: TargetId, diagnostics: &mut D
 /// the interesting question is never "which library is tagged `server`" but
 /// "who dragged it in".
 pub fn check_tags(session: &Session, target: TargetId, diagnostics: &mut Diagnostics) {
+    check_tags_of(session, target, &session.workspace.closure(target), diagnostics);
+}
+
+/// [`check_tags`] over `members`: the target's closure, and for an output of
+/// a repository platform, the platform's dependencies too.
+fn check_tags_of(session: &Session, target: TargetId, members: &[TargetId], diagnostics: &mut Diagnostics) {
     // A tag `REPO.buri` does not declare is an error, not a no-op.
-    for member in session.workspace.closure(target) {
+    for &member in members {
         for tag in session.workspace.tags(member) {
             if session.workspace.repo.tag(&tag.value).is_none() {
                 let known: Vec<&str> =
@@ -2396,7 +2480,7 @@ pub fn check_tags(session: &Session, target: TargetId, diagnostics: &mut Diagnos
         }
     }
 
-    let Some((a, a_by, b, b_by)) = session.workspace.forbidden_pair(target) else { return };
+    let Some((a, a_by, b, b_by)) = session.workspace.forbidden_pair_of(members) else { return };
     let label = session.workspace.label(target);
     let a_label = session.workspace.label(a_by);
     let b_label = session.workspace.label(b_by);
@@ -2453,7 +2537,8 @@ pub fn check_platform(
     platform: &OutputPlatform,
     diagnostics: &mut Diagnostics,
 ) {
-    let allowed = session.workspace.platforms(target);
+    let members = session.workspace.policy_members(target, platform);
+    let allowed = session.workspace.platforms_of(&members);
     if allowed.contains(platform) {
         return;
     }
@@ -2471,7 +2556,7 @@ pub fn check_platform(
     let mut d = Diagnostic::templated("platform-violation", span)
         .with_bind("target", label.as_str())
         .with_bind("platform", platform.name());
-    if let Some(found) = session.workspace.platform_blocker(target, platform) {
+    if let Some(found) = session.workspace.platform_blocker_of(&members, platform) {
         let blocker = found.member;
         d = d.with_note(found.why);
         if let Some(word) = found.forbidden {

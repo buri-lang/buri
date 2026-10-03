@@ -25,5 +25,5 @@ only these types cross it:
 | a struct                | a plain object of its fields   |
 | `Request`, `Response`   | the Fetch standard's           |
 
-`Result` crosses only as a whole answer. `Option<Option<T>>` doesn't cross,
-because `Some(None)` would be `undefined` too.
+`Result` crosses only as a whole answer. `Option<Option<T>>` and `Option<()>`
+don't cross, because `Some(None)` and `Some(())` would be `undefined` too.

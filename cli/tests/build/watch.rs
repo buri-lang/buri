@@ -74,6 +74,11 @@ fn two_suites(name: &str) -> Scratch {
 /// finds the root from the working directory and a test binary's working
 /// directory is shared by every test in it.
 fn declared_set(root: &Path) -> Vec<PathBuf> {
+    declared_set_of(root, "//...")
+}
+
+/// The same, for the targets one pattern names.
+fn declared_set_of(root: &Path, pattern: &str) -> Vec<PathBuf> {
     let mut map = SourceMap::new();
     let mut diagnostics = Diagnostics::new();
     let workspace = Workspace::load(root, &mut map, &mut diagnostics).expect("the workspace loads");
@@ -85,7 +90,7 @@ fn declared_set(root: &Path) -> Vec<PathBuf> {
         workspace: std::rc::Rc::new(workspace),
         rendering: Rendering::Human { color: false },
     };
-    let targets = s.resolve_targets(&["//...".to_string()]).expect("//... resolves");
+    let targets = s.resolve_targets(&[pattern.to_string()]).expect("the pattern resolves");
     buri::commands::watch::inputs(&s, &targets)
 }
 
@@ -166,6 +171,76 @@ fn a_generators_input_and_the_tool_that_reads_it_are_watched() {
 
     let listed = names(&scratch.root, &declared_set(&scratch.root));
     for want in ["lib/wire/units.txt", "tool/gen/tool.buri", "tool/gen/BUILD.buri"] {
+        assert!(
+            listed.iter().any(|p| p == want),
+            "the declared set does not name {want}:\n{}",
+            indent(&listed.join("\n"))
+        );
+    }
+}
+
+/// **A snapshot's golden is watched, and its diff is not.** A suite's key
+/// holds every `*.png` in its package's `test/__snapshots__`, so editing one
+/// re-runs the suite. The runtime writes `*.diff.png` itself, and watching it
+/// would wake the loop with its own output.
+#[test]
+fn a_snapshot_golden_is_watched_and_its_diff_is_not() {
+    let scratch = two_suites("watch-goldens");
+    scratch.write("lib/a/test/__snapshots__/front.png", "golden");
+    scratch.write("lib/a/test/__snapshots__/front.diff.png", "diff");
+
+    let listed = names(&scratch.root, &declared_set(&scratch.root));
+    assert!(
+        listed.iter().any(|p| p == "lib/a/test/__snapshots__/front.png"),
+        "the declared set does not name the golden:\n{}",
+        indent(&listed.join("\n"))
+    );
+    assert!(
+        !listed.iter().any(|p| p.ends_with(".diff.png")),
+        "the declared set names a diff the runtime writes:\n{}",
+        indent(&listed.join("\n"))
+    );
+}
+
+/// **A repository platform's files are watched**: its `platform.buri`, its
+/// sources, its entries' `js` files, its assets and the libraries it depends
+/// on. Every one is in the key of each output built for it, so an edit to any
+/// of them is a rebuild the loop must run.
+#[test]
+fn a_platforms_files_and_dependencies_are_watched() {
+    let scratch = Scratch::repo("watch-platform");
+    scratch.write(
+        "platform/kiosk/BUILD.buri",
+        "platform {\n  sources: [\"extra.buri\"]\n  dependencies: [\"//lib/words\"]\n  \
+         entry {\n    name: \"main\"\n    backend: JS\n    js: \"main.mjs\"\n  }\n  \
+         assets: [\"index.html\"]\n}\n",
+    );
+    scratch.write(
+        "platform/kiosk/platform.buri",
+        "from \"platform/host\" import { HostAllocator };\n\n\
+         export struct KioskHost {\n  export alloc: HostAllocator,\n}\n\n\
+         export fn main(host: KioskHost): Result<(), Str>;\n",
+    );
+    scratch.write("platform/kiosk/extra.buri", "export fn spare(): Int { 1 }\n");
+    scratch.write("platform/kiosk/main.mjs", "import { main } from \"buri:program\";\nawait main();\n");
+    scratch.write("platform/kiosk/index.html", "<!doctype html>\n<script type=\"module\" src=\"/main.mjs\"></script>\n");
+    scratch.write("lib/words/BUILD.buri", "library {\n  visibility: [\"//visibility:public\"]\n}\n");
+    scratch.write("lib/words/lib.buri", "export fn word(): Str { \"hi\" }\n");
+    scratch.write("cmd/kiosk/BUILD.buri", "binary {\n  outputs: [{ platform: \"//platform/kiosk\" }]\n}\n");
+    scratch.write(
+        "cmd/kiosk/main.buri",
+        "from \"//platform/kiosk\" import { KioskHost };\n\n\
+         export fn main(host: KioskHost): Result<(), Str> { .Ok(()) }\n",
+    );
+
+    let listed = names(&scratch.root, &declared_set_of(&scratch.root, "//cmd/kiosk"));
+    for want in [
+        "platform/kiosk/platform.buri",
+        "platform/kiosk/extra.buri",
+        "platform/kiosk/main.mjs",
+        "platform/kiosk/index.html",
+        "lib/words/lib.buri",
+    ] {
         assert!(
             listed.iter().any(|p| p == want),
             "the declared set does not name {want}:\n{}",

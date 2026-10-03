@@ -1,0 +1,8 @@
+error: //platform/kit depends on //lib/words, which is not visible to it [visibility-violation]
+ --> platform/kit/BUILD.buri:2:20
+  |
+2 |     dependencies: ["//lib/words"]
+  |                    ^^^^^^^^^^^^^ not visible
+  |
+  = //lib/words is visible to: //visibility:private (nothing, outside its own package)
+  = fix: add "//platform/kit" to visibility in lib/words/BUILD.buri

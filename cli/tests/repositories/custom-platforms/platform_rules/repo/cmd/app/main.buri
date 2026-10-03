@@ -1,0 +1,6 @@
+// One function fills both of the platform's entries.
+from "//platform/pair" import { PairHost };
+
+export fn greet(host: PairHost, name: Str): Str {
+    name
+}

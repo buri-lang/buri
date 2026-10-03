@@ -598,6 +598,18 @@ impl KeyBuilder {
         self.hasher.text(arch.map(|a| a.slug()).unwrap_or("-"));
     }
 
+    /// Everything about an output that decides its bytes beside its sources:
+    /// the machine, the platform by label, the platform's entry it builds and
+    /// the function filling it. Two entries of one repository platform filled
+    /// by one function are two artifacts, each with its own `js` file, and
+    /// keying on the function alone served one entry's module for the other.
+    pub fn output(&mut self, output: &buildfile::Output) {
+        self.platform(output.platform(), output.arch());
+        self.hasher.text(&output.platform_label());
+        self.hasher.text(output.entry_point());
+        self.entry(output.entry_name());
+    }
+
     /// The function an output enters through.
     ///
     /// In every key an `Output` reaches, beside the platform and for the same

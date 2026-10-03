@@ -1,0 +1,6 @@
+binary {
+    tags: ["client"]
+    outputs: [
+        { platform: "//platform/kit" },
+    ]
+}
