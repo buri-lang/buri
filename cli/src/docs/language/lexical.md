@@ -61,13 +61,14 @@ Reserved for future versions and rejected today: `async` `await` `break`
 
 ### 3.5 Literals
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-42          1_000_000     0xFF     0o755     0b1010_0110      // INT
-3.14        1.0e-9        6.02e23                             // FLOAT
-"hello"     "tab\there"   "\u{1F600}"                         // STRING -> Str
-'a'         '\n'          '\u{41}'                            // CHAR
-true        false                                             // BOOL
-"n = ${n}"                                                    // TEMPLATE
+```buri wrap=body
+let n = 3;
+let ints = [42, 1_000_000, 0xFF, 0o755, 0b1010_0110];
+let floats = [3.14, 1.0e-9, 6.02e23];
+let strs = ["hello", "tab\there"];
+let chars = ['a', '\n'];
+let bools = [true, false];
+let template = "n = ${n}";
 ```
 
 A float literal must begin with a digit. `.5` is not a literal; write `0.5`
@@ -97,8 +98,13 @@ literal fragments plus the evaluated holes. **Building one allocates nothing**, 
 `io.println(ctx, "hi ${name}")` needs only the `stdout` effect. Turning it into a
 `Str` allocates:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let greeting: Str = str.format(ctx, "Hello, ${name}!");
+```buri
+# from "core/str" import * as str;
+# from "platform/effect" import { Allocator };
+#
+fn greet<C: Allocator>(ctx: C, name: Str): Str {
+    str.format(ctx, "Hello, ${name}!")
+}
 ```
 
 A hole has type `Int` or `Float` (any width), `Bool`, `Char`, `Str`, **or a type
@@ -109,8 +115,27 @@ context: `io.println(ctx, "${point}")` still needs only `stdout`.
 A hole won't take a **hand-written** `impl Show`, because a `Template` has no
 context to pass its `show<C: Allocator>(self, ctx: C)`. Call it yourself:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let line: Str = str.format(ctx, "the suit is ${suit.show(ctx)}");
+```buri
+# from "core/str" import * as str;
+# from "platform/effect" import { Allocator };
+#
+# enum Suit {
+#     Hearts,
+#     Spades,
+# }
+#
+# impl Show for Suit {
+#     fn show<C: Allocator>(self, ctx: C): Str {
+#         match (self) {
+#             .Hearts => "hearts",
+#             .Spades => "spades",
+#         }
+#     }
+# }
+#
+fn describe<C: Allocator>(ctx: C, suit: Suit): Str {
+    str.format(ctx, "the suit is ${suit.show(ctx)}")
+}
 ```
 
 The same goes for `T: Show` in a generic body, since `T` might have a

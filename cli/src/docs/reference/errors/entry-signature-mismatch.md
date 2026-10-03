@@ -1,11 +1,11 @@
 ---
 title: An entry has the signature its platform declares
-message: '`{entry}` {requirement}'
+message: '`{entry}` must {requirement}'
 ---
 # An entry has the signature its platform declares
 
 ```text
-error: `main` declares no generic parameters [entry-signature-mismatch]
+error: `main` must declare no generic parameters [entry-signature-mismatch]
 ```
 
 ## What to do
@@ -21,14 +21,10 @@ Give the entry the signature its platform's `platform.buri` declares.
 
 ## Why
 
-The platform calls the entry, so the platform fixes its signature. A program is
-handed its host, runs, and reports how it went: `.Ok(())` exits 0, `.Err(msg)`
-prints `msg` to stderr and exits 1. A repository platform's entry, like a
-worker's `fetch`, takes and answers what its declaration says.
-
-Nothing calls an entry with a type argument, so none declares generic
-parameters. An `outputs` entry says which function enters and which platform
-fixes its signature.
+The platform calls the entry, so the platform fixes its signature, and nothing
+calls an entry with a type argument. A repository platform's entry without a
+`js` file starts itself, so it takes only its host and answers
+`Result<(), Str>`.
 
 ## A program that provokes it
 

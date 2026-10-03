@@ -132,7 +132,7 @@ and call that function from a test with doubles of its own.
 
 `platform/effect/testing` holds the effects' test implementations. It exports
 one double per effect rather than one pre-assembled world, each real where it
-can be and hermetic everywhere else, named after the host's fields. Here you **call** them rather than refer to them, so
+can be and hermetic everywhere else, mostly named after the host's fields. You **call** them rather than refer to them, so
 `clock()` answers a fresh clock every call and a test never inherits another
 test's.
 
@@ -150,6 +150,8 @@ test's.
 | `proc()` | `Process` | **Absorbs** the exit instead of taking it, so the test carries on. |
 | `tasks()` | `Tasks` | Runs the tasks one at a time, in **program order**, until a builder says otherwise. |
 | `sockets()` | `Sockets` | Sockets with **no network** behind them: `open()` mints one, and what is pushed on it is recorded. |
+| `spawn()` | `Spawn` | Runs nothing, and refuses every command until a test says what to answer. |
+| `tcp()` | `Tcp` | A connection with nothing scripted and nothing recorded. |
 | `headless()` | `Ui` | The real reactive graph with no document. `after` waits on a virtual clock that `elapse(millis)` moves. |
 | `observer()` | `Watch` | Reads that graph from outside any computation. |
 | `address(ctx, at)` | `Location` | A signal starting at `at`, with no history behind it. |

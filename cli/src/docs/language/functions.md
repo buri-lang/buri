@@ -1,16 +1,17 @@
 ## 9. Functions
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri sig
 # from "platform/effect" import { Clock };
-export fn slugify(s: Str): Str { ... }
+#
+export fn slugify(s: Str): Str;
 
-fn quadratic(a: F64, b: F64, c: F64): Option<(F64, F64)> { ... }
+fn quadratic(a: F64, b: F64, c: F64): Option<(F64, F64)>;
 
 fn retry<T, C: Clock>(
-  ctx: C,
-  attempts: Int,
-  action: fn(C) => Result<T, Str>,
-): Result<T, Str> { ... }
+    ctx: C,
+    attempts: Int,
+    action: fn(C) => Result<T, Str>,
+): Result<T, Str>;
 ```
 
 - Every top-level `fn` declares its parameter types and return type. Local

@@ -2363,7 +2363,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // is dropped" — makes zero-sizedness the reason, and it is not:
                 // a context is dropped here because the *runtime* has no use for
                 // one, allocating through `buri_rt_alloc` and reading no
-                // capability. Every context built from `core/host` happens to be
+                // capability. Every context built from a host happens to be
                 // empty structs, so the two readings agree until a program
                 // builds one from `platform/effect/testing`, whose `TestAllocator` is
                 // `struct TestAllocator(I64)` and carries a handle. Then a check on
@@ -2402,7 +2402,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     let step_index = step_call(key).and_then(|c| c.index);
                     // A context that owns a reference count would need a
                     // retain per element rather than a copy, and none does:
-                    // `core/host`'s allocators are empty structs and
+                    // `platform/host`'s allocators are empty structs and
                     // `platform/effect/testing`'s carry a handle. Refused here,
                     // where there is a span to hang it on.
                     if ps

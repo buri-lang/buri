@@ -56,7 +56,7 @@
 //!   `T` carrying a known-non-null pointer is that `T` with null for `.None`.
 //! * **Closures** (§7) are `{ code, env }`, 16 bytes.
 //! * **Contexts** (§8) are a record of exactly the implementations that carry
-//!   state, which for `core/host` is none of them — so the context is
+//!   state, which for `platform/host` is none of them — so the context is
 //!   zero-sized and [`Layouts::zero_sized`] is what drops it from a signature.
 //! * **The heap header** (MEMORY.md §2) is [`HEADER_BYTES`] immediately before
 //!   every payload, which is why `[T]`'s `ptr` is a payload start and `Str`'s
@@ -488,7 +488,7 @@ impl<'a> Layouts<'a> {
     /// Whether a value of this type occupies nothing, and so is dropped from
     /// every signature it appears in.
     ///
-    /// The rule VALUE-MODEL.md §8 is about: every implementation `core/host`
+    /// The rule VALUE-MODEL.md §8 is about: every implementation `platform/host`
     /// exports is an empty struct, a context is a record of its
     /// implementations, and a record of nothing is nothing. So on the platform
     /// context `ctx` is not a parameter at all, and `list.map(ctx, f)` is

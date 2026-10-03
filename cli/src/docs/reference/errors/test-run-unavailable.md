@@ -32,5 +32,4 @@ Or fix the toolchain. The two profiles need different things:
 ## Why
 
 `buri test` runs a suite that names no backend on the host, natively. Nothing
-about your program is wrong. What's missing is a piece of this toolchain, and
-each escape hatch above says where the suite runs instead.
+about your program is wrong: what's missing is a piece of this toolchain.

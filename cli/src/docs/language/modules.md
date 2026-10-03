@@ -155,7 +155,7 @@ importer gets the type the declaration names (Section 5.9).
 A module may export a name it imported, with one declaration that mirrors
 `import`:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri repo=cli/tests/example package=//lib/money
 from "//lib/money/cents.buri" export { Cents, fromCents };
 
 from "//lib/money/cents.buri" export { add as addMoney };

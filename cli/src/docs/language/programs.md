@@ -2,17 +2,18 @@
 
 A program is a module that exports `main`:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "platform/effect" import { Allocator, Environment, Stdout };
+```buri
+# from "core/io" import * as io;
 from "native" import { NativeHost };
+# from "platform/effect" import { Allocator, Environment, Stdout };
 
 export fn main(host: NativeHost): Result<(), Str> {
-  let ctx = context {
-    Allocator:  host.alloc,
-    Stdout: host.stdout,
-    Environment:    host.env,
-  };
-  ...
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+        Environment: host.env,
+    };
+    io.println(ctx, "hello").mapErr(fn(e) => "could not print")
 }
 ```
 
@@ -132,7 +133,7 @@ Assertions are an ordinary module, imported like any other. `assert` is not a
 keyword: the name comes from `import * as assert`, and a file may call it
 something else.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri role=test
 from "core/testing/assert" import * as assert;
 ```
 
@@ -158,7 +159,14 @@ value it has.
 Everything above the last three returns `()`. Those three return a value, and are
 how a test consumes a `Result`, which is still must-use here:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri role=test
+# from "core/fs" import * as fs;
+# from "core/fs" import { FileSystemRead, FileSystemWrite };
+# from "core/path" import * as path;
+# from "core/testing/assert" import * as assert;
+# from "platform/effect" import { Allocator };
+# from "platform/effect/testing" import { alloc, fs };
+#
 test "reads the config it wrote" {
     let disk = fs();
     let ctx = context {
@@ -187,14 +195,26 @@ A test source may also use **expression statements**, which no other module may:
 the common case; a `match`, an `if` or a block whose every branch produces `()`
 counts too.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-assert.equal(total, 42);              // statement: type is ()
-match (parsed) {                   // statement: every arm is ()
-  .Some(n) => assert.equal(n, 42),
-  .None => assert.equal(parsed, .Some(42)),
-};                                 // ← the `;` is what makes it a statement
-// assert.ok(loadConfig(ctx));     // ERROR if it returns Config — bind it or drop
-                                   // it explicitly with `let _ =`
+```buri role=test
+# from "core/testing/assert" import * as assert;
+#
+# struct Config(Int);
+#
+# fn loadConfig(): Result<Config, Str> {
+#     .Ok(Config(8080))
+# }
+#
+# test "statements" {
+#     let total = 42;
+#     let parsed: Option<Int> = .Some(42);
+    assert.equal(total, 42); // statement: type is ()
+    match (parsed) {
+        // statement: every arm is ()
+        .Some(n) => assert.equal(n, 42),
+        .None => assert.equal(parsed, .Some(42)),
+    }; // the `;` is what makes it a statement
+    assert.ok(loadConfig()); // ERROR: has type `Config`, not `()`
+# }
 ```
 
 This does not weaken Section 5.7.1: `Result` is not `()`, so it can drop nothing
@@ -211,25 +231,33 @@ implements it. `main` and a test use the same form.
 
 **As an expression**, anonymous:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "platform/effect" import { Allocator, Stdout };
+```buri
 # from "core/fs" import { FileSystemRead };
-let ctx = context {
-  Allocator:  host.alloc,
-  Stdout: host.stdout,
-  FileSystemRead: rooted(host.fs, "/srv/app"),
-};
+# from "native" import { NativeHost };
+# from "platform/effect" import { Allocator, Stdout };
+#
+# export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+        FileSystemRead: host.fs,
+    };
+#     .Ok(())
+# }
 ```
 
 **As a declaration**, named — so a fixture can be shared by every test in a file,
 or exported from a test-only module and shared across files:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri role=test name=sandbox
 # from "core/fs" import { FileSystemRead };
 # from "platform/effect" import {
 #     Allocator, Clock, Environment, Network, Random, Stderr, Stdout,
 # };
-
+# from "platform/effect/testing" import {
+#     alloc, clock, env, fs, net, rand, stderr, stdout,
+# };
+#
 context Sandbox {
     Allocator: alloc(),
     Stdout: stdout(),
@@ -255,8 +283,36 @@ parameters; override a binding to vary what a call site gets.
 **Either form may begin with a spread**, which takes every binding from another
 context and lets the ones that follow replace them:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri role=test use=sandbox
+# from "core/fs" import * as fs;
 # from "core/fs" import { FileSystemRead };
+# from "core/path" import * as path;
+# from "core/testing/assert" import * as assert;
+# from "platform/effect" import { Allocator };
+
+# derive Equal, Show for ConfigError;
+# enum ConfigError {
+#     Unreadable,
+#     PortOutOfRange,
+# }
+
+# fn loadConfig<C: Allocator + FileSystemRead>(
+#     ctx: C,
+#     at: Str,
+# ): Result<Int, ConfigError> {
+#     let text = fs
+#         .readText(ctx, path.of(ctx, at))
+#         .mapErr(fn(e) => ConfigError.Unreadable)?;
+#     match (text.splitOnce("=")) {
+#         .Some((_, port)) => {
+#             match (port.toInt()) {
+#                 .Some(n) => if (n > 65535) { .Err(.PortOutOfRange) } else { .Ok(n) },
+#                 .None => .Err(.Unreadable),
+#             }
+#         },
+#         .None => .Err(.Unreadable),
+#     }
+# }
 
 context Fixture {
     ..Sandbox(),

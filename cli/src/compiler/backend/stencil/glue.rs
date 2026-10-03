@@ -247,7 +247,7 @@ const Q_VALUE: u32 = 32;
 /// A runtime entry **drops** its context: the runtime allocates through
 /// `buri_rt_alloc` and has no use for one (`rtcall.rs`). A *step* does not — it
 /// is a Buri closure whose signature names the context, because a lambda may
-/// not capture one (SPEC 10.6). `core/host`'s allocators are empty structs and
+/// not capture one (SPEC 10.6). `platform/host`'s allocators are empty structs and
 /// would need no room at all; `platform/effect/testing`'s `TestAllocator` is
 /// `struct TestAllocator(I64)` and carries a handle, so a record with nowhere to
 /// put one would refuse every file in the conformance corpus.
@@ -790,7 +790,7 @@ impl Jit<'_> {
     /// neither — it changes at every element and nothing here can derive it —
     /// so it has a C argument of its own. A zero-sized context costs nothing here and a
     /// context carrying a handle costs a copy, which is the whole of the
-    /// difference between `core/host`'s allocators and
+    /// difference between `platform/host`'s allocators and
     /// `platform/effect/testing`'s.
     fn entry_thunk(&mut self, params: Vec<Ty>, ret: Ty, index: Option<usize>) {
         let Some(elem) = params.last().cloned() else {

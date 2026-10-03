@@ -158,12 +158,14 @@ supertraits, trait objects, or dynamic dispatch.
 
 ## Effects
 
-An **effect** is an interface declared with `effect` instead of `trait`, and
-only platform modules may declare one. `platform/effect` declares `Allocator`,
-`Network`, `Clock`, `Random`, `Environment`, `Stdin`, `Stdout`, `Stderr`,
-`Process`, `Tasks`, `Listen` (`native`, where a program serves a page), and
-`Sockets` and `WebSocketClient` (everywhere: a page dials a socket but never
-accepts one). `core/fs` declares the filesystem's two, `FileSystemRead` and
+An **effect** is an interface declared with `effect` instead of `trait`.
+`platform/effect` declares the bundled ones: `Allocator`, `Network`, `Clock`,
+`Random`, `Environment`, `Stdin`, `Stdout`, `Stderr`, `Process`, `Tasks`,
+`Listen` and `Tcp` (`native` only), `Sockets` and `WebSocketClient` (a page
+dials a socket but never accepts one), and `Ui`, `Watch` and `Location` (`web`
+of the bundled ones).
+A repository declares its own only in an effect package under
+`//platform/effect/`. `core/fs` declares the filesystem's two, `FileSystemRead` and
 `FileSystemWrite`, so reading your configuration doesn't grant deleting it.
 Every `core/fs` function takes a `Path`, which `core/fs` re-exports from
 `core/path`; build one with `path.of(ctx, text)`.

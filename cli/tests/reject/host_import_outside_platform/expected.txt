@@ -26,10 +26,3 @@ error: "platform/host" is importable only by a platform [host-import-outside-pla
 
      A test binds test implementations from platform/effect/testing instead.
 
-     Why
-     ───
-
-     platform/host holds the structs a platform lists as its host type's fields.
-     Anything that could import them could mint authority, so only a platform's
-     platform.buri may.
-

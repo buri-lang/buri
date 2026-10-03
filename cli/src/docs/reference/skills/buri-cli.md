@@ -148,7 +148,7 @@ program can do.
 An output whose platform ships an `index.html`, like `web`, is served instead.
 The address prints once, files under the artifact directory are served as
 themselves, and every other path gets `index.html` so the page's router sees
-the typed address. Nothing is cached,
+the typed address. Every response is `Cache-Control: no-store`,
 `--watch` rebuilds into the next request, and a website's worker half isn't run.
 
 ### `lint`

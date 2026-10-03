@@ -5,8 +5,16 @@
 Every binding is final: no assignment, no `mut`, no interior mutability, so no
 borrow checker or lifetimes. "Modifying" a value builds a new one:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let u2 = User { ..u, name: "new" };
+```buri
+# struct User {
+#     id: Int,
+#     name: Str,
+# }
+#
+# fn rename(u: User): User {
+    let u2 = User { ..u, name: "new" };
+#     u2
+# }
 ```
 
 An implementation should make this cheap by sharing structure, or updating in
@@ -28,9 +36,14 @@ Effects are ordinary function calls, not a monad, so **this order is what
 sequences effects.** An implementation may reorder or drop work only where the
 result is indistinguishable, and a call that consumes an effect never is.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri wrap=body run
 let _ = io.println(ctx, "first").ignore();
-let _ = io.println(ctx, "second").ignore();    // guaranteed to print second
+let _ = io.println(ctx, "second").ignore(); // guaranteed to print second
+```
+
+```stdout
+first
+second
 ```
 
 ### 8.3 Recursion and tail calls

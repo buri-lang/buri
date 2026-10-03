@@ -1776,7 +1776,7 @@ impl<'a> Checker<'a> {
         if !info.generics.is_empty() {
             self.templated("entry-signature-mismatch", d.span)
                 .bind("entry", name.to_string())
-                .bind("requirement", "declares no generic parameters")
+                .bind("requirement", "declare no generic parameters")
                 .fix(format!(
                     "drop them: `{name}` is called by the platform, so there is nothing to infer \
                      them from"
@@ -1841,7 +1841,7 @@ impl<'a> Checker<'a> {
                     (None, _) => {
                         self.templated("entry-signature-mismatch", param.span)
                             .bind("entry", name.to_string())
-                            .bind("requirement", format!("takes its platform's host, `{host}`"))
+                            .bind("requirement", format!("take its platform's host, `{host}`"))
                             .fix(format!(
                                 "write it `fn {name}(host: {host}): Result<(), Str>`, and take \
                                  anything else from the host's fields"
@@ -1851,7 +1851,7 @@ impl<'a> Checker<'a> {
                 if let Some(extra) = rest.first() {
                     self.templated("entry-signature-mismatch", extra.span)
                         .bind("entry", name.to_string())
-                        .bind("requirement", "takes one parameter, its platform's host")
+                        .bind("requirement", "take one parameter, its platform's host")
                         .fix(format!(
                             "drop the rest: the platform hands `{name}` its host and nothing \
                              else, and a function `{name}` calls can take whatever it needs"
@@ -1872,7 +1872,7 @@ impl<'a> Checker<'a> {
             let at = self.tree(info.module).type_span(d.ret);
             self.templated("entry-signature-mismatch", at)
                 .bind("entry", name.to_string())
-                .bind("requirement", "must return `Result<(), Str>`")
+                .bind("requirement", "return `Result<(), Str>`")
                 .fix("change the return type to `Result<(), Str>`")
                 .notes
                 .push("`.Ok(())` exits 0; `.Err(msg)` prints `msg` to stderr and exits 1".into());

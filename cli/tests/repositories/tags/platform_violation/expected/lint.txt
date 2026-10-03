@@ -7,4 +7,9 @@ error: //cmd/web cannot be built for node [platform-violation]
   = //lib/store is tagged "server", which requires backends NATIVE
   = reached by: //cmd/web -> //lib/store
   = "server": runs on infrastructure we operate
-  = fix: drop the node output, or widen the tag's `requires` in REPO.buri
+  = fix: drop the node output, or widen the list the note names
+
+    Every library a binary reaches, and every tag those libraries carry, must
+    admit the platform each output names. The note says which member rules it
+    out: a library's own backends or platforms, or a tag's requires or forbids.
+

@@ -238,7 +238,10 @@ one, is an error, not a skip.
 
 A `NATIVE` run builds the host's own variant, because a suite has to run where
 it was built. A `JS` run builds the first JavaScript platform the target's
-outputs name, or else the first it admits: `node`, then `web`.
+outputs name, or else the first it admits: `node`, then `web`. A target that
+admits only a repository platform is checked against that platform on its
+backend, so a library limited to `//platform/cloudflare_worker` tests with
+`backends: [JS]`.
 
 A suite that names no backends also runs on the host natively. Where this
 toolchain cannot build a binary for the host, or where the suite's program

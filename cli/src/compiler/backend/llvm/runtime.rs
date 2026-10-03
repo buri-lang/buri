@@ -1067,7 +1067,7 @@ pub const ENTRIES: &[Entry] = &[
     Entry { key: "str.toFloat", symbol: "buri_rt_str_to_float", args: &[Arg::Str], ret: Ret::Sum },
     // -- core/str, the `<C: Allocator>` half ------------------------------------
     //
-    // The context is an empty record in every implementation `core/host`
+    // The context is an empty record in every implementation `platform/host`
     // supplies, so it is zero-sized and dropped (VALUE-MODEL.md §8) — it is
     // still listed, because the list is checked against the IR signature and a
     // silently shorter one would misalign every argument after it.
@@ -1303,7 +1303,7 @@ pub const ENTRIES: &[Entry] = &[
     // mechanism and nothing in `core/list` uses it: those combinators keep
     // their loops, which are faster than a call per element can be. The
     // operation the trampoline exists for is `host.HostTasks.parallel`, whose
-    // row is in the `core/host` block above.
+    // row is in the `platform/host` block above.
     //
     // `Arg::Elems` and not `Arg::List`, because the source's element type is
     // what `generic_element` answers and what the entry thunk is generated at.
@@ -1466,7 +1466,7 @@ pub const ENTRIES: &[Entry] = &[
     //    puts it through an out-pointer. Declaring it as returning one word
     //    would agree with the archive by accident on both supported targets.
     //  * **`self` is `Arg::Scalar` and not `Arg::Dropped`.** These receivers
-    //    carry the handle; `core/host`'s are empty structs and these are not,
+    //    carry the handle; `platform/host`'s are empty structs and these are not,
     //    which is the distinction `native/llvm.rs`'s
     //    `a_stateful_context_is_dropped_at_the_runtime_boundary` exists for.
     //

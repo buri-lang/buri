@@ -7,6 +7,10 @@ reproduction: none
 ---
 # An output fills the entries its platform offers
 
+```text
+error: `node` has no entry `start` [unknown-entry]
+```
+
 ```textproto schema=build
 binary {
     outputs: [
@@ -17,5 +21,5 @@ binary {
 }
 ```
 
-Without `entries`, each entry is filled by the function of the same name in
-`main.buri`. The bundled platforms each have one entry, `main`.
+The bundled platforms each have one entry, `main`. A repository platform's are
+its `entry` blocks.

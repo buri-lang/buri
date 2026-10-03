@@ -822,7 +822,7 @@ pub fn check_entries(
             && s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
             && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
         if !ok {
-            errors.push(Diagnostic::templated("invalid-entry-function", function.span).with_bind("entry", s.clone()));
+            errors.push(Diagnostic::templated("invalid-entry-function", function.span).with_bind("function", s.clone()));
             continue;
         }
         passed.push((name.clone(), function.clone()));
@@ -1876,12 +1876,11 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
         for f in m.all("proto_sources") {
             reader.templated("retired-proto-sources", f.name_span);
         }
-        reader.check_known(
-            m,
-            textproto::schema_order("binary"),
-            RETIRED_BINARY_FIELDS,
-            "a `binary` rule",
-        );
+        // The two fields reported below get that one diagnostic, not a second
+        // `build-unknown-field` on the same span.
+        let skipped: Vec<&str> =
+            RETIRED_BINARY_FIELDS.iter().copied().chain(["platforms", "visibility"]).collect();
+        reader.check_known(m, textproto::schema_order("binary"), &skipped, "a `binary` rule");
         for bad in ["platforms", "visibility"] {
             if let Some(f) = m.get(bad) {
                 let note = if bad == "platforms" {

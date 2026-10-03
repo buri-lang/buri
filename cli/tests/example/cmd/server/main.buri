@@ -19,10 +19,10 @@ from "//cmd/server/routes.buri" export { Route, route };
 
 from "//cmd/server/routes.buri" import { route };
 
-/// The context is this program's complete effect budget. Under `platform: "node"`
-/// this same body would fail to build: a browser platform's `core/host` has no
-/// filesystem to export, so `host.fs` does not resolve — and the error
-/// lands on that line rather than at runtime.
+/// The context is this program's complete effect budget. Under `platform: "web"`
+/// this same body would fail to build: `WebHost` has no filesystem, so
+/// `host.fs` does not resolve — and the error lands on that line rather than at
+/// runtime.
 ///
 /// The filesystem is two bindings because it is two authorities. `append`
 /// reads the log and then writes it, so this program needs both; a program
