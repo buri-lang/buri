@@ -1816,7 +1816,7 @@ mod tests {
         // shapes below. `host_testing.mount` is the forty-ninth — the renderer
         // drops its context the way every one of these does. `core/crypto`'s
         // `seal` and `open` entries made it fifty-one, and dropping
-        // `list.mapCtxStep` made it fifty.
+        // the trampoline's pilot row made it fifty.
         assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 50);
     }
 
