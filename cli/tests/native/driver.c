@@ -64,9 +64,6 @@ extern uint64_t buri_rt_live_blocks(void);
 extern int64_t buri_rt_host_allocator_allocate(int64_t bytes);
 
 /* values */
-extern void buri_rt_str_from_utf8(const uint8_t *bytes, uint64_t len, BuriStr *out);
-extern void buri_rt_str_empty(BuriStr *out);
-extern uint64_t buri_rt_str_ascii_flag(const uint8_t *bytes, uint64_t len);
 extern uint64_t buri_rt_str_scalar_len(const uint8_t *bytes, uint64_t len);
 extern uint8_t *buri_rt_list_new(uint64_t count, uint64_t stride, BuriList *out);
 extern void buri_rt_i128_divmod(uint64_t a_lo, uint64_t a_hi, uint64_t b_lo, uint64_t b_hi,
@@ -77,7 +74,6 @@ extern void buri_rt_abort(const uint8_t *msg, uint64_t len);
 extern void buri_rt_abort_div_zero(void);
 extern void buri_rt_abort_shift(void);
 extern void buri_rt_abort_random_range(void);
-extern void buri_rt_abort_bounds(int64_t index, int64_t len);
 extern void buri_rt_abort_unreachable(void);
 extern void buri_rt_abort_alloc_budget(int64_t requested, int64_t budget);
 extern void buri_rt_abort_oom(uint64_t bytes);
@@ -244,16 +240,8 @@ extern void buri_rt_list_range(int64_t start, int64_t end, BuriList *out);
  * closure is reached through: `(state, index, arg, out)`. */
 typedef void (*ComputeEntry)(uint8_t *state, int64_t index, const uint8_t *arg, uint8_t *out);
 extern int64_t buri_rt_ui_signal(const uint8_t *initial, uint64_t stride);
-extern void buri_rt_ui_read(int64_t id, uint64_t stride, uint8_t *out);
-extern void buri_rt_ui_write(int64_t id, const uint8_t *value, uint64_t stride);
 extern void buri_rt_ui_scope_read(int64_t scope, int64_t id, uint64_t stride, uint8_t *out);
 extern void buri_rt_ui_build_node(ComputeEntry entry, uint8_t *state, uint8_t *out);
-extern void buri_rt_ui_row_at(ComputeEntry entry, uint8_t *state, int64_t at, uint8_t *out);
-extern void buri_rt_ui_fire_press(ComputeEntry entry, uint8_t *state, int64_t event);
-extern int64_t buri_rt_ui_node_register_handler(ComputeEntry entry, const uint8_t *state,
-                                                size_t bytes, int64_t frame_at, void *body);
-extern void buri_rt_ui_node_fire_handler(int64_t id);
-extern void buri_rt_ui_event(int64_t *out);
 extern void buri_rt_ui_render_walk(ComputeEntry entry, uint8_t *state,
                                    int64_t builder, const uint8_t *node,
                                    int64_t frame_at);
@@ -261,9 +249,7 @@ extern int64_t buri_rt_host_testing_mount(const uint8_t *root, ComputeEntry entr
                                         uint8_t *state, int64_t frame_at);
 
 /* The element document (issue #53, phase 2). The Buri `renderInto` walk drives
- * the three builders; a `Rendered` answers the four readers from what they
- * built. */
-extern void buri_rt_ui_doc_open(int64_t *out);
+ * the three builders; a `Rendered` answers the readers from what they built. */
 extern void buri_rt_ui_node_emit_element(int64_t handle, uint8_t *name_base,
                                    const uint8_t *name_ptr, uint64_t name_len,
                                    uint8_t *body_base, const uint8_t *body_ptr,
@@ -272,22 +258,26 @@ extern void buri_rt_ui_node_exit_element(int64_t handle);
 extern void buri_rt_ui_node_emit_text(int64_t handle, uint8_t *base,
                                 const uint8_t *ptr, uint64_t len);
 extern void buri_rt_host_testing_rendered_markup(int64_t handle, BuriStr *out);
-extern void buri_rt_host_testing_rendered_text(int64_t handle, BuriStr *out);
 extern int64_t buri_rt_host_testing_rendered_count(int64_t handle, uint8_t *base,
                                     const uint8_t *ptr, uint64_t len);
-extern int64_t buri_rt_host_testing_rendered_identity(int64_t handle, uint8_t *base,
-                                       const uint8_t *ptr, uint64_t len,
-                                       int64_t index);
 
 /* --- Helpers ------------------------------------------------------------ */
+
+/* VALUE-MODEL.md §3.1's ASCII flag for a C literal: set when every byte is
+ * below 0x80, which is what generated code stamps on a literal it built. */
+static uint64_t ascii_flag(const char *cstr) {
+  for (const char *c = cstr; *c; c++) {
+    if ((unsigned char)*c >= 0x80) {
+      return 0;
+    }
+  }
+  return BURI_STR_ASCII;
+}
 
 /* A borrowed `Str` argument, flattened to the three parameters the contract
  * asks for. `base` is null because a C literal is not on the Buri heap, and
  * §3 says a parameter is borrowed, so nothing here is ever counted. */
-#define S(cstr)                                                                                    \
-  NULL, (const uint8_t *)(cstr),                                                                   \
-      (uint64_t)strlen(cstr) |                                                                     \
-          buri_rt_str_ascii_flag((const uint8_t *)(cstr), (uint64_t)strlen(cstr))
+#define S(cstr) NULL, (const uint8_t *)(cstr), (uint64_t)strlen(cstr) | ascii_flag(cstr)
 
 static int bytes_of(BuriStr s) { return (int)(s.len & BURI_STR_MASK); }
 
@@ -311,12 +301,11 @@ typedef struct {
   int64_t seen;
 } FakeNode;
 
-/* A signal the trampoline closures read through their scope and the press
- * handler writes, so a `Scope` handed in and a side effect on the way out are
- * both observable. Globals because a C function value captures nothing — which
- * is exactly why the runtime keeps the closure's own environment in `state`. */
+/* A signal the trampoline closure reads through its scope, so a `Scope` handed
+ * in is observable. A global because a C function value captures nothing —
+ * which is exactly why the runtime keeps the closure's own environment in
+ * `state`. */
 static int64_t g_signal;
-static int64_t g_press_field;
 
 /* shape 1 — `fn(Scope) => Node`. Reads the signal through the scope it was
  * handed, proving the scope is live, and writes a `Node`. */
@@ -332,39 +321,9 @@ static void build_thunk(uint8_t *state, int64_t index, const uint8_t *arg, uint8
   n->seen = seen;
 }
 
-/* shape 2 — `fn(C, Scope, Int) => Node`. The context is dropped (the thunk
- * never names it); `index` is the supplied row index; the scope is the
- * element. */
-static void row_thunk(uint8_t *state, int64_t index, const uint8_t *arg, uint8_t *out) {
-  (void)state;
-  int64_t scope = *(const int64_t *)arg;
-  int64_t seen = 0;
-  buri_rt_ui_scope_read(scope, g_signal, 8, (uint8_t *)&seen);
-  FakeNode *n = (FakeNode *)out;
-  n->tag = 222;
-  n->at = index;
-  n->seen = seen;
-}
-
-/* shape 3 — `fn(C, Event) => ()`. The context is dropped; the event is the
- * element; nothing is written back. Its side effect is a signal write. */
-static void press_thunk(uint8_t *state, int64_t index, const uint8_t *arg, uint8_t *out) {
-  (void)state;
-  (void)index;
-  (void)out;
-  g_press_field = *(const int64_t *)arg;
-  int64_t written = 7;
-  buri_rt_ui_write(g_signal, (const uint8_t *)&written, 8);
-}
-
 /* The element document, driven the way the Buri `renderInto` walk drives it:
  * an element is opened, its children emitted, and it is closed, so the records
- * come out in document order and each carries the depth of its nesting.
- *
- * The tree is a two-item list with classes on its box and empty-bodied items,
- * beside a heading with its own classes — which is enough to pin the three
- * things this side owns: the depth (`e 1 ` on an item, `t 2 a` on its run),
- * the empty body (the trailing space), and the classes verbatim. */
+ * come out in document order and each carries the depth of its nesting. */
 static void doc_element(int64_t d, const char *name, const char *body) {
   buri_rt_ui_node_emit_element(d, NULL, (const uint8_t *)name, strlen(name), NULL,
                          (const uint8_t *)body, strlen(body));
@@ -376,10 +335,6 @@ static void doc_text(int64_t d, const char *content) {
 
 static int64_t doc_count(int64_t d, const char *name) {
   return buri_rt_host_testing_rendered_count(d, NULL, (const uint8_t *)name, strlen(name));
-}
-
-static int64_t doc_identity(int64_t d, const char *name, int64_t at) {
-  return buri_rt_host_testing_rendered_identity(d, NULL, (const uint8_t *)name, strlen(name), at);
 }
 
 /* shape 4 — `fn(Builder, Node) => ()`, the `renderInto` walk. The builder
@@ -415,39 +370,6 @@ static int mode_ui_walk(void) {
   return 0;
 }
 
-static int mode_ui_doc(void) {
-  int64_t d = -1;
-  buri_rt_ui_doc_open(&d);
-  doc_element(d, "ul", "class:lay-col");
-  doc_element(d, "li", "");
-  doc_text(d, "a");
-  buri_rt_ui_node_exit_element(d);
-  doc_element(d, "li", "");
-  doc_text(d, "b");
-  buri_rt_ui_node_exit_element(d);
-  buri_rt_ui_node_exit_element(d);
-  doc_element(d, "h2", "class:fs-28 fw-bold");
-  doc_text(d, "Prices");
-  buri_rt_ui_node_exit_element(d);
-
-  BuriStr markup = {0, 0, 0};
-  buri_rt_host_testing_rendered_markup(d, &markup);
-  BuriStr runs = {0, 0, 0};
-  buri_rt_host_testing_rendered_text(d, &runs);
-  /* The identities are stamped from zero in this fresh process: the host is 0,
-   * so the first `li` is 2 and the second 4, and the heading is 6. A second
-   * read of the first `li` is the same number — a read mints nothing. */
-  printf("%.*s\n", bytes_of(markup), (const char *)markup.ptr);
-  printf("::text=%.*s\n", bytes_of(runs), (const char *)runs.ptr);
-  printf("::count ul=%lld li=%lld h2=%lld x=%lld\n", (long long)doc_count(d, "ul"),
-         (long long)doc_count(d, "li"), (long long)doc_count(d, "h2"),
-         (long long)doc_count(d, "x"));
-  printf("::id li0=%lld li1=%lld h2=%lld li0again=%lld\n",
-         (long long)doc_identity(d, "li", 0), (long long)doc_identity(d, "li", 1),
-         (long long)doc_identity(d, "h2", 0), (long long)doc_identity(d, "li", 0));
-  return 0;
-}
-
 /* shape 1: a minted scope in, a `Node` stride out. */
 static int mode_ui_build(void) {
   int64_t initial = 5;
@@ -455,54 +377,6 @@ static int mode_ui_build(void) {
   FakeNode built = {0, 0, 0};
   buri_rt_ui_build_node(build_thunk, NULL, (uint8_t *)&built);
   printf("tag=%lld seen=%lld\n", (long long)built.tag, (long long)built.seen);
-  return 0;
-}
-
-/* shape 2: a supplied index and a minted scope in, the right row out. */
-static int mode_ui_row(void) {
-  int64_t initial = 5;
-  g_signal = buri_rt_ui_signal((const uint8_t *)&initial, 8);
-  FakeNode row = {0, 0, 0};
-  buri_rt_ui_row_at(row_thunk, NULL, 3, (uint8_t *)&row);
-  printf("tag=%lld at=%lld seen=%lld\n", (long long)row.tag, (long long)row.at,
-         (long long)row.seen);
-  return 0;
-}
-
-/* shape 3: a runtime-minted event fires the handler, and its signal write is
- * observed. */
-static int mode_ui_press(void) {
-  int64_t initial = 5;
-  g_signal = buri_rt_ui_signal((const uint8_t *)&initial, 8);
-  g_press_field = -1;
-  int64_t event = -1;
-  buri_rt_ui_event(&event);
-  buri_rt_ui_fire_press(press_thunk, NULL, event);
-  int64_t after = 0;
-  buri_rt_ui_read(g_signal, 8, (uint8_t *)&after);
-  printf("event=%lld field=%lld signal-after=%lld\n", (long long)event,
-         (long long)g_press_field, (long long)after);
-  return 0;
-}
-
-/* The kept handler (#53 phase 4): a `fn(C, Event) => ()` the runtime keeps on a
- * graph node and fires later, more than once — the ABI `registerPress` reaches.
- * The handler is stored, fired, the signal reset, and fired again: a kept
- * closure survives the first fire, so both writes are seen. */
-static int mode_ui_keep_press(void) {
-  int64_t initial = 5;
-  g_signal = buri_rt_ui_signal((const uint8_t *)&initial, 8);
-  int64_t node = buri_rt_ui_node_register_handler(press_thunk, NULL, 0, -1, NULL);
-  buri_rt_ui_node_fire_handler(node);
-  int64_t after1 = 0;
-  buri_rt_ui_read(g_signal, 8, (uint8_t *)&after1);
-  int64_t reset = 0;
-  buri_rt_ui_write(g_signal, (const uint8_t *)&reset, 8);
-  buri_rt_ui_node_fire_handler(node);
-  int64_t after2 = 0;
-  buri_rt_ui_read(g_signal, 8, (uint8_t *)&after2);
-  printf("kept=%s after1=%lld after2=%lld\n", node >= 0 ? "ok" : "bad",
-         (long long)after1, (long long)after2);
   return 0;
 }
 
@@ -566,12 +440,10 @@ static int mode_memory(void) {
 }
 
 static int mode_values(void) {
-  BuriStr ascii, utf8, empty;
-  buri_rt_str_from_utf8((const uint8_t *)"hello", 5, &ascii);
-  /* "héllo": six bytes, five scalars, so the flag is clear and `str.length()`
-   * costs a scan (VALUE-MODEL.md §3.1). */
-  buri_rt_str_from_utf8((const uint8_t *)"h\xc3\xa9llo", 6, &utf8);
-  buri_rt_str_empty(&empty);
+  /* "héllo": six bytes, five scalars, which is what `str.length()` scans for
+   * where the ASCII flag is clear (VALUE-MODEL.md §3.1). */
+  uint64_t ascii = buri_rt_str_scalar_len((const uint8_t *)"hello", 5);
+  uint64_t utf8 = buri_rt_str_scalar_len((const uint8_t *)"h\xc3\xa9llo", 6);
 
   BuriList list;
   uint8_t *elements = buri_rt_list_new(4, 8, &list);
@@ -592,17 +464,12 @@ static int mode_values(void) {
   uint64_t uq[2], ur[2];
   buri_rt_i128_divmod((uint64_t)big, (uint64_t)(big >> 64), 3, 0, 0, uq, ur);
 
-  printf("ascii bytes=%d flag=%d scalars=%llu "
-         "utf8 bytes=%d flag=%d scalars=%llu "
-         "empty bytes=%d flag=%d "
+  printf("ascii scalars=%llu "
+         "utf8 scalars=%llu "
          "list len=%llu cap=%llu "
          "divmod %lld %lld %lld %lld "
          "udivmod-high %llu %llu %llu\n",
-         bytes_of(ascii), (ascii.len & BURI_STR_ASCII) != 0,
-         (unsigned long long)buri_rt_str_scalar_len(ascii.ptr, ascii.len), bytes_of(utf8),
-         (utf8.len & BURI_STR_ASCII) != 0,
-         (unsigned long long)buri_rt_str_scalar_len(utf8.ptr, utf8.len), bytes_of(empty),
-         (empty.len & BURI_STR_ASCII) != 0, (unsigned long long)list.len,
+         (unsigned long long)ascii, (unsigned long long)utf8, (unsigned long long)list.len,
          (unsigned long long)buri_rt_cap(elements), sq, sr, snq, snr, (unsigned long long)uq[0],
          (unsigned long long)uq[1], (unsigned long long)ur[0]);
   return 0;
@@ -884,8 +751,7 @@ static BuriStr borrowed(const char *cstr) {
   BuriStr s;
   s.base = NULL;
   s.ptr = (const uint8_t *)cstr;
-  s.len = (uint64_t)strlen(cstr) |
-          buri_rt_str_ascii_flag((const uint8_t *)cstr, (uint64_t)strlen(cstr));
+  s.len = (uint64_t)strlen(cstr) | ascii_flag(cstr);
   return s;
 }
 
@@ -1214,20 +1080,8 @@ int main(int argc, char **argv) {
   if (strcmp(mode, "ui-build") == 0) {
     return mode_ui_build();
   }
-  if (strcmp(mode, "ui-row") == 0) {
-    return mode_ui_row();
-  }
-  if (strcmp(mode, "ui-doc") == 0) {
-    return mode_ui_doc();
-  }
   if (strcmp(mode, "ui-walk") == 0) {
     return mode_ui_walk();
-  }
-  if (strcmp(mode, "ui-press") == 0) {
-    return mode_ui_press();
-  }
-  if (strcmp(mode, "ui-keep-press") == 0) {
-    return mode_ui_keep_press();
   }
   if (strcmp(mode, "streams") == 0) {
     return mode_streams();
@@ -1275,9 +1129,6 @@ int main(int argc, char **argv) {
   if (strcmp(mode, "abort-entropy-count") == 0) {
     BuriList out;
     buri_rt_host_entropy_bytes(-1, &out);
-  }
-  if (strcmp(mode, "abort-bounds") == 0) {
-    buri_rt_abort_bounds(7, 3);
   }
   if (strcmp(mode, "abort-budget") == 0) {
     /* Under the budget passes through; over it aborts. */

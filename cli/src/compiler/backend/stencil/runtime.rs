@@ -25,7 +25,7 @@ use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 /// same call from the same rows. They are re-exported here so that `runtime::` is
 /// still where this backend's emitter looks.
 pub use crate::compiler::backend::runtime_table::{
-    entry, Carrier, Entry, Extra, Ret, BURI_OK, ENTRIES,
+    entry, Arg, Entry, Extra, Ret, BURI_OK, ENTRIES,
 };
 
 /// How an `Option<T>` is written, flattened out of `middle::layout` so that the
