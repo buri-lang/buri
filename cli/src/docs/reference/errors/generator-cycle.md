@@ -7,11 +7,9 @@ reproduction: none
 ---
 # A generator's tool is not built from what it generates
 
-A tool is an ordinary target. The build has to link it before it can run it, and
-linking it means compiling everything it depends on — including the rule that
-declared the generator, whose modules do not exist until the tool has run. There
-is no order that works, so this is refused rather than attempted.
+The build links a tool before running it, and linking compiles everything the
+tool depends on. That includes the rule that declared the generator, whose
+modules don't exist until the tool runs. No order works.
 
-The third library is usually the answer: whatever the tool needs from the
-declaring target is code the generator does not generate, and it can live
-somewhere both of them may depend on.
+Usually the fix is a third library: what the tool needs from the declaring
+target isn't generated, so it can move somewhere both may depend on.

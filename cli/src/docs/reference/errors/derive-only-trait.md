@@ -10,24 +10,6 @@ fix: write `derive {trait} for {type};` instead
 error: `ToJson` is derived, not implemented [derive-only-trait]
 ```
 
-## What to do
-
-Write `derive ToJson for Point;` instead.
-
-## Why
-
-A derived encoder stands for the type's *shape*, and one walker in the runtime
-reads it. So `json.encode(ctx, date)` would call a hand-written
-`impl ToJson for Date`, while `json.encode(ctx, appointment)` would walk straight
-past it, because `Appointment` holds a `Date` and derives its own. One value,
-two encodings.
-
-A type that needs a different document is a type you convert to first, through a
-function you can see at the call site. `core/json`'s `ToJson` and `FromJson` are
-the only two traits this applies to.
-
-## A program that provokes it
-
 ```buri fail code=derive-only-trait
 # from "core/json" import { Json, ToJson };
 # from "platform/effect" import { Allocator };
@@ -43,3 +25,12 @@ impl ToJson for Point {
     }
 }
 ```
+
+One runtime walker encodes every derived type by its shape. So encoding a
+`Date` directly would call a hand-written `impl ToJson for Date`, but encoding
+an `Appointment` that holds a `Date` would walk straight past it. One value,
+two encodings.
+
+For a different document, convert to another type first, through a function
+visible at the call site. Only `core/json`'s `ToJson` and `FromJson` work this
+way.

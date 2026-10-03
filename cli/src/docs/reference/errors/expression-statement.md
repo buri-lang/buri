@@ -10,21 +10,16 @@ fix: bind it: `let _ = ...;`, or make it the block's result expression
 error: an expression statement is legal only in a test source [expression-statement]
 ```
 
-## What to do
+```buri fail code=expression-statement wrap=body effects=Stdout,Allocator
+io.println(ctx, "ready");
+```
 
-Bind it — `let _ = ...;` — or make it the block's result expression.
+A test source is the one exception, which lets `assert.equal(...)` stand alone:
+there any expression of type `()` may stand as a statement ending in `;`,
+including a `match` or an `if` whose branches all assert.
 
-## Why
-
-A block is `let`s followed by a result expression; there is no third statement
-form. A test source is the one exception, which is what lets `assert.equal(...)`
-stand alone: there, any expression of type `()` may stand alone, terminated by
-`;` — a `match` or an `if` whose branches all assert included.
-
-Between this rule and `result-discarded`, a value can be thrown away in exactly
-two places — bound to a `_`, or left standing — and both refuse a `Result`. So a
-statement whose type is `Result` is *both* errors at once, and the edit is
-`.ignore()` and `let _ =` together:
+A `Result` can't be dropped either way, per `result-discarded`, so a statement
+of type `Result` needs both `.ignore()` and `let _ =`:
 
 ```buri role=entry
 # from "core/io" import * as io;
@@ -39,10 +34,4 @@ export fn main(host: NativeHost): Result<(), Str> {
     let _ = io.println(ctx, "ready").ignore();
     .Ok(())
 }
-```
-
-## A program that provokes it
-
-```buri fail code=expression-statement wrap=body effects=Stdout,Allocator
-io.println(ctx, "ready");
 ```
