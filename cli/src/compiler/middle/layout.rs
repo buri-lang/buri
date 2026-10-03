@@ -132,8 +132,16 @@ pub const CAP_SHARED_FLAG: u64 = 1 << 63;
 /// up.
 pub const CAP_ARENA_FLAG: u64 = 1 << 62;
 
+/// Bit 61 of `cap`: the block is settled, in no arena and pointing only at
+/// settled blocks, so a copy out of every arena may share it.
+///
+/// Set and read by the **runtime** alone, for [`CAP_ARENA_FLAG`]'s reason
+/// (`cli/runtime/memory.rs`'s `BURI_RT_CAP_SETTLED`). It is declared here so
+/// that [`CAP_MASK`] takes it off too.
+pub const CAP_SETTLED_FLAG: u64 = 1 << 61;
+
 /// The usable payload bytes of a block, once the flag bits are off.
-pub const CAP_MASK: u64 = !(CAP_SHARED_FLAG | CAP_ARENA_FLAG);
+pub const CAP_MASK: u64 = !(CAP_SHARED_FLAG | CAP_ARENA_FLAG | CAP_SETTLED_FLAG);
 
 /// `rc == IMMORTAL` is a value that is never counted and never freed: every
 /// literal, every interned constant aggregate, every zero-sized value.
@@ -1385,9 +1393,11 @@ mod tests {
     fn the_shared_flag_is_the_top_bit_of_the_capacity() {
         assert_eq!(CAP_SHARED_FLAG, 1 << 63);
         assert_eq!(CAP_ARENA_FLAG, 1 << 62);
-        assert_eq!(CAP_MASK, u64::MAX >> 2);
+        assert_eq!(CAP_SETTLED_FLAG, 1 << 61);
+        assert_eq!(CAP_MASK, u64::MAX >> 3);
         assert_eq!(CAP_SHARED_FLAG & CAP_MASK, 0);
         assert_eq!(CAP_ARENA_FLAG & CAP_MASK, 0);
+        assert_eq!(CAP_SETTLED_FLAG & CAP_MASK, 0);
         assert_eq!(CAP_SHARED_FLAG & CAP_ARENA_FLAG, 0);
         // The three boundaries a reader has to survive: an empty block, the
         // largest capacity the low 63 bits can spell, and the same capacity
@@ -1397,6 +1407,7 @@ mod tests {
             assert_eq!((cap | CAP_SHARED_FLAG) & CAP_MASK, cap);
             assert_eq!((cap | CAP_ARENA_FLAG) & CAP_MASK, cap);
             assert_eq!((cap | CAP_SHARED_FLAG | CAP_ARENA_FLAG) & CAP_MASK, cap);
+            assert_eq!((cap | CAP_SHARED_FLAG | CAP_SETTLED_FLAG) & CAP_MASK, cap);
         }
         // It is a different bit from the one `Str::len` already spends, but the
         // same bit position — the precedent, not a collision: the two words are

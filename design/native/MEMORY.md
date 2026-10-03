@@ -955,9 +955,9 @@ generated, not called: `Helper::Copy` in the frame-threaded backend and
 `buri_rt_copy_block` where the release walk has `decref`. The two functions
 the walk reaches a block through are the whole of the runtime's half —
 `buri_rt_copy_block`, and `buri_rt_copy_str` because a `Str`'s `ptr` points
-*into* its block and has to be rebased. **A copy is not a share**: nothing in
-the path increments a count, so the answer's blocks are fresh and uniquely
-owned and the source's counts do not move.
+*into* its block and has to be rebased. **A copy is not a share**, with one
+exception below: the answer's blocks are fresh and uniquely owned and the
+source's counts do not move.
 
 The **invariant** the arrangement rests on is one sentence: *a value's
 lifetime never exceeds the dynamic extent it was created in, except by being
@@ -973,6 +973,30 @@ hands them over, so each crosses through `core/alloc::copyAcross`, the same
 copy with every arena left behind. `core/actor` skips it while no arena in the
 process holds a page (`buri_rt_actor_scopes_live`), because then no block is in
 one. `spawn` always copies.
+
+**A copy shares what already crossed.** Without this, a step that hands its
+state back untouched inside a scope paid a copy of the whole state per message
+(buri-lang/buri#223). Now `buri_rt_copy_block` sets `CAP_SETTLED` (bit 61) on
+a copy that is marked and off the heap, once the glue has run on it, and shares
+a settled source with one more reference instead of copying it. So a crossing
+copies only what changed since the last one.
+
+The invariant: *a settled block is in no arena, and every block it points to is
+settled.* It holds because:
+
+- The bit goes on only after the glue replaced every pointer in the copy with
+  a settled share or a heap copy made by the same call.
+- A block's pointers change only through the glue, which writes into a fresh
+  block, or an append in place, which `buri_rt_unique_cap` licenses and which
+  refuses a settled block.
+- `finish` rewrites a recycled block's header, and a settled block keeps what
+  it points to alive.
+
+The bit is the block's, not the thread's, so a `Tasks.parallel` step outside
+its caller's arena is answered correctly. A heap block that step builds around
+an arena block was never settled, so it is copied in full. Only marked copies
+settle: a marked block is never unique anyway, while an unmarked `scoped`
+answer stays writable in place.
 
 A **closure** costs one word for this. `Ty::Fn` does not record what was
 captured, so the environment block has always carried its own release function

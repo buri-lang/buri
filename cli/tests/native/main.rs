@@ -200,3 +200,7 @@ mod strings;
 // backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod fields;
+// An actor driven from inside `alloc.scoped`: the crossing's copies counted
+// rather than timed, and everything the scope posted read back after it.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod actor_scoped;
