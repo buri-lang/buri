@@ -500,8 +500,8 @@ impl Diagnostic {
         let bindings = &t.bindings;
         let fill = |template: &str| crate::documentation::frontmatter::render(template, bindings);
         self.message = fill(&front.message);
-        self.label = front.label.as_deref().map(&fill);
-        self.fix = front.fix.as_deref().map(&fill);
+        self.label = front.label.as_deref().map(fill);
+        self.fix = front.fix.as_deref().map(fill);
         // The page's note is the first of them, put there when the diagnostic
         // was built, so a re-render replaces it rather than the call site's own.
         if let Some(note) = front.note.as_deref() {

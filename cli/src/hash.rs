@@ -129,7 +129,7 @@ fn hash_bytes(bytes: &[u8]) -> u64 {
         // the bulk rather than starting after it — every byte is then covered
         // by a full 16-byte read.
         let bulk = bytes.split_last().map_or(bytes, |(_, rest)| rest);
-        for chunk in bulk.chunks_exact(16) {
+        for chunk in bulk.as_chunks::<16>().0 {
             let x = le_u64(chunk);
             let y = le_u64_tail(chunk);
             // Two streams rather than one, so the multiplies pipeline instead

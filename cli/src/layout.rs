@@ -140,17 +140,25 @@ fn propagate(doc: &Doc, broken: &mut HashSet<*const Doc>) -> bool {
         Doc::HardLine | Doc::BreakParent => true,
         Doc::Text(s) => s.contains('\n'),
         Doc::Line | Doc::SoftLine | Doc::LineSuffix(_) | Doc::IfBreak(..) => false,
-        Doc::Concat(xs) | Doc::Indent(xs) => {
-            xs.iter().fold(false, |any, x| propagate(x, broken) || any)
-        }
+        Doc::Concat(xs) | Doc::Indent(xs) => propagate_all(xs, broken),
         Doc::Group(xs) => {
-            let forced = xs.iter().fold(false, |any, x| propagate(x, broken) || any);
+            let forced = propagate_all(xs, broken);
             if forced {
                 broken.insert(doc as *const Doc);
             }
             forced
         }
     }
+}
+
+/// `propagate` over every one of `xs`, without stopping at the first that
+/// forces a break: each still has its own groups to record.
+fn propagate_all(xs: &[Doc], broken: &mut HashSet<*const Doc>) -> bool {
+    let mut any = false;
+    for x in xs {
+        any |= propagate(x, broken);
+    }
+    any
 }
 
 /// Whether the group's contents, and what follows them up to the next break,

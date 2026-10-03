@@ -236,7 +236,7 @@ pub fn format_document(file: &str, text: &str) -> Option<String> {
     if edits.is_empty() {
         return None;
     }
-    edits.sort_by(|a, b| b.0.cmp(&a.0));
+    edits.sort_by_key(|e| std::cmp::Reverse(e.0));
     let mut lines: Vec<String> = text.lines().map(String::from).collect();
     for (first, count, replacement) in edits {
         let last = first.saturating_add(count);
