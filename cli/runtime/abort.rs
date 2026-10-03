@@ -178,26 +178,6 @@ pub extern "C" fn buri_rt_abort_entropy_unavailable() -> ! {
     die(&[b"this platform grants no cryptographic randomness"])
 }
 
-/// An index outside `0 ..< len`.
-///
-/// Not pinned by the crash corpus: `core/list`'s indexing answers `Option`, so
-/// a Buri program cannot reach this through the standard library. It is here
-/// for the places a *backend* needs it — a slice whose bounds the middle end
-/// could not prove, and `Profile::defensive_aborts`.
-#[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_abort_bounds(index: i64, len: i64) -> ! {
-    let (sign, idx) = signed(index);
-    let (lsign, l) = signed(len);
-    die(&[
-        b"index out of bounds: the length is ",
-        lsign,
-        l.as_bytes(),
-        b" but the index is ",
-        sign,
-        idx.as_bytes(),
-    ])
-}
-
 /// An arm `exhaustiveness.rs` proved unreachable, reached.
 ///
 /// Emitted only under `Profile::defensive_aborts` (on in debug, off in

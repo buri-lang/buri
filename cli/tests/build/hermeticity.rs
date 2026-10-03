@@ -309,8 +309,7 @@ fn a_generator_that_asks_for_the_disk_is_refused() {
 // Concurrency
 // ---------------------------------------------------------------------------
 
-/// "All commands are safe to run concurrently; a file lock serializes cache
-/// writes" (CLI.md:25).
+/// "Commands can run concurrently" (CLI.md), with no lock on cache writes.
 ///
 /// Two builds of one repository started at once, from cold, so both reach the
 /// point of writing the same entries. What is asserted afterwards is not only

@@ -50,7 +50,7 @@
 // builder and this emitter both compile — rather than written down twice.
 use super::abi::{MAX_FLOAT_ARGS as MAX_FLOAT, MAX_INT_ARGS as MAX_INT};
 use super::jit::{Fn2, Jit, V};
-use super::runtime::{Carrier, Entry, Extra, OptRepr, Ret, BURI_OK};
+use super::runtime::{Entry, Extra, OptRepr, Ret, BURI_OK};
 use crate::compiler::backend::intrinsic_keys::step_call;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
@@ -165,6 +165,8 @@ impl Jit<'_> {
     ) -> Result<(), String> {
         let mut ints: Vec<Src> = Vec::new();
         let mut floats: Vec<Src> = Vec::new();
+        let extra = entry.extra();
+        let by_ref = entry.by_ref();
 
         for (i, (slot, t)) in args.iter().copied().enumerate() {
             // A **context argument is dropped**, whatever it weighs and
@@ -172,7 +174,7 @@ impl Jit<'_> {
             // `buri_rt_alloc` and has no use for one, so the C signature has no
             // parameter for it.
             //
-            // Which argument that is comes from the row ([`Entry::ctx`]) rather
+            // Which argument that is comes from the row ([`Arg::Dropped`](super::runtime::Arg::Dropped)) rather
             // than from the value's type, and the difference is not academic.
             // Asking "is this a `Ty::Ctx`?" was the rule here, and it is the
             // right answer only while every `C: Allocator` is instantiated at a
@@ -185,7 +187,7 @@ impl Jit<'_> {
             // after it one register down: `push` reached `buri_rt_list_push`
             // with the handle where the pointer belongs and died in `memmove`
             // before the first test block.
-            if entry.ctx == Some(i) {
+            if entry.dropped(i) {
                 continue;
             }
             // A context the row does *not* name is this table being wrong, not
@@ -198,7 +200,7 @@ impl Jit<'_> {
                     entry.key
                 ));
             }
-            if entry.by_ref == Some(i) {
+            if by_ref == Some(i) {
                 ints.push(Src::Addr(slot));
                 continue;
             }
@@ -206,28 +208,28 @@ impl Jit<'_> {
             // business and crosses inside the state record below
             // ([`Extra::Step`]). It is the last argument at every key
             // `step_call` names, so skipping it here and appending four words
-            // after the loop writes the same C signature the LLVM table
-            // describes with an `Arg::Step` in its place.
-            if entry.extra == Extra::Step && step_call(entry.key).is_some_and(|c| c.func == i) {
+            // after the loop writes the same C signature the LLVM backend
+            // writes with the `Arg::Step` in its place.
+            if extra == Extra::Step && step_call(entry.key).is_some_and(|c| c.func == i) {
                 continue;
             }
             // And a **deferred body** is not flattened either, for the same
             // reason and at a fixed position: it is the last argument of every
-            // [`Extra::Compute`] row, which is what lets one table with no
-            // per-argument column describe the call.
-            if entry.extra == Extra::Compute && i + 1 == args.len() {
+            // [`Extra::Compute`] row (`runtime_table.rs`'s
+            // `a_closure_is_the_last_argument`).
+            if extra == Extra::Compute && i + 1 == args.len() {
                 continue;
             }
             // A **walk** is the same, at the same position: the last argument
             // of an [`Extra::Walk`] row is the `renderInto` closure, and it
             // crosses inside the record below rather than flattened.
-            if entry.extra == Extra::Walk && i + 1 == args.len() {
+            if extra == Extra::Walk && i + 1 == args.len() {
                 continue;
             }
             // A **kept handler** is the same once more: the last argument of an
             // [`Extra::Press`] row is the `onPress`/`onSubmit` closure, kept on
             // an element rather than flattened.
-            if entry.extra == Extra::Press && i + 1 == args.len() {
+            if extra == Extra::Press && i + 1 == args.len() {
                 continue;
             }
             for leaf in self.leaves(prog, t)? {
@@ -242,17 +244,18 @@ impl Jit<'_> {
             }
         }
 
-        if matches!(entry.extra, Extra::Element | Extra::Owned) {
+        if matches!(extra, Extra::Element | Extra::Owned) {
             // The pair, from the `[T]` this walks — or, where the row carries
             // one whole value, from that value's own type
             // ([`Self::bare_carrier`]). **Which of the two it is is the row's
-            // to say** ([`Carrier`]): a `Signal<[Account]>` hands `signal` an
+            // to say** ([`Entry::whole_value`]): a `Signal<[Account]>` hands `signal` an
             // array-typed argument exactly as `list.push` hands its receiver
             // one, so a search for the first list in sight would give the cell
             // an `Account`'s width and an `Account`'s glue.
-            let found = match entry.carrier {
-                Carrier::Element => self.element_ty(prog, dest.map(|d| d.1), args),
-                Carrier::Value => None,
+            let found = if entry.whole_value {
+                None
+            } else {
+                self.element_ty(prog, dest.map(|d| d.1), args)
             };
             let (stride, carried) = match found {
                 Some(elem) => {
@@ -260,8 +263,7 @@ impl Jit<'_> {
                     (stride, Some(elem))
                 }
                 None => {
-                    let bare = entry
-                        .by_ref
+                    let bare = by_ref
                         .and_then(|i| args.get(i).map(|(_, t)| *t))
                         .or(dest.map(|d| d.1));
                     let Some(bare) = bare else {
@@ -284,7 +286,7 @@ impl Jit<'_> {
             // after it ([`Extra::Owned`]): the same walk with a decref where
             // the retain has an incref, which is the one `emit.rs` already
             // emits for a value going out of scope.
-            if entry.extra == Extra::Owned {
+            if extra == Extra::Owned {
                 match carried.clone().and_then(|ty| self.value_release(ty)) {
                     Some(name) => ints.push(Src::Sym(name)),
                     None => ints.push(Src::Imm(0)),
@@ -300,25 +302,25 @@ impl Jit<'_> {
             }
         }
 
-        if entry.extra == Extra::Step {
+        if extra == Extra::Step {
             self.step_extra(prog, st, entry, dest.map(|d| d.1), args, &mut ints)?;
         }
 
-        if entry.extra == Extra::Compute {
+        if extra == Extra::Compute {
             self.compute_extra(prog, st, entry, args, &mut ints)?;
         }
 
-        if entry.extra == Extra::Walk {
+        if extra == Extra::Walk {
             self.walk_extra(prog, st, entry, args, &mut ints)?;
         }
 
-        if entry.extra == Extra::Press {
+        if extra == Extra::Press {
             self.press_extra(prog, st, entry, args, &mut ints)?;
         }
 
         let dslot = dest.map(|d| d.0).unwrap_or(0);
         let opt = match entry.ret {
-            Ret::Opt => {
+            Ret::Sum => {
                 let Some((_, dty)) = dest else {
                     return Err(format!("{}: no destination", entry.key));
                 };
@@ -345,7 +347,7 @@ impl Jit<'_> {
                 }
                 None
             }
-            Ret::Void | Ret::NoReturn | Ret::Scalar | Ret::Tag | Ret::Res | Ret::ResMsg => None,
+            Ret::Void | Ret::NoReturn | Ret::Scalar | Ret::Int(_) | Ret::Res | Ret::ResMsg => None,
         };
 
         // `lib.rs` §2.1's `Result<T, E>`: `.Ok`'s payload through an
@@ -442,8 +444,8 @@ impl Jit<'_> {
             // zero-extended — so a tag that fits its own field is the whole
             // word, and one that is written into an aggregate needs the narrow
             // store below.
-            Ret::Opt | Ret::Tag | Ret::Res | Ret::ResMsg => "w",
-            Ret::Scalar => {
+            Ret::Sum | Ret::Int(32) | Ret::Res | Ret::ResMsg => "w",
+            Ret::Scalar | Ret::Int(_) => {
                 let Some((_, dty)) = dest else {
                     return Err(format!("{}: no destination", entry.key));
                 };
@@ -459,7 +461,7 @@ impl Jit<'_> {
         // own offset and width; one whose destination is a scalar already
         // occupies the whole slot, which is what the `w` shape wrote.
         let narrow = match (entry.ret, dest) {
-            (Ret::Tag, Some((_, ir::Type::Agg(id)))) => {
+            (Ret::Int(32), Some((_, ir::Type::Agg(id)))) => {
                 let l = self.layout_id_shared(prog, id);
                 match &l.repr {
                     Repr::Enum { repr: EnumRepr::Bare { tag }, .. }
@@ -476,7 +478,7 @@ impl Jit<'_> {
         } else {
             dslot
         };
-        self.c_call(entry.symbol, st, &ints, &floats, into, kind)?;
+        self.c_call_sym(entry.symbol(), st, &ints, &floats, into, kind)?;
         if let Some(o) = opt {
             self.store_option_tag(st, dslot, &o);
         }
@@ -1165,7 +1167,7 @@ impl Jit<'_> {
     }
 
     /// The stride and glue of a row that carries **one whole value** rather
-    /// than a `[T]`'s element ([`Carrier::Value`]).
+    /// than a `[T]`'s element ([`Entry::whole_value`]).
     ///
     /// `platform/effect`'s graph is where this shape arrives: `signal(initial: T)`
     /// names its type in a `by_ref` argument and `read(id): T` names it only in
@@ -1539,14 +1541,14 @@ impl Jit<'_> {
     /// Which argument of `str.concat` [`Jit::str_concat`] never sees, at the
     /// arity this call arrived with.
     ///
-    /// `str.concat` has no table row, so the rule [`Entry::ctx`] states for
+    /// `str.concat` has no table row, so the rule [`Arg::Dropped`](super::runtime::Arg::Dropped) states for
     /// every other key is stated here instead, and it is the same rule read off
     /// the same place — the **declaration**. `Str.concat<C: Allocator>(self,
     /// ctx: C, other: Str)` is three arguments and the middle one is the context;
     /// `lower::template`'s `str.concat(a, b)` is two and never had one. Either
     /// way `buri_rt_str_concat` sees two `Str`s and nothing else.
     ///
-    /// By position rather than by type, for [`Entry::ctx`]'s reason: a `C:
+    /// By position rather than by type, for [`Arg::Dropped`](super::runtime::Arg::Dropped)'s reason: a `C:
     /// Allocator` instantiated at a value that merely *implements* `Allocator`
     /// is not a `Ty::Ctx`, and `s.concat(alloc(), t)` used to reach `str_concat`
     /// as three arguments — which this backend refuses by arity, so it was a "report it"

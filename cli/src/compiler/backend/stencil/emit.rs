@@ -24,7 +24,8 @@
 
 use super::abi::Loc;
 use crate::compiler::backend::intrinsic_keys::{
-    bits_op, json_arm, json_variant, prim_trait_op, JsonArm,
+    self, bits_op, checked_kind, conversion_target, json_arm, json_variant, numeric_key,
+    prim_trait_op, CheckedKind, JsonArm,
 };
 use crate::compiler::semantics::types::{field_types, variant_types};
 
@@ -2531,7 +2532,8 @@ impl<'a> Jit<'a> {
                 // zero-extended at its own width — so the source is
                 // sign-extended first where it is signed, and masked to the
                 // target's width after.
-                if let Some(to) = conversion_target(op) {
+                let to = if op == "toChar" { Some(Prim::Char) } else { conversion_target(op) };
+                if let Some(to) = to {
                     // An **aggregate** result is the whole of the test, and it
                     // is the same one `llvm/emit.rs::numeric` makes before its
                     // `toChar` arm: an exact
@@ -3188,7 +3190,7 @@ impl Jit<'_> {
         dest: u32,
     ) -> Result<(), String> {
         let refuse = || format!("Body::Runtime number.{}.to{}", from.name(), to.name());
-        let Some(kind) = Checked::of(from, to) else { return Err(refuse()) };
+        let Some(kind) = checked_kind(from, to) else { return Err(refuse()) };
         let Some(ir::Type::Agg(id)) = prog.funcs.get(fi).and_then(|f| f.sig.rets.first().copied())
         else {
             return Err(refuse());
@@ -3219,7 +3221,7 @@ impl Jit<'_> {
         match kind {
             // Integer to integer. The test is at the **source's** width, and a
             // bound the source cannot reach is not tested at all.
-            Checked::Ints => {
+            CheckedKind::Ints => {
                 let (Some((tag, _, _)), Some((from_lo, from_hi)), Some((to_lo, to_hi))) =
                     (prim_tag(from), from.int_range(), to.int_range())
                 else {
@@ -3248,7 +3250,7 @@ impl Jit<'_> {
             // `BigInt` comparison rejects. Every `hi + 1` is a power of two and
             // every `lo` is zero or a negative one, so both bounds are exact
             // doubles and `v >= hi + 1` is the same question with an answer.
-            Checked::FloatToInt => {
+            CheckedKind::FloatToInt => {
                 let v = self.as_f64(st, from, src);
                 let (Some((to_lo, to_hi)), Some((_, tw, _))) = (to.int_range(), prim_tag(to))
                 else {
@@ -3285,7 +3287,7 @@ impl Jit<'_> {
             // `U32 -> Char`, where the target is a set of scalar values rather
             // than a range: everything above U+10FFFF is out, and so is the
             // surrogate block in the middle of it (`runtime.js`'s `$toChar`).
-            Checked::ToChar => {
+            CheckedKind::ToChar => {
                 let Some((tag, _, _)) = prim_tag(from) else { return Err(refuse()) };
                 let scalar = st.label();
                 self.imm_num(bound, from, 0x0010_ffff);
@@ -3304,7 +3306,7 @@ impl Jit<'_> {
             // input: the rounded value is infinite exactly when the input
             // overflowed — or was infinite already, and an infinity converts to
             // an infinity rather than failing.
-            Checked::ToF32 => {
+            CheckedKind::ToF32 => {
                 let back = st.scratch + super::rtcall::RAW_WORD * 8;
                 self.cvt("cvt/f2f32", dest + ok_at, src);
                 self.cvt("cvt/f322f", back, dest + ok_at);
@@ -4100,66 +4102,6 @@ impl Jit<'_> {
     }
 }
 
-/// The shapes an **inexact** conversion comes in, which is what
-/// [`Jit::convert_checked`] switches on.
-///
-/// SPEC 6.2.1 gives one rule — `x.toT()` answers `Result<T, RangeError>`
-/// wherever not every `x` fits a `T` — and the rule reaches four different
-/// questions, because "does not fit" is not one machine test. Naming them here
-/// rather than testing the two primitives at each site is what keeps the
-/// refusal honest: a pair that is none of the four is a pair this backend has
-/// no body for, said once.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Checked {
-    /// Both integers: a range at the source's own width.
-    Ints,
-    /// A float into an integer, which can also be fractional, `NaN` or
-    /// infinite. The target is refused past sixty-four bits, where the frame
-    /// slot is two words and there is no single conversion stencil for it.
-    FloatToInt,
-    /// `U32 -> Char`: not a range but a set, with the surrogate block cut out
-    /// of the middle of it.
-    ToChar,
-    /// `F64 -> F32`, which has no integer range to test at all.
-    ToF32,
-}
-
-impl Checked {
-    fn of(from: Prim, to: Prim) -> Option<Self> {
-        if from.is_integer() && to.is_integer() {
-            return Some(Checked::Ints);
-        }
-        if from.is_float() && to.is_integer() && to.bits() <= 64 {
-            return Some(Checked::FloatToInt);
-        }
-        // `U32` is the only source the language declares `toChar` on
-        // (`semantics/builtins.rs`), and the bounds below are written at that
-        // width, so a narrower source would be compared against a constant its
-        // type cannot hold.
-        if from == Prim::U32 && to == Prim::Char {
-            return Some(Checked::ToChar);
-        }
-        if from == Prim::F64 && to == Prim::F32 {
-            return Some(Checked::ToF32);
-        }
-        None
-    }
-}
-
-/// The primitive a conversion key names, or `None` when the key is not one.
-fn conversion_target(op: &str) -> Option<Prim> {
-    if op == "toChar" {
-        return Some(Prim::Char);
-    }
-    for prefix in ["wrapTo", "to"] {
-        let Some(name) = op.strip_prefix(prefix) else { continue };
-        if let Some(p) = prim_of_name(name) {
-            return Some(p);
-        }
-    }
-    None
-}
-
 /// The bit pattern of a type's lowest or highest value, at the width a frame
 /// slot holds it in.
 ///
@@ -4254,31 +4196,12 @@ fn open_coded_key(key: &str) -> bool {
 
 /// `core/list`'s closure surface, which `lists.rs` open-codes as a loop
 /// because the step's signature is the element type flattened
-/// (`cli/runtime/list.rs`'s header).
+/// (`cli/runtime/list.rs`'s header) — plus the two that build a block without
+/// taking a function at all: what keeps them out of `cli/runtime/list.rs` is a
+/// second *layout* rather than a closure, and that file's header says which
+/// one each needs.
 fn list_closure_key(key: &str) -> bool {
-    matches!(
-        key,
-        "list.map"
-            | "list.mapCtx"
-            | "list.filter"
-            | "list.filterCtx"
-            | "list.fold"
-            | "list.foldCtx"
-            | "list.any"
-            | "list.all"
-            | "list.count"
-            | "list.find"
-            | "list.findIndex"
-            | "list.sortBy"
-            | "list.foldResult"
-            | "list.foldResultCtx"
-            // The two that build a block without taking a function at all:
-            // what keeps them out of `cli/runtime/list.rs` is a second
-            // *layout* rather than a closure, and that file's header says
-            // which one each needs.
-            | "list.zip"
-            | "list.flatten"
-    )
+    intrinsic_keys::list_closure_key(key) || matches!(key, "list.zip" | "list.flatten")
 }
 
 /// Whether a call to a `Body::Runtime` function is **emitted into its caller**
@@ -4302,59 +4225,4 @@ fn inline_runtime_key(key: &str) -> bool {
     super::runtime::entry(key).is_some()
         && !list_closure_key(key)
         && !matches!(key, "deriveArrayEq" | "deriveArrayShow")
-}
-
-/// `number.<T>.<op>`, for the operations `Lower::runtime_body` turns into an
-/// arithmetic stencil or an immediate.
-///
-/// `missing_intrinsics` is asked of the *monomorphized* program, before
-/// `middle::lower` runs — so `Bounded` is still two segments there and three by
-/// the time the body is emitted. Both spellings answer yes, because both
-/// describe an operation this backend compiles.
-///
-/// The list is what `runtime_body` actually dispatches on and not `number.*`:
-/// claiming a key with no body would turn a diagnostic that names the operation
-/// into one that names an IR shape. `toJson` is the operation `core/number`
-/// declares that this does not answer.
-fn numeric_key(key: &str) -> bool {
-    if key == "number.minValue" || key == "number.maxValue" {
-        return true;
-    }
-    let mut parts = key.split('.');
-    if parts.next() != Some("number") {
-        return false;
-    }
-    let (Some(t), Some(op)) = (parts.next(), parts.next()) else { return false };
-    if parts.next().is_some() || prim_of_name(t).is_none() {
-        return false;
-    }
-    matches!(
-        op,
-        "add"
-            | "subtract"
-            | "multiply"
-            | "divide"
-            | "remainder"
-            | "negate"
-            | "min"
-            | "max"
-            | "equal"
-            | "compare"
-            | "show"
-            | "minValue"
-            | "maxValue"
-            | "toF64"
-            | "toChar"
-            | "hash"
-            | "abs"
-            | "signum"
-    ) || conversion_target(op).is_some()
-        || ["checked", "saturating", "wrapping"]
-            .iter()
-            .any(|p| op.strip_prefix(p).is_some_and(|k| matches!(k, "Add" | "Subtract" | "Multiply" | "Divide")))
-        // `Checked`'s other three, which no other family has: a remainder, a
-        // negation and a power (`sources.rs::checks`).
-        || op
-            .strip_prefix("checked")
-            .is_some_and(|k| matches!(k, "Remainder" | "Negate" | "Power"))
 }

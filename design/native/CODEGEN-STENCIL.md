@@ -871,7 +871,7 @@ limitation and not a model decision.
 
 `buri_rt_abort(msg_ptr, msg_len)` never returns, and neither does any of the
 fixed messages beside it: `buri_rt_abort_div_zero`, `buri_rt_abort_shift`,
-`buri_rt_abort_bounds`, `buri_rt_abort_unreachable`. They exist so that a
+`buri_rt_abort_unreachable`. They exist so that a
 message pinned by `cli/tests/crash/` lives in the runtime rather than in a
 backend's string table, and they are reached through §5's boundary like every
 other runtime call.

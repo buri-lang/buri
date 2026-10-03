@@ -1253,20 +1253,6 @@ fn arg_reg_sysv(pos: usize) -> u32 {
     }
 }
 
-/// The thread entry signature this backend emits its door against, in
-/// `backend/task_thread.rs`'s canonical spelling.
-///
-/// This is the *reference* side of the byte-for-byte comparison: the door
-/// above reads its argument registers through [`arg_reg_a64`] /
-/// [`arg_reg_sysv`] at `task_thread::OUT`, and copies the return area through a
-/// pointer rather than answering one, so the constant rendered here is the one
-/// the machine code was written from. `llvm::emit::thread_signature` answers
-/// the same question by reading a real `FunctionValue`'s type back out of a
-/// module, and `the_two_thread_doors_have_one_signature` diffs them.
-pub fn thread_signature() -> Vec<u8> {
-    task_thread::ENTRY.render()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1361,14 +1347,6 @@ mod tests {
         let got = words(thread_entry_arm64("body", 0));
         let store = got.get(3).copied().unwrap_or(0);
         assert_eq!(store & 31, arg_reg_a64(task_thread::OUT), "the door saved the wrong register");
-    }
-
-    /// The signature this backend emits against is the shared one, spelled the
-    /// one canonical way. `llvm::emit::thread_signature` is compared to this.
-    #[test]
-    fn the_door_signature_is_the_shared_one() {
-        assert_eq!(thread_signature(), b"void(ptr,ptr)".to_vec());
-        assert_eq!(thread_signature(), task_thread::ENTRY.render());
     }
 
     fn words(a: Asm) -> Vec<u32> {

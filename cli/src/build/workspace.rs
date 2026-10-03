@@ -1256,12 +1256,7 @@ impl Workspace {
     /// dependency closure. `forbids` is symmetric, and the check is a union
     /// over the closure rather than a path — a binary that pulls client-only
     /// code down one dependency and server-only code down another is an error
-    /// even though neither reaches the other.
-    pub fn forbidden_pair(&self, target: TargetId) -> Option<(String, TargetId, String, TargetId)> {
-        self.forbidden_pair_of(&self.closure(target))
-    }
-
-    /// The same, over any set of targets.
+    /// even though neither reaches the other. `members` is the closure.
     pub fn forbidden_pair_of(&self, members: &[TargetId]) -> Option<(String, TargetId, String, TargetId)> {
         let carried = self.tags_of(members);
         for (a, a_by) in &carried {
@@ -1412,7 +1407,7 @@ fn check_artifact_paths(root: &Path, packages: &[Package], diagnostics: &mut Dia
                     format!("`{platform}` has several entries, and `artifact_name` names each of them `{}`", name.value),
                     String::from("remove `artifact_name`: each entry's artifact is named after the entry"),
                 ),
-                _ if output.artifact_name.is_none() && first.artifact_name.is_none() && is_page(packages, output) => (
+                _ if output.artifact_name.is_none() && first.artifact_name.is_none() && ships_assets(packages, output) => (
                     output.span,
                     format!("both outputs are `{platform}` pages, and a page's file is named after its entry"),
                     format!("drop one of the two `{platform}` outputs"),
@@ -1436,7 +1431,7 @@ fn check_artifact_paths(root: &Path, packages: &[Package], diagnostics: &mut Dia
 }
 
 /// Whether an output's platform ships assets, which name its artifacts.
-fn is_page(packages: &[Package], output: &buildfile::Output) -> bool {
+fn ships_assets(packages: &[Package], output: &buildfile::Output) -> bool {
     let rule = match &output.custom {
         Some(custom) => packages.iter().find(|p| p.path == custom.package_path()).and_then(|p| p.build.platform.as_ref()),
         None => crate::build::platforms::bundled(output.platform().proto()),

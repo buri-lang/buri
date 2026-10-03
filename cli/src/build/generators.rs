@@ -16,8 +16,7 @@
 //! what go-to-definition and a diagnostic inside generated code need. The
 //! compiler then parses the text with its one ordinary parser.
 //!
-//! The JSON of the answer is read by hand. This workspace may not grow a
-//! dependency (`language::corpus::dependencies_stay_behind_the_bar`).
+//! The answer is parsed once, by [`crate::json`], in [`tools::exchange`].
 
 use crate::build::buildfile::{self, Generator, Output};
 use crate::build::cache::{Action, ActionKey, KeyBuilder};
@@ -27,6 +26,7 @@ use crate::build::tools::{self, Tool};
 use crate::build::workspace::{RuleKind, TargetId, Workspace};
 use crate::commands::arguments::Flags;
 use crate::diagnostics::Span;
+use crate::json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -112,428 +112,93 @@ pub struct Response {
 }
 
 // ---------------------------------------------------------------------------
-// JSON
+// Reading an answer
 // ---------------------------------------------------------------------------
 
-/// The JSON this protocol speaks, as a value.
-///
-/// Small on purpose: objects, arrays, strings, non-negative integers and
-/// `null` are the whole of the grammar the request and the response use, and a
-/// parser that accepts more would accept documents this protocol cannot mean.
-#[derive(Clone, Debug, PartialEq)]
-enum Json {
-    Null,
-    Int(usize),
-    Str(String),
-    Array(Vec<Json>),
-    Object(Vec<(String, Json)>),
+/// `null` and an absent field are the same claim, which is what lets `note`,
+/// `fix` and `origin` be written either way.
+fn present<'v>(value: &'v Value, name: &str) -> Option<&'v Value> {
+    value.get(name).filter(|v| !matches!(v, Value::Null))
 }
 
-impl Json {
-    fn get(&self, name: &str) -> Option<&Json> {
-        match self {
-            Json::Object(fields) => fields.iter().find(|(n, _)| n == name).map(|(_, v)| v),
-            _ => None,
-        }
-    }
-
-    fn as_str(&self) -> Option<&str> {
-        match self {
-            Json::Str(s) => Some(s),
-            _ => None,
-        }
-    }
-
-    fn as_usize(&self) -> Option<usize> {
-        match self {
-            Json::Int(n) => Some(*n),
-            _ => None,
-        }
-    }
-
-    fn as_array(&self) -> Option<&[Json]> {
-        match self {
-            Json::Array(items) => Some(items),
-            _ => None,
-        }
-    }
-
-    /// `null` and an absent field are the same claim, which is what lets
-    /// `note`, `fix` and `origin` be written either way.
-    fn present(&self) -> Option<&Json> {
-        match self {
-            Json::Null => None,
-            other => Some(other),
-        }
+/// A byte offset: a non-negative integer.
+fn offset(value: &Value, name: &str) -> Option<usize> {
+    match value.get(name)? {
+        Value::Int(n) => usize::try_from(*n).ok(),
+        _ => None,
     }
 }
 
-fn write_string(out: &mut String, s: &str) {
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            // Everything below a space has no literal spelling in JSON.
-            // Everything above it does, including every non-ASCII scalar: this
-            // is a UTF-8 stream, so escaping them would only make the line
-            // longer and the diff worse.
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
+fn text<'v>(value: &'v Value, name: &str) -> Option<&'v str> {
+    value.get(name).and_then(Value::as_str)
 }
 
-fn write_json(out: &mut String, value: &Json) {
-    match value {
-        Json::Null => out.push_str("null"),
-        Json::Int(n) => out.push_str(&n.to_string()),
-        Json::Str(s) => write_string(out, s),
-        Json::Array(items) => {
-            out.push('[');
-            for (i, item) in items.iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                write_json(out, item);
+fn read_span(value: &Value) -> Option<(usize, usize)> {
+    Some((offset(value, "start")?, offset(value, "end")?))
+}
+
+/// The items of a list field, or none when the field is absent or `null`.
+fn items<'v>(value: &'v Value, name: &str) -> Result<&'v [Value], String> {
+    match present(value, name) {
+        None => Ok(&[]),
+        Some(list) => list.as_array().ok_or_else(|| format!("`{name}` is not a list")),
+    }
+}
+
+/// A tool's `diagnostics`: the shape `core/tool` shares with `core/codegen`,
+/// so a check's answer and a `generate`'s are read by this one function.
+pub fn diagnostics(value: &Value) -> Result<Vec<Diagnostic>, String> {
+    let mut diagnostics = Vec::new();
+    for d in items(value, "diagnostics")? {
+        let code = text(d, "code").ok_or("a diagnostic has no `code`")?;
+        let message = text(d, "message").ok_or("a diagnostic has no `message`")?;
+        let text_of = |name: &str| present(d, name).and_then(Value::as_str).map(str::to_string);
+        let origin = match present(d, "origin") {
+            None => None,
+            Some(o) => {
+                let file = text(o, "file").ok_or("an origin has no `file`")?;
+                let span = o.get("span").and_then(read_span).ok_or("an origin has no `span`")?;
+                Some(Origin { file: file.to_string(), span })
             }
-            out.push(']');
-        }
-        Json::Object(fields) => {
-            out.push('{');
-            for (i, (name, value)) in fields.iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                write_string(out, name);
-                out.push(':');
-                write_json(out, value);
-            }
-            out.push('}');
-        }
+        };
+        diagnostics.push(Diagnostic {
+            code: code.to_string(),
+            message: message.to_string(),
+            note: text_of("note"),
+            fix: text_of("fix"),
+            origin,
+        });
     }
-}
-
-struct Parser<'a> {
-    bytes: &'a [u8],
-    at: usize,
-}
-
-impl<'a> Parser<'a> {
-    fn peek(&self) -> Option<u8> {
-        self.bytes.get(self.at).copied()
-    }
-
-    fn bump(&mut self) -> Option<u8> {
-        let b = self.peek()?;
-        self.at = self.at.saturating_add(1);
-        Some(b)
-    }
-
-    fn skip_space(&mut self) {
-        while matches!(self.peek(), Some(b' ' | b'\t' | b'\n' | b'\r')) {
-            self.at = self.at.saturating_add(1);
-        }
-    }
-
-    fn expect(&mut self, b: u8) -> Result<(), String> {
-        self.skip_space();
-        if self.bump() == Some(b) {
-            return Ok(());
-        }
-        Err(format!("expected `{}` at byte {}", b as char, self.at))
-    }
-
-    fn value(&mut self) -> Result<Json, String> {
-        self.skip_space();
-        match self.peek() {
-            Some(b'n') => {
-                for b in b"null" {
-                    if self.bump() != Some(*b) {
-                        return Err(format!("expected `null` at byte {}", self.at));
-                    }
-                }
-                Ok(Json::Null)
-            }
-            Some(b'"') => Ok(Json::Str(self.string()?)),
-            Some(b'[') => {
-                self.at = self.at.saturating_add(1);
-                let mut items = Vec::new();
-                self.skip_space();
-                if self.peek() == Some(b']') {
-                    self.at = self.at.saturating_add(1);
-                    return Ok(Json::Array(items));
-                }
-                loop {
-                    items.push(self.value()?);
-                    self.skip_space();
-                    match self.bump() {
-                        Some(b',') => continue,
-                        Some(b']') => return Ok(Json::Array(items)),
-                        _ => return Err(format!("expected `,` or `]` at byte {}", self.at)),
-                    }
-                }
-            }
-            Some(b'{') => {
-                self.at = self.at.saturating_add(1);
-                let mut fields = Vec::new();
-                self.skip_space();
-                if self.peek() == Some(b'}') {
-                    self.at = self.at.saturating_add(1);
-                    return Ok(Json::Object(fields));
-                }
-                loop {
-                    self.skip_space();
-                    let name = self.string()?;
-                    self.expect(b':')?;
-                    fields.push((name, self.value()?));
-                    self.skip_space();
-                    match self.bump() {
-                        Some(b',') => continue,
-                        Some(b'}') => return Ok(Json::Object(fields)),
-                        _ => return Err(format!("expected `,` or `}}` at byte {}", self.at)),
-                    }
-                }
-            }
-            Some(b) if b.is_ascii_digit() => {
-                let start = self.at;
-                while self.peek().is_some_and(|b| b.is_ascii_digit()) {
-                    self.at = self.at.saturating_add(1);
-                }
-                let text = self.bytes.get(start..self.at).unwrap_or_default();
-                let text = std::str::from_utf8(text).unwrap_or_default();
-                text.parse::<usize>().map(Json::Int).map_err(|e| e.to_string())
-            }
-            _ => Err(format!("not a value at byte {}", self.at)),
-        }
-    }
-
-    fn string(&mut self) -> Result<String, String> {
-        self.skip_space();
-        if self.bump() != Some(b'"') {
-            return Err(format!("expected a string at byte {}", self.at));
-        }
-        // The escapes are decoded over bytes and the rest is copied over
-        // bytes, so a multi-byte scalar passes through whole rather than
-        // arriving one continuation byte at a time.
-        let mut out: Vec<u8> = Vec::new();
-        loop {
-            match self.bump() {
-                None => return Err("a string is not closed".to_string()),
-                Some(b'"') => break,
-                Some(b'\\') => match self.bump() {
-                    Some(b'"') => out.push(b'"'),
-                    Some(b'\\') => out.push(b'\\'),
-                    Some(b'/') => out.push(b'/'),
-                    Some(b'n') => out.push(b'\n'),
-                    Some(b'r') => out.push(b'\r'),
-                    Some(b't') => out.push(b'\t'),
-                    Some(b'b') => out.push(0x08),
-                    Some(b'f') => out.push(0x0c),
-                    Some(b'u') => {
-                        let code = self.hex4()?;
-                        // A surrogate pair is two escapes for one scalar. The
-                        // high half alone is not a character, so the low half
-                        // has to be read here rather than left for the next
-                        // turn of the loop to reject.
-                        let scalar = match code {
-                            0xd800..=0xdbff => {
-                                if self.bump() != Some(b'\\') || self.bump() != Some(b'u') {
-                                    return Err("a high surrogate with no low half".to_string());
-                                }
-                                let low = self.hex4()?;
-                                if !(0xdc00..=0xdfff).contains(&low) {
-                                    return Err("a high surrogate with no low half".to_string());
-                                }
-                                0x10000u32
-                                    .saturating_add((code.saturating_sub(0xd800)) << 10)
-                                    .saturating_add(low.saturating_sub(0xdc00))
-                            }
-                            other => other,
-                        };
-                        let c = char::from_u32(scalar)
-                            .ok_or_else(|| format!("\\u{scalar:04x} is not a character"))?;
-                        let mut buf = [0u8; 4];
-                        out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
-                    }
-                    _ => return Err(format!("unknown escape at byte {}", self.at)),
-                },
-                Some(b) => out.push(b),
-            }
-        }
-        String::from_utf8(out).map_err(|_| "a string is not UTF-8".to_string())
-    }
-
-    fn hex4(&mut self) -> Result<u32, String> {
-        let mut value = 0u32;
-        for _ in 0..4 {
-            let b = self.bump().ok_or_else(|| "a short \\u escape".to_string())?;
-            let digit = (b as char)
-                .to_digit(16)
-                .ok_or_else(|| format!("`{}` is not a hex digit", b as char))?;
-            value = value.saturating_mul(16).saturating_add(digit);
-        }
-        Ok(value)
-    }
-}
-
-fn parse_json(text: &str) -> Result<Json, String> {
-    let mut p = Parser { bytes: text.as_bytes(), at: 0 };
-    let value = p.value()?;
-    p.skip_space();
-    match p.peek() {
-        None => Ok(value),
-        Some(_) => Err(format!("trailing bytes after the document, at byte {}", p.at)),
-    }
-}
-
-fn span_json(span: (usize, usize)) -> Json {
-    Json::Object(vec![
-        ("start".to_string(), Json::Int(span.0)),
-        ("end".to_string(), Json::Int(span.1)),
-    ])
-}
-
-fn read_span(value: &Json) -> Option<(usize, usize)> {
-    Some((value.get("start")?.as_usize()?, value.get("end")?.as_usize()?))
+    Ok(diagnostics)
 }
 
 impl Response {
-    /// The one line a generator writes to its standard output.
-    pub fn encode(&self) -> String {
-        let modules = Json::Array(
-            self.modules
-                .iter()
-                .map(|m| {
-                    Json::Object(vec![
-                        ("name".to_string(), Json::Str(m.name.clone())),
-                        ("text".to_string(), Json::Str(m.text.clone())),
-                        (
-                            "anchors".to_string(),
-                            Json::Array(
-                                m.anchors
-                                    .iter()
-                                    .map(|a| {
-                                        Json::Object(vec![
-                                            ("start".to_string(), Json::Int(a.start)),
-                                            ("end".to_string(), Json::Int(a.end)),
-                                            ("file".to_string(), Json::Str(a.file.clone())),
-                                            ("span".to_string(), span_json(a.span)),
-                                        ])
-                                    })
-                                    .collect(),
-                            ),
-                        ),
-                    ])
-                })
-                .collect(),
-        );
-        let optional = |v: &Option<String>| match v {
-            Some(s) => Json::Str(s.clone()),
-            None => Json::Null,
-        };
-        let diagnostics = Json::Array(
-            self.diagnostics
-                .iter()
-                .map(|d| {
-                    Json::Object(vec![
-                        ("code".to_string(), Json::Str(d.code.clone())),
-                        ("message".to_string(), Json::Str(d.message.clone())),
-                        ("note".to_string(), optional(&d.note)),
-                        ("fix".to_string(), optional(&d.fix)),
-                        (
-                            "origin".to_string(),
-                            match &d.origin {
-                                None => Json::Null,
-                                Some(o) => Json::Object(vec![
-                                    ("file".to_string(), Json::Str(o.file.clone())),
-                                    ("span".to_string(), span_json(o.span)),
-                                ]),
-                            },
-                        ),
-                    ])
-                })
-                .collect(),
-        );
-        let mut out = String::new();
-        write_json(
-            &mut out,
-            &Json::Object(vec![
-                ("modules".to_string(), modules),
-                ("diagnostics".to_string(), diagnostics),
-            ]),
-        );
-        out
+    /// The line a generator writes to its standard output, parsed and read.
+    pub fn decode(line: &str) -> Result<Response, String> {
+        Response::from_value(&crate::json::parse(line)?)
     }
 
-    pub fn decode(text: &str) -> Result<Response, String> {
-        let json = parse_json(text)?;
+    /// An answer [`tools::exchange`] has already parsed.
+    pub fn from_value(json: &Value) -> Result<Response, String> {
         let mut modules = Vec::new();
-        if let Some(list) = json.get("modules").and_then(Json::present) {
-            for item in list.as_array().ok_or_else(|| "`modules` is not a list".to_string())? {
-                let name = item
-                    .get("name")
-                    .and_then(Json::as_str)
-                    .ok_or_else(|| "a module has no `name`".to_string())?;
-                let text = item
-                    .get("text")
-                    .and_then(Json::as_str)
-                    .ok_or_else(|| "a module has no `text`".to_string())?;
-                let mut anchors = Vec::new();
-                if let Some(list) = item.get("anchors").and_then(Json::present) {
-                    for a in list.as_array().ok_or_else(|| "`anchors` is not a list".to_string())? {
-                        let start =
-                            a.get("start").and_then(Json::as_usize).ok_or("an anchor has no `start`")?;
-                        let end =
-                            a.get("end").and_then(Json::as_usize).ok_or("an anchor has no `end`")?;
-                        let file =
-                            a.get("file").and_then(Json::as_str).ok_or("an anchor has no `file`")?;
-                        let span = a.get("span").and_then(read_span).ok_or("an anchor has no `span`")?;
-                        anchors.push(Anchor { start, end, file: file.to_string(), span });
-                    }
-                }
-                modules.push(GeneratedModule {
-                    name: name.to_string(),
-                    text: text.to_string(),
-                    anchors,
-                });
+        for item in items(json, "modules")? {
+            let name = text(item, "name").ok_or("a module has no `name`")?;
+            let module_text = text(item, "text").ok_or("a module has no `text`")?;
+            let mut anchors = Vec::new();
+            for a in items(item, "anchors")? {
+                let start = offset(a, "start").ok_or("an anchor has no `start`")?;
+                let end = offset(a, "end").ok_or("an anchor has no `end`")?;
+                let file = text(a, "file").ok_or("an anchor has no `file`")?;
+                let span = a.get("span").and_then(read_span).ok_or("an anchor has no `span`")?;
+                anchors.push(Anchor { start, end, file: file.to_string(), span });
             }
+            modules.push(GeneratedModule {
+                name: name.to_string(),
+                text: module_text.to_string(),
+                anchors,
+            });
         }
-        let mut diagnostics = Vec::new();
-        if let Some(list) = json.get("diagnostics").and_then(Json::present) {
-            for d in list.as_array().ok_or_else(|| "`diagnostics` is not a list".to_string())? {
-                let code =
-                    d.get("code").and_then(Json::as_str).ok_or("a diagnostic has no `code`")?;
-                let message = d
-                    .get("message")
-                    .and_then(Json::as_str)
-                    .ok_or("a diagnostic has no `message`")?;
-                let text_of = |name: &str| {
-                    d.get(name).and_then(Json::present).and_then(Json::as_str).map(str::to_string)
-                };
-                let origin = match d.get("origin").and_then(Json::present) {
-                    None => None,
-                    Some(o) => {
-                        let file =
-                            o.get("file").and_then(Json::as_str).ok_or("an origin has no `file`")?;
-                        let span = o.get("span").and_then(read_span).ok_or("an origin has no `span`")?;
-                        Some(Origin { file: file.to_string(), span })
-                    }
-                };
-                diagnostics.push(Diagnostic {
-                    code: code.to_string(),
-                    message: message.to_string(),
-                    note: text_of("note"),
-                    fix: text_of("fix"),
-                    origin,
-                });
-            }
-        }
-        Ok(Response { modules, diagnostics })
+        Ok(Response { modules, diagnostics: diagnostics(json)? })
     }
 }
 
@@ -1134,7 +799,7 @@ fn run_contracts(session: &mut Session, target: TargetId, flags: &Flags, overlay
                     origin: None,
                 };
                 let answer = tools::exchange(session, &ask, &read, flags);
-                match answer.and_then(|x| Ok((Response::decode(&x.line)?, x))) {
+                match answer.and_then(|x| Ok((Response::from_value(&x.value)?, x))) {
                     Ok((response, x)) => {
                         fingerprint.push_str(x.key.as_str());
                         fingerprint.push('\n');
@@ -1460,7 +1125,7 @@ fn answer(
         label: &label,
     };
     let answer = tools::exchange(session, &ask, read, flags)?;
-    let mut response = Response::decode(&answer.line)
+    let mut response = Response::from_value(&answer.value)
         .map_err(|e| format!("the tool's answer is not one `generate` gives: {e}"))?;
     for path in answer.outside {
         response.diagnostics.push(Diagnostic {
@@ -1695,7 +1360,42 @@ mod tests {
                 },
             ],
         };
-        let line = response.encode();
+        let span = |(start, end): (usize, usize)| {
+            Value::object(vec![("start", Value::number(start as i64)), ("end", Value::number(end as i64))])
+        };
+        let optional = |v: &Option<String>| v.clone().map_or(Value::Null, Value::Str);
+        let modules = response.modules.iter().map(|m| {
+            let anchors = m.anchors.iter().map(|a| {
+                Value::object(vec![
+                    ("start", Value::number(a.start as i64)),
+                    ("end", Value::number(a.end as i64)),
+                    ("file", Value::str(&a.file)),
+                    ("span", span(a.span)),
+                ])
+            });
+            Value::object(vec![
+                ("name", Value::str(&m.name)),
+                ("text", Value::str(&m.text)),
+                ("anchors", Value::Array(anchors.collect())),
+            ])
+        });
+        let diagnostics = response.diagnostics.iter().map(|d| {
+            let origin = d.origin.as_ref().map_or(Value::Null, |o| {
+                Value::object(vec![("file", Value::str(&o.file)), ("span", span(o.span))])
+            });
+            Value::object(vec![
+                ("code", Value::str(&d.code)),
+                ("message", Value::str(&d.message)),
+                ("note", optional(&d.note)),
+                ("fix", optional(&d.fix)),
+                ("origin", origin),
+            ])
+        });
+        let line = Value::object(vec![
+            ("modules", Value::Array(modules.collect())),
+            ("diagnostics", Value::Array(diagnostics.collect())),
+        ])
+        .to_string();
         assert!(!line.contains('\n'), "the response is one line: {line}");
         assert_eq!(Response::decode(&line).expect("the response decodes"), response);
     }

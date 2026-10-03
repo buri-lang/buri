@@ -1222,7 +1222,7 @@ mod native {
             Ok(b) => Some(b),
             #[cfg(feature = "backend-llvm")]
             Err(_) if matches!(profile, Profile::Release) => {
-                Some(Box::new(backend::llvm::Llvm))
+                Some(Box::new(backend::llvm::Llvm::default()))
             }
             Err(_) => None,
         }

@@ -345,17 +345,6 @@ fn with_doc<R>(handle: i64, f: impl FnOnce(&mut Document) -> R) -> Option<R> {
     Some(f(doc))
 }
 
-/// `newDocument()` — a fresh, empty document, exposed for the C driver.
-///
-/// # Safety
-/// `out` is writable and aligned for eight bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_doc_open(out: *mut i64) {
-    let handle = open();
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(handle) };
-}
-
 /// `render(ctx, root)` on the native backend — the mount `render`'s thin body
 /// reaches: open a document, walk `root` into it with the `renderInto` closure
 /// the caller passed, and answer the handle a `Rendered` carries.

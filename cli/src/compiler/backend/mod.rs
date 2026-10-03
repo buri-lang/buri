@@ -1,9 +1,9 @@
 //! The interface between the middle end and a backend.
 //!
 //! One directory per backend, and this file holds only what they have in
-//! common: the [`Backend`] and [`Linker`] traits, the [`Emitted`] unit they
-//! trade in, and [`Profile`], which is a statement about programs rather than
-//! about any one target.
+//! common: the [`Backend`] trait, the [`Emitted`] unit it trades in, and
+//! [`Profile`], which is a statement about programs rather than about any one
+//! target.
 //!
 //! ```text
 //! backend/
@@ -41,7 +41,7 @@ pub mod task_thread;
 pub mod runtime_native;
 
 /// Which `buri_rt_*` entry a key names, and what shape the call has.
-#[cfg(feature = "backend-stencil")]
+#[cfg(any(feature = "backend-stencil", feature = "backend-llvm"))]
 pub mod runtime_table;
 
 #[cfg(feature = "backend-llvm")]
@@ -55,7 +55,6 @@ use crate::build::cache::ActionKey;
 use crate::compiler::middle::monomorphize::Program;
 use crate::compiler::semantics::types::Tables;
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
-use std::path::Path;
 
 /// Which build this run is for.
 ///
@@ -121,8 +120,8 @@ pub struct Options<'a> {
     pub unit_prefix: &'a str,
 }
 
-/// A link wants the same three answers an emission does, under the name the
-/// [`Linker`] trait reads better with.
+/// A link wants the same three answers an emission does, under the name a
+/// link reads better with.
 pub type LinkOptions<'a> = Options<'a>;
 
 /// The target triple a [`Target`] names, as text, or `None` for a platform no
@@ -259,8 +258,8 @@ pub trait Backend {
     /// The default emits everything and is correct rather than fast, because a
     /// superset satisfies every caller: `build::actions::codegen_units` takes
     /// the objects it asked for by name and serves the rest from the cache. A
-    /// backend with one unit — JavaScript, whose artifact is one file its
-    /// `Concatenate` linker takes element zero of — wants exactly that.
+    /// backend with one unit — JavaScript, whose artifact is one file — wants
+    /// exactly that.
     fn emit_units(
         &mut self,
         program: &Program,
@@ -277,8 +276,8 @@ pub trait Backend {
     ///
     /// It is a **hint and not a seam**: the emission entry point is still
     /// [`Backend::emit_units`] and it still takes a `Program`, so a backend
-    /// that ignores this — every backend but one — is not a backend that
-    /// works differently. What is offered is a value the caller is about to
+    /// that ignores this — JavaScript — is not a backend that works
+    /// differently. What is offered is a value the caller is about to
     /// throw away and the callee is about to recompute:
     /// `build::actions::objects_named` lowers to hash the unit keys, and
     /// `middle::lower` is a pure function of the program, so the IR it holds is
@@ -437,52 +436,6 @@ pub fn no_cryptography(operations: &[String], span: Span) -> Diagnostic {
         .with_bind("operations", crate::diagnostics::names(operations))
 }
 
-/// Combining units into the final artifact.
-///
-/// Separate from [`Backend`] because the two vary independently: `stencil`
-/// and `llvm` both hand their objects to the platform linker, and the same
-/// backend links differently on macOS and on Linux.
-pub trait Linker {
-    /// Enters the `link` key, with [`Linker::version`].
-    fn name(&self) -> &'static str;
-
-    /// The linker's own identity, for the same reason [`Backend::identity`]
-    /// exists: `ld64` and `mold` do not produce the same bytes.
-    fn version(&self) -> String;
-
-    /// Everything *else* about the link that decides the bytes: the flags, and
-    /// the libc they name.
-    ///
-    /// [`Linker::version`] is the linker's `--version` banner and nothing more,
-    /// so for years the `link` key held *who* linked and not *how*. That was
-    /// survivable while the command line was a function of the platform alone;
-    /// it stopped being survivable when the Linux link gained a libc question
-    /// with three answers. A toolchain rebuilt with a musl `rust-std` installed
-    /// links `-static-pie` against a baked sysroot where the one before it
-    /// linked against the host glibc — same `cc`, same `mold`, same objects,
-    /// same banner, and an artifact that is a different file. Without this term
-    /// the second build is served the first one's executable.
-    ///
-    /// Empty by default, and that is the honest answer for a linker whose
-    /// command line has no variation in it: `js::Concatenate` writes bytes it
-    /// computed itself, and a term that is always the same string is a term
-    /// that says nothing.
-    fn link_identity(&self) -> String {
-        String::new()
-    }
-
-    /// Combines units into the final artifact at `out`. `unchanged` names the
-    /// units whose bytes are byte-identical to the previous link, which a
-    /// linker may use and may ignore.
-    fn link(
-        &self,
-        units: &[Emitted],
-        unchanged: &[usize],
-        out: &Path,
-        opts: &LinkOptions<'_>,
-    ) -> Result<(), Diagnostics>;
-}
-
 /// The backend for one target and one profile.
 ///
 /// ```text
@@ -526,7 +479,7 @@ pub fn select(target: Target, profile: Profile) -> Result<Box<dyn Backend>, Stri
         #[cfg(not(feature = "backend-stencil"))]
         (_, Profile::Debug) => Err(no_development_code_generator()),
         #[cfg(feature = "backend-llvm")]
-        (Platform::Linux | Platform::Macos, Profile::Release) => Ok(Box::new(llvm::Llvm)),
+        (Platform::Linux | Platform::Macos, Profile::Release) => Ok(Box::new(llvm::Llvm::default())),
         // Gated the other way for the same reason the debug arm above is: with
         // the feature on the arm above is total for a native release build.
         #[cfg(not(feature = "backend-llvm"))]
@@ -926,7 +879,7 @@ mod tests {
         );
         #[cfg(feature = "backend-llvm")]
         assert!(
-            reports(llvm::Llvm.missing_intrinsics(&program, &tables)),
+            reports(llvm::Llvm::default().missing_intrinsics(&program, &tables)),
             "the llvm backend claimed a key no runtime answers"
         );
         // A toolchain with neither native backend has nothing to ask, and the

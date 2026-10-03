@@ -848,50 +848,6 @@ pub unsafe extern "C" fn buri_rt_ui_build_node(
     });
 }
 
-/// `rowAt(ctx, scope, at)` — an `each`'s row body, driven with the supplied
-/// index and a fresh scope.
-///
-/// The context is dropped at the boundary as a step drops it: it allocates
-/// through `buri_rt_alloc` and reads no capability, so it crosses nothing and
-/// the thunk never names it. `at` is the loop index a step already carries, the
-/// scope is its element, and the `Node` comes back through `out` at its stride.
-///
-/// # Safety
-/// As [`buri_rt_ui_build_node`], with `at` any index the caller chose.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_row_at(
-    entry: ComputeEntry,
-    state: *mut u8,
-    at: i64,
-    out: *mut u8,
-) {
-    under_fresh_scope(|scope| {
-        // SAFETY: forwarded to the caller's promise; `scope` is one live word.
-        unsafe { (entry)(state, at, std::ptr::addr_of!(scope).cast(), out) };
-    });
-}
-
-/// `onPress(ctx, event)` — a button's handler, fired with a runtime-minted
-/// event.
-///
-/// A handler is not a computation — it writes signals freely — so this sets no
-/// tracking cursor: it fires outside every scope, and a signal write inside it
-/// drains as any write does. The context is dropped as `rowAt`'s is; the event
-/// crosses as the element, a pointer to the one word an [`Event`] carries; and a
-/// body that answers `()` still gets a non-null `out` to write through, as
-/// [`run`] gives a watcher one.
-///
-/// # Safety
-/// `entry` is the thunk the backend generated for this handler and `state` the
-/// record it was generated against.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_fire_press(entry: ComputeEntry, state: *mut u8, event: i64) {
-    let mut sink = [0u8; 8];
-    // SAFETY: forwarded to the caller's promise; `event` is one live word and
-    // `sink` a live destination a `()`-answering thunk writes nothing to.
-    unsafe { (entry)(state, 0, std::ptr::addr_of!(event).cast(), sink.as_mut_ptr()) };
-}
-
 /// Keeps a `fn(C, Event) => ()` for a press or a submit to fire later, and
 /// answers the graph node it lives on.
 ///
@@ -1053,28 +1009,6 @@ pub(crate) fn flip_bool_signal(id: i64) {
     buf[0] = u8::from(buf[0] == 0);
     // SAFETY: `buf` is the signal's own width, one whole `Bool` value.
     unsafe { write_changed(id, buf.as_ptr(), buf.len()) };
-}
-
-/// Fires the handler on graph node `id` — the C-ABI face of [`fire`], for the
-/// event dispatch's driver test to reach a kept handler across the boundary.
-#[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_ui_node_fire_handler(id: i64) {
-    fire(id);
-}
-
-/// `Event(0)` — the one event the runtime mints, matching the JavaScript
-/// renderer's `[0]`.
-///
-/// `Event`'s field is private so only the runtime may construct one; its native
-/// shape is the one `Int` it wraps, and a press carries no data yet, so the
-/// field is zero.
-///
-/// # Safety
-/// `out` is writable and aligned for eight bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_event(out: *mut i64) {
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(0) };
 }
 
 /// `renderInto(builder, node)` — the walk that builds the document, driven once.

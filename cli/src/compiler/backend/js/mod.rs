@@ -15,7 +15,7 @@ pub mod generate;
 pub mod intrinsics;
 pub mod javascript;
 
-use crate::compiler::backend::{Backend, Emitted, Linker, LinkOptions, Options, Profile};
+use crate::compiler::backend::{Backend, Emitted, Options, Profile};
 use crate::compiler::middle::monomorphize::Program;
 use crate::compiler::semantics::types::Tables;
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
@@ -143,52 +143,5 @@ impl Js {
             });
         }
         Ok(emitted)
-    }
-}
-
-/// "Take element zero."
-///
-/// A JavaScript artifact is one file, so linking it is a copy. It is a `Linker`
-/// rather than a special case in the build system for the same reason `emit`
-/// returns a vector: one path through the build, and the backend that has the
-/// simplest answer gives the simplest answer rather than being exempt from the
-/// question.
-pub struct Concatenate;
-
-impl Linker for Concatenate {
-    fn name(&self) -> &'static str {
-        "js-concat"
-    }
-
-    fn version(&self) -> String {
-        String::from("1")
-    }
-
-    fn link(
-        &self,
-        units: &[Emitted],
-        _unchanged: &[usize],
-        out: &std::path::Path,
-        _opts: &LinkOptions<'_>,
-    ) -> Result<(), Diagnostics> {
-        let mut diags = Diagnostics::new();
-        let Some(unit) = units.first() else {
-            diags.push(Diagnostic::error(
-                Span::NONE,
-                String::from("internal error: the JavaScript backend emitted no unit"),
-            ));
-            return Err(diags);
-        };
-        if let Some(parent) = out.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        if let Err(e) = std::fs::write(out, &unit.bytes) {
-            diags.push(
-                Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", out.display()))
-                    .with_fix("check the directory exists and is writable"),
-            );
-            return Err(diags);
-        }
-        Ok(())
     }
 }
