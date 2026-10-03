@@ -16,21 +16,19 @@ impl Square {
 }
 ```
 
-`x.f(a)` then looks `f` up among the methods of x's type, which live in that
-type's **defining module** and nowhere else. No dispatch, no vtable, no hidden
-receiver: a name resolved through a type instead of through scope, so a type's
-operations travel with it.
+`x.f(a)` looks `f` up among the methods of `x`'s type, which live only in that
+type's **defining module**. There's no dispatch and no vtable: the name resolves
+through the type instead of through scope, so a type's operations travel with
+it.
 
 ```buri ignore why="names a module in another repository, so it cannot be compiled standalone; the same pattern is compiled in cli/tests/example"
 from "//lib/square" import { Square };            // the type — not `area`, not `scaled`
 sq.scaled(2).area()                      // both resolve with no further imports
 ```
 
-Resolution stays one type, one module, one lookup.
-
 A **trait is an interface**, and conformance is **nominal**: a type satisfies it
-only where an `impl` or `derive` says so, never by accident of shape. `Ordered` is
-one such interface, declared in the prelude as:
+only where an `impl` or `derive` says so, never by shape. The prelude declares
+`Ordered`:
 
 ```buri sig
 trait Ordered {
@@ -38,7 +36,7 @@ trait Ordered {
 }
 ```
 
-and a type takes it on in one of two ways:
+A type conforms in one of two ways:
 
 ```buri
 # struct Version(Int);
@@ -54,16 +52,14 @@ impl Ordered for Version {
 }
 ```
 
-The same keyword covers both jobs: `impl Type { ... }` declares what the type
-can do on its own, and `impl Trait for Type { ... }` declares what it can do as
-somebody else's interface.
+`impl Type { ... }` declares what the type does on its own; `impl Trait for
+Type { ... }` declares how it fills an interface.
 
-Because a type has exactly one defining module and conformance is declared,
-there is exactly one candidate per `(trait, type)`: coherence, orphan rules and
-instance search are unrepresentable rather than restricted. Blanket impls,
-associated types, `where` clauses, supertraits and trait objects are all
-deliberately absent, because each turns resolution from a lookup into a
-search.
+A type has one defining module and conformance is declared, so there is exactly
+one candidate per `(trait, type)`. Coherence, orphan rules and instance search
+don't exist. Blanket impls, associated types, `where` clauses, supertraits and
+trait objects are deliberately absent, because each turns resolution from a
+lookup into a search.
 
 Operators are trait methods, which is what makes newtypes usable:
 
@@ -79,5 +75,4 @@ struct Meters(F64);
 ```
 
 An operator implementation **cannot allocate or perform an effect**, because
-`a + b` has no argument position for a context. You cannot write an expensive
-`+` in this language.
+`a + b` has no place to pass a context. An expensive `+` can't be written.

@@ -1,14 +1,12 @@
 # `REPO.buri`
 
-One file, at the repository root. It is what makes a directory the repository
-root. Every `//` label and every `//` module path resolves against the directory
-holding it, and the CLI walks up from your working directory to find it.
+`REPO.buri` marks the repository root. Every `//` label and `//` module path
+resolves against its directory, and the CLI walks up from your working
+directory to find it. It parses as `buri.build.v1.RepoConfig`
+([`schema/repo.proto`](../schema/repo.proto)), a separate schema from
+`BUILD.buri`'s.
 
-It parses as `buri.build.v1.RepoConfig`
-([`schema/repo.proto`](../schema/repo.proto)), its own schema file, separate from
-the one `BUILD.buri` uses.
-
-**The whole file:**
+**The whole file, unabridged:**
 
 ```textproto schema=repo
 # REPO.buri
@@ -41,17 +39,13 @@ language {
 }
 ```
 
-Three fields. The example is not abridged. A knob goes on the command, where the
-invocation shows it, or on the rule it affects, where anyone reading that rule
-sees it. `REPO.buri` gets what has no other home. There is no `flags` field: a
-repository-wide compiler flag is a dialect, and a dialect makes one source file
-mean different things in different repositories.
+A knob goes on the command, where the invocation shows it, or on the rule it
+affects, where its reader sees it. `REPO.buri` gets only what has no other home.
 
 ## `tag`
 
-The tag vocabulary and, on the same block, everything that follows from carrying
-a tag. [`tags.md`](./tags.md) documents it fully. In summary, two blocks named
-for their polarity:
+Declares the tag vocabulary and what carrying each tag implies.
+[`tags.md`](./tags.md) has the details:
 
 | | |
 |---|---|
@@ -59,27 +53,24 @@ for their polarity:
 | `forbids { backends: [...], platforms: [...] }` | Backends and platforms code carrying this tag may not be built or tested for. Every other platform, including one added later, stays open. |
 | `requires { backends: [...], platforms: [...] }` | The only backends and platforms code carrying this tag may be built for. A whitelist; unset means all. |
 
-A tag admits what its `requires` admits, or everything when unset, minus what
-its `forbids` names. A backend or platform named on both sides is an error. `requires`
-takes no tags, for the reason [`tags.md`](./tags.md) gives.
+A tag admits what its `requires` admits (everything when unset), minus what its
+`forbids` names. Naming a backend or platform on both sides is an error.
+`requires` takes no tags; [`tags.md`](./tags.md) says why.
 
-This file is the only place that introduces a tag name, and the vocabulary is
-**closed**. A build file three directories down writing `tags: ["internal"]`
-either resolves to a block here or fails. A tag declared twice is an error, and
-one declared nowhere is an error rather than a typo that turns into an unchecked
-build.
+The vocabulary is **closed**: this file is the only place a tag name is
+introduced. A build file writing `tags: ["internal"]` either resolves to a block
+here or fails, so a typo can't turn into an unchecked build. Declaring a tag
+twice is an error too.
 
-The bundled platforms, `native`, `node` and `web`, are closed, and so are
-`Backend` and `native`'s variants. Adding one is a toolchain change rather than
-a configuration change, so there is nothing to declare here. With no library or
-tag naming a platform, nothing constrains anything, and the build attempts a
-`node` build only when some binary lists a `node` output.
+The bundled platforms `native`, `node` and `web`, `Backend`, and `native`'s
+variants are fixed by the toolchain, so there's nothing to declare for them.
+With no library or tag naming a platform, nothing is constrained, and the build
+attempts a `node` build only when some binary lists a `node` output.
 
 ## `lint`
 
-Where the lint catalogue runs, what a finding costs, and which of its rules run
-here. A `REPO.buri` that writes none of these behaves exactly like one with no
-`lint` block, so write the block only to say something:
+Where the lint catalogue runs, what a finding costs, and which rules run. Every
+field defaults to the behavior of having no `lint` block:
 
 ```textproto schema=repo
 lint {
@@ -99,32 +90,27 @@ lint {
 
 | | |
 |---|---|
-| `check_during_build` | `buri build` and `buri test` run the catalogue too, and report what it finds. Default false: they do not. |
-| `fail_on_finding` | A finding is an error, and fails whichever command reported it. Default false: the command prints the finding and returns its usual exit code. |
-| `rules` | Which of the catalogue's rules run. Absent, or empty: all of them. |
+| `check_during_build` | `buri build` and `buri test` run the catalogue too, and report what it finds. Default false. |
+| `fail_on_finding` | A finding fails whichever command reported it. Default false: the command prints the finding and returns its usual exit code. |
+| `rules` | Which of the catalogue's rules run. Absent or empty: all of them. |
 
-Turn `check_during_build` on because those are the commands you actually run,
-and a finding about shape is cheap to fix while you are making the shape and
-expensive afterwards. `fail_on_finding` is separate because it is a separate
-decision: a repository can want to hear from the linter during every build long
-before it wants every finding to stop one.
+Turn on `check_during_build` because those are the commands you actually run,
+and a shape finding is cheapest to fix while you're making the shape.
+`fail_on_finding` is separate so you can hear from the linter on every build
+before letting it stop one.
 
-Neither field changes `buri lint`. It exits nonzero on any finding, whatever
-this file says.
+Neither field changes `buri lint`, which exits nonzero on any finding.
 
 ### `rules`
 
-Which of the catalogue's rules run here. One field per lint code, spelled with
-underscores instead of hyphens because a textproto field name cannot hold one,
-plus one `default` that every field is read against:
+One field per lint code, with underscores for hyphens, plus a `default`:
 
 ```
 enabled(rule) = override.unwrap_or(default)
 ```
 
-An absent or empty `rules` block changes nothing. `discarded_result: false`
-turns off one rule and leaves every other one alone. `default: DISABLED` plus a
-handful of rules written `true` is an allow list:
+`discarded_result: false` turns off one rule. `default: DISABLED` plus a few
+rules set to `true` is an allow list:
 
 ```textproto schema=repo
 lint {
@@ -140,39 +126,32 @@ lint {
 }
 ```
 
-The catalogue **generates the field set**. A `rules` block accepts exactly the
-lint codes this `buri` has, so a rule cannot ship without a field, and a field
-cannot outlive the rule it names. `unused_improt: false` gets the
-[`unknown-field`](../errors/unknown-field.md) diagnostic every other undeclared
-field gets, offering `unused_import` as the fix. A misspelled rule is a file that
-does not read, never a rule left quietly on.
+The catalogue **generates the field set**, so the block accepts exactly the
+lint codes this `buri` has. `unused_improt: false` gets the
+[`unknown-field`](../errors/unknown-field.md) diagnostic, offering
+`unused_import` as the fix. A misspelled rule never stays quietly on.
 
-Turning a rule off here turns it off everywhere at once: `buri lint`,
-`check_during_build`, and the editor. The report drops the rule rather than
-downgrading it, since there is still one severity, and it never drops one
-quietly. Every command that reports findings prints which rules this file turned
-off:
+Turning a rule off here turns it off everywhere: `buri lint`,
+`check_during_build`, and the editor. Every command that reports findings
+says which rules this file turned off:
 
 ```
 REPO.buri turns off 2 of 25 lint rules: discarded-result, hex-digit-table
 ```
 
-Under `default: DISABLED` it prints the smaller side instead, the rules that
-still run. A check that did not run with nothing on screen to say so is worse
-than the finding it was hiding.
+Under `default: DISABLED` it prints the smaller side, the rules that still run.
 
-There is no per-directory exemption and no per-file suppression comment. One
-file answers "is this rule on here" for the whole repository, and turning a rule
-off takes a diff somebody reviews rather than a line somebody adds to the file
-they were already editing.
+There's no per-directory exemption and no suppression comment. Turning a rule
+off takes a reviewed diff to this file, not a line slipped into the file you
+were already editing.
 
 ## `language`
 
-The extension of a file some rule's `inputs` lists decides its language, and
-the language decides how the build checks it and how `buri format` lays it
-out. The built-in languages are `json` (`.json`), `jsonc` (`.jsonc`), `json5`
-(`.json5`), `proto` (`.proto`) and `textproto` (`.txtpb`, `.textproto`). A
-`language` block gives one of them more extensions:
+A file's extension decides its language, which decides how the build checks
+the file and how `buri format` lays it out. That applies to any file a rule's
+`inputs` lists. The built-in languages are `json` (`.json`), `jsonc`
+(`.jsonc`), `json5` (`.json5`), `proto` (`.proto`) and `textproto` (`.txtpb`,
+`.textproto`). A `language` block gives one of them more extensions:
 
 ```textproto schema=repo
 language {
@@ -181,7 +160,7 @@ language {
 }
 ```
 
-Or it declares a language of your own, and names the [tools](./tools.md) that
+Or it declares your own language, and names the [tools](./tools.md) that
 check, format and generate from it:
 
 ```textproto schema=repo
@@ -201,54 +180,46 @@ language {
 
 - `check` runs on each referenced file before any generator reads it, in
   `buri build`, `buri test`, `buri lint` and your editor. `format` is what
-  `buri format` and your editor lay the file out with. A language without one
-  is not checked, or not formatted.
+  `buri format` and your editor use. A language without one isn't checked, or
+  isn't formatted.
 - A tool without the entry point is
   [`tool-without-entry-point`](../errors/tool-without-entry-point.md), and a
-  name that is no tool is [`no-such-tool`](../errors/no-such-tool.md).
-- `generate` is checked the same way, and nothing runs it yet: a `generators`
-  entry names its own tool.
-- One extension names one language, so claiming one that is taken is
+  name that's no tool is [`no-such-tool`](../errors/no-such-tool.md).
+- `generate` is validated the same way, but nothing runs it yet: a
+  `generators` entry names its own tool.
+- One extension names one language, so claiming a taken one is
   [`language-extension-taken`](../errors/language-extension-taken.md). A
   language is declared once
   ([`language-declared-twice`](../errors/language-declared-twice.md)).
 
-A built-in language keeps its own check because a `.json` file should mean the
-same thing in every repository. [`guides/json.md`](../../guides/json.md) is
-what the check does.
+A built-in language keeps its own check so a `.json` file means the same thing
+in every repository. [`guides/json.md`](../../guides/json.md) covers that check.
 
 ## What is not here
 
-- **No toolchain pin.** There was one: `toolchain { version, sha256 }`. A pin
-  earns its keep where something *fetches* a toolchain, and nothing fetches one
-  here. What survives is `buri version --verbose`, which prints the running
-  executable's hash so a bug report can name one build of a version. A
-  `REPO.buri` still carrying a `toolchain` block gets the unknown-field
-  diagnostic every other undeclared field gets.
-- **No `name`.** Label syntax is `//`-rooted and never mentions a name,
-  artifacts take their names from their package directory, and a name here would
-  compete with the directory you checked the repository out into. Rules in a
-  `BUILD.buri` have no `name` either
+- **No toolchain pin.** Nothing fetches a toolchain, so a pin has nothing to
+  do. `buri version --verbose` prints the running executable's hash for bug
+  reports. A leftover `toolchain` block gets the unknown-field diagnostic.
+- **No `name`.** Labels are `//`-rooted, artifacts take their names from their
+  package directory, and a name here would compete with the checkout directory.
+  Rules in a `BUILD.buri` have no `name` either
   ([`build-files.md`](./build-files.md#labels)).
-- **No defaults block.** Visibility is private unless a rule says otherwise, and
-  that is a fixed rule of the language rather than a repository setting. There
-  is no repository-wide test timeout either. A suite that needs longer writes
-  `timeout_seconds` where the person reading that suite will see it.
-- **No per-file or per-directory lint suppression.** [`rules`](#rules) turns a
-  rule off for the *repository*, by name, in this file. There is no `severity`
-  field either. One catalogue, one severity: every finding is a warning
-  ([`buri lint`](../cli/lint.md)), and only `fail_on_finding` moves it, for
-  every rule at once. So the code plus one short file still answers "does this
-  code pass lint", and a report says which rules it ran.
-- **No compiler flags.** A flag list is a dialect.
-- **No dependency versions or lockfile.** There are no external repositories
-  yet. Your only sources are this repository and the `core/*` that ships with
-  the toolchain. When external repositories arrive they get their own file.
-- **No build settings, profiles, or optimization levels.** `buri build --release`
-  is a flag on the command and part of the cache key.
+- **No defaults block.** Visibility is private unless a rule says otherwise,
+  always. There's no repository-wide test timeout: a suite that needs longer
+  writes `timeout_seconds` where its reader sees it.
+- **No per-file or per-directory lint suppression**, and no `severity` field.
+  [`rules`](#rules) turns a rule off for the whole repository. Every finding is
+  a warning ([`buri lint`](../cli/lint.md)), and only `fail_on_finding` changes
+  that, for every rule at once.
+- **No compiler flags.** A repository-wide flag is a dialect: one source file
+  would mean different things in different repositories.
+- **No dependency versions or lockfile.** Your only sources are this repository
+  and the `core/*` that ships with the toolchain. External repositories will
+  get their own file.
+- **No build settings, profiles, or optimization levels.** `buri build
+  --release` is a flag on the command and part of the cache key.
 - **No environment.** Actions run with an empty environment
-  ([`hermeticity.md`](./hermeticity.md)), so there is nowhere to set a variable
-  because nothing reads one.
-- **No rule definitions.** Three rule kinds, all in the schema. Where a
-  repository can define rules, reading a `BUILD.buri` no longer tells you what
-  will happen.
+  ([`hermeticity.md`](./hermeticity.md)), so nothing reads a variable.
+- **No rule definitions.** The schema has three rule kinds. If a repository
+  could define rules, reading a `BUILD.buri` would no longer tell you what
+  happens.

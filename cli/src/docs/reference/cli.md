@@ -1,47 +1,40 @@
 # The CLI
 
-One binary. It builds, runs, tests, formats, lints, generates build files,
-answers questions about the graph, serves this documentation, and hosts the
-language server. There is no second tool to install and no configuration of the
-CLI itself beyond [`repo-config.md`](./build/repo-config.md).
+One binary builds, runs, tests, formats, lints, generates build files, queries
+the graph, serves this documentation and hosts the language server. The only
+configuration is [`repo-config.md`](./build/repo-config.md).
 
-Each command's synopsis and flag table comes from the table that dispatches it,
-so neither can describe a flag the binary rejects or omit one it accepts. This
-page covers what every command shares.
+Each command's synopsis and flag table come from the code that dispatches it, so
+they always match the binary. This page covers what every command shares.
 
 ## Naming targets
 
 Target arguments take labels and patterns: `//lib/money`, `//cmd/server`,
-`//lib/...`, `//...`. A label names a package and every target in it. Leave the
-argument off and the command covers the whole repository: bare means `//...`,
-and the directory you happen to be standing in never changes what a command
-means. Run as many commands at once as you like; a file lock serializes cache
+`//lib/...`, `//...`. A label names a package and every target in it. With no
+argument a command covers `//...`; your current directory never changes what a
+command means. Commands can run concurrently; a file lock serializes cache
 writes.
 
-`buri format` is the exception, and takes a path as well: it formats files, and
-a repository holds files no build file declares. Its page says what each form
-covers.
+`buri format` also takes a path, since it formats files no build file declares.
 
 ## The two global flags
 
 `--color=never` drops the ANSI escapes. `--error-format=json` prints diagnostics
 as one JSON object per line, and implies `--color=never`. Every other flag
-belongs to a single command, and that command's page lists it.
+belongs to one command, and its page lists it.
 
 ## Exit codes
 
 `0` success · `1` the thing you asked about is wrong · `2` the thing you asked
 *with* is wrong.
 
-A lint finding exits `1`. So does a compile error, a failing test, and a syntax
-error in a source file: each one answers the question you asked. `2` is the run
-that never started — a target pattern that names nothing, a flag that does not
-exist, a build file that does not parse.
+A lint finding, compile error, failing test or syntax error in a source exits
+`1`. `2` means the run never started: a target pattern that names nothing, an
+unknown flag, a build file that doesn't parse.
 
 ## Diagnostics
 
-Every diagnostic answers four questions in the same order, so a person and a
-program both read it the same way:
+Every diagnostic answers four questions in the same order:
 
 ```
 error: expected `I32`, found `I64`
@@ -63,20 +56,17 @@ error: expected `I32`, found `I64`
 | **actual** | what the source says instead |
 | **fix** | the edit that resolves it |
 
-An error that is not a mismatch drops `expected` and `actual` — a duplicate
-declaration has no "expected". It never drops `fix`, and the reject corpus in
-`cli/tests/reject/` checks that case by case.
+An error that isn't a mismatch, like a duplicate declaration, drops `expected`
+and `actual`. Every diagnostic has a `fix`.
 
 Every compile error carries a code in brackets after the message, and every code
-has a page. Read one with `buri docs error <code>`, or list them all with
-`buri docs error`. Each page holds a program that provokes the error, and the
-test suite checks that it still does. `buri lint` findings carry a code the same
-way.
+has a page: `buri docs error <code>` reads one, `buri docs error` lists them.
+Each page holds a program that provokes the error. `buri lint` findings carry
+codes too.
 
 ### `--error-format=json`
 
-For editors, continuous integration, and coding agents. One JSON object per
-diagnostic, one per line, on stderr:
+One JSON object per diagnostic, one per line, on stderr:
 
 ```
 buri build //... --error-format=json
@@ -98,5 +88,4 @@ buri build //... --error-format=json
 | `related` | other locations, each shaped like `location` |
 
 Lines are independent, so you can stream them. A missing field means "not
-applicable" rather than "empty", which is why it is left out instead of set to
-`null`.
+applicable".

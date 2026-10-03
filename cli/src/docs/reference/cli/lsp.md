@@ -4,28 +4,24 @@
 buri lsp
 ```
 
-A language server, speaking the Language Server Protocol over stdin and stdout.
-Your editor starts it; you never run it by hand.
+A Language Server Protocol server over stdin and stdout, which your editor
+starts for you.
 
-It runs the same analysis `buri build` runs — the front end is a library, and
-the server calls `driver::analyze` — so your editor shows you what a build would
-say. That covers diagnostics, hover, go-to-definition and the rest of the
-navigation requests, references, rename, completion, signature help, formatting,
-the outline, inlay hints, code actions and code lenses. It serves all of them in
-`.buri` sources and in `BUILD.buri` and `REPO.buri` alike.
+It runs the same analysis as `buri build`, so your editor shows what a build
+would say. It serves diagnostics, hover, go-to-definition and the other
+navigation requests, references, rename, completion, signature help,
+formatting, the outline, inlay hints, code actions and code lenses, in `.buri`
+sources, `BUILD.buri` and `REPO.buri` alike.
 
-A JSON file a generator lists is checked against its schema as you type, and
-formatted the way `buri format` would. A file in a language of your own is
-checked and formatted by its tool's `check` and `format` the same way. A save
-runs the whole analysis, which reports the same findings.
+A JSON file a generator lists is checked against its schema as you type and
+formatted like `buri format` would. A file in a language of your own is checked
+and formatted by its tool's `check` and `format`. A save runs the whole
+analysis.
 
-Only the protocol goes to stdout. The server writes everything it says out loud
-to stderr as well, because a stray line on stdout corrupts the stream, and that
-looks like a broken editor.
+Only the protocol goes to stdout; logging goes to stderr.
 
 ## Setting it up
 
 Follow [set up your editor](../../guides/editor-setup.md). Any editor that
-speaks the protocol can start `buri lsp` for files matching `*.buri`. A Zed
-extension and the tree-sitter grammars ship in
-[`editors/`](../../../../../editors/).
+speaks the protocol can start `buri lsp` for `*.buri` files. A Zed extension
+and the tree-sitter grammars ship in [`editors/`](../../../../../editors/).

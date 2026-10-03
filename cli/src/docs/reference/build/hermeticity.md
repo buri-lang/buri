@@ -1,14 +1,14 @@
 # Hermeticity, actions, and the cache
 
-This design earns one claim: **the same commit, on any machine, produces
-byte-identical artifacts, and a build after a one-line edit does the minimum
-work that edit implies.** Those are one property, not two. A cache is only safe
-when what it caches depends on nothing it did not declare.
+**The same commit, on any machine, produces byte-identical artifacts, and a
+build after a one-line edit does only the work that edit implies.** That's one
+property, not two: a cache is only safe when what it caches depends on nothing
+it didn't declare.
 
 ## Actions
 
-A build is a graph of **actions**. An action is a pure function from a declared
-set of inputs to a declared set of outputs. There are five kinds:
+A build is a graph of **actions**, each a pure function from declared inputs to
+declared outputs:
 
 | Action | Inputs | Outputs |
 |---|---|---|
@@ -18,11 +18,10 @@ set of inputs to a declared set of outputs. There are five kinds:
 | `link` | A binary's `compile` output and those of its transitive dependencies | The artifact: an executable, or a `.mjs` |
 | `test` | A suite's `compile` output, the target's `compile` output, the `compile` output of every library the suite's own `dependencies` name | A pass/fail record and captured output |
 
-Splitting `interface` out from `compile` is the one structural decision here,
-and the language makes it cheap. Top-level signatures are mandatory
+Top-level signatures are mandatory
 ([`language/functions.md` §9](../../language/functions.md)), so the compiler
 derives a library's interface by parsing `lib.buri` and the modules it
-re-exports from. What follows:
+re-exports from. That makes splitting `interface` from `compile` cheap:
 
 > Editing a function body changes that library's `compile` output and nothing
 > of any dependent's. Editing a signature that `lib.buri` re-exports changes the
@@ -30,71 +29,61 @@ re-exports from. What follows:
 
 ## Hermeticity is a property of the language
 
-Most build systems *impose* purity on tools they did not write, using a
-filesystem namespace, a scrubbed environment, and a denied network. This build
-system uses none, because the language already gives it:
+Most build systems impose purity with a filesystem namespace, a scrubbed
+environment, and a denied network. Buri needs none of that:
 
-- **Every ambient read is an intrinsic.** The language has no ambient I/O.
-  Reading the clock, the environment, a file, or a socket goes through a
-  `$host_*` intrinsic and nowhere else.
+- **Every ambient read is an intrinsic.** Reading the clock, the environment, a
+  file, or a socket goes through a `$host_*` intrinsic and nowhere else.
 - **Only `main` holds one.** The production implementations arrive as the
   fields of the host `main` takes, which only the CLI builds
   ([`language/programs.md` §11](../../language/programs.md)). The compiler
   rejects `from "platform/host" import …` anywhere but a platform's
-  `platform.buri`, with `host-import-outside-platform`. No code taking part in
-  an action has a *name* for ambient state.
-- **A test's capabilities are fakes.** The runner hands a suite a context it
-  built itself: an in-memory filesystem holding exactly what the suite gave it,
-  one store behind both `FileSystemRead` and `FileSystemWrite`, a clock the test sets, a seeded
+  `platform.buri`, with `host-import-outside-platform`. No code in an action
+  has a *name* for ambient state.
+- **A test's capabilities are fakes.** The runner hands a suite an in-memory
+  filesystem holding exactly what the suite gave it (one store behind both
+  `FileSystemRead` and `FileSystemWrite`), a clock the test sets, a seeded
   `Random`, a seeded `Entropy`, and an `Environment` of the test's own pairs
-  ([`testing.md`](./testing.md)). There is no real capability to withhold.
-- **The action set is closed, and one action's program is not.** Five kinds, and
-  a repository cannot define a sixth. `generate` is the one whose program this
-  toolchain did not write: a [generator](./generators.md) is a tool somebody
-  declared. It is held to the model by the same two things everything else is —
-  every input in the key, and the effect bounds on the context
-  a tool entry point is handed, which is `Allocator` and nothing else.
+  ([`testing.md`](./testing.md)).
+- **The action set is closed.** A repository can't define a sixth kind.
+  `generate` runs a program somebody declared, a
+  [generator](./generators.md), held to the same rules: every input is in the
+  key, and its entry point gets an `Allocator` context and nothing else.
 
-Three of the five kinds never leave this process. `test` and `generate` each
-spawn a JavaScript runtime. Both spawns are **deterministic** rather than
-confined:
+`test` and `generate` each spawn a JavaScript runtime. Both spawns are
+**deterministic** rather than confined:
 
-- **An explicit environment.** `env_clear`, then exactly two constants: `TZ=UTC`
-  and `SOURCE_DATE_EPOCH=0`. This makes the same action produce the same bytes
-  on a machine set to a different time zone or carrying a different `LANG`.
+- **An explicit environment.** `env_clear`, then exactly `TZ=UTC` and
+  `SOURCE_DATE_EPOCH=0`, so a machine's time zone or `LANG` can't change the
+  bytes.
 - **A frozen clock, for a suite.** A test's script replaces `Date.now`,
   `Math.random`, and the host clock intrinsics, so it observes
-  `1970-01-01T00:00:00Z`. Two runs of one suite produce the same record, not two
-  records differing in a timing field. A generator's artifact is the ordinary
-  linked one and gets no such splice, because it needs none: `run` hands the
-  generating function `Allocator`, `Stdin` and `Stdout`, and a generator that
-  reaches for a clock does not compile.
+  `1970-01-01T00:00:00Z` and two runs produce the same record. A generator
+  needs no such splice: `run` hands it only `Allocator`, `Stdin` and `Stdout`,
+  so a generator that reaches for a clock doesn't compile.
 
-`buri run` is the one deliberate exception. It executes a built artifact with
-the real environment and the real filesystem. Building is hermetic. Running a
-program is where you stop building.
+`buri run` is the one exception. It runs a built artifact against the real
+environment and filesystem. Building is hermetic; running isn't building.
 
 ### What is not enforced, and what catches it instead
 
-**The toolchain confines nothing at the operating-system level.** No namespace,
-no seccomp filter, no `sandbox-exec` profile, on any platform. Here is what
-catches that class of bug instead:
+**The toolchain confines nothing at the operating-system level** — no
+namespace, no seccomp filter, no `sandbox-exec` profile. Instead:
 
 | The bug | What catches it |
 |---|---|
-| A library or test reaching for ambient state | The type system, at compile time, through `host-import-outside-platform`, the host an entry takes, and the effect bounds on `ctx`. The reject corpus pins both. |
-| A test depending on a real clock, a real `Random`, a real `Entropy`, or a real filesystem | It cannot. Those capabilities are injected fakes, and a suite wanting a real one would have to be handed it. |
-| A toolchain bug that leaks an intrinsic, or a code generator that embeds a path, a hostname, or a date | Two builds of one tree disagreeing. `buri build --check-reproducible` asks, and so does `two_checkouts_of_one_tree_build_identical_bytes` in the toolchain's own suite. The model rests on this check. |
+| A library or test reaching for ambient state | The type system, through `host-import-outside-platform`, the host an entry takes, and the effect bounds on `ctx`. The reject corpus pins both. |
+| A test depending on a real clock, `Random`, `Entropy`, or filesystem | It can't. Those capabilities are injected fakes. |
+| A toolchain bug that leaks an intrinsic, or a code generator that embeds a path, a hostname, or a date | Two builds of one tree disagreeing. `buri build --check-reproducible` asks, and so does `two_checkouts_of_one_tree_build_identical_bytes` in the toolchain's own suite. |
 | A machine's time zone or locale changing what an action produces | The explicit spawn environment and the frozen clock. `build/hermeticity.rs` builds and tests under a perturbed parent environment. |
-| A stale cache entry | The key. It holds content, never timestamps, and every input. |
+| A stale cache entry | The key. It holds every input, by content, never timestamps. |
 
-In one sentence: **the language enforces hermeticity, reproducibility verifies
-it, and the toolchain applies no operating-system confinement.**
+**The language enforces hermeticity, reproducibility verifies it, and the
+toolchain applies no operating-system confinement.**
 
 ## Cache keys
 
-Every action has a key, and the key is a hash of everything that can affect the
-output:
+Every action's key hashes everything that can affect its output:
 
 ```
 key = H(
@@ -108,40 +97,35 @@ key = H(
 )
 ```
 
-Four properties matter, because each rules out a class of stale-cache bug:
+Each property rules out a class of stale-cache bug:
 
-- **Content, never timestamps.** Touching a file rebuilds nothing. Checking out
-  a branch and checking it back out rebuilds nothing. `git clone` of the same
-  commit into a new directory rebuilds nothing.
+- **Content, never timestamps.** Touching a file, switching branches and back,
+  or cloning the same commit into a new directory rebuilds nothing.
 - **Paths are repository-relative.** Two checkouts in different directories
-  produce identical keys, which is what makes a cache shareable at all.
-- **Dependencies enter as keys, not contents.** A `compile` action depends on
-  its dependencies' `interface` actions, so a body edit does not propagate.
-- **The platform and the entry are in the key, and tags are not.** The same
-  library built for `linux/x86_64` and for `js` is two entries, and so are the
-  two outputs of a binary that enters at `main` for its page and at `fetch` for
-  its worker — the entry is the root dead-code elimination walks from, so the
-  same sources produce different bytes. A tag decides whether a build is
-  *allowed*, never what it *produces*, so retagging a library invalidates no
-  cache entry.
+  produce identical keys, so a cache is shareable.
+- **Dependencies enter as keys, not contents.** `compile` depends on its
+  dependencies' `interface` actions, so a body edit doesn't propagate.
+- **The platform and the entry are in the key; tags aren't.** One library built
+  for `linux/x86_64` and for `js` is two entries. So are a binary's outputs for
+  `main` and for `fetch`, because the entry is where dead-code elimination
+  starts. A tag decides whether a build is *allowed*, never what it
+  *produces*, so retagging invalidates nothing.
 
-The cache stores outputs under `.buri/cache/`, content-addressed by action key.
-After a no-op edit, `buri build` compares hashes and invokes no compiler.
+Outputs live under `.buri/cache/`, addressed by action key. After a no-op edit,
+`buri build` compares hashes and invokes no compiler.
 
-A native artifact adds one action kind and one directory. `codegen` runs one
-action per codegen unit, the object file for one source module's worth of
-functions. Its key is the unit's *lowered intermediate representation* rather
-than the source it came from, so reformatting a comment reuses the object while
-a change to a type another module asked to instantiate never slips past. The
-build stages the objects a link ran over under `.buri/link/<link-key>/`,
-alongside a `manifest` naming each unit, its `codegen` key, and whether this
-build or the cache produced the object. That directory derives from the cache
-and goes with it: `buri clean` drops it, and `buri clean --outputs` does not.
+A native artifact adds the `codegen` action: one per codegen unit, the object
+file for one source module's functions. Its key is the unit's *lowered
+intermediate representation*, not its source, so reformatting a comment reuses
+the object while a change to a type another module instantiates never slips
+past. The build stages a link's objects under `.buri/link/<link-key>/`, with a
+`manifest` naming each unit, its `codegen` key, and whether this build or the
+cache produced it. `buri clean` drops that directory; `buri clean --outputs`
+doesn't.
 
-The link itself is always full, because no shipping linker links incrementally.
-So "relink only what changed" happens above the linker: an unchanged unit never
-recompiles, and a build where no unit's key moved skips the link entirely,
-because the link key is the ordered list of the unit keys.
+No shipping linker links incrementally, so the link itself is always full.
+Instead, an unchanged unit never recompiles, and when no unit's key moved the
+link is skipped, because the link key is the ordered list of unit keys.
 
 ## What incrementality looks like
 
@@ -153,78 +137,61 @@ Given `//cmd/server` → `//lib/ledger` → `//lib/money`:
 | A function body in `lib/money/parse.buri` | `compile(//lib/money)`, `link` of each binary that reaches it. `//lib/ledger` does not recheck. |
 | A signature in `lib/money/lib.buri` | `interface(//lib/money)`, then `compile` of `//lib/money`, `//lib/ledger`, `//cmd/server`, then `link`. |
 | Adding a file to `sources` | `compile(//lib/money)` and downstream links. The interface stays put unless `lib.buri` re-exports from that file. |
-| Adding a `tag` to `//lib/store` | No compilation at all. The tag check is a graph pass over cached facts, and it either passes or fails a link. |
-| A rebuilt toolchain | Everything. An artifact built by a different compiler is a different artifact, and rebuilding `buri` — even at the same version — is a different compiler. |
-| A test file | That suite's `compile` and `test`. Nothing else, ever, because nothing depends on a test. |
-| A file in a library named by `test { dependencies }` | The `test` of every suite that names it, plus the `compile` and `link` of anything that depends on it in production. A test dependency sits outside the production closure, so being one moves no artifact's key. |
-
-Test sources are always leaves, so a repository can hold any number of them
-without one appearing in another target's key.
+| Adding a `tag` to `//lib/store` | No compilation. The tag check is a graph pass over cached facts that passes or fails a link. |
+| A rebuilt toolchain | Everything, even a rebuild of the same `buri` version. A different compiler makes a different artifact. |
+| A test file | That suite's `compile` and `test`. Nothing depends on a test. |
+| A file in a library named by `test { dependencies }` | The `test` of every suite that names it, plus the `compile` and `link` of anything depending on it in production. Being a test dependency moves no artifact's key. |
 
 ## Reproducibility
 
 Two builds of the same commit in the same configuration produce byte-identical
-artifacts. What that requires, beyond the deterministic spawn above:
+artifacts. Beyond the deterministic spawn above, that takes:
 
-- **Deterministic code generation**: the compiler iterates hash maps by sorted
-  key, monomorphizes in source order, and derives symbol names from labels and
-  module paths rather than from compilation order.
-- **Deterministic evaluation semantics**: [`language/evaluation.md`
-  §8.2](../../language/evaluation.md) specifies evaluation order rather than
-  leaving it to the backend, so constant folding cannot differ between targets
-  or between runs.
-- **No embedded environment**: no paths, no timestamps, no hostname, no user.
-  Debug info records repository-relative paths.
+- **Deterministic code generation**: hash maps iterate by sorted key,
+  monomorphization follows source order, and symbol names come from labels and
+  module paths, not compilation order.
+- **Deterministic evaluation**: [`language/evaluation.md`
+  §8.2](../../language/evaluation.md) fixes evaluation order, so constant
+  folding can't differ between targets or runs.
+- **No embedded environment**: no paths, timestamps, hostname, or user. Debug
+  info records repository-relative paths.
 
-Reproducibility is the compiler's property rather than your repository's, so the
-compiler's own test suite checks it.
-`two_checkouts_of_one_tree_build_identical_bytes` builds the same commit in two
-separate directories and compares the artifacts byte for byte. It then asks
-`--check-reproducible` the same question in debug and in release.
+The compiler's own suite checks this:
+`two_checkouts_of_one_tree_build_identical_bytes` builds one commit in two
+directories, compares the artifacts byte for byte, then asks
+`--check-reproducible` the same in debug and release. **The model rests on this
+check.** A toolchain bug that reads something it shouldn't shows up as two
+builds disagreeing, and nowhere else.
 
-**This is where the weight of the model above sits.** A toolchain bug that read
-something it should not surfaces as two builds of one tree disagreeing, and it
-surfaces nowhere else. This check is the verification this design chose over a
-sandbox, and somebody has to run it.
-
-`buri build --check-reproducible` asks the same question of *your* tree. It
-builds every requested binary twice and compares the bytes. It is not part of
-`buri build`, because a build that checked every time would take twice as long
-for a property the compiler is responsible for.
-[Reproducible builds](../../guides/reproducibility.md) covers how to run it, and
-how to read `--explain` when a rebuild does more work than an edit implies.
+`buri build --check-reproducible` asks the same of *your* tree: it builds every
+requested binary twice and compares the bytes. It isn't part of `buri build`,
+because it doubles the build time for a property the compiler owns.
+[Reproducible builds](../../guides/reproducibility.md) covers running it and
+reading `--explain` when a rebuild does more work than an edit implies.
 
 ## The toolchain in the key
 
-Every action key holds a hash of the running `buri` binary, so a different
-compiler invalidates every entry in every repository. An artifact built by a
-different compiler is a different artifact, and a cache that served the old one
-would serve a stale answer nothing else could catch.
-
-The hash, not the version, is what goes in. A version stays `0.3.0` across a
-rebuild while the bytes change, so hashing the binary catches a compiler built
-from source, not only a released one. A rebuilt `buri` computes different keys
-and can never be served the previous build's entries. On its first open it also
-drops what the old binary left in `.buri/cache/` and records its own hash in a
-`.buri/cache/.toolchain` marker, so rebuilding the compiler needs no `rm -rf
-.buri` and no `--force` — the cache reconciles itself and reclaims the disk. The
-backend's identity still carries the LLVM the binary was linked against, and the
-linker's identity the linker it found.
+Every key holds a hash of the running `buri` binary — the hash, not the
+version, since a rebuilt `0.3.0` has different bytes. A rebuilt compiler can
+never be served the previous build's entries. On first open it also drops what
+the old binary left in `.buri/cache/` and records its hash in
+`.buri/cache/.toolchain`, so rebuilding the compiler needs no `rm -rf .buri`
+and no `--force`. The backend's identity also carries the LLVM the binary
+linked against, and the linker's identity the linker it found.
 
 ## The cache is local, for now
 
-The cache lives in `.buri/cache/` at the repository root, and you can delete it
-at any time. `buri clean` does that. Needing it is a bug worth reporting,
-because a content-keyed cache should not be able to hold a wrong answer.
+You can delete `.buri/cache/` at any time; `buri clean` does that. Needing to is
+a bug worth reporting, because a content-keyed cache shouldn't hold a wrong
+answer.
 
-Every command is safe to run concurrently. Reads take no lock, because the cache
-renames an entry into place: it is there whole or not at all. A file lock
-serializes writes, and it is held for one write rather than for a whole build. A
-killed process leaves a lock behind, and the next writer steals it after thirty
-seconds. That is safe for the same reason the lock is cheap: an entry's name is
-the hash of its contents, so two writers of one key write the same bytes.
+Every command is safe to run concurrently. Reads take no lock, because an entry
+is renamed into place: it's there whole or not at all. A file lock serializes
+writes, held for one write rather than a whole build. A killed process's lock is
+stolen by the next writer after thirty seconds. That's safe because an entry's
+name is the hash of its contents, so two writers of one key write the same
+bytes.
 
-Remote caching and remote execution are not specified. The design above makes
-them a transport change rather than a semantic one: an action key already
-identifies an action completely and machine-independently, and an action already
-enumerates its inputs.
+Remote caching and remote execution aren't specified. They'd be a transport
+change, not a semantic one: an action key already identifies an action
+completely and machine-independently.

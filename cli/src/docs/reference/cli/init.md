@@ -1,19 +1,17 @@
 ## What it does
 
-Writes a working repository into an empty directory: a `REPO.buri` root, one
-library, one binary that depends on it, one test suite, a `.gitignore`, and the
-agent skills `buri add skills` installs. With no argument it writes into the
-working directory; with one it writes into the directory you name, creating it
-if it is not there.
+Writes a working repository into an empty directory: a `REPO.buri` root, a
+library, a binary that depends on it, a test suite, a `.gitignore`, and the agent
+skills `buri add skills` installs. It writes into the working directory, or into
+the directory you name, creating it if needed.
 
 ```text
 buri init
 buri init hello-buri
 ```
 
-The result builds, tests, lints and formats clean the moment it lands. The
-generated sources *are* the formatter's own output, so a first `buri format`
-changes nothing and a first `buri gen --check` reports nothing.
+The result builds, tests, lints and formats clean from the start: a first
+`buri format` changes nothing and a first `buri gen --check` reports nothing.
 
 ```text
 wrote REPO.buri
@@ -30,8 +28,8 @@ wrote .agent/skills/buri-language/SKILL.md
 ## What it generates
 
 `//libs/greeting` is a library in two files, the smallest a library can be.
-`lib.buri` is its public surface and may list nothing but re-exports, so it
-needs at least one module behind it to re-export from.
+`lib.buri` is its public surface and may hold only re-exports, so it needs a
+module behind it:
 
 ```buri
 /// The greeting this repository was born with.
@@ -40,39 +38,33 @@ export fn greeting(): Str {
 }
 ```
 
-`//apps/hello` is the binary. Its `main` builds a context holding two effects,
-allocation and standard output, and that context is the program's entire effect
-budget. Nothing it calls can read a file or open a socket.
+`//apps/hello` is the binary. Its `main` builds a context holding allocation and
+standard output, and that's the program's whole effect budget: nothing it calls
+can read a file or open a socket.
 
-The suite under `libs/greeting/test/` imports the library by label, exactly as a
-dependent does, so it can only assert on what a dependent can call. Run it with
+The suite under `libs/greeting/test/` imports the library by label, like any
+dependent, so it can only test what a dependent can call. Run it with
 `buri test //...`.
 
-The `REPO.buri` declares no tags. In their place stands a two-line comment
-pointing at [`schema/repo.proto`](../schema/repo.proto), which lists every field
-the file may declare.
-
-It does declare a `lint` block with both fields on, so `buri build` and `buri
-test` run the lint catalogue from the first commit and a finding fails them.
-Neither is the default, and a fresh repository is exactly where the strictest
-setting is free: there is no pile of findings to clean up first. Deleting the
-block takes one edit
-([`repo-config.md`](../build/repo-config.md#lint)).
+`REPO.buri` declares no tags, just a comment pointing at
+[`schema/repo.proto`](../schema/repo.proto), which lists every field it may
+declare. It does turn on both fields of the `lint` block, so `buri build` and
+`buri test` run the lint catalogue and fail on a finding. Neither is the default,
+but a fresh repository has no findings to clean up first. Delete the block to
+opt out ([`repo-config.md`](../build/repo-config.md#lint)).
 
 ## It never writes over your work
 
-A `REPO.buri` at the target means the directory is already a repository, so the
-command stops with exit 2 rather than refreshing it. A scaffold is a starting
-point, not something a release keeps in step. That is the difference from `buri
-add skills`, where re-running *is* the upgrade.
+A `REPO.buri` at the target stops the command with exit 2. A scaffold is a
+starting point, not something to refresh; re-running `buri add skills` is how
+you upgrade skills.
 
-A `REPO.buri` *above* the target stops it as well, for a sharper reason. The
-toolchain finds a repository root by walking up to the outermost `REPO.buri` it
-meets, so an inner one is not a root. It is a stray build file inside somebody
-else's repository, and their next `buri build //...` fails on it.
+A `REPO.buri` *above* the target stops it too. The repository root is the
+outermost `REPO.buri`, so an inner one would be a stray build file that breaks
+the outer repository's `buri build //...`.
 
-Any other collision stops it too, and stops it before it writes the first byte,
-so a refusal never leaves half a repository behind.
+Any other existing file stops it before it writes anything, so a refusal never
+leaves half a repository behind.
 
 ```text
 error: `./apps/hello/main.buri` already exists; `buri init` never writes over a file
@@ -80,29 +72,21 @@ error: `./apps/hello/main.buri` already exists; `buri init` never writes over a 
 
 ## Except your `.gitignore`
 
-`git init` before `buri init` is the ordinary way to start, and git owns that
-name — so a `.gitignore` already at the target is merged into rather than
-refused:
+You'll often run `git init` first, so an existing `.gitignore` is merged into
+rather than refused:
 
 ```text
 wrote REPO.buri
 updated .gitignore
 ```
 
-Entries are matched a whole line at a time, trailing spaces and all, so order
-does not matter and your comments do not either. Every line you wrote stays
-where it was, and only the entries the build needs and the file lacks are
-appended below them. An entry already there is never repeated.
-
-A file that already ignores everything the build writes is left byte for byte
-alone, and the run says so:
+Entries match whole lines, trailing spaces included. Your lines and comments stay
+where they are, and only the missing entries are appended. A file that already
+ignores everything the build writes is left untouched:
 
 ```text
 kept .gitignore
 ```
 
-So the merge never runs twice: whatever `buri init` appended the first time is
-what stops it appending again.
-
-The one other namespace the command shares is `.agent/skills/buri-*`, which
-belongs to `add skills` and follows its rules.
+The only other shared namespace is `.agent/skills/buri-*`, which follows
+`add skills`'s rules.

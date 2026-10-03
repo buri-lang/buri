@@ -11,6 +11,5 @@ platforms(//cmd/web)            the platforms its closure permits
 sources(//lib/money)            the files the rule names
 ```
 
-`path` is the one that earns its place. "Why does the browser build pull in the
-database layer" is a question about an edge, and printing the edge beats reading
-build files.
+`path` answers "why does the browser build pull in the database layer" without
+reading build files.

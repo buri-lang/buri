@@ -1,12 +1,12 @@
 # Import a `.proto` schema
 
-A `.proto` file in a package becomes a module. The compiler writes nothing to
-your source tree: no `_pb.buri` to check in, no generation step to forget.
+A `.proto` file in a package becomes a module. Nothing is written to your
+source tree, so there's no `_pb.buri` to check in.
 
 ## Put the schema in the package
 
-The schema must be edition 2026. The compiler refuses `syntax = "proto3"`, and
-proto2 and the older editions with it.
+The schema must be edition 2026. The compiler refuses proto2, proto3 and older
+editions.
 
 ```proto
 // libs/wire/point.proto
@@ -22,9 +22,8 @@ message Point {
 
 ## Declare it
 
-A schema is a generator's input, and `proto` is the generator. Write
-the entry yourself — `buri gen` cannot know which generator owns a file, so it
-leaves `generators` alone:
+Write the `generators` entry yourself; `buri gen` can't know which generator
+owns a file:
 
 ```textproto schema=build
 # libs/wire/BUILD.buri
@@ -36,13 +35,12 @@ library {
 }
 ```
 
-A schema no entry lists is `unused-library`, the same finding a stray `.buri`
-gets.
+A schema no entry lists is `unused-library`.
 
 ## Decide what leaves the library
 
-A schema exports everything it declares. The library boundary applies to the
-generated module unchanged, so `lib.buri` picks:
+A schema exports everything it declares, and `lib.buri` picks what leaves the
+library:
 
 ```text
 // libs/wire/lib.buri
@@ -57,8 +55,8 @@ The import path is the schema's own path, extension included.
 
 Each message brings a default, a binary codec and a JSON codec: for `Point`,
 `defaultPoint`, `encodePoint`/`decodePoint` and
-`encodePointJson`/`decodePointJson`. Encoding and decoding allocate, so they
-take a context — here for an `Address` message in another repository:
+`encodePointJson`/`decodePointJson`. The codecs allocate, so they take a
+context:
 
 ```buri repo=cli/tests/conformance package=//lib/proto
 from "core/proto" import { ProtoError };
@@ -70,10 +68,9 @@ export fn roundTrip<C: Allocator>(ctx: C, a: Address): Result<Address, ProtoErro
 }
 ```
 
-**Every singular field is an `Option`**, because presence is the edition's
-default. Setting one is `.Some(...)`, leaving it out is `.None`, and the two are
-different messages on the wire. `default...()` with an update is what makes a
-message of more than a few fields writable:
+**Every singular field is an `Option`**, since editions track presence.
+`.Some(...)` and `.None` are different messages on the wire. Start from
+`default...()` and set only what you need:
 
 ```buri repo=cli/tests/conformance package=//lib/proto
 from "//lib/proto/demo.proto" import { defaultEverything, Everything, Shade };
@@ -83,13 +80,12 @@ export fn dark(): Everything {
 }
 ```
 
-A failure is a `ProtoError` carrying a byte offset or a field number, so a
-malformed message says where it went wrong.
+A failure is a `ProtoError` carrying a byte offset or a field number.
 
 ## Check and format it
 
-`buri build`, `buri test` and `buri lint` check a schema before generating from
-it, and your editor checks it as you type. Each mistake lands on its own line:
+`buri build`, `buri test`, `buri lint` and your editor check a schema before
+generating from it:
 
 ```text
 error: `radius` and `sides` both use field number 3 [proto-field-reused]
@@ -99,8 +95,7 @@ error: `radius` and `sides` both use field number 3 [proto-field-reused]
    |     ^^^^^^^^^^^^^^^^^^
 ```
 
-`buri format` lays the schema out, and `buri format --check` fails when it
-would change:
+`buri format` lays the schema out, and `--check` fails when it would change:
 
 ```proto
 // libs/wire/point.proto
@@ -116,17 +111,16 @@ message Point {
 
 ## Share a schema between packages
 
-Depend on the library and use what its `lib.buri` re-exported. One schema may
-`import` another, and then both must belong to the same rule.
+Depend on the library and use what its `lib.buri` re-exports. A schema may
+`import` another only from the same rule.
 
 ## Write a message's values
 
-A `.txtpb` file holds one value of a message, in protobuf's text format, and
-the build checks it against the schema:
-[check text format files against a message](./textproto.md).
+A `.txtpb` file holds one message value in protobuf's text format, checked
+against the schema: see [check text format files against a
+message](./textproto.md).
 
 ---
 
-[`proto.md`](../reference/build/proto.md) is the mapping: what each proto
-construct becomes, what the wire and JSON formats are, and which constructs are
-refused.
+[`proto.md`](../reference/build/proto.md) is the full mapping, including the
+wire and JSON formats and what's refused.

@@ -5,13 +5,9 @@ message: this spells the {units} conversion out in integers
 note: "`core/time`'s `Duration` is the length itself — `time.milliseconds(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past"
 fix: build a `Duration` and let the unit live in the type rather than in the name
 ---
-A count of milliseconds in an `I64` means something only because of what you
-called it — `IDLE_TIMEOUT_MILLIS`, `nanoseconds`, `elapsedMs` — and every boundary
-between two units is a multiply somebody wrote out by hand. Every one is a place
-the unit can be dropped, doubled or overflowed with the type system saying
-nothing.
-
-`core/time` has the type that carries it:
+An `I64` of milliseconds carries its unit only in its name, like
+`IDLE_TIMEOUT_MILLIS`, and every conversion is a hand-written multiply that can
+drop, double or overflow the unit unnoticed. Use `core/time` instead:
 
 ```
 let idle = time.minutes(5);
@@ -19,23 +15,20 @@ let deadline = started.plus(idle);
 if (now.hasPassed(deadline)) { … }
 ```
 
-`seconds`, `milliseconds`, `microseconds`, `nanoseconds`, `minutes` and `hours` are the
-constructors; `add`, `subtract`, `multiply`, `negate` and `abs` are the arithmetic;
-`nanoseconds()`, `milliseconds()` and the rest read a length back out in whatever unit the
-caller wants. There is no conversion factor to reach for: the counts behind the
-constructors are `core/time`'s own, so a length is built and read, never multiplied.
+- Constructors: `seconds`, `milliseconds`, `microseconds`, `nanoseconds`,
+  `minutes`, `hours`.
+- Arithmetic: `add`, `subtract`, `multiply`, `negate`, `abs`.
+- Readers: `nanoseconds()`, `milliseconds()` and the rest, in any unit.
 
-Two things come with the type, and they are why this is a lint rather than a
-style note:
+You never need a conversion factor. Two things come with the type:
 
-- **The arithmetic saturates.** A length too large to hold is the largest
-  length rather than a negative one, so a deadline cannot overflow into the
-  past, and the whole check is `now.hasPassed(deadline)`.
-- **The unit stops being a naming convention.** `Duration` and `Instant` are
-  different types on purpose: a length can be added to a point, two points make
-  a length, and two points added together are a type error.
+- **The arithmetic saturates.** An oversized length becomes the largest length,
+  not a negative one, so a deadline can't overflow into the past.
+- **The unit is in the type.** `Duration` and `Instant` differ on purpose: a
+  length plus a point is a point, two points make a length, and adding two
+  points is a type error.
 
-This rule fires on a constant *named* as a conversion — `NANOSECONDS_PER_MILLISECOND`,
-`MILLISECONDS_PER_SECOND` — and on a count of milliseconds multiplied by a million in
-place. A million that is not named as milliseconds is not a finding: parts per
-million is a real number, and this rule does not guess.
+The rule fires on constants named as conversions, like
+`NANOSECONDS_PER_MILLISECOND` or `MILLISECONDS_PER_SECOND`, and on a millisecond
+count multiplied by a million in place. A million not named as milliseconds is
+left alone, since parts per million is a real thing.
