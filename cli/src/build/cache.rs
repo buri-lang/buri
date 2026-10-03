@@ -891,9 +891,7 @@ mod tests {
     /// is the largest single write `buri test` used to make. The separate inode
     /// is what pays for it — the entry may not be reachable through the file
     /// that gets executed, or anything that opens the artifact could mutate the
-    /// bytes the store is keyed on, and the output would additionally inherit
-    /// the entry's identity on every link, which is what
-    /// `link::a_placed_artifact_keeps_the_file_it_overwrites` is about.
+    /// bytes the store is keyed on.
     #[cfg(unix)]
     #[test]
     fn an_entry_takes_the_file_and_is_not_the_artifact() {
