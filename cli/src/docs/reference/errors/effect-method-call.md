@@ -31,9 +31,9 @@ through a bound searches every effect the bound declares, so `Ui.read` and
 call cannot be.
 
 Two layers below this line keep the method form: the standard library's wrapper
-functions, and the body of an `impl` that *supplies* an effect. The second is
-what keeps an attenuating wrapper writable — its `readFile` calls
-`self.0.readFile(path)`, reaching only the inner context it was handed.
+functions, and the body of an `impl E for T` that *supplies* an effect. An
+inherent `impl` doesn't count, even when its bound names the effect, so an
+attenuating wrapper's `readFile` calls `fs.readText(self.0, path)`.
 
 ## A program that provokes it
 

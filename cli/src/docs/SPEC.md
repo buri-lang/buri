@@ -1910,11 +1910,10 @@ Two layers are below that line and keep the method form:
 
 - **the standard library**, which is where those wrapper functions are, so its
   bodies are the only thing that reaches an effect at all; and
-- **the body of an `impl` that supplies an effect**, which is where the
-  operation is implemented. That is what keeps Section 10.8's attenuation wrapper
-  writable. `ReadOnly<C>`'s `self.0.readFile(path)` cannot become
-  `fs.readText(self.0, at)`, because that wrapper is bounded `Allocator + FileSystemRead`
-  where the `impl` carries only `C: FileSystemRead`.
+- **the body of an `impl E for T` that supplies an effect**, which is where the
+  operation is implemented. An inherent `impl` doesn't count, even when its
+  bound names the effect: it calls the wrapper function like any other code,
+  as Section 10.8's `ReadOnly<C>` does.
 
 Exactly one construct may hold more than one effect-carrying value: the `context`
 expression of Section 11.3. Everywhere else, effects travel through a single
@@ -2254,7 +2253,8 @@ downstream.
 **Attenuation.** Wrap the context in a type that satisfies fewer effects, so
 the callee holds a value that genuinely lacks the rest:
 
-```buri ignore why="the compiler refuses `self.0.readFile` here as `effect-method-call`: its carve-out covers an impl that supplies an effect, and this one is inherent"
+```buri
+# from "core/fs" import * as fs;
 # from "core/fs" import { FileSystemRead, Path };
 # from "platform/effect" import { Allocator, IoError, Region };
 #
@@ -2275,9 +2275,9 @@ impl<C: Allocator> Allocator for ReadOnly<C> {
 // ...and reading, as an inherent `impl` rather than an `impl FileSystemRead for` — so
 // ReadOnly<C> satisfies no effect at all, and a callee holding one cannot pass
 // it on as a context.
-impl<C: FileSystemRead> ReadOnly<C> {
+impl<C: Allocator + FileSystemRead> ReadOnly<C> {
     export fn readFile(self, at: Path): Result<Str, IoError> {
-        self.0.readFile(at)
+        fs.readText(self.0, at)
     }
 }
 ```
@@ -2290,10 +2290,11 @@ Attenuation narrows the *context*, not one effect out of it. That is what keeps
 the `ctx` rule satisfiable: there is still exactly one effect-carrying
 parameter.
 
-**The `self.0.readFile(path)` above is the carve-out of Section 10.2.** A body
-supplying an effect is one of the two layers that may still call an effect method
-on a value. It cannot delegate to `fs.readText(self.0, path)` instead: that
-wrapper is bounded `Allocator + FileSystemRead` and this `impl` carries only `C: FileSystemRead`.
+The two `impl`s read differently because only one supplies an effect.
+`impl Allocator for ReadOnly<C>` implements `allocate`, so it calls
+`self.0.allocate(bytes)` directly. The inherent `impl` supplies nothing, so
+Section 10.2's rule sends it through `fs.readText(self.0, at)`, and its bound
+carries `Allocator` because `fs.readText` needs it.
 
 ### 10.9 Testing
 
