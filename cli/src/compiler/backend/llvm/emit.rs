@@ -3539,23 +3539,32 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
     }
 
-    /// One `void(ptr)` helper, declared and registered but not yet built.
+    /// One `void(ptr)` glue function, and whether it still needs a body.
     ///
-    /// `Private` linkage, so two units that both need the glue for `[Str]` get
-    /// a copy each and no symbol collides — duplication rather than a shared
-    /// unit, because a shared unit would be a link-order dependency for a few
-    /// hundred bytes.
-    fn glue_function(&mut self, what: &str) -> FunctionValue<'ctx> {
+    /// Named by what it does and by `key`, the glue key of the type it walks
+    /// (`Layouts::glue_key`), so two units that both need the glue for `[Str]`
+    /// define the same symbol. `linkonce_odr` and hidden, so the linker keeps
+    /// one copy per program: a weak definition on Mach-O, a COMDAT on ELF.
+    fn glue_function(&mut self, what: &str, key: &str) -> (FunctionValue<'ctx>, bool) {
+        let name = format!("buri.glue.{what}.{key}");
+        // Two types with one glue key in one unit: the first one's body serves.
+        if let Some(f) = self.module.get_function(&name) {
+            return (f, false);
+        }
         let ty = self.ctx.void_type().fn_type(&[self.ptr_ty().into()], false);
-        let name = format!("buri.{what}.{}", self.helpers);
-        self.helpers = self.helpers.saturating_add(1);
-        let f = self.module.add_function(&name, ty, Some(Linkage::Private));
+        let f = self.module.add_function(&name, ty, Some(Linkage::LinkOnceODR));
+        let global = f.as_global_value();
+        global.set_visibility(inkwell::GlobalVisibility::Hidden);
+        let elf = self.module.get_triple().as_str().to_str().is_ok_and(|t| t.contains("linux"));
+        if elf {
+            global.set_comdat(self.module.get_or_insert_comdat(&name));
+        }
         // `ccc`: `cli/runtime/list.rs` takes the retain glue as a plain C
         // function pointer, and a closure environment's glue is reached through
         // an indirect call whose signature is written at the call site. One
         // convention for all of them, so no call site has to know which.
         attrs::set_convention(f, attrs::C);
-        f
+        (f, true)
     }
 
     /// The function that releases the contents of a block holding one value of
@@ -3567,9 +3576,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if let Some(f) = self.releases.get(ty) {
             return Some(*f);
         }
-        let f = self.glue_function("release");
+        let key = self.reprs.glue_key(ty);
+        let (f, fresh) = self.glue_function("release", &key);
         self.releases.insert(ty.clone(), f);
-        self.pending.push(Job::Release { value: f, ty: ty.clone() });
+        if fresh {
+            self.pending.push(Job::Release { value: f, ty: ty.clone() });
+        }
         Some(f)
     }
 
@@ -3581,9 +3593,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if let Some(f) = self.release_elems.get(elem) {
             return Some(*f);
         }
-        let f = self.glue_function("release_elems");
+        let key = self.reprs.glue_key(elem);
+        let (f, fresh) = self.glue_function("release_elems", &key);
         self.release_elems.insert(elem.clone(), f);
-        self.pending.push(Job::ReleaseElems { value: f, elem: elem.clone() });
+        if fresh {
+            self.pending.push(Job::ReleaseElems { value: f, elem: elem.clone() });
+        }
         Some(f)
     }
 
@@ -3599,9 +3614,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if let Some(f) = self.copies.get(ty) {
             return Some(*f);
         }
-        let f = self.glue_function("copy");
+        let key = self.reprs.glue_key(ty);
+        let (f, fresh) = self.glue_function("copy", &key);
         self.copies.insert(ty.clone(), f);
-        self.pending.push(Job::Copy { value: f, ty: ty.clone() });
+        if fresh {
+            self.pending.push(Job::Copy { value: f, ty: ty.clone() });
+        }
         Some(f)
     }
 
@@ -3613,9 +3631,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if let Some(f) = self.copy_elems.get(elem) {
             return Some(*f);
         }
-        let f = self.glue_function("copy_elems");
+        let key = self.reprs.glue_key(elem);
+        let (f, fresh) = self.glue_function("copy_elems", &key);
         self.copy_elems.insert(elem.clone(), f);
-        self.pending.push(Job::CopyElems { value: f, elem: elem.clone() });
+        if fresh {
+            self.pending.push(Job::CopyElems { value: f, elem: elem.clone() });
+        }
         Some(f)
     }
 
@@ -3632,9 +3653,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if let Some(f) = self.retains.get(elem) {
             return Some(*f);
         }
-        let f = self.glue_function("retain_elem");
+        let key = self.reprs.glue_key(elem);
+        let (f, fresh) = self.glue_function("retain_elem", &key);
         self.retains.insert(elem.clone(), f);
-        self.pending.push(Job::RetainElem { value: f, elem: elem.clone() });
+        if fresh {
+            self.pending.push(Job::RetainElem { value: f, elem: elem.clone() });
+        }
         Some(f)
     }
 
@@ -3924,9 +3948,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if let Some(f) = self.env_glue {
             return f;
         }
-        let f = self.glue_function("env_glue");
+        let (f, fresh) = self.glue_function("env_glue", "any");
         self.env_glue = Some(f);
-        self.pending.push(Job::EnvGlue { value: f });
+        if fresh {
+            self.pending.push(Job::EnvGlue { value: f });
+        }
         f
     }
 
@@ -3936,9 +3962,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if let Some(f) = self.env_copy_glue {
             return f;
         }
-        let f = self.glue_function("env_copy_glue");
+        let (f, fresh) = self.glue_function("env_copy_glue", "any");
         self.env_copy_glue = Some(f);
-        self.pending.push(Job::EnvCopy { value: f });
+        if fresh {
+            self.pending.push(Job::EnvCopy { value: f });
+        }
         f
     }
 

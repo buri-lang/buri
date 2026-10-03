@@ -93,6 +93,16 @@ enum Fix {
     Func { at: u64, f: u32 },
 }
 
+/// One generated helper, as [`Jit::helper_symbols`] answers it.
+pub struct HelperSymbol {
+    pub name: String,
+    /// Where its bytes start and end within the part.
+    pub at: u64,
+    pub end: u64,
+    /// Whether `name` is program-wide ([`super::glue::shared_symbol`]).
+    pub shared: bool,
+}
+
 #[derive(Default)]
 pub struct Stats {
     pub funcs: usize,
@@ -178,7 +188,14 @@ pub struct Jit<'a> {
     /// argument.
     helpers: Vec<super::glue::Helper>,
     helper_ix: HashMap<super::glue::Helper, usize>,
-    helper_at: Vec<u64>,
+    /// Each helper's symbol, and whether it is program-wide
+    /// ([`super::glue::shared_symbol`]) rather than this part's own.
+    helper_names: Vec<(String, bool)>,
+    /// Program-wide symbols already registered, so two types with one glue key
+    /// share one body.
+    shared_ix: HashMap<String, usize>,
+    /// Where each helper starts and ends within the part.
+    helper_at: Vec<(u64, u64)>,
     /// Where each stencil's spilled constants were copied into this unit's
     /// pool, by stencil name. One copy per unit: the bytes are clang's
     /// `.rodata` and every copy of the stencil reads the same ones.
@@ -332,6 +349,8 @@ impl<'a> Jit<'a> {
             current: 0,
             helpers: Vec::new(),
             helper_ix: HashMap::new(),
+            helper_names: Vec::new(),
+            shared_ix: HashMap::new(),
             helper_at: Vec::new(),
             spilled: HashMap::new(),
             counted_memo: scratch.counted,
@@ -353,27 +372,44 @@ impl<'a> Jit<'a> {
     /// The symbol of a generated helper, registering it the first time it is
     /// asked for.
     ///
-    /// A **local** symbol of this part, so two parts — or two units — that both
-    /// need the drop glue for `[Str]` get a copy each and neither collides,
-    /// which is what a local symbol is for.
+    /// Drop and copy glue gets its program-wide name
+    /// ([`super::glue::shared_symbol`]); everything else is a local symbol of
+    /// this part.
     pub(crate) fn helper(&mut self, h: super::glue::Helper) -> String {
         if let Some(i) = self.helper_ix.get(&h) {
-            return super::glue::symbol(self.part, *i);
+            return self.helper_names.get(*i).map(|(n, _)| n.clone()).unwrap_or_default();
+        }
+        let shared = super::glue::shared_symbol(&h, &mut self.layouts);
+        if let Some(i) = shared.as_ref().and_then(|n| self.shared_ix.get(n)).copied() {
+            self.helper_ix.insert(h, i);
+            return shared.unwrap_or_default();
         }
         let i = self.helpers.len();
+        let name = match shared {
+            Some(n) => {
+                self.shared_ix.insert(n.clone(), i);
+                (n, true)
+            }
+            None => (super::glue::symbol(self.part, i), false),
+        };
         self.helper_ix.insert(h.clone(), i);
         self.helpers.push(h);
-        self.helper_at.push(0);
-        super::glue::symbol(self.part, i)
+        self.helper_at.push((0, 0));
+        self.helper_names.push(name.clone());
+        name.0
     }
 
-    /// Every helper this part generated, as `(symbol, offset within the
-    /// part)`.
-    pub fn helper_symbols(&self) -> Vec<(String, u64)> {
-        self.helper_at
+    /// Every helper this part generated, in the order it was laid out.
+    pub fn helper_symbols(&self) -> Vec<HelperSymbol> {
+        self.helper_names
             .iter()
-            .enumerate()
-            .map(|(i, at)| (super::glue::symbol(self.part, i), *at))
+            .zip(&self.helper_at)
+            .map(|((name, shared), (at, end))| HelperSymbol {
+                name: name.clone(),
+                at: *at,
+                end: *end,
+                shared: *shared,
+            })
             .collect()
     }
 
@@ -744,7 +780,7 @@ impl<'a> Jit<'a> {
                 None => break,
             };
             let at = self.emit_helper(prog, &h);
-            put(&mut self.helper_at, i, at);
+            put(&mut self.helper_at, i, (at, self.region.code_addr()));
             i += 1;
         }
         self.resolve(prog);

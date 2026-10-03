@@ -102,6 +102,9 @@ const RELOC_SIZE: u64 = 8;
 // nlist_64 `n_type` bits (`mach-o/nlist.h`).
 const N_EXT: u8 = 0x01;
 const N_SECT: u8 = 0x0e;
+const N_PEXT: u8 = 0x10;
+// nlist_64 `n_desc` bit.
+const N_WEAK_DEF: u16 = 0x0080;
 
 // arm64 relocation types (`mach-o/arm64/reloc.h`).
 const ARM64_RELOC_UNSIGNED: u32 = 0;
@@ -137,6 +140,9 @@ pub struct Section {
     /// for code, 0 for data).
     pub attributes: u32,
     pub data: Vec<u8>,
+    /// The COMDAT group this section is the one member of, by its signature
+    /// symbol. ELF only: `mod.rs` sets it on the ELF path and `elf.rs` reads it.
+    pub group: Option<String>,
 }
 
 /// A symbol this object defines or references.
@@ -147,6 +153,10 @@ pub struct Symbol {
     pub defined: Option<Definition>,
     /// Whether the symbol is visible outside the object (`N_EXT`).
     pub global: bool,
+    /// A weak definition the linker coalesces with others of the same name and
+    /// keeps out of the image's exports: on Mach-O `N_WEAK_DEF` with `N_PEXT`,
+    /// on ELF `STB_WEAK` with `STV_HIDDEN`. Only meaningful with `global`.
+    pub weak: bool,
 }
 
 pub struct Definition {
@@ -479,7 +489,10 @@ pub fn write(
         out.extend_from_slice(&strx.to_le_bytes());
         match &sym.defined {
             Some(d) => {
-                let n_type = N_SECT | if sym.global { N_EXT } else { 0 };
+                let n_type = N_SECT
+                    | if sym.global { N_EXT } else { 0 }
+                    | if sym.global && sym.weak { N_PEXT } else { 0 };
+                let n_desc = if sym.global && sym.weak { N_WEAK_DEF } else { 0 };
                 let addr = placed
                     .get(d.section)
                     .ok_or_else(|| {
@@ -490,7 +503,7 @@ pub fn write(
                 // `n_sect` is 1-based, and the range check above is what makes
                 // the increment meaningful.
                 out.push((d.section + 1) as u8);
-                out.extend_from_slice(&0u16.to_le_bytes());
+                out.extend_from_slice(&n_desc.to_le_bytes());
                 out.extend_from_slice(&(addr + d.offset).to_le_bytes());
             }
             None => {
@@ -726,6 +739,7 @@ mod tests {
             align: 2,
             attributes: S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS,
             zerofill: 0,
+            group: None,
             data,
         }
     }
@@ -741,11 +755,13 @@ mod tests {
                 name: "callee".into(),
                 defined: None,
                 global: true,
+                weak: false,
             },
             Symbol {
                 name: "main_entry".into(),
                 defined: Some(Definition { section: 0, offset: 0 }),
                 global: true,
+                weak: false,
             },
         ];
         let relocs = vec![Reloc {
@@ -782,10 +798,11 @@ mod tests {
             align: 2,
             attributes: CODE_ATTRIBUTES,
             zerofill: 0,
+            group: None,
             data: vec![0; 8],
         }];
         let symbols =
-            vec![Symbol { name: String::from("f"), defined: None, global: true }];
+            vec![Symbol { name: String::from("f"), defined: None, global: true, weak: false }];
         for kind in [RelKind::Rel32, RelKind::Pc32] {
             let relocs =
                 vec![Reloc { section: 0, offset: 0, kind, symbol: 0, addend: 0 }];
@@ -871,6 +888,7 @@ mod tests {
             name: "table".into(),
             defined: Some(Definition { section: 0, offset: 0 }),
             global: false,
+            weak: false,
         }];
         let relocs = vec![
             Reloc {
@@ -916,12 +934,14 @@ mod tests {
             align: 3,
             attributes: 0,
             zerofill: 0,
+            group: None,
             data: vec![0; 8],
         }];
         let symbols = vec![Symbol {
             name: "base".into(),
             defined: Some(Definition { section: 0, offset: 0 }),
             global: true,
+            weak: false,
         }];
         let relocs = vec![Reloc {
             section: 0,
@@ -949,6 +969,7 @@ mod tests {
             name: "t".into(),
             defined: Some(Definition { section: 0, offset: 0 }),
             global: true,
+            weak: false,
         }];
         let relocs = vec![Reloc {
             section: 0,
