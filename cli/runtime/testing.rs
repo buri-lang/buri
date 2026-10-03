@@ -49,7 +49,7 @@
 //! contents. The toolchain hid that by refusing to run such a suite natively at
 //! all.
 //!
-//! The field is retired (`retired-test-data`). A fresh `fs()` is empty on both
+//! The field is gone. A fresh `fs()` is empty on both
 //! backends, which is what a package declaring nothing was always specified to
 //! get, and a suite that wants a filesystem writes one with
 //! `fs().files([...])` — text in the suite, read the same way by both. Nothing

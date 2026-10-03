@@ -3797,8 +3797,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// The **index** comes out of neither. It is the runtime's loop counter,
     /// which changes per element and which nothing on this side of the boundary
     /// can derive, so it is its own C argument and is copied straight into the
-    /// parameter `index` names. A step whose closure does not take one — the
-    /// `list.mapCtxStep` pilot — leaves the register unread.
+    /// parameter `index` names. A step whose closure does not take one leaves
+    /// the register unread.
     fn build_entry(
         &mut self,
         state: &mut Function<'ctx>,

@@ -9,7 +9,7 @@
 # which backend a program was allowed to run on, to hide an answer the two
 # backends disagreed about.
 #
-# The field is retired (`buri docs error retired-test-data`), the suite writes
+# The field is gone, the suite writes
 # its own filesystem with `fs().files([...])`, and **none of the runs below
 # passes `--output=`**. That is the claim: the invocation decides, the build
 # file does not, and on a toolchain with a native backend these three tests are

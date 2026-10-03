@@ -363,13 +363,22 @@ let KNOWN_FEATURES: [Str] = [
 ///
 /// A `Str` indexes by scalar value and a span is measured in bytes, so this
 /// converts between them once.
+///
+/// The running offset rides beside the list rather than being read back out of
+/// it. A step that reads the list it pushes onto holds it twice, and each push
+/// then copies the whole list: quadratic in the length of the file.
 fn byteOffsets<C: Allocator>(ctx: C, cs: [Char]): [Int] {
     let first: [Int] = [0];
-    cs.foldCtx(
+    let (_, offsets) = cs.foldCtx(
         ctx,
-        fn(c, acc: [Int], ch) => acc.push(c, acc.last().withDefault(0) + utf8Len(ch)),
-        first,
-    )
+        fn(c, acc: (Int, [Int]), ch) => {
+            let (at, xs) = acc;
+            let next = at + utf8Len(ch);
+            (next, xs.push(c, next))
+        },
+        (0, first),
+    );
+    offsets
 }
 
 /// How many bytes a character occupies in UTF-8.

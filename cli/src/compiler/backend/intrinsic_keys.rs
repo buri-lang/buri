@@ -279,33 +279,23 @@ pub struct StepCall {
     /// has, so it arrives as the second word of `StepEntry` and the entry thunk
     /// writes it into the parameter this names.
     ///
-    /// `None` is a step that is not told where it is — `list.mapCtxStep`, whose
-    /// closure is `fn(C, A) => B`. The word still crosses (one C signature, not
-    /// one per key); the thunk ignores it, and no slot is reserved for it in
-    /// the state record.
+    /// `None` is a step that is not told where it is, whose closure is
+    /// `fn(C, A) => B`. The word still crosses (one C signature, not one per
+    /// key); the thunk ignores it, and no slot is reserved for it in the state
+    /// record.
     pub index: Option<usize>,
 }
 
 /// The table. Two rows.
 ///
-/// `list.mapCtxStep` is the **pilot**: `list.mapCtx` with its step reached
-/// through the trampoline instead of open-coded. It landed a wave before there
-/// was anything else to call the mechanism with, so that the boundary was green
-/// — a conformance fixture and an agreement row behind it — before a scheduler
-/// was written on top of it. It is deliberately non-suspending: the runtime
-/// calls the step and comes back, exactly as an open-coded loop would.
-///
-/// `host.HostTasks.parallel` is what the mechanism was built for. Same four
-/// words, and today the same walk — the native body runs the steps in index
+/// `host.HostTasks.parallel` is what the mechanism was built for. Four
+/// words, and today one walk — the native body runs the steps in index
 /// order on the calling thread (`cli/runtime/rt.rs`) — with a scheduler behind
 /// them in D4. It is the row that makes the index parameter necessary:
 /// `effect Tasks` hands the step its item's own index, and only the side
 /// driving the walk knows one.
 pub fn step_call(key: &str) -> Option<StepCall> {
     match key {
-        "list.mapCtxStep" => {
-            Some(StepCall { kind: Step::Map, ctx: Some(1), func: 2, arity: 3, index: None })
-        }
         // `parallel(self, ctx, items, f)`, with `f: fn(C, Int, A) => B`. The
         // receiver carries the *effect* and `ctx` carries the *authority*, and
         // they are two arguments because they are two values: argument 0
@@ -340,8 +330,7 @@ pub fn step_key(key: &str) -> bool {
 /// Every key [`step_call`] answers for, so that a reader — and the tests
 /// below — can enumerate them rather than rediscover them from a `match`.
 /// `the_table_and_the_roll_agree`, below, is what keeps the two from drifting.
-pub const STEP_KEYS: &[&str] =
-    &["list.mapCtxStep", "host.HostTasks.parallel", "host_testing.TestTasks.parallel"];
+pub const STEP_KEYS: &[&str] = &["host.HostTasks.parallel", "host_testing.TestTasks.parallel"];
 
 /// Whether this key **hands its step the caller's context**, and so waits
 /// exactly when the step waits.
@@ -356,8 +345,7 @@ pub const STEP_KEYS: &[&str] =
 /// this one instead and reads the step that actually arrived.
 ///
 /// Asked of both tables because a key belongs to one or the other: `mapCtx` is
-/// open-coded and `mapCtxStep` is runtime-driven, and they are the same
-/// operation.
+/// open-coded and `Tasks.parallel` is runtime-driven.
 pub fn ctx_step_key(key: &str) -> bool {
     list_call(key).is_some_and(|c| c.ctx.is_some()) || step_call(key).is_some_and(|c| c.ctx.is_some())
 }
@@ -438,7 +426,6 @@ mod tests {
             "list.map",
             "list.mapCtx",
             "tasks.parallel",
-            "list.mapCtxStepped",
             // `core/tasks::parallel` forwards to the effect method and is
             // ordinary Buri, so the key that reaches a backend is the `impl`'s.
             "host.HostTasks",
@@ -462,7 +449,6 @@ mod tests {
         let tasks = step_call("host.HostTasks.parallel").expect("the scheduler");
         assert_eq!(tasks.index, Some(1), "`effect Tasks` names the index second");
         assert_ne!(tasks.index, Some(tasks.arity - 1), "the index is not the element");
-        assert!(step_call("list.mapCtxStep").expect("the pilot").index.is_none());
         // A step told where it is still takes its context out of the record,
         // and that context is still the argument the table names — argument 1,
         // `ctx`, and not argument 0, which is the scheduler. The two are
@@ -509,7 +495,6 @@ mod tests {
             "list.foldResultCtx",
             "list.mapCtx",
             "list.filterCtx",
-            "list.mapCtxStep",
             "host.HostTasks.parallel",
             "host_testing.TestTasks.parallel",
         ] {
@@ -531,18 +516,5 @@ mod tests {
         ] {
             assert!(!ctx_step_key(key), "{key} is not");
         }
-    }
-
-    /// The pilot is `mapCtx`'s twin, and the twin's shape is `mapCtx`'s shape:
-    /// same loop, same context position, same closure position. A twin that
-    /// had drifted would be testing a different operation than the one whose
-    /// answer it is compared against.
-    #[test]
-    fn the_pilot_is_map_ctx_read_a_second_way() {
-        let twin = step_call("list.mapCtxStep").expect("the pilot");
-        let original = list_call("list.mapCtx").expect("its open-coded twin");
-        assert!(twin.kind == Step::Map && original.kind == Step::Map);
-        assert_eq!(twin.ctx, original.ctx);
-        assert_eq!(twin.func, original.func);
     }
 }
