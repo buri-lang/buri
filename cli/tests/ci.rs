@@ -1404,8 +1404,7 @@ fn the_runtime_archive_is_real() {
              depend on this machine's glibc and will not run on a Linux with an older one — which \
              fails for users and for nobody in CI. `cli/build.rs` falls back to the host triple \
              when the musl standard library is missing: the job that built this needs \
-             `rustup toolchain install` before its first cargo build, so that \
-             `rust-toolchain.toml`'s musl targets are installed.",
+             `rustup target add $(uname -m)-unknown-linux-musl` before its first cargo build.",
             rt::libc()
         );
     } else {
