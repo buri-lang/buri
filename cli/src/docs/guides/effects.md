@@ -22,15 +22,15 @@ fn load<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, Str> {
 }
 ```
 
-## An effect is an interface, and the set of them is fixed
+## An effect is an interface
 
 An **effect** is an interface declared with `effect` instead of `trait`, and its
-methods are the operations it grants. `platform/effect` declares most of them:
-`Allocator`, `Network`, `Clock`, `Random`, `Environment`, `Stdin`, `Stdout`, `Stderr`, `Process`,
-`Tasks`, `Listen`, `Sockets` and `WebSocketClient`. `core/fs` is a platform
-module too, and it declares the filesystem's `FileSystemRead` and `FileSystemWrite`. **Only a platform module may
-declare an effect**, so the set of things a Buri program can do to the world is
-closed.
+methods are the operations it grants. `platform/effect` declares most of the
+bundled ones, such as `Allocator`, `Stdout`, `Network`, `Clock`, `Environment`,
+`Tasks`, `Ui` and `Location`; `core/fs` declares `FileSystemRead` and
+`FileSystemWrite`. A repository declares its own only in an effect package
+under `//platform/effect/`, as [write your own platform](./custom-platforms.md)
+shows, so a program can do to the world only what some platform offers.
 
 The filesystem is two effects because it is two grants: a program that reads its
 configuration has not thereby earned the right to delete it. Nothing a function
@@ -82,8 +82,8 @@ reading it. It binds `FileSystemRead` and not `FileSystemWrite`, so this program
 file, and it cannot open a socket in its own code, a dependency or a build
 script, because nothing anywhere can obtain a value bounded by `Network`. A
 platform's host has a field only for the effects it offers: `WebHost` has no
-`fs`, so asking a page for one is `unknown-field` on the line that asked, and
-the note names the platforms that offer it.
+`fs`, so asking a page for one is `unknown-field`, and the note names the
+platforms that offer it.
 
 ## Giving a callee less is naming fewer bounds
 

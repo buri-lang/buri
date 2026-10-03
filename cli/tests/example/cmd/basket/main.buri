@@ -4,10 +4,10 @@
 //
 // Compare it with //cmd/server/main.buri and //cmd/web/main.buri. Same
 // language, same libraries, three different effect budgets — and each budget is
-// a fact about the output's platform rather than about the code. `Ui` and
-// `Watch` are exported by `core/host` under `platform: "web"` and by nothing
-// else, so this file does not compile for a native output, and //cmd/server's
-// `host.fs` does not compile for this one. The error lands on the line that
+// a fact about the output's platform rather than about the code. Of the
+// bundled hosts only `WebHost` has `ui` and `watch`, so this file does not
+// compile for a native output, and //cmd/server's `host.fs` does not compile
+// for this one. The error lands on the line that
 // asked, at build time.
 
 from "platform/effect" import { Allocator, Network, Ui, Watch };

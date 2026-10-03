@@ -1,12 +1,11 @@
 ## What it does
 
 Compiles the targets you name. A binary produces one artifact per output, under
-`.buri/out/node/<package>/`, `.buri/out/web/<package>/` or
-`.buri/out/native/<variant>/<package>/`, named after the package's directory, or
-after the function it enters through where `entries` names one other than
-`main`. A library has no artifact of its
-own, so building one type-checks it: `buri build //lib/money` asks "is this
-library correct?"
+`.buri/out/<platform>/<package>/`, where `<platform>` is `node`, `web`,
+`native/<variant>` or `platform/<name>`.
+[Build files](../build/build-files.md#entries) says how each artifact is named.
+A library has no artifact of its own, so building one type-checks it:
+`buri build //lib/money` asks "is this library correct?"
 
 `--output=<selector>` builds some of them: `node`, `web`,
 `native/linux-x86_64`, `native` for every `native` output, or a repository

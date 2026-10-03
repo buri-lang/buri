@@ -190,22 +190,25 @@ each output enters through, and each of those takes its platform's host.
 
 ### Outputs
 
-Every output names one platform bundled with the toolchain:
+Every output names one platform: a bundled one, or a
+[repository platform](./platforms.md) by label.
 
 | Platform | What it builds |
 |---|---|
 | `"native"` | One executable. `variant` is required: `linux-arm64`, `linux-x86_64`, `macos-arm64` or `macos-x86_64`. |
 | `"node"` | One `.mjs` for node or bun. |
 | `"web"` | A page: `main.mjs`, `index.html`, and `main.css` when the page uses styles. |
+| `"//platform/<name>"` | One file per entry, named after it, plus the platform's `assets`. |
 
 A binary with no `outputs` builds `node`. Each output lands in a directory of
-its own under `.buri/out/`:
+its own under `.buri/out/`, followed by the package path:
 
 | Output | Directory |
 |---|---|
 | `{ platform: "native", variant: "linux-arm64" }` | `.buri/out/native/linux-arm64/` |
 | `{ platform: "node" }` | `.buri/out/node/` |
 | `{ platform: "web" }` | `.buri/out/web/` |
+| `{ platform: "//platform/cloudflare_worker" }` | `.buri/out/platform/cloudflare_worker/` |
 
 `--output` picks outputs by that directory or by platform name:
 `buri build --output=native/linux-arm64` builds one output, and
@@ -246,7 +249,9 @@ binary {
 
 An artifact entered through a function other than `main` is named after it,
 `mainForNode.mjs` here, because two outputs of one binary would otherwise write
-one path. `artifact_name` overrides that.
+one path. `artifact_name` overrides that. A `web` page and a repository
+platform's entries are named after the platform's entry instead: `main.mjs`,
+`fetch.mjs`.
 
 **The platform fixes the entry's signature**, in its `platform.buri`. The wrong
 shape is a type error at the function: `entry-missing-host` for an entry that
@@ -276,30 +281,24 @@ either field is `entry-missing-field`.
 
 ### The page's head
 
-A `web` output gets the `index.html` the platform ships beside its module, and
-the build rule says nothing about it: the tab has no name until the page names
-it, and the page does that from code. `web.title(ctx, text)` names it at mount and
-renames it on every navigation; a server-rendered page hands the same name to
-`web.shell` in a `Document`. [Build a website](../../guides/websites.md) has
-both halves.
+A `web` output gets the `index.html` the platform ships, and the build rule
+says nothing about the head. The page names its tab from code:
+`web.title(ctx, text)` names it at mount and on every navigation, and a
+server-rendered page hands the name to `web.shell` in a `Document`.
+[Build a website](../../guides/websites.md) has both halves.
 
-`index.html` names the module and the stylesheet from the root — `/main.mjs`
-and `/main.css` — because it is the document every route answers with, and a
-relative name would resolve against whatever path the reader arrived on. So
-serve the artifact directory at the site's root.
+`index.html` loads `/main.mjs` and `/main.css` from the root, because every
+route answers with it. Serve the artifact directory at the site's root.
 
 ### Platforms and effects
 
-A platform's host type *is* the set of effects it offers. A platform that does
-not offer an effect has no field for it, so asking for it fails to compile at
-the line that asked, as `unknown-field`, with a note naming the platforms that
-do offer it. An entry binding `Ui: host.ui` on a `NodeHost` does not compile,
-and neither does one binding `FileSystemRead: host.fs` on a `WebHost`.
+A platform's host type *is* the set of effects it offers. Binding an effect the
+host has no field for is `unknown-field`, with a note naming the platforms that
+offer it: `Ui: host.ui` on a `NodeHost` doesn't compile, and neither does
+`FileSystemRead: host.fs` on a `WebHost`. It's a type error, so `buri lint`,
+`buri test` and the language server report it before anything is built.
 [The effects chapter](../../language/effects.md) has the table of which platform
 offers what.
-
-The check does not wait for a build: it is the type checker, so `buri lint`,
-`buri test` and the language server all refuse it before anything is produced.
 
 `outputs` is a list because one program commonly ships several ways. The compiler
 checks the whole dependency graph against each output separately, so

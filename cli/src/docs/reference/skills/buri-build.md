@@ -130,7 +130,7 @@ library {
 | `dependencies` | Libraries this one may use. Libraries only. |
 | `tags` | What this code is. The policy lives in `REPO.buri`. |
 | `backends` | `NATIVE` or `JS`. Unset means both; set it only if the code relies on one. |
-| `platforms` | `"native"`, `"node"` or `"web"`. Unset means all; set it only if the code means something on one platform only. |
+| `platforms` | `"native"`, `"node"`, `"web"` or a `"//platform/..."` label. Unset means all; set it only if the code means something on one platform only. |
 | `visibility` | Who may depend on it. Default is private. |
 | `test` | The suite. See the `buri-testing` skill. |
 | `testing` | Utilities for *other people's* tests, rooted at `testing/lib.buri`. |
@@ -251,7 +251,8 @@ Tags **say what code is**. Their consequences are declared once, on the tag:
 The vocabulary is **closed**: a `tags` entry with no `tag` block in `REPO.buri`
 is `unknown-tag`.
 
-Only the toolchain adds platforms. Each entry takes its platform's host, whose
+A repository adds its own platforms under `//platform/`
+(`buri docs guides/custom-platforms`). Each entry takes its platform's host, whose
 fields are the effects it offers: `main(host: NodeHost)` binding `Ui: host.ui`
 is `unknown-field`. Platforms needing different code get different entries:
 `entries: [{ name: "main", function: "mainForNode" }]`.

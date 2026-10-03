@@ -41,7 +41,7 @@ export fn fetch(host: CloudflareHost, request: Request): Response;
 [Write your own platform](./custom-platforms.md) has its `BUILD.buri` and
 `fetch.mjs`.
 
-That is two artifacts out of one build: `.buri/out/web/cmd/site/site.mjs` and
+That is two artifacts out of one build: `.buri/out/web/cmd/site/main.mjs` and
 `.buri/out/platform/cloudflare_worker/cmd/site/fetch.mjs`. Each entry is its
 own dead-code root, so the page never carries the renderer the worker uses and
 the worker never carries the page's half. `main` takes `WebHost` and binds
@@ -290,7 +290,7 @@ it, and the two callers differ in one argument:
 
 - the worker passes `.Const(request.path())`, which reads once and registers
   nothing;
-- the page passes `web.route(ctx)`, which is the address bar as a cell.
+- the page passes `web.route(ctx)`, which is the address bar as a signal.
 
 `ui.computed` is what makes the difference matter. It re-runs when something it
 read has changed, so navigating re-renders the subtree that read the path and
@@ -318,33 +318,18 @@ needs.
 
 ## The page navigates itself
 
-`web.navigate(ctx, path)` goes somewhere without loading a document. It puts the
-address in the address bar and writes the cell `route` wraps, so what re-renders
-is the subtree that read the path:
+`web.navigate(ctx, path)` goes somewhere without loading a document, as the
+"about" button above does. It pushes a history entry, then writes the signal
+`route` wraps, so only the subtree that read the path re-renders. Every other
+signal keeps its value, which a `ui.link` can't manage: a link loads a new
+document and builds the app again from nothing.
 
-```buri ignore why="the handler `page` takes, out of the program above"
-fn(c) => web.navigate(c, "/about")
-```
-
-Everything else stays. The tree is the tree the reader is already looking at, so
-every signal in the program keeps its value — a store of signals survives its own
-navigation, which is the thing a `ui.link` cannot do: a link is a full document
-load, and a full document load builds the app again from nothing.
-
-`web.replace(ctx, path)` is the same, in place of the entry the reader is on
-rather than beside it. That is what a redirect wants:
-
-```buri ignore why="the redirect in `main`, out of the program above"
-let _ = if (web.path(ctx) == "/index.html") { web.replace(ctx, "/") } else { () };
-```
-
-Push and the reader can press Back to where they were. Replace and they cannot —
-which is right here, because Back onto `/index.html` would only send them
-forward again.
+`web.replace(ctx, path)` does the same in place of the current history entry.
+That's what a redirect wants, as in `main` above: Back onto `/index.html` would
+only send the reader forward again.
 
 Both need `Location` **and** `Ui`: one to move the address bar, one to write the
-cell. Reaching another site is a `ui.link`, and it should be — a reader deserves
-to see where a link goes.
+signal. Reach another site with a `ui.link`, so the reader sees where it goes.
 
 ## A link that navigates
 
@@ -366,8 +351,7 @@ fn about<C: Location + Ui>(): Node<C> {
 ```
 
 It renders a real `<a href="/about">`, so the reader gets everything an anchor
-is. A plain left-click does what `navigate` does — a history entry, the cell
-written, the tree left where it is — so the signals survive. A middle-click, or
+is. A plain left-click does what `navigate` does, so the signals survive. A middle-click, or
 ⌘/Ctrl/Shift/Alt with the left button, falls through to the browser, which opens
 the tab or the window the reader asked for. It needs `Location` and `Ui`, the
 same as `navigate`.
@@ -390,8 +374,8 @@ sees the page rebuilt.
 It is the one renderer doing this, not a second one that reads markup, which is
 why what a resume expects is exactly what a mount would have built.
 
-`web.path(ctx)` is the path now. It is the same cell `route` wraps, so a page
-that only wants to know where it is need not build a prop for it.
+`web.path(ctx)` reads the signal `route` wraps once, for a page that only wants
+to know where it is.
 
 ## The address is checked first
 

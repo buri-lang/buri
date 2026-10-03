@@ -6,8 +6,9 @@ toolchain, and are never listed in a `dependencies`.
 
 `platform/effect` declares `Watch` and `Ui`, and the `Scope` a reactive closure is
 handed — which reads the graph and allocates. They are the reactive engine, not
-a browser's API, so the backend implements them and any platform may offer them;
-`web` does, as `host.ui` and `host.watch`. `ui/signal` is `Signal<T>` —
+a browser's API, so the `JS` backend implements them and any `JS` platform may
+offer them; `web` does, as `host.ui` and `host.watch`. Natively they run in
+tests only. `ui/signal` is `Signal<T>` —
 `get`, `set`, `update` — plus `signal` and `watch`. `ui/prop` is `Prop<T>` and
 `memo`. `platform/effect/testing` holds the headless doubles, `headless()` and
 `observer()`, a renderer for looking at what a tree became, and `snapshot`,
@@ -38,8 +39,8 @@ export fn addOne<C: Ui>(clicks: Signal<Int>): Node<C> {
 |---|---|
 | `signal(ctx, v)` | O(1) |
 | `get` | O(1) outside a computation. Inside one, O(k) in that computation's dependencies so far, because the edge is recorded once and recording it looks first |
-| `set`, `update` | O(n) in the value's size to compare it with the one already there, and then O(d) over what read the cell — transitively through memos — where the two differ |
-| `memo(ctx, f)` | O(1) to declare — `f` does not run until something reads it, and then only after a cell it actually read has changed |
+| `set`, `update` | O(n) in the value's size to compare it with the one already there, and then O(d) over what read the signal — transitively through memos — where the two differ |
+| `memo(ctx, f)` | O(1) to declare — `f` does not run until something reads it, and then only after a signal it actually read has changed |
 | `watch(ctx, f)` | runs once now, and once per batch in which something it read changed |
 
 Tracking is automatic and exact: every run collects the dependencies afresh, so
@@ -1235,7 +1236,7 @@ The rest is short:
   it, so what a reader would have to scroll to see is not what the picture is
   tall enough to show.
 - `.Table` stacks its rows and a `.TableRow` divides into one equal column per
-  cell, so a column lines up down the table. `.ColumnHeader` and `.RowHeader`
+  child, so a column lines up down the table. `.ColumnHeader` and `.RowHeader`
   are bold and centred, which is what a browser does to a `<th>`.
 - **A `.Password` field's value is never painted.** It is one • per
   character, the way a browser draws `<input type="password">`, so a recorded
