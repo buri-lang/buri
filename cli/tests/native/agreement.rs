@@ -4537,8 +4537,8 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// and is the fuller statement of it, but the corpus's native run is the stencil
 /// backend alone. The claim is about *pages*: `core/alloc`'s `copyAcross` leaves
 /// the thread's arena before it copies, and each backend generates the copy walk
-/// for the concrete `T` itself (`stencil/glue.rs`'s `Helper::Copy`,
-/// `llvm/emit.rs`'s `Job::Copy`), so one green pipeline says nothing about the
+/// for the concrete `T` itself (`stencil/glue.rs`'s `Helper::Walk`,
+/// `llvm/emit.rs`'s `Job::Glue`), so one green pipeline says nothing about the
 /// other. Before the copy existed this program read memory `munmap` had taken
 /// back, and the native halves died on a signal while JavaScript — which has no
 /// arena — printed the right answer.
@@ -5075,7 +5075,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// scratch words. `lists.rs::LOOP_SCRATCH` said where those begin, as a
 /// number, and the number was two words inside the run `rtcall.rs` reserves
 /// for the emitter itself. The word that collided is the one
-/// `emit::walk_deep` writes an address into when a value's reference walk goes
+/// `emit::walk_field` writes an address into when a value's reference walk goes
 /// **out of line**, which is what retaining an element whose type holds an
 /// enum does — so the sort lost its destination between reading an element and
 /// storing it, and answered the block `elemalloc` had just handed it: zeros.

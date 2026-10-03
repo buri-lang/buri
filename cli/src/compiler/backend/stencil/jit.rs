@@ -47,6 +47,8 @@ use super::abi::{Loc, StencilTarget};
 use super::object::RelKind;
 use super::region::{Region, Target};
 use super::library::{Hole, HoleKind, Library, Stencil};
+use super::runtime;
+use crate::compiler::backend::counts::{Counts, Site};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{Layout, Layouts};
 use crate::compiler::semantics::types::{Tables, Ty};
@@ -168,10 +170,9 @@ pub struct Jit<'a> {
     /// pool, by stencil name. One copy per unit: the bytes are clang's
     /// `.rodata` and every copy of the stencil reads the same ones.
     spilled: HashMap<String, u64>,
-    /// Whether a value of a type owns a counted block anywhere inside it, by
-    /// type. Memoised because the question is asked once per reference
-    /// operation and answering it walks the type; see `Lower::rc_counted`.
-    pub(crate) counted_memo: HashMap<Ty, bool>,
+    /// Where each type's counts live, memoised because the question is asked
+    /// once per reference operation and answering it walks the type.
+    pub(crate) counts: Counts,
     /// Which part of its unit this is, which is the namespace this part's
     /// generated helpers take their local symbols from
     /// ([`super::glue::symbol`]).
@@ -182,7 +183,7 @@ pub struct Jit<'a> {
 /// emits.
 ///
 /// Both are caches of a pure function of the type tables — a layout, and
-/// whether a type owns a counted block — so an answer computed for one part is
+/// where a type's counts live — so an answer computed for one part is
 /// the answer for the next one, and neither is an answer that *accumulates*.
 /// That is `parallel::map_with`'s scratch contract exactly, and it is why the
 /// parts of a unit cost one memo per **worker** rather than one per part:
@@ -191,7 +192,7 @@ pub struct Jit<'a> {
 /// of what dividing the unit bought.
 pub(crate) struct Scratch<'a> {
     layouts: Layouts<'a>,
-    counted: HashMap<Ty, bool>,
+    counts: Counts,
 }
 
 impl<'a> Scratch<'a> {
@@ -199,7 +200,7 @@ impl<'a> Scratch<'a> {
         tables: &'a Tables,
         cycles: std::sync::Arc<crate::compiler::middle::layout::Cycles>,
     ) -> Scratch<'a> {
-        Scratch { layouts: Layouts::with_cycles(tables, cycles), counted: HashMap::new() }
+        Scratch { layouts: Layouts::with_cycles(tables, cycles), counts: Counts::default() }
     }
 }
 
@@ -320,7 +321,7 @@ impl<'a> Jit<'a> {
             shared_ix: HashMap::new(),
             helper_at: Vec::new(),
             spilled: HashMap::new(),
-            counted_memo: scratch.counted,
+            counts: scratch.counts,
             part,
         }
     }
@@ -333,7 +334,7 @@ impl<'a> Jit<'a> {
     /// rather than reset, so a field added later cannot leak into the next part
     /// by being forgotten.
     pub(crate) fn into_scratch(self) -> Scratch<'a> {
-        Scratch { layouts: self.layouts, counted: self.counted_memo }
+        Scratch { layouts: self.layouts, counts: self.counts }
     }
 
     /// The symbol of a generated helper, registering it the first time it is
@@ -457,6 +458,16 @@ impl<'a> Jit<'a> {
     /// recursive.
     pub(crate) fn boxes(&self, owner: &Ty, field: &Ty) -> bool {
         self.layouts.boxes(owner, field)
+    }
+
+    /// Whether a source type owns a counted block anywhere inside it.
+    pub(crate) fn rc_counted(&mut self, ty: &Ty) -> bool {
+        self.counts.counted(self.tables, &mut self.layouts, ty)
+    }
+
+    /// Where a source type's counts live (`backend/counts.rs`).
+    pub(crate) fn rc_sites(&mut self, ty: &Ty) -> std::rc::Rc<[Site]> {
+        self.counts.sites(self.tables, &mut self.layouts, ty)
     }
 
     pub(crate) fn layout_of(&mut self, prog: &ir::Program, id: ir::TypeId) -> Layout {
@@ -2401,12 +2412,12 @@ fn literal(c: &ir::Const, ty: ir::Type) -> Option<u64> {
 /// against `cli/runtime/lib.rs`'s exports by a test rather than left to a link
 /// error to discover.
 pub const EXTERNALS: [&str; 7] = [
-    "buri_rt_abort",
-    "buri_rt_abort_div_zero",
-    "buri_rt_abort_unreachable",
-    "buri_rt_alloc",
-    "buri_rt_free",
-    "buri_rt_i128_divmod",
+    runtime::ABORT,
+    runtime::ABORT_DIV_ZERO,
+    runtime::ABORT_UNREACHABLE,
+    runtime::ALLOC,
+    runtime::FREE,
+    runtime::I128_DIVMOD,
     "memcpy",
 ];
 

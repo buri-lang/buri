@@ -88,16 +88,9 @@ use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use crate::hash::Map;
 
 use super::attrs::{self, Observed};
-use super::repr::{self, Counted, Glue, Reprs, Site, Slot, SlotTy};
-
-/// One counted field of one enum variant: its type, its absolute offset, and
-/// whether it is behind the pointer a recursive type's field gets
-/// (VALUE-MODEL.md §5.2).
-///
-/// Named because [`Unit::tagged_rc`] groups these by variant and the nested
-/// shape is past what a reader should have to parse in a `let`.
-type VariantField = (Ty, u32, bool);
-use super::runtime;
+use super::repr::{self, Reprs, Slot, SlotTy};
+use crate::compiler::backend::counts::{Counted, Field, Glue, Op, Site};
+use crate::compiler::backend::runtime_table as runtime;
 
 /// A heap payload is 16-byte aligned, because the header is 16 bytes and sits
 /// immediately before it (VALUE-MODEL.md §2). This is the number `align` on a
@@ -156,20 +149,15 @@ pub struct Unit<'ctx, 'a> {
     /// makes the walk over a recursive type terminate: `Release` for a `Tree`
     /// asks for `Release` for a `Tree`, and the second ask finds the first.
     thunks: Map<(u32, bool), FunctionValue<'ctx>>,
-    releases: Map<Ty, FunctionValue<'ctx>>,
-    release_elems: Map<Ty, FunctionValue<'ctx>>,
-    retains: Map<Ty, FunctionValue<'ctx>>,
-    /// G5's twins of the two above: the per-type copy walk, and the per-element
-    /// one. Separate tables rather than a flag on the first, because a copy and
-    /// a release are two functions with the same argument and different bodies.
-    copies: Map<Ty, FunctionValue<'ctx>>,
-    copy_elems: Map<Ty, FunctionValue<'ctx>>,
+    /// [`Unit::glue_for`]'s functions: one row per type, one entry per `(op,
+    /// elems)`.
+    glues: Map<Ty, [Option<FunctionValue<'ctx>>; 6]>,
     /// The C-ABI entry thunks of [`Job::Entry`], one per step signature.
     entries: Map<(Vec<Ty>, Ty, Option<usize>), FunctionValue<'ctx>>,
     /// The C-ABI equality thunks of [`Job::Equal`], one per cell type.
     equals: Map<Ty, FunctionValue<'ctx>>,
-    env_glue: Option<FunctionValue<'ctx>>,
-    env_copy_glue: Option<FunctionValue<'ctx>>,
+    /// [`Unit::env_glue`]'s release and copy.
+    env_glues: [Option<FunctionValue<'ctx>>; 2],
     /// Helper bodies still to be built. Drained by [`Unit::finish`] rather than
     /// built where they are asked for, because a helper is asked for in the
     /// middle of another function's body and the builder is positioned there.
@@ -213,15 +201,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             runtime: Map::default(),
             literals: Map::default(),
             thunks: Map::default(),
-            releases: Map::default(),
-            release_elems: Map::default(),
-            retains: Map::default(),
-            copies: Map::default(),
-            copy_elems: Map::default(),
+            glues: Map::default(),
             entries: Map::default(),
             equals: Map::default(),
-            env_glue: None,
-            env_copy_glue: None,
+            env_glues: [None; 2],
             pending: Vec::new(),
             helpers: 0,
             rc,
@@ -1259,7 +1242,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// pointer that goes where the field would have been.
     ///
     /// `stencil/emit.rs`'s `box_into` is the same three steps, and
-    /// `repr.rs`'s `Site::Boxed` is what releases and copies what this builds.
+    /// a boxed `counts::Field` is what releases and copies what this builds.
     fn box_value(
         &mut self,
         code: &ir::Code,
@@ -1742,7 +1725,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let src = self.elem_at(base, start, stride, "slice.from");
         let _ = self.builder.build_memcpy(block, align, src, align, bytes);
         if self.reprs.counted_type(&element) {
-            self.each_element(state, block, count, stride, &element, true);
+            self.each_element(state, block, count, stride, &element, Op::Retain);
         }
         let out = repr::assemble(
             self.ctx,
@@ -1903,7 +1886,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let captured = self.type_of(code.ty_of(env));
         let glue = captured
             .clone()
-            .and_then(|t| self.release_glue(&t))
+            .and_then(|t| self.glue(Op::Release, &t))
             .map(function_pointer)
             .unwrap_or_else(|| self.ptr_ty().const_null());
         if let Ok(store) = self.builder.build_store(block, glue) {
@@ -1912,7 +1895,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // The second word: what copies the record, for the same reason the
         // first exists (`ENV_FIELDS`).
         let copy = captured
-            .and_then(|t| self.copy_glue(&t))
+            .and_then(|t| self.glue(Op::Copy, &t))
             .map(function_pointer)
             .unwrap_or_else(|| self.ptr_ty().const_null());
         let copy_at = repr::byte_offset(
@@ -2243,7 +2226,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                             .push(self.ctx.i64_type().const_int(u64::from(stride), false).into()),
                         runtime::Arg::Release => {
                             let glue = glue_ty
-                                .and_then(|t| self.release_glue(&t))
+                                .and_then(|t| self.glue(Op::Release, &t))
                                 .map(function_pointer)
                                 .unwrap_or_else(|| self.ptr_ty().const_null());
                             argv.push(glue.into());
@@ -2257,7 +2240,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         }
                         _ => {
                             let glue = glue_ty
-                                .and_then(|t| self.retain_glue(&t))
+                                .and_then(|t| self.glue(Op::Retain, &t))
                                 .map(function_pointer)
                                 .unwrap_or_else(|| self.ptr_ty().const_null());
                             argv.push(glue.into());
@@ -2283,7 +2266,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     }
                     runtime::Arg::Release => {
                         let glue = self
-                            .release_glue(&elem)
+                            .glue(Op::Release, &elem)
                             .map(function_pointer)
                             .unwrap_or_else(|| self.ptr_ty().const_null());
                         argv.push(glue.into());
@@ -2297,7 +2280,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     }
                     _ => {
                         let glue = self
-                            .retain_glue(&elem)
+                            .glue(Op::Retain, &elem)
                             .map(function_pointer)
                             .unwrap_or_else(|| self.ptr_ty().const_null());
                         argv.push(glue.into());
@@ -2477,13 +2460,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     let bytes = self.step_state_bytes(&ps, None);
                     let record = self.scratch(state, bytes, 8);
                     self.store_slots(record, &slots, 8, &pieces);
-                    if let Some(glue) = body.as_ref().and_then(|ty| self.retain_glue(ty)) {
+                    if let Some(glue) = body.as_ref().and_then(|ty| self.glue(Op::Retain, ty)) {
                         let _ = self.builder.build_call(glue, &[record.into()], "");
                     }
                     let thunk = self.entry_thunk(&ps, &r, None);
                     let stride = self.reprs.stride_of(&r);
                     let release = self
-                        .release_glue(&r)
+                        .glue(Op::Release, &r)
                         .map(function_pointer)
                         .unwrap_or_else(|| self.ptr_ty().const_null());
                     let word = self.ctx.i64_type();
@@ -2500,7 +2483,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // graph lets the body go.
                     let give_back = body
                         .as_ref()
-                        .and_then(|ty| self.release_glue(ty))
+                        .and_then(|ty| self.glue(Op::Release, ty))
                         .map(function_pointer)
                         .unwrap_or_else(|| self.ptr_ty().const_null());
                     argv.push(give_back.into());
@@ -2571,7 +2554,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     self.store_slots(record, &slots, 8, &pieces);
                     // The runtime keeps the handler, so the graph owes its
                     // environment a reference — taken here, given back at exit.
-                    if let Some(glue) = body.as_ref().and_then(|ty| self.retain_glue(ty)) {
+                    if let Some(glue) = body.as_ref().and_then(|ty| self.glue(Op::Retain, ty)) {
                         let _ = self.builder.build_call(glue, &[record.into()], "");
                     }
                     let thunk = self.entry_thunk(&ps, &r, None);
@@ -2586,7 +2569,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // above, at exit, when the graph lets the handler go.
                     let give_back = body
                         .as_ref()
-                        .and_then(|ty| self.release_glue(ty))
+                        .and_then(|ty| self.glue(Op::Release, ty))
                         .map(function_pointer)
                         .unwrap_or_else(|| self.ptr_ty().const_null());
                     argv.push(give_back.into());
@@ -2818,20 +2801,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// `incref` and `decref` of an SSA value, over every count it owns.
     ///
-    /// Driven by [`repr::Reprs::sites`] rather than by the slot list. The two
-    /// agree about a `Str`, a `[T]` and a struct of those, and they disagree
-    /// about exactly the two shapes a slot cannot express: a tagged enum's
-    /// payload is one opaque `Blob` and a boxed field is a pointer whose
-    /// pointee has a type of its own. A slot-driven walk therefore skipped
-    /// every count inside a `Result<Str, E>` — silently, because a slot marked
-    /// "not counted" reads the same as a slot that has nothing in it.
+    /// Driven by [`repr::Reprs::sites`] rather than by the slot list, which
+    /// cannot express a tagged enum's payload (one opaque `Blob`) or a boxed
+    /// field's pointee. A slot-driven walk silently skipped every count inside
+    /// a `Result<Str, E>`.
     ///
     /// `Inst::DecRef`'s own `drop` field is ignored: it is `None` at every
     /// construction site in the landed IR (`lower.rs`), and the glue is
-    /// derivable here from the type, which is where `middle::layout` already
-    /// put the answer.
+    /// derivable here from the type.
     fn incref(&mut self, state: &mut Function<'ctx>, code: &ir::Code, v: ir::ValueId) {
-        self.rc(state, code, v, true);
+        self.rc(state, code, v, Op::Retain);
     }
 
     fn decref(
@@ -2842,16 +2821,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         drop: Option<FuncIdx>,
     ) {
         let _ = drop;
-        self.rc(state, code, v, false);
+        self.rc(state, code, v, Op::Release);
     }
 
-    fn rc(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        v: ir::ValueId,
-        retain: bool,
-    ) {
+    fn rc(&mut self, state: &mut Function<'ctx>, code: &ir::Code, v: ir::ValueId, op: Op) {
         let Some(ty) = self.type_of(code.ty_of(v)) else { return };
         if !self.reprs.counted_type(&ty) {
             return;
@@ -2860,7 +2833,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let value = self.get(state, v);
         let pieces = repr::disassemble(&self.builder, &slots, value);
         let place = Place::Registers { slots, pieces };
-        self.walk_rc(state, &ty, &place, 0, retain, 0);
+        self.walk_rc(state, &ty, &place, 0, op, 0);
         // The same split `observe::local` makes from the IR, made again here
         // through the same function so that the two cannot answer it
         // differently: a count in a parameter's block is `argmem`, and a count
@@ -2871,73 +2844,104 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             state.observed.reads_far = true;
             state.observed.writes_far = true;
         }
-        if !retain {
+        if op == Op::Release {
             state.observed.opaque = true;
         }
     }
 
     /// The walk itself, over a value wherever it is.
     ///
-    /// `base` is a byte offset into `place`, added to every site's own. That is
-    /// what lets one walk serve both forms: a nested field is *not* rebased to
-    /// a new address, because an SSA value has no address to rebase
-    /// (CODEGEN-LLVM.md §2.2) — so the offset travels instead of the pointer,
-    /// and the memory form gets the same treatment rather than a second
-    /// spelling.
+    /// `base` is a byte offset into `place`, added to every site's own. A
+    /// nested field is *not* rebased to a new address, because an SSA value has
+    /// no address to rebase (CODEGEN-LLVM.md §2.2), so the offset travels
+    /// instead of the pointer.
+    ///
+    /// [`Op::Copy`] writes its answers back where it found the pointers, so it
+    /// needs a [`Place::Memory`]: the glue functions are handed a block, and
+    /// [`Unit::copy_out`] spills into an `alloca`. Nothing in a copy increments
+    /// a count: *a copy is not a share*.
     fn walk_rc(
         &mut self,
         state: &mut Function<'ctx>,
         ty: &Ty,
         place: &Place<'ctx>,
         base: u32,
-        retain: bool,
+        op: Op,
         depth: u32,
     ) {
         if depth > repr::RC_DEPTH || !self.reprs.counted_type(ty) {
             return;
         }
-        for site in self.reprs.sites(ty) {
+        let next = depth.saturating_add(1);
+        for site in self.reprs.sites(ty).iter() {
             match site {
-                Site::Block { offset, glue, counted } => {
-                    let at = base.saturating_add(offset);
+                Site::Block { offset, glue } => {
+                    let at = base.saturating_add(*offset);
+                    if op == Op::Copy {
+                        let Some(p) = Self::place_address(self.ctx, &self.builder, place, at)
+                        else {
+                            continue;
+                        };
+                        if *glue == Glue::Str {
+                            self.call_copy_str(p);
+                        } else {
+                            let g = self.glue_pointer(op, glue);
+                            self.replace_with_copy(p, g);
+                        }
+                        continue;
+                    }
                     let Some(p) = self.place_pointer(place, at) else { continue };
-                    if retain {
-                        self.incref_pointer(state, p, counted);
+                    if op == Op::Retain {
+                        self.incref_pointer(state, p, Counted::Nullable);
                     } else {
-                        let g = self.glue_pointer(&glue);
-                        self.decref_pointer(state, p, counted, g);
+                        let g = self.glue_pointer(op, glue);
+                        self.decref_pointer(state, p, Counted::Nullable, g);
                     }
                 }
-                Site::Nested { offset, ty } => {
-                    let at = base.saturating_add(offset);
-                    self.walk_rc(state, &ty, place, at, retain, depth.saturating_add(1));
-                }
-                Site::Boxed { offset, ty } => {
-                    let at = base.saturating_add(offset);
-                    let Some(p) = self.place_pointer(place, at) else { continue };
-                    if retain {
-                        self.incref_pointer(state, p, Counted::NonNull);
-                    } else {
-                        let g = self.release_glue(&ty).map(function_pointer);
-                        self.decref_pointer(state, p, Counted::NonNull, g);
+                Site::Field(f) => self.walk_field(state, place, base, f, op, next),
+                // One `switch` on the discriminant and one arm per variant with
+                // anything counted in it. The default is the join, not an
+                // `unreachable`: a variant with nothing counted has no arm.
+                Site::Tagged { tag, arms } => {
+                    let Some(raw) = self.place_int(place, base, *tag) else { continue };
+                    let i32t = self.ctx.i32_type();
+                    let key = self
+                        .builder
+                        .build_int_z_extend_or_bit_cast(raw, i32t, "rc.tag")
+                        .unwrap_or_else(|_| i32t.const_zero());
+                    let done = self.ctx.append_basic_block(state.value, "rc.join");
+                    let blocks: Vec<BasicBlock<'ctx>> = arms
+                        .iter()
+                        .map(|_| self.ctx.append_basic_block(state.value, "rc.arm"))
+                        .collect();
+                    let table: Vec<(IntValue<'ctx>, BasicBlock<'ctx>)> = arms
+                        .iter()
+                        .zip(&blocks)
+                        .map(|(arm, bb)| (i32t.const_int(u64::from(arm.variant), false), *bb))
+                        .collect();
+                    let _ = self.builder.build_switch(key, done, &table);
+                    for (arm, bb) in arms.iter().zip(blocks) {
+                        self.builder.position_at_end(bb);
+                        for f in arm.fields.iter() {
+                            self.walk_field(state, place, base, f, op, next);
+                        }
+                        let _ = self.builder.build_unconditional_branch(done);
                     }
-                }
-                site @ Site::Tagged { .. } => {
-                    self.tagged_rc(state, place, base, &site, retain, depth);
+                    self.builder.position_at_end(done);
                 }
                 // The niche: `.None` is the payload's own pointer set to null
                 // (VALUE-MODEL.md §6), so the payload is walked only where it
                 // is not — and the *test* is the discriminant, so there is no
                 // tag to read.
                 Site::Guarded { null_at, ty } => {
-                    let at = base.saturating_add(null_at);
+                    let at = base.saturating_add(*null_at);
                     let Some(p) = self.place_pointer(place, at) else { continue };
                     let live = self.ctx.append_basic_block(state.value, "rc.some");
                     let done = self.ctx.append_basic_block(state.value, "rc.done");
                     let Ok(is_null) = self.builder.build_is_null(p, "rc.isnone") else { continue };
                     let _ = self.builder.build_conditional_branch(is_null, done, live);
                     self.builder.position_at_end(live);
-                    self.walk_rc(state, &ty, place, base, retain, depth.saturating_add(1));
+                    self.walk_rc(state, ty, place, base, op, next);
                     let _ = self.builder.build_unconditional_branch(done);
                     self.builder.position_at_end(done);
                 }
@@ -2945,70 +2949,57 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
     }
 
-    /// A tagged enum: one `switch` on the discriminant, and one arm per variant
-    /// that has anything to release.
-    ///
-    /// One block per *variant* rather than per field, so a variant carrying two
-    /// `Str`s is one case and not two; and no arm at all for a variant carrying
-    /// nothing, which the `switch`'s default covers.
-    fn tagged_rc(
+    /// One field with counts in it. A boxed field *is* the pointer, so it is
+    /// one operation on it and no descent.
+    fn walk_field(
         &mut self,
         state: &mut Function<'ctx>,
         place: &Place<'ctx>,
         base: u32,
-        site: &Site,
-        retain: bool,
+        f: &Field,
+        op: Op,
         depth: u32,
     ) {
-        let Site::Tagged { tag, variants } = site else { return };
-        let Some(raw) = self.place_int(place, base, *tag) else { return };
-        let i32t = self.ctx.i32_type();
-        let key = self
-            .builder
-            .build_int_z_extend_or_bit_cast(raw, i32t, "rc.tag")
-            .unwrap_or_else(|_| i32t.const_zero());
-        let done = self.ctx.append_basic_block(state.value, "rc.join");
-        let mut by_variant: Vec<(u32, Vec<VariantField>)> = Vec::new();
-        for (v, ty, offset, boxed) in variants {
-            match by_variant.iter_mut().find(|(k, _)| *k == *v) {
-                Some((_, fields)) => fields.push((ty.clone(), *offset, *boxed)),
-                None => by_variant.push((*v, vec![(ty.clone(), *offset, *boxed)])),
-            }
+        let at = base.saturating_add(f.offset);
+        if !f.boxed {
+            self.walk_rc(state, &f.ty, place, at, op, depth);
+            return;
         }
-        let mut arms = Vec::with_capacity(by_variant.len());
-        for (v, fields) in &by_variant {
-            let bb = self.ctx.append_basic_block(state.value, "rc.arm");
-            arms.push((i32t.const_int(u64::from(*v), false), bb, fields.clone()));
-        }
-        // The default is the join and not an `unreachable`: a variant with
-        // nothing counted in it has no arm, and reaching the default is the
-        // ordinary way that happens.
-        let table: Vec<(IntValue<'ctx>, BasicBlock<'ctx>)> =
-            arms.iter().map(|(k, bb, _)| (*k, *bb)).collect();
-        let _ = self.builder.build_switch(key, done, &table);
-        for (_, bb, fields) in arms {
-            self.builder.position_at_end(bb);
-            for (ty, offset, boxed) in fields {
-                let at = base.saturating_add(offset);
-                if boxed {
-                    // The field *is* the pointer, so this is one reference
-                    // operation on it and no descent — `Site::Boxed`'s arm,
-                    // reached through a tag test.
-                    if let Some(p) = self.place_pointer(place, at) {
-                        if retain {
-                            self.incref_pointer(state, p, Counted::NonNull);
-                        } else {
-                            let g = self.release_glue(&ty).map(function_pointer);
-                            self.decref_pointer(state, p, Counted::NonNull, g);
-                        }
-                    }
-                    continue;
+        match op {
+            Op::Retain => {
+                if let Some(p) = self.place_pointer(place, at) {
+                    self.incref_pointer(state, p, Counted::NonNull);
                 }
-                self.walk_rc(state, &ty, place, at, retain, depth.saturating_add(1));
             }
-            let _ = self.builder.build_unconditional_branch(done);
+            Op::Release => {
+                if let Some(p) = self.place_pointer(place, at) {
+                    let g = self.glue(op, &f.ty).map(function_pointer);
+                    self.decref_pointer(state, p, Counted::NonNull, g);
+                }
+            }
+            Op::Copy => {
+                if let Some(p) = Self::place_address(self.ctx, &self.builder, place, at) {
+                    let g = self.glue(op, &f.ty).map(function_pointer);
+                    self.replace_with_copy(p, g);
+                }
+            }
         }
-        self.builder.position_at_end(done);
+    }
+
+    /// The address of a byte offset into a value held in memory. A value in
+    /// registers has none.
+    fn place_address(
+        ctx: &'ctx Context,
+        builder: &Builder<'ctx>,
+        place: &Place<'ctx>,
+        at: u32,
+    ) -> Option<PointerValue<'ctx>> {
+        match place {
+            Place::Memory { base, .. } => {
+                Some(repr::byte_offset(ctx, builder, *base, i64::from(at), "rc.at"))
+            }
+            Place::Registers { .. } => None,
+        }
     }
 
     /// One piece of a value at a byte offset, however the value is held.
@@ -3421,21 +3412,12 @@ enum Job<'ctx> {
     /// A closure's `code`: converts an environment *pointer* into the
     /// environment *leaves* the lifted lambda declares.
     Thunk { value: FunctionValue<'ctx>, func: FuncIdx, env: bool },
-    /// Release the contents of one value of this type.
-    Release { value: FunctionValue<'ctx>, ty: Ty },
-    /// Release every element of a `[T]` block.
-    ReleaseElems { value: FunctionValue<'ctx>, elem: Ty },
-    /// Take a reference on everything *one* element of a `[T]` holds.
-    RetainElem { value: FunctionValue<'ctx>, elem: Ty },
-    /// Copy the contents of one value of this type, in place.
-    Copy { value: FunctionValue<'ctx>, ty: Ty },
-    /// Copy every element of a `[T]` block, in place.
-    CopyElems { value: FunctionValue<'ctx>, elem: Ty },
-    /// Read a function pointer out of a block's first word and call it on the
-    /// rest: the glue every closure environment shares.
-    EnvGlue { value: FunctionValue<'ctx> },
-    /// The same out of the block's **second** word: the copy.
-    EnvCopy { value: FunctionValue<'ctx> },
+    /// Run `op` over one value of `ty`, or over every element of a `[T]`
+    /// block of them.
+    Glue { value: FunctionValue<'ctx>, op: Op, elems: bool, ty: Ty },
+    /// Read a function pointer out of the block's word at `word` and call it
+    /// on the rest: the glue every closure environment shares.
+    Env { value: FunctionValue<'ctx>, word: u32 },
     /// The C-ABI entry thunk a **runtime-driven step** is reached through:
     /// `void(state, index, arg, out)`, which runs one closure once on one
     /// element. `params` and `ret` are that closure's own signature, and
@@ -3532,97 +3514,44 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         (f, true)
     }
 
-    /// The function that releases the contents of a block holding one value of
-    /// this type, or `None` where there is nothing to release.
-    fn release_glue(&mut self, ty: &Ty) -> Option<FunctionValue<'ctx>> {
+    /// The `void(ptr)` function that runs `op` over one value of this type, or
+    /// `None` where it holds no count.
+    ///
+    /// `None` for a retain is the answer for `[Int]`, `[U8]` and every struct
+    /// of scalars, and it reaches `cli/runtime/list.rs` as a null pointer, so
+    /// the common case costs no per-element call at all.
+    fn glue(&mut self, op: Op, ty: &Ty) -> Option<FunctionValue<'ctx>> {
+        self.glue_for(op, false, ty)
+    }
+
+    /// The same over every element of a `[T]` block, whose element count is
+    /// `cap / stride`.
+    fn elems_glue(&mut self, op: Op, elem: &Ty) -> Option<FunctionValue<'ctx>> {
+        self.glue_for(op, true, elem)
+    }
+
+    fn glue_for(&mut self, op: Op, elems: bool, ty: &Ty) -> Option<FunctionValue<'ctx>> {
         if !self.reprs.counted_type(ty) {
             return None;
         }
-        if let Some(f) = self.releases.get(ty) {
-            return Some(*f);
+        let (slot, what) = match (op, elems) {
+            (Op::Retain, false) => (0, "retain_elem"),
+            (Op::Retain, true) => (1, "retain_elems"),
+            (Op::Release, false) => (2, "release"),
+            (Op::Release, true) => (3, "release_elems"),
+            (Op::Copy, false) => (4, "copy"),
+            (Op::Copy, true) => (5, "copy_elems"),
+        };
+        if let Some(f) = self.glues.get(ty).and_then(|row| row.get(slot).copied().flatten()) {
+            return Some(f);
         }
         let key = self.reprs.glue_key(ty);
-        let (f, fresh) = self.glue_function("release", &key);
-        self.releases.insert(ty.clone(), f);
+        let (f, fresh) = self.glue_function(what, &key);
+        if let Some(entry) = self.glues.entry(ty.clone()).or_default().get_mut(slot) {
+            *entry = Some(f);
+        }
         if fresh {
-            self.pending.push(Job::Release { value: f, ty: ty.clone() });
-        }
-        Some(f)
-    }
-
-    /// The same for a `[T]` block, whose element count is `cap / stride`.
-    fn release_elems_glue(&mut self, elem: &Ty) -> Option<FunctionValue<'ctx>> {
-        if !self.reprs.counted_type(elem) {
-            return None;
-        }
-        if let Some(f) = self.release_elems.get(elem) {
-            return Some(*f);
-        }
-        let key = self.reprs.glue_key(elem);
-        let (f, fresh) = self.glue_function("release_elems", &key);
-        self.release_elems.insert(elem.clone(), f);
-        if fresh {
-            self.pending.push(Job::ReleaseElems { value: f, elem: elem.clone() });
-        }
-        Some(f)
-    }
-
-    /// The function that **copies** the contents of a block holding one value
-    /// of this type, or `None` where there is nothing inside it to copy.
-    ///
-    /// [`Unit::release_glue`]'s twin, memoised in its own table for the same
-    /// reason: one function per type, per unit.
-    fn copy_glue(&mut self, ty: &Ty) -> Option<FunctionValue<'ctx>> {
-        if !self.reprs.counted_type(ty) {
-            return None;
-        }
-        if let Some(f) = self.copies.get(ty) {
-            return Some(*f);
-        }
-        let key = self.reprs.glue_key(ty);
-        let (f, fresh) = self.glue_function("copy", &key);
-        self.copies.insert(ty.clone(), f);
-        if fresh {
-            self.pending.push(Job::Copy { value: f, ty: ty.clone() });
-        }
-        Some(f)
-    }
-
-    /// The same for a `[T]` block, whose element count is `cap / stride`.
-    fn copy_elems_glue(&mut self, elem: &Ty) -> Option<FunctionValue<'ctx>> {
-        if !self.reprs.counted_type(elem) {
-            return None;
-        }
-        if let Some(f) = self.copy_elems.get(elem) {
-            return Some(*f);
-        }
-        let key = self.reprs.glue_key(elem);
-        let (f, fresh) = self.glue_function("copy_elems", &key);
-        self.copy_elems.insert(elem.clone(), f);
-        if fresh {
-            self.pending.push(Job::CopyElems { value: f, elem: elem.clone() });
-        }
-        Some(f)
-    }
-
-    /// The mirror: the function that takes a reference on everything one
-    /// element holds, or `None` where it holds nothing counted.
-    ///
-    /// `None` is the answer for `[Int]`, `[U8]` and every struct of scalars,
-    /// which is most of them — and it reaches `cli/runtime/list.rs` as a null
-    /// pointer, so the common case costs a copy and no per-element call at all.
-    fn retain_glue(&mut self, elem: &Ty) -> Option<FunctionValue<'ctx>> {
-        if !self.reprs.counted_type(elem) {
-            return None;
-        }
-        if let Some(f) = self.retains.get(elem) {
-            return Some(*f);
-        }
-        let key = self.reprs.glue_key(elem);
-        let (f, fresh) = self.glue_function("retain_elem", &key);
-        self.retains.insert(elem.clone(), f);
-        if fresh {
-            self.pending.push(Job::RetainElem { value: f, elem: elem.clone() });
+            self.pending.push(Job::Glue { value: f, op, elems, ty: ty.clone() });
         }
         Some(f)
     }
@@ -3631,7 +3560,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// `middle::derives` generated no comparison for it — and then the graph
     /// falls back to the bytes, which is the whole of the value for a scalar.
     ///
-    /// One per type per unit, memoised for [`Unit::release_glue`]'s reason: it
+    /// One per type per unit, memoised for [`Unit::glue_for`]'s reason: it
     /// is reached through a function pointer, so a copy per call site would be
     /// a symbol per call site.
     fn equal_glue(&mut self, ty: &Ty) -> Option<FunctionValue<'ctx>> {
@@ -3691,7 +3620,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             let pieces = self.load_slots(at, &slots, align);
             if own.get(i) == Some(&ir::Ownership::Own) && self.rc_counted(ty) {
                 let place = Place::Registers { slots: slots.clone(), pieces: pieces.clone() };
-                self.walk_rc(state, ty, &place, 0, true, 0);
+                self.walk_rc(state, ty, &place, 0, Op::Retain, 0);
             }
             argv.extend(pieces.into_iter().map(BasicMetadataValueEnum::from));
         }
@@ -3853,7 +3782,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             let pieces = self.load_slots(arg, &slots, align);
             if self.rc_counted(elem) {
                 let place = Place::Registers { slots, pieces: pieces.clone() };
-                self.walk_rc(state, elem, &place, 0, true, 0);
+                self.walk_rc(state, elem, &place, 0, Op::Retain, 0);
             }
             argv.extend(pieces.into_iter().map(BasicMetadataValueEnum::from));
         }
@@ -3909,51 +3838,35 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         at
     }
 
-    fn env_glue(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.env_glue {
+    /// The glue every closure environment shares: the block's first word (the
+    /// release) or second word (the copy) is the type's own function, and the
+    /// record follows.
+    fn env_glue(&mut self, op: Op) -> FunctionValue<'ctx> {
+        let (at, what, word) = match op {
+            Op::Copy => (1, "env_copy_glue", ENV_COPY_WORD),
+            Op::Retain | Op::Release => (0, "env_glue", 0),
+        };
+        if let Some(f) = self.env_glues.get(at).copied().flatten() {
             return f;
         }
-        let (f, fresh) = self.glue_function("env_glue", "any");
-        self.env_glue = Some(f);
+        let (f, fresh) = self.glue_function(what, "any");
+        if let Some(entry) = self.env_glues.get_mut(at) {
+            *entry = Some(f);
+        }
         if fresh {
-            self.pending.push(Job::EnvGlue { value: f });
+            self.pending.push(Job::Env { value: f, word });
         }
         f
     }
 
-    /// [`Unit::env_glue`] for the copy: the same indirection out of the
-    /// block's **second** word.
-    fn env_copy_glue(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.env_copy_glue {
-            return f;
-        }
-        let (f, fresh) = self.glue_function("env_copy_glue", "any");
-        self.env_copy_glue = Some(f);
-        if fresh {
-            self.pending.push(Job::EnvCopy { value: f });
-        }
-        f
-    }
-
-    /// What `decref` calls before the block goes back.
-    fn glue_pointer(&mut self, glue: &Glue) -> Option<PointerValue<'ctx>> {
+    /// What `decref` or `buri_rt_copy_block` calls on a block's contents.
+    fn glue_pointer(&mut self, op: Op, glue: &Glue) -> Option<PointerValue<'ctx>> {
         match glue {
-            // A `Str`'s block holds bytes, so the *release* side of `Glue::Str`
-            // is `Glue::None`'s answer exactly; the two are told apart for the
-            // copy alone (`Unit::copy_rc`).
-            Glue::None | Glue::Str => None,
-            Glue::Env => Some(function_pointer(self.env_glue())),
-            Glue::Elems(t) => self.release_elems_glue(t).map(function_pointer),
-        }
-    }
-
-    /// What `buri_rt_copy_block` calls on the fresh block, once its bytes have
-    /// been duplicated: [`Unit::glue_pointer`]'s twin for the copy.
-    fn copy_glue_pointer(&mut self, glue: &Glue) -> Option<PointerValue<'ctx>> {
-        match glue {
-            Glue::None | Glue::Str => None,
-            Glue::Env => Some(function_pointer(self.env_copy_glue())),
-            Glue::Elems(t) => self.copy_elems_glue(t).map(function_pointer),
+            // A `Str`'s block holds bytes; the copy's rebase is
+            // `buri_rt_copy_str`, called instead of `buri_rt_copy_block`.
+            Glue::Str => None,
+            Glue::Env => Some(function_pointer(self.env_glue(op))),
+            Glue::Elems(t) => self.elems_glue(op, t).map(function_pointer),
         }
     }
 
@@ -4011,13 +3924,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn define_helper(&mut self, job: Job<'ctx>) {
         let value = match &job {
             Job::Thunk { value, .. }
-            | Job::Release { value, .. }
-            | Job::ReleaseElems { value, .. }
-            | Job::RetainElem { value, .. }
-            | Job::Copy { value, .. }
-            | Job::CopyElems { value, .. }
-            | Job::EnvGlue { value }
-            | Job::EnvCopy { value }
+            | Job::Glue { value, .. }
+            | Job::Env { value, .. }
             | Job::Entry { value, .. }
             | Job::Equal { value, .. } => *value,
         };
@@ -4051,40 +3959,24 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.build_equal(&mut state, func, &ty);
                 return;
             }
-            Job::Release { ty, .. } => {
+            Job::Glue { op, elems: false, ty, .. } => {
                 let align = self.reprs.of_ty(&ty).layout.align;
                 let place = Place::Memory { base: first, align };
-                self.walk_rc(&mut state, &ty, &place, 0, false, 0);
-            }
-            Job::RetainElem { elem, .. } => {
-                let align = self.reprs.of_ty(&elem).layout.align;
-                let place = Place::Memory { base: first, align };
-                self.walk_rc(&mut state, &elem, &place, 0, true, 0);
+                self.walk_rc(&mut state, &ty, &place, 0, op, 0);
             }
             // The count is `cap / stride`, and `cap` is the second header word
-            // (VALUE-MODEL.md §2) — which is what makes a drop glue taking only
-            // a pointer enough for a list. Bit 63 of the word is the reserved
+            // (VALUE-MODEL.md §2) — which is what makes a glue taking only a
+            // pointer enough for a list. Bit 63 of the word is the reserved
             // multi-threaded mark (`layout::CAP_SHARED_FLAG`), so it is masked
             // off before the divide: a set bit would make this walk 2^60
             // elements of a block that holds a handful. Headroom past the last
             // element is zeroed and skipped (`Unit::unless_spare`).
-            Job::ReleaseElems { elem, .. } => {
-                let stride = self.reprs.stride_of(&elem);
+            Job::Glue { op, elems: true, ty, .. } => {
+                let stride = self.reprs.stride_of(&ty);
                 let count = self.block_element_count(first, stride);
-                self.each_element(&mut state, first, count, stride, &elem, false);
+                self.each_element(&mut state, first, count, stride, &ty, op);
             }
-            Job::Copy { ty, .. } => {
-                self.copy_rc(&mut state, &ty, first, 0, 0);
-            }
-            // The count is `cap / stride` exactly as `Job::ReleaseElems`
-            // reads it, and masked for the same reason.
-            Job::CopyElems { elem, .. } => {
-                let stride = self.reprs.stride_of(&elem);
-                let count = self.block_element_count(first, stride);
-                self.each_element_copy(&mut state, first, count, stride, &elem);
-            }
-            Job::EnvGlue { .. } => self.build_env_glue(&mut state, first, 0),
-            Job::EnvCopy { .. } => self.build_env_glue(&mut state, first, ENV_COPY_WORD),
+            Job::Env { word, .. } => self.build_env_glue(&mut state, first, word),
         }
         let _ = self.builder.build_return(None);
     }
@@ -4144,7 +4036,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     if let Some(ty) = self.type_of(first) {
                         if self.rc_counted(&ty) {
                             let place = Place::Memory { base: record, align };
-                            self.walk_rc(state, &ty, &place, 0, true, 0);
+                            self.walk_rc(state, &ty, &place, 0, Op::Retain, 0);
                         }
                     }
                 }
@@ -4195,7 +4087,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // reads its parameter.
         for (ty, slots, pieces) in borrowed {
             let place = Place::Registers { slots, pieces };
-            self.walk_rc(state, &ty, &place, 0, false, 0);
+            self.walk_rc(state, &ty, &place, 0, Op::Release, 0);
         }
         match answer {
             Some(v) => {
@@ -4268,134 +4160,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.builder
             .build_int_unsigned_div(cap, word.const_int(u64::from(stride), false), "count")
             .unwrap_or(cap)
-    }
-
-    /// The **copy** walk: [`Unit::walk_rc`]'s recursion with every counted
-    /// pointer replaced, in place, by a pointer to a fresh block of its own.
-    ///
-    /// Memory-only, and that is not a restriction it suffers but the shape of
-    /// the operation: a copy writes its answers back where it found the
-    /// pointers, and an SSA value has no address to write to
-    /// (CODEGEN-LLVM.md §2.2). Every caller therefore has a block or an
-    /// `alloca` in hand — the glue functions are handed one, and
-    /// [`Unit::copy_out`] spills into one.
-    ///
-    /// Nothing here increments a count. *A copy is not a share* is the whole
-    /// property of the slice, and it is visible in the emitted IR rather than
-    /// argued for: there is no `buri_rt_incref` on any path below.
-    fn copy_rc(
-        &mut self,
-        state: &mut Function<'ctx>,
-        ty: &Ty,
-        base: PointerValue<'ctx>,
-        off: u32,
-        depth: u32,
-    ) {
-        if depth > repr::RC_DEPTH || !self.reprs.counted_type(ty) {
-            return;
-        }
-        for site in self.reprs.sites(ty) {
-            match site {
-                Site::Block { offset, glue, .. } => {
-                    let at = off.saturating_add(offset);
-                    let p = repr::byte_offset(self.ctx, &self.builder, base, i64::from(at), "cp.p");
-                    if matches!(glue, Glue::Str) {
-                        self.call_copy_str(p);
-                        continue;
-                    }
-                    let g = self.copy_glue_pointer(&glue);
-                    self.replace_with_copy(p, g);
-                }
-                Site::Nested { offset, ty } => {
-                    let at = off.saturating_add(offset);
-                    self.copy_rc(state, &ty, base, at, depth.saturating_add(1));
-                }
-                Site::Boxed { offset, ty } => {
-                    let at = off.saturating_add(offset);
-                    let p = repr::byte_offset(self.ctx, &self.builder, base, i64::from(at), "cp.b");
-                    let g = self.copy_glue(&ty).map(function_pointer);
-                    self.replace_with_copy(p, g);
-                }
-                Site::Tagged { tag, variants } => {
-                    self.tagged_copy(state, base, off, tag, &variants, depth);
-                }
-                // The niche: `.None` is the payload's own pointer set to null,
-                // so the payload is copied only where it is not — the same
-                // guard `Unit::walk_rc` puts in front of a release.
-                Site::Guarded { null_at, ty } => {
-                    let at = off.saturating_add(null_at);
-                    let p = repr::byte_offset(self.ctx, &self.builder, base, i64::from(at), "cp.g");
-                    let Ok(BasicValueEnum::PointerValue(v)) =
-                        self.builder.build_load(self.ptr_ty(), p, "cp.gv")
-                    else {
-                        continue;
-                    };
-                    let live = self.ctx.append_basic_block(state.value, "cp.some");
-                    let done = self.ctx.append_basic_block(state.value, "cp.done");
-                    let Ok(is_null) = self.builder.build_is_null(v, "cp.isnone") else { continue };
-                    let _ = self.builder.build_conditional_branch(is_null, done, live);
-                    self.builder.position_at_end(live);
-                    self.copy_rc(state, &ty, base, off, depth.saturating_add(1));
-                    let _ = self.builder.build_unconditional_branch(done);
-                    self.builder.position_at_end(done);
-                }
-            }
-        }
-    }
-
-    /// A tagged enum, copied: one `switch` on the discriminant and one arm per
-    /// variant that carries anything, exactly as [`Unit::tagged_rc`] releases
-    /// one.
-    fn tagged_copy(
-        &mut self,
-        state: &mut Function<'ctx>,
-        base: PointerValue<'ctx>,
-        off: u32,
-        tag: Scalar,
-        variants: &[(u32, Ty, u32, bool)],
-        depth: u32,
-    ) {
-        let word = repr::slot_type(self.ctx, SlotTy::Scalar(tag));
-        let tag_at = repr::byte_offset(self.ctx, &self.builder, base, i64::from(off), "cp.tag.p");
-        let Ok(raw) = self.builder.build_load(word, tag_at, "cp.tag") else { return };
-        let Ok(raw) = TryInto::<IntValue<'ctx>>::try_into(raw) else { return };
-        let i32t = self.ctx.i32_type();
-        let key = self
-            .builder
-            .build_int_z_extend_or_bit_cast(raw, i32t, "cp.key")
-            .unwrap_or_else(|_| i32t.const_zero());
-        let done = self.ctx.append_basic_block(state.value, "cp.join");
-        let mut by_variant: Vec<(u32, Vec<VariantField>)> = Vec::new();
-        for (v, ty, offset, boxed) in variants {
-            match by_variant.iter_mut().find(|(k, _)| *k == *v) {
-                Some((_, fields)) => fields.push((ty.clone(), *offset, *boxed)),
-                None => by_variant.push((*v, vec![(ty.clone(), *offset, *boxed)])),
-            }
-        }
-        let mut arms = Vec::with_capacity(by_variant.len());
-        for (v, fields) in &by_variant {
-            let bb = self.ctx.append_basic_block(state.value, "cp.arm");
-            arms.push((i32t.const_int(u64::from(*v), false), bb, fields.clone()));
-        }
-        let table: Vec<(IntValue<'ctx>, BasicBlock<'ctx>)> =
-            arms.iter().map(|(k, bb, _)| (*k, *bb)).collect();
-        let _ = self.builder.build_switch(key, done, &table);
-        for (_, bb, fields) in arms {
-            self.builder.position_at_end(bb);
-            for (ty, offset, boxed) in fields {
-                let at = off.saturating_add(offset);
-                if boxed {
-                    let p =
-                        repr::byte_offset(self.ctx, &self.builder, base, i64::from(at), "cp.vb");
-                    let g = self.copy_glue(&ty).map(function_pointer);
-                    self.replace_with_copy(p, g);
-                    continue;
-                }
-                self.copy_rc(state, &ty, base, at, depth.saturating_add(1));
-            }
-            let _ = self.builder.build_unconditional_branch(done);
-        }
-        self.builder.position_at_end(done);
     }
 
     /// `*p = buri_rt_copy_block(*p, glue)`.
@@ -4491,65 +4255,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.builder.position_at_end(rejoin);
     }
 
-    /// [`Unit::each_element`] for the copy: the same counted loop, replacing
-    /// each element in place.
-    fn each_element_copy(
-        &mut self,
-        state: &mut Function<'ctx>,
-        base: PointerValue<'ctx>,
-        count: IntValue<'ctx>,
-        stride: u32,
-        elem: &Ty,
-    ) {
-        let word = self.ctx.i64_type();
-        let Some(pre) = self.builder.get_insert_block() else { return };
-        let header = self.ctx.append_basic_block(state.value, "cpel.head");
-        let body = self.ctx.append_basic_block(state.value, "cpel.body");
-        let done = self.ctx.append_basic_block(state.value, "cpel.done");
-        let _ = self.builder.build_unconditional_branch(header);
-
-        self.builder.position_at_end(header);
-        let Ok(phi) = self.builder.build_phi(word, "i") else { return };
-        let Ok(index) = TryInto::<IntValue<'ctx>>::try_into(phi.as_basic_value()) else { return };
-        let more = self
-            .builder
-            .build_int_compare(IntPredicate::ULT, index, count, "cpel.more")
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
-        let _ = self.builder.build_conditional_branch(more, body, done);
-
-        self.builder.position_at_end(body);
-        let scaled = self
-            .builder
-            .build_int_mul(index, word.const_int(u64::from(stride), false), "cpel.off")
-            .unwrap_or(index);
-        // SAFETY: inkwell marks `build_in_bounds_gep` unsafe because it cannot
-        // check the index; the loop bound is `cap / stride`, so every offset is
-        // inside the block this pointer names.
-        let at = unsafe {
-            self.builder
-                .build_in_bounds_gep(self.ctx.i8_type(), base, &[scaled], "cpel.at")
-                .unwrap_or(base)
-        };
-        let skip = self.unless_spare(state, at, stride);
-        self.copy_rc(state, elem, at, 0, 0);
-        self.join_spare(skip);
-        let next = self
-            .builder
-            .build_int_add(index, word.const_int(1, false), "cpel.next")
-            .unwrap_or(index);
-        // The back edge names the block the copy *ended* in, for
-        // `Unit::each_element`'s reason: an enum or a niche inside the element
-        // leaves the builder in a join block it created.
-        let latch = self.builder.get_insert_block().unwrap_or(body);
-        let _ = self.builder.build_unconditional_branch(header);
-        phi.add_incoming(&[
-            (&word.const_zero() as &dyn BasicValue<'ctx>, pre),
-            (&next as &dyn BasicValue<'ctx>, latch),
-        ]);
-
-        self.builder.position_at_end(done);
-    }
-
     /// A counted loop over a block's elements, walking each in place.
     fn each_element(
         &mut self,
@@ -4558,7 +4263,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         count: IntValue<'ctx>,
         stride: u32,
         elem: &Ty,
-        retain: bool,
+        op: Op,
     ) {
         let word = self.ctx.i64_type();
         let Some(pre) = self.builder.get_insert_block() else { return };
@@ -4592,7 +4297,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let align = self.reprs.of_ty(elem).layout.align;
         let place = Place::Memory { base: at, align };
         let skip = self.unless_spare(state, at, stride);
-        self.walk_rc(state, elem, &place, 0, retain, 0);
+        self.walk_rc(state, elem, &place, 0, op, 0);
         self.join_spare(skip);
         let next = self
             .builder
@@ -5812,7 +5517,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let buf = self.scratch(state, size, align);
         let pieces = repr::disassemble(&self.builder, &slots, value);
         self.store_slots(buf, &slots, align, &pieces);
-        if let Some(f) = self.copy_glue(&ty) {
+        if let Some(f) = self.glue(Op::Copy, &ty) {
             if let Ok(call) = self.builder.build_call(f, &[buf.into()], "") {
                 attrs::set_call_convention(call, attrs::C);
             }
@@ -6854,7 +6559,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             if self.rc_counted(&ty) {
                 let place =
                     Place::Registers { slots: slots.clone(), pieces: pieces.clone() };
-                self.walk_rc(state, &ty, &place, 0, true, 0);
+                self.walk_rc(state, &ty, &place, 0, Op::Retain, 0);
             }
         }
         params.extend_from_slice(&slots);
@@ -6873,7 +6578,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if self.rc_counted(&src.elem) {
             let elem = src.elem.clone();
             let place = Place::Memory { base: at, align: src.align };
-            self.walk_rc(state, &elem, &place, 0, true, 0);
+            self.walk_rc(state, &elem, &place, 0, Op::Retain, 0);
         }
         for piece in self.load_slots(at, &src.slots, src.align) {
             argv.push(piece.into());
@@ -7005,7 +6710,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// exact block copied out of its used prefix.
     ///
     /// Two allocations rather than one, and the second is not avoidable: a
-    /// `[T]`'s element count is `cap / stride` ([`Job::ReleaseElems`]), so an
+    /// `[T]`'s element count is `cap / stride` ([`Job::Glue`]), so an
     /// over-allocated block whose length is shorter than its capacity would
     /// have its *uninitialised* tail released when it died, and shrinking `cap`
     /// would lie to the allocator about which size class the block came from.
@@ -7060,7 +6765,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // the layout table rather than rc.
                 let elem = src.elem.clone();
                 let place = Place::Memory { base: into, align };
-                self.walk_rc(state, &elem, &place, 0, true, 0);
+                self.walk_rc(state, &elem, &place, 0, Op::Retain, 0);
                 let more = self
                     .builder
                     .build_int_add(kept, word.const_int(1, false), "filter.kept")
@@ -7156,7 +6861,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     if self.rc_counted(&src.elem) {
                         let elem = src.elem.clone();
                         let place = Place::Memory { base: at, align: src.align };
-                        self.walk_rc(state, &elem, &place, 0, true, 0);
+                        self.walk_rc(state, &elem, &place, 0, Op::Retain, 0);
                     }
                     vec![(src.slots.clone(), pieces)]
                 };
@@ -7448,7 +7153,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             );
             let elem = side.elem.clone();
             let place = Place::Memory { base: target, align };
-            self.walk_rc(state, &elem, &place, 0, true, 0);
+            self.walk_rc(state, &elem, &place, 0, Op::Retain, 0);
         }
         self.close_loop(&l, None);
         let slots = repr::ir_slots(&mut self.reprs, self.program, ir_dest);
@@ -7460,7 +7165,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// `flatten`: one block holding every element of every inner block.
     ///
     /// Two passes, because the result's length is the sum of the inner lengths
-    /// and a `[T]`'s element count is `cap / stride` ([`Job::ReleaseElems`]) —
+    /// and a `[T]`'s element count is `cap / stride` ([`Job::Glue`]) —
     /// an over-allocated block would have its uninitialised tail released when
     /// it died. The first pass reads `len` out of each descriptor and nothing
     /// else, which is a load per inner list and no call.
@@ -7554,7 +7259,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         );
         let elem = out_elem.clone();
         let place = Place::Memory { base: into, align };
-        self.walk_rc(state, &elem, &place, 0, true, 0);
+        self.walk_rc(state, &elem, &place, 0, Op::Retain, 0);
         self.close_loop(&one, None);
         let after = self.builder.build_int_add(filled, len, "flat.after").unwrap_or(filled);
         self.close_loop(&outer, Some(after.into()));
@@ -7888,7 +7593,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let rendered = self.elem_at(scratch, freeing.i, stride, "show.free");
         let place = Place::Memory { base: rendered, align };
         let str_ty = str_ty.clone();
-        self.walk_rc(state, &str_ty, &place, 0, false, 0);
+        self.walk_rc(state, &str_ty, &place, 0, Op::Release, 0);
         self.close_loop(&freeing, None);
         let free = self.rt_free();
         if let Ok(call) = self.builder.build_call(free, &[scratch.into()], "") {
@@ -7953,7 +7658,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let _ = self.builder.build_memcpy(into, align, from, align, size);
         let elem = src.elem.clone();
         let place = Place::Memory { base: into, align };
-        self.walk_rc(state, &elem, &place, 0, true, 0);
+        self.walk_rc(state, &elem, &place, 0, Op::Retain, 0);
         self.close_loop(&l, None);
 
         // -- width 1, 2, 4, …, with the two buffers swapping each pass ------

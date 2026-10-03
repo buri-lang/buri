@@ -1013,7 +1013,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// This is the bar `cli/tests/native/runtime.rs` holds the toolchain to, asked
 /// of the backend that consumes `middle::rc`'s plan: a missing release is a
 /// leak, and a leak that compiles is a wrong program that passes its own
-/// tests. `emit::Lower::walk_rc` refuses every shape it cannot release rather
+/// tests. `emit::Jit::walk_rc` refuses every shape it cannot release rather
 /// than emitting one, so what this asserts is that the shapes it *does* emit
 /// balance — a `Str` in a struct, a `Str` in an enum payload, a `Str` built by
 /// concatenation, and a `Str` **an intrinsic put in an enum payload**.
@@ -1598,7 +1598,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// and leaves the rest of the payload whatever the frame last held, so a
 /// reference-count walk that descended unguarded decremented a count at an
 /// address that was never a pointer. It is a crash rather than a wrong answer,
-/// and it is exactly the shape `stencil/emit.rs::niche_rc` exists for; this is
+/// and it is exactly the shape `counts::Site::Guarded` exists for; this is
 /// a `.None` produced in a loop whose frame is still holding the
 /// previous iteration's live `Str`.
 #[test]
@@ -1633,6 +1633,56 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert_eq!(ran.status, 0, "{}", ran.stderr);
     assert_eq!(ran.stdout, "a1b2--\n", "{}", ran.stderr);
     let (total, live) = probed(&ran.stderr);
+    assert_eq!(live, 0, "{total} blocks allocated and {live} still live at exit");
+}
+
+/// A `Str` ten structs deep is still released. The backend once gave up
+/// asking whether a type holds a count past eight levels and answered no, so
+/// the outer value was dropped without releasing the string.
+#[test]
+fn a_count_nested_ten_structs_deep_is_released() {
+    if !supported() {
+        return;
+    }
+    let ran = run_with(
+        "deep",
+        r#"
+from "core/alloc" import * as alloc;
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+export struct L9 { s: Str }
+export struct L8 { a: L9 }
+export struct L7 { a: L8 }
+export struct L6 { a: L7 }
+export struct L5 { a: L6 }
+export struct L4 { a: L5 }
+export struct L3 { a: L4 }
+export struct L2 { a: L3 }
+export struct L1 { a: L2 }
+export struct L0 { a: L1 }
+
+fn wrap(s: Str): L0 {
+  L0 { a: L1 { a: L2 { a: L3 { a: L4 { a: L5 { a: L6 { a: L7 { a: L8 { a: L9 { s: s } } } } } } } } } }
+}
+
+fn inner(x: L0): Str { x.a.a.a.a.a.a.a.a.a.s }
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: alloc.generalPurpose() };
+  let x = wrap(str.format(ctx, "deep ${10}"));
+  let _ = io.println(host.stdout, inner(x)).ignore();
+  .Ok(())
+}
+"#,
+        Some(ALLOC_PROBE),
+    );
+    assert_eq!(ran.status, 0, "{}", ran.stderr);
+    assert_eq!(ran.stdout, "deep 10\n", "{}", ran.stderr);
+    let (total, live) = probed(&ran.stderr);
+    assert!(total > 0, "the program allocated nothing, so this asserts nothing");
     assert_eq!(live, 0, "{total} blocks allocated and {live} still live at exit");
 }
 

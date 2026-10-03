@@ -37,8 +37,11 @@ enum RSrc {
 }
 use super::jit::{Fn2, Jit, Plan, V};
 use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS};
+use super::glue::Helper;
+use super::runtime;
+use crate::compiler::backend::counts::{Field, Glue, Op, Site};
 use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
-use crate::compiler::middle::layout::{EnumRepr, Repr, Scalar};
+use crate::compiler::middle::layout::{EnumRepr, Repr};
 use crate::compiler::semantics::types::{Prim, Ty};
 
 /// How deep the reference-count walk goes before it refuses.
@@ -50,7 +53,7 @@ const RC_DEPTH: u32 = 8;
 
 /// How many levels of a compound type's counted-pointer walk are emitted
 /// inline before the rest goes through the type's own glue. See
-/// [`Jit::walk_deep`].
+/// [`Jit::walk_field`].
 const RC_INLINE: u32 = 2;
 
 pub fn prim_tag(p: Prim) -> Option<(&'static str, u32, bool)> {
@@ -407,8 +410,8 @@ impl<'a> Jit<'a> {
                     None => self.imm_to(d + super::glue::ENV_WORD, 0),
                 }
             }
-            Inst::IncRef { value } => self.rc(prog, code, st, *value, true),
-            Inst::DecRef { value, .. } => self.rc(prog, code, st, *value, false),
+            Inst::IncRef { value } => self.rc(prog, code, st, *value, Op::Retain),
+            Inst::DecRef { value, .. } => self.rc(prog, code, st, *value, Op::Release),
             Inst::Abort { message } => {
                 // `buri_rt_abort` is `noreturn`, so whatever the block's
                 // terminator was is dead. The census counts 6,870 `abort +
@@ -719,7 +722,7 @@ impl<'a> Jit<'a> {
             }
             JsonArm::Str => match prim {
                 Prim::Str | Prim::Template => {
-                    self.rc(prog, code, st, arg, true);
+                    self.rc(prog, code, st, arg, Op::Retain);
                     let w = self.width_of(prog, code.ty_of(arg));
                     self.mv(d + off, a, w);
                     Ok(())
@@ -729,7 +732,7 @@ impl<'a> Jit<'a> {
                 // `show_prim`'s `Char` arm, and the block it answers is fresh,
                 // so this arm needs no retain.
                 _ => self.c_call(
-                    "buri_rt_char_to_str",
+                    runtime::CHAR_TO_STR,
                     st,
                     &[Src::Word(a), Src::Addr(d + off)],
                     &[],
@@ -743,7 +746,7 @@ impl<'a> Jit<'a> {
     /// A **boxed** field: `middle::layout` puts a pointer where the field would
     /// be, for the field that would otherwise make the owner recursive
     /// (`Layouts::boxes`). So writing one is an allocation, a copy and a store
-    /// of the pointer — the shape `llvm/repr.rs`'s `Site::Boxed` releases.
+    /// of the pointer — the shape a boxed `counts::Field` releases.
     fn box_into(&mut self, st: &mut Fn2, dest: u32, src: u32, size: u32) {
         let (ptr, one) = (st.scratch, st.scratch + 8);
         self.imm_to(one, 1);
@@ -821,18 +824,16 @@ impl<'a> Jit<'a> {
     /// `Inst::IncRef` and `Inst::DecRef`: MEMORY.md §5.1's saturating increment
     /// and its decrement, over **every** counted block the value owns.
     ///
-    /// The walk covers all five site kinds `llvm/repr.rs`'s `Site` names. A
-    /// missing release is a leak, and a leak that compiles is a wrong program
+    /// A missing release is a leak, and a leak that compiles is a wrong program
     /// that passes its tests: `cli/tests/native/runtime.rs` holds the toolchain
-    /// to "every allocation is freed at exit", and a backend that quietly did
-    /// not would be reported by that test rather than by this one.
+    /// to "every allocation is freed at exit".
     fn rc(
         &mut self,
         prog: &ir::Program,
         code: &ir::Code,
         st: &mut Fn2,
         value: ir::ValueId,
-        retain: bool,
+        op: Op,
     ) {
         let ir::Type::Agg(id) = code.ty_of(value) else { return };
         // Borrowed, not cloned: a `Ty` is a tree and this is asked once per
@@ -840,224 +841,122 @@ impl<'a> Jit<'a> {
         // instruction `middle::rc` emits.
         let ty = &prog.type_info(id).ty;
         let at = st.at(value);
-        if let Err(why) = self.walk_rc(st, ty, at, retain, 0) {
+        if let Err(why) = self.walk_rc(st, ty, at, op, 0) {
             self.unsupported(why);
         }
     }
 
-    /// One value's counted blocks, in the order `middle::rc`'s classifier names
-    /// them.
+    /// `op` over one value's counted blocks, at frame offset `at`
+    /// (`backend/counts.rs`).
     ///
-    /// `depth` bounds the walk the same way `llvm/emit.rs` bounds its own,
-    /// and [`Jit::walk_deep`] is what keeps it from being reached: a recursive
-    /// type reaches itself through a **box**, which is a leaf here, and a deep
-    /// non-recursive one goes out of line into its own glue.
+    /// [`Op::Copy`] replaces each block with `buri_rt_copy_block`'s answer and
+    /// stores it back where the pointer was. Nothing in a copy increments a
+    /// count: *a copy is not a share*.
+    ///
+    /// `depth` bounds the walk, and [`Jit::walk_field`] is what keeps it from
+    /// being reached: a recursive type reaches itself through a **box**, which
+    /// is a leaf here, and a deep non-recursive one goes out of line into its
+    /// own glue.
     pub(crate) fn walk_rc(
         &mut self,
         st: &mut Fn2,
         ty: &Ty,
         at: u32,
-        retain: bool,
+        op: Op,
         depth: u32,
     ) -> Result<(), String> {
         if depth > RC_DEPTH {
             return Err(String::from("a reference-counted type nested past the walk's depth"));
         }
-        let l = self.layout_shared(ty);
-        match &l.repr {
-            Repr::Str => {
-                self.rc_block(at, retain, None);
-                Ok(())
-            }
-            Repr::List => {
-                // The block itself is counted; its **elements** are released by
-                // the glue the free path is handed, which is what makes one
-                // pointer enough to drop a whole `[T]`.
-                let Ty::Array(elem) = ty else {
-                    return Err(String::from("a list layout on a type that is not one"));
-                };
-                let glue = (!retain && self.rc_counted(elem))
-                    .then(|| self.helper(super::glue::Helper::Elems { ty: (**elem).clone() }));
-                self.rc_block(at, retain, glue);
-                Ok(())
-            }
-            // A closure's environment is a heap block holding its own release
-            // function in the first word (`glue.rs`), which is what `Ty::Fn`
-            // not recording what was captured forces:
-            // `llvm/emit.rs::build_env` allocates the same shape and counts the
-            // same word.
-            Repr::Closure => {
-                let glue = (!retain).then(|| self.helper(super::glue::Helper::EnvGlue));
-                self.rc_block(at + super::glue::ENV_WORD, retain, glue);
-                Ok(())
-            }
-            Repr::Zero | Repr::Scalar(_) => Ok(()),
-            Repr::Aggregate => {
-                for (i, f) in field_types(self.tables, ty).iter().enumerate() {
-                    let off = l.fields.get(i).copied().unwrap_or(0);
-                    if self.boxes(ty, f) {
-                        self.rc_box(at + off, f, retain);
-                        continue;
+        let sites = self.rc_sites(ty);
+        for site in sites.iter() {
+            match site {
+                Site::Block { offset, glue } => self.block_op(st, at + offset, glue, op)?,
+                Site::Field(f) => self.walk_field(st, f, at, op, depth)?,
+                // One arm per variant that owns something, dispatched on the
+                // tag the same way a `match` is.
+                Site::Tagged { tag, arms } => {
+                    let done = st.label();
+                    for arm in arms.iter() {
+                        let next = st.label();
+                        let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
+                        self.load_w(scr, at, tag.size());
+                        let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
+                        self.emit(
+                            &key,
+                            &[
+                                ("JIT_A", V::I(u64::from(scr))),
+                                ("JIT_K", V::I(u64::from(arm.variant))),
+                                ("JIT_T", V::Fall),
+                                ("JIT_F", V::Blk(next)),
+                            ],
+                        );
+                        for f in arm.fields.iter() {
+                            self.walk_field(st, f, at, op, depth)?;
+                        }
+                        self.emit("jump", &[("JIT_T", V::Blk(done))]);
+                        let here = self.region.code_addr();
+                        st.place(next, here);
                     }
-                    if !self.rc_counted(f) {
-                        continue;
-                    }
-                    self.walk_deep(st, f, at + off, retain, depth)?;
+                    let here = self.region.code_addr();
+                    st.place(done, here);
                 }
-                Ok(())
-            }
-            Repr::Enum { repr, variants } => {
-                let tag = match repr {
-                    EnumRepr::Tagged { tag, .. } => *tag,
-                    // A bare tag carries no payload at all.
-                    EnumRepr::Bare { .. } => return Ok(()),
-                    // A niche is a pointer whose null *is* the discriminant, so
-                    // the walk is the payload's behind that same null test.
-                    EnumRepr::Niche { null_at } => {
-                        return self.niche_rc(st, ty, at, *null_at, retain, depth)
-                    }
-                };
-                self.tagged_rc(st, ty, at, variants, tag, retain, depth)
+                // A niche `Option<T>`: `.None` is written by storing null at
+                // `null_at` and nothing else (`Lower::store_disc`,
+                // `rtcall::store_option_tag`), so the rest of the payload is
+                // whatever the frame last held and the walk is behind the test.
+                Site::Guarded { null_at, ty } => {
+                    let skip = st.label();
+                    let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
+                    self.emit(
+                        &key,
+                        &[
+                            ("JIT_A", V::I(u64::from(at + null_at))),
+                            ("JIT_K", V::I(0)),
+                            ("JIT_T", V::Blk(skip)),
+                            ("JIT_F", V::Fall),
+                        ],
+                    );
+                    self.walk_rc(st, ty, at, op, depth + 1)?;
+                    let here = self.region.code_addr();
+                    st.place(skip, here);
+                }
             }
         }
-    }
-
-    /// A niche `Option<T>`: the payload **is** the value, and the pointer the
-    /// niche spends is null exactly when the value is `.None`.
-    ///
-    /// The walk is therefore behind that null test, and the test is not
-    /// belt-and-braces: `.None` is written by storing null at `null_at` and
-    /// nothing else (`Lower::store_disc`, `rtcall::store_option_tag`), so every
-    /// other byte of the payload area is whatever the frame last held. Walking
-    /// it unguarded decremented a reference count at an address that was never
-    /// a pointer — `llvm/repr.rs`'s `Site::Guarded` is the same test for the
-    /// same reason.
-    fn niche_rc(
-        &mut self,
-        st: &mut Fn2,
-        ty: &Ty,
-        at: u32,
-        null_at: u32,
-        retain: bool,
-        depth: u32,
-    ) -> Result<(), String> {
-        let Ty::Con(_, args) = ty else { return Ok(()) };
-        let Some(payload) = args.first().cloned() else { return Ok(()) };
-        if !self.rc_counted(&payload) {
-            return Ok(());
-        }
-        let skip = st.label();
-        let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
-        self.emit(
-            &key,
-            &[
-                ("JIT_A", V::I(u64::from(at + null_at))),
-                ("JIT_K", V::I(0)),
-                ("JIT_T", V::Blk(skip)),
-                ("JIT_F", V::Fall),
-            ],
-        );
-        self.walk_rc(st, &payload, at, retain, depth + 1)?;
-        let here = self.region.code_addr();
-        st.place(skip, here);
         Ok(())
     }
 
-    /// A tagged enum: one arm per variant that owns something, dispatched on
-    /// the tag the same way a `match` is.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "one variant walk's inputs, each of which it needs"
-    )]
-    fn tagged_rc(
+    /// One field with counts in it, inside a value at `at`.
+    ///
+    /// A **boxed** field is the block's pointer, so it is one operation and no
+    /// descent: whatever is inside is the block's own glue's business.
+    ///
+    /// A compound field deep in the walk goes through its own glue rather than
+    /// inline, at **every** level. A type graph is a DAG whose nodes are
+    /// revisited along every path, so an inline walk of a record of records
+    /// expands once per path rather than once per type
+    /// (`conformance/lib/semantics/test/generics.buri`). Going through here, an
+    /// emitted body holds at most [`RC_INLINE`] levels plus one call per deeper
+    /// field. A `Str`, a `[T]` and a closure never go out of line: the call
+    /// would cost more than the instruction it replaced.
+    fn walk_field(
         &mut self,
         st: &mut Fn2,
-        ty: &Ty,
+        f: &Field,
         at: u32,
-        variants: &[Vec<u32>],
-        tag: Scalar,
-        retain: bool,
+        op: Op,
         depth: u32,
     ) -> Result<(), String> {
-        let done = st.label();
-        for (v, offsets) in variants.iter().enumerate() {
-            let fields = variant_types(self.tables, ty, v);
-            let owned: Vec<(u32, Ty, bool)> = fields
-                .iter()
-                .enumerate()
-                .filter_map(|(i, f)| {
-                    let boxed = self.boxes(ty, f);
-                    (boxed || self.rc_counted(f))
-                        .then(|| (offsets.get(i).copied().unwrap_or(0), f.clone(), boxed))
-                })
-                .collect();
-            if owned.is_empty() {
-                continue;
-            }
-            let next = st.label();
-            let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
-            self.load_w(scr, at, tag.size());
-            let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
-            self.emit(
-                &key,
-                &[
-                    ("JIT_A", V::I(u64::from(scr))),
-                    ("JIT_K", V::I(v as u64)),
-                    ("JIT_T", V::Fall),
-                    ("JIT_F", V::Blk(next)),
-                ],
-            );
-            for (off, f, boxed) in owned {
-                if boxed {
-                    // The field *is* the pointer, so this is one reference
-                    // operation on it and no descent.
-                    self.rc_box(at + off, &f, retain);
-                    continue;
-                }
-                self.walk_deep(st, &f, at + off, retain, depth)?;
-            }
-            self.emit("jump", &[("JIT_T", V::Blk(done))]);
-            let here = self.region.code_addr();
-            st.place(next, here);
+        let at = at + f.offset;
+        if f.boxed {
+            let glue = (op != Op::Retain && self.rc_counted(&f.ty))
+                .then(|| self.helper(Helper::Walk { ty: f.ty.clone(), op }));
+            return self.count_block(st, at, op, glue);
         }
-        let here = self.region.code_addr();
-        st.place(done, here);
-        Ok(())
-    }
-
-    /// One step down inside [`Jit::walk_rc`]: the field's own glue where that
-    /// field is a compound one and the walk is already deep, and the walk
-    /// inline where it is not.
-    ///
-    /// The threshold has to apply at **every** level and not only at the top.
-    /// A type graph is a DAG whose nodes are revisited along every path, so an
-    /// inline walk of a record of records of records expands once per path
-    /// rather than once per type — which is what
-    /// `conformance/lib/semantics/test/generics.buri` is
-    /// (`Tree`, `Pair`, `Either`, `Slot`, `Boxed`, each over the others) and
-    /// what made the walk run out of depth there. Going through here, an
-    /// emitted body holds at most [`RC_INLINE`] levels of its own plus one call
-    /// per deeper field, so the code is linear in the *distinct* types a
-    /// program holds. `llvm/emit.rs`'s glue threshold is the same one for the
-    /// same reason.
-    ///
-    /// A `Str`, a `[T]` and a closure are one reference operation whatever the
-    /// depth, so they never go out of line: the call would cost more than the
-    /// instruction it replaced.
-    fn walk_deep(
-        &mut self,
-        st: &mut Fn2,
-        ty: &Ty,
-        at: u32,
-        retain: bool,
-        depth: u32,
-    ) -> Result<(), String> {
-        let compound = matches!(
-            self.layout_shared(ty).repr,
-            Repr::Aggregate | Repr::Enum { .. }
-        );
+        let compound =
+            matches!(self.layout_shared(&f.ty).repr, Repr::Aggregate | Repr::Enum { .. });
         if compound && depth >= RC_INLINE {
-            let sym = self.helper(super::glue::Helper::Walk { ty: ty.clone(), retain });
+            let sym = self.helper(Helper::Walk { ty: f.ty.clone(), op });
             let addr = st.scratch + (super::rtcall::RAW_WORD + 3) * 8;
             self.emit(
                 "lea",
@@ -1069,32 +968,46 @@ impl<'a> Jit<'a> {
             );
             return self.c_call_sym(sym, st, &[Src::Word(addr)], &[], 0, "v");
         }
-        self.walk_rc(st, ty, at, retain, depth + 1)
+        self.walk_rc(st, &f.ty, at, op, depth + 1)
     }
 
-    /// The reference operation on a **boxed** field: the field is the block's
-    /// pointer, so there is no descent — whatever is inside it is the block's
-    /// own drop glue's business.
-    fn rc_box(&mut self, at: u32, ty: &Ty, retain: bool) {
-        let glue = (!retain && self.rc_counted(ty))
-            .then(|| self.helper(super::glue::Helper::Walk { ty: ty.clone(), retain: false }));
-        self.rc_block(at, retain, glue);
+    /// `op` on one nullable block pointer, with the glue its contents need.
+    fn block_op(&mut self, st: &mut Fn2, at: u32, glue: &Glue, op: Op) -> Result<(), String> {
+        let glue = match glue {
+            // A `Str` is `{ base, ptr, len }` and `ptr` points *into* `base`,
+            // so a copy rebases as well as replaces (`buri_rt_copy_str`).
+            Glue::Str if op == Op::Copy => {
+                return self.c_call(runtime::COPY_STR, st, &[Src::Addr(at)], &[], 0, "v");
+            }
+            Glue::Str => None,
+            // A closure's environment carries its own release in its first
+            // word and its copy in its second (`glue.rs`), because `Ty::Fn`
+            // does not record what was captured.
+            Glue::Env => (op != Op::Retain).then(|| self.helper(Helper::Env { op })),
+            Glue::Elems(elem) => (op != Op::Retain && self.rc_counted(elem))
+                .then(|| self.helper(Helper::Elems { ty: elem.clone(), op })),
+        };
+        self.count_block(st, at, op, glue)
     }
 
-    /// The increment or the decrement of one block, at a frame offset holding
-    /// its pointer.
+    /// `op` on the block whose pointer is at frame offset `at`.
     ///
-    /// `glue` is what releases the block's *contents* once its count reaches
-    /// zero, and is `None` for a block that holds only bytes — a `Str`'s
-    /// allocation, a `[Int]`. A retain never needs one: taking a reference on a
-    /// block says nothing about what is inside it.
-    fn rc_block(&mut self, at: u32, retain: bool, glue: Option<String>) {
-        if retain {
-            self.emit("incref", &[("JIT_A", V::I(u64::from(at))), ("JIT_CONT", V::Fall)]);
-            return;
-        }
-        match glue {
-            Some(g) => self.emit(
+    /// `glue` releases or copies the block's *contents*, and is `None` for a
+    /// block of bytes — a `Str`'s allocation, a `[Int]`. A retain never needs
+    /// one. A null pointer copies to a null pointer, so a niche and a static
+    /// `Str`'s absent base need no test.
+    fn count_block(
+        &mut self,
+        st: &mut Fn2,
+        at: u32,
+        op: Op,
+        glue: Option<String>,
+    ) -> Result<(), String> {
+        match (op, glue) {
+            (Op::Retain, _) => {
+                self.emit("incref", &[("JIT_A", V::I(u64::from(at))), ("JIT_CONT", V::Fall)])
+            }
+            (Op::Release, Some(g)) => self.emit(
                 "decref/drop",
                 &[
                     ("JIT_A", V::I(u64::from(at))),
@@ -1102,301 +1015,15 @@ impl<'a> Jit<'a> {
                     ("JIT_CONT0", V::Fall),
                 ],
             ),
-            None => {
+            (Op::Release, None) => {
                 self.emit("decref/free", &[("JIT_A", V::I(u64::from(at))), ("JIT_CONT0", V::Fall)])
             }
-        }
-    }
-
-    /// One value's counted blocks again, and this time each of them is
-    /// **replaced** by a copy of itself.
-    ///
-    /// [`Jit::walk_rc`]'s recursion, arm for arm, with `decref` replaced by
-    /// `buri_rt_copy_block` and the answer stored back where the pointer was.
-    /// Keeping the two the same shape is the point: a new `Repr` case is two
-    /// arms rather than a second traversal that has to be kept in step, and a
-    /// reader who knows one knows the other.
-    ///
-    /// Nothing here increments a count. That is the property the whole slice
-    /// exists to have — *a copy is not a share* — and it is visible in the
-    /// emitted code rather than argued for: there is no `incref` stencil in any
-    /// path below.
-    pub(crate) fn copy_rc(
-        &mut self,
-        st: &mut Fn2,
-        ty: &Ty,
-        at: u32,
-        depth: u32,
-    ) -> Result<(), String> {
-        if depth > RC_DEPTH {
-            return Err(String::from("a reference-counted type nested past the copy's depth"));
-        }
-        let l = self.layout_shared(ty);
-        match &l.repr {
-            // A `Str` is `{ base, ptr, len }` and `ptr` points *into* `base`,
-            // so the copy has to rebase as well as replace — which is one
-            // runtime call over the whole value rather than three
-            // instructions in each of two backends (`buri_rt_copy_str`).
-            Repr::Str => self.copy_str(st, at),
-            Repr::List => {
-                let Ty::Array(elem) = ty else {
-                    return Err(String::from("a list layout on a type that is not one"));
-                };
-                let glue = self
-                    .rc_counted(elem)
-                    .then(|| self.helper(super::glue::Helper::CopyElems { ty: (**elem).clone() }));
-                self.copy_block(st, at, glue)
-            }
-            // A closure's environment block carries its own copy function in
-            // its second word, for the same reason it carries its release
-            // function in the first: `Ty::Fn` does not record what was
-            // captured (`glue.rs`'s `ENV_FIELDS`).
-            Repr::Closure => {
-                let glue = self.helper(super::glue::Helper::EnvCopy);
-                self.copy_block(st, at + super::glue::ENV_WORD, Some(glue))
-            }
-            Repr::Zero | Repr::Scalar(_) => Ok(()),
-            Repr::Aggregate => {
-                for (i, f) in field_types(self.tables, ty).iter().enumerate() {
-                    let off = l.fields.get(i).copied().unwrap_or(0);
-                    if self.boxes(ty, f) {
-                        self.copy_box(st, at + off, f)?;
-                        continue;
-                    }
-                    if !self.rc_counted(f) {
-                        continue;
-                    }
-                    self.copy_deep(st, f, at + off, depth)?;
-                }
-                Ok(())
-            }
-            Repr::Enum { repr, variants } => {
-                let tag = match repr {
-                    EnumRepr::Tagged { tag, .. } => *tag,
-                    EnumRepr::Bare { .. } => return Ok(()),
-                    EnumRepr::Niche { null_at } => {
-                        return self.niche_copy(st, ty, at, *null_at, depth)
-                    }
-                };
-                self.tagged_copy(st, ty, at, variants, tag, depth)
+            (Op::Copy, glue) => {
+                let g = glue.map_or(Src::Imm(0), Src::Sym);
+                return self.c_call(runtime::COPY_BLOCK, st, &[Src::Word(at), g], &[], at, "i");
             }
         }
-    }
-
-    /// A niche `Option<T>`: the payload is copied only where the pointer the
-    /// niche spends is not null, for [`Jit::niche_rc`]'s reason — every other
-    /// byte of a `.None` is whatever the frame last held.
-    fn niche_copy(
-        &mut self,
-        st: &mut Fn2,
-        ty: &Ty,
-        at: u32,
-        null_at: u32,
-        depth: u32,
-    ) -> Result<(), String> {
-        let Ty::Con(_, args) = ty else { return Ok(()) };
-        let Some(payload) = args.first().cloned() else { return Ok(()) };
-        if !self.rc_counted(&payload) {
-            return Ok(());
-        }
-        let skip = st.label();
-        let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
-        self.emit(
-            &key,
-            &[
-                ("JIT_A", V::I(u64::from(at + null_at))),
-                ("JIT_K", V::I(0)),
-                ("JIT_T", V::Blk(skip)),
-                ("JIT_F", V::Fall),
-            ],
-        );
-        self.copy_rc(st, &payload, at, depth + 1)?;
-        let here = self.region.code_addr();
-        st.place(skip, here);
         Ok(())
-    }
-
-    /// A tagged enum: one arm per variant that owns something, dispatched on
-    /// the tag exactly as [`Jit::tagged_rc`] does.
-    fn tagged_copy(
-        &mut self,
-        st: &mut Fn2,
-        ty: &Ty,
-        at: u32,
-        variants: &[Vec<u32>],
-        tag: Scalar,
-        depth: u32,
-    ) -> Result<(), String> {
-        let done = st.label();
-        for (v, offsets) in variants.iter().enumerate() {
-            let fields = variant_types(self.tables, ty, v);
-            let owned: Vec<(u32, Ty, bool)> = fields
-                .iter()
-                .enumerate()
-                .filter_map(|(i, f)| {
-                    let boxed = self.boxes(ty, f);
-                    (boxed || self.rc_counted(f))
-                        .then(|| (offsets.get(i).copied().unwrap_or(0), f.clone(), boxed))
-                })
-                .collect();
-            if owned.is_empty() {
-                continue;
-            }
-            let next = st.label();
-            let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
-            self.load_w(scr, at, tag.size());
-            let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
-            self.emit(
-                &key,
-                &[
-                    ("JIT_A", V::I(u64::from(scr))),
-                    ("JIT_K", V::I(v as u64)),
-                    ("JIT_T", V::Fall),
-                    ("JIT_F", V::Blk(next)),
-                ],
-            );
-            for (off, f, boxed) in owned {
-                if boxed {
-                    self.copy_box(st, at + off, &f)?;
-                    continue;
-                }
-                self.copy_deep(st, &f, at + off, depth)?;
-            }
-            self.emit("jump", &[("JIT_T", V::Blk(done))]);
-            let here = self.region.code_addr();
-            st.place(next, here);
-        }
-        let here = self.region.code_addr();
-        st.place(done, here);
-        Ok(())
-    }
-
-    /// [`Jit::walk_deep`] for the copy, with the same threshold and the same
-    /// reason for it: a type graph is a DAG whose nodes are revisited along
-    /// every path, so a copy of a record of records of records expands once per
-    /// path rather than once per type unless it goes out of line.
-    fn copy_deep(&mut self, st: &mut Fn2, ty: &Ty, at: u32, depth: u32) -> Result<(), String> {
-        let compound = matches!(
-            self.layout_shared(ty).repr,
-            Repr::Aggregate | Repr::Enum { .. }
-        );
-        if compound && depth >= RC_INLINE {
-            let sym = self.helper(super::glue::Helper::Copy { ty: ty.clone() });
-            let addr = st.scratch + (super::rtcall::RAW_WORD + 3) * 8;
-            self.emit(
-                "lea",
-                &[
-                    ("JIT_D", V::I(u64::from(addr))),
-                    ("JIT_A", V::I(u64::from(at))),
-                    ("JIT_CONT", V::Fall),
-                ],
-            );
-            return self.c_call_sym(sym, st, &[Src::Word(addr)], &[], 0, "v");
-        }
-        self.copy_rc(st, ty, at, depth + 1)
-    }
-
-    /// A **boxed** field: the field is the block's pointer, so the copy is one
-    /// replacement and no descent — whatever is inside the block is the
-    /// block's own copy glue's business.
-    fn copy_box(&mut self, st: &mut Fn2, at: u32, ty: &Ty) -> Result<(), String> {
-        let glue = self
-            .rc_counted(ty)
-            .then(|| self.helper(super::glue::Helper::Copy { ty: ty.clone() }));
-        self.copy_block(st, at, glue)
-    }
-
-    /// `p = buri_rt_copy_block(p, glue)` at a frame offset holding a block
-    /// pointer.
-    ///
-    /// `glue` is what copies the block's *contents* once the bytes have been
-    /// duplicated, and is `None` for a block that holds only bytes — exactly
-    /// the set [`Jit::rc_block`]'s drop glue is `None` for. A null pointer
-    /// copies to a null pointer, so an `Option`'s niche and a static `Str`'s
-    /// absent base need no test here.
-    fn copy_block(&mut self, st: &mut Fn2, at: u32, glue: Option<String>) -> Result<(), String> {
-        let g = match glue {
-            Some(sym) => Src::Sym(sym),
-            None => Src::Imm(0),
-        };
-        self.c_call("buri_rt_copy_block", st, &[Src::Word(at), g], &[], at, "i")
-    }
-
-    /// `buri_rt_copy_str(&value)` — the block, and the rebase of the `ptr`
-    /// that points into it.
-    fn copy_str(&mut self, st: &mut Fn2, at: u32) -> Result<(), String> {
-        self.c_call("buri_rt_copy_str", st, &[Src::Addr(at)], &[], 0, "v")
-    }
-
-    fn variant_count(&self, ty: &Ty) -> usize {
-        let Ty::Con(id, _) = ty else { return 0 };
-        self.tables.tycon(*id).variants().len()
-    }
-
-    /// Whether a source type owns a counted block anywhere inside it, which is
-    /// the same question `middle::rc`'s classifier asks.
-    /// The answer is **memoised, and recorded before the descent**, which is
-    /// what makes this terminate and what makes it linear in the *distinct*
-    /// types a program holds rather than in the paths through them.
-    /// `llvm/emit.rs`'s classifier is the same two lines for the same two
-    /// reasons: a type graph is a DAG whose nodes are revisited along every
-    /// path, and a recursive type reaches itself.
-    pub(crate) fn rc_counted(&mut self, ty: &Ty) -> bool {
-        if let Some(known) = self.counted_memo.get(ty) {
-            return *known;
-        }
-        self.counted_memo.insert(ty.clone(), false);
-        let answer = self.counted_ty(ty, 0);
-        self.counted_memo.insert(ty.clone(), answer);
-        answer
-    }
-
-    fn counted_ty(&mut self, ty: &Ty, depth: u32) -> bool {
-        if depth > RC_DEPTH {
-            return false;
-        }
-        let l = self.layout_shared(ty);
-        match &l.repr {
-            // The closure is here because its environment is a heap block this
-            // backend allocates and counts (`glue.rs`), which is the same
-            // answer `llvm/repr.rs`'s site walk gives `Ty::Fn`.
-            Repr::Str | Repr::List | Repr::Closure => true,
-            Repr::Aggregate => {
-                let fields = field_types(self.tables, ty);
-                self.any_counted(ty, &fields, depth)
-            }
-            Repr::Enum { .. } => {
-                let n = self.variant_count(ty);
-                (0..n).any(|v| {
-                    let fields = variant_types(self.tables, ty, v);
-                    self.any_counted(ty, &fields, depth)
-                })
-            }
-            _ => false,
-        }
-    }
-
-    /// Whether any of `fields` carries a count, where a **boxed** field always
-    /// does: the box is a heap block of its own, whoever else owns what is
-    /// inside it.
-    fn any_counted(&mut self, owner: &Ty, fields: &[Ty], depth: u32) -> bool {
-        for f in fields {
-            if self.boxes(owner, f) {
-                return true;
-            }
-            if let Some(known) = self.counted_memo.get(f) {
-                if *known {
-                    return true;
-                }
-                continue;
-            }
-            let answer = self.counted_ty(f, depth + 1);
-            self.counted_memo.insert(f.clone(), answer);
-            if answer {
-                return true;
-            }
-        }
-        false
     }
 
     /// A comparison of two `Str`s, through one helper. The six orderings are
@@ -1771,7 +1398,7 @@ impl<'a> Jit<'a> {
                     ],
                 );
                 let (p, l) = self.str_arg(arg(st, 1), scr);
-                if let Err(why) = self.c_call("buri_rt_abort_assert", st, &[p, l], &[], 0, "v") {
+                if let Err(why) = self.c_call(runtime::ABORT_ASSERT, st, &[p, l], &[], 0, "v") {
                     self.unsupported(why);
                 }
                 let here = self.region.code_addr();
@@ -1779,7 +1406,7 @@ impl<'a> Jit<'a> {
             }
             "testing_assert.failWith" => {
                 let (p, l) = self.str_arg(arg(st, 0), scr);
-                if let Err(why) = self.c_call("buri_rt_abort", st, &[p, l], &[], 0, "v") {
+                if let Err(why) = self.c_call(runtime::ABORT, st, &[p, l], &[], 0, "v") {
                     self.unsupported(why);
                 }
             }
@@ -1790,7 +1417,7 @@ impl<'a> Jit<'a> {
                 let (kp, kl) = self.str_arg(arg(st, 0), scr);
                 let (vp, vl) = self.str_arg(arg(st, 1), scr + 8);
                 if let Err(why) =
-                    self.c_call("buri_rt_test_fail_expected", st, &[kp, kl, vp, vl], &[], 0, "v")
+                    self.c_call(runtime::TEST_FAIL_EXPECTED, st, &[kp, kl, vp, vl], &[], 0, "v")
                 {
                     self.unsupported(why);
                 }
@@ -1809,7 +1436,7 @@ impl<'a> Jit<'a> {
             // binds zeros there; a frame slot needs no such thing.
             "testing_assert.failExpected" => {
                 let (kp, kl) = self.str_arg(arg(st, 0), scr);
-                if let Err(why) = self.c_call("buri_rt_abort_assert", st, &[kp, kl], &[], 0, "v") {
+                if let Err(why) = self.c_call(runtime::ABORT_ASSERT, st, &[kp, kl], &[], 0, "v") {
                     self.unsupported(why);
                 }
             }
@@ -1818,7 +1445,7 @@ impl<'a> Jit<'a> {
                 let (ap, al) = self.str_arg(arg(st, 1), scr + 8);
                 let (ep, el) = self.str_arg(arg(st, 2), scr + 16);
                 if let Err(why) = self.c_call(
-                    "buri_rt_test_fail_compared",
+                    runtime::TEST_FAIL_COMPARED,
                     st,
                     &[kp, kl, ap, al, ep, el],
                     &[],
@@ -2413,7 +2040,7 @@ impl<'a> Jit<'a> {
                     let size = self.layouts_of(ty.clone()).size;
                     self.mv(ret0, p(0), size);
                     if self.rc_counted(&ty) {
-                        if let Err(why) = self.copy_rc(st, &ty, ret0, 0) {
+                        if let Err(why) = self.walk_rc(st, &ty, ret0, Op::Copy, 0) {
                             self.unsupported(why);
                         }
                     }
@@ -2440,7 +2067,7 @@ impl<'a> Jit<'a> {
                 &[("JIT_A", V::I(p(0) as u64)), ("JIT_T", V::Blk(ok)), ("JIT_F", V::Fall)],
             );
             let (kp, kl) = self.str_arg(p(1), fs.param_end);
-            if let Err(why) = self.c_call("buri_rt_abort_assert", st, &[kp, kl], &[], 0, "v") {
+            if let Err(why) = self.c_call(runtime::ABORT_ASSERT, st, &[kp, kl], &[], 0, "v") {
                 self.unsupported(why);
             }
             let here = self.region.code_addr();
@@ -2454,7 +2081,7 @@ impl<'a> Jit<'a> {
         // below, which flattens every parameter as a string.
         if key == "testing_assert.failExpected" {
             let (kp, kl) = self.str_arg(p(0), fs.param_end);
-            if let Err(why) = self.c_call("buri_rt_abort_assert", st, &[kp, kl], &[], 0, "v") {
+            if let Err(why) = self.c_call(runtime::ABORT_ASSERT, st, &[kp, kl], &[], 0, "v") {
                 self.unsupported(why);
             }
             self.emit("ret", &[]);
@@ -2468,9 +2095,9 @@ impl<'a> Jit<'a> {
                 args.push(l);
             }
             let symbol = if key == "testing_assert.failWith" {
-                "buri_rt_abort"
+                runtime::ABORT
             } else {
-                "buri_rt_test_fail_expected"
+                runtime::TEST_FAIL_EXPECTED
             };
             if let Err(why) = self.c_call(symbol, st, &args, &[], 0, "v") {
                 self.unsupported(why);
@@ -2483,7 +2110,7 @@ impl<'a> Jit<'a> {
             let (ap, al) = self.str_arg(p(1), fs.param_end + 8);
             let (ep, el) = self.str_arg(p(2), fs.param_end + 16);
             if let Err(why) = self.c_call(
-                "buri_rt_test_fail_compared",
+                runtime::TEST_FAIL_COMPARED,
                 st,
                 &[kp, kl, ap, al, ep, el],
                 &[],
@@ -2569,11 +2196,11 @@ impl<'a> Jit<'a> {
                 // double it widens to.
                 if op == "hash" {
                     let seed = fs.param_end;
-                    self.imm_to(seed, HASH_SEED);
+                    self.imm_to(seed, runtime::HASH_SEED);
                     let (symbol, ints, floats): (&str, Vec<Src>, Vec<Src>) = if prim.is_float() {
-                        ("buri_rt_hash_f64", vec![Src::Word(seed)], vec![Src::Word(p(0))])
+                        (runtime::HASH_F64, vec![Src::Word(seed)], vec![Src::Word(p(0))])
                     } else {
-                        ("buri_rt_mix", vec![Src::Word(seed), Src::Word(p(0))], Vec::new())
+                        (runtime::MIX, vec![Src::Word(seed), Src::Word(p(0))], Vec::new())
                     };
                     if prim == Prim::F32 {
                         self.unsupported(format!("Body::Runtime {key}"));
@@ -2721,7 +2348,7 @@ impl<'a> Jit<'a> {
         // own: the count comes straight back in a register.
         if key == "str.length" {
             let (sp, sl) = self.str_arg(p(0), fs.param_end);
-            match self.c_call("buri_rt_str_scalar_len", st, &[sp, sl], &[], ret0, "i") {
+            match self.c_call(runtime::STR_SCALAR_LEN, st, &[sp, sl], &[], ret0, "i") {
                 Ok(()) => self.emit("ret", &[]),
                 Err(why) => self.unsupported(why),
             }
@@ -3030,9 +2657,9 @@ impl Jit<'_> {
             // mix of its low word.
             "hash" if prim != Prim::Str => {
                 let symbol =
-                    if prim == Prim::Char { "buri_rt_hash_char" } else { "buri_rt_mix" };
+                    if prim == Prim::Char { runtime::HASH_CHAR } else { runtime::MIX };
                 let seed = st.scratch + super::rtcall::SPARE_WORD * 8;
-                self.imm_to(seed, HASH_SEED);
+                self.imm_to(seed, runtime::HASH_SEED);
                 let args = [Src::Word(seed), Src::Word(a)];
                 if let Err(why) = self.c_call(symbol, st, &args, &[], d, "i") {
                     self.unsupported(why);
@@ -3733,7 +3360,7 @@ impl Jit<'_> {
                 let raw = st.scratch + super::rtcall::SPARE_WORD * 8;
                 let _ = raw;
                 self.c_call(
-                    "buri_rt_hash_str",
+                    runtime::HASH_STR,
                     st,
                     &[Src::Word(acc), Src::Word(v), Src::Word(v + 8), Src::Word(v + 16)],
                     &[],
@@ -3742,7 +3369,7 @@ impl Jit<'_> {
                 )
             }
             P::Char => self.c_call(
-                "buri_rt_hash_char",
+                runtime::HASH_CHAR,
                 st,
                 &[Src::Word(acc), Src::Word(v)],
                 &[],
@@ -3765,7 +3392,7 @@ impl Jit<'_> {
                     v
                 };
                 self.c_call(
-                    "buri_rt_hash_f64",
+                    runtime::HASH_F64,
                     st,
                     &[Src::Word(acc)],
                     &[Src::Word(wide)],
@@ -3778,7 +3405,7 @@ impl Jit<'_> {
             // width — so the low word is already what the `u32` parameter
             // reads out of `w1`.
             _ => self.c_call(
-                "buri_rt_mix",
+                runtime::MIX,
                 st,
                 &[Src::Word(acc), Src::Word(v)],
                 &[],
@@ -4094,7 +3721,7 @@ impl Jit<'_> {
                 ("JIT_F", V::Fall),
             ],
         );
-        if let Err(why) = self.c_call("buri_rt_abort_shift", st, &[], &[], 0, "v") {
+        if let Err(why) = self.c_call(runtime::ABORT_SHIFT, st, &[], &[], 0, "v") {
             self.unsupported(why);
         }
         let here = self.region.code_addr();
@@ -4144,9 +3771,6 @@ fn bound_bits(prim: Prim, low: bool) -> Option<u64> {
     Some((pattern as u64) & mask)
 }
 
-/// `core/order`'s FNV-1a offset basis, which `order.buri:34` states and
-/// `llvm/runtime.rs::HASH_SEED` restates.
-const HASH_SEED: u64 = 0x811c_9dc5;
 
 /// Which intrinsic keys this backend has a body for, asked ahead of emission.
 ///
@@ -4189,7 +3813,7 @@ fn open_coded_key(key: &str) -> bool {
             | "testing_assert.failExpectedShown"
             // `core/alloc`'s copy-out: a move and the per-type copy glue, so
             // it is emitted into its own generated body and reaches no runtime
-            // table row (G5, `glue.rs`'s `Helper::Copy`).
+            // table row (G5, `glue.rs`'s `Helper::Walk`).
             | "alloc.copyOut"
     )
 }

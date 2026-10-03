@@ -78,6 +78,7 @@
 use super::abi::StencilTarget;
 use super::object::RelKind;
 use super::region::Target;
+use super::runtime;
 use crate::compiler::backend::task_thread;
 
 /// The symbol the program's Buri stack is emitted under.
@@ -847,7 +848,7 @@ impl Marking {
     fn symbol(self) -> Option<&'static str> {
         match self {
             Marking::None => Option::None,
-            Marking::ValuesMayCrossTasks => Some("buri_rt_values_may_cross_tasks"),
+            Marking::ValuesMayCrossTasks => Some(runtime::VALUES_MAY_CROSS_TASKS),
         }
     }
 }
@@ -886,7 +887,7 @@ pub fn program_entry(
 fn program_entry_arm64(callee: &str, result: Option<MainResult>, marking: Marking) -> Asm {
     let mut a = Asm::new();
     a.stp_fp_lr();
-    a.bl_symbol("buri_rt_argv_init");
+    a.bl_symbol(runtime::ARGV_INIT);
     if let Some(sym) = marking.symbol() {
         a.bl_symbol(sym);
     }
@@ -900,7 +901,7 @@ fn program_entry_arm64(callee: &str, result: Option<MainResult>, marking: Markin
     a.bl_symbol(callee);
 
     let Some(r) = result else {
-        a.bl_symbol("buri_rt_flush");
+        a.bl_symbol(runtime::FLUSH);
         a.mov_imm(X0, 0);
         a.ldp_fp_lr();
         a.ret();
@@ -929,13 +930,13 @@ fn program_entry_arm64(callee: &str, result: Option<MainResult>, marking: Markin
     a.and_reg(X2, X2, X10);
     a.mov_reg(X0, X9);
     a.bl_symbol("buri_rt_host_stderr_eprintln");
-    a.bl_symbol("buri_rt_flush");
+    a.bl_symbol(runtime::FLUSH);
     a.mov_imm(X0, 1);
     a.ldp_fp_lr();
     a.ret();
 
     a.here(ok);
-    a.bl_symbol("buri_rt_flush");
+    a.bl_symbol(runtime::FLUSH);
     a.mov_imm(X0, 0);
     a.ldp_fp_lr();
     a.ret();
@@ -978,20 +979,20 @@ pub fn test_entry(target: StencilTarget, tests: &[String], marking: Marking) -> 
 fn test_entry_arm64(tests: &[String], marking: Marking) -> Asm {
     let mut a = Asm::new();
     a.stp_fp_lr();
-    a.bl_symbol("buri_rt_argv_init");
+    a.bl_symbol(runtime::ARGV_INIT);
     if let Some(sym) = marking.symbol() {
         a.bl_symbol(sym);
     }
     install_guard(&mut a);
     for (i, sym) in tests.iter().enumerate() {
         a.mov_imm(X0, i as u64);
-        a.bl_symbol("buri_rt_test_enter");
+        a.bl_symbol(runtime::TEST_ENTER);
         let next = a.cbz(X0);
         a.adrp_add_symbol(X0, STACK_SYMBOL);
         a.bl_symbol(sym);
         a.here(next);
     }
-    a.bl_symbol("buri_rt_flush");
+    a.bl_symbol(runtime::FLUSH);
     a.mov_imm(X0, 0);
     a.ldp_fp_lr();
     a.ret();
@@ -1031,7 +1032,7 @@ fn program_entry_x86_64(callee: &str, result: Option<MainResult>, marking: Marki
     a.push_rbp();
     // `argc` and `argv` are already in `edi` and `rsi`, and `push` writes
     // neither, so this call comes before anything else at all.
-    a.call_symbol("buri_rt_argv_init");
+    a.call_symbol(runtime::ARGV_INIT);
     if let Some(sym) = marking.symbol() {
         a.call_symbol(sym);
     }
@@ -1041,7 +1042,7 @@ fn program_entry_x86_64(callee: &str, result: Option<MainResult>, marking: Marki
     a.call_symbol(callee);
 
     let Some(r) = result else {
-        a.call_symbol("buri_rt_flush");
+        a.call_symbol(runtime::FLUSH);
         a.mov_imm(RAX, 0);
         a.pop_rbp();
         a.ret();
@@ -1068,13 +1069,13 @@ fn program_entry_x86_64(callee: &str, result: Option<MainResult>, marking: Marki
     a.mov_imm(RAX, crate::compiler::middle::layout::STR_LEN_MASK);
     a.and_reg(RDX, RAX);
     a.call_symbol("buri_rt_host_stderr_eprintln");
-    a.call_symbol("buri_rt_flush");
+    a.call_symbol(runtime::FLUSH);
     a.mov_imm(RAX, 1);
     a.pop_rbp();
     a.ret();
 
     a.here(ok);
-    a.call_symbol("buri_rt_flush");
+    a.call_symbol(runtime::FLUSH);
     a.mov_imm(RAX, 0);
     a.pop_rbp();
     a.ret();
@@ -1096,20 +1097,20 @@ fn load_tag_x86_64(a: &mut X86, rt: u32, rn: u32, off: u32, width: u32) {
 fn test_entry_x86_64(tests: &[String], marking: Marking) -> X86 {
     let mut a = X86::new();
     a.push_rbp();
-    a.call_symbol("buri_rt_argv_init");
+    a.call_symbol(runtime::ARGV_INIT);
     if let Some(sym) = marking.symbol() {
         a.call_symbol(sym);
     }
     install_guard_x86_64(&mut a);
     for (i, sym) in tests.iter().enumerate() {
         a.mov_imm(RDI, i as u64);
-        a.call_symbol("buri_rt_test_enter");
+        a.call_symbol(runtime::TEST_ENTER);
         let next = a.cbz(RAX);
         a.lea_symbol(RDI, STACK_SYMBOL);
         a.call_symbol(sym);
         a.here(next);
     }
-    a.call_symbol("buri_rt_flush");
+    a.call_symbol(runtime::FLUSH);
     a.mov_imm(RAX, 0);
     a.pop_rbp();
     a.ret();
@@ -1292,7 +1293,7 @@ mod tests {
                 other => format!("{other:?}"),
             })
             .collect();
-        assert_eq!(named, vec!["buri_rt_stack_acquire", "body", "buri_rt_stack_release"]);
+        assert_eq!(named, vec![task_thread::STACK_ACQUIRE, "body", task_thread::STACK_RELEASE]);
     }
 
     /// The same, for SysV x86-64. One emitter per machine and the same three
@@ -1309,7 +1310,7 @@ mod tests {
                 other => format!("{other:?}"),
             })
             .collect();
-        assert_eq!(named, vec!["buri_rt_stack_acquire", "body", "buri_rt_stack_release"]);
+        assert_eq!(named, vec![task_thread::STACK_ACQUIRE, "body", task_thread::STACK_RELEASE]);
     }
 
     /// **A wider return area is a longer copy, and no return area is none.**
@@ -1461,20 +1462,20 @@ mod tests {
         assert_eq!(
             names(a),
             vec![
-                ("Branch26", String::from("buri_rt_argv_init")),
+                ("Branch26", String::from(runtime::ARGV_INIT)),
                 ("Page21", String::from(STACK_SYMBOL)),
                 ("PageOff12", String::from(STACK_SYMBOL)),
                 ("Branch26", String::from("mprotect")),
                 ("Branch26", String::from("abort")),
-                ("Branch26", String::from("buri_rt_test_enter")),
+                ("Branch26", String::from(runtime::TEST_ENTER)),
                 ("Page21", String::from(STACK_SYMBOL)),
                 ("PageOff12", String::from(STACK_SYMBOL)),
                 ("Branch26", String::from("t0")),
-                ("Branch26", String::from("buri_rt_test_enter")),
+                ("Branch26", String::from(runtime::TEST_ENTER)),
                 ("Page21", String::from(STACK_SYMBOL)),
                 ("PageOff12", String::from(STACK_SYMBOL)),
                 ("Branch26", String::from("t1")),
-                ("Branch26", String::from("buri_rt_flush")),
+                ("Branch26", String::from(runtime::FLUSH)),
             ]
         );
     }
@@ -1487,12 +1488,12 @@ mod tests {
         assert_eq!(
             names(a),
             vec![
-                ("Branch26", String::from("buri_rt_argv_init")),
+                ("Branch26", String::from(runtime::ARGV_INIT)),
                 ("Page21", String::from(STACK_SYMBOL)),
                 ("PageOff12", String::from(STACK_SYMBOL)),
                 ("Branch26", String::from("mprotect")),
                 ("Branch26", String::from("abort")),
-                ("Branch26", String::from("buri_rt_flush")),
+                ("Branch26", String::from(runtime::FLUSH)),
             ]
         );
     }
@@ -1523,7 +1524,7 @@ mod tests {
         for shim in shims {
             let called = names(shim);
             assert!(
-                called.iter().all(|(_, n)| n != "buri_rt_frames_are_per_thread"),
+                called.iter().all(|(_, n)| n != runtime::FRAMES_PER_THREAD),
                 "a shim told the runtime its threads have frames of their own: {called:?}"
             );
         }
@@ -1562,22 +1563,22 @@ mod tests {
                 let quiet: Vec<String> = names(silent).into_iter().map(|(_, n)| n).collect();
                 let loud: Vec<String> = names(marking).into_iter().map(|(_, n)| n).collect();
                 assert!(
-                    !quiet.iter().any(|n| n == "buri_rt_values_may_cross_tasks"),
+                    !quiet.iter().any(|n| n == runtime::VALUES_MAY_CROSS_TASKS),
                     "a shim marked a program that did not ask to be marked: {quiet:?}"
                 );
                 let at = loud
                     .iter()
-                    .position(|n| n == "buri_rt_values_may_cross_tasks")
+                    .position(|n| n == runtime::VALUES_MAY_CROSS_TASKS)
                     .unwrap_or_else(|| panic!("a shim did not mark: {loud:?}"));
                 let init = loud
                     .iter()
-                    .position(|n| n == "buri_rt_argv_init")
+                    .position(|n| n == runtime::ARGV_INIT)
                     .expect("a shim did not initialise the runtime");
                 assert!(init < at, "the mark came before the runtime was initialised: {loud:?}");
                 assert_eq!(at, init + 1, "something ran between the two: {loud:?}");
                 // The one call is the whole of the difference.
                 let without: Vec<&String> =
-                    loud.iter().filter(|n| *n != "buri_rt_values_may_cross_tasks").collect();
+                    loud.iter().filter(|n| *n != runtime::VALUES_MAY_CROSS_TASKS).collect();
                 assert_eq!(
                     without,
                     quiet.iter().collect::<Vec<&String>>(),
@@ -1595,7 +1596,7 @@ mod tests {
         assert_eq!(
             names(a),
             vec![
-                ("Branch26", String::from("buri_rt_argv_init")),
+                ("Branch26", String::from(runtime::ARGV_INIT)),
                 ("Page21", String::from(STACK_SYMBOL)),
                 ("PageOff12", String::from(STACK_SYMBOL)),
                 ("Branch26", String::from("mprotect")),
@@ -1603,7 +1604,7 @@ mod tests {
                 ("Page21", String::from(STACK_SYMBOL)),
                 ("PageOff12", String::from(STACK_SYMBOL)),
                 ("Branch26", String::from("buri$main")),
-                ("Branch26", String::from("buri_rt_flush")),
+                ("Branch26", String::from(runtime::FLUSH)),
             ]
         );
     }
@@ -1621,7 +1622,7 @@ mod tests {
         assert_eq!(
             names(a),
             vec![
-                ("Branch26", String::from("buri_rt_argv_init")),
+                ("Branch26", String::from(runtime::ARGV_INIT)),
                 ("Page21", String::from(STACK_SYMBOL)),
                 ("PageOff12", String::from(STACK_SYMBOL)),
                 ("Branch26", String::from("mprotect")),
@@ -1630,8 +1631,8 @@ mod tests {
                 ("PageOff12", String::from(STACK_SYMBOL)),
                 ("Branch26", String::from("buri$main")),
                 ("Branch26", String::from("buri_rt_host_stderr_eprintln")),
-                ("Branch26", String::from("buri_rt_flush")),
-                ("Branch26", String::from("buri_rt_flush")),
+                ("Branch26", String::from(runtime::FLUSH)),
+                ("Branch26", String::from(runtime::FLUSH)),
             ]
         );
     }
@@ -1810,17 +1811,17 @@ mod tests {
         assert_eq!(
             names(a),
             vec![
-                ("Rel32", String::from("buri_rt_argv_init")),
+                ("Rel32", String::from(runtime::ARGV_INIT)),
                 ("Pc32", String::from(STACK_SYMBOL)),
                 ("Rel32", String::from("mprotect")),
                 ("Rel32", String::from("abort")),
-                ("Rel32", String::from("buri_rt_test_enter")),
+                ("Rel32", String::from(runtime::TEST_ENTER)),
                 ("Pc32", String::from(STACK_SYMBOL)),
                 ("Rel32", String::from("t0")),
-                ("Rel32", String::from("buri_rt_test_enter")),
+                ("Rel32", String::from(runtime::TEST_ENTER)),
                 ("Pc32", String::from(STACK_SYMBOL)),
                 ("Rel32", String::from("t1")),
-                ("Rel32", String::from("buri_rt_flush")),
+                ("Rel32", String::from(runtime::FLUSH)),
             ]
         );
     }

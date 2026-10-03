@@ -2011,7 +2011,7 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert!(missing.is_empty(), "an interpolation is implemented now, got {missing:?}");
 
     // `core/list` has no gap left: every key in `list.buri` is either a row in
-    // `llvm/runtime.rs`'s table or a loop in `emit::Unit`, and `map`, `sortBy`,
+    // `runtime_table.rs`'s table or a loop in `emit::Unit`, and `map`, `sortBy`,
     // `zip` and `flatten` were the last of it to land. So the example
     // this test is built around moved out of `core/list`, and then twice more:
     // to `character.isDigit`, to `bytes.toUtf8`, and now past both.
@@ -4030,7 +4030,7 @@ export fn main(host: NativeHost): Result<(), Str> {{
 /// Two operations, because the two backends got it wrong in two places:
 ///
 /// * `list.push` is a [`runtime_table::ENTRIES`] row, and its context is named
-///   by `Entry::ctx` / `Arg::Dropped` at index one. This is the one that
+///   by `Arg::Dropped` at index one (`Entry::dropped`). This is the one that
 ///   segfaulted in `memmove` under the stencil backend.
 /// * `str.concat` has **no** row on either side, so its argument list is
 ///   narrowed at the call site instead — `emit.rs`'s `concat_ctx`. This one is

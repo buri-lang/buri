@@ -429,7 +429,7 @@ optimizing are the two that build the first two, and both are done:
 
 - **`[T]` append — `cli/runtime/list.rs`'s `append_dest`, behind `list.push`
   and `list.concat`.** Both are runtime calls on both backends
-  (`stencil/runtime.rs`, `llvm/runtime.rs`), so the fast path lives in the
+  (`backend/runtime_table.rs`), so the fast path lives in the
   runtime and is shared. Three paths: *in place* when the block is uniquely
   owned and `cap >= (len + n) * stride`, writing past the end and taking one
   more reference; *grown* when it is unique and out of capacity, allocating
@@ -484,7 +484,7 @@ visible the moment an allocation reused the freed block.
 
 **Counted elements need spare slots.** The generated release and copy glue
 for a `[T]` block walk **`cap / stride`** elements (`stencil/glue.rs`'s
-`Elems`, `llvm/emit.rs`'s `Job::ReleaseElems`), so headroom is slots those
+`Elems`, `llvm/emit.rs`'s `Job::Glue`), so headroom is slots those
 walks meet. Two rules keep that sound, both in `append_dest`:
 
 - **The grown path zeroes the headroom**, and both backends' walks skip an
@@ -1018,9 +1018,8 @@ heap.
 **What makes the bulk free sound is the copy at the boundary.** Exactly one
 value leaves a scope — `body`'s answer — and `core/alloc::copyOut` deep-copies
 it onto the caller's allocator before the pages go back. The copy is
-generated, not called: `Helper::Copy` in the frame-threaded backend and
-`Job::Copy` under LLVM are `Helper::Walk`'s recursion with
-`buri_rt_copy_block` where the release walk has `decref`. The two functions
+generated, not called: `Op::Copy` in both backends' `walk_rc` is the release
+walk with `buri_rt_copy_block` where the release has `decref`. The two functions
 the walk reaches a block through are the whole of the runtime's half —
 `buri_rt_copy_block`, and `buri_rt_copy_str` because a `Str`'s `ptr` points
 *into* its block and has to be rebased. **A copy is not a share**, with one
@@ -1104,7 +1103,7 @@ context's own binding and a native backend knows the layout statically.
 The paragraph above reads as "the accounting is nearly free", and it is not.
 
 **A context argument is dropped from every `buri_rt_*` call, whatever it
-weighs** (`stencil/runtime.rs`, `llvm/runtime.rs`). That is not an oversight
+weighs** (`backend/runtime_table.rs`). That is not an oversight
 to undo. The *first* program to bind a non-zero-sized allocator forced it —
 `context { Allocator: alloc() }` from the test platform — which spread one extra
 argument into a C call that has no parameter for it and put every argument

@@ -642,6 +642,7 @@ impl Library {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::runtime;
 
     fn sample() -> Library {
         let s = Stencil {
@@ -819,9 +820,9 @@ mod tests {
             "JIT_CONT",
             "JIT_CONT0",
             "_JIT_A",
-            "buri_rt_alloc",
-            "buri_rt_i128_divmod",
-            "buri_rt_test_fail_compared",
+            runtime::ALLOC,
+            runtime::I128_DIVMOD,
+            runtime::TEST_FAIL_COMPARED,
             "memcpy",
             "__divti3",
             "__udivti3",

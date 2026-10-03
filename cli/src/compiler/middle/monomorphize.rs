@@ -2518,7 +2518,7 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // `core/alloc`'s copy out of a scope. The carrier is a fifth one, beside
     // the stride, the by-address argument, the descriptor and the entry thunk:
     // a **per-type copy walk**, generated at the call site where the
-    // instantiation is known (`stencil/glue.rs`'s `Helper::Copy`,
+    // instantiation is known (`stencil/glue.rs`'s `Helper::Walk`,
     // `llvm/emit.rs`'s `Unit::copy_out`). No runtime table row exists for it,
     // and none could — the archive is compiled once against no Buri type, and
     // "copy everything inside this value" is a question only a layout can
@@ -2646,7 +2646,8 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "number.maxValue",
     "number.minValue",
     // `core/platforms/testing/state`, carried the way `host_testing.Headless`'s
-    // value is: a stride, a retain and a release, with `Carrier::Value`.
+    // value is: a stride, a retain and a release, for the whole value
+    // (`runtime_table`'s `Entry::whole_value`).
     "platforms_testing_state.stateNew",
     "platforms_testing_state.statePut",
     "platforms_testing_state.stateRead",

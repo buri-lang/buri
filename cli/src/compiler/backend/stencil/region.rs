@@ -410,6 +410,7 @@ impl Emitted {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::runtime;
 
     #[test]
     fn one_datum_is_pooled_once() {
@@ -455,7 +456,7 @@ mod tests {
         second.pool_ref(at, at + 4, slot);
         let here = second.pool_bytes(b"xy");
         second.pool_target(Target::Here(here & !(1 << 40)));
-        second.reloc(at, RelKind::Branch26, Target::Symbol(String::from("buri_rt_flush")));
+        second.reloc(at, RelKind::Branch26, Target::Symbol(String::from(runtime::FLUSH)));
         let second = second.finish();
         let (code_relocs, pool_relocs) = (second.code_relocs.clone(), second.pool_relocs.clone());
         let (second_code, second_pool) = (second.code.clone(), second.pool.clone());
@@ -491,7 +492,7 @@ mod tests {
         assert!(whole
             .code_relocs
             .iter()
-            .any(|r| r.target == Target::Symbol(String::from("buri_rt_flush"))));
+            .any(|r| r.target == Target::Symbol(String::from(runtime::FLUSH))));
     }
 
     /// A pool word that names a symbol becomes a relocation and stays zero in
@@ -503,7 +504,7 @@ mod tests {
         r.put(&[0; 8]);
         r.pool_bytes(b"leading bytes");
         let here = r.pool_bytes(b"abcd");
-        r.pool_target(Target::Symbol(String::from("buri_rt_flush")));
+        r.pool_target(Target::Symbol(String::from(runtime::FLUSH)));
         r.pool_target(Target::Here(here & !(1 << 40)));
         let out = r.finish();
         assert_eq!(out.pool_relocs.len(), 2);
