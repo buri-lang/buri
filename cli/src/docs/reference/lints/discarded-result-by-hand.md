@@ -12,25 +12,19 @@ match (io.println(ctx, line)) {
 }
 ```
 
-Nothing in those four lines handles anything. Both arms answer `()`, the failure
-is gone, and all the `match` did was spell out `core/result.ignore` — whose
-body, in `core/result`, is these same four lines.
+Both arms answer `()`, so this handles nothing. It's `core/result.ignore`,
+whose body is these same four lines.
 
-**The real fix is to handle the error.** `match` on the `Result` and *do
-something* in the `.Err` arm — count it, report it, fall back — or `?` to hand
-it to a caller who can.
+**The real fix is to handle the error.** Do something in the `.Err` arm (count
+it, report it, fall back), or use `?` to hand it to a caller who can.
 
-If the drop is genuinely deliberate — a cache write whose failure changes
-nothing a caller could act on — then `ignore()` is how to say so. It is one
-call, it is greppable, and `buri docs lint discarded-result` is the rule that
-collects every one of them into a single report.
+If the drop is deliberate, like a cache write whose failure no caller could act
+on, say `ignore()`. It's one greppable call, and `discarded-result` collects
+every one into a single report.
 
-**Yes, this rule reports the explicit form too, and that is the point.** It
-exists because `discarded-result` names `ignore()`, so authors in a repository
-gated on "lint clean" reach for the four-line `match` instead. Both forms are
-reported now, so writing this one out buys nothing.
+This rule exists so the four-line form can't dodge `discarded-result` in a
+repository gated on a clean lint run. Both forms are reported.
 
-The rule fires on this shape and nothing near it: two arms, `.Ok` and `.Err`, no
-guards, nothing read out of either payload, and both bodies the unit value. A
-`match` that answers anything in either arm handles something, and is not a
-finding.
+It fires only on exactly this shape: two arms, `.Ok` and `.Err`, no guards,
+nothing read from either payload, and both bodies `()`. A `match` that does
+anything in either arm is not a finding.

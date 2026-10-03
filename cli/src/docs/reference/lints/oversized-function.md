@@ -6,23 +6,19 @@ note: a body past {limit} lines is almost always carrying more than one responsi
 fix: find the responsibility boundaries in the body and give each one a function of its own
 adapted-from: habit-hooks (https://github.com/habit-hooks/habit-hooks) guides/oversized-function.md, © 2026 Ivett Ördög, used under the MIT license
 ---
-An array literal's elements and a `match`'s arms count as one line, because a
-table is one row per member and has no responsibility boundary to split at.
+An array literal's elements and a `match`'s arms count as one line, since a
+table has no boundary to split at.
 
-Work out the responsibilities before you touch anything. Ask yourself:
+Find the responsibilities before you touch anything:
 
-- Are these separate responsibilities that belong in functions of their own?
+- Are there separate responsibilities that deserve their own functions?
 - Should this become a type with several methods?
-- Can you group cohesive data into a value of its own and cut the local
-  variables down?
+- Can cohesive data become its own value, cutting the local variables?
 
-Do not extract mechanically. Pulling out a `helperA` and a `helperB` just to
-clear the threshold hides the smell behind worse names.
+Don't extract mechanically: a `helperA` and `helperB` that only clear the
+threshold hide the problem behind worse names. If the responsibilities are
+tangled, inline the helpers first to see the whole picture.
 
-If the responsibilities are tangled, *inline* the helpers first so you can see
-the whole picture before you redistribute it.
-
-One concrete technique: write what the function does in one short sentence, then
-refactor until the code reads as close to that sentence as you can get it. If
-you cannot say what it does in one sentence, it almost certainly has more than
-one responsibility.
+Write what the function does in one short sentence, then refactor until the
+code reads like it. If you can't write that sentence, it has more than one
+responsibility.
