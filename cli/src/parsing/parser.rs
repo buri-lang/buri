@@ -379,24 +379,24 @@ const CMP_LEVEL: usize = 3;
 ///
 /// This is the whole of the operator table. `starts_expr` and the postfix
 /// chain are the other two places a new operator would have to be named.
-fn binding_power(p: Punctuation) -> Option<(BinOp, u8, u8, usize)> {
-    let (op, level) = match p {
-        Punctuation::OrOr => (BinOp::Or, 1),
-        Punctuation::AndAnd => (BinOp::And, 2),
-        Punctuation::EqEq => (BinOp::Eq, CMP_LEVEL),
-        Punctuation::BangEq => (BinOp::Ne, CMP_LEVEL),
-        Punctuation::Lt => (BinOp::Lt, CMP_LEVEL),
-        Punctuation::LtEq => (BinOp::Le, CMP_LEVEL),
-        Punctuation::Gt => (BinOp::Gt, CMP_LEVEL),
-        Punctuation::GtEq => (BinOp::Ge, CMP_LEVEL),
-        Punctuation::Or => (BinOp::BitOr, 4),
-        Punctuation::Caret => (BinOp::BitXor, 5),
-        Punctuation::And => (BinOp::BitAnd, 6),
-        Punctuation::Plus => (BinOp::Add, 7),
-        Punctuation::Minus => (BinOp::Sub, 7),
-        Punctuation::Star => (BinOp::Mul, 8),
-        Punctuation::Slash => (BinOp::Div, 8),
-        Punctuation::Percent => (BinOp::Rem, 8),
+fn binding_power(t: TokenKind) -> Option<(BinOp, u8, u8, usize)> {
+    let (op, level) = match t {
+        TokenKind::OrOr => (BinOp::Or, 1),
+        TokenKind::AndAnd => (BinOp::And, 2),
+        TokenKind::EqEq => (BinOp::Eq, CMP_LEVEL),
+        TokenKind::BangEq => (BinOp::Ne, CMP_LEVEL),
+        TokenKind::Lt => (BinOp::Lt, CMP_LEVEL),
+        TokenKind::LtEq => (BinOp::Le, CMP_LEVEL),
+        TokenKind::Gt => (BinOp::Gt, CMP_LEVEL),
+        TokenKind::GtEq => (BinOp::Ge, CMP_LEVEL),
+        TokenKind::Or => (BinOp::BitOr, 4),
+        TokenKind::Caret => (BinOp::BitXor, 5),
+        TokenKind::And => (BinOp::BitAnd, 6),
+        TokenKind::Plus => (BinOp::Add, 7),
+        TokenKind::Minus => (BinOp::Sub, 7),
+        TokenKind::Star => (BinOp::Mul, 8),
+        TokenKind::Slash => (BinOp::Div, 8),
+        TokenKind::Percent => (BinOp::Rem, 8),
         _ => return None,
     };
     let base = (level as u8).saturating_mul(2);
@@ -2953,8 +2953,7 @@ impl<'a> Parser<'a> {
         let mut links = 0u32;
         let mut rung = usize::MAX;
         loop {
-            let Some(p) = self.peek().as_punctuation() else { return Ok(lhs) };
-            let Some((op, lbp, rbp, level)) = binding_power(p) else { return Ok(lhs) };
+            let Some((op, lbp, rbp, level)) = binding_power(self.peek()) else { return Ok(lhs) };
             if lbp < min_bp {
                 return Ok(lhs);
             }
@@ -3443,6 +3442,20 @@ impl<'a> Parser<'a> {
         loop {
             links = links.saturating_add(1);
             self.link(links)?;
+            // Most expressions take no postfix operator at all, so the answer
+            // to "is there one" comes before the span that only a link needs.
+            if !matches!(
+                self.peek(),
+                TokenKind::Dot
+                    | TokenKind::LParen
+                    | TokenKind::LBracket
+                    | TokenKind::Question
+                    | TokenKind::Lt
+                    | TokenKind::ColonColon
+                    | TokenKind::LBrace
+            ) {
+                return Ok(base);
+            }
             let start = self.tree.span(base);
             match self.peek() {
                 TokenKind::Dot => {
