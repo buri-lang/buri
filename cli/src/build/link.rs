@@ -157,7 +157,7 @@
 //! outside.
 
 use crate::build::buildfile::{Arch, Platform};
-use crate::build::cache::hash_bytes;
+use crate::build::cache::{hash_bytes, ActionKey, Cache};
 use crate::build::musl::{self, Libc};
 use crate::build::runtime_cross::{self, Cross};
 use crate::build::spawn;
@@ -538,6 +538,12 @@ pub struct CDriver {
     /// driver and flavour, so the two `--version` spawns happen once (see
     /// [`PROBED`]).
     version: std::sync::Arc<Identity>,
+    /// The cache the objects came from, where there is one. An object or a
+    /// runtime archive that is already an entry there is hard-linked into the
+    /// link directory rather than written into it again (see [`stage_from`]).
+    /// `None` for a link with the cache off, `--check-reproducible`'s, which
+    /// writes every file as it always did.
+    store: Option<Cache>,
 }
 
 /// `<flavour>:<sha256 of the driver's and the linker's `--version`>`, probed on
@@ -736,6 +742,7 @@ pub fn select(target: Target) -> Result<CDriver, Refusal> {
         cross: None,
         lld_dir: None,
         version,
+        store: None,
     })
 }
 
@@ -796,6 +803,7 @@ fn select_cross(target: Target, driver: PathBuf) -> Result<CDriver, Refusal> {
         cross: Some(cross),
         lld_dir,
         version,
+        store: None,
     })
 }
 
@@ -1206,7 +1214,7 @@ fn stage_cross_sysroot(cross: &Cross, dir: &Path) -> std::io::Result<()> {
 /// and cannot be a different one that happens to weigh the same.
 fn stage_bytes(bytes: &[u8], dest: &Path) -> std::io::Result<()> {
     if std::fs::metadata(dest).map(|m| m.len()).ok() != Some(bytes.len() as u64) {
-        std::fs::write(dest, bytes)?;
+        replace_with(dest, bytes)?;
     }
     Ok(())
 }
@@ -1218,8 +1226,69 @@ fn stage_file(src: &Path, dest: &Path) -> std::io::Result<()> {
     if std::fs::metadata(dest).map(|m| m.len()).ok() == Some(len) {
         return Ok(());
     }
-    std::fs::copy(src, dest)?;
-    Ok(())
+    stage_from(src, dest)
+}
+
+/// Puts the file at `src` at `dest`, hard-linked where the filesystem allows
+/// it and copied where it does not.
+///
+/// `src` is a file nothing writes to once it exists: a cache entry, or the
+/// cross runtime in `~/.buri`. A hard link is the same file under a second
+/// name, so a link directory staged this way costs only its directory entries.
+/// A `dest` that is already `src` is left alone.
+///
+/// **Nothing is ever written through `dest`.** It may be a hard link to a
+/// cache entry from an earlier link, and writing into it would change that
+/// entry. So an old `dest` is removed before the link is made, and a copy is
+/// made beside it and renamed over it ([`replace_with`]'s rule).
+fn stage_from(src: &Path, dest: &Path) -> std::io::Result<()> {
+    if same_file(src, dest) {
+        return Ok(());
+    }
+    let _ = std::fs::remove_file(dest);
+    match std::fs::hard_link(src, dest) {
+        Ok(()) => Ok(()),
+        // A second process linking the same key staged the same file first.
+        Err(_) if same_file(src, dest) => Ok(()),
+        Err(_) => {
+            let fresh = beside(dest);
+            let copied = std::fs::copy(src, &fresh).and_then(|_| std::fs::rename(&fresh, dest));
+            if copied.is_err() {
+                let _ = std::fs::remove_file(&fresh);
+            }
+            copied
+        }
+    }
+}
+
+/// Whether two paths name one file.
+fn same_file(a: &Path, b: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (std::fs::metadata(a), std::fs::metadata(b)) {
+            (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (a, b);
+        false
+    }
+}
+
+/// Writes `bytes` to a new file renamed over `dest`, rather than into `dest`.
+///
+/// `dest` may be a hard link to a cache entry ([`stage_from`]), and truncating
+/// it would rewrite that entry in place.
+fn replace_with(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let fresh = beside(dest);
+    let written = std::fs::write(&fresh, bytes).and_then(|()| std::fs::rename(&fresh, dest));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&fresh);
+    }
+    written
 }
 
 /// The driver a harness should spawn to link the way the product does, and the
@@ -1319,6 +1388,12 @@ impl CDriver {
     /// which is only nameable once this linker's version has entered that key.
     pub fn in_dir(mut self, dir: PathBuf) -> CDriver {
         self.dir = dir;
+        self
+    }
+
+    /// The same driver, staging from `cache` where it already holds a file.
+    pub fn from_cache(mut self, cache: Cache) -> CDriver {
+        self.store = Some(cache);
         self
     }
 
@@ -1683,6 +1758,25 @@ impl Linker for CDriver {
                     format!("internal error: {:?} is not a codegen unit filename", unit.name),
                 ));
             };
+            // The cache's own file, where it holds these bytes: hard-linked
+            // rather than written, so a link directory costs the disk nothing
+            // the cache has not already paid for. The length is checked
+            // because the entry is named by the unit's key, and the bytes in
+            // hand are what this link is of.
+            let entry = self
+                .store
+                .as_ref()
+                .and_then(|cache| cache.entry(&unit.key))
+                .filter(|e| std::fs::metadata(e).is_ok_and(|m| m.len() == unit.bytes.len() as u64));
+            if let Some(entry) = entry {
+                return match stage_from(&entry, &path) {
+                    Ok(()) => Ok(path),
+                    Err(e) => Err(Diagnostic::error(
+                        Span::NONE,
+                        format!("cannot write {}: {e}", path.display()),
+                    )),
+                };
+            }
             // An unchanged unit's bytes came from the cache, so the file on
             // disk — if there is one — already holds them. Everything else is
             // written unconditionally.
@@ -1691,7 +1785,7 @@ impl Linker for CDriver {
             // checked rather than taken on the caller's word.
             let already = skip.contains(&i) && already_holds(&path, &unit.bytes);
             if !already {
-                if let Err(e) = std::fs::write(&path, &unit.bytes) {
+                if let Err(e) = replace_with(&path, &unit.bytes) {
                     return Err(Diagnostic::error(
                         Span::NONE,
                         format!("cannot write {}: {e}", path.display()),
@@ -1742,10 +1836,30 @@ impl Linker for CDriver {
             // the size differs" guard is worth most here: the archive is the
             // largest file the link touches and a `--watch` loop reuses the
             // directory on every pass.
+            //
+            // The host archive is a constant of this binary, so with a cache it
+            // is written there once, as an entry keyed on its digest, and
+            // hard-linked into every link directory from there. Sixteen
+            // megabytes per link directory was most of what a cold `buri test`
+            // wrote to disk.
             let archive = self.dir.join(runtime_native::ARCHIVE_NAME);
-            let written = match &self.cross {
-                Some(cross) => stage_file(&cross.archive(), &archive),
-                None => stage_bytes(runtime_native::ARCHIVE, &archive),
+            let written = match (&self.cross, &self.store) {
+                (Some(cross), _) => stage_file(&cross.archive(), &archive),
+                (None, Some(cache)) => {
+                    let key = ActionKey::of(
+                        format!("runtime archive {}", crate::build::actions::runtime_archive_hash())
+                            .as_bytes(),
+                    );
+                    let entry = cache.entry(&key).or_else(|| {
+                        cache.put(&key, runtime_native::ARCHIVE);
+                        cache.entry(&key)
+                    });
+                    match entry {
+                        Some(entry) => stage_from(&entry, &archive),
+                        None => stage_bytes(runtime_native::ARCHIVE, &archive),
+                    }
+                }
+                (None, None) => stage_bytes(runtime_native::ARCHIVE, &archive),
             };
             if let Err(e) = written {
                 diagnostics.push(Diagnostic::error(
@@ -1980,8 +2094,11 @@ fn same_contents(a: &mut std::fs::File, b: &mut std::fs::File) -> std::io::Resul
 /// test runner. A file whose bytes already match is left alone, so only a
 /// rebuild that changed the binary pays it.
 ///
-/// The output and the cache entry are always separate inodes: a hard link or
-/// clone would let anything that writes the artifact change the cache.
+/// The output and the cache entry are always separate inodes: a hard link would
+/// let anything that writes the artifact change the cache. The new file is a
+/// copy, which on APFS is a clone: a separate inode that shares the source's
+/// blocks until one of them is written, so placing a two-gigabyte test binary
+/// writes almost nothing.
 pub fn place_from(src: &Path, dest: &Path) -> std::io::Result<u64> {
     let mut source = std::fs::File::open(src)?;
     let len = source.metadata()?.len();
@@ -2005,10 +2122,9 @@ pub fn place_from(src: &Path, dest: &Path) -> std::io::Result<u64> {
         }
         return Ok(len);
     }
-    use std::io::Seek;
-    source.rewind()?;
+    drop(source);
     let fresh = beside(dest);
-    let placed = write_fresh(&mut source, &fresh).and_then(|()| std::fs::rename(&fresh, dest));
+    let placed = copy_fresh(src, &fresh).and_then(|()| std::fs::rename(&fresh, dest));
     if placed.is_err() {
         let _ = std::fs::remove_file(&fresh);
     }
@@ -2024,24 +2140,18 @@ fn beside(dest: &Path) -> PathBuf {
     dest.with_file_name(format!(".{name}.{}.{n}.partial", std::process::id()))
 }
 
-/// Copies `source` into a new executable file at `path`, a [`CHUNK`] at a time.
-fn write_fresh(source: &mut std::fs::File, path: &Path) -> std::io::Result<()> {
-    use std::io::{Read, Write};
-    let mut file = std::fs::File::create_new(path)?;
-    let mut chunk = Vec::with_capacity(CHUNK as usize);
-    loop {
-        chunk.clear();
-        // `Read::by_ref` by name: `Write` brings a `by_ref` of its own.
-        Read::by_ref(source).take(CHUNK).read_to_end(&mut chunk)?;
-        if chunk.is_empty() {
-            break;
-        }
-        file.write_all(&chunk)?;
-    }
+/// Copies `src` into a new executable file at `path`.
+///
+/// `std::fs::copy`, which on macOS clones the file where the filesystem can
+/// (`fclonefileat`) and on Linux asks the kernel to copy it
+/// (`copy_file_range`, a reflink where the filesystem has them). Either way
+/// the bytes do not pass through this process.
+fn copy_fresh(src: &Path, path: &Path) -> std::io::Result<()> {
+    std::fs::copy(src, path)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(std::fs::Permissions::from_mode(0o755))?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))?;
     }
     Ok(())
 }

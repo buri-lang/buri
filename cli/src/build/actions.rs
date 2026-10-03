@@ -1088,7 +1088,7 @@ pub fn link_key_of(
 /// hashed the same six megabytes five times and spent longer on it than on its
 /// own front end. The term in the key is unchanged; only the number of times it
 /// is computed is.
-fn runtime_archive_hash() -> &'static str {
+pub(crate) fn runtime_archive_hash() -> &'static str {
     static HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     HASH.get_or_init(runtime_native::archive_hash)
 }
@@ -1812,7 +1812,9 @@ fn build_native(
     // is about to run, and the linker has to build that command line.
     let runtime = link::runtime_archive_for(&objects.units);
     let key = link_key(output, flags, &linker, &objects.keys, runtime);
-    let linker = linker.in_dir(link::dir(&session.root, key.as_str()));
+    let linker = linker
+        .in_dir(link::dir(&session.root, key.as_str()))
+        .from_cache(Cache::open(&session.root));
     let label = session.workspace.label(target);
     let explain_link = |status: crate::build::cache::Status| {
         crate::build::cache::explain(flags.explain, status, Action::Link, &label, &output.platform_label(), &key);
@@ -2091,7 +2093,9 @@ fn test_binary_named(
         objects_named(session, prefix, label, output, flags, program, tables, diagnostics)?;
     let runtime = link::runtime_archive_for(&objects.units);
     let key = link_key(output, flags, &linker, &objects.keys, runtime);
-    let linker = linker.in_dir(link::dir(&session.root, key.as_str()));
+    let linker = linker
+        .in_dir(link::dir(&session.root, key.as_str()))
+        .from_cache(Cache::open(&session.root));
     let explain_link = |status: crate::build::cache::Status| {
         crate::build::cache::explain(flags.explain, status, Action::Link, label, &output.platform_label(), &key);
     };
