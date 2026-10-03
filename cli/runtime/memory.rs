@@ -68,11 +68,25 @@ pub const BURI_RT_CAP_SHARED: u64 = 1 << 63;
 /// exabytes in one Buri value.
 pub const BURI_RT_CAP_ARENA: u64 = 1 << 62;
 
-/// The usable payload bytes of a block, once the two flag bits are off.
-pub const BURI_RT_CAP_MASK: u64 = !(BURI_RT_CAP_SHARED | BURI_RT_CAP_ARENA);
+/// Bit 61 of `cap`: the block is **settled**. It is in no arena, and every
+/// block it points to is settled too, for as long as it lives.
+///
+/// [`buri_rt_copy_block`] sets it on a marked heap copy and shares a settled
+/// source rather than copying it. So `core/alloc`'s `copyAcross` copies only
+/// what has not crossed already, and a step that hands back the state it was
+/// given costs a few blocks per crossing rather than a copy of the state
+/// (buri-lang/buri#223). §"Settled blocks" above that function is the
+/// soundness argument.
+pub const BURI_RT_CAP_SETTLED: u64 = 1 << 61;
 
-/// The flag bits of a `cap` word, as a mask: what [`buri_rt_realloc`] carries
-/// across and what [`BURI_RT_CAP_MASK`] takes off.
+/// The usable payload bytes of a block, once the three flag bits are off.
+pub const BURI_RT_CAP_MASK: u64 = !(BURI_RT_CAP_SHARED | BURI_RT_CAP_ARENA | BURI_RT_CAP_SETTLED);
+
+/// The flag bits [`buri_rt_realloc`] carries across.
+///
+/// Not [`BURI_RT_CAP_SETTLED`]: a grown block is about to be written, and a
+/// settled one must not be. [`buri_rt_unique_cap`] refuses a settled block, so
+/// one never reaches the growth path in the first place.
 pub const BURI_RT_CAP_FLAGS: u64 = BURI_RT_CAP_SHARED | BURI_RT_CAP_ARENA;
 
 // ---------------------------------------------------------------------------
@@ -281,6 +295,16 @@ pub(crate) unsafe fn in_arena(p: *mut u8) -> bool {
 unsafe fn is_shared(h: *const Header) -> bool {
     // SAFETY: the caller promises a live header.
     unsafe { (*h).cap & BURI_RT_CAP_SHARED != 0 }
+}
+
+/// Whether `h`'s block carries [`BURI_RT_CAP_SETTLED`].
+///
+/// # Safety
+/// `h` must point at a live block's header.
+#[inline]
+unsafe fn is_settled(h: *const Header) -> bool {
+    // SAFETY: the caller promises a live header.
+    unsafe { (*h).cap & BURI_RT_CAP_SETTLED != 0 }
 }
 
 /// The count word of `h`, as the atomic it is on a shared block.
@@ -683,7 +707,9 @@ struct Cache {
     /// left, which costs at most the tail of one block per nesting event and
     /// keeps what `scoped` carries between the two calls a single `I64`. The
     /// mapping itself is in the arena's `blocks` list either way, so the
-    /// abandoned tail is still `munmap`ed with the rest.
+    /// abandoned tail is still `munmap`ed with the rest. The one exception is
+    /// `copyAcross`'s step out of every arena and back, which keeps it
+    /// ([`KEPT`]).
     arena_at: usize,
     arena_end: usize,
 }
@@ -2009,6 +2035,17 @@ pub fn buri_rt_grown_capacity(needed: u64, old_cap: u64) -> u64 {
 /// It is one load and one test more than G2's version — of the `cap` word this
 /// function was already going to read for its answer.
 ///
+/// # A settled block is never unique either
+///
+/// [`BURI_RT_CAP_SETTLED`] promises that every pointer in the block is to a
+/// settled block. An append in place writes a new pointer into the block, and
+/// this function is its licence, so it refuses a settled block whatever its
+/// count. **Any other licence for an append in place must refuse it too**, or
+/// a step could append an arena block into a state the runtime shares.
+/// `a_push_onto_a_settled_list_copies_it` holds every such licence to that.
+/// The release backend's open-coded `Str` concatenation needs no such test: it
+/// writes bytes, never a pointer.
+///
 /// # Safety
 /// `p` is null or a live payload pointer from [`buri_rt_alloc`].
 #[must_use]
@@ -2025,7 +2062,7 @@ pub unsafe fn buri_rt_unique_cap(p: *const u8) -> Option<u64> {
     // not is this thread's alone, where G2's argument for the relaxed load
     // holds unchanged — `rc == 1` cannot move under the caller who read it.
     unsafe {
-        if is_shared(h) {
+        if is_shared(h) || is_settled(h) {
             return None;
         }
         (rc_atomic(h).load(Ordering::Relaxed) == 1).then(|| cap_of(h))
@@ -2729,7 +2766,12 @@ pub fn set_arena_slot_of_thread(slot: ArenaSlot) {
 /// [`arenas`] does not have and so allocates from the platform instead.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc_arena_enter(handle: i64) -> i64 {
-    let previous = arena_slot_of_thread().biased;
+    let slot = arena_slot_of_thread();
+    let previous = slot.biased;
+    // Leaving every arena keeps the window for the way back: see [`KEPT`].
+    if handle < 0 {
+        let _ = KEPT.try_with(|k| k.set(slot));
+    }
     // The window starts empty, so the first allocation of the new scope takes
     // the mapping path. The window the *outer* scope had is abandoned, which
     // is [`Cache::arena_at`]'s stated cost of nesting.
@@ -2744,8 +2786,26 @@ pub extern "C" fn buri_rt_alloc_arena_enter(handle: i64) -> i64 {
 /// `core/alloc`'s `arenaLeave(previous)` — the inverse, and the whole of it.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc_arena_leave(previous: i64) -> i64 {
-    set_arena_slot_of_thread(ArenaSlot { biased: previous as u64, at: 0, end: 0 });
+    let kept = KEPT.try_with(|k| k.replace(ArenaSlot::NONE)).unwrap_or(ArenaSlot::NONE);
+    if kept.biased != 0 && kept.biased == previous as u64 {
+        set_arena_slot_of_thread(kept);
+    } else {
+        set_arena_slot_of_thread(ArenaSlot { biased: previous as u64, at: 0, end: 0 });
+    }
     previous
+}
+
+thread_local! {
+    /// **The window an `arenaEnter(NO_SCOPE)` stepped out of**, for the
+    /// `arenaLeave` that steps back in.
+    ///
+    /// `core/alloc`'s `copyAcross` is that pair, around every actor crossing.
+    /// Abandoning the window there made each crossing map a fresh 64 KiB block
+    /// (buri-lang/buri#223). Keeping it is sound: only the copy glue runs
+    /// between the two calls, the arena is still live because its scope has
+    /// not ended, and only this thread bumps this window. Any other leave finds
+    /// nothing kept for its arena and starts an empty window, as before.
+    static KEPT: core::cell::Cell<ArenaSlot> = const { core::cell::Cell::new(ArenaSlot::NONE) };
 }
 
 /// A block of `payload` usable bytes out of the arena this thread is inside,
@@ -2846,8 +2906,51 @@ fn block_bytes(payload: u64) -> usize {
 // history to its copy: the copy is a new value, reachable so far from one
 // place, and if the program can reach a task boundary at all it is marked for
 // that reason and not for this one.
+//
+// ## Settled blocks: the copy shares what already crossed
+//
+// `core/actor` hands the runtime every state a step leaves behind, and while
+// any scope holds pages that crossing goes through `copyAcross`. A step that
+// handed its state back untouched used to pay a deep copy of the whole state
+// per message (buri-lang/buri#223). [`BURI_RT_CAP_SETTLED`] lets the copy stop
+// at the blocks an earlier crossing already copied.
+//
+// **The invariant**: a settled block is in no arena, and every block it points
+// to is settled, for as long as it lives. So nothing reachable from a settled
+// block is in an arena, and no scope will unmap any of it.
+//
+// **Where the bit goes on**: only below, on a copy, after the glue has run on
+// it, and only when the copy is marked and not an arena block. After the glue,
+// each pointer in the copy is either a share of a settled block or a copy this
+// call made on this thread. The thread's arena does not change during the
+// walk, so that inner copy came off the heap too, and its own call settled it.
+// Nothing else can see the copy yet, so a plain store is enough.
+//
+// **Why only marked copies**: a settled block is never written in place, so
+// the first append to one copies it. Only a program that reaches `core/actor`
+// or `core/tasks` has crossings to share blocks between, and such a program
+// marks every block. So an unmarked copy, such as `scoped`'s answer in a
+// program with no tasks, stays writable in place.
+//
+// **Why it stays true**: a block's pointers change in two ways only. The glue
+// writes into a fresh block nothing else holds. An append in place writes into
+// a block under a uniqueness licence, and every such licence refuses a settled
+// block ([`buri_rt_unique_cap`]'s doc). [`finish`] rewrites a recycled block's header, so the bit never
+// survives a free. And a settled block keeps what it points to alive, so none
+// of it is freed and reused underneath.
+//
+// **Why sharing is sound**: a settled source is answered as itself, with one
+// more reference, and by the invariant the runtime then holds nothing in any
+// arena. The bit belongs to the block, not to the thread asking, so a
+// `Tasks.parallel` step running outside its caller's arena gets the right
+// answer too. That step can build a heap block around one in the caller's
+// arena, but it never built it here, so the block is not settled and is copied
+// in full, arena block and all. The extra reference is counted atomically,
+// because a settled block is marked.
 
-/// A fresh block holding the same payload bytes as `p`, with `rc == 1`.
+/// A block holding the same payload bytes as `p`: usually a fresh one with
+/// `rc == 1`, and `p` itself with one more reference where `p` is settled
+/// (§"Settled blocks" above).
 ///
 /// `glue` is the type's **copy** glue — the generated walk that replaces every
 /// counted pointer *inside* the new block with a copy of its own. It is null
@@ -2871,6 +2974,12 @@ pub unsafe extern "C" fn buri_rt_copy_block(
         return p;
     }
     // SAFETY: the caller promises a live payload pointer.
+    if unsafe { is_settled(header(p)) } {
+        // SAFETY: as above.
+        unsafe { buri_rt_incref(p) };
+        return p;
+    }
+    // SAFETY: the caller promises a live payload pointer.
     let cap = unsafe { cap_of(header(p)) };
     let fresh = buri_rt_alloc(cap);
     // SAFETY: both blocks have `cap` usable bytes and they do not overlap —
@@ -2878,6 +2987,13 @@ pub unsafe extern "C" fn buri_rt_copy_block(
     unsafe { std::ptr::copy_nonoverlapping(p.cast_const(), fresh, cap as usize) };
     if let Some(g) = glue {
         g(fresh);
+    }
+    // SAFETY: `fresh` is live and nothing else holds it yet.
+    unsafe {
+        let h = header(fresh);
+        if is_shared(h) && !is_arena(h) {
+            (*h).cap |= BURI_RT_CAP_SETTLED;
+        }
     }
     fresh
 }
@@ -2892,7 +3008,8 @@ pub unsafe extern "C" fn buri_rt_copy_block(
 ///
 /// A `Str` with no base is a static — a literal, or the empty string — and is
 /// copied by leaving it alone: there is no block under it to release, so there
-/// is none to duplicate either.
+/// is none to duplicate either. A settled base is shared, as
+/// [`buri_rt_copy_block`] shares one, and the offset lands on the same block.
 ///
 /// # Safety
 /// `s` points at a readable, writable [`BuriStr`].
@@ -3878,9 +3995,11 @@ mod tests {
     fn the_shared_bit_is_the_top_bit_of_the_capacity() {
         assert_eq!(BURI_RT_CAP_SHARED, 1 << 63);
         assert_eq!(BURI_RT_CAP_ARENA, 1 << 62);
-        assert_eq!(BURI_RT_CAP_MASK, u64::MAX >> 2);
+        assert_eq!(BURI_RT_CAP_SETTLED, 1 << 61);
+        assert_eq!(BURI_RT_CAP_MASK, u64::MAX >> 3);
         assert_eq!(BURI_RT_CAP_SHARED & BURI_RT_CAP_MASK, 0);
         assert_eq!(BURI_RT_CAP_ARENA & BURI_RT_CAP_MASK, 0);
+        assert_eq!(BURI_RT_CAP_SETTLED & BURI_RT_CAP_MASK, 0);
         assert_eq!(BURI_RT_CAP_SHARED & BURI_RT_CAP_ARENA, 0);
         assert_eq!(BURI_RT_CAP_FLAGS, BURI_RT_CAP_SHARED | BURI_RT_CAP_ARENA);
     }
@@ -3901,6 +4020,7 @@ mod tests {
                 BURI_RT_CAP_SHARED,
                 BURI_RT_CAP_ARENA,
                 BURI_RT_CAP_SHARED | BURI_RT_CAP_ARENA,
+                BURI_RT_CAP_SHARED | BURI_RT_CAP_SETTLED,
             ] {
                 let word = cap | flag;
                 assert_eq!(word & BURI_RT_CAP_MASK, cap);
@@ -5122,6 +5242,39 @@ mod tests {
         assert_eq!(released_after - released_before, BURI_RT_ARENA_BLOCK as u64);
     }
 
+    /// **Stepping out of every arena and back keeps the scope's window.**
+    ///
+    /// `core/alloc`'s `copyAcross` does exactly this around each actor
+    /// crossing. Abandoning the window there made every crossing map a fresh
+    /// 64 KiB block, which put a few microseconds and a quarter of a megabyte
+    /// on each `sendMessage` inside a scope (buri-lang/buri#223).
+    #[test]
+    fn leaving_every_arena_and_coming_back_keeps_the_window() {
+        let _alone = arena_alone();
+        let a = buri_rt_alloc_arena_create();
+        let outer = buri_rt_alloc_arena_enter(a);
+        let first = buri_rt_alloc(64);
+        let (mapped, _) = arena_stats();
+
+        let previous = buri_rt_alloc_arena_enter(-1);
+        let heap = buri_rt_alloc(64);
+        let _ = buri_rt_alloc_arena_leave(previous);
+        let second = buri_rt_alloc(64);
+        // SAFETY: all three are live, just allocated.
+        unsafe {
+            assert!(!is_arena(header(heap)), "a block outside every arena was the scope's");
+            assert!(is_arena(header(second)), "the scope stopped serving its blocks");
+            buri_rt_free(heap);
+            buri_rt_free(second);
+            buri_rt_free(first);
+        }
+        let (after, _) = arena_stats();
+        assert_eq!(after, mapped, "coming back into the scope mapped another block");
+
+        let _ = buri_rt_alloc_arena_leave(outer);
+        let _ = buri_rt_alloc_arena_release(a);
+    }
+
     /// **The acceptance property, for a scope that answers a value**: the pages
     /// go back, and the platform heap is where it started.
     ///
@@ -5417,11 +5570,103 @@ mod tests {
         unsafe { buri_rt_free(source) };
     }
 
+    /// **A marked heap copy is settled, and copying it again shares it**
+    /// (buri-lang/buri#223). An unmarked copy is neither, and a settled block
+    /// is never unique.
+    #[test]
+    fn a_marked_copy_settles_and_its_next_copy_shares_it() {
+        let _latch = latch();
+        let source = buri_rt_alloc(64);
+        // SAFETY: live, just allocated.
+        unsafe {
+            let cold = buri_rt_copy_block(source, None);
+            assert!(!is_settled(header(cold)), "an unmarked copy settled");
+            assert_eq!(buri_rt_unique_cap(cold), Some(64));
+            buri_rt_free(cold);
+        }
+
+        buri_rt_values_may_cross_tasks();
+        // SAFETY: live.
+        unsafe {
+            let first = buri_rt_copy_block(source, None);
+            assert_ne!(first, source);
+            assert!(is_settled(header(first)), "a marked heap copy did not settle");
+            assert_eq!(buri_rt_cap(first), 64, "the bit cost the copy its capacity");
+            (*header(first)).cap &= !BURI_RT_CAP_SHARED;
+            assert_eq!(buri_rt_unique_cap(first), None, "a settled block was unique");
+            (*header(first)).cap |= BURI_RT_CAP_SHARED;
+
+            let second = buri_rt_copy_block(first, None);
+            assert_eq!(second, first, "a settled block was copied rather than shared");
+            assert_eq!(buri_rt_rc(first), 2);
+            buri_rt_decref(second, None);
+            buri_rt_decref(first, None);
+        }
+        forget_values_may_cross_tasks();
+        // SAFETY: the only reference.
+        unsafe { buri_rt_free(source) };
+    }
+
+    /// **A push onto a settled list copies it**, even when the caller holds its
+    /// only reference.
+    ///
+    /// The push would otherwise write a pointer into a block the runtime may
+    /// share, and the pointer may be to a block in an arena. This holds every
+    /// licence `append_dest` uses to refusing a settled block, including one
+    /// that lets a marked block be written in place.
+    #[test]
+    fn a_push_onto_a_settled_list_copies_it() {
+        let _latch = latch();
+        buri_rt_values_may_cross_tasks();
+        let source = buri_rt_alloc(64);
+        // SAFETY: live, just allocated, and nothing else holds `settled`.
+        unsafe {
+            let settled = buri_rt_copy_block(source, None);
+            assert!(is_settled(header(settled)));
+            assert_eq!(buri_rt_rc(settled), 1);
+            let item = 7i64;
+            let mut out = crate::value::BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            crate::list::buri_rt_list_push(settled, 1, (&raw const item).cast(), 8, None, &raw mut out);
+            assert_ne!(out.ptr, settled, "a push wrote into a settled block");
+            assert_eq!(buri_rt_rc(settled), 1, "the push kept a count on the settled block");
+            buri_rt_decref(out.ptr, None);
+            buri_rt_decref(settled, None);
+        }
+        forget_values_may_cross_tasks();
+        // SAFETY: the only reference.
+        unsafe { buri_rt_free(source) };
+    }
+
+    /// **A copy into an arena does not settle**, even in a marked program: it
+    /// is in the arena the bit promises it is not.
+    #[test]
+    fn a_copy_into_an_arena_does_not_settle() {
+        // Both locks, in `the_arena_bit_and_the_mark_are_independent`'s order.
+        let _latch = latch();
+        let _alone = arena_alone();
+        buri_rt_values_may_cross_tasks();
+        let source = buri_rt_alloc(64);
+        let a = buri_rt_alloc_arena_create();
+        let outer = buri_rt_alloc_arena_enter(a);
+        // SAFETY: live, just allocated.
+        unsafe {
+            let inside = buri_rt_copy_block(source, None);
+            assert!(is_arena(header(inside)));
+            assert!(!is_settled(header(inside)), "an arena copy settled");
+            buri_rt_free(inside);
+        }
+        let _ = buri_rt_alloc_arena_leave(outer);
+        let _ = buri_rt_alloc_arena_release(a);
+        forget_values_may_cross_tasks();
+        // SAFETY: the only reference.
+        unsafe { buri_rt_free(source) };
+    }
+
     /// **The two flag bits are independent, and neither costs the other its
     /// meaning.**
     ///
-    /// This is the one case that holds *both* locks, and it holds them because
-    /// it is the one case claiming the two mechanisms interact — which G4's
+    /// This case holds *both* locks, and it holds them because it claims the
+    /// two mechanisms interact — which G4's
     /// note about `arena_alone` says is the only reason to. The claim is that
     /// they interact in exactly one place and no other: `buri_rt_unique_cap`
     /// answers on `CAP_SHARED` and is blind to `CAP_ARENA`, so a scope's block

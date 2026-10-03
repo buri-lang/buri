@@ -205,3 +205,7 @@ mod fields;
 // with each task's own answer, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod marked;
+// An actor driven from inside `alloc.scoped`: the crossing's copies counted
+// rather than timed, and everything the scope posted read back after it.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod actor_scoped;
