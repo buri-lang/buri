@@ -697,9 +697,8 @@ fn native_platform() -> String {
 /// spawn a command that only has to start.
 ///
 /// `None` is a host with no native backend — no C toolchain, or a triple no
-/// stencil library is built for. That is a host's answer and not a runner's:
-/// `ci::skipped` prints it here and panics under `BURI_CI=1`, where
-/// `cli/tests/ci.rs` has already asserted the backend's inputs are real bytes.
+/// stencil library is built for. A failed build on a host that has one is the
+/// program's failure, and `ci::native_program_failed` panics on it.
 fn native_repo(name: &str, source: &str) -> Option<Scratch> {
     let scratch = Scratch::repo(name);
     scratch.write(
@@ -709,12 +708,10 @@ fn native_repo(name: &str, source: &str) -> Option<Scratch> {
     scratch.write("cmd/program/main.buri", source);
     let built = scratch.run(&["build", "//cmd/program"]);
     if built.code != 0 {
-        ci::skipped(
+        ci::native_program_failed(
             "build::serving",
-            &format!(
-                "`buri build //cmd/program` could not produce a native artifact:\n{}",
-                indent(&built.all())
-            ),
+            "`buri build //cmd/program` failed",
+            &indent(&built.all()),
         );
         return None;
     }

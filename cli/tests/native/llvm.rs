@@ -4882,10 +4882,7 @@ test "notEmpty on a one-element list" {
 /// claim on the debug backend and on JavaScript.
 #[test]
 fn a_state_keeps_its_value_and_gives_it_back_on_the_release_backend() {
-    if let Some(why) = can_execute() {
-        eprintln!("skipped: {why}");
-        return;
-    }
+    skip_unless_executable!();
     let source = r#"
 from "core/platforms/testing/state" import * as state;
 from "core/testing/assert" import * as assert;
