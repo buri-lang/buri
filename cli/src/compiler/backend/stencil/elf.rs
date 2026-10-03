@@ -662,6 +662,7 @@ fn is_global(symbols: &[Symbol], i: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::runtime;
     use super::super::object::{Definition, CODE_ATTRIBUTES};
 
     use super::elfobj;
@@ -748,7 +749,7 @@ mod tests {
                 global: true,
                 weak: false,
             },
-            Symbol { name: String::from("buri_rt_abort"), defined: None, global: true, weak: false },
+            Symbol { name: String::from(runtime::ABORT), defined: None, global: true, weak: false },
             Symbol {
                 name: String::from("pool"),
                 defined: Some(Definition { section: 1, offset: 0 }),
@@ -778,7 +779,7 @@ mod tests {
         assert_eq!(call.kind, elfobj::R_AARCH64_CALL26);
         assert_eq!(
             obj.syms.get(call.symbolnum as usize).map(|s| s.name.as_str()),
-            Some("buri_rt_abort")
+            Some(runtime::ABORT)
         );
         // And `f` is a function of the code section, which is what a linker
         // and a profiler read.

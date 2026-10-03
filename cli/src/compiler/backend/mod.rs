@@ -44,6 +44,10 @@ pub mod runtime_native;
 #[cfg(any(feature = "backend-stencil", feature = "backend-llvm"))]
 pub mod runtime_table;
 
+/// Where the reference counts live inside a value.
+#[cfg(any(feature = "backend-stencil", feature = "backend-llvm"))]
+pub mod counts;
+
 #[cfg(feature = "backend-llvm")]
 pub mod llvm;
 

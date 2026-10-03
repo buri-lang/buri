@@ -19,14 +19,13 @@
 
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 
-/// The table, and the shapes it is written in.
+/// The table, the shapes it is written in, and the symbols called without a
+/// key.
 ///
 /// `backend/runtime_table.rs` holds them, because the LLVM backend emits the
-/// same call from the same rows. They are re-exported here so that `runtime::` is
-/// still where this backend's emitter looks.
-pub use crate::compiler::backend::runtime_table::{
-    entry, Arg, Entry, Extra, Ret, BURI_OK, ENTRIES,
-};
+/// same calls. They are re-exported here so that `runtime::` is still where
+/// this backend's emitter looks.
+pub use crate::compiler::backend::runtime_table::*;
 
 /// How an `Option<T>` is written, flattened out of `middle::layout` so that the
 /// emitter never learns which niche the layout chose.

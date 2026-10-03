@@ -655,10 +655,8 @@ way.
 Every operation `middle::lower` leaves as a `Body::Runtime`, or as an
 `Inst::CallIntrinsic` with a `buri_rt_*` symbol, is **a call into
 `libburi_rt.a`** — the same archive, the same contract (`cli/runtime/lib.rs`)
-and the same table shape as the other two backends. `stencil/runtime.rs`
-transcribes that contract and `llvm/runtime.rs` transcribes it again, key for
-key and shape for shape, and `cli/tests/native/conformance.rs`'s companion
-test keeps the two from disagreeing about which keys exist.
+and the same table as the LLVM backend: both emit against
+`backend/runtime_table.rs`.
 
 The prototype had its own `intrin.rs`: a descriptor-driven helper per
 operation, written in Rust, living in the compiler's process. That could not
@@ -886,9 +884,10 @@ separately when a block dies is the one divergence MEMORY.md §5 cannot
 tolerate. `buri_rt_free` is the sole owner of the free and of the live-block
 counters on both.
 
-`emit::Lower::walk_rc` covers all five site kinds: a `Str`/`[T]` block, a
-nested aggregate, a tagged enum's per-variant payloads, a **boxed** field, and
-a **niche** whose payload is walked behind its null test.
+Both backends walk the same sites, from `backend/counts.rs`: a
+`Str`/`[T]`/closure block, a nested or **boxed** field, a tagged enum's
+per-variant payloads, and a **niche** whose payload is walked behind its null
+test.
 
 The last of those is not belt-and-braces. Writing `.None` stores null at the
 one pointer the discriminant is and touches nothing else, so every other byte
@@ -905,9 +904,9 @@ value model rather than of an emitter:
 | Helper | Why it is generated rather than called |
 |---|---|
 | `Thunk` | A closure's `code` takes its environment as a *pointer*; a lifted lambda takes it as an aggregate parameter, flat in its frame. Something has to convert. |
-| `Walk` | The per-type counted-pointer walk as a C `fn(*mut u8)`: the drop glue `buri_rt_decref` calls, and the per-element retain `cli/runtime/list.rs` is handed. |
+| `Walk` | The per-type counted-pointer walk as a C `fn(*mut u8)`: the drop glue `buri_rt_decref` calls, the per-element retain `cli/runtime/list.rs` is handed, and the copy out of a scope. |
 | `Elems` | The same over a whole `[T]` block, whose element count is `cap / stride`, skipping an all-zero slot. |
-| `EnvGlue` | The one indirection that lets a closure environment carry its own release function: `Ty::Fn` does not record what was captured. |
+| `Env` | The one indirection that lets a closure environment carry its own release and copy functions: `Ty::Fn` does not record what was captured. |
 
 The `calli` stencil enters a thunk, which is an ordinary frame-threaded body.
 The **runtime** enters a glue function, so glue is `extern "C"`, and each one
