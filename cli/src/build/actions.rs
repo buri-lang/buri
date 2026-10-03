@@ -619,7 +619,7 @@ pub fn read_as(rel: &str, bytes: Vec<u8>, content: Content) -> Vec<u8> {
             return text;
         }
     }
-    let mut out = Vec::with_capacity(bytes.len() + 1);
+    let mut out = Vec::with_capacity(bytes.len().saturating_add(1));
     out.push(b'b');
     out.extend_from_slice(&bytes);
     out

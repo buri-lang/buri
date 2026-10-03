@@ -311,6 +311,7 @@ fn one_pass(
     let width = if slots.iter().all(|s| s.answer.is_some()) { 1 } else { jobs_of(&args.flags) };
     let tally = crate::parallel::pool(
         width,
+        builds_of(width),
         |job, queue| work(job, queue, &shared),
         |queue, done| drive(&mut session, args, &mut pre, &plans, &mut slots, queue, done, &mut out),
     );
@@ -530,20 +531,22 @@ fn plan(session: &mut Session, target: TargetId, args: &arguments::Args, slots: 
     Plan { target, refused, slots: mine }
 }
 
-/// How many builds and runs the pool holds at once: `--jobs`, or one per core
-/// with [`JOB_MEMORY`] of this machine's memory each.
+/// How many builds and runs the pool holds at once: `--jobs`, or one per core.
 fn jobs_of(flags: &arguments::Flags) -> usize {
-    flags.jobs.unwrap_or_else(|| {
-        let cores = std::thread::available_parallelism().map(|c| c.get()).unwrap_or(1);
-        let memory = crate::parallel::memory_bytes()
-            .map_or(cores, |bytes| usize::try_from(bytes / JOB_MEMORY).unwrap_or(cores));
-        cores.min(memory).max(1)
-    })
+    flags.jobs.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |c| c.get())).max(1)
 }
 
-/// The memory one job is budgeted. A batch's program is a few gigabytes at the
-/// most, and a cold run of an 80-suite repository peaked at 8 GB serially.
-const JOB_MEMORY: u64 = 4 * 1024 * 1024 * 1024;
+/// How many of `jobs` may be builds, which hold a whole program each: one per
+/// [`BUILD_MEMORY`] of this machine's memory.
+fn builds_of(jobs: usize) -> usize {
+    let memory = crate::parallel::memory_bytes()
+        .map_or(jobs, |bytes| usize::try_from(bytes / BUILD_MEMORY).unwrap_or(jobs));
+    jobs.min(memory).max(1)
+}
+
+/// The memory one build is budgeted. Batching an 80-suite repository's suites
+/// peaked at 22 GB with eight builds in flight.
+const BUILD_MEMORY: u64 = 8 * 1024 * 1024 * 1024;
 
 /// What the reporting loop counted.
 #[derive(Default)]
@@ -594,10 +597,19 @@ fn drive(
         if next >= plans.len() {
             return tally;
         }
-        let answer = match done.recv() {
-            Ok(Some(answer)) => answer,
-            Ok(None) => panic!("a test job panicked"),
-            Err(_) => panic!("no worker is left to build or run the suites"),
+        let Ok(Some(answer)) = done.recv() else {
+            // A job panicked, or no worker is left. Which suite it was is
+            // unknown, so every suite still waiting says so rather than hangs.
+            for s in slots.iter_mut().filter(|s| s.answer.is_none() || s.awaiting_build) {
+                let mut lost = Diagnostics::new();
+                lost.push(
+                    Diagnostic::error(Span::NONE, "internal error: a test job stopped without an answer")
+                        .with_fix("report it: this is a toolchain bug"),
+                );
+                s.answer = Some(Err(lost));
+                s.awaiting_build = false;
+            }
+            continue;
         };
         match answer {
             Done::Answer { slot, answer, explain, notes } => {
@@ -608,6 +620,7 @@ fn drive(
                     s.answer = Some(answer);
                 }
             }
+            Done::Progress => {}
             Done::Built { slot, explain } => {
                 if let Some(s) = slots.get_mut(slot) {
                     s.explain.push_str(&explain);
@@ -681,20 +694,44 @@ type Queue = crate::parallel::Queue<Job>;
 struct Shared {
     root: std::path::PathBuf,
     flags: arguments::Flags,
-    /// One lock per snapshot directory, held while a suite that paints runs,
-    /// so two suites never write one directory's goldens at once.
-    painting: std::sync::Mutex<Vec<(String, std::sync::Arc<std::sync::Mutex<()>>)>>,
+    /// Which suite is painting into each snapshot directory, and how many of
+    /// its processes are. Two suites never write one directory's goldens at
+    /// once; one suite's processes write different files, so they may.
+    painting: std::sync::Mutex<Vec<Painter>>,
+}
+
+/// A suite painting into a snapshot directory.
+struct Painter {
+    dir: String,
+    slot: usize,
+    processes: usize,
 }
 
 impl Shared {
-    fn painting(&self, dir: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
-        let mut locks = self.painting.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some((_, lock)) = locks.iter().find(|(d, _)| d == dir) {
-            return std::sync::Arc::clone(lock);
+    /// Takes `dir` for the suite in `slot`, unless another suite has it.
+    fn claim(&self, dir: &str, slot: usize) -> bool {
+        let mut painters = self.painting.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match painters.iter_mut().find(|p| p.dir == dir) {
+            Some(p) if p.slot == slot => p.processes += 1,
+            Some(_) => return false,
+            None => painters.push(Painter { dir: dir.to_string(), slot, processes: 1 }),
         }
-        let lock = std::sync::Arc::new(std::sync::Mutex::new(()));
-        locks.push((dir.to_string(), std::sync::Arc::clone(&lock)));
-        lock
+        true
+    }
+
+    /// Waits until [`Shared::claim`] succeeds. For a suite whose job can't be put back.
+    fn claim_waiting(&self, dir: &str, slot: usize) {
+        while !self.claim(dir, slot) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    fn release(&self, dir: &str, slot: usize) {
+        let mut painters = self.painting.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(p) = painters.iter_mut().find(|p| p.dir == dir && p.slot == slot) {
+            p.processes = p.processes.saturating_sub(1);
+        }
+        painters.retain(|p| p.processes > 0);
     }
 }
 
@@ -719,6 +756,8 @@ enum Done {
     Built { slot: usize, explain: String },
     /// These slots go back to run alone.
     Abandoned { slots: Vec<usize>, explain: String },
+    /// One of a member's processes finished, and others haven't yet.
+    Progress,
 }
 
 /// One test of a program, as the report locates it.
@@ -757,7 +796,7 @@ fn work(job: Job, queue: &Queue, shared: &Shared) -> Done {
         Job::Group(job) => build_group(job, queue, shared),
         Job::Solo(job) => run_solo(job, shared),
         Job::Js(job) => run_js(job, shared),
-        Job::Member(job) => run_member(job, shared),
+        Job::Member(job) => run_member(job, queue, shared),
     }
 }
 
@@ -782,7 +821,7 @@ fn solo(
     let (target, platform, chosen, key) = (slot.target, slot.platform, slot.chosen, slot.key.clone());
     match front_end(session, target, platform, chosen, &key, args, pre, i) {
         Next::Answer(answer) => slot.answer = Some(answer),
-        Next::Job(job) => queue.push(job, true),
+        Next::Job(job) => queue.push(*job, true),
     }
 }
 
@@ -790,7 +829,7 @@ fn solo(
 /// that finds it.
 enum Next {
     Answer(Result<Outcome, Diagnostics>),
-    Job(Job),
+    Job(Box<Job>),
 }
 
 #[allow(
@@ -860,7 +899,7 @@ fn front_end(
             .join(".buri/out/node")
             .join(&session.workspace.package(target.package).path);
         let path = dir.join(format!("test-{}.mjs", target.kind.name()));
-        return Next::Job(Job::Js(JsJob {
+        return Next::Job(Box::new(Job::Js(JsJob {
             slot,
             program,
             tables,
@@ -869,7 +908,7 @@ fn front_end(
             limit,
             on_timeout,
             skipped,
-        }));
+        })));
     }
     // A filtered native run does not even generate the tests it leaves out.
     if let (Some(f), monomorphize::ProgramRoots::Tests(tests)) = (filter, &mut program.roots) {
@@ -881,7 +920,7 @@ fn front_end(
         return Next::Answer(Ok(Outcome { cases: Vec::new(), skipped }));
     }
     let paints = program.funcs.iter().any(|f| f.intrinsic_key() == Some(PAINT_KEY));
-    Next::Job(Job::Solo(SoloJob {
+    Next::Job(Box::new(Job::Solo(SoloJob {
         slot,
         label,
         private: actions::private_test_binary(session, target, &output),
@@ -896,7 +935,7 @@ fn front_end(
         paints,
         tests,
         skipped,
-    }))
+    })))
 }
 
 /// One suite's own native binary: link it, then run every block.
@@ -952,8 +991,9 @@ fn run_solo(job: SoloJob, shared: &Shared) -> Done {
         Err(d) => return answer(Err(d), String::new()),
     };
     let snapshots = snapshot_env(&snapshot_dir, shared.flags.update, write_stylesheet(binary.path(), &sheet));
-    let lock = paints.then(|| shared.painting(&snapshot_dir));
-    let _painting = lock.as_ref().map(|l| l.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+    if paints {
+        shared.claim_waiting(&snapshot_dir, slot);
+    }
     let mut notes = String::new();
     let ran = run_blocks(
         &binary.path().display().to_string(),
@@ -963,6 +1003,9 @@ fn run_solo(job: SoloJob, shared: &Shared) -> Done {
         &snapshots,
         &mut notes,
     );
+    if paints {
+        shared.release(&snapshot_dir, slot);
+    }
     let blocks = match ran {
         Ok(Verdicts::Blocks(blocks)) => blocks,
         Ok(Verdicts::TimedOut) => return answer(Err(on_timeout), notes),
@@ -1872,17 +1915,52 @@ fn batch(session: &mut Session, args: &arguments::Args, slots: &mut [Slot], queu
         return;
     }
     let targets: Vec<TargetId> = fresh.iter().map(|(t, _)| *t).collect();
-    for members in batches_of(session, &targets) {
+    for mut members in batches_of(session, &targets) {
         // A batch of one is the path that already exists.
-        if members.len() < 2 {
-            continue;
+        while members.len() >= 2 {
+            let member_slots: Vec<usize> = members
+                .iter()
+                .filter_map(|m| fresh.iter().find(|(t, _)| t == m).map(|(_, i)| *i))
+                .collect();
+            let broken = batch_front(session, &members, &member_slots, platform, args, slots, queue);
+            // One suite that doesn't compile shouldn't cost the rest their batch.
+            if broken.is_empty() {
+                break;
+            }
+            members.retain(|m| !broken.contains(m));
         }
-        let member_slots: Vec<usize> = members
-            .iter()
-            .filter_map(|m| fresh.iter().find(|(t, _)| t == m).map(|(_, i)| *i))
-            .collect();
-        batch_front(session, &members, &member_slots, platform, args, slots, queue);
     }
+}
+
+/// The members whose code holds one of `diagnostics`' errors, so a batch can go
+/// on without them. Empty when an error is in nobody's code, or in everybody's.
+fn broken_members(session: &Session, members: &[TargetId], diagnostics: &Diagnostics) -> Vec<TargetId> {
+    let mut packages: Vec<crate::build::workspace::PackageId> = Vec::new();
+    for d in diagnostics.items.iter().filter(|d| d.is_error()) {
+        if d.span.file == crate::diagnostics::FileId::NONE {
+            return Vec::new();
+        }
+        let file = session.map.get(d.span.file);
+        match session.workspace.owning_package(&file.abs_path) {
+            Some(p) => packages.push(p),
+            None => return Vec::new(),
+        }
+    }
+    let broken: Vec<TargetId> = members
+        .iter()
+        .copied()
+        .filter(|&m| {
+            let mut roots = vec![m];
+            roots.extend(session.workspace.test_dep_edges(m).into_iter().map(|(dep, _)| dep));
+            roots.iter().any(|&r| {
+                session.workspace.closure(r).iter().any(|t| packages.contains(&t.package))
+            })
+        })
+        .collect();
+    if broken.len() == members.len() {
+        return Vec::new();
+    }
+    broken
 }
 
 /// Whether a suite's *build file* leaves it free to share a binary.
@@ -1979,6 +2057,9 @@ fn test_modules_of(session: &Session, target: TargetId) -> Vec<String> {
 /// the safety argument: a batch that is not certain is not a batch, and its
 /// suites are compiled on their own by [`solo`], where a diagnostic — a gap the
 /// backend has no body for, most of all — can name the one suite it belongs to.
+///
+/// Answers the members whose code failed the type check, so the caller can try
+/// again without them ([`broken_members`]).
 fn batch_front(
     session: &mut Session,
     members: &[TargetId],
@@ -1987,7 +2068,7 @@ fn batch_front(
     args: &arguments::Args,
     slots: &mut [Slot],
     queue: &Queue,
-) {
+) -> Vec<TargetId> {
     // One unit per member, in the pass's order, which is the order their test
     // sources load in and therefore the order the binary's blocks come out in.
     let units: Vec<Unit> = members
@@ -2001,7 +2082,7 @@ fn batch_front(
         &units,
     );
     if analysis.diagnostics.has_errors() {
-        return;
+        return broken_members(session, members, &analysis.diagnostics);
     }
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
@@ -2013,12 +2094,12 @@ fn batch_front(
         monomorphize::Roots::Tests,
     );
     if diagnostics.has_errors() || program.roots.tests().is_empty() {
-        return;
+        return Vec::new();
     }
     // The gap probe cannot say *which* member reaches the intrinsic it names, so
     // a batch with a gap in it is abandoned and each member asks for itself.
     if native_gap(platform, &args.flags, &program, &analysis.checked.tables).is_some() {
-        return;
+        return Vec::new();
     }
     // Which suite owns each module that declares tests. Built from the build
     // files rather than from the program, so a module the batch loaded for some
@@ -2046,7 +2127,7 @@ fn batch_front(
             tests.retain(|t| t.name.contains(f.as_str()));
         }
     }
-    let Some(selected) = selected_of(&program, &owner_of) else { return };
+    let Some(selected) = selected_of(&program, &owner_of) else { return Vec::new() };
     let groups = groups_of(session, &program, members, &selected, batch_limit());
     let batch = Batch { members, member_slots, skipped: &skipped, platform };
     if let [group] = groups.as_slice() {
@@ -2087,6 +2168,7 @@ fn batch_front(
     drop(loaded);
     drop(analysed);
     crate::parallel::discard(checked);
+    Vec::new()
 }
 
 /// What every group of one batch shares.
@@ -2158,6 +2240,14 @@ fn submit_group(
             })
         })
         .collect();
+    // A member a `--filter` left nothing in is answered here, with no process.
+    let (members, empty): (Vec<MemberSpec>, Vec<MemberSpec>) =
+        members.into_iter().partition(|m| !m.ranges.is_empty());
+    for member in &empty {
+        if let Some(s) = slots.get_mut(member.slot) {
+            s.answer = Some(Ok(Outcome { cases: Vec::new(), skipped: member.skipped }));
+        }
+    }
     for member in &members {
         if let Some(s) = slots.get_mut(member.slot) {
             s.queued = true;
@@ -2240,60 +2330,124 @@ fn build_group(job: GroupJob, queue: &Queue, shared: &Shared) -> Done {
     let first = members.first().map_or(usize::MAX, |m| m.slot);
     // Reversed, because each goes to the front: the first member runs first.
     for spec in members.into_iter().rev() {
-        queue.push_first(Job::Member(MemberJob {
-            binary: std::sync::Arc::clone(&binary),
-            seeds: std::sync::Arc::clone(&seeds),
-            sheet: sheet.clone(),
-            spec,
+        let chunks = chunks_of(&spec.ranges, BLOCKS_PER_PROCESS);
+        let spec = std::sync::Arc::new(spec);
+        let gathered = std::sync::Arc::new(std::sync::Mutex::new(Gathered {
+            left: chunks.len(),
+            ..Gathered::default()
         }));
+        for range in chunks.into_iter().rev() {
+            queue.push_first(Job::Member(MemberJob {
+                binary: std::sync::Arc::clone(&binary),
+                seeds: std::sync::Arc::clone(&seeds),
+                sheet: sheet.clone(),
+                spec: std::sync::Arc::clone(&spec),
+                range,
+                gathered: std::sync::Arc::clone(&gathered),
+            }));
+        }
     }
     Done::Built { slot: first, explain }
 }
 
-/// One member's blocks, in its group's binary. The binary is released when the
-/// last member has finished with it.
+/// The fewest blocks a member's process is given, when the member has more:
+/// a process costs a launch, and a test usually costs less.
+const BLOCKS_PER_PROCESS: usize = 4;
+
+/// `ranges` cut into pieces of about `size` blocks, so one long suite's blocks
+/// run in several processes at once. Each is `(from, to)`, `to` exclusive.
+fn chunks_of(ranges: &[(usize, usize)], size: usize) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    for &(from, to) in ranges {
+        let mut at = from;
+        while at < to {
+            let end = to.min(at.saturating_add(size.max(1)));
+            out.push((at, end));
+            at = end;
+        }
+    }
+    out
+}
+
+/// Some of one member's blocks, in its group's binary. The binary is released
+/// when the last process has finished with it.
 struct MemberJob {
     binary: std::sync::Arc<actions::TestBinary>,
     seeds: std::sync::Arc<String>,
     sheet: Option<String>,
-    spec: MemberSpec,
+    spec: std::sync::Arc<MemberSpec>,
+    range: (usize, usize),
+    gathered: std::sync::Arc<std::sync::Mutex<Gathered>>,
 }
 
-/// Runs one member's blocks in a process of its own.
+/// What a member's processes have reported so far.
+#[derive(Default)]
+struct Gathered {
+    /// Each block's verdict with its index, and each process's notes with
+    /// its first block, so the answer doesn't depend on which finished first.
+    blocks: Vec<(usize, Block)>,
+    notes: Vec<(usize, String)>,
+    left: usize,
+    failed: bool,
+}
+
+/// Runs some of one member's blocks in a process of its own, and answers for
+/// the member once its last process has finished.
 ///
 /// A process that ends any way but with a verdict per block — a heap check that
 /// failed, a death after the last block, a binary that did not start — sends
 /// the member back to run alone, where the same binary is built for it and the
 /// problem is reported against it.
-fn run_member(job: MemberJob, shared: &Shared) -> Done {
-    let MemberJob { binary, seeds, sheet, spec } = job;
-    let lock = spec.paints.then(|| shared.painting(&spec.snapshot_dir));
-    let _painting = lock.as_ref().map(|l| l.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
-    let snapshots = snapshot_env(&spec.snapshot_dir, shared.flags.update, sheet);
-    let program = binary.path().display().to_string();
-    let mut notes = String::new();
-    let mut blocks = Vec::new();
-    for &range in &spec.ranges {
-        // No limit: a suite that declared one is not in a batch.
-        match run_blocks(&program, None, range, &seeds, &snapshots, &mut notes) {
-            Ok(Verdicts::Blocks(mine)) => blocks.extend(mine),
-            _ => return Done::Abandoned { slots: vec![spec.slot], explain: String::new() },
-        }
+fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
+    if job.spec.paints && !shared.claim(&job.spec.snapshot_dir, job.spec.slot) {
+        // Another suite is painting there. Back of the queue, rather than a
+        // worker held waiting.
+        std::thread::sleep(Duration::from_millis(20));
+        queue.push(Job::Member(job), false);
+        return Done::Progress;
     }
+    let MemberJob { binary, seeds, sheet, spec, range, gathered } = job;
+    let snapshots = snapshot_env(&spec.snapshot_dir, shared.flags.update, sheet);
+    let mut notes = String::new();
+    // No limit: a suite that declared one is not in a batch.
+    let ran = run_blocks(&binary.path().display().to_string(), None, range, &seeds, &snapshots, &mut notes);
+    if spec.paints {
+        shared.release(&spec.snapshot_dir, spec.slot);
+    }
+    let mut all = gathered.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    match ran {
+        Ok(Verdicts::Blocks(mine)) => {
+            all.blocks.extend((range.0..).zip(mine));
+            all.notes.push((range.0, notes));
+        }
+        _ => all.failed = true,
+    }
+    all.left = all.left.saturating_sub(1);
+    if all.left > 0 {
+        return Done::Progress;
+    }
+    if all.failed {
+        return Done::Abandoned { slots: vec![spec.slot], explain: String::new() };
+    }
+    all.blocks.sort_by_key(|(i, _)| *i);
+    all.notes.sort_by_key(|(i, _)| *i);
+    let notes: String = all.notes.iter().map(|(_, n)| n.as_str()).collect();
     let records: Vec<String> = spec
         .tests
         .iter()
-        .zip(&blocks)
-        .map(|((name, module), block)| record_of(name, module, block))
+        .zip(&all.blocks)
+        .map(|((name, module), (_, block))| record_of(name, module, block))
         .collect();
     let record = format!("[{}]", records.join(","));
     let cases = parse_results(&record);
     if may_cache_produced(&cases, &shared.flags) {
         crate::build::cache::Cache::open(&shared.root).put(&spec.key, record.as_bytes());
     }
+    let roots =
+        spec.roots.iter().map(|r| Root { name: r.name.clone(), module: r.module.clone(), span: r.span }).collect();
     Done::Answer {
         slot: spec.slot,
-        answer: Ok(Ran { cases, skipped: spec.skipped, roots: spec.roots }),
+        answer: Ok(Ran { cases, skipped: spec.skipped, roots }),
         explain: String::new(),
         notes,
     }
@@ -2351,11 +2505,12 @@ struct Group {
 ///
 /// macOS cannot load an executable of about two gigabytes: dyld reports
 /// `Library not loaded: libSystem.B.dylib`, intermittently from 1.96 GB and
-/// always at 2.09 GB, and every test in the binary fails. One gigabyte is half
-/// of that, so the estimate in [`estimated_bytes`] can be low by a factor of
-/// two before a binary is in danger, and it is still a few dozen of the
-/// largest suites that limit was measured on.
-const BATCH_BYTES: u64 = 1024 * 1024 * 1024;
+/// always at 2.09 GB, and every test in the binary fails.
+///
+/// 128 MB is far below that, and it is about speed and memory. Groups build side
+/// by side, so a gigabyte group was the slowest build in the pass, and it doubled
+/// peak memory: 22 GB against 12 GB on an 80-suite repository, for no faster run.
+const BATCH_BYTES: u64 = 128 * 1024 * 1024;
 
 /// The environment variable that replaces [`BATCH_BYTES`].
 const BATCH_BYTES_VARIABLE: &str = "BURI_TEST_BATCH_BYTES";

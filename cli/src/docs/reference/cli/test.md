@@ -17,7 +17,7 @@ many at once:
 buri test --jobs=2
 ```
 
-The default is one per core, and no more than one per 4 GB of memory. A suite
+The default is one per core, with at most one build per 8 GB of memory. A suite
 whose code is unchanged, comments and whitespace aside, reports as cached.
 
 ## Lint findings
