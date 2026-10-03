@@ -57,12 +57,12 @@ trap 'rm -rf "$work"' EXIT
 # it. Where two patterns capture the same node the later one wins, which is why
 # `UserId(` is a constructor rather than the type the shape rule says it is.
 GRAMMAR="
-5 Allocator type
-6 list namespace
-7 round function
-7 rounded function
-8 fromInt function
-8 fromFloat function
+5 list namespace
+6 round function
+6 rounded function
+7 fromInt function
+7 fromFloat function
+8 Allocator type
 11 MAX_RETRIES constant
 14 UserId type
 17 id property
@@ -160,10 +160,10 @@ UNCOLOURED="
 # a trait and not merely a capitalized word, `list` is a module, `Shelf` is a
 # variant, and every name on UNCOLOURED is something.
 SERVER="
-5 Allocator interface
-6 list namespace
-7 rounded function
-8 fromInt function
+5 list namespace
+6 rounded function
+7 fromInt function
+8 Allocator interface
 11 MAX_RETRIES variable readonly
 14 UserId type
 17 id property
