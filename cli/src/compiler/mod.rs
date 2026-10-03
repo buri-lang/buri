@@ -11,14 +11,16 @@
 //! because the formatter and the linter read a syntax tree without ever
 //! reaching a type. Everything from `semantics` on is the compiler's alone.
 //!
-//! The three files here are the parts that are about a compilation rather than
+//! The four files here are the parts that are about a compilation rather than
 //! about a stage of one: `modules` decides which files are in it, `driver`
-//! runs the front end over them, and `standard_library` supplies the modules
-//! every compilation gets without asking.
+//! runs the front end over them, `standard_library` supplies the modules every
+//! compilation gets without asking, and `snapshot` checks those once per thread
+//! so that the next compilation does not.
 
 pub mod backend;
 pub mod driver;
 pub mod middle;
 pub mod modules;
 pub mod semantics;
+pub mod snapshot;
 pub mod standard_library;

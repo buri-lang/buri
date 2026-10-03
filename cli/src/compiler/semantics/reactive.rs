@@ -20,10 +20,10 @@
 //! function that body calls, but never the body of a lambda.
 
 use crate::compiler::modules::Loaded;
-use crate::compiler::semantics::resolve::{ModuleScope, Sym};
+use crate::compiler::semantics::resolve::{ModuleScope, Sym, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{FnId, Tables};
-use crate::diagnostics::{Diagnostic, Diagnostics, FileId, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use crate::hash::{Map as HashMap, Set as HashSet};
 
 /// Refuses a `load` reached synchronously from a reactive builder.
@@ -32,15 +32,19 @@ use crate::hash::{Map as HashMap, Set as HashSet};
 /// with no `load` there is nothing to reach, and with no reactive constructor
 /// there is nowhere it would be refused. That is every program without a lazily
 /// split user interface.
+///
+/// Answers which functions wait, which is what a later run over more bodies
+/// starts from when the bodies `walked` leaves out were these.
 pub fn run(
     loaded: &Loaded,
     tables: &Tables,
     scopes: &[ModuleScope],
-    bodies: &HashMap<FnId, typed::Body>,
+    bodies: &HashMap<FnId, std::sync::Arc<typed::Body>>,
     diags: &mut Diagnostics,
-    only: Option<&[FileId]>,
-) {
-    let Some(load) = fn_of(loaded, scopes, "core/lazy", "load") else { return };
+    walked: &Walked,
+    waiting: &HashSet<FnId>,
+) -> HashSet<FnId> {
+    let Some(load) = fn_of(loaded, scopes, "core/lazy", "load") else { return HashSet::default() };
     let builders: Vec<(FnId, &'static str)> = [
         ("computed", "computed"),
         ("each", "each"),
@@ -50,24 +54,24 @@ pub fn run(
     .filter_map(|(name, label)| fn_of(loaded, scopes, "ui/node", name).map(|id| (id, *label)))
     .collect();
     if builders.is_empty() {
-        return;
+        return HashSet::default();
     }
 
     // The functions that, run, wait on a `load` — directly, or by calling one
     // that does. A lambda they write is not part of this: it is a separate
     // function value, called elsewhere, so `reaches` never crosses one.
-    let waiting = waiting_set(bodies, load);
+    let waiting = waiting_set(bodies, load, walked, waiting);
 
-    let wanted = |file| only.is_none_or(|files: &[FileId]| files.contains(&file));
     let mut ids: Vec<FnId> = bodies.keys().copied().collect();
     ids.sort_by_key(|f| f.index());
     for id in ids {
-        if wanted(tables.fn_info(id).span.file) {
+        if walked.function(tables, id) {
             if let Some(body) = bodies.get(&id) {
                 walk(&body.expr, &builders, load, &waiting, diags);
             }
         }
     }
+    waiting
 }
 
 /// A named member of a module in the loaded set, when this compilation has it.
@@ -82,11 +86,23 @@ fn fn_of(loaded: &Loaded, scopes: &[ModuleScope], path: &str, name: &str) -> Opt
 /// The fixpoint: a function waits if its synchronous body reaches `load`, or
 /// calls a function that waits. Small, because `load` is rare — most rounds add
 /// nothing and the loop settles in as many passes as the deepest chain of waits.
-fn waiting_set(bodies: &HashMap<FnId, typed::Body>, load: FnId) -> HashSet<FnId> {
-    let mut set: HashSet<FnId> = HashSet::default();
+///
+/// It starts from `known`, the answer for the bodies a base walked, and reads
+/// none of those again: they call nothing declared after them, so nothing
+/// read here can change it.
+fn waiting_set(
+    bodies: &HashMap<FnId, std::sync::Arc<typed::Body>>,
+    load: FnId,
+    walked: &Walked,
+    known: &HashSet<FnId>,
+) -> HashSet<FnId> {
+    let mut set: HashSet<FnId> = known.clone();
     loop {
         let mut changed = false;
         for (id, body) in bodies {
+            if walked.settled(*id) {
+                continue;
+            }
             if !set.contains(id) && reaches(&body.expr, load, &set).is_some() {
                 set.insert(*id);
                 changed = true;

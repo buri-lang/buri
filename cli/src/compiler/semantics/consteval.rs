@@ -121,7 +121,7 @@ pub struct Folder<'a> {
     /// Bodies as they were *before* extraction rewrote any of them. Folding
     /// against a rewritten body would fold a call into an already-extracted
     /// style, which the flattener cannot read back.
-    bodies: &'a HashMap<FnId, typed::Body>,
+    bodies: &'a HashMap<FnId, std::sync::Arc<typed::Body>>,
     consts: &'a HashMap<ConstId, typed::Expr>,
     steps: u32,
     depth: u32,
@@ -141,7 +141,7 @@ pub struct Env {
 impl<'a> Folder<'a> {
     pub fn new(
         tables: &'a Tables,
-        bodies: &'a HashMap<FnId, typed::Body>,
+        bodies: &'a HashMap<FnId, std::sync::Arc<typed::Body>>,
         consts: &'a HashMap<ConstId, typed::Expr>,
     ) -> Folder<'a> {
         Folder { tables, bodies, consts, steps: 0, depth: 0, open_consts: Vec::new() }

@@ -133,7 +133,31 @@ impl FileId {
     /// A span with no file, for diagnostics that are about the invocation
     /// rather than about a location in a file.
     pub const NONE: FileId = FileId(u32::MAX);
+
+    /// The file of the standard library's `index`th module, which is the same
+    /// id in every [`SourceMap`] of the process.
+    ///
+    /// The library's text is compiled into the binary, so nothing about one
+    /// of its files depends on the map that holds it. One id everywhere is
+    /// what lets the library be checked once per process and the result —
+    /// every span in it — read by analyses that each have a map of their own
+    /// (`compiler::prelude`).
+    pub fn standard(index: usize) -> FileId {
+        FileId(STANDARD_FILES.saturating_add(u32::try_from(index).unwrap_or(u32::MAX)))
+    }
+
+    /// Which standard library module this is the file of, if it is one.
+    fn standard_index(self) -> Option<usize> {
+        match self == FileId::NONE {
+            true => None,
+            false => self.0.checked_sub(STANDARD_FILES).map(|i| i as usize),
+        }
+    }
 }
+
+/// Where [`FileId::standard`] begins: far above any id a map mints by
+/// counting, and below [`FileId::NONE`].
+const STANDARD_FILES: u32 = 1 << 31;
 
 /// A byte range within one file.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -640,7 +664,7 @@ pub struct SourceFile {
 }
 
 impl SourceFile {
-    fn new(name: String, abs_path: PathBuf, text: String) -> SourceFile {
+    pub(crate) fn new(name: String, abs_path: PathBuf, text: String) -> SourceFile {
         let mut line_starts = vec![0u32];
         for (i, b) in text.bytes().enumerate() {
             if b == b'\n' {
@@ -779,6 +803,20 @@ impl SourceMap {
         self.add(name, PathBuf::new(), text.to_string())
     }
 
+    /// The standard library's `index`th module, under the id it has in every
+    /// map ([`FileId::standard`]).
+    ///
+    /// Nothing is copied into this map: the file is the process's one copy,
+    /// and this only lets [`SourceMap::find`] answer for its name.
+    pub fn standard(&mut self, index: usize) -> FileId {
+        let id = FileId::standard(index);
+        let name = &crate::compiler::standard_library::file(index).name;
+        if !self.by_name.contains_key(name) {
+            self.by_name.insert(name.clone(), id);
+        }
+        id
+    }
+
     /// Load a file, reusing the entry if it is already present.
     ///
     /// A file larger than [`MAX_SOURCE_BYTES`] is refused here, at the only
@@ -833,6 +871,9 @@ impl SourceMap {
 
     /// The file an id names, or the empty stand-in if this map never minted it.
     pub fn get(&self, id: FileId) -> &SourceFile {
+        if let Some(index) = id.standard_index() {
+            return crate::compiler::standard_library::file(index);
+        }
         self.files.get(id.0 as usize).unwrap_or(&self.missing)
     }
 
