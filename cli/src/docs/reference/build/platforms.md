@@ -154,7 +154,7 @@ platform/effect/kv/testing/lib.buri   TestKv, the test implementation
 
 - **Declared anywhere else**, an effect is `effect-outside-effect-directory`.
 - **Every effect has a test implementation** in the package's `testing`
-  surface, or it's `effect-missing-test-impl`. Its state lives in
+  surface, or it's `effect-missing-test-implementation`. Its state lives in
   `core/platforms/testing/state`, which only an effect's testing surface may
   import.
 - **Code calls the wrapper functions**, `kv.get(ctx, ...)`. Only the package

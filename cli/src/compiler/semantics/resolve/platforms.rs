@@ -335,7 +335,7 @@ impl<'a> Checker<'a> {
             }
         }
         for (span, effect, package) in missing {
-            self.templated("effect-missing-test-impl", span)
+            self.templated("effect-missing-test-implementation", span)
                 .bind("effect", effect)
                 .bind("package", package);
         }
