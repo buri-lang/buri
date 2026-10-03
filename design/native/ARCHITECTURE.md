@@ -560,7 +560,9 @@ allows it.
 
 The manifest is the input to CODEGEN-STENCIL.md §12.2's incremental relink, and
 it is also what `--explain` reads to print one `codegen` line per unit with its
-status. `buri clean` takes `.buri/link` with the rest.
+status. `buri clean` takes `.buri/link` with the rest. The runtime archive is a
+cache entry too, hard-linked into each link directory, and the cache drops
+`.buri/link` whenever it drops its entries for a new toolchain.
 
 `actions::artifact_path` already produces
 `.buri/out/<output.dir()>/<pkg.path>/<name>` and `Output::dir()` already produces
