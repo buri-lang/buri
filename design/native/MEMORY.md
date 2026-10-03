@@ -38,10 +38,11 @@ tasks run one after another on the calling thread, which is what the
 frame-threaded backend and a test binary do.
 
 So the counts cannot assume one thread. A program that reaches a task boundary
-(`middle::rc::crosses_tasks`) marks every block it allocates, a marked block is
-counted atomically, and a marked block is never unique, so it is never written
-in place. A program that cannot reach one keeps the non-atomic counts and the
-`rc == 1` licence. §5.1 has the details.
+(`middle::rc::crosses_tasks`) marks every block it allocates, and a marked block
+is counted atomically. An append may still write into a marked block, but only
+after it claims the block by moving the count from `1` to `2` in one atomic
+step. A program that cannot reach a task boundary keeps the non-atomic counts
+and the plain `rc == 1` licence. §5.1 has the details.
 
 ## 2. Immutability implies acyclicity, and that is the whole argument
 
@@ -270,14 +271,81 @@ mark is a bit of `cap` and not of `rc`:
   the unshared arm written as the `atomicrmw`'s operand. A plain
   `fetch_add(1)` would wrap `u64::MAX` to zero and free every literal in the
   program.
-- **The `rc == 1` uniqueness test** (§5.3) is not forked, and has a second
-  half instead: **a marked block is never unique.** The count alone was right
-  while exactly one thread ran Buri code, on the premise that the caller
-  holds the reference it is testing — and a *borrowed* parameter does not. A
-  step of a `Tasks.parallel` reading `rc == 1` off its closure's list is one of
-  several threads reading the same `1`. So `buri_rt_unique_cap` answers
-  `None` for a marked block whatever the count: the caller allocates and
-  copies, and what an over-set mark costs is that copy.
+- **The `rc == 1` uniqueness test** (§5.3) can't be a plain load on a marked
+  block. The count alone was right while exactly one thread ran Buri code, on
+  the premise that the caller holds the reference it is testing, and a
+  *borrowed* parameter doesn't. A step of a `Tasks.parallel` reading `rc == 1`
+  off its closure's list is one of several threads reading the same `1`. So
+  `buri_rt_unique_cap` answers `None` for a marked block whatever the count,
+  and the list append claims the block instead (below).
+
+#### Claiming a marked block
+
+`buri_rt_claim_unique` is the test and the `incref` an in-place append makes,
+fused:
+
+```
+claim(p):                              unclaim(p):
+  if cap[61]: fail                       if cap[63]: atomicrmw sub p[-16], 1 release
+  else if cap[63]:                       else: store p[-16] = rc - 1
+    cmpxchg p[-16], 1 -> 2 acquire
+  else if rc == 1: store p[-16] = 2
+```
+
+A settled block (`cap[61]`, below) fails whatever its count, like it does in
+`buri_rt_unique_cap`. Only marked blocks settle, so without that test a
+settled block at a count of `1` would win the compare-and-swap.
+
+`list.rs`'s `append_dest` claims, then checks the headroom and the spare
+slots. If it can write, the claimed reference is the one the result holds.
+If it can't, it unclaims and grows into a fresh block. Issue #222 is why this
+exists: with the plain `None`, every `push` in a program that started one
+actor copied the whole list, so building a list was quadratic again.
+
+Why a claim is sound when a plain `rc == 1` read isn't:
+
+- **Only one thread wins.** Any number of threads may borrow the one counted
+  reference. The compare-and-swap lets exactly one of them see `1`. The others
+  see `2` and copy. Two threads can't both write at `len`.
+- **Nobody can see the write.** The winner writes at `len` and past it. A
+  count of `1` means one counted descriptor, and every borrow on any thread
+  copies it, with the same `len`. A longer descriptor would be a second count.
+  The winner's result is that second count, so no later claim succeeds while
+  it lives.
+- **A dead sibling's slot reads true.** A slot past `len` may hold an element
+  that a longer, now-dead descriptor wrote on another thread. That
+  descriptor's last decrement is `acq_rel`, and the claim is `acquire`, so the
+  winner sees the element and the spare-slot test refuses to write over it.
+- **An unclaim never frees.** The caller's own reference, or the one it
+  borrows, outlives the call, so the count stays at one or more.
+- **No append lands in a settled block.** A settled block's only holder can
+  be an actor's state at a count of `1`, so the count alone would let a step
+  append to it. The append might write a pointer into an arena, and the next
+  crossing would share that pointer with another thread. The settled test
+  turns this into a copy. Sharing a settled block takes a count, so the
+  premise below still holds.
+
+The argument needs one thing from every crossing: **a reference that outlives
+the call that made it holds a count.** That's §5.3's premise too, and every
+crossing keeps it:
+
+- `Tasks.parallel` lends its closure and items to the steps, and the caller
+  blocks until the last step returns, so the caller's count covers every
+  borrow.
+- `core/actor`'s queues and a scope's task list take a count on every block
+  they keep (`rt.rs`, `Held::keep`), and give it back exactly once. That holds
+  whether `core/actor` copied the value with `copyAcross` or, outside every
+  arena, handed it over as it is (#210).
+- A scope's tasks running beside its body reach the body's values only
+  through such a block, or by borrowing the body's own counted references.
+
+A plain atomic load of `rc == 1` would answer the unmarked argument's question
+for a reference the caller *holds*. It's still wrong for a borrowed one, since
+every borrower reads the same `1`. The claim is the smallest change that's
+right for both.
+
+`str.concat` still refuses a marked block: its release-backend arm is
+open-coded, and claiming there is a separate change.
 
 `decref`'s atomic arm reads the count *before* the subtraction and frees on
 `1`, rather than reading the count and then subtracting: two threads that each
@@ -955,9 +1023,9 @@ generated, not called: `Helper::Copy` in the frame-threaded backend and
 `buri_rt_copy_block` where the release walk has `decref`. The two functions
 the walk reaches a block through are the whole of the runtime's half —
 `buri_rt_copy_block`, and `buri_rt_copy_str` because a `Str`'s `ptr` points
-*into* its block and has to be rebased. **A copy is not a share**: nothing in
-the path increments a count, so the answer's blocks are fresh and uniquely
-owned and the source's counts do not move.
+*into* its block and has to be rebased. **A copy is not a share**, with one
+exception below: the answer's blocks are fresh and uniquely owned and the
+source's counts do not move.
 
 The **invariant** the arrangement rests on is one sentence: *a value's
 lifetime never exceeds the dynamic extent it was created in, except by being
@@ -973,6 +1041,35 @@ hands them over, so each crosses through `core/alloc::copyAcross`, the same
 copy with every arena left behind. `core/actor` skips it while no arena in the
 process holds a page (`buri_rt_actor_scopes_live`), because then no block is in
 one. `spawn` always copies.
+
+**A copy shares what already crossed.** Without this, a step that hands its
+state back untouched inside a scope paid a copy of the whole state per message
+(buri-lang/buri#223). Now `buri_rt_copy_block` sets `CAP_SETTLED` (bit 61) on
+a copy that is marked and off the heap, once the glue has run on it, and shares
+a settled source with one more reference instead of copying it. So a crossing
+copies only what changed since the last one.
+
+The invariant: *a settled block is in no arena, and every block it points to is
+settled.* It holds because:
+
+- The bit goes on only after the glue replaced every pointer in the copy with
+  a settled share or a heap copy made by the same call.
+- A block's pointers change only through the glue, which writes into a fresh
+  block, or an append in place, whose licence refuses a settled block. Both
+  licences do: `buri_rt_unique_cap` and `buri_rt_claim_unique`.
+  `memory.rs`'s `a_push_onto_a_settled_list_copies_it` fails if either stops.
+- `finish` rewrites a recycled block's header, and a settled block keeps what
+  it points to alive.
+
+The bit is the block's, not the thread's, so a `Tasks.parallel` step outside
+its caller's arena is answered correctly. A heap block that step builds around
+an arena block was never settled, so it is copied in full. Only marked copies
+settle, because only a program that marks has crossings to share between. An
+unmarked `scoped` answer stays writable in place.
+
+`copyAcross` also keeps the scope's bump window while it steps out of every
+arena (`KEPT` in `memory.rs`). Starting an empty one on the way back mapped a
+fresh 64 KiB block per crossing.
 
 A **closure** costs one word for this. `Ty::Fn` does not record what was
 captured, so the environment block has always carried its own release function
