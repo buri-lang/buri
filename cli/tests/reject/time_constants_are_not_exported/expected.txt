@@ -4,8 +4,8 @@ error: "core/time" does not export `NANOSECONDS_PER_SECOND` [unknown-export]
 12 |   let _ = io.println(ctx, "${time.NANOSECONDS_PER_SECOND}").ignore();
    |                                   ^^^^^^^^^^^^^^^^^^^^^^
    |
-   = `NANOSECONDS_PER_SECOND` was removed; write `time.seconds(1).nanoseconds()`
-   = fix: write `time.seconds(1).nanoseconds()`
+   = the module exports 30 names
+   = fix: correct the member name, or check `buri docs core/time`
 
      A re-export names only what its module exports, so a library's surface is
      never wider than the modules behind it. A namespace like fs stands for the
@@ -20,5 +20,5 @@ error: "core/time" does not export `ZERO` [unknown-export]
 13 |   let _ = io.println(ctx, "${time.ZERO.isZero()}").ignore();
    |                                   ^^^^
    |
-   = `ZERO` was removed; write `time.nanoseconds(0)`
-   = fix: write `time.nanoseconds(0)`
+   = the module exports 30 names
+   = fix: correct the member name, or check `buri docs core/time`
