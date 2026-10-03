@@ -155,13 +155,14 @@ Reserved for future versions and rejected today: `async` `await` `break`
 
 ### 3.5 Literals
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-42          1_000_000     0xFF     0o755     0b1010_0110      // INT
-3.14        1.0e-9        6.02e23                             // FLOAT
-"hello"     "tab\there"   "\u{1F600}"                         // STRING -> Str
-'a'         '\n'          '\u{41}'                            // CHAR
-true        false                                             // BOOL
-"n = ${n}"                                                    // TEMPLATE
+```buri wrap=body
+let n = 3;
+let ints = [42, 1_000_000, 0xFF, 0o755, 0b1010_0110];
+let floats = [3.14, 1.0e-9, 6.02e23];
+let strs = ["hello", "tab\there"];
+let chars = ['a', '\n'];
+let bools = [true, false];
+let template = "n = ${n}";
 ```
 
 A float literal must begin with a digit. `.5` is not a literal; write `0.5`
@@ -191,8 +192,13 @@ literal fragments plus the evaluated holes. **Building one allocates nothing**, 
 `io.println(ctx, "hi ${name}")` needs only the `stdout` effect. Turning it into a
 `Str` allocates:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let greeting: Str = str.format(ctx, "Hello, ${name}!");
+```buri
+# from "core/str" import * as str;
+# from "platform/effect" import { Allocator };
+#
+fn greet<C: Allocator>(ctx: C, name: Str): Str {
+    str.format(ctx, "Hello, ${name}!")
+}
 ```
 
 A hole has type `Int` or `Float` (any width), `Bool`, `Char`, `Str`, **or a type
@@ -203,8 +209,27 @@ context: `io.println(ctx, "${point}")` still needs only `stdout`.
 A hole won't take a **hand-written** `impl Show`, because a `Template` has no
 context to pass its `show<C: Allocator>(self, ctx: C)`. Call it yourself:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let line: Str = str.format(ctx, "the suit is ${suit.show(ctx)}");
+```buri
+# from "core/str" import * as str;
+# from "platform/effect" import { Allocator };
+#
+# enum Suit {
+#     Hearts,
+#     Spades,
+# }
+#
+# impl Show for Suit {
+#     fn show<C: Allocator>(self, ctx: C): Str {
+#         match (self) {
+#             .Hearts => "hearts",
+#             .Spades => "spades",
+#         }
+#     }
+# }
+#
+fn describe<C: Allocator>(ctx: C, suit: Suit): Str {
+    str.format(ctx, "the suit is ${suit.show(ctx)}")
+}
 ```
 
 The same goes for `T: Show` in a generic body, since `T` might have a
@@ -374,7 +399,7 @@ importer gets the type the declaration names (Section 5.9).
 A module may export a name it imported, with one declaration that mirrors
 `import`:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri repo=cli/tests/example package=//lib/money
 from "//lib/money/cents.buri" export { Cents, fromCents };
 
 from "//lib/money/cents.buri" export { add as addMoney };
@@ -439,13 +464,19 @@ hot code that doesn't need the range should use `I32`.
 A numeric literal can be any integer type (or any float type, for a float
 literal) until inference pins it. If nothing does, it's `Int` or `Float`.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let a = 5;               // nothing constrains it -> Int
-let b: U8 = 5;           // the annotation pins it -> U8, no conversion
-let c: F32 = 1.5;        // -> F32
-takesU16(5)              // the parameter pins it -> U16
-
-let e: [U8] = [1, 2, 3]; // every element is a U8
+```buri
+# fn takesU16(n: U16): U16 {
+#     n
+# }
+#
+# fn demo(): U16 {
+    let a = 5; // nothing constrains it -> Int
+    let b: U8 = 5; // the annotation pins it -> U8, no conversion
+    let c: F32 = 1.5; // -> F32
+    let d = takesU16(5); // the parameter pins it -> U16
+    let e: [U8] = [1, 2, 3]; // every element is a U8
+#     d
+# }
 ```
 
 This applies to *literals only*: `a + b` still requires `a` and `b` to have the
@@ -453,13 +484,10 @@ same type.
 
 **A literal that doesn't fit its type is a compile error:**
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let x: U8 = 300; // ERROR: 300 is not representable in U8
-
-let y: I8 = -129; // ERROR
-
-let z: U32 = -1; // ERROR: U32 has no negative values
-
+```buri wrap=body
+let x: U8 = 300; // ERROR: 300 is not representable in `U8`
+let y: I8 = -129; // ERROR: -129 is not representable in `I8`
+let z: U32 = -1; // ERROR: -1 is not representable in `U32`
 let w: U64 = 18_446_744_073_709_551_615; // fine
 ```
 
@@ -471,9 +499,10 @@ conversion method (Section 6.2.1).
 Generic arithmetic uses the operator traits of Section 5.12: `Add`, `Subtract`,
 `Multiply`, `Divide`, `Remainder`, `Negate`, `Ordered`.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-fn total<N: Add>(zero: N, xs: [N]): N { ... }
-fn clamp<N: Ordered>(lo: N, hi: N, x: N): N { ... }
+```buri sig
+fn total<N: Add>(zero: N, xs: [N]): N;
+
+fn clamp<N: Ordered>(lo: N, hi: N, x: N): N;
 ```
 
 No bound is privileged. Integer-specific operations are ordinary traits too:
@@ -509,10 +538,10 @@ let (n, name) = pair;
 
 `[T]` is an immutable, densely packed sequence of `T`.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri wrap=body
 let xs: [Int] = [1, 2, 3];
-let n = list.length(xs);          // pure: no allocation
-let maybe = xs[0];             // Option<Int>, not Int
+let n = xs.length(); // pure: no allocation
+let maybe = xs[0]; // Option<Int>, not Int
 ```
 
 **Indexing yields `Option<T>`**, so it can't go out of bounds.
@@ -532,21 +561,27 @@ polymorphism.
 Two structs with identical fields are different types. Fields are
 **module-private unless exported**:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri
+# struct UserId(Str);
+#
 struct User {
-  export id: UserId,
-  export name: Str,
-  passwordHash: Str,          // private to this module
+    export id: UserId,
+    export name: Str,
+    passwordHash: Str, // private to this module
 }
 
-struct Meters(F64);                        // tuple struct
-struct Pair<A, B>(A, B);                   // generic tuple struct
+struct Meters(F64); // tuple struct
 
-let u = User { id: UserId("u1"), name: "Ada", passwordHash: hash };
-let shorthand = User { id, name, passwordHash };   // shorthand: `name: name`
-let u2 = User { ..u, name: "Ada L." };
-let d = Meters(9.8);
-let raw = d.0;
+struct Pair<A, B>(A, B); // generic tuple struct
+
+fn examples(id: UserId, name: Str, passwordHash: Str, hash: Str): F64 {
+    let u = User { id: UserId("u1"), name: "Ada", passwordHash: hash };
+    let shorthand = User { id, name, passwordHash }; // shorthand: `name: name`
+    let u2 = User { ..u, name: "Ada L." };
+    let d = Meters(9.8);
+    let raw = d.0;
+    raw
+}
 ```
 
 Tuple-struct fields are exported the same way:
@@ -621,12 +656,8 @@ their type name, while `{ hi: hi, hello }` doesn't.
 
 Outside the declaring module you can't read, write or match a private field, so
 you can't build such a struct from scratch. Functional update still works:
-
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let renamed = User { ..u, name: "new" };     // fine anywhere
-let forged = User { id: ..., name: ..., passwordHash: ... };   // only in the
-                                                               // declaring module
-```
+`User { ..u, name: "new" }` compiles anywhere, while a literal naming
+`passwordHash` compiles only in the declaring module.
 
 There is no `opaque` modifier: a struct with no exported fields already hides its
 representation.
@@ -636,7 +667,7 @@ representation.
 Enums are Rust-style sum types. Variants may be nullary, tuple-like, or
 record-like, mixed freely.
 
-```buri
+```buri name=shape
 enum Shape {
     Empty,
     Circle(Float),
@@ -655,7 +686,7 @@ representation, use a struct with a private field.
 
 Construct a variant with a qualified path or the dot form:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri wrap=body use=shape
 let a = Shape.Circle(1.0);
 let b: Shape = .Rect { width: 2.0, height: 1.0 };
 let c: Shape = .Empty;
@@ -690,19 +721,38 @@ enum Order {
 pattern or as an expression statement (legal only in test sources,
 `design/grammar-rationale.md` 12.2):
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let _ = fs.writeText(ctx, path, body);                // ERROR: discarded Result
-let (n, _) = (1, fs.writeText(ctx, path, body));      // ERROR: the same one, hidden
-fs.writeText(ctx, path, body);                        // ERROR: and so is this
+```buri role=test
+# from "core/fs" import * as fs;
+# from "core/fs" import { FileSystemWrite, Path };
+# from "platform/effect" import { Allocator };
+#
+# fn save<C: Allocator + FileSystemWrite>(ctx: C, path: Path, body: Str): () {
+    let _ = fs.writeText(ctx, path, body); // ERROR: a `Result` may not be discarded
+    let (n, _) = (1, fs.writeText(ctx, path, body)); // ERROR: a `Result` may not be discarded
+    fs.writeText(ctx, path, body); // ERROR: has type `Result<(), IoError>`, not `()`
+#     ()
+# }
 ```
 
 Consume it instead:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-fs.writeText(ctx, path, body)?                        // propagate
-match (fs.writeText(ctx, path, body)) { ... }         // handle
-fs.writeText(ctx, path, body).withDefault(())         // supply one
-fs.writeText(ctx, path, body).ignore()                // explicitly, greppably, ignore
+```buri
+# from "core/fs" import * as fs;
+# from "core/fs" import { FileSystemWrite, Path };
+# from "platform/effect" import { Allocator, IoError };
+#
+# type Written = Result<(), IoError>;
+#
+# fn save<C: Allocator + FileSystemWrite>(ctx: C, path: Path, body: Str): Written {
+    let propagated = fs.writeText(ctx, path, body)?;
+    let handled = match (fs.writeText(ctx, path, body)) {
+        .Ok(()) => (),
+        .Err(e) => (),
+    };
+    let defaulted = fs.writeText(ctx, path, body).withDefault(());
+    let ignored = fs.writeText(ctx, path, body).ignore(); // explicitly, greppably
+#     .Ok(())
+# }
 ```
 
 `ignore` is a method only, so it's greppable, and `buri lint` reports each one as
@@ -715,10 +765,18 @@ The rule follows the type, so a pure function's `Result` is must-use too. So is
 
 ### 5.8 Function types
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-fn(Int, Int) => Int
-fn() => ()
-fn(Str) => Result<Config, ParseError>
+```buri
+# struct Config(Int);
+#
+# enum ParseError {
+#     Malformed,
+# }
+#
+type Combine = fn(Int, Int) => Int;
+
+type Thunk = fn() => ();
+
+type Parser = fn(Str) => Result<Config, ParseError>;
 ```
 
 The `fn` keyword keeps `(A, B)` unambiguously a tuple. Function types are
@@ -747,19 +805,26 @@ aren't a cycle. Write recursive types with a struct or enum.
 
 Type parameters go in angle brackets:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri sig
 # from "platform/effect" import { Allocator, Stdout };
-fn identity<T>(x: T): T { x }
-fn map<A, B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B] { ... }
-fn tee<T, C: Stdout>(ctx: C, x: T): T { ... }
+#
+fn identity<T>(x: T): T {
+    x
+}
+
+fn map<A, B, C: Allocator>(ctx: C, xs: [A], f: fn(A) => B): [B];
+
+fn tee<T, C: Stdout>(ctx: C, x: T): T;
 ```
 
 **Bounds** name traits a type argument must satisfy, joined with `+`:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri sig
 # from "platform/effect" import { Allocator };
-fn largest<T: Ordered>(xs: [T]): Option<T> { ... }
-fn report<T: Ordered + Show, C: Allocator>(ctx: C, xs: [T]): Str { ... }
+#
+fn largest<T: Ordered>(xs: [T]): Option<T>;
+
+fn report<T: Ordered + Show, C: Allocator>(ctx: C, xs: [T]): Str;
 ```
 
 A generic body may call only the bounds' methods, like `x.compare(y)`. Pass any
@@ -767,9 +832,18 @@ other operation as a function: `sortBy(xs, cmp)`.
 
 Explicit type arguments go on the expression:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let f = identity<Int>;
-let e: [Int] = list.empty<Int>();
+```buri
+# from "core/list" import * as list;
+#
+# fn identity<T>(x: T): T {
+#     x
+# }
+#
+# fn demo(): [Int] {
+    let f = identity<Int>;
+    let e: [Int] = list.empty<Int>();
+#     e
+# }
 ```
 
 ### 5.11 Equality and ordering
@@ -786,11 +860,17 @@ share or copy equal values freely (Section 8.1). Carry identity as data:
 (Section 5.12.4). Primitives, and arrays and tuples of types that have them,
 satisfy both. Your structs and enums opt in:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri
 derive Equal, Ordered for Version;
+# struct Version {
+#     major: Int,
+#     minor: Int,
+# }
 
-let same = Version { major: 1, minor: 2 } == Version { major: 1, minor: 2 };
-// true — different values, equal contents
+fn same(): Bool {
+    // true: different values, equal contents
+    Version { major: 1, minor: 2 } == Version { major: 1, minor: 2 }
+}
 ```
 
 Function types and `Template` have no `Equal`, so comparing them is a compile
@@ -840,9 +920,19 @@ coherence pass, orphan rule, or instance search.
 
 `impl Trait for Type` declares conformance and supplies the methods.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri
+# struct Version {
+#     major: Int,
+#     minor: Int,
+# }
+#
 impl Ordered for Version {
-  fn compare(self, other: Version): Order { ... }
+    fn compare(self, other: Version): Order {
+        match (self.major.compare(other.major)) {
+            .Equal => self.minor.compare(other.minor),
+            unequal => unequal,
+        }
+    }
 }
 ```
 
@@ -856,8 +946,12 @@ may write `Version` or `Self` for `other`.
 
 #### 5.12.3 `derive` generates the implementation
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri
 derive Equal, Ordered, Show for Version;
+# struct Version {
+#     major: Int,
+#     minor: Int,
+# }
 ```
 
 `derive` generates methods structurally, over fields and variants in declaration
@@ -883,13 +977,16 @@ mapping.
 
 That makes newtypes work:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-struct Meters(F64);
+```buri
 derive Add, Subtract, Ordered, Show for Meters;
+struct Meters(F64);
 
-let total = Meters(1.5) + Meters(2.0);     // Meters
-let far = total > Meters(3.0);             // Bool
-// let bad = Meters(1.5) + 2.0;            // ERROR: F64 is not Meters
+# fn demo(): Bool {
+    let total = Meters(1.5) + Meters(2.0); // Meters
+    let far = total > Meters(3.0); // Bool
+    let bad = Meters(1.5) + 2.0; // ERROR: expected `Meters`, found `Float`
+#     far
+# }
 ```
 
 **An operator can't allocate or perform an effect**, since `a + b` has nowhere to
@@ -972,12 +1069,17 @@ the same characters on every backend.
 
 Numeric conversions are explicit methods:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let a: I32 = 7;
-let b = a.toI64();                       // I64 — always exact
-let c: Result<I32, RangeError> = big.toI32();      // may not fit
-let d = big.wrapToU8();                  // modular, for checksums and wire formats
-let ratio = hits.toF64() / total.toF64();
+```buri
+# from "core/number" import { RangeError };
+#
+# fn demo(big: I64, hits: Int, total: Int): F64 {
+    let a: I32 = 7;
+    let b = a.toI64(); // I64, always exact
+    let c: Result<I32, RangeError> = big.toI32(); // may not fit
+    let d = big.wrapToU8(); // modular, for checksums and wire formats
+    let ratio = hits.toF64() / total.toF64();
+#     ratio
+# }
 ```
 
 Three families:
@@ -1034,10 +1136,15 @@ trait Bounded {
 }
 ```
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let safe = a.checkedAdd(b).withDefault(0);
-let hash = seed.wrappingMultiply(31).wrappingAdd(byte);
-let ceiling = number.maxValue<U8>();
+```buri
+# from "core/number" import * as number;
+#
+# fn demo(a: Int, b: Int, seed: U32, byte: U32): U8 {
+    let safe = a.checkedAdd(b).withDefault(0);
+    let hash = seed.wrappingMultiply(31).wrappingAdd(byte);
+    let ceiling = number.maxValue<U8>();
+#     ceiling
+# }
 ```
 
 Every built-in integer type satisfies all four; float types satisfy only
@@ -1051,28 +1158,41 @@ A block is zero or more `let` bindings followed by a result expression. The
 [grammar](./cli/src/docs/grammar.ebnf) makes the result optional, but the checker
 rejects a block without one.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let hypotenuse = {
-  let a2 = a * a;
-  let b2 = b * b;
-  math.squareRoot(a2 + b2)
-};
+```buri
+# from "core/math" import * as math;
+#
+# fn demo(a: Float, b: Float): Float {
+    let hypotenuse = {
+        let a2 = a * a;
+        let b2 = b * b;
+        math.squareRoot(a2 + b2)
+    };
+#     hypotenuse
+# }
 ```
 
 Bindings evaluate in order (Section 8.2) and are in scope for the rest of the
 block. Shadowing is allowed, even within one block:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let name = str.trim(raw);
-let name = str.toLower(ctx, name);   // legal; the earlier `name` is inaccessible
+```buri wrap=body
+# let raw = "  Ada ";
+let name = raw.trim();
+let name = name.toLower(ctx); // legal; the earlier `name` is inaccessible
 ```
 
 A `let` pattern must be irrefutable; use `match` otherwise.
 
 ### 6.4 `if`
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let label = if (n < 0) { "negative" } else if (n == 0) { "zero" } else { "positive" };
+```buri wrap=body
+# let n = 3;
+let label = if (n < 0) {
+    "negative"
+} else if (n == 0) {
+    "zero"
+} else {
+    "positive"
+};
 ```
 
 - The condition is parenthesized and has type `Bool`. There is no truthiness.
@@ -1081,13 +1201,22 @@ let label = if (n < 0) { "negative" } else if (n == 0) { "zero" } else { "positi
 
 ### 6.5 `match`
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let describe = match (shape) {
-  .Circle(r) if r > 100.0 => "huge circle",
-  .Circle(_) => "circle",
-  .Rect { width: w, height: h } => if (w == h) { "square" } else { "rect" },
-  .Empty => "nothing",
-};
+```buri
+# enum Shape {
+#     Empty,
+#     Circle(Float),
+#     Rect { width: Float, height: Float },
+# }
+#
+# fn demo(shape: Shape): Str {
+    let describe = match (shape) {
+        .Circle(r) if r > 100.0 => "huge circle",
+        .Circle(_) => "circle",
+        .Rect { width: w, height: h } => if (w == h) { "square" } else { "rect" },
+        .Empty => "nothing",
+    };
+#     describe
+# }
 ```
 
 - The scrutinee is parenthesized.
@@ -1101,12 +1230,17 @@ let describe = match (shape) {
 
 ### 6.6 Calls and lambdas
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-fn add(a: Int, b: Int): Int { a + b }
+```buri
+fn add(a: Int, b: Int): Int {
+    a + b
+}
 
-let inc = fn(x) => x + 1;
-let addTyped = fn(a: Int, b: Int): Int => a + b;
-let sum = xs.fold(fn(acc, x) => acc + x, 0);
+# fn demo(xs: [Int]): Int {
+    let inc = fn(x) => x + 1;
+    let addTyped = fn(a: Int, b: Int): Int => a + b;
+    let sum = xs.fold(fn(acc, x) => acc + x, 0);
+#     sum
+# }
 ```
 
 Lambdas begin with `fn` so `(x)` is never mistaken for a parameter list. Their
@@ -1120,12 +1254,29 @@ There is no partial application; write a lambda.
 
 ### 6.7 Method calls
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-user.name          // struct field
-pair.0             // tuple element
-xs[i]              // Option<T>
-list.map           // module member
-sq.area()          // method call
+```buri
+# from "core/math" import * as math;
+#
+# struct Square(Int);
+#
+# impl Square {
+#     fn area(self): Int {
+#         self.0 * self.0
+#     }
+# }
+#
+# struct User {
+#     name: Str,
+# }
+#
+# fn demo(user: User, pair: (Int, Str), xs: [Int], i: Int, sq: Square): Int {
+    let name = user.name; // struct field
+    let first = pair.0; // tuple element
+    let item = xs[i]; // Option<T>
+    let root = math.squareRoot; // module member
+    let area = sq.area(); // method call
+#     area
+# }
 ```
 
 The dotted forms all parse the same way; name resolution tells them apart.
@@ -1136,18 +1287,26 @@ A method is declared **inside an `impl` block for its type** and takes `self`
 first. A top-level `fn` taking `self` is an error, and so is an `impl` function
 without one:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-export struct Square { height: Int, width: Int }
-
-impl Square {
-  export fn area(self): Int { self.height * self.width }
-
-  export fn scaled(self, factor: Int): Square {
-    Square { height: self.height * factor, width: self.width * factor }
-  }
+```buri
+export struct Square {
+    height: Int,
+    width: Int,
 }
 
-export fn combine(a: Square, b: Square): Square { ... }   // NOT a method
+impl Square {
+    export fn area(self): Int {
+        self.height * self.width
+    }
+
+    export fn scaled(self, factor: Int): Square {
+        Square { height: self.height * factor, width: self.width * factor }
+    }
+}
+
+// NOT a method
+export fn combine(a: Square, b: Square): Square {
+    Square { height: a.height + b.height, width: a.width + b.width }
+}
 ```
 
 An `impl` with a `for` clause declares trait conformance instead
@@ -1163,40 +1322,37 @@ methods supplied to a trait, whose conformance travels with the type.
 Generic parameters the self type mentions belong to the `impl`; the rest belong
 to the method.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-impl<T> Option<T> {
-  export fn map<U>(self, f: fn(T) => U): Option<U> { ... }
+```buri
+export struct Pair<T>(T, T);
+
+impl<T> Pair<T> {
+    export fn map<U>(self, f: fn(T) => U): Pair<U> {
+        Pair(f(self.0), f(self.1))
+    }
 }
 ```
 
 #### 6.7.2 Calling a method
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-x.f(a, b)      //  self = x, then a and b
-x.f()          //  self = x
-```
+`x.f(a, b)` passes `x` as `self`, then `a` and `b`. **The receiver comes first**,
+then the context parameter if there is one. `core/list` declares `map` as
+`fn map<B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B]` in `impl<A> [A]`, so:
 
-**The receiver comes first**, then the context parameter if there is one:
-
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "platform/effect" import { Allocator };
-impl<A> [A] {
-  export fn map<B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B];
-}
-
-xs.map(ctx, double)          // reads as: this list, in this world, mapped
+```buri wrap=body
+# let xs = [1, 2, 3];
+# let double = fn(x: Int): Int => x * 2;
+let doubled = xs.map(ctx, double); // reads as: this list, in this world, mapped
 ```
 
 That's the calling convention of Section 10.7.
 
 **Methods need no import:**
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-// main.buri
-from "lib/square" import { Square }; // the type — not `area`, not `scaled`
+```buri repo=cli/tests/example package=//lib/ledger
+from "//lib/money" import { Cents }; // the type, not `add` or `isZero`
 
-fn describe(sq: Square): Int {
-    sq.scaled(2).area() // both resolve with no further imports
+fn cancels(a: Cents, b: Cents): Bool {
+    a.add(b).isZero() // both resolve with no further imports
 }
 ```
 
@@ -1255,13 +1411,30 @@ Consequences:
 Postfix `?` unwraps a `Result` or `Option`, or returns the failure from the
 enclosing function.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri
+# from "core/fs" import * as fs;
 # from "core/fs" import { FileSystemRead, Path };
-# from "platform/effect" import { Allocator };
-
+# from "platform/effect" import { Allocator, IoError };
+#
+# enum ConfigError {
+#     Unreadable(IoError),
+#     Malformed,
+# }
+#
+# struct Config {
+#     port: Int,
+# }
+#
+# fn parseConfig(text: Str): Result<Config, ConfigError> {
+#     match (text.toInt()) {
+#         .Some(port) => .Ok(Config { port }),
+#         .None => .Err(.Malformed),
+#     }
+# }
+#
 fn loadPort<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Int, ConfigError> {
-    let text = fs.readText(ctx, at)?; // Err(e) => return Err(e)
-    let cfg = parseConfig(text)?;
+    let text = fs.readText(ctx, at).mapErr(fn(e) => ConfigError.Unreadable(e))?;
+    let cfg = parseConfig(text)?; // on .Err(e), loadPort answers .Err(e)
     .Ok(cfg.port)
 }
 ```
@@ -1348,8 +1521,16 @@ reachable alternative gets the arm-level error.
 Every binding is final: no assignment, no `mut`, no interior mutability, so no
 borrow checker or lifetimes. "Modifying" a value builds a new one:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let u2 = User { ..u, name: "new" };
+```buri
+# struct User {
+#     id: Int,
+#     name: Str,
+# }
+#
+# fn rename(u: User): User {
+    let u2 = User { ..u, name: "new" };
+#     u2
+# }
 ```
 
 An implementation should make this cheap by sharing structure, or updating in
@@ -1371,9 +1552,14 @@ Effects are ordinary function calls, not a monad, so **this order is what
 sequences effects.** An implementation may reorder or drop work only where the
 result is indistinguishable, and a call that consumes an effect never is.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri wrap=body run
 let _ = io.println(ctx, "first").ignore();
-let _ = io.println(ctx, "second").ignore();    // guaranteed to print second
+let _ = io.println(ctx, "second").ignore(); // guaranteed to print second
+```
+
+```stdout
+first
+second
 ```
 
 ### 8.3 Recursion and tail calls
@@ -1413,17 +1599,18 @@ capture, except through the capture rule of Section 10.6.
 
 ## 9. Functions
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri sig
 # from "platform/effect" import { Clock };
-export fn slugify(s: Str): Str { ... }
+#
+export fn slugify(s: Str): Str;
 
-fn quadratic(a: F64, b: F64, c: F64): Option<(F64, F64)> { ... }
+fn quadratic(a: F64, b: F64, c: F64): Option<(F64, F64)>;
 
 fn retry<T, C: Clock>(
-  ctx: C,
-  attempts: Int,
-  action: fn(C) => Result<T, Str>,
-): Result<T, Str> { ... }
+    ctx: C,
+    attempts: Int,
+    action: fn(C) => Result<T, Str>,
+): Result<T, Str>;
 ```
 
 - Every top-level `fn` declares its parameter types and return type. Local
@@ -1446,7 +1633,9 @@ wrote.
 An **effect** is an interface declared with `effect` instead of `trait`. Its
 methods are the operations it grants:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri sig role=platform
+# from "platform/effect" import { IoError, NetError, Region };
+#
 // platform/effect
 export effect Allocator {
     fn allocate(self, bytes: Int): Region;
@@ -1498,13 +1687,19 @@ export effect Network {
 Not every effect is declared there. `core/fs` is a platform module too, and it
 declares the filesystem's two:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri sig role=platform
+# from "core/fs" import { Metadata, Path };
+# from "platform/effect" import { IoError };
+#
 // core/fs
 export effect FileSystemRead {
     fn readFile(self, path: Path): Result<Str, IoError>;
     fn fileExists(self, path: Path): Bool;
     fn readDir(self, path: Path): Result<[Str], IoError>;
     fn readFileBytes(self, path: Path): Result<[U8], IoError>;
+    fn metadata(self, path: Path): Result<Metadata, IoError>;
+    fn readRange(self, path: Path, at: Int, count: Int): Result<[U8], IoError>;
+    fn realPath(self, path: Path): Result<Str, IoError>;
 }
 
 export effect FileSystemWrite {
@@ -1516,14 +1711,20 @@ export effect FileSystemWrite {
     fn removeDir(self, path: Path): Result<(), IoError>;
     fn makeDir(self, path: Path): Result<(), IoError>;
     fn syncFile(self, path: Path): Result<(), IoError>;
+    fn copyFile(self, source: Path, destination: Path): Result<(), IoError>;
 }
 ```
 
-`platform/effect` declares `Allocator`, `Network`, `Clock`, `Random`, `Entropy`, `Environment`,
-`Stdin`, `Stdout`, `Stderr`, `Process`, `Tasks`, `Listen`, `Sockets` and
-`WebSocketClient`, and `core/fs` declares `FileSystemRead` and `FileSystemWrite`. **Only
-platform modules may declare effects**; `effect` in ordinary code is a compile
-error. So a program's platform fixes what that program can do to the world.
+`platform/effect` declares `Allocator`, `Network`, `Clock`, `Random`, `Entropy`,
+`Environment`, `Stdin`, `Stdout`, `Stderr`, `Process`, `Tasks`, `Listen`, `Sockets`,
+`Tcp`, `WebSocketClient`, `Ui`, `Watch` and `Location`. `core/fs` declares
+`FileSystemRead` and `FileSystemWrite`, and `core/process` declares `Spawn`.
+
+**Effects are declared only there and in effect packages**, libraries under
+`//platform/effect/` such as `//platform/effect/kv`
+(`buri docs guides/custom-platforms`). `effect` anywhere else is
+`effect-outside-effect-directory`. So what a program can do to the world is fixed
+by the effects its platform offers.
 
 **The filesystem is two effects because it is two grants.** A program that reads
 its configuration has not thereby earned the right to delete it. A
@@ -1572,15 +1773,26 @@ nominal conformance, same `impl`, same bounds. Two rules separate them:
 
 A function names the effects it needs as **bounds** on its context parameter:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri
+# from "core/fs" import * as fs;
 # from "core/fs" import { FileSystemRead, Path };
-# from "platform/effect" import { Allocator };
-
+# from "platform/effect" import { Allocator, IoError };
+#
+# struct Config(Str);
+#
+# enum ConfigError {
+#     Unreadable(IoError),
+# }
+#
+# fn parse<C: Allocator>(ctx: C, text: Str): Result<Config, ConfigError> {
+#     .Ok(Config(text))
+# }
+#
 fn loadConfig<C: Allocator + FileSystemRead>(
     ctx: C,
     at: Path,
 ): Result<Config, ConfigError> {
-    let text = fs.readText(ctx, at)?;
+    let text = fs.readText(ctx, at).mapErr(fn(e) => ConfigError.Unreadable(e))?;
     parse(ctx, text)
 }
 ```
@@ -1594,21 +1806,70 @@ must satisfy.
 **An effect-carrying parameter must be `self` or `ctx`** — never any other
 name, never any other position, and at most one of each:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "platform/effect" import { Allocator, IoError, Network, Region };
+```buri fail
+# from "core/fs" import * as fs;
 # from "core/fs" import { FileSystemRead, Path };
-fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError>    // ok
-fn render<C: Allocator>(self, ctx: C): Str                                    // ok
-fn allocate(self, bytes: Int): Region                                     // ok
-fn sneaky<C: FileSystemRead>(a: Int, handle: C): Bool                             // ERROR
-fn twoWorlds<A: FileSystemRead, B: Network>(ctx: A, other: B): ()                     // ERROR
+# from "platform/effect" import { Allocator, IoError, Network, Region };
+#
+# struct Page(Str);
+#
+# struct Arena(Int);
+#
+// ok
+fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError> {
+    fs.readText(ctx, at)
+}
 
-enum Widget<C> { Press(fn(C, Int) => Str), Group([Widget<C>]) }
-enum Boxed<C>  { Held(C) }
+impl Page {
+    // ok
+    fn render<C: Allocator>(self, ctx: C): Str {
+        self.0
+    }
+}
 
-fn render<C: Allocator>(ctx: C, root: Widget<C>): Str                         // ok
-fn peek<C: Allocator>(ctx: C, held: Boxed<C>): Int                            // ERROR
+impl Allocator for Arena {
+    // ok
+    fn allocate(self, bytes: Int): Region {
+        Region(bytes)
+    }
+}
+
+// ERROR
+fn sneaky<C: FileSystemRead>(a: Int, handle: C): Bool {
+    false
+}
+
+// ERROR
+fn twoWorlds<A: FileSystemRead, B: Network>(ctx: A, other: B): () {
+    ()
+}
+
+enum Widget<C> {
+    Press(fn(C, Int) => Str),
+    Group([Widget<C>]),
+}
+
+enum Boxed<C> {
+    Held(C),
+}
+
+// ok
+fn render<C: Allocator>(ctx: C, root: Widget<C>): Str {
+    ""
+}
+
+// ERROR
+fn peek<C: Allocator>(ctx: C, held: Boxed<C>): Int {
+    0
+}
 ```
+
+```error
+`handle` carries an effect, so it must be named `ctx`
+`other` carries an effect, so it must be named `ctx`
+`held` carries an effect, so it must be named `ctx`
+```
+
 
 A type is **effect-carrying** if it is a type variable with an effect
 bound, a type that implements an effect, or any type that can hand one of those
@@ -1796,12 +2057,18 @@ referentially transparent. `time.now(ctx)` is not.
 Tracking allocation is what makes "does no I/O" and "does not allocate"
 separately expressible:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "platform/effect" import { Allocator, IoError };
+```buri sig
 # from "core/fs" import { FileSystemRead, Path };
-fn sum(self): Int                                                      // pure
-fn map<A, B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B]               // deterministic
-fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError> // effectful
+# from "platform/effect" import { Allocator, IoError };
+#
+// pure
+fn sum(xs: [Int]): Int;
+
+// deterministic
+fn map<A, B, C: Allocator>(ctx: C, xs: [A], f: fn(A) => B): [B];
+
+// effectful
+fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError>;
 ```
 
 Fixed-size construction — struct literals, tuples, enum payloads, array literals,
@@ -1813,12 +2080,19 @@ on runtime data do.
 **A lambda may not capture an effect-carrying value.** Effects travel
 through the `ctx` parameter only.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-// ERROR: the lambda captures ctx
-let texts = paths.map(ctx, fn(p) => fs.readText(ctx, p));
-
-// Thread the context through a *Ctx combinator instead
-let texts = paths.mapCtx(ctx, fn(c, p) => fs.readText(c, p));
+```buri
+# from "core/fs" import * as fs;
+# from "core/fs" import { FileSystemRead, Path };
+# from "platform/effect" import { Allocator, IoError };
+#
+# type Read = Result<Str, IoError>;
+#
+# fn demo<C: Allocator + FileSystemRead>(ctx: C, paths: [Path]): [Read] {
+    let texts = paths.map(ctx, fn(p) => fs.readText(ctx, p)); // ERROR: a lambda may not capture `ctx`
+    // Thread the context through a *Ctx combinator instead
+    let texts = paths.mapCtx(ctx, fn(c, p) => fs.readText(c, p));
+#     texts
+# }
 ```
 
 Without this rule, a value of type `fn(Str) => Str` could smuggle a file handle
@@ -1858,7 +2132,9 @@ on every item — and that callback cannot close over a context, so whatever
 authority it is to have arrives as its first parameter. Two different values
 could arrive there, and the declaration says which:
 
-```buri ignore why="not yet converted to a compiled example: it declares an effect, which only a platform module may do"
+```buri sig role=platform
+# from "platform/effect" import { Request, Response, ServeError };
+#
 export effect Tasks {
     // `ctx` is the caller's whole context, and the step is handed it.
     fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
@@ -1904,23 +2180,35 @@ read a clock and start a task.
 **Receiver first, context second, everything else after.** Section 10.2 enforces
 this. A free function with no receiver takes the context first:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "platform/effect" import { Allocator, IoError };
+```buri sig
 # from "core/fs" import { FileSystemRead, Path };
-export fn map<A, B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B]
-export fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError>
+# from "platform/effect" import { Allocator, IoError };
+
+export fn readText<C: Allocator + FileSystemRead>(
+    ctx: C,
+    at: Path,
+): Result<Str, IoError>;
 ```
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-xs.map(ctx, double)
-lines.filter(ctx, isLong).sortBy(ctx, order.str)
+A method takes its receiver, then the context:
+
+```buri
+# from "core/order" import * as order;
+# from "platform/effect" import { Allocator };
+#
+# fn demo<C: Allocator>(ctx: C, xs: [Int], lines: [Str]): [Str] {
+#     let double = fn(x: Int): Int => x * 2;
+#     let isLong = fn(line: Str): Bool => line.length() > 80;
+    let doubled = xs.map(ctx, double);
+    let sorted = lines.filter(ctx, isLong).sortBy(ctx, order.str);
+#     sorted
+# }
 ```
 
-An effect's own operations take the second shape and only the second shape. They
-have no receiver a program may name, so they are free functions taking the
-context first: `io.println(ctx, text)`, `fs.readText(ctx, path)`. The method form
-is not an alternative spelling of them; the compiler refuses it
-(`effect-method-call`).
+An effect's own operations are always free functions taking the context first,
+because they have no receiver a program may name: `io.println(ctx, text)`,
+`fs.readText(ctx, path)`. The method form is not an alternative spelling of them;
+the compiler refuses it (`effect-method-call`).
 
 ### 10.8 Restricting what propagates
 
@@ -1929,15 +2217,22 @@ Two forms, giving different guarantees.
 **Static confinement.** Bound the callee to fewer effects. It receives the
 same value and cannot use, or pass on, anything its bounds do not name:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/fs" import { FileSystemRead };
+```buri
+# from "core/fs" import * as fs;
+# from "core/fs" import { FileSystemRead, Path };
+# from "core/io" import * as io;
+# from "core/path" import * as path;
 # from "native" import { NativeHost };
 # from "platform/effect" import { Allocator, Stdout };
-
-fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
-    let _ = io.println(ctx, msg).ignore();
-    // fs.readText(ctx, secrets)           // ERROR: C is not bounded by FileSystemRead
-    // dangerous(ctx)                      // ERROR: dangerous needs C: FileSystemRead
+#
+# fn dangerous<C: FileSystemRead>(ctx: C): Bool {
+#     false
+# }
+#
+fn logOnly<C: Stdout>(ctx: C, msg: Str, secrets: Path): () {
+    let leaked = fs.readText(ctx, secrets); // ERROR: `C` does not implement `FileSystemRead`
+    let found = dangerous(ctx); // ERROR: `C` does not implement `FileSystemRead`
+    io.println(ctx, msg).ignore()
 }
 
 export fn main(host: NativeHost): Result<(), Str> {
@@ -1946,7 +2241,8 @@ export fn main(host: NativeHost): Result<(), Str> {
         Stdout: host.stdout,
         FileSystemRead: host.fs,
     };
-    let _ = logOnly(ctx, "starting"); // same value, confined by its bound
+    let secrets = path.of(ctx, "secrets");
+    let _ = logOnly(ctx, "starting", secrets); // same value, confined by its bound
     .Ok(())
 }
 ```
@@ -1958,10 +2254,10 @@ downstream.
 **Attenuation.** Wrap the context in a type that satisfies fewer effects, so
 the callee holds a value that genuinely lacks the rest:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri ignore why="the compiler refuses `self.0.readFile` here as `effect-method-call`: its carve-out covers an impl that supplies an effect, and this one is inherent"
 # from "core/fs" import { FileSystemRead, Path };
 # from "platform/effect" import { Allocator, IoError, Region };
-
+#
 // module: safe/readonly
 export struct ReadOnly<C>(C);
 
@@ -2005,10 +2301,10 @@ A pure function needs no harness. You test an effectful one by building a contex
 out of different implementations, and since effects are ordinary interfaces,
 writing one is writing a struct with methods. The call site does not change.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/fs" import { FileSystemRead, Path };
-# from "platform/effect" import { Allocator, IoError };
-
+```buri
+# from "core/fs" import { FileSystemRead, Metadata, Path };
+# from "platform/effect" import { IoError };
+#
 struct FakeFs {
     export files: [(Str, Str)],
 }
@@ -2035,6 +2331,18 @@ impl FileSystemRead for FakeFs {
     fn readFileBytes(self, at: Path): Result<[U8], IoError> {
         .Err(.NotFound)
     }
+
+    fn metadata(self, at: Path): Result<Metadata, IoError> {
+        .Err(.NotFound)
+    }
+
+    fn readRange(self, at: Path, offset: Int, count: Int): Result<[U8], IoError> {
+        .Err(.NotFound)
+    }
+
+    fn realPath(self, at: Path): Result<Str, IoError> {
+        .Err(.NotFound)
+    }
 }
 
 // context { Allocator: testing.alloc(), FileSystemRead: FakeFs { files: [...] } }
@@ -2048,17 +2356,18 @@ declare them, and how they build a context.
 
 A program is a module that exports `main`:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "platform/effect" import { Allocator, Environment, Stdout };
+```buri
+# from "core/io" import * as io;
 from "native" import { NativeHost };
+# from "platform/effect" import { Allocator, Environment, Stdout };
 
 export fn main(host: NativeHost): Result<(), Str> {
-  let ctx = context {
-    Allocator:  host.alloc,
-    Stdout: host.stdout,
-    Environment:    host.env,
-  };
-  ...
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+        Environment: host.env,
+    };
+    io.println(ctx, "hello").mapErr(fn(e) => "could not print")
 }
 ```
 
@@ -2178,7 +2487,7 @@ Assertions are an ordinary module, imported like any other. `assert` is not a
 keyword: the name comes from `import * as assert`, and a file may call it
 something else.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri role=test
 from "core/testing/assert" import * as assert;
 ```
 
@@ -2204,7 +2513,14 @@ value it has.
 Everything above the last three returns `()`. Those three return a value, and are
 how a test consumes a `Result`, which is still must-use here:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri role=test
+# from "core/fs" import * as fs;
+# from "core/fs" import { FileSystemRead, FileSystemWrite };
+# from "core/path" import * as path;
+# from "core/testing/assert" import * as assert;
+# from "platform/effect" import { Allocator };
+# from "platform/effect/testing" import { alloc, fs };
+#
 test "reads the config it wrote" {
     let disk = fs();
     let ctx = context {
@@ -2233,14 +2549,26 @@ A test source may also use **expression statements**, which no other module may:
 the common case; a `match`, an `if` or a block whose every branch produces `()`
 counts too.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-assert.equal(total, 42);              // statement: type is ()
-match (parsed) {                   // statement: every arm is ()
-  .Some(n) => assert.equal(n, 42),
-  .None => assert.equal(parsed, .Some(42)),
-};                                 // ← the `;` is what makes it a statement
-// assert.ok(loadConfig(ctx));     // ERROR if it returns Config — bind it or drop
-                                   // it explicitly with `let _ =`
+```buri role=test
+# from "core/testing/assert" import * as assert;
+#
+# struct Config(Int);
+#
+# fn loadConfig(): Result<Config, Str> {
+#     .Ok(Config(8080))
+# }
+#
+# test "statements" {
+#     let total = 42;
+#     let parsed: Option<Int> = .Some(42);
+    assert.equal(total, 42); // statement: type is ()
+    match (parsed) {
+        // statement: every arm is ()
+        .Some(n) => assert.equal(n, 42),
+        .None => assert.equal(parsed, .Some(42)),
+    }; // the `;` is what makes it a statement
+    assert.ok(loadConfig()); // ERROR: has type `Config`, not `()`
+# }
 ```
 
 This does not weaken Section 5.7.1: `Result` is not `()`, so it can drop nothing
@@ -2257,25 +2585,33 @@ implements it. `main` and a test use the same form.
 
 **As an expression**, anonymous:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "platform/effect" import { Allocator, Stdout };
+```buri
 # from "core/fs" import { FileSystemRead };
-let ctx = context {
-  Allocator:  host.alloc,
-  Stdout: host.stdout,
-  FileSystemRead: rooted(host.fs, "/srv/app"),
-};
+# from "native" import { NativeHost };
+# from "platform/effect" import { Allocator, Stdout };
+#
+# export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+        FileSystemRead: host.fs,
+    };
+#     .Ok(())
+# }
 ```
 
 **As a declaration**, named — so a fixture can be shared by every test in a file,
 or exported from a test-only module and shared across files:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri role=test name=sandbox
 # from "core/fs" import { FileSystemRead };
 # from "platform/effect" import {
 #     Allocator, Clock, Environment, Network, Random, Stderr, Stdout,
 # };
-
+# from "platform/effect/testing" import {
+#     alloc, clock, env, fs, net, rand, stderr, stdout,
+# };
+#
 context Sandbox {
     Allocator: alloc(),
     Stdout: stdout(),
@@ -2301,8 +2637,36 @@ parameters; override a binding to vary what a call site gets.
 **Either form may begin with a spread**, which takes every binding from another
 context and lets the ones that follow replace them:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri role=test use=sandbox
+# from "core/fs" import * as fs;
 # from "core/fs" import { FileSystemRead };
+# from "core/path" import * as path;
+# from "core/testing/assert" import * as assert;
+# from "platform/effect" import { Allocator };
+
+# derive Equal, Show for ConfigError;
+# enum ConfigError {
+#     Unreadable,
+#     PortOutOfRange,
+# }
+
+# fn loadConfig<C: Allocator + FileSystemRead>(
+#     ctx: C,
+#     at: Str,
+# ): Result<Int, ConfigError> {
+#     let text = fs
+#         .readText(ctx, path.of(ctx, at))
+#         .mapErr(fn(e) => ConfigError.Unreadable)?;
+#     match (text.splitOnce("=")) {
+#         .Some((_, port)) => {
+#             match (port.toInt()) {
+#                 .Some(n) => if (n > 65535) { .Err(.PortOutOfRange) } else { .Ok(n) },
+#                 .None => .Err(.Unreadable),
+#             }
+#         },
+#         .None => .Err(.Unreadable),
+#     }
+# }
 
 context Fixture {
     ..Sandbox(),
