@@ -233,28 +233,12 @@ fn refuse_watch(command: &str, flags: &Flags) -> Result<(), String> {
 /// An unknown flag, with the nearest real one when there is a plausible
 /// candidate — the same treatment an unknown identifier gets.
 fn unknown_flag(name: &str) -> String {
-    if let Some((_, why)) = RETIRED.iter().find(|(retired, _)| *retired == name) {
-        return format!("`--{name}` is retired: {why}");
-    }
     let known: Vec<&str> = crate::commands::FLAGS.iter().map(|f| f.name).collect();
     match crate::build::buildfile::nearest(name, &known) {
         Some(near) => format!("unknown flag `--{name}`; did you mean `--{near}`?"),
         None => format!("unknown flag `--{name}`"),
     }
 }
-
-/// The flags this binary used to take, and what to do instead.
-///
-/// A retired flag is not an unknown one, and `nearest` would answer it with
-/// whichever surviving flag shares the most letters — which is the one thing
-/// somebody who typed what last release documented does not need to read. The
-/// same distinction `retired-test-data` draws in a build file, drawn here.
-pub const RETIRED: &[(&str, &str)] = &[(
-    "accept",
-    "it rewrote the golden files a suite declared in `test { data }`, and that field is retired \
-     (`buri docs error retired-test-data`). A golden is a value in the suite's own source now, \
-     which an editor rewrites",
-)];
 
 /// Writes to standard output, treating a closed pipe as success.
 ///

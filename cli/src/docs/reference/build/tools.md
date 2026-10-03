@@ -80,9 +80,7 @@ no tool at all is [`unknown-tool`](../errors/unknown-tool.md).
 The toolchain ships three tools, each with `check`, `format` and `generate`:
 `json` for `json`, `jsonc` and `json5`, `proto` for `.proto` schemas, and
 `textproto` for [text format files](../../guides/textproto.md). Built-in tools
-have bare names and yours are `//label`s, so they never collide. `std/json`,
-`std/proto`, `std/textproto` and `std/codegen/proto` are
-[`retired-tool`](../errors/retired-tool.md).
+have bare names and yours are `//label`s, so they never collide.
 
 ## What an entry point is handed
 

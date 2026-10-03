@@ -2341,97 +2341,6 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
-/// The **closure trampoline**: `list.mapCtxStep` answers what `list.mapCtx`
-/// answers, on both native backends, and both answer what JavaScript does.
-///
-/// Not a §12 row, and the shape of the comparison is `middle/fuse.rs`'s. That
-/// pass runs on the native branch only, and says why: "a differential test
-/// whose two sides share the transformation under test proves nothing about
-/// it", so JavaScript is left as the reference implementation. The same
-/// discipline is what makes this test worth anything. `$list_mapCtxStep` in
-/// `js/runtime.js` is the ordinary `mapCtx` loop — the *unfused* reference —
-/// while natively the step is called by `cli/runtime/list.rs` through a
-/// generated C-ABI entry thunk. The two sides share the program and nothing
-/// else, which is the only way to find out whether the boundary is right.
-///
-/// Every element type here is one whose handling differs at the boundary:
-///
-///  * `Int -> Int` — the plain case, and the strides are equal.
-///  * `Int -> Str` — the result is **counted** and wider than the source, so
-///    the two strides differ and every element the step answers is a block the
-///    result list now owns. A trampoline that lost that count prints garbage
-///    or aborts; one that took an extra leaks, which `buri_rt_heap_stats`
-///    catches in CI rather than here.
-///  * `Str -> Str` — the *source* is counted too, so the retain the entry
-///    thunk takes before entering Buri code is the thing under test. Without
-///    it the step frees a block the list still holds.
-///  * `Int -> (Int, Int)` — an aggregate result written through the
-///    out-pointer at its own stride.
-///  * the empty list — no element, no entry, and a `[B]` that allocates
-///    nothing.
-///
-/// A `mapCtxStep` inside a `mapCtx` is there because the entry thunk works in
-/// the frame the *call site* set aside, and a call site that is itself inside
-/// a running step is where two of them would collide if that frame were
-/// anything global.
-#[test]
-fn the_closure_trampoline_answers_what_the_open_coded_loop_does() {
-    rows_or_skip!();
-    agree(
-        "closure trampoline",
-        r#"
-from "native" import { NativeHost };
-from "core/io" import * as io;
-from "core/list" import * as list;
-from "core/str" import * as str;
-
-fn show(host: NativeHost, xs: [Str]): Str { xs.join(host.alloc, ",") }
-
-export fn main(host: NativeHost): Result<(), Str> {
-  let ns = [1, 2, 3, 4];
-  let doubledStep = ns.mapCtxStep(host.alloc, fn(c, n) => n * 2);
-  let doubledLoop = ns.mapCtx(host.alloc, fn(c, n) => n * 2);
-  let _ = io.println(host.stdout, "${doubledStep.length()} ${doubledLoop.length()}").ignore();
-  let _ = io.println(host.stdout, "${show(host, doubledStep.mapCtx(host.alloc, fn(c, n) => str.fromInt(c, n)))}").ignore();
-  let _ = io.println(host.stdout, "${show(host, doubledLoop.mapCtx(host.alloc, fn(c, n) => str.fromInt(c, n)))}").ignore();
-
-  // A counted result, at a stride the source does not have.
-  let named = ns.mapCtxStep(host.alloc, fn(c, n) => "n".repeat(c, n));
-  let _ = io.println(host.stdout, show(host, named)).ignore();
-
-  // A counted source: the retain the entry thunk takes is what keeps `named`
-  // alive while its elements are read.
-  let louder = named.mapCtxStep(host.alloc, fn(c, s) => str.format(c, "<${s}>"));
-  let _ = io.println(host.stdout, show(host, louder)).ignore();
-  let _ = io.println(host.stdout, show(host, named)).ignore();
-
-  // An aggregate result, through the out-pointer.
-  let pairs = ns.mapCtxStep(host.alloc, fn(c, n) => (n, n * n));
-  let _ = io.println(host.stdout, show(host, pairs.mapCtx(host.alloc, fn(c, p) => str.format(c, "${p.0}^${p.1}")))).ignore();
-
-  // Nested: a step that is itself a call site.
-  let nested = ns.mapCtx(host.alloc, fn(c, n) => [n, n].mapCtxStep(c, fn(d, m) => m + 1).length());
-  let _ = io.println(host.stdout, "${nested.length()} ${nested[0].withDefault(0)}").ignore();
-
-  let empty: [Int] = [];
-  let _ = io.println(host.stdout, "${empty.mapCtxStep(host.alloc, fn(c, n) => n + 1).length()}").ignore();
-  .Ok(())
-}
-"#,
-        concat!(
-            "4 4\n",
-            "2,4,6,8\n",
-            "2,4,6,8\n",
-            "n,nn,nnn,nnnn\n",
-            "<n>,<nn>,<nnn>,<nnnn>\n",
-            "n,nn,nnn,nnnn\n",
-            "1^1,2^4,3^9,4^16\n",
-            "4 2\n",
-            "0\n",
-        ),
-    );
-}
-
 /// `Tasks.parallel` answers the same list on all three backends, and it is the
 /// same list in the same order.
 ///
@@ -3782,7 +3691,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// **A `*Ctx` combinator waits for a step that waits**, on every backend, and
 /// answers the same list either way.
 ///
-/// `core/list`'s five context-carrying combinators hand the step the caller's
+/// `core/list`'s four context-carrying combinators hand the step the caller's
 /// whole context, so the step may do anything the caller may. On the natives
 /// that is a call and a return; on JavaScript a step that waits is an `async`
 /// function, and a combinator that ran it without awaiting answered a list of
@@ -3861,14 +3770,6 @@ export fn main(host: NativeHost): Result<(), Str> {
   ).ignore();
   let _ = mapping.stop(ctx).ignore();
 
-  let stepping = actor.start(ctx, recorder());
-  let stepped = [4, 5, 6].mapCtxStep(ctx, fn(c, x) => noted(stepping.sendMessage(c, .Saw(x))));
-  let _ = io.println(
-    ctx,
-    "stepped ${shown(ctx, stepped)} heard ${heardSoFar(stepping.sendMessage(ctx, .Read))}",
-  ).ignore();
-  let _ = stepping.stop(ctx).ignore();
-
   let filtering = actor.start(ctx, recorder());
   let kept = [1, 2, 3, 4].filterCtx(
     ctx,
@@ -3911,7 +3812,6 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#,
         "mapped 2,4,6 heard 123\n\
-         stepped 8,10,12 heard 456\n\
          kept 2,4 heard 1234\n\
          folded 12 heard 123\n\
          tallied 12 heard 123\n\

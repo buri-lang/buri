@@ -1,4 +1,0 @@
-tag {
-    name: "page"
-    doc: "runs in a web page"
-}

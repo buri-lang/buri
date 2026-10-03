@@ -236,7 +236,6 @@ test "renders the statement" {
 
 If the code under test doesn't read files, put the expected value in the
 assertion instead.
-`test { data: [...] }` and `buri test --accept` are retired.
 
 ## Running
 
