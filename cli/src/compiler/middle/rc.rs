@@ -70,7 +70,9 @@
 //!    borrowed parameter does not. Two threads reading `1` off one borrowed
 //!    list would each take the licence. Failing the test on the mark is the
 //!    over-set direction again: it costs a copy, and it is why the elision and
-//!    reuse this pass plans stay sound with the baton gone.
+//!    reuse this pass plans stay sound with the baton gone. A list append
+//!    claims a marked block with a compare-and-swap instead
+//!    (`buri_rt_claim_unique`, #222), so only one of those threads wins.
 //!
 //! Three things, in order of how much they matter:
 //!

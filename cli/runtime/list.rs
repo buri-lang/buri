@@ -48,7 +48,7 @@
 //!   they are named here rather than half-built.
 
 use crate::memory::{
-    buri_rt_alloc, buri_rt_cap, buri_rt_grown_capacity, buri_rt_incref, buri_rt_unique_cap,
+    buri_rt_alloc, buri_rt_cap, buri_rt_claim_unique, buri_rt_grown_capacity, buri_rt_unclaim,
 };
 use crate::value::BuriList;
 use crate::BURI_OK;
@@ -111,7 +111,7 @@ pub(crate) fn block(count: usize, stride: usize) -> BuriList {
 ///
 /// Three outcomes, in the order they are tried:
 ///
-///  1. **In place.** The block is uniquely owned ([`buri_rt_unique_cap`]), has
+///  1. **In place.** The block is claimed as uniquely owned ([`buri_rt_claim_unique`]), has
 ///     the headroom, and — for an element type holding references — the slots
 ///     about to be written are [spare](#spare-slots). Nothing is copied and
 ///     nothing is allocated: the elements are written past the end and the
@@ -130,7 +130,7 @@ pub(crate) fn block(count: usize, stride: usize) -> BuriList {
 ///
 /// # Why paths 1 and 2 are unobservable
 ///
-/// The uniqueness half is [`buri_rt_unique_cap`]'s doc comment: `rc == 1` means
+/// The uniqueness half is [`buri_rt_claim_unique`]'s doc comment: `rc == 1` means
 /// one observable value, every alias of it carries the same `len`, and a write
 /// at `len` or beyond is therefore invisible to all of them. A `[T]` is never a
 /// view (`value.rs`), so there is no second descriptor into the same block at a
@@ -174,8 +174,10 @@ unsafe fn append_dest(
     }
     let needed = total.saturating_mul(stride) as u64;
     if !ptr.is_null() {
-        // SAFETY: the caller promises a live payload pointer.
-        if let Some(cap) = unsafe { buri_rt_unique_cap(ptr) } {
+        // SAFETY: the caller promises a live payload pointer. A claim takes
+        // the result's reference before `spare` reads a slot, so on a marked
+        // block no other thread can write there in between.
+        if let Some(cap) = unsafe { buri_rt_claim_unique(ptr) } {
             let used = n.saturating_mul(stride);
             // SAFETY: when `cap >= needed` the slots `[n, total)` are inside
             // the block, and `spare` reads no further.
@@ -183,11 +185,11 @@ unsafe fn append_dest(
                 && (retain.is_none()
                     || unsafe { spare(ptr.add(used), add.saturating_mul(stride)) });
             if fits {
-                // SAFETY: as above. The result is a second reference to the
-                // block, so it takes a count of its own.
-                unsafe { buri_rt_incref(ptr.cast_mut()) };
+                // The claimed reference is the result's.
                 return BuriList { ptr: ptr.cast_mut(), len: total as u64 };
             }
+            // SAFETY: claimed just above, and not written through.
+            unsafe { buri_rt_unclaim(ptr) };
             let fresh = buri_rt_alloc(buri_rt_grown_capacity(needed, cap));
             // SAFETY: a fresh block of at least `needed` bytes, disjoint from
             // the source, which covers its own `n` elements. The zeroing runs
@@ -685,11 +687,6 @@ mod tests {
     /// it back to `1`.
     #[test]
     fn a_unique_push_grows_in_place() {
-        // The in-place licence is `buri_rt_unique_cap`'s, and it is refused
-        // for a marked block — so this case and any case that sets the
-        // marking latch must not run at once. `memory::latch` names both
-        // sides of that rule.
-        let _latch = crate::memory::latch();
         let mut acc = BuriList { ptr: std::ptr::null_mut(), len: 0 };
         let mut allocations = 0u32;
         for i in 0i64..1000 {
@@ -721,6 +718,124 @@ mod tests {
         // counters are global and `cargo test` runs these in parallel, so a
         // reading taken here would be a reading of every other test as well.
         unsafe { crate::memory::buri_rt_free(acc.ptr) };
+    }
+
+    /// Nine pushes onto `[]`, so the list has headroom: 72 bytes in a 128-byte
+    /// block. The caller holds the only reference.
+    fn nine() -> BuriList {
+        let mut acc = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        for i in 0i64..9 {
+            let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            // SAFETY: `acc` is the caller's own live list.
+            unsafe {
+                buri_rt_list_push(acc.ptr, acc.len, (&raw const i).cast(), 8, None, &raw mut out);
+                crate::memory::buri_rt_decref(acc.ptr, None);
+            }
+            acc = out;
+        }
+        acc
+    }
+
+    /// Issue #222: a push loop over a **marked** list grows in place too, as
+    /// it does in a program that starts an actor.
+    #[test]
+    fn a_unique_push_onto_a_marked_list_grows_in_place() {
+        let _latch = crate::memory::latch();
+        crate::memory::buri_rt_values_may_cross_tasks();
+        let mut acc = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut allocations = 0u32;
+        for i in 0i64..1000 {
+            let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            // SAFETY: as in `a_unique_push_grows_in_place`.
+            unsafe {
+                buri_rt_list_push(acc.ptr, acc.len, (&raw const i).cast(), 8, None, &raw mut out);
+                crate::memory::buri_rt_decref(acc.ptr, None);
+            }
+            if out.ptr != acc.ptr {
+                allocations += 1;
+            }
+            acc = out;
+        }
+        // SAFETY: a live block.
+        assert!(unsafe { crate::memory::count_and_mark(acc.ptr) }.1, "the list was not marked");
+        // SAFETY: a thousand `i64`s were written there in order.
+        let got: Vec<i64> =
+            (0..1000).map(|i| unsafe { acc.ptr.add(i * 8).cast::<i64>().read() }).collect();
+        assert_eq!(got, (0..1000).collect::<Vec<i64>>());
+        assert!(allocations <= 12, "a marked push loop allocated {allocations} times");
+        // SAFETY: the last reference.
+        unsafe { crate::memory::buri_rt_free(acc.ptr) };
+        crate::memory::forget_values_may_cross_tasks();
+    }
+
+    /// Eight threads push onto **one marked list they all borrow**, which is
+    /// a `Tasks.parallel` step pushing onto its closure's list. Each reads a
+    /// count of one, and at most one may write in place.
+    ///
+    /// Each answer must be the list and that thread's own element, the list
+    /// must read as before, and at most one answer may share its block.
+    #[test]
+    fn threads_pushing_onto_one_borrowed_marked_list_each_get_their_own_element() {
+        const THREADS: usize = 8;
+        let _latch = crate::memory::latch();
+        crate::memory::buri_rt_values_may_cross_tasks();
+        for _round in 0..2000 {
+            let base = nine();
+            let start = std::sync::Barrier::new(THREADS);
+            let (ptr, len) = (base.ptr as usize, base.len);
+            let answers: Vec<(usize, u64)> = std::thread::scope(|s| {
+                let handles: Vec<_> = (0..THREADS)
+                    .map(|t| {
+                        let start = &start;
+                        s.spawn(move || {
+                            let item = 100 + t as i64;
+                            let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+                            start.wait();
+                            // SAFETY: `base` outlives the scope, and this
+                            // thread borrows it without a count.
+                            unsafe {
+                                buri_rt_list_push(
+                                    ptr as *const u8,
+                                    len,
+                                    (&raw const item).cast(),
+                                    8,
+                                    None,
+                                    &raw mut out,
+                                );
+                            }
+                            (out.ptr as usize, out.len)
+                        })
+                    })
+                    .collect();
+                handles.into_iter().map(|h| h.join().unwrap()).collect()
+            });
+            let mut in_place = 0;
+            for (t, &(p, n)) in answers.iter().enumerate() {
+                let p = p as *mut u8;
+                assert_eq!(n, 10);
+                // SAFETY: each answer is a live list of ten `i64`s.
+                let got: Vec<i64> =
+                    (0..10).map(|i| unsafe { p.add(i * 8).cast::<i64>().read() }).collect();
+                let mut want: Vec<i64> = (0..9).collect();
+                want.push(100 + t as i64);
+                assert_eq!(got, want, "thread {t} answered another thread's element");
+                if p == base.ptr {
+                    in_place += 1;
+                }
+            }
+            assert!(in_place <= 1, "{in_place} threads wrote into one block");
+            // SAFETY: `base` is live, and nothing wrote into its nine slots.
+            let kept: Vec<i64> =
+                (0..9).map(|i| unsafe { base.ptr.add(i * 8).cast::<i64>().read() }).collect();
+            assert_eq!(kept, (0..9).collect::<Vec<i64>>());
+            for &(p, _) in &answers {
+                // SAFETY: each answer holds one reference.
+                unsafe { crate::memory::buri_rt_decref(p as *mut u8, None) };
+            }
+            // SAFETY: the last reference.
+            unsafe { crate::memory::buri_rt_decref(base.ptr, None) };
+        }
+        crate::memory::forget_values_may_cross_tasks();
     }
 
     /// The observable-semantics guard: a `push` on a list something *else*
@@ -781,9 +896,6 @@ mod tests {
     /// `[Str]` quadratic.
     #[test]
     fn a_counted_element_type_grows_in_place_over_zeroed_headroom() {
-        // The in-place licence is `buri_rt_unique_cap`'s, and it is refused
-        // for a marked block — see `a_unique_push_grows_in_place`.
-        let _latch = crate::memory::latch();
         unsafe extern "C" fn nothing(_: *mut u8) {}
         let retain: Retain = Some(nothing);
         let mut acc = BuriList { ptr: std::ptr::null_mut(), len: 0 };
@@ -819,7 +931,6 @@ mod tests {
     /// it must copy rather than write over an element the block still owns.
     #[test]
     fn a_slot_a_longer_list_left_behind_is_not_written_over() {
-        let _latch = crate::memory::latch();
         unsafe extern "C" fn nothing(_: *mut u8) {}
         let retain: Retain = Some(nothing);
         let mut base = BuriList { ptr: std::ptr::null_mut(), len: 0 };
@@ -856,11 +967,6 @@ mod tests {
     /// elements in order across the seam.
     #[test]
     fn a_unique_concat_appends_in_place() {
-        // The in-place licence is `buri_rt_unique_cap`'s, and it is refused
-        // for a marked block — so this case and any case that sets the
-        // marking latch must not run at once. `memory::latch` names both
-        // sides of that rule.
-        let _latch = crate::memory::latch();
         let src: [i64; 3] = [7, 8, 9];
         let mut acc = BuriList { ptr: std::ptr::null_mut(), len: 0 };
         let mut allocations = 0u32;

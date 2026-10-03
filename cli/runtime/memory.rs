@@ -206,8 +206,9 @@ pub(crate) fn forget_values_may_cross_tasks() {
 ///  * the ones that set it — `rt`'s thread cases and this module's;
 ///  * the ones that assert an **in-place write happened**, because
 ///    [`buri_rt_unique_cap`] refuses a marked block and an in-place write is
-///    exactly what a marked block does not get: `text`'s and `list`'s
-///    `a_unique_concat_appends_in_place` and `a_unique_push_grows_in_place`.
+///    exactly what a marked block does not get: `text`'s
+///    `a_unique_concat_appends_in_place`. A list append claims a marked block
+///    instead ([`buri_rt_claim_unique`]), so `list`'s cases need no latch.
 ///
 /// Where a case takes both this and `rt`'s `alone()`, `alone()` comes first.
 /// There is no other order in the crate, so there is no cycle.
@@ -2028,6 +2029,71 @@ pub unsafe fn buri_rt_unique_cap(p: *const u8) -> Option<u64> {
             return None;
         }
         (rc_atomic(h).load(Ordering::Relaxed) == 1).then(|| cap_of(h))
+    }
+}
+
+/// `Some(cap)` when `p` was uniquely owned, **having taken a second reference
+/// on it**: the test and the `incref` an in-place append makes, in one step
+/// that no other thread can split.
+///
+/// [`buri_rt_unique_cap`] refuses a marked block, because several threads can
+/// borrow its one counted reference and all read the same `1`. A claim on a
+/// marked block is a compare-and-swap from `1` to `2` instead, so at most one
+/// of them wins and the rest copy. The winner's new reference is the one its
+/// result holds. `Acquire`, so the winner sees any slot a longer, now-dead
+/// descriptor wrote on another thread. MEMORY.md §5.1, "Claiming a marked
+/// block", has the whole argument.
+///
+/// An unmarked block takes the plain `rc == 1` test and a store. `IMMORTAL`
+/// fails by construction. Give a claim back with [`buri_rt_unclaim`] when the
+/// caller doesn't write.
+///
+/// # Safety
+/// `p` is null or a live payload pointer from [`buri_rt_alloc`], and the caller
+/// holds or borrows a reference to it for the whole call.
+#[must_use]
+pub unsafe fn buri_rt_claim_unique(p: *const u8) -> Option<u64> {
+    if p.is_null() {
+        return None;
+    }
+    // SAFETY: the caller promises a live payload pointer, so the header is in
+    // bounds and aligned.
+    unsafe {
+        let h = header(p.cast_mut());
+        if is_shared(h) {
+            rc_atomic(h)
+                .compare_exchange(1, 2, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok()
+                .then(|| cap_of(h))
+        } else if (*h).rc == 1 {
+            (*h).rc = 2;
+            Some(cap_of(h))
+        } else {
+            None
+        }
+    }
+}
+
+/// Give back the reference a [`buri_rt_claim_unique`] took, for a caller that
+/// claimed a block and then found it could not write into it.
+///
+/// Never the last reference: the caller's own reference, or the one it
+/// borrows, outlives the call, so the count stays at one or more and nothing
+/// is freed here.
+///
+/// # Safety
+/// `p` is a live payload pointer that a [`buri_rt_claim_unique`] on this thread
+/// answered `Some` for, and that claim has not been given back.
+pub unsafe fn buri_rt_unclaim(p: *const u8) {
+    // SAFETY: the caller promises a live, claimed block.
+    unsafe {
+        let h = header(p.cast_mut());
+        if is_shared(h) {
+            let before = rc_atomic(h).fetch_sub(1, Ordering::Release);
+            debug_assert!(before >= 2, "an unclaim took a block's last reference");
+        } else {
+            (*h).rc -= 1;
+        }
     }
 }
 
