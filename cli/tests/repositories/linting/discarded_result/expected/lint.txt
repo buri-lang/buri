@@ -7,41 +7,33 @@ warning: this discards a `Result` [discarded-result]
    = `ignore` is the one way to drop a `Result`, so every place a failure is deliberately unhandled is one of these
    = fix: handle the error with `match`, propagate it with `?`, or keep `ignore` if dropping it is deliberate
 
-     A dropped Result is a failure nobody has read. Sometimes that is the right
-     call, and this rule does not say otherwise. It says every place you made
-     that call belongs in one report.
+     A dropped Result is a failure nobody read. Sometimes that's the right call;
+     this rule puts every such call in one report.
 
-     The real solution is to handle the error. match on the Result and answer
-     the .Err arm — count it, report it, fall back — or ? to hand it to a caller
+     The real fix is to handle the error. match on the Result and answer the
+     .Err arm (count it, report it, fall back), or use ? to hand it to a caller
      who can.
 
-     Writing the drop out by hand is the anti-pattern, not the way around this
-     rule. The four-line form
+     Don't write the drop out by hand. This handles nothing:
 
        match (io.println(ctx, line)) {
            .Ok(_written) => (),
            .Err(_error) => (),
        }
 
-     handles nothing. It is ignore() spelled out, and it throws away the one
-     advantage ignore() had, that a reviewer can grep for it.
-     discarded-result-by-hand reports it too, so it is no route to a quiet
-     report.
+     It's ignore() spelled out, minus the greppability, and
+     discarded-result-by-hand reports it too.
 
-     This rule cannot be about let _ = someResult(). That is already a hard type
-     error, result-discarded, and so is leaving the Result standing as a
-     statement. What is left is ignore, the deliberate, greppable drop.
+     let _ = someResult() and a bare Result statement are already a type error,
+     result-discarded, so ignore is the only drop left to report.
 
-     A dropped print is no exception, and that is the whole of what a total
-     must-use costs. Stdout and Stderr answer Result<(), IoError> because a
-     closed pipe is a thing that happens, so io.println(ctx, x).ignore() is a
-     deliberate drop like any other. The program that cares says so: match on
-     the print and answer, which is what buri init's template and the example
-     monorepo do.
+     Prints are no exception. Stdout and Stderr answer Result<(), IoError>
+     because pipes close, so io.println(ctx, x).ignore() is a drop like any
+     other. A program that cares matches on the print, as buri init's template
+     does.
 
-     If the failure genuinely does not matter, leaving the ignore where it is
-     and letting this warning stand is a legitimate outcome. The point of the
-     rule is that somebody decided, not that the count reaches zero.
+     If the failure truly doesn't matter, keeping the ignore and letting the
+     warning stand is fine. The point is that somebody decided.
 
 warning: this discards a `Result` [discarded-result]
   --> cmd/app/main.buri:27:13

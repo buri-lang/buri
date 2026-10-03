@@ -7,20 +7,17 @@ warning: nothing reads `Ledger.seal` [unused-field]
    = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
    = fix: delete the field, or read it
 
-     Deleting the field is an edit at every literal, which is the point: those
-     are the sites that were computing a value for nobody.
+     Deleting the field means editing every literal, and those are exactly the
+     places computing a value for nobody.
 
-     If the field is there because a caller outside this library reads it, it is
-     public API, and the answer is the library's surface. The rule never reports
-     the exported fields of a type lib.buri re-exports, because the readers this
-     analysis can see are not the only readers there are. Under testing/, that
-     surface is testing/lib.buri.
+     If callers outside this library read the field, it belongs on the library's
+     surface. The rule never reports exported fields of a type lib.buri
+     re-exports (or testing/lib.buri, under testing/).
 
-     Two things read every field of a type at once, and neither leaves a
-     projection behind to find. A derive is a fold over the whole type
-     definition, so a type with a derived Equal, Ordered, Hash or Show is never
-     reported. A value handed to the runtime, or compared structurally, is the
-     other.
+     Two things read every field at once, so their types are never reported:
+
+     - a derived Equal, Ordered, Hash or Show;
+     - handing the value to the runtime, or comparing it structurally.
 
 error: "//lib/money/cents.buri" does not export `Ledgor` [no-such-export]
  --> lib/money/lib.buri:5:48

@@ -45,33 +45,24 @@ warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
    = `character.fromDigit(n, 16)` is a digit and `character.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
    = fix: delete the table, and reach for `character.fromDigit`, `number.toHex` or `bytes.toHex`
 
-     A table of digits never arrives on its own. With it come a nibble helper, a
-     shift, a mask, an index, and — sooner or later — a sixteen-call unrolled
-     renderer for one 64-bit value.
+     A digit table brings a nibble helper, shifts, masks and eventually a
+     sixteen-call unrolled renderer with it. The library already has:
 
-     The library keeps the digits once:
+     - One digit: character.fromDigit(n, radix) and its inverse
+     character.toDigit(radix), up to base 36.
 
-     - One digit — character.fromDigit(n, radix) is the character, and
-     character.toDigit(radix) is its inverse. Both reach base 36, so the same
-     pair answers hexadecimal, octal and base 32.
+     - Is this one?: character.isHexDigit().
+     - A whole number: number.toHex(ctx, x, width), lowercase and zero-padded.
+     - A byte string: bytes.toHex(ctx, b) and bytes.fromHex(ctx, s).
+     - Text to a number: str.toRadix(text, radix), which answers .None
+     rather than overflow an Int.
 
-     - Is this one? — character.isHexDigit(), rather than comparing a toDigit
-     against .None.
+     If the output needs to differ, adjust the result: toUpper for uppercase,
+     join for a separator. A genuinely different alphabet deserves a comment
+     naming it.
 
-     - A whole number — number.toHex(ctx, x, width), lowercase and zero-padded to
-     a width you name.
-
-     - A whole byte string — bytes.toHex(ctx, b) and bytes.fromHex(ctx, s).
-     - Text back to a number — str.toRadix(text, radix), which answers .None
-     rather than a value the Int cannot hold.
-
-     If the table exists because the *output* has to differ, say that instead of
-     rebuilding the encoder underneath it. Uppercase is toUpper over the result.
-     A separator is a join. A genuinely different alphabet is worth a comment
-     saying which one it is.
-
-     This rule only fires on the sixteen digits in order, as a string or as a
-     run of character literals.
+     The rule only fires on the sixteen digits in order, as a string or as a run
+     of character literals.
 
 warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
   --> lib/money/testing/fakes.buri:16:5
@@ -82,41 +73,33 @@ warning: this spells the milliseconds to nanoseconds conversion out in integers 
    = `core/time`'s `Duration` is the length itself — `time.milliseconds(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
    = fix: build a `Duration` and let the unit live in the type rather than in the name
 
-     A count of milliseconds in an I64 means something only because of what you
-     called it — IDLE_TIMEOUT_MILLIS, nanoseconds, elapsedMs — and every
-     boundary between two units is a multiply somebody wrote out by hand. Every
-     one is a place the unit can be dropped, doubled or overflowed with the type
-     system saying nothing.
-
-     core/time has the type that carries it:
+     An I64 of milliseconds carries its unit only in its name, like
+     IDLE_TIMEOUT_MILLIS, and every conversion is a hand-written multiply that
+     can drop, double or overflow the unit unnoticed. Use core/time instead:
 
        let idle = time.minutes(5);
        let deadline = started.plus(idle);
        if (now.hasPassed(deadline)) { … }
 
-     seconds, milliseconds, microseconds, nanoseconds, minutes and hours are the
-     constructors; add, subtract, multiply, negate and abs are the arithmetic;
-     nanoseconds(), milliseconds() and the rest read a length back out in
-     whatever unit the caller wants. There is no conversion factor to reach for:
-     the counts behind the constructors are core/time's own, so a length is
-     built and read, never multiplied.
+     - Constructors: seconds, milliseconds, microseconds, nanoseconds,
+     minutes, hours.
 
-     Two things come with the type, and they are why this is a lint rather than
-     a style note:
+     - Arithmetic: add, subtract, multiply, negate, abs.
+     - Readers: nanoseconds(), milliseconds() and the rest, in any unit.
 
-     - The arithmetic saturates. A length too large to hold is the largest
-     length rather than a negative one, so a deadline cannot overflow into the
-     past, and the whole check is now.hasPassed(deadline).
+     You never need a conversion factor. Two things come with the type:
 
-     - The unit stops being a naming convention. Duration and Instant are
-     different types on purpose: a length can be added to a point, two points
-     make a length, and two points added together are a type error.
+     - The arithmetic saturates. An oversized length becomes the largest length,
+     not a negative one, so a deadline can't overflow into the past.
 
-     This rule fires on a constant *named* as a conversion —
-     NANOSECONDS_PER_MILLISECOND, MILLISECONDS_PER_SECOND — and on a count of
-     milliseconds multiplied by a million in place. A million that is not named
-     as milliseconds is not a finding: parts per million is a real number, and
-     this rule does not guess.
+     - The unit is in the type. Duration and Instant differ on purpose: a
+     length plus a point is a point, two points make a length, and adding two
+     points is a type error.
+
+     The rule fires on constants named as conversions, like
+     NANOSECONDS_PER_MILLISECOND or MILLISECONDS_PER_SECOND, and on a
+     millisecond count multiplied by a million in place. A million not named as
+     milliseconds is left alone, since parts per million is a real thing.
 
 warning: nothing reads `Ledger.note` [unused-field]
   --> lib/money/testing/fakes.buri:20:5
@@ -127,20 +110,17 @@ warning: nothing reads `Ledger.note` [unused-field]
    = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
    = fix: delete the field, or read it
 
-     Deleting the field is an edit at every literal, which is the point: those
-     are the sites that were computing a value for nobody.
+     Deleting the field means editing every literal, and those are exactly the
+     places computing a value for nobody.
 
-     If the field is there because a caller outside this library reads it, it is
-     public API, and the answer is the library's surface. The rule never reports
-     the exported fields of a type lib.buri re-exports, because the readers this
-     analysis can see are not the only readers there are. Under testing/, that
-     surface is testing/lib.buri.
+     If callers outside this library read the field, it belongs on the library's
+     surface. The rule never reports exported fields of a type lib.buri
+     re-exports (or testing/lib.buri, under testing/).
 
-     Two things read every field of a type at once, and neither leaves a
-     projection behind to find. A derive is a fold over the whole type
-     definition, so a type with a derived Equal, Ordered, Hash or Show is never
-     reported. A value handed to the runtime, or compared structurally, is the
-     other.
+     Two things read every field at once, so their types are never reported:
+
+     - a derived Equal, Ordered, Hash or Show;
+     - handing the value to the runtime, or comparing it structurally.
 
 warning: nothing uses `Receipt` [unused-type]
   --> lib/money/testing/fakes.buri:23:8
@@ -151,25 +131,19 @@ warning: nothing uses `Receipt` [unused-type]
    = a type nothing names, builds or matches is a shape the program does not have
    = fix: delete it, or use it — a type meant to be published belongs on the library's surface
 
-     A type nothing names is usually one of three things.
+     An unused type is usually one of three things:
 
-     A leftover. The code that used it moved or went away and the declaration
-     stayed. Delete it, and anything that existed only to support it — its impl
-     block, its derive line, the constructor nobody calls.
+     - A leftover. Delete it, with anything that only supported it: its impl,
+     its derive, the constructor nobody calls.
 
-     A shape that was meant to be published. Re-export it from lib.buri. A name
-     on the library's surface is public API, and this rule does not ask about
-     it, because the consumers this analysis can see are not the only ones there
-     are. A type declared under testing/ is measured against testing/lib.buri
-     the same way.
+     - Meant to be published. Re-export it from lib.buri. The rule never
+     reports a name on the surface. Types under testing/ are measured against
+     testing/lib.buri.
 
-     A shape that was meant to be wired in. Somebody wrote it before the code
-     that would build it, and that code was never written. That is the real bug,
-     and finishing it is the fix.
+     - Meant to be wired in. The code that builds it was never written. Write it.
 
-     A type's own impl and derive blocks are not uses of it. They describe the
-     shape rather than reach for it, which is what keeps a dead type with ten
-     methods on it a dead type.
+     A type's own impl and derive blocks don't count as uses, so a dead type
+     with ten methods is still dead.
 
 warning: nothing constructs or matches `Shade.Dark` [unused-variant]
   --> lib/money/testing/fakes.buri:29:5
@@ -180,25 +154,19 @@ warning: nothing constructs or matches `Shade.Dark` [unused-variant]
    = a variant nothing builds is a case the value can never be in, and every `match` on the enum still carries an arm for it
    = fix: delete the variant, or construct it
 
-     An enum is a claim about the cases a value can be in, and an unreachable
-     case is not free: every reader has to work out what puts a value there.
+     Every reader has to work out what could put a value in an unreachable case.
 
-     A _ arm names no variant, so an enum matched only by wildcard has nothing
-     keeping its variants alive. A wildcard is what you write when you do not
-     care which case it is, which is the opposite of evidence that a particular
-     case occurs.
+     - A _ arm keeps no variant alive, since it says you don't care which case
+     occurs.
 
-     Naming the variant in a pattern is enough on its own, even with nothing
-     constructing it. Somebody wrote that arm because they believe the case can
-     happen, and the disagreement between that belief and the constructors is
-     worth a look rather than a deletion.
+     - Naming the variant in a pattern does keep it alive, even if nothing constructs
+     it. Whoever wrote that arm thought the case could happen; check who's right
+     before deleting.
 
-     A derive does not keep a variant alive: a derived fold reads every field's
-     value, and it puts a value into no case at all.
+     - A derive keeps no variant alive.
 
-     The rule does not report an enum on a surface — lib.buri for a library's,
-     testing/lib.buri for a fixture's. A consumer this analysis cannot see may
-     build any of its cases.
+     Enums on a surface (lib.buri, or testing/lib.buri for a fixture) are never
+     reported, since an unseen consumer may build any case.
 
 warning: nothing reaches `stale` [dead-code]
   --> lib/money/testing/fakes.buri:44:11
@@ -209,40 +177,30 @@ warning: nothing reaches `stale` [dead-code]
    = production code is reached from a library's surface or from a binary's `main`, and a declaration nothing reaches is a declaration nothing runs
    = fix: delete it, or re-export it from lib/money/testing/lib.buri to put it on the library's surface
 
-     Inside a library, export means "visible to the rest of this library", and
-     lib.buri decides what leaves it. So an export that lib.buri does not
-     re-export, and that no sibling module imports, is reached by nothing at
-     all.
+     Inside a library, export means "visible to this library", and lib.buri
+     decides what leaves it. An export that lib.buri doesn't re-export and no
+     sibling imports is reached by nothing. The two fixes are opposites, so
+     decide which applies:
 
-     There are two fixes and they are opposites, so decide which one this is
-     before you edit.
+     - It's meant to be published. Add it to the lib.buri re-export of its
+     module. The rule never reports a name on the surface.
 
-     It is meant to be published. Name it in the lib.buri re-export that already
-     carries its module's other names. The lint never reports a name on the
-     surface, because the readers it can see are not the only readers there are.
+     - It's dead. Delete it, along with whatever existed only to support it.
 
-     It is dead. Delete it, along with whatever existed only to support it.
-     Version control remembers it.
+     A module under testing/ is measured against testing/lib.buri instead.
 
-     A module under testing/ answers the same question against its own surface,
-     testing/lib.buri.
+     Using it from a test is not a fix, because a test is not a use. Test it
+     through the function the library publishes. If the logic needs its own
+     tests, make it its own published module.
 
-     Reaching for it from a test is not a fix. Nothing can import a test source,
-     so a test is not a use. Drive the behaviour through the function the
-     library actually publishes; if the logic wants a test of its own, that is
-     the signal it should be its own module, published on the surface in its own
-     right.
+     The rule only looks at module-level declarations. Fields and variants are
+     unused-field's and unused-variant's job, and test sources and test
+     declarations are never reported. It also stays quiet:
 
-     The rule asks only about module-level declarations. A field's or a
-     variant's export is unused-field's and unused-variant's question. It says
-     nothing about a test source, which exports nothing, or about a test
-     declaration.
-
-     Three more things quiet it, each because the evidence is missing. A binary
-     has no surface. A module taken whole by import * as reaches every name it
-     exports. And the rule skips a package whose modules the parser could not
-     all read whole, because the import that reaches this name may sit in the
-     run of declarations the parser skipped.
+     - in a binary, which has no surface;
+     - for a module imported with import * as, which reaches every name it exports;
+     - in a package with a file the parser couldn't read whole, since the missing
+     part might hold the import.
 
 warning: `total` takes 6 parameters [too-many-parameters]
   --> lib/money/testing/fakes.buri:48:4
@@ -253,28 +211,29 @@ warning: `total` takes 6 parameters [too-many-parameters]
    = `self` and `ctx` are not counted, so 5 is the limit on the data a caller has to assemble
    = fix: group the parameters that always travel together into a struct, and take that instead
 
-     A high parameter count is a sign of coupling. Parameters that travel
-     together across several calls are a missing abstraction.
+     Parameters that travel together across calls are a missing abstraction. To
+     find it:
 
-     Find the missing abstraction: 1. Look at the call sites and nearby
-     functions. Is there already a type a group of these parameters belongs to?
-     Values that keep appearing side by side are the entity, and it is usually
-     one of the domain's own nouns. 2. If there is none, create it, then move
-     the behaviour that uses those fields onto it. 3. If one value owns most of
-     the parameters, it may be the natural home for this function — or the
-     function should take that value instead. 4. Use it everywhere it fits, not
-     only at the site that fired. A call passing three of its fields is the same
-     concept sitting under the threshold.
+     - Look at the call sites and nearby functions for a type a group of these
+     parameters already belongs to. Values that keep appearing side by side are
+     usually one of the domain's nouns.
 
-     Useful tip: rewrite each call site with the signature that feels natural
-     there, and let that shape the final function.
+     - If there's none, create it, and move the behaviour that uses those fields onto
+     it.
 
-     AVOID: a { ...everything } bag that merely renames the list. A FooProps or
-     options value named after the function that takes it is the same bag,
-     organised by function rather than by abstraction, so the next function
-     invents another one and the concept stays unnamed. You are done when the
-     entity carries a domain name and no call site still passes its fields
-     loose.
+     - If one value owns most of the parameters, the function may belong on it, or
+     should take it instead.
+
+     - Use the new type everywhere it fits, not just here. A call passing three of
+     its fields is the same concept under the threshold.
+
+     Try rewriting each call site with the signature that feels natural there,
+     and let that shape the function.
+
+     Avoid a { ...everything } bag that just renames the list. A FooProps named
+     after its function is the same bag, so the next function invents another
+     and the concept stays unnamed. You're done when the type has a domain name
+     and no call site passes its fields loose.
 
 warning: this is `order.int`, written out [hand-rolled-comparator]
   --> lib/money/testing/fakes.buri:52:4
@@ -289,38 +248,32 @@ warning: this is `order.int`, written out [hand-rolled-comparator]
            if (left < right) { .Less } else if (left > right) { .Greater } else { .Equal }
        }
 
-     That function is order.int. Not "like" it: core/order declares it with that
-     body, character for character.
+     That function is order.int, character for character. Hand-written
+     comparators tend to multiply, and the Float one usually disagrees with the
+     others about NaN. core/order has the whole set:
 
-     Comparators travel in packs. One arrives because derive Ordered did not
-     reach somewhere, and then there are four: one for Int, one for Bool, one
-     for Float that quietly disagrees with the first two about NaN, and one for
-     Str that delegates to compare. The library has the whole set:
+     - order.int(a, b), order.float(a, b), order.bool(a, b) with false below
+     true, order.char(a, b) by scalar value, and order.str(a, b), which is
+     a.compare(b).
 
-     - order.int(a, b), order.float(a, b), order.bool(a, b) — with false
-     below true — order.char(a, b) by scalar value, and order.str(a, b), which
-     is a.compare(b).
+     - order.reverse(cmp) flips any of them for a descending sort.
+     - Order.then(next) chains a tie-break, and Order.flip, Order.isLess and
+     Order.isEqual read a result back.
 
-     - order.reverse(cmp) turns any of them around, which is what a descending
-     sort wants instead of a chain with .Less and .Greater swapped.
+     a.compare(b) is the method and order.int(a, b) the free function. Both
+     answer an Order, but sortBy wants the free function, and for Int, Bool,
+     Float and Char it only lives in core/order.
 
-     - Order.then(next) chains a tie-break onto a comparison, and
-     Order.flip, Order.isLess, Order.isEqual read one back.
+     The rule doesn't fire on:
 
-     One operation, two addresses. a.compare(b) is the method on the receiver
-     and order.int(a, b) is the free function. Both answer an Order, and the
-     second is the one a sortBy argument wants. For Int, Bool, Float and Char
-     the comparator lives in core/order and nowhere else.
+     - the chain with .Less and .Greater swapped, which is a reversed order
+     (order.reverse says it better);
 
-     The rule fires on the shape and on the direction. The same chain with
-     .Greater and .Less swapped is a *reversed* order and means something else,
-     so the rule leaves it alone — though order.reverse says it better. A chain
-     with a fourth branch is not this shape either, which is how a total float
-     order that sorts NaN deliberately stays out of the report.
+     - a chain with a fourth branch, such as a float order that sorts NaN on
+     purpose;
 
-     The rule reports only the primitives core/order has an exact comparator
-     for. It leaves a comparator over U8 or I32 alone, because order.int takes
-     an Int, and a fix that does not type-check is not a fix.
+     - types without an exact comparator, like U8 or I32, since order.int
+     takes an Int.
 
 warning: `ctx` is not used; the function is pure [unused-context]
   --> lib/money/testing/fakes.buri:56:24
@@ -331,59 +284,46 @@ warning: `ctx` is not used; the function is pure [unused-context]
    = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
    = fix: remove the `ctx` parameter, and the context argument at every call site
 
-     ctx is the one place a Buri signature says what a function may do to the
-     world. A function that declares one and never reads it says yes and means
-     no, and the cost lands on the callers: a pure computation drags the ability
-     to write files up through every function that reaches it.
+     ctx is where a signature says what a function may do to the world. A
+     function that takes one and never reads it makes every caller pass a
+     context, so a pure computation drags the ability to write files up through
+     everything that reaches it.
 
-     The body is the whole of the evidence. There are exactly two ways to use a
-     context: hand it to a callee that asks for one, or hand it to a
-     function-typed parameter. Both read the parameter, so the rule asks one
-     question — does anything in the body name ctx?
-
-     Calling an effect's operation is the first of those two, not a third way of
-     its own. You perform an effect by handing the context to a function (SPEC
-     10.2), so io.println(ctx, x) is a callee that asks for one.
+     A body uses a context by handing it to a callee that asks for one, like
+     io.println(ctx, x), or to a function-typed parameter. Both name ctx, so the
+     rule asks one question: does anything in the body name ctx?
 
      What is not asked
      ─────────────────
 
-     A method supplied by an `impl` is not asked. The signature is the trait's,
-     and an implementation cannot drop a parameter the trait declared.
+     - A method supplied by an `impl`. The signature is the trait's, and an
+     implementation can't drop a parameter.
 
-     A function with no body is not asked. A trait method's signature, an
-     effect's operation and the standard library's intrinsic declarations
-     describe what an implementation will be handed. There is no body to read.
+     - A function with no body: a trait method's signature, an effect's
+     operation, a standard library intrinsic.
 
-     A lambda is not asked. A lambda may not capture an effect-carrying value at
-     all (lambda-captures-effect), so a ctx parameter is never inside a
-     closure's environment. A lambda that *is* handed a context takes it as a
-     parameter of its own.
+     - A lambda. A lambda can't capture a context (lambda-captures-effect), so
+     one that needs a context takes it as its own parameter.
 
-     The fix, and when it comes as bytes
-     ───────────────────────────────────
+     The fix
+     ───────
 
      Delete the parameter, and the argument at every call site. buri lint --fix
-     and an editor's quick fix apply that same edit when they can see the whole
-     of it. They decline, and leave you the sentence, in three cases:
+     and the editor quick fix make that edit, except when:
 
-     * the name is on the library's surface. lib.buri publishes it, so a call
-     site may be in a package this analysis has never loaded. Decide whether the
-     signature is part of what you publish before changing it.
+     - the name is on the library's surface. lib.buri publishes it, so callers
+     may live in packages this analysis never loaded. Decide whether the
+     signature is part of your published API first.
 
-     * something takes the function as a value. A function passed where a
-     fn(C, ...) is expected has the shape that type demands rather than the one
-     its body needs, so deleting the parameter would make it the wrong type.
+     - something takes the function as a value. Where a fn(C, ...) is
+     expected, deleting the parameter makes it the wrong type.
 
-     * the package did not check whole. The list of call sites is short by an
-     unknown amount. The finding itself still stands: where the typed tree is
-     truncated this rule reads the text instead, and a context has one spelling,
-     so "does this declaration write ctx anywhere but at the parameter" is a
-     question the lexer can still answer.
+     - the package did not type-check. The list of call sites may be incomplete.
+     The finding still stands, because the rule falls back to looking for ctx in
+     the text.
 
-     None of this is about *which* effects the context carries. That is
-     unused-context-bound's question. This one is only about a context nothing
-     in the body names at all.
+     Which effects the context carries is unused-context-bound's question. This
+     rule only reports a context the body never names.
 
 warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
   --> lib/money/testing/fakes.buri:60:16
@@ -394,66 +334,50 @@ warning: bound `Allocator` on `C` is not used by this function [unused-context-b
    = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
    = fix: remove the bound
 
-     A ctx parameter says a function touches the world. Its bounds say which
-     parts of it. fn save<C: Allocator + FileSystemWrite>(ctx: C, …) reads as
-     "this allocates and this writes files", and every caller has to be holding
-     a context that can do both. A dead bound spreads, too, because the caller's
-     own signature has to carry it to satisfy the demand.
+     A ctx parameter's bounds say which parts of the world a function touches.
+     fn save<C: Allocator + FileSystemWrite>(ctx: C, …) allocates and writes
+     files, and every caller must hold a context that can do both. A dead bound
+     spreads, because each caller's signature has to carry it too.
 
-     There are exactly two ways a body uses a bound, and each of them is a call:
+     A body uses a bound in exactly two ways, both calls:
 
-     A callee that asks for one of its own. io.println(ctx, …) instantiates the
-     callee's own type parameter at C, and the callee's bounds become demands on
-     C. Every bound the callee names is used; the ones it does not name are not.
+     - A callee that asks for it. io.println(ctx, x) makes its own bounds
+     demands on C, so the bounds it names are used and the rest are not. This is
+     the only way an effect gets used: you call an effect through the module
+     that wraps it, not on the context (SPEC 10.2).
 
-     This is where an *effect* is used, and it is the only place. You call an
-     effect method through the module that wraps the effect rather than on the
-     context (SPEC 10.2), so io.println(ctx, x) is what makes Stdout used.
-
-     A function-typed parameter. render(ctx, label), where render: fn(C, Str) =>
-     Str, hands the whole context to code this function cannot see. So it uses
-     every bound: nothing here can say which parts of it the callback reaches.
+     - A function-typed parameter. render(ctx, label), where
+     render: fn(C, Str) => Str, hands the whole context to unseen code, so it
+     uses every bound.
 
      What is not asked
      ─────────────────
 
-     A method supplied by an `impl` is not asked. Its generics must match the
-     trait's declaration bound for bound, so an implementation cannot drop one.
-     If a bound is dead there, it is dead on the trait.
+     - A method supplied by an `impl`. Its bounds must match the trait's, so a
+     dead bound there is dead on the trait.
 
-     A function with no body is not asked. A trait method's signature, an
-     effect's operation and the standard library's intrinsic declarations
-     describe what an implementation will be handed, and there is no body to
-     read.
+     - A function with no body: a trait method's signature, an effect's
+     operation, a standard library intrinsic.
 
-     A parameter that is not a context is not asked. The rule looks at the type
-     parameter the ctx parameter is declared at, and only where at least one of
-     its bounds is an effect.
+     - A parameter that is not a context. The rule only looks at a ctx
+     parameter's type parameter, and only when at least one bound is an effect.
 
-     A body that did not check is not asked. A bound is used through callees
-     whose own bounds name it, and a callee's name is not a token the lexer can
-     recognise as *this* bound. Where the typed tree is truncated, the evidence
-     is gone and the rule says nothing.
+     - A body that did not type-check. Without the typed tree, the rule can't
+     see which callee uses which bound, so it says nothing.
 
      The fix
      ───────
 
-     Delete the bound. Unlike a ctx parameter, a bound touches no call site: it
-     is something the function demands of its callers, and dropping a demand
-     cannot break one. So the edit stays inside the declaration, and it is
-     offered whether or not the name is on the library's surface.
+     Delete the bound. Unlike a ctx parameter, a bound touches no call site, so
+     the fix is offered even when the name is on the library's surface.
 
-     The bytes are per parameter, not per bound. A bound list is one piece of
-     text with shared separators — the ranges that delete FileSystemWrite and Io
-     from <C: Allocator + FileSystemWrite + Io> both claim the + between them —
-     so removing several is one rewrite. Every finding about one parameter
-     carries that same rewrite, buri lint --fix applies it once, and the run
-     after it is clean.
+     Removing FileSystemWrite and Io from <C: Allocator + FileSystemWrite + Io>
+     is one rewrite, because the bounds share their + separators. Every finding
+     on one parameter carries the same rewrite, buri lint --fix applies it once,
+     and the next run is clean.
 
-     The rule withholds the bytes where the text between the bounds is anything
-     but the separators. A comment written inside a bound list is a reader's
-     sentence about the code, and this edit deletes text rather than
-     reformatting it.
+     The fix is withheld when anything but separators sits between the bounds,
+     so a comment inside a bound list never gets deleted.
 
 warning: this discards a `Result` [discarded-result]
   --> lib/money/testing/fakes.buri:65:13
@@ -464,41 +388,33 @@ warning: this discards a `Result` [discarded-result]
    = `ignore` is the one way to drop a `Result`, so every place a failure is deliberately unhandled is one of these
    = fix: handle the error with `match`, propagate it with `?`, or keep `ignore` if dropping it is deliberate
 
-     A dropped Result is a failure nobody has read. Sometimes that is the right
-     call, and this rule does not say otherwise. It says every place you made
-     that call belongs in one report.
+     A dropped Result is a failure nobody read. Sometimes that's the right call;
+     this rule puts every such call in one report.
 
-     The real solution is to handle the error. match on the Result and answer
-     the .Err arm — count it, report it, fall back — or ? to hand it to a caller
+     The real fix is to handle the error. match on the Result and answer the
+     .Err arm (count it, report it, fall back), or use ? to hand it to a caller
      who can.
 
-     Writing the drop out by hand is the anti-pattern, not the way around this
-     rule. The four-line form
+     Don't write the drop out by hand. This handles nothing:
 
        match (io.println(ctx, line)) {
            .Ok(_written) => (),
            .Err(_error) => (),
        }
 
-     handles nothing. It is ignore() spelled out, and it throws away the one
-     advantage ignore() had, that a reviewer can grep for it.
-     discarded-result-by-hand reports it too, so it is no route to a quiet
-     report.
+     It's ignore() spelled out, minus the greppability, and
+     discarded-result-by-hand reports it too.
 
-     This rule cannot be about let _ = someResult(). That is already a hard type
-     error, result-discarded, and so is leaving the Result standing as a
-     statement. What is left is ignore, the deliberate, greppable drop.
+     let _ = someResult() and a bare Result statement are already a type error,
+     result-discarded, so ignore is the only drop left to report.
 
-     A dropped print is no exception, and that is the whole of what a total
-     must-use costs. Stdout and Stderr answer Result<(), IoError> because a
-     closed pipe is a thing that happens, so io.println(ctx, x).ignore() is a
-     deliberate drop like any other. The program that cares says so: match on
-     the print and answer, which is what buri init's template and the example
-     monorepo do.
+     Prints are no exception. Stdout and Stderr answer Result<(), IoError>
+     because pipes close, so io.println(ctx, x).ignore() is a drop like any
+     other. A program that cares matches on the print, as buri init's template
+     does.
 
-     If the failure genuinely does not matter, leaving the ignore where it is
-     and letting this warning stand is a legitimate outcome. The point of the
-     rule is that somebody decided, not that the count reaches zero.
+     If the failure truly doesn't matter, keeping the ignore and letting the
+     warning stand is fine. The point is that somebody decided.
 
 warning: this drops a `Result` by hand [discarded-result-by-hand]
   --> lib/money/testing/fakes.buri:69:5
@@ -514,28 +430,22 @@ warning: this drops a `Result` by hand [discarded-result-by-hand]
            .Err(_error) => (),
        }
 
-     Nothing in those four lines handles anything. Both arms answer (), the
-     failure is gone, and all the match did was spell out core/result.ignore —
-     whose body, in core/result, is these same four lines.
+     Both arms answer (), so this handles nothing. It's core/result.ignore,
+     whose body is these same four lines.
 
-     The real fix is to handle the error. match on the Result and *do something*
-     in the .Err arm — count it, report it, fall back — or ? to hand it to a
-     caller who can.
+     The real fix is to handle the error. Do something in the .Err arm (count
+     it, report it, fall back), or use ? to hand it to a caller who can.
 
-     If the drop is genuinely deliberate — a cache write whose failure changes
-     nothing a caller could act on — then ignore() is how to say so. It is one
-     call, it is greppable, and buri docs lint discarded-result is the rule that
-     collects every one of them into a single report.
+     If the drop is deliberate, like a cache write whose failure no caller could
+     act on, say ignore(). It's one greppable call, and discarded-result
+     collects every one into a single report.
 
-     Yes, this rule reports the explicit form too, and that is the point. It
-     exists because discarded-result names ignore(), so authors in a repository
-     gated on "lint clean" reach for the four-line match instead. Both forms are
-     reported now, so writing this one out buys nothing.
+     This rule exists so the four-line form can't dodge discarded-result in a
+     repository gated on a clean lint run. Both forms are reported.
 
-     The rule fires on this shape and nothing near it: two arms, .Ok and .Err,
-     no guards, nothing read out of either payload, and both bodies the unit
-     value. A match that answers anything in either arm handles something, and
-     is not a finding.
+     It fires only on exactly this shape: two arms, .Ok and .Err, no guards,
+     nothing read from either payload, and both bodies (). A match that does
+     anything in either arm is not a finding.
 
 warning: this branch is nested 5 levels deep [deep-nesting]
   --> lib/money/testing/fakes.buri:80:21
@@ -546,30 +456,22 @@ warning: this branch is nested 5 levels deep [deep-nesting]
    = the limit is 4; an `else if` chain counts as one level, and a lambda body starts again at zero
    = fix: pull the inner branch into a named function, or replace the ladder with one `match`
 
-     Deeply nested blocks make you hold every branch condition in your head at
-     once. The smell is not the indentation. It is that the function branches
-     too much in one place.
+     Deep nesting makes you hold every condition in your head at once. The
+     problem isn't the indentation; it's a function that branches too much in
+     one place.
 
-     Read the nesting from the inside out and ask what the innermost block
-     actually needs. Most of the enclosing conditions are usually *guards*:
-     preconditions to check and bail on early, not to wrap around the real work.
+     Read from the inside out and ask what the innermost block needs. Most
+     enclosing conditions are guards to check and bail on, not to wrap the real
+     work. Prefer, in order:
 
-     Prefer, in order:
+     1. Guard clauses. Invert a condition and return early. Each one lifts
+     everything below it a level. 2. Replace the structure. A deep if/else
+     ladder is often a lookup table, or an enum and a match. 3. Extract a
+     helper. Pull a coherent inner step into a named function.
 
-     1. Guard clauses. Invert a condition and return early so the happy path
-     stays at the top indentation level. Each guard you lift removes one level
-     from everything below it. 2. Replace the structure. A deep if/else ladder
-     is often a lookup table or a dispatch in disguise. Sometimes an enum and a
-     match is better. 3. Extract a helper. When an inner block is a coherent
-     sub-step, pull it into a named function. The name documents the intent, and
-     the nesting moves into a flat, separately readable unit.
-
-     Do not merge conditions with && just to drop a level. That trades vertical
-     nesting for an unreadable horizontal condition.
-
-     If the nesting is genuinely irreducible, extracting the inner loops into
-     well-named helpers is still the move. Keep each function shallow even when
-     the algorithm as a whole is deep.
+     Don't merge conditions with && just to drop a level; that trades nesting
+     for an unreadable condition. When the algorithm really is deep, still keep
+     each function shallow by extracting inner loops into well-named helpers.
 
 warning: `tally` is 45 lines long [oversized-function]
   --> lib/money/testing/fakes.buri:95:4
@@ -580,26 +482,22 @@ warning: `tally` is 45 lines long [oversized-function]
    = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
    = fix: find the responsibility boundaries in the body and give each one a function of its own
 
-     An array literal's elements and a match's arms count as one line, because a
-     table is one row per member and has no responsibility boundary to split at.
+     An array literal's elements and a match's arms count as one line, since a
+     table has no boundary to split at.
 
-     Work out the responsibilities before you touch anything. Ask yourself:
+     Find the responsibilities before you touch anything:
 
-     - Are these separate responsibilities that belong in functions of their own?
+     - Are there separate responsibilities that deserve their own functions?
      - Should this become a type with several methods?
-     - Can you group cohesive data into a value of its own and cut the local
-     variables down?
+     - Can cohesive data become its own value, cutting the local variables?
 
-     Do not extract mechanically. Pulling out a helperA and a helperB just to
-     clear the threshold hides the smell behind worse names.
+     Don't extract mechanically: a helperA and helperB that only clear the
+     threshold hide the problem behind worse names. If the responsibilities are
+     tangled, inline the helpers first to see the whole picture.
 
-     If the responsibilities are tangled, *inline* the helpers first so you can
-     see the whole picture before you redistribute it.
-
-     One concrete technique: write what the function does in one short sentence,
-     then refactor until the code reads as close to that sentence as you can get
-     it. If you cannot say what it does in one sentence, it almost certainly has
-     more than one responsibility.
+     Write what the function does in one short sentence, then refactor until the
+     code reads like it. If you can't write that sentence, it has more than one
+     responsibility.
 
 warning: `unread` is bound and never used [unused-variable]
    --> lib/money/testing/fakes.buri:143:9
@@ -610,19 +508,15 @@ warning: `unread` is bound and never used [unused-variable]
     = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
     = fix: use it, delete the `let`, or write `_` in its place
 
-      An unused local is dead weight: every reader has to prove to themselves
-      that it does not matter. It is usually one of three things.
+      An unused local is usually one of three things:
 
-      - A computation whose result nobody consumes. Delete the computation, not just
-      the binding.
+      - A result nobody consumes. Delete the computation, not just the binding.
+      - A leftover from a refactor.
+      - A value you meant to use and forgot to wire in. That's the real bug.
 
-      - A leftover from a refactor that moved the logic elsewhere.
-      - A value you meant to use and forgot to wire in. That is the real bug.
-
-      Decide which it is before deleting. If the right-hand side has side
-      effects you still need, keep the call but drop the binding. If the value
-      was meant to be returned or passed on, finish that thread rather than
-      silencing the warning.
+      Decide which before deleting. If the right-hand side has side effects you
+      need, keep the call and drop the binding. If the value was meant to be
+      returned or passed on, finish that instead of silencing the warning.
 
 warning: this discards a `Result` [discarded-result]
    --> lib/money/testing/fakes.buri:148:13
