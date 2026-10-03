@@ -511,7 +511,7 @@ pub struct Tree {
 
 impl Default for Tree {
     fn default() -> Tree {
-        Tree::new(FileId(0), "")
+        Tree::new(FileId(0), "", 0)
     }
 }
 
@@ -548,34 +548,31 @@ pub struct Mark {
 }
 
 impl Tree {
-    /// An empty tree over `src`.
+    /// An empty tree over `src`, which lexed to `tokens` tokens.
     ///
-    /// The arenas are sized from the text, as `lexer.rs` already sizes its
-    /// token buffer: a thousand lines of Buri is about seven thousand tokens
-    /// and about two thousand expression nodes, so a byte count divided by
-    /// sixteen is within a growth step of the truth and the arenas are then a
-    /// fixed handful of allocations per file rather than a logarithmic number.
-    pub fn new(file: FileId, src: &str) -> Tree {
-        // One expression node per sixteen bytes of source, and the five other
-        // arenas that are written on nearly every line sized off the same
-        // figure. Measured against the generated corpora: a hundred thousand
-        // lines of `mixed` lands within one growth step on all six. The rest
-        // start empty on purpose — a file with no patterns should not pay for
-        // a pattern arena.
-        let n = src.len() / 16;
+    /// The arenas are sized from the token count, which the parser knows
+    /// exactly before it builds anything. A byte count — what this used to
+    /// divide — moves with comments and identifier length, which add bytes and
+    /// no nodes, so a dense file outgrew its arenas and paid a copy of
+    /// everything written so far for each doubling. Against the checked-in
+    /// corpora `mixed` writes 0.26 expression nodes per token, 0.08 types and
+    /// 0.05 patterns, and the stress shapes stay under these figures but for
+    /// one growth step on the densest.
+    pub fn new(file: FileId, src: &str, tokens: usize) -> Tree {
+        let n = tokens / 8;
         Tree {
             file,
             src: Rc::from(src),
-            nodes: Vec::with_capacity(n),
-            spans: Vec::with_capacity(n),
-            pnodes: Vec::with_capacity(n / 8),
-            pspans: Vec::with_capacity(n / 8),
-            kids: Vec::with_capacity(n / 4),
-            pkids: Vec::new(),
-            tkids: Vec::new(),
-            names: Vec::with_capacity(n / 4),
-            blocks: Vec::new(),
-            stmts: Vec::with_capacity(n / 8),
+            nodes: Vec::with_capacity(n.saturating_mul(3)),
+            spans: Vec::with_capacity(n.saturating_mul(3)),
+            pnodes: Vec::with_capacity(n),
+            pspans: Vec::with_capacity(n),
+            kids: Vec::with_capacity(n / 2),
+            pkids: Vec::with_capacity(n / 4),
+            tkids: Vec::with_capacity(n / 4),
+            names: Vec::with_capacity(n),
+            blocks: Vec::with_capacity(n / 4),
+            stmts: Vec::with_capacity(n / 4),
             arms: Vec::new(),
             inits: Vec::new(),
             fpats: Vec::new(),
@@ -584,7 +581,7 @@ impl Tree {
             ctxb: Vec::new(),
             ctxbind: Vec::new(),
             ppay: Vec::new(),
-            types: Vec::new(),
+            types: Vec::with_capacity(n),
             ints: Vec::new(),
             floats: Vec::new(),
             strs: Vec::new(),

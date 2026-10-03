@@ -824,26 +824,6 @@ impl<'a> Tokens<'a> {
     }
 }
 
-/// One thing a `}` could be closing, innermost last.
-///
-/// This was two coupled fields — a `Vec<u32>` of the brace depth each open
-/// interpolation began at, and a `u32` counter — which had to agree for the
-/// lexer to tell a block's `}` from the one that resumes template text. An
-/// unbalanced `}` clamped the counter with `saturating_sub`, leaving it saying
-/// a smaller depth than the interpolations recorded, and a later `}` closing a
-/// genuine block was then read as "resume the template" — turning the rest of
-/// the file into string content. One stack cannot disagree with itself: the
-/// depth *is* its length, and an unbalanced `}` is a `pop` that finds nothing.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum LexMode {
-    /// An open `{`. Its `}` is a block terminator.
-    Braces,
-    /// An open interpolation hole. Its `}` resumes the template text, and it
-    /// is popped by the `}"` that ends the template rather than by the `}`
-    /// that ends the hole, because a template may have several holes.
-    Interpolation,
-}
-
 pub struct Lexer<'a> {
     src: &'a [u8],
     text: &'a str,
@@ -852,8 +832,21 @@ pub struct Lexer<'a> {
     tokens: Tokens<'a>,
     trivia: Vec<(u32, Trivia)>,
     errors: Vec<Diagnostic>,
-    /// What is currently open, innermost last.
-    modes: Vec<LexMode>,
+    /// The open interpolation holes, innermost last, each with the number of
+    /// `{` opened inside it and not yet closed.
+    ///
+    /// A `}` resumes template text exactly when the innermost hole has no
+    /// brace of its own open; otherwise it closes one of those braces. A brace
+    /// outside every hole is nothing this stack needs to know about, so the
+    /// common file — whose braces are all outside templates — never touches
+    /// it. An unbalanced `}` is a count that is already zero or a stack that
+    /// is empty, and neither can make a later `}` mean something else.
+    ///
+    /// This replaces a stack with an entry per open brace as well as per hole,
+    /// which was a push and a pop for every pair of braces in the file. It
+    /// keeps that stack's guarantee: there is one structure, so there is
+    /// nothing to disagree with.
+    holes: Vec<u32>,
     /// Whether anything is waiting to be attached to the next token: a
     /// documentation line, a comment, or a blank line above it.
     ///
@@ -935,9 +928,11 @@ pub fn lex(text: &str, file: FileId) -> Lexed<'_> {
         pos: 0,
         file,
         tokens: Tokens::new(text, file),
-        trivia: Vec::new(),
+        // A file whose every declaration is documented writes a run of
+        // comments every few hundred bytes: sized for that, not grown to it.
+        trivia: Vec::with_capacity(text.len() / 512),
         errors: Vec::new(),
-        modes: Vec::new(),
+        holes: Vec::new(),
         has_trivia: false,
         pending_docs: Vec::new(),
         pending_docs_blank: false,
@@ -1438,7 +1433,7 @@ impl<'a> Lexer<'a> {
         let (body, end) = self.scan_str_body();
         if end == StrEnd::Hole {
             self.push_text(TokenKind::TemplateHead, body, start);
-            self.modes.push(LexMode::Interpolation);
+            self.holes.push(0);
         } else {
             self.push_text(TokenKind::Str, body, start);
             self.mark(end);
@@ -1453,8 +1448,8 @@ impl<'a> Lexer<'a> {
         } else {
             self.push_text(TokenKind::TemplateTail, body, start);
             self.mark(end);
-            debug_assert_eq!(self.modes.last(), Some(&LexMode::Interpolation));
-            self.modes.pop();
+            debug_assert_eq!(self.holes.last(), Some(&0));
+            self.holes.pop();
         }
     }
 
@@ -1512,25 +1507,25 @@ impl<'a> Lexer<'a> {
         let two = self.peek();
         let p = match (c, two) {
             (b'{', _) => {
-                self.modes.push(LexMode::Braces);
+                if let Some(open) = self.holes.last_mut() {
+                    *open = open.saturating_add(1);
+                }
                 LBrace
             }
             (b'}', _) => {
-                match self.modes.last() {
+                match self.holes.last_mut() {
                     // The innermost thing open is a hole, so this `}` resumes
-                    // template text rather than terminating a block. The mode
-                    // stays open until the template itself ends.
-                    Some(LexMode::Interpolation) => {
+                    // template text rather than terminating a block. The hole
+                    // stays on the stack until the template itself ends.
+                    Some(0) => {
                         self.resume_template(start);
                         return;
                     }
-                    Some(LexMode::Braces) => {
-                        self.modes.pop();
-                    }
-                    // Nothing is open. This `}` closes nothing, which the
-                    // parser reports where it can say what was expected
-                    // instead; what matters here is that there is no counter
-                    // to clamp, so nothing after it is mis-lexed.
+                    Some(open) => *open = open.saturating_sub(1),
+                    // No hole is open. This `}` closes a block, or closes
+                    // nothing, which the parser reports where it can say what
+                    // was expected instead; either way nothing after it is
+                    // mis-lexed.
                     None => {}
                 }
                 RBrace
