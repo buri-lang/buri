@@ -40,8 +40,8 @@ fn a_unique_push_loop_in_a_program_that_starts_an_actor_allocates_logarithmicall
     let source = r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Stepped };
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
@@ -67,7 +67,7 @@ fn builder<C: Allocator + Tasks>(): Actor<C, Int, Int, Int> {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let ns = ints(ctx, [], 2000);
   let ws = words(ctx, [], 2000);
@@ -111,8 +111,8 @@ export fn main(): Result<(), Str> {
 #[test]
 fn parallel_steps_growing_one_shared_list_each_see_only_their_own_element() {
     let source = r#"
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -155,7 +155,7 @@ fn round<C: Allocator + Tasks>(ctx: C, k: Int, right: Int): Int {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let _ = io.println(ctx, "right ${round(ctx, 200, 0)} of 3200").ignore();
   .Ok(())
@@ -179,8 +179,8 @@ fn lists_shared_with_an_actor_keep_their_values_when_either_side_grows_them() {
     let source = r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Stepped };
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -214,7 +214,7 @@ fn joined<C: Allocator>(ctx: C, k: Kept): Str {
   str.format(ctx, "${k.words.join(ctx, "")}/${k.counts.mapCtx(ctx, fn(c, n) => str.fromInt(c, n)).join(ctx, ",")}")
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let address = actor.start(ctx, keeper());
   let sent = ["a", "b"];
@@ -264,8 +264,8 @@ fn scope_tasks_growing_one_shared_list_each_see_only_their_own_element() {
     let source = r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/tasks" import * as tasks;
@@ -324,7 +324,7 @@ fn distinct(all: [[Int]]): Int {
     .count(fn(n) => all.any(fn(xs) => xs.last() == .Some(n)))
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let kept = actor.start(ctx, notes());
   let xs = ints(ctx, [], 40);
