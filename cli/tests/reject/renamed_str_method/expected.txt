@@ -7,11 +7,7 @@ error: `Str` has no method `len` [no-such-method]
    = `len` was renamed to `length`
    = fix: write `length`
 
-     Why
-     ───
-
-     A method is looked up in exactly one place: the module that declares the
-     receiver's type. There is no extension mechanism, so nobody can add a
-     method to a type from outside — which is why the fix points a toolchain
-     type at its page rather than at an impl block you could not write.
+     Methods live only in the module that declares the receiver's type. Nothing
+     can add a method from outside, so for a toolchain type the fix points at
+     its page instead of an impl block you couldn't write.
 

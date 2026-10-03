@@ -6,22 +6,10 @@ error: "//lib/wire/left" names no file (lib/wire/left.buri) [module-not-found]
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
 
-    What to do
-    ──────────
+    This resolves against the example monorepo in cli/tests/example, which has
+    no lib/nope:
 
-    Create the file the path names, or correct the path.
-
-    Why
-    ───
-
-    A module path maps to exactly one file, with no search path and no fallback,
-    so there is never a question of which of two candidates a path meant.
-
-    A program that provokes it
-    ──────────────────────────
-
-    This snippet resolves against the worked monorepo in cli/tests/example,
-    which has no lib/nope.
+    There's no search path and no fallback, so a path never has two candidates.
 
 error: "//lib/wire/right" names no file (lib/wire/right.buri) [module-not-found]
  --> lib/wire/lib.buri:5:6

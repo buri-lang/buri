@@ -7,10 +7,6 @@ error: there is no type `Poimt` [unresolved-type]
    = did you mean `Point`?
    = fix: if you meant `Point`, use that; if not, a name is in scope only from this module's own declarations and its imports
 
-     Why
-     ───
-
-     Types are nominal throughout. There is no structural fallback and no
-     inference from shape, so a misspelling cannot quietly become a different
-     type that happens to fit.
+     Types are nominal, with no structural fallback, so a misspelling can't
+     quietly become a different type that happens to fit.
 

@@ -7,9 +7,6 @@ error: this pattern does not match every value of its type [refutable-pattern]
   = a `let` binds unconditionally, so its pattern has to be irrefutable
   = fix: use `match`, which makes you say what the other cases do
 
-    What to do
-    ──────────
-
-    Use match. There is no exception to throw when the value does not fit, so
-    the other cases have to be written out.
+    Use match. No exception is thrown when the value doesn't fit, so you write
+    out the other cases.
 

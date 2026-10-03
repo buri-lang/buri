@@ -32,9 +32,6 @@ error: "//lib/money/cents.buri" does not export `Ledgor` [no-such-export]
   = did you mean `Ledger`?
   = fix: if you meant `Ledger`, use that; if not, the `export` declarations in "//lib/money/cents.buri" are its whole surface
 
-    Why
-    ───
-
-    A re-export may name only what its module path exports, so a library's
-    surface is never wider than the modules it is built from.
+    A re-export names only what its module exports, so a library's surface is
+    never wider than the modules behind it.
 

@@ -9,21 +9,18 @@ error: `//tool/gen` did not answer [tool-failed]
     Error: division by zero
   = fix: fix what the note names; `buri test` on the tool runs its own tests
 
-    The note says which way it went: the tool did not build, it exited non-zero,
-    a signal killed it, it wrote nothing, or what it wrote is not an answer.
-
       = the tool was killed by SIGSEGV (signal 11)
         RangeError: Maximum call stack size exceeded.
 
-    A tool that was killed chose no status, so the note names the signal
-    instead: SIGSEGV for a crash or a stack it ran off the end of, SIGKILL for a
-    machine that ran out of memory. The last four kilobytes of what it put on
-    standard error come with the note, because what a program says last is what
-    says why it stopped.
+    The note says what went wrong: the tool didn't build, exited non-zero, was
+    killed by a signal, wrote nothing, or wrote something that isn't an answer.
 
-    A tool that is *slow* is not this page. Nothing puts a clock on a tool: the
-    build waits for as long as it runs, the way it waits for a compiler or a
-    linker.
+    A killed tool names its signal: SIGSEGV for a crash or a stack overflow,
+    SIGKILL for a machine out of memory. The last four kilobytes of its standard
+    error come with the note.
+
+    A slow tool isn't this error. The build waits for a tool as long as it runs,
+    the way it waits for a compiler.
 
 error: "//lib/wire/left" names no file (lib/wire/left.buri) [module-not-found]
  --> lib/wire/lib.buri:1:6
@@ -33,22 +30,10 @@ error: "//lib/wire/left" names no file (lib/wire/left.buri) [module-not-found]
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
 
-    What to do
-    ──────────
+    This resolves against the example monorepo in cli/tests/example, which has
+    no lib/nope:
 
-    Create the file the path names, or correct the path.
-
-    Why
-    ───
-
-    A module path maps to exactly one file, with no search path and no fallback,
-    so there is never a question of which of two candidates a path meant.
-
-    A program that provokes it
-    ──────────────────────────
-
-    This snippet resolves against the worked monorepo in cli/tests/example,
-    which has no lib/nope.
+    There's no search path and no fallback, so a path never has two candidates.
 
 error: "//lib/wire/right" names no file (lib/wire/right.buri) [module-not-found]
  --> lib/wire/lib.buri:5:6

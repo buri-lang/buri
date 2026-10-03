@@ -7,11 +7,8 @@ error: the object has no `"path"` [json-schema-violation]
   = the schema says so at `lib/editor/workspace.schema.json#/properties/folders/items/required`
   = fix: add `"path"`
 
-    Each failure is reported at the value that fails, and the note names the
-    keyword in the schema that it fails. Change the value, or, if the value is
-    right, change the schema.
-
-    A file with a failure is not handed to the generator that lists it.
+    Change the value, or, if the value is right, change the schema. The
+    generator that lists the file doesn't run until it passes.
 
     "$schema" is a property like any other: a schema with
     "additionalProperties": false lists it in properties.
@@ -24,20 +21,8 @@ error: "//lib/editor/config" names no file (lib/editor/config.buri) [module-not-
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
 
-    What to do
-    ──────────
+    This resolves against the example monorepo in cli/tests/example, which has
+    no lib/nope:
 
-    Create the file the path names, or correct the path.
-
-    Why
-    ───
-
-    A module path maps to exactly one file, with no search path and no fallback,
-    so there is never a question of which of two candidates a path meant.
-
-    A program that provokes it
-    ──────────────────────────
-
-    This snippet resolves against the worked monorepo in cli/tests/example,
-    which has no lib/nope.
+    There's no search path and no fallback, so a path never has two candidates.
 

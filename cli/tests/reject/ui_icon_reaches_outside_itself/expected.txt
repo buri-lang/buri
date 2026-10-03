@@ -6,30 +6,17 @@ error: an icon may carry only the attributes that draw a shape, and this `<path>
    |
    = fix: write the artwork out at the call site, and keep it to an `<svg>` and the shapes inside it
 
-     What to do
-     ──────────
+     A decorative image, one whose alt is .Decorative, writes its source into
+     the document as an <svg>. That's what lets currentColor inside it follow
+     the element's Foreground, so a theme switch recolours it for free. It's
+     also why the compiler reads the source: whatever the artwork says lands in
+     the page.
 
-     Write the artwork out at the call site, and keep it to an <svg> and the
-     shapes inside it.
+     The allowed shapes are g, path, rect, circle, ellipse, line, polyline and
+     polygon, with only the attributes that draw them. A script, an event
+     handler, a <use>, or an <image> pointing elsewhere is refused rather than
+     silently dropped by the renderer.
 
-     Why
-     ───
-
-     A decorative image — one whose alt is .Decorative — puts the artwork *in*
-     the tree: the source is written into the document as an <svg>, which is
-     what lets currentColor inside it be the element's own Foreground. That is
-     the whole point of a decorative picture — it follows the text beside it,
-     and a theme switch recolours it for nothing — and it is also why the
-     compiler reads the source rather than shipping it unseen. Whatever the
-     artwork says lands in the document.
-
-     So the artwork holds an <svg> and the shapes under it — g, path, rect,
-     circle, ellipse, line, polyline, polygon — carrying only the attributes
-     that draw one. A script, an event handler, a <use> or an <image> pointing
-     somewhere else is refused here rather than quietly dropped by the renderer,
-     which builds nothing but the list above.
-
-     The artwork also has to be a string the compiler can read, so it is written
-     at the call site or in a module-level let. One that is not there until the
-     program runs cannot be checked before it is put in a page.
+     The artwork must be a string the compiler can read: written at the call
+     site or in a module-level let, not computed at run time.
 

@@ -6,12 +6,8 @@ error: there is nothing named `host` in scope [unresolved-name]
   |
   = fix: declare `host`, or import it — a name is in scope only from this module's own declarations and its imports
 
-    Why
-    ───
-
-    There is no prelude and no ambient scope. A module's available names are the
-    ones it declares plus the ones its own imports name, which is what makes the
-    suggestion trustworthy.
+    There is no prelude. A module sees only what it declares and what its own
+    imports name, which is why the suggestion is trustworthy.
 
 error: there is nothing named `host` in scope [unresolved-name]
  --> cmd/named_context_constructed_outside_main/main.buri:8:11
@@ -29,21 +25,10 @@ error: a context may not be constructed here [context-not-allowed]
    = only in an entry's body, in a test source, or in a test-only module — and never inside a lambda, since a closure that could mint authority would make the capture rule meaningless
    = fix: build it in the entry and pass it down as a `ctx` parameter, or make this a test source, where a context may be built per test
 
-     What to do
-     ──────────
+     A closure that could build a context could hand one to a caller that never
+     named an effect, which is what the capture rule prevents.
 
-     Build it in the entry and pass it down as a ctx parameter, or make this a
-     test source.
-
-     Why
-     ───
-
-     Three places may mint authority: an entry's body, a test source, and a
-     test-only module. A lambda is not one of them. A closure able to build a
-     context could hand one to a caller that never named an effect, which is
-     what the capture rule prevents.
-
-     An entry is a function an outputs entry names — main unless the build file
-     says otherwise. A binary with a page and a worker in it has two, and each
-     builds its own.
+     An entry is a function an outputs entry names, main unless the build file
+     says otherwise. A binary with a page and a worker has two, and each builds
+     its own context.
 

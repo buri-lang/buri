@@ -6,10 +6,6 @@ error: `Stack` has no field `onPressOutide` [no-such-field]
    |
    = fix: check the spelling, or name a field the type declares
 
-     Why
-     ───
-
-     There is no structural typing and no inheritance. A value's fields are
-     exactly the ones its declaration lists, which is how the diagnostic can
-     offer the nearest name the type does have.
+     There's no structural typing and no inheritance. A value has exactly the
+     fields its declaration lists.
 

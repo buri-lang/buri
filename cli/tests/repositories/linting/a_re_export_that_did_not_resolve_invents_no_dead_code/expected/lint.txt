@@ -7,9 +7,6 @@ error: "//lib/money/cents.buri" does not export `markup` [no-such-export]
   = a re-export may name only what its module path exports
   = fix: check the spelling, or drop `markup` from this list
 
-    Why
-    ───
-
-    A re-export may name only what its module path exports, so a library's
-    surface is never wider than the modules it is built from.
+    A re-export names only what its module exports, so a library's surface is
+    never wider than the modules behind it.
 

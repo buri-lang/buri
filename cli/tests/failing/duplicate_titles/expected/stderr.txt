@@ -12,15 +12,6 @@ error: this file already has a test called "the same title" [duplicate-test-name
   = a title is how a failing test is named in the report and how `--filter` selects one, so two tests sharing a title in one file cannot be told apart
   = fix: rename one of them, so each test in this file has its own title
 
-    What to do
-    ──────────
-
-    Rename one of them.
-
-    Why
-    ───
-
-    A title is how the report names a failing test and how --filter selects one.
-    Two *different* files may reuse a title, since the report names the file and
-    the line each failure came from.
+    Two different files may share a title, since the report names each failure's
+    file and line.
 
