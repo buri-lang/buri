@@ -18,12 +18,12 @@
 // classifiers, `squareRoot`, `floor`, `ceiling` and `absoluteFloat` are each exactly
 // specified, and every rendering here is a name rather than a digit.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/math" import * as math;
 from "core/number" import * as number;
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 
 // The values, derived a second way — this is what the constants are compared
 // against, so that the assertion is `the constant is that value` rather than

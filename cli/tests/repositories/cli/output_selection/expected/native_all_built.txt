@@ -1,2 +1,2 @@
-.buri/out/node/cmd/native/native.mjs (N bytes, cached)
+.buri/out/node/cmd/native/mainForNode.mjs (N bytes, cached)
 .buri/out/native/{{CROSS_VARIANT}}/cmd/native/native (N bytes, cached)

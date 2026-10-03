@@ -1,11 +1,11 @@
-.buri/out/node/cmd/both/both.mjs (N bytes, cached)
+.buri/out/node/cmd/both/mainForNode.mjs (N bytes, cached)
 error: //cmd/both exports no `Page` [entry-not-found]
  --> cmd/both/BUILD.buri:3:45
   |
 3 |         { platform: "web", entries: { main: "Page" } },
   |                                             ^^^^^^
   |
-  = `main.buri` exports: main
+  = `main.buri` exports: main, mainForNode
   = fix: export `Page` from its `main.buri`, or point this output at a function it does export
 
     What to do
@@ -14,9 +14,10 @@ error: //cmd/both exports no `Page` [entry-not-found]
     Export the function the output names, or name one the binary already
     exports.
 
-      from "core/effect" import { Request, Response };
+      from "platform/effect" import { Request, Response };
+      from "web" import { WebHost };
 
-      export fn main(): Result<(), Str> {
+      export fn main(host: WebHost): Result<(), Str> {
           .Ok(())
       }
 

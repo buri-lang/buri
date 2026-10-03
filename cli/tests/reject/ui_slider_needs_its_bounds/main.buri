@@ -5,14 +5,14 @@
 // remember to set. `min` and `max` are plain, non-`Option` fields, so a config
 // that leaves them out is missing a required value rather than a slider with no
 // range.
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/signal" import { signal };
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let volume = signal(ctx, 40.0);
   ui.mount(ctx, ui.slider({ label: .Const("Volume"), value: volume, styles: [] }), [])

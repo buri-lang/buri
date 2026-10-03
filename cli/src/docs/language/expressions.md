@@ -317,7 +317,7 @@ x.f()          //  self = x
 comes second:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Allocator };
+# from "platform/effect" import { Allocator };
 impl<A> [A] {
   export fn map<B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B];
 }
@@ -400,8 +400,8 @@ Postfix `?` unwraps a `Result` or `Option`, returning early from the enclosing
 function on the failure case.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Allocator };
 # from "core/fs" import { FileSystemRead, Path };
+# from "platform/effect" import { Allocator };
 
 fn loadPort<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Int, ConfigError> {
     let text = fs.readText(ctx, at)?; // Err(e) => return Err(e)

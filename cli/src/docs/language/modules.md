@@ -10,11 +10,11 @@ here; which module may import which is in
 The module path comes **first**, before the specifier list:
 
 ```buri
-from "core/effect" import { Allocator, Stdout };
 from "core/fs" import { FileSystemRead, FileSystemWrite };
 from "core/list" import * as list;
 from "core/list" import { filter, map };
 from "core/list" import { map as listMap };
+from "platform/effect" import { Allocator, Stdout };
 ```
 
 The path first means an editor knows the module by the time you open the brace,
@@ -74,10 +74,13 @@ A binary's entry point is a file: `"//cmd/app"` would name that package's
 `"//lib/money/lib.buri"` is accepted and is not the one to write. It names the
 surface by the file it is, and resolves to the same module.
 
-The standard library owns two reserved roots. `core/` is the small set of
-essentials: the types every program uses and the effects every platform might
-grant. `ui/` is the reactivity and styling vocabulary. Nothing a repository
-declares can collide with either, since a repository path always begins `//`.
+The standard library owns its reserved roots. `core/` is the small set of
+essentials every program uses. `platform/` holds the effects every platform
+shares: `platform/effect` declares them and `platform/effect/testing` tests
+them. `ui/` is the reactivity and styling vocabulary. The bundled platforms are
+bare names, `"native"`, `"node"` and `"web"`, and a program imports its host
+type from one. Nothing a repository declares can collide with any of them,
+since a repository path always begins `//`.
 
 **There are no relative module paths.** `"./cents"` and `"../money"` are not
 module paths, and a leading `.` in an import is an error. So a path means the
@@ -93,16 +96,17 @@ enforce the distinction.
 
 One path segment is reserved: **`testing`**. A module path containing it is
 test-only, and only a test source may import it (Section 11.2). That covers
-`"core/testing/assert"`, `"core/host/testing"`, a library's own
+`"core/testing/assert"`, `"platform/effect/testing"`, a library's own
 utilities-for-testing-it at `"//lib/money/testing"`, and a whole package of
 shared fixtures at `"//lib/testing/fakes"`. The segment is a *directory* name.
 `"//lib/money/testing.buri"` is a file called `testing` and is not test-only.
 
-One module is reserved the other way. **`"core/host"`** holds the platform's
-implementations of the effects it grants, and only the module that exports `main`
-may import it (Section 10.3). The two rules stay separate: `"core/host/testing"`
-is that same surface for a test source, and the `testing` segment alone governs
-it — the module that exports `main` may not import it, and a test source may.
+One module is reserved the other way. **`"platform/host"`** holds the backends'
+implementations of the effects, and only a platform's `platform.buri` may
+import it (Section 10.3); a program receives them as the fields of its entry's
+host. The two rules stay separate: `"platform/effect/testing"` holds the test
+implementations, and the `testing` segment alone governs it — the module that
+exports `main` may not import it, and a test source may.
 
 None of this applies to method calls. `sq.area()` resolves through the receiver's
 type rather than through scope (Section 6.7.3), so a type's own operations reach

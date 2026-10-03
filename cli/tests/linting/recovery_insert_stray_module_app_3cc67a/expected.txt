@@ -1,9 +1,9 @@
-error: expected a function body, found `@` [unexpected-token]
-  --> lib/recovery_insert_stray_module_app_3cc67a/main.buri:10:35
+error: expected a type, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_module_app_3cc67a/main.buri:10:33
    |
-10 | export fn main(): Result<(), Str> @ {
-   |                                   ^
+10 | export fn main(host: NodeHost): @ Result<(), Str> {
+   |                                 ^
    |
-   = expected: a function body
+   = expected: a type
    = actual: `@`
-   = fix: write `{ ... }` after the return type
+   = fix: name a type here, as in `Int` or `[Str]`

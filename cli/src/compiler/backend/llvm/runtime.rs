@@ -1445,7 +1445,7 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar, Arg::Scalar],
         ret: Ret::Sum,
     },
-    // -- core/host/testing's stateful half ------------------------------------
+    // -- platform/effect/testing's stateful half ------------------------------------
     //
     // `cli/runtime/testing.rs`'s header is the argument for these being in the
     // archive rather than open-coded: each names a slot in one mutable table,
@@ -2951,7 +2951,7 @@ mod tests {
     /// surface is complete" has to be asserted twice or it is asserted for one
     /// backend and hoped for the other. The list is read off the declaring
     /// module — the filesystem's two effects live in `core/fs` since the
-    /// read/write split, the rest in `core/effect` — so the operation declared
+    /// read/write split, the rest in `platform/effect` — so the operation declared
     /// next is covered by the commit that declares it.
     #[test]
     fn every_operation_of_the_host_file_and_environment_effects_has_a_row() {
@@ -2966,8 +2966,8 @@ mod tests {
         for (source, effect, host) in [
             (module("core/fs"), "FileSystemRead", "HostFileSystem"),
             (module("core/fs"), "FileSystemWrite", "HostFileSystem"),
-            (module("core/effect"), "Environment", "HostEnvironment"),
-            (module("core/effect"), "Stdin", "HostStdin"),
+            (module("platform/effect"), "Environment", "HostEnvironment"),
+            (module("platform/effect"), "Stdin", "HostStdin"),
         ] {
             let body = source
                 .split(&format!("export effect {effect} {{"))
@@ -3031,7 +3031,7 @@ mod tests {
             // on nothing but the row, and `FileSystem` was waiting on §2.1's message
             // shape.
             //
-            // `core/host/testing`'s `net()` needs no row at all: `TestNetwork`
+            // `platform/effect/testing`'s `net()` needs no row at all: `TestNetwork`
             // carries its responder as a value and `TestNetwork.fetch` is a Buri
             // body that calls it, so no key is produced for it here. A responder
             // is a `{ code, env }` pair the archive has no way to invoke. Its *log* is a different question and

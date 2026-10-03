@@ -9,14 +9,14 @@
 // so every one of these is a case where the hand-written `checkedMultiply`,
 // `checkedSubtract`, decide-from-the-sign shape had to get the answer right.
 
-from "core/effect" import { Allocator, Clock };
-from "core/host/testing" import { alloc, clock };
 from "core/list" import * as list;
 from "core/math" import * as math;
 from "core/number" import * as number;
 from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
 from "core/time" import { Duration, Instant, Monotonic };
+from "platform/effect" import { Allocator, Clock };
+from "platform/effect/testing" import { alloc, clock };
 
 // --- constructors --------------------------------------------------------------
 

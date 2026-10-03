@@ -4,4 +4,4 @@ error: there is no module "core/lists" [no-such-module]
 2 | from "core/lists" import * as lists;
   |      ^^^^^^^^^^^^
   |
-  = fix: check the path; the standard library's modules are all `core/...`, `ui/...` or `std/...`
+  = fix: check the path; the standard library's modules are all `core/...`, `ui/...`, `std/...` or `platform/...`

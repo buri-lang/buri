@@ -8,6 +8,8 @@ trait Store<T> {
   fn get(self, key: Str): T;
 }
 
-export fn main(): Result<(), Str> {
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
   .Ok(())
 }

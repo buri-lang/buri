@@ -1,0 +1,36 @@
+warning: `platform/effect` is imported twice [duplicate-import]
+  --> lib/recovery_insert_stray_brace_app_fe1cc2/main.buri:12:6
+   |
+12 | from "platform/effect" import { Stdout };
+   |      ^^^^^^^^^^^^^^^^^
+   |
+  --> lib/recovery_insert_stray_brace_app_fe1cc2/main.buri:11:6
+   |
+11 | from "platform/effect" import { Allocator };
+   |      ^^^^^^^^^^^^^^^^^ first imported here
+   |
+   = two statements for one module drift apart, and the top of the file stops being the whole account of what it borrows
+   = fix: merge the two into one import
+error: `print` takes 2 arguments, but 3 were given [wrong-argument-count]
+  --> lib/recovery_insert_stray_brace_app_fe1cc2/main.buri:19:13
+   |
+19 |     let _ = print(ctx, "half a line"extra ).mapErr(fn(_e) => {
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass `print` the following arguments: print<C: Stdout>(ctx: C, text: Template)
+error: a call argument ends with `,` [missing-separator]
+  --> lib/recovery_insert_stray_brace_app_fe1cc2/main.buri:19:37
+   |
+19 |     let _ = print(ctx, "half a line"extra ).mapErr(fn(_e) => {
+   |                                     ^
+   |
+   = fix: write `,` here
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_app_fe1cc2/main.buri:19:37
+   |
+19 |     let _ = print(ctx, "half a line"extra ).mapErr(fn(_e) => {
+   |                                     ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

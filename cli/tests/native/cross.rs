@@ -20,11 +20,11 @@ use std::process::Command;
 
 /// A program that prints one line and exits — the smallest whole program whose
 /// output settles that it started, ran and returned cleanly.
-const HELLO: &str = r#"from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+const HELLO: &str = r#"from "platform/effect" import { Allocator, Stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,

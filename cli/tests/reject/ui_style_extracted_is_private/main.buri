@@ -7,9 +7,9 @@
 // `Classes`, whose field is private to `ui/style`. The only way a class reaches
 // an element is still by having been emitted, which is the whole of "nothing is
 // generated at run time".
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/style" import { Classes, Style };
@@ -21,7 +21,7 @@ fn classes(s: Style): Style {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   ui.mount(ctx, ui.stack({ styles: [classes(.Extracted(Classes([(600, "p-8")])))], children: [] }), [])
 }

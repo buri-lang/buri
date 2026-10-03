@@ -3,13 +3,13 @@
 // A translate is two distances — along the text direction, then down the page —
 // and a distance is a `Length`. A bare number is a count, which is what `Grow`
 // and `Span` take, and the shift a press wants is `.Px(1)` rather than `1`.
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   ui.mount(ctx, ui.stack({ styles: [.Translate(0, 1)], children: [] }), [])
 }

@@ -23,7 +23,9 @@ struct Meters(export Float);
 
 derive for Meters;
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   .Ok(())
 }
 ```

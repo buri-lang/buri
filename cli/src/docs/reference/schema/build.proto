@@ -333,7 +333,7 @@ message TestSuite {
   // as its in-memory filesystem. Retired: only a runner could hand a suite those
   // entries, so `data()` was empty in a linked test binary and the two backends
   // answered differently. A suite writes its own filesystem now, with
-  // `fs().files([...])` from `core/host/testing`. The number is not reused.
+  // `fs().files([...])` from `platform/effect/testing`. The number is not reused.
   reserved 3;
   reserved "data";
 

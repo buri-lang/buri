@@ -6,8 +6,8 @@
 // same decision from the other side — `isOpen` is the double's, because a
 // program that could ask would be a program racing the far side.
 
-from "core/effect" import { Allocator, Sockets };
 from "core/net/server" import { Message, Socket };
+from "platform/effect" import { Allocator, Sockets };
 
 /// Pushes `message` at every socket in the room and answers how many it was
 /// handed to.

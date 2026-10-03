@@ -2,11 +2,11 @@
 # and the README beside this file.
 name = struct-heavy-1M
 profile = struct-heavy
-generator_revision = 7
-revision = 6
-recorded = 2026-08-31
+generator_revision = 8
+revision = 7
+recorded = 2026-10-02
 params = fields_per_struct=6..12 lines=1000000 w_enum=0 w_generic_fn=0 w_list_fn=0 w_match_fn=0 w_string_fn=0 w_struct=8
 lines = 1008661
-bytes = 28300371
+bytes = 28751089
 modules = 2861
-digest = ee533202623f988963880d0d763e9bfe2875b654a28af26b12a36633d35bfb45
+digest = 2e089f6879a077195ab7ced150d06b3b9b97abe29bcf110c6a880f5979bab3a2

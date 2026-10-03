@@ -12,12 +12,12 @@
 //! `core/json` does for exactly this reason.
 //!
 //! ```buri run
-//! from "core/effect" import { Allocator, Stdout };
-//! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/map" import * as map;
+//! from "node" import { NodeHost };
+//! from "platform/effect" import { Allocator, Stdout };
 //!
-//! export fn main(): Result<(), Str> {
+//! export fn main(host: NodeHost): Result<(), Str> {
 //!     let ctx = context {
 //!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
@@ -35,8 +35,8 @@
 //! ```
 
 from "core/bits" import * as bits;
-from "core/effect" import { Allocator };
 from "core/list" import * as list;
+from "platform/effect" import { Allocator };
 
 // A node of the map's internal tree. Not exported: the map is a value whose
 // only surface is its methods.
@@ -516,13 +516,13 @@ impl<K: Hash + Equal, V> Map<K, V> {
     /// `core/orderedmap` has the same method with the same meaning.
     ///
     /// ```buri run
-    /// from "core/effect" import { Allocator, Stdout };
-    /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/map" import * as map;
     /// from "core/str" import * as str;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Allocator, Stdout };
     ///
-    /// export fn main(): Result<(), Str> {
+    /// export fn main(host: NodeHost): Result<(), Str> {
     ///     let ctx = context {
     ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
@@ -619,13 +619,13 @@ impl<K: Hash + Equal, V> Map<K, V> {
     /// in both. `combine` is called only for those keys.
     ///
     /// ```buri run
-    /// from "core/effect" import { Allocator, Stdout };
-    /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/map" import * as map;
     /// from "core/str" import * as str;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Allocator, Stdout };
     ///
-    /// export fn main(): Result<(), Str> {
+    /// export fn main(host: NodeHost): Result<(), Str> {
     ///     let ctx = context {
     ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
@@ -727,12 +727,12 @@ impl<K: Hash + Equal, V> Map<K, V> {
 /// of the dependency order and cannot name a `Map`.
 ///
 /// ```buri run
-/// from "core/effect" import { Allocator, Stdout };
-/// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/map" import * as map;
+/// from "node" import { NodeHost };
+/// from "platform/effect" import { Allocator, Stdout };
 ///
-/// export fn main(): Result<(), Str> {
+/// export fn main(host: NodeHost): Result<(), Str> {
 ///     let ctx = context {
 ///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
@@ -815,13 +815,13 @@ impl<K: Hash + Equal, V: Equal> Map<K, V> {
 /// `groupBy` costs without building the groups.
 ///
 /// ```buri run
-/// from "core/effect" import { Allocator, Stdout };
-/// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/map" import * as map;
 /// from "core/str" import * as str;
+/// from "node" import { NodeHost };
+/// from "platform/effect" import { Allocator, Stdout };
 ///
-/// export fn main(): Result<(), Str> {
+/// export fn main(host: NodeHost): Result<(), Str> {
 ///     let ctx = context {
 ///         Allocator: host.alloc,
 ///         Stdout: host.stdout,

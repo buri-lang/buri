@@ -45,8 +45,8 @@ nowhere else. `buri gen` maintains `test.sources` for you.
 ```buri
 from "//lib/money" import { fromCents, fromDollars };
 from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc };
-from "core/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "platform/effect" import { Allocator };
 
 test "pads the cents place" {
     let ctx = context { Allocator: alloc() };
@@ -102,8 +102,8 @@ If `assert.equal` reports `unsatisfied-bound`, the type under test needs
 
 ## The runner's context
 
-`core/host/testing` is `core/host`'s surface written out for a test: the same
-names, **called** rather than referred to. Each call hands back a fresh double,
+`platform/effect/testing` holds the test implementations, named after the
+host's fields and **called** rather than referred to. Each call hands back a fresh double,
 one per effect, and only a test source may import it.
 
 | Member | Effect | In a test |
@@ -197,8 +197,8 @@ them independently; be imported by anything; `export` anything.
 If a test needs an internal function, either it belongs on the surface — say so
 in `lib.buri` — or the test asserts on an implementation detail.
 
-**You cannot test `main` itself.** It builds its own context out of `core/host`,
-so you have no fake to hand it. Put the logic in a function taking an ordinary
+**You cannot test `main` itself.** It takes a host only the CLI can build, so
+you have no fake to hand it. Put the logic in a function taking an ordinary
 bounded `ctx`:
 
 ```buri
@@ -226,10 +226,10 @@ in `test { dependencies }`. A fixture on a public surface is an API.
 
 ## Golden files
 
-Write a suite's filesystem in the suite, with `core/host/testing`'s `fs().files`:
+Write a suite's filesystem in the suite, with `platform/effect/testing`'s `fs().files`:
 
 ```buri
-from "core/host/testing" import { alloc, fs as memory };
+from "platform/effect/testing" import { alloc, fs as memory };
 
 test "renders the statement" {
     let ctx = context { Allocator: alloc(), FileSystemRead: memory().files([("statement.txt", "coffee")]) };

@@ -3,9 +3,9 @@
 // Each option a picker takes is a `(key, content)` pair: the key is what the
 // signal holds when it is picked and the content is the node drawn beside it, so
 // a bare string with no key is not one an option can be built from.
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
@@ -15,7 +15,7 @@ fn plan<C>(value: Signal<Str>): Node<C> {
   ui.picker({ label: .Const("Size"), options: ["small", "medium"], value: value, styles: [] })
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let value = signal(ctx, "small");
   ui.mount(ctx, plan(value), [])

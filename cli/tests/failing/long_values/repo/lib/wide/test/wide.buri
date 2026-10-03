@@ -4,10 +4,10 @@
 // worth recording because the alternative — an eliding renderer — is the kind
 // of thing that gets added without a test noticing.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 
 test "a string far past a terminal's width" {
     assert.equal(

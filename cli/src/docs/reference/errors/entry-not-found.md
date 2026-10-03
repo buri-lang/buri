@@ -15,9 +15,10 @@ error: //cmd/site exports no `fetch` [entry-not-found]
 Export the function the output names, or name one the binary already exports.
 
 ```buri role=entry
-from "core/effect" import { Request, Response };
+from "platform/effect" import { Request, Response };
+from "web" import { WebHost };
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
     .Ok(())
 }
 

@@ -4,8 +4,8 @@
 // changes the answer rather than merely the speed, which is what makes the
 // assertions in `test/` worth making.
 
-from "core/effect" import { Allocator };
 from "core/list" import * as list;
+from "platform/effect" import { Allocator };
 
 // -----------------------------------------------------------------------------
 // Closures built inside a tail loop

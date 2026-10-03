@@ -1,22 +1,22 @@
 error: "core/list" has no member `Vector` [no-such-member]
- --> cmd/namespace_member_as_a_type/main.buri:9:11
-  |
-9 |   let xs: list.Vector<Int> = [1, 2, 3];
-  |           ^^^^^^^^^^^^^^^^
-  |
-  = the module exports 94 names
-  = did you mean `getOr`?
-  = fix: if you meant `getOr`, use that; if not, `buri docs core/list` lists what the module exports
+  --> cmd/namespace_member_as_a_type/main.buri:10:11
+   |
+10 |   let xs: list.Vector<Int> = [1, 2, 3];
+   |           ^^^^^^^^^^^^^^^^
+   |
+   = the module exports 94 names
+   = did you mean `getOr`?
+   = fix: if you meant `getOr`, use that; if not, `buri docs core/list` lists what the module exports
 
-    Why
-    ───
+     Why
+     ───
 
-    fs in fs.appendBytes(...) is a namespace, not a value. It stands for the
-    module its import named, and what you may write after the dot is exactly
-    what that module exports.
+     fs in fs.appendBytes(...) is a namespace, not a value. It stands for the
+     module its import named, and what you may write after the dot is exactly
+     what that module exports.
 
-    A namespace qualifies a type, a bound and an impl head the same way it
-    qualifies a function, so list.Vector<Int> and <T: order.Comparable> are
-    answered here too. When no import bound the name at all, fs.readText(...) is
-    unresolved-name on fs instead.
+     A namespace qualifies a type, a bound and an impl head the same way it
+     qualifies a function, so list.Vector<Int> and <T: order.Comparable> are
+     answered here too. When no import bound the name at all, fs.readText(...)
+     is unresolved-name on fs instead.
 

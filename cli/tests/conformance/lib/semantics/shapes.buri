@@ -5,10 +5,6 @@
 // of structs that implement an effect so a test can bind one in a context and
 // prove its own implementation is the one that ran.
 
-from "core/effect" import {
-    Allocator, Clock, Environment, Header, IoError, Listen, Listener, NetError, Network,
-    Received, Region, Request, Response, Serve, ServeError, Sockets, Stdout, Tasks,
-};
 from "core/fs" import * as fs;
 from "core/fs" import { FileSystemRead, FileSystemWrite, Metadata, Path };
 from "core/io" import * as io;
@@ -23,6 +19,10 @@ from "core/str" import * as str;
 from "core/tasks" import * as tasks;
 from "core/time" import * as time;
 from "core/time" import { Instant };
+from "platform/effect" import {
+    Allocator, Clock, Environment, Header, IoError, Listen, Listener, NetError, Network,
+    Received, Region, Request, Response, Serve, ServeError, Sockets, Stdout, Tasks,
+};
 
 derive Equal, Ordered, Show, Hash for Version;
 // =============================================================================
@@ -1314,7 +1314,7 @@ impl Listen for PlanListen {
 /// A `Sockets` that swallows everything.
 ///
 /// Every method answers `()`, and an effect method takes only `self`, so a
-/// fake here cannot record what it was told — `sockets()` in `core/host/testing`
+/// fake here cannot record what it was told — `sockets()` in `platform/effect/testing`
 /// is where that lands, with the `Slot` machinery the other doubles use. What
 /// this one is for is the part that *is* checkable without a runtime: that a
 /// context can bind `Sockets` beside `Listen` and `Network` and still call every

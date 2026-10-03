@@ -96,8 +96,8 @@ The unit type and its only value are both written `()`. Functions that exist
 only for their effect return `()`.
 
 ```buri
-# from "core/effect" import { Stdout };
 # from "core/io" import * as io;
+# from "platform/effect" import { Stdout };
 
 fn log<C: Stdout>(ctx: C, msg: Str): () {
     io.println(ctx, msg).ignore()
@@ -390,7 +390,7 @@ enum.
 You declare type parameters in angle brackets. There are no row parameters.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Allocator, Stdout };
+# from "platform/effect" import { Allocator, Stdout };
 fn identity<T>(x: T): T { x }
 fn map<A, B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B] { ... }
 fn tee<T, C: Stdout>(ctx: C, x: T): T { ... }
@@ -400,7 +400,7 @@ A parameter may carry one or more **bounds**, naming traits the argument type
 must satisfy. Multiple bounds are joined with `+`:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Allocator };
+# from "platform/effect" import { Allocator };
 fn largest<T: Ordered>(xs: [T]): Option<T> { ... }
 fn report<T: Ordered + Show, C: Allocator>(ctx: C, xs: [T]): Str { ... }
 ```
@@ -472,7 +472,7 @@ A trait is an **interface**: a named set of method signatures that a type may
 satisfy.
 
 ```buri
-# from "core/effect" import { Allocator };
+# from "platform/effect" import { Allocator };
 
 trait Ordered {
     fn compare(self, other: Self): Order;

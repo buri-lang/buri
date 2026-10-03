@@ -1,5 +1,6 @@
 // EXPECT: "core/order" has no member `Comparable`
 // The fourth position a namespace qualifies: the trait an `impl` conforms to.
+from "node" import { NodeHost };
 from "core/order" import * as order;
 
 struct Bag { export count: Int }
@@ -8,6 +9,6 @@ impl order.Comparable for Bag {
   fn compare(self, other: Bag): Int { self.count }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   .Ok(())
 }

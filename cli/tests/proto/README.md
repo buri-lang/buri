@@ -106,7 +106,7 @@ hand-written protobuf anywhere, so a bug in the codecs shows up as a runner that
 cannot talk to us at all.
 
 Writing it is what asked for `Stdin.readBytes` and `Stdout.writeBytes` in
-`core/effect`: `Stdin.readLine` reads the stream to its end, so a program using
+`platform/effect`: `Stdin.readLine` reads the stream to its end, so a program using
 it cannot answer before the other side has finished speaking.
 
 ## Where it stands

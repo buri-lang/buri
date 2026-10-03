@@ -1,6 +1,6 @@
-from "core/effect" import { Allocator, Environment, Stdout };
-from "core/host/testing" import { alloc, stdout };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Environment, Stdout };
+from "platform/effect/testing" import { alloc, stdout };
 from "//libs/convert" import { ConvertError, parseRequest, run };
 
 /// A test double for `Environment`: an ordinary struct with the effect's methods, and

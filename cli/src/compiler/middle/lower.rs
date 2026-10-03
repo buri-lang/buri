@@ -2087,7 +2087,10 @@ mod tests {
 
     /// Wraps a body in a `main` the driver will accept.
     fn program(extra: &str, body: &str) -> String {
-        format!("{extra}\n\nexport fn main(): Result<(), Str> {{\n{body}\n  .Ok(())\n}}\n")
+        format!(
+            "from \"native\" import {{ NativeHost }};\n{extra}\n\n\
+             export fn main(host: NativeHost): Result<(), Str> {{\n{body}\n  .Ok(())\n}}\n"
+        )
     }
 
     /// Lowering runs one function per core and folds the per-worker type tables
@@ -2208,8 +2211,8 @@ mod tests {
     #[test]
     fn a_projection_never_reads_a_base_this_block_has_already_released() {
         let p = lower(&program(
-            "from \"core/effect\" import { Allocator };\n\
-             from \"core/host\" import * as host;\n\n\
+            "from \"platform/effect\" import { Allocator };\n\
+             \n\
              struct Inner { export items: [Str] }\n\
              struct Outer { export inner: Inner, export tag: Str }\n\
              enum Held { One { name: Str, rest: [Str] }, Two { name: Str } }\n\
@@ -2670,8 +2673,7 @@ export fn step(n: Int): Int {
     fn a_binding_nothing_reads_is_still_dropped() {
         let p = lower_plain(&program(
             "
-from \"core/effect\" import { Allocator };
-from \"core/host\" import * as host;
+from \"platform/effect\" import { Allocator };
 
 export fn junk<C: Allocator>(ctx: C, n: Int): Int {
   let s = \"z\".repeat(ctx, n);

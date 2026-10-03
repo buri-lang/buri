@@ -1,0 +1,2 @@
+hello from node
+asked to fail

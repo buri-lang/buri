@@ -409,7 +409,7 @@ fn search_answers_an_intent_and_every_result_is_runnable() {
         (&["compare", "ints"][..], "core/order"),
         (&["compare", "ints"][..], "core/order.int"),
         (&["sort", "a", "list"][..], "core/list.sortBy"),
-        (&["fixture"][..], "core/host/testing"),
+        (&["fixture"][..], "platform/effect/testing"),
         (&["pad"][..], "core/str.padStart"),
         (&["hex"][..], "core/bytes.toHex"),
         (&["ignore", "a", "result"][..], "core/result.ignore"),
@@ -948,11 +948,11 @@ fn the_prose_map_names_every_module_and_no_others() {
         }
         match std_source_file(&root, module.source) {
             Some(file) => {
-                if !page.contains(&format!("sources/{file}")) {
+                if !page.contains(&file) {
                     unlinked.push(module.path);
                 }
             }
-            None => panic!("`{}` has no file under sources/", module.path),
+            None => panic!("`{}` has no source file", module.path),
         }
     }
     assert!(
@@ -971,6 +971,7 @@ fn the_prose_map_names_every_module_and_no_others() {
     let shipped: std::collections::HashSet<String> = buri::compiler::standard_library::MODULES
         .iter()
         .filter_map(|m| std_source_file(&root, m.source))
+        .filter_map(|link| link.strip_prefix("sources/").map(str::to_string))
         .collect();
     let mut stale = Vec::new();
     let mut rest = page.as_str();
@@ -991,19 +992,27 @@ fn the_prose_map_names_every_module_and_no_others() {
     assert!(stale.is_empty(), "the map links at sources the library does not ship: {stale:?}");
 }
 
-/// Which file under `sources/` a module's text came from.
+/// Where a module's text came from, as the map links it: `sources/http.buri`
+/// for the standard library, `platforms/node/platform.buri` for a bundled
+/// platform.
 ///
 /// `MODULES` records what a module *is* and not where it was read from, and the
 /// two do not follow one another — `core/net/http` is `sources/http.buri`. The
 /// bytes are the only thing that cannot be wrong.
 fn std_source_file(root: &std::path::Path, text: &str) -> Option<String> {
-    let dir = root.join("cli/src/compiler/standard_library/sources");
-    for entry in std::fs::read_dir(&dir).ok()?.flatten() {
+    let sources = root.join("cli/src/compiler/standard_library/sources");
+    for entry in std::fs::read_dir(&sources).ok()?.flatten() {
         let path = entry.path();
         if path.extension().is_some_and(|x| x == "buri")
             && std::fs::read_to_string(&path).is_ok_and(|t| t == text)
         {
-            return Some(path.file_name()?.to_string_lossy().to_string());
+            return Some(format!("sources/{}", path.file_name()?.to_string_lossy()));
+        }
+    }
+    for platform in buri::compiler::standard_library::PLATFORMS {
+        let path = root.join(format!("cli/src/platforms/{platform}/platform.buri"));
+        if std::fs::read_to_string(&path).is_ok_and(|t| t == text) {
+            return Some(format!("platforms/{platform}/platform.buri"));
         }
     }
     None

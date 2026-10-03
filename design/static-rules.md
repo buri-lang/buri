@@ -101,13 +101,14 @@ Contexts (Section 11.3):
 33. Each binding's left side names a declared effect, bound at most once across
     the spread and the explicit bindings; each right side's type must implement
     that effect. The result satisfies exactly the effects bound.
-34. Only the module that exports `main` may import `"core/host"`, and it may name
-    **what the platforms that module is compiled for grant**: every platform its
-    rule's `outputs` name, plus every platform its suite names in
-    `test.backends`. Naming one they do not all grant is a compile error — on
-    the name inside the braces for a named import, on the member reference for a
-    namespace one (`effect-not-on-platform`, Section 10.3). A rule that declares
-    no platforms commits to none, and the checker leaves it alone.
+34. An entry takes its platform's host — `NativeHost`, `NodeHost` or `WebHost`
+    — as its one parameter (`entry-without-host`, `entry-host-mismatch`), and
+    may bind only the fields that host declares (`no-such-field`, with a note
+    naming the platforms that offer the effect). Only a platform's
+    `platform.buri` may import `"platform/host"`
+    (`host-import-outside-platform`). A `CLOUDFLARE_WORKER` entry takes no host
+    yet and imports `"core/host"`, whose names are checked against the worker
+    (`effect-not-on-platform`, Section 10.3).
 
 Modules and tests:
 

@@ -231,7 +231,7 @@ buri docs manifest                 every id and output shape, for an agent
 ```
 
 Search takes words rather than a name: "compare ints" reaches `core/order`,
-"fixture" reaches `core/host/testing`. Each hit prints as the command that reads
+"fixture" reaches `platform/effect/testing`. Each hit prints as the command that reads
 it.
 
 **Explore before you hand-roll.** Bare `buri docs` is the whole index — every

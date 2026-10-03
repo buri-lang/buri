@@ -1,4 +1,4 @@
-//! core/effect — the effect declarations.
+//! platform/effect — the effect declarations.
 //!
 //! An effect is an interface declared with `effect` instead of `trait`. Its
 //! methods are the operations it grants. Only platform modules may declare
@@ -142,7 +142,7 @@ export effect Random {
 /// *uniformity*, a claim about the shape of a sequence. This promises
 /// *unpredictability*, a claim about somebody who has already seen part of one.
 /// A seeded generator keeps the first promise and cannot keep the second — and
-/// `core/host/testing`'s `rand()` is seeded deliberately, so that a hermetic
+/// `platform/effect/testing`'s `rand()` is seeded deliberately, so that a hermetic
 /// test gets the same numbers every run. A program minting a session token
 /// needs this one.
 ///
@@ -167,7 +167,7 @@ export effect Entropy {
 ///
 /// `arguments` and not `args`: `core/env` exports `arguments(ctx)` and is the
 /// only caller of this method. A type's methods are one map keyed by name, so
-/// `core/host/testing`'s builder takes the other name — `env().withArguments`
+/// `platform/effect/testing`'s builder takes the other name — `env().withArguments`
 /// is how a test says what the arguments are.
 export effect Environment {
     fn variable(self, name: Str): Option<Str>;
@@ -181,7 +181,7 @@ export effect Environment {
     ///
     /// `allVariables` and not `variables`, for the reason `args` is not
     /// `arguments`: a type's methods are one map keyed by name, and
-    /// `core/host/testing`'s `TestEnvironment` already spends `variables` on the
+    /// `platform/effect/testing`'s `TestEnvironment` already spends `variables` on the
     /// builder a test writes its environment with.
     fn allVariables(self): [(Str, Str)];
 

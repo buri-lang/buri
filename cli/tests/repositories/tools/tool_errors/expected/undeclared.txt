@@ -1,7 +1,7 @@
 error: `check` is exported, and the `tool` rule has no `check` block [tool-entry-point-undeclared]
- --> tool/good/tool.buri:7:11
+ --> tool/good/tool.buri:6:11
   |
-7 | export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
+6 | export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
   |           ^^^^^
   |
   = the blocks in `BUILD.buri` are what a reader of the build sees, so each entry point is declared there too
@@ -12,9 +12,9 @@ error: `check` is exported, and the `tool` rule has no `check` block [tool-entry
     that reads the BUILD.buri would not know it was there.
 
 warning: `ctx` is not used; the function is pure [unused-context]
- --> tool/good/tool.buri:7:31
+ --> tool/good/tool.buri:6:31
   |
-7 | export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
+6 | export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
   |                               ^^^^^^
   |
   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing

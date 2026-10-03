@@ -1,0 +1,31 @@
+warning: `tally` is 45 lines long [oversized-function]
+   --> lib/recovery_insert_stray_brace_app_ddc229/main.buri:102:4
+    |
+102 | fn tally(count: I64): Str {
+    |    ^^^^^
+    |
+    = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+    = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: expected an expression, found `,` [unexpected-token]
+   --> lib/recovery_insert_stray_brace_app_ddc229/main.buri:125:5
+    |
+125 |     , let packing = delivery + 2;
+    |     ^
+    |
+    = expected: an expression
+    = actual: `,`
+    = fix: write a value here
+error: there is nothing named `packing` in scope [unresolved-name]
+   --> lib/recovery_insert_stray_brace_app_ddc229/main.buri:126:20
+    |
+126 |     let handling = packing * 2;
+    |                    ^^^^^^^
+    |
+    = fix: declare `packing`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `packing` in scope [unresolved-name]
+   --> lib/recovery_insert_stray_brace_app_ddc229/main.buri:127:31
+    |
+127 |     let carriage = delivery + packing + handling;
+    |                               ^^^^^^^
+    |
+    = fix: declare `packing`, or import it — a name is in scope only from this module's own declarations and its imports

@@ -22,7 +22,9 @@ fn go<D: Describe>(d: D): Int {
   d.describe()
 }
 
-export fn main(): Result<(), Str> {
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
   let _ = go(Point(1));
   .Ok(())
 }

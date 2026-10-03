@@ -32,7 +32,7 @@ use crate::value::BuriList;
 /// this returns is the one the program will hold.
 ///
 /// A negative count and a generator that will not answer both abort, and
-/// neither is a `Result`. `core/effect`'s `Entropy` states why: the only other
+/// neither is a `Result`. `platform/effect`'s `Entropy` states why: the only other
 /// thing this could return is fewer octets than were asked for, and that is the
 /// one answer that must never reach a caller.
 ///

@@ -1,20 +1,18 @@
-// EXPECT: `ui` implements `Ui`, which is not allowed on the node platform
+// EXPECT: `NodeHost` has no field `ui`
 //
-// A platform *is* the set of effects its host exports, so a platform that does
-// not grant one does not export the name for it, and asking is an ordinary
-// unresolved name at the one line that asked. This is the direction the design
-// states as "the same rule that makes `FileSystemRead: host.fs` under `platform: "node"` an
-// unresolved name makes `Ui: host.ui` under `platform: "native"` one", and it is
-// checked per *output*: the same source under `platform: "web"` compiles, which
-// `repositories/build-files/web_output` builds.
+// A platform's host type is the list of effects it offers, so a platform that
+// has no document has no `ui` field, and asking for one is refused at the one
+// line that asked. The note says which platform offers it instead: the same
+// source written against `WebHost` and built for `platform: "web"` compiles,
+// which `repositories/build-files/web_output` builds.
 //
-// No `// PLATFORM:` line, so the corpus builds this for JS.
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+// No `// PLATFORM:` line, so the corpus builds this for node.
+from "platform/effect" import { Allocator, Stdout };
 from "core/io" import * as io;
+from "node" import { NodeHost };
 from "ui/effect" import { Ui, Watch };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc,
     Stdout: host.stdout,

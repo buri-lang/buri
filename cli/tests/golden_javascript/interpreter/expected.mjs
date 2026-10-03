@@ -1,31 +1,32 @@
-const $k0=[0,2n];
-const $k1=[1];
-const $k2=[0,3n];
-const $k3=[3];
-const $k4=[0,4n];
-const $k5=[2];
-const $k6=[5];
-const $k7=[0,10n];
-const $k8=[4];
-const $k9=[0,5n];
-const $k10=[6];
-const $k11=[$k0,$k1,$k2,$k3,$k4,$k5,$k6,$k7,$k8,$k9,$k10];
-const $k12=[0,0];
-const $k13=[1,$k5];
-const $k14=[7];
-const $k15=[1,'expected )'];
-const $k16=[1,$k15];
-const $k17=[0,0n];
-const $k18=[1,'expected a value'];
-const $k19=[1,$k18];
+const $k0=[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]];
+const $k1=[0,2n];
+const $k2=[1];
+const $k3=[0,3n];
+const $k4=[3];
+const $k5=[0,4n];
+const $k6=[2];
+const $k7=[5];
+const $k8=[0,10n];
+const $k9=[4];
+const $k10=[0,5n];
+const $k11=[6];
+const $k12=[$k1,$k2,$k3,$k4,$k5,$k6,$k7,$k8,$k9,$k10,$k11];
+const $k13=[0,0];
+const $k14=[1,$k6];
+const $k15=[7];
+const $k16=[1,'expected )'];
+const $k17=[1,$k16];
+const $k18=[0,0n];
+const $k19=[1,'expected a value'];
+const $k20=[1,$k19];
 function __cmd_x_main_buri$main(){
-  const parsed_2=__cmd_x_main_buri$parseSum([$k11,0n]);
+  const parsed_3=__cmd_x_main_buri$parseSum([$k12,0n]);
   let $t1;
-  if(parsed_2[0]===0){
-    const pair_3=parsed_2[1];
-    const $t4=__cmd_x_main_buri$eval(pair_3[0]);
+  if(parsed_3[0]===0){
+    const pair_4=parsed_3[1];
+    const $t4=__cmd_x_main_buri$eval(pair_4[0]);
     if($t4[0]===0){
-      $t1='value '+String($t4[1])+' depth '+String(__cmd_x_main_buri$depth(pair_3[0]));
+      $t1='value '+String($t4[1])+' depth '+String(__cmd_x_main_buri$depth(pair_4[0]));
     }else if($t4[0]===1){
       let $t5;
       const $t6=$t4[1];
@@ -56,9 +57,9 @@ function __cmd_x_main_buri$main(){
     }else{
       $abort('no arm matched');
     }
-  }else if(parsed_2[0]===1){
+  }else if(parsed_3[0]===1){
     let $t7;
-    const $t8=parsed_2[1];
+    const $t8=parsed_3[1];
     switch($t8[0]){
       case 0:
       case 1:
@@ -86,17 +87,17 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const text_8=$t1;
-  const self_9=$host_HostStdout_println([[],[]][1],text_8);
+  const text_9=$t1;
+  const self_10=$host_HostStdout_println([$k0[0],$k0[1]][1],text_9);
   let $t9;
-  if(self_9[0]===0){
+  if(self_10[0]===0){
     $t9=0;
-  }else if(self_9[0]===1){
+  }else if(self_10[0]===1){
     $t9=0;
   }else{
     $abort('no arm matched');
   }
-  return $k12;
+  return $k13;
 }
 function __cmd_x_main_buri$parseSum(c_0){
   const $t1=__cmd_x_main_buri$parseProduct(c_0);
@@ -156,7 +157,7 @@ function __cmd_x_main_buri$eval(e_0){
         }
         const d_10=$t11[1];
         if(d_10===0n){
-          return $k13;
+          return $k14;
         }else{
           const $t12=__cmd_x_main_buri$eval(e_0[1]);
           if($t12[0]!==0){
@@ -251,7 +252,7 @@ function __cmd_x_main_buri$peek(c_0){
   if($t1!==void 0){
     return $t1;
   }else if($t1===void 0){
-    return $k14;
+    return $k15;
   }else{
     $abort('no arm matched');
   }
@@ -275,7 +276,7 @@ function __cmd_x_main_buri$parsePrimary(c_0){
           const c_6=$fromShared(inner_2,inner_2[1]);
           return [0,[inner_2[0],[c_6[0],c_6[1]+1n]]];
         }else{
-          return $k16;
+          return $k17;
         }
       }
       break;
@@ -286,11 +287,11 @@ function __cmd_x_main_buri$parsePrimary(c_0){
           return $t10;
         }
         const inner_3=$t10[1];
-        return [0,[[2,$k17,inner_3[0]],$fromShared(inner_3,inner_3[1])]];
+        return [0,[[2,$k18,inner_3[0]],$fromShared(inner_3,inner_3[1])]];
       }
     default:
       {
-        return $k19;
+        return $k20;
       }
   }
 }

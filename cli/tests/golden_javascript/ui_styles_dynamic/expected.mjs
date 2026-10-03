@@ -17,24 +17,28 @@ const $k15=[$k14];
 const $k16=[$k15];
 const $k17=[5,$k16];
 const $k18=[$k17];
+const $k19=[[],[],[],[],[],[],[],[],[],[],[],[],[]];
 $ui_sheet='*,*::before,*::after{box-sizing:border-box}\n*,*::before,*::after{border-width:0}\n*{overflow-wrap:break-word}\n:where(body){margin:0}\n:where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}\n.lay-col{display:flex;flex-direction:column}\n.lay-row{display:flex;flex-direction:row}\n.grow-var{flex-grow:var(--buri-grow)}\n.w-var{width:var(--buri-w)}\n.bg-16a34a{background-color:rgb(22,163,74)}\n.bg-dc2626{background-color:rgb(220,38,38)}\n';
 $tree_declare_hook=$tree_declare;
-function __cmd_x_main_buri$main(){
-  const ctx_0=[[],[],[],[]];
-  const lit_1=[$host_HostUi_signal(ctx_0[2],false)];
-  const width_2=[$host_HostUi_signal(ctx_0[2],120n)];
-  const self_10=$host_HostStdout_println(ctx_0[1],'dynamic');
+function __cmd_x_main_buri$main$withHost(host_0){
+  const ctx_1=[host_0[0],host_0[1],host_0[10],host_0[11]];
+  const lit_2=[$host_HostUi_signal(ctx_1[2],false)];
+  const width_3=[$host_HostUi_signal(ctx_1[2],120n)];
+  const self_11=$host_HostStdout_println(ctx_1[1],'dynamic');
   let $t1;
-  if(self_10[0]===0){
+  if(self_11[0]===0){
     $t1=0;
-  }else if(self_10[0]===1){
+  }else if(self_11[0]===1){
     $t1=0;
   }else{
     $abort('no arm matched');
   }
-  const $t3=ui_node$stack$u3rqgv([[$k8,[3,[1,lit_1],$k13,$k18]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
-  const $t4=ui_node$stack$u3rqgv([[$k8,[4,scope_3=>[[24,[0,$ui_effect_Scope_read(scope_3,width_2[0])]]]]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
-  return $ui_node_mount(ctx_0,ui_node$stack$u3rqgv([$k4,[$t3,$t4,ui_node$stack$u3rqgv([[$k8,[12,$host_HostWatch_read(ctx_0[3],width_2[0])]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
+  const $t3=ui_node$stack$u3rqgv([[$k8,[3,[1,lit_2],$k13,$k18]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+  const $t4=ui_node$stack$u3rqgv([[$k8,[4,scope_4=>[[24,[0,$ui_effect_Scope_read(scope_4,width_3[0])]]]]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+  return $ui_node_mount(ctx_1,ui_node$stack$u3rqgv([$k4,[$t3,$t4,ui_node$stack$u3rqgv([[$k8,[12,$host_HostWatch_read(ctx_1[3],width_3[0])]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
+}
+function __cmd_x_main_buri$main(){
+  return __cmd_x_main_buri$main$withHost($k19);
 }
 function ui_node$stack$u3rqgv(config_0){
   const events_1=[config_0[3],config_0[4],config_0[5],config_0[6],config_0[7],config_0[8],config_0[9],config_0[10]];

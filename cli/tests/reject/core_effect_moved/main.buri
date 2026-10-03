@@ -1,0 +1,12 @@
+// EXPECT: "core/effect" is now "platform/effect"
+//
+// Effects moved out of `core/` to live apart from any one platform. The old
+// path is refused rather than aliased, and the fix names the new one.
+from "core/effect" import { Allocator, Stdout };
+from "core/io" import * as io;
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  io.println(ctx, "hello").mapErr(fn(_e) => "could not write")
+}

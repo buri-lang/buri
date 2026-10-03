@@ -52,6 +52,19 @@ edit {
   with: "platform: \"node\""
 }
 
+# The entry takes the host of the platform it now builds for.
+edit {
+  file: "cmd/daemon/main.buri"
+  replace: "from \"web\" import { WebHost };"
+  with: "from \"node\" import { NodeHost };"
+}
+
+edit {
+  file: "cmd/daemon/main.buri"
+  replace: "host: WebHost"
+  with: "host: NodeHost"
+}
+
 run {
   args: ["lint", "//..."]
   exit: 0

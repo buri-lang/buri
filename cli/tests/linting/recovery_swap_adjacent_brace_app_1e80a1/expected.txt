@@ -1,0 +1,9 @@
+error: expected `let`, found `total` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_1e80a1/main.buri:15:5
+   |
+15 |     total let = 3 * 4;
+   |     ^^^^^
+   |
+   = expected: `let`
+   = actual: `total`
+   = fix: write `let` first: `let total`

@@ -2,9 +2,9 @@
 // the `testing/` half, and `fakeCents` being called from here is what keeps it
 // off `dead-code`'s list.
 
-from "core/effect" import { Allocator, Stdout };
-from "core/host/testing" import { alloc, stdout };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Stdout };
+from "platform/effect/testing" import { alloc, stdout };
 from "//lib/money" import { Cents };
 from "//lib/money/testing" import { fakeCents };
 

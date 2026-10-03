@@ -629,14 +629,14 @@ unsafe extern "C" {
 /// returned `.Ok(())` can only have come from the drain a signal started. The
 /// port is printed before `run` blocks, which is the runtime's promise rather
 /// than this fixture's trick.
-const SERVER: &str = r#"from "core/effect" import { Allocator, Listen, Stdout, Tasks };
-from "core/host" import * as host;
+const SERVER: &str = r#"from "platform/effect" import { Allocator, Listen, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/time" import * as time;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc,
     Listen: host.listen,
@@ -663,8 +663,8 @@ export fn main(): Result<(), Str> {
 
 /// A program that catches nothing, so a signal it is sent ends it the operating
 /// system's way. It opens no port, and `up` is how a row knows it is running.
-const SLEEPER: &str = r#"from "core/effect" import { Clock, Stdout };
-from "core/host" import * as host;
+const SLEEPER: &str = r#"from "platform/effect" import { Clock, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/time" import * as time;
 
@@ -673,7 +673,7 @@ fn forever<C: Clock>(ctx: C): () {
     forever(ctx)
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
     let ctx = context {
         Clock: host.clock,
         Stdout: host.stdout,

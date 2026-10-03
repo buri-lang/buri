@@ -1,0 +1,43 @@
+//! web — a page in a browser, built by the `JS` backend.
+//!
+//! `main` is handed a `WebHost`: the effects a page has. A page has a
+//! document, so it has `ui`, `watch` and `location`; it has no filesystem, no
+//! standard input, no environment, no process and no port of its own.
+//!
+//! ```buri ignore why="an entry is checked against its platform, and this page is the platform"
+//! from "web" import { WebHost };
+//!
+//! export fn main(host: WebHost): Result<(), Str> {
+//!     run(context {
+//!         Allocator: host.alloc,
+//!         Ui: host.ui,
+//!     })
+//! }
+//! ```
+
+from "platform/host" import {
+    HostAllocator, HostClock, HostEntropy, HostLocation, HostNetwork, HostRandom,
+    HostSockets, HostStderr, HostStdout, HostTasks, HostUi, HostWatch,
+    HostWebSocketClient,
+};
+
+/// What a `web` entry is handed.
+export struct WebHost {
+    export alloc: HostAllocator,
+    export stdout: HostStdout,
+    export stderr: HostStderr,
+    export net: HostNetwork,
+    export clock: HostClock,
+    export rand: HostRandom,
+    export entropy: HostEntropy,
+    export tasks: HostTasks,
+    export sockets: HostSockets,
+    export websocketClient: HostWebSocketClient,
+    export ui: HostUi,
+    export watch: HostWatch,
+    export location: HostLocation,
+}
+
+/// The page. It runs once, when the page loads; `.Err(msg)` prints `msg` to
+/// the console.
+export fn main(host: WebHost): Result<(), Str>;

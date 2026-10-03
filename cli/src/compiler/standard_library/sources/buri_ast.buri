@@ -29,11 +29,11 @@
 //!
 //! ```buri run
 //! from "core/buri/ast" import * as ast;
-//! from "core/effect" import { Allocator, Stdout };
-//! from "core/host" import * as host;
 //! from "core/io" import * as io;
+//! from "node" import { NodeHost };
+//! from "platform/effect" import { Allocator, Stdout };
 //!
-//! export fn main(): Result<(), Str> {
+//! export fn main(host: NodeHost): Result<(), Str> {
 //!     let ctx = context {
 //!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
@@ -71,11 +71,11 @@
 //! ```
 
 from "core/bytes" import * as bytes;
-from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/number" import * as number;
 from "core/order" import * as order;
 from "core/str" import * as str;
+from "platform/effect" import { Allocator };
 
 // -----------------------------------------------------------------------------
 // Where a node came from
@@ -570,11 +570,11 @@ export struct Printed {
 ///
 /// ```buri run
 /// from "core/buri/ast" import * as ast;
-/// from "core/effect" import { Allocator, Stdout };
-/// from "core/host" import * as host;
 /// from "core/io" import * as io;
+/// from "node" import { NodeHost };
+/// from "platform/effect" import { Allocator, Stdout };
 ///
-/// export fn main(): Result<(), Str> {
+/// export fn main(host: NodeHost): Result<(), Str> {
 ///     let ctx = context {
 ///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
@@ -583,7 +583,7 @@ export struct Printed {
 ///         items: [
 ///             ast.Item {
 ///                 kind: .Import(ast.Import {
-///                     path: "core/effect",
+///                     path: "platform/effect",
 ///                     clause: .Named([
 ///                         ast.ImportSpec {
 ///                             name: ast.Name { text: "Allocator", origin: ast.nowhere() },
@@ -602,7 +602,7 @@ export struct Printed {
 /// ```
 ///
 /// ```stdout
-/// from "core/effect" import { Allocator };
+/// from "platform/effect" import { Allocator };
 /// ```
 export fn print<C: Allocator>(ctx: C, m: Module): Printed {
     let empty = Out {
@@ -2376,12 +2376,12 @@ let HOLE: Int = 1;
 ///
 /// ```buri run
 /// from "core/buri/ast" import * as ast;
-/// from "core/effect" import { Allocator, Stdout };
-/// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/list" import * as list;
+/// from "node" import { NodeHost };
+/// from "platform/effect" import { Allocator, Stdout };
 ///
-/// export fn main(): Result<(), Str> {
+/// export fn main(host: NodeHost): Result<(), Str> {
 ///     let ctx = context {
 ///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
@@ -2943,11 +2943,11 @@ struct Prep {
 ///
 /// ```buri run
 /// from "core/buri/ast" import * as ast;
-/// from "core/effect" import { Allocator, Stdout };
-/// from "core/host" import * as host;
 /// from "core/io" import * as io;
+/// from "node" import { NodeHost };
+/// from "platform/effect" import { Allocator, Stdout };
 ///
-/// export fn main(): Result<(), Str> {
+/// export fn main(host: NodeHost): Result<(), Str> {
 ///     let ctx = context {
 ///         Allocator: host.alloc,
 ///         Stdout: host.stdout,

@@ -3,14 +3,14 @@
 // A hint changes while the page is open — a combobox retitles its box as the
 // filter narrows — so it is a `Prop<Str>` like the label beside it rather than
 // a `Str` fixed when the tree was built.
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/signal" import { signal };
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let query = signal(ctx, "");
   ui.mount(ctx, ui.field({ label: .Const("Search"), kind: .Search, value: query, styles: [], hint: .Some("Type a command") }), [])

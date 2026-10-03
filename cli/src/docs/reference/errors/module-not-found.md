@@ -24,9 +24,10 @@ This snippet resolves against the worked monorepo in `cli/tests/example`, which
 has no `lib/nope`.
 
 ```buri fail code=module-not-found repo=cli/tests/example
+from "native" import { NativeHost };
 from "//lib/nope" import { Nope };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     .Ok(())
 }
 ```

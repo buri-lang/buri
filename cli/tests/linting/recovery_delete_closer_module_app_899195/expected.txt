@@ -1,0 +1,28 @@
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_delete_closer_module_app_899195/main.buri:15:87
+   |
+15 |     io.println(ctx, describe()).mapErr(fn(_e) => "could not write to standard output")
+   |                                                                                       ^
+   |
+   = fix: write `;` here
+error: expected `(`, found `describe` [unexpected-token]
+  --> lib/recovery_delete_closer_module_app_899195/main.buri:18:4
+   |
+18 | fn describe(): Str {
+   |    ^^^^^^^^
+   |
+   = expected: `(`
+   = actual: `describe`
+   = fix: write `(` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_app_899195/main.buri:22:1
+   |
+22 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_module_app_899195/main.buri:10:49
+   |
+10 | export fn main(host: NodeHost): Result<(), Str> {
+   |                                                 ^ opened here
+   |
+   = fix: write `}` here

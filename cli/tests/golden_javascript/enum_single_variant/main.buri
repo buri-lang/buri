@@ -1,8 +1,9 @@
 // One variant, so there is nothing to discriminate: the tag test is dead
 // weight and the backend already knows it.
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+
 from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
 
 enum Wrapped {
     Only(Int, Str),
@@ -14,7 +15,7 @@ fn describe(w: Wrapped): Template {
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,

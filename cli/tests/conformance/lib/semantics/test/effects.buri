@@ -12,18 +12,9 @@
 // compile-time claim as much as a runtime one.
 
 from "core/bytes" import * as bytes;
-from "core/effect" import {
-    Allocator, Clock, Environment, Header, IoError, Listen, Listener, Network, Random,
-    Received, Request, Response, Serve, ServeError, ServeFailure, Sockets, Stderr,
-    Stdin, Stdout, Tasks,
-};
 from "core/env" import * as env;
 from "core/fs" import * as fs;
 from "core/fs" import { FileSystemRead, FileSystemWrite };
-from "core/host/testing" import {
-    alloc, clock, env, fs, net, rand, readFileBytes, renameFile, stderr, stdin, stdout,
-    syncFile, TestFileSystem, TestStdout, writeFileBytes,
-};
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
@@ -33,6 +24,15 @@ from "core/str" import * as str;
 from "core/tasks" import * as tasks;
 from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
+from "platform/effect" import {
+    Allocator, Clock, Environment, Header, IoError, Listen, Listener, Network, Random,
+    Received, Request, Response, Serve, ServeError, ServeFailure, Sockets, Stderr,
+    Stdin, Stdout, Tasks,
+};
+from "platform/effect/testing" import {
+    alloc, clock, env, fs, net, rand, readFileBytes, renameFile, stderr, stdin, stdout,
+    syncFile, TestFileSystem, TestStdout, writeFileBytes,
+};
 from "//lib/semantics" import {
     EchoEnv, elapsed, fetchBody, FrozenClock, greet, guarded, joinedWith, loadText,
     loggedWith, OneShotListen, PlanListen, PoolListen, pushedWith, QuietSockets,
@@ -500,7 +500,7 @@ test "files contains exactly the entries it was given" {
 }
 
 test "reading a path files does not have gives IoError.NotFound" {
-    // `core/effect` declares the variant, and an unknown path is what `.NotFound`
+    // `platform/effect` declares the variant, and an unknown path is what `.NotFound`
     // is for; the match is exhaustive so a fourth answer cannot hide.
     let disk = fs().files([("a", "A")]);
     let ctx = context {
@@ -2056,7 +2056,7 @@ test "a bind that fails is an error with the platform's own words on it" {
     );
     // The cause is what a program branches on; the detail is what it prints.
     // Two fields rather than an enum with payloads, which is also what lets the
-    // detail cross the C ABI — `core/effect` says so where `ServeError` is.
+    // detail cross the C ABI — `platform/effect` says so where `ServeError` is.
     assert.equal(refused.cause, .PermissionDenied);
     assert.equal(refused.detail, "no address");
     assert.equal(server.errorText(refused), "listening was not permitted");
@@ -2290,7 +2290,7 @@ test "an ordinary Buri implementation hands its steps the context" {
 //
 // `<C: Allocator>` is an ordinary bound, so the argument at `C` need not be a
 // `context { … }` record — anything that implements `Allocator` satisfies it, and
-// `core/host/testing`'s `alloc()` is a `struct TestAllocator(I64)` that does.
+// `platform/effect/testing`'s `alloc()` is a `struct TestAllocator(I64)` that does.
 // Every block above passes a context, and every one of these deliberately does
 // not.
 //
@@ -2369,7 +2369,7 @@ test "a context holding the same double still reaches the same answer" {
 // `cli/runtime/net.rs`'s own tests — and against a real client, in
 // `cli/tests/native/`.
 //
-// The **writing** half is not on this file any more. `core/host/testing`'s
+// The **writing** half is not on this file any more. `platform/effect/testing`'s
 // `sockets()` records what a program pushes, so a socket program that is
 // `Sockets` and nothing else — the broadcast room, most of all — is driven
 // with no acceptor at all in `host_testing.buri` beside this one. That is the
@@ -2393,7 +2393,7 @@ test "a context holding the same double still reaches the same answer" {
 /// `TestStdout` is a *handle* into runner-side state rather than a value, so
 /// holding the one the hooks print to is a fake that can tell a first accept
 /// from a second. It lives here rather than in the library source because
-/// `core/host/testing` may only be imported from a test source (SPEC 4.1.1).
+/// `platform/effect/testing` may only be imported from a test source (SPEC 4.1.1).
 ///
 /// `socket: 0` is a fake that refuses every upgrade, which is how the
 /// fall-through to `onRequest` is exercised from the acceptor's side.

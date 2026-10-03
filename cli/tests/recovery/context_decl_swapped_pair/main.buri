@@ -1,11 +1,13 @@
 // EXPECT: expected `context`, found `Console`
-from "core/effect" import { Stdout };
-from "core/host" import * as host;
+// ROLE: test
+from "platform/effect" import { Stdout };
+from "node" import { NodeHost };
+from "platform/effect/testing" import { stdout };
 
 Console context {
-  Stdout: host.stdout,
+  Stdout: stdout(),
 }
 
-export fn main(): Result<(), Str> {
+fn main(host: NodeHost): Result<(), Str> {
   .Ok(())
 }

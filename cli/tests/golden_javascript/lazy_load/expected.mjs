@@ -1,11 +1,12 @@
-const $k0=[0,0];
+const $k0=[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]];
+const $k1=[0,0];
 async function __cmd_x_main_buri$main(){
-  const ctx_0=[[],[]];
-  __cmd_x_main_buri$eager$u3rqgv(ctx_0,1n);
-  __cmd_x_main_buri$eager$u3rqgv(ctx_0,2n);
-  const split_2=(await $lazy(0,$env0)).__cmd_x_main_buri$report$u3rqgv;
-  split_2(ctx_0,3n);
-  return $k0;
+  const ctx_1=[$k0[0],$k0[1]];
+  __cmd_x_main_buri$eager$u3rqgv(ctx_1,1n);
+  __cmd_x_main_buri$eager$u3rqgv(ctx_1,2n);
+  const split_3=(await $lazy(0,$env0)).__cmd_x_main_buri$report$u3rqgv;
+  split_3(ctx_1,3n);
+  return $k1;
 }
 function __cmd_x_main_buri$eager$u3rqgv(ctx_0,n_1){
   const text_5=$str_format(ctx_0,'['+String(n_1)+']');

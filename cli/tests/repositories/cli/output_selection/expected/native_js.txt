@@ -1,1 +1,1 @@
-.buri/out/node/cmd/native/native.mjs (N bytes)
+.buri/out/node/cmd/native/mainForNode.mjs (N bytes)

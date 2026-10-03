@@ -2,12 +2,12 @@
 // §5.4 examples, normal and abnormal, against the base it names.
 
 from "core/bytes" import { DecodeError };
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/net/url" import * as url;
 from "core/net/url" import { Url, UrlError };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 
 // The base every §5.4 row resolves against.
 let BASE: Str = "http://a/b/c/d;p?q";

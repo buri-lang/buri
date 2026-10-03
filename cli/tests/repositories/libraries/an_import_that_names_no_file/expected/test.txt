@@ -2,7 +2,7 @@
 error: "//cmd/app/main" names no file [import-path-without-a-file]
  --> cmd/app/test/main.buri:7:6
   |
-7 | from "//cmd/app/main" import { main };
+7 | from "//cmd/app/main" import { name };
   |      ^^^^^^^^^^^^^^^^
   |
   = a surface is named as a module and everything else is a file, so this path is that file's name — the one you would type into an editor, extension and all
@@ -43,13 +43,13 @@ error: "//cmd/app/main" names no file [import-path-without-a-file]
     A path that leaves the package and names a file inside it is internal-import
     instead.
 
-error: there is nothing named `main` in scope [unresolved-name]
-  --> cmd/app/test/main.buri:10:19
+error: there is nothing named `name` in scope [unresolved-name]
+  --> cmd/app/test/main.buri:10:18
    |
-10 |     assert.isTrue(main() == .Ok(()));
-   |                   ^^^^
+10 |     assert.equal(name(), "app");
+   |                  ^^^^
    |
-   = fix: declare `main`, or import it — a name is in scope only from this module's own declarations and its imports
+   = fix: declare `name`, or import it — a name is in scope only from this module's own declarations and its imports
 
      Why
      ───

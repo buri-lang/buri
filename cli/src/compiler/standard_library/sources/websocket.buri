@@ -6,12 +6,12 @@
 //! that module's own types re-exported here.
 //!
 //! ```buri
-//! from "core/effect" import { Sockets, Stdout, WebSocketClient };
-//! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/net/websocket" import * as websocket;
+//! from "node" import { NodeHost };
+//! from "platform/effect" import { Sockets, Stdout, WebSocketClient };
 //!
-//! export fn main(): Result<(), Str> {
+//! export fn main(host: NodeHost): Result<(), Str> {
 //!     let ctx = context {
 //!         Stdout: host.stdout,
 //!         Sockets: host.sockets,
@@ -56,11 +56,11 @@
 //! in the next socket's `onOpen`.
 //!
 //! ```buri
-//! from "core/effect" import { Allocator, Clock, Sockets, WebSocketClient };
 //! from "core/net/websocket" import * as websocket;
 //! from "core/net/websocket" import { Client };
 //! from "core/str" import * as str;
 //! from "core/time" import * as time;
+//! from "platform/effect" import { Allocator, Clock, Sockets, WebSocketClient };
 //!
 //! fn resuming<C: Allocator + Sockets + WebSocketClient>(token: Str): Client<C, Str> {
 //!     Client {
@@ -144,12 +144,12 @@
 //! `Sockets.socketClose`'s note. Put anything a program has to act on in a
 //! message, not in a code.
 
-from "core/effect" import {
+from "core/net/server" import { CloseReason, Message, Socket };
+from "platform/effect" import {
     Connected, Received, Response, ServeError, Sockets, WebSocketClient,
 };
-from "core/net/server" import { CloseReason, Message, Socket };
 
-from "core/effect" export { Connected, Response, ServeError };
+from "platform/effect" export { Connected, Response, ServeError };
 
 from "core/net/server" export { CloseReason, errorText, Message, Socket };
 

@@ -7,7 +7,7 @@
 
 from "core/buri/ast" import * as ast;
 from "core/bytes" import * as bytes;
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 from "std/codegen/proto" import * as proto;
 from "std/codegen/proto/schema" import * as schema;
 

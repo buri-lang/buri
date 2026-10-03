@@ -5,11 +5,11 @@
 //! target's `test.dependencies` declares, which is the two namespaces meeting.
 
 from "core/testing/assert" import * as assert;
-from "//cmd/app/main.buri" import { main };
+from "//cmd/app/main.buri" import { name };
 from "//lib/money/testing" import { sample };
 
-test "main is reachable from its own suite" {
-    assert.isTrue(main() == .Ok(()));
+test "main.buri is reachable from its own suite" {
+    assert.equal(name(), "app");
 }
 
 test "and a dependency's testing surface is reachable by its label" {

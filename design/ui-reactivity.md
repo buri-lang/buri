@@ -67,7 +67,7 @@ more than a projection: `filter`, `sort`, `map` and `str.format` all name
 the graph and cannot build one. It grants nothing by doing so — `Allocator` is
 the one effect whose implementation carries no authority, because a `Region` is
 a number, which is the same reason `core/alloc` is importable anywhere and
-`core/host` is not. Writing stays out: `Ui` is the effect that writes, and a
+`platform/host` is not. Writing stays out: `Ui` is the effect that writes, and a
 closure that wrote a signal it read would be a loop the runtime schedules rather
 than a value it caches. The two alternatives that lost, and the memory
 argument, are in `design/native/DECISIONS.md`.
@@ -534,7 +534,7 @@ signal was created.
 
 - **Reactivity needs no compiler work** beyond the platform modules and their
   intrinsics (bodyless methods lowered to intrinsic keys, resolved by each
-  backend's runtime — the existing `core/host` mechanism).
+  backend's runtime — the existing `platform/host` mechanism).
 - **Styling has to be toolchain work.** With no macros, no reflection and no
   runtime generation, no library can see another module's style literals.
   Compiling a module collects its static `Style` literals into a `Vec` on
@@ -580,7 +580,9 @@ fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
   ])
 }
 
-export fn main(): Result<(), Str> {
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   ui.mount(ctx, counter(ctx, "clicks"), [app.themed(appTheme)])
 }
@@ -602,7 +604,7 @@ language one, and the existing machinery covers it:
 
 - **Libraries declare nothing, by default.** A UI library is ordinary Buri over
   neutral types (`Node`, `Style`, `Role`), cannot construct a context, and
-  cannot import `core/host` — platform-agnostic by construction, the way a pure
+  holds no host — platform-agnostic by construction, the way a pure
   library is effect-free by construction. A genuinely target-specific library
   uses the existing `backends` or `platforms` field on its build rule.
 - **Apps declare targets in `outputs`.** The bundled platforms are `native`,
@@ -621,73 +623,46 @@ language one, and the existing machinery covers it:
   A `web` output takes no `variant`, because there is no machine under a page.
   Naming one is a build-file error rather than a field the toolchain then
   quietly ignores.
-- **Enforcement is a compile error, over every output at once.** `main` is the
-  only module that can import `core/host`, and the compiler checks `main.buri`
-  against the platforms its rule's `outputs` name — every one of them, plus
-  every platform its suite names in `test.backends`, because a test binary
-  links `main` in. So it refuses `Ui: host.ui` under `platform: "native"`, refuses
-  `FileSystemRead: host.fs` under `platform: "web"`, and refuses a binary declaring both
-  `native` and `web` for the second whichever one is being built. The diagnostic
-  is `effect-not-on-platform`, and it names the effect, the platforms that do
-  not allow it, and the platforms that *do* grant it. A platform *is* the set of
-  effects its host exports; there is no second declaration.
+- **Enforcement is a compile error, at the entry.** Each entry takes its
+  platform's host — `NativeHost`, `NodeHost` or `WebHost` — and a host type is
+  that platform's list of effects: `WebHost` has `ui`, `watch` and `location`
+  and no `fs`; `NativeHost` has no `ui`. So binding `Ui: host.ui` in a `native`
+  entry, or `FileSystemRead: host.fs` in a `web` one, is `no-such-field` on the
+  field, with a note naming the platforms that do offer the effect. An entry
+  built for another platform's host is `entry-host-mismatch`; a binary for both
+  gives each output its own entry. It is the type checker, so `buri lint`,
+  `buri test` and the language server report it before anything is built.
 
-  The error lands where the program asked. A named import is refused on the name
-  inside the braces; a namespace import names no effect, so `host.fs` is
-  refused on the member reference. Both are semantics-layer diagnostics on a
-  span, so `buri lint`, `buri test` and the language server report them before
-  anything is built.
+  **A rule that declares no platforms commits to none**: a library is never
+  refused, which keeps a bound — `FileSystemRead` taken as a bound rather than
+  bound to a host field — legal everywhere, a page included.
 
-  Three consequences worth writing down. **A grant is a pair** — the value and
-  the implementation struct — and both are refused together: a host struct has
-  no private field, so allowing `HostNetwork` while refusing `net` would leave the
-  authority one `Network: host.HostNetwork {}` away. **A build still subsets
-  `core/host` per output**, the backstop this check sits in front of. And **a
-  rule that declares no platforms commits to none**: a library with no
-  `platforms` field is platform-generic and is never refused, which keeps a
-  bound — `FileSystemRead` taken as a bound rather than bound to a host — legal
-  everywhere, a page included.
-
-  `web` grants `Allocator`, `Stdout`, `Stderr`, `Clock`, `Random`, `Network`, `Tasks`, `Ui`
-  and `Watch`, and withholds `FileSystemRead`, `FileSystemWrite`, `Stdin`, `Environment`, `Process`,
-  `Listen` and `Sockets`. `native` grants all fourteen non-UI effects
-  and neither UI one; `node` grants twelve of the fourteen — everything but
-  `Listen` and `Sockets`.
-
-  **A row may name no platform at all**, and that is the route `Tasks`, `Listen`
-  and `Sockets` each came down: the names, the signature and the refusal exist
-  before the runtime does, with no second "not implemented yet" flag anywhere,
-  and the grant is later that one row gaining platforms. No program written
-  against the reviewed signature had to change when the runtime arrived.
-  `Listen` and `Sockets` were granted **together**, because being a server is
-  one authority in two halves: accepting a connection, and writing to one
-  somebody already accepted. `node` and `web` will never have them — a page is
-  served rather than serving — which bounds what an empty row ever claimed: not
-  that everybody eventually grants this. `Tasks` came down it too and then
-  widened again: granted by nobody, then on the three platforms that are
-  not a page, and now on all four, once `core/tasks`'s `spawn` gave a page a
-  task worth running. `design/native/DECISIONS.md` carries that reversal.
+  `WebHost` has `Allocator`, `Stdout`, `Stderr`, `Clock`, `Random`, `Entropy`,
+  `Network`, `Tasks`, `Sockets`, `WebSocketClient`, `Ui`, `Watch` and
+  `Location`. `NativeHost` has every non-UI effect; `NodeHost` has everything
+  but `Listen` and `Tcp`. `node` and `web` will never have those — a page is
+  served rather than serving.
 - **Email is a different effect grant, not a lesser web.** Its host exports
   rendering and nothing interactive: no `Ui`, no `Fetch`. A `render` evaluates
   the tree once, so `Const` and `Computed` props resolve and `Cell` has nothing
   to back it. Component libraries written against `Prop` and `Style` work
   untouched, and an app that binds interactive effects fails at `main`. An
-  `EMAIL` row in the grant table granting neither is the whole mechanism.
+  `email` platform whose host has neither field is the whole mechanism.
 
 ## Modules
 
 UI gets its own reserved root, `ui/...`, so `core/` keeps meaning "the
 deliberately small essentials." **This extends SPEC rule 35** (module paths were
 `core/...` or `//...`): the rule's wording, the path check in `modules.rs`, and
-entries in the static `MODULES` table. The platform implementations fold into
-the existing `core/host`, which is already per-platform and main-only;
-UI-capable platforms export three more values from it. When external
+entries in the static `MODULES` table. The platform implementations are
+`platform/host`'s `HostUi`, `HostWatch` and `HostLocation`, and `WebHost` is
+the one host with fields of those types. When external
 repositories land, `ui/...` can migrate out wholesale.
 
 | Module | Kind | Exports |
 |---|---|---|
 | `ui/effect` | platform | `effect Watch`, `effect Ui`, `effect Fetch`, `Scope`, `Event`, `Request`, `FetchError`, `fetch` |
-| `core/host` (web, …) | platform | adds `ui`, `watch`, `fetch` — the implementations `main` binds |
+| `web` | platform | `WebHost`, whose `ui`, `watch` and `location` are the implementations `main` binds |
 | `ui/signal` | library | `Signal<T>` (`get`/`set`/`update`), `signal`, `watch` |
 | `ui/prop` | library | `Prop<T>` (`read`), `memo` |
 | `ui/node` | library | `Node<C>`, `Role`, `FieldKind`, `nothing`, `stack`, `region`, `row`, `column`, `spacer`, `text`, `heading`, `button`, `link`, `image`, `field`, `toggle`, `form`, `submit`, `onPressOutside`, `routeLink`, `radioGroup`, `progress`, `disclosure`, `choose`, `computed`, `each`, `icon`, `mount` |
@@ -713,10 +688,10 @@ from "//lib/cardlib" import { Token };
 `main`:
 
 ```buri
-from "core/host" import * as host;
-from "ui/effect" import { Fetch, Ui, Watch };
+from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
-// context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch, Fetch: host.fetch }
+from "web" import { WebHost };
+// export fn main(host: WebHost) ... context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch }
 ```
 
 A component test:
@@ -733,7 +708,7 @@ resolution goes through the receiver's defining module.
 
 | Piece | Where | Why |
 |---|---|---|
-| `ui/effect`, the `core/host` additions, `Scope` | compiler stdlib, platform modules | `effect` is legal only in a platform module, and platform-ness is a flag on the static `MODULES` table |
+| `ui/effect`, `platform/host`'s UI structs, `Scope` | compiler stdlib, platform modules | `effect` is legal only in a platform module, and platform-ness is a flag on the static `MODULES` table |
 | The `Ui`/`Watch`/`Fetch` intrinsics | backend runtime | bodyless methods lower to intrinsic keys; the JS backend resolves them to `$host_*` functions |
 | Style extraction + stylesheet link step | compiler | needs cross-module visibility no library has |
 | `Signal`, `Prop`, `Node`, `Style`, `Role`, all constructors | `ui/*`, ordinary Buri | no compiler support needed; movable to a real library once external repos land |

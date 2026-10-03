@@ -41,7 +41,7 @@ Hand-roll one and you get a wrong answer that compiles.
   `core/env`, `core/time`, `core/random`, `core/alloc`, `core/net/http`,
   `core/net/server`, `core/process`, `core/tasks` and `ui/signal`. The
   filesystem is **two** effects, `FileSystemRead` and `FileSystemWrite`. `core/fs` declares
-  both, not `core/effect`, and every function there takes a `Path` from
+  both, not `platform/effect`, and every function there takes a `Path` from
   `core/path` rather than a `Str`. See the `buri-types` skill.
 - **A bare identifier in a pattern is always a binding.** `None` binds a
   variable; write `.None` or `Option.None` to match the variant.
@@ -63,8 +63,8 @@ Hand-roll one and you get a wrong answer that compiles.
 ## A whole program
 
 ```buri
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
@@ -91,7 +91,7 @@ impl Shape {
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
@@ -104,14 +104,19 @@ export fn main(): Result<(), Str> {
 }
 ```
 
-`main` takes no parameters and returns `Result<(), Str>`. It is an *entry*, and
-only an entry may build a context; only `main.buri` may import `core/host`.
-`.Ok(())` exits 0. `.Err(msg)` prints `msg` on stderr and exits 1. A build file's
-`outputs` may name a second entry — `{ platform: CLOUDFLARE_WORKER }` enters
-at `fn fetch(request: Request): Response`.
+`main` takes its platform's host and returns `Result<(), Str>`: `NativeHost`
+from `"native"`, `NodeHost` from `"node"` (a binary with no `outputs` builds for
+`node`), `WebHost` from `"web"`. It is an *entry*, and only an entry may build a
+context, from the host's fields. The old `fn main()` is `entry-without-host`, and
+a field the platform lacks is `no-such-field`. `.Ok(())` exits 0. `.Err(msg)`
+prints `msg` on stderr and exits 1. A program for two platforms gives each
+output its own entry, `{ platform: "node", entries: { main: "mainForNode" } }`,
+and both call one function taking `ctx`. `{ platform: CLOUDFLARE_WORKER }`
+enters at `fn fetch(request: Request): Response`, which binds `core/host`'s
+values because it takes no host yet.
 
 **Import the effect names.** `context { Allocator: host.alloc }` without
-`from "core/effect" import { Allocator };` above it fails with `not-an-effect`.
+`from "platform/effect" import { Allocator };` above it fails with `not-an-effect`.
 
 ## Modules
 
@@ -142,8 +147,10 @@ from "//lib/money" import { Cents };
   `"//lib/money/cents.buri"` or `"//cmd/app/main.buri"`. Leave the file name
   off and you get `import-path-without-a-file`. Leave the package and name a
   file inside it and you get `internal-import`.
-- A `testing` directory segment makes a module test-only. Only the module
-  exporting `main` may import `core/host`.
+- A `testing` directory segment makes a module test-only. Only a platform's
+  `platform.buri` may import `platform/host`.
+- Effects live in `platform/effect`, their test implementations in
+  `platform/effect/testing`. `core/effect` and `core/host/testing` are retired.
 
 ## Declarations
 

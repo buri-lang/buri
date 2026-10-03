@@ -1,4 +1,4 @@
-# A suite built on `core/host/testing`'s doubles, run under the runtime's heap
+# A suite built on `platform/effect/testing`'s doubles, run under the runtime's heap
 # audit — which is what `buri test` puts a linked test binary under, and what
 # this case is here to keep true.
 #

@@ -7,6 +7,8 @@ fn take(m: Measurable): Int {
   0
 }
 
-export fn main(): Result<(), Str> {
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
   .Ok(())
 }

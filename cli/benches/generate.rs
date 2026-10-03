@@ -81,13 +81,14 @@
 /// | Revision | What moved |
 /// |---:|---|
 /// | 1 | The first one. |
-/// | 2 | `core/cap` was renamed `core/effect`, so every module's import block is three bytes longer. No construct, count or shape moved — `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. Every saved corpus was re-recorded and all forty pinned manifests re-pinned at it; `design/PERFORMANCE.md` §6 says so. |
+/// | 2 | `core/cap` was renamed `platform/effect`, so every module's import block is three bytes longer. No construct, count or shape moved — `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. Every saved corpus was re-recorded and all forty pinned manifests re-pinned at it; `design/PERFORMANCE.md` §6 says so. |
 /// | 3 | `self` stopped writing its type, so every method signature is shorter by the receiver's name and a colon. Again no construct, count or shape moved: `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. |
 /// | 4 | An enum variant stopped carrying `export`, so every variant line is shorter by the keyword and a space. Again no construct, count or shape moved: `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. |
 /// | 5 | Every import names a file, so `core/list` is now `core/list/lib.buri` and `//bench/m0007` is `//bench/m0007.buri`. Every import line is longer by a suffix. As with revision 2, which this is the twin of, no construct, count or shape moved: `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. Every saved corpus was re-recorded and all forty pinned manifests re-pinned at it; `design/PERFORMANCE.md` §6 says so. |
 /// | 6 | An import that names a surface names the module again, so `core/list/lib.buri` is back to `core/list`. Every generated module imports four or five standard library modules and nothing else across a boundary, so every import block is shorter by nine bytes a line; the `//bench/mNNNN.buri` imports name files inside `//bench` and did not move. Revision 5 undone in one direction, and as there, no construct, count or shape moved: `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. Every saved corpus was re-recorded and all forty pinned manifests re-pinned at it; `design/PERFORMANCE.md` §6 says so. |
 /// | 7 | Every module is handed to `formatting::source` before it leaves this file, so a generated corpus is what `buri format` writes — four spaces, a sorted import run, a `derive` above the declaration it is about, and a line broken where the printer breaks it. **The first revision that moves a shape and not only its bytes**: a body the emitter wrote on one line is now several, so `lines` and `modules` both move at every scale where they did not before, and the construct count behind a given line target falls. That is the point rather than a cost — a line rate quoted over source nobody would check in is a rate over the wrong denominator. Every saved corpus was re-recorded and all forty pinned manifests re-pinned at it; `design/PERFORMANCE.md` §6 says so. |
-pub const GENERATOR_REVISION: u32 = 7;
+/// | 8 | Effects moved to `platform/effect`, and `main` takes its platform's host: `main.buri` imports `NodeHost` from `"node"` and declares `main(host: NodeHost)` where it imported `core/host`, and every module's `core/effect` import is `platform/effect`. No construct moved, but the formatter sorts `platform/effect` after the `core/*` imports, so `bytes` and the digest move at every scale and `lines` moves wherever `main` gained an import line. Every saved corpus was re-recorded and all forty pinned manifests re-pinned at it; `design/PERFORMANCE.md` §6 says so. |
+pub const GENERATOR_REVISION: u32 = 8;
 
 /// A generated program: its modules, in an order where every module's imports
 /// come before it.
@@ -908,7 +909,7 @@ fn mixed_module(
     ));
     s.push_str("from \"core/str\" import * as str;\n");
     s.push_str("from \"core/list\" import * as list;\n");
-    s.push_str("from \"core/effect\" import { Allocator };\n");
+    s.push_str("from \"platform/effect\" import { Allocator };\n");
     // `Equal`, `Show`, `Ordered` and `Hash` are in scope everywhere; the JSON pair is
     // not. The import appears only when `derives` reaches them, so the default
     // corpus is unchanged.
@@ -1404,8 +1405,8 @@ fn main_module(count: usize, p: &Params) -> String {
          //! monomorphization reaches the whole program from `main` and the\n\
          //! lowering benchmark is not measuring dead-code elimination.\n\n",
     );
-    s.push_str("from \"core/effect\" import { Allocator };\n");
-    s.push_str("from \"core/host\" import * as host;\n");
+    s.push_str("from \"platform/effect\" import { Allocator };\n");
+    s.push_str("from \"node\" import { NodeHost };\n");
     for i in 0..count {
         s.push_str(&format!("from \"//bench/m{i:04}.buri\" import {{ blend{i}, reach{i} }};\n"));
     }
@@ -1417,9 +1418,9 @@ fn main_module(count: usize, p: &Params) -> String {
     // has to visit the whole corpus rather than the handful of functions a
     // `blend`-only entry point would leave alive.
     s.push_str(
-        "\n/// The entry point. `main` is the only module that may import\n\
-         /// `core/host`, so it is the only place the context can be built.\n\
-         export fn main(): Result<(), Str> {\n\
+        "\n/// The entry point. `main` is handed the host, so it is the only\n\
+         /// place the context can be built.\n\
+         export fn main(host: NodeHost): Result<(), Str> {\n\
          \x20 let ctx = context { Allocator: host.alloc };\n\
          \x20 let total = 0\n",
     );
@@ -1467,9 +1468,9 @@ fn main_module_parts(mut s: String, count: usize, p: &Params) -> String {
         s.push_str("}\n");
     }
     s.push_str(
-        "\n/// The entry point. `main` is the only module that may import\n\
-         /// `core/host`, so it is the only place the context can be built.\n\
-         export fn main(): Result<(), Str> {\n\
+        "\n/// The entry point. `main` is handed the host, so it is the only\n\
+         /// place the context can be built.\n\
+         export fn main(host: NodeHost): Result<(), Str> {\n\
          \x20 let ctx = context { Allocator: host.alloc };\n\
          \x20 let total = 0\n",
     );
@@ -1565,7 +1566,7 @@ const NESTING: usize = 100;
 fn deep_nesting(target_lines: usize) -> Program {
     let per_fn = NESTING + 5;
     let count = (target_lines / per_fn).max(1);
-    let mut s = String::from("//! Stress shape: expressions nested to the parser's limit.\n\n");
+    let mut s = String::from("//! Stress shape: expressions nested to the parser's limit.\n\nfrom \"node\" import { NodeHost };\n\n");
     for f in 0..count {
         s.push_str(&format!("export fn deep{f}(x: Int): Int {{\n  let v =\n"));
         for i in 0..NESTING {
@@ -1577,7 +1578,7 @@ fn deep_nesting(target_lines: usize) -> Program {
         }
         s.push_str(";\n  v\n}\n\n");
     }
-    s.push_str("export fn main(): Result<(), Str> {\n  let total = 0\n");
+    s.push_str("export fn main(host: NodeHost): Result<(), Str> {\n  let total = 0\n");
     for f in 0..count {
         s.push_str(&format!("    + deep{f}(1)\n"));
     }
@@ -1594,7 +1595,7 @@ fn deep_nesting(target_lines: usize) -> Program {
 /// that would expose it.
 fn wide_match(target_lines: usize) -> Program {
     let arms = target_lines.saturating_sub(10) / 2;
-    let mut s = String::from("//! Stress shape: one very wide enum and one very wide match.\n\n");
+    let mut s = String::from("//! Stress shape: one very wide enum and one very wide match.\n\nfrom \"node\" import { NodeHost };\n\n");
     s.push_str("export enum Wide {\n");
     for i in 0..arms {
         s.push_str(&format!("  V{i}(Int),\n"));
@@ -1603,7 +1604,7 @@ fn wide_match(target_lines: usize) -> Program {
     for i in 0..arms {
         s.push_str(&format!("    .V{i}(n) => n + {i},\n"));
     }
-    s.push_str("  }\n}\n\nexport fn main(): Result<(), Str> {\n");
+    s.push_str("  }\n}\n\nexport fn main(host: NodeHost): Result<(), Str> {\n");
     s.push_str("  if (classify(.V0(1)) == 0) { .Err(\"zero\") } else { .Ok(()) }\n}\n");
     let path = "//bench/main.buri".to_string();
     let text = laid_out(&path, s);
@@ -1650,11 +1651,11 @@ fn many_small(target_lines: usize) -> Program {
         let text = laid_out(&path, s);
         modules.push(Module { path, text });
     }
-    let mut main = String::from("//! Stress shape entry point.\n\n");
+    let mut main = String::from("//! Stress shape entry point.\n\nfrom \"node\" import { NodeHost };\n\n");
     for m in 0..module_count {
         main.push_str(&format!("from \"//bench/m{m:04}.buri\" import {{ all{m} }};\n"));
     }
-    main.push_str("\nexport fn main(): Result<(), Str> {\n  let total = 0\n");
+    main.push_str("\nexport fn main(host: NodeHost): Result<(), Str> {\n  let total = 0\n");
     for m in 0..module_count {
         main.push_str(&format!("    + all{m}(1)\n"));
     }
@@ -1670,7 +1671,7 @@ fn many_small(target_lines: usize) -> Program {
 fn few_large(target_lines: usize) -> Program {
     let body = 1_000usize;
     let count = (target_lines / body).max(1);
-    let mut s = String::from("//! Stress shape: few large functions.\n\n");
+    let mut s = String::from("//! Stress shape: few large functions.\n\nfrom \"node\" import { NodeHost };\n\n");
     for f in 0..count {
         s.push_str(&format!("export fn large{f}(x: Int): Int {{\n  let v0 = x + 1;\n"));
         for i in 1..body {
@@ -1678,7 +1679,7 @@ fn few_large(target_lines: usize) -> Program {
         }
         s.push_str(&format!("  v{}\n}}\n\n", body - 1));
     }
-    s.push_str("export fn main(): Result<(), Str> {\n  let total = 0\n");
+    s.push_str("export fn main(host: NodeHost): Result<(), Str> {\n  let total = 0\n");
     for f in 0..count {
         s.push_str(&format!("    + large{f}(1)\n"));
     }

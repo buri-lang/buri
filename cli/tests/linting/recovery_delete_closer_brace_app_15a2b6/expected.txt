@@ -1,0 +1,25 @@
+warning: `platform/effect` is imported twice [duplicate-import]
+  --> lib/recovery_delete_closer_brace_app_15a2b6/main.buri:12:6
+   |
+12 | from "platform/effect" import { Stdout };
+   |      ^^^^^^^^^^^^^^^^^
+   |
+  --> lib/recovery_delete_closer_brace_app_15a2b6/main.buri:11:6
+   |
+11 | from "platform/effect" import { Allocator };
+   |      ^^^^^^^^^^^^^^^^^ first imported here
+   |
+   = two statements for one module drift apart, and the top of the file stops being the whole account of what it borrows
+   = fix: merge the two into one import
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_15a2b6/main.buri:21:6
+   |
+21 |     }?;
+   |      ^
+   |
+  --> lib/recovery_delete_closer_brace_app_15a2b6/main.buri:19:45
+   |
+19 |     let _ = print(ctx, "half a line").mapErr(fn(_e) => {
+   |                                             ^ opened here
+   |
+   = fix: write `)` here

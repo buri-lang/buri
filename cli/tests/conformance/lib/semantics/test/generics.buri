@@ -1,11 +1,11 @@
 // SPEC 5.10, 5.12.5 — generics, bounds, explicit type arguments, and
 // monomorphization.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/number" import * as number;
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "//lib/semantics" import {
     Backwards, between, Boxed, Brick, constant, Count, depth, Either, eitherInt,
     Feather, flip, has, identity, inOrder, insert, largest, Level, mapTree, Meters,

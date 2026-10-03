@@ -8,7 +8,7 @@ argument, so a test that wants a different filesystem passes one.
 The exact rules are in
 [`reference/build/testing.md`](../reference/build/testing.md): the `test`
 block's fields, what a test source may import, and every member of
-`core/host/testing`.
+`platform/effect/testing`.
 
 ## Declare the suite
 
@@ -66,7 +66,7 @@ refactoring behind the surface never rewrites one.
 
 A binary's suite works the same way, except that its entry point is a file:
 `from "//cmd/server/main.buri" import { route };`. `main` itself is not testable,
-because it builds its own context out of `core/host` — which is the pressure that
+because it takes a host that only the CLI can build — which is the pressure that
 keeps logic in functions taking an ordinary `ctx`.
 
 ## Assertions
@@ -105,9 +105,9 @@ looks like it makes.
 `format` allocates, says so with `C: Allocator`, and its test has to supply one:
 
 ```buri repo=cli/tests/example role=test
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "//lib/money" import { fromCents };
 
 test "pads the cents place" {
@@ -120,13 +120,13 @@ test "pads the cents place" {
 
 That is the same `context` form an entry uses: a test source and an entry's body
 are the only places that *create* a context rather than receive one, and only a
-test source may import `core/host/testing`. Bind what the function under test needs
+test source may import `platform/effect/testing`. Bind what the function under test needs
 and nothing more — a context that does not name `Network` proves that nothing it
 calls, however deep, reaches the network.
 
 ## Doubles are values, not a framework
 
-Every member of `core/host/testing` is a function, and each call mints a fresh
+Every member of `platform/effect/testing` is a function, and each call mints a fresh
 double, so nothing leaks from one test to the next. The defaults fail loudly
 rather than plausibly:
 
@@ -143,12 +143,12 @@ Configure one by calling a builder on it, which answers a *new* double and
 leaves the old one alone. Read the environment back at the end of the test:
 
 ```buri role=test
-from "core/effect" import { Allocator, IoError };
 # from "core/fs" import * as fs;
 from "core/fs" import { FileSystemRead, FileSystemWrite, Path };
-from "core/host/testing" import { alloc, fs };
 from "core/path" import * as path;
 # from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, IoError };
+from "platform/effect/testing" import { alloc, fs };
 
 # fn archive<C: Allocator + FileSystemRead + FileSystemWrite>(
 #     ctx: C,
@@ -202,10 +202,10 @@ A double the runner does not provide is a struct with methods, bound in a
 context the way the runner's own are:
 
 ```buri role=test
-# from "core/effect" import { Allocator, NetError, Network, Request, Response };
-# from "core/host/testing" import { alloc };
 # from "core/net/http" import * as http;
 # from "core/testing/assert" import * as assert;
+# from "platform/effect" import { Allocator, NetError, Network, Request, Response };
+# from "platform/effect/testing" import { alloc };
 
 # fn status<C: Network>(ctx: C, url: Str): Result<Int, NetError> {
 #     http.send(ctx, http.request(.Get, url)).map(fn(r) => r.status)
@@ -249,12 +249,12 @@ Fixtures say what a call *finds*. A fault plan says what a call **fails
 with**:
 
 ```buri role=test
-from "core/effect" import { Allocator };
 # from "core/fs" import * as fs;
 from "core/fs" import { FileSystemRead };
-from "core/host/testing" import { alloc, fs, readFile };
 from "core/path" import * as path;
 # from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc, fs, readFile };
 
 test "a file that cannot be read is reported rather than skipped" {
     let disk = fs()
@@ -321,9 +321,9 @@ A helper two suites need is not a test source. It is ordinary library code that
 happens to be test-only, behind a path with a `testing` segment:
 
 ```buri repo=cli/tests/example package=//lib/ledger role=testing
-# from "core/effect" import { Allocator };
 # from "core/fs" import { FileSystemRead };
-# from "core/host/testing" import { alloc, fs };
+# from "platform/effect" import { Allocator };
+# from "platform/effect/testing" import { alloc, fs };
 
 // lib/ledger/testing/fixtures.buri — inside //lib/ledger, so it can use the
 // library's internals to build a fixture.

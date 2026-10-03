@@ -7,8 +7,8 @@
 //!
 //! ```buri
 //! from "core/bytes" import * as bytes;
-//! from "core/effect" import { Allocator, IoError, Tcp };
 //! from "core/net/tcp" import * as tcp;
+//! from "platform/effect" import { Allocator, IoError, Tcp };
 //!
 //! export fn ping<C: Allocator + Tcp>(
 //!     ctx: C,
@@ -61,9 +61,9 @@
 //! **`Tcp` is granted on LINUX and MACOS.** A page and a worker have no sockets
 //! of their own.
 
-from "core/effect" import { Allocator, IoError, Tcp };
+from "platform/effect" import { Allocator, IoError, Tcp };
 
-from "core/effect" export { IoError };
+from "platform/effect" export { IoError };
 
 derive Equal, Show for Stream;
 /// One open connection. The handle is exported because it is inert — a number
@@ -74,9 +74,9 @@ export struct Stream(export Int);
 /// Dials `host` on `port`.
 ///
 /// ```buri
-/// from "core/effect" import { IoError, Tcp };
 /// from "core/net/tcp" import * as tcp;
 /// from "core/net/tcp" import { Stream };
+/// from "platform/effect" import { IoError, Tcp };
 ///
 /// export fn dial<C: Tcp>(ctx: C, host: Str): Result<Stream, IoError> {
 ///     tcp.connect(ctx, host, 6379)

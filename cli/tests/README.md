@@ -228,7 +228,7 @@ TLS 1.2 `ClientHello` a `rustls` server will answer, at 1.2 precisely because
 time.
 
 **A repository fixture cannot run a server.** `repositories/` reaches a native
-backend through `buri test`, and a test source may not import `core/host` (SPEC
+backend through `buri test`, and a test source holds no host (SPEC
 4.1.1). So a repository case asserts the *graph* refusal —
 `build-files/server_on_a_page` — and anything that runs a listener sits at tier
 1, in a process of its own.

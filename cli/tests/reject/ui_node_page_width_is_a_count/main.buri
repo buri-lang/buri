@@ -5,13 +5,13 @@
 // resolves against a font size and a `Percent` against the box around it, and
 // this number is what every percentage and every breakpoint in the tree under
 // it resolves *against*.
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let _ = ui.describeWide(ctx, ui.stack({ styles: [], children: [] }), .Hover, .Px(390));
   .Ok(())

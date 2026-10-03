@@ -179,7 +179,7 @@ impl Jit<'_> {
             // `context { … }`. `C` is an ordinary type parameter with an
             // ordinary bound (SPEC 10.1), so a value that *implements* `Allocator`
             // satisfies it without being a context — SPEC 10.8's attenuating
-            // `ReadOnly<C>`, and `core/host/testing`'s `alloc()`, which is a
+            // `ReadOnly<C>`, and `platform/effect/testing`'s `alloc()`, which is a
             // `struct TestAllocator(I64)` carrying a handle. One of those slipped
             // past the type test, spread to a leaf, and shifted every argument
             // after it one register down: `push` reached `buri_rt_list_push`
@@ -889,7 +889,7 @@ impl Jit<'_> {
         // runtime entry takes, because what reads it is the step and not the
         // runtime. One that owned a count would need a retain per element, and
         // no context does: `core/host`'s are empty structs and
-        // `core/host/testing`'s carry a handle.
+        // `platform/effect/testing`'s carry a handle.
         let supplied: Vec<(u32, ir::Type)> =
             call.ctx.into_iter().filter_map(|i| args.get(i).copied()).collect();
         if supplied.len() != ctx_at.len() {

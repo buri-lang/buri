@@ -22,8 +22,8 @@ touch the world?" from the first two parameters and stop.
 ## A program that provokes it
 
 ```buri fail code=ctx-not-first
-# from "core/effect" import { Stdout };
 # from "core/io" import * as io;
+# from "platform/effect" import { Stdout };
 
 fn shout<C: Stdout>(times: Int, ctx: C): () {
     io.println(ctx, "loud").ignore()

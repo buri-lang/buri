@@ -3,7 +3,7 @@
 //!
 //! Hermeticity here is a property of the type system rather than of a
 //! confinement the toolchain applies: every ambient read is a `$host_*`
-//! intrinsic, `core/host` is importable only from the module exporting `main`,
+//! intrinsic, `platform/host` is importable only from a platform's `platform.buri`,
 //! and a test's capabilities are fakes the runner injects. Nothing in an action
 //! has a *name* for the environment, the clock, the filesystem, or the network,
 //! so there is nothing for an operating-system sandbox to confine. The toolchain
@@ -20,7 +20,7 @@
 //! - **The cache under contention**, since a cache is only worth having if it
 //!   cannot hold a wrong answer.
 //!
-//! The compile-time half — a test source being unable to import `core/host` at
+//! The compile-time half — a test source being unable to import `platform/host` at
 //! all — is pinned by the reject corpus, which is where a rule about what does
 //! not compile belongs.
 //!
@@ -145,21 +145,25 @@ fn a_perturbed_parent_environment_changes_neither_the_bytes_nor_the_verdict() {
 /// would most plausibly argue should be allowed a real capability, because it is
 /// not shipped.
 #[test]
-fn a_test_source_cannot_import_core_host() {
-    let scratch = Scratch::repo("host-import-in-a-test");
-    scratch.write("lib/probe/BUILD.buri", "library {\n  test { sources: [\"test/env.buri\"] }\n}\n");
-    scratch.write("lib/probe/lib.buri", "export fn identity(n: Int): Int { n }\n");
-    scratch.write(
-        "lib/probe/test/env.buri",
-        "from \"core/testing/assert\" import * as assert;\n\
-         from \"core/host\" import * as host;\n\n\
-         test \"reads the machine\" {\n  assert.equal(1, 1);\n}\n",
-    );
-    scratch
-        .run(&["test", "//lib/probe"])
-        .exits(1)
-        .says("host-import")
-        .says("importable only from the module that exports `main`");
+fn a_test_source_cannot_import_a_host_module() {
+    for module in ["platform/host", "core/host"] {
+        let scratch = Scratch::repo("host-import-in-a-test");
+        scratch.write("lib/probe/BUILD.buri", "library {\n  test { sources: [\"test/env.buri\"] }\n}\n");
+        scratch.write("lib/probe/lib.buri", "export fn identity(n: Int): Int { n }\n");
+        scratch.write(
+            "lib/probe/test/env.buri",
+            &format!(
+                "from \"core/testing/assert\" import * as assert;\n\
+                 from \"{module}\" import * as host;\n\n\
+                 test \"reads the machine\" {{\n  assert.equal(1, 1);\n}}\n"
+            ),
+        );
+        scratch
+            .run(&["test", "//lib/probe"])
+            .exits(1)
+            .says("host-import-outside-platform")
+            .says(&format!("\"{module}\" is importable only by a platform"));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -218,11 +222,11 @@ fn generated_only(name: &str, reads_the_disk: bool) -> Scratch {
     );
     scratch.write(
         "cmd/app/main.buri",
-        "from \"core/effect\" import { Allocator, Stdout };\n\
-         from \"core/host\" import * as host;\n\
+        "from \"platform/effect\" import { Allocator, Stdout };\n\
+         from \"node\" import { NodeHost };\n\
          from \"core/io\" import * as io;\n\
          from \"//lib/wire\" import { width };\n\n\
-         export fn main(): Result<(), Str> {\n  \
+         export fn main(host: NodeHost): Result<(), Str> {\n  \
          let ctx = context { Allocator: host.alloc, Stdout: host.stdout };\n  \
          let _ = io.println(ctx, \"width=${width}\").ignore();\n  \
          .Ok(())\n\
@@ -239,7 +243,7 @@ fn generator(reads_the_disk: bool) -> String {
     };
     format!(
         r#"from "core/buri/ast" import * as ast;
-from "core/effect" import {{ Allocator }};
+from "platform/effect" import {{ Allocator }};
 from "core/fs" import {{ FileSystemRead }};
 from "core/str" import * as str;
 from "core/tool" import {{ Generated, GenerateRequest }};

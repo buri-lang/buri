@@ -5,11 +5,11 @@
 //! what any given import of it can do.
 //!
 //! There is no directory layout on disk here — the library is the one table of
-//! `include_str!`s below — so `core/effect` is a name rather than a place. It
+//! `include_str!`s below — so `platform/effect` is a name rather than a place. It
 //! is spelled without a file because an import that crosses a module boundary
 //! names the module, and every import of the standard library crosses one:
-//! nothing in a repository is ever *inside* `core/effect`. [`find`] still
-//! answers to `core/effect/lib.buri`, which names the same module the long way
+//! nothing in a repository is ever *inside* `platform/effect`. [`find`] still
+//! answers to `platform/effect/lib.buri`, which names the same module the long way
 //! round, and canonicalises it — see there for why one spelling has to win.
 //!
 //! Modules here may declare a `fn` with no body. Those are the operations the
@@ -180,23 +180,36 @@ pub const MODULES: &[StdModule] = &[
     // never heard of either does not pay to parse it.
     m("core/bigint", include_str!("sources/bigint.buri")),
     m("core/decimal", include_str!("sources/decimal.buri")),
-    StdModule { platform: true, ..m("core/effect", include_str!("sources/effect.buri")) },
-    StdModule { platform: true, ..m("core/host", include_str!("sources/host.buri")) },
-    // `core/host`'s surface for a test source: the same names, called rather
-    // than referred to, so each call is a fresh runner-side handle. It is a
-    // *different path* rather than a second export list on `core/host`, and
-    // that is what carries its import rule — `is_test_only_path` sees the
-    // `testing` segment, and `HOST_MODULE`'s `Role::Entry` gate keys on the
-    // exact path `core/host` and so does not catch this one.
+    // `platform/*`: the effects every platform shares, apart from any one
+    // platform. `platform/effect` declares them, `platform/host` holds the
+    // backends' production implementations a platform's host type names, and
+    // `platform/effect/testing` is their test implementations.
+    StdModule { platform: true, ..m("platform/effect", include_str!("sources/effect.buri")) },
+    StdModule { platform: true, ..m(HOST_STRUCTS_MODULE, include_str!("sources/platform_host.buri")) },
+    // The test implementations: one per effect, called rather than referred
+    // to, so each call is a fresh runner-side handle. The `testing` segment is
+    // what carries its import rule — `is_test_only_path` sees it — and it is an
+    // effect's testing surface, so it may keep state in
+    // `core/platforms/testing/state`.
     StdModule {
         platform: true,
-        ..m("core/host/testing", include_str!("sources/host_testing.buri"))
+        ..m("platform/effect/testing", include_str!("sources/host_testing.buri"))
     },
+    // The host values a `CLOUDFLARE_WORKER` entry binds, and nothing else's:
+    // every other entry takes its platform's host as a parameter. It goes when
+    // Cloudflare becomes a platform a repository writes for itself.
+    m("core/host", include_str!("sources/host.buri")),
+    // The bundled platforms' `platform.buri`, each declaring its host type and
+    // its bodiless entry. A program imports its host type from here by the
+    // platform's bare name: `from "native" import { NativeHost };`.
+    m("native", include_str!("../../platforms/native/platform.buri")),
+    m("node", include_str!("../../platforms/node/platform.buri")),
+    m("web", include_str!("../../platforms/web/platform.buri")),
     // Not a platform module, deliberately. It *implements* `Allocator` rather than
     // declaring it, and `Allocator` is the one effect whose implementation carries
     // no authority — a `Region` is a number, so a library that builds its own
     // allocator has been granted nothing (SPEC 10.5). That is why this is
-    // importable anywhere and `core/host` is not.
+    // importable anywhere and `platform/host` is not.
     m("core/alloc", include_str!("sources/alloc.buri")),
     m("core/io", include_str!("sources/io.buri")),
     // Pure string work, and below `core/fs` rather than inside it: every
@@ -205,9 +218,9 @@ pub const MODULES: &[StdModule] = &[
     // touches nothing would be the first exception. `Path` is the type
     // `core/fs` takes, and this is where it and its methods live.
     m("core/path", include_str!("sources/path.buri")),
-    // A **platform module**, and the only one outside `core/effect` and
+    // A **platform module**, and the only one outside `platform/effect` and
     // `ui/effect` that declares effects. `FileSystemRead` and `FileSystemWrite` name a `Path`
-    // in every method, `core/path` names `Allocator`, and `core/effect` is below
+    // in every method, `core/path` names `Allocator`, and `platform/effect` is below
     // `core/path` — so the declarations live here, where they can say what
     // they mean, rather than one module down where they could only say `Str`.
     StdModule { platform: true, ..m("core/fs", include_str!("sources/fs.buri")) },
@@ -246,7 +259,7 @@ pub const MODULES: &[StdModule] = &[
     // A **platform module**, for `core/fs`'s reason: `Spawn.spawnProcess`
     // answers this module's own `Output`, and a `Command` is built out of a
     // `Path`, so the declaration has to live where those names are. `Process` is
-    // still `core/effect`'s — ending this process names nothing but an integer.
+    // still `platform/effect`'s — ending this process names nothing but an integer.
     StdModule { platform: true, ..m("core/process", include_str!("sources/process.buri")) },
     // The layer under both of those: a connection dialled out, bytes each way,
     // and no protocol over them. It is a third authority for the reason the
@@ -314,18 +327,84 @@ pub const MODULES: &[StdModule] = &[
 /// larger surface, so it gets its own root rather than diluting what `core/`
 /// means (SPEC rule 35). `std/` is the tools the toolchain ships as ordinary
 /// Buri programs — `std/codegen/proto` and the schema reader under it — which
-/// are neither essentials nor vocabulary. All three are reserved: a repository
-/// path is always `//...`, so nothing here can collide with user code.
-pub const ROOTS: &[&str] = &["core/", "ui/", "std/"];
+/// are neither essentials nor vocabulary. `platform/` is the effects every
+/// platform shares and the backends' implementations of them. All four are
+/// reserved: a repository path is always `//...`, so nothing here can collide
+/// with user code.
+pub const ROOTS: &[&str] = &["core/", "ui/", "std/", "platform/"];
+
+/// The bundled platforms, whose `platform.buri` a program imports by the
+/// platform's bare name.
+pub const PLATFORMS: &[&str] = &["native", "node", "web"];
+
+/// The module `platform/host`: the backends' production structs, which only a
+/// platform's `platform.buri` may import.
+pub const HOST_STRUCTS_MODULE: &str = "platform/host";
 
 /// Whether a module path names the embedded standard library at all.
 ///
 /// This is a question about the *path*, not about whether the module exists —
 /// `"core/nope"` answers `true`, so that naming a module the standard library
 /// does not have is a `no-such-module` error rather than a search of the
-/// repository that reports something else.
+/// repository that reports something else. A bundled platform's bare name is
+/// one of these too.
 pub fn is_std_path(path: &str) -> bool {
-    ROOTS.iter().any(|r| path.starts_with(r))
+    ROOTS.iter().any(|r| path.starts_with(r)) || is_bundled_platform(path)
+}
+
+/// A bundled platform's name and the host type its `platform.buri` declares:
+/// `("native", "NativeHost")`.
+pub fn host_type_of(platform: &str) -> Option<(&'static str, &'static str)> {
+    match platform {
+        "native" => Some(("native", "NativeHost")),
+        "node" => Some(("node", "NodeHost")),
+        "web" => Some(("web", "WebHost")),
+        _ => None,
+    }
+}
+
+/// Whether `name` is one of the entries a bundled platform's `platform.buri`
+/// declares without a body, for a program to fill.
+pub fn is_entry_declaration(module: &str, name: &str) -> bool {
+    let canonical = module.strip_suffix("/lib.buri").unwrap_or(module);
+    crate::build::buildfile::PlatformName::bundled(canonical)
+        .is_some_and(|p| p.entries().contains(&name))
+}
+
+/// The same, for what gets built. `None` for a worker, whose entry takes no
+/// host.
+pub fn host_type(platform: Platform) -> Option<(&'static str, &'static str)> {
+    match platform {
+        Platform::CloudflareWorker => None,
+        _ => host_type_of(platform.proto()),
+    }
+}
+
+/// The type of the field called `field` on a bundled platform's host, read
+/// off its `platform.buri`: `HostFileSystem` for `native`'s `fs`.
+pub fn host_field(platform: &str, field: &str) -> Option<&'static str> {
+    let source = source(platform)?;
+    let prefix = format!("export {field}: ");
+    source.lines().find_map(|line| line.trim().strip_prefix(prefix.as_str())?.strip_suffix(','))
+}
+
+/// The bundled effects a production struct in `platform/host` implements, in
+/// declaration order: `FileSystemRead` and `FileSystemWrite` for
+/// `HostFileSystem`.
+pub fn effects_of_host_struct(name: &str) -> Vec<&'static str> {
+    let Some(source) = source(HOST_STRUCTS_MODULE) else { return Vec::new() };
+    let suffix = format!(" for {name} {{");
+    source
+        .lines()
+        .filter_map(|line| line.strip_prefix("impl ")?.strip_suffix(suffix.as_str()))
+        .collect()
+}
+
+/// Whether a module path is a bundled platform's `platform.buri`, by either
+/// spelling.
+pub fn is_bundled_platform(path: &str) -> bool {
+    let canonical = path.strip_suffix("/lib.buri").unwrap_or(path);
+    PLATFORMS.contains(&canonical)
 }
 
 /// The roots as they read in a diagnostic: `` `core/...` or `ui/...` ``.
@@ -341,10 +420,11 @@ pub fn roots_phrase() -> String {
 ///
 /// A rename is not an alias: the old path stops resolving, and the point of
 /// this table is that the *diagnostic* names the new one rather than leaving a
-/// reader to guess. Every row is an abbreviation and the same module spelled
+/// reader to guess. Most rows are an abbreviation and the same module spelled
 /// out: `core/char` is `core/character`, `core/proc` is `core/process`,
 /// `core/num` is `core/number`, and `core/ordmap` and `core/ordset` are
-/// `core/orderedmap` and `core/orderedset`.
+/// `core/orderedmap` and `core/orderedset`. The last two moved: effects live
+/// apart from any platform, under `platform/effect`.
 ///
 /// Nothing here is loadable, and [`find`] is asked first, so a name that came
 /// back into service would shadow its own row rather than collide with it.
@@ -355,6 +435,8 @@ pub const RETIRED: &[(&str, &str)] = &[
     ("core/ordmap", "core/orderedmap"),
     ("core/ordset", "core/orderedset"),
     ("core/proc", "core/process"),
+    ("core/effect", "platform/effect"),
+    ("core/host/testing", "platform/effect/testing"),
 ];
 
 /// What a retired path is called now, or `None` for a path that never named a
@@ -367,8 +449,8 @@ pub fn retired(path: &str) -> Option<&'static str> {
 
 /// The module a path names, whichever of its two spellings was written.
 ///
-/// `core/effect` is the canonical one and the one the table holds.
-/// `core/effect/lib.buri` names the same module — a cross-module import may
+/// `platform/effect` is the canonical one and the one the table holds.
+/// `platform/effect/lib.buri` names the same module — a cross-module import may
 /// name the surface file honestly, it is merely the long way round — and it
 /// has to arrive at the *same* [`StdModule`], because the loader keys a
 /// module by its path and two keys would be two copies of `Allocator`.
@@ -537,7 +619,7 @@ pub fn is_effect_testing_path(path: &str) -> bool {
 /// unresolved name at the line that asked — not a run-time failure, and not a
 /// convention.
 pub struct HostGrant {
-    /// The effect this implements, as `core/effect` or `ui/effect` spells it.
+    /// The effect this implements, as `platform/effect` or `ui/effect` spells it.
     /// It is the name a reader wrote on the left of the context binding that
     /// failed, so it is what the diagnostic leads with.
     pub effect: &'static str,
@@ -573,31 +655,31 @@ const EVERY_PLATFORM: &[Platform] = &Platform::ALL;
 const HOST_GRANTS: &[HostGrant] = &[
     HostGrant {
         effect: "`Allocator`",
-        exports: &["HostAllocator", "alloc"],
+        exports: &["alloc"],
         platforms: EVERY_PLATFORM,
         because: "every platform can allocate",
     },
     HostGrant {
         effect: "`Stdout`",
-        exports: &["HostStdout", "stdout"],
+        exports: &["stdout"],
         platforms: EVERY_PLATFORM,
         because: "every platform has somewhere to write a line",
     },
     HostGrant {
         effect: "`Stderr`",
-        exports: &["HostStderr", "stderr"],
+        exports: &["stderr"],
         platforms: EVERY_PLATFORM,
         because: "every platform has somewhere to write a line",
     },
     HostGrant {
         effect: "`Clock`",
-        exports: &["HostClock", "clock"],
+        exports: &["clock"],
         platforms: EVERY_PLATFORM,
         because: "every platform can read a clock",
     },
     HostGrant {
         effect: "`Random`",
-        exports: &["HostRandom", "rand"],
+        exports: &["rand"],
         platforms: EVERY_PLATFORM,
         because: "every platform has a source of randomness",
     },
@@ -617,7 +699,7 @@ const HOST_GRANTS: &[HostGrant] = &[
     // question from this table's.
     HostGrant {
         effect: "Entropy",
-        exports: &["HostEntropy", "entropy"],
+        exports: &["entropy"],
         platforms: EVERY_PLATFORM,
         because: "every platform has an operating-system generator behind it",
     },
@@ -629,7 +711,7 @@ const HOST_GRANTS: &[HostGrant] = &[
     // callback-shaped `Fetch` that stood in for it is gone.
     HostGrant {
         effect: "`Network`",
-        exports: &["HostNetwork", "net"],
+        exports: &["net"],
         platforms: EVERY_PLATFORM,
         because: "every platform can make a request",
     },
@@ -641,13 +723,13 @@ const HOST_GRANTS: &[HostGrant] = &[
     // platform offers. A platform either has a filesystem under it or does not.
     HostGrant {
         effect: "`FileSystemRead` or `FileSystemWrite`",
-        exports: &["HostFileSystem", "fs"],
+        exports: &["fs"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "neither a page nor a worker has a filesystem to read",
     },
     HostGrant {
         effect: "`Stdin`",
-        exports: &["HostStdin", "stdin"],
+        exports: &["stdin"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "neither a page nor a worker has standard input",
     },
@@ -657,13 +739,13 @@ const HOST_GRANTS: &[HostGrant] = &[
     // grants it there, backed by that argument (buri-lang/buri#208).
     HostGrant {
         effect: "`Environment`",
-        exports: &["HostEnvironment", "env"],
+        exports: &["env"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js, Platform::CloudflareWorker],
         because: "a page has no command line or environment",
     },
     HostGrant {
         effect: "`Process`",
-        exports: &["HostProcess", "proc"],
+        exports: &["proc"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "a page has no process to exit — a mounted interface stays live — and a \
                   worker answers a request rather than running one",
@@ -675,7 +757,7 @@ const HOST_GRANTS: &[HostGrant] = &[
     // a child in, and node does.
     HostGrant {
         effect: "`Spawn`",
-        exports: &["HostSpawn", "spawn"],
+        exports: &["spawn"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "neither a page nor a worker has a process table to put a child in",
     },
@@ -697,7 +779,7 @@ const HOST_GRANTS: &[HostGrant] = &[
     // withholding the grant meant a page could not say it at all.
     HostGrant {
         effect: "`Tasks`",
-        exports: &["HostTasks", "tasks"],
+        exports: &["tasks"],
         platforms: EVERY_PLATFORM,
         because: "a page's concurrency is its event loop, and a task is what a program puts \
                   on it: `spawn` starts a socket, a retry or a timer, and the scope that \
@@ -716,7 +798,7 @@ const HOST_GRANTS: &[HostGrant] = &[
     // subsetting among the non-UI platforms is closed by that.
     HostGrant {
         effect: "`Listen`",
-        exports: &["HostListen", "listen"],
+        exports: &["listen"],
         platforms: &[Platform::Linux, Platform::Macos],
         because: "holding a port open is a native program's authority; a page and a worker \
                   are served rather than serving, and neither host has a way to accept a \
@@ -737,7 +819,7 @@ const HOST_GRANTS: &[HostGrant] = &[
     // than two.
     HostGrant {
         effect: "`Tcp`",
-        exports: &["HostTcp", "tcp"],
+        exports: &["tcp"],
         platforms: &[Platform::Linux, Platform::Macos],
         because: "a page and a worker have no sockets of their own; the one connection a \
                   browser can dial is a WebSocket, and `WebSocketClient` is granted \
@@ -745,7 +827,7 @@ const HOST_GRANTS: &[HostGrant] = &[
     },
     HostGrant {
         effect: "`Sockets`",
-        exports: &["HostSockets", "sockets"],
+        exports: &["sockets"],
         platforms: EVERY_PLATFORM,
         because: "a socket is come by two ways — accepted or dialled — and every platform \
                   can dial one",
@@ -757,19 +839,19 @@ const HOST_GRANTS: &[HostGrant] = &[
     // `Network` onto a page.
     HostGrant {
         effect: "`WebSocketClient`",
-        exports: &["HostWebSocketClient", "websocketClient"],
+        exports: &["websocketClient"],
         platforms: EVERY_PLATFORM,
         because: "dialling out is not accepting in, and every platform can dial",
     },
     HostGrant {
         effect: "`Ui`",
-        exports: &["HostUi", "ui"],
+        exports: &["ui"],
         platforms: &[Platform::Web],
         because: "the reactive graph drives a document, and only a page has one",
     },
     HostGrant {
         effect: "`Watch`",
-        exports: &["HostWatch", "watch"],
+        exports: &["watch"],
         platforms: &[Platform::Web],
         because: "reading the reactive graph is meaningless where nothing writes it",
     },
@@ -779,7 +861,7 @@ const HOST_GRANTS: &[HostGrant] = &[
     // address of its own is the one with an address bar.
     HostGrant {
         effect: "`Location`",
-        exports: &["HostLocation", "location"],
+        exports: &["location"],
         platforms: &[Platform::Web],
         because: "only a page has an address bar; a worker reads the path off the request it \
                   was handed",
@@ -851,7 +933,7 @@ impl HostGrant {
 /// effect methods had no wrapper at all before this table existed, and nothing
 /// said so.
 pub struct Wrapper {
-    /// The effect, as `core/effect`, `core/fs` or `ui/effect` spells it.
+    /// The effect, as `platform/effect`, `core/fs` or `ui/effect` spells it.
     pub effect: &'static str,
     /// The method it declares.
     pub method: &'static str,
@@ -874,7 +956,7 @@ const fn w(
 
 /// Every method of every declared effect, and the function that calls it.
 ///
-/// The order is `core/effect`'s declaration order, then `core/fs`'s two, then
+/// The order is `platform/effect`'s declaration order, then `core/fs`'s two, then
 /// `ui/effect`'s, so the table reads beside the sources it is about.
 pub const WRAPPERS: &[Wrapper] = &[
     w("Allocator", "allocate", "core/alloc", "alloc.allocate(ctx, bytes)"),
@@ -995,8 +1077,7 @@ impl Wrapper {
 mod tests {
     use super::*;
 
-    /// The repository spelling is enforced today; the bundled one is ready for
-    /// when `platform/effect` ships.
+    /// Both spellings: a repository's own effect and the bundled one.
     #[test]
     fn an_effect_testing_path_is_under_platform_effect_with_a_testing_segment() {
         for yes in [
@@ -1053,11 +1134,11 @@ mod tests {
     ///
     /// Off the source text rather than off a second list, for
     /// `every_host_export_is_in_the_grant_table`'s reason — a method added to
-    /// `core/effect` and forgotten here would be a method with no way to call
+    /// `platform/effect` and forgotten here would be a method with no way to call
     /// it, which is precisely the hole [`WRAPPERS`] exists to close.
     fn declared_effect_methods() -> Vec<(String, String)> {
         let mut out = Vec::new();
-        for path in ["core/effect", "core/fs", "core/process", "ui/effect"] {
+        for path in ["platform/effect", "core/fs", "core/process", "ui/effect"] {
             let src = source(path).expect("a platform module");
             let mut effect: Option<String> = None;
             for line in src.lines() {
@@ -1170,7 +1251,7 @@ mod tests {
     /// allocating combinators carry `C: Allocator`. SPEC 10.2 is about reaching
     /// *the outside world* through a context, and a mailbox is neither the
     /// outside world nor something a test would want a second implementation
-    /// of — which is also why `core/host/testing` gains nothing for it.
+    /// of — which is also why `platform/effect/testing` gains nothing for it.
     ///
     /// So [`WRAPPERS`] has no `actor` row, and `every_effect_method_has_a_door`
     /// above still passes over the whole effect surface. A future `effect
@@ -1431,13 +1512,11 @@ mod tests {
         assert_eq!(grant.effect, "`Tasks`");
         assert_eq!(grant.platforms_phrase(), "native, node, web, CLOUDFLARE_WORKER");
         for platform in Platform::ALL {
-            for name in ["HostTasks", "tasks"] {
-                assert!(
-                    !host_withholds(platform, name),
-                    "`{}` withholds `{name}`",
-                    platform.proto()
-                );
-            }
+            assert!(
+                !host_withholds(platform, "tasks"),
+                "`{}` withholds `tasks`",
+                platform.proto()
+            );
         }
         // The claim the row used to make, now asserted the other way round: a
         // page has no filesystem and does have tasks, so the two rows have
@@ -1467,22 +1546,18 @@ mod tests {
         assert_eq!(grant.effect, "`Spawn`");
         assert_eq!(grant.platforms_phrase(), "native, node");
         for platform in [Platform::Web, Platform::CloudflareWorker] {
-            for name in ["HostSpawn", "spawn"] {
-                assert!(
-                    host_withholds(platform, name),
-                    "`{}` grants `{name}`, and it has no process table to put a child in",
-                    platform.proto()
-                );
-            }
+            assert!(
+                host_withholds(platform, "spawn"),
+                "`{}` grants `spawn`, and it has no process table to put a child in",
+                platform.proto()
+            );
         }
         for platform in [Platform::Linux, Platform::Macos, Platform::Js] {
-            for name in ["HostSpawn", "spawn"] {
-                assert!(
-                    !host_withholds(platform, name),
-                    "`{}` withholds `{name}`",
-                    platform.proto()
-                );
-            }
+            assert!(
+                !host_withholds(platform, "spawn"),
+                "`{}` withholds `spawn`",
+                platform.proto()
+            );
         }
         // Ending this process and starting another are two authorities, so the
         // two rows are separate declarations that happen to name one set. A
@@ -1536,17 +1611,15 @@ mod tests {
             listen.platforms_phrase()
         );
         for platform in [Platform::Js, Platform::Web] {
-            for name in ["HostListen", "listen"] {
-                assert!(
-                    host_withholds(platform, name),
-                    "`{}` grants `{name}`; a page is served rather than serving, and that is \
-                     a permanent row rather than an empty one waiting to be filled",
-                    platform.proto()
-                );
-            }
+            assert!(
+                host_withholds(platform, "listen"),
+                "`{}` grants `listen`; a page is served rather than serving, and that is \
+                 a permanent row rather than an empty one waiting to be filled",
+                platform.proto()
+            );
         }
         for platform in Platform::ALL {
-            for name in ["HostSockets", "sockets", "HostWebSocketClient", "websocketClient"] {
+            for name in ["sockets", "websocketClient"] {
                 assert!(
                     !host_withholds(platform, name),
                     "`{}` withholds `{name}`, which every platform answers",
@@ -1587,7 +1660,7 @@ mod tests {
     fn the_server_effects_claim_no_method_name_another_effect_claims() {
         let mut mine: Vec<(&str, String)> = Vec::new();
         let mut theirs: Vec<(String, String)> = Vec::new();
-        for path in ["core/effect/lib.buri", "ui/effect/lib.buri"] {
+        for path in ["platform/effect/lib.buri", "ui/effect/lib.buri"] {
             let src = source(path).expect("a platform module");
             let mut effect: Option<String> = None;
             for line in src.lines() {
@@ -1636,7 +1709,7 @@ mod tests {
     fn an_ungrantable_effect_is_not_told_to_build_elsewhere() {
         let ungrantable = HostGrant {
             effect: "`Nothing`",
-            exports: &["HostNothing", "nothing"],
+            exports: &["nothing"],
             platforms: &[],
             because: "nothing implements it",
         };

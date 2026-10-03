@@ -42,16 +42,18 @@ resolves against the directory holding it. `libs/greeting/BUILD.buri` declares
 one library, listing its sources and its tests one path at a time.
 `libs/greeting/greeting.buri` holds that library's one function, `greeting`.
 
-`apps/hello/main.buri` is the program. The `context` it builds is the whole
-effect budget: this program can allocate and print, and nothing else.
+`apps/hello/main.buri` is the program. `main` takes the host of the platform it
+runs on — `node`, since the binary names no output — and the `context` it
+builds from the host's fields is the whole effect budget: this program can
+allocate and print, and nothing else.
 
 ```buri repo=cli/src/docs/init package=//apps/hello role=entry
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
 from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
 from "//libs/greeting" import { greeting };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,

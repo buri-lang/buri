@@ -22,7 +22,9 @@ impl Describe for Point {
   fn size(self): Str { "small" }
 }
 
-export fn main(): Result<(), Str> {
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
   let point = Point { x: 1 };
   let _ = point.label(2);
   let _ = point.size();

@@ -1,7 +1,7 @@
 ---
 title: A renamed standard library module is imported by its new name
 message: '"{path}" is now "{now}"'
-note: the abbreviation was renamed rather than kept beside the new name, so one module has one path and two imports of it are the same import
+note: the old path was retired rather than kept beside the new one, so one module has one path and two imports of it are the same import
 fix: write "{now}" in the import
 ---
 # A renamed standard library module is imported by its new name
@@ -23,10 +23,11 @@ export fn hexDigit(n: Int): Char {
 }
 ```
 
-Five have been renamed so far, and every one of them is an abbreviation
-replaced by the word: `core/char` is `core/character`, `core/num` is
-`core/number`, `core/ordmap` is `core/orderedmap`, `core/ordset` is
-`core/orderedset`, and `core/proc` is `core/process`.
+Five abbreviations were replaced by the word: `core/char` is `core/character`,
+`core/num` is `core/number`, `core/ordmap` is `core/orderedmap`, `core/ordset`
+is `core/orderedset`, and `core/proc` is `core/process`. Two modules moved when
+effects left `core/`: `core/effect` is `platform/effect`, and
+`core/host/testing` is `platform/effect/testing`.
 
 ## Why
 

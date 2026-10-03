@@ -1,6 +1,6 @@
 // The `core/net/tcp` conformance package.
 //
-// Every case here runs against `core/host/testing`'s `tcp()` double, so the
+// Every case here runs against `platform/effect/testing`'s `tcp()` double, so the
 // suite opens no socket: what it asserts is the module's own arithmetic — that
 // `connect` wraps a handle, that `read` takes a prefix, that a closed stream is
 // gone — and the log the double keeps of what the code under test did.

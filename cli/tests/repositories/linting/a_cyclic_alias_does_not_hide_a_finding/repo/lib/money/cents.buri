@@ -6,8 +6,8 @@
 // The error sits at module level and inside no body, which used to be the
 // whole test, and every finding in the file went quiet behind it.
 
-from "core/effect" import { Allocator };
 from "core/str" import { fromInt };
+from "platform/effect" import { Allocator };
 
 export type Handle = Handle;
 

@@ -6,11 +6,11 @@
 // cases below are the two things worth asserting: the rules, named one at a
 // time, and the UCD's own vectors, sliced.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/str" import * as str;
 from "core/str" import { Normalization };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 
 // --- graphemes ------------------------------------------------------------------
 

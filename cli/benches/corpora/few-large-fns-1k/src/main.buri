@@ -1,5 +1,7 @@
 //! Stress shape: few large functions.
 
+from "node" import { NodeHost };
+
 export fn large0(x: Int): Int {
     let v0 = x + 1;
     let v1 = v0 + 1;
@@ -1004,7 +1006,7 @@ export fn large0(x: Int): Int {
     v999
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
     let total = 0 + large0(1);
     if (total == 0) { .Err("zero") } else { .Ok(()) }
 }

@@ -29,8 +29,8 @@ the only two traits this applies to.
 ## A program that provokes it
 
 ```buri fail code=derive-only-trait
-# from "core/effect" import { Allocator };
 # from "core/json" import { Json, ToJson };
+# from "platform/effect" import { Allocator };
 
 struct Point {
     export x: Int,

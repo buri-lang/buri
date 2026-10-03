@@ -511,7 +511,7 @@ pub fn generate(
         // difference in the artifact.
         if platform == Platform::CloudflareWorker {
             // A module worker's default export. `$fetchEntry` is the crossing:
-            // the platform's `Request` in, `core/effect`'s `Response` out.
+            // the platform's `Request` in, `platform/effect`'s `Response` out.
             // `env` is the worker's bindings, which `host.env` reads.
             roots.push("$fetchEntry".into());
             stmts.push(Stmt::Raw(format!(

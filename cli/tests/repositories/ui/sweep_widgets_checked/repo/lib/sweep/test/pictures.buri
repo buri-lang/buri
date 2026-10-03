@@ -4,9 +4,9 @@
 // of plain boxes is the control: nothing but a toggle answers for `:checked`,
 // so those light under the `.Checked` snapshot and not under the hovered one.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/testing" import { headless, snapshot };

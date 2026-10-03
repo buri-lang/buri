@@ -502,7 +502,7 @@ pub fn run(
     };
 
     let program_roots = match roots {
-        Roots::Main(f) => ProgramRoots::Main(FuncIdx(m.request(Key::Fn(f, Vec::new())) as u32)),
+        Roots::Main(f) => ProgramRoots::Main(FuncIdx(m.entry(f) as u32)),
         Roots::Tests => {
             let mut tests = Vec::new();
             for (i, case) in m.checked.tests.iter().enumerate() {
@@ -691,6 +691,97 @@ impl<'a> Monomorphizer<'a> {
     /// index this table has.
     fn func_mut(&mut self, slot: usize) -> &mut Func {
         self.funcs.get_mut(slot).or_ice("every function slot was minted by `request`, which makes it by pushing onto `funcs`")
+    }
+
+    /// The function a program starts at.
+    ///
+    /// An entry that takes its platform's host, `main(host: NativeHost)`, is
+    /// called by nobody who could pass one: the backend's epilogue calls a
+    /// function of no arguments. So the host is built here, in a wrapper of no
+    /// parameters that constructs it and calls the entry with it, and the
+    /// wrapper takes the entry's symbol. Every backend keeps calling a
+    /// host-less entry by the name it always had, and none of them knows a
+    /// host exists.
+    ///
+    /// Building one is free: every field of a host type is a production struct
+    /// with no fields of its own, from `platform/host`, whose methods the
+    /// backend supplies. A field the program never binds is a value nothing
+    /// calls, so none of its methods is ever requested.
+    ///
+    /// An entry with no host parameter — a worker's `fetch(request)` — is the
+    /// root itself, as every entry was before hosts.
+    fn entry(&mut self, f: FnId) -> usize {
+        let inner = self.request(Key::Fn(f, Vec::new()));
+        let Some(host) = self.host_parameter(f) else { return inner };
+        let info = self.tables().fn_info(f).clone();
+        let span = info.span;
+        let fields: Vec<typed::Expr> = self
+            .tables()
+            .tycon(host)
+            .fields()
+            .iter()
+            .map(|field| match &field.ty {
+                Ty::Con(con, _) => typed::Expr::new(
+                    ExprKind::StructLit { con: *con, targs: Vec::new(), fields: Vec::new() },
+                    field.ty.clone(),
+                    span,
+                ),
+                // `host_parameter` admits only a type whose every field is a
+                // production struct, so there is nothing else to build.
+                _ => typed::Expr::new(ExprKind::Error, field.ty.clone(), span),
+            })
+            .collect();
+        let value = typed::Expr::new(
+            ExprKind::StructLit { con: host, targs: Vec::new(), fields },
+            Ty::Con(host, Vec::new()),
+            span,
+        );
+        let call = typed::Expr::new(
+            ExprKind::CallFn {
+                func: typed::Callee::Func(FuncIdx(inner as u32)),
+                args: vec![value],
+            },
+            info.ret.clone(),
+            span,
+        );
+        let entry = self.func_mut(inner);
+        let symbol = entry.symbol.clone();
+        let debug_name = entry.debug_name.clone();
+        entry.symbol = format!("{symbol}$withHost");
+        let slot = self.funcs.len();
+        self.funcs.push(Func {
+            symbol,
+            debug_name: format!("{debug_name}, building its host"),
+            params: Vec::new(),
+            locals: Vec::new(),
+            kind: FuncKind::Body(call),
+            ret: info.ret,
+            desc: None,
+            span,
+        });
+        slot
+    }
+
+    /// The host type an entry takes, when it takes one: its one parameter is a
+    /// struct a bundled platform's `platform.buri` declares, and every field of
+    /// that struct is a struct with no fields.
+    fn host_parameter(&self, f: FnId) -> Option<TyConId> {
+        let info = self.tables().fn_info(f);
+        let [param] = info.params.as_slice() else { return None };
+        let Ty::Con(con, args) = &param.ty else { return None };
+        if !args.is_empty() {
+            return None;
+        }
+        let tycon = self.tables().tycon(*con);
+        let module = self.module_paths.get(tycon.module.index())?;
+        if !crate::compiler::standard_library::is_bundled_platform(module) {
+            return None;
+        }
+        let production = tycon.fields().iter().all(|field| match &field.ty {
+            Ty::Con(c, a) => a.is_empty() && self.tables().tycon(*c).fields().is_empty(),
+            _ => false,
+        });
+        production.then_some(*con)
     }
 
     fn request(&mut self, key: Key) -> usize {
@@ -930,7 +1021,7 @@ impl Monomorphizer<'_> {
 
     /// A `test` body, with the runner's end-of-block hook after it.
     ///
-    /// `buri_rt_test_leave(index)` is the other half of `core/host/testing`'s
+    /// `buri_rt_test_leave(index)` is the other half of `platform/effect/testing`'s
     /// fault plan: *a fault whose call never happens fails the test*, which is a
     /// claim only something that outlives the block can check. Its twin
     /// `buri_rt_test_enter` is emitted by the two native test entry points
@@ -1119,7 +1210,7 @@ impl Monomorphizer<'_> {
         // module path is the module and nothing else — it never names a file
         // inside one, because there is nothing inside one to name — so there
         // is no surface name to take off here.
-        let short = module.strip_prefix("core/").unwrap_or(&module).replace('/', "_");
+        let short = runtime_module_key(&module);
         let key = match info.self_ty {
             // `core/str` exists for `Str`, so `str.Str.len` says it twice.
             // `core/number` is the defining module of a dozen types, so there the
@@ -2390,7 +2481,7 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "host.HostUi.signal",
     "host.HostUi.write",
     "host.HostWatch.read",
-    // `core/host/testing`'s scheduler, which is `host.HostTasks.parallel`'s
+    // `platform/effect/testing`'s scheduler, which is `host.HostTasks.parallel`'s
     // entry read once more: the same two strides and the same generated entry
     // thunk, because the double drives the same trampoline. A test double that
     // reached its steps some other way would be testing a different mechanism
@@ -2587,6 +2678,24 @@ fn value_and_descriptor(all: &[typed::Expr]) -> Vec<typed::Expr> {
 
 fn is_prim(tables: &Tables, con: TyConId) -> bool {
     matches!(tables.tycon(con).def, TyDef::Prim(_))
+}
+
+/// The first segment of an intrinsic key: the module path with `core/`
+/// dropped and `/` as `_`, so `core/str` is `str` and `ui/effect` is
+/// `ui_effect`.
+///
+/// Three modules moved when effects left `core/`, and each keeps the key it
+/// had: `platform/host` is `host`, `platform/effect/testing` is
+/// `host_testing` and `platform/effect` is `effect`. The keys are what every
+/// backend's runtime table, `runtime.js` and `middle::rc::suspends` are
+/// written against, and a module moving is no reason for any of them to.
+pub fn runtime_module_key(module: &str) -> String {
+    match module {
+        "platform/host" => String::from("host"),
+        "platform/effect/testing" => String::from("host_testing"),
+        "platform/effect" => String::from("effect"),
+        _ => module.strip_prefix("core/").unwrap_or(module).replace('/', "_"),
+    }
 }
 
 fn sanitize(s: &str) -> String {

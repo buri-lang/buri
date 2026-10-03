@@ -1,0 +1,37 @@
+error: `renderfn` carries an effect, so it must be named `ctx` [effect-param-not-ctx]
+  --> lib/recovery_swap_adjacent_paren_expected_cf0591/main.buri:34:35
+   |
+34 | fn rendered<C: Allocator>(ctx: C, renderfn :(C, Str) => Str, label: Str): Str {
+   |                                   ^^^^^^^^^^^^^^^^^^
+   |
+   = a function is effectful if and only if it has a `ctx` parameter or an effect-carrying `self`, which is what lets a reader stop after the first two parameters
+   = fix: rename `renderfn` to `ctx` and make it the first parameter, or drop the effect bound if this parameter is ordinary data
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_paren_expected_cf0591/main.buri:34:54
+   |
+34 | fn rendered<C: Allocator>(ctx: C, renderfn :(C, Str) => Str, label: Str): Str {
+   |                                                      ^^
+   |
+  --> lib/recovery_swap_adjacent_paren_expected_cf0591/main.buri:34:26
+   |
+34 | fn rendered<C: Allocator>(ctx: C, renderfn :(C, Str) => Str, label: Str): Str {
+   |                          ^ opened here
+   |
+   = fix: write `)` here
+error: there is nothing named `render` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_paren_expected_cf0591/main.buri:35:5
+   |
+35 |     render(ctx, label)
+   |     ^^^^^^
+   |
+   = did you mean `rendered`?
+   = fix: if you meant `rendered`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: `rendered` takes 2 arguments, but 3 were given [wrong-argument-count]
+  --> lib/recovery_swap_adjacent_paren_expected_cf0591/main.buri:51:23
+   |
+51 |         .println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label))
+   |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass `rendered` the following arguments: rendered<C: Allocator>(ctx: C, renderfn: (C, Str))
