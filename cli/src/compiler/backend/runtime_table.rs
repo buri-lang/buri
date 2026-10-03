@@ -1,49 +1,19 @@
-//! The `buri_rt_*` table the frame-threaded backend reads: which intrinsic
-//! keys have a symbol, and what shape the call has.
+//! The `buri_rt_*` table both native backends read: which intrinsic keys have
+//! a symbol, and what that symbol's C signature is.
 //!
 //! `cli/runtime/lib.rs`'s module comment is the contract; this is the
-//! transcription of it that the copy-and-patch backend's generated code is
-//! emitted against. It is one table because a table describes `cli/runtime`,
-//! which is one library — two transcriptions of one library disagreeing about
-//! a row is one of them being wrong. It sits here rather than under
-//! `stencil/` because that is what the file has always been: a description of
-//! the runtime, not of a code generator.
+//! transcription of it that generated code is emitted against. It is one table
+//! because it describes `cli/runtime`, which is one library. A disagreement
+//! between it and the archive is a miscompile that only shows up as a wrong
+//! answer at run time, which is why the shapes are named ([`Arg`], [`Ret`])
+//! rather than spelled out per symbol as parameter counts.
 //!
-//! The LLVM backend keeps its own (`llvm/runtime.rs`), and that one is a
-//! different table rather than a copy: it reconstructs the C argument list
-//! from the row, so every entry there carries an `args` column this one has no
-//! use for. The two tables also do not name quite the same keys, which is a
-//! fact about what each backend has implemented and not a naming convention.
-//!
-//! # The four shapes, and the one emission rule
-//!
-//! Every call this table describes is emitted by the same sequence, in this
-//! order and with nothing conditional in it but the table row:
-//!
-//! ```text
-//!   1. the Buri arguments, flattened into scalar leaves  (lib.rs §2 rule 1)
-//!   2. the element pair — stride, then retain glue       (lib.rs §2 rule 4)
-//!      or a step's four words                            (lib.rs §2 rule 5)
-//!   3. the out-pointer                                   (lib.rs §2 rules 2, 3)
-//! ```
-//!
-//! Step 1 is the IR's own argument list: a `Str` argument spreads to three
-//! values because a `Str` *is* three leaves. There is no per-argument column
-//! for the shapes, because a second description of them would be a thing to
-//! disagree with.
-//!
-//! Two arguments are the exception, and both are here because the IR genuinely
-//! cannot answer them: [`Entry::by_ref`], whose type is a bare `T`, and
-//! [`Entry::ctx`], which the C signature has no parameter for. The second one
-//! read "a `ctx` spreads to no leaves because it occupies no bytes" for a long
-//! time, and that is a fact about `platform/host`'s empty marker structs rather
-//! than about contexts — see [`Entry::ctx`] for what it costs when a program
-//! writes something else.
-//!
-//! Steps 2 and 3 are what [`Extra`] and [`Ret`] select. What the backend
-//! supplies for itself is where an argument *is*: its convention is
-//! frame-threaded, so a leaf is a byte offset copied into a scratch area
-//! (`stencil/rtcall.rs`).
+//! The two backends read the same row differently. The LLVM backend walks
+//! [`Entry::args`] to build the C argument list at each argument's own
+//! position. The frame-threaded backend (`stencil/rtcall.rs`) flattens the
+//! Buri arguments into leaves and appends what [`Entry::extra`] selects. The
+//! two agree because every closure-shaped argument is the last one
+//! (`a_closure_is_the_last_argument`, below).
 //!
 //! # A key carries no type arguments
 //!
@@ -54,90 +24,138 @@
 //! the element type does not cross. It cannot — this archive is compiled once,
 //! against no Buri type at all.
 //!
-//! That is what steps 2 and 3 above are for. Everything the runtime has to
-//! know about an erased type arrives as a value:
+//! Everything the runtime has to know about an erased type arrives as a value:
 //!
-//! * the element **stride and retain glue** of [`Extra::Element`] — the shape
-//!   of a `[T]`, which is why `core/list`'s rows carry it and `core/bytes`'s
-//!   do not (their element type is fixed at `U8`);
-//! * an **address**, through [`Entry::by_ref`], for an argument whose type is
-//!   a bare `T` and so has no leaf list a C signature could name;
+//! * the element **stride and retain glue** of [`Arg::Stride`] and
+//!   [`Arg::Retain`] — the shape of a `[T]`, which is why `core/list`'s rows
+//!   carry them and `core/bytes`'s do not (their element type is fixed at
+//!   `U8`);
+//! * an **address**, through [`Arg::Spilled`], for an argument whose type is a
+//!   bare `T` and so has no leaf list a C signature could name;
 //! * a **runtime descriptor**, for an operation whose subject is the *whole*
 //!   shape of a type rather than its size — `json.decode` and the test
 //!   runner's two, which are `middle::monomorphize`'s `Func::desc` and reach
 //!   no row here;
-//! * the **entry thunk** of [`Extra::Step`] — a function this backend
-//!   generated, which is the same idea as the retain glue of the first bullet
-//!   and answers a harder question with it: not "what does one element hold"
-//!   but "how is one Buri closure called", which is the one thing
+//! * the **entry thunk** of [`Arg::Step`] — a function the backend generated,
+//!   which answers "how is one Buri closure called", the one thing
 //!   `cli/runtime/list.rs`'s header says C cannot do.
 //!
 //! An intrinsic that is generic and has none of these is a miscompile with no
 //! diagnostic, so the set of keys allowed to be generic is a written list —
 //! `GENERIC_INTRINSICS` in `middle/monomorphize.rs` — and a generic intrinsic
 //! outside it is an internal error at monomorphization. **A new row here for a
-//! generic key needs a row there too**, and the question that list is asking is
-//! which of the carriers above carries the type.
+//! generic key needs a row there too.**
 //!
 //! # Why a table and not a mangling
 //!
 //! The rule in `lib.rs` §1 would happily produce `buri_rt_list_map` for
 //! `list.map`, which does not exist, and a program that used it would get a
 //! link error naming a symbol instead of `Backend::missing_intrinsics` naming
-//! the operation. The mangler lives in `runtime_native.rs` as `symbol_for`,
-//! and it is used to *check* this table rather than to drive emission.
+//! the operation. So the table decides which keys exist, and the mangler
+//! (`runtime_native::symbol_for`) only names the symbol of a key the table
+//! has ([`Entry::symbol`]).
+
+use Arg::{
+    Bytes, Compute, Dropped, Elems, Equal, List, Press, Release, Retain, Scalar, Spilled, Step,
+    Str, Stride, Walk,
+};
 
 /// The discriminant a fallible runtime entry returns for its success arm.
 ///
 /// `cli/runtime/lib.rs`'s `BURI_OK`, restated here because the compiler and the
 /// runtime are two crates that never link against each other — the archive is
-/// `include_bytes!`d, not depended on — so a shared constant is impossible and
-/// the two spellings are held together by `cli/tests/native/runtime.rs`'s C
-/// driver instead.
+/// `include_bytes!`d, not depended on. The value is `-1` rather than `0` so
+/// that an error variant's index is its index, and a backend that gets the
+/// sign wrong fails immediately instead of silently reporting the first error
+/// arm. `cli/tests/native/runtime.rs`'s C driver holds the two spellings
+/// together.
 pub const BURI_OK: i32 = -1;
 
-/// What the backend appends after the flattened Buri arguments.
+/// One entry in a runtime function's C parameter list.
+///
+/// `cli/runtime/lib.rs` §2 rule 1: every parameter is a scalar leaf, flattened
+/// in declaration order. A `Str` is three parameters and a `[T]` is two.
+///
+/// Most variants consume one Buri argument and emit its leaves. [`Arg::Stride`],
+/// [`Arg::Retain`], [`Arg::Release`] and [`Arg::Equal`] consume **no** Buri
+/// argument at all: they are §2 rule 4's "a generic parameter is a pointer and
+/// a stride", where the extra words come from `middle::layout` and from the
+/// backend's own glue rather than from the call. That is why this is a
+/// description of the *C* parameter list walked with a cursor into the Buri
+/// one: the two lists have different lengths at every generic entry.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Extra {
-    /// Nothing.
-    None,
-    /// The element **stride** and the per-element **retain glue** of the
-    /// `[T]` this call operates on — `cli/runtime/list.rs`'s header, and
-    /// `lib.rs` §2 rule 4. The element type is the argument's where there is a
-    /// `[T]` argument and the result's otherwise, which covers `list.repeat`
-    /// and `list.empty`, whose only mention of `T` is in the return type.
-    Element,
-    /// [`Extra::Element`]'s pair with two more words after it — a **release**
-    /// and an **equality**:
+pub enum Arg {
+    /// `base`, `ptr`, `len` — three parameters.
+    Str,
+    /// `ptr`, `len` — two. `writeBytes` and `abort` take a byte range without
+    /// the owning block, because neither can retain it.
+    Bytes,
+    /// `ptr`, `len` — two.
+    List,
+    /// One.
+    Scalar,
+    /// Zero: a zero-sized `self`, or the operation's **context**, dropped from
+    /// the signature (VALUE-MODEL.md §8).
     ///
-    /// ```text
-    ///   stride   how wide one value of `T` is
-    ///   retain   increfs what one value holds, or null
-    ///   release  decrefs what one value holds, or null
-    ///   equal    answers whether two values are the same value, or null
-    /// ```
+    /// A context is dropped *whatever it weighs*. `cli/runtime` allocates
+    /// through `buri_rt_alloc` and reads no capability (`sources/alloc.buri`'s
+    /// header says so), so a `ctx: C` crosses nothing — and which argument that
+    /// is is a fact about the **declaration**, which the IR cannot answer:
+    /// `list.push(self, ctx, item)` names its second, `list.repeat(ctx, item,
+    /// times)` its first. Asking the argument's *type* instead ("is it a
+    /// `Ty::Ctx`?") is the same question only while every `C` is instantiated
+    /// at a `context { … }` record; a value that *implements* `Allocator`
+    /// satisfies `C: Allocator` without being one (SPEC 10.1, 10.8), and one of
+    /// those spread to a leaf the C signature has no parameter for and shifted
+    /// every argument after it — which links, runs, and dies in `memmove`.
+    Dropped,
+    /// `ptr`, `len` — two, and the argument's element type is the `T` the
+    /// [`Arg::Stride`] and [`Arg::Retain`] that follow it describe. The same two
+    /// words [`Arg::List`] emits, kept a separate variant because "which type
+    /// is `T`" is the question the generic entries are built around.
+    Elems,
+    /// One pointer to a stack copy of a Buri argument whose type the runtime
+    /// cannot name (§2 rule 4) — `list.push`'s item and `list.repeat`'s. Also
+    /// names the element type, which is what makes `list.repeat` — whose only
+    /// mention of `T` is the item — work. `host.HostNetwork.fetch`'s `Request`
+    /// is the other case: a concrete type with too many words for the
+    /// registers.
+    Spilled,
+    /// `middle::layout`'s element stride, as an immediate. Consumes no Buri
+    /// argument.
+    Stride,
+    /// The per-element retain glue, or null where the element type holds no
+    /// counted pointers (`cli/runtime/list.rs`'s header). Consumes no Buri
+    /// argument.
+    Retain,
+    /// The per-value **release** glue, or null where the type holds no counted
+    /// pointers. Consumes no Buri argument.
     ///
-    /// One shape needs all four: a store the runtime *keeps* and later writes
-    /// over. [`Extra::Element`]'s retain says how the runtime takes a reference
-    /// on what it is given; nothing in `core/list` ever gives one back, because
-    /// nothing there holds a value past the call. `platform/effect`'s graph does —
-    /// a cell holds the bytes it was written until the next write — so the
-    /// write that replaces them has to let the old ones go, and the only side
-    /// of the boundary that knows how is the one that generated the glue.
+    /// [`Arg::Retain`]'s mirror, on the rows whose value the runtime *keeps* and
+    /// later writes over ([`Extra::Owned`]). Nothing in `core/list` does;
+    /// `platform/effect`'s graph does — a signal holds the bytes it was written
+    /// until the next write — so the write that replaces them has to let the old
+    /// ones go, and only the side that generated the glue knows how.
+    Release,
+    /// The per-value **equality** glue: `void(frame, a, b, out)`, which writes
+    /// a byte through `out` saying whether two values of the type are the same
+    /// value. Null where nothing was generated for the type. Consumes no Buri
+    /// argument.
     ///
-    /// The fourth word is the same argument at the question a write asks
-    /// *first*. A signal's rule is that writing a value equal to the one it
-    /// holds does nothing, and `==` is structural (SPEC 7.2) — so two strings
-    /// with the same text are one value, and a cell holding a `Str` as a
-    /// pointer cannot see that by comparing its bytes. `equal` is
-    /// `middle::derives`'s generated comparison behind a C-ABI thunk the
-    /// backend emits (`cli/runtime/ui.rs`'s `Equal`), and it is null for a
-    /// type nothing generated one for — where the bytes are the fallback and,
-    /// for a scalar, the whole answer.
-    Owned,
-    // -- the closure trampoline --------------------------------------------
-    /// The four words a **runtime-driven step** crosses on
-    /// (`backend/intrinsic_keys.rs`'s `step_call`):
+    /// It rides the same rows [`Arg::Release`] does, and answers the question
+    /// they ask *before* the store: a signal's rule is that writing a value
+    /// equal to the one it holds does nothing, and `==` is structural (SPEC
+    /// 7.2) — so the runtime, which has only bytes, cannot decide it. What this
+    /// points at is `middle::derives`'s generated comparison behind a C-ABI
+    /// thunk (`cli/runtime/ui.rs`'s `Equal`).
+    ///
+    /// `frame` is a Buri frame the runtime acquired. The LLVM backend's thunk
+    /// uses the machine stack and ignores it; the frame-threaded backend runs
+    /// the comparison in it.
+    Equal,
+    // -- the closure trampoline ---------------------------------------------
+    /// A **runtime-driven step**: four parameters, from one Buri closure
+    /// argument (`backend/intrinsic_keys.rs`'s `step_call`).
     ///
     /// ```text
     ///   entry       the generated C-ABI thunk, `void(state, index, in, out)`
@@ -146,33 +164,24 @@ pub enum Extra {
     ///   out_stride  the result element's stride
     /// ```
     ///
-    /// This is [`Extra::Element`]'s idea with the pair widened, and it carries
-    /// the erased type the same way: a **stride** for what the runtime walks,
-    /// and a **function this backend generated** for what the runtime cannot
-    /// name. There is no retain glue, because there is nothing here for the
-    /// runtime to retain — the entry thunk is handed one element at a time and
-    /// takes its own count on it, which is `middle/rc.rs`'s "a call through a
-    /// function value owns its arguments" answered on the side of the boundary
-    /// that knows the type.
+    /// It consumes the closure and emits none of its words: `{ code, env }` is
+    /// the backend's business and reaches the runtime inside `state`. What the
+    /// runtime gets is a C function it can call once per element with three
+    /// pointers, at every element type there is — [`Arg::Spilled`]'s answer to
+    /// "the runtime cannot name `T`" applied to a *call* rather than to a value.
+    /// There is no retain glue: the thunk is handed one element at a time and
+    /// takes its own count on it.
     ///
-    /// Two strides rather than one because a `map` reads a `[A]` and writes a
-    /// `[B]`, and neither is the other's: [`Extra::Element`]'s single pair is
-    /// wrong for this shape rather than merely narrow.
-    ///
-    /// The closure argument itself is **not** flattened. `{ code, env }` is
-    /// this backend's business and reaches the runtime inside `state`; the
-    /// closure is the last argument at every key `step_call` names, so "skip it
-    /// and append the four" and "write the four where it stood" are the same C
-    /// signature — which is what lets this table, which names no *shape* per
-    /// argument, describe the same call `llvm/runtime.rs`'s `Arg::Step` does.
+    /// Two strides rather than [`Arg::Stride`]'s one because a `map` reads a
+    /// `[A]` and writes a `[B]`, and neither is the other's.
     Step,
-    /// The seven words a **deferred body** crosses on: a Buri closure the
-    /// runtime keeps and calls later, rather than during the call that handed
-    /// it over.
+    /// A **deferred body**: seven parameters, from one Buri closure argument —
+    /// a closure the runtime keeps and calls later, rather than during the call
+    /// that handed it over.
     ///
     /// ```text
     ///   entry     the generated C-ABI thunk, `void(state, index, in, out)`
-    ///   state     the record this backend built, read once and copied
+    ///   state     the record the backend built, read once and copied
     ///   bytes     how many bytes of it there are
     ///   frame_at  where in the copy to write a working frame, or -1
     ///   stride    how many bytes the body writes through `out`
@@ -180,91 +189,74 @@ pub enum Extra {
     ///   body      the release glue for the record itself, or null
     /// ```
     ///
-    /// The thunk is [`Extra::Step`]'s, unchanged: a reactive body is
+    /// The thunk is [`Arg::Step`]'s, unchanged: a reactive body is
     /// `fn(Scope) => T`, which is a step of one element whose element is the
-    /// scope, so the same generator serves both and there is one thunk shape
-    /// in the archive rather than two.
+    /// scope.
     ///
-    /// The other four words are what *deferring* costs. A step runs during the
-    /// call that handed it over, so its record and its working frame both sit
-    /// past the caller's own frame and are gone when it returns; a memo runs on
-    /// the first read and a watcher on every change. So the runtime **copies**
-    /// the record — `bytes` says how much — and supplies the frame itself,
-    /// writing its address at `frame_at`. That offset is a number rather than
-    /// a constant because the two backends' records differ: the frame-threaded
-    /// one keeps a frame word, the LLVM one uses the machine stack and passes
-    /// `-1`.
-    ///
-    /// `stride` and `release` are [`Extra::Owned`]'s pair once more, for the
-    /// same reason: a memo holds its answer until the next run replaces it.
-    /// `body` is the same idea one level out — the graph keeps the *closure*
-    /// for the life of the program, so the count on its environment is taken
-    /// at the call site and given back at exit, and this is what gives it
-    /// back.
+    /// The other words are what *deferring* costs. A step's record and working
+    /// frame are gone when the call returns; a memo runs on the first read and
+    /// a watcher on every change. So the runtime **copies** the record and
+    /// supplies the frame itself, writing its address at `frame_at` — a number
+    /// because the frame-threaded backend's record keeps a frame word and the
+    /// LLVM one, on the machine stack, passes `-1`. `stride` and `release` are
+    /// [`Arg::Release`]'s pair once more: a memo holds its answer until the next
+    /// run replaces it. `body` gives back the count on the closure's
+    /// environment, which the graph keeps for the life of the program.
     Compute,
-    /// The three words a **walk** crosses on: a `fn(Builder, Node) => ()` the
-    /// runtime invokes **once**, to walk a whole tree into the document
-    /// (`cli/runtime/document.rs`, issue #53). It is `host_testing.render`'s
-    /// `renderInto`, and it is the last argument of `host_testing.mount`.
+    /// A **walk**: three parameters, from one Buri closure argument — a
+    /// `fn(Builder, Node) => ()` the runtime invokes **once**, to walk a whole
+    /// tree into the document (`cli/runtime/document.rs`, issue #53).
     ///
     /// ```text
     ///   entry     the generated C-ABI thunk, `void(state, index, in, out)`
-    ///   state     the record this backend built — the closure, then a frame
+    ///   state     the record the backend built — the closure, then a frame
     ///   frame_at  where in it to write a working frame, or -1
     /// ```
     ///
-    /// [`Extra::Step`]'s thunk once more, shaped by [`crate::compiler::backend::stencil::glue::Helper::Entry`]
-    /// with the **context dropped**, the **builder handle as the index** and the
-    /// **node as the element** — `renderInto(ctx, builder, node)` with
-    /// `index = Some(1)`. It is
-    /// [`Extra::Compute`] with the *keeping* taken out: the walk runs during
-    /// the call that handed it over, so the record is used in place rather than
-    /// copied, and there is no stride and no release — the walk answers `()` and
-    /// the runtime keeps nothing. `frame_at` stays because the walk is a Buri
-    /// body and the frame-threaded backend runs one in a frame the caller sets
-    /// aside; the LLVM twin passes `-1`.
+    /// [`Arg::Compute`] with the *keeping* taken out: the walk runs during the
+    /// call that handed it over, so the record is used in place rather than
+    /// copied, and there is no stride and no release. The thunk is shaped with
+    /// the context dropped, the builder handle as its index and the node as its
+    /// element.
     Walk,
-    /// The five words a **kept handler** crosses on: a `fn(C, Event) => ()` the
-    /// runtime keeps on an element and fires later, when a press or a submit
-    /// reaches it (`cli/runtime/document.rs`, issue #53 phase 4).
+    /// A **kept handler**: five parameters, from one Buri closure argument — a
+    /// `fn(C, Event) => ()` the runtime keeps on an element and fires later,
+    /// when a press or a submit reaches it (`cli/runtime/document.rs`, issue #53
+    /// phase 4).
     ///
     /// ```text
     ///   entry     the generated C-ABI thunk, `void(state, index, in, out)`
-    ///   state     the record this backend built, read once and copied
+    ///   state     the record the backend built, read once and copied
     ///   bytes     how many bytes of it there are
     ///   frame_at  where in the copy to write a working frame, or -1
     ///   body      the release glue for the record itself, or null
     /// ```
     ///
-    /// [`Extra::Compute`] with the value taken out: a handler answers `()`, so
-    /// there is no stride and no release for what it writes — but it is **kept**,
-    /// like a body and unlike a walk, so the record is copied (`bytes`), the
-    /// frame is supplied (`frame_at`) and the closure's environment is given back
-    /// at exit (`body`). The thunk is [`crate::compiler::backend::stencil::glue::Helper::Entry`]
-    /// with the context dropped and the event the element — `onPress(ctx, event)`
-    /// with `index = None`, the two-parameter shape [`Extra::Compute`]'s
-    /// one-parameter body cannot spell.
+    /// [`Arg::Compute`] with the value taken out — no stride and no release,
+    /// because a handler answers `()` — but kept, like a body and unlike a walk.
+    /// The thunk drops the context and reads the event as its element.
     Press,
 }
 
-/// Where a generic row's `T` is — the question [`Extra::Element`]'s stride and
-/// glue are answers about.
-///
-/// A column rather than something a backend works out from the argument types,
-/// for [`Entry::by_ref`]'s reason: the two readings are indistinguishable in
-/// the IR the moment `T` is *itself* a list. `list.push`'s `[T]` and
-/// `Ui.signal`'s `T` are both an array-typed argument, and a backend that
-/// looked for the first one it could find gave `Signal<[Account]>` the stride
-/// and glue of an `Account` — a store of the wrong width, retained by the
-/// wrong walk, with nothing to say so until the allocator tripped over it at
-/// exit.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Carrier {
-    /// The element of the `[T]` this call walks — every `core/list` row.
-    Element,
-    /// The value the call carries whole, whatever type that is: `platform/effect`'s
-    /// graph, where a cell holds one `T` and `T` may be a list like any other.
-    Value,
+impl Arg {
+    /// How many C parameters this shape emits.
+    pub fn leaves(self) -> usize {
+        match self {
+            Compute => 7,
+            Press => 5,
+            Step => 4,
+            Str | Walk => 3,
+            Bytes | List | Elems => 2,
+            Scalar | Spilled | Stride | Retain | Release | Equal => 1,
+            Dropped => 0,
+        }
+    }
+
+    /// Whether this shape takes the next Buri argument. The shapes the backend
+    /// supplies for itself do not.
+    pub fn consumes(self) -> bool {
+        !matches!(self, Stride | Retain | Release | Equal)
+    }
 }
 
 /// What comes back.
@@ -272,270 +264,199 @@ pub enum Carrier {
 pub enum Ret {
     /// Nothing, and the Buri result is `()`.
     Void,
-    /// One scalar, already at the destination's register shape.
+    /// One scalar, at the Buri result's own register shape.
     Scalar,
-    /// One `i32`, narrowed to the destination's own tag width.
+    /// Nothing, and the call does not come back (SPEC 6.9).
+    NoReturn,
+    /// One integer of exactly this many bits, which is **not** the
+    /// destination's register shape and is narrowed to it at the call site.
     ///
-    /// `Order` is three variants and `middle::layout` gives it an `i8` tag; the
-    /// runtime returns a C `int`. Declaring the import as returning `i8` would
+    /// The C boundary has no `i1` and no `i8` enum tag: `buri_rt_str_equal`
+    /// returns `u8` and `buri_rt_str_compare` returns `i32`, while `Bool` is an
+    /// `i1` and `Order` is whatever width `middle::layout` gave a three-variant
+    /// bare tag. Declaring the import at the destination's width instead would
     /// work on both supported platforms by accident — the low byte of `eax` is
     /// the low byte of the value — and would be wrong the first time a target
-    /// returned a narrow integer unextended. So the import says `i32` and the
-    /// narrowing is an instruction.
-    Tag,
-    /// An aggregate, written through a trailing out-pointer (`lib.rs` §2
-    /// rule 2). The pointer is the destination's own stack slot, so the call
-    /// writes the value where it already belongs and nothing is copied after.
+    /// returned a narrow integer unextended.
+    Int(u32),
+    /// An aggregate written through a trailing out-pointer (§2 rule 2).
+    ///
+    /// The pointer is the destination's own slot, so the call writes the value
+    /// where it already belongs. `BuriStr` and `BuriList` are `#[repr(C)]`
+    /// records of exactly the words `middle::layout` gives `Str` and `[T]`. A
+    /// zero-sized result has no out-pointer.
     Out,
     /// An `Option<T>`: an `i32` discriminant, and the payload through a
-    /// trailing out-pointer (`lib.rs` §2 rule 3).
+    /// trailing out-pointer (§2 rule 3).
     ///
-    /// The out-pointer is the destination slot **offset to `.Some`'s payload**,
-    /// so again nothing is copied after the call — and the runtime never learns
-    /// whether `middle::layout` chose a tag or a niche, which is exactly what
-    /// rule 3 is protecting.
-    Opt,
+    /// [`BURI_OK`] is the success arm and `0` is `.None`. The out-pointer is
+    /// the destination **offset to `.Some`'s payload**, so the runtime writes
+    /// the payload in place and the backend only has to settle the
+    /// discriminant — a tag store for `EnumRepr::Tagged`, nothing at all for
+    /// `EnumRepr::Niche`. The runtime never learns whether `middle::layout`
+    /// chose a tag or a niche, which is exactly what rule 3 is protecting.
+    Sum,
     /// [`Ret::Res`], and the entry **also writes `E`'s message** through one
     /// more trailing out-pointer (`lib.rs` §2.1's message shape).
     ///
-    /// A column rather than a fact read off `E`, and the difference from the
-    /// two shapes beside it is worth stating: whether an enum error is *named
-    /// by an index* is a property of the type, and whether an entry has
+    /// A column rather than a fact read off `E`: whether an enum error is
+    /// *named by an index* is a property of the type, and whether an entry has
     /// anything to say when it names the payload-carrying one is a property of
     /// the **implementation**. `buri_rt_host_file_system_read_file` and
     /// `buri_rt_host_testing_fs_read_file` answer the same
     /// `Result<Str, IoError>` and have different C signatures, because the
     /// first can meet an `EISDIR` and the second is a map in memory.
     ///
-    /// *Where* the message goes is still the type's business, and still not a
-    /// column: `runtime_native::error_message_offset` reads it off `E`'s layout,
-    /// and a row that claims a message for an `E` with nowhere to put one is
-    /// emitted as a plain [`Ret::Res`] — the entry's extra parameter is then
-    /// one the caller never fills, which is the safe direction.
+    /// *Where* the message goes is still the type's business:
+    /// `runtime_native::error_message_offset` reads it off `E`'s layout, and a
+    /// row that claims a message for an `E` with nowhere to put one is emitted
+    /// as a plain [`Ret::Res`].
     ///
-    /// **The four stream writers are deliberately not this**, and it is the one
-    /// judgement in the column. `host.HostStdout.println` can meet an `EPIPE`,
-    /// which `IoError` classifies as `.Other` and would carry a sentence for —
-    /// but the message out-pointer is an address *into the destination*, so a
-    /// function that prints stops being able to keep its `Result` in registers
-    /// (`native/llvm.rs`'s `a_hot_function_has_no_allocas`). Printing is the
-    /// hot path and a stream failure's actionable half is the variant; a
-    /// filesystem failure's is often only in the string, because `ENOTEMPTY`
-    /// and `EISDIR` have no variant at all. So the filesystem carries the message and the
-    /// streams do not, and `cli/runtime/host.rs`'s writers take no `out_err`.
+    /// **The stream writers are deliberately not this.** `HostStdout.println`
+    /// can meet an `EPIPE`, but the message out-pointer is an address *into the
+    /// destination*, so a function that prints would stop keeping its `Result`
+    /// in registers (`native/llvm.rs`'s `a_hot_function_has_no_allocas`).
+    /// Printing is the hot path and a stream failure's actionable half is the
+    /// variant; a filesystem failure's is often only in the string, because
+    /// `ENOTEMPTY` and `EISDIR` have no variant at all.
     ResMsg,
     /// A `Result<T, E>`: an `i32` discriminant, `.Ok`'s payload through a
     /// trailing out-pointer, and an error variant **named by its index**
     /// (`lib.rs` §2.1).
     ///
-    /// The difference from [`Ret::Opt`] is entirely on the failure side. An
-    /// `Option`'s one failure is `.None` and carries nothing; a `Result`'s is a
-    /// value of `E`, and the discriminant `0 ..= n` is what says which one — so
-    /// the backend stores `.Err`'s tag into the `Result` and then `n` into the
-    /// `E` sitting at `.Err`'s payload offset. `lib.rs` §2.1 states the
-    /// restriction that makes two stores enough: the variant `n` names carries
-    /// no fields.
+    /// [`Ret::Sum`] with the failure side carrying information: the
+    /// discriminant `0 ..= n` says which variant of `E` failed, of a variant
+    /// §2.1 restricts to carrying no fields, so the tag is the whole of it. An
+    /// `E` that is not an enum — `bytes.fromUtf8`'s `Utf8Error(Int)` — crosses
+    /// whole through a second out-pointer instead.
     ///
-    /// The out-pointer is **omitted where `T` is zero-sized**, which is
-    /// `TestFileSystem.writeFile`'s `Result<(), IoError>`. A parameter for a value that
-    /// occupies no bytes is one the two sides can disagree about for free, and
-    /// `Ret::Out` already drops it for the same reason.
+    /// The out-pointer is **omitted where `T` is zero-sized**
+    /// (`TestFileSystem.writeFile`'s `Result<(), IoError>`), for the reason
+    /// [`Ret::Out`] omits it.
     Res,
-    /// The call does not come back (SPEC 6.9).
-    NoReturn,
 }
 
-/// One runtime entry this backend can emit a call to.
+/// What the frame-threaded backend appends after the flattened Buri
+/// arguments, read off [`Entry::args`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Extra {
+    /// Nothing.
+    None,
+    /// The element **stride** and **retain glue** ([`Arg::Stride`],
+    /// [`Arg::Retain`]).
+    Element,
+    /// [`Extra::Element`]'s pair with a **release** and an **equality** after
+    /// it ([`Arg::Release`], [`Arg::Equal`]): a store the runtime keeps and
+    /// later writes over.
+    Owned,
+    /// [`Arg::Step`]'s four words.
+    Step,
+    /// [`Arg::Compute`]'s seven words.
+    Compute,
+    /// [`Arg::Walk`]'s three words.
+    Walk,
+    /// [`Arg::Press`]'s five words.
+    Press,
+}
+
+/// One runtime entry both backends can emit a call to.
 pub struct Entry {
     /// The intrinsic key `monomorphize` built: `str.slice`, `host.HostStdout.println`.
     pub key: &'static str,
-    /// The exported symbol, per `cli/runtime/lib.rs` §1.
-    pub symbol: &'static str,
-    pub extra: Extra,
-    /// Where [`Extra::Element`]'s stride and glue are read from
-    /// ([`Carrier`]). Meaningless on a row that appends neither.
-    pub carrier: Carrier,
+    /// One per Buri parameter, in declaration order, *including* the zero-sized
+    /// `self` — so the list can be checked against the IR signature directly —
+    /// with the shapes that consume no argument inserted where the C parameter
+    /// list has them.
+    pub args: &'static [Arg],
     pub ret: Ret,
-    /// The index, in the Buri argument list, of an argument passed **by
-    /// address** rather than flattened into leaves.
+    /// Whether a generic row's `T` is the **whole value** the call carries
+    /// rather than a `[T]`'s element: `platform/effect`'s graph, where a signal
+    /// holds one `T` and `T` may be a list like any other.
     ///
-    /// Mostly the arguments whose type is a bare type variable: `list.push`'s
-    /// item and `list.repeat`'s. `host.HostNetwork.fetch`'s `Request` is the
-    /// other case: too many words for the registers. `lib.rs` §2 rule 1 flattens an aggregate into
-    /// its leaves, and a `T` has no leaf list a C signature could name, so the
-    /// caller spills it to a stack slot and passes the address — which is
-    /// `lib.rs` §2 rule 4, and the same reason `stride` is a parameter.
-    pub by_ref: Option<usize>,
-    /// The index, in the Buri argument list, of the operation's **context**
-    /// parameter — the one the C signature has no parameter for at all.
-    ///
-    /// `cli/runtime` allocates through `buri_rt_alloc` and reads no capability
-    /// (`sources/alloc.buri`'s header says so), so a `ctx: C` crosses nothing.
-    /// The question is *which argument that is*, and it is a fact about the
-    /// **declaration** rather than about the value: `list.push(self, ctx,
-    /// item)` names its second, `list.repeat(ctx, item, times)` its first.
-    ///
-    /// It is a column here for the reason [`Entry::by_ref`] is one — the IR
-    /// cannot answer it. Asking the argument's *type* instead ("is it a
-    /// `Ty::Ctx`?") is the same question only while every `C` is instantiated
-    /// at a `context { … }` record, and `C` is an ordinary type parameter with
-    /// an ordinary bound (SPEC 10.1): a value that *implements* `Allocator`
-    /// satisfies `C: Allocator` without being a context, which is what SPEC 10.8's
-    /// attenuating `ReadOnly<C>` and `platform/effect/testing`'s `alloc()` both are.
-    /// One of those in this position spread to a leaf the C signature has no
-    /// parameter for and shifted every argument after it — which links, runs,
-    /// and dies in `memmove`.
-    ///
-    /// `llvm/runtime.rs` says the same thing with an `Arg::Dropped` at this
-    /// index, and `an_entry_names_the_context_the_other_table_drops` holds the
-    /// two together.
-    pub ctx: Option<usize>,
+    /// A column rather than something a backend works out from the argument
+    /// types, because the two readings are indistinguishable in the IR the
+    /// moment `T` is *itself* a list. `list.push`'s `[T]` and `Ui.signal`'s `T`
+    /// are both an array-typed argument, and a backend that looked for the
+    /// first one it could find gave `Signal<[Account]>` the stride and glue of
+    /// an `Account` — a store of the wrong width, retained by the wrong walk,
+    /// with nothing to say so until the allocator tripped over it at exit.
+    pub whole_value: bool,
 }
 
-const fn e(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
-    Entry {
-        key,
-        symbol,
-        extra: Extra::None,
-        carrier: Carrier::Element,
-        ret,
-        by_ref: None,
-        ctx: None,
+impl Entry {
+    /// The exported symbol, per `cli/runtime/lib.rs` §1.
+    pub fn symbol(&self) -> String {
+        crate::compiler::backend::runtime_native::symbol_for(self.key)
+    }
+
+    /// The shapes of the Buri arguments, one per argument.
+    fn consumed(&self) -> impl Iterator<Item = Arg> + '_ {
+        self.args.iter().copied().filter(|a| a.consumes())
+    }
+
+    /// Whether Buri argument `i` is dropped from the C call ([`Arg::Dropped`]).
+    pub fn dropped(&self, i: usize) -> bool {
+        self.consumed().nth(i) == Some(Dropped)
+    }
+
+    /// The index of the Buri argument passed **by address** ([`Arg::Spilled`]).
+    pub fn by_ref(&self) -> Option<usize> {
+        self.consumed().position(|a| a == Spilled)
+    }
+
+    /// What the frame-threaded backend appends after the flattened arguments.
+    pub fn extra(&self) -> Extra {
+        let has = |a| self.args.contains(&a);
+        if has(Step) {
+            Extra::Step
+        } else if has(Compute) {
+            Extra::Compute
+        } else if has(Walk) {
+            Extra::Walk
+        } else if has(Press) {
+            Extra::Press
+        } else if has(Release) {
+            Extra::Owned
+        } else if has(Stride) {
+            Extra::Element
+        } else {
+            Extra::None
+        }
     }
 }
 
-const fn el(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
-    Entry {
-        key,
-        symbol,
-        extra: Extra::Element,
-        carrier: Carrier::Element,
-        ret,
-        by_ref: None,
-        ctx: None,
-    }
-}
-
-const fn er(key: &'static str, symbol: &'static str, ret: Ret, by_ref: usize) -> Entry {
-    Entry {
-        key,
-        symbol,
-        extra: Extra::Element,
-        carrier: Carrier::Element,
-        ret,
-        by_ref: Some(by_ref),
-        ctx: None,
-    }
-}
-
-/// A row whose value the runtime keeps and later writes over ([`Extra::Owned`]).
-const fn eo(key: &'static str, symbol: &'static str, ret: Ret, by_ref: usize) -> Entry {
-    Entry {
-        key,
-        symbol,
-        extra: Extra::Owned,
-        carrier: Carrier::Element,
-        ret,
-        by_ref: Some(by_ref),
-        ctx: None,
-    }
+const fn e(key: &'static str, args: &'static [Arg], ret: Ret) -> Entry {
+    Entry { key, args, ret, whole_value: false }
 }
 
 /// The same row, carrying **one whole value** rather than a `[T]`'s element
-/// ([`Carrier::Value`]).
+/// ([`Entry::whole_value`]).
 const fn v(entry: Entry) -> Entry {
-    Entry { carrier: Carrier::Value, ..entry }
+    Entry { whole_value: true, ..entry }
 }
 
-/// `entry`, with the index of its declaration's `ctx` parameter
-/// ([`Entry::ctx`]).
-const fn cx(entry: Entry, at: usize) -> Entry {
-    Entry { ctx: Some(at), ..entry }
-}
-
-/// A runtime-driven step ([`Extra::Step`]).
-const fn es(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
-    Entry {
-        key,
-        symbol,
-        extra: Extra::Step,
-        carrier: Carrier::Element,
-        ret,
-        by_ref: None,
-        ctx: None,
-    }
-}
-
-/// A deferred body ([`Extra::Compute`]).
-const fn ec(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
-    Entry {
-        key,
-        symbol,
-        extra: Extra::Compute,
-        carrier: Carrier::Element,
-        ret,
-        by_ref: None,
-        ctx: None,
-    }
-}
-
-/// A walk ([`Extra::Walk`]): the closure is the last argument, `by_ref` names
-/// the node passed by address, and `ctx` the context the runtime drops.
-const fn ew(key: &'static str, symbol: &'static str, ret: Ret, by_ref: usize) -> Entry {
-    Entry {
-        key,
-        symbol,
-        extra: Extra::Walk,
-        carrier: Carrier::Element,
-        ret,
-        by_ref: Some(by_ref),
-        ctx: None,
-    }
-}
-
-/// A kept handler ([`Extra::Press`]): the closure is the last argument, the
-/// runtime keeps it on an element, and `ctx` names the context the runtime drops.
-const fn ep(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
-    Entry {
-        key,
-        symbol,
-        extra: Extra::Press,
-        carrier: Carrier::Element,
-        ret,
-        by_ref: None,
-        ctx: None,
-    }
-}
-
-/// A walk with **no node passed by address** — the row body of `reconcile`,
-/// whose builder handle and row index are scalars and whose element is the index
-/// the trampoline supplies. It builds its own node from `rowAt` rather than
-/// being handed one, so nothing is spilled.
-const fn ewn(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
-    Entry {
-        key,
-        symbol,
-        extra: Extra::Walk,
-        carrier: Carrier::Element,
-        ret,
-        by_ref: None,
-        ctx: None,
-    }
-}
-
-/// Every key this backend has a runtime body for.
+/// Every key the archive has a body for, which both backends call.
 ///
 /// Grouped by the module the key names, and in each group by the order
 /// `core/<module>` declares them, so that a reader comparing this against
 /// `str.buri` or `list.buri` can see at a glance what is absent.
 ///
-/// `str.concat` is absent and is the one absence that is not a missing body:
-/// the archive exports `buri_rt_str_concat` and the copy-and-patch backend
-/// calls it. Its two `Str` lengths go **unmasked**, because VALUE-MODEL.md
-/// §3.1's ASCII flag is an input to a concatenation rather than a tag, and the
-/// flattening this table drives masks every length. So the call is emitted at
-/// the one site that knows that (`stencil/rtcall.rs`'s `str_concat`), and a row
-/// here would be a second and wrong way to reach the same symbol.
+/// What is deliberately absent, and why, so that a reader looking for one of
+/// these finds the reason rather than an absence:
+///
+///  * **`str.concat`, `str.format`, `str.length`, `list.length`, `list.empty`.**
+///    Open-coded by both backends: an allocation and two copies, a no-op, a
+///    masked load, a word the backend already has the address of, and two
+///    immediates. `str.concat` is the one whose symbol the archive does export
+///    — the frame-threaded backend calls it from the one site that knows its
+///    two lengths go **unmasked** (`stencil/rtcall.rs`'s `str_concat`), because
+///    VALUE-MODEL.md §3.1's ASCII flag is an input to a concatenation rather
+///    than a tag, and the flattening this table drives masks every length.
+///  * **`json.*`, and every `list.*` entry taking a closure.**
+///    `cli/runtime/list.rs`'s header states why they are not in the archive: a
+///    Buri closure's `code` is a thunk at the *flattened* signature of its own
+///    element type, so calling one from C would mean synthesizing a parameter
+///    list that depends on `T`. Both backends open-code them as loops.
 pub const ENTRIES: &[Entry] = &[
     // -- core/str, pure -----------------------------------------------------
     //
@@ -543,51 +464,51 @@ pub const ENTRIES: &[Entry] = &[
     // its base before doing so (`cli/runtime/text.rs`'s header). That is what
     // makes `slice`, `trim` and `splitOnce` allocation-free, which is what
     // `str.buri:26-45` says by declaring them without an `Allocator` bound.
-    e("str.charAt", "buri_rt_str_char_at", Ret::Opt),
-    e("str.slice", "buri_rt_str_slice", Ret::Out),
-    e("str.trim", "buri_rt_str_trim", Ret::Out),
-    e("str.trimStart", "buri_rt_str_trim_start", Ret::Out),
-    e("str.trimEnd", "buri_rt_str_trim_end", Ret::Out),
-    e("str.startsWith", "buri_rt_str_starts_with", Ret::Scalar),
-    e("str.endsWith", "buri_rt_str_ends_with", Ret::Scalar),
-    e("str.contains", "buri_rt_str_contains", Ret::Scalar),
-    e("str.indexOf", "buri_rt_str_index_of", Ret::Opt),
-    e("str.splitOnce", "buri_rt_str_split_once", Ret::Opt),
-    e("str.compare", "buri_rt_str_compare", Ret::Tag),
-    e("str.equal", "buri_rt_str_equal", Ret::Scalar),
-    e("str.hash", "buri_rt_str_hash", Ret::Scalar),
-    e("str.toInt", "buri_rt_str_to_int", Ret::Opt),
-    e("str.toFloat", "buri_rt_str_to_float", Ret::Opt),
+    e("str.charAt", &[Str, Scalar], Ret::Sum),
+    e("str.slice", &[Str, Scalar, Scalar], Ret::Out),
+    e("str.trim", &[Str], Ret::Out),
+    e("str.trimStart", &[Str], Ret::Out),
+    e("str.trimEnd", &[Str], Ret::Out),
+    e("str.startsWith", &[Str, Str], Ret::Int(8)),
+    e("str.endsWith", &[Str, Str], Ret::Int(8)),
+    e("str.contains", &[Str, Str], Ret::Int(8)),
+    e("str.indexOf", &[Str, Str], Ret::Sum),
+    e("str.splitOnce", &[Str, Str], Ret::Sum),
+    e("str.compare", &[Str, Str], Ret::Int(32)),
+    e("str.equal", &[Str, Str], Ret::Int(8)),
+    e("str.hash", &[Str], Ret::Scalar),
+    e("str.toInt", &[Str], Ret::Sum),
+    e("str.toFloat", &[Str], Ret::Sum),
     // -- core/str, `Allocator`-bounded ------------------------------------------
-    cx(e("str.split", "buri_rt_str_split", Ret::Out), 1),
-    cx(e("str.splitAny", "buri_rt_str_split_any", Ret::Out), 1),
-    cx(e("str.lines", "buri_rt_str_lines", Ret::Out), 1),
-    cx(e("str.replace", "buri_rt_str_replace", Ret::Out), 1),
-    cx(e("str.repeat", "buri_rt_str_repeat", Ret::Out), 1),
-    cx(e("str.toUpper", "buri_rt_str_to_upper", Ret::Out), 1),
-    cx(e("str.toLower", "buri_rt_str_to_lower", Ret::Out), 1),
-    cx(e("str.chars", "buri_rt_str_chars", Ret::Out), 1),
-    cx(e("str.fromChars", "buri_rt_str_from_chars", Ret::Out), 0),
-    cx(e("str.fromInt", "buri_rt_str_from_int", Ret::Out), 0),
-    cx(e("str.fromFloat", "buri_rt_str_from_float", Ret::Out), 0),
-    cx(e("str.padStart", "buri_rt_str_pad_start", Ret::Out), 1),
-    cx(e("str.padEnd", "buri_rt_str_pad_end", Ret::Out), 1),
+    e("str.split", &[Str, Dropped, Str], Ret::Out),
+    e("str.splitAny", &[Str, Dropped, Str], Ret::Out),
+    e("str.lines", &[Str, Dropped], Ret::Out),
+    e("str.replace", &[Str, Dropped, Str, Str], Ret::Out),
+    e("str.repeat", &[Str, Dropped, Scalar], Ret::Out),
+    e("str.toUpper", &[Str, Dropped], Ret::Out),
+    e("str.toLower", &[Str, Dropped], Ret::Out),
+    e("str.chars", &[Str, Dropped], Ret::Out),
+    e("str.fromChars", &[Dropped, List], Ret::Out),
+    e("str.fromInt", &[Dropped, Scalar], Ret::Out),
+    e("str.fromFloat", &[Dropped, Scalar], Ret::Out),
+    e("str.padStart", &[Str, Dropped, Scalar, Scalar], Ret::Out),
+    e("str.padEnd", &[Str, Dropped, Scalar, Scalar], Ret::Out),
     // -- core/list ----------------------------------------------------------
     //
     // `len` is open-coded (it is a load) and every entry taking a closure is
     // absent; `cli/runtime/list.rs`'s header says which and why.
-    el("list.get", "buri_rt_list_get", Ret::Opt),
-    cx(el("list.concat", "buri_rt_list_concat", Ret::Out), 1),
+    e("list.get", &[Elems, Scalar, Stride, Retain], Ret::Sum),
+    e("list.concat", &[Elems, Dropped, Elems, Stride, Retain], Ret::Out),
     // `push(self, ctx, item)` — the item is a `T`, so it goes by address.
-    cx(er("list.push", "buri_rt_list_push", Ret::Out, 2), 1),
-    cx(el("list.reverse", "buri_rt_list_reverse", Ret::Out), 1),
-    cx(el("list.slice", "buri_rt_list_slice", Ret::Out), 1),
-    cx(el("list.take", "buri_rt_list_take", Ret::Out), 1),
-    cx(el("list.drop", "buri_rt_list_drop", Ret::Out), 1),
+    e("list.push", &[Elems, Dropped, Spilled, Stride, Retain], Ret::Out),
+    e("list.reverse", &[Elems, Dropped, Stride, Retain], Ret::Out),
+    e("list.slice", &[Elems, Dropped, Scalar, Scalar, Stride, Retain], Ret::Out),
+    e("list.take", &[Elems, Dropped, Scalar, Stride, Retain], Ret::Out),
+    e("list.drop", &[Elems, Dropped, Scalar, Stride, Retain], Ret::Out),
     // `repeat(ctx, item, times)` — likewise, one place earlier.
-    cx(er("list.repeat", "buri_rt_list_repeat", Ret::Out, 1), 0),
-    cx(e("list.range", "buri_rt_list_range", Ret::Out), 0),
-    cx(e("list.join", "buri_rt_list_join", Ret::Out), 1),
+    e("list.repeat", &[Dropped, Spilled, Scalar, Stride, Retain], Ret::Out),
+    e("list.range", &[Dropped, Scalar, Scalar], Ret::Out),
+    e("list.join", &[List, Dropped, Str], Ret::Out),
     // -- core/bytes ---------------------------------------------------------
     //
     // Six of `bytes.buri`'s surface, and the rest of that module is Buri:
@@ -600,15 +521,15 @@ pub const ENTRIES: &[Entry] = &[
     // `[U8]`: the element type is fixed at `U8`, so there is no `T` for the
     // stride-and-glue pair of `lib.rs` §2 rule 4 to describe, and
     // `cli/runtime/value.rs`'s `list_of_bytes` knows the stride is one.
-    cx(e("bytes.toUtf8", "buri_rt_bytes_to_utf8", Ret::Out), 0),
+    e("bytes.toUtf8", &[Dropped, Str], Ret::Out),
     // `Result<Str, Utf8Error>` — §2.1's *second* error shape. `Utf8Error(Int)`
     // is a struct, so there is no variant index to name it with and the value
     // crosses through its own out-pointer.
-    cx(e("bytes.fromUtf8", "buri_rt_bytes_from_utf8", Ret::Res), 0),
-    cx(e("bytes.f64ToBytes", "buri_rt_bytes_f64_to_bytes", Ret::Out), 0),
-    e("bytes.f64FromBytes", "buri_rt_bytes_f64_from_bytes", Ret::Opt),
-    cx(e("bytes.f32ToBytes", "buri_rt_bytes_f32_to_bytes", Ret::Out), 0),
-    e("bytes.f32FromBytes", "buri_rt_bytes_f32_from_bytes", Ret::Opt),
+    e("bytes.fromUtf8", &[Dropped, List], Ret::Res),
+    e("bytes.f64ToBytes", &[Dropped, Scalar], Ret::Out),
+    e("bytes.f64FromBytes", &[List, Scalar], Ret::Sum),
+    e("bytes.f32ToBytes", &[Dropped, Scalar], Ret::Out),
+    e("bytes.f32FromBytes", &[List, Scalar], Ret::Sum),
     // -- core/character -----------------------------------------------------
     //
     // Eight of `character.buri`'s nine. `toU32` is the ninth and is not here:
@@ -623,39 +544,39 @@ pub const ENTRIES: &[Entry] = &[
     // drift. So all eight go through the archive together rather than four of
     // them here and four there, and `cli/runtime/character.rs` is the one
     // place the answers live.
-    e("character.isDigit", "buri_rt_character_is_digit", Ret::Scalar),
-    e("character.isAlpha", "buri_rt_character_is_alpha", Ret::Scalar),
-    e("character.isSpace", "buri_rt_character_is_space", Ret::Scalar),
-    e("character.isUpper", "buri_rt_character_is_upper", Ret::Scalar),
-    e("character.isLower", "buri_rt_character_is_lower", Ret::Scalar),
-    e("character.toUpper", "buri_rt_character_to_upper", Ret::Scalar),
-    e("character.toLower", "buri_rt_character_to_lower", Ret::Scalar),
-    e("character.toDigit", "buri_rt_character_to_digit", Ret::Opt),
+    e("character.isDigit", &[Scalar], Ret::Int(8)),
+    e("character.isAlpha", &[Scalar], Ret::Int(8)),
+    e("character.isSpace", &[Scalar], Ret::Int(8)),
+    e("character.isUpper", &[Scalar], Ret::Int(8)),
+    e("character.isLower", &[Scalar], Ret::Int(8)),
+    e("character.toUpper", &[Scalar], Ret::Scalar),
+    e("character.toLower", &[Scalar], Ret::Scalar),
+    e("character.toDigit", &[Scalar, Scalar], Ret::Sum),
     // -- core/crypto --------------------------------------------------------
     //
     // Sealing and the three signature checks, in `cli/runtime/crypto.rs` behind
     // the `crypto` feature (`runtime_native::crypto_intrinsic`). Every argument
     // is a `[U8]`, so `core/bytes`'s `Extra::None` reasoning holds.
-    cx(e("crypto.chacha20Poly1305Seal", "buri_rt_crypto_chacha20_poly1305_seal", Ret::Out), 0),
-    cx(e("crypto.chacha20Poly1305Open", "buri_rt_crypto_chacha20_poly1305_open", Ret::Opt), 0),
-    e("crypto.ecdsaP256Sha256Verify", "buri_rt_crypto_ecdsa_p256_sha256_verify", Ret::Scalar),
-    e("crypto.ed25519Verify", "buri_rt_crypto_ed25519_verify", Ret::Scalar),
-    e("crypto.rsaPkcs1Sha256Verify", "buri_rt_crypto_rsa_pkcs1_sha256_verify", Ret::Scalar),
+    e("crypto.chacha20Poly1305Seal", &[Dropped, List, List, List, List], Ret::Out),
+    e("crypto.chacha20Poly1305Open", &[Dropped, List, List, List, List], Ret::Sum),
+    e("crypto.ecdsaP256Sha256Verify", &[List, List, List], Ret::Int(8)),
+    e("crypto.ed25519Verify", &[List, List, List], Ret::Int(8)),
+    e("crypto.rsaPkcs1Sha256Verify", &[List, List, List, List], Ret::Int(8)),
     // -- core/math, the exactly-specified half --------------------------------
     //
     // Nine of twenty-two. `cli/runtime/math.rs` says why the other thirteen are
     // not here, and the short version is that IEEE 754 does not fix a
     // transcendental's answer, so V8 and the platform libm differ in the last
     // bit — which a rendered `Float` shows.
-    e("math.squareRoot", "buri_rt_math_square_root", Ret::Scalar),
-    e("math.absoluteFloat", "buri_rt_math_absolute_float", Ret::Scalar),
-    e("math.floor", "buri_rt_math_floor", Ret::Scalar),
-    e("math.ceiling", "buri_rt_math_ceiling", Ret::Scalar),
-    e("math.truncate", "buri_rt_math_truncate", Ret::Scalar),
-    e("math.round", "buri_rt_math_round", Ret::Scalar),
-    e("math.isNan", "buri_rt_math_is_nan", Ret::Scalar),
-    e("math.isInfinite", "buri_rt_math_is_infinite", Ret::Scalar),
-    e("math.isFinite", "buri_rt_math_is_finite", Ret::Scalar),
+    e("math.squareRoot", &[Scalar], Ret::Scalar),
+    e("math.absoluteFloat", &[Scalar], Ret::Scalar),
+    e("math.floor", &[Scalar], Ret::Scalar),
+    e("math.ceiling", &[Scalar], Ret::Scalar),
+    e("math.truncate", &[Scalar], Ret::Scalar),
+    e("math.round", &[Scalar], Ret::Scalar),
+    e("math.isNan", &[Scalar], Ret::Int(8)),
+    e("math.isInfinite", &[Scalar], Ret::Int(8)),
+    e("math.isFinite", &[Scalar], Ret::Int(8)),
     // -- the text streams ---------------------------------------------------
     //
     // `Result<(), IoError>` on all five, which is [`Ret::Res`] with the
@@ -664,11 +585,11 @@ pub const ENTRIES: &[Entry] = &[
     // shape the filesystem's writers have, and for the same reason: a stream a program
     // cannot write to is a failure the program can act on, and a signature
     // saying `()` was claiming otherwise.
-    e("host.HostStdout.print", "buri_rt_host_stdout_print", Ret::Res),
-    e("host.HostStdout.println", "buri_rt_host_stdout_println", Ret::Res),
-    e("host.HostStdout.writeBytes", "buri_rt_host_stdout_write_bytes", Ret::Res),
-    e("host.HostStderr.eprint", "buri_rt_host_stderr_eprint", Ret::Res),
-    e("host.HostStderr.eprintln", "buri_rt_host_stderr_eprintln", Ret::Res),
+    e("host.HostStdout.print", &[Dropped, Str], Ret::Res),
+    e("host.HostStdout.println", &[Dropped, Str], Ret::Res),
+    e("host.HostStdout.writeBytes", &[Dropped, List], Ret::Res),
+    e("host.HostStderr.eprint", &[Dropped, Str], Ret::Res),
+    e("host.HostStderr.eprintln", &[Dropped, Str], Ret::Res),
     // -- the filesystem, both halves of it ------------------------------------
     //
     // Ten operations, and until they landed the native backend had none of
@@ -690,7 +611,7 @@ pub const ENTRIES: &[Entry] = &[
     // the five stream writers above deliberately do not.
     //
     // `self` is `HostFileSystem`, an empty struct, so it flattens to nothing and no row
-    // here needs a `ctx` column: neither `FileSystemRead` nor `FileSystemWrite` declares a
+    // here drops a context: neither `FileSystemRead` nor `FileSystemWrite` declares a
     // context parameter, and the allocation these do is `buri_rt_alloc`'s.
     //
     // **One host type for two effects**, which is what keeps these keys — and
@@ -709,26 +630,26 @@ pub const ENTRIES: &[Entry] = &[
     //
     // `fileExists` is the one that is not a `Result` — it answers `Bool` and
     // cannot fail — which is why it sits with the scalars below and not here.
-    e("host.HostFileSystem.readFile", "buri_rt_host_file_system_read_file", Ret::ResMsg),
-    e("host.HostFileSystem.readDir", "buri_rt_host_file_system_read_dir", Ret::ResMsg),
-    e("host.HostFileSystem.readFileBytes", "buri_rt_host_file_system_read_file_bytes", Ret::ResMsg),
-    e("host.HostFileSystem.writeFile", "buri_rt_host_file_system_write_file", Ret::ResMsg),
-    e("host.HostFileSystem.writeFileBytes", "buri_rt_host_file_system_write_file_bytes", Ret::ResMsg),
-    e("host.HostFileSystem.appendFile", "buri_rt_host_file_system_append_file", Ret::ResMsg),
-    e("host.HostFileSystem.renameFile", "buri_rt_host_file_system_rename_file", Ret::ResMsg),
-    e("host.HostFileSystem.removeFile", "buri_rt_host_file_system_remove_file", Ret::ResMsg),
-    e("host.HostFileSystem.removeDir", "buri_rt_host_file_system_remove_dir", Ret::ResMsg),
-    e("host.HostFileSystem.makeDir", "buri_rt_host_file_system_make_dir", Ret::ResMsg),
-    e("host.HostFileSystem.syncFile", "buri_rt_host_file_system_sync_file", Ret::ResMsg),
+    e("host.HostFileSystem.readFile", &[Dropped, Str], Ret::ResMsg),
+    e("host.HostFileSystem.readDir", &[Dropped, Str], Ret::ResMsg),
+    e("host.HostFileSystem.readFileBytes", &[Dropped, Str], Ret::ResMsg),
+    e("host.HostFileSystem.writeFile", &[Dropped, Str, Str], Ret::ResMsg),
+    e("host.HostFileSystem.writeFileBytes", &[Dropped, Str, List], Ret::ResMsg),
+    e("host.HostFileSystem.appendFile", &[Dropped, Str, List], Ret::ResMsg),
+    e("host.HostFileSystem.renameFile", &[Dropped, Str, Str], Ret::ResMsg),
+    e("host.HostFileSystem.removeFile", &[Dropped, Str], Ret::ResMsg),
+    e("host.HostFileSystem.removeDir", &[Dropped, Str], Ret::ResMsg),
+    e("host.HostFileSystem.makeDir", &[Dropped, Str], Ret::ResMsg),
+    e("host.HostFileSystem.syncFile", &[Dropped, Str], Ret::ResMsg),
     // `metadata`'s `.Ok` is a **struct** rather than a `Str` or a list, which
     // costs no column: `Ret::Out`'s pointer is the destination's own slot, so
     // the entry writes `Metadata`'s three fields where they already belong and
     // `cli/runtime/host.rs`'s `BuriMetadata` is the layout transcribed —
     // `net.rs`'s `BuriRequest` one level down.
-    e("host.HostFileSystem.metadata", "buri_rt_host_file_system_metadata", Ret::ResMsg),
-    e("host.HostFileSystem.readRange", "buri_rt_host_file_system_read_range", Ret::ResMsg),
-    e("host.HostFileSystem.realPath", "buri_rt_host_file_system_real_path", Ret::ResMsg),
-    e("host.HostFileSystem.copyFile", "buri_rt_host_file_system_copy_file", Ret::ResMsg),
+    e("host.HostFileSystem.metadata", &[Dropped, Str], Ret::ResMsg),
+    e("host.HostFileSystem.readRange", &[Dropped, Str, Scalar, Scalar], Ret::ResMsg),
+    e("host.HostFileSystem.realPath", &[Dropped, Str], Ret::ResMsg),
+    e("host.HostFileSystem.copyFile", &[Dropped, Str, Str], Ret::ResMsg),
     // -- Env, and Stdin beside it -------------------------------------------
     //
     // Four rows and no new shape between them, which is what made them the
@@ -741,26 +662,22 @@ pub const ENTRIES: &[Entry] = &[
     //
     // `self` is empty at all four, so the C call of `args` is the out-pointer
     // and nothing else.
-    e("host.HostEnvironment.variable", "buri_rt_host_environment_variable", Ret::Opt),
-    e("host.HostEnvironment.arguments", "buri_rt_host_environment_arguments", Ret::Out),
+    e("host.HostEnvironment.variable", &[Dropped, Str], Ret::Sum),
+    e("host.HostEnvironment.arguments", &[Dropped], Ret::Out),
     // Three more of the same two shapes: two `Str`s and a `[(Str, Str)]`,
     // which is `[Header]`'s layout and so is `list_of_headers`' block.
-    e("host.HostEnvironment.currentDirectory", "buri_rt_host_environment_current_directory", Ret::Out),
-    e("host.HostEnvironment.allVariables", "buri_rt_host_environment_all_variables", Ret::Out),
-    e(
-        "host.HostEnvironment.operatingSystemName",
-        "buri_rt_host_environment_operating_system_name",
-        Ret::Out,
-    ),
+    e("host.HostEnvironment.currentDirectory", &[Dropped], Ret::Out),
+    e("host.HostEnvironment.allVariables", &[Dropped], Ret::Out),
+    e("host.HostEnvironment.operatingSystemName", &[Dropped], Ret::Out),
     // Starting a program. `self` is `HostSpawn`, an empty struct, so the C call
     // is a `Command` encoded into four flat arguments — two `[Str]`s, a `Bool`
     // and a `[U8]`, which is nine leaves with the two out-pointers and so
     // inside `backend/stencil/abi.rs`'s register budget. `Output`'s three
     // fields leave through the one out-pointer `Ret::ResMsg` gives, as
     // `Metadata` does.
-    e("host.HostSpawn.spawnProcess", "buri_rt_host_spawn_process", Ret::ResMsg),
-    e("host.HostStdin.readLine", "buri_rt_host_stdin_read_line", Ret::Opt),
-    e("host.HostStdin.readBytes", "buri_rt_host_stdin_read_bytes", Ret::Opt),
+    e("host.HostSpawn.spawnProcess", &[Dropped, List, List, Scalar, List], Ret::ResMsg),
+    e("host.HostStdin.readLine", &[Dropped], Ret::Sum),
+    e("host.HostStdin.readBytes", &[Dropped, Scalar], Ret::Sum),
     // -- the scalar capabilities --------------------------------------------
     // `Tcp`'s four. A dial answers a handle and a read answers octets, both
     // `Result<_, IoError>` with `.Other(Str)` on the error side — so both are
@@ -768,27 +685,23 @@ pub const ENTRIES: &[Entry] = &[
     // reason: a socket meets failures `IoError` has no variant for, and the
     // sentence is the only actionable half of one. `tcpWrite`'s `.Ok` is `()`
     // and so has no payload out-pointer, and `tcpClose` answers nothing at all.
-    e("host.HostTcp.tcpConnect", "buri_rt_host_tcp_connect", Ret::ResMsg),
-    e("host.HostTcp.tcpRead", "buri_rt_host_tcp_read", Ret::ResMsg),
-    e("host.HostTcp.tcpWrite", "buri_rt_host_tcp_write", Ret::ResMsg),
-    e("host.HostTcp.tcpClose", "buri_rt_host_tcp_close", Ret::Void),
+    e("host.HostTcp.tcpConnect", &[Dropped, Str, Scalar], Ret::ResMsg),
+    e("host.HostTcp.tcpRead", &[Dropped, Scalar, Scalar], Ret::ResMsg),
+    e("host.HostTcp.tcpWrite", &[Dropped, Scalar, List], Ret::ResMsg),
+    e("host.HostTcp.tcpClose", &[Dropped, Scalar], Ret::Void),
     // `Request` goes by address: its nine words plus two out-pointers would not
     // fit the stencil backend's ten argument registers. `NetError`'s `BadUrl`
     // and `Transport` carry the sentence `Ret::ResMsg` gives a place to.
-    Entry { by_ref: Some(1), ..e("host.HostNetwork.fetch", "buri_rt_host_network_fetch", Ret::ResMsg) },
-    e("host.HostFileSystem.fileExists", "buri_rt_host_file_system_file_exists", Ret::Scalar),
-    e("host.HostClock.nowMilliseconds", "buri_rt_host_clock_now_milliseconds", Ret::Scalar),
-    e("host.HostClock.sleepMilliseconds", "buri_rt_host_clock_sleep_milliseconds", Ret::Void),
+    e("host.HostNetwork.fetch", &[Dropped, Spilled], Ret::ResMsg),
+    e("host.HostFileSystem.fileExists", &[Dropped, Str], Ret::Int(8)),
+    e("host.HostClock.nowMilliseconds", &[Dropped], Ret::Scalar),
+    e("host.HostClock.sleepMilliseconds", &[Dropped, Scalar], Ret::Void),
     // A reading off a clock that only goes forward, in nanoseconds. `Ret::Scalar`
     // like `nowMilliseconds` and for the same reason: one `i64` out, nothing in but the
     // dropped `self`.
-    e(
-        "host.HostClock.monotonicNanoseconds",
-        "buri_rt_host_clock_monotonic_nanoseconds",
-        Ret::Scalar,
-    ),
-    e("host.HostRandom.nextInt", "buri_rt_host_random_next_int", Ret::Scalar),
-    e("host.HostRandom.nextFloat", "buri_rt_host_random_next_float", Ret::Scalar),
+    e("host.HostClock.monotonicNanoseconds", &[Dropped], Ret::Scalar),
+    e("host.HostRandom.nextInt", &[Dropped, Scalar, Scalar], Ret::Scalar),
+    e("host.HostRandom.nextFloat", &[Dropped], Ret::Scalar),
     // The one row here whose symbol may not be in the archive: it is behind the
     // runtime's `crypto` feature, and `runtime_native::crypto_intrinsic` is
     // what turns a toolchain built without it into a refusal naming the
@@ -796,8 +709,8 @@ pub const ENTRIES: &[Entry] = &[
     // claim that the *runtime* implements the key, which it does; whether this
     // toolchain's copy carries it is the feature file's question and is asked
     // separately, exactly as `host.HostListen.*` is.
-    e("host.HostEntropy.bytes", "buri_rt_host_entropy_bytes", Ret::Out),
-    e("host.HostProcess.exitWith", "buri_rt_host_process_exit_with", Ret::NoReturn),
+    e("host.HostEntropy.bytes", &[Dropped, Scalar], Ret::Out),
+    e("host.HostProcess.exitWith", &[Dropped, Scalar], Ret::NoReturn),
     // `allocate(self, bytes) -> Region`. `self` is `HostAllocator`, an empty
     // struct, so it flattens to nothing and the C call is the one `i64`; the
     // result is `struct Region(I64)`, whose single leaf is what makes
@@ -812,12 +725,12 @@ pub const ENTRIES: &[Entry] = &[
     // archive already has the body and `llvm/runtime.rs` already calls it — two
     // backends reaching one definition of a *defined* cost model, which is what
     // §7.1 means by "the same number on both backends".
-    e("host.HostAllocator.allocate", "buri_rt_host_allocator_allocate", Ret::Scalar),
+    e("host.HostAllocator.allocate", &[Dropped, Scalar], Ret::Scalar),
     // -- Tasks --------------------------------------------------------------
     //
     // `parallel(self, ctx, items, f)`. `self` is `HostTasks`, an empty struct,
     // so it flattens to nothing; `ctx` is the caller's whole context and is the
-    // one this row's fourth column names, because it is dropped from the C call
+    // one this row drops at index 1, because it is dropped from the C call
     // and read into the step's state record instead; `items` is the `[A]` the
     // runtime walks, which is what the strides of [`Extra::Step`] describe; `f`
     // crosses as the entry thunk and the state record rather than as
@@ -826,14 +739,14 @@ pub const ENTRIES: &[Entry] = &[
     // Two of the four arguments carry no bytes across and they are dropped for
     // different reasons: `self` because it is empty, `ctx` because the runtime
     // reads no capability. Only the second is a rule — a `TestTasks` receiver is
-    // a live handle and crosses — which is why the column names an index rather
+    // a live handle and crosses — which is why the row drops an index rather
     // than a width.
     //
     // The body is in `cli/runtime/rt.rs` behind feature `net`, which is why
     // `runtime_native::net_intrinsic` names the `host.HostTasks.*` family: a
     // toolchain built without the reactor refuses this key with a sentence
     // before code generation rather than with a missing symbol from `cc`.
-    cx(es("host.HostTasks.parallel", "buri_rt_host_tasks_parallel", Ret::Out), 1),
+    e("host.HostTasks.parallel", &[Dropped, Dropped, Elems, Step], Ret::Out),
     // -- Listen, and Sockets beside it --------------------------------------
     //
     // Seven operations and no closure among them: the accept loop is
@@ -860,7 +773,7 @@ pub const ENTRIES: &[Entry] = &[
     // `effect Listen` carries the argument.
     //
     // `self` is `HostListen`, an empty struct, so it flattens to nothing and
-    // no row here needs a `ctx` column: none of the seven takes a context.
+    // no row here drops a context: none of the seven takes a context.
     // `listenRespond`'s `Response` flattens into its leaves by §2 rule 1, and
     // `Listener` and `Request` come back through an out-pointer whole.
     //
@@ -868,35 +781,27 @@ pub const ENTRIES: &[Entry] = &[
     // `runtime_native::net_intrinsic` names the `host.HostListen.*` family: a
     // toolchain built without the network refuses these keys with a sentence
     // before code generation rather than with a missing symbol from `cc`.
-    e("host.HostListen.listenBind", "buri_rt_host_listen_bind", Ret::Res),
-    e("host.HostListen.listenAccept", "buri_rt_host_listen_accept", Ret::Res),
-    e("host.HostListen.listenRequest", "buri_rt_host_listen_request", Ret::Res),
-    e("host.HostListen.listenRespond", "buri_rt_host_listen_respond", Ret::Res),
-    e("host.HostListen.listenClose", "buri_rt_host_listen_close", Ret::Void),
+    e("host.HostListen.listenBind", &[Dropped, Str, Scalar, List, Scalar, Scalar], Ret::Res),
+    e("host.HostListen.listenAccept", &[Dropped, Scalar], Ret::Res),
+    e("host.HostListen.listenRequest", &[Dropped, Scalar], Ret::Res),
+    e("host.HostListen.listenRespond", &[Dropped, Scalar, Scalar, List, List], Ret::Res),
+    e("host.HostListen.listenClose", &[Dropped, Scalar], Ret::Void),
     // The two that turn a connection into a socket and then read it.
     // `listenUpgrade` answers a bare `Int` — the socket — so its `.Ok` is a
     // scalar out-pointer like `listenAccept`'s; `listenReceive` answers a
     // `Received`, which is a struct and comes back whole, exactly as `Request`
     // does one row up. Neither is a closure either: the socket's loop is
     // `core/net/server`'s in Buri, and a socket's state never crosses.
-    e("host.HostListen.listenUpgrade", "buri_rt_host_listen_upgrade", Ret::Res),
-    e("host.HostListen.listenReceive", "buri_rt_host_listen_receive", Ret::Res),
+    e("host.HostListen.listenUpgrade", &[Dropped, Scalar], Ret::Res),
+    e("host.HostListen.listenReceive", &[Dropped, Scalar], Ret::Res),
     // The socket half. `()` on all three, because a frame is enqueued rather
     // than delivered and "did this arrive" was never answerable — the message
     // goes to the socket's own outbound buffer and leaves when that socket's
     // worker next pumps it. A handle naming no open socket is one that has
     // already gone, which is the same answer, so the three are total.
-    e(
-        "host.HostSockets.socketSendText",
-        "buri_rt_host_sockets_socket_send_text",
-        Ret::Void,
-    ),
-    e(
-        "host.HostSockets.socketSendBytes",
-        "buri_rt_host_sockets_socket_send_bytes",
-        Ret::Void,
-    ),
-    e("host.HostSockets.socketClose", "buri_rt_host_sockets_socket_close", Ret::Void),
+    e("host.HostSockets.socketSendText", &[Dropped, Scalar, Str], Ret::Void),
+    e("host.HostSockets.socketSendBytes", &[Dropped, Scalar, List], Ret::Void),
+    e("host.HostSockets.socketClose", &[Dropped, Scalar, Scalar, Str], Ret::Void),
     // -- WebSocketClient, the other way to come by a socket -----------------
     //
     // Two rows, and they are `listenUpgrade` and `listenReceive` from the
@@ -911,16 +816,8 @@ pub const ENTRIES: &[Entry] = &[
     //
     // `self` is `HostWebSocketClient`, an empty struct, so it flattens to
     // nothing; the URL flattens to its three `Str` leaves by §2 rule 1.
-    e(
-        "host.HostWebSocketClient.connectSocket",
-        "buri_rt_host_web_socket_client_connect_socket",
-        Ret::Res,
-    ),
-    e(
-        "host.HostWebSocketClient.connectReceive",
-        "buri_rt_host_web_socket_client_connect_receive",
-        Ret::Res,
-    ),
+    e("host.HostWebSocketClient.connectSocket", &[Dropped, Str], Ret::Res),
+    e("host.HostWebSocketClient.connectReceive", &[Dropped, Scalar], Ret::Res),
     // -- core/alloc's counters ----------------------------------------------
     //
     // Four scalars in, one scalar out, and no context anywhere in them: the
@@ -929,10 +826,10 @@ pub const ENTRIES: &[Entry] = &[
     // `charge` is the one that can end the process, and it is `Ret::Scalar`
     // rather than `Ret::NoReturn` because it returns on every request that
     // fits.
-    e("alloc.newCounter", "buri_rt_alloc_new_counter", Ret::Scalar),
-    e("alloc.charge", "buri_rt_alloc_charge", Ret::Scalar),
-    e("alloc.count", "buri_rt_alloc_count", Ret::Scalar),
-    e("alloc.total", "buri_rt_alloc_total", Ret::Scalar),
+    e("alloc.newCounter", &[Scalar], Ret::Scalar),
+    e("alloc.charge", &[Scalar, Scalar], Ret::Scalar),
+    e("alloc.count", &[Scalar], Ret::Scalar),
+    e("alloc.total", &[Scalar], Ret::Scalar),
     // -- `core/alloc`'s scope (G4) ------------------------------------------
     //
     // The same shape as the four counters above and for the same reason: the
@@ -940,17 +837,17 @@ pub const ENTRIES: &[Entry] = &[
     // for this ABI to drop. `arenaRelease` answers the bytes it gave back
     // rather than `()`, because a scalar out is the row this table has and
     // `scoped` discards it.
-    e("alloc.arenaCreate", "buri_rt_alloc_arena_create", Ret::Scalar),
-    e("alloc.arenaAllocate", "buri_rt_alloc_arena_allocate", Ret::Scalar),
-    e("alloc.arenaRelease", "buri_rt_alloc_arena_release", Ret::Scalar),
-    e("alloc.arenaCount", "buri_rt_alloc_arena_count", Ret::Scalar),
-    e("alloc.arenaTotal", "buri_rt_alloc_arena_total", Ret::Scalar),
+    e("alloc.arenaCreate", &[], Ret::Scalar),
+    e("alloc.arenaAllocate", &[Scalar, Scalar], Ret::Scalar),
+    e("alloc.arenaRelease", &[Scalar], Ret::Scalar),
+    e("alloc.arenaCount", &[Scalar], Ret::Scalar),
+    e("alloc.arenaTotal", &[Scalar], Ret::Scalar),
     // G5's pair: the arena the platform allocator serves out of, for this
     // thread and for the dynamic extent of `scoped`'s body. `arenaEnter`
     // answers the arena that was active before, so nesting is the caller's
     // local and not a stack in the runtime.
-    e("alloc.arenaEnter", "buri_rt_alloc_arena_enter", Ret::Scalar),
-    e("alloc.arenaLeave", "buri_rt_alloc_arena_leave", Ret::Scalar),
+    e("alloc.arenaEnter", &[Scalar], Ret::Scalar),
+    e("alloc.arenaLeave", &[Scalar], Ret::Scalar),
     // -- core/actor's mailbox, state and reply slots (F6) --------------------
     //
     // Nine rows, and not one of them carries a stride, a glue or a descriptor
@@ -963,7 +860,7 @@ pub const ENTRIES: &[Entry] = &[
     // `Func::desc`'s descriptor and `Extra::Step`'s thunk, and
     // `middle/monomorphize.rs`'s `GENERIC_INTRINSICS` is where it is argued.
     //
-    // The fourth column is `0` on every row: `core/actor` declares these as
+    // The context is argument `0` on every row: `core/actor` declares these as
     // `fn <name><C: Tasks, …>(ctx: C, …)` — a module function with the
     // authority in its bound, `core/list`'s shape — so argument 0 is the
     // context and the C signature has no parameter for it.
@@ -984,18 +881,18 @@ pub const ENTRIES: &[Entry] = &[
     // `runtime_native::net_intrinsic` names the `actor.*` family too: a
     // toolchain built without the reactor refuses these keys with a sentence
     // before code generation rather than with a missing symbol from `cc`.
-    cx(e("actor.mailboxOpen", "buri_rt_actor_mailbox_open", Ret::Scalar), 0),
-    cx(e("actor.mailboxPush", "buri_rt_actor_mailbox_push", Ret::Res), 0),
-    cx(e("actor.mailboxPop", "buri_rt_actor_mailbox_pop", Ret::Opt), 0),
-    cx(e("actor.mailboxClose", "buri_rt_actor_mailbox_close", Ret::Opt), 0),
-    cx(e("actor.stateTake", "buri_rt_actor_state_take", Ret::Res), 0),
-    cx(e("actor.statePut", "buri_rt_actor_state_put", Ret::Opt), 0),
-    cx(e("actor.replyOpen", "buri_rt_actor_reply_open", Ret::Scalar), 0),
-    cx(e("actor.replyPut", "buri_rt_actor_reply_put", Ret::Opt), 0),
-    cx(e("actor.replyTake", "buri_rt_actor_reply_take", Ret::Opt), 0),
+    e("actor.mailboxOpen", &[Dropped, List, Scalar], Ret::Scalar),
+    e("actor.mailboxPush", &[Dropped, Scalar, List], Ret::Res),
+    e("actor.mailboxPop", &[Dropped, Scalar], Ret::Sum),
+    e("actor.mailboxClose", &[Dropped, Scalar], Ret::Sum),
+    e("actor.stateTake", &[Dropped, Scalar], Ret::Res),
+    e("actor.statePut", &[Dropped, Scalar, List], Ret::Sum),
+    e("actor.replyOpen", &[Dropped], Ret::Scalar),
+    e("actor.replyPut", &[Dropped, Scalar, List], Ret::Sum),
+    e("actor.replyTake", &[Dropped, Scalar], Ret::Sum),
     // Takes no context: whether any arena holds pages is a fact about the
     // process, and `core/actor` asks it before skipping a copy.
-    e("actor.scopesLive", "buri_rt_actor_scopes_live", Ret::Scalar),
+    e("actor.scopesLive", &[], Ret::Scalar),
     // -- core/tasks's scopes (F8) --------------------------------------------
     //
     // Ten rows, the nine above read a second time: a spawned task crosses as a
@@ -1006,7 +903,7 @@ pub const ENTRIES: &[Entry] = &[
     // task is *entered* by `core/tasks::running`, in Buri, through
     // `Tasks.parallel`.
     //
-    // The fourth column is `0` on every row for the actor block's reason:
+    // The context is argument `0` on every row for the actor block's reason:
     // `core/tasks` declares these as `fn <name><C: Tasks, ...>(ctx: C, ...)`,
     // so argument 0 is the context and the C signature has no parameter for
     // it.
@@ -1018,16 +915,16 @@ pub const ENTRIES: &[Entry] = &[
     //
     // The bodies are in `cli/runtime/rt.rs` behind feature `net`, so
     // `runtime_native::net_intrinsic` names this family too.
-    cx(e("tasks.scopeOpen", "buri_rt_tasks_scope_open", Ret::Scalar), 0),
-    cx(e("tasks.scopePush", "buri_rt_tasks_scope_push", Ret::Opt), 0),
-    cx(e("tasks.scopeRound", "buri_rt_tasks_scope_round", Ret::Out), 0),
-    cx(e("tasks.scopeTaskAt", "buri_rt_tasks_scope_task_at", Ret::Opt), 0),
-    cx(e("tasks.scopeEnter", "buri_rt_tasks_scope_enter", Ret::Scalar), 0),
-    cx(e("tasks.scopeLeave", "buri_rt_tasks_scope_leave", Ret::Scalar), 0),
-    cx(e("tasks.scopeBeside", "buri_rt_tasks_scope_beside", Ret::Scalar), 0),
-    cx(e("tasks.scopeClaim", "buri_rt_tasks_scope_claim", Ret::Scalar), 0),
-    cx(e("tasks.scopeSpare", "buri_rt_tasks_scope_spare", Ret::Scalar), 0),
-    cx(e("tasks.scopeRan", "buri_rt_tasks_scope_ran", Ret::Scalar), 0),
+    e("tasks.scopeOpen", &[Dropped], Ret::Scalar),
+    e("tasks.scopePush", &[Dropped, Scalar, List], Ret::Sum),
+    e("tasks.scopeRound", &[Dropped, Scalar], Ret::Out),
+    e("tasks.scopeTaskAt", &[Dropped, Scalar, Scalar], Ret::Sum),
+    e("tasks.scopeEnter", &[Dropped, Scalar], Ret::Scalar),
+    e("tasks.scopeLeave", &[Dropped, Scalar], Ret::Scalar),
+    e("tasks.scopeBeside", &[Dropped, Scalar], Ret::Scalar),
+    e("tasks.scopeClaim", &[Dropped, Scalar], Ret::Scalar),
+    e("tasks.scopeSpare", &[Dropped, Scalar], Ret::Scalar),
+    e("tasks.scopeRan", &[Dropped, Scalar], Ret::Scalar),
     // -- platform/effect/testing's stateful half -----------------------------------
     //
     // `platform/effect/testing`'s names, over one handle table.
@@ -1056,38 +953,26 @@ pub const ENTRIES: &[Entry] = &[
     // for `TestNetwork.fetch`'s reason rather than the allocator's: both are Buri
     // bodies, so no key reaches this table to be missing from it. `TestProcess`
     // records nothing because nothing can read it back.
-    e("host_testing.stdout", "buri_rt_host_testing_stdout", Ret::Out),
-    e("host_testing.stderr", "buri_rt_host_testing_stderr", Ret::Out),
+    e("host_testing.stdout", &[], Ret::Out),
+    e("host_testing.stderr", &[], Ret::Out),
     // The five writers answer `Result<(), IoError>` here too, and always
     // `.Ok(())`: a captured stream is a buffer the runner owns, so there is
     // nothing to fail. The shape is the effect's, not the implementation's.
-    e("host_testing.TestStdout.print", "buri_rt_host_testing_test_stdout_print", Ret::Res),
-    e("host_testing.TestStdout.println", "buri_rt_host_testing_test_stdout_println", Ret::Res),
-    e(
-        "host_testing.TestStdout.writeBytes",
-        "buri_rt_host_testing_test_stdout_write_bytes",
-        Ret::Res,
-    ),
-    e("host_testing.TestStdout.captured", "buri_rt_host_testing_test_stdout_captured", Ret::Out),
-    e("host_testing.TestStderr.eprint", "buri_rt_host_testing_test_stderr_eprint", Ret::Res),
-    e("host_testing.TestStderr.eprintln", "buri_rt_host_testing_test_stderr_eprintln", Ret::Res),
-    e("host_testing.TestStderr.captured", "buri_rt_host_testing_test_stderr_captured", Ret::Out),
-    e("host_testing.stdin", "buri_rt_host_testing_stdin", Ret::Out),
-    e("host_testing.TestStdin.lines", "buri_rt_host_testing_test_stdin_lines", Ret::Out),
-    e("host_testing.TestStdin.bytes", "buri_rt_host_testing_test_stdin_bytes", Ret::Out),
-    e(
-        "host_testing.TestStdin.readLine",
-        "buri_rt_host_testing_test_stdin_read_line",
-        Ret::Opt,
-    ),
-    e(
-        "host_testing.TestStdin.readBytes",
-        "buri_rt_host_testing_test_stdin_read_bytes",
-        Ret::Opt,
-    ),
+    e("host_testing.TestStdout.print", &[Scalar, Str], Ret::Res),
+    e("host_testing.TestStdout.println", &[Scalar, Str], Ret::Res),
+    e("host_testing.TestStdout.writeBytes", &[Scalar, List], Ret::Res),
+    e("host_testing.TestStdout.captured", &[Scalar], Ret::Out),
+    e("host_testing.TestStderr.eprint", &[Scalar, Str], Ret::Res),
+    e("host_testing.TestStderr.eprintln", &[Scalar, Str], Ret::Res),
+    e("host_testing.TestStderr.captured", &[Scalar], Ret::Out),
+    e("host_testing.stdin", &[], Ret::Out),
+    e("host_testing.TestStdin.lines", &[Scalar, List], Ret::Out),
+    e("host_testing.TestStdin.bytes", &[Scalar, List], Ret::Out),
+    e("host_testing.TestStdin.readLine", &[Scalar], Ret::Sum),
+    e("host_testing.TestStdin.readBytes", &[Scalar, Scalar], Ret::Sum),
     // The stream's log, read back. A log is state the runner keeps, so it is
     // here for the reason the handle table itself is.
-    e("host_testing.TestStdin.calls", "buri_rt_host_testing_test_stdin_calls", Ret::Out),
+    e("host_testing.TestStdin.calls", &[Scalar], Ret::Out),
     // `TestFileSystem`'s twenty-two, and every one of them takes a **handle** rather
     // than a `TestFileSystem`. That value is a handle and a fault plan since the plan
     // landed, and an argument crosses as its leaves — so a row taking `self`
@@ -1100,44 +985,32 @@ pub const ENTRIES: &[Entry] = &[
     // out-pointer, one element wide. The three builders and `newFs` answer an
     // `I64` and so are `Ret::Scalar`, `newNet`'s shape rather than `clock`'s:
     // what they answer is the handle, and the value around it is built in Buri.
-    e("host_testing.newFs", "buri_rt_host_testing_new_fs", Ret::Scalar),
-    e("host_testing.fsFiles", "buri_rt_host_testing_fs_files", Ret::Scalar),
-    e("host_testing.fsFilesBytes", "buri_rt_host_testing_fs_files_bytes", Ret::Scalar),
-    e("host_testing.fsReadOnly", "buri_rt_host_testing_fs_read_only", Ret::Scalar),
-    e("host_testing.fsRead", "buri_rt_host_testing_fs_read", Ret::Res),
-    e("host_testing.fsSnapshot", "buri_rt_host_testing_fs_snapshot", Ret::Out),
-    e("host_testing.fsCalls", "buri_rt_host_testing_fs_calls", Ret::Out),
-    e("host_testing.fsReadFile", "buri_rt_host_testing_fs_read_file", Ret::Res),
-    e("host_testing.fsWriteFile", "buri_rt_host_testing_fs_write_file", Ret::Res),
-    e(
-        "host_testing.fsFileExists",
-        "buri_rt_host_testing_fs_file_exists",
-        Ret::Scalar,
-    ),
-    e("host_testing.fsReadDir", "buri_rt_host_testing_fs_read_dir", Ret::Res),
-    e(
-        "host_testing.fsReadFileBytes",
-        "buri_rt_host_testing_fs_read_file_bytes",
-        Ret::Res,
-    ),
-    e(
-        "host_testing.fsWriteFileBytes",
-        "buri_rt_host_testing_fs_write_file_bytes",
-        Ret::Res,
-    ),
-    e("host_testing.fsAppendFile", "buri_rt_host_testing_fs_append_file", Ret::Res),
-    e("host_testing.fsRenameFile", "buri_rt_host_testing_fs_rename_file", Ret::Res),
-    e("host_testing.fsRemoveFile", "buri_rt_host_testing_fs_remove_file", Ret::Res),
-    e("host_testing.fsRemoveDir", "buri_rt_host_testing_fs_remove_dir", Ret::ResMsg),
-    e("host_testing.fsMakeDir", "buri_rt_host_testing_fs_make_dir", Ret::Res),
-    e("host_testing.fsSyncFile", "buri_rt_host_testing_fs_sync_file", Ret::Res),
-    e("host_testing.fsMetadata", "buri_rt_host_testing_fs_metadata", Ret::Res),
+    e("host_testing.newFs", &[], Ret::Scalar),
+    e("host_testing.fsFiles", &[Scalar, List], Ret::Scalar),
+    e("host_testing.fsFilesBytes", &[Scalar, List], Ret::Scalar),
+    e("host_testing.fsReadOnly", &[Scalar], Ret::Scalar),
+    e("host_testing.fsRead", &[Scalar, Str], Ret::Res),
+    e("host_testing.fsSnapshot", &[Scalar], Ret::Out),
+    e("host_testing.fsCalls", &[Scalar], Ret::Out),
+    e("host_testing.fsReadFile", &[Scalar, Str], Ret::Res),
+    e("host_testing.fsWriteFile", &[Scalar, Str, Str], Ret::Res),
+    e("host_testing.fsFileExists", &[Scalar, Str], Ret::Int(8)),
+    e("host_testing.fsReadDir", &[Scalar, Str], Ret::Res),
+    e("host_testing.fsReadFileBytes", &[Scalar, Str], Ret::Res),
+    e("host_testing.fsWriteFileBytes", &[Scalar, Str, List], Ret::Res),
+    e("host_testing.fsAppendFile", &[Scalar, Str, List], Ret::Res),
+    e("host_testing.fsRenameFile", &[Scalar, Str, Str], Ret::Res),
+    e("host_testing.fsRemoveFile", &[Scalar, Str], Ret::Res),
+    e("host_testing.fsRemoveDir", &[Scalar, Str], Ret::ResMsg),
+    e("host_testing.fsMakeDir", &[Scalar, Str], Ret::Res),
+    e("host_testing.fsSyncFile", &[Scalar, Str], Ret::Res),
+    e("host_testing.fsMetadata", &[Scalar, Str], Ret::Res),
     // The one of the four that can say something: a negative offset or count is
     // `.Other` with a sentence, and the sentence is the one the JavaScript
     // double writes.
-    e("host_testing.fsReadRange", "buri_rt_host_testing_fs_read_range", Ret::ResMsg),
-    e("host_testing.fsRealPath", "buri_rt_host_testing_fs_real_path", Ret::Res),
-    e("host_testing.fsCopyFile", "buri_rt_host_testing_fs_copy_file", Ret::Res),
+    e("host_testing.fsReadRange", &[Scalar, Str, Scalar, Scalar], Ret::ResMsg),
+    e("host_testing.fsRealPath", &[Scalar, Str], Ret::Res),
+    e("host_testing.fsCopyFile", &[Scalar, Str, Str], Ret::Res),
     // -- the fault plan's promise -------------------------------------------
     //
     // The plan itself never crosses. It is a list of Buri values holding an
@@ -1149,14 +1022,14 @@ pub const ENTRIES: &[Entry] = &[
     // that one fired, and `test.leave` below reports the rest. `noteFsCall` is
     // the twelfth way into a log: a call the plan failed never reaches the row
     // that would have recorded it, and it is still a call.
-    e("host_testing.fsWithPlan", "buri_rt_host_testing_fs_with_plan", Ret::Scalar),
-    e("host_testing.addFsFault", "buri_rt_host_testing_add_fs_fault", Ret::Void),
-    e("host_testing.addNetFault", "buri_rt_host_testing_add_net_fault", Ret::Void),
-    e("host_testing.faultFails", "buri_rt_host_testing_fault_fails", Ret::Void),
-    e("host_testing.noteFault", "buri_rt_host_testing_note_fault", Ret::Void),
-    e("host_testing.noteFsCall", "buri_rt_host_testing_note_fs_call", Ret::Void),
-    e("host_testing.netRebind", "buri_rt_host_testing_net_rebind", Ret::Scalar),
-    e("host_testing.netWithPlan", "buri_rt_host_testing_net_with_plan", Ret::Scalar),
+    e("host_testing.fsWithPlan", &[Scalar], Ret::Scalar),
+    e("host_testing.addFsFault", &[Scalar, Str, Str, Str], Ret::Void),
+    e("host_testing.addNetFault", &[Scalar, Str], Ret::Void),
+    e("host_testing.faultFails", &[Scalar, Scalar, Scalar, Str], Ret::Void),
+    e("host_testing.noteFault", &[Scalar, Scalar], Ret::Void),
+    e("host_testing.noteFsCall", &[Scalar, Str, Str, Str], Ret::Void),
+    e("host_testing.netRebind", &[Scalar], Ret::Scalar),
+    e("host_testing.netWithPlan", &[Scalar], Ret::Scalar),
     // -- the call log's remaining four --------------------------------------
     //
     // `spelled` is an `FsCall` constructor's decode and not a filesystem
@@ -1172,27 +1045,23 @@ pub const ENTRIES: &[Entry] = &[
     // without its answer; `netCalls` takes the handle rather than the `TestNetwork`,
     // because that value carries the responder too and an argument crosses as
     // its leaves.
-    e("host_testing.spelled", "buri_rt_host_testing_spelled", Ret::Out),
-    e("host_testing.newNet", "buri_rt_host_testing_new_net", Ret::Scalar),
-    e("host_testing.recordFetch", "buri_rt_host_testing_record_fetch", Ret::Void),
-    e("host_testing.netCalls", "buri_rt_host_testing_net_calls", Ret::Out),
+    e("host_testing.spelled", &[List], Ret::Out),
+    e("host_testing.newNet", &[], Ret::Scalar),
+    e("host_testing.recordFetch", &[Scalar, Scalar, Str, List, List, Scalar], Ret::Void),
+    e("host_testing.netCalls", &[Scalar], Ret::Out),
     // `tcp()`'s seven. Its shape is `TestStdin`'s rather than `TestNetwork`'s —
     // what a test writes down is a script and what it reads back is a log, and
     // there is no responder to keep in the program — so the handle names all of
     // it and nothing here needs a plan. `recordTcpRead` is `Ret::Opt` because
     // the one failure the double has is a stream it never minted, which carries
     // nothing.
-    e("host_testing.newTcp", "buri_rt_host_testing_new_tcp", Ret::Scalar),
-    e("host_testing.tcpStream", "buri_rt_host_testing_tcp_stream", Ret::Scalar),
-    e(
-        "host_testing.recordTcpConnect",
-        "buri_rt_host_testing_record_tcp_connect",
-        Ret::Scalar,
-    ),
-    e("host_testing.recordTcpRead", "buri_rt_host_testing_record_tcp_read", Ret::Opt),
-    e("host_testing.recordTcpWrite", "buri_rt_host_testing_record_tcp_write", Ret::Scalar),
-    e("host_testing.recordTcpClose", "buri_rt_host_testing_record_tcp_close", Ret::Void),
-    e("host_testing.tcpCalls", "buri_rt_host_testing_tcp_calls", Ret::Out),
+    e("host_testing.newTcp", &[], Ret::Scalar),
+    e("host_testing.tcpStream", &[Scalar, List], Ret::Scalar),
+    e("host_testing.recordTcpConnect", &[Scalar, Str, Scalar], Ret::Scalar),
+    e("host_testing.recordTcpRead", &[Scalar, Scalar, Scalar], Ret::Sum),
+    e("host_testing.recordTcpWrite", &[Scalar, Scalar, List], Ret::Int(8)),
+    e("host_testing.recordTcpClose", &[Scalar, Scalar], Ret::Void),
+    e("host_testing.tcpCalls", &[Scalar], Ret::Out),
     // -- tasks(): the order the work happens in ------------------------------
     //
     // `parallel` is the **second** key of the closure trampoline in this table
@@ -1203,89 +1072,42 @@ pub const ENTRIES: &[Entry] = &[
     // `Arg::Dropped` — the runtime has to be able to ask which order this run
     // schedules in. The other rows are the ordering builders, the log, and the
     // plan's two halves.
-    cx(
-        es("host_testing.TestTasks.parallel", "buri_rt_host_testing_test_tasks_parallel", Ret::Out),
-        1,
-    ),
-    e("host_testing.tasks", "buri_rt_host_testing_tasks", Ret::Out),
-    e(
-        "host_testing.TestTasks.anyOrder",
-        "buri_rt_host_testing_test_tasks_any_order",
-        Ret::Out,
-    ),
-    e(
-        "host_testing.TestTasks.everyOrder",
-        "buri_rt_host_testing_test_tasks_every_order",
-        Ret::Out,
-    ),
-    e("host_testing.TestTasks.seed", "buri_rt_host_testing_test_tasks_seed", Ret::Out),
-    e("host_testing.TestTasks.calls", "buri_rt_host_testing_test_tasks_calls", Ret::Out),
-    e("host_testing.TestTasks.runs", "buri_rt_host_testing_test_tasks_runs", Ret::Scalar),
-    e(
-        "host_testing.TestTasks.orders",
-        "buri_rt_host_testing_test_tasks_orders",
-        Ret::Scalar,
-    ),
-    e("host_testing.TestTasks.replan", "buri_rt_host_testing_test_tasks_replan", Ret::Out),
-    e(
-        "host_testing.TestTasks.addFault",
-        "buri_rt_host_testing_test_tasks_add_fault",
-        Ret::Void,
-    ),
-    e("host_testing.clock", "buri_rt_host_testing_clock", Ret::Out),
-    e("host_testing.TestClock.at", "buri_rt_host_testing_test_clock_at", Ret::Out),
-    e(
-        "host_testing.TestClock.nowMilliseconds",
-        "buri_rt_host_testing_test_clock_now_milliseconds",
-        Ret::Scalar,
-    ),
-    e(
-        "host_testing.TestClock.sleepMilliseconds",
-        "buri_rt_host_testing_test_clock_sleep_milliseconds",
-        Ret::Void,
-    ),
-    e(
-        "host_testing.TestClock.monotonicNanoseconds",
-        "buri_rt_host_testing_test_clock_monotonic_nanoseconds",
-        Ret::Scalar,
-    ),
-    e("host_testing.rand", "buri_rt_host_testing_rand", Ret::Out),
-    e("host_testing.TestRandom.seed", "buri_rt_host_testing_test_random_seed", Ret::Out),
-    e("host_testing.TestRandom.nextInt", "buri_rt_host_testing_test_random_next_int", Ret::Scalar),
-    e(
-        "host_testing.TestRandom.nextFloat",
-        "buri_rt_host_testing_test_random_next_float",
-        Ret::Scalar,
-    ),
-    e("host_testing.entropy", "buri_rt_host_testing_entropy", Ret::Out),
-    e("host_testing.TestEntropy.seed", "buri_rt_host_testing_test_entropy_seed", Ret::Out),
-    e("host_testing.TestEntropy.bytes", "buri_rt_host_testing_test_entropy_bytes", Ret::Out),
-    e("host_testing.env", "buri_rt_host_testing_env", Ret::Out),
-    e("host_testing.TestEnvironment.variables", "buri_rt_host_testing_test_environment_variables", Ret::Out),
-    e("host_testing.TestEnvironment.withArguments", "buri_rt_host_testing_test_environment_with_arguments", Ret::Out),
-    e("host_testing.TestEnvironment.variable", "buri_rt_host_testing_test_environment_variable", Ret::Opt),
-    e("host_testing.TestEnvironment.arguments", "buri_rt_host_testing_test_environment_arguments", Ret::Out),
-    e(
-        "host_testing.TestEnvironment.currentDirectory",
-        "buri_rt_host_testing_test_environment_current_directory",
-        Ret::Out,
-    ),
-    e(
-        "host_testing.TestEnvironment.allVariables",
-        "buri_rt_host_testing_test_environment_all_variables",
-        Ret::Out,
-    ),
-    e(
-        "host_testing.TestEnvironment.operatingSystemName",
-        "buri_rt_host_testing_test_environment_operating_system_name",
-        Ret::Out,
-    ),
+    e("host_testing.TestTasks.parallel", &[Scalar, Dropped, Elems, Step], Ret::Out),
+    e("host_testing.tasks", &[], Ret::Out),
+    e("host_testing.TestTasks.anyOrder", &[Scalar], Ret::Out),
+    e("host_testing.TestTasks.everyOrder", &[Scalar], Ret::Out),
+    e("host_testing.TestTasks.seed", &[Scalar, Scalar], Ret::Out),
+    e("host_testing.TestTasks.calls", &[Scalar], Ret::Out),
+    e("host_testing.TestTasks.runs", &[Scalar], Ret::Scalar),
+    e("host_testing.TestTasks.orders", &[Scalar], Ret::Scalar),
+    e("host_testing.TestTasks.replan", &[Scalar], Ret::Out),
+    e("host_testing.TestTasks.addFault", &[Scalar, Scalar, Scalar, Str], Ret::Void),
+    e("host_testing.clock", &[], Ret::Out),
+    e("host_testing.TestClock.at", &[Scalar, Scalar], Ret::Out),
+    e("host_testing.TestClock.nowMilliseconds", &[Scalar], Ret::Scalar),
+    e("host_testing.TestClock.sleepMilliseconds", &[Scalar, Scalar], Ret::Void),
+    e("host_testing.TestClock.monotonicNanoseconds", &[Scalar], Ret::Scalar),
+    e("host_testing.rand", &[], Ret::Out),
+    e("host_testing.TestRandom.seed", &[Scalar, Scalar], Ret::Out),
+    e("host_testing.TestRandom.nextInt", &[Scalar, Scalar, Scalar], Ret::Scalar),
+    e("host_testing.TestRandom.nextFloat", &[Scalar], Ret::Scalar),
+    e("host_testing.entropy", &[], Ret::Out),
+    e("host_testing.TestEntropy.seed", &[Scalar, Scalar], Ret::Out),
+    e("host_testing.TestEntropy.bytes", &[Scalar, Scalar], Ret::Out),
+    e("host_testing.env", &[], Ret::Out),
+    e("host_testing.TestEnvironment.variables", &[Scalar, List], Ret::Out),
+    e("host_testing.TestEnvironment.withArguments", &[Scalar, List], Ret::Out),
+    e("host_testing.TestEnvironment.variable", &[Scalar, Str], Ret::Sum),
+    e("host_testing.TestEnvironment.arguments", &[Scalar], Ret::Out),
+    e("host_testing.TestEnvironment.currentDirectory", &[Scalar], Ret::Out),
+    e("host_testing.TestEnvironment.allVariables", &[Scalar], Ret::Out),
+    e("host_testing.TestEnvironment.operatingSystemName", &[Scalar], Ret::Out),
     // The spawn double is a log and nothing else — the scripted answer holds an
     // `IoError`, which §2.1 cannot hand back across a row, so it stays in the
     // program and `spawnProcess` is a Buri body. `TestNetwork`'s arrangement.
-    e("host_testing.newSpawn", "buri_rt_host_testing_new_spawn", Ret::Scalar),
-    e("host_testing.recordSpawn", "buri_rt_host_testing_record_spawn", Ret::Void),
-    e("host_testing.spawnCalls", "buri_rt_host_testing_spawn_calls", Ret::Out),
+    e("host_testing.newSpawn", &[], Ret::Scalar),
+    e("host_testing.recordSpawn", &[Scalar, List], Ret::Void),
+    e("host_testing.spawnCalls", &[Scalar], Ret::Out),
     // `sockets()` — a socket with no network behind it. Seven rows: the double,
     // the mint, the three `Sockets` methods and the two readers. `sent` and
     // `isOpen` take the **handle** rather than the `TestSockets`, in
@@ -1294,25 +1116,13 @@ pub const ENTRIES: &[Entry] = &[
     // and `isOpen` unwraps a `Socket`. `cli/runtime/lib.rs` §2.1's division —
     // a runtime writes a struct and the program builds the enum — is the same
     // one `Received` is on.
-    e("host_testing.sockets", "buri_rt_host_testing_sockets", Ret::Out),
-    e("host_testing.socketsOpen", "buri_rt_host_testing_sockets_open", Ret::Scalar),
-    e("host_testing.socketsSent", "buri_rt_host_testing_sockets_sent", Ret::Out),
-    e("host_testing.socketsIsOpen", "buri_rt_host_testing_sockets_is_open", Ret::Scalar),
-    e(
-        "host_testing.TestSockets.socketSendText",
-        "buri_rt_host_testing_test_sockets_socket_send_text",
-        Ret::Void,
-    ),
-    e(
-        "host_testing.TestSockets.socketSendBytes",
-        "buri_rt_host_testing_test_sockets_socket_send_bytes",
-        Ret::Void,
-    ),
-    e(
-        "host_testing.TestSockets.socketClose",
-        "buri_rt_host_testing_test_sockets_socket_close",
-        Ret::Void,
-    ),
+    e("host_testing.sockets", &[], Ret::Out),
+    e("host_testing.socketsOpen", &[Scalar], Ret::Scalar),
+    e("host_testing.socketsSent", &[Scalar], Ret::Out),
+    e("host_testing.socketsIsOpen", &[Scalar, Scalar], Ret::Scalar),
+    e("host_testing.TestSockets.socketSendText", &[Scalar, Scalar, Str], Ret::Void),
+    e("host_testing.TestSockets.socketSendBytes", &[Scalar, Scalar, List], Ret::Void),
+    e("host_testing.TestSockets.socketClose", &[Scalar, Scalar, Scalar, Str], Ret::Void),
     // `sockets().dialling(messages)` — a client with a script instead of a
     // network. Three rows: the mint and the client's two effect methods.
     //
@@ -1322,17 +1132,9 @@ pub const ENTRIES: &[Entry] = &[
     // program's `socket.send` is recorded by `sent()` and its `close` shows up
     // in `isOpen`. One double writes and one double reads, which is the same
     // division `effect Sockets`' header draws.
-    e("host_testing.socketsDialling", "buri_rt_host_testing_sockets_dialling", Ret::Scalar),
-    e(
-        "host_testing.TestWebSocketClient.connectSocket",
-        "buri_rt_host_testing_test_web_socket_client_connect_socket",
-        Ret::Res,
-    ),
-    e(
-        "host_testing.TestWebSocketClient.connectReceive",
-        "buri_rt_host_testing_test_web_socket_client_connect_receive",
-        Ret::Res,
-    ),
+    e("host_testing.socketsDialling", &[Scalar, List], Ret::Scalar),
+    e("host_testing.TestWebSocketClient.connectSocket", &[Scalar, Str], Ret::Res),
+    e("host_testing.TestWebSocketClient.connectReceive", &[Scalar, Scalar], Ret::Res),
     // The one key here that no Buri declaration produces: `middle::monomorphize`
     // emits it after every `test` body, so that "a fault whose call never
     // happens fails the test" is checked once for all three backends rather than
@@ -1340,13 +1142,13 @@ pub const ENTRIES: &[Entry] = &[
     // `buri_rt_test_enter` is called from those entry points instead, because it
     // is the *runner's* protocol — which block to run — and this is the
     // *program's* rule.
-    e("test.leave", "buri_rt_test_leave", Ret::Void),
+    e("test.leave", &[Scalar], Ret::Void),
     // The other half of the same lowering, emitted after it: whether to run this
     // body again. `TestTasks.everyOrder` reruns the body once per completion
     // order, and answering yes here is how — the body calls itself, so the
     // reruns are one tree on all three backends rather than a loop in each of
     // three entry points.
-    e("test.replay", "buri_rt_test_replay", Ret::Scalar),
+    e("test.replay", &[Scalar], Ret::Scalar),
     // -- the reactive graph, and the snapshot it paints ----------------------
     //
     // `cli/runtime/ui.rs` holds the graph and `cli/runtime/snapshot.rs` the
@@ -1377,7 +1179,7 @@ pub const ENTRIES: &[Entry] = &[
     //
     // Five of them are generic and each carries §2 rule 4's pair. The type is
     // the value the call carries whole rather than a `[T]`'s element, which is
-    // what [`Carrier::Value`] says: `signal` and `write` name it in a `by_ref`
+    // what [`v`] says: `signal` and `write` name it in a `by_ref`
     // argument, and the three `read`s name it in the result. **A `T` that is
     // itself a list is why that has to be a column** — `Signal<[Account]>` is
     // an array-typed argument at `signal` exactly as `list.push`'s receiver is,
@@ -1398,14 +1200,14 @@ pub const ENTRIES: &[Entry] = &[
     // one C signature, and `read` at `Str` and at `Bool` is one key — so the
     // value comes back through a pointer at every instantiation rather than in
     // a register at some of them.
-    e("ui_node.rootScope", "buri_rt_ui_node_root_scope", Ret::Out),
+    e("ui_node.rootScope", &[], Ret::Out),
     // `ui/theme`'s own untracked scope, for the walk that flattens a theme
     // list to the document a snapshot's painter reads. A second row rather
     // than a second name for `ui_node.rootScope`, because the symbol a key
     // produces is the key's own (§1's rule) — and a private one per module is
     // what keeps a `Scope`, which grants reading the graph, out of any public
     // signature.
-    e("ui_theme.rootScope", "buri_rt_ui_theme_root_scope", Ret::Out),
+    e("ui_theme.rootScope", &[], Ret::Out),
     // The theme artifact `platform/effect/testing` reads (#53 phase 5). `installDoc` resolves
     // a theme list the caller has flattened to the document `ui/theme`'s
     // `document` builds — the chain following and the `:root`/`body`/scheme
@@ -1414,60 +1216,42 @@ pub const ENTRIES: &[Entry] = &[
     // theme is the caller's business: `platform/effect/testing`'s `install` registers a
     // watcher that flattens through the tracked scope and installs again, so no
     // closure crosses here. Both answer a `Str`.
-    e("ui_theme.installDoc", "buri_rt_ui_theme_install_doc", Ret::Out),
-    e("ui_theme.variables", "buri_rt_ui_theme_variables", Ret::Out),
-    v(el("effect.Scope.read", "buri_rt_effect_scope_read", Ret::Out)),
-    e("host_testing.headless", "buri_rt_host_testing_headless", Ret::Out),
-    v(eo("host_testing.Headless.signal", "buri_rt_host_testing_headless_signal", Ret::Scalar, 1)),
-    v(el("host_testing.Headless.read", "buri_rt_host_testing_headless_read", Ret::Out)),
-    e("host_testing.observer", "buri_rt_host_testing_observer", Ret::Out),
-    v(el("host_testing.Observer.read", "buri_rt_host_testing_observer_read", Ret::Out)),
-    v(eo("host_testing.Headless.write", "buri_rt_host_testing_headless_write", Ret::Void, 2)),
-    ec("host_testing.Headless.memo", "buri_rt_host_testing_headless_memo", Ret::Scalar),
-    ec("host_testing.Headless.watch", "buri_rt_host_testing_headless_watch", Ret::Void),
-    e("host_testing.installThemes", "buri_rt_host_testing_install_themes", Ret::Void),
+    e("ui_theme.installDoc", &[Str], Ret::Out),
+    e("ui_theme.variables", &[], Ret::Out),
+    v(e("effect.Scope.read", &[Scalar, Scalar, Stride, Retain], Ret::Out)),
+    e("host_testing.headless", &[], Ret::Out),
+    v(e("host_testing.Headless.signal", &[Scalar, Spilled, Stride, Retain, Release, Equal], Ret::Scalar)),
+    v(e("host_testing.Headless.read", &[Scalar, Scalar, Stride, Retain], Ret::Out)),
+    e("host_testing.observer", &[], Ret::Out),
+    v(e("host_testing.Observer.read", &[Scalar, Scalar, Stride, Retain], Ret::Out)),
+    v(e("host_testing.Headless.write", &[Scalar, Scalar, Spilled, Stride, Retain, Release, Equal], Ret::Void)),
+    e("host_testing.Headless.memo", &[Scalar, Compute], Ret::Scalar),
+    e("host_testing.Headless.watch", &[Scalar, Compute], Ret::Void),
+    e("host_testing.installThemes", &[Str], Ret::Void),
     // `core/platforms/testing/state`: a whole `T` per handle, in the shape of
     // `Headless`'s `signal`, `read` and `write` above. `stateNew` and
     // `statePut` carry the release so the runtime can give the value back at
     // exit; `stateTake` moves the value out, so it needs no retain but takes
     // the pair anyway for `read`'s one C shape.
-    v(eo(
-        "platforms_testing_state.stateNew",
-        "buri_rt_platforms_testing_state_state_new",
-        Ret::Scalar,
-        0,
-    )),
-    v(el(
-        "platforms_testing_state.stateRead",
-        "buri_rt_platforms_testing_state_state_read",
-        Ret::Out,
-    )),
-    v(el(
-        "platforms_testing_state.stateTake",
-        "buri_rt_platforms_testing_state_state_take",
-        Ret::Out,
-    )),
-    v(eo(
-        "platforms_testing_state.statePut",
-        "buri_rt_platforms_testing_state_state_put",
-        Ret::Void,
-        1,
-    )),
+    v(e("platforms_testing_state.stateNew", &[Spilled, Stride, Retain, Release, Equal], Ret::Scalar)),
+    v(e("platforms_testing_state.stateRead", &[Scalar, Stride, Retain], Ret::Out)),
+    v(e("platforms_testing_state.stateTake", &[Scalar, Stride, Retain], Ret::Out)),
+    v(e("platforms_testing_state.statePut", &[Scalar, Spilled, Stride, Retain, Release, Equal], Ret::Void)),
     // `stylesheet()` — the extracted sheet, a compile artifact `buri test`
     // writes beside the binary and hands over the way it hands over the snapshot
     // directory (#53 phase 5). The same string the JavaScript backend splices in
     // as `$ui_sheet`, so a suite asserting what a class means shares.
-    e("host_testing.stylesheet", "buri_rt_host_testing_stylesheet", Ret::Out),
-    e("host_testing.paint", "buri_rt_host_testing_paint", Ret::Void),
+    e("host_testing.stylesheet", &[], Ret::Out),
+    e("host_testing.paint", &[Str, Str, Str], Ret::Void),
     // The recorder: how a computation says that it ran. A reactive body holds
     // a `Scope`, which grants reading the graph and nothing else, so it cannot
     // write a signal and it cannot print — the log lives on this side, exactly
     // as `platform/effect/testing`'s captured stdout does.
-    e("host_testing.recorder", "buri_rt_host_testing_recorder", Ret::Out),
-    e("host_testing.Recorder.record", "buri_rt_host_testing_recorder_record", Ret::Void),
-    e("host_testing.Recorder.recorded", "buri_rt_host_testing_recorder_recorded", Ret::Out),
-    e("host_testing.Recorder.note", "buri_rt_host_testing_recorder_note", Ret::Scalar),
-    e("host_testing.Recorder.noted", "buri_rt_host_testing_recorder_noted", Ret::Out),
+    e("host_testing.recorder", &[], Ret::Out),
+    e("host_testing.Recorder.record", &[Scalar, Str], Ret::Void),
+    e("host_testing.Recorder.recorded", &[Scalar], Ret::Out),
+    e("host_testing.Recorder.note", &[Scalar, Scalar], Ret::Scalar),
+    e("host_testing.Recorder.noted", &[Scalar], Ret::Out),
     // -- the renderer, and the document it builds (issue #53) ----------------
     //
     // `render` is not here: it is a Buri body now, `Rendered(mount(ctx, root,
@@ -1480,13 +1264,13 @@ pub const ENTRIES: &[Entry] = &[
     // one `Node` the walk destructures and this side never reads — and takes
     // the walk as its last argument ([`Extra::Walk`]). `renderInto` never
     // crosses whole: only its `{ code, env }` does, inside the record.
-    cx(ew("host_testing.mount", "buri_rt_host_testing_mount", Ret::Scalar, 1), 0),
+    e("host_testing.mount", &[Dropped, Spilled, Walk], Ret::Scalar),
     // The builders the walk emits to. `emitElement` takes the element name and
     // its scene declarations, both `Str`; `emitText` a run; `exitElement`
     // closes the open element. The builder handle is a `Builder`, one word.
-    e("ui_node.emitElement", "buri_rt_ui_node_emit_element", Ret::Void),
-    e("ui_node.exitElement", "buri_rt_ui_node_exit_element", Ret::Void),
-    e("ui_node.emitText", "buri_rt_ui_node_emit_text", Ret::Void),
+    e("ui_node.emitElement", &[Scalar, Str, Str], Ret::Void),
+    e("ui_node.exitElement", &[Scalar], Ret::Void),
+    e("ui_node.emitText", &[Scalar, Str], Ret::Void),
     // The reactive builders (#53 phase 3). `openText` mints a run and answers
     // its handle, `patchText` writes over that run — together the native
     // `$tree_bind`. `enterDynamic` opens a region and answers its handle, and
@@ -1497,94 +1281,94 @@ pub const ENTRIES: &[Entry] = &[
     // address. `reactive` is the renderer's own `watch`: the same deferred body
     // [`Extra::Compute`] carries for `Ui.watch`, registered with no `Ui` in hand
     // because the runtime owns the graph.
-    e("ui_node.openText", "buri_rt_ui_node_open_text", Ret::Scalar),
-    e("ui_node.patchText", "buri_rt_ui_node_patch_text", Ret::Void),
+    e("ui_node.openText", &[Scalar], Ret::Scalar),
+    e("ui_node.patchText", &[Scalar, Scalar, Str], Ret::Void),
     // `openElement` emits-and-enters like `emitElement` but answers the index a
     // reactive style patches its body by; `patchBody` writes over that body,
     // the element kept — together a `$tree_styles` bind for the scene.
-    e("ui_node.openElement", "buri_rt_ui_node_open_element", Ret::Scalar),
-    e("ui_node.patchBody", "buri_rt_ui_node_patch_body", Ret::Void),
-    ec("ui_node.reactive", "buri_rt_ui_node_reactive", Ret::Void),
-    e("ui_node.enterDynamic", "buri_rt_ui_node_enter_dynamic", Ret::Scalar),
+    e("ui_node.openElement", &[Scalar, Str, Str], Ret::Scalar),
+    e("ui_node.patchBody", &[Scalar, Scalar, Str], Ret::Void),
+    e("ui_node.reactive", &[Compute], Ret::Void),
+    e("ui_node.enterDynamic", &[Scalar], Ret::Scalar),
     // `beginRegion` clears a region and points the builder at its gap and
     // `endRegion` restores it — `rebuildRegion` split open, for a reactive
     // widget that emits inline under its own watcher rather than walking a node.
-    e("ui_node.beginRegion", "buri_rt_ui_node_begin_region", Ret::Void),
-    e("ui_node.endRegion", "buri_rt_ui_node_end_region", Ret::Void),
-    ew("ui_node.rebuildRegion", "buri_rt_ui_node_rebuild_region", Ret::Void, 2),
+    e("ui_node.beginRegion", &[Scalar, Scalar], Ret::Void),
+    e("ui_node.endRegion", &[Scalar], Ret::Void),
+    e("ui_node.rebuildRegion", &[Scalar, Scalar, Spilled, Walk], Ret::Void),
     // The keyed list (#53 phase 4). `enterEach` opens the two markers and the
     // row owner; `reconcile` is driven from the list's watcher with the keys the
     // watcher computed and the row body last, an [`Extra::Walk`] like a region
     // rebuild's — but with nothing spilled, because the body builds its own node
     // from `rowAt` rather than being handed one.
-    e("ui_node.enterEach", "buri_rt_ui_node_enter_each", Ret::Scalar),
-    ewn("ui_node.reconcile", "buri_rt_ui_node_reconcile", Ret::Void),
+    e("ui_node.enterEach", &[Scalar], Ret::Scalar),
+    e("ui_node.reconcile", &[Scalar, Scalar, List, Walk], Ret::Void),
     // The event arms (#53 phase 4). `registerPress` keeps a button's or a form's
     // `fn(C, Event) => ()` on the open element — an [`Extra::Press`], the kept
     // two-parameter handler; `registerValue` stores a field's or a toggle's bound
     // signal so `fill`/`flip` can write it; `markSubmit` flags the button whose
     // press submits its form.
-    ep("ui_node.registerPress", "buri_rt_ui_node_register_press", Ret::Void),
+    e("ui_node.registerPress", &[Scalar, Press], Ret::Void),
     // `registerOutside` keeps an `onPressOutside`'s handler on the document
     // paired with the open element — an `ep` like `registerPress`, kept in the
     // graph so the subtree's disposal takes the listener.
-    ep("ui_node.registerOutside", "buri_rt_ui_node_register_outside", Ret::Void),
+    e("ui_node.registerOutside", &[Scalar, Press], Ret::Void),
     // `registerFollow` keeps a route link's plain-click handler and its
     // destination on the anchor, so `follow` fires it; a kept two-parameter
     // handler like `registerPress`, with the destination string ahead of it.
-    ep("ui_node.registerFollow", "buri_rt_ui_node_register_follow", Ret::Void),
-    e("ui_node.registerValue", "buri_rt_ui_node_register_value", Ret::Void),
+    e("ui_node.registerFollow", &[Scalar, Str, Press], Ret::Void),
+    e("ui_node.registerValue", &[Scalar, Scalar], Ret::Void),
     // `registerSelection` stores a field's caret/selection signal so `select`
     // can write it an `(anchor, focus)` pair — a plain handle like `registerValue`.
-    e("ui_node.registerSelection", "buri_rt_ui_node_register_selection", Ret::Void),
+    e("ui_node.registerSelection", &[Scalar, Scalar], Ret::Void),
     // `registerLabel` keeps a button's accessible name on it, so `press` finds
     // a children-button by the label a reader hears rather than its glyphs.
-    e("ui_node.registerLabel", "buri_rt_ui_node_register_label", Ret::Void),
-    e("ui_node.markSubmit", "buri_rt_ui_node_mark_submit", Ret::Void),
+    e("ui_node.registerLabel", &[Scalar, Str], Ret::Void),
+    e("ui_node.markSubmit", &[Scalar], Ret::Void),
     // A file picker (#209). `registerPick` keeps its handler in a slot of its
     // own, an `ep` like `registerPress`, so `press` never fires it; the three
     // `offered` readers answer the file `pickFile` left on the document, and
     // `offerFile`/`deliverFile` are `pickFile`'s two halves.
-    ep("ui_node.registerPick", "buri_rt_ui_node_register_pick", Ret::Void),
-    e("ui_node.offeredName", "buri_rt_ui_node_offered_name", Ret::Out),
-    e("ui_node.offeredType", "buri_rt_ui_node_offered_type", Ret::Out),
-    e("ui_node.offeredBytes", "buri_rt_ui_node_offered_bytes", Ret::Out),
-    e("host_testing.offerFile", "buri_rt_host_testing_offer_file", Ret::Void),
-    e("host_testing.deliverFile", "buri_rt_host_testing_deliver_file", Ret::Void),
+    e("ui_node.registerPick", &[Scalar, Press], Ret::Void),
+    e("ui_node.offeredName", &[Scalar], Ret::Out),
+    e("ui_node.offeredType", &[Scalar], Ret::Out),
+    e("ui_node.offeredBytes", &[Scalar], Ret::Out),
+    e("host_testing.offerFile", &[Scalar, Str, Str, List], Ret::Void),
+    e("host_testing.deliverFile", &[Scalar, Str], Ret::Void),
     // The readers, over the reconciled document rather than the string:
     // `markup` and `text` answer a `Str` through an out-pointer, `count` and
     // `identity` an `Int`.
-    e("host_testing.Rendered.markup", "buri_rt_host_testing_rendered_markup", Ret::Out),
-    e("host_testing.Rendered.text", "buri_rt_host_testing_rendered_text", Ret::Out),
-    e("host_testing.Rendered.count", "buri_rt_host_testing_rendered_count", Ret::Scalar),
-    e("host_testing.Rendered.identity", "buri_rt_host_testing_rendered_identity", Ret::Scalar),
+    e("host_testing.Rendered.markup", &[Scalar], Ret::Out),
+    e("host_testing.Rendered.text", &[Scalar], Ret::Out),
+    e("host_testing.Rendered.count", &[Scalar, Str], Ret::Scalar),
+    e("host_testing.Rendered.identity", &[Scalar, Str, Scalar], Ret::Scalar),
     // The event dispatch (#53 phase 4), each addressing the reconciled document
     // by label or index and mutating a signal a watcher then sees: `press` fires
     // the stored handler (and submits an enclosing form for a submit button),
     // `fill` and `flip` write the bound signal, `submit` fires the form's handler
     // under the implicit-submission rule. All answer `()`.
-    e("host_testing.Rendered.press", "buri_rt_host_testing_rendered_press", Ret::Void),
-    e("host_testing.Rendered.fill", "buri_rt_host_testing_rendered_fill", Ret::Void),
+    e("host_testing.Rendered.press", &[Scalar, Str], Ret::Void),
+    e("host_testing.Rendered.fill", &[Scalar, Str, Str], Ret::Void),
     // `select` moves the caret and selection: it writes the field's `(Int, Int)`
     // selection signal the way `fill` writes its value.
-    e("host_testing.Rendered.select", "buri_rt_host_testing_rendered_select", Ret::Void),
-    e("host_testing.Rendered.flip", "buri_rt_host_testing_rendered_flip", Ret::Void),
-    e("host_testing.Rendered.submit", "buri_rt_host_testing_rendered_submit", Ret::Void),
+    e("host_testing.Rendered.select", &[Scalar, Str, Scalar, Scalar], Ret::Void),
+    e("host_testing.Rendered.flip", &[Scalar, Str], Ret::Void),
+    e("host_testing.Rendered.submit", &[Scalar, Scalar], Ret::Void),
     // The pointer (#220). `registerPointer` keeps one of an element's three
     // pointer handlers under its phase, an `ep` like `registerPress`; the four
     // readers answer the `PointerAt` the dispatch in flight set, and
     // `pointerDown`/`pointerMove`/`pointerUp` are that dispatch.
-    ep("ui_node.registerPointer", "buri_rt_ui_node_register_pointer", Ret::Void),
-    e("ui_node.pointerX", "buri_rt_ui_node_pointer_x", Ret::Scalar),
-    e("ui_node.pointerY", "buri_rt_ui_node_pointer_y", Ret::Scalar),
-    e("ui_node.pointerOverRow", "buri_rt_ui_node_pointer_over_row", Ret::Scalar),
-    e("ui_node.pointerRow", "buri_rt_ui_node_pointer_row", Ret::Out),
-    e("host_testing.Rendered.pointerDown", "buri_rt_host_testing_rendered_pointer_down", Ret::Void),
-    e("host_testing.Rendered.pointerMove", "buri_rt_host_testing_rendered_pointer_move", Ret::Void),
-    e("host_testing.Rendered.pointerUp", "buri_rt_host_testing_rendered_pointer_up", Ret::Void),
+    e("ui_node.registerPointer", &[Scalar, Scalar, Press], Ret::Void),
+    e("ui_node.pointerX", &[Scalar], Ret::Scalar),
+    e("ui_node.pointerY", &[Scalar], Ret::Scalar),
+    e("ui_node.pointerOverRow", &[Scalar], Ret::Scalar),
+    e("ui_node.pointerRow", &[Scalar], Ret::Out),
+    e("host_testing.Rendered.pointerDown", &[Scalar, Str, Scalar, Scalar], Ret::Void),
+    e("host_testing.Rendered.pointerMove", &[Scalar, Str, Scalar, Scalar], Ret::Void),
+    e("host_testing.Rendered.pointerUp", &[Scalar, Str, Scalar, Scalar], Ret::Void),
 ];
 
-/// The entry for a key, or `None` where this backend has no body for it.
+/// The entry for a key, or `None` where the archive has no body for it.
 pub fn entry(key: &str) -> Option<&'static Entry> {
     ENTRIES.iter().find(|e| e.key == key)
 }
@@ -1592,19 +1376,40 @@ pub fn entry(key: &str) -> Option<&'static Entry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compiler::backend::intrinsic_keys::step_call;
     use crate::compiler::backend::runtime_native::symbol_for;
 
-    /// Every entry's symbol is the one the contract's rule produces, so the
-    /// table is a *subset* of the contract rather than a second opinion about
-    /// it.
+    /// The examples `cli/runtime/lib.rs` §1 and VALUE-MODEL.md §10 spell out,
+    /// checked directly against the rule [`Entry::symbol`] applies.
     #[test]
-    fn every_symbol_is_the_rule_applied_to_the_key() {
-        for entry in ENTRIES {
-            assert_eq!(symbol_for(entry.key), entry.symbol, "{}", entry.key);
-        }
+    fn the_symbol_is_the_rule_applied_to_the_key() {
         assert_eq!(symbol_for("host.HostFileSystem.readFile"), "buri_rt_host_file_system_read_file");
+        assert_eq!(symbol_for("host.HostProcess.exitWith"), "buri_rt_host_process_exit_with");
         assert_eq!(symbol_for("host.HostStdout.println"), "buri_rt_host_stdout_println");
         assert_eq!(symbol_for("str.splitOnce"), "buri_rt_str_split_once");
+        // The one that does not collapse, because the repetition is real:
+        // `memory.rs` exports it under this name.
+        assert_eq!(symbol_for("host.HostAllocator.allocate"), "buri_rt_host_allocator_allocate");
+    }
+
+    /// **The two thread-stack entries are symbols with no row, and that is
+    /// the answer rather than an omission.**
+    ///
+    /// `buri_rt_stack_acquire` and `buri_rt_stack_release` are called by the
+    /// frame-threaded backend's thread door, by name, out of a hand-written
+    /// shim (`stencil/asm.rs`), and never by the LLVM backend, whose frames are
+    /// machine frames. [`ENTRIES`] is keyed by *intrinsic key*, and these two
+    /// have none — no Buri expression names them and none should.
+    #[test]
+    fn the_thread_stack_entries_have_symbols_and_no_row() {
+        use crate::compiler::backend::task_thread;
+        for symbol in [task_thread::STACK_ACQUIRE, task_thread::STACK_RELEASE] {
+            assert!(symbol.starts_with("buri_rt_"), "{symbol} is not a runtime symbol");
+            assert!(
+                !ENTRIES.iter().any(|e| e.symbol() == symbol),
+                "{symbol} gained a row: neither backend's door reaches it through the table"
+            );
+        }
     }
 
     /// A key the archive has no body for must not be in the table. If one of
@@ -1613,41 +1418,36 @@ mod tests {
     #[test]
     fn the_unimplemented_surface_is_not_claimed() {
         for absent in [
+            // Open-coded by both backends; see [`ENTRIES`].
+            "str.concat",
+            "str.format",
+            "str.length",
+            "list.length",
+            "list.empty",
+            // Outside the archive for the reasons [`ENTRIES`]'s comment gives.
             "list.map",
             "list.fold",
             "list.sortBy",
             "list.zip",
             "list.flatten",
             "json.decode",
-            // `host.HostFileSystem`'s eleven, `host.HostEnvironment`'s two and
-            // `host.HostStdin`'s two used to be here — fifteen keys with a body
-            // in `cli/runtime/host.rs`, no row in either runtime table, and a
-            // native binary that could not touch a file or read its own
-            // arguments (buri-lang/buri#36). They are rows now, and the two
-            // halves of that gap were different: `Environment` and `Stdin` were waiting
-            // on nothing but the row, and the filesystem was waiting on §2.1's message
-            // shape, because `IoError.Other(Str)` is what a real filesystem
-            // answers for every kind the six classified variants do not name.
+            "json.encode",
+            // These arrive qualified by their primitive (`derivePrimShow.U8`)
+            // and so have no key of their own.
+            "derivePrimShow",
+            "derivePrimHash",
+            // `platform/effect/testing`'s `net()` needs no row at all:
+            // `TestNetwork` carries its responder as a value and
+            // `TestNetwork.fetch` is a Buri body that calls it. A responder is a
+            // `{ code, env }` pair the archive has no way to invoke.
             //
-            // `platform/effect/testing`'s `net()` needs no row at all: `TestNetwork`
-            // carries its responder as a value and `TestNetwork.fetch` is a Buri
-            // body that calls it, so no key is produced for it here. A responder
-            // is a `{ code, env }` pair the archive has no way to invoke. Its *log* is a different question and
-            // has five rows above: `newNet`, `netRebind`, `netWithPlan`,
-            // `recordFetch` and `netCalls` cross nothing §2.1 restricts. So does
-            // its **fault plan**, which is the same wall a third time: the plan
-            // is a list of Buri values holding a `NetError`, so it stays in the
-            // program and only its rendering and its fired flags cross.
-            //
-            // `host_testing.fs` is absent for a different reason and is not a
-            // gap: `fs()` is a Buri body too now, because a `TestFileSystem` is a handle
-            // and a plan. `newFs` is the row that mints the handle.
             // Open-coded, and named here so that "it has no symbol" and "the
             // backend cannot compile it" stay two different statements: the
             // allocator is two instructions on both native backends.
             "host_testing.alloc",
             "host_testing.TestAllocator.allocate",
-            // Buri bodies, for the reason two paragraphs up.
+            // Buri bodies: a `TestFileSystem` is a handle and a plan, and
+            // `newFs` is the row that mints the handle.
             "host_testing.fs",
             "host_testing.TestFileSystem.readFile",
             "host_testing.TestFileSystem.faults",
@@ -1676,9 +1476,76 @@ mod tests {
     #[test]
     fn host_net_fetch_passes_its_request_by_address() {
         let fetch = entry("host.HostNetwork.fetch").expect("a row for fetch");
-        assert_eq!(fetch.symbol, "buri_rt_host_network_fetch");
-        assert_eq!(fetch.by_ref, Some(1));
+        assert_eq!(fetch.symbol(), "buri_rt_host_network_fetch");
+        assert_eq!(fetch.args, &[Dropped, Spilled]);
+        assert_eq!(fetch.by_ref(), Some(1));
         assert_eq!(fetch.ret, Ret::ResMsg);
+    }
+
+    /// The shapes the backend supplies for itself emit a parameter and consume
+    /// no argument, and everything else consumes exactly one. Both backends
+    /// walk the C list with a cursor into the Buri list on precisely this
+    /// invariant.
+    #[test]
+    fn only_the_generic_extras_consume_no_argument() {
+        for shape in [Str, Bytes, List, Scalar, Dropped, Elems, Spilled, Step, Compute, Walk, Press] {
+            assert!(shape.consumes(), "{shape:?}");
+        }
+        for shape in [Stride, Retain, Release, Equal] {
+            assert!(!shape.consumes(), "{shape:?}");
+            assert_eq!(shape.leaves(), 1);
+        }
+    }
+
+    /// `stride` and `retain` travel together (`cli/runtime/lib.rs` §2 rule 4),
+    /// a release never travels without them, and the equality rides with the
+    /// release. A row with one and not the other would be a call with a
+    /// parameter missing, which the C boundary does not diagnose.
+    #[test]
+    fn the_generic_words_come_in_pairs() {
+        for e in ENTRIES {
+            let count = |a: Arg| e.args.iter().filter(|x| **x == a).count();
+            assert!(count(Stride) <= 1, "{}", e.key);
+            assert_eq!(count(Stride), count(Retain), "{}", e.key);
+            assert!(count(Release) <= count(Retain), "{}", e.key);
+            assert_eq!(count(Equal), count(Release), "{}", e.key);
+        }
+    }
+
+    /// Every closure-shaped argument is the **last** Buri argument, and a step
+    /// is where [`step_call`] says the closure is.
+    ///
+    /// That is what lets the frame-threaded backend, which flattens the other
+    /// arguments and appends the closure's words after them, emit the same C
+    /// signature the LLVM backend writes at the closure's own position.
+    #[test]
+    fn a_closure_is_the_last_argument() {
+        let mut checked = 0usize;
+        for e in ENTRIES {
+            let buri: Vec<Arg> = e.consumed().collect();
+            for (at, arg) in buri.iter().enumerate() {
+                if !matches!(arg, Step | Compute | Walk | Press) {
+                    continue;
+                }
+                assert_eq!(at + 1, buri.len(), "{}: the closure is not last", e.key);
+                assert_eq!(
+                    e.args.last(),
+                    Some(arg),
+                    "{}: something follows the closure in the C list",
+                    e.key
+                );
+                checked += 1;
+            }
+            match (buri.iter().position(|a| *a == Step), step_call(e.key)) {
+                (None, None) => {}
+                (Some(at), Some(call)) => assert_eq!(at, call.func, "{}", e.key),
+                (Some(_), None) => panic!("{} has a step and no `step_call` row", e.key),
+                (None, Some(_)) => panic!("{} is runtime-driven and has no `Arg::Step`", e.key),
+            }
+        }
+        // Two steps, the graph's two deferred bodies and the renderer's
+        // `reactive`, three walks and five kept handlers.
+        assert_eq!(checked, 13);
     }
 
     /// The module a key's first segment names, for the keys whose operations
@@ -1686,7 +1553,7 @@ mod tests {
     ///
     /// `test.leave` and `test.replay` are absent because they are not: both
     /// runner hooks are built by `middle::monomorphize::leaving` and no
-    /// declaration spells them, which both runtime tables already say.
+    /// declaration spells them.
     const DECLARED_IN: &[(&str, &str)] = &[
         ("actor", "core/actor"),
         ("alloc", "core/alloc"),
@@ -1698,6 +1565,7 @@ mod tests {
         ("list", "core/list"),
         ("math", "core/math"),
         ("str", "core/str"),
+        ("tasks", "core/tasks"),
     ];
 
     /// Every `fn <name>` in `source`, answered as the index of its `ctx`
@@ -1763,18 +1631,15 @@ mod tests {
         out
     }
 
-    /// [`Entry::ctx`] is the index of the **declaration's** `ctx` parameter,
-    /// checked against the declaration rather than against a second list.
+    /// Every **declaration's** `ctx` parameter is [`Arg::Dropped`], checked
+    /// against the declaration rather than against a second list.
     ///
-    /// This is the test that would have caught the bug the column exists for.
-    /// The rule it replaced asked the *argument's type* — "is it a `Ty::Ctx`?"
-    /// — which is the same answer only while every `C: Allocator` is instantiated
-    /// at a `context { … }` record; a value that merely implements `Allocator`
-    /// satisfies the bound (SPEC 10.1, 10.8) and slipped through as an extra
-    /// leaf. A column can be wrong the same way a type test was, so it is
-    /// derived here from the one place that cannot be: the signature.
+    /// This is the test that would have caught the bug [`Arg::Dropped`]'s
+    /// comment describes: a context is dropped whatever it weighs, so which
+    /// argument it is has to come from the one place that cannot be wrong
+    /// about it — the signature.
     #[test]
-    fn the_context_column_is_the_declarations_ctx_parameter() {
+    fn every_declared_context_is_dropped() {
         let module = |path: &str| {
             crate::compiler::standard_library::MODULES
                 .iter()
@@ -1782,6 +1647,7 @@ mod tests {
                 .map(|m| m.source)
         };
         let mut checked = 0usize;
+        let mut contexts = 0usize;
         for entry in ENTRIES {
             let Some((_, path)) = DECLARED_IN
                 .iter()
@@ -1796,50 +1662,39 @@ mod tests {
             // on every primitive rather than written in `core/str` — so there
             // is nothing here to read, and neither takes a context.
             if found.is_empty() {
-                assert_eq!(entry.ctx, None, "{} has no declaration and a ctx column", entry.key);
                 continue;
             }
-            let first = found.first().copied().flatten();
             assert!(
                 found.iter().all(|a| *a == found[0]),
                 "{}: two declarations of `{name}` in {path} disagree about `ctx`",
                 entry.key
             );
-            assert_eq!(entry.ctx, first, "{}", entry.key);
+            if let Some(at) = found[0] {
+                assert!(entry.dropped(at), "{}: argument {at} is the context", entry.key);
+                contexts += 1;
+            }
             checked += 1;
         }
         // A scan that matched nothing would pass every assertion above.
         assert!(checked > 140, "only {checked} rows were read against a declaration");
-        // Twenty-nine until F6, then the nine `core/actor` rows, then
-        // `core/tasks`'s ten: every one of the nineteen is a module function
-        // whose first parameter is the context, which is the second of the two
-        // shapes below. `host_testing.mount` is the forty-ninth — the renderer
-        // drops its context the way every one of these does. `core/crypto`'s
-        // `seal` and `open` entries made it fifty-one, and dropping
-        // the trampoline's pilot row made it fifty.
-        assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 50);
+        assert_eq!(contexts, 50);
     }
 
-    /// The two shapes the column takes, by example, so that the indices are
+    /// The two places a context sits, by example, so that the indices are
     /// legible without opening `core/list`.
     #[test]
     fn a_receiver_shifts_the_context_by_one() {
-        assert_eq!(entry("list.push").and_then(|e| e.ctx), Some(1));
-        assert_eq!(entry("list.repeat").and_then(|e| e.ctx), Some(0));
-        assert_eq!(entry("str.fromInt").and_then(|e| e.ctx), Some(0));
-        assert_eq!(entry("str.split").and_then(|e| e.ctx), Some(1));
+        let dropped = |key: &str, at: usize| entry(key).is_some_and(|e| e.dropped(at));
+        assert!(dropped("list.push", 1));
+        assert!(dropped("list.repeat", 0));
+        assert!(dropped("str.fromInt", 0));
+        assert!(dropped("str.split", 1));
         // `get` takes no context — it allocates nothing.
-        assert_eq!(entry("list.get").and_then(|e| e.ctx), None);
-        assert_eq!(entry("host.HostStdout.println").and_then(|e| e.ctx), None);
+        assert!(!dropped("list.get", 1));
+        assert!(!dropped("list.get", 0));
     }
 
     // -- the host surface, against the effect that declares it ---------------
-
-    /// The `platform/effect` source, which is where an effect's operations are
-    /// declared and therefore the only list worth checking a table against.
-    fn effect_source() -> &'static str {
-        module_source("platform/effect")
-    }
 
     /// One standard-library module's text.
     ///
@@ -1856,10 +1711,8 @@ mod tests {
 
     /// The method names one `effect` block declares, in declaration order.
     ///
-    /// A scan of the source rather than a second list, for the reason
-    /// [`the_context_column_is_the_declarations_ctx_parameter`] scans one: a
-    /// method added to the effect and forgotten here would be exactly the gap
-    /// this is checking for.
+    /// A scan of the source rather than a second list: a method added to the
+    /// effect and forgotten here would be exactly the gap this is checking for.
     fn effect_methods(module: &str, effect: &str) -> Vec<String> {
         let source = module_source(module);
         let body = source
@@ -1881,19 +1734,13 @@ mod tests {
     /// **Every operation of the filesystem, `Environment` and `Stdin` has a row.**
     ///
     /// This is buri-lang/buri#36 as an assertion. `cli/runtime/host.rs` had a
-    /// body for all sixteen and this table had a row for one of them
+    /// body for all sixteen and the tables had a row for one of them
     /// (`fileExists`), so a native binary that bound the filesystem was refused
-    /// before code generation — one line naming nine operations — while the
-    /// same program ran on JavaScript. The archive was never the gap; the rows
-    /// were, and this is what says they still are not.
+    /// before code generation while the same program ran on JavaScript.
     ///
-    /// Read off the effect rather than listed here, so that buri-lang/buri#38's
-    /// `removeDir` — and the next operation after it — is covered by the commit
-    /// that declares it rather than by somebody remembering this test. The
-    /// filesystem is two rows of that scan now and not one, which is the same
-    /// mechanism catching the split: `FileSystemRead` and `FileSystemWrite` are declared in
-    /// `core/fs`, and a method of either with no entry is a native program
-    /// refused.
+    /// Read off the effect rather than listed here, so that the next operation
+    /// is covered by the commit that declares it rather than by somebody
+    /// remembering this test.
     #[test]
     fn every_operation_of_the_host_file_and_environment_effects_has_a_row() {
         let mut checked = 0usize;
@@ -2015,7 +1862,7 @@ mod tests {
     /// with it.
     #[test]
     fn the_message_shape_is_the_one_io_error_has() {
-        let source = effect_source();
+        let source = module_source("platform/effect");
         let body = source
             .split("export enum IoError {")
             .nth(1)

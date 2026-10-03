@@ -1,14 +1,12 @@
 //! Turning codegen units into an executable.
 //!
-//! This is the implementation of [`Linker`] for the native platforms, and the
+//! This is the native platforms' linker, [`CDriver`], and the
 //! directory layout the link step works in. It lives under `build/` rather than
 //! under `backend/` on purpose: `stencil` and `llvm` both hand their objects
 //! to the same linker, so a linker is not a property of a backend — and what is
 //! in here is *not* code generation. It is process invocation, `PATH` probing,
 //! a manifest file, and a cache key, which is the build system's subject
-//! matter. `backend/mod.rs` keeps the trait; `backend/js/mod.rs` keeps
-//! `Concatenate`, which is the JavaScript artifact's whole link step and shares
-//! nothing with this.
+//! matter.
 //!
 //! # The invocation
 //!
@@ -152,7 +150,7 @@
 //! key. On this toolchain it is `Linked` for every Buri program — see that
 //! function for why, and for what would have to change.
 //!
-//! It exists because a linker takes paths and [`Linker::link`] takes bytes, and
+//! It exists because a linker takes paths and [`CDriver::link`] takes bytes, and
 //! because the manifest is what makes "which objects changed" answerable from
 //! outside.
 
@@ -162,7 +160,7 @@ use crate::build::musl::{self, Libc};
 use crate::build::runtime_cross::{self, Cross};
 use crate::build::spawn;
 use crate::compiler::backend::runtime_native;
-use crate::compiler::backend::{Emitted, LinkOptions, Linker, Target};
+use crate::compiler::backend::{Emitted, LinkOptions, Target};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -557,7 +555,7 @@ pub struct CDriver {
 /// rather than in front of it. It is the same two commands producing the same
 /// string; only the thread it happens on is new.
 ///
-/// Probed once, because [`Linker::version`] is called per key and shelling out
+/// Probed once, because [`CDriver::version`] is called per key and shelling out
 /// per key would be a process per key. **Once per process**, not once per
 /// [`select`]: `buri test //...` selects a linker per suite, and on a repository
 /// of five small suites the same two `--version` banners were the largest single
@@ -692,7 +690,7 @@ pub fn warm(target: Target) {
 /// The driver and the linker for one target, probing `PATH`.
 ///
 /// The link directory is *not* a parameter, because it is named by the `link`
-/// key and the `link` key is built from [`Linker::version`] — so the linker has
+/// key and the `link` key is built from [`CDriver::version`] — so the linker has
 /// to exist before the directory it will work in has a name.
 /// [`CDriver::in_dir`] closes the loop.
 ///
@@ -1324,7 +1322,7 @@ fn replace_with(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// product passes them, which is *after* the objects and the archive. The paths
 /// in them are relative, exactly as they are in the product, so the command
 /// must be run with `current_dir(dir)`; that is not a quirk of the helper but
-/// the reproducibility discipline of [`Linker::link`] itself
+/// the reproducibility discipline of [`CDriver::link`] itself
 /// (ARCHITECTURE.md §7), and a harness that ran the driver somewhere else would
 /// again be linking differently from the product.
 ///
@@ -1470,7 +1468,7 @@ impl CDriver {
                 // and therefore depended on where the repository was checked out
                 // and on which cache key this link had. `-oso_prefix` strips a
                 // prefix from those names, and the link runs *in* the link
-                // directory (see `Linker::link`), so `.` strips all of it: the
+                // directory (see `CDriver::link`), so `.` strips all of it: the
                 // recorded name is `libburi_rt.a(...)`, which is a fact about
                 // the link rather than about the machine.
                 flags.push("-Wl,-oso_prefix,.".into());
@@ -1571,7 +1569,7 @@ impl CDriver {
                 // because a link reads no headers.
                 //
                 // Every path is **relative**, and the driver is run with
-                // `current_dir` set to the link directory (`Linker::link`).
+                // `current_dir` set to the link directory (`CDriver::link`).
                 // That is the same reproducibility discipline the object names
                 // are under (ARCHITECTURE.md §7): an absolute `-L` would put
                 // the checkout's path on the command line, and a command line
@@ -1647,7 +1645,7 @@ impl CDriver {
                 // -lpthread`, a hard error before a single symbol is resolved.
                 //
                 // They come *after* the archive on the command line
-                // (`Linker::link` below), which is the half that matters to a
+                // (`CDriver::link` below), which is the half that matters to a
                 // left-to-right ELF linker: `-lm` ahead of `libburi_rt.a`
                 // resolves nothing.
                 flags.push("-lpthread".into());
@@ -1665,12 +1663,33 @@ impl CDriver {
     }
 }
 
-impl Linker for CDriver {
-    fn name(&self) -> &'static str {
+/// What a linker contributes to the `link` key: who links (its name and
+/// `--version` banner) and how ([`CDriver::link_identity`]: the libc, the
+/// sysroot and the flags).
+pub struct LinkerIdentity {
+    pub name: String,
+    pub version: String,
+    pub link: String,
+}
+
+impl CDriver {
+    /// The three terms [`crate::build::actions::link_key_of`] reads.
+    pub fn identity(&self) -> LinkerIdentity {
+        LinkerIdentity {
+            name: self.name().to_string(),
+            version: self.version(),
+            link: self.link_identity(),
+        }
+    }
+
+    /// Enters the `link` key, with [`CDriver::version`].
+    pub fn name(&self) -> &'static str {
         self.flavour.name()
     }
 
-    fn version(&self) -> String {
+    /// The linker's own identity, for the same reason `Backend::identity`
+    /// exists: `ld64` and `mold` do not produce the same bytes.
+    pub fn version(&self) -> String {
         self.version.get()
     }
 
@@ -1689,7 +1708,7 @@ impl Linker for CDriver {
     /// without moving either of the other two terms. `musl::sysroot_hash` is
     /// valid on a toolchain that baked nothing, so no branch is needed for the
     /// empty case.
-    fn link_identity(&self) -> String {
+    pub fn link_identity(&self) -> String {
         let mut text = String::from(self.libc.key());
         text.push('\u{0}');
         // The sysroot this link stages: the baked one on a host link, and the
@@ -1728,7 +1747,7 @@ impl Linker for CDriver {
     /// not rewritten, and the link itself is always full. The saving that
     /// matters is upstream of here, in the codegen units that were never
     /// re-emitted.
-    fn link(
+    pub fn link(
         &self,
         units: &[Emitted],
         unchanged: &[usize],
@@ -2180,7 +2199,7 @@ fn command_line(command: &Command) -> String {
 
 /// The whole link step: the manifest, then the linker.
 ///
-/// Separate from [`Linker::link`] because the manifest is the build system's
+/// Separate from [`CDriver::link`] because the manifest is the build system's
 /// record and not the linker's input — a linker that ignored `unchanged`
 /// entirely would still owe the reader a manifest, and `--explain`'s per-unit
 /// lines come from these rows rather than from anything a linker returns.
@@ -2200,11 +2219,6 @@ pub fn run(
     // where the caller can move them from rather than write them again. A
     // caller that does not is a caller that drops this, and dropping it is
     // what removes the file — see [`Staged`].
-    //
-    // The trait method keeps its `()` because the other implementation of it
-    // (`backend::js::Concatenate`) has no staged file to hand back: it writes
-    // bytes it computed itself, and there is nothing on disk between the
-    // computation and the output.
     Ok(Staged { path: linker.claimed() })
 }
 

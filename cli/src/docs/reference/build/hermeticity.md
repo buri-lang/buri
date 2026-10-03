@@ -188,12 +188,10 @@ You can delete `.buri/cache/` at any time; `buri clean` does that. Needing to is
 a bug worth reporting, because a content-keyed cache shouldn't hold a wrong
 answer.
 
-Every command is safe to run concurrently. Reads take no lock, because an entry
-is renamed into place: it's there whole or not at all. A file lock serializes
-writes, held for one write rather than a whole build. A killed process's lock is
-stolen by the next writer after thirty seconds. That's safe because an entry's
-name is the hash of its contents, so two writers of one key write the same
-bytes.
+Every command is safe to run concurrently, and the cache takes no lock. Each
+writer writes its own temporary file and renames it into place, so an entry is
+there whole or not at all. Two writers of one key write the same bytes, because
+the key is a hash of everything that decides them.
 
 Remote caching and remote execution aren't specified. They'd be a transport
 change, not a semantic one: an action key already identifies an action

@@ -861,6 +861,48 @@ fn growing_two_lists_in_one_update_copies_neither() {
     );
 }
 
+/// A fold that pushes onto its accumulator a value read out of that same
+/// accumulator: `acc.push(c, x + acc.last()...)`.
+///
+/// The second argument only reads `acc`, and it is evaluated in full before
+/// the push takes the list. The analysis counted the read as a second
+/// reference, so it shared `acc` for the push and every push copied the whole
+/// list: the fold was quadratic in its length.
+const PUSH_READING_ITSELF: &str = r#"
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+fn sums<C: Allocator>(ctx: C, raw: [Int]): [Int] {
+  raw.foldCtx(ctx, fn(c, acc, t) => acc.push(c, t + acc.last().withDefault(0)), [])
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let s = sums(ctx, list.range(ctx, 0, 4000));
+  let _ = io.println(ctx, "${s.length()} ${s.last().withDefault(0)}").ignore();
+  .Ok(())
+}
+"#;
+
+/// Four thousand pushes, each reading the list it pushes onto, copy a handful
+/// of elements, not the eight million a copy per push costs.
+#[test]
+fn a_push_that_reads_its_own_list_copies_nothing() {
+    let scratch = Scratch::repo("js-sharing-push-reads-itself");
+    scratch.write("cmd/sums/BUILD.buri", JS_BINARY);
+    scratch.write("cmd/sums/main.buri", PUSH_READING_ITSELF);
+    scratch.run(&["build", "//cmd/sums", "--force"]).ok();
+
+    let (copied, stdout) = copied_by_slice(&scratch, "cmd/sums");
+    assert_eq!(stdout, "4000 7998000\n");
+    assert!(
+        copied < 40_000,
+        "four thousand pushes onto a list each reading it copied {copied} elements"
+    );
+}
+
 /// `core/buri/ast`'s lexer, run over a source of a few thousand tokens that
 /// reaches every scanner: words, numbers in each base, strings, templates,
 /// characters, every kind of comment, and punctuation.
