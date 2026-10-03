@@ -25,7 +25,7 @@ use core::str::Chars;
 
 use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::consteval::{Env, Folder, Value};
-use crate::compiler::semantics::resolve::{ModuleScope, Sym};
+use crate::compiler::semantics::resolve::{ModuleScope, Sym, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{ConstId, FnId, Tables, TyConId};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
@@ -116,18 +116,17 @@ pub fn run(
     loaded: &Loaded,
     tables: &Tables,
     scopes: &[ModuleScope],
-    bodies: &HashMap<FnId, typed::Body>,
+    bodies: &HashMap<FnId, std::sync::Arc<typed::Body>>,
     consts: &HashMap<ConstId, typed::Expr>,
     diags: &mut Diagnostics,
-    only: Option<&[crate::diagnostics::FileId]>,
+    walked: &Walked,
 ) {
     let Some(image) = constructor(loaded, scopes) else { return };
-    let wanted = |file| only.is_none_or(|files: &[crate::diagnostics::FileId]| files.contains(&file));
 
     let mut ids: Vec<ConstId> = consts.keys().copied().collect();
     ids.sort_by_key(|c| c.index());
     for id in ids {
-        if wanted(tables.const_(id).span.file) {
+        if walked.constant(tables, id) {
             if let Some(init) = consts.get(&id) {
                 walk(init, image, tables, bodies, consts, diags);
             }
@@ -136,7 +135,7 @@ pub fn run(
     let mut fns: Vec<FnId> = bodies.keys().copied().collect();
     fns.sort_by_key(|f| f.index());
     for id in fns {
-        if wanted(tables.fn_info(id).span.file) {
+        if walked.function(tables, id) {
             if let Some(body) = bodies.get(&id) {
                 walk(&body.expr, image, tables, bodies, consts, diags);
             }
@@ -160,7 +159,7 @@ fn walk(
     e: &typed::Expr,
     image: FnId,
     tables: &Tables,
-    bodies: &HashMap<FnId, typed::Body>,
+    bodies: &HashMap<FnId, std::sync::Arc<typed::Body>>,
     consts: &HashMap<ConstId, typed::Expr>,
     diags: &mut Diagnostics,
 ) {
@@ -181,7 +180,7 @@ fn walk(
 fn check(
     arg: &typed::Expr,
     tables: &Tables,
-    bodies: &HashMap<FnId, typed::Body>,
+    bodies: &HashMap<FnId, std::sync::Arc<typed::Body>>,
     consts: &HashMap<ConstId, typed::Expr>,
     diags: &mut Diagnostics,
 ) {
