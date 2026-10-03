@@ -10,12 +10,6 @@ fix: name the type itself here
 error: `Self` is legal only inside a `trait` or `impl` [self-type-outside-impl]
 ```
 
-## What to do
-
-Name the type itself here.
-
-## A program that provokes it
-
 ```buri fail code=self-type-outside-impl
 fn identity(x: Int): Self {
     x

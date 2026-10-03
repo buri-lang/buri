@@ -8,7 +8,6 @@ fix: close it with `"`; a string literal does not span a line break
 let s = "unclosed;
 ```
 
-The quote swallows the rest of the line, so this is the only error you get for
-it. A separator, terminator or closing delimiter the parser then misses may be
-sitting inside the string, and it says nothing about a token you may well have
-written.
+The quote swallows the rest of the line, so this is the only error you get. Any
+separator or closing delimiter on that line is inside the string, and the parser
+won't report it missing.

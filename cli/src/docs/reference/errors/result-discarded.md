@@ -9,24 +9,6 @@ fix: consume it: `?` to propagate, `match` to handle both cases, `.withDefault(.
 error: a `Result` may not be discarded [result-discarded]
 ```
 
-## What to do
-
-Consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)`
-to supply one — or, when you really mean to drop it, the explicit and greppable
-`.ignore()`.
-
-## Why
-
-There are two places you can throw a `Result` away and no third: bound to a `_`
-in a `let`, or left standing as an expression statement. Both are this error, so
-must-use is total rather than a convention. `.ignore()` is then the single
-spelling of a deliberate drop, which `buri lint` reports as `discarded-result`.
-
-The compiler looks for the `_` anywhere in the pattern, not only at its head, so
-`let (count, _) = (1, mayFail());` is this error too.
-
-## A program that provokes it
-
 ```buri fail code=result-discarded
 # from "core/fs" import * as fs;
 # from "core/fs" import { FileSystemRead };
@@ -44,3 +26,10 @@ export fn main(host: NativeHost): Result<(), Str> {
     .Ok(())
 }
 ```
+
+A `Result` can be thrown away in only two places: bound to `_` in a `let`, or
+left as an expression statement. Both are this error, so `.ignore()` is the one
+spelling of a deliberate drop, and `buri lint` reports it as `discarded-result`.
+
+A `_` anywhere in the pattern counts, so `let (count, _) = (1, mayFail());` is
+this error too.

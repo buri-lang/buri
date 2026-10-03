@@ -11,10 +11,7 @@ reproduction: none
 error: `test { data }` is retired [retired-test-data]
 ```
 
-## What to do
-
-Delete the `data` entry, and give the suite its filesystem where the rest of its
-context is written:
+Delete the `data` entry and write the files into the suite's context:
 
 ```buri role=test
 # from "core/fs" import * as fs;
@@ -41,13 +38,5 @@ test "renders the statement" {
 }
 ```
 
-If the golden is read straight back, the filesystem is doing nothing for it. The
-shorter spelling of the same test is `assert.equal(render(), "coffee  $4.50")`.
-
-## Why
-
-`data` named files on disk, and the *runner* read them and handed the suite
-their contents. A linked test binary has no runner: `data()` there was empty, so
-a package that declared `data` read `.Err(.NotFound)` where `buri test` read the
-file. `fs().files([...])` is the same seeding written in the suite's own text,
-where both backends read it the same way.
+If the test only reads the golden straight back, skip the filesystem:
+`assert.equal(render(), "coffee  $4.50")`.

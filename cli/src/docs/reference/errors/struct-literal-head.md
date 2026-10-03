@@ -10,19 +10,6 @@ fix: name the type, as in `Point {{ x: 1, y: 2 }}`, or `.Variant {{ ... }}` wher
 error: the head of a struct literal must be a type [struct-literal-head]
 ```
 
-## What to do
-
-Name the type — `Point { x: 1, y: 2 }` — or write `.Variant { ... }` where the
-expected type is known.
-
-## Why
-
-The grammar admits `f(x) { a: 1 }` because it decides shape without consulting
-name resolution. The checker is where the head has to be a type, so the
-diagnostic arrives one phase later than it looks like it should.
-
-## A program that provokes it
-
 ```buri fail code=struct-literal-head
 struct Holder {
     export a: Int,
@@ -37,3 +24,6 @@ fn build(): Int {
     h.a
 }
 ```
+
+The grammar decides shape without name resolution, so it accepts any head. The
+checker rejects it, one phase later than you might expect.

@@ -9,24 +9,14 @@ fix: write the value out, or make it a module-level `let`, or apply it outside t
 error: a `Computed` style may not appear under `On` or `At`: a closure cannot be scoped to a pseudo-class or to a media query [style-not-static]
 ```
 
-## What to do
-
-Write the value out, or make it a module-level `let`, or apply it outside the
-`On`/`At`, where it can be an inline style.
-
-## Why
-
-A style the compiler cannot evaluate normally degrades to the inline tier, which
-is where `Computed` already lives. `On` and `At` have nowhere to degrade *to*:
-there is no inline form of `:hover` and none of `@media (min-width: 64rem)`.
-Both exist only as rules in a stylesheet, which the compiler writes at compile
-time.
-
-## A program that provokes it
-
 ```buri fail code=style-not-static
 # from "ui/style" import { Style };
 
 // A breakpoint is a media query. A closure cannot be put inside one.
 let wide: Style = .At(.Large, [.Computed(fn(scope) => [.Width(.Full)])]);
 ```
+
+A style the compiler can't evaluate usually falls back to an inline style, where
+`Computed` already lives. `On` and `At` can't: `:hover` and `@media` have no
+inline form. They exist only as stylesheet rules, which the compiler writes at
+compile time.

@@ -9,24 +9,15 @@ fix: attach the type arguments to the call, as in `{function}<Str>(x)`
 error: explicit type arguments qualify a function or a call [type-args-on-a-value]
 ```
 
-## What to do
-
-Attach the type arguments to the function being called — `f<Str>(x)` — or, if a
-comparison was meant, remember that comparisons do not chain: `a < b && b > c`.
-
-## Why
-
-`a < Int > (c)` parses as type arguments applied to `a`, because the comparison
-reading is not available: comparison operators are non-associative, so
-`x < y > z` means nothing as a comparison. That is the trade the language made
-to get `f<T>(x)` without a turbofish. Type arguments name *which* instantiation
-of a generic function to use, so whatever sits to their left has to be a
-function.
-
-## A program that provokes it
-
 ```buri fail code=type-args-on-a-value
 fn f(a: Int, c: Int): Bool {
     a<Int>(c)
 }
 ```
+
+If you meant a comparison, comparisons don't chain: write `a < b && b > c`.
+
+`a < Int > (c)` parses as type arguments on `a`, because `x < y > z` means
+nothing as a comparison. That's what lets Buri write `f<T>(x)` without `::`.
+Type arguments pick an instantiation of a generic function, so what sits to
+their left must be a function.

@@ -10,13 +10,6 @@ fix: write the absolute path: `"core/..."` for the standard library, `"//..."` f
 error: "./helper" is a relative module path [relative-import]
 ```
 
-## What to do
-
-Write the absolute path: `"core/..."` for the standard library, `"//..."` for
-this repository.
-
-## A program that provokes it
-
 ```buri fail code=relative-import
 from "./helper" import { thing };
 ```

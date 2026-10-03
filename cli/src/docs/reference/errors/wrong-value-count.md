@@ -5,8 +5,6 @@ fix: 'pass `{name}` the following values: {shape}'
 ---
 # A constructor is given the values it holds
 
-## A program that provokes it
-
 ```buri fail code=wrong-value-count
 struct Pair(Int, Int);
 

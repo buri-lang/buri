@@ -8,14 +8,6 @@ message: there is nothing named `{name}` in scope
 error: there is nothing named `duoble` in scope [unresolved-name]
 ```
 
-## Why
-
-There is no prelude and no ambient scope. A module's available names are the
-ones it declares plus the ones its own imports name, which is what makes the
-suggestion trustworthy.
-
-## A program that provokes it
-
 ```buri fail code=unresolved-name
 fn twice(n: Int): Int {
     duoble(n)
@@ -27,3 +19,6 @@ fn root(x: Float): Float {
     sqrt(x)
 }
 ```
+
+There is no prelude. A module sees only what it declares and what its own
+imports name, which is why the suggestion is trustworthy.

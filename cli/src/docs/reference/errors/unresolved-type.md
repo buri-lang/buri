@@ -9,14 +9,9 @@ fix: declare it, import it, or correct the spelling
 error: there is no type `Widgett` [unresolved-type]
 ```
 
-## Why
-
-Types are nominal throughout. There is no structural fallback and no inference
-from shape, so a misspelling cannot quietly become a different type that happens
-to fit.
-
-## A program that provokes it
-
 ```buri fail code=unresolved-type wrap=body
 let n: Widgett = 1;
 ```
+
+Types are nominal, with no structural fallback, so a misspelling can't quietly
+become a different type that happens to fit.
