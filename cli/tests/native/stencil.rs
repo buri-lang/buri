@@ -4111,9 +4111,7 @@ export fn main(host: NativeHost): Result<(), Str> { .Ok(()) }";
 /// name it rather than failing later in a link.
 ///
 /// The other refusal this test used to make — `linux-x86_64` having stencils
-/// and no `main` — is gone, because `asm.rs` now writes one. The *code* that
-/// says it is still there (`mod.rs::supported`), because that is the shape a
-/// fourth target would arrive in, and `asm::AVAILABLE_X86_64` is what it reads.
+/// and no `main` — is gone, because `asm.rs` now writes one.
 #[test]
 fn an_unsupported_cross_target_is_refused_with_a_reason() {
     let (program, tables) = lowered("from \"native\" import { NativeHost };
