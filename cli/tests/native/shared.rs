@@ -313,16 +313,38 @@ pub const SERVER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(
 /// deadline, for the same reason `Command::output` has none: the time belongs
 /// to the operating system and not to the program under test.
 pub fn spawned(binary: &Path) -> std::process::Child {
-    let mut child = Command::new(binary)
-        .env("BURI_RT_HEAP_CHECK", "1")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+    started(
+        Command::new(binary)
+            .env("BURI_RT_HEAP_CHECK", "1")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped()),
+    )
+}
+
+/// [`spawned`] for a command a caller has already configured.
+pub fn started(command: &mut Command) -> std::process::Child {
+    let mut child = command
         .spawn()
-        .unwrap_or_else(|e| panic!("cannot start {}: {e}", binary.display()));
+        .unwrap_or_else(|e| panic!("cannot start {:?}: {e}", command.get_program()));
     while !has_run(&child) && matches!(child.try_wait(), Ok(None)) {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     child
+}
+
+/// Have macOS assess `binary` now, before a row starts a clock that its first
+/// launch would otherwise count against: a peer's accept deadline, or a
+/// server's idle timeout. The copy is stopped the moment it runs, and the
+/// assessment is cached for the launches that follow.
+pub fn admitted(binary: &Path) {
+    let mut child = started(
+        Command::new(binary)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null()),
+    );
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 #[cfg(target_os = "macos")]
