@@ -41,13 +41,19 @@ hot code that doesn't need the range should use `I32`.
 A numeric literal can be any integer type (or any float type, for a float
 literal) until inference pins it. If nothing does, it's `Int` or `Float`.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let a = 5;               // nothing constrains it -> Int
-let b: U8 = 5;           // the annotation pins it -> U8, no conversion
-let c: F32 = 1.5;        // -> F32
-takesU16(5)              // the parameter pins it -> U16
-
-let e: [U8] = [1, 2, 3]; // every element is a U8
+```buri
+# fn takesU16(n: U16): U16 {
+#     n
+# }
+#
+# fn demo(): U16 {
+    let a = 5; // nothing constrains it -> Int
+    let b: U8 = 5; // the annotation pins it -> U8, no conversion
+    let c: F32 = 1.5; // -> F32
+    let d = takesU16(5); // the parameter pins it -> U16
+    let e: [U8] = [1, 2, 3]; // every element is a U8
+#     d
+# }
 ```
 
 This applies to *literals only*: `a + b` still requires `a` and `b` to have the
@@ -55,13 +61,10 @@ same type.
 
 **A literal that doesn't fit its type is a compile error:**
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let x: U8 = 300; // ERROR: 300 is not representable in U8
-
-let y: I8 = -129; // ERROR
-
-let z: U32 = -1; // ERROR: U32 has no negative values
-
+```buri wrap=body
+let x: U8 = 300; // ERROR: 300 is not representable in `U8`
+let y: I8 = -129; // ERROR: -129 is not representable in `I8`
+let z: U32 = -1; // ERROR: -1 is not representable in `U32`
 let w: U64 = 18_446_744_073_709_551_615; // fine
 ```
 
@@ -73,9 +76,10 @@ conversion method (Section 6.2.1).
 Generic arithmetic uses the operator traits of Section 5.12: `Add`, `Subtract`,
 `Multiply`, `Divide`, `Remainder`, `Negate`, `Ordered`.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-fn total<N: Add>(zero: N, xs: [N]): N { ... }
-fn clamp<N: Ordered>(lo: N, hi: N, x: N): N { ... }
+```buri sig
+fn total<N: Add>(zero: N, xs: [N]): N;
+
+fn clamp<N: Ordered>(lo: N, hi: N, x: N): N;
 ```
 
 No bound is privileged. Integer-specific operations are ordinary traits too:
@@ -111,10 +115,10 @@ let (n, name) = pair;
 
 `[T]` is an immutable, densely packed sequence of `T`.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri wrap=body
 let xs: [Int] = [1, 2, 3];
-let n = list.length(xs);          // pure: no allocation
-let maybe = xs[0];             // Option<Int>, not Int
+let n = xs.length(); // pure: no allocation
+let maybe = xs[0]; // Option<Int>, not Int
 ```
 
 **Indexing yields `Option<T>`**, so it can't go out of bounds.
@@ -134,21 +138,27 @@ polymorphism.
 Two structs with identical fields are different types. Fields are
 **module-private unless exported**:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri
+# struct UserId(Str);
+#
 struct User {
-  export id: UserId,
-  export name: Str,
-  passwordHash: Str,          // private to this module
+    export id: UserId,
+    export name: Str,
+    passwordHash: Str, // private to this module
 }
 
-struct Meters(F64);                        // tuple struct
-struct Pair<A, B>(A, B);                   // generic tuple struct
+struct Meters(F64); // tuple struct
 
-let u = User { id: UserId("u1"), name: "Ada", passwordHash: hash };
-let shorthand = User { id, name, passwordHash };   // shorthand: `name: name`
-let u2 = User { ..u, name: "Ada L." };
-let d = Meters(9.8);
-let raw = d.0;
+struct Pair<A, B>(A, B); // generic tuple struct
+
+fn examples(id: UserId, name: Str, passwordHash: Str, hash: Str): F64 {
+    let u = User { id: UserId("u1"), name: "Ada", passwordHash: hash };
+    let shorthand = User { id, name, passwordHash }; // shorthand: `name: name`
+    let u2 = User { ..u, name: "Ada L." };
+    let d = Meters(9.8);
+    let raw = d.0;
+    raw
+}
 ```
 
 Tuple-struct fields are exported the same way:
@@ -223,12 +233,8 @@ their type name, while `{ hi: hi, hello }` doesn't.
 
 Outside the declaring module you can't read, write or match a private field, so
 you can't build such a struct from scratch. Functional update still works:
-
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let renamed = User { ..u, name: "new" };     // fine anywhere
-let forged = User { id: ..., name: ..., passwordHash: ... };   // only in the
-                                                               // declaring module
-```
+`User { ..u, name: "new" }` compiles anywhere, while a literal naming
+`passwordHash` compiles only in the declaring module.
 
 There is no `opaque` modifier: a struct with no exported fields already hides its
 representation.
@@ -238,7 +244,7 @@ representation.
 Enums are Rust-style sum types. Variants may be nullary, tuple-like, or
 record-like, mixed freely.
 
-```buri
+```buri name=shape
 enum Shape {
     Empty,
     Circle(Float),
@@ -257,7 +263,7 @@ representation, use a struct with a private field.
 
 Construct a variant with a qualified path or the dot form:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri wrap=body use=shape
 let a = Shape.Circle(1.0);
 let b: Shape = .Rect { width: 2.0, height: 1.0 };
 let c: Shape = .Empty;
@@ -292,19 +298,38 @@ enum Order {
 pattern or as an expression statement (legal only in test sources,
 `design/grammar-rationale.md` 12.2):
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let _ = fs.writeText(ctx, path, body);                // ERROR: discarded Result
-let (n, _) = (1, fs.writeText(ctx, path, body));      // ERROR: the same one, hidden
-fs.writeText(ctx, path, body);                        // ERROR: and so is this
+```buri role=test
+# from "core/fs" import * as fs;
+# from "core/fs" import { FileSystemWrite, Path };
+# from "platform/effect" import { Allocator };
+#
+# fn save<C: Allocator + FileSystemWrite>(ctx: C, path: Path, body: Str): () {
+    let _ = fs.writeText(ctx, path, body); // ERROR: a `Result` may not be discarded
+    let (n, _) = (1, fs.writeText(ctx, path, body)); // ERROR: a `Result` may not be discarded
+    fs.writeText(ctx, path, body); // ERROR: has type `Result<(), IoError>`, not `()`
+#     ()
+# }
 ```
 
 Consume it instead:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-fs.writeText(ctx, path, body)?                        // propagate
-match (fs.writeText(ctx, path, body)) { ... }         // handle
-fs.writeText(ctx, path, body).withDefault(())         // supply one
-fs.writeText(ctx, path, body).ignore()                // explicitly, greppably, ignore
+```buri
+# from "core/fs" import * as fs;
+# from "core/fs" import { FileSystemWrite, Path };
+# from "platform/effect" import { Allocator, IoError };
+#
+# type Written = Result<(), IoError>;
+#
+# fn save<C: Allocator + FileSystemWrite>(ctx: C, path: Path, body: Str): Written {
+    let propagated = fs.writeText(ctx, path, body)?;
+    let handled = match (fs.writeText(ctx, path, body)) {
+        .Ok(()) => (),
+        .Err(e) => (),
+    };
+    let defaulted = fs.writeText(ctx, path, body).withDefault(());
+    let ignored = fs.writeText(ctx, path, body).ignore(); // explicitly, greppably
+#     .Ok(())
+# }
 ```
 
 `ignore` is a method only, so it's greppable, and `buri lint` reports each one as
@@ -317,10 +342,18 @@ The rule follows the type, so a pure function's `Result` is must-use too. So is
 
 ### 5.8 Function types
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-fn(Int, Int) => Int
-fn() => ()
-fn(Str) => Result<Config, ParseError>
+```buri
+# struct Config(Int);
+#
+# enum ParseError {
+#     Malformed,
+# }
+#
+type Combine = fn(Int, Int) => Int;
+
+type Thunk = fn() => ();
+
+type Parser = fn(Str) => Result<Config, ParseError>;
 ```
 
 The `fn` keyword keeps `(A, B)` unambiguously a tuple. Function types are
@@ -349,19 +382,26 @@ aren't a cycle. Write recursive types with a struct or enum.
 
 Type parameters go in angle brackets:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri sig
 # from "platform/effect" import { Allocator, Stdout };
-fn identity<T>(x: T): T { x }
-fn map<A, B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B] { ... }
-fn tee<T, C: Stdout>(ctx: C, x: T): T { ... }
+#
+fn identity<T>(x: T): T {
+    x
+}
+
+fn map<A, B, C: Allocator>(ctx: C, xs: [A], f: fn(A) => B): [B];
+
+fn tee<T, C: Stdout>(ctx: C, x: T): T;
 ```
 
 **Bounds** name traits a type argument must satisfy, joined with `+`:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri sig
 # from "platform/effect" import { Allocator };
-fn largest<T: Ordered>(xs: [T]): Option<T> { ... }
-fn report<T: Ordered + Show, C: Allocator>(ctx: C, xs: [T]): Str { ... }
+#
+fn largest<T: Ordered>(xs: [T]): Option<T>;
+
+fn report<T: Ordered + Show, C: Allocator>(ctx: C, xs: [T]): Str;
 ```
 
 A generic body may call only the bounds' methods, like `x.compare(y)`. Pass any
@@ -369,9 +409,18 @@ other operation as a function: `sortBy(xs, cmp)`.
 
 Explicit type arguments go on the expression:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let f = identity<Int>;
-let e: [Int] = list.empty<Int>();
+```buri
+# from "core/list" import * as list;
+#
+# fn identity<T>(x: T): T {
+#     x
+# }
+#
+# fn demo(): [Int] {
+    let f = identity<Int>;
+    let e: [Int] = list.empty<Int>();
+#     e
+# }
 ```
 
 ### 5.11 Equality and ordering
@@ -388,11 +437,17 @@ share or copy equal values freely (Section 8.1). Carry identity as data:
 (Section 5.12.4). Primitives, and arrays and tuples of types that have them,
 satisfy both. Your structs and enums opt in:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri
 derive Equal, Ordered for Version;
+# struct Version {
+#     major: Int,
+#     minor: Int,
+# }
 
-let same = Version { major: 1, minor: 2 } == Version { major: 1, minor: 2 };
-// true — different values, equal contents
+fn same(): Bool {
+    // true: different values, equal contents
+    Version { major: 1, minor: 2 } == Version { major: 1, minor: 2 }
+}
 ```
 
 Function types and `Template` have no `Equal`, so comparing them is a compile
@@ -442,9 +497,19 @@ coherence pass, orphan rule, or instance search.
 
 `impl Trait for Type` declares conformance and supplies the methods.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri
+# struct Version {
+#     major: Int,
+#     minor: Int,
+# }
+#
 impl Ordered for Version {
-  fn compare(self, other: Version): Order { ... }
+    fn compare(self, other: Version): Order {
+        match (self.major.compare(other.major)) {
+            .Equal => self.minor.compare(other.minor),
+            unequal => unequal,
+        }
+    }
 }
 ```
 
@@ -458,8 +523,12 @@ may write `Version` or `Self` for `other`.
 
 #### 5.12.3 `derive` generates the implementation
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri
 derive Equal, Ordered, Show for Version;
+# struct Version {
+#     major: Int,
+#     minor: Int,
+# }
 ```
 
 `derive` generates methods structurally, over fields and variants in declaration
@@ -485,13 +554,16 @@ mapping.
 
 That makes newtypes work:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-struct Meters(F64);
+```buri
 derive Add, Subtract, Ordered, Show for Meters;
+struct Meters(F64);
 
-let total = Meters(1.5) + Meters(2.0);     // Meters
-let far = total > Meters(3.0);             // Bool
-// let bad = Meters(1.5) + 2.0;            // ERROR: F64 is not Meters
+# fn demo(): Bool {
+    let total = Meters(1.5) + Meters(2.0); // Meters
+    let far = total > Meters(3.0); // Bool
+    let bad = Meters(1.5) + 2.0; // ERROR: expected `Meters`, found `Float`
+#     far
+# }
 ```
 
 **An operator can't allocate or perform an effect**, since `a + b` has nowhere to
