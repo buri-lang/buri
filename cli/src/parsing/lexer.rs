@@ -622,33 +622,37 @@ pub struct Trivia {
     pub detached: bool,
 }
 
-/// The token buffer: three parallel columns and three sparse side tables.
+/// The token buffer: one twelve-byte record per token, and sparse side tables.
 ///
 /// A token used to be a forty-eight-byte record — a tagged union wide enough
 /// for a `u128` beside a `Span` — and the buffer is the largest thing the
-/// front end builds, written once by the lexer and read once by the parser. Of
-/// those forty-eight bytes the parser reads one for almost every token it
-/// looks at, so the buffer is columns: the kind stream it walks is dense, the
-/// spans it takes on a `bump` are their own array, and the value of a literal
-/// — which fewer than one token in ten has — is an index into a table beside
-/// them rather than a hole in every token that is not one.
+/// front end builds, written once by the lexer and read once by the parser.
+/// The value of a literal — which fewer than one token in ten has — is an
+/// index into a table beside the records rather than a hole in every token
+/// that is not one, and an identifier is not in the buffer at all, because
+/// its text is the source under its own span.
 ///
-/// Two consequences beyond the width. Nothing in the three columns owns
-/// anything, so dropping the buffer is three `free`s rather than a walk over
-/// every token asking whether it holds a `String`; and an identifier is not in
-/// the buffer at all, because its text is the source under its own span.
+/// After that the buffer was three columns, a kind, a span and a payload,
+/// thirteen bytes a token. One record is smaller, because the payload fits in
+/// the three bytes of padding beside the kind, and it is one store per token
+/// rather than three: the lexer's write side was an eighth of its time. The
+/// parser reads a kind and then, on `bump`, the span beside it, so the two
+/// sharing a cache line costs it nothing.
 ///
-/// The widths are pinned here rather than left to whatever a new field happens
-/// to cost. A field that is empty on almost every token belongs in a side
-/// table keyed by token index, not in a fourth column.
+/// Nothing in a record owns anything, so dropping the buffer is a handful of
+/// `free`s rather than a walk over every token asking whether it holds a
+/// `String`. The width is pinned here rather than left to whatever a new field
+/// happens to cost. A field that is empty on almost every token belongs in a
+/// side table keyed by token index, not in the record.
 pub struct Tokens<'a> {
     src: &'a str,
     file: FileId,
-    kinds: Vec<TokenKind>,
-    locations: Vec<Location>,
-    /// Decoded by kind: an index into `ints`, `floats` or `strs`, the scalar
-    /// value of a character literal, and unread for every other kind.
-    pays: Vec<u32>,
+    records: Vec<Record>,
+    /// Payloads too wide for a record's three bytes, by token index,
+    /// ascending: an index past sixteen million entries, which a file of that
+    /// many literals would need. Searched, and empty in every file anybody
+    /// has written.
+    wide: Vec<(u32, u32)>,
     ints: Vec<u128>,
     floats: Vec<f64>,
     /// Cooked text — a string literal's contents, a template segment's. The
@@ -676,14 +680,25 @@ enum StrEnd {
     Unterminated,
 }
 
-/// What one token costs in the three columns.
-const BYTES_PER_TOKEN: usize = std::mem::size_of::<TokenKind>()
-    .saturating_add(std::mem::size_of::<Location>())
-    .saturating_add(std::mem::size_of::<u32>());
+/// One token as the buffer holds it.
+///
+/// `pay` is decoded by kind: an index into `ints`, `floats` or `strs`, the
+/// scalar value of a character literal, and unread for every other kind. It
+/// is three bytes, little-endian, which holds every scalar value and an index
+/// up to sixteen million; [`WIDE`] stands for one that does not fit.
+#[derive(Clone, Copy)]
+struct Record {
+    loc: Location,
+    kind: TokenKind,
+    pay: [u8; 3],
+}
+
+/// The payload that says "look in `Tokens::wide`".
+const WIDE: u32 = 0x00ff_ffff;
 
 const _: () = assert!(std::mem::size_of::<TokenKind>() == 1);
 const _: () = assert!(std::mem::size_of::<Location>() == 8);
-const _: () = assert!(BYTES_PER_TOKEN == 13);
+const _: () = assert!(std::mem::size_of::<Record>() == 12);
 /// `Token` is a view built on demand and never stored, so its width is a
 /// register-allocation question rather than a memory one. It is pinned anyway,
 /// because a variant that grew past this would mean somebody had put owned
@@ -699,9 +714,8 @@ impl<'a> Tokens<'a> {
         Tokens {
             src,
             file,
-            kinds: Vec::with_capacity(n),
-            locations: Vec::with_capacity(n),
-            pays: Vec::with_capacity(n),
+            records: Vec::with_capacity(n),
+            wide: Vec::new(),
             ints: Vec::new(),
             floats: Vec::new(),
             strs: Vec::new(),
@@ -711,17 +725,21 @@ impl<'a> Tokens<'a> {
 
     #[inline]
     fn push(&mut self, kind: TokenKind, pay: u32, loc: Location) {
-        self.kinds.push(kind);
-        self.locations.push(loc);
-        self.pays.push(pay);
+        let mut word = pay;
+        if pay >= WIDE {
+            self.wide.push((self.records.len() as u32, pay));
+            word = WIDE;
+        }
+        let [a, b, c, _] = word.to_le_bytes();
+        self.records.push(Record { loc, kind, pay: [a, b, c] });
     }
 
     pub fn len(&self) -> usize {
-        self.kinds.len()
+        self.records.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.kinds.is_empty()
+        self.records.is_empty()
     }
 
     /// The kind at `i`, or `Eof` past the end.
@@ -731,7 +749,7 @@ impl<'a> Tokens<'a> {
     /// `Eof` on every path, so in a correct front end the fallback is
     /// unreachable and this is the one place that has to know it.
     pub fn kind(&self, i: usize) -> TokenKind {
-        self.kinds.get(i).copied().unwrap_or(TokenKind::Eof)
+        self.records.get(i).map_or(TokenKind::Eof, |r| r.kind)
     }
 
     /// Whether the token at `i` is a string whose closing `"` is missing.
@@ -746,7 +764,7 @@ impl<'a> Tokens<'a> {
     }
 
     pub fn loc(&self, i: usize) -> Location {
-        self.locations.get(i).copied().unwrap_or_default()
+        self.records.get(i).map(|r| r.loc).unwrap_or_default()
     }
 
     pub fn span(&self, i: usize) -> Span {
@@ -762,7 +780,17 @@ impl<'a> Tokens<'a> {
     }
 
     fn pay(&self, i: usize) -> usize {
-        self.pays.get(i).copied().unwrap_or(0) as usize
+        let Some(r) = self.records.get(i) else { return 0 };
+        let [a, b, c] = r.pay;
+        let word = u32::from_le_bytes([a, b, c, 0]);
+        if word != WIDE {
+            return word as usize;
+        }
+        let at = i as u32;
+        match self.wide.binary_search_by_key(&at, |(t, _)| *t) {
+            Ok(k) => self.wide.get(k).map_or(0, |(_, pay)| *pay as usize),
+            Err(_) => 0,
+        }
     }
 
     pub fn int(&self, i: usize) -> u128 {
@@ -790,7 +818,7 @@ impl<'a> Tokens<'a> {
     }
 
     pub fn ch(&self, i: usize) -> char {
-        char::from_u32(self.pays.get(i).copied().unwrap_or(0)).unwrap_or('\0')
+        char::from_u32(self.pay(i) as u32).unwrap_or('\0')
     }
 
     /// The token at `i`, decoded. See [`Token`].
@@ -1746,6 +1774,20 @@ mod tests {
         let l = lex(src, FileId(0));
         assert!(l.errors.is_empty(), "unexpected errors: {:?}", l.errors);
         l.tokens.tokens().collect()
+    }
+
+    /// A payload too wide for a record's three bytes goes to the side table
+    /// and comes back whole, and its neighbours are not disturbed.
+    #[test]
+    fn a_payload_past_three_bytes_comes_back_whole() {
+        let mut t = Tokens::new("", FileId(0));
+        let at = Location { start: 0, end: 0 };
+        t.push(TokenKind::Int, 7, at);
+        t.push(TokenKind::Int, super::WIDE, at);
+        t.push(TokenKind::Int, u32::MAX, at);
+        t.push(TokenKind::Char, 0x1F642, at);
+        assert_eq!([t.pay(0), t.pay(1), t.pay(2)], [7, super::WIDE as usize, u32::MAX as usize]);
+        assert_eq!(t.ch(3), '🙂');
     }
 
     #[test]
