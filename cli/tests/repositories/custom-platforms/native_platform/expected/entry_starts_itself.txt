@@ -1,0 +1,27 @@
+error: `bootstrap` must take only its host and answer `Result<(), Str>`: its platform gives it no `js` file, so it starts itself [entry-signature-mismatch]
+ --> cmd/hello/main.buri:5:1
+  |
+5 | export fn bootstrap(host: LambdaHost, event: Str): Result<(), Str> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: declare `bootstrap` in `//platform/lambda` as `fn bootstrap(host: H): Result<(), Str>`, or give its `entry` a `js` file that calls it
+
+    What to do
+    ──────────
+
+    Give the entry the signature its platform's platform.buri declares.
+
+    Why
+    ───
+
+      Platform           The entry
+      native             fn main(host: NativeHost): Result<(), Str>
+      node               fn main(host: NodeHost): Result<(), Str>
+      web                fn main(host: WebHost): Result<(), Str>
+      //platform/<name>  the signature its platform.buri declares
+
+    The platform calls the entry, so the platform fixes its signature, and
+    nothing calls an entry with a type argument. A repository platform's entry
+    without a js file starts itself, so it takes only its host and answers
+    Result<(), Str>.
+

@@ -4,7 +4,7 @@ error: `dice` is a `HostDice`, which `//platform/lambda` declares itself, and a 
 8 |     export dice: HostDice,
   |     ^^^^^^^^^^^^^^^^^^^^^
   |
-  = a platform implements an effect the backend lacks in its entry's `js` file, and only a `JS` entry has one
+  = a platform's own production structs are implemented in its entry's `js` file, and only a `JS` entry has one
   = fix: build the entry with `backend: JS`, or drop the field and ship ordinary functions over the bundled effects
 
     A native platform offers the bundled effects only. It ships functions over
