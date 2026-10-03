@@ -335,6 +335,9 @@ fn one_pass(
             out.line(&note);
         }
     }
+    // Analyses the lint did not take are freed off this thread: a second or
+    // two of `free` on a large repository, after the answer exists.
+    crate::parallel::discard(std::mem::take(&mut pre.analyses));
     // Everything this pass read and parsed, kept for the next one. After the
     // compiling and before either exit below, which are the two the loop can
     // reach once a suite has been built.
