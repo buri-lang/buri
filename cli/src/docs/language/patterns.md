@@ -16,39 +16,34 @@
 | Array | `[]`, `[x]`, `[first, ..rest]` |
 | Or | `.Circle(_) | .Empty` |
 
-Struct patterns support field shorthand: `User { id, name }` binds `id` and
-`name`. A `..` at the end ignores remaining fields; without it a struct pattern
-must mention every field.
+`User { id, name }` binds `id` and `name`. Without a trailing `..`, a struct
+pattern must mention every field.
 
-Array rest patterns bind only at the end: `[first, ..rest]` is legal,
-`[..init, last]` is not.
+A rest pattern goes last: `[first, ..rest]` is legal, `[..init, last]` is not.
 
-Or-patterns must bind the same names at the same types in every alternative.
+Every alternative of an or-pattern binds the same names at the same types.
 
 ### 7.2 Why variants must be qualified
 
-A bare identifier pattern is **always** a binding. `None` as a pattern binds a
-variable named `None`; it does not match the `None` variant. Write `.None` or
-`Option.None`.
+A bare identifier pattern is **always** a binding. `None` binds a variable named
+`None`; write `.None` or `Option.None` to match the variant.
 
-This is what takes name resolution out of the parser: the token after `Foo`
-decides between `Foo`, `Foo(x)` and `Foo { .. }`, never what `Foo` means
+That keeps name resolution out of the parser: the token after `Foo` decides
+between `Foo`, `Foo(x)` and `Foo { .. }`, never what `Foo` means
 (`design/grammar-rationale.md` 12.7).
 
 ### 7.3 Exhaustiveness
 
-Every `match` must cover its scrutinee's type. The checker reasons about enum
+Every `match` must cover its scrutinee's type. The checker understands enum
 variants, `Bool`, tuples, structs, and array lengths, but not integer or string
 ranges; those need a `_` arm.
 
-An alternation counts toward coverage wherever it appears, not only at the top
-of a pattern: `.Some(true | false)` covers `.Some` completely, exactly as
-`.Some(true) | .Some(false)` does.
+An alternation counts toward coverage anywhere in a pattern: `.Some(true | false)`
+covers `.Some` exactly as `.Some(true) | .Some(false)` does.
 
-Unreachable arms are a compile error, not a warning. So is an unreachable
-*alternative*: the checker asks about each `|` alternative on its own, against
-the arms above it and the alternatives to its left. So `.Now(_) | .World` below
-an arm that already handles `.Now` reports the `.Now(_)` half. An arm with no
-live alternative at all gets the arm-level error.
+Unreachable arms are a compile error. So is an unreachable *alternative*, checked
+against the arms above it and the alternatives to its left: `.Now(_) | .World`
+below an arm that handles `.Now` reports the `.Now(_)` half. An arm with no
+reachable alternative gets the arm-level error.
 
 ---
