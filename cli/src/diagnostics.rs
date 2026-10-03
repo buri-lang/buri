@@ -1622,7 +1622,7 @@ mod tests {
 
         forget_explanations();
         let first = map.render_with_body(&d, false);
-        assert!(first.contains("non-associative"), "{first}");
+        assert!(first.contains("comparisons don't chain"), "{first}");
         assert_eq!(map.render_with_body(&d, false), map.render(&d, false));
 
         // And `--dense` says not even the first time.

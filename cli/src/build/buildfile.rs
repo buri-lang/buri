@@ -463,7 +463,7 @@ pub struct CustomPlatform {
     pub variant: Option<Spanned<String>>,
     /// The `entries`, as written: the platform's entry, and the function
     /// filling it.
-    pub entries: Vec<(Spanned<String>, Spanned<String>)>,
+    pub entries: Vec<WrittenEntry>,
     /// The platform's entry this output builds: `fetch`.
     pub point: String,
     /// The backend that entry is built by.
@@ -770,6 +770,10 @@ pub fn check_variant(
     }
 }
 
+/// One `entries` item as written: the platform's entry, and the function
+/// filling it.
+pub type WrittenEntry = (Spanned<String>, Spanned<String>);
+
 /// Holds an output's `entries` items to its platform's entry `names`: each
 /// names one of them, at most once, and is filled by something that could be
 /// a function. Returns the items that pass, and a diagnostic for each that
@@ -778,9 +782,9 @@ pub fn check_variant(
 pub fn check_entries(
     platform: &str,
     names: &[&str],
-    items: &[(Spanned<String>, Spanned<String>)],
-) -> (Vec<(Spanned<String>, Spanned<String>)>, Vec<Diagnostic>) {
-    let mut passed: Vec<(Spanned<String>, Spanned<String>)> = Vec::new();
+    items: &[WrittenEntry],
+) -> (Vec<WrittenEntry>, Vec<Diagnostic>) {
+    let mut passed: Vec<WrittenEntry> = Vec::new();
     let mut errors = Vec::new();
     let mut filled: Vec<&str> = Vec::new();
     for (name, function) in items {
@@ -1675,7 +1679,7 @@ impl Reader {
     /// each item's entry and the function filling it. [`check_entries`] holds
     /// them to the platform. `names` are the platform's entries where this
     /// reader can see them, for the fix of an item missing its `name`.
-    fn entry_items(&mut self, m: &Message, names: &[&str]) -> Vec<(Spanned<String>, Spanned<String>)> {
+    fn entry_items(&mut self, m: &Message, names: &[&str]) -> Vec<WrittenEntry> {
         let mut out = Vec::new();
         for f in m.all("entries") {
             let items: Vec<&Value> = match &f.value {
