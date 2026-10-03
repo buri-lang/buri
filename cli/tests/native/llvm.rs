@@ -4374,12 +4374,11 @@ fn a_memo_and_a_watcher_run_under_the_release_backend() {
     skip_unless_executable!();
     let source = r#"
 from "core/alloc" import * as alloc;
-from "platform/effect" import { Allocator };
 from "core/testing/assert" import * as assert;
-from "ui/effect" import { Scope, Ui, Watch };
+from "platform/effect" import { Allocator, Scope, Ui, Watch };
+from "platform/effect/testing" import { headless, observer, recorder };
 from "ui/prop" import { memo, Prop };
 from "ui/signal" import { signal, watch };
-from "ui/testing" import { headless, observer, recorder };
 
 test "a memo is lazy, caches, and recomputes when its source changes" {
     let ctx = context {
@@ -4444,15 +4443,14 @@ fn a_struct_holding_an_ordered_container_survives_a_signal() {
     skip_unless_executable!();
     let source = r#"
 from "core/alloc" import * as alloc;
-from "platform/effect" import { Allocator };
 from "core/orderedmap" import * as orderedmap;
 from "core/orderedmap" import { OrderedMap };
 from "core/orderedset" import * as orderedset;
 from "core/orderedset" import { OrderedSet };
 from "core/testing/assert" import * as assert;
-from "ui/effect" import { Ui, Watch };
+from "platform/effect" import { Allocator, Ui, Watch };
+from "platform/effect/testing" import { headless, observer };
 from "ui/signal" import { signal };
-from "ui/testing" import { headless, observer };
 
 derive Equal, Show for Entity;
 struct Entity {
@@ -4733,16 +4731,14 @@ fn the_text_a_shaper_has_to_survive_paints_the_same_bytes_under_the_release_back
 fn a_painted_snapshot_leaves_the_tree_intact_under_the_release_backend() {
     skip_unless_executable!();
     let source = r#"
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
 from "core/orderedmap" import * as orderedmap;
 from "core/orderedmap" import { OrderedMap };
 from "core/testing/assert" import * as assert;
-from "ui/effect" import { Ui };
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
 from "ui/node" import * as ui;
 from "ui/node" import { describe, Node };
 from "ui/signal" import * as signal;
-from "ui/testing" import { headless, snapshot };
 
 struct State {
     label: Str,

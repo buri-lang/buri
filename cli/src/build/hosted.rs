@@ -9,6 +9,11 @@
 //! bundle can move them. A struct written any other way is reported as a shape
 //! the build cannot read, which is the same refusal as a missing method:
 //! `host-file-incomplete`.
+//!
+//! Two modules are the artifact's own rather than files: `buri:program`, the
+//! entries the file calls, and `buri:ui`, the reactive graph's `signal` and
+//! `write`, for a file whose production struct answers a signal, as `web`'s
+//! `HostLocation` does.
 
 /// One lexical token of the file, with where it starts and ends.
 #[derive(Clone, Debug, PartialEq)]
@@ -195,6 +200,9 @@ pub struct Exports {
     /// Whether the file waits at its top level, so its body runs in an
     /// `async` function.
     waits: bool,
+    /// Whether the file imports `buri:ui`, the reactive graph the backend
+    /// publishes, so the program has to hand it over.
+    pub ui: bool,
 }
 
 impl Exports {
@@ -387,13 +395,18 @@ pub fn read(src: &str) -> Exports {
                 let end = statement_end(src, &lexemes, i);
                 let last = lexemes.get(end).map_or(src.len(), |l| l.end);
                 let text = src.get(l.start..last).unwrap_or_default().to_string();
-                let from_program = lexemes
-                    .get(i..=end)
-                    .unwrap_or_default()
-                    .iter()
-                    .any(|x| x.token == Token::Str(String::from("buri:program")));
-                let with = if from_program {
-                    program_import(&lexemes, i, end)
+                let names = |module: &str| {
+                    lexemes
+                        .get(i..=end)
+                        .unwrap_or_default()
+                        .iter()
+                        .any(|x| x.token == Token::Str(String::from(module)))
+                };
+                let with = if names("buri:program") {
+                    program_import(&lexemes, i, end, crate::compiler::backend::js::crossing::HOSTED_PROGRAM)
+                } else if names("buri:ui") {
+                    found.ui = true;
+                    program_import(&lexemes, i, end, crate::compiler::backend::js::crossing::HOSTED_UI)
                 } else {
                     found.imports.push(text);
                     String::new()
@@ -414,9 +427,9 @@ pub fn read(src: &str) -> Exports {
 }
 
 /// `import { fetch, other as mine } from "buri:program";` as the statement
-/// that takes the same names out of the artifact's binding.
-fn program_import(lexemes: &[Lexeme], start: usize, end: usize) -> String {
-    let program = crate::compiler::backend::js::crossing::HOSTED_PROGRAM;
+/// that takes the same names out of the artifact's binding, `program`:
+/// `$buri$program` for `buri:program` and `$buri$ui` for `buri:ui`.
+fn program_import(lexemes: &[Lexeme], start: usize, end: usize, program: &str) -> String {
     let mut i = start.saturating_add(1);
     let mut parts: Vec<String> = Vec::new();
     while i <= end {

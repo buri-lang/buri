@@ -145,9 +145,10 @@ Builds exactly one binary and executes it with real authority: the real
 filesystem and environment. The context its `main` builds still bounds what the
 program can do.
 
-A `web` output is served instead. The address prints once, files under the
-artifact directory are served as themselves, and every other path gets the
-entry shell so the page's router sees the typed address. Nothing is cached,
+An output whose platform ships an `index.html`, like `web`, is served instead.
+The address prints once, files under the artifact directory are served as
+themselves, and every other path gets `index.html` so the page's router sees
+the typed address. Nothing is cached,
 `--watch` rebuilds into the next request, and a website's worker half isn't run.
 
 ### `lint`

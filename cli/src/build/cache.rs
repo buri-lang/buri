@@ -196,10 +196,10 @@ pub fn explain(
     status: Status,
     action: Action,
     label: &str,
-    platform: Platform,
+    platform: &str,
     key: &ActionKey,
 ) {
-    line(on, status, action, label, platform.slug(), key);
+    line(on, status, action, label, platform, key);
 }
 
 /// The same line for an action no platform decides.

@@ -45,20 +45,20 @@ run {
 }
 
 file {
-  path: ".buri/out/web/cmd/counter/counter.css"
-  golden: "counter.css"
+  path: ".buri/out/web/cmd/counter/main.css"
+  golden: "main.css"
 }
 
 file {
-  path: ".buri/out/web/cmd/counter/counter.html"
-  golden: "counter.html"
+  path: ".buri/out/web/cmd/counter/index.html"
+  golden: "index.html"
 }
 
 # The module is a module: it does not import `node:module`, because nothing a
 # page can bind needs node's `require`. That is the grant table showing up in
 # the artifact rather than only in a diagnostic.
 file {
-  path: ".buri/out/web/cmd/counter/counter.mjs"
+  path: ".buri/out/web/cmd/counter/main.mjs"
   absent: "node:module"
 }
 
@@ -74,12 +74,12 @@ file {
 # symbol that started being named unconditionally is a failing case rather than
 # an artifact that quietly grew.
 file {
-  path: ".buri/out/web/cmd/counter/counter.mjs"
+  path: ".buri/out/web/cmd/counter/main.mjs"
   absent: "$ui_web_resume"
 }
 
 file {
-  path: ".buri/out/web/cmd/counter/counter.mjs"
+  path: ".buri/out/web/cmd/counter/main.mjs"
   absent: "$adopt_claim"
 }
 
@@ -121,8 +121,8 @@ edit {
 
 edit {
   file: "cmd/counter/main.buri"
-  replace: "import { Allocator, Stdout };"
-  with: "import { Allocator, Stdout };\nfrom \"core/fs\" import { FileSystemRead };"
+  replace: "import { Allocator, Event, Stdout, Ui, Watch };"
+  with: "import { Allocator, Event, Stdout, Ui, Watch };\nfrom \"core/fs\" import { FileSystemRead };"
 }
 
 run {
@@ -154,8 +154,8 @@ edit {
 
 edit {
   file: "cmd/counter/main.buri"
-  replace: "import { Allocator, Stdout };\nfrom \"core/fs\" import { FileSystemRead };"
-  with: "import { Allocator, Stdout }\n\n;"
+  replace: "import { Allocator, Event, Stdout, Ui, Watch };\nfrom \"core/fs\" import { FileSystemRead };"
+  with: "import { Allocator, Event, Stdout, Ui, Watch }\n\n;"
 }
 
 # A page has no variants: there is no machine under it to choose between.
@@ -214,6 +214,6 @@ run {
 }
 
 file {
-  path: ".buri/out/web/cmd/counter/counter.html"
-  golden: "counter.html"
+  path: ".buri/out/web/cmd/counter/index.html"
+  golden: "index.html"
 }

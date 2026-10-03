@@ -27,8 +27,11 @@ error: //cmd/site builds `fetch` for `//platform/cloudflare_worker`, and its `js
 
 ## A page is served
 
-A `web` output is a document a browser loads, so there is no process to start.
-`buri run` builds it and serves it on a local port instead:
+An output whose platform ships an `index.html`, like `web`, is a document a
+browser loads, so there is no process to start. `buri run` builds it and serves
+its output directory on a local port instead. A
+[repository platform](../build/platforms.md) gets the same by listing
+`index.html` in its `assets`:
 
 ```text
 $ buri run //apps/design
@@ -38,11 +41,11 @@ serving //apps/design on http://127.0.0.1:4000/
 The address is printed once, before anything blocks, and everything it answers
 carries `Cache-Control: no-store` — a rebuild is what the next reload shows.
 
-**Every path that is not a file is the shell.** A page routes on
+**Every path that is not a file is `index.html`.** A page routes on
 `web.route(ctx)`, which is the address bar, so `/components/button` has to
-arrive with `/components/button` still in it. Answering `/main.html` would hand
-the router `/main.html` and render the not-found route; answering 404 would
-break every deep link. A path whose last segment carries an extension is a file
+arrive with `/components/button` still in it. Redirecting to `/index.html` would
+hand the router `/index.html` and render the not-found route; answering 404
+would break every deep link. A path whose last segment carries an extension is a file
 instead: `/main.css` is the stylesheet, and `/theme.css`, which the build never
 wrote, is a 404 rather than HTML claiming to be a stylesheet.
 
@@ -58,7 +61,7 @@ the page that was working where it was. Both flags belong to a page: on a binary
 that runs as a process they are refused, because there is no port and nothing to
 rebuild into.
 
-What it serves is the shell the compiler wrote, not a document a worker
+What it serves is the `index.html` the platform ships, not a document a worker
 renders. **Running the worker in front of the page locally is not something
 this command does**, so a page that calls `web.resume` finds markup no `shell`
 wrote and says so. Mount that page while you work on it,

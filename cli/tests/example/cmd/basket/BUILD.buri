@@ -26,7 +26,7 @@ binary {
         sources: ["test/model.buri", "test/view.buri"]
 
         # The reactive graph and the document a rendered tree goes into are
-        # intrinsics of the JavaScript backend. `ui/testing` runs the shipping
+        # intrinsics of the JavaScript backend. `platform/effect/testing` runs the shipping
         # runtime against a document the runtime supplies rather than a
         # browser's, so these suites run headlessly — but they cannot run on a
         # backend that has no graph at all. The suite runs as the page its

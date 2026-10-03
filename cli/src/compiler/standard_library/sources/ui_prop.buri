@@ -15,7 +15,7 @@
 //! `memo` lives here rather than in `ui/signal` because it returns a `Prop`,
 //! and a module may not import the module that imports it.
 
-from "ui/effect" import { Scope, Ui };
+from "platform/effect" import { Scope, Ui };
 from "ui/signal" import { Signal };
 
 /// A time-varying value.

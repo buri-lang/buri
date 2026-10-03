@@ -5,11 +5,13 @@
 //! it is the one that produces a program with authority.
 //!
 //! **A page is the one output with no process to start**, and it is the one
-//! output a person most wants to look at. So `run` builds it and serves it on
-//! a local port, answering the files under the artifact directory as themselves
-//! and the shell for every other path — which is what lets the page's own
-//! router see the address the reader typed. `commands/serve.rs` is that server;
-//! this file is where the command decides it is what `run` means here.
+//! output a person most wants to look at. A page is any output whose platform
+//! ships an `index.html` beside its entries, `web` or a repository's own. So
+//! `run` builds it and serves the output directory on a local port, answering
+//! the files there as themselves and `index.html` for every other path — which
+//! is what lets the page's own router see the address the reader typed.
+//! `commands/serve.rs` is that server; this file is where the command decides
+//! it is what `run` means here.
 #![allow(
     clippy::print_stderr,
     reason = "a `buri run` that has nothing to run is a complaint about the \
@@ -18,7 +20,7 @@
 )]
 
 use crate::build::actions;
-use crate::build::buildfile::{Output, Platform};
+use crate::build::buildfile::Output;
 use crate::build::session;
 use crate::build::session::Session;
 use crate::build::workspace::{RuleKind, TargetId};
@@ -50,9 +52,9 @@ pub fn command_run(args: &arguments::Args) -> i32 {
         return 2;
     };
     let outputs = actions::selected_outputs(&session, target, &args.flags);
-    let Some(output) = choose(&outputs, &args.flags) else {
-        // A repository platform's entry with a `js` file is called by the file,
-        // not started: the platform's own host calls in.
+    let Some(output) = choose(&outputs, &args.flags, &|o| actions::is_page(&session, o)) else {
+        // An entry with a `js` file is called by the file, not started: the
+        // platform's own host calls in.
         if let Some(hosted) = outputs.iter().find(|o| !starts_itself(o)) {
             let custom = hosted.custom.as_ref().map(|c| (c.label.value.clone(), c.point.clone()));
             let (platform, entry) = custom.unwrap_or_default();
@@ -82,7 +84,7 @@ pub fn command_run(args: &arguments::Args) -> i32 {
         return 2;
     };
     // A page has no process to start, so `run` serves it instead.
-    if output.platform() == Platform::Web {
+    if actions::is_page(&session, &output) {
         return serve_page(session, target, &output, args);
     }
     // And the two flags that belong to that server are refused on everything
@@ -278,8 +280,11 @@ fn rebuild(
     // that kept building whatever it found would serve something nobody asked
     // for out of the directory a page was in.
     let still_a_page = match binaries.as_slice() {
-        &[target] => choose(&actions::selected_outputs(&session, target, &args.flags), &args.flags)
-            .filter(|output| output.platform() == Platform::Web)
+        &[target] => {
+            let page = |o: &Output| actions::is_page(&session, o);
+            choose(&actions::selected_outputs(&session, target, &args.flags), &args.flags, &page)
+                .filter(|output| page(output))
+        }
             .map(|output| (target, output)),
         _ => None,
     };
@@ -319,6 +324,7 @@ fn rebuild(
 fn choose(
     outputs: &[crate::build::buildfile::Output],
     flags: &crate::commands::arguments::Flags,
+    is_page: &dyn Fn(&Output) -> bool,
 ) -> Option<crate::build::buildfile::Output> {
     let host = crate::compiler::driver::host_native_platform();
     // The host's own variant: a Linux host links any Linux variant, and runs
@@ -331,11 +337,14 @@ fn choose(
     outputs
         .iter()
         .find(|o| o.platform() == host && runnable(o))
-        // Any JavaScript output is runnable here, `WEB` included: the runtime
-        // supplies a document where there is none, so a page runs to its first
-        // paint and prints whatever `main` printed. An entry a `js` file calls
-        // is the exception: its host calls it, so there is nothing to start.
-        .or_else(|| outputs.iter().find(|o| o.platform().is_javascript() && starts_itself(o)))
+        // Any JavaScript output that starts itself is runnable here, and a
+        // page is served. Any other entry a `js` file calls is the exception:
+        // its host calls it, so there is nothing to start.
+        .or_else(|| {
+            outputs.iter().find(|o| {
+                o.platform().is_javascript() && (starts_itself(o) || is_page(o))
+            })
+        })
         // A target that declares only an output this toolchain cannot produce
         // is built anyway, so that the refusal is the build's — which names the
         // platform, the backend and the feature — rather than a sentence this
@@ -344,10 +353,15 @@ fn choose(
         .cloned()
 }
 
-/// Whether an output's entry starts itself: every bundled platform's does,
-/// and a repository platform's does when it has no `js` file to call it.
+/// Whether an output's entry starts itself: it does when its platform gives
+/// it no `js` file to call it.
 fn starts_itself(output: &crate::build::buildfile::Output) -> bool {
-    output.custom.as_ref().is_none_or(|c| c.js.is_none())
+    if let Some(custom) = &output.custom {
+        return custom.js.is_none();
+    }
+    crate::build::platforms::bundled(output.platform().proto())
+        .and_then(|rule| rule.entries.iter().find(|e| e.name.value == output.entry_point()))
+        .is_none_or(|entry| entry.js.is_none())
 }
 
 /// **Stopping `buri run` stops the program it started.**
@@ -701,17 +715,17 @@ mod tests {
             actions::target_of(&Output::for_platform(host, Span::NONE)),
             actions::profile_of(&flags),
         );
-        let picked = choose(&both, &flags).map(|o| o.platform());
+        let picked = choose(&both, &flags, &|_| false).map(|o| o.platform());
         assert_eq!(picked, Some(if ready { host } else { Platform::Js }));
 
         // JavaScript alone is JavaScript, whatever this toolchain can do.
         assert_eq!(
-            choose(&[Output::js(Span::NONE)], &flags).map(|o| o.platform()),
+            choose(&[Output::js(Span::NONE)], &flags, &|_| false).map(|o| o.platform()),
             Some(Platform::Js)
         );
         // And nothing declared is nothing to run, which is the caller's to
         // report rather than something to invent an output for.
-        assert!(choose(&[], &flags).is_none());
+        assert!(choose(&[], &flags, &|_| false).is_none());
     }
 
     /// A target that declares only what this toolchain cannot produce is still
@@ -726,6 +740,6 @@ mod tests {
             Platform::Macos
         };
         let only = [Output::for_platform(cross, Span::NONE)];
-        assert_eq!(choose(&only, &flags).map(|o| o.platform()), Some(cross));
+        assert_eq!(choose(&only, &flags, &|_| false).map(|o| o.platform()), Some(cross));
     }
 }

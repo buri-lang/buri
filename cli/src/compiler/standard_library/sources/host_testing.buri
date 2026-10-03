@@ -104,6 +104,13 @@
 //! real time either: a task that sleeps sleeps on `clock()`, which moves a
 //! counter.
 //!
+//! ## The graph
+//!
+//! `headless()`, `observer()` and `address(ctx, at)` are `Ui`, `Watch` and
+//! `Location` with no page behind them, and `render` puts a tree in a document
+//! the runtime supplies. For a page's requests, the double is `net()`, which
+//! refuses every request until `respond` says what to answer.
+//!
 //! ## `arguments`
 //!
 //! A type's methods are one map keyed by name, so the reader and the builder
@@ -116,9 +123,8 @@
 // name a `Path`.
 from "core/fs" import { FileSystemRead, FileSystemWrite, Metadata };
 
-// The one module above `platform/effect` this one imports, and it is the surface
-// rather than the authority: `Socket` and `Message` are inert data that
-// `core/net/server` declares.
+// The surface rather than the authority: `Socket` and `Message` are inert data
+// that `core/net/server` declares.
 from "core/net/server" import { Message, Socket };
 from "core/path" import { Path };
 
@@ -126,10 +132,19 @@ from "core/path" import { Path };
 // module's own `Output`.
 from "core/process" import { Output, Spawn };
 from "platform/effect" import {
-    Allocator, Clock, Connected, Entropy, Environment, Frame, Header, IoError, Method,
-    NetError, Network, Process, Random, Received, Region, Request, Response, ServeError,
-    Sockets, Stderr, Stdin, Stdout, Tasks, Tcp, WebSocketClient,
+    Allocator, Clock, Connected, Entropy, Environment, Frame, Header, IoError, Location,
+    Method, NetError, Network, Process, Random, Received, Region, Request, Response,
+    Scope, ServeError, Sockets, Stderr, Stdin, Stdout, Tasks, Tcp, Ui, Watch,
+    WebSocketClient,
 };
+
+// The headless renderer's vocabulary: what a test renders, and the theme it
+// paints with.
+from "ui/node" import * as node;
+from "ui/node" import { Builder, Node };
+from "ui/style" import { State };
+from "ui/theme" import * as theme;
+from "ui/theme" import { Theme };
 
 // --- Allocator --------------------------------------------------------------------
 
@@ -1894,4 +1909,472 @@ impl TaskCall {
     export fn failsOnCall(self, nth: Int, reason: Str): TaskFault {
         TaskFault { call: self, reason: reason, nth: nth }
     }
+}
+
+// --- Ui, Watch and Location ----------------------------------------------------
+//
+// The graph's test implementations are the real reactive runtime with no
+// document attached, and the address bar is one value of that graph.
+//
+// Every call to `recorder()` allocates a fresh handle, so what one test records
+// is invisible to the next, and every `address(ctx, at)` is a signal of its own.
+// `headless()` and `observer()` are windows onto the one graph the runtime
+// holds, which needs no isolating: a signal is named by an index nothing else
+// can produce, so a test can only reach the ones it made.
+
+/// Creates and writes signals, and runs computations, with no rendering.
+export struct Headless(I64);
+
+impl Ui for Headless {
+    fn signal<T>(self, initial: T): Int;
+
+    fn read<T>(self, id: Int): T;
+
+    fn write<T>(self, id: Int, value: T): ();
+
+    fn memo<T>(self, compute: fn(Scope) => T): Int;
+
+    fn watch(self, run: fn(Scope) => ()): ();
+
+    fn schedule(self, millis: Int, run: fn(Self) => ()): Int;
+
+    fn unschedule(self, id: Int): ();
+}
+
+/// A headless `Ui`.
+export fn headless(): Headless;
+
+/// Advances the headless clock by `millis` milliseconds and fires, on the
+/// graph's own turn, every timer that `after` scheduled to run by then.
+///
+/// A page's own timers run on a real clock — `after` on a WEB output is a
+/// `setTimeout` — but a test has no wall clock to wait on, so the headless
+/// double queues what `after` schedules against a virtual clock this drives.
+/// Press the button that schedules a toast, assert the message is on screen,
+/// then `elapse` past its duration and assert it is gone: that is how a test
+/// sees an auto-dismiss without waiting three real seconds.
+///
+/// Each timer that comes due fires in an update transaction of its own, so the
+/// signals it writes settle before the next one runs, exactly as they would on
+/// a page.
+export fn elapse(millis: Int): ();
+
+/// Reads signals and nothing else — what a test binds to `Watch` so it can
+/// look at a cell from outside any computation.
+export struct Observer(I64);
+
+impl Watch for Observer {
+    fn read<T>(self, id: Int): T;
+}
+
+/// A headless `Watch`.
+export fn observer(): Observer;
+
+/// An address bar with no browser behind it: one cell of the same graph.
+///
+/// `web.navigate` and `web.replace` write that cell, so `web.path` and
+/// `web.route` answer where a test has been. What is *not* here is a history
+/// stack — a headless platform has none, and pressing Back is a browser's own
+/// answer — so the two differ only in what a browser does with the entry.
+/// `language::a_website_is_rendered_by_its_worker_and_resumed_by_its_page`
+/// drives a built page against one and asserts that half.
+export struct Address(Int);
+
+impl Location for Address {
+    fn path(self): Int {
+        self.0
+    }
+
+    fn push(self, path: Str): () {}
+
+    fn replace(self, path: Str): () {}
+}
+
+/// A headless `Location` starting at `at`, over `ctx`'s graph.
+export fn address<C: Ui>(ctx: C, at: Str): Address {
+    Address(ctx.signal(at))
+}
+
+/// A tree the runtime rendered, ready to look at and act on.
+///
+/// Behind it is the renderer `ui/node`'s `mount` uses, pointed at a document
+/// the runtime supplies rather than a browser. Which element each role became,
+/// which style reached which element, what a press did, and which rows a keyed
+/// list moved rather than rebuilt are all answerable here.
+///
+/// What only a browser does is out of reach, and needs a suite that drives a
+/// real one:
+///
+/// - **Layout and painting.** A test asserts a style as the declaration it
+///   became, not as pixels.
+/// - **The browser's own dispatch.** That Enter and Space on a button produce a
+///   press, that the keystroke reaching a form is Enter in one of its fields,
+///   and that a press inside a label reaches the input it wraps. What `submit`
+///   models is the rule that decides *whether* the keypress submits, not the
+///   keypress.
+/// - **Focus and selection.** That a moved row keeps the focus and the caret.
+///   What a test asserts here is the identity that makes it possible.
+/// - **What assistive technology announces.** A test asserts a role as the
+///   element it became.
+export struct Rendered(I64);
+
+/// Renders `root` into a document of its own.
+///
+/// The tree's handlers get this context, exactly as `mount` hands over the
+/// context its caller passed.
+///
+/// The walk `renderInto` is `render`'s and not `mount`'s: `mount` is the one
+/// half that differs between backends — the JavaScript renderer builds its
+/// document double and drops the walk, the native one drives it into the
+/// element arena — so the destructuring of the tree is handed to it as a
+/// closure rather than baked into either.
+export fn render<C: Ui>(ctx: C, root: Node<C>): Rendered {
+    Rendered(mount(ctx, root, node.renderInto))
+}
+
+/// `render`'s per-backend half: build the document and answer the handle a
+/// `Rendered` carries.
+///
+/// The context is dropped — the runtime allocates for itself — `root` crosses
+/// by reference to the one `Node` the walk destructures, and `walk` crosses as
+/// the closure `render` handed over, which the native side invokes once and the
+/// JavaScript side ignores.
+fn mount<C: Ui>(ctx: C, root: Node<C>, walk: fn(C, Builder, Node<C>) => ()): I64;
+
+impl Rendered {
+    /// The tree as markup: elements, their attributes, their styles and their
+    /// text, in order.
+    ///
+    /// It leaves out the runtime's own bookkeeping, the markers it puts around
+    /// a region that can change.
+    export fn markup(self): Str;
+
+    /// Every run of text in the tree, in order, separated by a space.
+    export fn text(self): Str;
+
+    /// Presses the button whose label is `label`.
+    ///
+    /// Addressed by label rather than by position, the way a reader addresses
+    /// it. Aborts when no button carries that label.
+    ///
+    /// A press is the pointer's, so a button under a `Passthrough(true)` does
+    /// nothing at all — which is what a browser does with a click on one, and
+    /// what the pass-through is for. A disabled button does nothing either: it
+    /// is not dispatched to, so the handler behind it cannot run. Both are a
+    /// control this found and refused, not a control it could not find.
+    ///
+    /// Pressing a `.Submit` button submits the form around it, which is the
+    /// browser's own default action for the press rather than a handler the
+    /// button carries.
+    ///
+    /// A `dialog` refuses one the same way, both ways round: what is behind an
+    /// open modal is inert, and what is inside a shut one is drawn nowhere.
+    /// `fill`, `flip` and `submit` follow the same rule.
+    export fn press(self, label: Str): ();
+
+    /// Follows the `web.routeLink` labelled `label` with a plain left-click.
+    ///
+    /// Addressed by the text it shows, the way a reader addresses a link, and it
+    /// aborts when no anchor carries that text. A route link answers a plain
+    /// click in place — the address moves and the tree stays — so this is how a
+    /// test drives an in-app navigation. An ordinary `ui.link` lets the browser
+    /// follow the anchor, which a headless document cannot do, so following one
+    /// changes nothing and a test says so by what stayed the same.
+    ///
+    /// A link under a `Passthrough(true)`, or one a `dialog` has taken out of
+    /// reach, is not followed, the same rule `press` keeps.
+    export fn follow(self, label: Str): ();
+
+    /// Clicks the anchor labelled `label` with ⌘/Ctrl held — what a reader does
+    /// to open a link in a new tab.
+    ///
+    /// A `web.routeLink` leaves a modified click to the browser, so the address
+    /// bar does not move: this is the other half of what `follow` asserts, the
+    /// click a route does *not* answer. The reachability rules are `follow`'s.
+    export fn openInNewTab(self, label: Str): ();
+
+    /// Types `value` into the field labelled `label`, the way a reader replacing
+    /// what was there would.
+    ///
+    /// Nothing is typed into a disabled field, or into one a `dialog` has taken
+    /// out of reach, so the signal behind one stays where it was.
+    export fn fill(self, label: Str, value: Str): ();
+
+    /// Moves the caret and selection of the field labelled `label` to the
+    /// `(anchor, focus)` offsets `start` and `end` — what a reader clicking into
+    /// the text, or the program calling `setSelectionRange`, does.
+    ///
+    /// The two are equal for a plain caret and differ for a selection. It writes
+    /// the field's `selection` signal, so a field built without one is left
+    /// alone, and a disabled or inert field is not moved. This is how a test
+    /// drives the caret a completion or an auto-close reads; what only a browser
+    /// does — that a moved row keeps the caret — stays out of reach.
+    export fn select(self, label: Str, start: Int, end: Int): ();
+
+    /// Flips the toggle labelled `label`, unless it is disabled or a `dialog`
+    /// has taken it out of reach.
+    export fn flip(self, label: Str): ();
+
+    /// Chooses a file in the `filePicker` labelled `label`, the way a reader
+    /// picking one in the platform's chooser does.
+    ///
+    /// ```text
+    /// page.pickFile("Import", "sales.csv", "text/csv", bytes.toUtf8(ctx, "a,b\n1,2"));
+    /// ```
+    ///
+    /// `mimeType` is the type a browser reports for the file (`""` when it
+    /// knows none) and `content` is its bytes. The picker's `onPick` runs with
+    /// what the page would hand it: the file, or `.Err` when the file matches
+    /// no `accept` entry, is over `maxBytes`, or is not UTF-8. A disabled
+    /// picker, or one a `dialog` has taken out of reach, runs nothing. Aborts
+    /// when no picker carries that label.
+    export fn pickFile(self, label: Str, name: Str, mimeType: Str, content: [U8]): () {
+        let _ = offerFile(self, name, mimeType, content);
+        deliverFile(self, label)
+    }
+
+    /// Presses the pointer on the element named `label`, at (`x`, `y`).
+    ///
+    /// ```text
+    /// page.pointerDown("Apples", 4.0, 10.0);
+    /// page.pointerMove("Pears", 4.0, 60.0);
+    /// page.pointerUp("Pears", 4.0, 60.0);
+    /// ```
+    ///
+    /// An element's name is its label, or else its text, the way `follow`
+    /// names a link; the innermost element with that name is the one pressed.
+    /// The press bubbles: every element from there out to the root that has an
+    /// `onPointerDown` runs it. The nearest one with any pointer handler
+    /// captures the pointer, so `pointerMove` and `pointerUp` reach it until the
+    /// release, wherever they land. The press also reaches `onPressOutside`.
+    ///
+    /// A headless document has no layout, so every element sits at the
+    /// viewport's origin: a handler's `x` and `viewportX` are both `x`. An
+    /// element under a `Passthrough(true)` or behind an open `dialog` is not
+    /// pressed. Aborts when no element has that name.
+    export fn pointerDown(self, label: Str, x: Float, y: Float): ();
+
+    /// Moves the pointer over the element named `over`, to (`x`, `y`).
+    ///
+    /// While a press is held the move reaches the element that captured it,
+    /// not `over`. Otherwise it reaches `over`. Either way it bubbles, and
+    /// `over` is what each handler's `overRow` is read from.
+    export fn pointerMove(self, over: Str, x: Float, y: Float): ();
+
+    /// Releases the pointer over the element named `over`, at (`x`, `y`), and
+    /// ends the capture. It is routed the way `pointerMove` is.
+    export fn pointerUp(self, over: Str, x: Float, y: Float): ();
+
+    /// Drags the element named `label` onto the element named `to`: a
+    /// `pointerDown` on the one, then a `pointerMove` and a `pointerUp` over the
+    /// other, all at the origin.
+    ///
+    /// ```text
+    /// page.drag("Apples", "Cherries");
+    /// ```
+    export fn drag(self, label: Str, to: Str): () {
+        let _ = self.pointerDown(label, 0.0, 0.0);
+        let _ = self.pointerMove(to, 0.0, 0.0);
+        self.pointerUp(to, 0.0, 0.0)
+    }
+
+    /// Submits the `index`th form, oldest first — what pressing Enter in one of
+    /// its fields does.
+    ///
+    /// Implicit submission is the platform's rule, so this follows it: a form
+    /// is submitted through its `.Submit` button, and a form with none is submitted
+    /// only while exactly one of its fields blocks implicit submission. A form
+    /// of two fields ending in an ordinary `button` is left alone, because that
+    /// is what a browser does with the keypress. A double that submitted it
+    /// anyway would pass a suite whose form nobody can send. A form a `dialog`
+    /// has taken out of reach submits nothing.
+    export fn submit(self, index: Int): ();
+
+    /// How many elements of this kind the tree holds. The name is the one
+    /// `markup` shows.
+    export fn count(self, name: Str): Int;
+
+    /// What the `index`th element of this kind is, as a number the runtime gives
+    /// an element when it creates it and never gives to another.
+    ///
+    /// This is how a test says a keyed list *moved* a row rather than rebuilding
+    /// it: the identity survives a reorder, and a rebuild changes it.
+    export fn identity(self, name: Str, index: Int): Int;
+}
+
+/// `pickFile`'s first half: keep the file on the document for the picker's
+/// handler to read. Two calls rather than one, because five arguments are more
+/// machine words than a runtime call takes (`stencil/abi.rs`'s `MAX_INT_ARGS`).
+fn offerFile(page: Rendered, name: Str, mimeType: Str, content: [U8]): ();
+
+/// `pickFile`'s second half: fire the handler of the picker labelled `label`.
+fn deliverFile(page: Rendered, label: Str): ();
+
+/// The stylesheet the compiler extracted for this artifact.
+///
+/// It holds every static style in the program, as one atomic class per distinct
+/// property value, deduped across the whole build. So a test can assert what a
+/// class *means*, and see that two modules asking for one padding produced one
+/// rule and not two.
+///
+/// Ahead of the classes is the reset: what a browser would paint by itself on
+/// a heading, a button, a link or a field, dropped for the elements this
+/// program builds.
+export fn stylesheet(): Str;
+
+/// Installs `themes` exactly as `mount` does, and answers the `:root` block
+/// they resolve to — the custom properties, and the `color-scheme` a
+/// `theme.scheme` writes.
+///
+/// This is how a test asserts what a token is *worth*: the stylesheet says only
+/// that a class reads `var(--cardlib-surface)`. A chain resolves here once, the
+/// way it resolves at mount.
+///
+/// `themes` resolves in `ui/theme` — ordinary Buri that runs on every backend —
+/// so this flattens them to the document `ui/theme`'s `document` builds and
+/// hands that over to be installed. It installs *reactively*: a `switching`
+/// theme's condition is read through the computation's scope, so writing that
+/// signal re-flattens and installs the other branch, and reading `variables`
+/// again shows it. A **snapshot** needs no installing at all: `snapshot` takes
+/// its themes the way `mount` does.
+export fn install(themes: [Theme]): Str {
+    let ui = headless();
+    let _ = ui.watch(fn(scope) => {
+        let _ = theme.installDoc(theme.documentUnder(scope, themes));
+    });
+    theme.variables()
+}
+
+/// The custom-property block installed right now.
+///
+/// Write a signal a `switching` theme's condition depends on, then read this
+/// again: that is how a test sees a theme switch.
+export fn variables(): Str {
+    theme.variables()
+}
+
+/// Paints `root` under `themes` and compares it against
+/// `test/__snapshots__/<name>.png`.
+///
+/// ```text
+/// snapshot(ctx, "card", card(ctx, "Ada"), .Hover, [cardlib.themed(light)]);
+/// ```
+///
+/// Fails the test when the bytes differ, and writes
+/// `test/__snapshots__/<name>.diff.png` beside the golden. `buri test --update`
+/// writes the golden instead of comparing.
+///
+/// No window and no browser: `describe` resolves the tree to a scene document
+/// and the toolchain's own renderer paints it. `state` is the pseudo-class to
+/// paint in, so a hovered card and a resting one are two snapshots of one
+/// tree.
+///
+/// **The picture is the size of what is in it.** The page is 800 CSS pixels
+/// across — a viewport width, which `At(.Small)` and every percentage resolve
+/// against — and as tall as the paint came to, never less than one line. So a
+/// snapshot of a button is the size of a button, a page taller than a screen
+/// is painted whole, and nothing is cut off: where paint runs past the page
+/// sideways — a dock pinned wider than it, a bleed, a translate off the edge —
+/// the picture is wider too, and the layout still ran against the 800.
+/// `snapshotWide` is the same picture on a page of a stated width.
+///
+/// `themes` is `mount`'s parameter, in the same place in the sentence and
+/// meaning the same thing: one theme per package whose design tokens this tree
+/// uses, and where a chain of tokens resolves into the values the painter
+/// reads. That is how a component is snapshotted light and dark — two calls,
+/// two theme lists, two pictures. A tree with no tokens passes the empty list.
+///
+/// The name is a file name and nothing more. It may not be empty and may not
+/// hold a path separator.
+export fn snapshot<C: Allocator + Ui>(
+    ctx: C,
+    name: Str,
+    root: Node<C>,
+    state: State,
+    themes: [Theme],
+): () {
+    snapshotWide(ctx, name, root, state, themes, 800)
+}
+
+/// `snapshot`, on a page `width` CSS pixels across rather than on the 800-wide
+/// one.
+///
+/// ```text
+/// snapshotWide(ctx, "card-phone", card(ctx, "Ada"), .Hover, [], 390);
+/// ```
+///
+/// A **breakpoint** is the whole of what this is for. `At(.Small)` and its
+/// four siblings resolve against the page, so the only way to see one apply
+/// and not apply is to paint one tree twice — once narrow enough that it does
+/// not and once wide enough that it does.
+///
+/// Only the width is stated. The page still fits what it holds, because a
+/// height a test picks is a height that cuts something off, which is what this
+/// picture is not allowed to do.
+export fn snapshotWide<C: Allocator + Ui>(
+    ctx: C,
+    name: Str,
+    root: Node<C>,
+    state: State,
+    themes: [Theme],
+    width: Int,
+): () {
+    let _ = installThemes(theme.document(themes));
+    paint(name, node.describeWide(ctx, root, state, width), stateName(state))
+}
+
+/// The runner's side: what each token is worth, for the paint that follows.
+///
+/// A call of its own rather than a fifth argument to `paint`, because four
+/// `Str`s is twelve machine words and a runtime call is ten
+/// (`stencil/abi.rs`'s `MAX_INT_ARGS`).
+fn installThemes(document: Str): ();
+
+/// The runner's side: paint the scene, then compare or record.
+fn paint(name: Str, scene: Str, state: Str): ();
+
+/// The state, as the painter spells it.
+fn stateName(state: State): Str {
+    match (state) {
+        .Hover => "hover",
+        .Focus => "focus",
+        .FocusWithin => "focus-within",
+        .Active => "active",
+        .Disabled => "disabled",
+        .Checked => "checked",
+        .Invalid => "invalid",
+    }
+}
+
+/// An ordered log, for asserting on *when* something ran.
+///
+/// A reactive computation gets a `Scope`, so it cannot write a signal to say
+/// that it ran. This is how a test sees the order the runtime scheduled watchers
+/// in, and how many times a memo recomputed. The log lives on the runner's side
+/// and this value names it, the same shape as `platform/effect/testing`'s captured
+/// stdout.
+///
+/// Holds no authority, so a lambda may capture one.
+export struct Recorder(I64);
+
+/// A fresh, empty recorder.
+export fn recorder(): Recorder;
+
+impl Recorder {
+    /// Appends `tag` to the tag log.
+    export fn record(self, tag: Str): ();
+
+    /// Every tag recorded so far, oldest first.
+    export fn recorded(self): [Str];
+
+    /// Appends `value` to the value log, and answers it.
+    ///
+    /// A second channel rather than `record("${value}")`, so that a test
+    /// asserting on numbers asserts on `[Int]` and not on rendered text. It
+    /// answers its argument, so you can wrap it around the expression being
+    /// watched.
+    export fn note(self, value: Int): Int;
+
+    /// Every value noted so far, oldest first.
+    export fn noted(self): [Int];
 }

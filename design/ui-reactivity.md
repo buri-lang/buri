@@ -21,7 +21,7 @@ the capability.
 ## Effects
 
 ```buri
-// ui/effect — a platform module (only platform modules may declare effects)
+// platform/effect — a platform module (only platform modules may declare effects)
 
 /// Reading signals, alone. Separate from `Ui` so a computation can be handed
 /// read authority and provably nothing else.
@@ -661,14 +661,14 @@ repositories land, `ui/...` can migrate out wholesale.
 
 | Module | Kind | Exports |
 |---|---|---|
-| `ui/effect` | platform | `effect Watch`, `effect Ui`, `effect Fetch`, `Scope`, `Event`, `Request`, `FetchError`, `fetch` |
+| `platform/effect` | platform | `effect Watch`, `effect Ui`, `effect Fetch`, `Scope`, `Event`, `Request`, `FetchError`, `fetch` |
 | `web` | platform | `WebHost`, whose `ui`, `watch` and `location` are the implementations `main` binds |
 | `ui/signal` | library | `Signal<T>` (`get`/`set`/`update`), `signal`, `watch` |
 | `ui/prop` | library | `Prop<T>` (`read`), `memo` |
 | `ui/node` | library | `Node<C>`, `Role`, `FieldKind`, `nothing`, `stack`, `region`, `row`, `column`, `spacer`, `text`, `heading`, `button`, `link`, `image`, `field`, `toggle`, `form`, `submit`, `onPressOutside`, `routeLink`, `radioGroup`, `progress`, `disclosure`, `choose`, `computed`, `each`, `icon`, `mount` |
 | `ui/style` | library | `Style`, `Layout`, `Track`, `Screen`, `State`, `Position`, `Length`, `Color`, `Align`, `Axis`, `Edge`, `Weight`, `FontFamily`, `BorderStyle`, `TextCase`, `TextLine`, `TextWrap`, `Cursor`, `Shadow`, `TokenReference`, `token` |
 | `ui/theme` | library | `Theme`, `Scheme`, `themed`, `switching`, `scheme`, `page` |
-| `ui/testing` | test platform | headless `Ui`/`Watch`/`Fetch`, render-to-document, event firing, the extracted stylesheet, installed theme values, and a recorder — test-only automatically via the `testing` path segment |
+| `platform/effect/testing` | test platform | headless `Ui`/`Watch`/`Fetch`, render-to-document, event firing, the extracted stylesheet, installed theme values, and a recorder — test-only automatically via the `testing` path segment |
 
 There is **no `ui` umbrella module**: re-exporting from seven modules buys one
 import and costs a reader the answer to "which module is this name from".
@@ -688,7 +688,7 @@ from "//lib/cardlib" import { Token };
 `main`:
 
 ```buri
-from "ui/effect" import { Ui, Watch };
+from "platform/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "web" import { WebHost };
 // export fn main(host: WebHost) ... context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch }
@@ -698,7 +698,7 @@ A component test:
 
 ```buri
 from "core/testing/assert" import * as assert;
-from "ui/testing" import { headless, observer, render };
+from "platform/effect/testing" import { headless, observer, render };
 ```
 
 Method calls (`count.get(c)`, `prop.read(c)`, `token.color()`) need no import —
@@ -708,7 +708,7 @@ resolution goes through the receiver's defining module.
 
 | Piece | Where | Why |
 |---|---|---|
-| `ui/effect`, `platform/host`'s UI structs, `Scope` | compiler stdlib, platform modules | `effect` is legal only in a platform module, and platform-ness is a flag on the static `MODULES` table |
+| `platform/effect`, `platform/host`'s UI structs, `Scope` | compiler stdlib, platform modules | `effect` is legal only in a platform module, and platform-ness is a flag on the static `MODULES` table |
 | The `Ui`/`Watch`/`Fetch` intrinsics | backend runtime | bodyless methods lower to intrinsic keys; the JS backend resolves them to `$host_*` functions |
 | Style extraction + stylesheet link step | compiler | needs cross-module visibility no library has |
 | `Signal`, `Prop`, `Node`, `Style`, `Role`, all constructors | `ui/*`, ordinary Buri | no compiler support needed; movable to a real library once external repos land |
@@ -722,7 +722,7 @@ this document's first draft, with the reason.
 
 | This document said | What shipped | Why |
 |---|---|---|
-| `ui/effects`, `ui/cap` | `ui/effect` | "cap" is an abbreviation and not the language's word; the module names one thing |
+| `platform/effects`, `ui/cap` | `platform/effect` | "cap" is an abbreviation and not the language's word; the module names one thing |
 | `Ui.effect`, `ui.effect` | `watch`, on both | `effect` is a reserved word, so no function may be called one |
 | `Ui` without `read` | `Ui` reads too | `Signal.update<C: Ui>` reads the old value; without it the design's own signature is unimplementable |
 | `ui.when` | `ui.choose` | `when` is a reserved word, held for a language feature not yet taken |
@@ -768,7 +768,7 @@ this document's first draft, with the reason.
   style concern, and not built.
 - **Grid auto-flow vs. explicit `.Area` placement** — decide when a real
   photo-grid component needs it; `Track` + `Span` cover the common case.
-- **The browser's own half of the tests.** `ui/testing` renders with the
+- **The browser's own half of the tests.** `platform/effect/testing` renders with the
   shipping renderer against a document the runtime supplies, so what goes
   unasserted is exactly what only a browser does: layout and painting, its
   dispatch of a press, focus and selection, and what assistive technology

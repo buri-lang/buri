@@ -6,7 +6,7 @@
 //! cache key: a tag decides whether a build is permitted, never what it
 //! produces.
 
-use crate::build::buildfile::{Output, OutputPlatform, Platform};
+use crate::build::buildfile::{Output, OutputPlatform, PlatformRule};
 use crate::build::cache::{hash_bytes, Action, ActionKey, Cache, KeyBuilder};
 use crate::build::link;
 use crate::build::session::Session;
@@ -51,10 +51,11 @@ pub fn build_target(
 
 /// Every `assets` file of the platform an output names, copied into the
 /// output's directory at its own path. Answers whether every one landed.
+///
+/// A bundled platform's assets are embedded in the toolchain, as its build
+/// file is; a repository platform's are read from its package.
 fn copy_assets(session: &Session, target: TargetId, output: &Output, diagnostics: &mut Diagnostics) -> bool {
-    let Some(custom) = &output.custom else { return true };
-    let Some((pid, rule)) = session.workspace.platform_rule(&custom.label.value) else { return true };
-    let from = &session.workspace.package(pid).dir;
+    let Some(rule) = platform_rule(session, output) else { return true };
     let path = artifact_path(session, target, output);
     let Some(into) = path.parent() else { return true };
     for asset in &rule.assets {
@@ -62,7 +63,18 @@ fn copy_assets(session: &Session, target: TargetId, output: &Output, diagnostics
         if let Some(parent) = destination.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        if let Err(e) = std::fs::copy(from.join(&asset.value), &destination) {
+        let copied = match &output.custom {
+            Some(custom) => match session.workspace.platform_rule(&custom.label.value) {
+                Some((pid, _)) => std::fs::copy(session.workspace.package(pid).dir.join(&asset.value), &destination)
+                    .map(|_| ()),
+                None => Ok(()),
+            },
+            None => match crate::build::platforms::file(output.platform().proto(), &asset.value) {
+                Some(text) => std::fs::write(&destination, text),
+                None => Ok(()),
+            },
+        };
+        if let Err(e) = copied {
             diagnostics.push(
                 Diagnostic::templated("no-such-source", asset.span)
                     .with_bind("source", asset.value.as_str())
@@ -74,6 +86,24 @@ fn copy_assets(session: &Session, target: TargetId, output: &Output, diagnostics
     }
     true
 }
+
+/// The rule of the platform an output names: a bundled one's, embedded in the
+/// toolchain, or a repository platform's.
+pub fn platform_rule<'s>(session: &'s Session, output: &Output) -> Option<&'s PlatformRule> {
+    match &output.custom {
+        Some(custom) => session.workspace.platform_rule(&custom.label.value).map(|(_, rule)| rule),
+        None => crate::build::platforms::bundled(output.platform().proto()),
+    }
+}
+
+/// Whether an output is a page: its platform ships an `index.html` beside
+/// every entry, which `buri run` serves instead of starting the entry.
+pub fn is_page(session: &Session, output: &Output) -> bool {
+    platform_rule(session, output).is_some_and(|rule| rule.assets.iter().any(|a| a.value == PAGE))
+}
+
+/// The document `buri run` serves an output's directory by.
+pub const PAGE: &str = "index.html";
 
 fn build_artifact(
     session: &mut Session,
@@ -121,16 +151,16 @@ fn build_artifact(
             status,
             Action::Link,
             &session.workspace.label(target),
-            platform,
+            &output.platform_label(),
             &key,
         )
     };
-    // A WEB output writes two more files beside its module, and both are in the
-    // cache under keys derived from this one — so a hit either reproduces the
-    // whole page or is not a hit. Reconstructing them from the module's bytes
-    // instead would mean parsing generated JavaScript back into a string, and
-    // a stale `.css` beside a fresh `.mjs` is exactly the failure a cache is
-    // supposed to be incapable of.
+    // An entry that uses styles writes its stylesheet beside its module, and
+    // it is in the cache under a key derived from this one — so a hit either
+    // reproduces both or is not a hit. Reconstructing it from the module's
+    // bytes instead would mean parsing generated JavaScript back into a
+    // string, and a stale `.css` beside a fresh `.mjs` is exactly the failure a
+    // cache is supposed to be incapable of.
     let sheet_key = key.companion("stylesheet");
     // A `core/lazy` chunk is in the cache for the stylesheet's reason and one
     // more: the module *fetches* it by name at run time, so a hit that
@@ -139,18 +169,14 @@ fn build_artifact(
     let chunks_key = key.companion("chunks");
     if !flags.force {
         if let Some(bytes) = cache.get(&key) {
-            let stylesheet = if platform == Platform::Web {
-                cache.get(&sheet_key).and_then(|b| String::from_utf8(b).ok())
-            } else {
-                Some(String::new())
-            };
+            let stylesheet = cache.get(&sheet_key).and_then(|b| decode_stylesheet(&b));
             let chunks = cache.get(&chunks_key).and_then(|b| decode_chunks(&b));
             if let (Some(stylesheet), Some(chunks)) = (stylesheet, chunks) {
                 if let Some(parent) = path.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
                 if std::fs::write(&path, &bytes).is_ok()
-                    && write_companions(&path, output, &stylesheet, &chunks, &mut diagnostics)
+                    && write_companions(&path, &stylesheet, &chunks, &mut diagnostics)
                 {
                     explain_link(crate::build::cache::Status::Cached);
                     link_out_symlink(session, output);
@@ -163,9 +189,7 @@ fn build_artifact(
 
     let compiled = compile_artifact(session, target, output, flags, &mut diagnostics)?;
     cache.put(&key, compiled.module.as_bytes());
-    if platform == Platform::Web {
-        cache.put(&sheet_key, compiled.stylesheet.as_bytes());
-    }
+    cache.put(&sheet_key, &encode_stylesheet(&compiled.stylesheet));
     cache.put(&chunks_key, &encode_chunks(&compiled.chunks));
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -177,7 +201,7 @@ fn build_artifact(
         );
         return Err(diagnostics);
     }
-    if !write_companions(&path, output, &compiled.stylesheet, &compiled.chunks, &mut diagnostics) {
+    if !write_companions(&path, &compiled.stylesheet, &compiled.chunks, &mut diagnostics) {
         return Err(diagnostics);
     }
     link_out_symlink(session, output);
@@ -313,14 +337,12 @@ pub fn compile_artifact(
 ) -> Result<Compiled, Diagnostics> {
     let platform = output.platform();
     let (analysis, mut program) = monomorphized_entry(session, target, output, diagnostics)?;
-    // An entry of a repository platform hands itself to its `js` file, which
-    // is read and checked here and bundled with the program below.
-    let host_file = match &output.custom {
-        Some(custom) => host_file(session, custom, &analysis, output.span, diagnostics)?,
-        None => None,
-    };
-    if let (Some(custom), Some(_)) = (&output.custom, &host_file) {
-        program.hosted.export = Some(custom.point.clone());
+    // An entry with a `js` file hands itself to the file, which is read and
+    // checked here and bundled with the program below.
+    let host_file = host_file(session, output, &analysis, diagnostics)?;
+    if let Some(file) = &host_file {
+        program.hosted.export = Some(output.entry_point().to_string());
+        program.hosted.ui = file.exports.ui;
     }
     // The arch is `None` until a native backend has one to vary on: every
     // `Output` carries it and it is already in every key, but nothing below
@@ -349,21 +371,22 @@ struct HostFile {
     structs: Vec<String>,
 }
 
-/// The production structs a repository platform's entry is handed that its
-/// `js` file implements: the platform's own, each with the methods it
-/// declares without a body.
+/// The production structs a platform's entry is handed that its `js` file
+/// implements: the platform's own, each with the methods it declares without
+/// a body. `module` is the platform's `platform.buri`, as it loads.
 fn needed_structs(
     analysis: &crate::compiler::driver::Analysis,
-    custom: &crate::build::buildfile::CustomPlatform,
+    module: &str,
+    point: &str,
 ) -> Vec<crate::build::hosted::Needed> {
     use crate::compiler::semantics::resolve::Sym;
     use crate::compiler::semantics::types::Ty;
     let tables = &analysis.checked.tables;
-    let Some(platform) = analysis.loaded.find(&format!("//{}/platform.buri", custom.package_path())) else {
+    let Some(platform) = analysis.loaded.find(module) else {
         return Vec::new();
     };
     let Some(Sym::Fn(decl)) =
-        analysis.checked.scopes.get(platform.index()).and_then(|s| s.own.get(&custom.point)).cloned()
+        analysis.checked.scopes.get(platform.index()).and_then(|s| s.own.get(point)).cloned()
     else {
         return Vec::new();
     };
@@ -400,22 +423,35 @@ fn needed_structs(
 /// host holds of the platform's own is exported with every method, at the
 /// right number of parameters. `None` for an entry with no `js` file and no
 /// such struct, which starts itself.
+///
+/// A bundled platform's file is embedded in the toolchain, as its build file
+/// is; a repository platform's is read from its package.
 fn host_file(
     session: &mut Session,
-    custom: &crate::build::buildfile::CustomPlatform,
+    output: &Output,
     analysis: &crate::compiler::driver::Analysis,
-    span: Span,
     diagnostics: &mut Diagnostics,
 ) -> Result<Option<HostFile>, Diagnostics> {
-    if custom.backend != crate::build::buildfile::Backend::Js {
+    if !output.platform().is_javascript() {
         return Ok(None);
     }
-    let needed = needed_structs(analysis, custom);
-    let Some(js) = &custom.js else {
+    let point = output.entry_point();
+    let (module, js) = match &output.custom {
+        Some(custom) => (format!("//{}/platform.buri", custom.package_path()), custom.js.clone()),
+        None => {
+            let name = output.platform().proto();
+            let js = crate::build::platforms::bundled(name)
+                .and_then(|rule| rule.entries.iter().find(|e| e.name.value == point))
+                .and_then(|e| e.js.as_ref().map(|js| js.value.clone()));
+            (name.to_string(), js)
+        }
+    };
+    let needed = needed_structs(analysis, &module, point);
+    let Some(js) = js else {
         if let Some(first) = needed.first() {
             diagnostics.push(
-                Diagnostic::templated("host-file-incomplete", span)
-                    .with_bind("file", custom.point.as_str())
+                Diagnostic::templated("host-file-incomplete", output.span)
+                    .with_bind("file", point)
                     .with_bind("gap", format!("has no `js` file to implement `{}`", first.name))
                     .with_note(
                         "a method `platform.buri` declares without a body is the entry's `js` \
@@ -426,17 +462,26 @@ fn host_file(
         }
         return Ok(None);
     };
-    let Some((pid, _)) = session.workspace.platform_rule(&custom.label.value) else { return Ok(None) };
-    let disk = session.workspace.package(pid).dir.join(js);
-    let rel = session.workspace.rel_of(&disk);
-    let file = match session.map.load(&rel, &disk) {
-        Ok(file) => file,
-        Err(e) => {
-            diagnostics.push(
-                Diagnostic::error(span, format!("cannot read {rel}: {e}"))
-                    .with_fix("check the `js` file the platform's entry names exists"),
-            );
-            return Err(std::mem::take(diagnostics));
+    let file = match &output.custom {
+        Some(custom) => {
+            let Some((pid, _)) = session.workspace.platform_rule(&custom.label.value) else { return Ok(None) };
+            let disk = session.workspace.package(pid).dir.join(&js);
+            let rel = session.workspace.rel_of(&disk);
+            match session.map.load(&rel, &disk) {
+                Ok(file) => file,
+                Err(e) => {
+                    diagnostics.push(
+                        Diagnostic::error(output.span, format!("cannot read {rel}: {e}"))
+                            .with_fix("check the `js` file the platform's entry names exists"),
+                    );
+                    return Err(std::mem::take(diagnostics));
+                }
+            }
+        }
+        None => {
+            let name = output.platform().proto();
+            let Some(text) = crate::build::platforms::file(name, &js) else { return Ok(None) };
+            session.map.embedded(&format!("{name}/{js}"), text)
         }
     };
     let text = session.map.text(file).to_string();
@@ -643,7 +688,6 @@ fn explain_closure(session: &Session, target: TargetId, output: &Output, flags: 
     if !flags.explain {
         return;
     }
-    let platform = output.platform();
     for member in session.workspace.closure(target) {
         if !crate::build::generators::declared(&session.workspace, member).is_empty() {
             crate::build::cache::explain(
@@ -651,7 +695,7 @@ fn explain_closure(session: &Session, target: TargetId, output: &Output, flags: 
                 crate::build::cache::Status::Keyed,
                 Action::Generate,
                 &session.workspace.label(member),
-                platform,
+                &output.platform_label(),
                 &crate::build::generators::rule_key(session, member, output, flags),
             );
         }
@@ -661,7 +705,7 @@ fn explain_closure(session: &Session, target: TargetId, output: &Output, flags: 
             crate::build::cache::Status::Keyed,
             Action::Compile,
             &session.workspace.label(member),
-            platform,
+            &output.platform_label(),
             &key,
         );
     }
@@ -1607,7 +1651,6 @@ fn objects_named(
     tables: &Tables,
     diagnostics: &mut Diagnostics,
 ) -> Result<Objects, Diagnostics> {
-    let platform = output.platform();
     let profile = profile_of(flags);
     let back_target = target_of(output);
     // The same composition `emit` runs, from the same function: this path
@@ -1742,7 +1785,7 @@ fn objects_named(
             if cached { crate::build::cache::Status::Cached } else { crate::build::cache::Status::Run },
             Action::Codegen,
             &format!("{label}:{unit}"),
-            platform,
+            &output.platform_label(),
             key,
         );
         rows.push(link::Row { unit: unit.clone(), key: key.as_str().to_string(), cached });
@@ -1759,7 +1802,6 @@ fn build_native(
     flags: &Flags,
     mut diagnostics: Diagnostics,
 ) -> Result<Artifact, Diagnostics> {
-    let platform = output.platform();
     let path = artifact_path(session, target, output);
     let Some(linker) = linker_for(output, &mut diagnostics) else { return Err(diagnostics) };
 
@@ -1773,7 +1815,7 @@ fn build_native(
     let linker = linker.in_dir(link::dir(&session.root, key.as_str()));
     let label = session.workspace.label(target);
     let explain_link = |status: crate::build::cache::Status| {
-        crate::build::cache::explain(flags.explain, status, Action::Link, &label, platform, &key);
+        crate::build::cache::explain(flags.explain, status, Action::Link, &label, &output.platform_label(), &key);
     };
 
     let cache = Cache::open(&session.root);
@@ -2051,7 +2093,7 @@ fn test_binary_named(
     let key = link_key(output, flags, &linker, &objects.keys, runtime);
     let linker = linker.in_dir(link::dir(&session.root, key.as_str()));
     let explain_link = |status: crate::build::cache::Status| {
-        crate::build::cache::explain(flags.explain, status, Action::Link, label, output.platform(), &key);
+        crate::build::cache::explain(flags.explain, status, Action::Link, label, &output.platform_label(), &key);
     };
     // Claimed after the objects exist and before anything is written, so a run
     // that fails to compile never takes the shared file at all.
@@ -2120,8 +2162,14 @@ pub fn artifact_path(session: &Session, target: TargetId, output: &Output) -> Pa
     // write one path. One entering through `main` keeps the directory's name.
     // A repository platform's entry is named after the platform's entry,
     // whichever function fills it: `fetch.mjs`.
+    // So is a bundled platform's entry with a `js` file of its own, such as
+    // `web`'s `main.mjs`: the files the platform ships beside it name it.
+    let adapted = output.custom.is_none()
+        && crate::build::platforms::bundled(output.platform().proto())
+            .is_some_and(|rule| rule.entries.iter().any(|e| e.js.is_some()));
     let default = match (&output.custom, output.entry_name()) {
         (Some(custom), _) => custom.point.clone(),
+        (None, _) if adapted => output.entry_point().to_string(),
         (None, "main") => dir_name,
         (None, entry) => entry.to_string(),
     };
@@ -2134,37 +2182,6 @@ pub fn artifact_path(session: &Session, target: TargetId, output: &Output) -> Pa
     session.root.join(".buri/out").join(output.dir()).join(&package.path).join(name)
 }
 
-// ---------------------------------------------------------------------------
-// The other two thirds of a page
-// ---------------------------------------------------------------------------
-
-/// What a WEB output writes beside its module: the stylesheet, and the entry
-/// shell that loads both.
-///
-/// **A page is three artifacts, and this is where the other two are decided.**
-/// Both are pure functions of the module's file name and of the stylesheet, so
-/// a cache hit reproduces them byte for byte without recompiling, and
-/// `--check-reproducible` comparing them adds no new source of drift.
-///
-/// The `.mjs` alone is still a complete program — `mount` installs the sheet
-/// itself when the document does not already carry one — so what the shell adds
-/// is the document, and a stylesheet the browser can fetch and cache on its own
-/// rather than one that arrives inside a script. That is why the `<link>`
-/// carries `id="buri-styles"`: the runtime's injection looks for exactly that
-/// id and finds it, so the rules are in the page once, before the first paint,
-/// and the module has nothing to do about them.
-///
-/// **Both names are addresses from the root.** A page routes on the address
-/// bar, so `buri run` answers every path that names no file with this document
-/// — and a browser resolves a relative address against the *request* path
-/// rather than against the site. A shell answered at `/components/button`
-/// naming `./main.mjs` would send the browser to
-/// `/components/button/main.mjs`, which nothing wrote: the module never
-/// arrives, nothing mounts, and the reader is looking at an empty document
-/// with no error in it. `/main.mjs` is the same file from every depth, which
-/// is what a site that routes on the client needs its shell to say.
-///
-/// Returns an empty vector for every platform that is not WEB.
 /// Where chunk `n` of a module sits: `<artifact>.<n>.mjs`, beside it.
 ///
 /// The module derives the same name from `import.meta.url` at run time
@@ -2201,6 +2218,18 @@ fn encode_chunks(chunks: &[String]) -> Vec<u8> {
     out
 }
 
+/// A stylesheet as the cache stores it: a line saying so, then the rules. Most
+/// programs have none, and an empty cache entry is indistinguishable from an
+/// interrupted write.
+fn encode_stylesheet(sheet: &str) -> Vec<u8> {
+    format!("css\n{sheet}").into_bytes()
+}
+
+/// The inverse, `None` for a blob this toolchain did not write.
+fn decode_stylesheet(bytes: &[u8]) -> Option<String> {
+    String::from_utf8(bytes.strip_prefix(b"css\n")?.to_vec()).ok()
+}
+
 /// The inverse. `None` for a blob this toolchain did not write, which a caller
 /// reads as a cache miss rather than as an empty set of chunks.
 fn decode_chunks(bytes: &[u8]) -> Option<Vec<String>> {
@@ -2223,68 +2252,14 @@ fn frame(bytes: &[u8]) -> Option<(&str, &[u8])> {
     Some((head, bytes.get(end.checked_add(1)?..)?))
 }
 
-pub fn web_companions(
-    module: &Path,
-    output: &Output,
-    stylesheet: &str,
-) -> Vec<(PathBuf, String)> {
-    if output.platform() != Platform::Web {
-        return Vec::new();
-    }
-    // `artifact_path` built this name, so it ends in `.mjs` and has a parent.
-    let base = module
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| String::from("main"));
-    let dir = module.parent().unwrap_or(Path::new("."));
-    let mut out = Vec::new();
-    // A program with no static styles writes no stylesheet and links none. An
-    // empty file would be a request a browser makes for nothing.
-    let styled = !stylesheet.is_empty();
-    if styled {
-        out.push((dir.join(format!("{base}.css")), stylesheet.to_string()));
-    }
-    let link = if styled {
-        format!("  <link id=\"buri-styles\" rel=\"stylesheet\" href=\"/{}.css\">\n", escape(&base))
-    } else {
-        String::new()
-    };
-    // A module script is deferred by definition, so it runs after the body is
-    // parsed and `mount` has somewhere to mount. That is the whole reason the
-    // shell needs no load event and no inline code.
-    // The tab is the artifact's name until the page says otherwise, which it
-    // does from code: `ui/web`'s `title` writes the real one at mount and
-    // rewrites it on every navigation, so a name here would be a constant that
-    // one route out of forty happened to agree with.
-    let html = format!(
-        "<!doctype html>\n\
-         <html lang=\"en\">\n\
-         <head>\n\
-         \x20 <meta charset=\"utf-8\">\n\
-         \x20 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
-         \x20 <title>{title}</title>\n\
-         {link}</head>\n\
-         <body>\n\
-         \x20 <script type=\"module\" src=\"/{src}.mjs\"></script>\n\
-         </body>\n\
-         </html>\n",
-        title = escape(&base),
-        link = link,
-        src = escape(&base),
-    );
-    out.push((dir.join(format!("{base}.html")), html));
-    out
-}
-
-/// The five characters that mean something else in markup. The base name comes
-/// from a build file's `artifact_name`, which is a string a person writes, so
-/// it is escaped rather than trusted.
-fn escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
+/// Where an entry's stylesheet sits: `<artifact>.css`, beside its module.
+///
+/// Written only when the entry uses styles: an empty file would be a request a
+/// browser makes for nothing. The module carries the same rules either way,
+/// and `mount` installs them when the document does not already link a sheet
+/// with `id="buri-styles"`.
+pub fn stylesheet_path(module: &Path) -> PathBuf {
+    module.with_extension("css")
 }
 
 /// Writes them, answering whether every one landed. A failure is reported the
@@ -2292,7 +2267,6 @@ fn escape(text: &str) -> String {
 /// is the same mistake about the same directory.
 fn write_companions(
     module: &Path,
-    output: &Output,
     stylesheet: &str,
     chunks: &[String],
     diagnostics: &mut Diagnostics,
@@ -2303,9 +2277,8 @@ fn write_companions(
     while std::fs::remove_file(chunk_path(module, stale)).is_ok() {
         stale = stale.saturating_add(1);
     }
-    let companions = web_companions(module, output, stylesheet)
-        .into_iter()
-        .chain(chunk_paths(module, chunks));
+    let sheet = (!stylesheet.is_empty()).then(|| (stylesheet_path(module), stylesheet.to_string()));
+    let companions = sheet.into_iter().chain(chunk_paths(module, chunks));
     for (path, text) in companions {
         if let Err(e) = std::fs::write(&path, &text) {
             diagnostics.push(
@@ -2532,6 +2505,7 @@ pub fn selected_outputs(session: &Session, target: TargetId, flags: &Flags) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::build::buildfile::Platform;
     use crate::build::buildfile::Arch;
 
     /// `--check-reproducible`'s red path. A build that is genuinely
@@ -2662,66 +2636,6 @@ mod tests {
         drop(taken);
         let _ = std::fs::remove_dir_all(&dir);
     }
-    /// What a WEB output writes beside its module, and what a JS one does not.
-    ///
-    /// The `.html` is the whole of what "loadable in a browser as it stands"
-    /// means mechanically, so the three things that make it true are asserted
-    /// rather than left to a reader of the format string: a module script
-    /// naming the module from the root, a stylesheet link carrying the id the
-    /// runtime's own injection looks for, and a `<body>` for `mount` to find.
-    ///
-    /// Both addresses start at `/` because this document answers every route.
-    /// A relative one resolves against the request path, so the deeper the
-    /// link a reader followed, the further from the module it would point.
-    #[test]
-    fn a_web_output_writes_a_stylesheet_and_a_shell() {
-        let module = PathBuf::from("/out/web/cmd/counter/counter.mjs");
-        let web = Output::for_platform(Platform::Web, Span::NONE);
-        let files = web_companions(&module, &web, ".p-r1{padding:1rem}");
-        let names: Vec<String> =
-            files.iter().map(|(p, _)| p.display().to_string()).collect();
-        assert_eq!(
-            names,
-            vec![
-                "/out/web/cmd/counter/counter.css".to_string(),
-                "/out/web/cmd/counter/counter.html".to_string(),
-            ]
-        );
-        assert_eq!(files[0].1, ".p-r1{padding:1rem}");
-        let html = &files[1].1;
-        assert!(html.contains("<script type=\"module\" src=\"/counter.mjs\">"), "{html}");
-        assert!(
-            html.contains("<link id=\"buri-styles\" rel=\"stylesheet\" href=\"/counter.css\">"),
-            "{html}"
-        );
-        assert!(html.contains("<body>"), "{html}");
-
-        // No static styles: no file, and nothing linked. An empty stylesheet
-        // would be a request a browser makes for nothing.
-        let bare = web_companions(&module, &web, "");
-        assert_eq!(bare.len(), 1);
-        assert!(!bare[0].1.contains("stylesheet"), "{}", bare[0].1);
-
-        // A JS output is one file, as it has always been.
-        let js = Output::js(Span::NONE);
-        assert!(web_companions(&module, &js, ".p-r1{padding:1rem}").is_empty());
-    }
-
-    /// The artifact name reaches the shell's `<title>` and its `src`, and it is
-    /// a string a person writes in a build file, so it is escaped.
-    ///
-    /// It is a placeholder: the page names its own tab with `ui/web`'s `title`
-    /// as soon as it mounts, and that name follows the route.
-    #[test]
-    fn the_shell_escapes_the_artifact_name() {
-        let module = PathBuf::from("/out/web/cmd/x/a<b&c.mjs");
-        let web = Output::for_platform(Platform::Web, Span::NONE);
-        let files = web_companions(&module, &web, "");
-        let html = &files[0].1;
-        assert!(html.contains("<title>a&lt;b&amp;c</title>"), "{html}");
-        assert!(!html.contains("<title>a<b"), "{html}");
-    }
-
     // -- what a native refusal says -----------------------------------------
     //
     // buri-lang/buri#25 and buri-lang/buri#26 were one sentence serving three

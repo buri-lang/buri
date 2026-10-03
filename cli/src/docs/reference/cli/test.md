@@ -54,7 +54,7 @@ the JavaScript runtime, so a `snapshot` call there fails the test saying so.
 
 ## Snapshots
 
-`ui/testing`'s `snapshot` paints a tree and compares the PNG against a golden in
+`platform/effect/testing`'s `snapshot` paints a tree and compares the PNG against a golden in
 the package's `test/__snapshots__/`. A mismatch fails the test like any other
 assertion and writes `<name>.diff.png` beside the golden, showing where the two
 disagree. A repository from `buri init` ignores `*.diff.png`, so a diff is

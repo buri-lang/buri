@@ -273,7 +273,8 @@ fn monorepo_binaries_produce_their_golden_output() {
     eprintln!("golden: //cmd/web matched its transcript");
 }
 
-/// The worked monorepo's page, built as the three files a WEB output is.
+/// The worked monorepo's page, built as the three files a `web` output is:
+/// `main.mjs`, `main.css` and the `index.html` the platform ships.
 ///
 /// `//cmd/basket` is the example repository's application: a keyed list, a
 /// form, both style tiers, a design-token vocabulary in one package themed by
@@ -298,15 +299,15 @@ fn the_monorepo_page_builds_as_a_web_artifact() {
 
     let module = example.artifact_in("web", "cmd/basket");
     let dir = module.parent().unwrap();
-    let sheet = std::fs::read_to_string(dir.join("basket.css")).expect("the stylesheet is written");
-    let shell = std::fs::read_to_string(dir.join("basket.html")).expect("the shell is written");
+    let sheet = std::fs::read_to_string(dir.join("main.css")).expect("the stylesheet is written");
+    let shell = std::fs::read_to_string(dir.join("index.html")).expect("the shell is written");
 
     // The shell is what makes "loadable in a browser" mean something. The link
     // carries the id the runtime's own installer looks for, so the rules are in
     // the page before the first paint and `mount` finds them there and does
     // nothing — no duplication and no flash of unstyled content.
-    assert!(shell.contains(r#"<link id="buri-styles" rel="stylesheet" href="/basket.css">"#));
-    assert!(shell.contains(r#"<script type="module" src="/basket.mjs"></script>"#));
+    assert!(shell.contains(r#"<link id="buri-styles" rel="stylesheet" href="/main.css">"#));
+    assert!(shell.contains(r#"<script type="module" src="/main.mjs"></script>"#));
 
     // Two packages' tokens, each namespaced by the package that owns it, so a
     // library's `surface` and an app's could never collide.
@@ -1069,13 +1070,12 @@ fn a_page_mounts_an_interface_and_then_dials_a_socket() {
     scratch.write(
         "cmd/page/main.buri",
         r#"
-from "platform/effect" import { Allocator, Sockets, Stdout, WebSocketClient };
-from "web" import { WebHost };
 from "core/io" import * as io;
 from "core/net/websocket" import * as websocket;
 from "core/net/websocket" import { Client };
-from "ui/effect" import { Ui };
+from "platform/effect" import { Allocator, Sockets, Stdout, Ui, WebSocketClient };
 from "ui/node" import * as ui;
+from "web" import { WebHost };
 
 export fn main(host: WebHost): Result<(), Str> {
   let ctx = context {
@@ -1171,7 +1171,7 @@ globalThis.WebSocket = class {
   }
 };
 
-await import("./.buri/out/web/cmd/page/page.mjs");
+await import("./.buri/out/web/cmd/page/main.mjs");
 console.log(log.join("\n"));
 "#,
     );
@@ -1652,9 +1652,8 @@ export fn main(host: NodeHost): Result<(), Str> {
 ///    label the *server* wrote changes, which is the whole of what resuming is
 ///    for.
 ///
-/// And the tab, which the shell the compiler wrote does not know: `main.html`
-/// carries the artifact's name, and `web.title` writes the route's name over it
-/// at mount. The `tab` line is `document.title`, so it starts as `Buri` and
+/// And the tab, which the `index.html` `web` ships does not know: `web.title`
+/// writes the route's name at mount. The `tab` line is `document.title`, so it starts as `Buri` and
 /// becomes `About — Buri` when the reader navigates — the same match the
 /// worker hands `shell` in a `Document`.
 ///
@@ -1663,7 +1662,9 @@ export fn main(host: NodeHost): Result<(), Str> {
 /// `web.navigate`: the address bar moves, the history grows by one, only the
 /// region that read the path is rebuilt, and the label the press above wrote is
 /// still there — an in-memory signal surviving a navigation is the whole reason
-/// a page routes instead of following a link. A redirect is the other half:
+/// a page routes instead of following a link. Back is the browser's half: a
+/// `popstate` that `web`'s `HostLocation` turns into a write of the path. A
+/// redirect is the other half:
 /// `web.replace` moves the address bar and leaves the history the length it
 /// was.
 ///
@@ -1724,7 +1725,9 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
              at /about over 2\n\
              tab About — Buri\n\
              navigated 2 elements and 1 runs of text\n\
-             {about}\n"
+             {about}\n\
+             back at /\n\
+             {pressed}\n"
         ),
         "the website lost a half:\n{stderr}"
     );
@@ -2015,8 +2018,7 @@ globalThis.addEventListener = (type, handler) => {
 function browser(sent, at, holds) {
   parse(sent, body);
   globalThis.document = {
-    // What the `.html` a WEB output writes carries: the artifact's name, which
-    // is what the page renames as soon as it knows the route.
+    // A name the page renames as soon as it knows the route.
     title: "main",
     get body() {
       return holds === false ? null : body;
@@ -2096,7 +2098,7 @@ console.log(sent);
 
 browser(sent, at, true);
 
-await import("./.buri/out/web/cmd/site/site.mjs");
+await import("./.buri/out/web/cmd/site/main.mjs");
 
 console.log(`made ${made.elements} elements and ${made.text} runs of text`);
 console.log(`at ${location.pathname} over ${history.length}`);
@@ -2112,9 +2114,18 @@ console.log(showing());
 made.elements = 0;
 made.text = 0;
 press(findAll(body, "BUTTON")[1]);
+// `navigate` waits on `HostLocation.push`, which `main.mjs` implements, so
+// the route moves once the handler's promise settles, a task later at most.
+await new Promise((settle) => setTimeout(settle, 0));
 console.log(`at ${location.pathname} over ${history.length}`);
 console.log(`tab ${document.title}`);
 console.log(`navigated ${made.elements} elements and ${made.text} runs of text`);
+console.log(showing());
+
+// Back. The browser moves the address bar and fires `popstate`, and the
+// routed region follows the address `HostLocation` reads.
+navigate("/");
+console.log(`back at ${location.pathname}`);
 console.log(showing());
 "##;
 
@@ -2357,21 +2368,20 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
 /// One `main.buri`, two entries, and one `page` both of them call — which is
 /// what makes the markup match, and is the shape the guide teaches.
 const RESUME_EDGES_PAGE: &str = r#"
-from "platform/effect" import { Allocator, Request, Response, Stdout };
-from "//platform/cloudflare_worker" import { CloudflareHost };
-from "web" import { WebHost };
 from "core/io" import * as io;
 from "core/json" import * as json;
 from "core/json" import { FromJson, ToJson };
 from "core/lazy" import * as lazy;
 from "core/net/http" import * as http;
 from "core/str" import * as str;
-from "ui/effect" import { Location, Ui, Watch };
+from "platform/effect" import { Allocator, Location, Request, Response, Stdout, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
 from "ui/signal" import { signal };
 from "ui/web" import * as web;
+from "web" import { WebHost };
+from "//platform/cloudflare_worker" import { CloudflareHost };
 
 derive Equal, FromJson, ToJson for Row;
 /// One row of the list, keyed by `key`.
@@ -2607,7 +2617,7 @@ if (how === "right-address") {
 }
 
 const title = findFirst(body, "H1");
-await import("./.buri/out/web/cmd/edges/edges.mjs");
+await import("./.buri/out/web/cmd/edges/main.mjs");
 
 console.log(`made ${made.elements} elements and ${made.text} runs of text`);
 console.log(`showing ${showing()}`);
@@ -2667,19 +2677,18 @@ fn a_page_spawns_from_a_handler_after_main_returned() {
         "cmd/page/main.buri",
         r#"
 from "core/bytes" import * as bytes;
-from "platform/effect" import { Allocator, Clock, Request, Response, Stdout, Tasks };
-from "//platform/cloudflare_worker" import { CloudflareHost };
-from "web" import { WebHost };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/tasks" import * as tasks;
 from "core/tasks" import { Scope };
 from "core/time" import * as time;
-from "ui/effect" import { Ui, Watch };
+from "platform/effect" import { Allocator, Clock, Request, Response, Stdout, Tasks, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import * as signal;
 from "ui/signal" import { Signal };
+from "web" import { WebHost };
+from "//platform/cloudflare_worker" import { CloudflareHost };
 
 /// The page: a button that opens a socket later, and the line the socket
 /// writes when it does.
@@ -2831,7 +2840,7 @@ const answer = await worker.default.fetch(new Request("https://example.com/"));
 console.log(`${answer.status} ${await answer.text()}`);
 
 // Then the page, on top of the document above. `main` mounts and returns.
-await import("./.buri/out/web/cmd/page/page.mjs");
+await import("./.buri/out/web/cmd/page/main.mjs");
 console.log(`before the click: ${text_(document.body)}`);
 
 // The click. Nothing waits for the handler — a listener answers at once and
@@ -2890,15 +2899,14 @@ fn a_second_press_waits_for_the_actor_step_the_first_is_running() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
-from "platform/effect" import { Allocator, Clock, Stdout, Tasks };
-from "web" import { WebHost };
 from "core/str" import * as str;
 from "core/time" import * as time;
-from "ui/effect" import { Ui, Watch };
+from "platform/effect" import { Allocator, Clock, Stdout, Tasks, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import * as signal;
 from "ui/signal" import { Signal };
+from "web" import { WebHost };
 
 enum Tick {
     Tick,
@@ -3031,7 +3039,7 @@ globalThis.document = {
   getElementById: () => null,
 };
 
-await import("./.buri/out/web/cmd/page/page.mjs");
+await import("./.buri/out/web/cmd/page/main.mjs");
 
 // Two presses, one straight after the other: the second arrives while the
 // first press's step is asleep holding the state.

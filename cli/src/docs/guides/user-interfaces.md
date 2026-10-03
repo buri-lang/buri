@@ -4,13 +4,14 @@ The `ui/*` modules are the reactivity vocabulary. They are part of
 [the standard library](../reference/standard-library.md), ship with the
 toolchain, and are never listed in a `dependencies`.
 
-`ui/effect` declares `Watch` and `Ui`, and the `Scope` a reactive closure is
-handed — which reads the graph and allocates. Requests are not among them: a page
-asks for `platform/effect`'s `Network` like every other platform. `ui/signal` is `Signal<T>` —
+`platform/effect` declares `Watch` and `Ui`, and the `Scope` a reactive closure is
+handed — which reads the graph and allocates. They are the reactive engine, not
+a browser's API, so the backend implements them and any platform may offer them;
+`web` does, as `host.ui` and `host.watch`. `ui/signal` is `Signal<T>` —
 `get`, `set`, `update` — plus `signal` and `watch`. `ui/prop` is `Prop<T>` and
-`memo`. `ui/testing` is a headless platform, a renderer for looking at what a
-tree became, and `snapshot`, which paints one and holds it to a golden PNG. Only
-a test source may import it.
+`memo`. `platform/effect/testing` holds the headless doubles, `headless()` and
+`observer()`, a renderer for looking at what a tree became, and `snapshot`,
+which paints one and holds it to a golden PNG. Only a test source may import it.
 
 The whole of it rests on one idea: **a signal handle is inert data, and the
 authority to read or write it travels through `ctx`**, the same split `Allocator`
@@ -18,7 +19,7 @@ and `Region` use. So an event handler may capture a `Signal<T>`, and takes its
 context as a parameter rather than closing over one.
 
 ```buri
-from "ui/effect" import { Ui };
+from "platform/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { Signal };
@@ -168,7 +169,7 @@ carries no handler of its own — the form's `onSubmit` is its handler — and a
 ordinary `button` beside it stays the Cancel it was written as.
 
 ```buri
-from "ui/effect" import { Ui };
+from "platform/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { Signal };
@@ -646,7 +647,7 @@ way in or out.
 file as text, and the file never leaves the page.
 
 ```buri
-from "ui/effect" import { Ui };
+from "platform/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { Signal };
@@ -689,13 +690,11 @@ browser would report and the bytes:
 ```buri role=test
 from "core/bytes" import * as bytes;
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
-from "ui/effect" import { Ui, Watch };
+from "platform/effect" import { Allocator, Ui, Watch };
+from "platform/effect/testing" import { alloc, headless, observer, render };
 from "ui/node" import * as ui;
 from "ui/node" import { PickedFile };
 from "ui/signal" import { Signal, signal };
-from "ui/testing" import { headless, observer, render };
 
 test "a CSV is imported" {
     let ctx = context {
@@ -742,7 +741,7 @@ has to stay inside. A `<dialog>` opened with `showModal()` has all three, and
 the `::backdrop` and Escape with them.
 
 ```buri
-from "ui/effect" import { Ui };
+from "platform/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { Signal };
@@ -789,7 +788,7 @@ so set it on the panel — or on a `stack` around it — and write the overlay s
 there:
 
 ```buri
-from "ui/effect" import { Ui };
+from "platform/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { Signal };
@@ -819,13 +818,11 @@ row up and drops it onto another, which takes its place:
 
 ```buri role=test
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
-from "ui/effect" import { Ui, Watch };
+from "platform/effect" import { Allocator, Ui, Watch };
+from "platform/effect/testing" import { alloc, headless, observer, render };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { Signal, signal };
-from "ui/testing" import { headless, observer, render };
 
 fn fruits<C: Allocator + Ui + Watch>(items: Signal<[Str]>, held: Signal<Str>): Node<C> {
     ui.stack({
@@ -905,7 +902,7 @@ the way `field`'s `kind` picks an input's shape. It is a widget rather than a
 group's.
 
 ```buri
-from "ui/effect" import { Ui };
+from "platform/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { Signal };
@@ -986,8 +983,7 @@ tokens declares its own closed vocabulary as an ordinary enum, with a
 constructor answering a colour:
 
 ```buri
-from "platform/effect" import { Allocator };
-from "ui/effect" import { Scope, Ui, Watch };
+from "platform/effect" import { Allocator, Scope, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/style" import * as style;
 from "ui/style" import { Color };
@@ -1128,17 +1124,15 @@ a class reads one, so switching the values switches the page.
 
 ## Snapshots
 
-`ui/testing`'s `snapshot` paints a tree and compares the PNG, byte for byte,
+`platform/effect/testing`'s `snapshot` paints a tree and compares the PNG, byte for byte,
 against a golden checked in beside the suite:
 
 ```buri role=test
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
-from "ui/effect" import { Ui };
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
-from "ui/testing" import { headless, snapshot };
 
 fn card<C>(name: Prop<Str>): Node<C> {
     ui.stack({ styles: [.Padding(.Px(8))], children: [ui.text({ content: name })] })
@@ -1188,7 +1182,7 @@ the snapshot "card" was not painted: snapshots run natively, and this suite is J
 
 The graph runs there too: `signal`, `memo`, `watch` and the `Recorder` are all
 native, so a suite that reads and writes signals needs no `backends: [JS]`
-either. `ui/testing`'s `render` is the part that still does — it wants a
+either. `platform/effect/testing`'s `render` is the part that still does — it wants a
 document, and only a browser has one.
 
 The rest is short:

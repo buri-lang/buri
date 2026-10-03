@@ -383,7 +383,7 @@ enum Mark {
 static GRAPH: Mutex<Graph> = Mutex::new(Graph::new());
 
 /// The custom-property block installed right now, without the `<style>` element
-/// around it. Off a browser this is all there is, which is what `ui/testing`
+/// around it. Off a browser this is all there is, which is what `platform/effect/testing`
 /// reads.
 static THEME: Mutex<String> = Mutex::new(String::new());
 
@@ -745,7 +745,7 @@ pub unsafe extern "C" fn buri_rt_ui_watch(
 ///
 /// `scope` names the computation the body belongs to and is not what the edge
 /// is drawn from: the graph's own tracking pointer is, exactly as
-/// `$ui_effect_Scope_read` forwards to `$ui_read`. That is what makes a read
+/// `$effect_Scope_read` forwards to `$ui_read`. That is what makes a read
 /// inside a keyed list's row the list's dependency and not the row's.
 ///
 /// # Safety
@@ -1359,7 +1359,7 @@ pub(crate) fn render(doc: &str) -> String {
 ///
 /// The header of this file is the document's format. A switching theme is the
 /// caller's business: it registers the watcher and installs again, which is why
-/// nothing here holds a closure. `ui/testing`'s `install` is that caller, and
+/// nothing here holds a closure. `platform/effect/testing`'s `install` is that caller, and
 /// its `variables` reads back what the last install left in [`theme_lock`].
 ///
 /// # Safety
@@ -1411,9 +1411,9 @@ pub unsafe extern "C" fn buri_rt_ui_theme_variables(out: *mut BuriStr) {
 //
 // The entries above are the graph's own vocabulary. These are the six symbols
 // the two runtime tables have rows for, named by §1's rule from the intrinsic
-// key rather than from what the operation is called here: `ui_testing.headless`
-// is `buri_rt_ui_testing_headless`, and `ui_effect.Scope.read` is
-// `buri_rt_ui_effect_scope_read`. Each table asserts that spelling
+// key rather than from what the operation is called here: `host_testing.headless`
+// is `buri_rt_host_testing_headless`, and `effect.Scope.read` is
+// `buri_rt_effect_scope_read`. Each table asserts that spelling
 // (`runtime_table.rs`'s `every_symbol_obeys_the_naming_rule`), so the two
 // layers are one rename apart rather than one convention apart.
 //
@@ -1482,7 +1482,7 @@ unsafe fn equal_values(
     out[0] != 0
 }
 
-/// `ui/testing`'s `headless()` — the handle a `Headless` carries.
+/// `platform/effect/testing`'s `headless()` — the handle a `Headless` carries.
 ///
 /// The graph is the state, so the number is unused and every call answers the
 /// same one. The entry exists because `Headless` is a struct, and a struct
@@ -1491,7 +1491,7 @@ unsafe fn equal_values(
 /// # Safety
 /// `out` is writable and aligned for eight bytes.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_headless(out: *mut i64) {
+pub unsafe extern "C" fn buri_rt_host_testing_headless(out: *mut i64) {
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(0) };
 }
@@ -1502,7 +1502,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_headless(out: *mut i64) {
 /// records no dependency and a snapshot subscribes to nothing.
 ///
 /// # Safety
-/// As [`buri_rt_ui_testing_headless`].
+/// As [`buri_rt_host_testing_headless`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_ui_node_root_scope(out: *mut i64) {
     // SAFETY: the caller promises a writable, aligned destination.
@@ -1515,7 +1515,7 @@ pub unsafe extern "C" fn buri_rt_ui_node_root_scope(out: *mut i64) {
 /// `initial` points at `stride` readable bytes, and `glue` is the retain glue
 /// for that type or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_headless_signal(
+pub unsafe extern "C" fn buri_rt_host_testing_headless_signal(
     _self: i64,
     initial: *const u8,
     stride: usize,
@@ -1545,7 +1545,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_headless_signal(
 /// `out` is writable for `stride` bytes, and `glue` is the retain glue for that
 /// type or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_headless_read(
+pub unsafe extern "C" fn buri_rt_host_testing_headless_read(
     _self: i64,
     id: i64,
     stride: usize,
@@ -1582,9 +1582,9 @@ pub unsafe extern "C" fn buri_rt_ui_testing_headless_read(
 /// reference and the caller's argument is released as it always was.
 ///
 /// # Safety
-/// As [`buri_rt_ui_testing_headless_signal`].
+/// As [`buri_rt_host_testing_headless_signal`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_headless_write(
+pub unsafe extern "C" fn buri_rt_host_testing_headless_write(
     _self: i64,
     id: i64,
     value: *const u8,
@@ -1684,30 +1684,30 @@ extern "C" fn give_back() {
     }
 }
 
-/// `ui/testing`'s `observer()` — the handle an `Observer` carries.
+/// `platform/effect/testing`'s `observer()` — the handle an `Observer` carries.
 ///
-/// [`buri_rt_ui_testing_headless`]'s twin, and the same number: both are
+/// [`buri_rt_host_testing_headless`]'s twin, and the same number: both are
 /// windows onto the one graph the runtime holds, so there is nothing per
 /// handle to name.
 ///
 /// # Safety
-/// As [`buri_rt_ui_testing_headless`].
+/// As [`buri_rt_host_testing_headless`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_observer(out: *mut i64) {
+pub unsafe extern "C" fn buri_rt_host_testing_observer(out: *mut i64) {
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(0) };
 }
 
 /// `Observer.read(id)` — a read from outside every computation.
 ///
-/// The same read [`buri_rt_ui_testing_headless_read`] does, and it subscribes
+/// The same read [`buri_rt_host_testing_headless_read`] does, and it subscribes
 /// nothing for the same reason it subscribes nothing there: the graph draws an
 /// edge from whatever is *running*, and nothing is.
 ///
 /// # Safety
-/// As [`buri_rt_ui_testing_headless_read`].
+/// As [`buri_rt_host_testing_headless_read`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_observer_read(
+pub unsafe extern "C" fn buri_rt_host_testing_observer_read(
     _self: i64,
     id: i64,
     stride: usize,
@@ -1729,7 +1729,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_observer_read(
 /// is an offset inside that record or negative, and `release` is the release
 /// glue for what the body answers or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_headless_memo(
+pub unsafe extern "C" fn buri_rt_host_testing_headless_memo(
     _self: i64,
     entry: ComputeEntry,
     state: *const u8,
@@ -1750,9 +1750,9 @@ pub unsafe extern "C" fn buri_rt_ui_testing_headless_memo(
 /// One shape for both keys, because `Extra::Compute` is one emission rule.
 ///
 /// # Safety
-/// As [`buri_rt_ui_testing_headless_memo`].
+/// As [`buri_rt_host_testing_headless_memo`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_headless_watch(
+pub unsafe extern "C" fn buri_rt_host_testing_headless_watch(
     _self: i64,
     entry: ComputeEntry,
     state: *const u8,
@@ -1775,7 +1775,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_headless_watch(
 /// One table rather than one allocation per handle, for the reason the graph
 /// is one table: a `Recorder` is an index nothing else can produce, so a test
 /// can only reach the one it made, and `recorder()` answering a fresh index is
-/// the whole of the isolation `ui/testing`'s header promises.
+/// the whole of the isolation `platform/effect/testing`'s header promises.
 static RECORDERS: Mutex<Vec<(Vec<String>, Vec<i64>)>> = Mutex::new(Vec::new());
 
 fn recorders() -> std::sync::MutexGuard<'static, Vec<(Vec<String>, Vec<i64>)>> {
@@ -1804,7 +1804,7 @@ fn list_of_ints(items: &[i64]) -> BuriList {
 /// # Safety
 /// `out` is writable and aligned for eight bytes.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_recorder(out: *mut i64) {
+pub unsafe extern "C" fn buri_rt_host_testing_recorder(out: *mut i64) {
     let mut all = recorders();
     all.push((Vec::new(), Vec::new()));
     let id = (all.len() as i64) - 1;
@@ -1817,7 +1817,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_recorder(out: *mut i64) {
 /// # Safety
 /// `ptr` and `len` are a readable UTF-8 range.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_recorder_record(
+pub unsafe extern "C" fn buri_rt_host_testing_recorder_record(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -1844,7 +1844,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_recorder_record(
 /// # Safety
 /// `out` is writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_recorder_recorded(handle: i64, out: *mut BuriList) {
+pub unsafe extern "C" fn buri_rt_host_testing_recorder_recorded(handle: i64, out: *mut BuriList) {
     let tags = {
         let all = recorders();
         usize::try_from(handle).ok().and_then(|i| all.get(i)).map(|e| e.0.clone())
@@ -1855,7 +1855,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_recorder_recorded(handle: i64, out: 
 
 /// `Recorder.note(value)` — appended, and answered.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_ui_testing_recorder_note(handle: i64, value: i64) -> i64 {
+pub extern "C" fn buri_rt_host_testing_recorder_note(handle: i64, value: i64) -> i64 {
     let mut all = recorders();
     if let Some(entry) = usize::try_from(handle).ok().and_then(|i| all.get_mut(i)) {
         entry.1.push(value);
@@ -1866,9 +1866,9 @@ pub extern "C" fn buri_rt_ui_testing_recorder_note(handle: i64, value: i64) -> i
 /// `Recorder.noted()`.
 ///
 /// # Safety
-/// As [`buri_rt_ui_testing_recorder_recorded`].
+/// As [`buri_rt_host_testing_recorder_recorded`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_recorder_noted(handle: i64, out: *mut BuriList) {
+pub unsafe extern "C" fn buri_rt_host_testing_recorder_noted(handle: i64, out: *mut BuriList) {
     let values = {
         let all = recorders();
         usize::try_from(handle).ok().and_then(|i| all.get(i)).map(|e| e.1.clone())
@@ -1880,9 +1880,9 @@ pub unsafe extern "C" fn buri_rt_ui_testing_recorder_noted(handle: i64, out: *mu
 /// `Scope.read(id)`, at the key the tables name.
 ///
 /// # Safety
-/// As [`buri_rt_ui_testing_headless_read`].
+/// As [`buri_rt_host_testing_headless_read`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_effect_scope_read(
+pub unsafe extern "C" fn buri_rt_effect_scope_read(
     _scope: i64,
     id: i64,
     stride: usize,

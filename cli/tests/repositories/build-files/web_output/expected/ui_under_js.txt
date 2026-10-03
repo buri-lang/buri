@@ -1,7 +1,7 @@
 error: `main` takes `WebHost`, and the node platform hands its entry a `NodeHost` [entry-host-mismatch]
-  --> cmd/counter/main.buri:34:16
+  --> cmd/counter/main.buri:33:16
    |
-34 | export fn main(host: WebHost): Result<(), Str> {
+33 | export fn main(host: WebHost): Result<(), Str> {
    |                ^^^^^^^^^^^^^
    |
    = fix: take `NodeHost`, imported with `from "node" import { NodeHost };` — or build this function for web, and give this output an entry of its own

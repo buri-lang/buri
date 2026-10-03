@@ -1,10 +1,8 @@
 // A run of text in a box it does not fill: where it breaks, where it sits, how
 // far apart the lines are, and how many of them a reader gets.
 
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
-from "ui/effect" import { Ui };
-from "ui/testing" import { headless, snapshot };
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
 from "//lib/scenes" import { lineHeight, textAlign, textWrap, truncate, wrapping };
 
 test "how narrow a run of text can be made" {

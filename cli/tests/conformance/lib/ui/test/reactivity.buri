@@ -22,12 +22,12 @@
 from "core/alloc" import * as alloc;
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc as testAlloc };
-from "ui/effect" import { Scope, Ui, Watch };
+from "platform/effect" import { Allocator, Scope, Ui, Watch };
+from "platform/effect/testing" import {
+    alloc as testAlloc, headless, observer, Recorder, recorder,
+};
 from "ui/prop" import { memo, Prop };
 from "ui/signal" import { Signal, signal, watch };
-from "ui/testing" import { headless, observer, Recorder, recorder };
 
 derive Equal for Person;
 /// A record in a cell, for the equality cutoff below: a `Str` beside a scalar,

@@ -1092,12 +1092,11 @@ fn a_memo_and_a_watcher_run_under_the_native_backend() {
     }
     let source = r#"
 from "core/alloc" import * as alloc;
-from "platform/effect" import { Allocator };
 from "core/testing/assert" import * as assert;
-from "ui/effect" import { Scope, Ui, Watch };
+from "platform/effect" import { Allocator, Scope, Ui, Watch };
+from "platform/effect/testing" import { headless, observer, recorder };
 from "ui/prop" import { memo, Prop };
 from "ui/signal" import { signal, watch };
-from "ui/testing" import { headless, observer, recorder };
 
 test "a memo is lazy, caches, and recomputes when its source changes" {
     let ctx = context {
@@ -1169,12 +1168,11 @@ fn a_one_byte_signal_read_inside_a_memo_answers_what_was_written() {
     }
     let source = r#"
 from "core/alloc" import * as alloc;
-from "platform/effect" import { Allocator };
 from "core/testing/assert" import * as assert;
-from "ui/effect" import { Scope, Ui, Watch };
+from "platform/effect" import { Allocator, Scope, Ui, Watch };
+from "platform/effect/testing" import { headless, observer, Recorder, recorder };
 from "ui/prop" import { memo, Prop };
 from "ui/signal" import { signal, watch };
-from "ui/testing" import { headless, observer, Recorder, recorder };
 
 fn ignore(value: Int): () {
     let _ = value;
@@ -1246,7 +1244,7 @@ test "a Bool signal read inside a memo" {
 /// tell the two apart, because a signal that is still alive at exit is
 /// *supposed* to hold one value.
 ///
-/// A `test` block rather than a `main`, because `ui/testing` is test-only
+/// A `test` block rather than a `main`, because `platform/effect/testing` is test-only
 /// (SPEC rule 35), and the probe is linked beside the test binary the same way
 /// it is linked beside a program.
 #[test]
@@ -1264,12 +1262,11 @@ fn writing_a_reactive_cell_leaks_nothing() {
         format!(
             r#"
 from "core/alloc" import * as alloc;
-from "platform/effect" import {{ Allocator }};
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
-from "ui/effect" import {{ Ui, Watch }};
+from "platform/effect" import {{ Allocator, Ui, Watch }};
+from "platform/effect/testing" import {{ headless, observer }};
 from "ui/signal" import {{ signal }};
-from "ui/testing" import {{ headless, observer }};
 
 test "a cell written many times" {{
     let ctx = context {{
@@ -1929,7 +1926,7 @@ enum Compiled {
     /// This backend refused it, with the reason.
     Refused(String),
     /// The objects it emitted, and the stylesheet the compiler extracted — the
-    /// string `ui/testing`'s `stylesheet()` reads, written beside the binary.
+    /// string `platform/effect/testing`'s `stylesheet()` reads, written beside the binary.
     Units(Vec<Emitted>, String),
 }
 

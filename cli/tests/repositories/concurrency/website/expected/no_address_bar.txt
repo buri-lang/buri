@@ -1,7 +1,7 @@
 error: `CloudflareHost` has no field `location` [no-such-field]
-   --> cmd/site/main.buri:159:24
+   --> cmd/site/main.buri:160:24
     |
-159 |         Location: host.location,
+160 |         Location: host.location,
     |                        ^^^^^^^^
     |
     = fix: check the spelling, or name a field the type declares

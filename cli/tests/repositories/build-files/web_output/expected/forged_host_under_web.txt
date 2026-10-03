@@ -1,7 +1,7 @@
 error: this is not a struct or an enum variant [not-a-struct-literal-head]
-  --> cmd/counter/main.buri:39:25
+  --> cmd/counter/main.buri:38:25
    |
-39 |         FileSystemRead: host.HostFileSystem {},
+38 |         FileSystemRead: host.HostFileSystem {},
    |                         ^^^^^^^^^^^^^^^^^^^
    |
    = fix: name a struct, or an enum variant that has fields

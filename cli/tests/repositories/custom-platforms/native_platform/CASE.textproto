@@ -74,17 +74,17 @@ edit {
   with: ""
 }
 
-# The native backend has no `Location`: only a page does.
+# The native backend has no production `Ui`: its graph serves a test alone.
 edit {
   file: "platform/lambda/platform.buri"
   replace: "from \"platform/host\" import { HostAllocator, HostStdout };"
-  with: "from \"platform/host\" import { HostAllocator, HostLocation, HostStdout };"
+  with: "from \"platform/host\" import { HostAllocator, HostUi, HostStdout };"
 }
 
 edit {
   file: "platform/lambda/platform.buri"
   replace: "    export stdout: HostStdout,\n}"
-  with: "    export stdout: HostStdout,\n    export location: HostLocation,\n}"
+  with: "    export stdout: HostStdout,\n    export ui: HostUi,\n}"
 }
 
 run {
@@ -95,13 +95,13 @@ run {
 
 edit {
   file: "platform/lambda/platform.buri"
-  replace: "    export location: HostLocation,\n}"
+  replace: "    export ui: HostUi,\n}"
   with: "    export dice: HostDice,\n}\n\nstruct HostDice {}\nimpl Random for HostDice {\n    fn nextInt(self, low: Int, high: Int): Int;\n    fn nextFloat(self): Float;\n}"
 }
 
 edit {
   file: "platform/lambda/platform.buri"
-  replace: "from \"platform/host\" import { HostAllocator, HostLocation, HostStdout };"
+  replace: "from \"platform/host\" import { HostAllocator, HostUi, HostStdout };"
   with: "from \"platform/host\" import { HostAllocator, HostStdout };\nfrom \"platform/effect\" import { Random };"
 }
 

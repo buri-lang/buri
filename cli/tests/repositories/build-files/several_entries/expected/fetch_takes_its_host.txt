@@ -1,8 +1,8 @@
-.buri/out/web/cmd/site/site.mjs (N bytes)
+.buri/out/web/cmd/site/main.mjs (N bytes)
 error: `fetch` takes `Request`, and the //platform/cloudflare_worker platform hands its entry a `CloudflareHost` [entry-host-mismatch]
-  --> cmd/site/main.buri:31:17
+  --> cmd/site/main.buri:30:17
    |
-31 | export fn fetch(request: Request): Response {
+30 | export fn fetch(request: Request): Response {
    |                 ^^^^^^^^^^^^^^^^
    |
    = fix: take `CloudflareHost`, imported with `from "//platform/cloudflare_worker" import { CloudflareHost };`

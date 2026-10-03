@@ -836,9 +836,9 @@ const PACKAGES: &[Case] = &[
     ),
     excluded(
         "ui_mount/effect.buri",
-        "`ui/effect`'s scheduler (#125): `after` runs a closure once a duration \
+        "`platform/effect`'s scheduler (#125): `after` runs a closure once a duration \
              has passed, and a page's timers run on a real clock. The headless \
-             double queues them against a virtual one that `ui/testing`'s \
+             double queues them against a virtual one that `platform/effect/testing`'s \
              `elapse` drives, which this side has; the native runtime carries no \
              such scheduler, so this stays `backends: [JS]` beside its sibling",
     ),
@@ -846,9 +846,9 @@ const PACKAGES: &[Case] = &[
         "web/document.buri",
         "`ui/web`'s `render` and `shell`, which are the same document one \
              level along: a tree rendered to HTML for a worker to send. A \
-             website is built for WEB and CLOUDFLARE_WORKER, both of them \
-             JavaScript, so there is no native artifact for this to be the \
-             answer of",
+             website is built for `web` and a worker platform, both of them on \
+             the `JS` backend, so there is no native artifact for this to be \
+             the answer of",
     ),
     // The router beside it, and *in* the set: `navigate` and `replace` are
     // ordinary Buri over the graph — a write to the cell `route` wraps, with

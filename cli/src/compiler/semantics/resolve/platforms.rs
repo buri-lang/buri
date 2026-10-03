@@ -38,11 +38,12 @@ pub fn is_effect_package_module(
 }
 
 /// The production structs a backend has no implementation of, as a host type
-/// names them from `platform/host`.
+/// names them from `platform/host`. `NATIVE` runs the reactive graph for a
+/// test implementation alone, so a native host has no `HostUi` or `HostWatch`.
 fn lacking(backend: Backend) -> &'static [&'static str] {
     match backend {
         Backend::Js => &["HostListen", "HostTcp"],
-        Backend::Native => &["HostLocation"],
+        Backend::Native => &["HostUi", "HostWatch"],
     }
 }
 

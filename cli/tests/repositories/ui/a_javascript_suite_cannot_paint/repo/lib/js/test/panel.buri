@@ -3,12 +3,10 @@
 // is drawn.
 
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
-from "ui/effect" import { Ui, Watch };
+from "platform/effect" import { Allocator, Ui, Watch };
+from "platform/effect/testing" import { alloc, headless, observer, snapshot };
 from "ui/node" import * as ui;
 from "ui/signal" import { signal };
-from "ui/testing" import { headless, observer, snapshot };
 
 test "a signal reads back what was written, whichever backend runs it" {
     let ctx = context {

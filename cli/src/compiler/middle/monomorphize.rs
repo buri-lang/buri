@@ -278,8 +278,8 @@ pub struct Program {
 #[derive(Clone, Debug, Default)]
 pub struct Hosted {
     /// The intrinsic keys a platform's `js` file implements: every method a
-    /// repository's `platform.buri` declares without a body, such as
-    /// `//platform/cloudflare_worker.HostKv.get`.
+    /// platform's `platform.buri` declares without a body, such as
+    /// `//platform/cloudflare_worker.HostKv.get` or `web.HostLocation.path`.
     ///
     /// A call to one may suspend on JavaScript, so `middle::rc` seeds its
     /// parking column with them as it does with the host's blocking keys.
@@ -291,6 +291,9 @@ pub struct Hosted {
     /// The name the artifact hands its entry to the `js` file under, in place
     /// of starting itself. Set by the build for an entry with a `js` file.
     pub export: Option<String>,
+    /// Whether that file imports `buri:ui`, so the artifact hands it the
+    /// reactive graph too.
+    pub ui: bool,
 }
 
 /// One lazily loaded chunk: the function `core/lazy`'s `load` was handed, and
@@ -369,7 +372,7 @@ pub struct Effects {
 pub struct ConEffects {
     /// The constructor implements an effect, so a value of it *is* a
     /// capability — `Tables::con_carries_effect`. `core/host`'s `HostFileSystem` is
-    /// one; `ui/effect`'s `Scope` is the one the standard library passes
+    /// one; `platform/effect`'s `Scope` is the one the standard library passes
     /// *as an ordinary argument*, and so the one this question is asked
     /// about most.
     pub implements: bool,
@@ -647,6 +650,7 @@ pub fn run(
             response: fetch_type(&checked.tables, &m.module_paths, "Response"),
             js_implemented: m.js_implemented,
             export: None,
+            ui: false,
         },
     }
 }
@@ -1190,11 +1194,12 @@ impl Monomorphizer<'_> {
                 })
                 .collect();
             let ret = substitute(&info.ret, &targs, None);
-            // A body-less declaration outside the standard library is a
-            // repository platform's, whose `js` file implements it: the parser
-            // refuses one anywhere else.
+            // A body-less declaration in a platform's `platform.buri`, a
+            // repository's or a bundled one's, is its `js` file's to
+            // implement: the parser refuses one anywhere else outside the
+            // standard library.
             let module = self.module_paths.get(info.module.index());
-            if module.is_some_and(|m| m.starts_with("//")) {
+            if module.is_some_and(|m| m.starts_with("//") || crate::compiler::standard_library::is_bundled_platform(m)) {
                 self.js_implemented.insert(key.clone());
             }
             let f = self.func_mut(slot);
@@ -1268,7 +1273,7 @@ impl Monomorphizer<'_> {
             .get(info.module.index())
             .cloned()
             .unwrap_or_else(|| "core/number".into());
-        // `core/str` is `str` and `ui/effect` is `ui_effect`, which is what
+        // `core/str` is `str` and `ui/node` is `ui_node`, which is what
         // every backend's runtime table is written against. A standard library
         // module path is the module and nothing else — it never names a file
         // inside one, because there is nothing inside one to name — so there
@@ -2451,7 +2456,7 @@ fn zip_match(heads: &[Ty], recvs: &[Ty], bound: &mut [Option<Ty>]) -> bool {
 /// whose answer has no cutoff at all (`ui/reactivity.buri`: a memo that
 /// recomputed to the answer it had still runs what reads it).
 pub const CELL_VALUE_KEYS: &[&str] =
-    &["ui_testing.Headless.signal", "ui_testing.Headless.write"];
+    &["host_testing.Headless.signal", "host_testing.Headless.write"];
 
 const GENERIC_INTRINSICS: &[&str] = &[
     // `core/actor`'s nine, and between them they are a **fifth** carrier
@@ -2508,6 +2513,8 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // the result are `[U8]`, so `core/bytes`'s reasoning holds.
     "crypto.chacha20Poly1305Open",
     "crypto.chacha20Poly1305Seal",
+    // The reactive slot a scope reads, as `host.HostUi.read` does.
+    "effect.Scope.read",
     // `Tasks.parallel<C, A, B>` — the closure trampoline's second key, and the
     // one it was built for. It is on this list for the same reason
     // `list.mapCtxStep` is, which is A4's rule and not an exception to it: an
@@ -2549,7 +2556,17 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // thunk, because the double drives the same trampoline. A test double that
     // reached its steps some other way would be testing a different mechanism
     // from the one that ships.
+    // The same reactive slots at the headless test host. `host_testing.mount`
+    // is the renderer `render`'s Buri body reaches, and its `C` is dropped,
+    // occurring only inside the `Node<C>` it walks and the walk closure it
+    // drives.
+    "host_testing.Headless.memo",
+    "host_testing.Headless.read",
+    "host_testing.Headless.signal",
+    "host_testing.Headless.write",
+    "host_testing.Observer.read",
     "host_testing.TestTasks.parallel",
+    "host_testing.mount",
     // The one operation whose subject is in neither a parameter nor the
     // receiver: `decode` is asked for a `T` and handed a `Json`. `T` reaches
     // the runtime as a descriptor, built in `build_fn`.
@@ -2608,7 +2625,7 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // so the erasure is repaired by there being no runtime call to erase into.
     "number.maxValue",
     "number.minValue",
-    // `core/platforms/testing/state`, carried the way `ui_testing.Headless`'s
+    // `core/platforms/testing/state`, carried the way `host_testing.Headless`'s
     // value is: a stride, a retain and a release, with `Carrier::Value`.
     "platforms_testing_state.stateNew",
     "platforms_testing_state.statePut",
@@ -2661,12 +2678,9 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // on `Func` exists for exactly these.
     "testing_assert.failExpected",
     "testing_assert.report",
-    // `ui/effect` and `ui/testing`: the same reactive slots as `core/host`'s,
-    // at the scope and at the headless test host. `ui_node.mount` and
-    // `ui_testing.mount` are generic in the *context* alone — the second is the
-    // renderer `render`'s Buri body reaches, and its `C` is dropped, occurring
-    // only inside the `Node<C>` it walks and the walk closure it drives.
-    "ui_effect.Scope.read",
+    // `ui_node.mount` is generic in the *context* alone, as `host_testing.mount`
+    // is: its `C` is dropped, occurring only inside the `Node<C>` it walks and
+    // the walk closure it drives.
     "ui_node.mount",
     // The region rebuild's walk is `renderInto` once more, so its `C` is dropped
     // for the same reason `mount`'s is — it occurs only inside the `Node<C>` it
@@ -2693,12 +2707,6 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // dropped exactly as a walk's is, occurring only inside the handler the
     // runtime fires, never in a value that crosses.
     "ui_node.registerPress",
-    "ui_testing.Headless.memo",
-    "ui_testing.Headless.read",
-    "ui_testing.Headless.signal",
-    "ui_testing.Headless.write",
-    "ui_testing.Observer.read",
-    "ui_testing.mount",
     // `ui/web`, and all three are generic in the *context* alone. `render`'s
     // `C` is unbounded and occurs only inside the `Node<C>` it is handed, so
     // what crosses is a tree of tags and strings; `resume` and `state` take the
@@ -2744,14 +2752,16 @@ fn is_prim(tables: &Tables, con: TyConId) -> bool {
 }
 
 /// The first segment of an intrinsic key: the module path with `core/`
-/// dropped and `/` as `_`, so `core/str` is `str` and `ui/effect` is
-/// `ui_effect`.
+/// dropped and `/` as `_`, so `core/str` is `str` and `ui/node` is
+/// `ui_node`.
 ///
 /// Three modules moved when effects left `core/`, and each keeps the key it
 /// had: `platform/host` is `host`, `platform/effect/testing` is
 /// `host_testing` and `platform/effect` is `effect`. The keys are what every
 /// backend's runtime table, `runtime.js` and `middle::rc::suspends` are
 /// written against, and a module moving is no reason for any of them to.
+/// `platform/effect` and `platform/effect/testing` merged into the last two, so their keys took
+/// the merged module's: `effect.Scope.read`, `host_testing.render`.
 pub fn runtime_module_key(module: &str) -> String {
     // A repository platform's `platform.buri` keys by its label: the methods
     // there are its `js` file's, `//platform/cloudflare_worker.HostKv.get`.
@@ -3028,10 +3038,14 @@ mod tests {
         bytes.f32ToBytes bytes.f64ToBytes bytes.fromUtf8 bytes.toUtf8 \
         character.show character.toJson \
         crypto.chacha20Poly1305Open crypto.chacha20Poly1305Seal \
+        effect.Scope.read \
         host.HostTasks.parallel \
         host.HostUi.memo host.HostUi.read host.HostUi.signal host.HostUi.write \
         host.HostWatch.read \
-        host_testing.TestTasks.parallel \
+        host_testing.Headless.memo host_testing.Headless.read \
+        host_testing.Headless.signal host_testing.Headless.write \
+        host_testing.Observer.read host_testing.TestTasks.parallel \
+        host_testing.mount \
         json.decode \
         lazy.load \
         list.all list.any list.concat list.count list.drop list.empty \
@@ -3050,12 +3064,9 @@ mod tests {
         tasks.scopeOpen tasks.scopePush tasks.scopeRan tasks.scopeRound \
         tasks.scopeSpare tasks.scopeTaskAt \
         testing_assert.failExpected testing_assert.report \
-        ui_effect.Scope.read ui_node.mount ui_node.rebuildRegion \
+        ui_node.mount ui_node.rebuildRegion \
         ui_node.reconcile ui_node.registerFollow ui_node.registerOutside \
         ui_node.registerPick ui_node.registerPointer ui_node.registerPress \
-        ui_testing.Headless.memo ui_testing.Headless.read \
-        ui_testing.Headless.signal ui_testing.Headless.write \
-        ui_testing.Observer.read ui_testing.mount \
         ui_web.render ui_web.resume ui_web.state";
 
     #[test]
@@ -3101,7 +3112,7 @@ mod tests {
             // a key, not a module or a name.
             "list.mapCtx2",
             "listx.map",
-            "ui_testing.Headless.observe",
+            "host_testing.Headless.observe",
         ] {
             assert!(!generic_intrinsic_allowed(key), "`{key}` was let through");
         }

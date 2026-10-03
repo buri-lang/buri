@@ -8,7 +8,7 @@
 //! `undefined`, `()` is `0`, and a `Result` is `[0, value]` or `[1, error]`.
 
 use crate::compiler::backend::js::generate::Gen;
-use crate::compiler::backend::js::javascript::{BinOp, Expr, Stmt, VarKind};
+use crate::compiler::backend::js::javascript::{BinOp, Expr, Stmt, UnOp, VarKind};
 use crate::compiler::middle::monomorphize::Func;
 use crate::compiler::semantics::crossing::{classify, Crossing, Known};
 use crate::compiler::semantics::types::Ty;
@@ -57,7 +57,9 @@ pub fn to_js(c: &Crossing, e: Expr, depth: usize) -> Expr {
             cons: Box::new(Expr::Undefined),
             alt: Box::new(to_js(inner, v, depth.saturating_add(1))),
         }),
-        Crossing::Unit => Expr::Undefined,
+        // Evaluated for its effect: under a `Result` it is `$crossThrow`'s call,
+        // which throws an `.Err`.
+        Crossing::Unit => Expr::Unary { op: UnOp::Void, operand: Box::new(e) },
         Crossing::Result(inner) => {
             to_js(inner, Expr::call(Expr::ident("$crossThrow"), vec![e]), depth)
         }
@@ -123,7 +125,8 @@ pub fn from_js(c: &Crossing, e: Expr, depth: usize) -> Expr {
                 alt: Box::new(from_js(inner, v, next)),
             }
         }),
-        Crossing::Unit => Expr::Num(0.0),
+        // Evaluated for its effect, since `e` may be the call itself.
+        Crossing::Unit => Expr::Seq(vec![e, Expr::Num(0.0)]),
         Crossing::Result(inner) => from_js(inner, e, depth),
         Crossing::Record(fields) => applied(e, depth, c.waits(), |r| {
             Expr::Array(
@@ -163,6 +166,16 @@ pub const HOSTED_PROGRAM: &str = "$buri$program";
 /// The function a method a `js` file implements is looked up through,
 /// answering the file's exports. The bundle defines it, after the artifact.
 pub const HOST_LOOKUP: &str = "$buri$host";
+
+/// The binding an artifact hands a `js` file the reactive graph in, as the
+/// file imports it from `buri:ui`: `signal(value)` answers a fresh signal's
+/// id, and `write(id, value)` replaces its value. The value is the program's
+/// own, so a `Str` is a JavaScript string.
+pub const HOSTED_UI: &str = "$buri$ui";
+
+/// [`HOSTED_UI`]'s definition: the backend's own `Ui` implementation.
+pub const HOSTED_UI_DEFINITION: &str = "const $buri$ui={signal:(v)=>$host_HostUi_signal(null,v),\
+     write:(id,v)=>{$host_HostUi_write(null,id,v)}};";
 
 impl Gen<'_> {
     fn known(&self) -> Known {
@@ -213,8 +226,11 @@ impl Gen<'_> {
             })
             .collect();
         let answer = Expr::Await(Box::new(Expr::call(Expr::ident(symbol), args)));
+        // What the entry printed goes out when it answers, as a program that
+        // starts itself flushes on its way out.
         let body = vec![
             Stmt::Var { kind: VarKind::Const, name: String::from("$r"), init: Some(answer) },
+            Stmt::Raw(String::from("$host.flush();")),
             Stmt::Return(Some(to_js(&self.crossing(&f.ret, true), Expr::ident("$r"), 0))),
         ];
         let entry = Expr::ArrowBlock { params, body, is_async: true };

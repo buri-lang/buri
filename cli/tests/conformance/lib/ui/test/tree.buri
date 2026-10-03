@@ -15,7 +15,7 @@
 //   - and a reactive leaf allocates, so `each` walks a filtered view of a
 //     signal and a leaf shows text formatted from one.
 //
-// `ui/testing`'s renderer is the one `mount` uses, against a document the
+// `platform/effect/testing`'s renderer is the one `mount` uses, against a document the
 // runtime supplies. What it cannot cover is what only a browser does — layout,
 // painting, focus order, and the browser's own dispatch of a press — and that
 // needs a browser rather than a substitute for one.
@@ -23,16 +23,16 @@
 from "core/bytes" import * as bytes;
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
-from "ui/effect" import { Ui, Watch };
+from "platform/effect" import { Allocator, Ui, Watch };
+from "platform/effect/testing" import {
+    alloc, headless, observer, Recorder, recorder, render, stylesheet,
+};
 from "ui/node" import * as ui;
 from "ui/node" import { FieldKind, Node, PickedFile, PointerAt };
 from "ui/prop" import { Prop };
 from "ui/signal" import { Signal, signal, watch };
 from "ui/style" import * as style;
 from "ui/style" import { Color, Shadow, Style };
-from "ui/testing" import { headless, observer, Recorder, recorder, render, stylesheet };
 
 // --- helpers -------------------------------------------------------------------------
 

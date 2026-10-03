@@ -695,11 +695,12 @@ impl Scratch {
         self.artifact_in("node", package_path)
     }
 
-    /// The same, in a named output directory — `web` for a page, whose module
-    /// is the same `.mjs` under a different platform's roof.
+    /// The same, in a named output directory. A page's module is `main.mjs`,
+    /// the name the `index.html` `web` ships loads.
     pub fn artifact_in(&self, dir: &str, package_path: &str) -> PathBuf {
         let leaf = package_path.rsplit('/').next().unwrap();
-        self.path(&format!(".buri/out/{dir}/{package_path}/{leaf}.mjs"))
+        let name = if dir == "web" { "main" } else { leaf };
+        self.path(&format!(".buri/out/{dir}/{package_path}/{name}.mjs"))
     }
 
     /// Runs that artifact. Not through `buri run`, because several suites need

@@ -196,7 +196,7 @@ Every output names one platform bundled with the toolchain:
 |---|---|
 | `"native"` | One executable. `variant` is required: `linux-arm64`, `linux-x86_64`, `macos-arm64` or `macos-x86_64`. |
 | `"node"` | One `.mjs` for node or bun. |
-| `"web"` | A page: an `.mjs`, a `.css` and an `.html` shell. |
+| `"web"` | A page: `main.mjs`, `index.html`, and `main.css` when the page uses styles. |
 
 A binary with no `outputs` builds `node`. Each output lands in a directory of
 its own under `.buri/out/`:
@@ -274,15 +274,15 @@ either field is `incomplete-entry`.
 
 ### The page's head
 
-A `web` output writes an `.html` beside its module, and the build rule says
-nothing about it: the tab is the artifact's name until the page renames it, and
-the page does that from code. `web.title(ctx, text)` names it at mount and
+A `web` output gets the `index.html` the platform ships beside its module, and
+the build rule says nothing about it: the tab has no name until the page names
+it, and the page does that from code. `web.title(ctx, text)` names it at mount and
 renames it on every navigation; a server-rendered page hands the same name to
 `web.shell` in a `Document`. [Build a website](../../guides/websites.md) has
 both halves.
 
-The shell names the module and the stylesheet from the root — `/main.mjs` and
-`/main.css` — because it is the document every route answers with, and a
+`index.html` names the module and the stylesheet from the root — `/main.mjs`
+and `/main.css` — because it is the document every route answers with, and a
 relative name would resolve against whatever path the reader arrived on. So
 serve the artifact directory at the site's root.
 

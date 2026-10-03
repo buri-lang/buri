@@ -1,5 +1,5 @@
-keyed  compile //cmd/app node <key>
-keyed  generate //lib/wire node <key>
-keyed  compile //lib/wire node <key>
-run    link //cmd/app node <key>
+keyed  compile //cmd/app //platform/cloudflare_worker <key>
+keyed  generate //lib/wire //platform/cloudflare_worker <key>
+keyed  compile //lib/wire //platform/cloudflare_worker <key>
+run    link //cmd/app //platform/cloudflare_worker <key>
 .buri/out/platform/cloudflare_worker/cmd/app/fetch.mjs (N bytes)

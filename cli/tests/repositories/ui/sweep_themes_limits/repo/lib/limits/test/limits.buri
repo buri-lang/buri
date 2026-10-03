@@ -1,10 +1,8 @@
 // The ends of every axis the tree has, as four pictures.
 
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
-from "ui/effect" import { Ui };
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
 from "ui/node" import * as ui;
-from "ui/testing" import { headless, snapshot };
 from "//lib/limits" import { deep, empties, siblings };
 
 test "an empty tree is a page with nothing on it" {

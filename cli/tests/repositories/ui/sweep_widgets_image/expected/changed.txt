@@ -1,5 +1,5 @@
 FAIL //lib/sweep  test/pictures.buri  "the avatar the slot was asked for"
   the snapshot "image-avatar" changed: see test/__snapshots__/image-avatar.diff.png
-  --> lib/sweep/test/pictures.buri:29:1
+  --> lib/sweep/test/pictures.buri:27:1
 
 0 passed, 1 failed, 2 skipped (0.0s)

@@ -569,10 +569,9 @@ export fn main(host: NodeHost): Result<(), Str> {
     // would try to resolve `node:module` for it.
     let page = "\
 // PLATFORM: WEB — a page, and one that reaches neither the filesystem nor `writeBytes`.
-from \"platform/effect\" import { Allocator, Stdout };
+from \"platform/effect\" import { Allocator, Stdout, Ui, Watch };
 from \"web\" import { WebHost };
 from \"core/io\" import * as io;
-from \"ui/effect\" import { Ui, Watch };
 from \"ui/signal\" import { signal };
 
 export fn main(host: WebHost): Result<(), Str> {

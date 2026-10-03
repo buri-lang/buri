@@ -120,7 +120,7 @@ pub enum Extra {
     /// One shape needs all four: a store the runtime *keeps* and later writes
     /// over. [`Extra::Element`]'s retain says how the runtime takes a reference
     /// on what it is given; nothing in `core/list` ever gives one back, because
-    /// nothing there holds a value past the call. `ui/effect`'s graph does —
+    /// nothing there holds a value past the call. `platform/effect`'s graph does —
     /// a cell holds the bytes it was written until the next write — so the
     /// write that replaces them has to let the old ones go, and the only side
     /// of the boundary that knows how is the one that generated the glue.
@@ -204,8 +204,8 @@ pub enum Extra {
     Compute,
     /// The three words a **walk** crosses on: a `fn(Builder, Node) => ()` the
     /// runtime invokes **once**, to walk a whole tree into the document
-    /// (`cli/runtime/document.rs`, issue #53). It is `ui_testing.render`'s
-    /// `renderInto`, and it is the last argument of `ui_testing.mount`.
+    /// (`cli/runtime/document.rs`, issue #53). It is `host_testing.render`'s
+    /// `renderInto`, and it is the last argument of `host_testing.mount`.
     ///
     /// ```text
     ///   entry     the generated C-ABI thunk, `void(state, index, in, out)`
@@ -262,7 +262,7 @@ pub enum Extra {
 pub enum Carrier {
     /// The element of the `[T]` this call walks — every `core/list` row.
     Element,
-    /// The value the call carries whole, whatever type that is: `ui/effect`'s
+    /// The value the call carries whole, whatever type that is: `platform/effect`'s
     /// graph, where a cell holds one `T` and `T` may be a list like any other.
     Value,
 }
@@ -1368,7 +1368,7 @@ pub const ENTRIES: &[Entry] = &[
     // `cli/runtime/ui.rs` holds the graph and `cli/runtime/snapshot.rs` the
     // painter's entry. Seven of these are what a *snapshot* reaches —
     // `rootScope`, `Scope.read`, `headless`, `Headless`'s `signal`, `read` and
-    // `write`, and `paint`. The rest is what a `ui/testing` **suite** reaches:
+    // `write`, and `paint`. The rest is what a `platform/effect/testing` **suite** reaches:
     // the graph's two computations, the observer that reads a cell from
     // outside every computation, and the recorder that says when a computation
     // ran.
@@ -1379,12 +1379,12 @@ pub const ENTRIES: &[Entry] = &[
     // still reaches neither — `ui/node`'s `describe` reads props under
     // `rootScope`, and an untracked read subscribes nothing.
     //
-    // `ui/testing`'s renderer is here now — `render`, `Rendered`'s methods, and,
+    // `platform/effect/testing`'s renderer is here now — `render`, `Rendered`'s methods, and,
     // since #53 phase 5, `install`, `variables` and `stylesheet`. The last three
     // are not a document to build but two artifacts to surface: `stylesheet` is
     // the compiler's extracted sheet, and `install`/`variables` are the `:root`
     // block `ui/theme` resolves, both handed over as text. Their rows sit with
-    // `ui_theme.installDoc`/`ui_theme.variables` and `ui_testing.stylesheet`.
+    // `ui_theme.installDoc`/`ui_theme.variables` and `host_testing.stylesheet`.
     //
     // A snapshot's **themes** are here too, and they are not a document:
     // `ui/theme`'s `document` flattens the list to text under its own
@@ -1422,26 +1422,26 @@ pub const ENTRIES: &[Entry] = &[
     // what keeps a `Scope`, which grants reading the graph, out of any public
     // signature.
     e("ui_theme.rootScope", "buri_rt_ui_theme_root_scope", Ret::Out),
-    // The theme artifact `ui/testing` reads (#53 phase 5). `installDoc` resolves
+    // The theme artifact `platform/effect/testing` reads (#53 phase 5). `installDoc` resolves
     // a theme list the caller has flattened to the document `ui/theme`'s
     // `document` builds — the chain following and the `:root`/`body`/scheme
     // blocks are `cli/runtime/ui.rs`'s, unchanged — stores it, and answers the
     // block. `variables` answers whatever the last install left. A switching
-    // theme is the caller's business: `ui/testing`'s `install` registers a
+    // theme is the caller's business: `platform/effect/testing`'s `install` registers a
     // watcher that flattens through the tracked scope and installs again, so no
     // closure crosses here. Both answer a `Str`.
     e("ui_theme.installDoc", "buri_rt_ui_theme_install_doc", Ret::Out),
     e("ui_theme.variables", "buri_rt_ui_theme_variables", Ret::Out),
-    v(el("ui_effect.Scope.read", "buri_rt_ui_effect_scope_read", Ret::Out)),
-    e("ui_testing.headless", "buri_rt_ui_testing_headless", Ret::Out),
-    v(eo("ui_testing.Headless.signal", "buri_rt_ui_testing_headless_signal", Ret::Scalar, 1)),
-    v(el("ui_testing.Headless.read", "buri_rt_ui_testing_headless_read", Ret::Out)),
-    e("ui_testing.observer", "buri_rt_ui_testing_observer", Ret::Out),
-    v(el("ui_testing.Observer.read", "buri_rt_ui_testing_observer_read", Ret::Out)),
-    v(eo("ui_testing.Headless.write", "buri_rt_ui_testing_headless_write", Ret::Void, 2)),
-    ec("ui_testing.Headless.memo", "buri_rt_ui_testing_headless_memo", Ret::Scalar),
-    ec("ui_testing.Headless.watch", "buri_rt_ui_testing_headless_watch", Ret::Void),
-    e("ui_testing.installThemes", "buri_rt_ui_testing_install_themes", Ret::Void),
+    v(el("effect.Scope.read", "buri_rt_effect_scope_read", Ret::Out)),
+    e("host_testing.headless", "buri_rt_host_testing_headless", Ret::Out),
+    v(eo("host_testing.Headless.signal", "buri_rt_host_testing_headless_signal", Ret::Scalar, 1)),
+    v(el("host_testing.Headless.read", "buri_rt_host_testing_headless_read", Ret::Out)),
+    e("host_testing.observer", "buri_rt_host_testing_observer", Ret::Out),
+    v(el("host_testing.Observer.read", "buri_rt_host_testing_observer_read", Ret::Out)),
+    v(eo("host_testing.Headless.write", "buri_rt_host_testing_headless_write", Ret::Void, 2)),
+    ec("host_testing.Headless.memo", "buri_rt_host_testing_headless_memo", Ret::Scalar),
+    ec("host_testing.Headless.watch", "buri_rt_host_testing_headless_watch", Ret::Void),
+    e("host_testing.installThemes", "buri_rt_host_testing_install_themes", Ret::Void),
     // `core/platforms/testing/state`: a whole `T` per handle, in the shape of
     // `Headless`'s `signal`, `read` and `write` above. `stateNew` and
     // `statePut` carry the release so the runtime can give the value back at
@@ -1473,17 +1473,17 @@ pub const ENTRIES: &[Entry] = &[
     // writes beside the binary and hands over the way it hands over the snapshot
     // directory (#53 phase 5). The same string the JavaScript backend splices in
     // as `$ui_sheet`, so a suite asserting what a class means shares.
-    e("ui_testing.stylesheet", "buri_rt_ui_testing_stylesheet", Ret::Out),
-    e("ui_testing.paint", "buri_rt_ui_testing_paint", Ret::Void),
+    e("host_testing.stylesheet", "buri_rt_host_testing_stylesheet", Ret::Out),
+    e("host_testing.paint", "buri_rt_host_testing_paint", Ret::Void),
     // The recorder: how a computation says that it ran. A reactive body holds
     // a `Scope`, which grants reading the graph and nothing else, so it cannot
     // write a signal and it cannot print — the log lives on this side, exactly
     // as `platform/effect/testing`'s captured stdout does.
-    e("ui_testing.recorder", "buri_rt_ui_testing_recorder", Ret::Out),
-    e("ui_testing.Recorder.record", "buri_rt_ui_testing_recorder_record", Ret::Void),
-    e("ui_testing.Recorder.recorded", "buri_rt_ui_testing_recorder_recorded", Ret::Out),
-    e("ui_testing.Recorder.note", "buri_rt_ui_testing_recorder_note", Ret::Scalar),
-    e("ui_testing.Recorder.noted", "buri_rt_ui_testing_recorder_noted", Ret::Out),
+    e("host_testing.recorder", "buri_rt_host_testing_recorder", Ret::Out),
+    e("host_testing.Recorder.record", "buri_rt_host_testing_recorder_record", Ret::Void),
+    e("host_testing.Recorder.recorded", "buri_rt_host_testing_recorder_recorded", Ret::Out),
+    e("host_testing.Recorder.note", "buri_rt_host_testing_recorder_note", Ret::Scalar),
+    e("host_testing.Recorder.noted", "buri_rt_host_testing_recorder_noted", Ret::Out),
     // -- the renderer, and the document it builds (issue #53) ----------------
     //
     // `render` is not here: it is a Buri body now, `Rendered(mount(ctx, root,
@@ -1496,7 +1496,7 @@ pub const ENTRIES: &[Entry] = &[
     // one `Node` the walk destructures and this side never reads — and takes
     // the walk as its last argument ([`Extra::Walk`]). `renderInto` never
     // crosses whole: only its `{ code, env }` does, inside the record.
-    cx(ew("ui_testing.mount", "buri_rt_ui_testing_mount", Ret::Scalar, 1), 0),
+    cx(ew("host_testing.mount", "buri_rt_host_testing_mount", Ret::Scalar, 1), 0),
     // The builders the walk emits to. `emitElement` takes the element name and
     // its scene declarations, both `Str`; `emitText` a run; `exitElement`
     // closes the open element. The builder handle is a `Builder`, one word.
@@ -1565,27 +1565,27 @@ pub const ENTRIES: &[Entry] = &[
     e("ui_node.offeredName", "buri_rt_ui_node_offered_name", Ret::Out),
     e("ui_node.offeredType", "buri_rt_ui_node_offered_type", Ret::Out),
     e("ui_node.offeredBytes", "buri_rt_ui_node_offered_bytes", Ret::Out),
-    e("ui_testing.offerFile", "buri_rt_ui_testing_offer_file", Ret::Void),
-    e("ui_testing.deliverFile", "buri_rt_ui_testing_deliver_file", Ret::Void),
+    e("host_testing.offerFile", "buri_rt_host_testing_offer_file", Ret::Void),
+    e("host_testing.deliverFile", "buri_rt_host_testing_deliver_file", Ret::Void),
     // The readers, over the reconciled document rather than the string:
     // `markup` and `text` answer a `Str` through an out-pointer, `count` and
     // `identity` an `Int`.
-    e("ui_testing.Rendered.markup", "buri_rt_ui_testing_rendered_markup", Ret::Out),
-    e("ui_testing.Rendered.text", "buri_rt_ui_testing_rendered_text", Ret::Out),
-    e("ui_testing.Rendered.count", "buri_rt_ui_testing_rendered_count", Ret::Scalar),
-    e("ui_testing.Rendered.identity", "buri_rt_ui_testing_rendered_identity", Ret::Scalar),
+    e("host_testing.Rendered.markup", "buri_rt_host_testing_rendered_markup", Ret::Out),
+    e("host_testing.Rendered.text", "buri_rt_host_testing_rendered_text", Ret::Out),
+    e("host_testing.Rendered.count", "buri_rt_host_testing_rendered_count", Ret::Scalar),
+    e("host_testing.Rendered.identity", "buri_rt_host_testing_rendered_identity", Ret::Scalar),
     // The event dispatch (#53 phase 4), each addressing the reconciled document
     // by label or index and mutating a signal a watcher then sees: `press` fires
     // the stored handler (and submits an enclosing form for a submit button),
     // `fill` and `flip` write the bound signal, `submit` fires the form's handler
     // under the implicit-submission rule. All answer `()`.
-    e("ui_testing.Rendered.press", "buri_rt_ui_testing_rendered_press", Ret::Void),
-    e("ui_testing.Rendered.fill", "buri_rt_ui_testing_rendered_fill", Ret::Void),
+    e("host_testing.Rendered.press", "buri_rt_host_testing_rendered_press", Ret::Void),
+    e("host_testing.Rendered.fill", "buri_rt_host_testing_rendered_fill", Ret::Void),
     // `select` moves the caret and selection: it writes the field's `(Int, Int)`
     // selection signal the way `fill` writes its value.
-    e("ui_testing.Rendered.select", "buri_rt_ui_testing_rendered_select", Ret::Void),
-    e("ui_testing.Rendered.flip", "buri_rt_ui_testing_rendered_flip", Ret::Void),
-    e("ui_testing.Rendered.submit", "buri_rt_ui_testing_rendered_submit", Ret::Void),
+    e("host_testing.Rendered.select", "buri_rt_host_testing_rendered_select", Ret::Void),
+    e("host_testing.Rendered.flip", "buri_rt_host_testing_rendered_flip", Ret::Void),
+    e("host_testing.Rendered.submit", "buri_rt_host_testing_rendered_submit", Ret::Void),
     // The pointer (#220). `registerPointer` keeps one of an element's three
     // pointer handlers under its phase, an `ep` like `registerPress`; the four
     // readers answer the `PointerAt` the dispatch in flight set, and
@@ -1595,9 +1595,9 @@ pub const ENTRIES: &[Entry] = &[
     e("ui_node.pointerY", "buri_rt_ui_node_pointer_y", Ret::Scalar),
     e("ui_node.pointerOverRow", "buri_rt_ui_node_pointer_over_row", Ret::Scalar),
     e("ui_node.pointerRow", "buri_rt_ui_node_pointer_row", Ret::Out),
-    e("ui_testing.Rendered.pointerDown", "buri_rt_ui_testing_rendered_pointer_down", Ret::Void),
-    e("ui_testing.Rendered.pointerMove", "buri_rt_ui_testing_rendered_pointer_move", Ret::Void),
-    e("ui_testing.Rendered.pointerUp", "buri_rt_ui_testing_rendered_pointer_up", Ret::Void),
+    e("host_testing.Rendered.pointerDown", "buri_rt_host_testing_rendered_pointer_down", Ret::Void),
+    e("host_testing.Rendered.pointerMove", "buri_rt_host_testing_rendered_pointer_move", Ret::Void),
+    e("host_testing.Rendered.pointerUp", "buri_rt_host_testing_rendered_pointer_up", Ret::Void),
 ];
 
 /// The entry for a key, or `None` where this backend has no body for it.
@@ -1829,7 +1829,7 @@ mod tests {
         // Twenty-nine until F6, then the nine `core/actor` rows, then
         // `core/tasks`'s ten: every one of the nineteen is a module function
         // whose first parameter is the context, which is the second of the two
-        // shapes below. `ui_testing.mount` is the forty-ninth — the renderer
+        // shapes below. `host_testing.mount` is the forty-ninth — the renderer
         // drops its context the way every one of these does. `core/crypto`'s
         // `seal` and `open` entries are the fiftieth and fifty-first.
         assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 51);

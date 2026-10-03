@@ -150,6 +150,9 @@ test's.
 | `proc()` | `Process` | **Absorbs** the exit instead of taking it, so the test carries on. |
 | `tasks()` | `Tasks` | Runs the tasks one at a time, in **program order**, until a builder says otherwise. |
 | `sockets()` | `Sockets` | Sockets with **no network** behind them: `open()` mints one, and what is pushed on it is recorded. |
+| `headless()` | `Ui` | The real reactive graph with no document. `after` waits on a virtual clock that `elapse(millis)` moves. |
+| `observer()` | `Watch` | Reads that graph from outside any computation. |
+| `address(ctx, at)` | `Location` | A signal starting at `at`, with no history behind it. |
 
 You configure a double with a **method that answers a new handle**. A chain
 reads in the order you apply it, and it leaves the value you called it on

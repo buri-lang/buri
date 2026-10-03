@@ -36,7 +36,8 @@ platform {
   and `variant_required: true` makes every output pick one. A `NATIVE` entry
   reads its target from the variant, as `linux-arm64`, and builds the host's
   without one.
-- **`assets`** are files copied beside every output.
+- **`assets`** are files copied beside every output. An `index.html` among
+  them makes every output a page, which `buri run` serves.
 - **`sources`** and **`dependencies`** are the rule's other `.buri` files and
   the libraries `platform.buri` imports. An output's platform is a dependency of
   its binary without being listed.
@@ -61,7 +62,8 @@ The whole file is in [the guide](../../guides/custom-platforms.md#the-platform).
 - **A consumer's entry** has the declaration's name and signature. Another host
   is `entry-host-mismatch`, and no host is `entry-without-host`.
 - **A field the backend lacks** is `effect-not-on-backend`: `JS` has no `Listen`
-  or `Tcp`, and `NATIVE` no `Location`.
+  or `Tcp`, and `NATIVE` no `Ui` or `Watch`. Any `JS` platform may offer
+  `HostUi` and `HostWatch`.
 - **The platform's own structs** have bodiless methods, which the entry's `js`
   file implements. Only `JS` entries have one, so on `NATIVE` such a field is
   `custom-effect-on-native-backend`.
@@ -92,9 +94,34 @@ export const HostKv = {
 - **Every other export is the module's own**, such as `default` here.
 - **Every call to a method the file implements is awaited**, so a method may
   return a promise.
+- **`buri:ui` hands the file the reactive graph**, for a method that answers a
+  signal: `signal(value)` makes one and answers its id, and `write(id, value)`
+  replaces its value. A `Str` is a string.
 - An entry without a `js` file starts itself, so it has the program signature,
   `fn(host: H): Result<(), Str>`, and `buri run` runs it. One with a `js` file
-  is `platform-cannot-run`.
+  is `platform-cannot-run`, unless the platform ships an `index.html`.
+
+## `web`
+
+`web` is written the same way. Its `main.mjs` starts `main` and implements
+`HostLocation`, the address bar, over `location` and `history`:
+
+```js
+import { main } from "buri:program";
+import { signal, write } from "buri:ui";
+
+let address;
+export const HostLocation = {
+  path: (self) => (address ??= signal(location.pathname)),
+  push: (self, path) => history.pushState({}, "", path),
+  replace: (self, path) => history.replaceState({}, "", path),
+};
+await main();
+```
+
+The real file also writes the signal on `popstate`. `WebHost` takes `ui` and
+`watch` from the backend and `location` from `main.mjs`, and `index.html` loads
+`/main.mjs` and `/main.css`.
 
 ## The crossing table
 

@@ -1,8 +1,7 @@
 //! Every derived tier of the vocabulary, over cells a test can write.
 
 from "core/str" import * as str;
-from "platform/effect" import { Allocator };
-from "ui/effect" import { Ui };
+from "platform/effect" import { Allocator, Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { Signal, signal };

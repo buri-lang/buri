@@ -102,14 +102,14 @@ binary {
 
 ```text
 $ buri build //cmd/basket
-.buri/out/web/cmd/basket/basket.mjs (59889 bytes)
+.buri/out/web/cmd/basket/main.mjs (59889 bytes)
 $ ls .buri/out/web/cmd/basket/
-basket.css  basket.html  basket.mjs
+index.html  main.css  main.mjs
 ```
 
 Three files: the module, the styles the compiler extracted and deduped across
-every package in the build, and an HTML shell that links the one and loads the
-other. Serve the directory. Writing the page is
+every package in the build, and the `index.html` that `web` ships, which links
+the one and loads the other. Serve the directory. Writing the page is
 [user interfaces](./user-interfaces.md).
 
 ## Another host
@@ -144,10 +144,10 @@ fn open<C: Stdout>(ctx: C, wanted: Bool): () {
 
 ```text
 $ ls .buri/out/web/cmd/basket/
-basket.0.mjs  basket.css  basket.html  basket.mjs
+index.html  main.0.mjs  main.css  main.mjs
 ```
 
-`basket.0.mjs` is the editor. The page fetches it when it reaches the `load` and
+`main.0.mjs` is the editor. The page fetches it when it reaches the `load` and
 not before, so a reader who never opens the editor never downloads it. The name
 is derived from the module's own URL at run time — nothing configures it, and
 serving the directory is still all there is to do.

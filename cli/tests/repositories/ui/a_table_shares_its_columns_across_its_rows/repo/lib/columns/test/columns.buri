@@ -2,10 +2,8 @@
 // columns came out other than the grid's fails against a picture its own
 // layout had no part in making.
 
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
-from "ui/effect" import { Ui };
-from "ui/testing" import { headless, snapshot };
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
 from "//lib/columns" import {
     fullGrid, fullTable, ownTracksGrid, ownTracksTable, shrunkGrid, shrunkTable,
 };

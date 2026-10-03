@@ -9,7 +9,7 @@
 // The last row is the same control with no styles under the state's, so a
 // picture also says what the sheet's reset left behind.
 
-from "ui/effect" import { Ui };
+from "platform/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { FieldKind, Node };
 from "ui/signal" import * as signal;

@@ -7,7 +7,7 @@
 from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "web" import { WebHost };
-from "ui/effect" import { Ui, Watch };
+from "platform/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 
 export fn main(host: WebHost): Result<(), Str> {

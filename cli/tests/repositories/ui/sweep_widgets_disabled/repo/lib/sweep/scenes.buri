@@ -15,7 +15,7 @@
 // no styles of its own, which is why the dimming here is the control's box and
 // never its text.
 
-from "ui/effect" import { Ui };
+from "platform/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };

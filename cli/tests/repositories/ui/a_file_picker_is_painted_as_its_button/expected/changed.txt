@@ -1,5 +1,5 @@
 FAIL //lib/importer  test/pickers.buri  "a file picker is painted as its button, and a disabled one faded"
   the snapshot "pickers" changed: see test/__snapshots__/pickers.diff.png
-  --> lib/importer/test/pickers.buri:8:1
+  --> lib/importer/test/pickers.buri:6:1
 
 0 passed, 1 failed, 0 skipped (0.0s)

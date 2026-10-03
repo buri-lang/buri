@@ -8,12 +8,10 @@
 // `Position(.PinViewport)` is measured against the page, so a dock written
 // three boxes deep sits in the page's corner rather than at the top left.
 
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
-from "ui/effect" import { Ui };
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
-from "ui/testing" import { headless, snapshot };
 
 /// An eight-pixel PNG, written out whole: a page fetches its images and a
 /// snapshot may not, so a data URI is the only source there is.

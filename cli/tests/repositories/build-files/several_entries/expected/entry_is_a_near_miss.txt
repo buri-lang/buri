@@ -1,4 +1,4 @@
-.buri/out/web/cmd/site/site.mjs (N bytes, cached)
+.buri/out/web/cmd/site/main.mjs (N bytes, cached)
 error: //cmd/site exports no `fetsh` [entry-not-found]
  --> cmd/site/BUILD.buri:4:90
   |
@@ -50,9 +50,9 @@ error: //cmd/site exports no `fetsh` [entry-not-found]
     differently once.
 
 error: a context may not be constructed here [context-not-allowed]
-  --> cmd/site/main.buri:32:15
+  --> cmd/site/main.buri:31:15
    |
-32 |     let ctx = context {
+31 |     let ctx = context {
    |               ^^^^^^^^^
    |
    = only in an entry's body, in a test source, or in a test-only module — and never inside a lambda, since a closure that could mint authority would make the capture rule meaningless

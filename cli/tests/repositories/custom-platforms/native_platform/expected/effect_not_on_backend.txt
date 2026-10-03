@@ -1,13 +1,15 @@
-error: `location` is a `HostLocation`, and the NATIVE backend has no implementation of `Location` [effect-not-on-backend]
+error: `ui` is a `HostUi`, and the NATIVE backend has no implementation of `Ui` [effect-not-on-backend]
  --> platform/lambda/platform.buri:7:5
   |
-7 |     export location: HostLocation,
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+7 |     export ui: HostUi,
+  |     ^^^^^^^^^^^^^^^^^
   |
-  = `JS` lacks `Listen` and `Tcp`, and `NATIVE` lacks `Location`
+  = `JS` lacks `Listen` and `Tcp`, and `NATIVE` lacks `Ui` and `Watch`
   = fix: drop the field from `//platform/lambda`'s host, or build the entry with the other backend
 
     A host's fields are production values its entry's backend supplies. Both
     backends implement every bundled effect, except that JS holds no port open
-    and dials no raw socket, and only a page has a Location.
+    and dials no raw socket, and NATIVE runs the reactive graph only for a test,
+    so it has no Ui or Watch to hand an entry. Location is no backend's: web
+    implements its own.
 

@@ -241,8 +241,9 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
             let written = round_dir.join(&package_path).join(&artifact);
             let mut files: Vec<(String, String)> =
                 vec![(artifact.clone(), compiled.module.clone())];
-            let pages = actions::web_companions(&written, &output, &compiled.stylesheet);
-            for (companion, text) in pages
+            let sheet = (!compiled.stylesheet.is_empty())
+                .then(|| (actions::stylesheet_path(&written), compiled.stylesheet.clone()));
+            for (companion, text) in sheet
                 .into_iter()
                 // A `core/lazy` chunk is a file this build wrote, and the
                 // module fetches it by name at run time — so it is as much

@@ -4,8 +4,7 @@
 // neither is refused on the other's behalf.
 
 from "core/net/http" import * as http;
-from "platform/effect" import { Allocator, Request, Response, Stdout };
-from "ui/effect" import { Ui, Watch };
+from "platform/effect" import { Allocator, Request, Response, Stdout, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "web" import { WebHost };

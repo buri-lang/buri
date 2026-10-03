@@ -1,0 +1,11 @@
+// EXPECT: "ui/testing" is now "platform/effect/testing"
+//
+// The graph's test implementations sit beside every other effect's, in
+// `platform/effect/testing`. The old path is refused, and the fix names the
+// new one.
+from "ui/testing" import { headless };
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
+  .Ok(())
+}

@@ -1,7 +1,7 @@
 //! Every colour slot `ui/style` has, as a design token, on every primitive
 //! that can carry one.
 
-from "ui/effect" import { Ui };
+from "platform/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { signal };

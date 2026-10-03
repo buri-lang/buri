@@ -10,8 +10,7 @@
 // `host.fs` does not compile for this one. The error lands on the line that
 // asked, at build time.
 
-from "platform/effect" import { Allocator, Network };
-from "ui/effect" import { Ui, Watch };
+from "platform/effect" import { Allocator, Network, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/theme" import * as theme;
 from "web" import { WebHost };

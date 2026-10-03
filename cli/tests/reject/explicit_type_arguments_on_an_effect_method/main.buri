@@ -9,7 +9,7 @@
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "platform/effect" import { Allocator };
 from "web" import { WebHost };
-from "ui/effect" import { Ui, Watch };
+from "platform/effect" import { Ui, Watch };
 
 /// `Watch.read<T>`, the other method-generic effect method, at the wrong type.
 /// The right count, the wrong argument: this is the half that proves the

@@ -29,8 +29,7 @@
 //! rewrites the same block.
 
 from "core/str" import * as str;
-from "platform/effect" import { Allocator };
-from "ui/effect" import { Scope };
+from "platform/effect" import { Allocator, Scope };
 from "ui/prop" import { Prop };
 from "ui/style" import { Color, TokenReference };
 
@@ -141,7 +140,7 @@ export fn page(background: Color, foreground: Color): Theme {
 // A theme holds closures and a closure cannot cross the C boundary as data, so
 // the side that can call one — this one — resolves the switches and hands the
 // bindings over as text. `cli/runtime/ui.rs`'s header is the format, and
-// `ui/testing`'s `snapshot` is the caller: a snapshot is painted natively, and
+// `platform/effect/testing`'s `snapshot` is the caller: a snapshot is painted natively, and
 // the painter has to know what a token is worth before it can put a colour on a
 // pixel.
 
@@ -165,7 +164,7 @@ export fn document(themes: [Theme]): Str {
 /// `document`, run under a `Scope` rather than a plain allocator, so a
 /// `switching` theme's condition is read through *that* scope.
 ///
-/// A reactive caller — `ui/testing`'s `install` — hands its computation's scope
+/// A reactive caller — `platform/effect/testing`'s `install` — hands its computation's scope
 /// here, so following a switch to its branch subscribes the computation to the
 /// condition's signal. Writing that signal then re-runs the flatten, and the
 /// block installed changes to the other branch's. The scope is the allocator
@@ -182,14 +181,14 @@ export fn documentUnder(ctx: Scope, themes: [Theme]): Str {
 ///
 /// The resolution is `cli/runtime/ui.rs`'s on the native backend and
 /// `$ui_theme_render_doc`'s on the JavaScript one, the two written to agree byte
-/// for byte. A switching theme is the caller's business: `ui/testing`'s
+/// for byte. A switching theme is the caller's business: `platform/effect/testing`'s
 /// `install` re-flattens through a tracked scope and installs again, so no
 /// closure crosses here.
 export fn installDoc(doc: Str): Str;
 
 /// The custom-property block installed right now.
 ///
-/// `ui/testing`'s `variables` answers this, and reading it again after a
+/// `platform/effect/testing`'s `variables` answers this, and reading it again after a
 /// `switching` condition's signal is written is how a test sees a theme switch.
 export fn variables(): Str;
 

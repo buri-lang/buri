@@ -1374,7 +1374,7 @@ fn the_runtime_archive_is_real() {
     // the estimate. 24 MiB is the re-statement, from a measurement this time,
     // and leaves 7.7 % of the margin — the same headroom the macOS line keeps.
     // **The native renderer (#53) is the biggest single addition since the
-    // painter.** `ui/testing`'s `render`/`Rendered.*` gained a native
+    // painter.** `platform/effect/testing`'s `render`/`Rendered.*` gained a native
     // implementation — the element document (`cli/runtime/document.rs`), the
     // reconciler and event dispatch (`render.rs`), and the closure trampolines
     // in `ui.rs` — so a program that only paints now also carries a second

@@ -34,7 +34,7 @@ run {
 # answers for every route, so a case about serving starts by pinning that it is
 # a real file on disk.
 path {
-  path: ".buri/out/web/cmd/site/site.html"
+  path: ".buri/out/web/cmd/site/index.html"
   exists: true
 }
 

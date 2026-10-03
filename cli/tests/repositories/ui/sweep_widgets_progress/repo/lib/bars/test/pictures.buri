@@ -7,11 +7,9 @@
 // what says the announcement is there while the picture says the fill is.
 
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
-from "ui/effect" import { Ui };
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
 from "ui/node" import * as ui;
-from "ui/testing" import { headless, snapshot };
 from "//lib/bars" import { page };
 
 test "a progress bar is a track and a fill at every value" {
