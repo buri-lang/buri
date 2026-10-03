@@ -27,7 +27,7 @@
 use buri::build::buildfile::{Arch, Platform};
 use buri::build::link::{self, Row};
 use buri::build::workspace::Workspace;
-use buri::compiler::backend::{LinkOptions, Linker};
+use buri::compiler::backend::LinkOptions;
 use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
 use buri::compiler::backend::{Backend, Emitted, Options, Profile, Target};
 use buri::compiler::backend::stencil::{
