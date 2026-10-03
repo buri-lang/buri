@@ -14,7 +14,7 @@ use crate::build::workspace::{RuleKind, TargetId};
 use crate::commands::arguments::Flags;
 use crate::compiler::backend::runtime_native;
 use crate::compiler::backend::{
-    self, Emitted, LinkOptions, Linker, Options as BackendOptions, Profile, Target, Units,
+    self, Emitted, LinkOptions, Options as BackendOptions, Profile, Target, Units,
 };
 use crate::compiler::middle;
 use crate::compiler::middle::monomorphize;
@@ -155,32 +155,24 @@ fn build_artifact(
             &key,
         )
     };
-    // An entry that uses styles writes its stylesheet beside its module, and
-    // it is in the cache under a key derived from this one — so a hit either
-    // reproduces both or is not a hit. Reconstructing it from the module's
-    // bytes instead would mean parsing generated JavaScript back into a
-    // string, and a stale `.css` beside a fresh `.mjs` is exactly the failure a
-    // cache is supposed to be incapable of.
-    let sheet_key = key.companion("stylesheet");
-    // A `core/lazy` chunk is in the cache for the stylesheet's reason and one
-    // more: the module *fetches* it by name at run time, so a hit that
+    // One entry holds the module, its stylesheet and its `core/lazy` chunks, so
+    // a hit reproduces all of them or is not a hit. A stale `.css` beside a
+    // fresh `.mjs` is exactly the failure a cache is supposed to be incapable
+    // of, and the module *fetches* its chunks by name at run time: a hit that
     // reproduced the module and not its chunks would be a program that loads
     // and then cannot find half of itself.
-    let chunks_key = key.companion("chunks");
     if !flags.force {
-        if let Some(bytes) = cache.get(&key) {
-            let stylesheet = cache.get(&sheet_key).and_then(|b| decode_stylesheet(&b));
-            let chunks = cache.get(&chunks_key).and_then(|b| decode_chunks(&b));
-            if let (Some(stylesheet), Some(chunks)) = (stylesheet, chunks) {
+        if let Some(parts) = cache.get(&key).and_then(|b| decode_parts(&b)) {
+            if let [module, stylesheet, chunks @ ..] = parts.as_slice() {
                 if let Some(parent) = path.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
-                if std::fs::write(&path, &bytes).is_ok()
-                    && write_companions(&path, &stylesheet, &chunks, &mut diagnostics)
+                if std::fs::write(&path, module).is_ok()
+                    && write_companions(&path, stylesheet, chunks, &mut diagnostics)
                 {
                     explain_link(crate::build::cache::Status::Cached);
                     link_out_symlink(session, output);
-                    return Ok(Artifact { target, path, bytes: bytes.len(), cached: true });
+                    return Ok(Artifact { target, path, bytes: module.len(), cached: true });
                 }
             }
         }
@@ -188,9 +180,8 @@ fn build_artifact(
     explain_link(crate::build::cache::Status::Run);
 
     let compiled = compile_artifact(session, target, output, flags, &mut diagnostics)?;
-    cache.put(&key, compiled.module.as_bytes());
-    cache.put(&sheet_key, &encode_stylesheet(&compiled.stylesheet));
-    cache.put(&chunks_key, &encode_chunks(&compiled.chunks));
+    let parts = [&compiled.module, &compiled.stylesheet].into_iter().chain(&compiled.chunks);
+    cache.put(&key, &encode_parts(parts));
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -967,8 +958,8 @@ pub fn emit_all(
     };
     // Unit zero is the module; anything after it is a `core/lazy` chunk, in
     // `$lazy`'s own numbering. The vector is the shape because a native build
-    // emits one object per codegen unit; taking element zero here is what the
-    // JavaScript `Linker` does, and it does it in one place rather than two.
+    // emits one object per codegen unit; taking element zero here is the
+    // JavaScript artifact's whole link step.
     let mut text = Vec::new();
     for unit in units {
         match String::from_utf8(unit.bytes) {
@@ -1170,11 +1161,11 @@ pub fn codegen_key(
 pub fn link_key(
     output: &Output,
     flags: &Flags,
-    linker: &dyn Linker,
+    linker: &link::CDriver,
     unit_keys: &[ActionKey],
     runtime: link::RuntimeArchive,
 ) -> ActionKey {
-    link_key_of(flags.mode, target_of(output), linker, unit_keys, runtime)
+    link_key_of(flags.mode, target_of(output), &linker.identity(), unit_keys, runtime)
 }
 
 /// [`link_key`] without a repository, which is what makes the three claims it
@@ -1184,19 +1175,19 @@ pub fn link_key(
 pub fn link_key_of(
     mode: crate::commands::arguments::BuildMode,
     target: Target,
-    linker: &dyn Linker,
+    linker: &link::LinkerIdentity,
     unit_keys: &[ActionKey],
     runtime: link::RuntimeArchive,
 ) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Link, mode);
     k.platform(target.platform, target.arch);
-    k.linker(linker.name(), &linker.version());
+    k.linker(&linker.name, &linker.version);
     // *How* the link runs, beside *who* runs it. The linker's banner does not
     // move when a toolchain gains a musl sysroot and starts linking
     // `-static-pie` against it, and the artifact is a different file — so
     // without this term the rebuilt toolchain is served the old one's
-    // executable. See [`Linker::link_identity`].
-    k.input("libc", linker.link_identity().as_bytes());
+    // executable. See [`link::CDriver::link_identity`].
+    k.input("libc", linker.link.as_bytes());
     for key in unit_keys {
         k.dependency(key);
     }
@@ -1932,57 +1923,17 @@ fn build_native(
 
     explain_closure(session, target, output, flags);
     let objects = compile_objects(session, target, output, flags, &mut diagnostics)?;
-    // Asked here and again inside the linker, of the same objects, because it
-    // is a pure function of them: the key has to name the command line the link
-    // is about to run, and the linker has to build that command line.
-    let runtime = link::runtime_archive_for(&objects.units);
-    let key = link_key(output, flags, &linker, &objects.keys, runtime);
-    let linker = linker
-        .in_dir(link::dir(&session.root, key.as_str()))
-        .from_cache(Cache::open(&session.root));
     let label = session.workspace.label(target);
-    let explain_link = |status: crate::build::cache::Status| {
-        crate::build::cache::explain(flags.explain, status, Action::Link, &label, &output.platform_label(), &key);
-    };
-
-    let cache = Cache::open(&session.root);
-    // "The fastest link is the one that does not run": every unit's key
-    // unchanged means the ordered list in `key` is unchanged, so the executable
-    // in the cache is the executable this link would produce.
-    if !flags.force {
-        if let Some(entry) = cache.entry(&key) {
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            if let Ok(size) = write_executable(&entry, &path) {
-                explain_link(crate::build::cache::Status::Cached);
-                link_out_symlink(session, output);
-                return Ok(Artifact {
-                    target,
-                    path,
-                    bytes: usize::try_from(size).unwrap_or(usize::MAX),
-                    cached: true,
-                });
-            }
-        }
-    }
-    explain_link(crate::build::cache::Status::Run);
-
     let prefix = session.workspace.package(target.package).path.clone();
-    let opts = LinkOptions {
-        profile: profile_of(flags),
-        target: target_of(output),
-        unit_prefix: &prefix,
-    };
-    let staged = match link::run(&objects.units, &objects.rows, &linker, &path, &opts) {
-        Ok(staged) => staged,
+    let hit = match link_cached(&session.root, &label, output, flags, linker, &objects, &path, &prefix) {
+        Ok(hit) => hit,
         Err(errors) => {
             diagnostics.extend(errors.items);
             return Err(diagnostics);
         }
     };
-    let size = match std::fs::metadata(&path) {
-        Ok(meta) => meta.len(),
+    let size = match hit.map_or_else(|| std::fs::metadata(&path).map(|m| m.len()), Ok) {
+        Ok(size) => size,
         Err(e) => {
             diagnostics.push(Diagnostic::error(
                 Span::NONE,
@@ -1991,17 +1942,60 @@ fn build_native(
             return Err(diagnostics);
         }
     };
+    link_out_symlink(session, output);
+    Ok(Artifact { target, path, bytes: usize::try_from(size).unwrap_or(usize::MAX), cached: hit.is_some() })
+}
+
+/// The link step with the cache in front of it: the executable `objects` link
+/// into, at `path`. `Ok(Some(size))` when the cache had it and `Ok(None)` when
+/// the link ran; `Err` holds the linker's errors alone.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "where the cache is, the label, the output, the flags, the linker, the objects, \
+              where the executable goes and the unit prefix: none derivable from another"
+)]
+fn link_cached(
+    root: &std::path::Path,
+    label: &str,
+    output: &Output,
+    flags: &Flags,
+    linker: link::CDriver,
+    objects: &Objects,
+    path: &std::path::Path,
+    prefix: &str,
+) -> Result<Option<u64>, Diagnostics> {
+    // Asked here and again inside the linker, of the same objects, because it
+    // is a pure function of them: the key has to name the command line the link
+    // is about to run, and the linker has to build that command line.
+    let runtime = link::runtime_archive_for(&objects.units);
+    let key = link_key(output, flags, &linker, &objects.keys, runtime);
+    let cache = Cache::open(root);
+    let linker = linker.in_dir(link::dir(root, key.as_str())).from_cache(cache.clone());
+    let explain_link = |status: crate::build::cache::Status| {
+        crate::build::cache::explain(flags.explain, status, Action::Link, label, &output.platform_label(), &key);
+    };
+    // "The fastest link is the one that does not run": every unit's key
+    // unchanged means the ordered list in `key` is unchanged, so the executable
+    // in the cache is the executable this link would produce.
+    if !flags.force {
+        if let Some(entry) = cache.entry(&key) {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Ok(size) = write_executable(&entry, path) {
+                explain_link(crate::build::cache::Status::Cached);
+                return Ok(Some(size));
+            }
+        }
+    }
+    explain_link(crate::build::cache::Status::Run);
+    let opts = LinkOptions { profile: profile_of(flags), target: target_of(output), unit_prefix: prefix };
+    let staged = link::run(&objects.units, &objects.rows, &linker, path, &opts)?;
     // The linker's own output, moved into the entry rather than a second copy
     // of it written from a full read of the artifact just placed. See
-    // `Cache::put_file`.
+    // `Cache::put_file`. The copy at `path` is the one that runs.
     cache.put_file(&key, staged.path());
-    link_out_symlink(session, output);
-    Ok(Artifact {
-        target,
-        path,
-        bytes: usize::try_from(size).unwrap_or(usize::MAX),
-        cached: false,
-    })
+    Ok(None)
 }
 
 /// Where a native test binary was put, for as long as it is the one to run.
@@ -2127,38 +2121,13 @@ pub fn link_test_binary(
     };
     let objects =
         objects_named(root, prefix, label, output, flags, program, tables, diagnostics)?;
-    let runtime = link::runtime_archive_for(&objects.units);
-    let key = link_key(output, flags, &linker, &objects.keys, runtime);
-    let linker = linker.in_dir(link::dir(root, key.as_str())).from_cache(Cache::open(root));
-    let explain_link = |status: crate::build::cache::Status| {
-        crate::build::cache::explain(flags.explain, status, Action::Link, label, &output.platform_label(), &key);
-    };
     // Claimed after the objects exist and before anything is written, so a run
     // that fails to compile never takes the shared file at all.
     let binary = claim_runner(&root.join(".buri/out").join(output.dir()), private);
-    let path = binary.path().to_path_buf();
-    let cache = Cache::open(root);
-    if !flags.force {
-        if let Some(entry) = cache.entry(&key) {
-            if write_executable(&entry, &path).is_ok() {
-                explain_link(crate::build::cache::Status::Cached);
-                return Ok(binary);
-            }
-        }
+    if let Err(errors) = link_cached(root, label, output, flags, linker, &objects, binary.path(), prefix) {
+        diagnostics.extend(errors.items);
+        return Err(std::mem::take(diagnostics));
     }
-    explain_link(crate::build::cache::Status::Run);
-    let opts =
-        LinkOptions { profile: profile_of(flags), target: target_of(output), unit_prefix: prefix };
-    let staged = match link::run(&objects.units, &objects.rows, &linker, &path, &opts) {
-        Ok(staged) => staged,
-        Err(errors) => {
-            diagnostics.extend(errors.items);
-            return Err(std::mem::take(diagnostics));
-        }
-    };
-    // The file the driver produced becomes the cache entry, and the copy at
-    // `path` is the one the suite runs from.
-    cache.put_file(&key, staged.path());
     Ok(binary)
 }
 
@@ -2252,39 +2221,25 @@ pub fn chunk_paths(module: &Path, chunks: &[String]) -> Vec<(PathBuf, String)> {
     chunks.iter().enumerate().map(|(n, text)| (chunk_path(module, n), text.clone())).collect()
 }
 
-/// The chunks of one build, as the single blob the cache stores them under.
+/// A JavaScript artifact as the single blob the cache stores it under: the
+/// module, the stylesheet, then each chunk.
 ///
-/// A count, then each chunk's byte length and its bytes. Length-prefixed rather
-/// than joined by a separator, because a chunk is generated JavaScript and there
-/// is no byte sequence it cannot contain — and it starts with the count so that
-/// a program with no chunks still writes something. An empty cache entry is
-/// indistinguishable from an interrupted write, which is a claim
-/// `hermeticity::two_concurrent_builds_leave_the_cache_intact` makes of every
-/// entry there is.
-fn encode_chunks(chunks: &[String]) -> Vec<u8> {
-    let mut out = format!("{}\n", chunks.len()).into_bytes();
-    for c in chunks {
-        out.extend_from_slice(format!("{}\n", c.len()).as_bytes());
-        out.extend_from_slice(c.as_bytes());
+/// A count, then each part's byte length and its bytes. Length-prefixed rather
+/// than joined by a separator, because a part is generated JavaScript or CSS and
+/// there is no byte sequence it cannot contain.
+fn encode_parts<'a>(parts: impl Iterator<Item = &'a String>) -> Vec<u8> {
+    let parts: Vec<&String> = parts.collect();
+    let mut out = format!("{}\n", parts.len()).into_bytes();
+    for part in parts {
+        out.extend_from_slice(format!("{}\n", part.len()).as_bytes());
+        out.extend_from_slice(part.as_bytes());
     }
     out
 }
 
-/// A stylesheet as the cache stores it: a line saying so, then the rules. Most
-/// programs have none, and an empty cache entry is indistinguishable from an
-/// interrupted write.
-fn encode_stylesheet(sheet: &str) -> Vec<u8> {
-    format!("css\n{sheet}").into_bytes()
-}
-
-/// The inverse, `None` for a blob this toolchain did not write.
-fn decode_stylesheet(bytes: &[u8]) -> Option<String> {
-    String::from_utf8(bytes.strip_prefix(b"css\n")?.to_vec()).ok()
-}
-
 /// The inverse. `None` for a blob this toolchain did not write, which a caller
-/// reads as a cache miss rather than as an empty set of chunks.
-fn decode_chunks(bytes: &[u8]) -> Option<Vec<String>> {
+/// reads as a cache miss.
+fn decode_parts(bytes: &[u8]) -> Option<Vec<String>> {
     let (count, mut rest) = frame(bytes)?;
     let count: usize = count.parse().ok()?;
     let mut out = Vec::new();
