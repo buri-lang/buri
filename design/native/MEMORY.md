@@ -987,16 +987,17 @@ settled.* It holds because:
 - The bit goes on only after the glue replaced every pointer in the copy with
   a settled share or a heap copy made by the same call.
 - A block's pointers change only through the glue, which writes into a fresh
-  block, or an append in place, which `buri_rt_unique_cap` licenses and which
-  refuses a settled block.
+  block, or an append in place, whose uniqueness licence refuses a settled
+  block. Every such licence must, `buri_rt_unique_cap` and any claim on a
+  marked block alike.
 - `finish` rewrites a recycled block's header, and a settled block keeps what
   it points to alive.
 
 The bit is the block's, not the thread's, so a `Tasks.parallel` step outside
 its caller's arena is answered correctly. A heap block that step builds around
 an arena block was never settled, so it is copied in full. Only marked copies
-settle: a marked block is never unique anyway, while an unmarked `scoped`
-answer stays writable in place.
+settle, because only a program that marks has crossings to share between. An
+unmarked `scoped` answer stays writable in place.
 
 `copyAcross` also keeps the scope's bump window while it steps out of every
 arena (`KEPT` in `memory.rs`). Starting an empty one on the way back mapped a
