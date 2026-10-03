@@ -1096,7 +1096,6 @@ mod native {
     use super::{Duration, Path, PathBuf};
     use buri::build::actions;
     use buri::build::buildfile::{Arch, Platform};
-    use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME};
     use buri::compiler::backend::{self, Options, Profile, Target};
     use buri::compiler::driver;
     use buri::compiler::middle::monomorphize;
@@ -1174,15 +1173,13 @@ mod native {
         ANSWERED.load(Ordering::Relaxed)
     }
 
+    /// The runtime archive at the path every run shares, so a program the
+    /// search draws again links to the same bytes (`harness/kept.rs`).
     fn archive() -> &'static Path {
         static WRITTEN: OnceLock<PathBuf> = OnceLock::new();
         WRITTEN.get_or_init(|| {
-            let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-                .join(format!("fuzz-native-{}", std::process::id()));
-            std::fs::create_dir_all(&dir).unwrap();
-            let path = dir.join(ARCHIVE_NAME);
-            std::fs::write(&path, ARCHIVE).unwrap();
-            path
+            crate::harness::sweep::once();
+            crate::harness::sweep::kept::runtime_archive()
         })
     }
 
@@ -1225,7 +1222,7 @@ mod native {
             Ok(b) => Some(b),
             #[cfg(feature = "backend-llvm")]
             Err(_) if matches!(profile, Profile::Release) => {
-                Some(Box::new(backend::llvm::Llvm))
+                Some(Box::new(backend::llvm::Llvm::default()))
             }
             Err(_) => None,
         }
@@ -1428,6 +1425,7 @@ mod native {
             if !linked.status.success() {
                 continue;
             }
+            crate::harness::sweep::kept::settle(&binary);
             // **Watched**, because a miscompiled program is entitled to loop
             // for ever and this file used to wait for it: the test that stood
             // here — `started.elapsed()` *after* the call — could not fire

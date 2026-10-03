@@ -468,35 +468,14 @@ fn an_unknown_topic_exits_two_with_a_suggestion() {
     assert!(err.contains("language/effects"), "expected a suggestion, got:\n{err}");
 }
 
-/// A renamed module answers with its new name rather than with whatever is
-/// nearest by edit distance — `core/char` is two letters from `core/actor`.
-#[test]
-fn a_retired_module_names_what_it_became() {
-    for (old, now) in buri::compiler::standard_library::RETIRED {
-        let out = ran(&std::env::temp_dir(), &["docs", old, "--color=never"]);
-        assert_eq!(out.status.code(), Some(2), "`buri docs {old}` should be a bad invocation");
-        let err = String::from_utf8_lossy(&out.stderr);
-        assert!(err.contains(now), "`buri docs {old}` never says `{now}`:\n{err}");
-    }
-}
-
 /// No document may name a flag the binary does not accept.
 ///
 /// `--check-reproducible`, `query --output=proto`, and `lint --fix` were all
 /// documented and all rejected by the parser. The command table is now the one
 /// list of flags; this holds the prose to it.
-///
-/// A *retired* flag is not an invented one. The binary knows every name in
-/// `arguments::RETIRED` and answers it with a sentence saying what replaced it,
-/// so a page that records the retirement is naming something the toolchain
-/// still has an answer for — which is the whole reason the page says it.
 #[test]
 fn no_document_invents_a_flag() {
-    let known: Vec<&str> = buri::commands::FLAGS
-        .iter()
-        .map(|f| f.name)
-        .chain(buri::commands::arguments::RETIRED.iter().map(|(name, _)| *name))
-        .collect();
+    let known: Vec<&str> = buri::commands::FLAGS.iter().map(|f| f.name).collect();
     let mut invented = Vec::new();
     for doc in &documents() {
         // `design/` is where the gaps are audited, so naming an absent flag is

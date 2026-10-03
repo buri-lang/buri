@@ -4,7 +4,7 @@ error: "core/list" does not export `Vector` [unknown-export]
 10 |   let xs: list.Vector<Int> = [1, 2, 3];
    |           ^^^^^^^^^^^^^^^^
    |
-   = the module exports 94 names
+   = the module exports 93 names
    = did you mean `getOr`?
    = fix: if you meant `getOr`, use that; if not, `buri docs core/list` lists what the module exports
 

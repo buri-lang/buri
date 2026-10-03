@@ -39,11 +39,8 @@ const DRIVER: &str = include_str!("driver.c");
 /// A per-run directory under `CARGO_TARGET_TMPDIR`, so nothing is written
 /// inside a checked-in tree.
 ///
-/// Named by the process id, because the driver below is built once and then
-/// executed by every test in this file: two `cargo test` runs in two shells
-/// sharing the path would have one `cc` overwriting the binary the other is
-/// executing, which on macOS is a child that never returns rather than an
-/// error.
+/// Named by the process id, so two `cargo test` runs in two shells never write
+/// into each other's files.
 fn workspace() -> PathBuf {
     crate::sweep::once();
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
@@ -52,18 +49,30 @@ fn workspace() -> PathBuf {
     dir
 }
 
-/// Build the driver once, and hand every test the path to it.
+/// Build the driver once per test run, and hand every test the path to it.
 ///
-/// `OnceLock` rather than a per-test build: `cc` on the driver plus a 6 MB
-/// archive is about a second, and paying it once for the suite is the
-/// difference between a test file that is worth running and one that is not.
+/// `cc` on the driver plus a 6 MB archive is about a second. nextest runs each
+/// test in a process of its own, so a build per process was a build per test.
+/// The directory is named for the run (`sweep::run_name`). The first process
+/// to take its lock builds, and every later one waits for the lock and finds
+/// the driver built.
 fn driver() -> &'static Path {
     static BUILT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     BUILT.get_or_init(|| {
-        let dir = workspace();
+        crate::sweep::once();
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("runtime-driver-{}", crate::sweep::run_name()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lock =
+            std::fs::File::options().create(true).append(true).open(dir.join("lock")).unwrap();
+        lock.lock().unwrap();
+        let binary = dir.join("driver");
+        let built = dir.join("built");
+        if built.exists() {
+            return binary;
+        }
         let archive = crate::shared::runtime_archive();
         let source = dir.join("driver.c");
-        let binary = dir.join("driver");
         std::fs::write(&source, DRIVER).unwrap();
 
         // `build/link.rs`'s own driver and trailing arguments
@@ -80,6 +89,8 @@ fn driver() -> &'static Path {
             "cc failed to link the driver against {ARCHIVE_NAME}:\n{}",
             String::from_utf8_lossy(&out.stderr)
         );
+        crate::sweep::kept::settle(&binary);
+        std::fs::write(&built, "").unwrap();
         binary
     })
 }

@@ -1,8 +1,8 @@
-// EXPECT: `println` needs `Stdout`, which this context does not bind
+// EXPECT: `Scoped<a context>` does not implement `Stdout`
 //
 // `Scoped<C>` is a `Stdout` only where `C` is one, so the context `scoped`
-// wraps has to bind it. The diagnostic lands on this file's call, not inside
-// `core/alloc` where the missing binding is finally asked for.
+// wraps has to bind it. The diagnostic lands on this file's call, at type
+// check, rather than inside `core/alloc` where the binding is finally used.
 from "core/alloc" import * as alloc;
 from "core/io" import * as io;
 from "node" import { NodeHost };

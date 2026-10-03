@@ -1,8 +1,0 @@
-error: `Alloc` is not a declared effect [unknown-effect]
- --> cmd/renamed_effect_in_a_context/main.buri:8:23
-  |
-8 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  |                       ^^^^^
-  |
-  = `Alloc` was renamed to `Allocator`
-  = fix: write `Allocator`

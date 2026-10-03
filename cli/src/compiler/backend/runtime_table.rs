@@ -509,22 +509,6 @@ pub const ENTRIES: &[Entry] = &[
     e("list.repeat", &[Dropped, Spilled, Scalar, Stride, Retain], Ret::Out),
     e("list.range", &[Dropped, Scalar, Scalar], Ret::Out),
     e("list.join", &[List, Dropped, Str], Ret::Out),
-    // -- the closure trampoline, and its one pilot key ----------------------
-    //
-    // `list.mapCtxStep` is `list.mapCtx` with its step reached through the
-    // C-ABI entry thunk of [`Extra::Step`] instead of through the loop
-    // `stencil/lists.rs` open-codes. It is the *pilot* for that mechanism and
-    // nothing in `core/list` uses it: those combinators keep their loops, which
-    // are faster than a call per element can be.
-    //
-    // So this row landed to be *called*, by a conformance fixture and by an
-    // agreement row, before there was anything else to call it with. The
-    // alternative was landing the boundary underneath `Tasks.parallel` and
-    // debugging two new things at once. `host.HostTasks.parallel` is that
-    // second key and it is in the `platform/host` block below, beside the rest of
-    // the host surface rather than up here — the trampoline is a mechanism, not
-    // a section of this table.
-    e("list.mapCtxStep", &[Elems, Dropped, Step], Ret::Out),
     // -- core/bytes ---------------------------------------------------------
     //
     // Six of `bytes.buri`'s surface, and the rest of that module is Buri:
@@ -1559,9 +1543,9 @@ mod tests {
                 (None, Some(_)) => panic!("{} is runtime-driven and has no `Arg::Step`", e.key),
             }
         }
-        // Three steps, the graph's two deferred bodies and the renderer's
+        // Two steps, the graph's two deferred bodies and the renderer's
         // `reactive`, three walks and five kept handlers.
-        assert_eq!(checked, 14);
+        assert_eq!(checked, 13);
     }
 
     /// The module a key's first segment names, for the keys whose operations
@@ -1693,7 +1677,7 @@ mod tests {
         }
         // A scan that matched nothing would pass every assertion above.
         assert!(checked > 140, "only {checked} rows were read against a declaration");
-        assert_eq!(contexts, 51);
+        assert_eq!(contexts, 50);
     }
 
     /// The two places a context sits, by example, so that the indices are
