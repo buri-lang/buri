@@ -362,7 +362,7 @@ pub fn net_intrinsic(key: &str) -> bool {
 /// Whether an intrinsic key is one only a `crypto` runtime answers.
 ///
 /// `Entropy`, matched on the effect for [`net_intrinsic`]'s reason, and
-/// `core/crypto`'s four `ring` entries by name.
+/// `core/crypto`'s five `ring` entries by name.
 ///
 /// **`host_testing.TestEntropy.*` is deliberately not here.** The test
 /// platform's `Entropy` is seeded, its body is in `cli/runtime/testing.rs`
@@ -372,7 +372,7 @@ pub fn net_intrinsic(key: &str) -> bool {
 /// `host_testing.TestFileSystem` are on: two implementations of one effect, and only
 /// one of them needs the world.
 pub fn crypto_intrinsic(key: &str) -> bool {
-    // `core/crypto`'s four `ring` entries (`cli/runtime/crypto.rs`). Named one
+    // `core/crypto`'s five `ring` entries (`cli/runtime/crypto.rs`). Named one
     // by one, because the rest of the module is Buri and reaches no feature.
     if matches!(
         key,
@@ -380,6 +380,7 @@ pub fn crypto_intrinsic(key: &str) -> bool {
             | "crypto.chacha20Poly1305Open"
             | "crypto.ecdsaP256Sha256Verify"
             | "crypto.ed25519Verify"
+            | "crypto.rsaPkcs1Sha256Verify"
     ) {
         return true;
     }
@@ -610,6 +611,7 @@ mod tests {
         assert!(crypto_intrinsic("host.HostEntropy.bytes"));
         assert!(crypto_intrinsic("crypto.chacha20Poly1305Seal"));
         assert!(crypto_intrinsic("crypto.ed25519Verify"));
+        assert!(crypto_intrinsic("crypto.rsaPkcs1Sha256Verify"));
         for key in [
             "host_testing.TestEntropy.bytes",
             "host_testing.entropy",

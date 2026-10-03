@@ -320,8 +320,9 @@ tiny-skia = { version = "=0.12.0", optional = true, default-features = false, fe
 # capability question for every program, and the answer for the overwhelming
 # majority of them would be yes.
 #
-# It also turns on `ring`, for `core/crypto`'s `seal`, `open`, `verifyEs256`
-# and `verifyEd25519` (`crypto.rs`). A default toolchain already carries
+# It also turns on `ring`, for `core/crypto`'s `seal`, `open`, `verifyEs256`,
+# `verifyRs256` and `verifyEd25519` (`crypto.rs`), with `ring`'s `alloc`
+# feature, which is where its RSA lives. A default toolchain already carries
 # `ring` for `net`, so that costs nothing there; a `net`-off, `crypto`-on
 # archive pays `ring`'s object code, and `cli/build.rs` gives `crypto` the same
 # C-compiler probe `net` has. The interesting half of the decision is the
@@ -349,7 +350,7 @@ tiny-skia = { version = "=0.12.0", optional = true, default-features = false, fe
 default = ["net", "crypto", "paint"]
 net = ["dep:tokio", "dep:hyper", "dep:rustls", "dep:ring", "dep:tungstenite"]
 net-h3 = ["net", "dep:quinn"]
-crypto = ["dep:getrandom", "dep:ring"]
+crypto = ["dep:getrandom", "dep:ring", "ring/alloc"]
 paint = ["dep:taffy", "dep:cosmic-text", "dep:tiny-skia"]
 
 # The flags that used to be spelled out in `cli/build.rs`'s `rustc` command

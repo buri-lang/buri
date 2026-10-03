@@ -662,8 +662,9 @@ const PACKAGES: &[Case] = &[
     // `cli/runtime/testing.rs`, so the sequence this file writes down is the
     // one both backends draw.
     included("crypto/entropy.buri"),
-    // `seal`, `open` and the two signature checks: `cli/runtime/crypto.rs`
-    // through `ring`, held to the same RFC vectors `runtime.js` is.
+    // `seal`, `open` and the three signature checks: `cli/runtime/crypto.rs`
+    // through `ring`, held to the same RFC and Wycheproof vectors `runtime.js` is.
+    included("crypto/rs256_wycheproof.buri"),
     included("crypto/seal.buri"),
     included("crypto/signatures.buri"),
     // `Generator`, which is ordinary Buri and reaches no host: U64 wrapping

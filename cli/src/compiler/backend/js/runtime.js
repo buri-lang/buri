@@ -2533,7 +2533,8 @@ function $host_HostEntropy_bytes(self, count) {
 // handed to WebCrypto, because `crypto.subtle` is promise-shaped and these are
 // ordinary synchronous functions, and because WebCrypto has no ChaCha20 at all.
 // The native runtime answers the same keys through `ring`, and both are checked
-// against the RFC 8439, RFC 8032 and RFC 7515 vectors in the conformance corpus.
+// against the RFC 8439, RFC 8032 and RFC 7515 vectors and a Wycheproof subset in
+// the conformance corpus.
 //
 // Nothing below branches on a secret except Poly1305's BigInt arithmetic, whose
 // timing depends on the one-time key's magnitude and nothing an attacker picks.
@@ -2651,7 +2652,7 @@ function $crypto_chacha20Poly1305Open(_c, key, nonce, sealed, aad) {
   return $chachaXor(key, nonce, ciphertext);
 }
 
-// SHA-256 and SHA-512, for the two signature checks to hash with. `core/crypto`
+// SHA-256 and SHA-512, for the signature checks to hash with. `core/crypto`
 // has its own in Buri; the runtime cannot call back into it.
 const $sha256K = Uint32Array.from([
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -2939,6 +2940,39 @@ function $crypto_ed25519Verify(key, message, signature) {
   const check = $edEncode($edAdd($edMultiply(s, base), $edMultiply(h, minusA)));
   let diff = 0;
   for (let i = 0; i < 32; i++) diff |= check[i] ^ r[i];
+  return diff === 0;
+}
+
+// RSASSA-PKCS1-v1_5 with SHA-256, refusing what `ring`'s
+// `RSA_PKCS1_2048_8192_SHA256` refuses. `n` and `e` are big-endian.
+const $rsaSha256DigestInfo = [
+  0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05,
+  0x00, 0x04, 0x20,
+];
+
+function $crypto_rsaPkcs1Sha256Verify(n, e, message, signature) {
+  const k = n.length;
+  // An odd modulus with no leading zero, 256 to 1024 octets: `ring` measures
+  // the lower bound in whole octets.
+  if (k < 256 || k > 1024 || n[0] === 0 || (n[k - 1] & 1) === 0) return false;
+  // An odd exponent with no leading zero, in [3, 2^33).
+  if (e.length === 0 || e.length > 5 || e[0] === 0) return false;
+  const exponent = $cryptoBe(e, 0, e.length);
+  if (exponent < 3n || exponent >= 1n << 33n || (exponent & 1n) === 0n) return false;
+  if (signature.length !== k) return false;
+  const modulus = $cryptoBe(n, 0, k);
+  const s = $cryptoBe(signature, 0, k);
+  if (s === 0n || s >= modulus) return false;
+  let m = $cryptoPow(s, exponent, modulus);
+  // The whole encoding is rebuilt and compared, so nothing in it is parsed.
+  const expected = [0, 1]
+    .concat(new Array(k - 3 - $rsaSha256DigestInfo.length - 32).fill(0xff), [0])
+    .concat($rsaSha256DigestInfo, $sha256(message));
+  let diff = 0;
+  for (let i = k - 1; i >= 0; i--) {
+    diff |= Number(m & 0xffn) ^ expected[i];
+    m >>= 8n;
+  }
   return diff === 0;
 }
 
