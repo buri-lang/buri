@@ -631,7 +631,6 @@ pub struct Answer {
     /// What the last exchange was cached under: the tool, and the request
     /// with every file it read.
     pub key: ActionKey,
-    pub line: String,
     pub value: Value,
     /// Every path the tool asked for, found or not.
     pub asked: BTreeSet<String>,
@@ -698,17 +697,15 @@ pub fn exchange(
             true => None,
             false => cache.get(&key).and_then(|b| String::from_utf8(b).ok()),
         };
+        let ran = cached.is_none();
         let line = match cached {
             Some(line) => line,
-            None => {
-                let path = artifact(session, ask.tool, flags)?;
-                let line = crate::build::generators::run_artifact(&path, &request)?;
-                crate::json::parse(&line).map_err(|e| format!("the tool's answer is not JSON: {e}"))?;
-                cache.put(&key, line.as_bytes());
-                line
-            }
+            None => crate::build::generators::run_artifact(&artifact(session, ask.tool, flags)?, &request)?,
         };
         let value = crate::json::parse(&line).map_err(|e| format!("the tool's answer is not JSON: {e}"))?;
+        if ran {
+            cache.put(&key, line.as_bytes());
+        }
         let mut fresh = false;
         for need in value.get("needs").and_then(Value::as_array).unwrap_or_default() {
             let Some(need) = need.as_str() else { continue };
@@ -725,7 +722,7 @@ pub fn exchange(
         }
         if !fresh {
             let asked = files.into_keys().collect();
-            return Ok(Answer { key, line, value, asked, outside });
+            return Ok(Answer { key, value, asked, outside });
         }
     }
     Err("the tool kept asking for more files".to_string())
@@ -749,32 +746,6 @@ fn local(path: &str) -> Option<String> {
         }
     }
     (!out.is_empty()).then(|| out.join("/"))
-}
-
-/// A tool's diagnostics, as generator diagnostics: the shape `core/tool`
-/// shares with `core/codegen`.
-fn diagnostics(value: &Value) -> Vec<crate::build::generators::Diagnostic> {
-    let text = |d: &Value, name| d.get(name).and_then(Value::as_str).map(str::to_string);
-    value
-        .get("diagnostics")
-        .and_then(Value::as_array)
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|d| {
-            let origin = d.get("origin").and_then(|o| {
-                let span = o.get("span")?;
-                let offset = |n| span.get(n).and_then(Value::as_u32).map(|n| n as usize);
-                Some(crate::build::generators::Origin { file: text(o, "file")?, span: (offset("start")?, offset("end")?) })
-            });
-            Some(crate::build::generators::Diagnostic {
-                code: text(d, "code")?,
-                message: text(d, "message")?,
-                note: text(d, "note"),
-                fix: text(d, "fix"),
-                origin,
-            })
-        })
-        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -824,9 +795,11 @@ pub fn check_file(
     fields.push(("value", Value::str(text)));
     let one = Value::object(fields);
     let ask = Ask { tool, entry: "check", fields: vec![("inputs", Value::Array(vec![one]))], label: rel };
-    Some(match exchange(session, &ask, read, flags) {
-        Ok(answer) => {
-            let mut findings: Vec<Finding> = diagnostics(&answer.value)
+    let answer = exchange(session, &ask, read, flags)
+        .and_then(|a| Ok((crate::build::generators::diagnostics(&a.value)?, a)));
+    Some(match answer {
+        Ok((diagnostics, answer)) => {
+            let mut findings: Vec<Finding> = diagnostics
                 .into_iter()
                 .map(|d| {
                     let (file, span) = d.origin.map_or((rel.to_string(), (0, 0)), |o| (o.file, o.span));
