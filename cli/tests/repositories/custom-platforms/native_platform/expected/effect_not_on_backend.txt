@@ -1,0 +1,13 @@
+error: `location` is a `HostLocation`, and the NATIVE backend has no implementation of `Location` [effect-not-on-backend]
+ --> platform/lambda/platform.buri:7:5
+  |
+7 |     export location: HostLocation,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = `JS` lacks `Listen` and `Tcp`, and `NATIVE` lacks `Location`
+  = fix: drop the field from `//platform/lambda`'s host, or build the entry with the other backend
+
+    A host's fields are production values its entry's backend supplies. Both
+    backends implement every bundled effect, except that JS holds no port open
+    and dials no raw socket, and only a page has a Location.
+

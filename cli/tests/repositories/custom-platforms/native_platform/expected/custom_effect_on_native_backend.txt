@@ -1,0 +1,22 @@
+error: `dice` is a `HostDice`, which `//platform/lambda` declares itself, and a `NATIVE` entry has no `js` file to implement it [custom-effect-on-native-backend]
+ --> platform/lambda/platform.buri:8:5
+  |
+8 |     export dice: HostDice,
+  |     ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = a platform implements an effect the backend lacks in its entry's `js` file, and only a `JS` entry has one
+  = fix: build the entry with `backend: JS`, or drop the field and ship ordinary functions over the bundled effects
+
+    A native platform offers the bundled effects only. It ships functions over
+    them instead, tested with platform/effect/testing like any other code:
+
+      export struct LambdaHost {
+          export alloc: HostAllocator,
+          export net: HostNetwork,
+          export env: HostEnvironment,
+      }
+
+      export fn next<C: Allocator + Network + Environment>(ctx: C): Result<Str, Str> {
+          .Err("not yet")
+      }
+

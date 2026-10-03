@@ -1516,8 +1516,16 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     /// Whether the body being checked is one of the two layers that may call an
     /// effect method directly.
+    ///
+    /// A repository's effect package is the first layer's counterpart: its
+    /// wrapper functions are what every caller hands a context to.
     fn may_call_effect_method(&self) -> bool {
-        matches!(self.role, Role::Std | Role::Platform) || self.in_effect_impl
+        matches!(self.role, Role::Std | Role::Platform)
+            || self.in_effect_impl
+            || crate::compiler::semantics::resolve::is_effect_package_module(
+                self.c.ws,
+                self.c.loaded.module(self.module),
+            )
     }
 
     /// The type arguments `x.f<A, B>(…)` supplies, as a whole trait-method

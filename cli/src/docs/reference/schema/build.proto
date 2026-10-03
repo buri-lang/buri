@@ -251,8 +251,11 @@ message Generator {
 }
 
 message Output {
-  // A platform bundled with the toolchain: `"native"`, `"node"` or `"web"`.
-  // Every library in the transitive closure must admit it.
+  // A platform bundled with the toolchain, `"native"`, `"node"` or `"web"`,
+  // or a label naming the repository's own, `"//platform/cloudflare_worker"`.
+  // Every library in the transitive closure must admit it. An output of a
+  // repository platform builds every entry it declares, each to a file named
+  // after the entry, under `.buri/out/platform/<name>/`.
   string platform = 1;
 
   // One of the variants the platform's entries declare. Required when an entry
@@ -299,16 +302,23 @@ enum Backend {
 
 // A platform: the entries it offers, and how an output of it may be built.
 // `native`, `node` and `web` are rules like this one, bundled with the
-// toolchain.
+// toolchain. Its `platform.buri` declares the host type, each entry without a
+// body, and the platform's own production structs. See `buri docs
+// build/platforms`.
 message Platform {
+  // The rule's `.buri` files beside `platform.buri`.
   repeated string sources = 1;
 
+  // The libraries `platform.buri` imports, such as the effect packages its
+  // host offers. An output's platform is a dependency of its binary without
+  // being listed there.
   repeated string dependencies = 2;
 
   // The entries outputs of this platform fill.
   repeated Entry entry = 4;
 
-  // Files the platform adds to every output.
+  // Files the platform adds to every output, copied beside its artifacts at
+  // their own paths.
   repeated string assets = 5;
 
   // Field 3 was `variants`, now on each `entry`. The number is not reused.
@@ -322,11 +332,18 @@ message Platform {
 
     Backend backend = 2;
 
-    // JS only: the adapter the host calls.
+    // JS only: the adapter the host calls. The CLI bundles it with the
+    // compiled entry, which it imports from `buri:program`. An export named
+    // after one of the platform's production structs implements that
+    // struct's bodiless methods, and every other export is the artifact's.
+    // Without one, the entry starts itself, so it takes the program
+    // signature, `fn(host: H): Result<(), Str>`.
     string js = 3;
 
     // Names an output picks between with `variant`. A variant changes how an
-    // output is built, never what it may use.
+    // output is built, never what it may use. A `NATIVE` entry reads its
+    // target from one, as `linux-arm64`, and builds the host's where there are
+    // none.
     repeated string variants = 4;
 
     // An output must pick one of `variants`.

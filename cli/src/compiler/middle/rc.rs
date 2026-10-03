@@ -2177,7 +2177,11 @@ pub fn parkability(program: &Program) -> Parking {
             .funcs
             .iter()
             .map(|f| match &f.kind {
-                FuncKind::Intrinsic(key) => suspends(key),
+                // A method a platform's `js` file implements may suspend, and
+                // nothing in the file says whether it does: always awaited.
+                FuncKind::Intrinsic(key) => {
+                    suspends(key) || program.hosted.js_implemented.contains(key)
+                }
                 FuncKind::Unbuilt | FuncKind::Body(_) => false,
             })
             .collect(),
@@ -6560,6 +6564,7 @@ export fn main(host: NodeHost): Result<(), Str> {
             icons: false,
             themes: false,
             chunks: Vec::new(),
+            hosted: Default::default(),
         }
     }
 

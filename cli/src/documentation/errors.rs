@@ -98,6 +98,11 @@ pub const ERRORS: &[ErrorDoc] = &[
         "A program that needs unguessable randomness needs a toolchain built with cryptography"
     ),
     e!("ctx-not-first", "`ctx` comes first, or immediately after `self`"),
+    e!(
+        "custom-effect-on-native-backend",
+        "Only a `JS` entry offers an effect its platform implements",
+        &["build/platforms"]
+    ),
     e!("declaration-without-a-body", "A declaration outside a trait or effect has a body"),
     e!("derive-not-a-trait", "A `derive` names a declared trait"),
     e!("derive-only-trait", "Some traits are derived, never implemented", &["reference/standard-library"]),
@@ -127,7 +132,9 @@ pub const ERRORS: &[ErrorDoc] = &[
         "A platform grants the effects its host exports",
         &["build/build-files"]
     ),
-    e!("effect-outside-platform", "Only a platform module declares an effect"),
+    e!("effect-not-on-backend", "A host offers only what its backend implements", &["build/platforms"]),
+    e!("effect-outside-effect-directory", "An effect lives in an effect package", &["build/platforms"]),
+    e!("effect-without-test-implementation", "An effect has a test implementation beside it", &["build/platforms"]),
     e!("effect-param-not-ctx", "An effect-carrying parameter is `self` or `ctx`"),
     e!("entry-declaration-imported", "A platform's entry is filled, not called", &["language/effects"]),
     e!("entry-host-mismatch", "An entry takes the host of the platform it is built for", &["build/build-files"]),
@@ -148,6 +155,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("generator-module-taken", "A generated module has a name nothing else uses", &["build/generators"]),
     e!("generator-without-a-tool", "A generator names the program that runs it", &["build/generators"]),
     e!("generic-effect-unsupported", "A trait or an effect takes no type parameters of its own"),
+    e!("host-file-incomplete", "A `js` file implements every method its structs declare", &["build/platforms"]),
     e!("host-import-outside-platform", "Only a platform names the backends' production values", &["language/effects"]),
     e!(
         "icon-not-drawable",
@@ -252,6 +260,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("pattern-not-a-tuple", "A tuple pattern matches a tuple of that arity"),
     e!("pattern-not-an-array", "An array pattern matches an array"),
     e!("pattern-type-mismatch", "A pattern matches the shape of the scrutinee"),
+    e!("platform-cannot-run", "`buri run` runs an entry that starts itself", &["build/platforms"]),
     e!("platform-not-implemented", "A test runs only on a platform this toolchain can build", &["build/tags"]),
     e!("platform-required-and-forbidden", "A tag never requires and forbids the same platform", &["build/tags"]),
     e!("platform-testing-only-import", "Only an effect's testing surface keeps state", &["build/libraries"]),
@@ -341,6 +350,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("tuple-struct-not-called", "A tuple struct's name constructs one"),
     e!("tuple-type-arity", "A tuple type has two elements or more"),
     e!("turbofish", "Type arguments are written without `::`"),
+    e!("type-cannot-cross", "A value crosses to a `js` file by the crossing table", &["build/platforms"]),
     e!("type-args-on-a-value", "Type arguments qualify a function, not a value"),
     e!("type-argument-arity", "A type's arguments are named in full or not at all"),
     e!("type-argument-count", "A type is written with the arguments its declaration takes"),

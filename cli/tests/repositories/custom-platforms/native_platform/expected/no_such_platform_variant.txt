@@ -1,0 +1,19 @@
+error: `linux-arm46` is not a variant of `//platform/lambda` [no-such-platform-variant]
+ --> cmd/hello/BUILD.buri:3:51
+  |
+3 |         { platform: "//platform/lambda", variant: "linux-arm46" },
+  |                                                   ^^^^^^^^^^^^^
+  |
+  = available: linux-arm64, macos-arm64
+  = fix: did you mean `"linux-arm64"`?
+
+      binary {
+          outputs: [
+              { platform: "native", variant: "linux-x86_64" },
+          ]
+      }
+
+    native's variants are linux-arm64, linux-x86_64, macos-arm64 and
+    macos-x86_64. node and web have none, so an output of either names no
+    variant.
+

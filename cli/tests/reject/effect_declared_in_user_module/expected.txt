@@ -1,20 +1,19 @@
-error: only a platform module may declare an effect [effect-outside-platform]
+error: an effect is declared only in an effect package, under `//platform/effect/` [effect-outside-effect-directory]
  --> cmd/effect_declared_in_user_module/main.buri:6:1
   |
 6 | effect Mischief {
   | ^^^^^^^^^^^^^^^^^
   |
-  = the set of things a Buri program can do to the world is fixed by its platform rather than open-ended
-  = fix: declare it as a plain `trait`, or move it into a platform module
+  = an effect package holds an effect, its wrapper functions and a `testing` surface, and every platform can share it
+  = fix: move it into a library under `//platform/effect/`, such as `//platform/effect/kv`, or declare it as a plain `trait`
 
-    What to do
-    ──────────
+    Move the effect, its wrapper functions and its test implementation into a
+    library of their own:
 
-    Declare it as a plain trait, or move it into a platform module.
+      platform/effect/kv/lib.buri           effect Kv, and get and put
+      platform/effect/kv/testing/lib.buri   TestKv
 
-    Why
-    ───
-
-    A program's platform fixes what it can do to the world. An effect a library
-    could declare would be authority a library could mint.
+    An effect is authority, so where one is declared is fixed. Effects live
+    apart from platforms, so two platforms can offer one effect, and a library
+    bounded by it runs on both.
 

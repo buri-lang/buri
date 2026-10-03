@@ -32,7 +32,50 @@ pub struct Artifact {
 }
 
 /// Builds one target for one output, returning the artifact's path.
+///
+/// A repository platform's `assets` land beside the artifact on every build,
+/// cached or not: they are files the platform ships, copied as they are.
 pub fn build_target(
+    session: &mut Session,
+    target: TargetId,
+    output: &Output,
+    flags: &Flags,
+) -> Result<Artifact, Diagnostics> {
+    let built = build_artifact(session, target, output, flags)?;
+    let mut diagnostics = Diagnostics::new();
+    if !copy_assets(session, target, output, &mut diagnostics) {
+        return Err(diagnostics);
+    }
+    Ok(built)
+}
+
+/// Every `assets` file of the platform an output names, copied into the
+/// output's directory at its own path. Answers whether every one landed.
+fn copy_assets(session: &Session, target: TargetId, output: &Output, diagnostics: &mut Diagnostics) -> bool {
+    let Some(custom) = &output.custom else { return true };
+    let Some((pid, rule)) = session.workspace.platform_rule(&custom.label.value) else { return true };
+    let from = &session.workspace.package(pid).dir;
+    let path = artifact_path(session, target, output);
+    let Some(into) = path.parent() else { return true };
+    for asset in &rule.assets {
+        let destination = into.join(&asset.value);
+        if let Some(parent) = destination.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(e) = std::fs::copy(from.join(&asset.value), &destination) {
+            diagnostics.push(
+                Diagnostic::templated("no-such-source", asset.span)
+                    .with_bind("source", asset.value.as_str())
+                    .with_bind("field", "assets")
+                    .with_note(format!("copying it failed: {e}")),
+            );
+            return false;
+        }
+    }
+    true
+}
+
+fn build_artifact(
     session: &mut Session,
     target: TargetId,
     output: &Output,
@@ -270,6 +313,15 @@ pub fn compile_artifact(
 ) -> Result<Compiled, Diagnostics> {
     let platform = output.platform();
     let (analysis, mut program) = monomorphized_entry(session, target, output, diagnostics)?;
+    // An entry of a repository platform hands itself to its `js` file, which
+    // is read and checked here and bundled with the program below.
+    let host_file = match &output.custom {
+        Some(custom) => host_file(session, custom, &analysis, output.span, diagnostics)?,
+        None => None,
+    };
+    if let (Some(custom), Some(_)) = (&output.custom, &host_file) {
+        program.hosted.export = Some(custom.point.clone());
+    }
     // The arch is `None` until a native backend has one to vary on: every
     // `Output` carries it and it is already in every key, but nothing below
     // here reads it while the only backend is JavaScript.
@@ -281,7 +333,128 @@ pub fn compile_artifact(
     let stylesheet = program.stylesheet.clone();
     let (module, chunks) =
         emit_all(&mut program, &analysis.checked.tables, target, flags, diagnostics)?;
+    let module = match host_file {
+        Some(file) => crate::build::hosted::bundle(&module, &file.text, &file.exports, &file.structs),
+        None => module,
+    };
     Ok(Compiled { module, stylesheet, chunks })
+}
+
+/// An entry's `js` file, read and held to the production structs it
+/// implements.
+struct HostFile {
+    text: String,
+    exports: crate::build::hosted::Exports,
+    /// The names of the structs it implements.
+    structs: Vec<String>,
+}
+
+/// The production structs a repository platform's entry is handed that its
+/// `js` file implements: the platform's own, each with the methods it
+/// declares without a body.
+fn needed_structs(
+    analysis: &crate::compiler::driver::Analysis,
+    custom: &crate::build::buildfile::CustomPlatform,
+) -> Vec<crate::build::hosted::Needed> {
+    use crate::compiler::semantics::resolve::Sym;
+    use crate::compiler::semantics::types::Ty;
+    let tables = &analysis.checked.tables;
+    let Some(platform) = analysis.loaded.find(&format!("//{}/platform.buri", custom.package_path())) else {
+        return Vec::new();
+    };
+    let Some(Sym::Fn(decl)) =
+        analysis.checked.scopes.get(platform.index()).and_then(|s| s.own.get(&custom.point)).cloned()
+    else {
+        return Vec::new();
+    };
+    let Some(Ty::Con(host, _)) = tables.fn_info(decl).params.first().map(|p| p.ty.clone()) else {
+        return Vec::new();
+    };
+    if tables.tycon(host).module != platform {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for field in tables.tycon(host).fields() {
+        let Ty::Con(con, _) = &field.ty else { continue };
+        if tables.tycon(*con).module != platform {
+            continue;
+        }
+        let methods: Vec<crate::build::hosted::Method> = tables
+            .fns
+            .iter()
+            .filter(|f| f.self_ty == Some(*con) && f.intrinsic)
+            .map(|f| crate::build::hosted::Method {
+                name: f.name.clone(),
+                params: f.params.len(),
+                effect: f.impl_of.map(|(t, _)| tables.trait_(t).name.clone()).unwrap_or_default(),
+            })
+            .collect();
+        if !methods.is_empty() {
+            out.push(crate::build::hosted::Needed { name: tables.tycon(*con).name.clone(), methods });
+        }
+    }
+    out
+}
+
+/// Reads and checks an entry's `js` file: every production struct the entry's
+/// host holds of the platform's own is exported with every method, at the
+/// right number of parameters. `None` for an entry with no `js` file and no
+/// such struct, which starts itself.
+fn host_file(
+    session: &mut Session,
+    custom: &crate::build::buildfile::CustomPlatform,
+    analysis: &crate::compiler::driver::Analysis,
+    span: Span,
+    diagnostics: &mut Diagnostics,
+) -> Result<Option<HostFile>, Diagnostics> {
+    if custom.backend != crate::build::buildfile::Backend::Js {
+        return Ok(None);
+    }
+    let needed = needed_structs(analysis, custom);
+    let Some(js) = &custom.js else {
+        if let Some(first) = needed.first() {
+            diagnostics.push(
+                Diagnostic::templated("host-file-incomplete", span)
+                    .with_bind("file", custom.point.as_str())
+                    .with_bind("gap", format!("has no `js` file to implement `{}`", first.name))
+                    .with_note(
+                        "a method `platform.buri` declares without a body is the entry's `js` \
+                         file's to implement",
+                    ),
+            );
+            return Err(std::mem::take(diagnostics));
+        }
+        return Ok(None);
+    };
+    let Some((pid, _)) = session.workspace.platform_rule(&custom.label.value) else { return Ok(None) };
+    let disk = session.workspace.package(pid).dir.join(js);
+    let rel = session.workspace.rel_of(&disk);
+    let file = match session.map.load(&rel, &disk) {
+        Ok(file) => file,
+        Err(e) => {
+            diagnostics.push(
+                Diagnostic::error(span, format!("cannot read {rel}: {e}"))
+                    .with_fix("check the `js` file the platform's entry names exists"),
+            );
+            return Err(std::mem::take(diagnostics));
+        }
+    };
+    let text = session.map.text(file).to_string();
+    let exports = crate::build::hosted::read(&text);
+    let gaps = crate::build::hosted::gaps(&exports, &needed);
+    for gap in &gaps {
+        let mut d = Diagnostic::templated("host-file-incomplete", Span::new(file, gap.at, gap.at))
+            .with_bind("file", js.as_str())
+            .with_bind("gap", gap.gap.as_str());
+        if let Some(note) = &gap.note {
+            d = d.with_note(note.clone());
+        }
+        diagnostics.push(d);
+    }
+    if !gaps.is_empty() {
+        return Err(std::mem::take(diagnostics));
+    }
+    Ok(Some(HostFile { text, exports, structs: needed.into_iter().map(|n| n.name).collect() }))
 }
 
 /// The first byte at which two artifacts differ, or `None` when they are the
@@ -326,10 +499,47 @@ pub fn action_key(
     }
     // Every target in the closure contributes its identity and its sources,
     // in a deterministic order.
-    for member in session.workspace.closure(target) {
-        contribute(session, member, &mut k);
+    let closure = session.workspace.closure(target);
+    for member in &closure {
+        contribute(session, *member, &mut k);
+    }
+    // Every repository platform the binary's outputs name: its build file, its
+    // `platform.buri` and sources, its `js` files and assets, and the
+    // libraries it depends on. An edit to any of them is an edit to every
+    // output built for it.
+    for label in session.workspace.custom_platforms(target) {
+        contribute_platform(session, &label, &closure, &mut k);
     }
     k.finish()
+}
+
+/// One repository platform's contribution to a key. See [`action_key`].
+fn contribute_platform(session: &Session, label: &str, closure: &[TargetId], k: &mut KeyBuilder) {
+    let workspace = &session.workspace;
+    let Some((pid, rule)) = workspace.platform_rule(label) else { return };
+    let package = workspace.package(pid);
+    let mut files: Vec<String> = vec![String::from("BUILD.buri"), String::from("platform.buri")];
+    files.extend(rule.sources.iter().map(|s| s.value.clone()));
+    files.extend(rule.entries.iter().filter_map(|e| e.js.as_ref().map(|j| j.value.clone())));
+    files.extend(rule.assets.iter().map(|a| a.value.clone()));
+    files.sort();
+    files.dedup();
+    k.rule_identity(&package.label(), "platform", &files);
+    for rel in &files {
+        let disk = package.dir.join(rel);
+        k.file(&workspace.rel_of(&disk), std::fs::read(&disk).ok().as_deref());
+    }
+    let mut members: Vec<TargetId> = Vec::new();
+    for dep in &rule.dependencies {
+        if let Some(t) = workspace.dep_target(&dep.value) {
+            members.extend(workspace.closure(t));
+        }
+    }
+    members.sort();
+    members.dedup();
+    for member in members.into_iter().filter(|m| !closure.contains(m)) {
+        contribute(session, member, k);
+    }
 }
 
 /// One target's own contribution to a key: its rule identity, and the contents
@@ -1911,9 +2121,12 @@ pub fn artifact_path(session: &Session, target: TargetId, output: &Output) -> Pa
     // An output that enters somewhere other than `main` is named after the
     // function it enters through, because two outputs of one binary otherwise
     // write one path. One entering through `main` keeps the directory's name.
-    let default = match output.entry_name() {
-        "main" => dir_name,
-        entry => entry.to_string(),
+    // A repository platform's entry is named after the platform's entry,
+    // whichever function fills it: `fetch.mjs`.
+    let default = match (&output.custom, output.entry_name()) {
+        (Some(custom), _) => custom.point.clone(),
+        (None, "main") => dir_name,
+        (None, entry) => entry.to_string(),
     };
     let base = output.artifact_name.clone().unwrap_or(default);
     // The catch-all this used to end in would have given a WEB artifact no

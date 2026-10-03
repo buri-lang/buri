@@ -26,6 +26,9 @@ impl<'a> Gen<'a> {
         args: &[Expr],
         f: &Func,
     ) -> Option<Expr> {
+        if self.program.hosted.js_implemented.contains(key) {
+            return self.js_implemented(key, args, f);
+        }
         let parts: Vec<&str> = key.split('.').collect();
         match parts.as_slice() {
             ["number", ty, name] => return self.numeric(ty, name, args),
