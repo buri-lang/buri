@@ -266,6 +266,31 @@ pub struct Program {
     /// that has no second file to put one in — `middle::chunks` is what fills
     /// it, and it is the only thing that does.
     pub chunks: Vec<Chunk>,
+    /// What a repository platform's `js` file stands in for: the methods it
+    /// implements, and what the artifact hands it.
+    pub hosted: Hosted,
+}
+
+/// A program built for a repository platform, as far as its `js` file is
+/// concerned.
+///
+/// Empty for every other program, which is nearly all of them.
+#[derive(Clone, Debug, Default)]
+pub struct Hosted {
+    /// The intrinsic keys a platform's `js` file implements: every method a
+    /// repository's `platform.buri` declares without a body, such as
+    /// `//platform/cloudflare_worker.HostKv.get`.
+    ///
+    /// A call to one may suspend on JavaScript, so `middle::rc` seeds its
+    /// parking column with them as it does with the host's blocking keys.
+    pub js_implemented: std::collections::BTreeSet<String>,
+    /// `platform/effect`'s `Request` and `Response`, which cross as the Fetch
+    /// standard's.
+    pub request: Option<TyConId>,
+    pub response: Option<TyConId>,
+    /// The name the artifact hands its entry to the `js` file under, in place
+    /// of starting itself. Set by the build for an entry with a `js` file.
+    pub export: Option<String>,
 }
 
 /// One lazily loaded chunk: the function `core/lazy`'s `load` was handed, and
@@ -478,6 +503,8 @@ pub struct Monomorphizer<'a> {
     /// adapter's parameters have to be entries in the table of the function
     /// the adapter is written into.
     locals: Vec<typed::Local>,
+    /// See [`Hosted::js_implemented`].
+    js_implemented: std::collections::BTreeSet<String>,
 }
 
 pub fn run(
@@ -499,6 +526,7 @@ pub fn run(
         module_paths,
         taken: HashMap::default(),
         locals: Vec::new(),
+        js_implemented: std::collections::BTreeSet::new(),
     };
 
     let program_roots = match roots {
@@ -614,7 +642,21 @@ pub fn run(
         // inlining and dead-code elimination have settled which functions
         // there still are.
         chunks: Vec::new(),
+        hosted: Hosted {
+            request: fetch_type(&checked.tables, &m.module_paths, "Request"),
+            response: fetch_type(&checked.tables, &m.module_paths, "Response"),
+            js_implemented: m.js_implemented,
+            export: None,
+        },
     }
+}
+
+/// `platform/effect`'s `Request` or `Response`, when the program loaded it.
+fn fetch_type(tables: &Tables, module_paths: &[String], name: &str) -> Option<TyConId> {
+    tables.tycons.iter().enumerate().find_map(|(i, t)| {
+        let module = module_paths.get(t.module.index())?;
+        (t.name == name && module == "platform/effect").then_some(TyConId(i as u32))
+    })
 }
 
 /// Two functions that came out of this pass wearing one symbol.
@@ -715,6 +757,19 @@ impl<'a> Monomorphizer<'a> {
         let Some(host) = self.host_parameter(f) else { return inner };
         let info = self.tables().fn_info(f).clone();
         let span = info.span;
+        // The parameters after the host are the wrapper's own: a worker's
+        // `fetch(host, request)` is entered as `fetch(request)`.
+        let rest: Vec<typed::Local> = info
+            .params
+            .iter()
+            .skip(1)
+            .map(|p| typed::Local { name: p.name.clone(), ty: p.ty.clone(), span: p.span })
+            .collect();
+        let forwarded: Vec<typed::Expr> = rest
+            .iter()
+            .enumerate()
+            .map(|(i, l)| typed::Expr::new(ExprKind::Local(LocalId(i as u32)), l.ty.clone(), span))
+            .collect();
         let fields: Vec<typed::Expr> = self
             .tables()
             .tycon(host)
@@ -736,11 +791,10 @@ impl<'a> Monomorphizer<'a> {
             Ty::Con(host, Vec::new()),
             span,
         );
+        let mut args = vec![value];
+        args.extend(forwarded);
         let call = typed::Expr::new(
-            ExprKind::CallFn {
-                func: typed::Callee::Func(FuncIdx(inner as u32)),
-                args: vec![value],
-            },
+            ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(inner as u32)), args },
             info.ret.clone(),
             span,
         );
@@ -752,8 +806,8 @@ impl<'a> Monomorphizer<'a> {
         self.funcs.push(Func {
             symbol,
             debug_name: format!("{debug_name}, building its host"),
-            params: Vec::new(),
-            locals: Vec::new(),
+            params: (0..rest.len()).map(|i| LocalId(i as u32)).collect(),
+            locals: rest,
             kind: FuncKind::Body(call),
             ret: info.ret,
             desc: None,
@@ -762,19 +816,21 @@ impl<'a> Monomorphizer<'a> {
         slot
     }
 
-    /// The host type an entry takes, when it takes one: its one parameter is a
-    /// struct a bundled platform's `platform.buri` declares, and every field of
-    /// that struct is a struct with no fields.
+    /// The host type an entry takes, when it takes one: its first parameter is
+    /// a struct a platform's `platform.buri` declares, bundled or the
+    /// repository's own, and every field of that struct is a struct with no
+    /// fields.
     fn host_parameter(&self, f: FnId) -> Option<TyConId> {
         let info = self.tables().fn_info(f);
-        let [param] = info.params.as_slice() else { return None };
+        let param = info.params.first()?;
         let Ty::Con(con, args) = &param.ty else { return None };
         if !args.is_empty() {
             return None;
         }
         let tycon = self.tables().tycon(*con);
         let module = self.module_paths.get(tycon.module.index())?;
-        if !crate::compiler::standard_library::is_bundled_platform(module) {
+        let repository = module.starts_with("//") && module.ends_with("/platform.buri");
+        if !crate::compiler::standard_library::is_bundled_platform(module) && !repository {
             return None;
         }
         let production = tycon.fields().iter().all(|field| match &field.ty {
@@ -1134,6 +1190,13 @@ impl Monomorphizer<'_> {
                 })
                 .collect();
             let ret = substitute(&info.ret, &targs, None);
+            // A body-less declaration outside the standard library is a
+            // repository platform's, whose `js` file implements it: the parser
+            // refuses one anywhere else.
+            let module = self.module_paths.get(info.module.index());
+            if module.is_some_and(|m| m.starts_with("//")) {
+                self.js_implemented.insert(key.clone());
+            }
             let f = self.func_mut(slot);
             f.kind = FuncKind::Intrinsic(key.clone());
             f.locals = locals;
@@ -2690,6 +2753,11 @@ fn is_prim(tables: &Tables, con: TyConId) -> bool {
 /// backend's runtime table, `runtime.js` and `middle::rc::suspends` are
 /// written against, and a module moving is no reason for any of them to.
 pub fn runtime_module_key(module: &str) -> String {
+    // A repository platform's `platform.buri` keys by its label: the methods
+    // there are its `js` file's, `//platform/cloudflare_worker.HostKv.get`.
+    if let Some(label) = module.strip_suffix("/platform.buri").filter(|_| module.starts_with("//")) {
+        return label.to_string();
+    }
     match module {
         "platform/host" => String::from("host"),
         "platform/effect/testing" => String::from("host_testing"),

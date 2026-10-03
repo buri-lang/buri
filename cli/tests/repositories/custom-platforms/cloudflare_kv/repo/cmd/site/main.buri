@@ -1,0 +1,23 @@
+// cmd/site/main.buri
+from "core/net/http" import * as http;
+from "core/str" import * as str;
+from "//lib/sessions" import * as sessions;
+from "//platform/cloudflare_worker" import { CloudflareHost };
+from "//platform/effect/kv" import { Kv };
+from "platform/effect" import { Allocator, Request, Response };
+
+export fn fetch(host: CloudflareHost, request: Request): Response {
+    handle(context { Allocator: host.alloc, Kv: host.kv }, request)
+}
+
+export fn handle<C: Allocator + Kv>(ctx: C, request: Request): Response {
+    match (sessions.user(ctx, token(request))) {
+        .Some(name) => http.text(ctx, str.format(ctx, "hello ${name}")),
+        .None => http.status(401),
+    }
+}
+
+/// The session token, from the request's `x-session` header.
+fn token(request: Request): Str {
+    request.header("x-session").withDefault("")
+}

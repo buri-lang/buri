@@ -1,0 +1,16 @@
+error: //cmd/site builds `fetch` for `//platform/cloudflare_worker`, and its `js` file calls it, so there is nothing to start [platform-cannot-run]
+ --> cmd/site/BUILD.buri:7:9
+  |
+7 |         { platform: "//platform/cloudflare_worker" },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = `buri run` starts an entry with the program signature, `fn(host: H): Result<(), Str>`, with no `js` file
+  = fix: build it with `buri build //cmd/site`, and let the platform call it
+
+    An entry with a js file is called by whatever loads that file: a worker
+    runtime, a browser extension, a test script. Build it and hand the output
+    directory to that host.
+
+      buri build //cmd/site
+      bun -e 'import w from "./.buri/out/platform/cloudflare_worker/cmd/site/fetch.mjs"; ...'
+

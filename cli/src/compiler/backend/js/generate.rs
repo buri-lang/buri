@@ -18,6 +18,7 @@
 
 use crate::build::buildfile::Platform;
 use crate::compiler::backend::Profile;
+use crate::compiler::backend::js::crossing::HOSTED_PROGRAM;
 use crate::compiler::backend::js::javascript::{self, BinOp, Expr, Stmt, UnOp, VarKind};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp};
 use crate::compiler::semantics::types::{LocalId, Prim, Tables, Ty, TyDef};
@@ -509,7 +510,16 @@ pub fn generate(
         // by its runtime, once per request; everything else runs itself and
         // reports how it went. The two epilogues are the whole of that
         // difference in the artifact.
-        if platform == Platform::CloudflareWorker {
+        if let Some(name) = &program.hosted.export {
+            // A repository platform's entry with a `js` file: the file calls
+            // it, so the artifact hands it over rather than starting it.
+            let f = program
+                .funcs
+                .get(entry)
+                .or_ice("the entry point is one of the functions monomorphization emitted");
+            stmts.push(g.hosted_export(name, &sym, f));
+            roots.push(String::from(HOSTED_PROGRAM));
+        } else if platform == Platform::CloudflareWorker {
             // A module worker's default export. `$fetchEntry` is the crossing:
             // the platform's `Request` in, `platform/effect`'s `Response` out.
             // `env` is the worker's bindings, which `host.env` reads.
@@ -721,7 +731,8 @@ fn split_chunks(
 /// `Stdin` is on neither side of this: it reads `process.stdin`, which is a
 /// global rather than a module.
 fn needs_require(program: &Program, platform: Platform) -> bool {
-    if !matches!(platform, Platform::Web | Platform::CloudflareWorker) {
+    let hosted = program.hosted.export.is_some();
+    if !hosted && !matches!(platform, Platform::Web | Platform::CloudflareWorker) {
         return true;
     }
     program.funcs.iter().any(|f| {
@@ -964,6 +975,11 @@ impl<'a> Gen<'a> {
             return None;
         }
         let key = callee.intrinsic_key()?.to_string();
+        // A `js` file's method is awaited and its answer converted, which is
+        // the wrapper's own body and nothing a caller should paste.
+        if program.hosted.js_implemented.contains(&key) {
+            return None;
+        }
 
         // Built once against placeholders, purely to see what the expansion
         // does with each argument.

@@ -1,0 +1,60 @@
+# **A native repository platform.** `//platform/lambda` has one `NATIVE` entry,
+# `bootstrap`, which starts itself, so `buri run` runs it like any program and
+# the artifact lands at `.buri/out/platform/lambda/cmd/hello/bootstrap`.
+#
+# Then the two refusals a native host meets: a field the backend lacks, and a
+# production struct of the platform's own, which only a `js` file can
+# implement and a native entry has none.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a native repository platform's entry runs like a program, and its host holds only what the native backend implements"
+
+run {
+  args: ["run", "//cmd/hello"]
+  exit: 0
+  golden: "run.txt"
+  stream: OUT
+}
+
+path {
+  path: ".buri/out/platform/lambda/cmd/hello/bootstrap"
+  exists: true
+}
+
+# The native backend has no `Location`: only a page does.
+edit {
+  file: "platform/lambda/platform.buri"
+  replace: "from \"platform/host\" import { HostAllocator, HostStdout };"
+  with: "from \"platform/host\" import { HostAllocator, HostLocation, HostStdout };"
+}
+
+edit {
+  file: "platform/lambda/platform.buri"
+  replace: "    export stdout: HostStdout,\n}"
+  with: "    export stdout: HostStdout,\n    export location: HostLocation,\n}"
+}
+
+run {
+  args: ["build", "//cmd/hello"]
+  exit: 1
+  golden: "effect_not_on_backend.txt"
+}
+
+edit {
+  file: "platform/lambda/platform.buri"
+  replace: "    export location: HostLocation,\n}"
+  with: "    export dice: HostDice,\n}\n\nstruct HostDice {}\nimpl Random for HostDice {\n    fn nextInt(self, low: Int, high: Int): Int;\n    fn nextFloat(self): Float;\n}"
+}
+
+edit {
+  file: "platform/lambda/platform.buri"
+  replace: "from \"platform/host\" import { HostAllocator, HostLocation, HostStdout };"
+  with: "from \"platform/host\" import { HostAllocator, HostStdout };\nfrom \"platform/effect\" import { Random };"
+}
+
+run {
+  args: ["build", "//cmd/hello"]
+  exit: 1
+  golden: "custom_effect_on_native_backend.txt"
+}
