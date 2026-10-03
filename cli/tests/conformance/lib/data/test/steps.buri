@@ -105,22 +105,6 @@ test "mapCtx over the empty list runs no waiting step" {
     let _ = heard.stop(ctx).ignore();
 }
 
-// --- mapCtxStep ---------------------------------------------------------------
-
-test "mapCtxStep waits for a step that waits" {
-    let ctx = context {
-        Allocator: alloc(),
-        Tasks: tasks(),
-    };
-    let heard = actor.start(ctx, recorder());
-    let doubled = [4, 5, 6].mapCtxStep(ctx, fn(c, x) => {
-        noted(heard.sendMessage(c, .Saw(x)))
-    });
-    assert.equal(doubled, [8, 10, 12]);
-    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 456);
-    let _ = heard.stop(ctx).ignore();
-}
-
 // --- filterCtx ----------------------------------------------------------------
 
 test "filterCtx waits for a predicate that waits" {
@@ -196,11 +180,11 @@ test "foldResultCtx stops at the first failing waiting step" {
     let _ = heard.stop(ctx).ignore();
 }
 
-// --- the combinators written on top of those five -----------------------------
+// --- the combinators written on top of those four -----------------------------
 //
 // `mapResultCtx`, `mapOptionCtx` and `filterMapCtx` are `core/list`'s own Buri
 // over `foldResultCtx` and `foldCtx`, so a waiting step reaches them through
-// the same five. They are here because "the family" is what the rule is about,
+// the same four. They are here because "the family" is what the rule is about,
 // and a family checked at its base only is a family with one member checked.
 
 test "mapResultCtx waits for a step that waits" {
@@ -278,7 +262,6 @@ test "a step that does not wait still answers" {
         Allocator: alloc(),
     };
     assert.equal([1, 2, 3].mapCtx(ctx, fn(c, x) => x * 2), [2, 4, 6]);
-    assert.equal([1, 2, 3].mapCtxStep(ctx, fn(c, x) => x * 2), [2, 4, 6]);
     assert.equal([1, 2, 3, 4].filterCtx(ctx, fn(c, x) => x % 2 == 0), [2, 4]);
     assert.equal([1, 2, 3].foldCtx(ctx, fn(c, acc: Int, x) => acc + x, 0), 6);
 }
@@ -437,26 +420,11 @@ test "a wait at every level of three nested combinators still runs" {
     let _ = heard.stop(ctx).ignore();
 }
 
-test "a waiting mapCtxStep inside a waiting mapCtx still runs" {
-    let ctx = context {
-        Allocator: alloc(),
-        Tasks: tasks(),
-    };
-    let heard = actor.start(ctx, recorder());
-    let out = [[1], [2]].mapCtx(ctx, fn(c, xs: [Int]) => {
-        xs.mapCtxStep(c, fn(d, x) => noted(heard.sendMessage(d, .Saw(x)))).length()
-            + noted(heard.sendMessage(c, .Saw(8)))
-    });
-    assert.equal(out, [17, 17]);
-    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 1828);
-    let _ = heard.stop(ctx).ignore();
-}
-
-// --- the sixth family: a step handed to a scheduler ---------------------------
+// --- the fifth family: a step handed to a scheduler ---------------------------
 //
 // `Tasks.parallel` is a `ctx_step_key` too — it hands its step the caller's
 // whole context — so a step that asks an actor has to be waited for there as
-// well. It is not one of the five above: the runtime's `parallel` waits for its
+// well. It is not one of the four above: the runtime's `parallel` waits for its
 // own reason (`middle::rc::suspends`) rather than for its step's, and this is
 // what says the two answers compose.
 
@@ -495,10 +463,6 @@ test "a combinator whose step never waits answers over the empty list too" {
         Allocator: alloc(),
     };
     assert.equal(list.empty<Int>().mapCtx(ctx, fn(c, x) => x * 2), list.empty<Int>());
-    assert.equal(
-        list.empty<Int>().mapCtxStep(ctx, fn(c, x) => x * 2),
-        list.empty<Int>(),
-    );
     assert.equal(list.empty<Int>().filterCtx(ctx, fn(c, x) => true), list.empty<Int>());
     assert.equal(list.empty<Int>().foldCtx(ctx, fn(c, acc: Int, x) => acc + x, 7), 7);
 }

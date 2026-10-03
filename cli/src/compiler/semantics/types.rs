@@ -475,6 +475,11 @@ pub struct ImplInfo {
     /// parameter. Without it the recovery is positional arithmetic that is
     /// right by coincidence.
     pub head: Ty,
+    /// The `impl`'s own type parameters, which `head` is written in. Their
+    /// bounds are the `impl`'s condition: `impl<C: Stdout> Stdout for
+    /// Scoped<C>` makes `Scoped<C>` a `Stdout` exactly where `C` is one.
+    /// Empty for a `derive`, whose condition is its components instead.
+    pub generics: Vec<GenericInfo>,
     pub body: ImplBody,
     pub span: Span,
 }
@@ -1140,16 +1145,6 @@ impl Tables {
             // Spelled out rather than folded into the catch-all, because this
             // is the one place the two predicates deliberately disagree.
             Ty::Fn(..) => false,
-            _ => false,
-        }
-    }
-
-    /// Nominal conformance: a lookup, never a search.
-    pub fn implements(&self, ty: &Ty, tr: TraitId) -> bool {
-        match ty {
-            Ty::Con(id, _) => self.impls.contains_key(&(tr, *id)),
-            Ty::Ctx(id) => self.ctx_type(*id).has(tr),
-            Ty::Error => true,
             _ => false,
         }
     }

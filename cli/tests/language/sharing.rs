@@ -523,6 +523,7 @@ from "platform/effect" import { Allocator, Clock, Stdout };
 from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
+from "core/str" import * as str;
 from "core/time" import * as time;
 
 struct Timing { milliseconds: Int, printed: Int }
@@ -579,10 +580,44 @@ fn runs<C: Allocator>(ctx: C, k: Int, count: Int, tree: ast.Module, acc: Int): I
   }
 }
 
-/// One size, timed: `count` prints of an `n`-field module. The tree is built
+/// `export struct S0 { export field: Int }` and `derive Equal, Show for S0;`,
+/// and the same for each of `n` names: a schema of `n` messages. The derives
+/// come after every struct, so each is printed above a declaration it names.
+fn many<C: Allocator>(ctx: C, n: Int): ast.Module {
+  let names = list.range(ctx, 0, n).mapCtx(ctx, fn(c, i) => str.format(c, "S${i}"));
+  let structs = names.mapCtx(ctx, fn(c, name) => declared(c, name));
+  let derives = names.map(ctx, fn(name) => derived(name));
+  ast.Module { items: structs.concat(ctx, derives), docs: [] }
+}
+
+fn named(text: Str): ast.Type {
+  ast.Type { kind: .Named(ast.Name { text: text, origin: ast.nowhere() }, []), origin: ast.nowhere() }
+}
+
+fn declared<C: Allocator>(ctx: C, name: Str): ast.Item {
+  ast.Item {
+    kind: .Struct(ast.StructDecl {
+      name: ast.Name { text: name, origin: ast.nowhere() },
+      generics: [],
+      body: .Record(fields(ctx, 0, 1, list.empty<ast.FieldDecl>())),
+      exported: true,
+      docs: [],
+    }),
+    origin: ast.nowhere(),
+  }
+}
+
+fn derived(name: Str): ast.Item {
+  ast.Item {
+    kind: .Derive(ast.DeriveDecl { traits: [named("Equal"), named("Show")], selfTy: named(name) }),
+    origin: ast.nowhere(),
+  }
+}
+
+/// One size, timed: `count` prints of a module of size `n`. The tree is built
 /// before the clock starts, because what is measured is the printer.
 fn timed<C: Allocator + Clock>(ctx: C, count: Int, n: Int): Timing {
-  let tree = wide(ctx, n);
+  let tree = SHAPE(ctx, n);
   let started = time.now(ctx);
   let written = runs(ctx, 0, count, tree, 0);
   let took = time.since(ctx, started);
@@ -637,28 +672,7 @@ export fn main(host: NodeHost): Result<(), Str> {
 /// where linear growth scores about 1 and a quadratic printer scores about 10.
 #[test]
 fn printing_a_module_is_linear_in_its_size() {
-    let scratch = Scratch::repo("js-sharing-printer");
-    let source = PRINT
-        .replace("PAIRS", &PAIRS.to_string())
-        .replace("SMALL_RUNS", "100")
-        .replace("SMALL_SIZE", "100")
-        .replace("LARGE_RUNS", "10")
-        .replace("LARGE_SIZE", "1_000");
-    scratch.write("cmd/print/BUILD.buri", JS_BINARY);
-    scratch.write("cmd/print/main.buri", &source);
-    scratch.run(&["build", "//cmd/print", "--force"]).ok();
-
-    let measured = pairs(&scratch, "cmd/print", "10000");
-    let ratio = median_ratio(&measured);
-
-    let mut short: Vec<u64> = measured.iter().map(|p| p.small).collect();
-    short.sort_unstable();
-    let typical = short[short.len() / 2];
-    assert!(
-        typical >= 5,
-        "the typical repetition took {typical} ms, which a whole-millisecond clock \
-         cannot resolve; raise the runs per repetition"
-    );
+    let (ratio, measured) = printed("js-sharing-printer", "wide", ["100", "100", "10", "1_000"], "10000");
     assert!(
         ratio <= 4.0,
         "the printer is not linear: over {} pairs of ten thousand printed fields, \
@@ -673,6 +687,66 @@ fn printing_a_module_is_linear_in_its_size() {
     );
 }
 
+/// The same printer over a module of many declarations, each with a `derive`
+/// that names it: a schema of many messages rather than one wide one.
+///
+/// A `derive` is printed above the declaration it names. Finding it was a
+/// search of every item for each `derive`, and then a pass over every item for
+/// each declaration, so printing a module was quadratic in how many
+/// declarations it held — most of the time `std/codegen/proto` spent on a
+/// schema of a thousand messages. Two thousand declarations printed in
+/// modules of fifty and in one module of two thousand, against the bound and
+/// the reasoning of [`printing_a_module_is_linear_in_its_size`]. The quadratic
+/// printer scored 9.2 here and the linear one 1.7, both on a box at a load
+/// average of fifty on ten cores, and the bound sits between them.
+#[test]
+fn printing_many_declarations_is_linear_in_their_number() {
+    let (ratio, measured) = printed("js-sharing-printer-many", "many", ["40", "50", "1", "2_000"], "2000");
+    assert!(
+        ratio <= 4.0,
+        "the printer is not linear in declarations: over {} pairs of two thousand \
+         printed declarations, the module of two thousand cost {ratio:.1} times \
+         the same work in modules of fifty, where a quadratic printer scores about \
+         9. The pairs, as `<fifty ms> <two thousand ms>`: {}",
+        measured.len(),
+        measured
+            .iter()
+            .map(|p| format!("{}/{}", p.small, p.large))
+            .collect::<Vec<_>>()
+            .join(" "),
+    );
+}
+
+/// Builds [`PRINT`] with the module `shape` builds, at `[small runs, small
+/// size, large runs, large size]`, and answers the median ratio beside every
+/// pair. A repetition too short for a whole-millisecond clock to resolve is a
+/// measurement rather than a claim, so it fails here, before any bound is
+/// asked.
+fn printed(name: &str, shape: &str, sizes: [&str; 4], total: &str) -> (f64, Vec<Pair>) {
+    let scratch = Scratch::repo(name);
+    let source = PRINT
+        .replace("SHAPE", shape)
+        .replace("PAIRS", &PAIRS.to_string())
+        .replace("SMALL_RUNS", sizes[0])
+        .replace("SMALL_SIZE", sizes[1])
+        .replace("LARGE_RUNS", sizes[2])
+        .replace("LARGE_SIZE", sizes[3]);
+    scratch.write("cmd/print/BUILD.buri", JS_BINARY);
+    scratch.write("cmd/print/main.buri", &source);
+    scratch.run(&["build", "//cmd/print", "--force"]).ok();
+
+    let measured = pairs(&scratch, "cmd/print", total);
+    let mut short: Vec<u64> = measured.iter().map(|p| p.small).collect();
+    short.sort_unstable();
+    let typical = short[short.len() / 2];
+    assert!(
+        typical >= 5,
+        "the typical repetition took {typical} ms, which a whole-millisecond clock \
+         cannot resolve; raise the runs per repetition"
+    );
+    (median_ratio(&measured), measured)
+}
+
 /// Runs a built artifact with every `Array.prototype.slice` counted, and
 /// answers the elements those calls copied, beside what the program printed.
 ///
@@ -680,9 +754,12 @@ fn printing_a_module_is_linear_in_its_size() {
 /// that grows with the square of a list's length when a loop copies it on
 /// every push, and with its length when the loop writes in place. It is a
 /// count rather than a time, so it reads the same on a loaded machine as on an
-/// idle one. The wrapper replaces the method and then imports the artifact,
-/// which runs `main`; the count is written synchronously on the way out,
-/// because an asynchronous write to a pipe may not survive the exit.
+/// idle one. What is counted is what each call answers rather than the length
+/// of the list it was called on, so a reader that slices one word out of a long
+/// list of characters pays for the word and not for the list. The wrapper
+/// replaces the method and then imports the artifact, which runs `main`; the
+/// count is written synchronously on the way out, because an asynchronous write
+/// to a pipe may not survive the exit.
 fn copied_by_slice(scratch: &Scratch, package: &str) -> (u64, String) {
     let artifact = scratch.artifact(package);
     let wrapper = scratch.write(
@@ -693,8 +770,9 @@ import { pathToFileURL } from "node:url";
 let copied = 0;
 const slice = Array.prototype.slice;
 Array.prototype.slice = function (...args) {
-  copied += this.length;
-  return slice.apply(this, args);
+  const out = slice.apply(this, args);
+  copied += out.length;
+  return out;
 };
 process.on("exit", () => writeSync(2, `copied=${copied}\n`));
 await import(pathToFileURL(process.argv[2]).href);
@@ -873,5 +951,72 @@ fn tokenizing_a_source_copies_no_token_list() {
     assert!(
         copied < 70_000,
         "tokenizing seven thousand tokens copied {copied} elements"
+    );
+}
+
+/// `std/codegen/proto/schema` and `std/textproto/read`, each run over an
+/// ordinary document of about ten thousand characters.
+///
+/// Both readers start by recording the byte offset of every character, folding
+/// over the characters and pushing each offset onto a list. The step read the
+/// list's last offset and pushed onto the same list, and that read is a second
+/// reference: every push copied the list so far. Reading a schema was
+/// quadratic in its size before any of it was parsed, which is what made a
+/// hostile schema of ten thousand nested messages take two minutes to refuse.
+const READ_DOCUMENTS: &str = r#"
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+from "std/codegen/proto/schema" import * as schema;
+from "std/textproto/read" import * as textproto;
+
+fn message<C: Allocator>(ctx: C, i: Int): Str {
+  let n = i.show(ctx);
+  str.format(ctx, "message M${n} {\n  string name = 1;\n  int32 count = 2;\n  message Inner { repeated string tags = 1; }\n  Inner inner = 3;\n}\n")
+}
+
+fn entry<C: Allocator>(ctx: C, i: Int): Str {
+  let n = i.show(ctx);
+  str.format(ctx, "name: \"m${n}\"\ncount: ${n}\n")
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let messages = list.range(ctx, 0, 100).mapCtx(ctx, fn(c, i) => message(c, i)).join(ctx, "");
+  let proto = str.format(ctx, "edition = \"2026\";\npackage p;\n${messages}");
+  let parsed = schema.parse(ctx, proto, "lib/p/p.proto");
+  let text = list.range(ctx, 0, 400).mapCtx(ctx, fn(c, i) => entry(c, i)).join(ctx, "");
+  let fields = match (textproto.parse(ctx, text, "lib/p/p.txtpb")) {
+    .Ok(doc) => doc.fields.length(),
+    .Err(_) => -1,
+  };
+  let said = parsed.errors.length();
+  let read = parsed.schema.messages.length();
+  let _ = io.println(ctx, "${read} ${said} ${fields}").ignore();
+  .Ok(())
+}
+"#;
+
+/// Reading two ten-thousand-character documents copies about as many
+/// elements as they have characters, not the tens of millions a copy per
+/// character costs.
+#[test]
+fn reading_a_schema_copies_no_offset_list() {
+    let scratch = Scratch::repo("js-sharing-schema-offsets");
+    scratch.write("cmd/read/BUILD.buri", JS_BINARY);
+    scratch.write("cmd/read/main.buri", READ_DOCUMENTS);
+    scratch.run(&["build", "//cmd/read", "--force"]).ok();
+
+    let (copied, stdout) = copied_by_slice(&scratch, "cmd/read");
+    assert_eq!(stdout, "100 0 800\n");
+    // A copy per character is about a hundred million elements here: two lists
+    // of offsets growing to about eleven and ten thousand. Writing in place
+    // copies none of them; the bound leaves room for the words each reader
+    // slices out of its characters, which add up to less than the documents.
+    assert!(
+        copied < 100_000,
+        "reading two ten-thousand-character documents copied {copied} elements"
     );
 }
