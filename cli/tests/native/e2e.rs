@@ -3323,6 +3323,9 @@ fn a_step_sending_to_its_own_actor_is_refused_at_once() {
 ///   `started` before it gives up;
 /// * **a timer spawned after the loop still runs**, although the loop has not
 ///   finished, so the loop hears `fired` and the body hears that it did.
+///
+/// Gated with the one row that builds it, which is release-only.
+#[cfg(feature = "backend-llvm")]
 fn beside_the_body() -> String {
     String::from(
         r#"
@@ -3444,6 +3447,102 @@ fn a_spawned_task_runs_beside_the_body_that_spawned_it() {
             "the loop saw the timer while the body ran: true",
             "stopped true",
         ],
+        "stderr:\n{}",
+        out.stderr
+    );
+}
+
+/// Many rounds of a scope whose body spawns tasks that sleep, and sleeps
+/// between the spawns itself.
+///
+/// Every spawn wakes the scope's idle workers, and a worker that wakes is
+/// picked up by whichever thread is free, which is seldom the thread it went to
+/// sleep on. Meanwhile the sleeping tasks are waking on their own threads. So
+/// across the rounds, a task carries on on a different thread thousands of
+/// times while those threads are busy waking tasks of their own.
+///
+/// Sixty rounds of six spawns, each spawned task sleeping four times. A scope
+/// returns once every task spawned into it has finished, so the line the
+/// program prints is how many tasks it waited for.
+#[cfg(feature = "backend-llvm")]
+fn waking_on_another_thread() -> String {
+    String::from(
+        r#"
+from "platform/effect" import { Allocator, Clock, Stdout, Tasks };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+from "core/tasks" import { Scope };
+from "core/time" import * as time;
+
+fn napping<C: Allocator + Clock + Stdout + Tasks>(ctx: C, left: Int): () {
+    match (left <= 0) {
+        true => (),
+        false => {
+            let _ = time.sleep(ctx, time.milliseconds(1));
+            napping(ctx, left - 1)
+        },
+    }
+}
+
+fn spawning<C: Allocator + Clock + Stdout + Tasks>(ctx: C, here: Scope, left: Int): Int {
+    match (left <= 0) {
+        true => 0,
+        false => {
+            let _ = tasks.spawn(ctx, here, fn(c2) => napping(c2, 4));
+            let _ = napping(ctx, 1);
+            1 + spawning(ctx, here, left - 1)
+        },
+    }
+}
+
+fn rounds<C: Allocator + Clock + Stdout + Tasks>(ctx: C, left: Int, spawned: Int): Int {
+    match (left <= 0) {
+        true => spawned,
+        false => {
+            let here = tasks.scope(ctx, fn(c, scope) => spawning(c, scope, 6));
+            rounds(ctx, left - 1, spawned + here)
+        },
+    }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Clock: host.clock,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let spawned = rounds(ctx, 60, 0);
+    let _ = io.println(ctx, "every scope waited for ${spawned} tasks").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// **A task that waits and then carries on on another thread still finishes.**
+///
+/// A waiting task gives its thread back. When it is woken, any free thread may
+/// pick it up. The runtime's reactor belongs to whichever thread the task is
+/// running on now. Before this row, a task waiting in a scope for its next spawn
+/// could reach the reactor through the thread it had started waiting on. When
+/// that thread was busy with a task of its own, the program aborted with an
+/// internal runtime error. On a Linux `--release` build that happened in about
+/// one run of `a_spawned_task_runs_beside_the_body_that_spawned_it` in sixty.
+/// These rounds wake tasks on other threads thousands of times per run.
+///
+/// Release only, for the reason the row above gives.
+#[cfg(feature = "backend-llvm")]
+#[test]
+fn a_task_that_wakes_on_another_thread_still_finishes() {
+    unless_ready!();
+    let binary = built("e2e-waking-on-another-thread", &waking_on_another_thread());
+    let out = ran_within(&binary, std::time::Duration::from_secs(60));
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.stdout.lines().collect::<Vec<_>>(),
+        vec!["every scope waited for 360 tasks"],
         "stderr:\n{}",
         out.stderr
     );
