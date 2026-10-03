@@ -3,12 +3,12 @@ const $k1=[0,0];
 function __cmd_x_main_buri$main(){
   const ctx_1=[$k0[0],$k0[1]];
   const p_2=1;
-  const a_5=__cmd_x_main_buri$noisy$u3rqgv(ctx_1,'first',1n);
+  const a_5=__cmd_x_main_buri$noisy$nz5lmn(ctx_1,'first',1n);
   let $t1;
   if(p_2===0){
     $t1=0n;
   }else if(p_2===1){
-    $t1=__cmd_x_main_buri$noisy$u3rqgv(ctx_1,'second',2n);
+    $t1=__cmd_x_main_buri$noisy$nz5lmn(ctx_1,'second',2n);
   }else{
     $abort('no arm matched');
   }
@@ -23,13 +23,13 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const a_14=__cmd_x_main_buri$noisy$u3rqgv(ctx_1,'one',1n);
-  const a_12=__cmd_x_main_buri$noisy$u3rqgv(ctx_1,'two',2n);
+  const a_14=__cmd_x_main_buri$noisy$nz5lmn(ctx_1,'one',1n);
+  const a_12=__cmd_x_main_buri$noisy$nz5lmn(ctx_1,'two',2n);
   let $t5;
   if(p_2===0){
     $t5=0n;
   }else if(p_2===1){
-    $t5=__cmd_x_main_buri$noisy$u3rqgv(ctx_1,'three',3n);
+    $t5=__cmd_x_main_buri$noisy$nz5lmn(ctx_1,'three',3n);
   }else{
     $abort('no arm matched');
   }
@@ -46,7 +46,7 @@ function __cmd_x_main_buri$main(){
   }
   return $k1;
 }
-function __cmd_x_main_buri$noisy$u3rqgv(ctx_0,tag_1,v_2){
+function __cmd_x_main_buri$noisy$nz5lmn(ctx_0,tag_1,v_2){
   const self_5=$host_HostStdout_println(ctx_0[1],tag_1);
   let $t1;
   if(self_5[0]===0){
