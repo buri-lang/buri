@@ -69,9 +69,9 @@ fn sweep() {
 /// rather than waited out — the shape `actions::claim_runner_after` uses for
 /// the same reason.
 ///
-/// Two trees are kept across runs (`kept.rs`), so they are not taken whole.
-/// The store of linked programs is swept entry by entry, and this binary's
-/// runtime archive is left alone, however old it is.
+/// Three trees are kept across runs (`kept.rs`), so they are not taken whole.
+/// The store of linked programs and the cross-build homes are swept entry by
+/// entry, and this binary's runtime archive is left alone, however old it is.
 fn sweep_dir(root: &Path, stale: Duration) {
     let Ok(entries) = std::fs::read_dir(root) else { return };
     let archive = kept::archive_dir_name();
@@ -81,7 +81,7 @@ fn sweep_dir(root: &Path, stale: Duration) {
             continue;
         }
         let name = entry.file_name();
-        if name == kept::PROGRAMS {
+        if name == kept::PROGRAMS || name == kept::CROSS_HOMES {
             kept::sweep_store(&entry.path(), stale);
             continue;
         }
