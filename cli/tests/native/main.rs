@@ -200,3 +200,8 @@ mod strings;
 // backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod fields;
+// A list grown in a program that starts an actor or fans out tasks: the pushes
+// counted rather than timed, and a list grown on several tasks at once left
+// with each task's own answer, on every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod marked;
