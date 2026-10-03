@@ -1626,10 +1626,15 @@ fn a_batch_too_large_for_one_binary_is_split() {
 /// The binary is made unloadable by a C driver that links the real one and then
 /// replaces it with a script that says what the loader says and aborts, and
 /// counts its own launches in a file.
+///
+/// The driver forwards to the `CC` this suite was given, not to `cc`. On Linux
+/// `cc` is often a gcc, which cannot take `--target=`, so the link would fall
+/// back to the machine's `musl-gcc` and fail on a libgcc built for glibc.
 #[cfg(unix)]
 #[test]
 fn a_test_binary_that_cannot_start_is_reported_once() {
     use std::os::unix::fs::PermissionsExt;
+    let real_cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
     let scratch = Scratch::repo("binary-cannot-start");
     scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
     scratch.write("lib/a/lib.buri", "export fn one(): Int { 1 }\n");
@@ -1646,7 +1651,7 @@ fn a_test_binary_that_cannot_start_is_reported_once() {
         "fake-cc",
         &format!(
             "#!/bin/sh\n\
-             cc \"$@\" || exit $?\n\
+             '{real_cc}' \"$@\" || exit $?\n\
              prev=\"\"\n\
              for a in \"$@\"; do\n  \
                if [ \"$prev\" = \"-o\" ] && [ \"$a\" = \"artifact\" ]; then\n    \

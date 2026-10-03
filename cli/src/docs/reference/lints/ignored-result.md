@@ -8,16 +8,30 @@ fix: handle the error with `match`, propagate it with `?`, or keep `ignore` if d
 A dropped `Result` is a failure nobody read. Sometimes that's the right call;
 this rule puts every such call in one report.
 
+```buri lint code=ignored-result
+# from "core/io" import * as io;
+# from "platform/effect" import { Stdout };
+
+fn say<C: Stdout>(ctx: C, line: Str): () {
+    io.println(ctx, line).ignore()
+}
+```
+
 **The real fix is to handle the error.** `match` on the `Result` and answer the
 `.Err` arm (count it, report it, fall back), or use `?` to hand it to a caller
 who can.
 
 **Don't write the drop out by hand.** This handles nothing:
 
-```
-match (io.println(ctx, line)) {
-    .Ok(_written) => (),
-    .Err(_error) => (),
+```buri lint code=hand-rolled-ignore
+# from "core/io" import * as io;
+# from "platform/effect" import { Stdout };
+
+fn say<C: Stdout>(ctx: C, line: Str): () {
+    match (io.println(ctx, line)) {
+        .Ok(_written) => (),
+        .Err(_error) => (),
+    }
 }
 ```
 

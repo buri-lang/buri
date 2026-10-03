@@ -1490,7 +1490,7 @@ fn generate_json(
     for ((rel, text), input) in entry.inputs.iter().zip(&entry.generator.inputs) {
         if languages.of(rel).and_then(crate::languages::Language::dialect).is_none() {
             findings.push(crate::languages::Finding::new(
-                "json-schema-no-type",
+                "json-untyped-keyword",
                 rel,
                 (0, 0),
                 vec![

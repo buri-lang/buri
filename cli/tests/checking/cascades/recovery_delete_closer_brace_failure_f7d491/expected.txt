@@ -1,4 +1,4 @@
-error: `lines` takes 1 arguments, but 2 were given [argument-count]
+error: `lines` takes 1 argument, but 2 were given [argument-count]
   --> main.buri:58:16
    |
 58 |         Stdin: stdin().lines(["{\"inputs\":\"lib/wire/p.proto\"}"],

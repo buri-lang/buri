@@ -3904,6 +3904,62 @@ fn linux_x86_64_objects_link_and_every_relocation_resolves() {
     );
 }
 
+/// Two units that both drop a `[[Str]]`, so both need the same drop glue.
+const SHARED_GLUE_PROGRAM: &str = r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+fn words(host: NativeHost, n: Int): [[Str]] {
+  [["a", "b"], ["c"]].map(host.alloc, fn(row) => row.push(host.alloc, "x".repeat(host.alloc, n)))
+}
+export fn main(host: NativeHost): Result<(), Str> {
+  let rows = words(host, 3);
+  let _ = io.println(host.stdout, "rows=${rows.length()}").ignore();
+  .Ok(())
+}
+"#;
+
+/// **Drop glue is one COMDAT group per function, and the link keeps one copy.**
+///
+/// Every unit that needs a type's glue emits it under one name, each copy in a
+/// section of its own in a group of that name. The linker keeps the first group
+/// and discards the rest, so the image defines each glue function once.
+#[test]
+fn shared_glue_is_kept_once_per_program_on_elf() {
+    if cross_tools().is_none() {
+        eprintln!("no cross tool-chain on PATH");
+        return;
+    }
+    let Some(units) = cross_units(SHARED_GLUE_PROGRAM, Arch::X86_64) else { return };
+    let dir = workspace("cross-shared-glue");
+    let objects = write_objects(&dir, &units);
+
+    let mut grouped: Vec<String> = Vec::new();
+    for o in &objects {
+        let groups = tool("llvm-readelf", &["-g", &o.display().to_string()]);
+        grouped.extend(
+            groups
+                .lines()
+                .filter(|l| l.contains("COMDAT group"))
+                .filter_map(|l| l.split('[').nth(2)?.split(']').next().map(String::from)),
+        );
+    }
+    let mut repeated = grouped.clone();
+    repeated.sort();
+    repeated.dedup();
+    assert!(
+        repeated.len() < grouped.len(),
+        "no glue function was emitted by two units, so this program tests nothing: {grouped:?}"
+    );
+
+    let exe = dir.join("app");
+    link_with_stub(&dir, &objects, &exe, "x86_64-unknown-linux-musl", "elf_x86_64");
+    let listed = tool("llvm-nm", &["--defined-only", &exe.display().to_string()]);
+    for name in &repeated {
+        let copies = listed.lines().filter(|l| l.split_whitespace().last() == Some(name)).count();
+        assert_eq!(copies, 1, "{name} is defined {copies} times in the linked image");
+    }
+}
+
 fn objects_link_and_every_relocation_resolves(
     arch: Arch,
     machine: &str,
@@ -4134,6 +4190,14 @@ fn link_with_stub(dir: &Path, objects: &[PathBuf], out: &Path, triple: &str, emu
             }
         }
     }
+    // A call from one unit into another is undefined in the caller only.
+    let mut defined: Vec<String> = Vec::new();
+    for o in objects {
+        for line in tool("llvm-nm", &["--defined-only", &o.display().to_string()]).lines() {
+            defined.extend(line.split_whitespace().last().map(String::from));
+        }
+    }
+    undefined.retain(|name| !defined.contains(name));
     undefined.sort();
     assert!(!undefined.is_empty(), "a program with no external references is not this one");
     let mut c = String::from("// generated: the shape of every symbol these objects need\n");

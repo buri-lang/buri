@@ -1,4 +1,4 @@
-error: `prefixItems` has no Buri type [json-schema-no-type]
+error: `prefixItems` has no Buri type [json-untyped-keyword]
  --> tool/b/b.schema.json:6:37
   |
 6 |         "names": { "type": "array", "prefixItems": [{ "type": "string" }], "items": { "type": "string" } }

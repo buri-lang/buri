@@ -1,4 +1,4 @@
-error: `milliseconds` takes 1 arguments, but 2 were given [argument-count]
+error: `milliseconds` takes 1 argument, but 2 were given [argument-count]
   --> main.buri:90:28
    |
 90 |     let timer = after(ctx, time.milliseconds(1000extra ), fn(c) => {

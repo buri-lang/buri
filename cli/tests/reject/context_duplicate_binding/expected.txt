@@ -1,4 +1,4 @@
-error: `Allocator` is bound twice [duplicate-bound]
+error: `Allocator` is bound twice [duplicate-context-binding]
  --> cmd/context_duplicate_binding/main.buri:7:46
   |
 7 |   let ctx = context { Allocator: host.alloc, Allocator: host.alloc, Stdout: host.stdout };

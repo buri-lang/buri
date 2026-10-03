@@ -20,7 +20,7 @@
 //! Keywords that describe values rather than their shape, such as `pattern`,
 //! `minimum` and `format`, stay the check's. A keyword that changes the shape
 //! in a way no one Buri type follows is refused where it is written
-//! (`json-schema-no-type`).
+//! (`json-untyped-keyword`).
 
 use super::number::Number;
 use super::schema::{Registry, SchemaFile};
@@ -200,7 +200,7 @@ const REFUSED: &[(&str, &str)] = &[
 impl<'a, 'r> Gen<'a, 'r> {
     fn refuse(&mut self, file: &str, span: Range, keyword: &str, why: &str) {
         self.refused.push(Finding::new(
-            "json-schema-no-type",
+            "json-untyped-keyword",
             file,
             span,
             vec![("keyword", keyword.to_string()), ("why", why.to_string())],
@@ -1030,6 +1030,6 @@ mod tests {
         let fs = files(&[("s.json", r#"{ "if": {}, "then": {} }"#)]);
         let Err(refused) = schema_module(&fs, "s.json") else { panic!("refused") };
         assert_eq!(refused.len(), 1);
-        assert_eq!(refused[0].code, "json-schema-no-type");
+        assert_eq!(refused[0].code, "json-untyped-keyword");
     }
 }

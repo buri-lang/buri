@@ -600,7 +600,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     .into_iter()
                     .map(|a| typed::Arm {
                         pattern: self.resolve_pattern(a.pattern),
-                        guard: a.guard.map(&sub),
+                        guard: a.guard.map(sub),
                         body: sub(a.body),
                         span: a.span,
                     })

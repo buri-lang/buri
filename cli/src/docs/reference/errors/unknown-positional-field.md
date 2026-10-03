@@ -1,7 +1,7 @@
 ---
 title: A tuple struct's fields are numbered from zero
 message: '`{type}` has no field {index}'
-fix: '`{type}` has {count} fields'
+fix: '`{type}` has {count}'
 ---
 
 ```buri fail code=unknown-positional-field

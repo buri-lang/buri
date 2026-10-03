@@ -1,4 +1,4 @@
-error: `equal` takes 2 arguments, but 1 were given [argument-count]
+error: `equal` takes 2 arguments, but 1 was given [argument-count]
   --> main.buri:92:5
    |
 92 |     assert.equal(
@@ -7,7 +7,7 @@ error: `equal` takes 2 arguments, but 1 were given [argument-count]
    = expected: 2
    = actual: 1
    = fix: pass `equal` the following arguments: equal<T: Equal>(actual: T, expected: T)
-error: `err` takes 1 arguments, but 2 were given [argument-count]
+error: `err` takes 1 argument, but 2 were given [argument-count]
   --> main.buri:93:9
    |
 93 |         assert.err(codegen.run(ctx, silent),

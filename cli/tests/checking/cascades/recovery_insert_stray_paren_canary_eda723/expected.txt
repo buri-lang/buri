@@ -1,4 +1,4 @@
-error: `fold` takes 2 arguments, but 1 were given [argument-count]
+error: `fold` takes 2 arguments, but 1 was given [argument-count]
   --> main.buri:16:19
    |
 16 |     let doubled = [1, 2, 3].fold(fn(acc, x) => acc + x@ , 0);

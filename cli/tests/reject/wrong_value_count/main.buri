@@ -1,4 +1,4 @@
-// EXPECT: `Pair` holds 2 values, but 1 were given
+// EXPECT: `Pair` holds 2 values, but 1 was given
 struct Pair(Int, Int);
 
 fn go(): Pair {

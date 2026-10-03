@@ -11,10 +11,11 @@ name: CI
 #   suite fires, and the run is green having checked nothing. On macOS `clang` is
 #   what `cc` already is, so the macOS leg pays nothing for it.
 #
-# * **`rustup target add <arch>-unknown-linux-musl`**, before the first cargo
-#   build on Linux. `cli/build.rs` asks `rustc --print target-libdir` for the musl
-#   `self-contained/` directory, and it exists only when that `rust-std` is
-#   installed. Missing, the runtime archive is built against glibc and the baked
+# * **`rustup toolchain install`**, before the first cargo build. It installs
+#   what `rust-toolchain.toml` pins — the same rustc `nix develop` has, with the
+#   `<arch>-unknown-linux-musl` targets. `cli/build.rs` asks `rustc --print
+#   target-libdir` for the musl `self-contained/` directory, and it exists only
+#   when that `rust-std` is installed. Missing, the runtime archive is built against glibc and the baked
 #   sysroot is empty — so every artifact this compiler links stops running on any
 #   Linux but the runner's, which is a break no test running *here* can observe.
 #   `musl-dev` supplies the C headers that go with it and `musl-tools` the
@@ -85,21 +86,12 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           # Two architectures must not share a key: the artifacts are the host's.
           shared-key: ${{ matrix.os }}-${{ matrix.arch }}
       - uses: oven-sh/setup-bun@v2
-      # A macOS host cross-builds the Linux output in the output-selection and
-      # cross tests (#194), which needs the Linux target's standard library. The
-      # cross link drives rustc's own bundled `ld.lld` (build/link.rs) so the leg
-      # needs no system lld — but that `rust-lld` is dynamically linked against
-      # `libLLVM.dylib`, which only the `llvm-tools` component ships, so add both.
-      - if: runner.os == 'macOS'
-        run: |
-          rustup target add x86_64-unknown-linux-musl
-          rustup component add llvm-tools-preview
       - if: runner.os == 'Linux'
         run: |
           set -euo pipefail
@@ -109,7 +101,6 @@ jobs:
           # Debian puts the UNVERSIONED llvm tool names under /usr/lib/llvm-<N>/bin.
           # `cli/tests/native/stencil.rs::cross_tools` probes those names.
           ls -d /usr/lib/llvm-*/bin | sort -V | tail -1 >> "$GITHUB_PATH"
-          rustup target add "$(uname -m)-unknown-linux-musl"
       # `cli/build.rs`'s own output, which `Swatinem/rust-cache` deliberately
       # drops: it cleans the workspace's artifacts before saving, and `OUT_DIR`
       # holds a fat-LTO release build of the runtime's dependency tree. A wrong
@@ -247,9 +238,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ matrix.os }}-${{ matrix.arch }}-clippy
@@ -257,7 +246,6 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends clang musl-dev musl-tools
-          rustup target add "$(uname -m)-unknown-linux-musl"
       - run: cargo clippy -p buri -p website --all-targets
 
   # The validation gate: compile every corpus and measure nothing. `--profile
@@ -279,7 +267,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ matrix.os }}-${{ matrix.arch }}-validate
@@ -287,7 +275,6 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends clang musl-dev musl-tools
-          rustup target add "$(uname -m)-unknown-linux-musl"
       - run: cargo bench -p buri --bench compiler --profile validate -- --validate --quick
 
   # The release backend, x86-64 only and ADVISORY: LLVM 21 is not in Ubuntu 24.04,
@@ -304,7 +291,7 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ubuntu-2404-x86_64-release
@@ -315,7 +302,6 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             clang lld mold llvm binutils musl-dev musl-tools
           ls -d /usr/lib/llvm-*/bin | sort -V | tail -1 >> "$GITHUB_PATH"
-          rustup target add "$(uname -m)-unknown-linux-musl"
       # CODEGEN-LLVM.md §8.1 allows exactly one supported LLVM, so the version is
       # asserted rather than assumed: a silently substituted 22 is what a compiler
       # claiming byte-identical output must not accept.
@@ -350,7 +336,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ubuntu-2404-arm-release
@@ -369,7 +355,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: cargo build -p buri --no-default-features
 
@@ -406,7 +392,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: npm install -g tree-sitter-cli
       - run: cargo build -p buri --example parse_verdicts

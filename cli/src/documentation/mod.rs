@@ -492,6 +492,10 @@ pub fn explanation_of(page: &frontmatter::Page) -> String {
     // section that was only a reproduction does not leave its title behind.
     let mut pending: Option<&str> = None;
     let mut in_fence = false;
+    // A Buri fence prints as a reader sees it: no hidden `# ` lines, and no
+    // blank line they leave at its top.
+    let mut in_buri = false;
+    let mut fence_empty = false;
     for (index, line) in page.body.lines().enumerate() {
         let number = index.saturating_add(1);
         if dropped.iter().any(|(first, last)| number >= *first && number <= *last) {
@@ -501,6 +505,13 @@ pub fn explanation_of(page: &frontmatter::Page) -> String {
         let delimiter = trimmed.starts_with("```");
         if delimiter {
             in_fence = !in_fence;
+            in_buri = in_fence && trimmed.starts_with("```buri");
+            fence_empty = true;
+        } else if in_buri {
+            if trimmed == "#" || trimmed.starts_with("# ") || (fence_empty && trimmed.is_empty()) {
+                continue;
+            }
+            fence_empty = false;
         }
         if !in_fence && !delimiter && trimmed.starts_with('#') {
             pending = if trimmed.starts_with("# ") { None } else { Some(line) };
@@ -528,8 +539,11 @@ fn quoted_lines(page: &frontmatter::Page) -> Vec<(usize, usize)> {
     markdown::fences(page.body)
         .iter()
         .filter(|f| {
-            let reproduction =
-                f.lang == "buri" && f.info.as_ref().is_ok_and(|info| info.get("code").is_some());
+            // A lint page's example is the thing it explains, so it prints.
+            let reproduction = f.lang == "buri"
+                && f.info.as_ref().is_ok_and(|info| {
+                    info.get("code").is_some() && info.mode.as_deref() == Some("fail")
+                });
             let specimen = f.lang == "text"
                 && f.body
                     .lines()

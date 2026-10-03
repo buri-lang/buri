@@ -389,6 +389,11 @@ impl<'a> Reprs<'a> {
     ///
     /// The question every reference-counting emission asks first, because the
     /// answer is `false` for most types and `false` means no code.
+    /// See `Layouts::glue_key`.
+    pub fn glue_key(&mut self, ty: &Ty) -> std::rc::Rc<str> {
+        self.layouts.glue_key(ty)
+    }
+
     pub fn counted_type(&mut self, ty: &Ty) -> bool {
         counted_ty(self.tables, &mut self.layouts, ty, 0)
     }

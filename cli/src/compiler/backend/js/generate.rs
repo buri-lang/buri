@@ -258,7 +258,7 @@ impl<'a> Gen<'a> {
                 // A local read that keeps the local alive past it — and, where
                 // the node is not the read itself, a lambda's capture or an
                 // arm's payload, which are marked as statements before it.
-                rc::Target::Local(l) if is_local_read => {
+                rc::Target::Local(_) if is_local_read => {
                     marks.value.entry(key).or_insert(None);
                 }
                 rc::Target::Local(l) => marks.locals.entry(key).or_default().push(l),
@@ -1716,12 +1716,9 @@ impl<'a> Gen<'a> {
                     Expr::bin(BinOp::StrictEq, tag, Expr::Num(*variant as f64));
                 // A single-variant enum needs no tag test.
                 if self.tables.tycon(*con).variants().len() == 1 {
-                    match self.all_tests(fields.iter().map(|f| {
+                    return self.all_tests(fields.iter().map(|f| {
                         (&f.pattern, Expr::index(subject.clone(), Expr::Num((f.index + 1) as f64)))
-                    })) {
-                        Some(inner) => return Some(inner),
-                        None => return None,
-                    }
+                    }));
                 }
                 if let Some(inner) = self.all_tests(fields.iter().map(|f| {
                     (&f.pattern, Expr::index(subject.clone(), Expr::Num((f.index + 1) as f64)))

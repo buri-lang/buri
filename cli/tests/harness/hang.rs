@@ -235,6 +235,7 @@ pub fn watch(
     ceiling: Option<Duration>,
 ) -> Result<ExitStatus, Killed> {
     let pid = child.id();
+    launched(child);
     let start = Instant::now();
     let (busy, every) = (busy_enough(cap), sample_every(cap));
     let mut progress =
@@ -274,6 +275,34 @@ pub fn watch(
         std::thread::sleep(nap.min(cap.saturating_sub(idle)));
         nap = (nap * 2).min(Duration::from_millis(10));
     }
+}
+
+/// Wait until `child` has run code of its own, or has exited.
+///
+/// macOS holds a fresh executable inside `exec` until `syspolicyd` has assessed
+/// it. A held process is asleep and has spent nothing, which is exactly what
+/// [`watch`] calls stuck, and under load the queue has held a freshly linked
+/// fuzz program for longer than its 30-second cap. So the cap starts once the
+/// program has run. `native/shared.rs`'s `started` waits the same way.
+///
+/// The test is user time above zero: the loader runs in user mode before
+/// `main`, so a program that has started has some, and a held one has none.
+fn launched(child: &mut Child) {
+    while !has_run(child.id()) && matches!(child.try_wait(), Ok(None)) {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Whether `pid` has spent any user time. A failed ask counts as yes, so a
+/// broken probe never holds a wait open.
+#[cfg(target_os = "macos")]
+fn has_run(pid: u32) -> bool {
+    task_info_of(pid).is_none_or(|info| info.total_user > 0)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn has_run(_pid: u32) -> bool {
+    true
 }
 
 /// Kill a child and reap it, so a verdict leaves nothing behind.
@@ -659,6 +688,13 @@ unsafe extern "C" {
 /// `None` if it is gone.
 #[cfg(target_os = "macos")]
 fn task_info(pid: u32) -> Option<(u64, bool)> {
+    let info = task_info_of(pid)?;
+    Some((info.total_user.saturating_add(info.total_system), info.numrunning > 0))
+}
+
+/// One process's whole `PROC_PIDTASKINFO` answer, or `None` if it is gone.
+#[cfg(target_os = "macos")]
+fn task_info_of(pid: u32) -> Option<ProcTaskInfo> {
     /// `PROC_PIDTASKINFO`.
     const FLAVOUR: i32 = 4;
     let pid = i32::try_from(pid).ok()?;
@@ -666,7 +702,7 @@ fn task_info(pid: u32) -> Option<(u64, bool)> {
     let buffer: *mut ProcTaskInfo = &mut info;
     let size = i32::try_from(std::mem::size_of::<ProcTaskInfo>()).unwrap_or(i32::MAX);
     let wrote = unsafe { proc_pidinfo(pid, FLAVOUR, 0, buffer.cast(), size) };
-    (wrote > 0).then(|| (info.total_user.saturating_add(info.total_system), info.numrunning > 0))
+    (wrote > 0).then_some(info)
 }
 
 /// A process's immediate children.

@@ -236,7 +236,7 @@ pub fn format_document(file: &str, text: &str) -> Option<String> {
     if edits.is_empty() {
         return None;
     }
-    edits.sort_by(|a, b| b.0.cmp(&a.0));
+    edits.sort_by_key(|e| std::cmp::Reverse(e.0));
     let mut lines: Vec<String> = text.lines().map(String::from).collect();
     for (first, count, replacement) in edits {
         let last = first.saturating_add(count);
@@ -285,7 +285,7 @@ fn hide_again(block: &Block, canonical: &str) -> Option<String> {
     // hidden lines are the function its visible ones are the body of, say. Then
     // there is nothing to compare against, and counting is what is left.
     let Some(shown) = laid_out(&visible, block) else {
-        return by_position(&block.body, canonical);
+        return by_position(block, canonical);
     };
     let mut left = shown.lines().filter(|l| !l.trim().is_empty()).peekable();
 
@@ -316,7 +316,7 @@ fn hide_again(block: &Block, canonical: &str) -> Option<String> {
     // the two runs having disagreed about more than the hidden lines, and
     // counting is the second opinion.
     if left.next().is_some() || marked == 0 {
-        return by_position(&block.body, canonical);
+        return by_position(block, canonical);
     }
     Some(out)
 }
@@ -327,20 +327,21 @@ fn hide_again(block: &Block, canonical: &str) -> Option<String> {
 /// *enclose* its visible ones — a hidden `fn demo(): Meters {`, three lines of
 /// body, a hidden `}` — because its visible half is not a module and cannot be
 /// laid out on its own. There the hidden lines are a run at the top and a run at
-/// the bottom with nothing in between, so the same number of lines at each end
-/// of the output are the hidden ones.
+/// the bottom with nothing in between, so the lines those runs lay out to, at
+/// each end of the output, are the hidden ones.
 ///
 /// Anything else is refused. A hidden line in the middle of a fence the
 /// comparison could not account for is not something to guess at, and the
 /// failure names the fence for a person to lay out by hand.
-fn by_position(body: &str, canonical: &str) -> Option<String> {
-    let written: Vec<&str> = body.lines().collect();
+fn by_position(block: &Block, canonical: &str) -> Option<String> {
+    let written: Vec<&str> = block.body.lines().collect();
     let above = written.iter().take_while(|l| is_hidden(l)).count();
     let below = written.iter().rev().take_while(|l| is_hidden(l)).count();
     let hidden = written.iter().filter(|l| is_hidden(l)).count();
     if hidden == 0 || above.saturating_add(below) != hidden {
         return None;
     }
+    let (above, below) = laid_out_runs(block, &written, above, below).unwrap_or((above, below));
     // Blank lines are the layout's and are never hidden, so the runs are
     // counted over the lines that hold something.
     let held: Vec<usize> = canonical
@@ -365,6 +366,23 @@ fn by_position(body: &str, canonical: &str) -> Option<String> {
         out.push('\n');
     }
     Some(out)
+}
+
+/// How many lines the hidden runs at each end take once laid out.
+///
+/// A long hidden line can be broken over several, so the written count is not
+/// the laid-out one. The runs are laid out around a stand-in for the visible
+/// lines, and what lands above and below it is the answer. `None` where that
+/// skeleton isn't a module either.
+fn laid_out_runs(block: &Block, written: &[&str], above: usize, below: usize) -> Option<(usize, usize)> {
+    const SHOWN: &str = "__shown";
+    let unmarked = |lines: &[&str]| lines.iter().map(|l| format!("{}\n", unmark(l))).collect::<String>();
+    let top = unmarked(written.get(..above)?);
+    let bottom = unmarked(written.get(written.len().saturating_sub(below)..)?);
+    let skeleton = laid_out(&format!("{top}{SHOWN}\n{bottom}"), block)?;
+    let held: Vec<&str> = skeleton.lines().filter(|l| !l.trim().is_empty()).collect();
+    let at = held.iter().position(|l| l.trim() == SHOWN)?;
+    Some((at, held.len().saturating_sub(at).saturating_sub(1)))
 }
 
 /// A source file whose documentation comments hold examples, with every drifted
@@ -528,6 +546,22 @@ mod tests {
         let io = out.find("core/io").expect("the hidden import");
         let s = out.find("core/str").expect("the visible one");
         assert!(io < s, "the run is sorted as one:\n{out}");
+    }
+
+    /// A hidden signature too long for one line is broken over several, and
+    /// every one of them stays hidden.
+    #[test]
+    fn a_long_hidden_line_stays_hidden_when_it_is_broken() {
+        let doc = "```buri\n\
+                   # export fn demo(first: Int, second: Int, third: Int, fourth: Int, fifth: Int, sixth: Int, seventh: Int): Int {\n\
+                   let total = first + second;\n\
+                   total\n\
+                   # }\n```\n";
+        let out = format_document("test.md", doc).expect("rewritten");
+        let shown: Vec<&str> =
+            out.lines().filter(|l| !l.starts_with("```") && !is_hidden(l)).collect();
+        assert_eq!(shown, ["    let total = first + second;", "    total"], "{out}");
+        assert!(format_document("test.md", &out).is_none(), "and then it is a fixed point:\n{out}");
     }
 
     /// A build file in a page is printed the way `buri format` prints a
