@@ -145,11 +145,6 @@ pub fn command_run(args: &arguments::Args) -> i32 {
                 eprintln!("error: cannot wait for the artifact");
                 return 2;
             };
-            // A signal spends the artifact's identity, and the next `buri run`
-            // in this repository would be killed before it started.
-            if crate::build::link::killed_by_signal(&st) {
-                crate::build::link::spend_identity(&artifact.path);
-            }
             stopping::status(&st)
         }
         Err(e) => {

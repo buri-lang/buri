@@ -1663,15 +1663,12 @@ const CLAIM_STALE: std::time::Duration = std::time::Duration::from_secs(900);
 
 /// The file a suite's native test binary is written to and executed from.
 ///
-/// **One file per platform for the whole repository, not one per package**, and
-/// that is a measurement rather than a tidy-up. macOS charges about 200 ms the
-/// first time a *newly created* file is executed; the charge is on the file's
-/// identity, so a file that has been executed once costs about 4 ms however many
-/// times it is rewritten with different bytes afterwards — measured, and the
-/// same effect `link::place` is written against. A test binary per package
-/// meant a cold `buri test //...`
-/// created five files that had never been executed and paid the charge five
-/// times — more than half of that run.
+/// **One file per platform for the whole repository, not one per package.**
+/// macOS charges about 200 ms the first time a newly created file is executed.
+/// `link::place_from` leaves a file whose bytes already match alone, so a rerun
+/// whose binary did not change skips that charge. New bytes always get a new
+/// file, because rewriting an executable in place can get it killed by code
+/// signing (see `link::place_from`).
 ///
 /// The file is shared, so it is claimed: a lock file beside it, taken with
 /// `create_new`, held for as long as the caller holds the [`TestBinary`], and
