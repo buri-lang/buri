@@ -294,6 +294,7 @@ fn one_pass(
     // not in it — because it could not batch, or because the batch was
     // abandoned — is run below exactly as it was before any of this existed.
     let mut pre = run_batches(&mut session, &targets, args);
+    pre.lints = session.workspace.repo.lint.check_during_build;
     let mut passed = 0usize;
     let mut failed = 0usize;
     let mut skipped = 0usize;
@@ -346,7 +347,9 @@ fn one_pass(
     // one nothing already stopped — a suite that could not be built has an
     // answer, and it is not a lint finding.
     if !hard_error && session.workspace.repo.lint.check_during_build {
-        let findings = crate::commands::lint::findings_for(&mut session, &targets, &args.flags);
+        let analyses = std::mem::take(&mut pre.analyses);
+        let findings =
+            crate::commands::lint::findings_reusing(&mut session, &targets, &args.flags, analyses);
         hard_error |= session.print(&findings);
         // The same line `buri lint` prints: a rule this repository turned off
         // is absent from the report, and an absence nothing explains reads as
@@ -582,6 +585,7 @@ fn run_on(
         return Err(diagnostics);
     }
     if program.roots.tests().is_empty() {
+        pre.keep(target, analysis);
         return Ok(Outcome::default());
     }
 
@@ -613,14 +617,7 @@ fn run_on(
     if platform.is_native() {
         let out =
             run_native(session, target, platform, args, &key, program, &analysis, skipped);
-        // The checked program is tens of milliseconds of `free` at a hundred
-        // thousand lines, and by here the verdict already exists. `Loaded`
-        // holds its modules behind `Rc` — shared with the session's parse
-        // cache — so it is not one of the things that can be handed over.
-        let crate::compiler::driver::Analysis { loaded, checked, diagnostics } = analysis;
-        drop(loaded);
-        drop(diagnostics);
-        crate::parallel::discard(checked);
+        pre.keep(target, analysis);
         // The second half of the same rule, for the gaps `missing_intrinsics`
         // cannot see: a `deriveArray*` is an intrinsic *expression* inside a
         // body `middle::derives` generated rather than a function the hook is
@@ -645,6 +642,7 @@ fn run_on(
         &args.flags,
         &mut diagnostics,
     )?;
+    pre.keep(target, analysis);
 
     // The order `anyOrder()` schedules with, spliced rather than set in the
     // environment: this path writes the artifact, so the seed is a constant of
@@ -975,6 +973,12 @@ fn is_backend_gap(diagnostics: &Diagnostics) -> bool {
 struct Prepass {
     done: Vec<(TargetId, Outcome)>,
     keys: Vec<((TargetId, Platform), crate::build::cache::ActionKey)>,
+    /// Whether `check_during_build` will lint this pass's targets, and so
+    /// whether a suite's analysis is worth keeping for it.
+    lints: bool,
+    /// The analysis of a suite compiled on its own: the same unit the lint
+    /// asks about, so the lint reads it rather than analysing it again.
+    analyses: Vec<(TargetId, crate::compiler::driver::Analysis)>,
 }
 
 impl Prepass {
@@ -982,6 +986,23 @@ impl Prepass {
     fn take(&mut self, target: TargetId) -> Option<Outcome> {
         let i = self.done.iter().position(|(t, _)| *t == target)?;
         Some(self.done.remove(i).1)
+    }
+
+    /// Keeps `analysis` for the lint, or frees it off this thread. A suite
+    /// run on two platforms is one unit, so its first analysis is the one.
+    fn keep(&mut self, target: TargetId, analysis: crate::compiler::driver::Analysis) {
+        if self.lints && !self.analyses.iter().any(|(t, _)| *t == target) {
+            self.analyses.push((target, analysis));
+            return;
+        }
+        // The checked program is tens of milliseconds of `free` at a hundred
+        // thousand lines, and by here the verdict already exists. `Loaded`
+        // holds its modules behind `Rc` — shared with the session's parse
+        // cache — so it is not one of the things that can be handed over.
+        let crate::compiler::driver::Analysis { loaded, checked, diagnostics } = analysis;
+        drop(loaded);
+        drop(diagnostics);
+        crate::parallel::discard(checked);
     }
 }
 
