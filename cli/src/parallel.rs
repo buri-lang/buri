@@ -202,45 +202,58 @@ pub fn memory_bytes() -> Option<u64> {
 }
 
 /// A queue of jobs and the workers that take them, for work that is not a pure
-/// function of an index: `buri test` builds and runs its suites on one.
+/// function of an index: `buri test` checks, builds and runs its suites on one.
 ///
-/// A job may queue more jobs. A *heavy* job holds a whole program in memory, so
-/// [`Queue::push`] waits while the pool's limit of heavy jobs hold one. A job
-/// holds its program from the moment it is queued until it drops the [`Held`]
-/// its worker hands it, which is usually long before it finishes: a suite
-/// emits or links, lets go of its program, and only then runs.
+/// A job may queue more jobs. A *heavy* job makes a whole program, so a worker
+/// takes one only while fewer than the pool's limit of heavy jobs hold one, and
+/// takes the next light job meanwhile. A heavy job holds its program from the
+/// moment it is taken until it drops the [`Held`] its worker hands it, which is
+/// usually long before it finishes: a suite emits or links, lets go of its
+/// program, and only then runs.
+///
+/// The limit applies when a job is taken rather than when it is queued, so
+/// queueing never waits. That is what lets a job queue heavy jobs while it
+/// holds a program itself: a queue that waited could fill with jobs waiting
+/// for room that only they would free.
 pub struct Queue<J> {
     state: std::sync::Mutex<QueueState<J>>,
     ready: std::sync::Condvar,
-    room: Room,
+    limit: usize,
 }
 
 struct QueueState<J> {
     jobs: std::collections::VecDeque<(J, bool)>,
+    /// How many heavy jobs hold a program.
+    held: usize,
     closed: bool,
 }
 
-/// How many heavy jobs hold a program, and the limit on that.
-struct Room {
-    held: std::sync::Mutex<usize>,
-    freed: std::sync::Condvar,
-    limit: usize,
+/// What a [`Held`] tells when it is dropped.
+trait Release {
+    fn release(&self);
+}
+
+impl<J> Release for Queue<J> {
+    fn release(&self) {
+        let mut state = self.lock();
+        state.held = state.held.saturating_sub(1);
+        drop(state);
+        self.ready.notify_all();
+    }
 }
 
 /// A heavy job's claim on the pool's room for programs. Dropping it says the
-/// job no longer holds one, and lets the next heavy job be queued. A light
+/// job no longer holds one, and lets the next heavy job be taken. A light
 /// job's claims nothing.
 #[must_use = "dropping it at once lets another program in while this one is still held"]
 pub struct Held<'a> {
-    room: Option<&'a Room>,
+    room: Option<&'a dyn Release>,
 }
 
 impl Drop for Held<'_> {
     fn drop(&mut self) {
         if let Some(room) = self.room {
-            let mut held = room.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            *held = held.saturating_sub(1);
-            room.freed.notify_all();
+            room.release();
         }
     }
 }
@@ -250,16 +263,8 @@ impl<J> Queue<J> {
         self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// Queues a job behind the others, waiting first for room if it is heavy.
+    /// Queues a job behind the others.
     pub fn push(&self, job: J, heavy: bool) {
-        if heavy {
-            let room = &self.room;
-            let mut held = room.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            while *held >= room.limit {
-                held = room.freed.wait(held).unwrap_or_else(std::sync::PoisonError::into_inner);
-            }
-            *held = held.saturating_add(1);
-        }
         self.lock().jobs.push_back((job, heavy));
         self.ready.notify_one();
     }
@@ -270,11 +275,20 @@ impl<J> Queue<J> {
         self.ready.notify_one();
     }
 
+    /// The first job a worker may start: the first light one, or the first
+    /// heavy one when there is room, whichever is queued first.
     fn take(&self) -> Option<(J, Held<'_>)> {
         let mut state = self.lock();
         loop {
-            if let Some((job, heavy)) = state.jobs.pop_front() {
-                return Some((job, Held { room: heavy.then_some(&self.room) }));
+            let room = state.held < self.limit;
+            if let Some(at) = state.jobs.iter().position(|(_, heavy)| room || !heavy) {
+                if let Some((job, heavy)) = state.jobs.remove(at) {
+                    if heavy {
+                        state.held = state.held.saturating_add(1);
+                    }
+                    let room: &dyn Release = self;
+                    return Some((job, Held { room: heavy.then_some(room) }));
+                }
             }
             if state.closed {
                 return None;
@@ -296,12 +310,13 @@ impl<J> Queue<J> {
 /// else: a job that has dropped its [`Held`] leaves its worker free to run
 /// beside the others, so `width` jobs can always be in flight.
 ///
-/// A result is `None` when its job panicked, so `drive` never waits for a result
-/// that will not come.
+/// `work` hands its result back by returning it, and may hand more back on the
+/// way with the [`Tell`] it is given. A result is `None` when its job panicked,
+/// so `drive` never waits for a result that will not come.
 pub fn pool<J, R, T>(
     width: usize,
     heavy_limit: usize,
-    work: impl Fn(J, Held<'_>, &Queue<J>) -> R + Sync,
+    work: impl Fn(J, Held<'_>, &Queue<J>, &Tell<R>) -> R + Sync,
     drive: impl FnOnce(&Queue<J>, &std::sync::mpsc::Receiver<Option<R>>) -> T,
 ) -> T
 where
@@ -311,14 +326,11 @@ where
     let queue = Queue {
         state: std::sync::Mutex::new(QueueState {
             jobs: std::collections::VecDeque::new(),
+            held: 0,
             closed: false,
         }),
         ready: std::sync::Condvar::new(),
-        room: Room {
-            held: std::sync::Mutex::new(0),
-            freed: std::sync::Condvar::new(),
-            limit: heavy_limit.max(1),
-        },
+        limit: heavy_limit.max(1),
     };
     let (send, receive) = std::sync::mpsc::channel();
     std::thread::scope(|scope| {
@@ -328,12 +340,13 @@ where
                 .name("buri-job".into())
                 .stack_size(STACK)
                 .spawn_scoped(scope, move || {
+                    let tell = Tell { send };
                     while let Some((job, held)) = queue.take() {
                         // A job that panics drops its `Held` as it unwinds.
                         let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            work(job, held, queue)
+                            work(job, held, queue, &tell)
                         }));
-                        let _ = send.send(done.ok());
+                        let _ = tell.send.send(done.ok());
                     }
                 });
             if started.is_err() {
@@ -346,6 +359,19 @@ where
         out
     })
 }
+
+/// How a job hands back a result before its last one.
+pub struct Tell<R> {
+    send: std::sync::mpsc::Sender<Option<R>>,
+}
+
+impl<R> Tell<R> {
+    /// Hands `result` to `drive` now, ahead of anything this job queues next.
+    pub fn tell(&self, result: R) {
+        let _ = self.send.send(Some(result));
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
