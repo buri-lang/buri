@@ -44,7 +44,8 @@
 )]
 
 use super::abi::{Loc, StencilTarget};
-use super::region::{Region, RelocKind, Target};
+use super::object::RelKind;
+use super::region::{Region, Target};
 use super::library::{Hole, HoleKind, Library, Stencil};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{Layout, Layouts};
@@ -103,38 +104,6 @@ pub struct HelperSymbol {
     pub shared: bool,
 }
 
-#[derive(Default)]
-pub struct Stats {
-    pub funcs: usize,
-    pub funcs_clean: usize,
-    pub blocks: usize,
-    pub insts: usize,
-    pub stencils: usize,
-    pub bytes: usize,
-    pub elided: usize,
-    pub unsupported: usize,
-    pub rc_skipped: usize,
-    pub reasons: HashMap<String, usize>,
-    pub regs_assigned: usize,
-    pub fused: usize,
-    pub folded: usize,
-    pub imm_relaxed: usize,
-    pub max_frame: u32,
-    pub coalesced: usize,
-    pub cross_regs: usize,
-    /// How many `list.*` closure calls were open-coded as a loop rather than
-    /// left to an ordinary runtime call, and how many of those got a
-    /// **direct** call to the step (`lists.rs`).
-    pub list_loops: usize,
-    pub list_direct: usize,
-    /// (2) The profile the supernode question needs: how often each stencil is
-    /// copied, and how often each *adjacent pair* of them is, which is exactly
-    /// the shape a two-operation supernode would fuse.
-    pub keys: HashMap<String, usize>,
-    pub pairs: HashMap<(String, String), usize>,
-    pub last_key: String,
-}
-
 pub struct Jit<'a> {
     pub(crate) lib: &'a Library,
     /// Which machine's fields are being patched.
@@ -166,7 +135,6 @@ pub struct Jit<'a> {
     /// (see [`Jit::resolve`]).
     entries: Vec<u64>,
     fixups: Vec<Fix>,
-    pub stats: Stats,
     /// The IR shapes this emitter refused, in the order they were first met.
     /// A unit with any of them produces no object: a refusal is a diagnostic
     /// naming the shape, never an artifact that aborts when it reaches it.
@@ -342,7 +310,6 @@ impl<'a> Jit<'a> {
             frames,
             entries: Vec::new(),
             fixups: Vec::new(),
-            stats: Stats::default(),
             reasons: Vec::new(),
             veneer_ok: false,
             dirty: Vec::new(),
@@ -439,11 +406,9 @@ impl<'a> Jit<'a> {
     }
 
     pub(crate) fn push_reason(&mut self, why: String) -> u64 {
-        self.stats.unsupported += 1;
         if let Some(d) = self.dirty.get_mut(self.current) {
             *d = true;
         }
-        *self.stats.reasons.entry(why.clone()).or_default() += 1;
         if let Some(i) = self.reasons.iter().position(|r| *r == why) {
             return i as u64;
         }
@@ -550,9 +515,6 @@ impl<'a> Jit<'a> {
     pub fn plan(&mut self, prog: &ir::Program) {
         self.entries = vec![0; prog.funcs.len()];
         self.dirty = vec![false; prog.funcs.len()];
-        for fs in self.frames {
-            self.stats.max_frame = self.stats.max_frame.max(fs.size);
-        }
     }
 }
 
@@ -800,8 +762,6 @@ impl<'a> Jit<'a> {
         let entry = self.region.code_addr();
         put(&mut self.entries, fi, entry);
         let frame = self.frames.get(fi).cloned().unwrap_or_default();
-        self.stats.funcs += 1;
-        let before_unsupported = self.stats.unsupported;
 
         match &f.body {
             ir::Body::Code(code) => {
@@ -838,10 +798,8 @@ impl<'a> Jit<'a> {
                 let base = self.fixups.len();
                 let order = self.layout(code);
                 for (oi, bi) in order.iter().copied().enumerate() {
-                    self.stats.last_key.clear();
                     let here = self.region.code_addr();
                     put(&mut st.blk, bi, here);
-                    self.stats.blocks += 1;
                     // Which side of the promotion's region every read in this
                     // block is on. See [`Fn2::loc`].
                     st.cur = bi;
@@ -850,9 +808,7 @@ impl<'a> Jit<'a> {
                     // `Plan::skip` is built with one flag per instruction of
                     // this block, so the zip drops nothing.
                     for (inst, skip) in block.insts.iter().zip(plan.skip.iter()) {
-                        self.stats.insts += 1;
                         if *skip {
-                            self.stats.fused += 1;
                             continue;
                         }
                         self.inst(prog, code, &mut st, inst);
@@ -891,9 +847,6 @@ impl<'a> Jit<'a> {
                 self.runtime_body(prog, fi, key.clone(), &mut st);
                 self.resolve_blocks(base, &st.blk);
             }
-        }
-        if self.stats.unsupported == before_unsupported {
-            self.stats.funcs_clean += 1;
         }
     }
 
@@ -974,7 +927,6 @@ impl<'a> Jit<'a> {
             });
             if fits {
                 s = f;
-                self.stats.folded += 1;
                 break;
             }
         }
@@ -992,7 +944,6 @@ impl<'a> Jit<'a> {
             if binds.iter().any(|(n, v)| *n == name && matches!(v, V::Fall)) {
                 elide = true;
                 len -= tail_bytes;
-                self.stats.elided += 1;
             }
         }
         let Some(bytes) = s.code.get(..len) else {
@@ -1016,8 +967,6 @@ impl<'a> Jit<'a> {
                 );
             }
         }
-        self.stats.stencils += 1;
-        self.stats.bytes += len;
         for h in &s.holes {
             if elide && tail_name == Some(h.name.as_str()) {
                 continue;
@@ -1077,10 +1026,10 @@ impl<'a> Jit<'a> {
     /// instruction and the processor measures from the instruction's end.
     fn branch_reloc(&mut self, at: u64, target: Target) {
         if self.target.is_arm64() {
-            self.region.reloc(at, RelocKind::Branch26, target);
+            self.region.reloc(at, RelKind::Branch26, target);
             return;
         }
-        self.region.reloc_with(at, RelocKind::Rel32, target, -4);
+        self.region.reloc_with(at, RelKind::Rel32, target, -4);
     }
 
     /// The reference to a constant-pool slot one of a hole's `pairs` becomes.
@@ -1206,7 +1155,6 @@ impl<'a> Jit<'a> {
                         for (a, b) in &h.pairs {
                             self.patch_imm32(at + *a as u64, at + *b as u64, x as u32);
                         }
-                        self.stats.imm_relaxed += 1;
                         return;
                     }
                 }
@@ -1250,7 +1198,6 @@ impl<'a> Jit<'a> {
                 for (insn_end, field) in &h.pairs {
                     self.patch_pc32_imm(at + *field as u64, at + *insn_end as u64, x as u32);
                 }
-                self.stats.imm_relaxed += 1;
                 return;
             }
         }
@@ -1644,7 +1591,6 @@ impl<'a> Jit<'a> {
             }
         }
         let mut used_here: std::collections::HashSet<(u32, u32)> = std::collections::HashSet::new();
-        let mut merged = 0usize;
         for (bi, b) in code.blocks.iter().enumerate() {
             // (i.a) An edge's block arguments.
             let mut pairs: Vec<(ir::ValueId, ir::ValueId)> = Vec::new();
@@ -1706,7 +1652,6 @@ impl<'a> Jit<'a> {
                     continue;
                 }
                 put(uf, ai, root);
-                merged += 1;
             }
             for (off, v) in rets {
                 let vi = v.index();
@@ -1724,10 +1669,8 @@ impl<'a> Jit<'a> {
                 }
                 // A class of one, pinned at the return area.
                 put(pin, vi, Some(off));
-                merged += 1;
             }
         }
-        self.stats.coalesced += merged;
     }
 
     /// Whether nothing in `root`'s class is read or written between `a`'s
@@ -2003,7 +1946,6 @@ impl<'a> Jit<'a> {
             // reads, so writing its slot through is the conservative answer.
             put(wt, p.index(), !ent(&reg_ok, p.index(), false));
             *k += 1;
-            self.stats.cross_regs += 1;
         }
         // The value the back edge hands the parameter belongs in the parameter's
         // own register, or the loop-carried chain still goes through memory:
@@ -2070,7 +2012,6 @@ impl<'a> Jit<'a> {
                     put(out, a.index(), Some(Loc::Reg(k)));
                     put(cross, a.index(), true);
                     put(wt, a.index(), false);
-                    self.stats.cross_regs += 1;
                 }
             }
         }
@@ -2242,7 +2183,6 @@ impl<'a> Jit<'a> {
                     let _ = (base, basef);
                     put(file, r, Some(dest.0));
                     put(out, dest.index(), Some(Loc::Reg(r as u8)));
-                    self.stats.regs_assigned += 1;
                 }
             }
         }
