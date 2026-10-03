@@ -1841,8 +1841,9 @@ copy itself), release toolchains, two interleaved rounds at load average 20–88
 Output is byte-identical, diagnostics included. A warm pass still re-checks
 the 12 broken suites, since only a clean run is cached; those now check four at
 a time, which is both the speedup and the extra peak memory. A cold pass isn't
-front-end bound on this repository: running its generator tools while the
-session opens, and the test processes themselves, are the long poles. With room
+front-end bound on this repository: the profile puts its long poles in building
+the generator tools while the session opens and in the test processes
+themselves. With room
 for ten builds (`BURI_TEST_MEMORY_BYTES`) the edit pass drops to 4.9–5.2 s and
 cold stays where it is.
 
