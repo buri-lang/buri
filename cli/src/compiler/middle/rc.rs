@@ -33,8 +33,8 @@
 //! handed to a step is a block whose *elements* the step counts, and a `Str`
 //! inside a closure's environment is a block two threads count. So a mark
 //! derived from a call site has to be a deep, type-directed walk of everything
-//! reachable from the arguments — `Helper::Walk`'s shape, which G5's
-//! `Helper::Copy` has since generalised — and a *shallow* one is precisely the
+//! reachable from the arguments — `Helper::Walk`'s shape, which G5
+//! generalised to take a copy operation — and a *shallow* one is precisely the
 //! under-count
 //! MEMORY.md §5.5 forbids:
 //!
@@ -50,7 +50,7 @@
 //! reference counting throughout a program that uses `core/tasks`, which is
 //! the price MEMORY.md §5.4 puts on threads rather than a price this shape
 //! adds. **Narrowing it is now possible and has not been done**: G5's
-//! `Helper::Copy` is the deep type-directed walk a per-value mark needs, and
+//! `Helper::Walk { op: Op::Copy }` is the deep type-directed walk a per-value mark needs, and
 //! spending it that way is an optimisation over an answer that is already
 //! correct rather than a fix for one that is wrong.
 //!
@@ -3902,7 +3902,7 @@ fn child_modes(e: &Expr, n: usize, own: &[Vec<ir::Ownership>]) -> Vec<Mode> {
         // [`ir::Inst::CallIndirect`] is "load `code` and `env`, then
         // `call_indirect`": the environment pointer is handed to the code and
         // neither half of it is released there. What frees an environment is
-        // the closure *value*'s own drop — `stencil::glue::Helper::EnvGlue`
+        // the closure *value*'s own drop — `stencil::glue::Helper::Env`
         // — so an `Own` here was a release
         // nothing performed, and every closure that was ever called leaked its
         // environment.
