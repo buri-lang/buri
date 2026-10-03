@@ -47,7 +47,7 @@ use crate::compiler::semantics::resolve::{ModuleScope, Sym, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{ConstId, FnId, Tables, Ty, TyConId};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
-use crate::hash::{Map as HashMap, Set as HashSet};
+use crate::hash::Set as HashSet;
 
 // ---------------------------------------------------------------------------
 // The vocabulary's tag numbers.
@@ -358,8 +358,8 @@ pub struct Styled {
     pub body_rules: Vec<StyleRule>,
     /// What the base's constants and bodies are once the pass has rewritten
     /// them, where it did. Empty for a run that is not a base's.
-    pub consts: HashMap<ConstId, typed::Expr>,
-    pub bodies: HashMap<FnId, std::sync::Arc<typed::Body>>,
+    pub consts: crate::compiler::semantics::resolve::ConstMap,
+    pub bodies: crate::compiler::semantics::resolve::BodyMap,
 }
 
 impl Styled {
@@ -372,14 +372,14 @@ impl Styled {
     pub fn after(
         self,
         base: &Styled,
-        bodies: &mut HashMap<FnId, std::sync::Arc<typed::Body>>,
-        consts: &mut HashMap<ConstId, typed::Expr>,
+        bodies: &mut crate::compiler::semantics::resolve::BodyMap,
+        consts: &mut crate::compiler::semantics::resolve::ConstMap,
     ) -> Vec<StyleRule> {
         for (id, body) in &base.bodies {
-            bodies.insert(*id, std::sync::Arc::clone(body));
+            bodies.insert(id, std::sync::Arc::clone(body));
         }
         for (id, init) in &base.consts {
-            consts.insert(*id, init.clone());
+            consts.insert(id, init.clone());
         }
         let mut seen: HashSet<String> = HashSet::default();
         base.const_rules
@@ -406,9 +406,9 @@ impl Styled {
 pub fn run(
     loaded: &Loaded,
     tables: &Tables,
-    scopes: &[ModuleScope],
-    bodies: &mut HashMap<FnId, std::sync::Arc<typed::Body>>,
-    consts: &mut HashMap<ConstId, typed::Expr>,
+    scopes: &crate::compiler::semantics::layered::Layered<ModuleScope>,
+    bodies: &mut crate::compiler::semantics::resolve::BodyMap,
+    consts: &mut crate::compiler::semantics::resolve::ConstMap,
     diags: &mut Diagnostics,
     walked: &Walked,
 ) -> (Styled, Option<TyConId>) {
@@ -445,7 +445,7 @@ pub fn run(
     // what they wrote. The rest of the closure is here to be *folded into*
     // those — which is what `original_bodies` above is — rather than to be
     // rewritten and reported on by a run that is not about it.
-    let mut const_ids: Vec<ConstId> = consts.keys().copied().collect();
+    let mut const_ids: Vec<ConstId> = consts.keys().collect();
     const_ids.sort_by_key(|c| c.index());
     for id in const_ids {
         if !walked.constant(tables, id) {
@@ -457,7 +457,7 @@ pub fn run(
         }
     }
     let const_rules = std::mem::take(&mut ex.rules);
-    let mut fn_ids: Vec<FnId> = bodies.keys().copied().collect();
+    let mut fn_ids: Vec<FnId> = bodies.keys().collect();
     fn_ids.sort_by_key(|f| f.index());
     for id in fn_ids {
         if !walked.function(tables, id) {
@@ -473,12 +473,12 @@ pub fn run(
 }
 
 /// `ui/style`'s `Style`, when this compilation loaded it.
-fn style_constructor(loaded: &Loaded, scopes: &[ModuleScope]) -> Option<TyConId> {
+fn style_constructor(loaded: &Loaded, scopes: &crate::compiler::semantics::layered::Layered<ModuleScope>) -> Option<TyConId> {
     ui_style_type(loaded, scopes, "Style")
 }
 
 /// One of `ui/style`'s own types, by name, when this compilation loaded it.
-fn ui_style_type(loaded: &Loaded, scopes: &[ModuleScope], name: &str) -> Option<TyConId> {
+fn ui_style_type(loaded: &Loaded, scopes: &crate::compiler::semantics::layered::Layered<ModuleScope>, name: &str) -> Option<TyConId> {
     let index = loaded.modules.iter().position(|m| m.path == "ui/style")?;
     match scopes.get(index)?.own.get(name)? {
         Sym::Ty(id) => Some(*id),
@@ -494,8 +494,8 @@ struct Extractor<'a> {
     /// `ui/style`'s `Color`, which is how [`Extractor::alphas`] recognises one.
     color_con: Option<TyConId>,
     tables: &'a Tables,
-    original_bodies: &'a HashMap<FnId, std::sync::Arc<typed::Body>>,
-    original_consts: &'a HashMap<ConstId, typed::Expr>,
+    original_bodies: &'a crate::compiler::semantics::resolve::BodyMap,
+    original_consts: &'a crate::compiler::semantics::resolve::ConstMap,
     rules: Vec<StyleRule>,
     recorded: HashSet<String>,
     diags: &'a mut Diagnostics,

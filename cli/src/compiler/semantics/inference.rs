@@ -74,12 +74,12 @@ fn check_bodies_the_extractor_folds(c: &mut Checker) {
     }
     let mut queue = Vec::new();
     for (id, body) in &c.bodies {
-        if files.contains(&c.tables.fn_info(*id).span.file) {
+        if files.contains(&c.tables.fn_info(id).span.file) {
             callees_of(&body.expr, &mut queue);
         }
     }
     for (id, expr) in &c.const_values {
-        if files.contains(&c.tables.const_(*id).span.file) {
+        if files.contains(&c.tables.const_(id).span.file) {
             callees_of(expr, &mut queue);
         }
     }

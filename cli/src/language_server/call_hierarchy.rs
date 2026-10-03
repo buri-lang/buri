@@ -55,7 +55,7 @@ pub fn incoming(analyzed: &Analyzed, symbol: &Symbol) -> Value {
             }
         });
         if !sites.is_empty() {
-            callers.push((Symbol::Function(*id), sites));
+            callers.push((Symbol::Function(id), sites));
         }
     }
     for (id, expr) in &checked.consts {
@@ -66,7 +66,7 @@ pub fn incoming(analyzed: &Analyzed, symbol: &Symbol) -> Value {
             }
         });
         if !sites.is_empty() {
-            callers.push((Symbol::Const(*id), sites));
+            callers.push((Symbol::Const(id), sites));
         }
     }
     calls(analyzed, "from", callers)

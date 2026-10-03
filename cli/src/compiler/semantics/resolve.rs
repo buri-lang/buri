@@ -20,6 +20,7 @@
 use crate::build::buildfile::Platform;
 use crate::build::workspace::{PackageId, RuleKind, TargetId, Workspace};
 use crate::compiler::modules::{Loaded, Role};
+use crate::compiler::semantics::layered::{IdMap, Layered};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::compiler::standard_library;
@@ -86,11 +87,16 @@ pub enum Bodies {
     In(Vec<FileId>),
 }
 
+/// Every checked function body, by the function's id.
+pub type BodyMap = IdMap<FnId, std::sync::Arc<typed::Body>>;
+/// Every checked module-level `let`, by the constant's id.
+pub type ConstMap = IdMap<ConstId, typed::Expr>;
+
 pub struct Checked {
     pub tables: Tables,
-    pub scopes: Vec<ModuleScope>,
-    pub bodies: HashMap<FnId, std::sync::Arc<typed::Body>>,
-    pub consts: HashMap<ConstId, typed::Expr>,
+    pub scopes: Layered<ModuleScope>,
+    pub bodies: BodyMap,
+    pub consts: ConstMap,
     /// `main`, when this compilation has one.
     pub entry: Option<FnId>,
     /// Every exported free function of the entry module, by name.
@@ -161,9 +167,9 @@ pub struct Checker<'a> {
     pub ws: Option<&'a Workspace>,
     pub diags: &'a mut Diagnostics,
     pub tables: Tables,
-    pub scopes: Vec<ModuleScope>,
-    pub bodies: HashMap<FnId, std::sync::Arc<typed::Body>>,
-    pub const_values: HashMap<ConstId, typed::Expr>,
+    pub scopes: Layered<ModuleScope>,
+    pub bodies: BodyMap,
+    pub const_values: ConstMap,
     pub entry: Option<FnId>,
     /// See [`Checked::entries`].
     pub entries: HashMap<String, FnId>,
@@ -266,9 +272,9 @@ pub struct Base {
     /// How many of the compilation's leading modules this covers.
     modules: usize,
     tables: Tables,
-    scopes: Vec<ModuleScope>,
-    bodies: HashMap<FnId, std::sync::Arc<typed::Body>>,
-    const_values: HashMap<ConstId, typed::Expr>,
+    scopes: Layered<ModuleScope>,
+    bodies: BodyMap,
+    const_values: ConstMap,
     known_traits: HashMap<String, TraitId>,
     known_types: HashMap<String, TyConId>,
     prim_module: ModuleId,
@@ -350,7 +356,7 @@ impl<'a> Checker<'a> {
         ws: Option<&'a Workspace>,
         diags: &'a mut Diagnostics,
     ) -> Checker<'a> {
-        let mut scopes = Vec::new();
+        let mut scopes = Layered::default();
         scopes.resize_with(loaded.modules.len(), ModuleScope::default);
         Checker {
             loaded,
@@ -358,8 +364,8 @@ impl<'a> Checker<'a> {
             diags,
             tables: Tables::default(),
             scopes,
-            bodies: HashMap::default(),
-            const_values: HashMap::default(),
+            bodies: IdMap::default(),
+            const_values: IdMap::default(),
             entry: None,
             entries: HashMap::default(),
             entry_points: HashSet::default(),
@@ -396,12 +402,14 @@ impl<'a> Checker<'a> {
         base: &'a Base,
     ) -> Checker<'a> {
         let mut c = Checker::new(loaded, ws, diags);
-        let mut scopes = base.scopes.clone();
+        // The base's entries are shared rather than copied: these start
+        // empty, and read through to the base for every id below theirs.
+        let mut scopes = base.scopes.layer();
         scopes.resize_with(loaded.modules.len(), ModuleScope::default);
         c.scopes = scopes;
-        c.tables = base.tables.clone();
-        c.bodies = base.bodies.clone();
-        c.const_values = base.const_values.clone();
+        c.tables = base.tables.layer();
+        c.bodies = base.bodies.layer();
+        c.const_values = base.const_values.layer();
         c.known_traits = base.known_traits.clone();
         c.known_types = base.known_types.clone();
         c.prim_module = base.prim_module;
@@ -426,11 +434,15 @@ impl<'a> Checker<'a> {
         // analysis folds its own styles through the bodies as they were
         // before that — so the pass runs on copies, and keeps only what it
         // changed.
+        self.tables.freeze();
+        self.scopes.freeze();
+        self.bodies.freeze();
+        self.const_values.freeze();
         let (mut waiting, mut styled) = Default::default();
         if bodies_checked {
             let walked = self.walked();
             waiting = self.check_icons_and_builders(&walked, &HashSet::default());
-            let (mut bodies, mut consts) = (self.bodies.clone(), self.const_values.clone());
+            let (mut bodies, mut consts) = (self.bodies.layer(), self.const_values.layer());
             let (found, _) = crate::compiler::semantics::styles::run(
                 self.loaded,
                 &self.tables,
@@ -442,10 +454,11 @@ impl<'a> Checker<'a> {
             );
             styled = crate::compiler::semantics::styles::Styled {
                 bodies: bodies
-                    .into_iter()
+                    .iter()
                     .filter(|(id, body)| {
                         !self.bodies.get(id).is_some_and(|was| std::sync::Arc::ptr_eq(was, body))
                     })
+                    .map(|(id, body)| (id, std::sync::Arc::clone(body)))
                     .collect(),
                 consts,
                 ..found
@@ -956,7 +969,8 @@ impl<'a> Checker<'a> {
         // Everything a module declares is visible unqualified inside it,
         // before its imports add to that.
         let first = self.first_module();
-        for scope in self.scopes.iter_mut().skip(first) {
+        debug_assert_eq!(self.scopes.base_len(), first);
+        for scope in self.scopes.own_mut() {
             scope.names = scope.own.clone();
         }
 
@@ -971,7 +985,7 @@ impl<'a> Checker<'a> {
                 Some((name.to_string(), sym))
             })
             .collect();
-        for scope in self.scopes.iter_mut().skip(first) {
+        for scope in self.scopes.own_mut() {
             for (local, sym) in &prelude {
                 scope.names.entry(local.clone()).or_insert_with(|| sym.clone());
             }
@@ -2963,7 +2977,7 @@ impl<'a> Checker<'a> {
             .iter()
             .filter(|(_, i)| i.is_derived())
             // The base checked its own, and they are the same ones.
-            .filter(|(key, _)| !self.base.is_some_and(|b| b.tables.impls.contains_key(key)))
+            .filter(|(key, _)| !self.base.is_some_and(|b| b.tables.impls.contains_key(*key)))
             .map(|((t, c), i)| (*t, *c, i.span))
             .collect();
         let mut sorted = derived;

@@ -16,6 +16,7 @@ pub mod exhaustiveness;
 pub mod expressions;
 pub mod icons;
 pub mod inference;
+pub mod layered;
 pub mod patterns;
 pub mod reactive;
 pub mod resolve;

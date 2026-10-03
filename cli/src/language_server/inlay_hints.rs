@@ -75,7 +75,7 @@ pub fn hints(
     let checked = &analyzed.analysis.checked;
     let mut found: Vec<Hint> = Vec::new();
     for (fid, body) in &checked.bodies {
-        if tables.fn_info(*fid).span.file != file {
+        if tables.fn_info(fid).span.file != file {
             continue;
         }
         for local in &body.locals {
@@ -103,7 +103,7 @@ pub fn hints(
     // A module-level `let`'s value is checked on its own, with no body around
     // it — and it writes its type, so only its call sites can be hinted.
     for (id, expr) in &checked.consts {
-        if tables.const_(*id).span.file == file {
+        if tables.const_(id).span.file == file {
             parameter_hints(analyzed, file, text, expr, &mut found);
         }
     }
