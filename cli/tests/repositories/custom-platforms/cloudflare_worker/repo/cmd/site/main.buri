@@ -23,9 +23,10 @@ export fn handle<C: Allocator>(ctx: C, request: Request): Response {
         "/header" => http.text(ctx, request.header("x-asked").withDefault("nothing")),
         // A header the worker writes, which the runtime has to carry back.
         "/tagged" => http.text(ctx, "tagged").withHeader(ctx, "x-answered", "yes"),
-        // The two answers that are not 200.
+        // The answers that are not 200, one of them with no body allowed.
         "/missing" => http.status(404),
         "/broken" => http.status(500),
+        "/empty" => http.status(204),
         other => http.text(ctx, str.format(ctx, "${verb(request.method)} ${other}")),
     }
 }

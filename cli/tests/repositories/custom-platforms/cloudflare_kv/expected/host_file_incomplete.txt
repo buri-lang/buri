@@ -4,7 +4,7 @@ error: `fetch.mjs` exports `HostKv` without `put`, which `Kv` declares with 4 pa
 6 | export const HostKv = {
   | ^
   |
-  = an export named after one of the platform's production structs implements it, and the build reads `export const S = { ... }` and `export function`
+  = an export named after one of the platform's production structs implements it, written `export const S = { ... }` with one function per method
   = fix: export the struct as an object with one function per method, `self` first
 
     Each method a platform's platform.buri declares without a body is the

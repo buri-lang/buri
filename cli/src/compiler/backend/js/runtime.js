@@ -2445,10 +2445,13 @@ async function $crossResponseIn(response) {
   return [BigInt(response.status), $httpResponseHeaders(response), Array.from(octets)];
 }
 
-// The other way: `platform/effect`'s `Response`, as a Fetch one.
+// The other way: `platform/effect`'s `Response`, as a Fetch one. A status that
+// may carry no body gets none, not an empty one: Fetch refuses either.
 function $crossResponseOut(r) {
-  return new Response(new Uint8Array(r[2]), {
-    status: Number(r[0]),
+  const status = Number(r[0]);
+  const bodiless = status === 101 || status === 103 || status === 204 || status === 205 || status === 304;
+  return new Response(bodiless ? null : new Uint8Array(r[2]), {
+    status,
     headers: Array.from(r[1], (h) => [h[0], h[1]]),
   });
 }

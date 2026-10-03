@@ -9,8 +9,7 @@ error: //cmd/site builds `fetch` for `//platform/cloudflare_worker`, and its `js
 
     An entry with a js file is called by whatever loads that file: a worker
     runtime, a browser extension, a test script. Build it and hand the output
-    directory to that host.
+    directory to that host:
 
       buri build //cmd/site
-      bun -e 'import w from "./.buri/out/platform/cloudflare_worker/cmd/site/fetch.mjs"; ...'
 

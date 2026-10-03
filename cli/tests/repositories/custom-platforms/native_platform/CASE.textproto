@@ -110,3 +110,29 @@ run {
   exit: 1
   golden: "custom_effect_on_native_backend.txt"
 }
+
+# Without a `js` file an entry starts itself, so its platform may declare it
+# only with the program signature.
+edit {
+  file: "platform/lambda/platform.buri"
+  replace: "    export dice: HostDice,\n}\n\nstruct HostDice {}\nimpl Random for HostDice {\n    fn nextInt(self, low: Int, high: Int): Int;\n    fn nextFloat(self): Float;\n}"
+  with: "}"
+}
+
+edit {
+  file: "platform/lambda/platform.buri"
+  replace: "export fn bootstrap(host: LambdaHost): Result<(), Str>;"
+  with: "export fn bootstrap(host: LambdaHost, event: Str): Result<(), Str>;"
+}
+
+edit {
+  file: "cmd/hello/main.buri"
+  replace: "export fn bootstrap(host: LambdaHost): Result<(), Str> {"
+  with: "export fn bootstrap(host: LambdaHost, event: Str): Result<(), Str> {"
+}
+
+run {
+  args: ["build", "//cmd/hello"]
+  exit: 1
+  golden: "entry_starts_itself.txt"
+}
