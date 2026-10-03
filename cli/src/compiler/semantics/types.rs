@@ -7,7 +7,7 @@
 //! needs a fixpoint (guides/compile-speed.md).
 
 use crate::diagnostics::{Invariant as _, Span};
-use crate::compiler::semantics::layered::{DenseId, Layered, LayeredMap};
+use crate::compiler::semantics::layered::{DenseId, IdMap, Layered, LayeredMap};
 use crate::hash::Map as HashMap;
 use std::fmt::Write as _;
 
@@ -594,7 +594,7 @@ pub struct Tables {
     /// library included. `add_impl` is the only way a conformance comes into
     /// existence, so this cannot fall out of step, and the list is kept sorted
     /// where the scan sorted afterwards, so the answer is the same one.
-    traits_by_con: LayeredMap<TyConId, Vec<TraitId>>,
+    traits_by_con: IdMap<TyConId, Vec<TraitId>>,
     /// `defining type -> method name -> function`. Methods supplied by an
     /// `impl` live in the same namespace and are found here too, so an `impl`
     /// introduces no second resolution path.
@@ -603,7 +603,7 @@ pub struct Tables {
     /// borrowed, so every lookup — one per method call in the program — had to
     /// allocate a `String` to ask. The inner map's key is `Borrow<str>`, and
     /// the outer one is `Copy`.
-    methods: LayeredMap<TyConId, HashMap<String, FnId>>,
+    methods: IdMap<TyConId, HashMap<String, FnId>>,
     /// `[T]` has no type constructor of its own; its defining module is
     /// `core/list`.
     pub array_methods: LayeredMap<String, FnId>,
@@ -875,7 +875,7 @@ impl Tables {
         if self.impls.contains_key(&key) {
             return false;
         }
-        let list = self.traits_by_con.entry_mut(info.self_con);
+        let list = self.traits_by_con.get_or_default(info.self_con);
         if let Err(at) = list.binary_search(&info.trait_id) {
             list.insert(at, info.trait_id);
         }
@@ -895,7 +895,7 @@ impl Tables {
         if self.method(con, name).is_some() {
             return false;
         }
-        self.methods.entry_mut(con).insert(name.to_owned(), f);
+        self.methods.get_or_default(con).insert(name.to_owned(), f);
         true
     }
 
