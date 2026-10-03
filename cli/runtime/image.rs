@@ -277,6 +277,44 @@ const MAX_SIDE: u32 = super::MAX_VIEWPORT * super::DEVICE_SCALE as u32;
 /// One sentence naming what it could not read. An interlaced file is one of
 /// them, deliberately — the header of this file says why.
 pub(super) fn decode(png: &[u8]) -> Result<Image, String> {
+    inflated(png)?.decode()
+}
+
+/// A PNG read as far as its inflated stream: the rows still filtered, each
+/// behind its filter byte.
+///
+/// The stop on the way to [`decode`] that a comparison can use: a golden the
+/// painter wrote is eight-bit RGBA with every row `Up`-filtered, and a fresh
+/// raster can be filtered the same way and compared against these bytes as
+/// they stand ([`Inflated::rgba_rows`]), with no rows put back at all.
+pub(super) struct Inflated {
+    header: Header,
+    palette: Vec<[u8; 3]>,
+    transparency: Vec<u8>,
+    raw: Vec<u8>,
+}
+
+impl Inflated {
+    /// The pixels, whatever colour type, bit depth and filters they were
+    /// written with.
+    pub(super) fn decode(self) -> Result<Image, String> {
+        let Self { header, palette, transparency, mut raw } = self;
+        unfiltered(&header, &mut raw)?;
+        header.expand(raw, &palette, &transparency)
+    }
+
+    /// The filtered stream, when this is a `width` by `height` eight-bit RGBA
+    /// picture: rows of a filter byte and `width * 4` bytes. `None` for any
+    /// other shape, which only [`Self::decode`] can answer for.
+    pub(super) fn rgba_rows(&self, width: u32, height: u32) -> Option<&[u8]> {
+        let header = &self.header;
+        (header.colour == 6 && header.depth == 8 && header.width == width && header.height == height)
+            .then_some(self.raw.as_slice())
+    }
+}
+
+/// The chunks of a PNG, read, and its image data inflated.
+pub(super) fn inflated(png: &[u8]) -> Result<Inflated, String> {
     let bad = |what: &str| format!("the PNG {what}");
     if png.get(..8) != Some(&SIGNATURE) {
         return Err(bad("does not start with a PNG signature"));
@@ -308,8 +346,10 @@ pub(super) fn decode(png: &[u8]) -> Result<Image, String> {
     // Capped at what the header asks for, so a small chunk cannot inflate into
     // a gigabyte before the length check below has a chance to refuse it.
     let raw = inflate_capped(&zlib, header.raw_bytes()?)?;
-    let rows = unfiltered(&header, &raw)?;
-    header.expand(&rows, &palette, &transparency)
+    if raw.len() != header.raw_bytes()? {
+        return Err(bad("holds fewer rows than its header says"));
+    }
+    Ok(Inflated { header, palette, transparency, raw })
 }
 
 /// What IHDR says, checked.
@@ -389,9 +429,13 @@ impl Header {
     }
 
     /// The rows as straight RGBA, with the palette and `tRNS` applied.
+    ///
+    /// `rows` is the unfiltered rows end to end, [`Self::stride`] bytes each.
+    /// Eight-bit RGBA — every PNG the painter writes, so every golden — is
+    /// already the answer and is handed back as it is, without a copy.
     fn expand(
         &self,
-        rows: &[Vec<u8>],
+        rows: Vec<u8>,
         palette: &[[u8; 3]],
         transparency: &[u8],
     ) -> Result<Image, String> {
@@ -399,9 +443,13 @@ impl Header {
         if self.colour == 3 && palette.is_empty() {
             return Err(bad("is a palette image with no PLTE"));
         }
+        if self.colour == 6 && self.depth == 8 {
+            return Ok(Image { width: self.width, height: self.height, rgba: rows });
+        }
+        let stride = self.stride().ok_or_else(|| bad("is too wide to hold"))?;
         let mut rgba = Vec::with_capacity(pixel_bytes(self.width, self.height)?);
         let clear = transparent(self.colour, transparency);
-        for row in rows {
+        for row in rows.chunks_exact(stride.max(1)) {
             let mut samples = Samples::new(row, self.depth);
             for _ in 0..self.width {
                 let mut pixel = [0_u16; 4];
@@ -523,55 +571,78 @@ impl<'a> Samples<'a> {
     }
 }
 
-/// The rows of the raw stream, each with its filter undone.
-fn unfiltered(header: &Header, raw: &[u8]) -> Result<Vec<Vec<u8>>, String> {
+/// The raw stream with every row's filter undone, **in place**: each row is
+/// unfiltered where it lies and slid down over the filter bytes, so `raw` ends
+/// as the rows end to end, [`Header::stride`] bytes each, and no second copy
+/// of the picture is ever held.
+fn unfiltered(header: &Header, raw: &mut Vec<u8>) -> Result<(), String> {
     let bad = |what: &str| format!("the PNG {what}");
     let stride = header.stride().ok_or_else(|| bad("is too wide to hold"))?;
     let step = header.filter_step();
     if raw.len() != header.raw_bytes()? {
         return Err(bad("holds fewer rows than its header says"));
     }
-    let mut out: Vec<Vec<u8>> = Vec::with_capacity(header.height as usize);
-    let mut previous = vec![0_u8; stride];
+    let zeroes = vec![0_u8; stride];
     for index in 0..header.height as usize {
-        let start = index.saturating_mul(stride.saturating_add(1));
-        let kind = raw.get(start).copied().ok_or_else(|| bad("ends mid-row"))?;
-        let from = start.saturating_add(1);
-        let line = raw.get(from..from.saturating_add(stride)).ok_or_else(|| bad("ends mid-row"))?;
-        let mut row = line.to_vec();
-        unfilter(kind, &mut row, &previous, step)?;
-        previous.clone_from(&row);
-        out.push(row);
+        // Row `index` sits at `index * (stride + 1) + 1` in the stream and is
+        // written back to `index * stride`, so the row above it — already
+        // unfiltered and moved — ends exactly where this one's filter byte is.
+        let start = index * (stride + 1);
+        let kind = raw[start];
+        let (done, rest) = raw.split_at_mut(start);
+        let row = &mut rest[1..=stride];
+        let previous = if index == 0 { &zeroes[..] } else { &done[(index - 1) * stride..index * stride] };
+        unfilter(kind, row, previous, step)?;
+        raw.copy_within(start + 1..start + 1 + stride, index * stride);
     }
-    Ok(out)
+    raw.truncate(stride * header.height as usize);
+    Ok(())
 }
 
 /// One filtered row, put back. `row` is rebuilt left to right, so the byte the
-/// filters call `a` is already unfiltered by the time it is read.
+/// filters call `a` is already unfiltered by the time it is read. `previous` is
+/// the unfiltered row above, as long as `row`.
+///
+/// One loop per filter rather than one loop asking which filter each byte: the
+/// `Up` filter the painter writes is then a plain byte-wise add over two rows.
 pub(super) fn unfilter(
     kind: u8,
     row: &mut [u8],
     previous: &[u8],
     step: usize,
 ) -> Result<(), String> {
-    if kind > 4 {
-        return Err(format!("the PNG uses row filter {kind}, which does not exist"));
+    if previous.len() != row.len() {
+        return Err("the PNG has rows of two lengths".to_string());
     }
-    for i in 0..row.len() {
-        let left = |r: &[u8]| i.checked_sub(step).and_then(|j| r.get(j)).copied().unwrap_or(0);
-        let a = left(row);
-        let b = previous.get(i).copied().unwrap_or(0);
-        let c = left(previous);
-        let add = match kind {
-            1 => a,
-            2 => b,
-            3 => ((u16::from(a) + u16::from(b)) / 2) as u8,
-            4 => paeth(a, b, c),
-            _ => 0,
-        };
-        if let Some(slot) = row.get_mut(i) {
-            *slot = slot.wrapping_add(add);
+    let step = step.min(row.len());
+    match kind {
+        0 => {}
+        1 => {
+            for i in step..row.len() {
+                row[i] = row[i].wrapping_add(row[i - step]);
+            }
         }
+        2 => {
+            for (byte, &above) in row.iter_mut().zip(previous) {
+                *byte = byte.wrapping_add(above);
+            }
+        }
+        3 => {
+            for i in 0..row.len() {
+                let a = if i >= step { u16::from(row[i - step]) } else { 0 };
+                row[i] = row[i].wrapping_add(((a + u16::from(previous[i])) / 2) as u8);
+            }
+        }
+        4 => {
+            for i in 0..step {
+                row[i] = row[i].wrapping_add(paeth(0, previous[i], 0));
+            }
+            for i in step..row.len() {
+                row[i] =
+                    row[i].wrapping_add(paeth(row[i - step], previous[i], previous[i - step]));
+            }
+        }
+        _ => return Err(format!("the PNG uses row filter {kind}, which does not exist")),
     }
     Ok(())
 }
@@ -586,47 +657,74 @@ fn be32(data: &[u8], at: usize) -> Option<u32> {
 // ---------------------------------------------------------------------------
 
 /// The other end of `paint.rs`'s `BitWriter`.
+///
+/// Up to 64 bits are held ahead of the reader, low bit first, so a field or a
+/// Huffman code is a shift and a mask rather than a loop over its bits.
 struct BitReader<'a> {
     data: &'a [u8],
     at: usize,
-    bit: u32,
+    /// The bits read off `data` and not yet taken, the next one lowest.
+    held: u64,
+    /// How many of `held`'s bits are real.
+    count: u32,
 }
 
-impl BitReader<'_> {
-    fn bit(&mut self) -> Option<u32> {
-        let byte = *self.data.get(self.at)?;
-        let value = (u32::from(byte) >> self.bit) & 1;
-        self.bit = self.bit.saturating_add(1);
-        if self.bit == 8 {
-            self.bit = 0;
-            self.at = self.at.saturating_add(1);
+impl<'a> BitReader<'a> {
+    fn new(data: &'a [u8], at: usize) -> Self {
+        Self { data, at, held: 0, count: 0 }
+    }
+
+    /// Tops `held` up to at least 57 bits, or to the end of the data.
+    fn refill(&mut self) {
+        while self.count <= 56 {
+            let Some(&byte) = self.data.get(self.at) else { return };
+            self.held |= u64::from(byte) << self.count;
+            self.count += 8;
+            self.at += 1;
         }
-        Some(value)
+    }
+
+    /// The next `width` bits without taking them, and how many of them are
+    /// real: fewer than `width` only at the end of the data.
+    fn peek(&mut self, width: u32) -> (u32, u32) {
+        if self.count < width {
+            self.refill();
+        }
+        ((self.held & ((1_u64 << width) - 1)) as u32, self.count.min(width))
+    }
+
+    fn consume(&mut self, width: u32) {
+        self.held >>= width;
+        self.count -= width;
     }
 
     fn bits(&mut self, width: u32) -> Option<u32> {
-        let mut value = 0;
-        for i in 0..width {
-            value |= self.bit()? << i;
+        let (value, real) = self.peek(width);
+        if real < width {
+            return None;
         }
+        self.consume(width);
         Some(value)
     }
 
     /// To the next byte boundary, which is where a stored block's length sits.
     fn align(&mut self) {
-        if self.bit != 0 {
-            self.bit = 0;
-            self.at = self.at.saturating_add(1);
-        }
+        self.consume(self.count % 8);
     }
 }
 
-/// A canonical Huffman code, as its symbol counts per length and its symbols in
-/// canonical order. Decoding walks a bit at a time, which is RFC 1951's own
-/// description of the code and needs no table.
+/// A canonical Huffman code, as a table indexed by the next `longest` bits of
+/// the stream. Each entry is the symbol shifted up four and its code's length
+/// in the low four bits; a length of zero is a code no symbol has.
+///
+/// The table is RFC 1951's canonical code written out in full: a code of `n`
+/// bits fills every entry whose low `n` bits are that code (bit-reversed,
+/// because deflate sends a code high bit first and everything else low bit
+/// first). A lookup is then one peek and one index rather than a walk a bit
+/// at a time.
 struct Huffman {
-    counts: [u16; 16],
-    symbols: Vec<u16>,
+    longest: u32,
+    table: Vec<u16>,
 }
 
 impl Huffman {
@@ -636,43 +734,50 @@ impl Huffman {
             let slot = counts.get_mut(usize::from(length))?;
             *slot = slot.checked_add(1)?;
         }
-        if counts.first().copied().unwrap_or(0) as usize == lengths.len() {
+        if counts[0] as usize == lengths.len() {
             return None;
         }
-        let mut offsets = [0_u16; 16];
-        let mut total = 0_u16;
+        let longest = (1..16_u32).rev().find(|&n| counts[n as usize] > 0).unwrap_or(1);
+        // The first code of each length, RFC 1951 §3.2.2.
+        let mut next = [0_u32; 16];
+        let mut code = 0_u32;
         for length in 1..16_usize {
-            *offsets.get_mut(length)? = total;
-            total = total.checked_add(counts.get(length).copied().unwrap_or(0))?;
+            next[length] = code;
+            code = (code + u32::from(counts[length])) << 1;
         }
-        let mut symbols = vec![0_u16; usize::from(total)];
+        let mut table = vec![0_u16; 1 << longest];
         for (symbol, &length) in lengths.iter().enumerate() {
             if length == 0 {
                 continue;
             }
-            let slot = offsets.get_mut(usize::from(length))?;
-            *symbols.get_mut(usize::from(*slot))? = u16::try_from(symbol).ok()?;
-            *slot = slot.checked_add(1)?;
+            let length = u32::from(length);
+            let code = next[length as usize];
+            next[length as usize] += 1;
+            // An over-subscribed code has no room left at this length; such a
+            // symbol is never decoded, as no prefix-free reading reaches it.
+            if code >= 1 << length {
+                continue;
+            }
+            let reversed = code.reverse_bits() >> (32 - length);
+            let entry = u16::try_from(symbol).ok()? << 4 | length as u16;
+            let mut at = reversed as usize;
+            while at < table.len() {
+                table[at] = entry;
+                at += 1 << length;
+            }
         }
-        Some(Self { counts, symbols })
+        Some(Self { longest, table })
     }
 
     fn decode(&self, reader: &mut BitReader) -> Option<u16> {
-        let mut code = 0_i32;
-        let mut first = 0_i32;
-        let mut index = 0_i32;
-        for length in 1..16_usize {
-            code |= i32::try_from(reader.bit()?).ok()?;
-            let count = i32::from(self.counts.get(length).copied().unwrap_or(0));
-            if code.checked_sub(first)? < count {
-                let at = index.checked_add(code.checked_sub(first)?)?;
-                return self.symbols.get(usize::try_from(at).ok()?).copied();
-            }
-            index = index.checked_add(count)?;
-            first = first.checked_add(count)?.checked_shl(1)?;
-            code = code.checked_shl(1)?;
+        let (bits, real) = reader.peek(self.longest);
+        let entry = *self.table.get(bits as usize)?;
+        let length = u32::from(entry & 0xf);
+        if length == 0 || length > real {
+            return None;
         }
-        None
+        reader.consume(length);
+        Some(entry >> 4)
     }
 }
 
@@ -707,8 +812,12 @@ fn inflate_capped(zlib: &[u8], cap: usize) -> Result<Vec<u8>, String> {
     if flg & 0x20 != 0 {
         return Err(bad("wants a preset dictionary"));
     }
-    let mut reader = BitReader { data: zlib, at: 2, bit: 0 };
-    let mut out: Vec<u8> = Vec::new();
+    let mut reader = BitReader::new(zlib, 2);
+    // Room for the whole answer up front where the header says how large it
+    // is, so the stream is not copied each time the vector grows. Never more
+    // than deflate's own ceiling of 1032 bytes out per byte in, so a header
+    // claiming a vast picture over a short stream allocates nothing vast.
+    let mut out: Vec<u8> = Vec::with_capacity(cap.min(zlib.len().saturating_mul(1032)));
     loop {
         let last = reader.bits(1).ok_or_else(|| bad("ends mid-block"))?;
         match reader.bits(2).ok_or_else(|| bad("ends mid-block"))? {
@@ -802,7 +911,7 @@ fn dynamic_trees(reader: &mut BitReader) -> Result<(Huffman, Huffman), String> {
     let (lit, dist) = lengths.split_at(literals);
     let literals = Huffman::new(lit).ok_or_else(|| bad("has an empty literal tree"))?;
     // Every distance length zero is legal: a block of literals alone.
-    let distances = Huffman::new(dist).unwrap_or(Huffman { counts: [0; 16], symbols: Vec::new() });
+    let distances = Huffman::new(dist).unwrap_or(Huffman { longest: 1, table: vec![0; 2] });
     Ok((literals, distances))
 }
 
@@ -841,13 +950,25 @@ fn block(
                 if distance == 0 || distance > out.len() {
                     return Err(bad("copies from before the start of the image"));
                 }
-                let from = out.len().saturating_sub(distance);
-                for step in 0..length {
-                    let byte = out
-                        .get(from.saturating_add(step))
-                        .copied()
-                        .ok_or_else(|| bad("copies past what it has written"))?;
-                    out.push(byte);
+                // A copy may overlap what it writes — a distance of one is a
+                // run — so it goes in pieces that read only bytes already
+                // written. The copy repeats with period `distance`, and every
+                // piece but the last is a whole number of periods, so each
+                // one can restart at `from` and take everything written since:
+                // a run doubles rather than going a period at a time.
+                if distance == 1 {
+                    // A run of one byte, which is most of a flat picture's
+                    // filtered rows: a fill rather than a copy.
+                    let byte = out[out.len() - 1];
+                    out.resize(out.len() + length, byte);
+                    continue;
+                }
+                let from = out.len() - distance;
+                let mut left = length;
+                while left > 0 {
+                    let piece = left.min(out.len() - from);
+                    out.extend_from_within(from..from + piece);
+                    left -= piece;
                 }
             }
             _ => return Err(bad("names a symbol the tree does not have")),
