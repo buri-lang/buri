@@ -501,17 +501,20 @@ fn tool_version(program: &str, args: &[&str]) -> Option<String> {
 /// or host triple, or a layout without the directory — in which case the cross
 /// link falls back to whatever `-fuse-ld=lld` finds on `PATH`. In practice every
 /// `rustup` toolchain carries it.
+///
+/// A nix toolchain from rust-overlay wraps `gcc-ld/ld.lld` in nix's host
+/// linker wrapper, which adds the host's flags (`-platform_version` on macOS)
+/// to a link for another target. It keeps rustc's own shim in
+/// `gcc-ld-unwrapped`, so that one wins when it is there.
 pub fn rust_lld_dir() -> Option<PathBuf> {
     let rustc = tool("RUSTC", "rustc");
     let sysroot = tool_version(&rustc, &["--print", "sysroot"])?;
     let host = host_triple(&rustc)?;
-    let dir = PathBuf::from(sysroot.trim())
-        .join("lib")
-        .join("rustlib")
-        .join(host)
-        .join("bin")
-        .join("gcc-ld");
-    dir.join("ld.lld").is_file().then_some(dir)
+    let bin = PathBuf::from(sysroot.trim()).join("lib").join("rustlib").join(host).join("bin");
+    ["gcc-ld-unwrapped", "gcc-ld"]
+        .into_iter()
+        .map(|name| bin.join(name))
+        .find(|dir| dir.join("ld.lld").is_file())
 }
 
 /// The triple rustc runs on, read from its `-vV` banner's `host:` line.
