@@ -511,7 +511,7 @@ pub struct Tree {
 
 impl Default for Tree {
     fn default() -> Tree {
-        Tree::new(FileId(0), "")
+        Tree::new(FileId(0), "", 0)
     }
 }
 
@@ -548,46 +548,48 @@ pub struct Mark {
 }
 
 impl Tree {
-    /// An empty tree over `src`.
+    /// An empty tree over `src`, which lexed to `tokens` tokens.
     ///
-    /// The arenas are sized from the text, as `lexer.rs` already sizes its
-    /// token buffer: a thousand lines of Buri is about seven thousand tokens
-    /// and about two thousand expression nodes, so a byte count divided by
-    /// sixteen is within a growth step of the truth and the arenas are then a
-    /// fixed handful of allocations per file rather than a logarithmic number.
-    pub fn new(file: FileId, src: &str) -> Tree {
-        // One expression node per sixteen bytes of source, and the five other
-        // arenas that are written on nearly every line sized off the same
-        // figure. Measured against the generated corpora: a hundred thousand
-        // lines of `mixed` lands within one growth step on all six. The rest
-        // start empty on purpose — a file with no patterns should not pay for
-        // a pattern arena.
-        let n = src.len() / 16;
+    /// The arenas are sized from the token count, which the parser knows
+    /// exactly before it builds anything. A byte count — what this used to
+    /// divide — moves with comments and identifier length, which add bytes and
+    /// no nodes, so a dense file outgrew its arenas and paid a copy of
+    /// everything written so far for each doubling, while a documented one
+    /// held capacity it never used.
+    ///
+    /// Each figure is what the `mixed` corpus writes per token, rounded up by
+    /// about a tenth: 0.26 expression nodes, 0.09 names, 0.08 types, 0.05
+    /// patterns and so on down. A file denser than that grows an arena once;
+    /// one sparser holds a tenth more than it needs rather than half. The
+    /// arenas that corpus writes less than one entry per hundred tokens into
+    /// start empty, so a file with no `context` pays nothing for one.
+    pub fn new(file: FileId, src: &str, tokens: usize) -> Tree {
+        let per = |n: usize, d: usize| tokens.saturating_mul(n).checked_div(d).unwrap_or(0);
         Tree {
             file,
             src: Arc::from(src),
-            nodes: Vec::with_capacity(n),
-            spans: Vec::with_capacity(n),
-            pnodes: Vec::with_capacity(n / 8),
-            pspans: Vec::with_capacity(n / 8),
-            kids: Vec::with_capacity(n / 4),
-            pkids: Vec::new(),
-            tkids: Vec::new(),
-            names: Vec::with_capacity(n / 4),
-            blocks: Vec::new(),
-            stmts: Vec::with_capacity(n / 8),
-            arms: Vec::new(),
+            nodes: Vec::with_capacity(per(9, 32)),
+            spans: Vec::with_capacity(per(9, 32)),
+            pnodes: Vec::with_capacity(per(1, 18)),
+            pspans: Vec::with_capacity(per(1, 18)),
+            kids: Vec::with_capacity(per(1, 18)),
+            pkids: Vec::with_capacity(per(1, 40)),
+            tkids: Vec::with_capacity(per(1, 36)),
+            names: Vec::with_capacity(per(1, 10)),
+            blocks: Vec::with_capacity(per(1, 40)),
+            stmts: Vec::with_capacity(per(1, 56)),
+            arms: Vec::with_capacity(per(1, 80)),
             inits: Vec::new(),
             fpats: Vec::new(),
             lparams: Vec::new(),
             parts: Vec::new(),
             ctxb: Vec::new(),
             ctxbind: Vec::new(),
-            ppay: Vec::new(),
-            types: Vec::new(),
-            ints: Vec::new(),
+            ppay: Vec::with_capacity(per(1, 96)),
+            types: Vec::with_capacity(per(1, 12)),
+            ints: Vec::with_capacity(per(1, 28)),
             floats: Vec::new(),
-            strs: Vec::new(),
+            strs: Vec::with_capacity(per(1, 90)),
         }
     }
 
