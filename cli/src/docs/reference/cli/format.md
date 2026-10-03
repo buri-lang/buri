@@ -1,9 +1,9 @@
 ## What it does
 
 Formats in place: `.buri` sources, `BUILD.buri` and `REPO.buri`, the JSON and
-other files a rule's `inputs` lists, and the Buri in documentation (every
-```` ```buri ```` fence in a markdown file, and every example in a `///` or
-`//!` comment). In a document only fence bodies change; the prose is yours.
+other files a rule's `inputs` lists, and the Buri in documentation:
+every ```` ```buri ```` fence in a markdown file, and every example in a `///`
+or `//!` comment. In a document only fence bodies change; the prose is yours.
 There are no options, so there's nothing to configure or argue about.
 
 ## What to format
