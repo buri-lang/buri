@@ -695,6 +695,7 @@ mod tests {
             icons: false,
             themes: false,
             chunks: Vec::new(),
+            hosted: Default::default(),
         }
     }
 

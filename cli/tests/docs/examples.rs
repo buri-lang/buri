@@ -218,7 +218,10 @@ fn cli_reference_examples() {
 /// `ignore` without `why=` is an extraction failure
 /// (`documentation::examples::parse_block`), so the reason for every one of
 /// these is written where a reader of the diff can weigh it, in the `.md`.
-const MAX_IGNORED_EXAMPLES: usize = 65;
+///
+/// 66 since a repository platform's `platform.buri` is shown in its guide: a
+/// fence is compiled as a module of a package, and a platform's surface is not one.
+const MAX_IGNORED_EXAMPLES: usize = 66;
 
 /// An untested example is a claim nobody checks, so there is a ceiling on how
 /// many of them there may be and each one says why in the document itself.
