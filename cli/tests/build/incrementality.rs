@@ -1477,6 +1477,263 @@ fn one_suites_failure_leaves_the_others_reported() {
     );
 }
 
+/// A package whose one suite paints a picture and compares it with the golden
+/// in the package's own `test/__snapshots__`, which `buri test --update`
+/// records.
+fn painting_package(scratch: &Scratch, name: &str) {
+    scratch.write(
+        &format!("lib/{name}/BUILD.buri"),
+        &format!("library {{\n  sources: []\n  test {{ sources: [\"test/{name}.buri\"] }}\n}}\n"),
+    );
+    scratch.write(&format!("lib/{name}/lib.buri"), "// The package is its suite and nothing else.\n");
+    scratch.write(
+        &format!("lib/{name}/test/{name}.buri"),
+        &format!(
+            "from \"platform/effect\" import {{ Allocator, Ui }};\n\
+             from \"platform/effect/testing\" import {{ alloc, headless, snapshot }};\n\
+             from \"ui/node\" import * as ui;\n\
+             \ntest \"the panel\" {{\n  \
+               let ctx = context {{ Allocator: alloc(), Ui: headless() }};\n  \
+               snapshot(\n    ctx,\n    \"panel\",\n    \
+                 ui.text({{ content: .Const(\"{name}\"), headingLevel: .None, styles: .Some([]) }}),\n    \
+                 .Hover,\n    [],\n  );\n}}\n"
+        ),
+    );
+}
+
+/// A suite that takes a snapshot shares a binary with the suites that do not.
+///
+/// One process is handed one snapshot directory, so two suites that paint into
+/// two packages' directories cannot share a binary. Everything else can: a
+/// suite that paints nothing does not care which directory the process was
+/// handed. So four suites, two of them painting into two packages, are two
+/// binaries. They used to be four, because one painting suite in a batch sent
+/// every suite in it back to be compiled, linked and run on its own.
+///
+/// The second run edits one package's picture and checks that only that suite
+/// fails, so that the two directories are still two.
+#[test]
+fn a_suite_that_paints_shares_a_binary_with_those_that_do_not() {
+    let scratch = Scratch::repo("batch-paints");
+    suite_package(&scratch, "a", "");
+    suite_package(&scratch, "b", "");
+    painting_package(&scratch, "one");
+    painting_package(&scratch, "two");
+
+    let recorded = scratch.run(&["test", "//...", "--update"]);
+    if recorded.stderr.contains("native-run-not-available") {
+        recorded.exits(1);
+        return;
+    }
+    recorded.ok();
+    for name in ["one", "two"] {
+        assert!(
+            scratch.path(&format!("lib/{name}/test/__snapshots__/panel.png")).is_file(),
+            "//lib/{name} did not record its golden in its own package:\n{}",
+            indent(&recorded.all())
+        );
+    }
+
+    let run = scratch.run(&["test", "//...", "--explain"]);
+    run.ok();
+    assert_eq!(run.tests_passed(), 4, "a batched run lost a test:\n{}", indent(&run.all()));
+    let links = rows(&run, "link");
+    assert_eq!(
+        links.len(),
+        2,
+        "four suites, two of them painting into two packages, took {} links rather than two:\n{}",
+        links.len(),
+        indent(&run.all())
+    );
+    assert!(
+        !links.iter().any(|l| l.contains("//lib/one") && l.contains("//lib/two")),
+        "two suites that paint into two directories shared a binary:\n{}",
+        indent(&run.all())
+    );
+
+    scratch.edit("lib/two/test/two.buri", ".Const(\"two\")", ".Const(\"three\")");
+    let edited = scratch.run(&["test", "//...", "--explain"]);
+    edited.exits(1);
+    assert!(
+        edited.stdout.contains("FAIL //lib/two") && !edited.stdout.contains("FAIL //lib/one"),
+        "an edit to one package's picture was not reported against that package alone:\n{}",
+        indent(&edited.all())
+    );
+}
+
+/// A batch whose code would not fit in one binary is split into several.
+///
+/// macOS cannot load an executable of about two gigabytes, so a batch that
+/// grew that large failed every test in it. `BURI_TEST_BATCH_BYTES` is the most
+/// code one batched binary may hold, and setting it lower than any one suite
+/// needs leaves every suite a binary of its own. Each still passes, and each
+/// is still its own `test` action.
+#[test]
+fn a_batch_too_large_for_one_binary_is_split() {
+    let scratch = Scratch::repo("batch-split");
+    suite_package(&scratch, "a", "");
+    suite_package(&scratch, "b", "");
+    suite_package(&scratch, "c", "");
+
+    let run = scratch.run_with_env(&["test", "//...", "--explain"], &[("BURI_TEST_BATCH_BYTES", "1")]);
+    if run.stderr.contains("native-run-not-available") {
+        run.exits(1);
+        return;
+    }
+    run.ok();
+    assert_eq!(run.tests_passed(), 3, "a split batch lost a test:\n{}", indent(&run.all()));
+    assert_eq!(rows(&run, "test").len(), 3, "a suite lost its own action:\n{}", indent(&run.all()));
+    let links = rows(&run, "link");
+    assert_eq!(
+        links.len(),
+        3,
+        "three suites each too large to share took {} links rather than three:\n{}",
+        links.len(),
+        indent(&run.all())
+    );
+
+    // And under the default, the same three share one.
+    let shared = Scratch::repo("batch-unsplit");
+    suite_package(&shared, "a", "");
+    suite_package(&shared, "b", "");
+    suite_package(&shared, "c", "");
+    let run = shared.run(&["test", "//...", "--explain"]);
+    run.ok();
+    assert_eq!(rows(&run, "link").len(), 1, "three small suites did not share:\n{}", indent(&run.all()));
+}
+
+/// A test binary that cannot start is one failure, and is started once.
+///
+/// A binary the operating system refuses to load — macOS does this to one of
+/// about two gigabytes, saying `Library not loaded: libSystem.B.dylib` — never
+/// reaches its first test. The runner used to read that as the first test
+/// dying, start the binary again at the second, and so on: a suite of three
+/// tests was three launches and three failures, and a batch of a thousand was
+/// a thousand. The report is now one failure against the suite, quoting what
+/// the loader said, from one launch.
+///
+/// The binary is made unloadable by a C driver that links the real one and then
+/// replaces it with a script that says what the loader says and aborts, and
+/// counts its own launches in a file.
+#[cfg(unix)]
+#[test]
+fn a_test_binary_that_cannot_start_is_reported_once() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::repo("binary-cannot-start");
+    scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
+    scratch.write("lib/a/lib.buri", "export fn one(): Int { 1 }\n");
+    scratch.write(
+        "lib/a/test/a.buri",
+        "from \"//lib/a\" import { one };\n\
+         from \"core/testing/assert\" import * as assert;\n\
+         \ntest \"first\" { assert.equal(one(), 1); }\n\
+         test \"second\" { assert.equal(one(), 1); }\n\
+         test \"third\" { assert.equal(one(), 1); }\n",
+    );
+    let launches = scratch.path("launches");
+    let driver = scratch.write(
+        "fake-cc",
+        &format!(
+            "#!/bin/sh\n\
+             cc \"$@\" || exit $?\n\
+             prev=\"\"\n\
+             for a in \"$@\"; do\n  \
+               if [ \"$prev\" = \"-o\" ] && [ \"$a\" = \"artifact\" ]; then\n    \
+                 printf '#!/bin/sh\\necho launched >> {launches}\\n\
+echo \"dyld[1]: Library not loaded: /usr/lib/libSystem.B.dylib\" >&2\\nkill -ABRT $$\\n' > artifact\n    \
+                 chmod +x artifact\n  \
+               fi\n  \
+               prev=\"$a\"\n\
+             done\n",
+            launches = launches.display()
+        ),
+    );
+    std::fs::set_permissions(&driver, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let run = scratch.run_with_env(&["test", "//lib/a"], &[("CC", &driver.display().to_string())]);
+    if run.stderr.contains("native-run-not-available") {
+        run.exits(1);
+        return;
+    }
+    run.exits(1);
+    run.says("could not start").says("Library not loaded");
+    assert_eq!(
+        run.all().matches("Library not loaded").count(),
+        1,
+        "one binary that could not start was reported more than once:\n{}",
+        indent(&run.all())
+    );
+    let launched = std::fs::read_to_string(&launches).unwrap_or_default();
+    assert_eq!(
+        launched.lines().count(),
+        1,
+        "a binary that could not start was started {} times:\n{}",
+        launched.lines().count(),
+        indent(&run.all())
+    );
+}
+
+/// The bytes under `dir` that are in no other file: the size of every file with
+/// one name, so a hard link to a cache entry costs nothing.
+#[cfg(unix)]
+fn unshared_bytes(dir: &std::path::Path) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    let mut total = 0;
+    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let meta = std::fs::symlink_metadata(&path).unwrap();
+        if meta.is_dir() {
+            total += unshared_bytes(&path);
+        } else if meta.nlink() == 1 {
+            total += meta.len();
+        }
+    }
+    total
+}
+
+/// A link directory holds no copy of what the cache already holds, and a
+/// toolchain's link directories go when its cache entries do.
+///
+/// Every link used to write its own copy of the sixteen-megabyte runtime
+/// archive and of every object into `.buri/link/<key>`, and nothing ever
+/// removed one: a cold `buri test` of a repository of 82 suites wrote about
+/// ten gigabytes, and one such repository's `.buri/link` reached 41 GB. The
+/// objects and the archive are hard links to cache entries now, and the cache
+/// drops the link directories with everything else when the toolchain changes.
+#[cfg(unix)]
+#[test]
+fn a_link_directory_costs_no_more_disk_than_the_cache() {
+    let scratch = Scratch::repo("link-directory-disk");
+    suite_package(&scratch, "a", "");
+    suite_package(&scratch, "b", "");
+
+    let run = scratch.run(&["test", "//..."]);
+    if run.stderr.contains("native-run-not-available") {
+        run.exits(1);
+        return;
+    }
+    run.ok();
+    let link = scratch.path(".buri/link");
+    assert!(link.is_dir(), "a native run linked nothing:\n{}", indent(&run.all()));
+    let unshared = unshared_bytes(&link);
+    assert!(
+        unshared < 64 * 1024,
+        "the link directories hold {unshared} bytes the cache does not already hold"
+    );
+
+    // A directory a different toolchain left behind.
+    scratch.write(".buri/link/0000-left-by-another-toolchain/libburi_rt.a", "stale");
+    scratch.write(".buri/cache/.toolchain", "another toolchain");
+    let again = scratch.run(&["test", "//..."]);
+    again.ok();
+    assert_eq!(again.tests_passed(), 2);
+    assert!(
+        !scratch.path(".buri/link/0000-left-by-another-toolchain").exists(),
+        "a link directory outlived the toolchain that made it"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // `buri lint`
 // ---------------------------------------------------------------------------
