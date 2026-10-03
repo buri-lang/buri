@@ -318,11 +318,12 @@ it is a rounding error, and the two figures converging is itself a check that
 the floor came out right. It is what explains Carbon's otherwise puzzling result
 that checking is *faster* at 16k lines than at 256.
 
-**The standard library part of the floor is paid once per thread.** Every
+**The standard library part of the floor is paid once per process.** Every
 compilation opens with the same modules: the prelude and the built-in types'
 modules, or for a snippet the whole library. `compiler::snapshot` loads and
 checks them once, and each analysis resumes from that (`Loader::seeded`,
-`Checker::resume`), checking only the modules after them. Ids come out the same
+`Checker::resume`), checking only the modules after them. Syntax trees are
+shared by `Arc`, so every thread reads the one snapshot. Ids come out the same
 as a whole run's, so diagnostics and output don't move. `sema` measures the
 resumed run, and the header prints the snapshot's one-time cost beside it.
 
@@ -332,7 +333,7 @@ for the effects its structs implement: about 3,800 lines on every compilation
 that names a platform. They load after the program's own modules, so they
 can't join the snapshot without changing the ids a program's types get.
 
-| Revision | `sema` floor | `lower` floor | snapshot, once a thread |
+| Revision | `sema` floor | `lower` floor | snapshot, once a process |
 |---|---:|---:|---:|
 | 2026-09-01 | 0.57 ms | | |
 | `afb169cd`, 2026-10-03 | 5.52–5.84 ms | 6.0 ms | |

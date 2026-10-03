@@ -38,7 +38,7 @@
 //! Each is timed against a value built *before* the timer starts, and each
 //! rebuilds everything it produces, so a repetition measures the phase and not
 //! a cache — with one exception, which is the point of it: the standard
-//! library modules every compilation opens with are checked once per thread
+//! library modules every compilation opens with are checked once per process
 //! (`compiler::snapshot`), as they are for every analysis the toolchain runs,
 //! and the header reports what that once costs. `Checker::run` takes `&Loaded`
 //! and returns a fresh `Checked`, and
@@ -797,7 +797,7 @@ fn run() {
             ms(floor.lower)
         );
         println!(
-            "  once a thread  the standard library's snapshot {:.3} ms, which `sema` starts from",
+            "  once a process  the standard library's snapshot {:.3} ms, which `sema` starts from",
             ms(floor.snapshot)
         );
         println!();
@@ -2175,7 +2175,7 @@ struct Floor {
     sema: Duration,
     lower: Duration,
     /// Building the snapshot every `sema` row starts from, which an analysis
-    /// pays once per thread rather than once per program.
+    /// pays once per process rather than once per program.
     snapshot: Duration,
 }
 
