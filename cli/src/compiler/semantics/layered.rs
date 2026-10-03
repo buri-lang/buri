@@ -190,10 +190,21 @@ impl<I: DenseId, T> IdMap<I, T> {
         self.own.get_mut(i).or_ice("the slots were just grown past this one")
     }
 
+    /// The entries this map holds itself rather than reads from its base:
+    /// what was written since [`IdMap::layer`], in id order.
+    pub fn written(&self) -> impl Iterator<Item = (I, &T)> {
+        self.own.iter().enumerate().filter_map(|(i, value)| Some((I::from_index(i), value.as_ref()?)))
+    }
+
     /// Every entry, in id order.
     pub fn iter(&self) -> impl Iterator<Item = (I, &T)> {
+        self.iter_from(0)
+    }
+
+    /// Every entry whose id is `start` or later, in id order.
+    pub fn iter_from(&self, start: usize) -> impl Iterator<Item = (I, &T)> {
         let len = self.base.len().max(self.own.len());
-        (0..len).filter_map(move |i| {
+        (start..len).filter_map(move |i| {
             let id = I::from_index(i);
             self.get(&id).map(|value| (id, value))
         })

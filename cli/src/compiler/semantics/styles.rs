@@ -43,7 +43,8 @@
 
 use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::consteval::{Env, Folder, Value};
-use crate::compiler::semantics::resolve::{ModuleScope, Sym, Walked};
+use crate::compiler::semantics::layered::Layered;
+use crate::compiler::semantics::resolve::{BodyMap, ConstMap, ModuleScope, Sym, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{ConstId, FnId, Tables, Ty, TyConId};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
@@ -358,8 +359,8 @@ pub struct Styled {
     pub body_rules: Vec<StyleRule>,
     /// What the base's constants and bodies are once the pass has rewritten
     /// them, where it did. Empty for a run that is not a base's.
-    pub consts: crate::compiler::semantics::resolve::ConstMap,
-    pub bodies: crate::compiler::semantics::resolve::BodyMap,
+    pub consts: ConstMap,
+    pub bodies: BodyMap,
 }
 
 impl Styled {
@@ -372,8 +373,8 @@ impl Styled {
     pub fn after(
         self,
         base: &Styled,
-        bodies: &mut crate::compiler::semantics::resolve::BodyMap,
-        consts: &mut crate::compiler::semantics::resolve::ConstMap,
+        bodies: &mut BodyMap,
+        consts: &mut ConstMap,
     ) -> Vec<StyleRule> {
         for (id, body) in &base.bodies {
             bodies.insert(id, std::sync::Arc::clone(body));
@@ -406,9 +407,9 @@ impl Styled {
 pub fn run(
     loaded: &Loaded,
     tables: &Tables,
-    scopes: &crate::compiler::semantics::layered::Layered<ModuleScope>,
-    bodies: &mut crate::compiler::semantics::resolve::BodyMap,
-    consts: &mut crate::compiler::semantics::resolve::ConstMap,
+    scopes: &Layered<ModuleScope>,
+    bodies: &mut BodyMap,
+    consts: &mut ConstMap,
     diags: &mut Diagnostics,
     walked: &Walked,
 ) -> (Styled, Option<TyConId>) {
@@ -437,34 +438,38 @@ pub fn run(
         diags,
     };
 
-    // Sorted, so the sheet's rule order — and any diagnostic this reports — is
-    // the same on every run. A `HashMap`'s iteration order is stable here but
-    // it is not *meaningful*, and reproducibility is compared byte for byte.
+    // In id order, which is the order the maps walk in, so the sheet's rule
+    // order — and any diagnostic this reports — is the same on every run.
     //
     // A scoped analysis names the files it was asked about, and walks only
     // what they wrote. The rest of the closure is here to be *folded into*
     // those — which is what `original_bodies` above is — rather than to be
     // rewritten and reported on by a run that is not about it.
-    let mut const_ids: Vec<ConstId> = consts.keys().collect();
-    const_ids.sort_by_key(|c| c.index());
-    for id in const_ids {
-        if !walked.constant(tables, id) {
-            continue;
+    //
+    // Only what mentions a style is rewritten. Walking anything else changes
+    // nothing, and leaving it alone keeps it shared rather than copied.
+    let mut styled: Vec<ConstId> = Vec::new();
+    for (id, init) in walked.constants(tables, consts) {
+        ex.alphas(init);
+        if ex.mentions_style(init) {
+            styled.push(id);
         }
+    }
+    for id in styled {
         if let Some(init) = consts.get_mut(&id) {
-            ex.alphas(init);
             ex.walk(init, Cond::default());
         }
     }
     let const_rules = std::mem::take(&mut ex.rules);
-    let mut fn_ids: Vec<FnId> = bodies.keys().collect();
-    fn_ids.sort_by_key(|f| f.index());
-    for id in fn_ids {
-        if !walked.function(tables, id) {
-            continue;
+    let mut styled: Vec<FnId> = Vec::new();
+    for (id, body) in walked.functions(tables, bodies) {
+        ex.alphas(&body.expr);
+        if ex.mentions_style(&body.expr) {
+            styled.push(id);
         }
+    }
+    for id in styled {
         if let Some(body) = bodies.get_mut(&id) {
-            ex.alphas(&body.expr);
             ex.walk(&mut std::sync::Arc::make_mut(body).expr, Cond::default());
         }
     }
@@ -473,12 +478,12 @@ pub fn run(
 }
 
 /// `ui/style`'s `Style`, when this compilation loaded it.
-fn style_constructor(loaded: &Loaded, scopes: &crate::compiler::semantics::layered::Layered<ModuleScope>) -> Option<TyConId> {
+fn style_constructor(loaded: &Loaded, scopes: &Layered<ModuleScope>) -> Option<TyConId> {
     ui_style_type(loaded, scopes, "Style")
 }
 
 /// One of `ui/style`'s own types, by name, when this compilation loaded it.
-fn ui_style_type(loaded: &Loaded, scopes: &crate::compiler::semantics::layered::Layered<ModuleScope>, name: &str) -> Option<TyConId> {
+fn ui_style_type(loaded: &Loaded, scopes: &Layered<ModuleScope>, name: &str) -> Option<TyConId> {
     let index = loaded.modules.iter().position(|m| m.path == "ui/style")?;
     match scopes.get(index)?.own.get(name)? {
         Sym::Ty(id) => Some(*id),
@@ -494,8 +499,8 @@ struct Extractor<'a> {
     /// `ui/style`'s `Color`, which is how [`Extractor::alphas`] recognises one.
     color_con: Option<TyConId>,
     tables: &'a Tables,
-    original_bodies: &'a crate::compiler::semantics::resolve::BodyMap,
-    original_consts: &'a crate::compiler::semantics::resolve::ConstMap,
+    original_bodies: &'a BodyMap,
+    original_consts: &'a ConstMap,
     rules: Vec<StyleRule>,
     recorded: HashSet<String>,
     diags: &'a mut Diagnostics,
@@ -555,6 +560,17 @@ impl<'a> Extractor<'a> {
 
     fn is_color(&self, ty: &Ty) -> bool {
         matches!(ty, Ty::Con(id, args) if Some(*id) == self.color_con && args.is_empty())
+    }
+
+    /// Whether anything under `e` is a style or a list of them: the only
+    /// nodes [`Extractor::walk`] rewrites or reports on.
+    fn mentions_style(&self, e: &typed::Expr) -> bool {
+        if self.is_style(&e.ty) || self.is_style_list(&e.ty) {
+            return true;
+        }
+        let mut found = false;
+        typed::children(e, &mut |child| found = found || self.mentions_style(child));
+        found
     }
 
     /// The generic descent: anything that is not itself a style.
