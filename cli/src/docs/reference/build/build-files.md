@@ -237,9 +237,7 @@ the function filling it:
 binary {
     outputs: [
         { platform: "web" },
-        { platform: "node", entries: [
-            { name: "main", function: "mainForNode" },
-        ] },
+        { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
     ]
 }
 ```

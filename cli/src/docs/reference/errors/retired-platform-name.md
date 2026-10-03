@@ -11,9 +11,7 @@ reproduction: none
 binary {
     outputs: [
         { platform: "native", variant: "linux-arm64" },
-        { platform: "node", entries: [
-            { name: "main", function: "mainForNode" },
-        ] },
+        { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
         { platform: "web" },
     ]
 
