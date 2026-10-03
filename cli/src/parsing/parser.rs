@@ -113,7 +113,7 @@ fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
     let first_item = lexed.tokens.span(0).start;
     let mut p = Parser {
         src: text,
-        tree: Tree::new(file, text),
+        tree: Tree::new(file, text, lexed.tokens.len()),
         scratch: Scratch::default(),
         last: lexed.tokens.len().saturating_sub(1),
         tokens: lexed.tokens,
@@ -826,28 +826,40 @@ impl<'a> Parser<'a> {
         self.errors.last_mut()
     }
 
+    // The `expect` family below is a test and a `bump` when the source is
+    // right, which is every call on a file that parses, and a diagnostic when
+    // it is not. Each is split along that line: the right path is inlined into
+    // its caller and the wrong one is a cold call, so the hundreds of call
+    // sites carry a compare and a branch rather than a call into a function
+    // big enough to format a message.
+
+    #[inline]
     fn expect(&mut self, p: Punctuation) -> PResult<Span> {
         if self.is(p) {
             Ok(self.bump())
         } else {
-            let found = self.found();
-            let span = self.span();
-            let want = format!("`{}`", p.text());
-            self.expected(span, &want, &found, format!("write {want} here"));
-            Err(Bail)
+            self.missing(p.text())
         }
     }
 
+    #[inline]
     fn expect_keyword(&mut self, k: Keyword) -> PResult<Span> {
         if self.is_keyword(k) {
             Ok(self.bump())
         } else {
-            let found = self.found();
-            let span = self.span();
-            let want = format!("`{}`", k.text());
-            self.expected(span, &want, &found, format!("write {want} here"));
-            Err(Bail)
+            self.missing(k.text())
         }
+    }
+
+    /// What [`Parser::expect`] and [`Parser::expect_keyword`] report.
+    #[cold]
+    #[inline(never)]
+    fn missing(&mut self, text: &str) -> PResult<Span> {
+        let found = self.found();
+        let span = self.span();
+        let want = format!("`{text}`");
+        self.expected(span, &want, &found, format!("write {want} here"));
+        Err(Bail)
     }
 
     /// Whether the list the parser is reading has ended, closer or no closer.
@@ -975,6 +987,7 @@ impl<'a> Parser<'a> {
     /// closer had been written, which is what keeps the delimiter count true
     /// for the rest of the file. A trial bails instead: a speculative reading
     /// that repaired itself would always win.
+    #[inline]
     fn expect_close(
         &mut self,
         close: Punctuation,
@@ -985,6 +998,13 @@ impl<'a> Parser<'a> {
             self.closed = Closed::Read;
             return Ok(self.bump());
         }
+        self.unclosed(close, construct, opened)
+    }
+
+    /// [`Parser::expect_close`] when the closer is not where it belongs.
+    #[cold]
+    #[inline(never)]
+    fn unclosed(&mut self, close: Punctuation, construct: &str, opened: Span) -> PResult<Span> {
         if self.trial > 0 {
             return Err(Bail);
         }
@@ -1189,10 +1209,18 @@ impl<'a> Parser<'a> {
     /// that could not start anything is a mistake about the token rather than
     /// about the terminator, and the catch-all names it better — `5 as U8` is
     /// a cast that does not exist, not a `let` missing its `;`.
+    #[inline]
     fn expect_terminator(&mut self, construct: &str) -> PResult<Span> {
         if self.is(Punctuation::Semi) {
             return Ok(self.bump());
         }
+        self.unterminated(construct)
+    }
+
+    /// [`Parser::expect_terminator`] when the `;` is not there.
+    #[cold]
+    #[inline(never)]
+    fn unterminated(&mut self, construct: &str) -> PResult<Span> {
         if self.trial > 0 {
             return Err(Bail);
         }
@@ -1246,10 +1274,18 @@ impl<'a> Parser<'a> {
     /// largest single line of the allocation budget — one `String` per
     /// identifier token, about thirty-five percent of all tokens — without
     /// interning and without hashing.
+    #[inline]
     fn expect_name(&mut self) -> PResult<Span> {
         if self.peek() == TokenKind::Ident {
             return Ok(self.bump());
         }
+        self.name_missing()
+    }
+
+    /// [`Parser::expect_name`] when the cursor is not on an identifier.
+    #[cold]
+    #[inline(never)]
+    fn name_missing(&mut self) -> PResult<Span> {
         if let Some(span) = self.take_early(TokenKind::Ident) {
             return Ok(span);
         }
@@ -1426,29 +1462,40 @@ impl<'a> Parser<'a> {
         Err(Bail)
     }
 
+    /// One level deeper. Inlined with its refusal out of line, for the reason
+    /// the `expect` family is: it runs on every expression, type, pattern and
+    /// block, and refuses almost never.
+    #[inline]
     fn enter(&mut self) -> PResult<()> {
         self.depth = self.depth.saturating_add(1);
         if self.depth > MAX_DEPTH {
-            let span = self.span();
-            self.templated("expression-too-deep", span);
-            return Err(Bail);
+            return self.refuse("expression-too-deep");
         }
         Ok(())
     }
 
+    #[inline]
     fn leave(&mut self) {
         self.depth = self.depth.saturating_sub(1);
     }
 
     /// One more link in a chain being built without recursion, `links` being
     /// how many this loop has taken so far. See [`MAX_CHAIN`].
+    #[inline]
     fn link(&mut self, links: u32) -> PResult<()> {
         if self.chain.saturating_add(links) > MAX_CHAIN {
-            let span = self.span();
-            self.templated("chain-too-long", span);
-            return Err(Bail);
+            return self.refuse("chain-too-long");
         }
         Ok(())
+    }
+
+    /// A budget ran out: `code` at the cursor, and bail.
+    #[cold]
+    #[inline(never)]
+    fn refuse(&mut self, code: &str) -> PResult<()> {
+        let span = self.span();
+        self.templated(code, span);
+        Err(Bail)
     }
 
     /// The same budget, for the two chains that are built by recursing.
@@ -1570,7 +1617,9 @@ impl<'a> Parser<'a> {
     // -- module -------------------------------------------------------------
 
     fn module(&mut self) -> Module {
-        let mut items = Vec::new();
+        // A declaration is about forty tokens in every corpus measured, so this
+        // is one allocation for the list rather than a doubling per power of two.
+        let mut items = Vec::with_capacity(self.last / 64);
         while !self.at_eof() {
             let before = self.pos;
             let save = self.save();
