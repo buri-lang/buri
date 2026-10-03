@@ -9,17 +9,6 @@ label: not covered
 error: this `match` does not cover `.Empty` [match-not-exhaustive]
 ```
 
-## What to do
-
-Add an arm for the case the diagnostic names, or a `_` arm for everything left.
-
-## Why
-
-Exhaustiveness makes adding a variant a compile error at every place that has to
-care. A `_` arm opts out of that for one `match`.
-
-## A program that provokes it
-
 ```buri fail code=match-not-exhaustive
 enum Shape {
     Circle(Int),
@@ -34,3 +23,8 @@ fn describe(s: Shape): Int {
     }
 }
 ```
+
+Add an arm for the named case, or a `_` arm for everything left.
+
+Exhaustiveness turns a new variant into a compile error everywhere that has to
+handle it. A `_` arm opts that `match` out.

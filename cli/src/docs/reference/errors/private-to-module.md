@@ -8,26 +8,6 @@ message: {declaration} is private to its module
 error: field `0` of `Scope` is private to its module [private-to-module]
 ```
 
-## What to do
-
-Add `export` to the field, or go through a method the type provides.
-
-## Why
-
-`export` is the whole of visibility. A declaration, a field or a method without
-it is reachable only from the module that wrote it, so one code covers a
-function you cannot call, a field you cannot name, and a variant of an enum
-whose own declaration is private.
-
-The unusual half is that **a struct with any private field cannot be
-constructed anywhere else at all**, not merely read: writing `Scope(0)` names
-the hidden field. That makes a private field an invariant, and it is how the
-standard library mints a type only from the inside.
-
-Functional update still works, because it never names the hidden fields.
-
-## A program that provokes it
-
 ```buri fail code=private-to-module
 # from "ui/effect" import { Scope };
 # from "ui/signal" import { Signal };
@@ -36,3 +16,13 @@ fn peek(n: Signal<Int>): Int {
     n.get(Scope(0))
 }
 ```
+
+Add `export` to the declaration, or go through a method the type provides.
+
+Without `export`, a declaration, field, method or variant of a private enum is
+reachable only from its own module.
+
+A struct with any private field can't be constructed outside its module at all,
+because writing `Scope(0)` names the hidden field. That makes a private field an
+invariant, and it's how the standard library mints a type only from the inside.
+Functional update still works, because it never names the hidden fields.

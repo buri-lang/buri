@@ -10,33 +10,20 @@ fix: take it as a parameter of the lambda instead — the `fn(C, A) => B` shape 
 error: a lambda may not capture `x`, whose type `T` could be a context [lambda-captures-generic]
 ```
 
-## What to do
-
-Take it as a parameter of the lambda instead — the `fn(C, A) => B` shape a
-`*Ctx` combinator passes — or return the value rather than a closure over it.
-
-## The rule
-
-`lambda-captures-effect` is the same rule where the type says so out loud. Here
-it cannot: inside `fn hide<T>(x: T)`, `T` is opaque, and a generic body is
-checked once for every instantiation at once. If the rule asked only "does this
-type mention an effect?", `hide(ctx)` would be well-typed and the closure that
-came back would hold a capability behind a type that mentions none. So the rule
-stays conservative here.
-
-A type parameter escapes it when it carries an **ordinary trait bound**. A type
-is either part of the world or part of your data, so a `T: Equal` is never a
-context type, and `xs.any(fn(x) => x == needle)` is still legal inside
-`impl<T: Equal> [T]`.
-
-Function types escape it too, because a closure holds exactly what it captured
-and this rule is what checks that. So `fn compose<A, B, C>(f: fn(A) => B, g:
-fn(B) => C): fn(A) => C { fn(x) => g(f(x)) }` is fine.
-
-## A program that provokes it
-
 ```buri fail code=lambda-captures-generic
 fn hide<T>(x: T): fn() => T {
     fn() => x
 }
 ```
+
+This is `lambda-captures-effect` for a type that can't say whether it's a
+context. Otherwise `hide(ctx)` would type-check and return a closure holding a
+capability behind a type that mentions none.
+
+Two kinds of type parameter are exempt:
+
+- One with an ordinary trait bound. A `T: Equal` is data, never a context, so
+  `xs.any(fn(x) => x == needle)` is fine inside `impl<T: Equal> [T]`.
+- A function type, because this rule already checks what that closure captured.
+  `fn compose<A, B, C>(f: fn(A) => B, g: fn(B) => C): fn(A) => C { fn(x) => g(f(x)) }`
+  is fine.

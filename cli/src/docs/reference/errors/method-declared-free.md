@@ -10,19 +10,10 @@ fix: move it into an `impl` block for its type, as in `impl Square {{ fn area(se
 error: `area` takes `self`, so it is a method [method-declared-free]
 ```
 
-## What to do
-
-Move it into an `impl` block for its type.
-
-## Why
-
-Method lookup goes through the receiver's type, so a method is declared with
-that type: in an `impl` block, in the module that declares the type.
-
-## A program that provokes it
-
 ```buri fail code=method-declared-free use=errors
 fn perimeter(self): Int {
     self.side * 4
 }
 ```
+
+The `impl` block goes in the module that declares the type.

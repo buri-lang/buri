@@ -19,9 +19,6 @@ error: this file has no `"$schema"` [json-without-schema]
 }
 ```
 
-The schema is what a mistake in the file is measured against. Without one, a
-typo in a key reaches the generator as data, and the error surfaces as wrong
-generated code rather than at the line that holds the typo.
-
-`buri format` never adds the key for you: which schema a file follows is yours
-to say.
+Without a schema, a typo in a key reaches the generator as data and shows up
+as wrong generated code instead of an error at the typo. `buri format` never
+adds the key: which schema a file follows is yours to say.

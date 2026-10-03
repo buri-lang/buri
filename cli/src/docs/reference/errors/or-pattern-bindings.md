@@ -9,18 +9,6 @@ fix: bind the same names in every alternative, or split this into separate arms
 error: or-pattern alternatives must bind the same names [or-pattern-bindings]
 ```
 
-## What to do
-
-Bind the same names in every alternative, or split this into separate arms.
-
-## Why
-
-One arm has one body, and it can name only what every alternative supplies, at
-the same type. An alternative that binds `y` where another binds `x` leaves the
-body with a name that is sometimes missing.
-
-## A program that provokes it
-
 ```buri fail code=or-pattern-bindings
 enum Either {
     Left(Int),
@@ -33,3 +21,6 @@ fn value(e: Either): Int {
     }
 }
 ```
+
+An arm has one body, and it can use only the names every alternative binds, at
+the same type.
