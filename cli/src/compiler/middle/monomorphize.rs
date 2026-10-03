@@ -1442,8 +1442,8 @@ impl Monomorphizer<'_> {
     ///
     /// A `Self` **result**, and a `Self` that is not a callback parameter, are
     /// left alone: no effect declares either — only an effect can be a context
-    /// binding (`context-binding-not-an-effect`), only a platform module can
-    /// declare an effect (`effect-outside-platform`), and `Listen.listen` is
+    /// binding (`context-binding-not-an-effect`), only a platform module or an effect package can
+    /// declare an effect (`effect-outside-effect-directory`), and `Listen.listen` is
     /// the standard library's only `Self`-spelled parameter. A value at the
     /// context's type reaching a parameter at the implementation's is a type
     /// error the native IR verifier reports, which is the right failure for a

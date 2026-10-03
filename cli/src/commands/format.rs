@@ -78,6 +78,11 @@ pub fn formatted(name: &str, text: &str) -> Option<crate::formatting::Formatted>
         let text = textproto::print(&parsed.document);
         return Some(crate::formatting::Formatted { text, regions: Vec::new() });
     }
+    // A platform's surface declares its entries and production methods
+    // without a body, as the standard library does.
+    if name == "platform.buri" || name.ends_with("/platform.buri") {
+        return crate::formatting::formatted(text, crate::formatting::Dialect::Std);
+    }
     crate::formatting::source_with_regions(text)
 }
 

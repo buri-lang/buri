@@ -1,8 +1,7 @@
-// lib/sessions/lib.buri
-from "//platform/effect/kv" import * as kv;
-from "//platform/effect/kv" import { Kv };
 from "core/str" import * as str;
 from "platform/effect" import { Allocator };
+from "//platform/effect/kv" import * as kv;
+from "//platform/effect/kv" import { Kv };
 
 export fn user<C: Allocator + Kv>(ctx: C, token: Str): Option<Str> {
     kv.get(ctx, "SESSIONS", str.format(ctx, "session:${token}"))

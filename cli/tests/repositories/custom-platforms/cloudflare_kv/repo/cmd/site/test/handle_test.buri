@@ -18,11 +18,23 @@ fn request(token: Str): Request {
 }
 
 test "an unknown token is refused" {
-    assert.equal(handle(context { Allocator: alloc(), Kv: kv() }, request("t1")).status, 401);
+    assert.equal(
+        handle(
+            context {
+                Allocator: alloc(),
+                Kv: kv(),
+            },
+            request("t1"),
+        ).status,
+        401,
+    );
 }
 
 test "a known token is greeted" {
-    let ctx = context { Allocator: alloc(), Kv: kv() };
+    let ctx = context {
+        Allocator: alloc(),
+        Kv: kv(),
+    };
     store.put(ctx, "SESSIONS", "session:t2", "ada");
     assert.equal(handle(ctx, request("t2")).status, 200);
 }

@@ -14,7 +14,7 @@ error: `fetch.mjs` exports `HostKv` without `put`, which `Kv` declares with 4 pa
 Each method a platform's `platform.buri` declares without a body is the entry's
 `js` file's to implement, under the struct's name, with the same parameter count:
 
-```buri
+```buri ignore why="a platform's surface, compiled only with its rule"
 struct HostKv {}
 impl Kv for HostKv {
     fn get(self, namespace: Str, key: Str): Option<Str>;

@@ -15,7 +15,7 @@ An entry's `js` file and the methods it implements meet Buri at a boundary, and
 only these types cross it:
 
 | Buri                    | JavaScript                     |
-| ----------------------- | ------------------------------ |
+|---|---|
 | `Str`, `Bool`, `F64`    | `string`, `boolean`, `number`  |
 | `Int`, other integers   | `bigint`                       |
 | `[U8]`                  | `Uint8Array`                   |

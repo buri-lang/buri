@@ -18,6 +18,25 @@ pub fn is_effect_package_path(path: &str) -> bool {
     path.starts_with("//platform/effect/") && !is_test_only_path(path)
 }
 
+/// Whether a module is part of an effect package, by its path or, for a
+/// module standing in a package without a file of its own (a documented
+/// example), by its package's.
+pub fn is_effect_package_module(
+    ws: Option<&crate::build::workspace::Workspace>,
+    m: &crate::compiler::modules::ModuleData,
+) -> bool {
+    if m.role == Role::TestOnly || is_test_only_path(&m.path) {
+        return false;
+    }
+    if is_effect_package_path(&m.path) {
+        return true;
+    }
+    match (ws, m.pkg) {
+        (Some(ws), Some(pkg)) => ws.package(pkg).path.starts_with("platform/effect/"),
+        _ => false,
+    }
+}
+
 /// The production structs a backend has no implementation of, as a host type
 /// names them from `platform/host`.
 fn lacking(backend: Backend) -> &'static [&'static str] {
@@ -294,7 +313,7 @@ impl<'a> Checker<'a> {
                 continue;
             }
             let Some(module) = self.loaded.modules.get(t.module.index()) else { continue };
-            let (Some(pkg), true) = (module.pkg, is_effect_package_path(&module.path)) else { continue };
+            let (Some(pkg), true) = (module.pkg, is_effect_package_module(Some(ws), module)) else { continue };
             let package = ws.package(pkg);
             let has_testing = package.build.library.as_ref().is_some_and(|l| l.testing.is_some());
             let surface = self.loaded.find(&package.module_path("testing/lib.buri")).is_some();

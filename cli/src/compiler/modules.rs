@@ -921,6 +921,13 @@ impl<'a> Loader<'a> {
         Role::Source
     }
 
+    /// Whether a test-only module stands in an effect package: an effect's
+    /// testing surface whose path does not say so, as a documented example's.
+    fn effect_testing_module(&self, role: Role, pkg: Option<crate::build::workspace::PackageId>) -> bool {
+        let (Some(ws), Some(pkg)) = (self.ws, pkg) else { return false };
+        role == Role::TestOnly && ws.package(pkg).path.starts_with("platform/effect/")
+    }
+
     /// Whether a module path is a repository platform's `platform.buri`.
     fn is_platform_surface(&self, path: &str) -> bool {
         let Some(ws) = self.ws else { return false };
@@ -1015,6 +1022,7 @@ impl<'a> Loader<'a> {
         // testing surface. An ordinary test has its own values and needs none.
         if standard_library::canonical(path) == Some(standard_library::PLATFORM_STATE_MODULE)
             && !standard_library::is_effect_testing_path(importer_path)
+            && !self.effect_testing_module(role, importer_pkg)
         {
             self.diags.push(
                 Diagnostic::templated("platform-testing-only-import", span)

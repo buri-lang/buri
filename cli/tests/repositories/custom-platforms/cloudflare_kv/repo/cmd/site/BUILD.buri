@@ -1,8 +1,5 @@
 binary {
-    dependencies: [
-        "//lib/sessions",
-        "//platform/effect/kv",
-    ]
+    dependencies: ["//lib/sessions", "//platform/effect/kv"]
     outputs: [
         { platform: "//platform/cloudflare_worker" },
     ]

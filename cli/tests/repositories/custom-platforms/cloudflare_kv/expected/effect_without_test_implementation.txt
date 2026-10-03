@@ -12,21 +12,28 @@ error: `Kv` has no test implementation in `//platform/effect/kv/testing` [effect
     core/platforms/testing/state, which only an effect's testing surface may
     import:
 
-      from "//platform/effect/kv" import { Kv };
       from "core/map" import * as map;
       from "core/map" import { Map };
       from "core/platforms/testing/state" import * as state;
+      from "//platform/effect/kv" import { Kv };
 
-      export struct TestKv { store: state.State<Map<Str, Str>> }
+      export struct TestKv {
+          store: state.State<Map<Str, Str>>,
+      }
 
       impl Kv for TestKv {
           fn get(self, namespace: Str, key: Str): Option<Str> {
               state.read(self.store).get("${namespace}/${key}")
           }
+
           fn put(self, namespace: Str, key: Str, value: Str): () {
-              state.update(self.store, fn(c, m) => (m.insert(c, "${namespace}/${key}", value), ()))
+              state.update(self.store, fn(c, m) => {
+                  (m.insert(c, "${namespace}/${key}", value), ())
+              })
           }
       }
 
-      export fn kv(): TestKv { TestKv { store: state.new(map.empty()) } }
+      export fn kv(): TestKv {
+          TestKv { store: state.new(map.empty()) }
+      }
 

@@ -1522,8 +1522,9 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn may_call_effect_method(&self) -> bool {
         matches!(self.role, Role::Std | Role::Platform)
             || self.in_effect_impl
-            || crate::compiler::semantics::resolve::is_effect_package_path(
-                &self.c.loaded.module(self.module).path,
+            || crate::compiler::semantics::resolve::is_effect_package_module(
+                self.c.ws,
+                self.c.loaded.module(self.module),
             )
     }
 

@@ -1,7 +1,7 @@
 error: //cmd/site builds `fetch` for `//platform/cloudflare_worker`, and its `js` file calls it, so there is nothing to start [platform-cannot-run]
- --> cmd/site/BUILD.buri:7:9
+ --> cmd/site/BUILD.buri:4:9
   |
-7 |         { platform: "//platform/cloudflare_worker" },
+4 |         { platform: "//platform/cloudflare_worker" },
   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = `buri run` starts an entry with the program signature, `fn(host: H): Result<(), Str>`, with no `js` file

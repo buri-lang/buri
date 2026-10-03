@@ -270,7 +270,7 @@ fn the_host_on_node() {
     run_corpus(&tests_dir().join("repositories/platform"), "platform", 1);
 }
 
-/// PLATFORMS.md: a repository's own platforms under `//platform/`, its custom
+/// build/platforms: a repository's own platforms under `//platform/`, its custom
 /// effects under `//platform/effect/`, and the refusals that keep the two
 /// honest.
 #[test]

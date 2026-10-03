@@ -1,7 +1,6 @@
-// platform/cloudflare_worker/platform.buri
+from "platform/effect" import { Request, Response };
 from "platform/host" import { HostAllocator, HostClock, HostNetwork, HostStdout };
 from "//platform/effect/kv" import { Kv };
-from "platform/effect" import { Request, Response };
 
 export struct CloudflareHost {
     export alloc: HostAllocator,
@@ -13,8 +12,11 @@ export struct CloudflareHost {
 
 export fn fetch(host: CloudflareHost, request: Request): Response;
 
+// fetch.mjs implements both methods.
 struct HostKv {}
+
 impl Kv for HostKv {
-    fn get(self, namespace: Str, key: Str): Option<Str>;    // fetch.mjs implements both
+    fn get(self, namespace: Str, key: Str): Option<Str>;
+
     fn put(self, namespace: Str, key: Str, value: Str): ();
 }
