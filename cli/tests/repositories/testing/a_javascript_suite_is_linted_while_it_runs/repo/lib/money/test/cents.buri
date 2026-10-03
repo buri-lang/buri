@@ -1,0 +1,11 @@
+from "core/testing/assert" import * as assert;
+from "//lib/money" import { format, fromCents };
+
+test "pads the cents place" {
+    let unread = fromCents(7);
+    assert.equal(format(fromCents(1905)), "some");
+}
+
+test "zero formats as zero" {
+    assert.equal(format(fromCents(0)), "zero");
+}

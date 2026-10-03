@@ -103,6 +103,21 @@ pub fn findings_for(
     targets: &[TargetId],
     flags: &arguments::Flags,
 ) -> Diagnostics {
+    findings_reusing(session, targets, flags, Vec::new())
+}
+
+/// [`findings_for`], reading a target's analysis from `analyses` where the
+/// caller already has one of the same unit [`analysis_of`] would load.
+///
+/// `buri test` has: a suite compiled on its own is analysed as exactly that
+/// unit, with the standard library's bodies checked too, which changes nothing
+/// a rule reports — every rule asks about the repository's own modules.
+pub fn findings_reusing(
+    session: &mut Session,
+    targets: &[TargetId],
+    flags: &arguments::Flags,
+    mut analyses: Vec<(TargetId, crate::compiler::driver::Analysis)>,
+) -> Diagnostics {
     let mut diagnostics = Diagnostics::new();
     let mut seen_packages = BTreeSet::new();
     let mut store = super::lint_cache::Store::open(&session.root, flags);
@@ -115,7 +130,10 @@ pub fn findings_for(
             replay(&parts, first_in_package, &mut diagnostics);
             continue;
         }
-        let analysis = analysis_of(session, *target);
+        let analysis = match analyses.iter().position(|(t, _)| t == target) {
+            Some(i) => analyses.swap_remove(i).1,
+            None => analysis_of(session, *target),
+        };
         let marks = one_target(session, *target, &analysis, &mut seen_packages, &mut diagnostics);
         store.remember(session, *target, &analysis, &marks.parts(&diagnostics));
     }
