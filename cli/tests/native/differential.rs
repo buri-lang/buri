@@ -217,7 +217,7 @@ fn analyze(path: &str, source: &str, map: &mut SourceMap) -> driver::Analysis {
         w.package_by_path(&format!("lib/{package}"))
     });
     let mut cache = buri::parsing::parser::Cache::new();
-    driver::analyze_snippet_as(
+    driver::analyze_snippet_on(
         repository,
         package,
         map,
@@ -225,6 +225,7 @@ fn analyze(path: &str, source: &str, map: &mut SourceMap) -> driver::Analysis {
         "main",
         source,
         Role::TestSource,
+        None,
     )
 }
 
