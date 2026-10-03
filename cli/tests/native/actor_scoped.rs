@@ -63,8 +63,8 @@ fn a_step_that_keeps_its_state_does_not_copy_it_inside_a_scope() {
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
 from "core/alloc" import * as alloc;
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/orderedmap" import * as orderedmap;
 from "core/orderedmap" import { OrderedMap };
@@ -88,7 +88,7 @@ fn measure<C: Allocator + Tasks>(ctx: C, state: OrderedMap<Int, Str>): Int {
     total
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
@@ -129,8 +129,8 @@ from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
 from "core/alloc" import * as alloc;
 from "core/alloc" import { Scoped };
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/orderedmap" import * as orderedmap;
 from "core/orderedmap" import { OrderedMap };
@@ -215,7 +215,7 @@ fn reads<C: Allocator>(ctx: C, table: OrderedMap<Int, Str>, k: Int): Str {
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
@@ -289,8 +289,8 @@ from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
 from "core/alloc" import * as alloc;
 from "core/alloc" import { Scoped };
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 from "core/tasks" import * as tasks;
@@ -345,7 +345,7 @@ fn seeding<C: Allocator + Tasks>(ctx: C, address: Address<C, [[Str]], Keep, Kept
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
