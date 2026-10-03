@@ -23,7 +23,7 @@
 //!   parentheses. Eight bytes a node is the price of making a mistake there
 //!   impossible rather than merely unlikely.
 //! * **No mutation after parsing.** `parser::Cache` hands the same
-//!   `Rc<Module>` to every target that imports the file. The tree grows only
+//!   `Arc<Module>` to every target that imports the file. The tree grows only
 //!   while the parser holds it and is read-only from the moment `parse`
 //!   returns, which is why nothing here needs an interior-mutability story and
 //!   why ids rather than `&'arena` references are the only workable addressing.
@@ -39,7 +39,7 @@
 //! the one exhaustive `match` that builds a view, where the test suite finds
 //! it immediately.
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::diagnostics::{FileId, Span};
 use crate::parsing::tree::{BinOp, UnOp};
@@ -461,12 +461,12 @@ pub struct Tree {
     ///
     /// The tree owns it because an identifier's text is now `src[span]` and
     /// `parse(text: &str, file)` is called with temporaries at six sites whose
-    /// signature may not change — so a borrow is out and an `Rc<str>` is one
+    /// signature may not change — so a borrow is out and an `Arc<str>` is one
     /// allocation and one memcpy of the file against the ~2 600 `String`s per
-    /// thousand lines it deletes. `Rc` rather than `Box` so that the day the
+    /// thousand lines it deletes. `Arc` rather than `Box` so that the day the
     /// `SourceMap` learns to hand its text out shared, `parse` can take one
     /// and the copy goes away without any other change.
-    src: Rc<str>,
+    src: Arc<str>,
 
     nodes: Vec<Node>,
     /// Parallel to `nodes`. Split out rather than folded in because span-only
@@ -565,7 +565,7 @@ impl Tree {
         let n = src.len() / 16;
         Tree {
             file,
-            src: Rc::from(src),
+            src: Arc::from(src),
             nodes: Vec::with_capacity(n),
             spans: Vec::with_capacity(n),
             pnodes: Vec::with_capacity(n / 8),
@@ -597,7 +597,7 @@ impl Tree {
         self.file
     }
 
-    pub fn source(&self) -> &Rc<str> {
+    pub fn source(&self) -> &Arc<str> {
         &self.src
     }
 

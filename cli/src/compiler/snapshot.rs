@@ -1,5 +1,5 @@
 //! The standard library modules every compilation opens with, loaded and
-//! checked once per thread.
+//! checked once per process.
 //!
 //! A compilation loads the same modules before anything of its own: the
 //! prelude and the built-in types' modules (`Loader::load_unit`), and for a
@@ -11,16 +11,17 @@
 //! snapshot's (`Loader::seeded`) and runs every checker pass over those alone
 //! (`Checker::resume`).
 //!
-//! Per thread rather than per process because a syntax tree is shared by `Rc`.
-//! Every thread an analysis runs on builds its own the first time it asks.
+//! One per process, shared by every thread: `buri test` checks its suites on a
+//! pool of workers, and they all read the same snapshot. The first thread to
+//! ask builds it, and a thread that asks meanwhile waits for that one rather
+//! than building a second.
 
 use crate::compiler::modules::{Loader, ModuleData};
 use crate::compiler::semantics::resolve::{Base, Bodies, Checker};
 use crate::compiler::semantics::types::ModuleId;
 use crate::diagnostics::{Diagnostics, SourceMap};
 use crate::hash::Map as HashMap;
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::OnceLock;
 
 /// Which standard library modules a compilation opens with.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -46,28 +47,27 @@ pub struct Snapshot {
     pub base: Base,
 }
 
-thread_local! {
-    static SNAPSHOTS: RefCell<HashMap<(Opening, bool), Rc<Snapshot>>> =
-        RefCell::new(HashMap::default());
-}
-
-/// The snapshot of `opening`, built the first time this thread asks.
+/// The snapshot of `opening`, built the first time any thread asks.
 ///
 /// `bodies` says whether the modules' function bodies are checked too, which
 /// an analysis that checks every body wants and a scoped one must not have:
 /// its `Checked::bodies` holds only what it asked for.
-pub fn of(opening: Opening, bodies: bool) -> Rc<Snapshot> {
-    let key = (opening, bodies);
-    if let Some(hit) = SNAPSHOTS.with(|s| s.borrow().get(&key).cloned()) {
-        return hit;
-    }
-    let built = Rc::new(build(opening, bodies));
-    SNAPSHOTS.with(|s| s.borrow_mut().insert(key, Rc::clone(&built)));
-    built
+pub fn of(opening: Opening, bodies: bool) -> &'static Snapshot {
+    static BUILTIN: OnceLock<Snapshot> = OnceLock::new();
+    static BUILTIN_BODIES: OnceLock<Snapshot> = OnceLock::new();
+    static LIBRARY: OnceLock<Snapshot> = OnceLock::new();
+    static LIBRARY_BODIES: OnceLock<Snapshot> = OnceLock::new();
+    let once = match (opening, bodies) {
+        (Opening::Builtin, false) => &BUILTIN,
+        (Opening::Builtin, true) => &BUILTIN_BODIES,
+        (Opening::Library, false) => &LIBRARY,
+        (Opening::Library, true) => &LIBRARY_BODIES,
+    };
+    once.get_or_init(|| build(opening, bodies))
 }
 
 /// The snapshot of `opening`, built afresh rather than kept: what [`of`]
-/// pays the first time a thread asks.
+/// pays the first time it is asked.
 pub fn build(opening: Opening, bodies: bool) -> Snapshot {
     let mut map = SourceMap::new();
     let mut cache = crate::parsing::parser::Cache::new();

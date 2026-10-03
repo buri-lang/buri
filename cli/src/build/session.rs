@@ -36,7 +36,7 @@ pub struct Session {
     pub diagnostics: Diagnostics,
     /// Shared rather than owned, so that a session is cheap to copy: the
     /// graph is read-only once loaded.
-    pub workspace: std::rc::Rc<Workspace>,
+    pub workspace: std::sync::Arc<Workspace>,
     pub rendering: Rendering,
 }
 
@@ -81,7 +81,7 @@ pub fn open_at(root: &std::path::Path, flags: &Flags) -> Result<Session, String>
         map,
         parsed: crate::parsing::parser::Cache::new(),
         diagnostics,
-        workspace: std::rc::Rc::new(workspace),
+        workspace: std::sync::Arc::new(workspace),
         rendering,
     };
     // A `generators` entry names a program, and running it needs a session to

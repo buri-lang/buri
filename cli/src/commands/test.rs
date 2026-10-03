@@ -293,6 +293,7 @@ fn one_pass(
     let mut pre = Prepass {
         lints: session.workspace.repo.lint.check_during_build,
         analyses: Vec::new(),
+        promised: Vec::new(),
     };
     // Every suite's cache lookup first: on an unedited repository that is the
     // whole pass.
@@ -308,12 +309,13 @@ fn one_pass(
         root: session.root.clone(),
         flags: args.flags.clone(),
         painting: std::sync::Mutex::new(Vec::new()),
+        workspace: std::sync::Arc::clone(&session.workspace),
     };
     let width = if slots.iter().all(|s| s.answer.is_some()) { 1 } else { jobs_of(&args.flags) };
     let tally = crate::parallel::pool(
         width,
         builds_of(width),
-        |job, held, queue| work(job, held, queue, &shared),
+        |job, held, queue, tell| work(job, held, queue, tell, &shared),
         |queue, done| drive(&mut session, args, &mut pre, &plans, &mut slots, queue, done, &mut out),
     );
     let Tally { passed, failed, skipped, cached, uncompiled, printed, mut hard_error } = tally;
@@ -417,16 +419,23 @@ fn suite(session: &Session, target: TargetId) -> Option<crate::build::buildfile:
 // Scheduling
 // ---------------------------------------------------------------------------
 //
-// A pass has three stages, and only the first two share the session:
+// A pass has four stages, and only the first two share the session:
 //
 // - **Plan** ([`plan`]): every suite's policy check, platforms, key and cache
 //   lookup, in target order.
-// - **Front ends** ([`drive`]): this thread type-checks and monomorphizes what
-//   the cache did not answer, a batch at a time and then a suite at a time,
-//   and hands each program to the pool.
-// - **Back ends** ([`work`]): the pool's workers lower, generate, link and run,
-//   at most `--jobs` at once. A batch's binary runs each member in a process
-//   of its own, so its suites run side by side too.
+// - **Loading** ([`drive`]): this thread loads what the cache did not answer,
+//   a batch at a time and then a suite at a time, and queues each for the
+//   pool. Loading reads files and mints their ids in the session's source map,
+//   so it stays on the thread that owns the map, and the ids come out in the
+//   same order every run.
+// - **Front ends** ([`front`], [`batch_job`]): the pool's workers type-check
+//   and monomorphize, side by side.
+// - **Back ends**: the same worker goes on to lower, generate and link, then
+//   runs the binary. A batch's binary runs each member in a process of its
+//   own, so its suites run side by side too.
+//
+// A front end and its back end are one heavy job, so at most `builds_of` of
+// them hold a whole program at once (`parallel::Queue`).
 //
 // The report never depends on which worker finished first. Each run fills its
 // own [`Slot`], `--explain` lines included, and a suite is printed only once
@@ -569,8 +578,8 @@ struct Tally {
     hard_error: bool,
 }
 
-/// The front ends, on this thread, and then the report, in target order, as the
-/// pool's answers arrive.
+/// Loads every suite the cache did not answer, on this thread, and queues it;
+/// then the report, in target order, as the pool's answers arrive.
 #[allow(
     clippy::too_many_arguments,
     reason = "the session, the invocation, the lint's analyses, the plans and their \
@@ -630,6 +639,35 @@ fn drive(
                 }
             }
             Done::Progress => {}
+            Done::Checked { target, analysis } => pre.analyses.push((target, *analysis)),
+            Done::Linking { slot } => {
+                if let Some(s) = slots.get_mut(slot) {
+                    s.awaiting_build = true;
+                }
+            }
+            // A batch whose type check failed: again without the members whose
+            // code failed it, and those alone, where a diagnostic names them.
+            Done::Broken { members, member_slots, diagnostics } => {
+                let broken = broken_members(session, &members, &diagnostics);
+                let kept: Vec<(TargetId, usize)> = members
+                    .iter()
+                    .copied()
+                    .zip(member_slots.iter().copied())
+                    .filter(|(m, _)| !broken.is_empty() && !broken.contains(m))
+                    .collect();
+                for &i in &member_slots {
+                    if let Some(s) = slots.get_mut(i) {
+                        s.queued = false;
+                    }
+                }
+                if kept.len() >= 2 {
+                    let (members, member_slots): (Vec<TargetId>, Vec<usize>) = kept.into_iter().unzip();
+                    queue_batch(session, &members, &member_slots, slots, queue);
+                }
+                for &i in &member_slots {
+                    solo(session, args, pre, slots, i, queue);
+                }
+            }
             Done::Built { slot, explain } => {
                 if let Some(s) = slots.get_mut(slot) {
                     s.explain.push_str(&explain);
@@ -710,6 +748,8 @@ struct Shared {
     /// its processes are. Two suites never write one directory's goldens at
     /// once; one suite's processes write different files, so they may.
     painting: std::sync::Mutex<Vec<Painter>>,
+    /// The graph a front end is checked against.
+    workspace: std::sync::Arc<crate::build::workspace::Workspace>,
 }
 
 /// A suite painting into a snapshot directory.
@@ -747,15 +787,16 @@ impl Shared {
     }
 }
 
-/// Work for the pool. Each one owns its program, so a worker needs no session.
+/// Work for the pool. Each one owns what it compiles, so a worker needs no
+/// session.
 enum Job {
-    /// One binary for some of a batch's members, then a [`Job::Member`] each.
-    Group(GroupJob),
-    /// One suite's own native binary, built and run.
-    Solo(SoloJob),
-    /// One suite's JavaScript bundle, written and run.
-    Js(JsJob),
-    /// One member's blocks, in a binary a [`Job::Group`] linked.
+    /// One suite, loaded: checked, built and run.
+    Front(Box<FrontJob>),
+    /// One batch, loaded: checked once, then built as one binary or several.
+    Batch(Box<BatchJob>),
+    /// One binary of a batch that is several, from the batch's one check.
+    Part(Box<PartJob>),
+    /// One member's blocks, in a binary a batch linked.
     Member(MemberJob),
 }
 
@@ -766,11 +807,21 @@ enum Done {
     /// A batch's binary is linked and its members are queued. `slot` is the
     /// first member, whose report carries the link's `--explain` lines.
     Built { slot: usize, explain: String },
+    /// A batch's binary is about to be linked, and `slot` is its first member:
+    /// that member waits for [`Done::Built`] before it is reported.
+    Linking { slot: usize },
     /// These slots go back to run alone.
     Abandoned { slots: Vec<usize>, explain: String },
+    /// A batch whose type check reported errors.
+    Broken { members: Vec<TargetId>, member_slots: Vec<usize>, diagnostics: Diagnostics },
+    /// A suite's analysis, for the lint ([`Prepass`]).
+    Checked { target: TargetId, analysis: Box<crate::compiler::driver::Analysis> },
     /// One of a member's processes finished, and others haven't yet.
     Progress,
 }
+
+/// How a job hands [`drive`] a [`Done`] before its last.
+type Tell = crate::parallel::Tell<Done>;
 
 /// One test of a program, as the report locates it.
 struct Root {
@@ -805,17 +856,17 @@ fn roots_of(program: &monomorphize::Program) -> Vec<Root> {
 
 /// Runs one job. A job that builds drops `held` with its program, before it
 /// runs anything, so a run never stands in the way of the next build.
-fn work(job: Job, held: Held, queue: &Queue, shared: &Shared) -> Done {
+fn work(job: Job, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
     match job {
-        Job::Group(job) => build_group(job, held, queue, shared),
-        Job::Solo(job) => run_solo(job, held, shared),
-        Job::Js(job) => run_js(job, held, shared),
+        Job::Front(job) => front(*job, held, tell, shared),
+        Job::Batch(job) => batch_job(*job, held, queue, tell, shared),
+        Job::Part(job) => part(*job, held, queue, tell, shared),
         Job::Member(job) => run_member(job, queue, shared),
     }
 }
 
-/// Compiles slot `i` on its own and queues what is left of it, unless it is
-/// answered or already queued.
+/// Loads slot `i` on its own and queues it, unless it is answered or already
+/// queued.
 ///
 /// `None`, not the platform, as the unit's platform: a test is never handed a
 /// host, so there is no host to check it against (`Unit::platform`).
@@ -833,43 +884,91 @@ fn solo(
     }
     slot.queued = true;
     let (target, platform, chosen, key) = (slot.target, slot.platform, slot.chosen, slot.key.clone());
-    match front_end(session, target, platform, chosen, &key, args, pre, i) {
-        Next::Answer(answer) => slot.answer = Some(answer),
-        Next::Job(job) => queue.push(*job, true),
-    }
-}
-
-/// What a front end leaves: the answer, when it is already known, or the job
-/// that finds it.
-enum Next {
-    Answer(Result<Outcome, Diagnostics>),
-    Job(Box<Job>),
-}
-
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the session, the suite, its platform and how it was chosen, its key, the \
-              invocation, the lint's analyses and the slot: none derivable from another"
-)]
-fn front_end(
-    session: &mut Session,
-    target: TargetId,
-    platform: Platform,
-    chosen: Chosen,
-    key: &crate::build::cache::ActionKey,
-    args: &arguments::Args,
-    pre: &mut Prepass,
-    slot: usize,
-) -> Next {
     let unit = Unit { target: Some(target), platform: None, entry: None, with_tests: true };
-    let mut analysis = crate::compiler::driver::analyze(
+    let loading = crate::compiler::driver::load_all(
         Some(&session.workspace),
         &mut session.map,
         &mut session.parsed,
-        &unit,
+        std::slice::from_ref(&unit),
     );
+    let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
+    let limit = suite(session, target).and_then(|x| x.timeout_seconds);
+    let js = session
+        .root
+        .join(".buri/out/node")
+        .join(&session.workspace.package(target.package).path)
+        .join(format!("test-{}.mjs", target.kind.name()));
+    let job = FrontJob {
+        slot: i,
+        target,
+        platform,
+        chosen,
+        key,
+        loading,
+        map: session.map.clone(),
+        keep: pre.promise(target),
+        label: session.workspace.label(target),
+        limit,
+        on_timeout: timed_out(session, target, limit),
+        private: actions::private_test_binary(session, target, &output),
+        output,
+        js,
+        snapshot_dir: snapshot_dir(session, target),
+        filter: args.flags.filter.clone(),
+    };
+    queue.push(Job::Front(Box::new(job)), true);
+}
+
+/// One suite, loaded, and everything about it a worker would otherwise ask the
+/// session.
+struct FrontJob {
+    slot: usize,
+    target: TargetId,
+    platform: Platform,
+    chosen: Chosen,
+    key: crate::build::cache::ActionKey,
+    loading: crate::compiler::driver::Loading,
+    /// The session's map as the load left it, which names every file the
+    /// check can report on.
+    map: crate::diagnostics::SourceMap,
+    /// Whether the lint reads this suite's analysis.
+    keep: bool,
+    label: String,
+    limit: Option<u32>,
+    on_timeout: Diagnostics,
+    private: std::path::PathBuf,
+    output: crate::build::buildfile::Output,
+    /// Where a JavaScript run writes its bundle.
+    js: std::path::PathBuf,
+    snapshot_dir: String,
+    filter: Option<String>,
+}
+
+/// One suite's front end, and then its back end on the same worker.
+fn front(job: FrontJob, held: Held, tell: &Tell, shared: &Shared) -> Done {
+    let FrontJob {
+        slot,
+        target,
+        platform,
+        chosen,
+        key,
+        loading,
+        map,
+        keep,
+        label,
+        limit,
+        on_timeout,
+        private,
+        output,
+        js,
+        snapshot_dir,
+        filter,
+    } = job;
+    let answer = |answer| Done::Answer { slot, answer, explain: String::new(), notes: String::new() };
+    let mut analysis = crate::compiler::driver::check(loading, Some(&shared.workspace), &map);
+    drop(map);
     if analysis.diagnostics.has_errors() {
-        return Next::Answer(Err(analysis.diagnostics));
+        return answer(Err(analysis.diagnostics));
     }
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
@@ -881,15 +980,17 @@ fn front_end(
         monomorphize::Roots::Tests,
     );
     if diagnostics.has_errors() {
-        return Next::Answer(Err(diagnostics));
+        return answer(Err(diagnostics));
     }
     if program.roots.tests().is_empty() {
-        pre.keep(target, analysis);
-        return Next::Answer(Ok(Outcome::default()));
+        if keep {
+            tell.tell(Done::Checked { target, analysis: Box::new(analysis) });
+        }
+        return answer(Ok(Ran { cases: Vec::new(), skipped: 0, roots: Vec::new() }));
     }
     // Counted here rather than in the runner: the names are known before the
     // binary is built, so the summary can always print the count.
-    let filter = args.flags.filter.as_deref();
+    let filter = filter.as_deref();
     let skipped = match filter {
         Some(f) => program.roots.tests().iter().filter(|t| !t.name.contains(f)).count(),
         None => 0,
@@ -897,32 +998,23 @@ fn front_end(
     // The gap, asked of the program before a second is spent on codegen, and
     // only for a platform nobody asked for.
     if platform.is_native() && chosen == Chosen::Default {
-        if let Some(gap) = native_gap(platform, &args.flags, &program, &analysis.checked.tables) {
-            return Next::Answer(Err(gap_refusal(&session.workspace.label(target), gap)));
+        if let Some(gap) = native_gap(platform, &shared.flags, &program, &analysis.checked.tables) {
+            return answer(Err(gap_refusal(&label, gap)));
         }
     }
-    let tables = pre.tables_of(target, &mut analysis);
-    pre.keep(target, analysis);
-    let label = session.workspace.label(target);
-    let limit = suite(session, target).and_then(|x| x.timeout_seconds);
-    let on_timeout = timed_out(session, target, limit);
-    let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
+    let tables = std::sync::Arc::new(if keep {
+        analysis.checked.tables.clone()
+    } else {
+        std::mem::take(&mut analysis.checked.tables)
+    });
+    if keep {
+        tell.tell(Done::Checked { target, analysis: Box::new(analysis) });
+    } else {
+        drop(analysis);
+    }
     if !platform.is_native() {
-        let dir = session
-            .root
-            .join(".buri/out/node")
-            .join(&session.workspace.package(target.package).path);
-        let path = dir.join(format!("test-{}.mjs", target.kind.name()));
-        return Next::Job(Box::new(Job::Js(JsJob {
-            slot,
-            program,
-            tables,
-            key: key.clone(),
-            path,
-            limit,
-            on_timeout,
-            skipped,
-        })));
+        let job = JsJob { slot, program, tables, key, path: js, limit, on_timeout, skipped };
+        return run_js(job, held, shared);
     }
     // A filtered native run does not even generate the tests it leaves out.
     if let (Some(f), monomorphize::ProgramRoots::Tests(tests)) = (filter, &mut program.roots) {
@@ -931,25 +1023,26 @@ fn front_end(
     let tests: Vec<(String, String)> =
         program.roots.tests().iter().map(|t| (t.name.clone(), t.module.clone())).collect();
     if tests.is_empty() {
-        return Next::Answer(Ok(Outcome { cases: Vec::new(), skipped }));
+        return answer(Ok(Ran { cases: Vec::new(), skipped, roots: Vec::new() }));
     }
     let paints = program.funcs.iter().any(|f| f.intrinsic_key() == Some(PAINT_KEY));
-    Next::Job(Box::new(Job::Solo(SoloJob {
+    let job = SoloJob {
         slot,
         label,
-        private: actions::private_test_binary(session, target, &output),
+        private,
         output,
         roots: roots_of(&program),
         program,
         tables,
-        key: key.clone(),
+        key,
         limit,
         on_timeout,
-        snapshot_dir: snapshot_dir(session, target),
+        snapshot_dir,
         paints,
         tests,
         skipped,
-    })))
+    };
+    run_solo(job, held, shared)
 }
 
 /// One suite's own native binary: link it, then run every block.
@@ -1409,42 +1502,22 @@ fn is_backend_gap(diagnostics: &Diagnostics) -> bool {
 struct Prepass {
     /// Whether `check_during_build` will lint this pass's targets.
     lints: bool,
+    /// The analyses the workers handed back ([`Done::Checked`]).
     analyses: Vec<(TargetId, crate::compiler::driver::Analysis)>,
+    /// The targets whose analysis a queued front end will hand back.
+    promised: Vec<TargetId>,
 }
 
 impl Prepass {
-    /// Whether the lint wants this suite's analysis. A suite run on two
-    /// platforms is one unit, so its first analysis is the one.
-    fn wants(&self, target: TargetId) -> bool {
-        self.lints && !self.analyses.iter().any(|(t, _)| *t == target)
-    }
-
-    /// The tables a worker generates code against: moved out when the lint
-    /// will not read the analysis, and copied when it will.
-    fn tables_of(
-        &self,
-        target: TargetId,
-        analysis: &mut crate::compiler::driver::Analysis,
-    ) -> std::sync::Arc<crate::compiler::semantics::types::Tables> {
-        std::sync::Arc::new(if self.wants(target) {
-            analysis.checked.tables.clone()
-        } else {
-            std::mem::take(&mut analysis.checked.tables)
-        })
-    }
-
-    /// Keeps `analysis` for the lint, or frees it off this thread.
-    fn keep(&mut self, target: TargetId, analysis: crate::compiler::driver::Analysis) {
-        if self.wants(target) {
-            self.analyses.push((target, analysis));
-            return;
+    /// Whether the lint wants the analysis of the suite about to be queued,
+    /// and if so, notes that it is coming. A suite run on two platforms is one
+    /// unit, so its first analysis is the one.
+    fn promise(&mut self, target: TargetId) -> bool {
+        if !self.lints || self.promised.contains(&target) {
+            return false;
         }
-        // `Loaded` holds its modules behind `Rc`, shared with the session's
-        // parse cache, so it is not one of the things that can be handed over.
-        let crate::compiler::driver::Analysis { loaded, checked, diagnostics } = analysis;
-        drop(loaded);
-        drop(diagnostics);
-        crate::parallel::discard(checked);
+        self.promised.push(target);
+        true
     }
 }
 
@@ -1898,8 +1971,8 @@ fn record_of(name: &str, module: &str, block: &Block) -> String {
 // Each group links on its own, and a group that fails to link sends only its
 // own members back to run alone.
 
-/// Compiles the suites that can share binaries, a batch at a time, and queues a
-/// [`Job::Group`] per binary.
+/// Loads the suites that can share binaries, a batch at a time, and queues a
+/// [`Job::Batch`] for each.
 ///
 /// Nothing at all is the answer that costs nothing and changes nothing: a pass
 /// with one uncached suite, `--output=`, a toolchain with no native backend.
@@ -1931,20 +2004,16 @@ fn batch(session: &mut Session, args: &arguments::Args, slots: &mut [Slot], queu
         return;
     }
     let targets: Vec<TargetId> = fresh.iter().map(|(t, _)| *t).collect();
-    for mut members in batches_of(session, &targets) {
+    for members in batches_of(session, &targets) {
         // A batch of one is the path that already exists.
-        while members.len() >= 2 {
-            let member_slots: Vec<usize> = members
-                .iter()
-                .filter_map(|m| fresh.iter().find(|(t, _)| t == m).map(|(_, i)| *i))
-                .collect();
-            let broken = batch_front(session, &members, &member_slots, platform, args, slots, queue);
-            // One suite that doesn't compile shouldn't cost the rest their batch.
-            if broken.is_empty() {
-                break;
-            }
-            members.retain(|m| !broken.contains(m));
+        if members.len() < 2 {
+            continue;
         }
+        let member_slots: Vec<usize> = members
+            .iter()
+            .filter_map(|m| fresh.iter().find(|(t, _)| t == m).map(|(_, i)| *i))
+            .collect();
+        queue_batch(session, &members, &member_slots, slots, queue);
     }
 }
 
@@ -2066,39 +2135,115 @@ fn test_modules_of(session: &Session, target: TargetId) -> Vec<String> {
     suite.sources.iter().map(|src| pkg.module_path(&src.value)).collect()
 }
 
-/// One batch's front end: one type check, one program per group ([`groups_of`]),
-/// and a [`Job::Group`] for each.
+/// Loads one batch as one compilation and queues its [`Job::Batch`].
 ///
-/// Every early return abandons the batch and says nothing. That is the whole of
-/// the safety argument: a batch that is not certain is not a batch, and its
-/// suites are compiled on their own by [`solo`], where a diagnostic — a gap the
-/// backend has no body for, most of all — can name the one suite it belongs to.
-///
-/// Answers the members whose code failed the type check, so the caller can try
-/// again without them ([`broken_members`]).
-fn batch_front(
+/// A broken member is found once the batch is checked ([`Done::Broken`]), and
+/// [`drive`] queues the batch again without it.
+fn queue_batch(
     session: &mut Session,
     members: &[TargetId],
     member_slots: &[usize],
-    platform: Platform,
-    args: &arguments::Args,
     slots: &mut [Slot],
     queue: &Queue,
-) -> Vec<TargetId> {
+) {
     // One unit per member, in the pass's order, which is the order their test
     // sources load in and therefore the order the binary's blocks come out in.
     let units: Vec<Unit> = members
         .iter()
         .map(|&target| Unit { target: Some(target), platform: None, entry: None, with_tests: true })
         .collect();
-    let mut analysis = crate::compiler::driver::analyze_all(
+    let loading = crate::compiler::driver::load_all(
         Some(&session.workspace),
         &mut session.map,
         &mut session.parsed,
         &units,
     );
+    let platform = crate::compiler::driver::host_native_platform();
+    let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
+    let key_of = |i: usize| slots.get(i).map(|s| s.key.clone());
+    let info = BatchInfo {
+        members: members.to_vec(),
+        member_slots: member_slots.to_vec(),
+        // Which suite owns each module that declares tests. Built from the
+        // build files rather than from the program, so a module the batch
+        // loaded for some other reason cannot be mistaken for a suite's.
+        owners: members
+            .iter()
+            .enumerate()
+            .flat_map(|(i, &t)| test_modules_of(session, t).into_iter().map(move |m| (m, i)))
+            .collect(),
+        keys: member_slots.iter().filter_map(|&i| key_of(i)).collect(),
+        labels: members.iter().map(|&t| session.workspace.label(t)).collect(),
+        privates: members.iter().map(|&t| actions::private_test_binary(session, t, &output)).collect(),
+        dirs: members.iter().map(|&t| snapshot_dir(session, t)).collect(),
+        platform,
+        output,
+    };
+    for &i in member_slots {
+        if let Some(s) = slots.get_mut(i) {
+            s.queued = true;
+        }
+    }
+    let job = BatchJob { info: std::sync::Arc::new(info), loading, map: session.map.clone() };
+    queue.push(Job::Batch(Box::new(job)), true);
+}
+
+/// What every binary of one batch shares, each member's at its position.
+struct BatchInfo {
+    members: Vec<TargetId>,
+    member_slots: Vec<usize>,
+    /// Each test source's module and the member that owns it.
+    owners: Vec<(String, usize)>,
+    keys: Vec<crate::build::cache::ActionKey>,
+    labels: Vec<String>,
+    /// Where each member's own binary would go; a group's goes where its first
+    /// member's would.
+    privates: Vec<std::path::PathBuf>,
+    /// Each member's snapshot directory.
+    dirs: Vec<String>,
+    platform: Platform,
+    output: crate::build::buildfile::Output,
+}
+
+impl BatchInfo {
+    fn owner_of(&self, module: &str) -> Option<usize> {
+        self.owners.iter().find(|(m, _)| m == module).map(|(_, i)| *i)
+    }
+
+    fn slot_of(&self, member: usize) -> usize {
+        self.member_slots.get(member).copied().unwrap_or(usize::MAX)
+    }
+}
+
+/// One batch, loaded.
+struct BatchJob {
+    info: std::sync::Arc<BatchInfo>,
+    loading: crate::compiler::driver::Loading,
+    /// The session's map as the load left it.
+    map: crate::diagnostics::SourceMap,
+}
+
+/// One batch's front end: one type check, one program per group ([`groups_of`]),
+/// and a binary for each.
+///
+/// Every abandonment says nothing. That is the whole of the safety argument: a
+/// batch that is not certain is not a batch, and its suites are compiled on
+/// their own by [`solo`], where a diagnostic — a gap the backend has no body
+/// for, most of all — can name the one suite it belongs to.
+///
+/// A type check that fails goes back as [`Done::Broken`], so [`drive`] can try
+/// again without the members whose code failed it ([`broken_members`]).
+fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
+    let BatchJob { info, loading, map } = job;
+    let abandoned = || Done::Abandoned { slots: info.member_slots.clone(), explain: String::new() };
+    let mut analysis = crate::compiler::driver::check(loading, Some(&shared.workspace), &map);
+    drop(map);
     if analysis.diagnostics.has_errors() {
-        return broken_members(session, members, &analysis.diagnostics);
+        return Done::Broken {
+            members: info.members.clone(),
+            member_slots: info.member_slots.clone(),
+            diagnostics: analysis.diagnostics,
+        };
     }
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
@@ -2110,31 +2255,20 @@ fn batch_front(
         monomorphize::Roots::Tests,
     );
     if diagnostics.has_errors() || program.roots.tests().is_empty() {
-        return Vec::new();
+        return abandoned();
     }
     // The gap probe cannot say *which* member reaches the intrinsic it names, so
     // a batch with a gap in it is abandoned and each member asks for itself.
-    if native_gap(platform, &args.flags, &program, &analysis.checked.tables).is_some() {
-        return Vec::new();
+    if native_gap(info.platform, &shared.flags, &program, &analysis.checked.tables).is_some() {
+        return abandoned();
     }
-    // Which suite owns each module that declares tests. Built from the build
-    // files rather than from the program, so a module the batch loaded for some
-    // other reason cannot be mistaken for a suite's.
-    let owners: Vec<(String, usize)> = members
-        .iter()
-        .enumerate()
-        .flat_map(|(i, &t)| test_modules_of(session, t).into_iter().map(move |m| (m, i)))
-        .collect();
-    let owner_of = |module: &str| -> Option<usize> {
-        owners.iter().find(|(m, _)| m == module).map(|(_, i)| *i)
-    };
     // What a `--filter` leaves out, per suite, counted before the roots are
     // narrowed.
-    let mut skipped = vec![0usize; members.len()];
-    if let Some(f) = &args.flags.filter {
+    let mut skipped = vec![0usize; info.members.len()];
+    if let Some(f) = &shared.flags.filter {
         for test in program.roots.tests() {
             if !test.name.contains(f.as_str()) {
-                if let Some(n) = owner_of(&test.module).and_then(|i| skipped.get_mut(i)) {
+                if let Some(n) = info.owner_of(&test.module).and_then(|i| skipped.get_mut(i)) {
                     *n += 1;
                 }
             }
@@ -2143,147 +2277,181 @@ fn batch_front(
             tests.retain(|t| t.name.contains(f.as_str()));
         }
     }
-    let Some(selected) = selected_of(&program, &owner_of) else { return Vec::new() };
-    let groups = groups_of(session, &program, members, &selected, batch_limit());
-    let batch = Batch { members, member_slots, skipped: &skipped, platform };
+    let Some(selected) = selected_of(&program, &|m| info.owner_of(m)) else { return abandoned() };
+    let groups = groups_of(&info.dirs, &program, &selected, batch_limit());
     if let [group] = groups.as_slice() {
         let tables = std::sync::Arc::new(std::mem::take(&mut analysis.checked.tables));
-        submit_group(session, &batch, group, &selected, program, tables, slots, queue);
-    } else {
-        // Each group is monomorphized again from the batch's one type check,
-        // rooted at its own tests, so each binary holds only its own code.
-        crate::parallel::discard(program);
-        let tables = std::sync::Arc::new(analysis.checked.tables.clone());
-        for group in &groups {
-            let modules: Vec<String> = owners
-                .iter()
-                .filter(|(_, i)| group.members.contains(i))
-                .map(|(m, _)| m.clone())
-                .collect();
-            let mut diagnostics = Diagnostics::new();
-            let mut part = monomorphize::run(
-                &analysis.checked,
-                module_paths.clone(),
-                &mut diagnostics,
-                monomorphize::Roots::TestsIn(&modules),
-            );
-            if diagnostics.has_errors() {
-                continue;
-            }
-            if let (Some(f), monomorphize::ProgramRoots::Tests(tests)) =
-                (&args.flags.filter, &mut part.roots)
-            {
-                tests.retain(|t| t.name.contains(f.as_str()));
-            }
-            let Some(mine) = selected_of(&part, &owner_of) else { continue };
-            let tables = std::sync::Arc::clone(&tables);
-            submit_group(session, &batch, group, &mine, part, tables, slots, queue);
-        }
+        drop(analysis);
+        return submit_group(&info, &skipped, group, &selected, program, tables, held, queue, tell, shared);
     }
-    let crate::compiler::driver::Analysis { loaded, checked, diagnostics: analysed } = analysis;
-    drop(loaded);
-    drop(analysed);
-    crate::parallel::discard(checked);
-    Vec::new()
+    // Each group is monomorphized again from the batch's one check, rooted at
+    // its own tests, so each binary holds only its own code. Each is a heavy
+    // job of its own, so the groups build side by side within the limit.
+    drop(program);
+    let tables = std::sync::Arc::new(analysis.checked.tables.clone());
+    let analysis = std::sync::Arc::new(analysis);
+    let skipped = std::sync::Arc::new(skipped);
+    for group in groups {
+        let modules: Vec<String> = info
+            .owners
+            .iter()
+            .filter(|(_, i)| group.members.contains(i))
+            .map(|(m, _)| m.clone())
+            .collect();
+        queue.push(
+            Job::Part(Box::new(PartJob {
+                info: std::sync::Arc::clone(&info),
+                analysis: std::sync::Arc::clone(&analysis),
+                tables: std::sync::Arc::clone(&tables),
+                module_paths: module_paths.clone(),
+                skipped: std::sync::Arc::clone(&skipped),
+                group,
+                modules,
+            })),
+            true,
+        );
+    }
+    drop(held);
+    Done::Progress
 }
 
-/// What every group of one batch shares.
-struct Batch<'a> {
-    members: &'a [TargetId],
-    /// Each member's slot, at the member's position.
-    member_slots: &'a [usize],
-    /// What a `--filter` left out of each member.
-    skipped: &'a [usize],
-    platform: Platform,
+/// One binary of a batch that divides into several.
+struct PartJob {
+    info: std::sync::Arc<BatchInfo>,
+    /// The batch's one check, which every part reads.
+    analysis: std::sync::Arc<crate::compiler::driver::Analysis>,
+    tables: std::sync::Arc<crate::compiler::semantics::types::Tables>,
+    module_paths: Vec<String>,
+    skipped: std::sync::Arc<Vec<usize>>,
+    group: Group,
+    /// The test modules of the group's members, which root its program.
+    modules: Vec<String>,
 }
 
-/// Queues one group's binary, or answers its members when a `--filter` left
-/// it nothing to run.
+/// Monomorphizes one group of a batch from the batch's check, and builds it.
+/// A group that fails sends only its own members back to run alone.
+fn part(job: PartJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
+    let PartJob { info, analysis, tables, module_paths, skipped, group, modules } = job;
+    let mut diagnostics = Diagnostics::new();
+    let mut program = monomorphize::run(
+        &analysis.checked,
+        module_paths,
+        &mut diagnostics,
+        monomorphize::Roots::TestsIn(&modules),
+    );
+    drop(analysis);
+    let abandoned = || Done::Abandoned {
+        slots: group.members.iter().map(|&i| info.slot_of(i)).collect(),
+        explain: String::new(),
+    };
+    if diagnostics.has_errors() {
+        return abandoned();
+    }
+    if let (Some(f), monomorphize::ProgramRoots::Tests(tests)) =
+        (&shared.flags.filter, &mut program.roots)
+    {
+        tests.retain(|t| t.name.contains(f.as_str()));
+    }
+    let Some(mine) = selected_of(&program, &|m| info.owner_of(m)) else { return abandoned() };
+    submit_group(&info, &skipped, &group, &mine, program, tables, held, queue, tell, shared)
+}
+
+/// Links one group's binary and queues its members' processes, or answers its
+/// members when a `--filter` left it nothing to run.
 #[allow(
     clippy::too_many_arguments,
-    reason = "the session, the batch, the group, its tests, its program and tables, \
-              the slots and the queue: none derivable from another"
+    reason = "the batch, what the filter skipped, the group, its tests, its program and \
+              tables, the job's claim, the queue, the channel and the worker's shared \
+              state: none derivable from another"
 )]
 fn submit_group(
-    session: &Session,
-    batch: &Batch,
+    info: &BatchInfo,
+    skipped: &[usize],
     group: &Group,
     selected: &[Selected],
     program: monomorphize::Program,
     tables: std::sync::Arc<crate::compiler::semantics::types::Tables>,
-    slots: &mut [Slot],
+    held: Held,
     queue: &Queue,
-) {
-    let slot_of = |i: usize| batch.member_slots.get(i).copied().unwrap_or(usize::MAX);
-    let skipped_of = |i: usize| batch.skipped.get(i).copied().unwrap_or(0);
+    tell: &Tell,
+    shared: &Shared,
+) -> Done {
+    let skipped_of = |i: usize| skipped.get(i).copied().unwrap_or(0);
+    let nothing = |i: usize| Done::Answer {
+        slot: info.slot_of(i),
+        answer: Ok(Ran { cases: Vec::new(), skipped: skipped_of(i), roots: Vec::new() }),
+        explain: String::new(),
+        notes: String::new(),
+    };
     if selected.is_empty() {
         for &i in &group.members {
-            if let Some(s) = slots.get_mut(slot_of(i)) {
-                s.answer = Some(Ok(Outcome { cases: Vec::new(), skipped: skipped_of(i) }));
-            }
+            tell.tell(nothing(i));
         }
-        return;
+        return Done::Progress;
     }
-    let output = crate::build::buildfile::Output::for_platform(batch.platform, Span::NONE);
-    let targets: Vec<TargetId> =
-        group.members.iter().filter_map(|&i| batch.members.get(i).copied()).collect();
-    let Some(&first) = targets.first() else { return };
+    let Some(&first) = group.members.first() else { return Done::Progress };
     // One seed per *block*, because a suite's order is its own key's: a suite
     // schedules the same way batched or alone.
-    let seed = |i: usize| slots.get(slot_of(i)).map(|s| seed_of(&s.key)).unwrap_or_default();
+    let seed = |i: usize| info.keys.get(i).map(seed_of).unwrap_or_default();
     let seeds: Vec<String> = selected.iter().map(|s| seed(s.owner).to_string()).collect();
     let tests = program.roots.tests();
-    let members: Vec<MemberSpec> = group
+    let members: Vec<(usize, MemberSpec)> = group
         .members
         .iter()
         .filter_map(|&i| {
-            let target = *batch.members.get(i)?;
-            let slot = slots.get(slot_of(i))?;
-            let mine: Vec<usize> = (0..selected.len()).filter(|&b| selected.get(b).is_some_and(|s| s.owner == i)).collect();
-            Some(MemberSpec {
-                slot: slot_of(i),
-                key: slot.key.clone(),
-                ranges: ranges_of(&mine),
-                tests: mine.iter().filter_map(|&b| selected.get(b)).map(|s| (s.name.clone(), s.module.clone())).collect(),
-                roots: mine
-                    .iter()
-                    .filter_map(|&b| tests.get(b))
-                    .map(|t| Root { name: t.name.clone(), module: t.module.clone(), span: t.span })
-                    .collect(),
-                skipped: skipped_of(i),
-                snapshot_dir: snapshot_dir(session, target),
-                paints: group.painters.contains(&i),
-            })
+            let mine: Vec<usize> =
+                (0..selected.len()).filter(|&b| selected.get(b).is_some_and(|s| s.owner == i)).collect();
+            Some((
+                i,
+                MemberSpec {
+                    slot: info.slot_of(i),
+                    key: info.keys.get(i)?.clone(),
+                    ranges: ranges_of(&mine),
+                    tests: mine
+                        .iter()
+                        .filter_map(|&b| selected.get(b))
+                        .map(|s| (s.name.clone(), s.module.clone()))
+                        .collect(),
+                    roots: mine
+                        .iter()
+                        .filter_map(|&b| tests.get(b))
+                        .map(|t| Root { name: t.name.clone(), module: t.module.clone(), span: t.span })
+                        .collect(),
+                    skipped: skipped_of(i),
+                    snapshot_dir: info.dirs.get(i)?.clone(),
+                    paints: group.painters.contains(&i),
+                },
+            ))
         })
         .collect();
     // A member a `--filter` left nothing in is answered here, with no process.
-    let (members, empty): (Vec<MemberSpec>, Vec<MemberSpec>) =
-        members.into_iter().partition(|m| !m.ranges.is_empty());
-    for member in &empty {
-        if let Some(s) = slots.get_mut(member.slot) {
-            s.answer = Some(Ok(Outcome { cases: Vec::new(), skipped: member.skipped }));
-        }
+    let (members, empty): (Vec<(usize, MemberSpec)>, Vec<(usize, MemberSpec)>) =
+        members.into_iter().partition(|(_, m)| !m.ranges.is_empty());
+    for (i, _) in &empty {
+        tell.tell(nothing(*i));
     }
-    for member in &members {
-        if let Some(s) = slots.get_mut(member.slot) {
-            s.queued = true;
-        }
+    let members: Vec<MemberSpec> = members.into_iter().map(|(_, m)| m).collect();
+    // Told before the link queues anything, so `drive` knows the first member
+    // waits for it before any member's answer can arrive.
+    if let Some(m) = members.first() {
+        tell.tell(Done::Linking { slot: m.slot });
     }
-    if let Some(s) = members.first().and_then(|m| slots.get_mut(m.slot)) {
-        s.awaiting_build = true;
-    }
-    let label = targets.iter().map(|t| session.workspace.label(*t)).collect::<Vec<_>>().join(",");
+    let label = group
+        .members
+        .iter()
+        .filter_map(|&i| info.labels.get(i).cloned())
+        .collect::<Vec<_>>()
+        .join(",");
     let job = GroupJob {
         label,
-        private: actions::private_test_binary(session, first, &output),
-        output,
+        private: info.privates.get(first).cloned().unwrap_or_default(),
+        output: info.output.clone(),
         program,
         tables,
         seeds: seeds.join(","),
         members,
     };
-
-    queue.push(Job::Group(job), true);
+    build_group(job, held, queue, shared)
 }
 
 /// Consecutive runs of block indices, as `(from, to)` with `to` exclusive.
@@ -2574,10 +2742,11 @@ fn estimated_bytes(func: &monomorphize::Func) -> u64 {
 /// is the code its members reach between them, each function counted once,
 /// which is what its binary will hold. A suite larger than the limit on its own
 /// is a group of one, which is what it would have been without batching.
+///
+/// `dirs` is each member's snapshot directory, in the batch's order.
 fn groups_of(
-    session: &Session,
+    dirs: &[String],
     program: &monomorphize::Program,
-    members: &[TargetId],
     selected: &[Selected],
     limit: u64,
 ) -> Vec<Group> {
@@ -2606,12 +2775,12 @@ fn groups_of(
     };
 
     let mut groups: Vec<(Group, u64)> = Vec::new();
-    for (member, &target) in members.iter().enumerate() {
+    for (member, dir) in dirs.iter().enumerate() {
         let reached = reach(member);
         let paints = reached
             .iter()
             .any(|&f| program.funcs.get(f).and_then(|f| f.intrinsic_key()) == Some(PAINT_KEY));
-        let dir = paints.then(|| snapshot_dir(session, target));
+        let dir = paints.then(|| dir.clone());
         let added = |held: &[bool]| -> u64 {
             reached
                 .iter()

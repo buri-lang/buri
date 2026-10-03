@@ -61,7 +61,7 @@ pub struct Parsed {
 /// (`build::sources`).
 #[derive(Default, Clone)]
 pub struct Cache {
-    entries: crate::hash::Map<FileId, (std::rc::Rc<Module>, std::rc::Rc<Vec<Diagnostic>>)>,
+    entries: crate::hash::Map<FileId, (std::sync::Arc<Module>, std::sync::Arc<Vec<Diagnostic>>)>,
 }
 
 impl Cache {
@@ -76,12 +76,12 @@ impl Cache {
         text: &str,
         file: FileId,
         allow_bodyless: bool,
-    ) -> (std::rc::Rc<Module>, std::rc::Rc<Vec<Diagnostic>>) {
+    ) -> (std::sync::Arc<Module>, std::sync::Arc<Vec<Diagnostic>>) {
         if let Some(hit) = self.entries.get(&file) {
             return hit.clone();
         }
         let parsed = parse_with(text, file, allow_bodyless);
-        let entry = (std::rc::Rc::new(parsed.module), std::rc::Rc::new(parsed.errors));
+        let entry = (std::sync::Arc::new(parsed.module), std::sync::Arc::new(parsed.errors));
         self.entries.insert(file, entry.clone());
         entry
     }
