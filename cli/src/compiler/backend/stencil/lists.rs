@@ -78,6 +78,7 @@
 )]
 
 use super::jit::{Fn2, Jit, V};
+use super::runtime;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 use crate::compiler::semantics::types::Ty;
@@ -1885,7 +1886,7 @@ impl Jit<'_> {
             super::rtcall::Src::Word(n),
             super::rtcall::Src::Addr(o.dest.0),
         ];
-        if let Err(why) = self.c_call("buri_rt_show_list", st, &args, &[], o.dest.0, "v") {
+        if let Err(why) = self.c_call(runtime::SHOW_LIST, st, &args, &[], o.dest.0, "v") {
             self.unsupported(why);
         }
 

@@ -47,6 +47,7 @@ use super::abi::{Loc, StencilTarget};
 use super::object::RelKind;
 use super::region::{Region, Target};
 use super::library::{Hole, HoleKind, Library, Stencil};
+use super::runtime;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{Layout, Layouts};
 use crate::compiler::semantics::types::{Tables, Ty};
@@ -2401,12 +2402,12 @@ fn literal(c: &ir::Const, ty: ir::Type) -> Option<u64> {
 /// against `cli/runtime/lib.rs`'s exports by a test rather than left to a link
 /// error to discover.
 pub const EXTERNALS: [&str; 7] = [
-    "buri_rt_abort",
-    "buri_rt_abort_div_zero",
-    "buri_rt_abort_unreachable",
-    "buri_rt_alloc",
-    "buri_rt_free",
-    "buri_rt_i128_divmod",
+    runtime::ABORT,
+    runtime::ABORT_DIV_ZERO,
+    runtime::ABORT_UNREACHABLE,
+    runtime::ALLOC,
+    runtime::FREE,
+    runtime::I128_DIVMOD,
     "memcpy",
 ];
 

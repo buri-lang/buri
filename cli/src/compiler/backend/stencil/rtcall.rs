@@ -50,7 +50,7 @@
 // builder and this emitter both compile — rather than written down twice.
 use super::abi::{MAX_FLOAT_ARGS as MAX_FLOAT, MAX_INT_ARGS as MAX_INT};
 use super::jit::{Fn2, Jit, V};
-use super::runtime::{Entry, Extra, OptRepr, Ret, BURI_OK};
+use super::runtime::{self, Entry, Extra, OptRepr, Ret, BURI_OK};
 use crate::compiler::backend::intrinsic_keys::step_call;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
@@ -1148,8 +1148,8 @@ impl Jit<'_> {
     /// The element type of the `[T]` an `Extra::Element` row operates on: the
     /// result's where the result is a list, and the first list argument's
     /// otherwise. Both orders are needed — `list.repeat` mentions `T` only in
-    /// its result — and it is the order `llvm/runtime.rs`'s `Arg::Elems` rows
-    /// are read in.
+    /// its result — and it is the order the LLVM backend reads `Arg::Elems` rows
+    /// in.
     fn element_ty(
         &mut self,
         prog: &ir::Program,
@@ -1249,7 +1249,7 @@ impl Jit<'_> {
 /// `uint64_t` for the first reads whatever was in the register — which AAPCS64
 /// hid, because Rust's arm64 codegen zeroes it on the way out, and SysV did
 /// not. `sources.rs::RETURN_SHAPES` has a shape per width for exactly that,
-/// and `llvm/runtime.rs` builds its call signature from the same fact.
+/// and the LLVM backend builds its call signature from the same fact.
 fn scalar_kind(leaf: Leaf, t: ir::Type) -> &'static str {
     if leaf.float {
         return if leaf.width == 4 { "f" } else { "d" };
@@ -1413,15 +1413,15 @@ impl Jit<'_> {
             }
             Prim::Str | Prim::Template => {
                 let (p, l) = self.str_arg(src, scr);
-                self.c_call("buri_rt_show_str", st, &[p, l, Src::Addr(dest)], &[], dest, "v")
+                self.c_call(runtime::SHOW_STR, st, &[p, l, Src::Addr(dest)], &[], dest, "v")
             }
             Prim::Char => {
                 let symbol =
-                    if quoted { "buri_rt_show_char" } else { "buri_rt_char_to_str" };
+                    if quoted { runtime::SHOW_CHAR } else { runtime::CHAR_TO_STR };
                 self.c_call(symbol, st, &[Src::Word(src), Src::Addr(dest)], &[], dest, "v")
             }
             Prim::F64 => self.c_call(
-                "buri_rt_show_f64",
+                runtime::SHOW_F64,
                 st,
                 &[Src::Addr(dest)],
                 &[Src::Word(src)],
@@ -1460,7 +1460,7 @@ impl Jit<'_> {
                     None => src,
                 };
                 self.c_call(
-                    "buri_rt_str_from_int",
+                    runtime::SHOW_INT,
                     st,
                     &[Src::Word(at), Src::Addr(dest)],
                     &[],
@@ -1474,7 +1474,7 @@ impl Jit<'_> {
             // so it goes across as a `u128` whose high half is zero rather than
             // through a signed parameter it does not fit.
             Prim::U64 => self.c_call(
-                "buri_rt_show_u128",
+                runtime::SHOW_U128,
                 st,
                 &[Src::Word(src), Src::Imm(0), Src::Addr(dest)],
                 &[],
@@ -1483,7 +1483,7 @@ impl Jit<'_> {
             ),
             Prim::I128 | Prim::U128 => {
                 let symbol =
-                    if prim == Prim::I128 { "buri_rt_show_i128" } else { "buri_rt_show_u128" };
+                    if prim == Prim::I128 { runtime::SHOW_I128 } else { runtime::SHOW_U128 };
                 self.c_call(
                     symbol,
                     st,

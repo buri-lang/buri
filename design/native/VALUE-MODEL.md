@@ -541,9 +541,8 @@ drops its context argument *whatever it weighs*, because `cli/runtime` allocates
 through `buri_rt_alloc` and reads no capability — so the C signature has no
 parameter for one. Which argument that is is a fact about the **declaration**:
 `list.push(self, ctx, item)` names its second, `list.repeat(ctx, item, times)`
-its first. Both native backends read it off their runtime tables
-(`backend/runtime_table.rs`'s `Entry::ctx`, `backend/llvm/runtime.rs`'s
-`Arg::Dropped`).
+its first. Both native backends read it off `backend/runtime_table.rs`'s
+`Arg::Dropped`.
 
 Asking the *argument's type* instead — "is it a `Ty::Ctx`?" — is the same question
 only while every `C: Allocator` is instantiated at a `context { … }` record, and it is

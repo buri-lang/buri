@@ -655,10 +655,8 @@ way.
 Every operation `middle::lower` leaves as a `Body::Runtime`, or as an
 `Inst::CallIntrinsic` with a `buri_rt_*` symbol, is **a call into
 `libburi_rt.a`** — the same archive, the same contract (`cli/runtime/lib.rs`)
-and the same table shape as the other two backends. `stencil/runtime.rs`
-transcribes that contract and `llvm/runtime.rs` transcribes it again, key for
-key and shape for shape, and `cli/tests/native/conformance.rs`'s companion
-test keeps the two from disagreeing about which keys exist.
+and the same table as the LLVM backend: both emit against
+`backend/runtime_table.rs`.
 
 The prototype had its own `intrin.rs`: a descriptor-driven helper per
 operation, written in Rust, living in the compiler's process. That could not
