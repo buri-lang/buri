@@ -18,11 +18,13 @@ use crate::parsing::tree;
 use crate::hash::Map as HashMap;
 
 pub fn check_all(c: &mut Checker) {
+    // What a base checked is already in the tables this checker started from.
+    let (consts, ctx_decls) = c.base_counts();
     // Constants first: a module-level `let` may be referenced from any body.
-    for i in 0..c.tables.consts.len() {
+    for i in consts..c.tables.consts.len() {
         check_const(c, ConstId(i as u32));
     }
-    for i in 0..c.tables.ctx_decls.len() {
+    for i in ctx_decls..c.tables.ctx_decls.len() {
         check_context_decl(c, ContextDeclId(i as u32));
     }
     // Function bodies check independently and in any order
@@ -30,6 +32,9 @@ pub fn check_all(c: &mut Checker) {
     // some of them and not others.
     for i in 0..c.tables.fns.len() {
         let fid = FnId(i as u32);
+        if c.settled_by_base(fid) == Some(true) {
+            continue;
+        }
         if wanted(c, fid) {
             check_fn(c, fid);
         }
@@ -176,7 +181,7 @@ fn check_fn(c: &mut Checker, fid: FnId) {
     let expr = inf.check_block(body, Some(&expected));
     inf.unify_at(body_span, &expr.ty.clone(), &expected, "the declared return type");
     let hir_body = inf.finish(expr);
-    c.bodies.insert(fid, hir_body);
+    c.bodies.insert(fid, std::sync::Arc::new(hir_body));
 }
 
 fn check_const(c: &mut Checker, cid: ConstId) {
@@ -252,7 +257,7 @@ pub(super) fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
     if let Some(ty) = ctx_ty {
         c.tables.ctx_decl_mut(id).checked = Some(CheckedContext { ty, ctor });
     }
-    c.bodies.insert(ctor, body);
+    c.bodies.insert(ctor, std::sync::Arc::new(body));
 }
 
 fn check_tests(c: &mut Checker) {
@@ -289,7 +294,7 @@ fn check_tests(c: &mut Checker) {
                 inf.push_scope();
                 let expr = inf.check_block(t.body, None);
                 let body = inf.finish(expr);
-                c.bodies.insert(fid, body);
+                c.bodies.insert(fid, std::sync::Arc::new(body));
             }
             cases.push(crate::compiler::semantics::resolve::TestCase {
                 name: t.name.clone(),

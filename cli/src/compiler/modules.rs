@@ -49,6 +49,7 @@ impl Role {
     }
 }
 
+#[derive(Clone)]
 pub struct ModuleData {
     pub id: ModuleId,
     /// The module's canonical path, which for a repository module is the file:
@@ -172,6 +173,30 @@ impl<'a> Loader<'a> {
             entry: None,
             custom: None,
         }
+    }
+
+    /// A loader whose compilation opens with `snapshot`'s modules, already
+    /// loaded and in the order they load in.
+    ///
+    /// Every entry point loads those modules first, so asking for one of them
+    /// here is a lookup and everything else loads after them, under the ids a
+    /// loader starting from nothing would mint. See `compiler::snapshot`.
+    pub fn seeded(
+        ws: Option<&'a Workspace>,
+        map: &'a mut SourceMap,
+        diags: &'a mut Diagnostics,
+        cache: &'a mut crate::parsing::parser::Cache,
+        snapshot: &crate::compiler::snapshot::Snapshot,
+    ) -> Loader<'a> {
+        let mut loader = Loader::new(ws, map, diags, cache);
+        for m in &snapshot.modules {
+            if let Some(index) = standard_library::find_index(&m.path) {
+                loader.map.standard(index);
+            }
+        }
+        loader.modules = snapshot.modules.clone();
+        loader.by_path = snapshot.by_path.clone();
+        loader
     }
 
     pub fn finish(self) -> Loaded {
@@ -635,7 +660,9 @@ impl<'a> Loader<'a> {
         // `platform/effect` is what the table holds and `platform/effect/lib.buri`
         // names the same module the long way round. The module is keyed by the
         // canonical spelling, so the two cannot become two.
-        let Some(module) = standard_library::find(path) else {
+        let Some((index, module)) = standard_library::find_index(path)
+            .and_then(|i| standard_library::MODULES.get(i).map(|m| (i, m)))
+        else {
             // A path this library used to have is a different mistake from a
             // path it never had, and the reader can be told the answer rather
             // than the rule. It is still a refusal: the old name does not
@@ -660,14 +687,14 @@ impl<'a> Loader<'a> {
             self.diags.push(diagnostic);
             return None;
         };
-        let (written, text) = (path, module.source);
+        let written = path;
         let path = module.path;
         if let Some(id) = self.by_path.get(path) {
             let id = *id;
             self.alias(written, id);
             return Some(id);
         }
-        let file = self.map.embedded(path, text);
+        let file = self.map.standard(index);
         let (ast, errors) = self.cache.parse(self.map.text(file), file, true);
         self.diags.extend(errors.iter().cloned());
         let role = if standard_library::is_platform_module(path) { Role::Platform } else { Role::Std };

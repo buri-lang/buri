@@ -14,6 +14,15 @@ use crate::diagnostics::{Invariant as _, Span};
 
 impl<'a> Checker<'a> {
     pub(crate) fn register_primitive_methods(&mut self) {
+        // A base registered every one of these already, and the `Json` pair
+        // too when `core/json` was among its modules. What is left is that
+        // pair, for a compilation that reached `core/json` after it.
+        if let Some(base) = self.base_known_traits() {
+            if !base.contains_key("ToJson") {
+                self.json_impls();
+            }
+            return;
+        }
         let numeric: Vec<Prim> = Prim::all()
             .iter()
             .copied()

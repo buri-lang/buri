@@ -29,7 +29,7 @@
 //! ```text
 //! lex              parsing::lexer::lex                      text    -> tokens
 //! lex+parse        parsing::parser::parse                   text    -> tree     (goal 1)
-//! sema             semantics::resolve::Checker::run         Loaded  -> Checked  (goal 2)
+//! sema             semantics::resolve::Checker::resume+run  Loaded  -> Checked  (goal 2)
 //! lower+js         monomorphize::run + actions::emit        Checked -> JavaScript    (goal 3)
 //! lower+<triple>   monomorphize::run + actions::prepare
 //!                                    + Backend::emit        Checked -> object bytes  (goal 3)
@@ -37,7 +37,11 @@
 //!
 //! Each is timed against a value built *before* the timer starts, and each
 //! rebuilds everything it produces, so a repetition measures the phase and not
-//! a cache. `Checker::run` takes `&Loaded` and returns a fresh `Checked`, and
+//! a cache — with one exception, which is the point of it: the standard
+//! library modules every compilation opens with are checked once per thread
+//! (`compiler::snapshot`), as they are for every analysis the toolchain runs,
+//! and the header reports what that once costs. `Checker::run` takes `&Loaded`
+//! and returns a fresh `Checked`, and
 //! `monomorphize::run` takes `&Checked` and returns a fresh `Program`, so the
 //! isolation is a property of the compiler's own signatures rather than
 //! something this file arranges.
@@ -91,7 +95,8 @@ use buri::compiler::middle;
 use buri::compiler::middle::lower;
 use buri::compiler::middle::monomorphize::{self, Roots};
 use buri::compiler::modules::{Loaded, Loader, Role};
-use buri::compiler::semantics::resolve::Checker;
+use buri::compiler::semantics::resolve::{Checked, Checker};
+use buri::compiler::snapshot::{self, Opening};
 use buri::diagnostics::{Diagnostics, FileId, SourceMap};
 use buri::parsing::lexer;
 use buri::parsing::parser;
@@ -791,6 +796,10 @@ fn run() {
             ms(floor.sema),
             ms(floor.lower)
         );
+        println!(
+            "  once a thread  the standard library's snapshot {:.3} ms, which `sema` starts from",
+            ms(floor.snapshot)
+        );
         println!();
     }
 
@@ -1184,7 +1193,7 @@ fn alloc_row(program: &Program, label: &str) -> AllocRow {
             "sema",
             allocations_of(|| {
                 let mut d = Diagnostics::new();
-                std::hint::black_box(Checker::new(&loaded, None, &mut d).run());
+                std::hint::black_box(check(&loaded, &mut d));
             }),
         ));
     }
@@ -1324,7 +1333,7 @@ fn run_one_phase(program: &Program, phase: &str, targets: &[(Target, Profile)]) 
     let mut diagnostics = Diagnostics::new();
     let loaded = load(program, &mut map, &mut cache, &mut diagnostics);
     let mut d = Diagnostics::new();
-    let checked = Checker::new(&loaded, None, &mut d).run();
+    let checked = check(&loaded, &mut d);
     if phase == "sema" {
         std::hint::black_box(&checked);
         return;
@@ -1890,7 +1899,7 @@ fn measure(
     let loaded = load(program, &mut map, &mut cache, &mut diagnostics);
     let (median, dispersion, fastest, reps) = bench(cfg, || {
         let mut d = Diagnostics::new();
-        let checked = Checker::new(&loaded, None, &mut d).run();
+        let checked = check(&loaded, &mut d);
         std::hint::black_box(&checked);
     });
     rows.push(row(
@@ -1905,7 +1914,7 @@ fn measure(
 
     // -- lowering, one row per target ---------------------------------------
     let mut d = Diagnostics::new();
-    let checked = Checker::new(&loaded, None, &mut d).run();
+    let checked = check(&loaded, &mut d);
     let module_paths: Vec<String> = loaded.modules.iter().map(|m| m.path.clone()).collect();
     let entry = checked.entry.expect("the corpus exports `main`");
     let flags = Flags::default();
@@ -1998,7 +2007,7 @@ fn split_lowering(program: &Program, label: &str, cfg: &Config, targets: &[(Targ
     let mut cache = parser::Cache::new();
     let mut diagnostics = Diagnostics::new();
     let loaded = load(program, &mut map, &mut cache, &mut diagnostics);
-    let checked = &Checker::new(&loaded, None, &mut diagnostics).run();
+    let checked = &check(&loaded, &mut diagnostics);
     let module_paths: Vec<String> = loaded.modules.iter().map(|m| m.path.clone()).collect();
     let Some(entry) = checked.entry else { return };
     let flags = Flags::default();
@@ -2076,16 +2085,21 @@ fn split_lowering(program: &Program, label: &str, cfg: &Config, targets: &[(Targ
 /// needs, then the corpus, leaf first so that each module's imports are already
 /// present when the loader reaches them.
 ///
-/// `Loader::new(None, ..)` — no workspace — is what keeps the corpus in
-/// memory. A `//bench/...` import resolves through `by_path` before anything
-/// consults a repository, so no file is written and no `BUILD.buri` is needed.
+/// No workspace is what keeps the corpus in memory. A `//bench/...` import
+/// resolves through `by_path` before anything consults a repository, so no
+/// file is written and no `BUILD.buri` is needed.
+///
+/// On top of the standard library's snapshot, as every analysis is
+/// (`compiler::snapshot`), so the modules it holds are already here and
+/// [`check`] does not check them again.
 fn load(
     program: &Program,
     map: &mut SourceMap,
     cache: &mut parser::Cache,
     diagnostics: &mut Diagnostics,
 ) -> Loaded {
-    let mut loader = Loader::new(None, map, diagnostics, cache);
+    let snapshot = snapshot::of(Opening::Builtin, true);
+    let mut loader = Loader::seeded(None, map, diagnostics, cache, &snapshot);
     loader.load_builtin_modules();
     let last = program.modules.len().saturating_sub(1);
     for (i, m) in program.modules.iter().enumerate() {
@@ -2095,13 +2109,20 @@ fn load(
     loader.finish()
 }
 
+/// Checks what [`load`] loaded, the way an analysis does: every pass over the
+/// modules after the snapshot's, starting from what the snapshot settled.
+fn check(loaded: &Loaded, diagnostics: &mut Diagnostics) -> Checked {
+    let snapshot = snapshot::of(Opening::Builtin, true);
+    Checker::resume(loaded, None, diagnostics, &snapshot.base).run()
+}
+
 /// Compiles the corpus through the real front end and reports every error.
 fn validate(program: &Program) -> Result<(), Vec<String>> {
     let mut map = SourceMap::new();
     let mut cache = parser::Cache::new();
     let mut diagnostics = Diagnostics::new();
     let loaded = load(program, &mut map, &mut cache, &mut diagnostics);
-    let checked = Checker::new(&loaded, None, &mut diagnostics).run();
+    let checked = check(&loaded, &mut diagnostics);
     let mut problems: Vec<String> = diagnostics
         .items
         .iter()
@@ -2134,7 +2155,7 @@ fn reach(program: &Program) -> (usize, usize) {
     let mut cache = parser::Cache::new();
     let mut diagnostics = Diagnostics::new();
     let loaded = load(program, &mut map, &mut cache, &mut diagnostics);
-    let checked = Checker::new(&loaded, None, &mut diagnostics).run();
+    let checked = check(&loaded, &mut diagnostics);
     let Some(entry) = checked.entry else { return (0, 0) };
     let module_paths: Vec<String> = loaded.modules.iter().map(|m| m.path.clone()).collect();
     let mut prog = monomorphize::run(&checked, module_paths, &mut diagnostics, Roots::Main(entry));
@@ -2153,6 +2174,9 @@ struct Floor {
     parse: Duration,
     sema: Duration,
     lower: Duration,
+    /// Building the snapshot every `sema` row starts from, which an analysis
+    /// pays once per thread rather than once per program.
+    snapshot: Duration,
 }
 
 impl Floor {
@@ -2162,6 +2186,7 @@ impl Floor {
             parse: Duration::ZERO,
             sema: Duration::ZERO,
             lower: Duration::ZERO,
+            snapshot: Duration::ZERO,
         }
     }
 }
@@ -2193,11 +2218,11 @@ fn floor_costs() -> Floor {
     let loaded = load(&program, &mut map, &mut cache, &mut diagnostics);
     let (sema, ..) = bench(&cfg, || {
         let mut d = Diagnostics::new();
-        std::hint::black_box(Checker::new(&loaded, None, &mut d).run());
+        std::hint::black_box(check(&loaded, &mut d));
     });
 
     let mut d = Diagnostics::new();
-    let checked = Checker::new(&loaded, None, &mut d).run();
+    let checked = check(&loaded, &mut d);
     let module_paths: Vec<String> = loaded.modules.iter().map(|m| m.path.clone()).collect();
     let flags = Flags::default();
     let target = Target { platform: Platform::Js, arch: None };
@@ -2215,7 +2240,11 @@ fn floor_costs() -> Floor {
         None => Duration::ZERO,
     };
 
-    Floor { lex, parse, sema, lower }
+    let (snapshot, ..) = bench(&cfg, || {
+        std::hint::black_box(snapshot::build(Opening::Builtin, true));
+    });
+
+    Floor { lex, parse, sema, lower, snapshot }
 }
 
 // ---------------------------------------------------------------------------
@@ -2453,11 +2482,12 @@ fn print_json(
     println!("  \"generator_revision\": {},", generate::GENERATOR_REVISION);
     println!("  \"debug_build\": {},", cfg!(debug_assertions));
     println!(
-        "  \"floor_ms\": {{ \"lex\": {:.4}, \"parse\": {:.4}, \"sema\": {:.4}, \"lower\": {:.4} }},",
+        "  \"floor_ms\": {{ \"lex\": {:.4}, \"parse\": {:.4}, \"sema\": {:.4}, \"lower\": {:.4}, \"snapshot\": {:.4} }},",
         ms(floor.lex),
         ms(floor.parse),
         ms(floor.sema),
-        ms(floor.lower)
+        ms(floor.lower),
+        ms(floor.snapshot)
     );
     println!("  \"rows\": [");
     for (i, row) in rows.iter().enumerate() {

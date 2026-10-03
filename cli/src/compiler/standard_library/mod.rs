@@ -467,8 +467,33 @@ pub fn retired(path: &str) -> Option<&'static str> {
 /// has to arrive at the *same* [`StdModule`], because the loader keys a
 /// module by its path and two keys would be two copies of `Allocator`.
 pub fn find(path: &str) -> Option<&'static StdModule> {
+    find_index(path).and_then(|i| MODULES.get(i))
+}
+
+/// [`find`], answering with the module's position in [`MODULES`], which is
+/// what names its file ([`crate::diagnostics::FileId::standard`]).
+pub fn find_index(path: &str) -> Option<usize> {
     let canonical = path.strip_suffix("/lib.buri").unwrap_or(path);
-    MODULES.iter().find(|m| m.path == canonical)
+    MODULES.iter().position(|m| m.path == canonical)
+}
+
+/// The `index`th module as a source file: the process's one copy, built the
+/// first time anything asks for it.
+///
+/// An index past the end is the empty file, for the reason
+/// [`SourceMap::get`](crate::diagnostics::SourceMap::get) answers one for an
+/// id it never minted: rendering a diagnostic is not allowed to crash.
+pub fn file(index: usize) -> &'static crate::diagnostics::SourceFile {
+    static FILES: [std::sync::OnceLock<crate::diagnostics::SourceFile>; MODULES.len()] =
+        [const { std::sync::OnceLock::new() }; MODULES.len()];
+    static MISSING: std::sync::OnceLock<crate::diagnostics::SourceFile> = std::sync::OnceLock::new();
+    let new = |name: &str, text: &str| {
+        crate::diagnostics::SourceFile::new(name.to_string(), std::path::PathBuf::new(), text.to_string())
+    };
+    match (FILES.get(index), MODULES.get(index)) {
+        (Some(slot), Some(m)) => slot.get_or_init(|| new(m.path, m.source)),
+        _ => MISSING.get_or_init(|| new("<none>", "")),
+    }
 }
 
 /// The canonical spelling of a standard library path, or `None` when the
