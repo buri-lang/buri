@@ -253,7 +253,7 @@ pub fn contract(
                 out.push(Diagnostic::templated("tool-entry-point-not-exported", block).with_bind("entry", entry))
             }
             (None, Some(f)) => {
-                out.push(Diagnostic::templated("tool-entry-point-undeclared", f.name.span).with_bind("entry", entry))
+                out.push(Diagnostic::templated("tool-missing-block", f.name.span).with_bind("entry", entry))
             }
             _ => {}
         }

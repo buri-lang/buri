@@ -1,0 +1,8 @@
+error: `fetch` has no `js` file to implement `HostKv` [missing-host-file]
+ --> cmd/site/BUILD.buri:4:9
+  |
+4 |         { platform: "//platform/cloudflare_worker" },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = a method `platform.buri` declares without a body is the entry's `js` file's to implement
+  = fix: name the file in the platform rule's `fetch` entry, as in `js: "fetch.mjs"`

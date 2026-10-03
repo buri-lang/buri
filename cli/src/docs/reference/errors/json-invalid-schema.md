@@ -7,7 +7,7 @@ reproduction: none
 # A schema is one this toolchain can read
 
 ```text
-error: `minimum` is a number [json-schema-invalid]
+error: `minimum` is a number [json-invalid-schema]
  --> lib/deploy/regions.schema.json:5:20
 ```
 

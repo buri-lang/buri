@@ -64,7 +64,7 @@ pub const LINTS: &[LintDoc] = &[
     l!("test-title-newline", "A test title is one line"),
     l!("time-unit-conversion", "A length of time is a `Duration`"),
     l!("todo-comment", "A `TODO` comment is unfinished work"),
-    l!("too-many-parameters", "A function takes few parameters"),
+    l!("parameter-count", "A function takes few parameters"),
     l!("unsatisfiable-target", "A target admits at least one platform", &["build/tags"]),
     l!("unused-context", "A function that takes `ctx` uses it"),
     l!("unused-context-bound", "A context asks for the effects it uses"),

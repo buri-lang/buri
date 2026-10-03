@@ -1,4 +1,4 @@
-// EXPECT: `Pair` takes 2 type arguments, but 1 were given
+// EXPECT: `Pair` takes 2 type arguments, but 1 was given
 struct Pair<A, B> {
   export a: A,
   export b: B,

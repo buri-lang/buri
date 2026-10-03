@@ -1,4 +1,4 @@
-// EXPECT: `format` takes 2 arguments, but 0 were given
+// EXPECT: `format` takes 2 arguments, but none were given
 from "platform/effect" import { Allocator };
 from "core/str" import * as str;
 

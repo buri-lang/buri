@@ -4,4 +4,4 @@ error: `Wrapper` has no field 3 [unknown-positional-field]
 5 |   w.3
   |     ^
   |
-  = fix: `Wrapper` has 1 fields
+  = fix: `Wrapper` has 1 field

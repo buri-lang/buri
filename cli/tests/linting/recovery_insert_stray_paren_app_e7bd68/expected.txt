@@ -6,7 +6,7 @@ warning: this is a table of the sixteen hexadecimal digits [hand-rolled-hex-digi
    |
    = `character.fromDigit(n, 16)` is a digit and `character.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
    = fix: delete the table, and reach for `character.fromDigit`, `number.toHex` or `bytes.toHex`
-error: `hexByte` takes 2 arguments, but 1 were given [argument-count]
+error: `hexByte` takes 2 arguments, but 1 was given [argument-count]
   --> lib/recovery_insert_stray_paren_app_e7bd68/main.buri:49:26
    |
 49 |         .println(ctx, "${hexByte(ctx@ , 171)} ${B64.charAt(0).withDefault('?')}")

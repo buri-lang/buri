@@ -1104,6 +1104,24 @@ fn every_error_page_is_provoked_by_its_own_example() {
     );
 }
 
+/// Every lint page's example compiles, and `buri lint` reports the code its
+/// fence names.
+#[test]
+fn every_lint_page_example_is_reported() {
+    let mut failures = Vec::new();
+    for l in buri::documentation::lints::LINTS {
+        let doc = format!("cli/src/docs/reference/lints/{}.md", l.code);
+        let text = crate::examples::document(&repo_root(), &doc, l.text);
+        failures.extend(buri::documentation::examples::run_file_at(&repo_root(), &doc, &text));
+    }
+    assert!(
+        failures.is_empty(),
+        "{} lint page example(s) do not do what they say:\n\n{}",
+        failures.len(),
+        buri::documentation::examples::report(&failures)
+    );
+}
+
 /// Every code the compiler can emit has a page, and every page names a code
 /// the compiler can emit. Checked against the reject corpus, which is the set
 /// of diagnostics we have a worked example of.

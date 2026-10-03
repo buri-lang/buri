@@ -1,4 +1,4 @@
-error: `scale` takes 2 arguments, but 1 were given [argument-count]
+error: `scale` takes 2 arguments, but 1 was given [argument-count]
   --> cmd/trait_method_missing_an_argument/main.buri:10:3
    |
 10 |   x.scale("cm")

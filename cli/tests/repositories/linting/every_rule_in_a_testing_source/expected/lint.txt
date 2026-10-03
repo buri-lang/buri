@@ -73,13 +73,24 @@ warning: this spells the milliseconds to nanoseconds conversion out in integers 
    = `core/time`'s `Duration` is the length itself — `time.milliseconds(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
    = fix: build a `Duration` and let the unit live in the type rather than in the name
 
-     An I64 of milliseconds carries its unit only in its name, like
-     IDLE_TIMEOUT_MILLIS, and every conversion is a hand-written multiply that
-     can drop, double or overflow the unit unnoticed. Use core/time instead:
+     An I64 of milliseconds carries its unit only in its name, and every
+     conversion is a hand-written multiply that can drop, double or overflow the
+     unit unnoticed:
 
-       let idle = time.minutes(5);
-       let deadline = started.plus(idle);
-       if (now.hasPassed(deadline)) { … }
+       let IDLE_TIMEOUT_MILLIS: I64 = 30_000;
+
+       fn deadlineNanos(startedNanos: I64): I64 {
+           startedNanos + IDLE_TIMEOUT_MILLIS * 1_000_000
+       }
+
+     Use core/time instead:
+
+       from "core/time" import * as time;
+       from "core/time" import { Instant };
+
+       fn expired(started: Instant, now: Instant): Bool {
+           now.hasPassed(started.plus(time.minutes(5)))
+       }
 
      - Constructors: seconds, milliseconds, microseconds, nanoseconds,
      minutes, hours.
@@ -202,7 +213,7 @@ warning: nothing reaches `stale` [dead-code]
      - in a package with a file the parser couldn't read whole, since the missing
      part might hold the import.
 
-warning: `total` takes 6 parameters [too-many-parameters]
+warning: `total` takes 6 parameters [parameter-count]
   --> lib/money/testing/fakes.buri:48:4
    |
 48 | fn total(a: I64, b: I64, c: I64, d: I64, e: I64, f: I64): I64 {
@@ -391,15 +402,21 @@ warning: this discards a `Result` [ignored-result]
      A dropped Result is a failure nobody read. Sometimes that's the right call;
      this rule puts every such call in one report.
 
+       fn say<C: Stdout>(ctx: C, line: Str): () {
+           io.println(ctx, line).ignore()
+       }
+
      The real fix is to handle the error. match on the Result and answer the
      .Err arm (count it, report it, fall back), or use ? to hand it to a caller
      who can.
 
      Don't write the drop out by hand. This handles nothing:
 
-       match (io.println(ctx, line)) {
-           .Ok(_written) => (),
-           .Err(_error) => (),
+       fn say<C: Stdout>(ctx: C, line: Str): () {
+           match (io.println(ctx, line)) {
+               .Ok(_written) => (),
+               .Err(_error) => (),
+           }
        }
 
      It's ignore() spelled out, minus the greppability, and hand-rolled-ignore
@@ -425,9 +442,11 @@ warning: this drops a `Result` by hand [hand-rolled-ignore]
    = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
    = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
 
-       match (io.println(ctx, line)) {
-           .Ok(_written) => (),
-           .Err(_error) => (),
+       fn say<C: Stdout>(ctx: C, line: Str): () {
+           match (io.println(ctx, line)) {
+               .Ok(_written) => (),
+               .Err(_error) => (),
+           }
        }
 
      Both arms answer (), so this handles nothing. It's core/result.ignore,

@@ -1,16 +1,16 @@
 ---
-title: A bound is named once
+title: A context binds each effect once
 message: `{effect}` is bound twice
 note: a spread's binding is replaced by an explicit one, but two explicit bindings of one effect are a mistake
 fix: delete one of the two bindings
 ---
-# A bound is named once
+# A context binds each effect once
 
 ```text
-error: `Allocator` is bound twice [duplicate-bound]
+error: `Allocator` is bound twice [duplicate-context-binding]
 ```
 
-```buri fail code=duplicate-bound
+```buri fail code=duplicate-context-binding
 # from "core/io" import * as io;
 # from "native" import { NativeHost };
 # from "platform/effect" import { Allocator, Stdout };

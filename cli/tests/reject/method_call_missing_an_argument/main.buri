@@ -1,4 +1,4 @@
-// EXPECT: `resize` takes 2 arguments, but 1 were given
+// EXPECT: `resize` takes 2 arguments, but 1 was given
 //
 // Both parameters are `Int`, so either could be the one that was left out and
 // neither is named. The signature is printed the way the declaration writes

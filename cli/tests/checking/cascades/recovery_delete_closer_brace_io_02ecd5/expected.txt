@@ -1,4 +1,4 @@
-error: `stdin` takes 0 arguments, but 1 were given [argument-count]
+error: `stdin` takes no arguments, but 1 was given [argument-count]
   --> main.buri:56:16
    |
 56 |         Stdin: stdin(.lines(["café", "\ttabbed", "a b  c"]),
