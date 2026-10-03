@@ -1630,7 +1630,8 @@ of a stencil's spilled constants, and the generated glue — and the glue is the
 one that shows: two parts that both drop a `[Str]` get a copy each under
 different local names. Across part sizes from 256 to 2048 the emission wall
 stays the same to within the noise while the object bytes move about 0.2% per
-halving, so 512 is the smallest part that costs about one per cent.
+halving, so 512 is the smallest part that costs about one per cent. (§6.12
+made drop and copy glue weak, so the linker now keeps one copy per program.)
 
 **On the bench, the corpus §6.9 could not help is the one that moves.** §6.6's
 protocol: `--only=mixed --set=native --targets=macos-arm64 --json`, A/B/A/B,
@@ -1718,6 +1719,49 @@ redundant passes and spreading the rest over ten cores predicts, and the
 observable compiler output does not change at all.
 
 ---
+
+### 6.12 One instance per list of bindings, 2026-10-03
+
+Every `context { ... }` expression mints its own `CtxTypeId`, so a generic over
+`C: Allocator` was compiled once per test that built a context. In
+`//libs/database/server/server`, 126 contexts made 127 context types, and all
+but one had the same bindings. `OrderedMap.insert` alone had 2,676 instances.
+
+Monomorphization now rewrites each context type to the first one minted with
+equal bindings, compared in order (`monomorphize.rs`'s `canonical_contexts`).
+The checker doesn't change: two contexts are still two types in the language.
+Symbols spell a context by its bindings, so adding a context renames nothing
+and the `codegen` cache keeps hitting. Sorting the bindings as well would merge
+**0** more context types anywhere in the profiled repository, so binding order
+stays part of the identity.
+
+Drop and copy glue is then named by a hash of what its body reads
+(`Layouts::glue_key`) and defined weak, so the linker keeps one copy per
+program: a weak private external on Mach-O, a COMDAT group on ELF, and
+`linkonce_odr` on LLVM.
+
+A copy of the profiled monorepo, release toolchains, clean runs at load average
+44–118:
+
+| `//libs/database/server/server` | before | contexts merged | and glue shared |
+|---|---:|---:|---:|
+| test binary | 851 MB | 15.8 MB | **12.9 MB** |
+| objects in the link directory | 904 MB | 32 MB | 32 MB |
+| `.buri/cache` | 1.7 GB | 32 MB | 30 MB |
+| relink, `ld64.lld` / Apple `ld` | 2.5–4.5 s / 3.0 s | 0.19 s / 0.21 s | 0.29 s / 0.34 s |
+| clean `buri test`, CPU (user + sys) | 38.7–42.5 s | 6.1 s | 6.7–7.0 s |
+| clean `buri test`, wall | 30–110 s | 11.4 s | 7.2–16.8 s |
+
+| `buri test //...` (1,090 tests) | before | after |
+|---|---:|---:|
+| CPU (user + sys) | 111.4 s | 40.7 s |
+| wall | 328.6 s | 118.0 s |
+| `.buri/cache` | 3.4 GB | 310 MB |
+| largest test binary | 851 MB | 47.6 MB |
+
+Wall time at this load moves by 2–4× between runs of one binary; CPU time is
+the number to compare. Shared glue takes the server binary another 18% down and
+leaves CPU time inside the noise.
 
 ## 7. Profiling, on this platform
 
