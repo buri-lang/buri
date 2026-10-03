@@ -1,8 +1,8 @@
-.buri/out/node/cmd/native/native.mjs (N bytes, cached)
+.buri/out/node/cmd/native/mainForNode.mjs (N bytes, cached)
 error: no native artifact for {{CROSS_VARIANT}} [native-artifact-not-available]
- --> cmd/native/BUILD.buri:7:9
+ --> cmd/native/BUILD.buri:9:9
   |
-7 |         { platform: "native", variant: "{{CROSS_VARIANT}}" },
+9 |         { platform: "native", variant: "{{CROSS_VARIANT}}" },
   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = this toolchain builds a native artifact for its own host only: the runtime archive, the C library and the linker are all the host's
