@@ -14,10 +14,11 @@ error: //tools/gen declares a `tool` rule outside //tool/ [rule-outside-its-dire
 
       # platform/lambda/BUILD.buri
       platform {
-          variants: ["linux-arm64", "linux-x86_64"]
           entry {
               name: "bootstrap"
               backend: NATIVE
+              variants: ["linux-arm64", "linux-x86_64"]
+              variant_required: true
           }
       }
 

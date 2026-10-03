@@ -40,7 +40,7 @@ mod tests {
             assert_eq!(rule.entries.len(), 1, "{name}");
             assert_eq!(rule.entries[0].name.value, "main", "{name}");
         }
-        let native = bundled("native").map(|r| r.variants.len());
-        assert_eq!(native, Some(4));
+        let native = bundled("native").map(|r| (r.entries[0].variants.len(), r.entries[0].variant_required));
+        assert_eq!(native, Some((4, true)));
     }
 }

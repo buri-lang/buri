@@ -15,7 +15,7 @@
 //! be answering a question the label does not ask.
 //!
 //! Diagnostics are here too, and for the plainest reason: a build file is read
-//! by `textproto::parse` and by nothing else.
+//! by `buildfile`'s reader and by nothing else.
 
 use crate::build::session::Session;
 use crate::build::textproto::{self, Field, Value as Node};
@@ -596,11 +596,17 @@ fn word_at(text: &str, offset: u32) -> Option<(String, u32, u32)> {
     (!word.is_empty()).then(|| (word.to_string(), start as u32, end as u32))
 }
 
-/// Every syntax error a build file holds.
+/// Every error a build file holds: its syntax, and what the build's own
+/// reader refuses in it, such as an output missing the variant its platform
+/// requires.
 ///
 /// This is the reader a build file is written against, and running the *Buri*
 /// parser over one instead is what made a `# comment` — the comment syntax
 /// textproto has and Buri does not — an error on every keystroke.
-pub fn diagnostics(text: &str) -> Vec<crate::diagnostics::Diagnostic> {
-    textproto::parse(text, FileId(0)).errors
+pub fn diagnostics(path: &Path, text: &str) -> Vec<crate::diagnostics::Diagnostic> {
+    use crate::build::buildfile::{read_build_file, read_repo_config};
+    match path.file_name().and_then(|n| n.to_str()) {
+        Some("REPO.buri") => read_repo_config(text, FileId(0)).errors,
+        _ => read_build_file(text, FileId(0)).errors,
+    }
 }

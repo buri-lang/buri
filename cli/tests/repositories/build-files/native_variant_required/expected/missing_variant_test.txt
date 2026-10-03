@@ -1,0 +1,23 @@
+error: `native` needs a variant [variant-required]
+ --> cmd/app/BUILD.buri:5:9
+  |
+5 |         { platform: "native" },
+  |         ^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = available: linux-arm64, linux-x86_64, macos-arm64, macos-x86_64
+  = fix: add `variant: "linux-arm64"`
+
+      binary {
+          outputs: [
+              { platform: "native", variant: "linux-arm64" },
+              { platform: "native", variant: "macos-arm64" },
+          ]
+      }
+
+    A variant says how an output is built: for native, the operating system and
+    the architecture. A platform's entry with variant_required: true makes every
+    output of that platform pick one.
+
+    Each variant builds into its own directory, .buri/out/native/<variant>/.
+    buri test and buri run build the machine's own variant without being told.
+

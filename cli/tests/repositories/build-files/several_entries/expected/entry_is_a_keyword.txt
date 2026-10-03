@@ -1,9 +1,9 @@
 .buri/out/node/cmd/both/both.mjs (N bytes, cached)
 error: //cmd/both exports no `match` [entry-not-found]
- --> cmd/both/BUILD.buri:3:45
+ --> cmd/both/BUILD.buri:3:64
   |
-3 |         { platform: "web", entries: { main: "match" } },
-  |                                             ^^^^^^^
+3 |         { platform: "web", entries: [{ name: "main", function: "match" }] },
+  |                                                                ^^^^^^^
   |
   = `main.buri` exports: main
   = fix: export `match` from its `main.buri`, or point this output at a function it does export

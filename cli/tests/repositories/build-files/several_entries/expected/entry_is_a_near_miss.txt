@@ -1,9 +1,9 @@
 .buri/out/web/cmd/site/site.mjs (N bytes, cached)
 error: //cmd/site exports no `fetsh` [entry-not-found]
- --> cmd/site/BUILD.buri:4:58
+ --> cmd/site/BUILD.buri:4:77
   |
-4 |         { platform: CLOUDFLARE_WORKER, entries: { fetch: "fetsh" } },
-  |                                                          ^^^^^^^
+4 |         { platform: CLOUDFLARE_WORKER, entries: [{ name: "fetch", function: "fetsh" }] },
+  |                                                                             ^^^^^^^
   |
   = did you mean `fetch`?
   = `main.buri` exports: fetch, main

@@ -4,7 +4,8 @@ error: `linux-riscv` is not a variant of `native` [no-such-platform-variant]
 3 |         { platform: "native", variant: "linux-riscv" },
   |                                        ^^^^^^^^^^^^^
   |
-  = fix: the variants are linux-arm64, linux-x86_64, macos-arm64, macos-x86_64
+  = available: linux-arm64, linux-x86_64, macos-arm64, macos-x86_64
+  = fix: write `variant: "linux-arm64"`
 
       binary {
           outputs: [
