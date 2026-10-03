@@ -47,8 +47,6 @@
 //! that then failed to load, and a name in `PRELUDE` whose module was not
 //! loaded eagerly was silently not in scope.
 
-pub mod renamed;
-
 use crate::compiler::semantics::types::Prim;
 
 /// One module of the embedded standard library.
@@ -404,59 +402,6 @@ pub fn roots_phrase() -> String {
         Some((last, rest)) if !rest.is_empty() => format!("{} or {last}", rest.join(", ")),
         _ => quoted.join(""),
     }
-}
-
-/// The paths this library used to answer to, and what each is called now.
-///
-/// A rename is not an alias: the old path stops resolving, and the point of
-/// this table is that the *diagnostic* names the new one rather than leaving a
-/// reader to guess. Most rows are an abbreviation and the same module spelled
-/// out: `core/char` is `core/character`, `core/proc` is `core/process`,
-/// `core/num` is `core/number`, and `core/ordmap` and `core/ordset` are
-/// `core/orderedmap` and `core/orderedset`. The rest moved: effects live
-/// apart from any platform, under `platform/effect`, `Ui`, `Watch` and
-/// `Location` among them, with their test implementations in
-/// `platform/effect/testing`; and an entry takes its platform's host rather
-/// than importing `core/host`'s values, which [`retired_note`] says.
-///
-/// Nothing here is loadable, and [`find`] is asked first, so a name that came
-/// back into service would shadow its own row rather than collide with it.
-/// `no_retired_path_is_also_a_module` is what says a row cannot be both.
-pub const RETIRED: &[(&str, &str)] = &[
-    ("core/char", "core/character"),
-    ("core/num", "core/number"),
-    ("core/ordmap", "core/orderedmap"),
-    ("core/ordset", "core/orderedset"),
-    ("core/proc", "core/process"),
-    ("core/effect", "platform/effect"),
-    ("core/host/testing", "platform/effect/testing"),
-    ("core/host", "platform/effect"),
-    ("ui/effect", "platform/effect"),
-    ("ui/testing", "platform/effect/testing"),
-];
-
-/// What a retired path's diagnostic adds, where the new path is not the whole
-/// answer: `core/host`'s values are an entry's host now, and only the effects
-/// moved to `platform/effect`. A note, and the fix that replaces the
-/// template's.
-pub fn retired_note(path: &str) -> Option<(&'static str, &'static str)> {
-    let canonical = path.strip_suffix("/lib.buri").unwrap_or(path);
-    (canonical == "core/host").then_some((
-        "an entry takes its platform's host and binds the effects it needs from the host's \
-         fields; the effects themselves are declared in `platform/effect`",
-        "take the host in the entry and bind its fields:\n     \
-         export fn main(host: NodeHost): Result<(), Str> {\n         \
-         run(context { Allocator: host.alloc, Stdout: host.stdout })\n     \
-         }",
-    ))
-}
-
-/// What a retired path is called now, or `None` for a path that never named a
-/// module here. Read with the same `/lib.buri` canonicalisation [`find`] uses,
-/// because both spellings of a retired module are equally retired.
-pub fn retired(path: &str) -> Option<&'static str> {
-    let canonical = path.strip_suffix("/lib.buri").unwrap_or(path);
-    RETIRED.iter().find(|(old, _)| *old == canonical).map(|(_, now)| *now)
 }
 
 /// The module a path names, whichever of its two spellings was written.
@@ -889,85 +834,6 @@ mod tests {
             }
         }
         out
-    }
-
-    /// A retired path names no module, and the module it points at is real.
-    ///
-    /// Both halves matter. A row whose old path still loads would make
-    /// `load_std` unreachable for it and the rename a lie; a row pointing at a
-    /// module that does not exist would send a reader to a second failure.
-    #[test]
-    fn no_retired_path_is_also_a_module() {
-        for (old, now) in RETIRED {
-            assert!(find(old).is_none(), "`{old}` is retired and still loads");
-            assert!(find(now).is_some(), "`{old}` points at `{now}`, which is no module");
-            assert_eq!(retired(old), Some(*now));
-            assert_eq!(retired(&format!("{old}/lib.buri")), Some(*now));
-        }
-        assert_eq!(retired("core/list"), None);
-    }
-
-    /// A renamed name is gone, its module is real, and what it points at is
-    /// spelled the way the library spells it.
-    ///
-    /// The table is read only after a lookup has already failed, so a row for a
-    /// name that is still there would be dead at best and a lie at worst — it
-    /// would tell a reader to rewrite working code. `sqrt` is the shape: the
-    /// old spelling appears nowhere in `core/math`, and `squareRoot` does.
-    #[test]
-    fn no_renamed_name_is_still_exported() {
-        for row in renamed::RENAMED {
-            let src = source(row.module)
-                .unwrap_or_else(|| panic!("`{}` is no module", row.module));
-            // On the surface: anything `export`ed, plus a trait's or an
-            // effect's own members, which are indented and carry no `export`.
-            // A module-level private `let` is neither — which is exactly what
-            // `core/time`'s counts became.
-            let on_the_surface = |name: &str| {
-                src.lines().any(|l| {
-                    let t = l.trim_start();
-                    let indented = l.starts_with(' ');
-                    let keywords: &[&str] = match t.starts_with("export ") {
-                        true => &["fn ", "let ", "struct ", "enum ", "trait ", "effect ", "type "],
-                        false if indented => &["fn "],
-                        false => &[],
-                    };
-                    let rest = t.strip_prefix("export ").unwrap_or(t);
-                    keywords
-                        .iter()
-                        .filter_map(|k| rest.strip_prefix(k))
-                        .filter_map(|r| r.strip_prefix(name))
-                        .any(|r| r.starts_with(['(', '<', ':', ' ']))
-                })
-            };
-            assert!(
-                !on_the_surface(row.old),
-                "`{}` still has `{}`, so the rename row is a lie",
-                row.module,
-                row.old
-            );
-            if let renamed::Now::Named(now) = row.now {
-                assert!(
-                    on_the_surface(now),
-                    "`{}` says `{}` is `{now}`, which it does not have",
-                    row.module,
-                    row.old
-                );
-            }
-        }
-    }
-
-    /// The one thing a bare name has to get right: two modules that renamed the
-    /// same name differently answer with nothing rather than with one of them.
-    #[test]
-    fn a_bare_name_answers_only_where_the_modules_agree() {
-        assert!(renamed::anywhere("args").is_none(), "`args` has two answers");
-        let (note, fix) = renamed::anywhere("len").expect("`len` is `length` everywhere");
-        assert_eq!(note, "`len` was renamed to `length`");
-        assert_eq!(fix, "write `length`");
-        let (note, _) = renamed::in_module("core/time", "sleepMs").expect("a removed name");
-        assert_eq!(note, "`sleepMs` was removed; write `time.sleep(ctx, time.milliseconds(n))`");
-        assert!(renamed::in_module("core/list", "map").is_none());
     }
 
     /// `core/actor` declares no effect, so it opens no door — and the two
