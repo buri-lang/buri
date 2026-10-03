@@ -679,7 +679,9 @@ A native binary that dies without reporting — killed by a signal rather than
 stopped by an assertion — is blamed on the test it was in, which is the first
 one that did not finish. The tests around it keep their verdicts, and a binary
 that finished every test and died anyway is reported against the suite, because
-no test in it failed. The report names the signal, such as `SIGKILL`.
+no test in it failed. The report names the signal, such as `SIGKILL`. So is a
+binary that dies before its first test, such as one the operating system won't
+load: one failure, quoting what the loader said, from one launch.
 
 Tests are ordinary build actions. A suite whose sources, target, dependencies
 and toolchain are unchanged does not re-run, and reports as cached. Buri has no

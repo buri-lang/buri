@@ -147,6 +147,20 @@ pub fn reachable(program: &Program, roots: &[usize], chunks: Chunks) -> Vec<bool
     reached
 }
 
+/// The slots one function's body names directly: the edges [`reachable`]
+/// walks from it, chunks followed.
+///
+/// For a caller that walks the same graph from many sets of roots, such as
+/// `buri test` dividing a batch of suites between binaries. Asking
+/// [`reachable`] once per set would walk every shared body once per set.
+pub fn callees(program: &Program, func: usize) -> Vec<usize> {
+    let mut out = Vec::new();
+    if let Some(body) = program.funcs.get(func).and_then(|f| f.body()) {
+        references(body, Chunks::Followed, &mut out);
+    }
+    out
+}
+
 /// Every function this body can reach.
 ///
 /// A call is not the only way to name one: `FnRef` is a function used as a

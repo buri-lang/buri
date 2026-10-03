@@ -275,6 +275,13 @@ out of a batch: a declared `test { backends }`, which is a request served on
 its own; a declared `timeout_seconds`, since one suite's limit would become
 everybody's in a shared process; and `--output=` on the invocation.
 
+A batch is type checked once, but it can still become several binaries:
+
+- Suites that take snapshots into different packages' `test/__snapshots__` get
+  different binaries, because one process gets one snapshot directory.
+- A binary holds at most about a gigabyte of code, since macOS can't load one
+  near two. Set `BURI_TEST_BATCH_BYTES` to change the limit.
+
 Nothing about the result changes. Each suite still has its own cache key, its own
 cached verdict, and its own report. A suite whose verdict is already cached never
 enters the batch. One suite's failure is an abort and takes its process with it,

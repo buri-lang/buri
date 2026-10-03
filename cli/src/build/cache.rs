@@ -410,7 +410,7 @@ const TOOLCHAIN_MARKER: &str = ".toolchain";
 /// for `rm -rf .buri` after every rebuild is what this replaces. The marker
 /// records which toolchain last wrote here; when it is absent (a cache from
 /// before this marker existed, or a fresh one) or names another toolchain, the
-/// cache is emptied and re-marked. The compare is a lock-free read on the common
+/// cache is emptied and re-marked, and `.buri/link` with it. The compare is a lock-free read on the common
 /// path, so only the first open of a process — or one after a real change —
 /// pays for the lock.
 fn reconcile_toolchain(dir: &Path) {
@@ -444,6 +444,14 @@ fn reconcile_toolchain(dir: &Path) {
                 let _ = std::fs::remove_file(&path);
             }
         }
+    }
+    // And the link directories, which are made of this cache's entries
+    // (`build::link::stage_from`) and name links only this toolchain's keys can
+    // ask for again. A hard link would otherwise keep a wiped entry's bytes on
+    // disk, and a directory from before hard links holds copies: `.buri/link`
+    // was never pruned, and reached 41 GB in a repository of 82 suites.
+    if let Some(buri) = dir.parent() {
+        let _ = std::fs::remove_dir_all(buri.join("link"));
     }
     let _ = std::fs::write(&marker, identity);
 }
