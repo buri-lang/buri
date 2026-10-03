@@ -6,7 +6,7 @@ error: this `match` does not cover `.Int` [match-not-exhaustive]
    |
    = every `match` must cover its scrutinee's type
    = fix: add an arm for `.Int`, or a `_` arm for everything left
-error: `textOf` takes 1 arguments, but 2 were given [argument-count]
+error: `textOf` takes 1 argument, but 2 were given [argument-count]
   --> main.buri:84:17
    |
 84 |         .Str => textOf(Value.Text(heap),

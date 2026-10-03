@@ -1,4 +1,4 @@
-error: `equal` takes 2 arguments, but 1 were given [argument-count]
+error: `equal` takes 2 arguments, but 1 was given [argument-count]
   --> main.buri:52:5
    |
 52 |     assert.equal(out.diagnostics.map(ctx, fn(d) => d.code) [

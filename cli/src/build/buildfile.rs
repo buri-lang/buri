@@ -1123,7 +1123,9 @@ impl Reader {
 
     /// Refuses a retired platform or field, naming what replaced it.
     fn retired(&mut self, span: Span, name: &str, replacement: impl Into<String>) {
-        self.templated("retired-platform", span)
+        let code =
+            if RETIRED_OUTPUT_FIELDS.contains(&name) { "retired-output-field" } else { "retired-platform" };
+        self.templated(code, span)
             .bind("name", name)
             .bind("replacement", replacement);
     }
@@ -1392,7 +1394,7 @@ impl Reader {
                     && !e.contains('/')
                     && !e.contains(char::is_whitespace);
                 if !valid {
-                    self.templated("language-extension-invalid", extension.span).bind("extension", e.clone());
+                    self.templated("invalid-extension", extension.span).bind("extension", e.clone());
                     continue;
                 }
                 let owner = languages
@@ -2113,13 +2115,17 @@ library {
     fn retired_spellings_are_refused() {
         for src in [
             "binary {\n  outputs: [{ platform: LINUX }]\n}\n",
-            "binary {\n  outputs: [{ platform: \"native\", variant: \"linux-arm64\", arch: ARM64 }]\n}\n",
-            "binary {\n  outputs: [{ platform: \"node\", js { module: ESM } }]\n}\n",
-            "binary {\n  outputs: [{ platform: \"node\", entry: \"run\" }]\n}\n",
             "library {\n  platforms: [JS]\n}\n",
             "library {\n  test { platforms: [JS] }\n}\n",
         ] {
             assert_eq!(codes(src), ["retired-platform"], "{src}");
+        }
+        for src in [
+            "binary {\n  outputs: [{ platform: \"native\", variant: \"linux-arm64\", arch: ARM64 }]\n}\n",
+            "binary {\n  outputs: [{ platform: \"node\", js { module: ESM } }]\n}\n",
+            "binary {\n  outputs: [{ platform: \"node\", entry: \"run\" }]\n}\n",
+        ] {
+            assert_eq!(codes(src), ["retired-output-field"], "{src}");
         }
         let read = read_build_file("binary {\n  outputs: [{ platform: MACOS, arch: ARM64 }]\n}\n", FileId(0));
         let fix = read.errors[0].fix.clone().unwrap_or_default();

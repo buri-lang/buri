@@ -10,15 +10,21 @@ warning: this discards a `Result` [ignored-result]
      A dropped Result is a failure nobody read. Sometimes that's the right call;
      this rule puts every such call in one report.
 
+       fn say<C: Stdout>(ctx: C, line: Str): () {
+           io.println(ctx, line).ignore()
+       }
+
      The real fix is to handle the error. match on the Result and answer the
      .Err arm (count it, report it, fall back), or use ? to hand it to a caller
      who can.
 
      Don't write the drop out by hand. This handles nothing:
 
-       match (io.println(ctx, line)) {
-           .Ok(_written) => (),
-           .Err(_error) => (),
+       fn say<C: Stdout>(ctx: C, line: Str): () {
+           match (io.println(ctx, line)) {
+               .Ok(_written) => (),
+               .Err(_error) => (),
+           }
        }
 
      It's ignore() spelled out, minus the greppability, and hand-rolled-ignore

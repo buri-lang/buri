@@ -189,3 +189,35 @@ run {
   exit: 1
   golden: "effect_without_test_implementation.txt"
 }
+
+edit {
+  file: "platform/effect/kv/testing/lib.buri"
+  replace: "impl TestKv {"
+  with: "impl Kv for TestKv {"
+}
+
+# An entry whose platform declares bodiless methods names the `js` file that
+# implements them, even one that starts itself.
+edit {
+  file: "platform/cloudflare_worker/BUILD.buri"
+  replace: "        js: \"fetch.mjs\"\n"
+  with: ""
+}
+
+edit {
+  file: "platform/cloudflare_worker/platform.buri"
+  replace: "export fn fetch(host: CloudflareHost, request: Request): Response;"
+  with: "export fn fetch(host: CloudflareHost): Result<(), Str>;"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "export fn fetch(host: CloudflareHost, request: Request): Response {\n    handle(\n        context {\n            Allocator: host.alloc,\n            Kv: host.kv,\n        },\n        request,\n    )\n}"
+  with: "export fn fetch(host: CloudflareHost): Result<(), Str> {\n    .Ok(())\n}"
+}
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 1
+  golden: "missing_host_file.txt"
+}

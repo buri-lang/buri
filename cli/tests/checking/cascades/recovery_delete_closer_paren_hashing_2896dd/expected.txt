@@ -1,4 +1,4 @@
-error: `equal` takes 2 arguments, but 1 were given [argument-count]
+error: `equal` takes 2 arguments, but 1 was given [argument-count]
   --> main.buri:36:5
    |
 36 |     assert.equal(table.get(assert.some(uuid.fromBytes(id.0)), .Some("ada"));
@@ -7,7 +7,7 @@ error: `equal` takes 2 arguments, but 1 were given [argument-count]
    = expected: 2
    = actual: 1
    = fix: pass `equal` the following arguments: equal<T: Equal>(actual: T, expected: T)
-error: `get` takes 1 arguments, but 2 were given [argument-count]
+error: `get` takes 1 argument, but 2 were given [argument-count]
   --> main.buri:36:18
    |
 36 |     assert.equal(table.get(assert.some(uuid.fromBytes(id.0)), .Some("ada"));

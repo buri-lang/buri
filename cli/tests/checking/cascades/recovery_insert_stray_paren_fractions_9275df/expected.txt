@@ -1,4 +1,4 @@
-error: `approximatelyEqual` takes 3 arguments, but 1 were given [argument-count]
+error: `approximatelyEqual` takes 3 arguments, but 1 was given [argument-count]
   --> main.buri:40:5
    |
 40 |     assert.approximatelyEqual(time.secondsFloat@ (3.0).asSecondsFloat(), 3.0, 1e-9);

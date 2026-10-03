@@ -14,7 +14,7 @@ error: `Result` takes 2 type arguments, but 3 were given [type-argument-count]
    |
    = expected: 2
    = actual: 3
-   = fix: supply exactly 2
+   = fix: supply exactly 2 type arguments
 error: there is no type `extra` [unknown-type]
   --> lib/recovery_insert_stray_module_app_006db4/main.buri:14:40
    |

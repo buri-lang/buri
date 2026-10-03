@@ -1,4 +1,4 @@
-error: `button` takes 1 arguments, but 2 were given [argument-count]
+error: `button` takes 1 argument, but 2 were given [argument-count]
   --> main.buri:30:13
    |
 30 |             ui.button({

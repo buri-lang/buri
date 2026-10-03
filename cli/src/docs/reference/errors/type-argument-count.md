@@ -1,6 +1,6 @@
 ---
 title: A type takes the arguments it declares
-message: '{subject} takes {expected} type arguments, but {given} were given'
+message: '{subject} takes {expected}, but {given}'
 fix: supply exactly {expected}
 ---
 

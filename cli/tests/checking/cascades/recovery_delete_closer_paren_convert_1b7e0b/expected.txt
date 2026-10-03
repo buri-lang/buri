@@ -1,4 +1,4 @@
-error: `equal` takes 2 arguments, but 1 were given [argument-count]
+error: `equal` takes 2 arguments, but 1 was given [argument-count]
   --> main.buri:36:5
    |
 36 |     assert.equal(v.toFloat(.toInt(), v);
@@ -7,7 +7,7 @@ error: `equal` takes 2 arguments, but 1 were given [argument-count]
    = expected: 2
    = actual: 1
    = fix: pass `equal` the following arguments: equal<T: Equal>(actual: T, expected: T)
-error: `toFloat` takes 0 arguments, but 2 were given [argument-count]
+error: `toFloat` takes no arguments, but 2 were given [argument-count]
   --> main.buri:36:18
    |
 36 |     assert.equal(v.toFloat(.toInt(), v);

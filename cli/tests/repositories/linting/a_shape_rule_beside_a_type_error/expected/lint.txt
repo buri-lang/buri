@@ -1,4 +1,4 @@
-warning: `describe` takes 6 parameters [too-many-parameters]
+warning: `describe` takes 6 parameters [parameter-count]
  --> lib/money/cents.buri:5:11
   |
 5 | export fn describe(a: I64, b: I64, c: I64, d: I64, e: I64, f: I64): Str {

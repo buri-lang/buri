@@ -1,4 +1,4 @@
-// EXPECT: takes 1 arguments, but 2 were given
+// EXPECT: takes 1 argument, but 2 were given
 //
 // An effect is performed through a function rather than a method, and that is
 // one diagnostic. The count is still checked underneath it, against the

@@ -1326,6 +1326,26 @@ pub fn names(items: &[String]) -> String {
     }
 }
 
+/// A count with its noun agreeing: `no arguments`, `1 argument`, `2 arguments`.
+/// Templates don't pluralize, so a call site binds the whole phrase.
+pub fn counted(n: usize, noun: &str) -> String {
+    match n {
+        0 => format!("no {noun}s"),
+        1 => format!("1 {noun}"),
+        _ => format!("{n} {noun}s"),
+    }
+}
+
+/// `none were given`, `1 was given`, `2 were given`: the other half of a count
+/// message, after [`counted`] names what was expected.
+pub fn were_given(n: usize) -> String {
+    match n {
+        0 => "none were given".to_string(),
+        1 => "1 was given".to_string(),
+        _ => format!("{n} were given"),
+    }
+}
+
 /// A diagnostic sink that keeps errors in source order and deduplicates.
 #[derive(Default, Clone)]
 pub struct Diagnostics {
