@@ -282,18 +282,6 @@ impl ActionKey {
         &self.0
     }
 
-    /// A second entry belonging to the same action, named by what it holds.
-    ///
-    /// An action whose result is more than one file — a WEB link, which writes
-    /// a module, a stylesheet and a page — needs every part in the cache or a
-    /// hit reproduces some of the output and leaves the rest stale. Deriving
-    /// the companion's key from the action's own means the two are invalidated
-    /// together by construction: whatever moved the module's key moved this
-    /// one, because this one is a hash of it.
-    pub fn companion(&self, what: &str) -> ActionKey {
-        ActionKey::of(format!("{}\u{0}companion\u{0}{what}", self.0).as_bytes())
-    }
-
     /// The first twelve hex digits, which is what `--explain` prints.
     fn short(&self) -> &str {
         self.0.get(..12).unwrap_or(&self.0)
@@ -306,6 +294,7 @@ impl ActionKey {
     }
 }
 
+#[derive(Clone)]
 pub struct Cache {
     dir: PathBuf,
 }
@@ -356,24 +345,19 @@ impl Cache {
         path.is_file().then_some(path)
     }
 
-    /// "All commands are safe to run concurrently; a file lock serializes cache
-    /// writes" (CLI.md). This is that lock.
+    /// Stores an entry, with no lock: any number of processes and threads may
+    /// write at once.
+    ///
+    /// Written to a temporary and renamed, so a concurrent reader never sees
+    /// half an entry. The temporary is named for this process and a count
+    /// ([`temporary_extension`]), so two writers never share a file; the
+    /// rename is atomic, and two writers of one key write the same bytes
+    /// because the key names them, so whichever rename lands last is right.
     pub fn put(&self, key: &ActionKey, data: &[u8]) {
         let p = self.path(key);
         if let Some(parent) = p.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        // Either outcome writes: the lock is an optimisation for the rename,
-        // not a correctness requirement (see [`Lock`]). Naming both is what
-        // makes that a decision rather than a field nobody looks at.
-        let _guard = match Lock::acquire(&self.dir) {
-            LockOutcome::Held(lock) => Some(lock),
-            LockOutcome::ProceedUnlocked => None,
-        };
-        // Written to a temporary and renamed, so a concurrent reader never
-        // sees half an entry. The temporary is named for this process as well
-        // as for the key, so that two writers of one key never share a file
-        // even in the window where the lock has been abandoned.
         let tmp = p.with_extension(temporary_extension());
         if std::fs::write(&tmp, data).is_ok() {
             let _ = std::fs::rename(&tmp, &p);
@@ -413,10 +397,6 @@ impl Cache {
         if let Some(parent) = p.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let _guard = match Lock::acquire(&self.dir) {
-            LockOutcome::Held(lock) => Some(lock),
-            LockOutcome::ProceedUnlocked => None,
-        };
         let tmp = p.with_extension(temporary_extension());
         let staged = std::fs::rename(src, &tmp).is_ok()
             || (std::fs::copy(src, &tmp).is_ok() && {
@@ -451,9 +431,11 @@ fn reconcile_toolchain(dir: &Path) {
     if std::fs::read_to_string(&marker).ok().as_deref() == Some(identity) {
         return;
     }
-    // Wipe under the write lock, so a concurrent build cannot read an entry out
-    // from under the wipe. The double-check covers another process reconciling
-    // while this one waited.
+    // Wipe under the lock, so two processes that both see a new toolchain do
+    // not empty the cache twice. The double-check covers another process
+    // reconciling while this one waited. An entry another toolchain writes
+    // during the wipe is keyed on that toolchain, so this one is never served
+    // it.
     let _guard = match Lock::acquire(dir) {
         LockOutcome::Held(lock) => Some(lock),
         LockOutcome::ProceedUnlocked => None,
@@ -488,26 +470,22 @@ fn reconcile_toolchain(dir: &Path) {
     let _ = std::fs::write(&marker, identity);
 }
 
-/// The file lock that serializes cache writes.
+/// The file lock a toolchain change empties the cache under
+/// ([`reconcile_toolchain`]), so two processes do not wipe it at once. Entry
+/// writes take no lock: see [`Cache::put`].
 ///
 /// `create_new` on a lock file, which is one atomic operation on every
-/// filesystem the toolchain runs on and needs nothing from libc. Held for the
-/// length of one write and no longer, because what has to be serialized is the
-/// write and not the build — two `buri build` processes on one repository
-/// should overlap, and only meet at the moment they both have an entry to
-/// store.
+/// filesystem the toolchain runs on and needs nothing from libc.
 ///
 /// Two ways out other than success, and both of them are deliberate:
 ///
-/// - **A lock older than [`STALE`] is stolen.** A process killed mid-write
+/// - **A lock older than [`STALE`] is stolen.** A process killed mid-wipe
 ///   leaves its lock file behind, and a repository that can be wedged by one
-///   `^C` is a repository nobody trusts. Stealing is safe because the write it
-///   interrupts is a rename of a content-addressed name: the loser's bytes and
-///   the winner's bytes are the same bytes.
-/// - **After [`PATIENCE`] the write proceeds unlocked.** The lock is an
-///   optimisation for the rename, not a correctness requirement — a build that
-///   hangs waiting for one would be a worse failure than a build that writes an
-///   entry two processes agree about.
+///   `^C` is a repository nobody trusts. Stealing is safe because a second
+///   wipe of a cache for the same toolchain removes nothing the first kept.
+/// - **After [`PATIENCE`] the wipe proceeds unlocked.** A build that hangs
+///   waiting for one would be a worse failure than two processes emptying one
+///   cache.
 pub struct Lock {
     path: PathBuf,
 }
@@ -894,10 +872,10 @@ mod tests {
         assert_ne!(by_key.finish(), by_content.finish());
     }
 
-    /// The lock is held for a write and released, so a second acquisition in
-    /// the same process is immediate rather than a deadlock.
+    /// The lock is released when dropped, so a second acquisition in the same
+    /// process is immediate rather than a deadlock.
     #[test]
-    fn the_write_lock_is_released_when_the_write_finishes() {
+    fn the_lock_is_released_when_dropped() {
         let dir = std::env::temp_dir().join(format!("buri-lock-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         {
@@ -905,7 +883,7 @@ mod tests {
             assert!(matches!(held, LockOutcome::Held(_)), "the lock was not taken");
             assert!(dir.join(".lock").exists(), "the lock file was not created");
         }
-        assert!(!dir.join(".lock").exists(), "the lock outlived the write");
+        assert!(!dir.join(".lock").exists(), "the lock outlived its guard");
         let started = std::time::Instant::now();
         drop(Lock::acquire(&dir));
         assert!(started.elapsed() < PATIENCE, "a released lock was waited for");
