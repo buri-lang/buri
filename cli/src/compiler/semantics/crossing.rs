@@ -17,6 +17,9 @@
 //! | a struct                | a plain object of its fields   |
 //! | `Request`, `Response`   | the Fetch standard's           |
 //!
+//! `Option<Option<T>>` and `Option<()>` don't cross: `None` and `Some` would
+//! both be `undefined`.
+//!
 //! The checker refuses anything else as `type-not-crossable`, and the backend
 //! reads the same answer to write the conversion, so the two cannot disagree
 //! about what crosses.
@@ -138,8 +141,8 @@ fn classify_in(
                 };
             }
             if let Some(payload) = tables.option_payload(ty) {
-                // `Some(None)` would be `undefined` too.
-                if tables.is_option_ty(payload) {
+                // `Some(None)` would be `undefined` too, and so would `Some(())`.
+                if tables.is_option_ty(payload) || *payload == Ty::Unit {
                     return Err(ty.clone());
                 }
                 let inner = classify_in(tables, known, payload, false, open)?;

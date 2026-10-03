@@ -1,0 +1,16 @@
+.buri/out/platform/pair/cmd/app/right.mjs (N bytes)
+error: "buri:program" does not export `default` [unknown-export]
+ --> platform/pair/left.mjs:1:8
+  |
+1 | import program from "buri:program";
+  |        ^
+  |
+  = `buri:program` exports `left`
+
+    A re-export names only what its module exports, so a library's surface is
+    never wider than the modules behind it. A namespace like fs stands for the
+    module its import named, and only that module's exports may follow the dot.
+    This covers types, bounds and impl heads too, such as list.Vector<Int> and
+    <T: order.Comparable>. If no import bound the namespace at all, the error is
+    unknown-name instead.
+

@@ -1541,8 +1541,11 @@ impl<'a> Checker<'a> {
                 // A repository platform's entry is its declaration's business.
                 true if self.loaded.custom.is_some() => Vec::new(),
                 true => vec![Some(platform)],
-                // Not this artifact's entry. `main` still answers below,
-                // because every analysis that has one expects the one shape.
+                // Not this artifact's entry. Another entry of a repository
+                // platform answers to its declaration when that artifact is
+                // built; `main` otherwise still answers below, because every
+                // analysis that has one expects the one shape.
+                false if self.fills_custom_entry(module, name) => Vec::new(),
                 false => self.default_entry_platform(name, None),
             };
         }
@@ -1596,7 +1599,30 @@ impl<'a> Checker<'a> {
         }
         let (Some(ws), Some(pkg)) = (self.ws, self.module(module).pkg) else { return false };
         let target = TargetId { package: pkg, kind: RuleKind::Binary };
-        ws.declared_entries(target).iter().any(|e| e.name == name)
+        // An output whose `function` names nothing the binary exports is
+        // `unknown-entry-function`. The function named after the platform's
+        // entry stands in for it here, so its context isn't reported as well.
+        ws.declared_entries(target).iter().any(|e| {
+            e.name == name
+                || (e.named
+                    && e.custom.as_ref().is_some_and(|c| c.point == name)
+                    && !self.exports_fn(module, &e.name))
+        })
+    }
+
+    /// Whether an output of a repository platform enters through `name`.
+    fn fills_custom_entry(&self, module: ModuleId, name: &str) -> bool {
+        let (Some(ws), Some(pkg)) = (self.ws, self.module(module).pkg) else { return false };
+        let target = TargetId { package: pkg, kind: RuleKind::Binary };
+        ws.declared_entries(target).iter().any(|e| e.name == name && e.custom.is_some())
+    }
+
+    /// Whether `module` exports a free function called `name`.
+    fn exports_fn(&self, module: ModuleId, name: &str) -> bool {
+        match self.scope(module).own.get(name) {
+            Some(Sym::Fn(f)) => self.tables.fn_info(*f).exported,
+            _ => false,
+        }
     }
 
     /// What `main` is held to where no output names it: the one shape every

@@ -417,6 +417,18 @@ impl NativePlatform {
     }
 }
 
+/// `linux-arm64` as the operating system and architecture it names, or `None`
+/// for anything that isn't `<os>-<arch>`.
+pub fn native_variant(variant: &str) -> Option<(NativePlatform, Arch)> {
+    let (os, arch) = variant.split_once('-')?;
+    let os = match os {
+        "linux" => NativePlatform::Linux,
+        "macos" => NativePlatform::Macos,
+        _ => return None,
+    };
+    Some((os, Arch::parse(arch)?))
+}
+
 /// What an output is built for. Only a native build has an `arch`: it is the
 /// half of the variant after the operating system.
 #[derive(Clone, Debug)]
@@ -432,7 +444,7 @@ pub enum OutputTarget {
 #[derive(Clone, Debug)]
 pub struct Output {
     pub target: OutputTarget,
-    pub artifact_name: Option<String>,
+    pub artifact_name: Option<Spanned<String>>,
     /// The function filling the platform's entry, where `entries` names one.
     /// `None` is the function named after the entry.
     pub entry: Option<Spanned<String>>,
@@ -777,6 +789,46 @@ pub fn check_variant(
         }
         _ => None,
     }
+}
+
+/// Holds an output's `artifact_name` to its platform: a platform with assets
+/// names each artifact after its entry, because the assets load it by that
+/// name, as `web`'s `index.html` loads `/main.mjs`.
+pub fn check_artifact_name(platform: &str, rule: &PlatformRule, name: &Spanned<String>) -> Option<Diagnostic> {
+    (!rule.assets.is_empty())
+        .then(|| Diagnostic::templated("misplaced-artifact-name", name.span).with_bind("platform", platform))
+}
+
+/// Holds an output's `variant` to each of its platform's entries: an entry
+/// that declares variants builds only those, and one that declares none
+/// takes no variant. The first entry that refuses it is the diagnostic.
+pub fn check_entry_variants(
+    platform: &str,
+    rule: &PlatformRule,
+    variant: Option<&Spanned<String>>,
+) -> Option<Diagnostic> {
+    let v = variant?;
+    let refusing = rule.entries.iter().find(|e| !e.variants.iter().any(|known| known.value == v.value))?;
+    let (available, fix) = match refusing.variants.first() {
+        None => (
+            format!("its entry `{}` has no variants", refusing.name.value),
+            String::from("remove `variant`, or declare it on every entry"),
+        ),
+        Some(_) => {
+            let names: Vec<&str> = refusing.variants.iter().map(|k| k.value.as_str()).collect();
+            (
+                format!("its entry `{}` declares: {}", refusing.name.value, names.join(", ")),
+                format!("name a variant every entry declares, or add `{}` to `{}`'s", v.value, refusing.name.value),
+            )
+        }
+    };
+    Some(
+        Diagnostic::templated("unknown-platform-variant", v.span)
+            .with_bind("variant", v.value.clone())
+            .with_bind("platform", platform)
+            .with_bind("available", available)
+            .with_bind("fix", fix),
+    )
 }
 
 /// One `entries` item as written: the platform's entry, and the function
@@ -1592,7 +1644,7 @@ impl Reader {
     /// One `outputs` entry, or `None` once refused.
     fn output(&mut self, m: &Message, span: Span) -> Option<Output> {
         self.check_known(m, textproto::schema_order("outputs"), RETIRED_OUTPUT_FIELDS, "an output");
-        let artifact_name = self.string(m, "artifact_name");
+        let artifact_name = self.spanned_string(m, "artifact_name");
         let variant = self.spanned_string(m, "variant");
         if let Some(js) = m.get("js") {
             self.retired(js.name_span, "js", "remove it; every JavaScript output is an ES module");
@@ -1678,6 +1730,12 @@ impl Reader {
         if let Some(d) = check_variant(platform.value.name(), &variants, required, variant.as_ref(), span) {
             self.errors.push(d);
             return None;
+        }
+        if let (Some(name), Some(rule)) = (&artifact_name, platform.value.rule()) {
+            if let Some(d) = check_artifact_name(platform.value.name(), rule, name) {
+                self.errors.push(d);
+                return None;
+            }
         }
         let arch = variant
             .as_ref()
@@ -1770,9 +1828,42 @@ impl Reader {
             let js = self.spanned_string(e, "js");
             let variants = self.strings(e, "variants");
             let variant_required = self.bool_field(e, "variant_required").unwrap_or(false);
-            if let (Some(name), Some(backend)) = (name, backend) {
-                entries.push(PlatformEntry { name, backend, js, variants, variant_required, span: *entry_span });
+            // A field written wrong is reported where it is written; one not
+            // written at all is reported here, rather than the entry
+            // vanishing from the platform.
+            for (field, example) in [("name", "\"main\""), ("backend", "JS")] {
+                if e.get(field).is_none() {
+                    self.templated("platform-entry-missing-field", *entry_span)
+                        .bind("field", field)
+                        .bind("example", example);
+                }
             }
+            let (Some(name), Some(backend)) = (name, backend) else { continue };
+            if entries.iter().any(|known: &PlatformEntry| known.name.value == name.value) {
+                self.templated("duplicate-platform-entry", name.span).bind("entry", name.value.clone());
+                continue;
+            }
+            if backend.value == Backend::Native {
+                if let Some(js) = &js {
+                    self.templated("js-outside-js-entry", js.span).bind("entry", name.value.clone());
+                    continue;
+                }
+                // A native variant is the target triple, so it has to say one.
+                let mut malformed = false;
+                for v in &variants {
+                    if native_variant(&v.value).is_none() {
+                        self.templated("invalid-platform-variant", v.span).bind("variant", v.value.clone());
+                        malformed = true;
+                    }
+                }
+                if malformed {
+                    continue;
+                }
+            }
+            entries.push(PlatformEntry { name, backend, js, variants, variant_required, span: *entry_span });
+        }
+        if m.all("entry").next().is_none() {
+            self.templated("platform-missing-entry", span);
         }
         PlatformRule {
             sources: self.strings(m, "sources"),
@@ -2235,7 +2326,10 @@ library {
         assert_eq!(variants, ["a", "b"]);
         assert!(rule.entries[0].variant_required);
         // Variants moved onto each entry.
-        assert_eq!(codes("platform {\n  variants: [\"a\"]\n}\n"), ["build-unknown-field"]);
+        assert_eq!(
+            codes("platform {\n  variants: [\"a\"]\n  entry {\n    name: \"main\"\n    backend: JS\n  }\n}\n"),
+            ["build-unknown-field"]
+        );
     }
 
     #[test]

@@ -7619,7 +7619,7 @@ function $slot(x) {
 
 // --- platform/effect/testing --------------------------------------------------------------
 //
-// `core/host`'s names, called rather than referred to, over the `$t.h` table:
+// The test implementations' names, called rather than referred to, over the `$t.h` table:
 // one handle store, and the Buri type of the value carrying a handle says which
 // slot shape made it.
 //

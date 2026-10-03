@@ -1,0 +1,18 @@
+error: `web` names its own artifacts [misplaced-artifact-name]
+ --> cmd/app/BUILD.buri:3:43
+  |
+3 |         { platform: "web", artifact_name: "site" },
+  |                                           ^^^^^^ renamed here
+  |
+  = `web` ships assets, such as an `index.html` that loads `/main.mjs`, which load each entry by the name of its file
+  = fix: remove `artifact_name`
+
+      binary {
+          outputs: [
+              { platform: "web" },
+          ]
+      }
+
+    A platform with assets names each artifact after its entry, because the
+    assets refer to it by that name.
+

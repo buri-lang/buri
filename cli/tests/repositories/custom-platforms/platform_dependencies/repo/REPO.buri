@@ -1,0 +1,13 @@
+tag {
+    name: "server"
+    doc: "runs on infrastructure we operate"
+
+    forbids {
+        tags: ["client"]
+    }
+}
+
+tag {
+    name: "client"
+    doc: "ships to a user's machine or browser"
+}

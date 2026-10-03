@@ -213,19 +213,15 @@ pub fn available_for(t: abi::StencilTarget) -> bool {
 /// library, and the one the tests still ask; a *cross* target is
 /// [`available_for`]'s business and this is deliberately not it.
 ///
-/// Two things are needed and both are named: the host's stencil library has to
-/// be non-empty, and — on x86-64 — `asm.rs` has to have an entry point to put in
-/// front of it. Folding the second in here is what lets
-/// `tests/native/stencil.rs` ask one question instead of spelling out which hosts
-/// are which, and it is why that suite's guard is not a `cfg!(target_os =
+/// The host's stencil library has to be non-empty. Answering that here is what
+/// lets `tests/native/stencil.rs` ask one question instead of spelling out which
+/// hosts are which, and it is why that suite's guard is not a `cfg!(target_os =
 /// "macos")`. [`unavailable_reason`] is the same question with the reason
 /// attached, which is what a skipping suite prints.
 pub const AVAILABLE: bool = !MACOS_ARM64_BYTES.is_empty()
     && cfg!(all(target_os = "macos", target_arch = "aarch64"))
     || !LINUX_ARM64_BYTES.is_empty() && cfg!(all(target_os = "linux", target_arch = "aarch64"))
-    || !LINUX_X86_64_BYTES.is_empty()
-        && cfg!(all(target_os = "linux", target_arch = "x86_64"))
-        && asm::AVAILABLE_X86_64;
+    || !LINUX_X86_64_BYTES.is_empty() && cfg!(all(target_os = "linux", target_arch = "x86_64"));
 
 /// The stencil target this host *is*, or `None` where no library is built for
 /// one — x86-64 macOS is the only such host.
@@ -251,16 +247,12 @@ pub fn unavailable_reason() -> Option<String> {
     let Some(host) = host_stencil_target() else {
         return Some(String::from("stencil has no x86_64-apple-darwin backend yet"));
     };
-    if !available_for(host) {
-        return Some(format!(
-            "this toolchain was built without {} stencils, so there is no stencil library \
-             for the host to run",
-            host.slug()
-        ));
-    }
-    // The library is there and the entry point is not. No machine is in that
-    // position today; it is the shape a fourth target would arrive in.
-    Some(format!("stencil has no {} backend yet", host.triple()))
+    // `AVAILABLE` is false and the host has a target, so its library is empty.
+    Some(format!(
+        "this toolchain was built without {} stencils, so there is no stencil library \
+         for the host to run",
+        host.slug()
+    ))
 }
 
 /// The decoded library for one target, once per process.
@@ -571,8 +563,8 @@ fn one(message: String) -> Diagnostics {
 /// not finished.
 ///
 /// Public because `backend::select` asks it before answering: this is the one
-/// place the per-target answer is derived from `available_for` and
-/// `asm::AVAILABLE_X86_64`, so a target that lights up here lights up in
+/// place the per-target answer is derived from `available_for`, so a target
+/// that lights up here lights up in
 /// selection with no second list to edit.
 pub fn supported(target: Target) -> Result<abi::StencilTarget, String> {
     let arch = target.arch.unwrap_or(if cfg!(target_arch = "aarch64") {
@@ -601,19 +593,6 @@ pub fn supported(target: Target) -> Result<abi::StencilTarget, String> {
              emit for that target (it needs a C compiler that can produce {} objects)",
             stencils.slug(),
             stencils.triple()
-        ));
-    }
-    // A target whose stencils exist but whose `main` does not can emit unit
-    // objects and not a program, which is a different thing to be told than a
-    // missing library. No target is in that position today —
-    // [`asm::AVAILABLE_X86_64`] — and the sentence stays because the condition
-    // is what a fourth target would arrive in.
-    if !stencils.is_arm64() && !asm::AVAILABLE_X86_64 {
-        return Err(format!(
-            "the stencil backend has {} stencils but no hand-written entry point for that \
-             machine, so it can emit unit objects for the target but not a program \
-             (design/native/CODEGEN-STENCIL.md §10.3)",
-            stencils.slug()
         ));
     }
     Ok(stencils)
@@ -991,14 +970,7 @@ fn assemble_unit(
         out.push(object::Reloc {
             section,
             offset: r.at,
-            kind: match r.kind {
-                region::RelocKind::Branch26 => object::RelKind::Branch26,
-                region::RelocKind::Abs64 => object::RelKind::Abs64,
-                region::RelocKind::Page21 => object::RelKind::Page21,
-                region::RelocKind::PageOff12 => object::RelKind::PageOff12,
-                region::RelocKind::Rel32 => object::RelKind::Rel32,
-                region::RelocKind::Pc32 => object::RelKind::Pc32,
-            },
+            kind: r.kind,
             symbol: sym,
             addend: r.addend,
         });
@@ -1336,15 +1308,13 @@ mod tests {
         }
     }
 
-    /// `AVAILABLE` is "this host can build a runnable program", and the host's
-    /// own library existing is necessary but not sufficient: an entry point for
-    /// the machine is the other half, which is what the assertion below reads.
+    /// `AVAILABLE` is "this host can build a runnable program", which needs the
+    /// host's own library.
     #[test]
-    fn availability_on_this_host_implies_a_library_and_an_entry_point() {
+    fn availability_on_this_host_implies_a_library() {
         if AVAILABLE {
             let host = host_stencil_target().expect("an available host has a stencil target");
             assert!(available_for(host), "{} is available with no library", host.slug());
-            assert!(host.is_arm64() || asm::AVAILABLE_X86_64);
         }
     }
 

@@ -42,19 +42,3 @@ error: //cmd/site exports no `handle` [unknown-entry-function]
     "if you meant fetch, use that". An output with no entries enters through
     main, and a binary without one is missing-main.
 
-error: a context may not be constructed here [misplaced-context]
-  --> cmd/site/main.buri:31:15
-   |
-31 |     let ctx = context {
-   |               ^^^^^^^^^
-   |
-   = only in an entry's body, in a test source, or in a test-only module — and never inside a lambda, since a closure that could mint authority would make the capture rule meaningless
-   = fix: build it in the entry and pass it down as a `ctx` parameter, or make this a test source, where a context may be built per test
-
-     A closure that could build a context could hand one to a caller that never
-     named an effect, which is what the capture rule prevents.
-
-     An entry is a function an outputs entry names, main unless the build file
-     says otherwise. A binary with a page and a worker has two, and each builds
-     its own context.
-

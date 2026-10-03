@@ -1,0 +1,4 @@
+/// What the platform greets with.
+export fn greeting(): Str {
+    "hello from the kit"
+}

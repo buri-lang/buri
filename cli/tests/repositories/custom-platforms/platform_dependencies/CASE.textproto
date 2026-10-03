@@ -1,0 +1,55 @@
+# **A platform's own dependencies are held to the build's policy.**
+# `//platform/kit`'s `platform.buri` imports `//lib/words`, which is compiled
+# into every output of the platform, so it is checked like a dependency of the
+# binary: it must be visible to the platform, its tags must not clash with the
+# binary's, and its `platforms` must admit the output.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a platform's dependencies are checked for visibility, tags and platforms like the binary's own"
+
+# `//lib/words` is private to its package.
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "private_dependency.txt"
+}
+
+# Visible now, and tagged `server`, which the `client` binary forbids.
+edit {
+  file: "lib/words/BUILD.buri"
+  replace: "library {}\n"
+  with: "library {\n    visibility: [\"//platform/kit\"]\n    tags: [\"server\"]\n}\n"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "forbidden_tag.txt"
+}
+
+# Untagged, and limited to `node`, which the kit's output is not.
+edit {
+  file: "lib/words/BUILD.buri"
+  replace: "    tags: [\"server\"]\n"
+  with: "    platforms: [\"node\"]\n"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "platform_not_admitted.txt"
+}
+
+edit {
+  file: "lib/words/BUILD.buri"
+  replace: "    platforms: [\"node\"]\n"
+  with: ""
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run.txt"
+  stream: OUT
+}
