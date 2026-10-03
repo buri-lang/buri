@@ -782,9 +782,8 @@ pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
 /// This is the seam the native backends arrive at: everything above it is
 /// shared, everything below it is [`backend::select`]'s answer. The one thing
 /// that is still JavaScript-shaped is the return type — a `String`, because a
-/// JavaScript artifact is text and `buri test` appends to it before running it.
-/// A native artifact is bytes, and it is the `link` step rather than this
-/// function that will produce it.
+/// JavaScript artifact is text. A native artifact is bytes, and it is the
+/// `link` step rather than this function that will produce it.
 pub fn emit(
     program: &mut monomorphize::Program,
     tables: &crate::compiler::semantics::types::Tables,
@@ -793,6 +792,43 @@ pub fn emit(
     diagnostics: &mut Diagnostics,
 ) -> Result<String, Diagnostics> {
     emit_all(program, tables, target, flags, diagnostics).map(|(module, _)| module)
+}
+
+/// The middle end and then the JavaScript backend, for a test suite run on
+/// JavaScript: the module as text, because `buri test` appends its driver to
+/// it before running it.
+///
+/// Unminified ([`Js::emit_unminified`](crate::compiler::backend::js::Js::emit_unminified)):
+/// the bundle is run once and thrown away, so the minifier's passes are
+/// seconds spent on bytes nobody keeps.
+pub fn emit_test_bundle(
+    program: &mut monomorphize::Program,
+    tables: &crate::compiler::semantics::types::Tables,
+    flags: &Flags,
+    diagnostics: &mut Diagnostics,
+) -> Result<String, Diagnostics> {
+    prepare(program, Target { platform: crate::build::buildfile::Platform::Js, arch: None });
+    let units = match crate::compiler::backend::js::Js.emit_unminified(
+        program,
+        tables,
+        profile_of(flags),
+    ) {
+        Ok(units) => units,
+        Err(errors) => {
+            diagnostics.extend(errors.items);
+            return Err(std::mem::take(diagnostics));
+        }
+    };
+    match units.into_iter().next().map(|unit| String::from_utf8(unit.bytes)) {
+        Some(Ok(module)) => Ok(module),
+        _ => {
+            diagnostics.push(Diagnostic::error(
+                Span::NONE,
+                String::from("internal error: the backend emitted no text module"),
+            ));
+            Err(std::mem::take(diagnostics))
+        }
+    }
 }
 
 /// [`emit`], and the chunks `core/lazy` split out beside the module.
@@ -884,8 +920,8 @@ pub fn emit_all(
 /// because `middle::native` needs the program by `&mut` and a backend is handed
 /// it by `&` — which is the type saying that a backend transforms nothing. So
 /// the composition is the build system's, and there is exactly one of it:
-/// [`emit`] and [`compile_objects`] both call this, and neither decides
-/// anything else about the middle end.
+/// [`emit`], [`emit_test_bundle`] and [`compile_objects`] all call this, and
+/// none of them decides anything else about the middle end.
 ///
 /// Both profiles run the same passes, so that `release_and_debug_agree` keeps
 /// covering the middle end rather than only the part of it release turns on.
