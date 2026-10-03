@@ -25,6 +25,14 @@ path {
   exists: true
 }
 
+# `--watch` belongs to a page, and the refusal names the platform the output
+# is for.
+run {
+  args: ["run", "//cmd/hello", "--watch"]
+  exit: 2
+  golden: "watch_refused.txt"
+}
+
 # An entry that requires a variant makes every output name one.
 edit {
   file: "platform/lambda/BUILD.buri"

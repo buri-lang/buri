@@ -65,10 +65,12 @@ const SWEEP: Duration = Duration::from_millis(150);
 ///   * every path `actions::test_key` enumerates — the suite's `sources` and
 ///     the closure of every library its `test { dependencies }` and
 ///     `testing { dependencies }` name;
+///   * every file of each repository platform the target's outputs name, and
+///     its dependencies' sources, as `actions::platform_inputs` enumerates;
 ///   * every `BUILD.buri` in the repository;
 ///   * the repository's `REPO.buri`.
 ///
-/// The first two are exactly the inputs the keys are computed from, so a change
+/// The first three are exactly the inputs the keys are computed from, so a change
 /// that does not move a key does not exist as far as the loop is concerned. The
 /// last two are in no key's input list but change the graph itself — a new
 /// dependency edge, a new source, a changed tag vocabulary — and a pass opens a
@@ -99,6 +101,19 @@ pub fn inputs(session: &Session, targets: &[TargetId]) -> Vec<PathBuf> {
         // or the loop serves a verdict for code it stopped watching.
         for (dep, _) in session.workspace.test_dep_edges(target) {
             for member in session.workspace.closure(dep) {
+                declared_sources(session, member, &mut out);
+            }
+        }
+        // Every repository platform the binary's outputs name: its own files
+        // and its dependencies, which `actions::contribute_platform` keys.
+        for label in session.workspace.custom_platforms(target) {
+            let Some((pid, files, members)) = crate::build::actions::platform_inputs(&session.workspace, &label)
+            else {
+                continue;
+            };
+            let dir = &session.workspace.package(pid).dir;
+            out.extend(files.iter().map(|f| dir.join(f)));
+            for member in members {
                 declared_sources(session, member, &mut out);
             }
         }

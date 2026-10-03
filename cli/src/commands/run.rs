@@ -98,7 +98,7 @@ pub fn command_run(args: &arguments::Args) -> i32 {
             "error: `buri run` takes `--{flag}` only for a page, and {} runs its {} output as a \
              process",
             session.workspace.label(target),
-            output.platform().slug()
+            output.platform_label()
         );
         eprintln!(
             "  = a page is served over HTTP, so a rebuild is what the next request answers from; \
@@ -189,7 +189,7 @@ fn serve_page(
     // what was requested is the whole reason a test can use it.
     let port = listener.local_addr().map_or(asked, |address| address.port());
 
-    let artifact = match actions::build_target(&mut session, target, output, &args.flags) {
+    let artifact = match build_page(&mut session, target, output, &args.flags) {
         Ok(artifact) => artifact,
         Err(diagnostics) => {
             session.print(&diagnostics);
@@ -295,7 +295,7 @@ fn rebuild(
     let inputs = watch::inputs(&session, &[target]);
     let built = {
         let _writing = page.building();
-        actions::build_target(&mut session, target, &output, &args.flags)
+        build_page(&mut session, target, &output, &args.flags)
     };
     match built {
         Ok(artifact) => {
@@ -306,6 +306,26 @@ fn rebuild(
             watch::Pass { code: 1, inputs, output: String::new(), quiet: false }
         }
     }
+}
+
+/// Builds a page and every other entry of its platform, which land in the
+/// directory the server answers out of: a page loads the other entries'
+/// modules by name. Cached only when every one of them was.
+fn build_page(
+    session: &mut Session,
+    target: TargetId,
+    output: &Output,
+    flags: &crate::commands::arguments::Flags,
+) -> Result<actions::Artifact, crate::diagnostics::Diagnostics> {
+    let others: Vec<Output> = actions::selected_outputs(session, target, flags)
+        .into_iter()
+        .filter(|o| o.dir() == output.dir() && o.entry_point() != output.entry_point())
+        .collect();
+    let mut artifact = actions::build_target(session, target, output, flags)?;
+    for other in &others {
+        artifact.cached &= actions::build_target(session, target, other, flags)?.cached;
+    }
+    Ok(artifact)
 }
 
 /// Which of a target's outputs `buri run` executes.

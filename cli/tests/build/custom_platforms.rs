@@ -360,3 +360,50 @@ for (const path of ["/rooms/9", "/b", "/c", "/d", "/e"]) {
 }
 console.log(log.join("\n"));
 "#;
+
+/// `repositories/custom-platforms/platform_rules`: two `JS` entries, `left`
+/// and `right`, each with a `js` file of its own.
+fn pair() -> Scratch {
+    Scratch::copy_of("platform-pair", &tests_dir().join("repositories/custom-platforms/platform_rules/repo"))
+}
+
+/// A `js` file written the ways JavaScript allows: a top-level `await` inside
+/// brackets, re-exports from another module, a named default function the
+/// file calls by its name, several names in one `export const`, and an
+/// `export { }` with no `;` before the next statement.
+const SHAPES: &str = r#"import { left } from "buri:program";
+const awaited = [await Promise.resolve("awaited in brackets")][0];
+export * from "node:path";
+export { basename as base } from "node:path";
+export default async function handler(name) { return `${handler.prefix}${await left(name)}`; }
+handler.prefix = "hello ";
+export const first = "one", second = "two";
+const kept = awaited
+export { kept }
+const after = "the statement after";
+export { after };
+"#;
+
+const SHAPES_DRIVER: &str = r#"
+import * as m from "./.buri/out/platform/pair/cmd/app/left.mjs";
+console.log(await m.default("ada"));
+console.log(m.kept);
+console.log(m.after);
+console.log(`${m.first} ${m.second}`);
+console.log(m.base("/a/b.txt"));
+console.log(m.sep);
+"#;
+
+/// Every shape keeps its meaning through the bundle: the module loads, and
+/// each export is the value the file gave it.
+#[test]
+fn a_js_file_keeps_every_shape_of_export_and_await_through_the_bundle() {
+    let scratch = pair();
+    scratch.write("platform/pair/left.mjs", SHAPES);
+    let said = drive(&scratch, "//cmd/app", SHAPES_DRIVER);
+    assert_eq!(
+        said,
+        "hello ada\nawaited in brackets\nthe statement after\none two\nb.txt\n/\n",
+        "an export or an await lost its meaning in the bundle"
+    );
+}

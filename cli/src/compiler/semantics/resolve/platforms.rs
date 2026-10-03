@@ -226,6 +226,39 @@ impl<'a> Checker<'a> {
         let label = custom.label.value.clone();
         let fields = self.tables.tycon(host).fields().to_vec();
         for field in fields {
+            if field.ty.is_error() {
+                continue;
+            }
+            let production = match &field.ty {
+                Ty::Con(con, args) => {
+                    let tycon = self.tables.tycon(*con);
+                    let home = self.loaded.modules.get(tycon.module.index()).map(|m| m.path.as_str());
+                    let a_struct = args.is_empty()
+                        && matches!(tycon.def, TyDef::Struct { .. })
+                        && (tycon.module == platform || home == Some(standard_library::HOST_STRUCTS_MODULE));
+                    a_struct.then_some(tycon.fields().is_empty())
+                }
+                _ => None,
+            };
+            if production != Some(true) {
+                if !self.already(field.span, "host-field-not-production") {
+                    let shown = self.shown(&field.ty);
+                    let fix = match production {
+                        Some(_) => format!(
+                            "drop `{shown}`'s fields: the CLI builds the host, and has nothing to fill them with"
+                        ),
+                        None => String::from(
+                            "use a struct from `platform/host`, or declare one with no fields in `platform.buri`; \
+                             hand anything else to the entry as a parameter",
+                        ),
+                    };
+                    self.templated("host-field-not-production", field.span)
+                        .bind("field", field.name.clone())
+                        .bind("type", shown)
+                        .bind("fix", fix);
+                }
+                continue;
+            }
             let Ty::Con(con, _) = &field.ty else { continue };
             let tycon = self.tables.tycon(*con);
             let Some(module) = self.loaded.modules.get(tycon.module.index()) else { continue };

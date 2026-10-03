@@ -496,6 +496,7 @@ impl Workspace {
             .map(|(i, p)| (p.path.clone(), PackageId(i as u32)))
             .collect();
         resolve_custom_outputs(&mut packages, &by_path, diagnostics);
+        check_artifact_paths(root, &packages, diagnostics);
         let mut sorted_paths: Vec<(String, PackageId)> =
             by_path.iter().map(|(k, v)| (k.clone(), *v)).collect();
         // Longest first, so `//lib/money/cents` finds `lib/money` before `lib`.
@@ -1053,6 +1054,25 @@ impl Workspace {
         Some((id, self.package(id).build.platform.as_ref()?))
     }
 
+    /// Everything an output of `target` for `platform` is built from: the
+    /// target's closure, and for a repository platform the closure of every
+    /// library the platform depends on. What policy is checked over.
+    pub fn policy_members(&self, target: TargetId, platform: &OutputPlatform) -> Vec<TargetId> {
+        let mut members = self.closure(target);
+        if let OutputPlatform::Repository { label, .. } = platform {
+            if let Some((_, rule)) = self.platform_rule(label) {
+                for dep in &rule.dependencies {
+                    if let Some(t) = self.dep_target(&dep.value) {
+                        members.extend(self.closure(t));
+                    }
+                }
+            }
+        }
+        members.sort();
+        members.dedup();
+        members
+    }
+
     /// The repository platforms a binary's outputs name, each once, in the
     /// order they are first named.
     pub fn custom_platforms(&self, target: TargetId) -> Vec<String> {
@@ -1087,8 +1107,13 @@ impl Workspace {
     /// what every tag it carries admits — its `requires` (unset is "all")
     /// minus its `forbids`.
     pub fn platforms(&self, target: TargetId) -> BTreeSet<OutputPlatform> {
+        self.platforms_of(&self.closure(target))
+    }
+
+    /// The same, over any set of targets.
+    pub fn platforms_of(&self, members: &[TargetId]) -> BTreeSet<OutputPlatform> {
         let mut allowed = self.every_platform();
-        for member in self.closure(target) {
+        for &member in members {
             if let Some(lib) = &self.package(member.package).build.library {
                 if member.kind == RuleKind::Library {
                     allowed.retain(|p| lib.admits.admits(p));
@@ -1155,7 +1180,12 @@ impl Workspace {
     /// Explains why `platform` is not available to `target`: the member of the
     /// closure that rules it out, and how it was reached.
     pub fn platform_blocker(&self, target: TargetId, platform: &OutputPlatform) -> Option<PlatformBlocker> {
-        for member in self.closure(target) {
+        self.platform_blocker_of(&self.closure(target), platform)
+    }
+
+    /// The same, over any set of targets.
+    pub fn platform_blocker_of(&self, members: &[TargetId], platform: &OutputPlatform) -> Option<PlatformBlocker> {
+        for &member in members {
             if let Some(lib) = &self.package(member.package).build.library {
                 if member.kind == RuleKind::Library && !lib.admits.admits(platform) {
                     return Some(PlatformBlocker {
@@ -1201,8 +1231,13 @@ impl Workspace {
     /// Every tag carried anywhere in a target's closure, with the target that
     /// carries it.
     pub fn closure_tags(&self, target: TargetId) -> BTreeMap<String, TargetId> {
+        self.tags_of(&self.closure(target))
+    }
+
+    /// Every tag carried by a set of targets, with the target that carries it.
+    pub fn tags_of(&self, members: &[TargetId]) -> BTreeMap<String, TargetId> {
         let mut out = BTreeMap::new();
-        for member in self.closure(target) {
+        for &member in members {
             for tag in self.tags(member) {
                 out.entry(tag.value.clone()).or_insert(member);
             }
@@ -1216,7 +1251,12 @@ impl Workspace {
     /// code down one dependency and server-only code down another is an error
     /// even though neither reaches the other.
     pub fn forbidden_pair(&self, target: TargetId) -> Option<(String, TargetId, String, TargetId)> {
-        let carried = self.closure_tags(target);
+        self.forbidden_pair_of(&self.closure(target))
+    }
+
+    /// The same, over any set of targets.
+    pub fn forbidden_pair_of(&self, members: &[TargetId]) -> Option<(String, TargetId, String, TargetId)> {
+        let carried = self.tags_of(members);
         for (a, a_by) in &carried {
             for (b, b_by) in &carried {
                 if a >= b {
@@ -1256,7 +1296,7 @@ fn resolve_custom_outputs(
     by_path: &HashMap<String, PackageId>,
     diagnostics: &mut Diagnostics,
 ) {
-    use buildfile::{Arch, NativePlatform, OutputTarget};
+    use buildfile::{NativePlatform, OutputTarget};
     // The rules, by package path, read before any output is rewritten.
     let rules: HashMap<String, buildfile::PlatformRule> = packages
         .iter()
@@ -1285,6 +1325,14 @@ fn resolve_custom_outputs(
                 diagnostics.push(d);
                 continue;
             }
+            if let Some(d) = buildfile::check_entry_variants(label, rule, variant) {
+                diagnostics.push(d);
+                continue;
+            }
+            if let Some(d) = output.artifact_name.as_ref().and_then(|n| buildfile::check_artifact_name(label, rule, n)) {
+                diagnostics.push(d);
+                continue;
+            }
             let (filled, errors) = buildfile::check_entries(label, &rule.entry_names(), &custom.entries);
             if !errors.is_empty() {
                 for d in errors {
@@ -1300,22 +1348,21 @@ fn resolve_custom_outputs(
                 one.entry = function.map(|(_, f)| f.clone());
                 one.target = match entry.backend.value {
                     Backend::Js => OutputTarget::Js,
-                    Backend::Native => {
-                        let written = custom.variant.as_ref();
-                        let os = match written.map(|v| v.value.as_str()) {
-                            Some(v) if v.starts_with("macos-") => NativePlatform::Macos,
-                            Some(_) => NativePlatform::Linux,
-                            None => match crate::compiler::driver::host_native_platform() {
+                    // The reader held a native entry's variants to
+                    // `<os>-<arch>`, and the checks above held the output's
+                    // variant to the entry's, so a written one parses.
+                    Backend::Native => match custom.variant.as_ref().and_then(|v| {
+                        buildfile::native_variant(&v.value).map(|(os, arch)| (os, Spanned::new(arch, v.span)))
+                    }) {
+                        Some((os, arch)) => OutputTarget::Native { platform: os, arch: Some(arch) },
+                        None => {
+                            let os = match crate::compiler::driver::host_native_platform() {
                                 Platform::Macos => NativePlatform::Macos,
                                 _ => NativePlatform::Linux,
-                            },
-                        };
-                        let arch = written.and_then(|v| {
-                            let (_, a) = v.value.split_once('-')?;
-                            Arch::parse(a).map(|a| Spanned::new(a, v.span))
-                        });
-                        OutputTarget::Native { platform: os, arch }
-                    }
+                            };
+                            OutputTarget::Native { platform: os, arch: None }
+                        }
+                    },
                 };
                 if let Some(c) = one.custom.as_mut() {
                     c.point = entry.name.value.clone();
@@ -1327,6 +1374,63 @@ fn resolve_custom_outputs(
         }
         binary.outputs = resolved;
     }
+}
+
+/// `duplicate-artifact-path` for two outputs of one binary that land at one
+/// path, where the second would overwrite the first.
+fn check_artifact_paths(root: &Path, packages: &[Package], diagnostics: &mut Diagnostics) {
+    for package in packages {
+        let Some(binary) = package.build.binary.as_ref() else { continue };
+        let mut seen: Vec<(PathBuf, &buildfile::Output)> = Vec::new();
+        // One written output repeats per entry; it is told about once.
+        let mut said: Vec<Span> = Vec::new();
+        for output in &binary.outputs {
+            let path = crate::build::actions::artifact_relative(root, &package.path, output);
+            let Some((_, first)) = seen.iter().find(|(p, _)| *p == path) else {
+                seen.push((path, output));
+                continue;
+            };
+            if said.contains(&output.span) {
+                continue;
+            }
+            said.push(output.span);
+            let platform = output.platform_label();
+            let (span, note, fix) = match (&output.artifact_name, first.span == output.span) {
+                (Some(name), true) => (
+                    name.span,
+                    format!("`{platform}` has several entries, and `artifact_name` names each of them `{}`", name.value),
+                    String::from("remove `artifact_name`: each entry's artifact is named after the entry"),
+                ),
+                _ if output.artifact_name.is_none() && first.artifact_name.is_none() && is_page(packages, output) => (
+                    output.span,
+                    format!("both outputs are `{platform}` pages, and a page's file is named after its entry"),
+                    format!("drop one of the two `{platform}` outputs"),
+                ),
+                _ => (
+                    output.span,
+                    format!("both outputs are `{platform}`, in one directory, under one name"),
+                    String::from("give one of them a different `artifact_name`, or drop it"),
+                ),
+            };
+            let shown = path.display().to_string().replace('\\', "/");
+            diagnostics.push(
+                Diagnostic::templated("duplicate-artifact-path", span)
+                    .with_bind("target", package.label())
+                    .with_bind("path", shown)
+                    .with_bind("note", note)
+                    .with_bind("fix", fix),
+            );
+        }
+    }
+}
+
+/// Whether an output's platform ships assets, which name its artifacts.
+fn is_page(packages: &[Package], output: &buildfile::Output) -> bool {
+    let rule = match &output.custom {
+        Some(custom) => packages.iter().find(|p| p.path == custom.package_path()).and_then(|p| p.build.platform.as_ref()),
+        None => crate::build::platforms::bundled(output.platform().proto()),
+    };
+    rule.is_some_and(|r| !r.assets.is_empty())
 }
 
 /// `unknown-platform` for a `//` label that names no `platform` rule under
