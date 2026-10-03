@@ -205,13 +205,13 @@ pub fn memory_bytes() -> Option<u64> {
 /// function of an index: `buri test` builds and runs its suites on one.
 ///
 /// A job may queue more jobs. A *heavy* job holds a whole program in memory, so
-/// [`Queue::push`] waits while as many heavy jobs as there are workers are
-/// already queued or running.
+/// [`Queue::push`] waits while the pool's limit of heavy jobs are already
+/// queued or running.
 pub struct Queue<J> {
     state: std::sync::Mutex<QueueState<J>>,
     ready: std::sync::Condvar,
     room: std::sync::Condvar,
-    width: usize,
+    heavy_limit: usize,
 }
 
 struct QueueState<J> {
@@ -228,7 +228,7 @@ impl<J> Queue<J> {
     /// Queues a job behind the others, waiting first for room if it is heavy.
     pub fn push(&self, job: J, heavy: bool) {
         let mut state = self.lock();
-        while heavy && state.heavy >= self.width {
+        while heavy && state.heavy >= self.heavy_limit {
             state = self.room.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
         }
         state.heavy = state.heavy.saturating_add(usize::from(heavy));
@@ -269,13 +269,15 @@ impl<J> Queue<J> {
     }
 }
 
-/// Starts `width` workers running `work`, and hands `drive` the queue and the
-/// results. Returns once `drive` does and the workers have stopped.
+/// Starts `width` workers running `work`, at most `heavy_limit` of them on heavy
+/// jobs, and hands `drive` the queue and the results. Returns once `drive` does
+/// and the workers have stopped.
 ///
 /// A result is `None` when its job panicked, so `drive` never waits for a result
 /// that will not come.
 pub fn pool<J, R, T>(
     width: usize,
+    heavy_limit: usize,
     work: impl Fn(J, &Queue<J>) -> R + Sync,
     drive: impl FnOnce(&Queue<J>, &std::sync::mpsc::Receiver<Option<R>>) -> T,
 ) -> T
@@ -291,7 +293,7 @@ where
         }),
         ready: std::sync::Condvar::new(),
         room: std::sync::Condvar::new(),
-        width: width.max(1),
+        heavy_limit: heavy_limit.max(1),
     };
     let (send, receive) = std::sync::mpsc::channel();
     std::thread::scope(|scope| {

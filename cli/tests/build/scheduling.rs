@@ -186,3 +186,27 @@ fn only_an_edit_that_can_change_behaviour_re_runs_a_suite() {
     behaviour.exits(1);
     assert_eq!(behaviour.tests_passed(), 0, "{}", indent(&behaviour.all()));
 }
+
+/// A suite that doesn't type check leaves its batch, and the rest still share
+/// a binary.
+#[test]
+fn a_broken_suite_leaves_the_others_batched() {
+    let scratch = Scratch::repo("batch-without-broken");
+    suite(&scratch, "a", 1);
+    suite(&scratch, "b", 1);
+    suite(&scratch, "c", 1);
+    scratch.write("lib/c/lib.buri", "export fn answer(): I64 { missing() }\n");
+    let run = scratch.run(&["test", "//...", "--explain"]);
+    if run.stderr.contains("test-run-unavailable") {
+        run.exits(1);
+        return;
+    }
+    run.exits(1);
+    assert_eq!(run.tests_passed(), 2, "{}", indent(&run.all()));
+    assert!(run.stdout.contains("1 failed to compile"), "{}", indent(&run.all()));
+    let shared = run.stdout.lines().any(|l| {
+        let f: Vec<&str> = l.split_whitespace().collect();
+        f.len() == 5 && f[1] == "link" && f[2] == "//lib/a,//lib/b"
+    });
+    assert!(shared, "the suites that compile did not share a binary:\n{}", indent(&run.all()));
+}
