@@ -12,8 +12,7 @@ they always match the binary. This page covers what every command shares.
 Target arguments take labels and patterns: `//lib/money`, `//cmd/server`,
 `//lib/...`, `//...`. A label names a package and every target in it. With no
 argument a command covers `//...`; your current directory never changes what a
-command means. Commands can run concurrently; a file lock serializes cache
-writes.
+command means. Commands can run concurrently.
 
 `buri format` also takes a path, since it formats files no build file declares.
 
