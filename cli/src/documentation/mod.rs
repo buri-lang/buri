@@ -293,21 +293,28 @@ impl DocSource for Cli {
     }
 }
 
-/// The standard library reference, rendered from the modules the compiler
-/// just checked.
+/// The standard library reference, rendered from the modules' syntax trees.
 ///
-/// Built on first use and kept, because loading and checking the whole
-/// standard library costs a few milliseconds and `buri docs` may ask for
-/// several pages in one run.
+/// Loaded the first time a page or the index needs it, and kept, because
+/// `buri docs` may ask for several pages in one run and most of the pages it
+/// serves are not the library's. Loaded and not checked: a page shows each
+/// declaration as written, its comments and its signature, and none of that
+/// needs a type the checker infers.
 pub struct Std {
-    modules: Vec<reference::ApiModule>,
+    modules: std::cell::OnceCell<Vec<reference::ApiModule>>,
 }
 
 impl Std {
     pub fn load() -> Std {
-        let mut map = crate::diagnostics::SourceMap::new();
-        let analysis = crate::compiler::driver::analyze_stdlib(&mut map);
-        Std { modules: reference::from_loaded(&analysis.loaded, &reference::std_filter) }
+        Std { modules: std::cell::OnceCell::new() }
+    }
+
+    fn modules(&self) -> &[reference::ApiModule] {
+        self.modules.get_or_init(|| {
+            let mut map = crate::diagnostics::SourceMap::new();
+            let loaded = crate::compiler::driver::load_stdlib(&mut map);
+            reference::from_loaded(&loaded, &reference::std_filter)
+        })
     }
 }
 
@@ -317,11 +324,11 @@ impl DocSource for Std {
     }
 
     fn resolve(&self, id: &str) -> Option<Page> {
-        module_page(&self.modules, id, "standard library")
+        module_page(self.modules(), id, "standard library")
     }
 
     fn entries(&self) -> Vec<Entry> {
-        module_entries(&self.modules)
+        module_entries(self.modules())
     }
 }
 
@@ -415,8 +422,8 @@ impl Workspace {
         let workspace =
             crate::build::workspace::Workspace::load(&root, &mut map, &mut diagnostics).ok()?;
 
-        // Every library in the repository, checked together, so a page shows
-        // what an importer would actually see.
+        // Every library in the repository, loaded the way it is compiled, so
+        // a page shows what an importer would actually see.
         let mut modules = Vec::new();
         let mut cache = crate::parsing::parser::Cache::new();
         for target in workspace.targets() {
@@ -427,11 +434,12 @@ impl Workspace {
                 entry: None,
                 with_tests: false,
             };
-            let analysis =
-                crate::compiler::driver::analyze(Some(&workspace), &mut map, &mut cache, &unit);
+            // Loaded and not checked, for the reason `Std` gives.
+            let loaded =
+                crate::compiler::driver::load(Some(&workspace), &mut map, &mut cache, &unit);
             let package = target.package;
             let owned = |m: &crate::compiler::modules::ModuleData| m.pkg == Some(package);
-            for m in reference::from_loaded(&analysis.loaded, &owned) {
+            for m in reference::from_loaded(&loaded, &owned) {
                 if !modules.iter().any(|e: &reference::ApiModule| e.path == m.path) {
                     modules.push(m);
                 }
