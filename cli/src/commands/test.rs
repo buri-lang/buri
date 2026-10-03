@@ -315,7 +315,7 @@ fn one_pass(
     let width = if slots.iter().all(|s| s.answer.is_some()) { 1 } else { jobs_of(&args.flags) };
     let tally = crate::parallel::pool(
         width,
-        builds_of(width),
+        memory_budget(),
         |job, held, queue, tell| work(job, held, queue, tell, &shared),
         |queue, done| drive(&mut session, args, &mut pre, &plans, &mut slots, queue, done, &mut out),
     );
@@ -427,8 +427,9 @@ fn suite(session: &Session, target: TargetId) -> Option<crate::build::buildfile:
 //   runs the binary. A batch's binary runs each member in a process of its
 //   own, so its suites run side by side too.
 //
-// A front end and its back end are one heavy job, so at most `builds_of` of
-// them hold a whole program at once (`parallel::Queue`).
+// A front end and its back end are one heavy job, queued with the memory its
+// size says it will hold ([`build_bytes`]), and the jobs holding a whole program
+// at once stay within [`memory_budget`] (`parallel::Queue`).
 //
 // The report never depends on which worker finished first. Each run fills its
 // own [`Slot`], `--explain` lines included, and a suite is printed only once
@@ -539,25 +540,42 @@ fn jobs_of(flags: &arguments::Flags) -> usize {
     flags.jobs.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |c| c.get())).max(1)
 }
 
-/// How many of `jobs` may hold a whole program at once: one per
-/// [`BUILD_MEMORY`] of this machine's memory. A suite's run holds no program,
+/// The bytes the builds in flight may be expected to hold between them: half
+/// this machine's memory, leaving the rest to the system, the suites' own
+/// processes and the analyses the lint keeps. A suite's run holds no program,
 /// so it never counts against this, and `jobs` runs can always go side by side.
-fn builds_of(jobs: usize) -> usize {
-    let memory = std::env::var(MEMORY_VARIABLE)
+/// A machine that cannot say how much memory it has is not limited.
+fn memory_budget() -> u64 {
+    std::env::var(MEMORY_VARIABLE)
         .ok()
         .and_then(|v| v.trim().parse().ok())
         .or_else(crate::parallel::memory_bytes)
-        .map_or(jobs, |bytes| usize::try_from(bytes / BUILD_MEMORY).unwrap_or(jobs));
-    jobs.min(memory).max(1)
+        .map_or(u64::MAX, |bytes: u64| bytes / 2)
 }
 
 /// The environment variable that replaces this machine's memory, in bytes, in
-/// [`builds_of`].
+/// [`memory_budget`].
 const MEMORY_VARIABLE: &str = "BURI_TEST_MEMORY_BYTES";
 
-/// The memory one build is budgeted. Batching an 80-suite repository's suites
-/// peaked at 22 GB with eight builds in flight.
-const BUILD_MEMORY: u64 = 8 * 1024 * 1024 * 1024;
+/// The memory a build of `source` bytes of repository code is expected to
+/// hold, from its check to its link.
+///
+/// An upper bound on what was measured, rather than a guess. On an 82-suite
+/// repository, one suite at a time, a build grew the process's peak by 25 MB
+/// for a suite of half a kilobyte, by 40 to 100 MB for most suites, and by at
+/// most 440 MB for one loading 1.8 MB of source. The batch of all 58 suites
+/// that could share a binary loaded 4.7 MB of source, and the whole run peaked
+/// at 1.9 GB. The size of the source predicts a build only loosely, so this
+/// bound is above every one of those, and as much as three times above some.
+fn build_bytes(source: u64) -> u64 {
+    BUILD_BASE.saturating_add(source.saturating_mul(BUILD_PER_SOURCE_BYTE))
+}
+
+/// What a build holds whatever its size.
+const BUILD_BASE: u64 = 64 * 1024 * 1024;
+
+/// What a build holds per byte of repository source it compiles.
+const BUILD_PER_SOURCE_BYTE: u64 = 400;
 
 /// What the reporting loop counted.
 #[derive(Default)]
@@ -884,6 +902,7 @@ fn solo(
         &mut session.parsed,
         std::slice::from_ref(&unit),
     );
+    let bytes = build_bytes(loading.source_bytes(&session.map));
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
     let limit = suite(session, target).and_then(|x| x.timeout_seconds);
     let js = session
@@ -909,7 +928,7 @@ fn solo(
         snapshot_dir: snapshot_dir(session, target),
         filter: args.flags.filter.clone(),
     };
-    queue.push(Job::Front(Box::new(job)), true);
+    queue.push(Job::Front(Box::new(job)), bytes);
 }
 
 /// One suite, loaded, and everything about it a worker would otherwise ask the
@@ -2223,8 +2242,9 @@ fn queue_batch(
             s.queued = true;
         }
     }
-    let job = BatchJob { info: std::sync::Arc::new(info), loading, map: session.map.shared() };
-    queue.push(Job::Batch(Box::new(job)), true);
+    let bytes = build_bytes(loading.source_bytes(&session.map));
+    let job = BatchJob { info: std::sync::Arc::new(info), loading, map: session.map.shared(), bytes };
+    queue.push(Job::Batch(Box::new(job)), bytes);
 }
 
 /// What every binary of one batch shares, each member's at its position.
@@ -2260,6 +2280,8 @@ struct BatchJob {
     loading: crate::compiler::driver::Loading,
     /// The session's map as the load left it.
     map: std::sync::Arc<crate::diagnostics::SourceMap>,
+    /// What the build is expected to hold ([`build_bytes`]).
+    bytes: u64,
 }
 
 /// One batch's front end: one type check, one program per group ([`groups_of`]),
@@ -2273,7 +2295,7 @@ struct BatchJob {
 /// A type check that fails goes back as [`Done::Broken`], so [`drive`] can try
 /// again without the members whose code failed it ([`broken_members`]).
 fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
-    let BatchJob { info, loading, map } = job;
+    let BatchJob { info, loading, map, bytes } = job;
     let abandoned = || Done::Abandoned { slots: info.member_slots.clone(), explain: String::new() };
     let mut analysis = crate::compiler::driver::check(loading, Some(&shared.workspace), &map);
     drop(map);
@@ -2325,8 +2347,11 @@ fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Sha
     }
     // Each group is monomorphized again from the batch's one check, rooted at
     // its own tests, so each binary holds only its own code. Each is a heavy
-    // job of its own, so the groups build side by side within the limit.
+    // job of its own, so the groups build side by side within the budget. The
+    // batch's bytes are divided between them: together they hold its check,
+    // and a program each.
     drop(program);
+    let share = bytes / u64::try_from(groups.len()).unwrap_or(1).max(1);
     let tables = std::sync::Arc::new(analysis.checked.tables.clone());
     let analysis = std::sync::Arc::new(analysis);
     let skipped = std::sync::Arc::new(skipped);
@@ -2347,7 +2372,7 @@ fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Sha
                 group,
                 modules,
             })),
-            true,
+            share,
         );
     }
     drop(held);
@@ -2627,7 +2652,7 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
         // Another suite is painting there. Back of the queue, rather than a
         // worker held waiting.
         std::thread::sleep(Duration::from_millis(20));
-        queue.push(Job::Member(job), false);
+        queue.push(Job::Member(job), 0);
         return Done::Progress;
     }
     let MemberJob { binary, seeds, sheet, spec, range, gathered } = job;
