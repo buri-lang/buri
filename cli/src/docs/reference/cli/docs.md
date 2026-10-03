@@ -1,7 +1,7 @@
 ## What it does
 
-Serves the language reference, the build system documentation, and this CLI
-reference, all from the binary. What you read is what this toolchain does.
+Serves the language, build system and CLI references from the binary, so what
+you read matches this toolchain.
 
 ```text
 buri docs                          every page, grouped
@@ -15,12 +15,11 @@ buri docs manifest                 every id and output shape, for an agent
 buri docs assemble                 regenerate cli/src/docs/SPEC.md
 ```
 
-It works outside a repository: the prose ships inside the executable.
+It works outside a repository.
 
 ## Searching
 
-`buri docs search <words>` takes words rather than a name, and answers with
-every page those words are about:
+`buri docs search <words>` finds every page those words are about:
 
 ```text
 $ buri docs search compare ints
@@ -31,31 +30,27 @@ buri docs core/str.compare  method compare
 …
 ```
 
-Every line is the command that reads that page, so a result is something to run
-rather than an id to transcribe. Search covers three things: the names, the
-prose inside every page — a `///` comment's body and a module's `//!` text
-included — and a small table of concepts. That table is what puts `core/order`
-under "compare" and `core/str` under "pad" when the page itself never uses the
-word. `--format=json` gives the same hits with a `command` on each.
+Each result line is the command that reads that page. Search covers names, the
+prose of every page (including `///` and `//!` comments), and a small table of
+concepts that puts `core/order` under "compare" and `core/str` under "pad" even
+where the page never uses the word. `--format=json` gives the same hits with a
+`command` on each.
 
 ## For agents
 
 `--format=json` prints one object on one line. `--dense` drops prose but keeps
-every heading and **every example**. Code is what a caller needs most, so it is
-never abridged. `buri docs manifest` lists every id you can fetch, and a test
-asserts that each one really works.
+every heading and every example. `buri docs manifest` lists every id you can
+fetch.
 
 ## Why this cannot go stale
 
-The test suite compiles every fenced example in every page against the real
-standard library, and runs the ones that print something to compare their
-output. **That includes examples written in `///` and `//!` comments in `.buri`
-sources.** `buri docs test` reads a source file through its comments, and a
-failure names the `.buri` line the example is written on.
+The test suite compiles every fenced example against the real standard library,
+including examples in `///` and `//!` comments, and checks the output of the
+ones that print. `buri docs test` reads a source file through its comments, and
+a failure names the `.buri` line the example is on.
 
-The same run holds every fenced example to the **layout** `buri format` writes,
-through the same printer. What you copy out of a page is the house style. Run
-`buri format` over the documentation to fix one.
+Every example must also match `buri format`'s layout. Run `buri format` over the
+documentation to fix one.
 
-`cli/src/docs/SPEC.md` comes from these same topics, and a test fails if the
-checked-in file drifts from what the topics produce.
+`cli/src/docs/SPEC.md` is generated from these topics, and a test fails if the
+checked-in copy drifts.

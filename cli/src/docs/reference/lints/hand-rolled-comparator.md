@@ -11,33 +11,26 @@ fn compareInts(left: Int, right: Int): Order {
 }
 ```
 
-That function is `order.int`. Not "like" it: `core/order` declares it with that
-body, character for character.
+That function is `order.int`, character for character. Hand-written comparators
+tend to multiply, and the `Float` one usually disagrees with the others about
+`NaN`. `core/order` has the whole set:
 
-Comparators travel in packs. One arrives because `derive Ordered` did not reach
-somewhere, and then there are four: one for `Int`, one for `Bool`, one for
-`Float` that quietly disagrees with the first two about `NaN`, and one for `Str`
-that delegates to `compare`. The library has the whole set:
+- `order.int(a, b)`, `order.float(a, b)`, `order.bool(a, b)` with `false` below
+  `true`, `order.char(a, b)` by scalar value, and `order.str(a, b)`, which is
+  `a.compare(b)`.
+- `order.reverse(cmp)` flips any of them for a descending sort.
+- `Order.then(next)` chains a tie-break, and `Order.flip`, `Order.isLess` and
+  `Order.isEqual` read a result back.
 
-- `order.int(a, b)`, `order.float(a, b)`, `order.bool(a, b)` — with `false`
-  below `true` — `order.char(a, b)` by scalar value, and `order.str(a, b)`,
-  which is `a.compare(b)`.
-- `order.reverse(cmp)` turns any of them around, which is what a descending
-  sort wants instead of a chain with `.Less` and `.Greater` swapped.
-- `Order.then(next)` chains a tie-break onto a comparison, and
-  `Order.flip`, `Order.isLess`, `Order.isEqual` read one back.
+`a.compare(b)` is the method and `order.int(a, b)` the free function. Both
+answer an `Order`, but `sortBy` wants the free function, and for `Int`, `Bool`,
+`Float` and `Char` it only lives in `core/order`.
 
-**One operation, two addresses.** `a.compare(b)` is the method on the receiver
-and `order.int(a, b)` is the free function. Both answer an `Order`, and the
-second is the one a `sortBy` argument wants. For `Int`, `Bool`, `Float` and
-`Char` the comparator lives in `core/order` and nowhere else.
+The rule doesn't fire on:
 
-The rule fires on the shape and on the direction. The same chain with `.Greater`
-and `.Less` swapped is a *reversed* order and means something else, so the rule
-leaves it alone — though `order.reverse` says it better. A chain with a fourth
-branch is not this shape either, which is how a total float order that sorts
-`NaN` deliberately stays out of the report.
-
-The rule reports only the primitives `core/order` has an exact comparator for.
-It leaves a comparator over `U8` or `I32` alone, because `order.int` takes an
-`Int`, and a fix that does not type-check is not a fix.
+- the chain with `.Less` and `.Greater` swapped, which is a reversed order
+  (`order.reverse` says it better);
+- a chain with a fourth branch, such as a float order that sorts `NaN` on
+  purpose;
+- types without an exact comparator, like `U8` or `I32`, since `order.int`
+  takes an `Int`.

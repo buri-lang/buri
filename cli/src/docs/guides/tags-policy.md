@@ -1,12 +1,11 @@
 # Enforce policy with tags
 
-Say a repository has code that opens sockets and code that runs untrusted input,
-and the two may never end up in one artifact. Tags write that down, and the
-build checks it.
+Say code that opens sockets and code that runs untrusted input must never end up
+in one artifact. Tags state that rule, and the build checks it.
 
 ## Declare the vocabulary
 
-You declare every tag once, in `REPO.buri`, with what it costs:
+Declare every tag once, in `REPO.buri`:
 
 ```textproto schema=repo
 tag {
@@ -28,15 +27,12 @@ tag {
 }
 ```
 
-Write `doc` as the policy rather than a restatement of the name: the diagnostic
-prints it.
-
-`forbids` is symmetric, so declaring it on one of the pair is the whole
-statement. Put it on the restricted side.
+Write `doc` as the policy, not a restatement of the name: the diagnostic prints
+it. `forbids` is symmetric, so declare it once, on the restricted side.
 
 ## Label the targets
 
-A build file says what its code *is*, and nothing about what follows:
+A build file says what its code *is*:
 
 ```textproto schema=build
 # libs/socket/BUILD.buri
@@ -59,9 +55,8 @@ binary {
 }
 ```
 
-A tag `REPO.buri` does not declare is `unknown-tag`, and the error suggests the
-nearest declared name, so a typo cannot turn a checked build into an unchecked
-one.
+An undeclared tag is an `unknown-tag` error that suggests the nearest declared
+name, so a typo can't silently skip the check.
 
 ## Watch it fail
 
@@ -81,9 +76,9 @@ error: //apps/scan cannot contain both "net" and "sandboxed" code [tag-violation
   = fix: drop one of the two dependencies, or split //apps/scan into a target per side
 ```
 
-The error prints the path because the question is never which library is tagged
-`net`, it is who dragged it in. The check runs at every target, not only at
-binaries, so an unsatisfiable library is reported at itself.
+The error prints the path because the real question is who dragged `net` in. The
+check runs at every target, not only binaries, so an unsatisfiable library is
+reported at itself.
 
 ## Ask before you build
 
@@ -101,9 +96,9 @@ $ buri query 'path(//apps/scan, //libs/socket)'
 
 ## Restrict a tag to platforms
 
-`requires { backends: [...] }` is a whitelist, and it accumulates down the
-closure. Above, `net` requires `NATIVE`, so every library tagged `net` inherits
-that, and a binary asking for a `node` output fails a second way:
+`requires { backends: [...] }` is an allowlist that accumulates down the closure.
+`net` requires `NATIVE`, so a binary that depends on `net` code and asks for a
+`node` output fails a second way:
 
 ```text
 error: //apps/scan cannot be built for node [platform-violation]
@@ -113,17 +108,14 @@ error: //apps/scan cannot be built for node [platform-violation]
   = fix: drop the node output, or widen the tag's `requires` in REPO.buri
 ```
 
-One declaration, enforced from both ends.
 `buri query 'platforms(//apps/scan)'` prints what the closure has left.
 
-To rule out one platform and keep the rest open, including platforms the
-toolchain gains later, use `forbids` instead. `forbids { backends: [JS] }`
-reads `which forbids JS`, and `forbids { platforms: ["web"] }` reads
-`which forbids web`.
+To rule out one platform and keep the rest open, including future ones, use
+`forbids { backends: [JS] }` or `forbids { platforms: ["web"] }` instead.
 
 ---
 
 Tags answer "what may end up in one artifact." For "who may write this
 dependency edge," use `visibility`. [`tags.md`](../reference/build/tags.md) has
 the exact semantics: the closure union, the platform intersection, and when to
-forbid a platform rather than whitelist the rest.
+forbid a platform rather than allowlist the rest.
