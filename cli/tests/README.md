@@ -184,6 +184,12 @@ took a CI job with it. So:
   `127.0.0.1`. A test that picks a port and hopes races the pick against the
   bind;
 * every connect, read and write carries `shared::SERVER_DEADLINE`;
+* start a native program with `shared::spawned` or `shared::started`, so the
+  deadlines start once it runs. macOS holds a fresh executable inside `exec`
+  until `syspolicyd` has assessed it, and under load that queue alone took
+  longer than 20 seconds. Where a clock is already running when the program
+  starts (a peer's accept, a server's idle timeout), call `shared::admitted`
+  on it first;
 * **read a reply until it is whole, never to a byte count.** A loop that stops
   at "some bytes arrived" asserts about whatever the kernel coalesced into one
   segment. `e2e::Until` lets the caller say what a complete answer *is*: the

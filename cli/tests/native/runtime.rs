@@ -895,6 +895,8 @@ fn the_network_effect_fetches() {
     use std::io::{Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
+    // Before the server's clock starts, so the driver's first launch is not on it.
+    crate::shared::admitted(driver());
 
     let server = std::thread::spawn(move || {
         // Every wait this thread does is bounded, because the test joins it: a

@@ -22,12 +22,7 @@ use std::time::Duration;
 /// Bounded because an actor's sender waits, and a regression there is a
 /// program that hangs. A hang here is a failing row with a sentence.
 fn ran_bounded(binary: &std::path::Path) -> Ran {
-    let mut child = std::process::Command::new(binary)
-        .env("BURI_RT_HEAP_CHECK", "1")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("the program did not start");
+    let mut child = crate::shared::spawned(binary);
     let status = crate::shared::waited(&mut child, Duration::from_secs(60));
     let mut stdout = String::new();
     let mut stderr = String::new();
