@@ -61,11 +61,9 @@ use crate::compiler::middle::rc;
 use crate::compiler::semantics::typed::{Callee, Expr, ExprKind};
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty};
 
-/// Whether `key` is lowered to a loop here.
+/// Whether `key` is lowered here.
 pub(super) fn handles(key: &str) -> bool {
-    intrinsic_keys::list_call(key).is_some_and(|c| {
-        matches!(c.kind, Step::Map | Step::Filter | Step::Fold | Step::Any | Step::All | Step::Count)
-    })
+    key == "list.get" || intrinsic_keys::list_call(key).is_some_and(|c| c.kind != Step::Sort)
 }
 
 /// `middle::rc`'s classifier, built the first time a loop asks.
@@ -175,6 +173,9 @@ impl FnLower<'_> {
         step: Option<FuncIdx>,
         ret: &Ty,
     ) -> Option<ValueId> {
+        if key == "list.get" {
+            return self.list_get(vals, tys, ret);
+        }
         let call = intrinsic_keys::list_call(key)?;
         let xs = *vals.first()?;
         let elem = match tys.first()? {
@@ -220,19 +221,11 @@ impl FnLower<'_> {
             Step::Filter => {
                 let out = self.emit(ret_t, |dest| Inst::ArrayAlloc { dest, len: n });
                 let zero = self.int(Type::I64, 0);
-                let no = self.constant(Type::I1, Const::Bool(false));
                 let w = self.walk(n, &[zero]);
                 let k = *w.vars.first()?;
                 let e = element(self, w.i);
                 let keep = self.step(&callee, with_ctx(&ctx, vec![e]), step_t);
-                let dropped = self.emit(Type::I1, |dest| Inst::Binary {
-                    dest,
-                    op: BinOp::Eq,
-                    prim: Prim::Bool,
-                    lhs: keep,
-                    rhs: no,
-                });
-                let (skip, kept) = self.fork(dropped);
+                let (kept, skip) = self.fork(keep);
                 // The element is read again rather than kept across the call,
                 // so that the read the predicate is handed is used once and
                 // can be made where the predicate takes it. The copy is a
@@ -245,9 +238,13 @@ impl FnLower<'_> {
                 }
                 self.push(Inst::ArraySet { array: out, index: k, value: e.value });
                 let k1 = self.add_one(k);
-                self.again(&w, vec![k1]);
+                let latch = self.block(&[Type::I64]);
+                self.set_term(Term::Jump(Target::new(latch, vec![k1])));
                 self.cur = skip;
-                self.again(&w, vec![k]);
+                self.set_term(Term::Jump(Target::new(latch, vec![k])));
+                self.cur = latch;
+                let k2 = *self.code.get(latch).params.first()?;
+                self.again(&w, vec![k2]);
                 self.end(&w);
                 self.emit(ret_t, |dest| Inst::ArrayPrefix { dest, array: out, len: k })
             }
@@ -323,8 +320,126 @@ impl FnLower<'_> {
                 self.end(&w);
                 c
             }
-            Step::FoldResult | Step::Sort | Step::Find | Step::FindIndex => return None,
+            // `find` and `findIndex` leave at the first element the predicate
+            // keeps, for `any`'s reason. `find`'s answer is a second owner of
+            // the element it carries.
+            Step::Find | Step::FindIndex => {
+                let some = self.variant_of(ret, "Some", 0);
+                let none = self.variant_of(ret, "None", 1);
+                let w = self.walk(n, &[]);
+                let e = element(self, w.i);
+                let b = self.step(&callee, vec![e], step_t);
+                let exit = self.block(&[ret_t]);
+                let (hit, more) = self.fork(b);
+                self.cur = hit;
+                let payload = if call.kind == Step::Find {
+                    let e = element(self, w.i);
+                    if self.counts.counted(&e.ty) {
+                        self.push(Inst::IncRef { value: e.value });
+                    }
+                    e.value
+                } else {
+                    w.i
+                };
+                let found = self.emit(ret_t, |dest| Inst::MakeEnum {
+                    dest,
+                    variant: some,
+                    fields: vec![payload],
+                });
+                self.set_term(Term::Jump(Target::new(exit, vec![found])));
+                self.cur = more;
+                self.again(&w, Vec::new());
+                self.end(&w);
+                let missing =
+                    self.emit(ret_t, |dest| Inst::MakeEnum { dest, variant: none, fields: Vec::new() });
+                self.set_term(Term::Jump(Target::new(exit, vec![missing])));
+                self.cur = exit;
+                *self.code.get(exit).params.first()?
+            }
+            // A fold that stops at the first `.Err`, which it answers exactly as
+            // the step did; an empty list answers `.Ok(init)`. Each step takes
+            // the accumulator's count and answers another inside its `.Ok`, so
+            // moving the payload out takes no count either.
+            Step::FoldResult => {
+                let init = *vals.get(call.init?)?;
+                let init_ty = tys.get(call.init?)?.clone();
+                let acc_t = self.type_of(&init_ty);
+                let ok = self.variant_of(ret, "Ok", 0);
+                let ok_tag = self.int(Type::I32, ok as usize);
+                let w = self.walk(n, &[init]);
+                let acc = *w.vars.first()?;
+                let e = element(self, w.i);
+                let a = Arg { value: acc, ty: init_ty, owned: true };
+                let r = self.step(&callee, with_ctx(&ctx, vec![a, e]), step_t);
+                let tag = self.emit(Type::I32, |dest| Inst::GetTag { dest, agg: r });
+                let failed = self.emit(Type::I1, |dest| Inst::Binary {
+                    dest,
+                    op: BinOp::Ne,
+                    prim: Prim::I32,
+                    lhs: tag,
+                    rhs: ok_tag,
+                });
+                let exit = self.block(&[ret_t]);
+                let carry = self.block(&[]);
+                self.set_term(Term::Branch {
+                    cond: failed,
+                    then: Target::new(exit, vec![r]),
+                    else_: Target::to(carry),
+                });
+                self.cur = carry;
+                let next = self.emit(acc_t, |dest| Inst::GetPayload {
+                    dest,
+                    agg: r,
+                    variant: ok,
+                    index: 0,
+                });
+                self.again(&w, vec![next]);
+                self.end(&w);
+                let done =
+                    self.emit(ret_t, |dest| Inst::MakeEnum { dest, variant: ok, fields: vec![acc] });
+                self.set_term(Term::Jump(Target::new(exit, vec![done])));
+                self.cur = exit;
+                *self.code.get(exit).params.first()?
+            }
+            Step::Sort => return None,
         })
+    }
+
+    /// `list.get(xs, i)`: the bounds test and the load `xs[i]` lowers to, with
+    /// the retain that makes the `Option` a second owner of the element.
+    ///
+    /// One unsigned comparison covers both bounds: a negative index is a very
+    /// large unsigned one. The element is the `else` arm, for [`FnLower::walk`]'s
+    /// reason.
+    fn list_get(&mut self, vals: &[ValueId], tys: &[Ty], ret: &Ty) -> Option<ValueId> {
+        let (&xs, &i) = (vals.first()?, vals.get(1)?);
+        let Ty::Array(elem) = tys.first()? else { return None };
+        let elem = (**elem).clone();
+        let (elem_t, ret_t) = (self.type_of(&elem), self.type_of(ret));
+        let some = self.variant_of(ret, "Some", 0);
+        let none = self.variant_of(ret, "None", 1);
+        let n = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
+        let outside = self.emit(Type::I1, |dest| Inst::Binary {
+            dest,
+            op: BinOp::Ge,
+            prim: Prim::U64,
+            lhs: i,
+            rhs: n,
+        });
+        let exit = self.block(&[ret_t]);
+        let (missing, found) = self.fork(outside);
+        self.cur = found;
+        let e = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: xs, index: i });
+        if self.counts.counted(&elem) {
+            self.push(Inst::IncRef { value: e });
+        }
+        let v = self.emit(ret_t, |dest| Inst::MakeEnum { dest, variant: some, fields: vec![e] });
+        self.set_term(Term::Jump(Target::new(exit, vec![v])));
+        self.cur = missing;
+        let v = self.emit(ret_t, |dest| Inst::MakeEnum { dest, variant: none, fields: Vec::new() });
+        self.set_term(Term::Jump(Target::new(exit, vec![v])));
+        self.cur = exit;
+        self.code.get(exit).params.first().copied()
     }
 
     /// How the loop calls its step: directly where the call site names a
@@ -342,7 +457,7 @@ impl FnLower<'_> {
             n if n == want => None,
             // A lambda that captured nothing still takes its environment
             // first, as an empty tuple (`middle::closures`).
-            n if n == want + 1 => {
+            n if Some(n) == want.checked_add(1) => {
                 let ty = g.params.first().and_then(|p| g.locals.get(p.index())).map(|l| l.ty.clone());
                 match ty {
                     Some(t) if t == Ty::Tuple(Vec::new()) => {
