@@ -2456,6 +2456,63 @@ async function $fetchEntry(entry, request, env) {
   });
 }
 
+// --- Crossing to a platform's `js` file ---------------------------------------
+//
+// A repository platform's `js` file calls its entry and implements its
+// production structs' methods, and these are the rows of the crossing table
+// that need more than an expression: the Fetch standard's `Request` and
+// `Response` each way, and `Result<T, Str>` as a thrown `Error`. The rest is
+// written inline by `backend/js/crossing.rs`.
+
+// A Fetch `Request`, as `platform/effect`'s: `[method, url, headers, body,
+// timeoutMillis]`. A request the platform handed over carries no timeout.
+async function $crossRequestIn(request) {
+  const method = $HTTP_METHOD.indexOf(request.method);
+  const headers = [];
+  for (const [name, value] of request.headers) headers.push([name, value]);
+  const carries = request.method !== "GET" && request.method !== "HEAD";
+  const body = carries ? Array.from(new Uint8Array(await request.arrayBuffer())) : [];
+  return [method < 0 ? 0 : method, request.url, headers, body, 0n];
+}
+
+// The other way: `platform/effect`'s `Request`, as a Fetch one.
+function $crossRequestOut(r) {
+  const method = $HTTP_METHOD[Number(r[0])] || "GET";
+  const init = { method, headers: Array.from(r[2], (h) => [h[0], h[1]]) };
+  if (r[3].length !== 0 && method !== "GET" && method !== "HEAD") init.body = new Uint8Array(r[3]);
+  return new Request(r[1], init);
+}
+
+// A Fetch `Response`, as `platform/effect`'s: `[status, headers, body]`.
+async function $crossResponseIn(response) {
+  const octets = new Uint8Array(await response.arrayBuffer());
+  return [BigInt(response.status), $httpResponseHeaders(response), Array.from(octets)];
+}
+
+// The other way: `platform/effect`'s `Response`, as a Fetch one.
+function $crossResponseOut(r) {
+  return new Response(new Uint8Array(r[2]), {
+    status: Number(r[0]),
+    headers: Array.from(r[1], (h) => [h[0], h[1]]),
+  });
+}
+
+// `Result<T, Str>` leaving for the file: the value, or the message thrown.
+function $crossThrow(r) {
+  if (r[0] === 1) throw new Error(r[1]);
+  return r[1];
+}
+
+// And arriving from it: `.Ok` of what the method answered, or `.Err` of the
+// message of whatever it threw.
+async function $crossCatch(thunk) {
+  try {
+    return $ok(await thunk());
+  } catch (e) {
+    return $err(String((e && e.message) || e));
+  }
+}
+
 function $host_HostClock_nowMilliseconds(self) {
   return BigInt(Date.now());
 }

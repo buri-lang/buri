@@ -1,0 +1,4 @@
+library {
+    dependencies: ["//platform/effect/kv"]
+    visibility: ["//visibility:public"]
+}

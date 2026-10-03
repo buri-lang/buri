@@ -1,0 +1,22 @@
+from "platform/effect" import { Request, Response };
+from "platform/host" import { HostAllocator, HostClock, HostNetwork, HostStdout };
+from "//platform/effect/kv" import { Kv };
+
+export struct CloudflareHost {
+    export alloc: HostAllocator,
+    export stdout: HostStdout,
+    export clock: HostClock,
+    export net: HostNetwork,
+    export kv: HostKv,
+}
+
+export fn fetch(host: CloudflareHost, request: Request): Response;
+
+// fetch.mjs implements both methods.
+struct HostKv {}
+
+impl Kv for HostKv {
+    fn get(self, namespace: Str, key: Str): Option<Str>;
+
+    fn put(self, namespace: Str, key: Str, value: Str): ();
+}

@@ -316,21 +316,14 @@ impl PlatformName {
         crate::build::platforms::bundled(self.name())
     }
 
-    /// The variants an output picks between: every one its entries declare,
-    /// once each. Empty when there are none.
+    /// The variants an output picks between. Empty when there are none.
     pub fn variants(self) -> Vec<&'static str> {
-        let mut out: Vec<&'static str> = Vec::new();
-        for v in self.rule().iter().flat_map(|r| &r.entries).flat_map(|e| &e.variants) {
-            if !out.contains(&v.value.as_str()) {
-                out.push(v.value.as_str());
-            }
-        }
-        out
+        self.rule().map(PlatformRule::variants).unwrap_or_default()
     }
 
-    /// Whether an output must name a variant: some entry requires one.
+    /// Whether an output must name a variant.
     pub fn variant_required(self) -> bool {
-        self.rule().is_some_and(|r| r.entries.iter().any(|e| e.variant_required))
+        self.rule().is_some_and(PlatformRule::variant_required)
     }
 
     /// The names of the platform's entries.
@@ -449,13 +442,53 @@ pub struct Output {
     /// The function filling the platform's entry, where `entries` names one.
     /// `None` is the function named after the entry.
     pub entry: Option<Spanned<String>>,
+    /// The repository platform this output names, `//platform/<name>`, or
+    /// `None` for a bundled one.
+    pub custom: Option<CustomPlatform>,
     pub span: Span,
+}
+
+/// An output of a repository's own platform, a `platform` rule under
+/// `//platform/`.
+///
+/// The reader cannot check one: the rule is in another build file. So it keeps
+/// what was written, and the workspace checks it once every build file is
+/// read, filling in `point` and `backend` and turning one output into one per
+/// entry of the platform ([`crate::build::workspace::Workspace::load`]).
+#[derive(Clone, Debug)]
+pub struct CustomPlatform {
+    /// `//platform/cloudflare_worker`, where it was written.
+    pub label: Spanned<String>,
+    /// The `variant`, as written.
+    pub variant: Option<Spanned<String>>,
+    /// The `entries`, as written: the platform's entry, and the function
+    /// filling it.
+    pub entries: Vec<(Spanned<String>, Spanned<String>)>,
+    /// The platform's entry this output builds: `fetch`.
+    pub point: String,
+    /// The backend that entry is built by.
+    pub backend: Backend,
+    /// The entry's `js` file, package-relative to the platform, where it has
+    /// one.
+    pub js: Option<String>,
+}
+
+impl CustomPlatform {
+    /// `cloudflare_worker`: the platform's directory under `platform/`.
+    pub fn name(&self) -> &str {
+        self.label.value.strip_prefix("//platform/").unwrap_or(&self.label.value)
+    }
+
+    /// `platform/cloudflare_worker`: the platform's package path.
+    pub fn package_path(&self) -> &str {
+        self.label.value.strip_prefix("//").unwrap_or(&self.label.value)
+    }
 }
 
 impl Output {
     /// The default output, `node`.
     pub fn js(span: Span) -> Output {
-        Output { target: OutputTarget::Js, artifact_name: None, entry: None, span }
+        Output { target: OutputTarget::Js, artifact_name: None, entry: None, custom: None, span }
     }
 
     /// An output for a platform chosen at run time, as `buri test` does. A
@@ -472,7 +505,7 @@ impl Output {
             Platform::Web => OutputTarget::Web,
             Platform::CloudflareWorker => OutputTarget::CloudflareWorker,
         };
-        Output { target, artifact_name: None, entry: None, span }
+        Output { target, artifact_name: None, entry: None, custom: None, span }
     }
 
     pub fn platform(&self) -> Platform {
@@ -485,7 +518,10 @@ impl Output {
     }
 
     /// The platform's entry this output fills: `main`, or a worker's `fetch`.
-    pub fn entry_point(&self) -> &'static str {
+    pub fn entry_point(&self) -> &str {
+        if let Some(custom) = &self.custom {
+            return &custom.point;
+        }
         match self.platform() {
             Platform::CloudflareWorker => "fetch",
             _ => "main",
@@ -513,7 +549,15 @@ impl Output {
     }
 
     /// `native/linux-arm64`, `node`, `web`: the directory under `.buri/out/`.
+    /// A repository platform's is `platform/<name>`, with its variant below
+    /// that where the output names one.
     pub fn dir(&self) -> String {
+        if let Some(custom) = &self.custom {
+            return match &custom.variant {
+                Some(v) => format!("platform/{}/{}", custom.name(), v.value),
+                None => format!("platform/{}", custom.name()),
+            };
+        }
         match self.variant() {
             Some(v) => format!("native/{v}"),
             None => self.platform().slug().to_string(),
@@ -523,6 +567,9 @@ impl Output {
     /// Whether `--output=<selector>` selects this output: its directory, or
     /// its platform's name for every output of that platform.
     pub fn matches_selector(&self, selector: &str) -> bool {
+        if let Some(custom) = &self.custom {
+            return self.dir() == selector || custom.label.value == selector;
+        }
         self.dir() == selector || self.platform().slug() == selector
     }
 }
@@ -661,6 +708,113 @@ pub struct PlatformRule {
     pub entries: Vec<PlatformEntry>,
     pub assets: Vec<Spanned<String>>,
     pub span: Span,
+}
+
+impl PlatformRule {
+    /// The variants an output picks between: every one its entries declare,
+    /// once each. Empty when there are none.
+    pub fn variants(&self) -> Vec<&str> {
+        let mut out: Vec<&str> = Vec::new();
+        for v in self.entries.iter().flat_map(|e| &e.variants) {
+            if !out.contains(&v.value.as_str()) {
+                out.push(v.value.as_str());
+            }
+        }
+        out
+    }
+
+    /// Whether an output must name a variant: some entry requires one.
+    pub fn variant_required(&self) -> bool {
+        self.entries.iter().any(|e| e.variant_required)
+    }
+
+    /// The names of the platform's entries.
+    pub fn entry_names(&self) -> Vec<&str> {
+        self.entries.iter().map(|e| e.name.value.as_str()).collect()
+    }
+}
+
+/// Holds an output's `variant` to its platform, `platform` being its name as
+/// written. A bundled platform's outputs and a repository platform's go
+/// through this one check, so both get the same diagnostics.
+pub fn check_variant(
+    platform: &str,
+    variants: &[&str],
+    required: bool,
+    variant: Option<&Spanned<String>>,
+    output: Span,
+) -> Option<Diagnostic> {
+    match variant {
+        None if required => Some(
+            Diagnostic::templated("variant-required", output)
+                .with_bind("platform", platform)
+                .with_bind("variants", variants.join(", "))
+                .with_bind("example", variants.first().copied().unwrap_or_default()),
+        ),
+        Some(v) if !variants.contains(&v.value.as_str()) => {
+            let (available, fix) = match variants.first() {
+                None => (format!("`{platform}` has no variants"), "remove `variant`".to_string()),
+                Some(first) => (format!("available: {}", variants.join(", ")), format!("write `variant: \"{first}\"`")),
+            };
+            let mut d = Diagnostic::templated("no-such-platform-variant", v.span)
+                .with_bind("variant", v.value.clone())
+                .with_bind("platform", platform)
+                .with_bind("available", available)
+                .with_bind("fix", fix);
+            if let Some(n) = nearest(&v.value, variants) {
+                d = d.with_fix(format!("did you mean `\"{n}\"`?"));
+            }
+            Some(d)
+        }
+        _ => None,
+    }
+}
+
+/// Holds an output's `entries` items to its platform's entry `names`: each
+/// names one of them, at most once, and is filled by something that could be
+/// a function. Returns the items that pass, and a diagnostic for each that
+/// doesn't. Shared by bundled and repository platforms, like
+/// [`check_variant`].
+pub fn check_entries(
+    platform: &str,
+    names: &[&str],
+    items: &[(Spanned<String>, Spanned<String>)],
+) -> (Vec<(Spanned<String>, Spanned<String>)>, Vec<Diagnostic>) {
+    let mut passed: Vec<(Spanned<String>, Spanned<String>)> = Vec::new();
+    let mut errors = Vec::new();
+    let mut filled: Vec<&str> = Vec::new();
+    for (name, function) in items {
+        if !names.contains(&name.value.as_str()) {
+            let mut d = Diagnostic::templated("no-such-entry", name.span)
+                .with_bind("entry", name.value.clone())
+                .with_bind("platform", platform)
+                .with_bind("entries", names.join(", "));
+            if let Some(n) = nearest(&name.value, names) {
+                d = d.with_fix(format!("did you mean `\"{n}\"`?"));
+            }
+            errors.push(d);
+            continue;
+        }
+        if filled.contains(&name.value.as_str()) {
+            errors.push(Diagnostic::templated("duplicate-entry", name.span).with_bind("entry", name.value.clone()));
+            continue;
+        }
+        filled.push(&name.value);
+        // An entry names an exported function, so it has to look like one.
+        // The compiler reports a name that is spelled right and does not
+        // exist; a name that could not be a function at all is this check's
+        // own refusal.
+        let s = &function.value;
+        let ok = !s.is_empty()
+            && s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !ok {
+            errors.push(Diagnostic::templated("entry-not-a-name", function.span).with_bind("entry", s.clone()));
+            continue;
+        }
+        passed.push((name.clone(), function.clone()));
+    }
+    (passed, errors)
 }
 
 /// One `entry` block of a platform rule.
@@ -1421,6 +1575,31 @@ impl Reader {
             return None;
         };
         let arch = m.get("arch");
+        // A repository's own platform. Its rule is in another build file, so
+        // what was written is kept and checked once every build file is read.
+        if let Value::Str(label, label_span) = &field.value {
+            if label.starts_with("//") {
+                if let Some(a) = arch {
+                    self.retired(a.name_span, "arch", "name it in `variant`, as `variant: \"linux-arm64\"`");
+                }
+                let entries = self.entry_items(m, &[]);
+                let custom = CustomPlatform {
+                    label: Spanned::new(label.clone(), *label_span),
+                    variant,
+                    entries,
+                    point: String::new(),
+                    backend: Backend::Js,
+                    js: None,
+                };
+                return Some(Output {
+                    target: OutputTarget::Js,
+                    artifact_name,
+                    entry: None,
+                    custom: Some(custom),
+                    span,
+                });
+            }
+        }
         let platform = match &field.value {
             Value::Ident(s, sp) if matches!(s.as_str(), "LINUX" | "MACOS" | "JS" | "WEB") => {
                 let replacement = match s.as_str() {
@@ -1464,35 +1643,19 @@ impl Reader {
         }
 
         let variants = platform.value.variants();
-        let arch = match &variant {
-            None if platform.value.variant_required() => {
-                self.templated("variant-required", span)
-                    .bind("platform", platform.value.name())
-                    .bind("variants", variants.join(", "))
-                    .bind("example", variants.first().copied().unwrap_or_default());
-                return None;
-            }
-            None => None,
-            Some(v) if !variants.contains(&v.value.as_str()) => {
-                let (available, fix) = match variants.first() {
-                    None => (format!("`{}` has no variants", platform.value.name()), "remove `variant`".to_string()),
-                    Some(first) => (format!("available: {}", variants.join(", ")), format!("write `variant: \"{first}\"`")),
-                };
-                let d = self
-                    .templated("no-such-platform-variant", v.span)
-                    .bind("variant", v.value.clone())
-                    .bind("platform", platform.value.name())
-                    .bind("available", available)
-                    .bind("fix", fix);
-                if let Some(n) = nearest(&v.value, &variants) {
-                    d.fix(format!("did you mean `\"{n}\"`?"));
-                }
-                return None;
-            }
-            Some(v) => v.value.split_once('-').and_then(|(_, a)| Arch::parse(a)).map(|a| Spanned::new(a, v.span)),
-        };
+        let required = platform.value.variant_required();
+        if let Some(d) = check_variant(platform.value.name(), &variants, required, variant.as_ref(), span) {
+            self.errors.push(d);
+            return None;
+        }
+        let arch = variant
+            .as_ref()
+            .and_then(|v| v.value.split_once('-').and_then(|(_, a)| Arch::parse(a)).map(|a| Spanned::new(a, v.span)));
 
-        let entry = self.entries(m, platform.value, &entry_names);
+        let items = self.entry_items(m, &entry_names);
+        let (passed, errors) = check_entries(platform.value.name(), &entry_names, &items);
+        self.errors.extend(errors);
+        let entry = passed.into_iter().last().map(|(_, function)| function);
         let target = match platform.value {
             PlatformName::Node => OutputTarget::Js,
             PlatformName::Web => OutputTarget::Web,
@@ -1505,20 +1668,15 @@ impl Reader {
                 OutputTarget::Native { platform: os, arch }
             }
         };
-        Some(Output { target, artifact_name, entry, span })
+        Some(Output { target, artifact_name, entry, custom: None, span })
     }
 
-    /// `entries: [{ name: "main", function: "mainForNode" }]`: the function
-    /// filling each of the platform's entries, where it is not the one named
-    /// after it.
-    fn entries(
-        &mut self,
-        m: &Message,
-        platform: PlatformName,
-        names: &[&str],
-    ) -> Option<Spanned<String>> {
-        let mut found = None;
-        let mut filled: Vec<String> = Vec::new();
+    /// `entries: [{ name: "main", function: "mainForNode" }]`, as written:
+    /// each item's entry and the function filling it. [`check_entries`] holds
+    /// them to the platform. `names` are the platform's entries where this
+    /// reader can see them, for the fix of an item missing its `name`.
+    fn entry_items(&mut self, m: &Message, names: &[&str]) -> Vec<(Spanned<String>, Spanned<String>)> {
+        let mut out = Vec::new();
         for f in m.all("entries") {
             let items: Vec<&Value> = match &f.value {
                 Value::List(items, _) => items.iter().collect(),
@@ -1541,53 +1699,10 @@ impl Reader {
                     }
                     continue;
                 };
-                if let Some(entry) = self.entry(platform, names, &name, &function, &mut filled) {
-                    found = Some(entry);
-                }
+                out.push((name, function));
             }
         }
-        found
-    }
-
-    /// One `entries` item, checked: the function filling `name`, or `None`
-    /// once refused.
-    fn entry(
-        &mut self,
-        platform: PlatformName,
-        names: &[&str],
-        name: &Spanned<String>,
-        function: &Spanned<String>,
-        filled: &mut Vec<String>,
-    ) -> Option<Spanned<String>> {
-        if !names.contains(&name.value.as_str()) {
-            let d = self
-                .templated("no-such-entry", name.span)
-                .bind("entry", name.value.clone())
-                .bind("platform", platform.name())
-                .bind("entries", names.join(", "));
-            if let Some(n) = nearest(&name.value, names) {
-                d.fix(format!("did you mean `\"{n}\"`?"));
-            }
-            return None;
-        }
-        if filled.contains(&name.value) {
-            self.templated("duplicate-entry", name.span).bind("entry", name.value.clone());
-            return None;
-        }
-        filled.push(name.value.clone());
-        // An entry names an exported function, so it has to look like one.
-        // The compiler reports a name that is spelled right and does not
-        // exist; a name that could not be a function at all is this reader's
-        // own refusal.
-        let s = &function.value;
-        let ok = !s.is_empty()
-            && s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
-            && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-        if !ok {
-            self.templated("entry-not-a-name", function.span).bind("entry", s.clone());
-            return None;
-        }
-        Some(function.clone())
+        out
     }
 
     /// A `platform` rule.

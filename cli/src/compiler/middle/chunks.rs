@@ -272,6 +272,7 @@ mod tests {
             ctx_layouts: HashMap::default(),
             shapes: Default::default(),
             chunks: Vec::new(),
+            hosted: Default::default(),
             stylesheet: String::new(),
             inline_styles: false,
             icons: false,

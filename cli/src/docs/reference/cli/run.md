@@ -26,6 +26,16 @@ error: //cmd/worker declares no output this toolchain can run
   = fix: build it with `buri build //cmd/worker`, and let the platform call it
 ```
 
+A [repository platform](../build/platforms.md)'s entry runs when it starts
+itself: no `js` file, and the program signature, `fn(host: H): Result<(), Str>`.
+An entry with a `js` file is called by whatever loads that file, so `buri run`
+refuses it:
+
+```text
+$ buri run //cmd/site
+error: //cmd/site builds `fetch` for `//platform/cloudflare_worker`, and its `js` file calls it, so there is nothing to start [platform-cannot-run]
+```
+
 ## A page is served
 
 A `web` output is a document a browser loads, so there is no process to start.

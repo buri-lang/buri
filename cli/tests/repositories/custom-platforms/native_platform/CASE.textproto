@@ -1,0 +1,112 @@
+# **A native repository platform.** `//platform/lambda` has one `NATIVE` entry,
+# `bootstrap`, which starts itself, so `buri run` runs it like any program and
+# the artifact lands at `.buri/out/platform/lambda/cmd/hello/bootstrap`.
+#
+# A repository platform's outputs are held to its entries' `variants` and
+# its entry names by the same checks a bundled platform's are.
+#
+# Then the two refusals a native host meets: a field the backend lacks, and a
+# production struct of the platform's own, which only a `js` file can
+# implement and a native entry has none.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a native repository platform's entry runs like a program, and its host holds only what the native backend implements"
+
+run {
+  args: ["run", "//cmd/hello"]
+  exit: 0
+  golden: "run.txt"
+  stream: OUT
+}
+
+path {
+  path: ".buri/out/platform/lambda/cmd/hello/bootstrap"
+  exists: true
+}
+
+# An entry that requires a variant makes every output name one.
+edit {
+  file: "platform/lambda/BUILD.buri"
+  replace: "        backend: NATIVE\n"
+  with: "        backend: NATIVE\n        variants: [\"linux-arm64\", \"macos-arm64\"]\n        variant_required: true\n"
+}
+
+run {
+  args: ["build", "//cmd/hello"]
+  exit: 2
+  golden: "variant_required.txt"
+}
+
+edit {
+  file: "cmd/hello/BUILD.buri"
+  replace: "{ platform: \"//platform/lambda\" }"
+  with: "{ platform: \"//platform/lambda\", variant: \"linux-arm46\" }"
+}
+
+run {
+  args: ["build", "//cmd/hello"]
+  exit: 2
+  golden: "no_such_platform_variant.txt"
+}
+
+edit {
+  file: "cmd/hello/BUILD.buri"
+  replace: "variant: \"linux-arm46\" }"
+  with: "variant: \"linux-arm64\", entries: [{ name: \"bootstap\", function: \"main\" }] }"
+}
+
+run {
+  args: ["build", "//cmd/hello"]
+  exit: 2
+  golden: "no_such_entry.txt"
+}
+
+edit {
+  file: "cmd/hello/BUILD.buri"
+  replace: "{ platform: \"//platform/lambda\", variant: \"linux-arm64\", entries: [{ name: \"bootstap\", function: \"main\" }] }"
+  with: "{ platform: \"//platform/lambda\" }"
+}
+
+edit {
+  file: "platform/lambda/BUILD.buri"
+  replace: "        variants: [\"linux-arm64\", \"macos-arm64\"]\n        variant_required: true\n"
+  with: ""
+}
+
+# The native backend has no `Location`: only a page does.
+edit {
+  file: "platform/lambda/platform.buri"
+  replace: "from \"platform/host\" import { HostAllocator, HostStdout };"
+  with: "from \"platform/host\" import { HostAllocator, HostLocation, HostStdout };"
+}
+
+edit {
+  file: "platform/lambda/platform.buri"
+  replace: "    export stdout: HostStdout,\n}"
+  with: "    export stdout: HostStdout,\n    export location: HostLocation,\n}"
+}
+
+run {
+  args: ["build", "//cmd/hello"]
+  exit: 1
+  golden: "effect_not_on_backend.txt"
+}
+
+edit {
+  file: "platform/lambda/platform.buri"
+  replace: "    export location: HostLocation,\n}"
+  with: "    export dice: HostDice,\n}\n\nstruct HostDice {}\nimpl Random for HostDice {\n    fn nextInt(self, low: Int, high: Int): Int;\n    fn nextFloat(self): Float;\n}"
+}
+
+edit {
+  file: "platform/lambda/platform.buri"
+  replace: "from \"platform/host\" import { HostAllocator, HostLocation, HostStdout };"
+  with: "from \"platform/host\" import { HostAllocator, HostStdout };\nfrom \"platform/effect\" import { Random };"
+}
+
+run {
+  args: ["build", "//cmd/hello"]
+  exit: 1
+  golden: "custom_effect_on_native_backend.txt"
+}

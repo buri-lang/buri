@@ -1,0 +1,165 @@
+# **Cloudflare KV, end to end**: the custom-platforms design note's
+# walkthrough as a repository.
+#
+#   * `//platform/effect/kv` declares `Kv` and its wrappers, with `TestKv` in
+#     its testing surface on `core/platforms/testing/state`.
+#   * `//platform/cloudflare_worker` declares `CloudflareHost`, a bodiless
+#     `fetch` and `HostKv`, which `fetch.mjs` implements.
+#   * `//lib/sessions` calls `kv.get(ctx, ...)` and never sees either
+#     implementation; `//cmd/site` builds its context from the host.
+#
+# The suite passes with `TestKv` on both backends, the build writes
+# `fetch.mjs`, and `build::custom_platforms` calls its default export under
+# bun. Then one refusal per thing a platform or an effect can get wrong.
+#
+# Two edits to the walkthrough's code, both because it doesn't compile as
+# written: an interpolated string is a `Template`, so `lib/sessions` and
+# `handle` format theirs with `str.format`; and `TestKv.get` has no allocator
+# to build a string key, so the map is keyed by `(namespace, key)`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a repository platform with a custom effect builds, tests on both backends, and refuses a js file, an entry, a type or an effect that breaks its rules"
+
+run {
+  args: ["test", "//..."]
+  exit: 0
+  golden: "test.txt"
+}
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 0
+  golden: "built.txt"
+}
+
+# The entry's `js` file is the artifact, bundled with the program.
+file {
+  path: ".buri/out/platform/cloudflare_worker/cmd/site/fetch.mjs"
+  contains: "export default"
+}
+
+file {
+  path: ".buri/out/platform/cloudflare_worker/cmd/site/fetch.mjs"
+  absent: "buri:program"
+}
+
+# A worker is called by its runtime, so there is nothing to start.
+run {
+  args: ["run", "//cmd/site"]
+  exit: 2
+  golden: "cannot_run.txt"
+}
+
+# The file must implement every method `HostKv`'s effect declares.
+edit {
+  file: "platform/cloudflare_worker/fetch.mjs"
+  replace: "  put: (self, namespace, key, value) => bindings[namespace].put(key, value),\n"
+  with: ""
+}
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 1
+  golden: "host_file_incomplete.txt"
+}
+
+edit {
+  file: "platform/cloudflare_worker/fetch.mjs"
+  replace: "  get: async (self, namespace, key) => (await bindings[namespace].get(key)) ?? undefined,\n"
+  with: "  get: async (self, namespace, key) => (await bindings[namespace].get(key)) ?? undefined,\n  put: (self, namespace, key, value) => bindings[namespace].put(key, value),\n"
+}
+
+# The entry takes the platform's host, and no other.
+edit {
+  file: "cmd/site/main.buri"
+  replace: "export fn fetch(host: CloudflareHost, request: Request): Response {\n    handle(\n        context {\n            Allocator: host.alloc,\n            Kv: host.kv,\n        },\n        request,\n    )\n}"
+  with: "export fn fetch(host: NodeHost, request: Request): Response {\n    http.status(500)\n}"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "from \"core/str\" import * as str;\n"
+  with: "from \"core/str\" import * as str;\nfrom \"node\" import { NodeHost };\n"
+}
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 1
+  golden: "entry_host_mismatch.txt"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "export fn fetch(host: NodeHost, request: Request): Response {\n    http.status(500)\n}"
+  with: "export fn fetch(host: CloudflareHost, request: Request): Response {\n    handle(\n        context {\n            Allocator: host.alloc,\n            Kv: host.kv,\n        },\n        request,\n    )\n}"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "from \"node\" import { NodeHost };\n"
+  with: ""
+}
+
+# What an entry with a `js` file takes and answers crosses to JavaScript.
+edit {
+  file: "platform/cloudflare_worker/platform.buri"
+  replace: "export fn fetch(host: CloudflareHost, request: Request): Response;"
+  with: "export fn fetch(host: CloudflareHost, request: Request, initial: Char): Response;"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "export fn fetch(host: CloudflareHost, request: Request): Response {"
+  with: "export fn fetch(host: CloudflareHost, request: Request, initial: Char): Response {"
+}
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 1
+  golden: "type_cannot_cross.txt"
+}
+
+edit {
+  file: "platform/cloudflare_worker/platform.buri"
+  replace: "export fn fetch(host: CloudflareHost, request: Request, initial: Char): Response;"
+  with: "export fn fetch(host: CloudflareHost, request: Request): Response;"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "export fn fetch(host: CloudflareHost, request: Request, initial: Char): Response {"
+  with: "export fn fetch(host: CloudflareHost, request: Request): Response {"
+}
+
+# An effect is declared in an effect package and nowhere else.
+edit {
+  file: "lib/sessions/lib.buri"
+  replace: "export fn user<"
+  with: "export effect Session {\n    fn token(self): Str;\n}\n\nexport fn user<"
+}
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 1
+  golden: "effect_outside_effect_directory.txt"
+}
+
+edit {
+  file: "lib/sessions/lib.buri"
+  replace: "export effect Session {\n    fn token(self): Str;\n}\n\nexport fn user<"
+  with: "export fn user<"
+}
+
+# And an effect package ships a test implementation of every effect.
+edit {
+  file: "platform/effect/kv/testing/lib.buri"
+  replace: "impl Kv for TestKv {"
+  with: "impl TestKv {"
+}
+
+run {
+  args: ["build", "//platform/effect/kv"]
+  exit: 1
+  golden: "effect_without_test_implementation.txt"
+}

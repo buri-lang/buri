@@ -1,0 +1,23 @@
+from "core/map" import * as map;
+from "core/map" import { Map };
+from "core/platforms/testing/state" import * as state;
+from "//platform/effect/kv" import { Kv };
+
+// Keyed by `(namespace, key)`: `get` has no allocator to build one string.
+export struct TestKv {
+    store: state.State<Map<(Str, Str), Str>>,
+}
+
+impl Kv for TestKv {
+    fn get(self, namespace: Str, key: Str): Option<Str> {
+        state.read(self.store).get((namespace, key))
+    }
+
+    fn put(self, namespace: Str, key: Str, value: Str): () {
+        state.update(self.store, fn(c, m) => (m.insert(c, (namespace, key), value), ()))
+    }
+}
+
+export fn kv(): TestKv {
+    TestKv { store: state.new(map.empty()) }
+}

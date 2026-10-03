@@ -315,6 +315,14 @@ pub const TOPICS: &[Topic] = &[
         &["cache", "reproducible", "incremental", "action", "sandbox"],
         &["guides/reproducibility"],
     ),
+    tagged(
+        "build/platforms",
+        "Platforms, effect packages and the crossing table",
+        Kind::Build,
+        include_str!("../docs/reference/build/platforms.md"),
+        &["platform", "host", "entry", "effect", "backend", "crossing", "js", "assets"],
+        &["guides/custom-platforms", "build/build-files"],
+    ),
     // -- The guides ---------------------------------------------------------
     // Pages, reached by `buri docs` or read in `cli/src/docs/guides/`. None of
     // them is assembled into a document; the root `README.md` is hand-written
@@ -413,6 +421,14 @@ pub const TOPICS: &[Topic] = &[
         include_str!("../docs/guides/compile-to-js.md"),
         &["javascript", "js", "node", "bun", "browser", "web", "esm", "mjs"],
         &["build/build-files", "build/tags"],
+    ),
+    tagged(
+        "guides/custom-platforms",
+        "Write your own platform",
+        Kind::Guide,
+        include_str!("../docs/guides/custom-platforms.md"),
+        &["platform", "cloudflare", "worker", "kv", "custom effect", "host", "js file"],
+        &["build/platforms", "guides/effects"],
     ),
     tagged(
         "guides/web-server",

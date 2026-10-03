@@ -51,6 +51,20 @@ pub fn command_run(args: &arguments::Args) -> i32 {
     };
     let outputs = actions::selected_outputs(&session, target, &args.flags);
     let Some(output) = choose(&outputs, &args.flags) else {
+        // A repository platform's entry with a `js` file is called by the file,
+        // not started: the platform's own host calls in.
+        if let Some(hosted) = outputs.iter().find(|o| !starts_itself(o)) {
+            let custom = hosted.custom.as_ref().map(|c| (c.label.value.clone(), c.point.clone()));
+            let (platform, entry) = custom.unwrap_or_default();
+            let d = crate::diagnostics::Diagnostic::templated("platform-cannot-run", hosted.span)
+                .with_bind("target", session.workspace.label(target))
+                .with_bind("platform", platform)
+                .with_bind("entry", entry);
+            let mut diagnostics = crate::diagnostics::Diagnostics::new();
+            diagnostics.push(d);
+            session.print(&diagnostics);
+            return 2;
+        }
         let declared: Vec<String> = outputs.iter().map(crate::build::buildfile::Output::dir).collect();
         eprintln!(
             "error: {} declares no output this toolchain can run",
@@ -331,7 +345,8 @@ fn choose(
     // The host's own variant: a Linux host links any Linux variant, and runs
     // only its own architecture.
     let runnable = |o: &&crate::build::buildfile::Output| {
-        o.arch().is_none_or(|a| Some(a) == crate::build::link::host_arch())
+        starts_itself(o)
+            && o.arch().is_none_or(|a| Some(a) == crate::build::link::host_arch())
             && actions::native_ready(actions::target_of(o), actions::profile_of(flags))
     };
     outputs
@@ -347,7 +362,9 @@ fn choose(
         // that declares a page and a worker runs the page.
         .or_else(|| {
             outputs.iter().find(|o| {
-                o.platform().is_javascript() && o.platform() != Platform::CloudflareWorker
+                o.platform().is_javascript()
+                    && o.platform() != Platform::CloudflareWorker
+                    && starts_itself(o)
             })
         })
         // A target that declares only an output this toolchain cannot produce
@@ -356,8 +373,16 @@ fn choose(
         // command invented about outputs it can see. A worker is not in that
         // set: there is nothing to start, whatever this toolchain can build, so
         // a binary that declares one and nothing else has nothing to run.
-        .or_else(|| outputs.iter().find(|o| o.platform() != Platform::CloudflareWorker))
+        .or_else(|| {
+            outputs.iter().find(|o| o.platform() != Platform::CloudflareWorker && starts_itself(o))
+        })
         .cloned()
+}
+
+/// Whether an output's entry starts itself: every bundled platform's does,
+/// and a repository platform's does when it has no `js` file to call it.
+fn starts_itself(output: &crate::build::buildfile::Output) -> bool {
+    output.custom.as_ref().is_none_or(|c| c.js.is_none())
 }
 
 /// **Stopping `buri run` stops the program it started.**
