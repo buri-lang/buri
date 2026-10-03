@@ -273,8 +273,11 @@ pub fn mutations_of(src: &Source, base_seed: u64, per_kind: usize) -> Vec<Mutati
     }
 
     let text = &src.text;
-    let mut by_kind: [Vec<Mutation>; 4] =
-        [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+    // The candidates are token indices, one list per shape. A mutation is a
+    // whole copy of the file, so only the ones the sample keeps are made: a
+    // copy per token is quadratic in the file's length, and it was seconds of
+    // every process that built the corpus.
+    let mut by_kind: [Vec<usize>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
     // The first and last token are left alone: a mutation there has no token on
     // one side of it, so the window an assertion needs does not exist.
     for i in 1..tokens.len().saturating_sub(1) {
@@ -282,52 +285,14 @@ pub fn mutations_of(src: &Source, base_seed: u64, per_kind: usize) -> Vec<Mutati
         if s >= e || !text.is_char_boundary(s) || !text.is_char_boundary(e) {
             continue;
         }
-        let line = line_of(text, s);
-        let origin = format!("{}:{line}", src.name);
         match tokens.kind(i) {
-            TokenKind::Comma | TokenKind::Semi => {
-                let token = if tokens.kind(i) == TokenKind::Comma { "," } else { ";" };
-                by_kind[0].push(deletion(
-                    Kind::DeleteSeparator,
-                    nest[i],
-                    &src.name,
-                    origin,
-                    format!("deleted `{token}`"),
-                    text,
-                    &span,
-                    i,
-                    Some(format!("`{token}`")),
-                ));
-            }
-            TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket => {
-                let token = &text[s..e];
-                by_kind[1].push(deletion(
-                    Kind::DeleteCloser,
-                    nest[i],
-                    &src.name,
-                    origin,
-                    format!("deleted `{token}`"),
-                    text,
-                    &span,
-                    i,
-                    Some(format!("`{token}`")),
-                ));
-            }
+            TokenKind::Comma | TokenKind::Semi => by_kind[0].push(i),
+            TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket => by_kind[1].push(i),
             _ => {}
         }
 
-        // A stray token before this one. The draw is taken from the index, so
-        // it is a function of the site rather than of the sampling order.
-        let stray = STRAY[i % STRAY.len()];
-        by_kind[2].push(insertion(
-            nest[i],
-            &src.name,
-            origin_of(&src.name, line),
-            stray,
-            text,
-            &span,
-            i,
-        ));
+        // A stray token before this one, for every site.
+        by_kind[2].push(i);
 
         // A swap with the token after it, when only blanks lie between them:
         // exchanging across a comment would move the comment too.
@@ -337,25 +302,62 @@ pub fn mutations_of(src: &Source, base_seed: u64, per_kind: usize) -> Vec<Mutati
             && ne > ns
             && text.get(e..ns).is_some_and(|gap| gap.chars().all(|c| c == ' '))
         {
-            by_kind[3].push(swap(nest[i], &src.name, origin_of(&src.name, line), text, &span, i));
+            by_kind[3].push(i);
         }
     }
 
-    let mut out = Vec::new();
     let mut rng = Rng::seeded(seed_of(base_seed, &src.name));
-    for mut candidates in by_kind {
-        if candidates.len() <= per_kind {
-            out.append(&mut candidates);
-            continue;
+    let mut out = Vec::new();
+    for (shape, mut candidates) in by_kind.into_iter().enumerate() {
+        if candidates.len() > per_kind {
+            // A partial Fisher-Yates over the candidate list: `per_kind`
+            // distinct draws, no rejection loop, and the same ones for the
+            // same seed.
+            for slot in 0..per_kind {
+                let pick = slot + rng.below(candidates.len() - slot);
+                candidates.swap(slot, pick);
+            }
+            candidates.truncate(per_kind);
         }
-        // A partial Fisher-Yates over the candidate list: `per_kind` distinct
-        // draws, no rejection loop, and the same ones for the same seed.
-        for slot in 0..per_kind {
-            let pick = slot + rng.below(candidates.len() - slot);
-            candidates.swap(slot, pick);
+        for i in candidates {
+            let (s, e) = span[i];
+            let line = line_of(text, s);
+            let origin = origin_of(&src.name, line);
+            out.push(match shape {
+                0 => {
+                    let token = if tokens.kind(i) == TokenKind::Comma { "," } else { ";" };
+                    deletion(
+                        Kind::DeleteSeparator,
+                        nest[i],
+                        &src.name,
+                        origin,
+                        format!("deleted `{token}`"),
+                        text,
+                        &span,
+                        i,
+                        Some(format!("`{token}`")),
+                    )
+                }
+                1 => {
+                    let token = &text[s..e];
+                    deletion(
+                        Kind::DeleteCloser,
+                        nest[i],
+                        &src.name,
+                        origin,
+                        format!("deleted `{token}`"),
+                        text,
+                        &span,
+                        i,
+                        Some(format!("`{token}`")),
+                    )
+                }
+                // The stray is taken from the index, so it is a function of
+                // the site rather than of the sampling order.
+                2 => insertion(nest[i], &src.name, origin, STRAY[i % STRAY.len()], text, &span, i),
+                _ => swap(nest[i], &src.name, origin, text, &span, i),
+            });
         }
-        candidates.truncate(per_kind);
-        out.append(&mut candidates);
     }
     out
 }
