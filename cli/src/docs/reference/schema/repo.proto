@@ -253,7 +253,8 @@ message Tag {
     repeated Backend backends = 3;
 
     // Platforms code carrying this tag may not be built for: `"native"`,
-    // `"node"` or `"web"`. Every other platform stays open, including one the
+    // `"node"`, `"web"`, or a repository platform's label,
+    // `"//platform/cloudflare_worker"`. Every other platform stays open, including one the
     // toolchain gains later. Use `requires` when a new platform should stay
     // out until someone lists it.
     //

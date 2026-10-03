@@ -11,7 +11,6 @@
               repository still leave through `Session::emit`"
 )]
 
-use crate::build::buildfile::Platform;
 use crate::build::session;
 use crate::build::workspace::TargetId;
 use crate::commands::arguments;
@@ -133,8 +132,8 @@ pub fn command_query(args: &arguments::Args) -> i32 {
                     session.workspace.label(t)
                 );
                 let mut why = Vec::new();
-                for p in Platform::ALL {
-                    if let Some(blocker) = session.workspace.platform_blocker(t, p) {
+                for p in session.workspace.every_platform() {
+                    if let Some(blocker) = session.workspace.platform_blocker(t, &p) {
                         if !why.contains(&blocker.why) {
                             why.push(blocker.why);
                         }
@@ -144,12 +143,13 @@ pub fn command_query(args: &arguments::Args) -> i32 {
                     println!("  {reason}");
                 }
             }
-            // Linux and macOS are both `native`, so a name is printed once.
-            let mut printed: Vec<&str> = Vec::new();
+            // Linux and macOS are both `native`, and a repository platform may
+            // be built by two backends, so a name is printed once.
+            let mut printed: Vec<String> = Vec::new();
             for p in allowed {
-                if !printed.contains(&p.slug()) {
-                    printed.push(p.slug());
-                    println!("{}", p.slug());
+                if !printed.iter().any(|n| n == p.name()) {
+                    printed.push(p.name().to_string());
+                    println!("{}", p.name());
                 }
             }
         }

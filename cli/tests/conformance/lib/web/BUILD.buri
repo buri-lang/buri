@@ -6,8 +6,8 @@ library {
 
         # JS only, for `lib/ui`'s reason and one more. The document a tree
         # renders into is a runtime intrinsic and no native backend has one; and
-        # a website is a JavaScript artifact by construction — the two platforms
-        # it is built for are WEB and CLOUDFLARE_WORKER. `native::conformance`
+        # a website is a JavaScript artifact by construction — a page on `web`
+        # and a worker on a JavaScript platform. `native::conformance`
         # records `test/document.buri` as excluded, with that reason.
         #
         # `test/routing.buri` is in the native set: the router is ordinary Buri

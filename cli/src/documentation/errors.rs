@@ -127,11 +127,6 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("effect-and-trait", "No type implements both an effect and a trait"),
     e!("effect-carrying-bound", "A type that carries an effect satisfies no trait bound"),
     e!("effect-method-call", "An effect is performed through a function, not a method", &["language/effects"]),
-    e!(
-        "effect-not-on-platform",
-        "A platform grants the effects its host exports",
-        &["build/build-files"]
-    ),
     e!("effect-not-on-backend", "A host offers only what its backend implements", &["build/platforms"]),
     e!("effect-outside-effect-directory", "An effect lives in an effect package", &["build/platforms"]),
     e!("effect-without-test-implementation", "An effect has a test implementation beside it", &["build/platforms"]),

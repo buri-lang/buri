@@ -248,6 +248,51 @@ ready for the worker runtime. `buri run` refuses it: a worker is called, not
 started. Editing `fetch.mjs` or `platform.buri` rebuilds it, no `buri clean`
 needed.
 
+## Vars and secrets
+
+A worker's vars and secrets arrive in the `env` the runtime passes beside each
+request. Reading them is one more effect, `Vars`:
+
+```buri repo=cli/tests/repositories/custom-platforms/cloudflare_worker/repo package=//platform/effect/vars
+/// A worker's vars and secrets: the bindings its runtime hands each request
+/// whose value is a string.
+export effect Vars {
+    fn get(self, name: Str): Option<Str>;
+    fn all(self): [(Str, Str)];
+}
+
+export fn get<C: Vars>(ctx: C, name: Str): Option<Str> {
+    ctx.get(name)
+}
+
+export fn all<C: Vars>(ctx: C): [(Str, Str)] {
+    ctx.all()
+}
+```
+
+The platform adds `vars: HostVars` to `CloudflareHost`, and `fetch.mjs` keeps
+the `env` and implements it. A KV namespace is a binding too, but not a string,
+so it's no variable:
+
+```js
+let bindings = {};
+
+export default {
+  fetch(request, env) {
+    bindings = env ?? {};
+    return fetch(request);
+  },
+};
+
+export const HostVars = {
+  get: (self, name) => (typeof bindings[name] === "string" ? bindings[name] : undefined),
+  all: (self) => Object.entries(bindings).filter(([, value]) => typeof value === "string"),
+};
+```
+
+A test binds `TestVars` from `//platform/effect/vars/testing` instead. The
+repository is `cli/tests/repositories/custom-platforms/cloudflare_worker/repo`.
+
 ## What a platform can't do
 
 - **A native platform offers bundled effects only.** A method without a body

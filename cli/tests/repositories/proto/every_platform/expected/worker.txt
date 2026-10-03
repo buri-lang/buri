@@ -1,5 +1,5 @@
-keyed  compile //cmd/app cloudflare-worker <key>
-keyed  generate //lib/wire cloudflare-worker <key>
-keyed  compile //lib/wire cloudflare-worker <key>
-run    link //cmd/app cloudflare-worker <key>
-.buri/out/cloudflare-worker/cmd/app/handle.mjs (N bytes)
+keyed  compile //cmd/app node <key>
+keyed  generate //lib/wire node <key>
+keyed  compile //lib/wire node <key>
+run    link //cmd/app node <key>
+.buri/out/platform/cloudflare_worker/cmd/app/fetch.mjs (N bytes)

@@ -93,19 +93,19 @@ file {
 # per artifact rather than per program — and the worker's module, like the
 # page's, does not hold what its chunk holds.
 file {
-  path: ".buri/out/cloudflare-worker/cmd/page/fetch.0.mjs"
+  path: ".buri/out/platform/cloudflare_worker/cmd/page/fetch.0.mjs"
   contains: "ONLY_IN_THE_CHUNK"
 }
 
 file {
-  path: ".buri/out/cloudflare-worker/cmd/page/fetch.mjs"
+  path: ".buri/out/platform/cloudflare_worker/cmd/page/fetch.mjs"
   absent: "ONLY_IN_THE_CHUNK"
 }
 
 # And the worker never reaches the library's report, so it has no second chunk
 # to fetch.
 path {
-  path: ".buri/out/cloudflare-worker/cmd/page/fetch.1.mjs"
+  path: ".buri/out/platform/cloudflare_worker/cmd/page/fetch.1.mjs"
   exists: false
 }
 

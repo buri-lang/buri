@@ -1,0 +1,4 @@
+library {
+    platforms: ["//platform/cloudflare_worker"]
+    visibility: ["//visibility:public"]
+}

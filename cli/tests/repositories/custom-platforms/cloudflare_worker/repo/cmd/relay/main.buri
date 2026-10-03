@@ -1,0 +1,47 @@
+// A worker that dials a socket while it answers a request, and answers with
+// how the socket ended.
+
+from "core/net/http" import * as http;
+from "core/net/websocket" import * as websocket;
+from "core/net/websocket" import { Client };
+from "core/str" import * as str;
+from "platform/effect" import {
+    Allocator, Request, Response, Sockets, WebSocketClient,
+};
+from "//platform/cloudflare_worker" import { CloudflareHost };
+
+export fn fetch(host: CloudflareHost, request: Request): Response {
+    let ctx = context {
+        Allocator: host.alloc,
+        Sockets: host.sockets,
+        WebSocketClient: host.websocketClient,
+    };
+    match (websocket.connect(ctx, relaying(request.path()))) {
+        .Err(e) => http.text(ctx, str.format(ctx, "no socket: ${e.detail}")),
+        .Ok(ended) => http.text(ctx, str.format(ctx, "ended ${ended.0} ${ended.1}")),
+    }
+}
+
+/// The three hooks, over a socket a worker dialled.
+///
+/// A worker has nowhere to print, so what the far side said reaches the world
+/// the only way it can: `onMessage` pushes it back on the socket, and the far
+/// side's own log is where it is read.
+fn relaying<C: Allocator + Sockets + WebSocketClient>(path: Str): Client<C, Int> {
+    Client {
+        url: "wss://example.test/relay",
+        onOpen: fn(c, socket, _response) => {
+            let _sent = socket.send(c, .Text(str.format(c, "asking ${path}")));
+            0
+        },
+        onMessage: fn(c, socket, seen, message) => {
+            let said = match (message) {
+                .Text(text) => str.format(c, "heard text ${text.length()}:${text}"),
+                .Binary(data) => str.format(c, "heard binary ${data.length()}"),
+            };
+            let _sent = socket.send(c, .Text(said));
+            seen + 1
+        },
+        onClose: fn(_c, _socket, seen, _reason) => seen,
+    }
+}

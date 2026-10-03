@@ -1,0 +1,39 @@
+# **Cloudflare Workers, as a repository platform.** Cloudflare isn't built
+# into the toolchain, so a repository that deploys workers writes the platform:
+#
+#   * `//platform/cloudflare_worker` declares `CloudflareHost`, a bodiless
+#     `fetch`, and `HostVars`, which `fetch.mjs` implements from the `env` the
+#     worker runtime passes beside each request.
+#   * `//platform/effect/vars` declares `Vars`, the worker's vars and secrets,
+#     with `TestVars` in its testing surface.
+#   * `//cmd/site`, `//cmd/vars`, `//cmd/lazy` and `//cmd/relay` are workers:
+#     the request and response crossing, the vars, a `core/lazy` chunk, and a
+#     socket dialled while answering.
+#
+# The suite runs `//cmd/vars`'s handler with `TestVars` on both backends, and
+# the build writes each worker's `fetch.mjs`. `build::custom_platforms` calls
+# each one's default export under the JavaScript runtime, the way the worker
+# runtime does.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "Cloudflare Workers is a platform a repository writes: a host, a fetch entry, a js adapter and a Vars effect with a test implementation"
+
+run {
+  args: ["test", "//..."]
+  exit: 0
+  golden: "test.txt"
+}
+
+run {
+  args: ["build", "//..."]
+  exit: 0
+  golden: "built.txt"
+}
+
+# A chunk is a file beside the worker's module, which the module fetches only
+# when a request reaches the `load`.
+path {
+  path: ".buri/out/platform/cloudflare_worker/cmd/lazy/fetch.0.mjs"
+  exists: true
+}

@@ -52,6 +52,16 @@ const RETIRED_PLATFORM_NAMES: &[(&str, &str)] = &[
     ("WEB", "platforms: [\"web\"]"),
 ];
 
+/// The fix `CLOUDFLARE_WORKER` gets on an output. Cloudflare Workers is a
+/// platform a repository writes for itself, so the fix shows the shape of one
+/// and names the guide that walks through it.
+const CLOUDFLARE_WORKER_FIX: &str = "write the worker as a platform of your own under `//platform/` \
+     and name it by its label; `buri docs guides/custom-platforms` walks through one:\n     \
+     # platform/cloudflare_worker/BUILD.buri\n     \
+     platform { entry { name: \"fetch\"  backend: JS  js: \"fetch.mjs\" } }\n     \
+     # this output\n     \
+     { platform: \"//platform/cloudflare_worker\" }";
+
 /// The tool names this toolchain used to answer to, and what each is called
 /// now. A built-in tool is its language's bare name, as a built-in platform
 /// is; it was `std/<language>` before that, and the proto generator was named
@@ -87,22 +97,6 @@ impl<T: PartialEq> PartialEq for Spanned<T> {
     }
 }
 
-/// The signature a platform fixes for the function an output enters through.
-///
-/// The compiler checks the entry against this, so declaring an output for a
-/// platform whose shape the function does not have is a type error at the
-/// function rather than a failure at run time. A platform added later is a row
-/// here and a row in the checker's table, and nothing else.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum EntryShape {
-    /// `fn <entry>(): Result<(), Str>`. The program runs itself: `.Ok(())`
-    /// exits 0, `.Err(msg)` prints `msg` and exits 1.
-    Program,
-    /// `fn <entry>(request: Request): Response`. The platform calls it, once
-    /// per request.
-    Fetch,
-}
-
 /// What gets built: a bundled platform, with `native` split by operating
 /// system because a backend needs to know which one.
 ///
@@ -121,13 +115,6 @@ pub enum Platform {
     /// reactive graph, and grants no filesystem, no standard input, no
     /// environment and no process to exit.
     Web,
-    /// A Cloudflare Worker. The artifact is JavaScript, and the platform calls
-    /// it: the entry is a `fetch` the worker runtime invokes per request,
-    /// rather than a `main` that runs itself. It grants what a request handler
-    /// away from a machine has — a clock, randomness, an outbound request —
-    /// and grants no filesystem, no standard input, no environment, no process
-    /// to exit, no port to hold open and no document.
-    CloudflareWorker,
 }
 
 impl Platform {
@@ -137,7 +124,6 @@ impl Platform {
             Platform::Linux | Platform::Macos => "native",
             Platform::Js => "node",
             Platform::Web => "web",
-            Platform::CloudflareWorker => "cloudflare-worker",
         }
     }
 
@@ -147,7 +133,6 @@ impl Platform {
             Platform::Linux | Platform::Macos => "native",
             Platform::Js => "node",
             Platform::Web => "web",
-            Platform::CloudflareWorker => "CLOUDFLARE_WORKER",
         }
     }
 
@@ -162,7 +147,7 @@ impl Platform {
         match self {
             Platform::Linux => Some("linux"),
             Platform::Macos => Some("macos"),
-            Platform::Js | Platform::Web | Platform::CloudflareWorker => None,
+            Platform::Js | Platform::Web => None,
         }
     }
 
@@ -170,7 +155,7 @@ impl Platform {
     pub fn backend(self) -> Backend {
         match self {
             Platform::Linux | Platform::Macos => Backend::Native,
-            Platform::Js | Platform::Web | Platform::CloudflareWorker => Backend::Js,
+            Platform::Js | Platform::Web => Backend::Js,
         }
     }
 
@@ -186,46 +171,13 @@ impl Platform {
         self.backend() == Backend::Native
     }
 
-    pub const ALL: [Platform; 5] = [
-        Platform::Linux,
-        Platform::Macos,
-        Platform::Js,
-        Platform::Web,
-        Platform::CloudflareWorker,
-    ];
-
-    /// The signature this platform fixes for the function an output enters
-    /// through.
-    pub fn entry_shape(self) -> EntryShape {
-        match self {
-            Platform::CloudflareWorker => EntryShape::Fetch,
-            Platform::Linux | Platform::Macos | Platform::Js | Platform::Web => {
-                EntryShape::Program
-            }
-        }
-    }
+    pub const ALL: [Platform; 4] = [Platform::Linux, Platform::Macos, Platform::Js, Platform::Web];
 
     /// `native, node, web`: the bundled platforms, as a diagnostic lists them.
     pub fn names_phrase() -> String {
         PlatformName::BUNDLED.iter().map(|p| p.name()).collect::<Vec<_>>().join(", ")
     }
 
-    /// `the web platform`, `the native and node platforms`: platforms named
-    /// inside a sentence. Linux and macOS are both `native`, so a name is
-    /// written once.
-    pub fn sentence_phrase(platforms: &[Platform]) -> String {
-        let mut names: Vec<&str> = Vec::new();
-        for p in platforms {
-            if !names.contains(&p.proto()) {
-                names.push(p.proto());
-            }
-        }
-        match names.split_last() {
-            None => String::new(),
-            Some((last, [])) => format!("the {last} platform"),
-            Some((last, rest)) => format!("the {} and {last} platforms", rest.join(", ")),
-        }
-    }
 }
 
 /// How a program is compiled. Closed: a backend is built into the CLI.
@@ -257,7 +209,7 @@ impl Backend {
     pub fn platforms(self) -> &'static [Platform] {
         match self {
             Backend::Native => &[Platform::Linux, Platform::Macos],
-            Backend::Js => &[Platform::Js, Platform::Web, Platform::CloudflareWorker],
+            Backend::Js => &[Platform::Js, Platform::Web],
         }
     }
 }
@@ -268,9 +220,6 @@ pub enum PlatformName {
     Native,
     Node,
     Web,
-    /// The one old spelling still accepted, until Cloudflare is a platform a
-    /// repository writes itself.
-    CloudflareWorker,
 }
 
 impl PlatformName {
@@ -286,7 +235,6 @@ impl PlatformName {
             PlatformName::Native => "native",
             PlatformName::Node => "node",
             PlatformName::Web => "web",
-            PlatformName::CloudflareWorker => "CLOUDFLARE_WORKER",
         }
     }
 
@@ -297,7 +245,6 @@ impl PlatformName {
             PlatformName::Native => crate::compiler::driver::host_native_platform(),
             PlatformName::Node => Platform::Js,
             PlatformName::Web => Platform::Web,
-            PlatformName::CloudflareWorker => Platform::CloudflareWorker,
         }
     }
 
@@ -307,11 +254,10 @@ impl PlatformName {
             PlatformName::Native => &[Platform::Linux, Platform::Macos],
             PlatformName::Node => &[Platform::Js],
             PlatformName::Web => &[Platform::Web],
-            PlatformName::CloudflareWorker => &[Platform::CloudflareWorker],
         }
     }
 
-    /// The platform's rule. `None` for the worker, which has no build file.
+    /// The platform's rule.
     pub fn rule(self) -> Option<&'static PlatformRule> {
         crate::build::platforms::bundled(self.name())
     }
@@ -328,9 +274,63 @@ impl PlatformName {
 
     /// The names of the platform's entries.
     pub fn entries(self) -> Vec<&'static str> {
-        match self.rule() {
-            Some(r) => r.entries.iter().map(|e| e.name.value.as_str()).collect(),
-            None => vec!["fetch"],
+        self.rule().map(|r| r.entries.iter().map(|e| e.name.value.as_str()).collect()).unwrap_or_default()
+    }
+}
+
+/// A platform as a library's or a tag's `platforms` list names it.
+#[derive(Clone, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
+pub enum PlatformRef {
+    /// `"native"`, `"node"`, `"web"`.
+    Bundled(PlatformName),
+    /// `"//platform/cloudflare_worker"`. The rule is in another build file, so
+    /// the workspace checks the label once every build file is read.
+    Repository(String),
+}
+
+impl PlatformRef {
+    /// As written: `web`, `//platform/cloudflare_worker`.
+    pub fn name(&self) -> &str {
+        match self {
+            PlatformRef::Bundled(p) => p.name(),
+            PlatformRef::Repository(label) => label,
+        }
+    }
+
+    /// Whether this names the platform `output` is built for.
+    pub fn names(&self, output: &OutputPlatform) -> bool {
+        match (self, output) {
+            (PlatformRef::Bundled(p), OutputPlatform::Bundled(built)) => p.platforms().contains(built),
+            (PlatformRef::Repository(label), OutputPlatform::Repository { label: built, .. }) => {
+                label == built
+            }
+            _ => false,
+        }
+    }
+}
+
+/// What an output is built for, as a library's and a tag's lists see it: a
+/// bundled platform, or a repository's own by label with the backend that
+/// builds the entry.
+#[derive(Clone, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
+pub enum OutputPlatform {
+    Bundled(Platform),
+    Repository { label: String, backend: Backend },
+}
+
+impl OutputPlatform {
+    pub fn backend(&self) -> Backend {
+        match self {
+            OutputPlatform::Bundled(p) => p.backend(),
+            OutputPlatform::Repository { backend, .. } => *backend,
+        }
+    }
+
+    /// `native`, `web`, `//platform/cloudflare_worker`: as a message names it.
+    pub fn name(&self) -> &str {
+        match self {
+            OutputPlatform::Bundled(p) => p.slug(),
+            OutputPlatform::Repository { label, .. } => label,
         }
     }
 }
@@ -340,7 +340,7 @@ impl PlatformName {
 #[derive(Clone, Debug, Default)]
 pub struct Admitted {
     pub backends: Vec<Spanned<Backend>>,
-    pub platforms: Vec<Spanned<PlatformName>>,
+    pub platforms: Vec<Spanned<PlatformRef>>,
 }
 
 impl Admitted {
@@ -349,23 +349,18 @@ impl Admitted {
     }
 
     /// Whether every list written admits `platform`. Nothing written admits
-    /// everything.
-    pub fn admits(&self, platform: Platform) -> bool {
-        (self.backends.is_empty() || self.backends.iter().any(|b| b.value.platforms().contains(&platform)))
-            && (self.platforms.is_empty()
-                || self.platforms.iter().any(|p| p.value.platforms().contains(&platform)))
+    /// everything. A backend admits every platform it builds, a repository's
+    /// own included.
+    pub fn admits(&self, platform: &OutputPlatform) -> bool {
+        (self.backends.is_empty() || self.backends.iter().any(|b| b.value == platform.backend()))
+            && (self.platforms.is_empty() || self.platforms.iter().any(|p| p.value.names(platform)))
     }
 
     /// The word written for `platform` in either list, if one names it.
-    pub fn naming(&self, platform: Platform) -> Option<&'static str> {
-        let backend = self.backends.iter().find(|b| b.value.platforms().contains(&platform));
-        let named = self.platforms.iter().find(|p| p.value.platforms().contains(&platform));
+    pub fn naming(&self, platform: &OutputPlatform) -> Option<&str> {
+        let backend = self.backends.iter().find(|b| b.value == platform.backend());
+        let named = self.platforms.iter().find(|p| p.value.names(platform));
         backend.map(|b| b.value.proto()).or(named.map(|p| p.value.name()))
-    }
-
-    /// What a written list admits, or `None` when nothing is written.
-    pub fn set(&self) -> Option<std::collections::BTreeSet<Platform>> {
-        (!self.is_empty()).then(|| Platform::ALL.into_iter().filter(|p| self.admits(*p)).collect())
     }
 
     /// `backends NATIVE`, `platforms web`: the lists as a note writes them.
@@ -431,7 +426,6 @@ pub enum OutputTarget {
     Native { platform: NativePlatform, arch: Option<Spanned<Arch>> },
     Js,
     Web,
-    CloudflareWorker,
 }
 
 /// One entry of a binary's `outputs`.
@@ -503,7 +497,6 @@ impl Output {
                 OutputTarget::Native { platform: NativePlatform::Macos, arch: None }
             }
             Platform::Web => OutputTarget::Web,
-            Platform::CloudflareWorker => OutputTarget::CloudflareWorker,
         };
         Output { target, artifact_name: None, entry: None, custom: None, span }
     }
@@ -513,18 +506,25 @@ impl Output {
             OutputTarget::Native { platform, .. } => platform.platform(),
             OutputTarget::Js => Platform::Js,
             OutputTarget::Web => Platform::Web,
-            OutputTarget::CloudflareWorker => Platform::CloudflareWorker,
         }
     }
 
-    /// The platform's entry this output fills: `main`, or a worker's `fetch`.
-    pub fn entry_point(&self) -> &str {
-        if let Some(custom) = &self.custom {
-            return &custom.point;
+    /// What this output is built for, as a library's and a tag's lists see it.
+    pub fn output_platform(&self) -> OutputPlatform {
+        match &self.custom {
+            Some(custom) => {
+                OutputPlatform::Repository { label: custom.label.value.clone(), backend: custom.backend }
+            }
+            None => OutputPlatform::Bundled(self.platform()),
         }
-        match self.platform() {
-            Platform::CloudflareWorker => "fetch",
-            _ => "main",
+    }
+
+    /// The platform's entry this output fills: `main`, or a repository
+    /// platform's own, such as a worker's `fetch`.
+    pub fn entry_point(&self) -> &str {
+        match &self.custom {
+            Some(custom) => &custom.point,
+            None => "main",
         }
     }
 
@@ -536,7 +536,7 @@ impl Output {
     pub fn arch(&self) -> Option<Arch> {
         match &self.target {
             OutputTarget::Native { arch, .. } => arch.as_ref().map(|a| a.value),
-            OutputTarget::Js | OutputTarget::Web | OutputTarget::CloudflareWorker => None,
+            OutputTarget::Js | OutputTarget::Web => None,
         }
     }
 
@@ -855,11 +855,11 @@ pub struct Tag {
 impl Tag {
     /// Whether code carrying this tag may be built for `platform`: admitted by
     /// `requires` (or nothing is required), and named by nothing in `forbids`.
-    pub fn admits(&self, platform: Platform) -> bool {
+    pub fn admits(&self, platform: &OutputPlatform) -> bool {
         self.requires.admits(platform) && !self.forbids(platform)
     }
 
-    pub fn forbids(&self, platform: Platform) -> bool {
+    pub fn forbids(&self, platform: &OutputPlatform) -> bool {
         self.forbids.naming(platform).is_some()
     }
 }
@@ -1154,8 +1154,8 @@ impl Reader {
         out
     }
 
-    /// One platform as a build file names it: a bundled name in a string, or
-    /// the worker's old bare word. `None` once refused.
+    /// One bundled platform as a build file names it, by its name in a string.
+    /// `None` once refused.
     fn platform_name(&mut self, value: &Value) -> Option<Spanned<PlatformName>> {
         match value {
             Value::Str(s, sp) => match PlatformName::bundled(s) {
@@ -1170,7 +1170,14 @@ impl Reader {
                 }
             },
             Value::Ident(s, sp) if s == "CLOUDFLARE_WORKER" => {
-                Some(Spanned::new(PlatformName::CloudflareWorker, *sp))
+                self.retired(
+                    *sp,
+                    s,
+                    "write `platforms: [\"//platform/cloudflare_worker\"]`, naming a platform of \
+                     your own under `//platform/`; `buri docs guides/custom-platforms` walks through \
+                     one",
+                );
+                None
             }
             Value::Ident(s, sp) => {
                 match RETIRED_PLATFORM_NAMES.iter().find(|(old, _)| old == s) {
@@ -1189,8 +1196,9 @@ impl Reader {
         }
     }
 
-    /// `platforms: ["native", "web"]`.
-    fn platform_names(&mut self, message: &Message) -> Vec<Spanned<PlatformName>> {
+    /// `platforms: ["native", "//platform/cloudflare_worker"]`: bundled names,
+    /// and labels the workspace checks once every build file is read.
+    fn platform_refs(&mut self, message: &Message) -> Vec<Spanned<PlatformRef>> {
         let mut out = Vec::new();
         for f in message.all("platforms") {
             let items: Vec<&Value> = match &f.value {
@@ -1198,20 +1206,27 @@ impl Reader {
                 other => vec![other],
             };
             for item in items {
-                out.extend(self.platform_name(item));
+                match item {
+                    Value::Str(label, sp) if label.starts_with("//") => {
+                        out.push(Spanned::new(PlatformRef::Repository(label.clone()), *sp));
+                    }
+                    _ => out.extend(
+                        self.platform_name(item).map(|p| Spanned::new(PlatformRef::Bundled(p.value), p.span)),
+                    ),
+                }
             }
         }
         out
     }
 
     fn admitted(&mut self, message: &Message) -> Admitted {
-        Admitted { backends: self.backends(message), platforms: self.platform_names(message) }
+        Admitted { backends: self.backends(message), platforms: self.platform_refs(message) }
     }
 
     /// A tag's two lists: each names a backend or a platform once, and none is
     /// both required and forbidden.
     fn tag_platforms(&mut self, tag: &str, requires: &Admitted, forbids: &Admitted) {
-        fn words(a: &Admitted) -> Vec<(&'static str, Span)> {
+        fn words(a: &Admitted) -> Vec<(&str, Span)> {
             a.backends
                 .iter()
                 .map(|b| (b.value.proto(), b.span))
@@ -1605,9 +1620,10 @@ impl Reader {
             }
         }
         let platform = match &field.value {
-            Value::Ident(s, sp) if matches!(s.as_str(), "LINUX" | "MACOS" | "JS" | "WEB") => {
+            Value::Ident(s, sp) if matches!(s.as_str(), "LINUX" | "MACOS" | "JS" | "WEB" | "CLOUDFLARE_WORKER") => {
                 let replacement = match s.as_str() {
                     "JS" => "write `platform: \"node\"`".to_string(),
+                    "CLOUDFLARE_WORKER" => CLOUDFLARE_WORKER_FIX.to_string(),
                     "WEB" => "write `platform: \"web\"`".to_string(),
                     _ => {
                         let os = s.to_lowercase();
@@ -1663,7 +1679,6 @@ impl Reader {
         let target = match platform.value {
             PlatformName::Node => OutputTarget::Js,
             PlatformName::Web => OutputTarget::Web,
-            PlatformName::CloudflareWorker => OutputTarget::CloudflareWorker,
             PlatformName::Native => {
                 let os = match variant.as_ref().map(|v| v.value.as_str()) {
                     Some(v) if v.starts_with("macos-") => NativePlatform::Macos,
@@ -2021,18 +2036,6 @@ mod tests {
         assert_eq!(halves, whole);
     }
 
-    /// The phrase `effect-not-on-platform` writes its platforms with. Linux
-    /// and macOS are both `native`, so it is written once.
-    #[test]
-    fn platforms_are_named_inside_a_sentence() {
-        assert_eq!(Platform::sentence_phrase(&[]), "");
-        assert_eq!(Platform::sentence_phrase(&[Platform::Web]), "the web platform");
-        assert_eq!(
-            Platform::sentence_phrase(&[Platform::Linux, Platform::Macos, Platform::Js]),
-            "the native and node platforms"
-        );
-    }
-
     #[test]
     fn reads_a_library_rule() {
         let src = r#"
@@ -2089,7 +2092,6 @@ library {
             assert_ne!(p.is_javascript(), p.is_native(), "`{}`", p.proto());
         }
         assert!(Platform::Web.is_javascript());
-        assert!(Platform::CloudflareWorker.is_javascript());
         assert_eq!(Platform::names_phrase(), "native, node, web");
     }
 
@@ -2171,13 +2173,38 @@ library {
         assert_eq!(one("{ main: \"run\" }"), ["unknown-field", "incomplete-entry"]);
     }
 
+    /// Cloudflare Workers is a platform a repository writes, so the old bare
+    /// word is retired on an output and in a list, and the output's fix shows
+    /// the repository platform and names the guide.
     #[test]
-    fn a_worker_keeps_its_old_spelling_until_it_is_a_platform_of_its_own() {
+    fn a_worker_is_a_platform_a_repository_writes() {
         let read = read_build_file("binary {\n  outputs: [{ platform: CLOUDFLARE_WORKER }]\n}\n", FileId(0));
+        let written: Vec<_> = read.errors.iter().filter_map(|e| e.code.clone()).collect();
+        assert_eq!(written, ["retired-platform-name"]);
+        let fix = read.errors[0].fix.clone().unwrap_or_default();
+        assert!(fix.contains("buri docs guides/custom-platforms"), "{fix}");
+        assert!(fix.contains("{ platform: \"//platform/cloudflare_worker\" }"), "{fix}");
+        assert_eq!(codes("library {\n  platforms: [CLOUDFLARE_WORKER]\n}\n"), ["retired-platform-name"]);
+    }
+
+    /// A library's list names a repository platform by its label, kept as
+    /// written for the workspace to check.
+    #[test]
+    fn a_list_names_a_repository_platform_by_label() {
+        let read = read_build_file("library {\n  platforms: [\"//platform/worker\", \"web\"]\n}\n", FileId(0));
         assert!(read.errors.is_empty(), "{:#?}", read.errors);
-        let output = &read.value.binary.unwrap().outputs[0];
-        assert_eq!(output.platform(), Platform::CloudflareWorker);
-        assert_eq!(output.entry_name(), "fetch");
+        let admits = read.value.library.unwrap().admits;
+        let worker = OutputPlatform::Repository { label: "//platform/worker".into(), backend: Backend::Js };
+        let other = OutputPlatform::Repository { label: "//platform/other".into(), backend: Backend::Js };
+        assert!(admits.admits(&worker));
+        assert!(admits.admits(&OutputPlatform::Bundled(Platform::Web)));
+        assert!(!admits.admits(&other));
+        assert!(!admits.admits(&OutputPlatform::Bundled(Platform::Js)));
+
+        let read = read_build_file("library {\n  backends: [JS]\n}\n", FileId(0));
+        let admits = read.value.library.unwrap().admits;
+        assert!(admits.admits(&other), "a backend admits every platform it builds");
+        assert!(!admits.admits(&OutputPlatform::Bundled(Platform::Linux)));
     }
 
     #[test]
@@ -2229,14 +2256,14 @@ library {
         let read = read_repo_config(src, FileId(0));
         assert!(read.errors.is_empty(), "{:#?}", read.errors);
         let tag = &read.value.tags[0];
-        assert!(!tag.admits(Platform::Js));
-        assert!(!tag.admits(Platform::Web));
-        assert!(tag.admits(Platform::Linux));
+        assert!(!tag.admits(&OutputPlatform::Bundled(Platform::Js)));
+        assert!(!tag.admits(&OutputPlatform::Bundled(Platform::Web)));
+        assert!(tag.admits(&OutputPlatform::Bundled(Platform::Linux)));
 
         let src = "tag {\n  name: \"a\"\n  forbids { platforms: [\"web\"] }\n}\n";
         let tag = &read_repo_config(src, FileId(0)).value.tags[0];
-        assert!(tag.admits(Platform::Js));
-        assert!(!tag.admits(Platform::Web));
+        assert!(tag.admits(&OutputPlatform::Bundled(Platform::Js)));
+        assert!(!tag.admits(&OutputPlatform::Bundled(Platform::Web)));
     }
 
     #[test]

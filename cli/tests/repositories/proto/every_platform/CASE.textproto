@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a generated module is a module on every platform an output names: one .proto behind native, node, web and CLOUDFLARE_WORKER outputs, compiled for each and run on one"
+doc: "a generated module is a module on every platform an output names: one .proto behind native, node, web and repository-platform outputs, compiled for each and run on one"
 
 # All five outputs, and nothing to say about any of them. A generated module is
 # compiled once per platform like any other source, so this is the whole claim:
@@ -33,7 +33,7 @@ run {
 }
 
 run {
-  args: ["build", "//cmd/app", "--output=cloudflare-worker", "--explain"]
+  args: ["build", "//cmd/app", "--output=//platform/cloudflare_worker", "--explain"]
   exit: 0
   golden: "worker.txt"
 }

@@ -137,15 +137,14 @@ pub struct Block {
     /// document showing an `effect` declaration is showing a platform module,
     /// and one showing a `test` is showing a test source.
     pub role: Option<Role>,
-    /// The output's platform this block is checked against, when the block is
-    /// *about* what a platform grants.
+    /// The output's platform this block is built for, when the block is
+    /// *about* a platform's host.
     ///
-    /// `None` — the default, and every block but one — grants the whole host,
-    /// because a snippet builds no output and a document about `core/fs` must
-    /// not fail because the harness picked a platform without a filesystem.
-    /// Writing `platform=node` is how a document says "and this is what does not
-    /// compile there", which is the only way an error page for
-    /// `effect-not-on-platform` can carry a program that provokes it.
+    /// `None` — the default, and every block but one — accepts any bundled
+    /// host, because a snippet builds no output. Writing `platform=node` is how
+    /// a document says "and this is what does not compile there", which is the
+    /// only way the error page for `entry-host-mismatch` can carry a program
+    /// that provokes it.
     pub platform: Option<crate::build::buildfile::Platform>,
     /// The fence exactly as it stands in the document: hidden `# ` markers,
     /// `// ERROR:` annotations and all.

@@ -1,6 +1,5 @@
 // A website: one binary, two entries, one tree.
 
-from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/json" import * as json;
 from "core/json" import { FromJson, ToJson };
@@ -14,6 +13,7 @@ from "ui/prop" import { Prop };
 from "ui/signal" import { signal };
 from "ui/web" import * as web;
 from "web" import { WebHost };
+from "//platform/cloudflare_worker" import { CloudflareHost };
 
 derive FromJson, ToJson for Site;
 /// What the page is rendered from. The worker sends it with the document, and
@@ -153,7 +153,7 @@ export fn main(host: WebHost): Result<(), Str> {
     }
 }
 
-export fn fetch(request: Request): Response {
+export fn fetch(host: CloudflareHost, request: Request): Response {
     let ctx = context {
         Allocator: host.alloc,
     };

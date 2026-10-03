@@ -811,7 +811,7 @@ fn choose(platform: Platform) -> Flavour {
         // Exhaustive rather than a catch-all, which would have handed a WEB
         // target a native linker to probe for. A JavaScript artifact is not
         // linked; nothing reaches this with one, and now nothing can.
-        Platform::Js | Platform::Web | Platform::CloudflareWorker => &[],
+        Platform::Js | Platform::Web => &[],
     };
     match forced.as_str() {
         "cc" | "system" => return Flavour::System,

@@ -750,8 +750,8 @@ impl<'a> Monomorphizer<'a> {
     /// backend supplies. A field the program never binds is a value nothing
     /// calls, so none of its methods is ever requested.
     ///
-    /// An entry with no host parameter — a worker's `fetch(request)` — is the
-    /// root itself, as every entry was before hosts.
+    /// An entry with no host parameter is the root itself, as every entry was
+    /// before hosts.
     fn entry(&mut self, f: FnId) -> usize {
         let inner = self.request(Key::Fn(f, Vec::new()));
         let Some(host) = self.host_parameter(f) else { return inner };

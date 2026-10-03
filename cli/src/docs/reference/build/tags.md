@@ -89,9 +89,12 @@ A platform is not a tag. You select a platform rather than merely constrain it,
 because the compiler has to pick a backend. So it stays a field of its own.
 
 Two lists say where code may go. `backends` names how it is compiled, `NATIVE`
-or `JS`, for code that relies on one backend's behaviour. `platforms` names
-bundled platforms, `"native"`, `"node"` or `"web"`, for code that means
-something on one platform only. A platform must satisfy every list written.
+or `JS`, for code that relies on one backend's behaviour, and admits every
+platform that backend builds, a repository's own included. `platforms` names
+bundled platforms, `"native"`, `"node"` or `"web"`, or a repository platform by
+label, `"//platform/cloudflare_worker"`, for code that means something on one
+platform only. A platform must satisfy every list written, and a label that
+names no `platform` rule is `no-such-platform`.
 
 A binary names its platforms in `outputs`. A library names them only when it is
 genuinely platform-specific, and writes them as a plain field:
@@ -101,6 +104,14 @@ genuinely platform-specific, and writes them as a plain field:
 library {
     backends: [NATIVE]
     # this code does not mean anything in JavaScript
+}
+```
+
+```textproto schema=build
+# lib/edge_cache/BUILD.buri
+library {
+    platforms: ["//platform/cloudflare_worker"]
+    # only the worker's outputs may hold this
 }
 ```
 

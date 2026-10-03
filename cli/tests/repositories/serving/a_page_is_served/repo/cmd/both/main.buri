@@ -7,7 +7,6 @@
 // so a page that resumed would find markup no `web.shell` had written. Putting
 // the worker in front of the page locally is not what this command does.
 
-from "core/host" import * as host;
 from "core/net/http" import * as http;
 from "platform/effect" import { Allocator, Request, Response };
 from "ui/effect" import { Ui, Watch };
@@ -15,6 +14,7 @@ from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/web" import * as web;
 from "web" import { WebHost };
+from "//platform/cloudflare_worker" import { CloudflareHost };
 
 fn page<C>(): Node<C> {
     ui.stack({
@@ -33,7 +33,7 @@ export fn main(host: WebHost): Result<(), Str> {
     ui.mount(ctx, page(), [])
 }
 
-export fn fetch(request: Request): Response {
+export fn fetch(host: CloudflareHost, request: Request): Response {
     let ctx = context {
         Allocator: host.alloc,
     };

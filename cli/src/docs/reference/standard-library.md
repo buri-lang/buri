@@ -1107,12 +1107,12 @@ export fn main(host: NodeHost): Result<(), Str> {
 | [`platform/host`](../../compiler/standard_library/sources/platform_host.buri) | The backends' production implementations, `HostAllocator`, `HostFileSystem` and the rest | A platform's `platform.buri`; anywhere else is `host-import-outside-platform` |
 | [`platform/effect/testing`](../../compiler/standard_library/sources/host_testing.buri) | A test implementation of every effect | A test source |
 | [`native`](../../platforms/native/platform.buri), [`node`](../../platforms/node/platform.buri), [`web`](../../platforms/web/platform.buri) | Each bundled platform's host type, `NativeHost`, `NodeHost` or `WebHost`, and its bodiless `main` | Anyone, for the host type; importing `main` is `entry-declaration-imported` |
-| [`core/host`](../../compiler/standard_library/sources/host.buri) | The host values a `CLOUDFLARE_WORKER` entry binds, until a worker takes a host | A worker entry's module |
 
 [`core/fs`](../../compiler/standard_library/sources/fs.buri) declares the
 filesystem's two effects, and `core/process` declares `Spawn`. `core/effect`
 and `core/host/testing` are retired: their names are `platform/effect` and
-`platform/effect/testing`.
+`platform/effect/testing`. `core/host` is retired too: an entry takes its
+platform's host and binds its fields.
 [`core/alloc`](../../compiler/standard_library/sources/alloc.buri),
 [`core/io`](../../compiler/standard_library/sources/io.buri),
 [`core/fs`](../../compiler/standard_library/sources/fs.buri),
@@ -1351,11 +1351,12 @@ it — because a page never sees the key it sent.
 
 `connect` is bounded `WebSocketClient + Sockets`. The first dials and the second
 pushes, and the hooks are handed your context, so both have to be in it.
-**Every platform grants both**, `web` and `CLOUDFLARE_WORKER` included: holding
+**Every bundled platform offers both**, `web` included: holding
 a port open is a native program's authority, and dialling out is not. On a page
 `connect` follows `ui.mount` — it suspends without holding the event loop, so an
 interface goes on rendering while the socket is idle and a pushed frame wakes it
-like a click. A worker dials the same way while it answers a request.
+like a click. A worker whose host has both fields dials the same way while it
+answers a request.
 
 `Client` has no header list, because a browser's `WebSocket` cannot send request
 headers. A token or a subprotocol goes in the URL, which is what every browser
@@ -1729,7 +1730,7 @@ fn route<C: Stdout>(ctx: C, path: Str): () {
 }
 ```
 
-`load(f)` answers `f`. On `node`, `web` and `CLOUDFLARE_WORKER` it also moves `f`,
+`load(f)` answers `f`. On every JavaScript platform it also moves `f`,
 and everything only `f` reaches, into a chunk beside the artifact —
 `<artifact>.0.mjs` — which the program fetches when it reaches the `load`. A
 native build has one file and ignores the whole thing.

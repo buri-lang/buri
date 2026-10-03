@@ -1,0 +1,19 @@
+error: `//platform/deno_deploy` is not a platform [no-such-platform]
+ --> lib/edge/BUILD.buri:2:17
+  |
+2 |     platforms: ["//platform/deno_deploy"]
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = the platforms bundled with the toolchain are `"native"`, `"node"` and `"web"`
+  = a repository's platform is a `platform` rule in a package under `//platform/`, and `//platform/deno_deploy` holds none
+  = fix: name one of "//platform/cloudflare_worker", "native", "node", "web"
+
+      binary {
+          outputs: [
+              { platform: "node" },
+          ]
+      }
+
+    A platform name is a string. node runs under bun or Node, web is a page in a
+    browser, and native is an executable for the variant it names.
+
