@@ -36,7 +36,7 @@
 //! cannot answer them: [`Entry::by_ref`], whose type is a bare `T`, and
 //! [`Entry::ctx`], which the C signature has no parameter for. The second one
 //! read "a `ctx` spreads to no leaves because it occupies no bytes" for a long
-//! time, and that is a fact about `core/host`'s empty marker structs rather
+//! time, and that is a fact about `platform/host`'s empty marker structs rather
 //! than about contexts — see [`Entry::ctx`] for what it costs when a program
 //! writes something else.
 //!
@@ -600,7 +600,7 @@ pub const ENTRIES: &[Entry] = &[
     // agreement row, before there was anything else to call it with. The
     // alternative was landing the boundary underneath `Tasks.parallel` and
     // debugging two new things at once. `host.HostTasks.parallel` is that
-    // second key and it is in the `core/host` block below, beside the rest of
+    // second key and it is in the `platform/host` block below, beside the rest of
     // the host surface rather than up here — the trampoline is a mechanism, not
     // a section of this table.
     cx(es("list.mapCtxStep", "buri_rt_list_map_ctx_step", Ret::Out), 1),
@@ -1046,7 +1046,7 @@ pub const ENTRIES: &[Entry] = &[
     cx(e("tasks.scopeRan", "buri_rt_tasks_scope_ran", Ret::Scalar), 0),
     // -- platform/effect/testing's stateful half -----------------------------------
     //
-    // `core/host`'s names for a test source, over one handle table.
+    // `platform/effect/testing`'s names, over one handle table.
     // `cli/runtime/testing.rs`'s header is the argument for these being in the
     // archive rather than open-coded: each names a slot in one mutable table,
     // which is `runtime.js`'s `$t.h` written for a language that has statics.

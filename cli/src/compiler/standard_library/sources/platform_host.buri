@@ -156,9 +156,7 @@ impl Entropy for HostEntropy {
 
 /// The process's variables and arguments.
 ///
-/// **On `NativeHost` and `NodeHost`, and a worker's `core/host`.** A worker's variables
-/// are the string bindings in the `env` its platform calls it with — its vars
-/// and its secrets — and it has no arguments.
+/// **On `NativeHost` and `NodeHost`.**
 export struct HostEnvironment {}
 
 impl Environment for HostEnvironment {

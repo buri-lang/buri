@@ -495,10 +495,9 @@ export effect Sockets {
 ///
 /// **Every method names the noun it acts on**, on `Sockets`' rule.
 ///
-/// **Granted on LINUX, MACOS, JS, WEB and CLOUDFLARE_WORKER** — every platform.
-/// Dialling out is what a page does; it is holding a port open that a page
-/// cannot do, and a worker is in the same position. On WEB and
-/// CLOUDFLARE_WORKER the two methods suspend without holding the event loop.
+/// **On every bundled host.** Dialling out is what a page does; it is holding a
+/// port open that a page cannot do. On `JS` the two methods suspend without
+/// holding the event loop.
 export effect WebSocketClient {
     /// Dials `url` and completes the opening handshake, answering the socket and
     /// the response that opened it.
