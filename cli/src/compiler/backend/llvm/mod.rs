@@ -39,8 +39,8 @@
 //! not run `middle::native` therefore gets a diagnostic naming the pass rather
 //! than an object file that is quietly wrong. `actions::prepare` is where the
 //! composition lives — `middle::run`, then `middle::native` on a native
-//! target — and [`emit_lowered`] is the entry point that takes an
-//! already-lowered `ir::Program` for anything that has done it.
+//! target — and [`Backend::adopt_lowering`] hands this backend the
+//! `ir::Program` the build already lowered from it.
 //!
 //! # Two things this backend deliberately does not emit
 //!
@@ -78,12 +78,18 @@ use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 /// The release backend.
 ///
 /// A plain owned object: an LLVM `Context` is not `Sync` and owns everything
-/// built inside it, so one is created per [`emit_lowered`] call and dropped
+/// built inside it, so one is created per unit and dropped
 /// with the modules it produced. Holding a `Context` in this struct would tie
 /// the backend's lifetime to a context's and make `Backend` object-unsafe for
 /// the one implementor that most wants a plain object.
+///
+/// The one field is [`Backend::adopt_lowering`]'s, as it is `Stencil`'s: the IR
+/// the build already lowered for this program, held until the next emission
+/// takes it. Empty means "lower it here".
 #[derive(Default)]
-pub struct Llvm;
+pub struct Llvm {
+    adopted: Option<ir::Program>,
+}
 
 impl Backend for Llvm {
     fn name(&self) -> &'static str {
@@ -196,16 +202,6 @@ impl Backend for Llvm {
         // backend's.
         missing.extend(super::networking_gap(program));
         missing.extend(super::cryptography_gap(program));
-        // `str.concat` is emitted by `lower::template` at every interpolation
-        // and never appears as a `FuncKind::Intrinsic`, so scanning the
-        // function list alone would miss the single most common way a program
-        // could leave this backend's surface. It is open-coded now, so this
-        // adds nothing — the test is kept rather than deleted so that removing
-        // the open-coding restores the diagnostic instead of silently removing
-        // it.
-        if program.funcs.iter().any(uses_template) && !emit::implemented("str.concat") {
-            missing.push(String::from("str.concat"));
-        }
         missing.sort();
         missing.dedup();
         missing
@@ -220,10 +216,18 @@ impl Backend for Llvm {
         self.emit_units(program, tables, opts, Units::All)
     }
 
+    fn adopt_lowering(&mut self, lowered: ir::Program) {
+        self.adopted = Some(lowered);
+    }
+
     /// The unit loop is already per unit; what `units` adds is the parameter
     /// that lets the build system say which of them it still needs. Everything
     /// above the loop — the triple, the machine, the lowering — is
     /// whole-program and is done once either way.
+    ///
+    /// It does not ask [`Backend::missing_intrinsics`] again: the build asked
+    /// before it got here, and a key with no body is still refused where it is
+    /// emitted (`emit::Unit`).
     fn emit_units(
         &mut self,
         program: &monomorphize::Program,
@@ -231,64 +235,57 @@ impl Backend for Llvm {
         opts: &Options<'_>,
         units: Units<'_>,
     ) -> Result<Vec<Emitted>, Diagnostics> {
-        let missing = self.missing_intrinsics(program, tables);
-        if !missing.is_empty() {
-            let mut diags = Diagnostics::new();
-            diags.push(
-                Diagnostic::error(
-                    Span::NONE,
-                    format!("the native runtime has no implementation of {}", missing.join(", ")),
-                )
-                .with_fix("report it: this is a toolchain bug, not a problem with your program"),
-            );
-            return Err(diags);
-        }
-        let root = root_of(program);
-        let lowered = lower::run(program, tables);
-        emit_selected(&lowered, tables, opts, root, units, Some(&classifier(program)))
+        let lowered = self.take_lowering(program, tables);
+        let counted = classifier(program);
+        emit_selected(&lowered, tables, opts, root_of(program), units, &counted, target::object)
     }
 }
 
-fn uses_template(f: &monomorphize::Func) -> bool {
-    let Some(body) = f.body() else { return false };
-    let mut found = false;
-    crate::compiler::semantics::typed::walk(body, &mut |e| {
-        if matches!(e.kind, crate::compiler::semantics::typed::ExprKind::Template { .. }) {
-            found = true;
+impl Llvm {
+    /// The adopted lowering, or a fresh one.
+    ///
+    /// `take`, not `clone`: a lowering is adopted for one emission, so a second
+    /// call with a different program lowers for itself rather than reusing the
+    /// first one's IR.
+    fn take_lowering(&mut self, program: &monomorphize::Program, tables: &Tables) -> ir::Program {
+        match self.adopted.take() {
+            Some(lowered) => {
+                debug_assert_eq!(
+                    lowered.funcs.len(),
+                    program.funcs.len(),
+                    "an adopted lowering must be this program's"
+                );
+                lowered
+            }
+            None => lower::run(program, tables),
         }
-    });
-    found
-}
+    }
 
-/// One object file per codegen unit, from an already-lowered program.
-///
-/// This is the real entry point: [`Backend::emit`] is a thin wrapper that
-/// lowers first, and the native tests, which already hold an `ir::Program`,
-/// call this directly. It is deliberately not on `Backend`, so the build's
-/// action graph reaches it through [`Backend::emit_units`] rather than around
-/// it (`build/actions.rs`).
-///
-/// The partition is the middle end's: a codegen unit is the set of
-/// monomorphized functions whose declaration came from one source module
-/// (ARCHITECTURE.md §5.1), so functions that call each other land in one
-/// `.text` section next to each other. Emission order within a unit is the
-/// middle end's function order, which is the monomorphization worklist's —
-/// deterministic, and derived from the reachability walk out of the entry point
-/// rather than from a hash order, which is a free first approximation of a
-/// call-order layout (CODEGEN-LLVM.md §6).
-///
-/// It passes **no** reference-counting classifier, and cannot: [`classifier`] is
-/// built
-/// from the `monomorphize::Program` `rc::run` was handed, and this signature
-/// has only the lowered one. `emit::Unit::rc_counted` states what stands in and
-/// why the substitution is leak-safe rather than unsound.
-pub fn emit_lowered(
-    program: &ir::Program,
-    tables: &Tables,
-    opts: &Options<'_>,
-    entry: Option<FuncIdx>,
-) -> Result<Vec<Emitted>, Diagnostics> {
-    emit_selected(program, tables, opts, entry.map(Root::Main), Units::All, None)
+    /// The optimized IR of one unit, as text. What a FileCheck-style assertion
+    /// reads.
+    ///
+    /// It runs the same emitter and the same pipeline as
+    /// [`Backend::emit_units`] and stops one step earlier, so an assertion about
+    /// the IR is an assertion about the object rather than about a second code
+    /// path that resembles it.
+    pub fn emit_ir_text(
+        &mut self,
+        program: &monomorphize::Program,
+        tables: &Tables,
+        opts: &Options<'_>,
+        unit: u32,
+    ) -> Result<String, Diagnostics> {
+        let lowered = self.take_lowering(program, tables);
+        let counted = classifier(program);
+        let text = |module: &inkwell::module::Module<'_>, _: &inkwell::targets::TargetMachine| {
+            Ok(module.to_string().into_bytes())
+        };
+        let only = [unit];
+        let emitted =
+            emit_selected(&lowered, tables, opts, root_of(program), Units::Only(&only), &counted, text)?;
+        let bytes = emitted.into_iter().next().map(|e| e.bytes).unwrap_or_default();
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
 }
 
 /// The root a monomorphized program has, in the shape the unit loop needs.
@@ -334,19 +331,36 @@ fn classifier(program: &monomorphize::Program) -> Rc<RefCell<rc::Syntactic>> {
     Rc::new(RefCell::new(rc::Syntactic::new(program)))
 }
 
-/// [`emit_lowered`], for a chosen subset of the units.
+/// One object per codegen unit, for a chosen subset of the units, from an
+/// already-lowered program.
+///
+/// The partition is the middle end's: a codegen unit is the set of
+/// monomorphized functions whose declaration came from one source module
+/// (ARCHITECTURE.md §5.1), so functions that call each other land in one
+/// `.text` section next to each other. Emission order within a unit is the
+/// middle end's function order, which is the monomorphization worklist's —
+/// deterministic, and derived from the reachability walk out of the entry point
+/// rather than from a hash order, which is a free first approximation of a
+/// call-order layout (CODEGEN-LLVM.md §6).
 ///
 /// The objects it returns are the ones asked for, in unit order, and each is
 /// byte-identical to the one a whole-program emission would have produced for
 /// it: a unit's module is built from the program and from that unit's members,
 /// and nothing in the loop carries state from one iteration to the next.
+///
+/// `render` turns each optimized module into the bytes returned for it: an
+/// object file for the build, the IR text for [`Llvm::emit_ir_text`].
 fn emit_selected(
     program: &ir::Program,
     tables: &Tables,
     opts: &Options<'_>,
     root: Option<Root>,
     units: Units<'_>,
-    counted: Option<&Rc<RefCell<rc::Syntactic>>>,
+    counted: &Rc<RefCell<rc::Syntactic>>,
+    render: impl Fn(
+        &inkwell::module::Module<'_>,
+        &inkwell::targets::TargetMachine,
+    ) -> Result<Vec<u8>, String>,
 ) -> Result<Vec<Emitted>, Diagnostics> {
     let mut diags = Diagnostics::new();
     let triple = match target::triple(opts.target) {
@@ -367,7 +381,7 @@ fn emit_selected(
     };
     let data_layout = machine.get_target_data().get_data_layout();
 
-    let identity = Llvm.identity();
+    let identity = Llvm::default().identity();
     // Both of these are functions of the whole program and of nothing the loop
     // varies, so they are taken once. Computing them per unit is what
     // `design/PERFORMANCE.md` §6.4's first finding measured on the native side:
@@ -413,10 +427,8 @@ fn emit_selected(
             opts.profile,
             &observed,
             std::sync::Arc::clone(&cycles),
+            Rc::clone(counted),
         );
-        if let Some(counted) = counted {
-            emitter.use_rc_classifier(Rc::clone(counted));
-        }
         emitter.module.set_triple(&inkwell::targets::TargetTriple::create(&triple));
         emitter.module.set_data_layout(&data_layout);
         for member in &members {
@@ -472,7 +484,7 @@ fn emit_selected(
             diags.push(Diagnostic::error(Span::NONE, message));
             return Err(diags);
         }
-        let bytes = match target::object(&emitter.module, &machine) {
+        let bytes = match render(&emitter.module, &machine) {
             Ok(b) => b,
             Err(message) => {
                 diags.push(Diagnostic::error(Span::NONE, message));
@@ -486,71 +498,6 @@ fn emit_selected(
         });
     }
     Ok(out)
-}
-
-/// The optimized IR of one unit, as text. What a FileCheck-style assertion
-/// reads, and what `--explain` would print.
-///
-/// It runs the same emitter and the same pipeline as [`emit_lowered`] and
-/// stops one step earlier, so an assertion about the IR is an assertion about
-/// the object rather than about a second code path that resembles it.
-pub fn emit_ir_text(
-    program: &ir::Program,
-    tables: &Tables,
-    opts: &Options<'_>,
-    entry: Option<FuncIdx>,
-    unit: u32,
-) -> Result<String, Diagnostics> {
-    let mut diags = Diagnostics::new();
-    let triple = target::triple(opts.target).map_err(|m| {
-        let mut d = Diagnostics::new();
-        d.push(Diagnostic::error(Span::NONE, m));
-        d
-    })?;
-    let machine = target::machine(&triple, opts.profile).map_err(|m| {
-        let mut d = Diagnostics::new();
-        d.push(Diagnostic::error(Span::NONE, m));
-        d
-    })?;
-    let ctx = Context::create();
-    let name = program.unit_name(unit).to_string();
-    let observed = emit::observe(program, opts.profile);
-    let cycles = std::sync::Arc::new(layout::Cycles::new(tables));
-    let mut emitter =
-        emit::Unit::new(&ctx, program, tables, &name, opts.profile, &observed, cycles);
-    emitter.module.set_triple(&inkwell::targets::TargetTriple::create(&triple));
-    emitter.module.set_data_layout(&machine.get_target_data().get_data_layout());
-    for (i, f) in program.funcs.iter().enumerate() {
-        if f.unit == unit && f.code().is_some() {
-            emitter.define(FuncIdx(i as u32));
-        }
-    }
-    if let Some(e) = entry.filter(|e| {
-        program.funcs.get(e.index()).is_some_and(|f| f.unit == unit && f.code().is_some())
-    }) {
-        emitter.entry_point(e);
-        emitter.thread_door(e, task_thread::MAIN_ENTRY);
-    }
-    emitter.finish();
-    if emitter.diags.has_errors() {
-        diags.extend(emitter.diags.items);
-        return Err(diags);
-    }
-    // The same verification `emit_lowered` does, for the same reason: an
-    // assertion about the IR is only an assertion about the object if the two
-    // came out of the same checks.
-    if let Err(message) = emitter.module.verify() {
-        diags.push(Diagnostic::error(
-            Span::NONE,
-            format!("internal error: the LLVM backend emitted invalid IR: {message}"),
-        ));
-        return Err(diags);
-    }
-    if let Err(message) = target::optimize(&emitter.module, &machine, opts.profile) {
-        diags.push(Diagnostic::error(Span::NONE, message));
-        return Err(diags);
-    }
-    Ok(emitter.module.to_string())
 }
 
 /// `codegen_key(unit) = H(backend, identity, triple, profile, prefix, the unit's IR)`.
@@ -615,7 +562,7 @@ mod tests {
     /// musl toolchain.
     #[test]
     fn the_identity_names_the_linked_llvm_and_its_triples() {
-        let id = Llvm.identity();
+        let id = Llvm::default().identity();
         assert!(id.starts_with("llvm 21."), "{id}");
         assert!(id.contains("inkwell"), "{id}");
         for triple in [

@@ -45,12 +45,38 @@ use std::process::Command;
 // The pipeline
 // ---------------------------------------------------------------------------
 
-/// One compiled program: the lowered IR, the tables it was lowered against,
-/// and where its entry point is.
+/// One compiled program: the program after the middle end, its lowered IR,
+/// and the tables both were built against.
 struct Lowered {
+    program: middle::monomorphize::Program,
     ir: middle::ir::Program,
     tables: Tables,
-    entry: FuncIdx,
+}
+
+impl Lowered {
+    /// The IR's function for the entry point: `checked.entry` is the front
+    /// end's `FnId`, and the *monomorphized* index is what the IR is indexed
+    /// by — `Program::roots` is where monomorphization records it.
+    fn entry(&self) -> FuncIdx {
+        let middle::monomorphize::ProgramRoots::Main(entry) = self.program.roots else {
+            panic!("the program has no `main` root")
+        };
+        entry
+    }
+
+    /// The backend, handed the lowering this holds, as the build hands it the
+    /// one `actions::objects_named` computed.
+    fn adopted(self) -> (llvm::Llvm, middle::monomorphize::Program, Tables) {
+        let mut backend = llvm::Llvm::default();
+        backend.adopt_lowering(self.ir);
+        (backend, self.program, self.tables)
+    }
+
+    /// Every unit's object, through `Backend::emit`.
+    fn emit(self, profile: Profile) -> Vec<buri::compiler::backend::Emitted> {
+        let (mut backend, program, tables) = self.adopted();
+        expect(backend.emit(&program, &tables, &options(profile)))
+    }
 }
 
 /// Source text through the whole middle end.
@@ -87,13 +113,7 @@ fn lower(source: &str) -> Lowered {
     let errs = middle::ir::verify(&ir);
     assert!(errs.is_empty(), "the lowered IR does not verify: {errs:#?}");
 
-    // `checked.entry` is the front end's `FnId`; the *monomorphized* index is
-    // what the backend needs, and `Program::roots` is where monomorphization
-    // records it — the same place `js/generate.rs` reads it from.
-    let middle::monomorphize::ProgramRoots::Main(entry) = program.roots else {
-        panic!("the program has no `main` root")
-    };
-    Lowered { ir, tables: analysis.checked.tables, entry }
+    Lowered { program, ir, tables: analysis.checked.tables }
 }
 
 /// Diagnostics are not `Debug`, and a failed emission should print what it
@@ -230,10 +250,7 @@ fn build_and_run_at(
 /// binary in hand before it runs: a server has to be running *while* something
 /// else talks to it, so the run cannot be folded into the build.
 pub fn build_at(name: &str, source: &str, probe: Option<&str>, profile: Profile) -> PathBuf {
-    let lowered = lower(source);
-    let opts = options(profile);
-    let units =
-        expect(llvm::emit_lowered(&lowered.ir, &lowered.tables, &opts, Some(lowered.entry)));
+    let units = lower(source).emit(profile);
     assert!(!units.is_empty(), "the backend emitted no codegen unit");
 
     let dir = workspace().join(name);
@@ -331,7 +348,7 @@ fn build_tests_as(name: &str, file: &str, source: &str) -> PathBuf {
 
     let opts = options(Profile::Release);
     let sheet = program.stylesheet.clone();
-    let units = expect(llvm::Llvm.emit(&program, &analysis.checked.tables, &opts));
+    let units = expect(llvm::Llvm::default().emit(&program, &analysis.checked.tables, &opts));
     assert!(!units.is_empty(), "the backend emitted no codegen unit");
 
     let dir = workspace().join(name);
@@ -604,9 +621,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#,
     ));
-    let opts = options(Profile::Release);
-    let units =
-        expect(llvm::emit_lowered(&lowered.ir, &lowered.tables, &opts, Some(lowered.entry)));
+    let units = lowered.emit(Profile::Release);
     assert_eq!(
         buri::build::link::runtime_archive_for(&units),
         buri::build::link::RuntimeArchive::Linked,
@@ -1080,14 +1095,15 @@ fn ir_at(source: &str, profile: Profile) -> String {
 
 fn build_ir(source: &str, profile: Profile) -> String {
     let lowered = lower(source);
-    let opts = options(profile);
     let unit = lowered
         .ir
         .funcs
-        .get(lowered.entry.index())
+        .get(lowered.entry().index())
         .map(|f| f.unit)
         .expect("the entry point is one of the functions");
-    llvm::emit_ir_text(&lowered.ir, &lowered.tables, &opts, Some(lowered.entry), unit)
+    let (mut backend, program, tables) = lowered.adopted();
+    backend
+        .emit_ir_text(&program, &tables, &options(profile), unit)
         .unwrap_or_else(|d| {
             panic!(
                 "{}",
@@ -1986,7 +2002,7 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
     middle::run(&mut mono, &middle::Options::default());
 
-    let missing = llvm::Llvm.missing_intrinsics(&mono, &analysis.checked.tables);
+    let missing = llvm::Llvm::default().missing_intrinsics(&mono, &analysis.checked.tables);
     // An interpolation is `str.concat` plus a template hole, and both are
     // emitted now — so the hook's job here is to say *nothing*, which is the
     // half of it that is easiest to break by accident.
@@ -2053,7 +2069,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         middle::monomorphize::Roots::Main(entry),
     );
     middle::run(&mut mono, &middle::Options::default());
-    let missing = llvm::Llvm.missing_intrinsics(&mono, &analysis.checked.tables);
+    let missing = llvm::Llvm::default().missing_intrinsics(&mono, &analysis.checked.tables);
     assert!(
         missing.iter().any(|m| m == "math.sin"),
         "`math.sin` is refused on purpose and must be reported, got {missing:?}"
@@ -2095,12 +2111,12 @@ export fn main(host: NativeHost): Result<(), Str> {
 #[test]
 fn the_identity_names_the_linked_llvm_and_inkwell() {
     use buri::compiler::backend::Backend as _;
-    let id = llvm::Llvm.identity();
+    let id = llvm::Llvm::default().identity();
     assert!(id.starts_with("llvm 21."), "{id}");
     assert!(id.contains("inkwell 0.10"), "{id}");
     assert!(id.contains("aarch64-unknown-linux-musl"), "{id}");
     assert!(!id.contains("linux-gnu"), "a glibc triple is in the identity: {id}");
-    assert_eq!(llvm::Llvm.name(), "llvm");
+    assert_eq!(llvm::Llvm::default().name(), "llvm");
 }
 
 /// Two runs of the same program produce the same bytes, which is the claim
@@ -2124,12 +2140,10 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
     );
     let once = {
-        let l = lower(&source);
-        expect(llvm::emit_lowered(&l.ir, &l.tables, &options(Profile::Release), Some(l.entry)))
+        lower(&source).emit(Profile::Release)
     };
     let twice = {
-        let l = lower(&source);
-        expect(llvm::emit_lowered(&l.ir, &l.tables, &options(Profile::Release), Some(l.entry)))
+        lower(&source).emit(Profile::Release)
     };
     assert_eq!(once.len(), twice.len());
     for (a, b) in once.iter().zip(twice.iter()) {
@@ -2180,8 +2194,8 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
     );
     let keys = |source: &str| {
-        let l = lower(source);
-        expect(llvm::emit_lowered(&l.ir, &l.tables, &options(Profile::Release), Some(l.entry)))
+        lower(source)
+            .emit(Profile::Release)
             .into_iter()
             .map(|u| u.key.as_str().to_string())
             .collect::<Vec<_>>()

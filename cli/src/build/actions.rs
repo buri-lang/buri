@@ -1797,9 +1797,8 @@ fn objects_named(
     // `middle::lower::run_with` twice.
     //
     // This is a *hint*, not a second entry point: emission is still
-    // `emit_units` and it still takes the `Program`. A backend that ignores the
-    // hint — every backend but `stencil` — compiles the same bytes it always
-    // did.
+    // `emit_units` and it still takes the `Program`. Both native backends take
+    // it; a backend that ignores it compiles the same bytes it always did.
     //
     // Against the plan `prepare` already produced. `lower::run` would compute
     // an identical one — it is a pure function of the program, and nothing has
@@ -1890,15 +1889,11 @@ fn objects_named(
     let cache = Cache::open(root);
     let emitted = codegen_units_for(&cache, &keys, flags.force, |wanted| {
         let opts = BackendOptions { profile, target: back_target, unit_prefix: prefix };
-        backend.adopt_lowering(lowered_for_backend.take().unwrap_or_else(|| {
-            // Only reachable if the closure runs twice, which
-            // `codegen_units_for` does not do. Lowering again is the honest
-            // answer rather than an empty program.
-            match &plan {
-                Some(plan) => lower::run_with(program, tables, plan),
-                None => lower::run(program, tables),
-            }
-        }));
+        // Taken once: `codegen_units_for` runs this at most once, and a backend
+        // offered nothing lowers for itself.
+        if let Some(lowered) = lowered_for_backend.take() {
+            backend.adopt_lowering(lowered);
+        }
         // `Units::Only` is a membership test per unit, so a build that wants
         // every unit — a first build, or `--force` — says so rather than
         // scanning a list of every unit once per unit.
