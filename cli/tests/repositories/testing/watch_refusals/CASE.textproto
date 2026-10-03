@@ -17,17 +17,10 @@
 # of the terminal check rather than behind it. Without that, both of these would
 # say "needs a terminal" and the real mistake would be invisible.
 #
-# There was a third, `--accept`, and the last run below is what is left of it.
-# That flag rewrote the golden files a suite declared in `test { data }`; the
-# field is retired and the flag went with it, so the answer is no longer a
-# refusal of a combination but a retired flag saying what replaced it — which is
-# a different sentence and is worth pinning, because the alternative is
-# `nearest` offering somebody `--explain`.
-#
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "--watch refuses --force and a stdout that is not a terminal, belongs to `test` alone, and a retired flag says what replaced it"
+doc: "--watch refuses --force and a stdout that is not a terminal, and belongs to `test` alone"
 
 # The suite passes without `--watch`, so every refusal below is about the flag
 # rather than about the repository.
@@ -61,13 +54,5 @@ run {
   args: ["build", "//lib/money", "--watch"]
   exit: 2
   golden: "wrong_command.txt"
-  stream: ERR
-}
-
-# A flag that was taken away is not a flag that never existed.
-run {
-  args: ["test", "//lib/money", "--accept"]
-  exit: 2
-  golden: "retired_accept.txt"
   stream: ERR
 }

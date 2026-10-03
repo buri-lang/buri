@@ -1187,8 +1187,7 @@ const IN_FLIGHT: usize = 1024;
 /// One `parallel` call's boundary, in a shape a thread can be handed.
 ///
 /// The four words after `len` are [`crate::StepEntry`]'s ABI, which
-/// `buri_rt_list_map_ctx_step` established and which `cli/runtime/lib.rs` §2
-/// rule 5 states: the generated entry thunk, the backend's opaque record, and
+/// `cli/runtime/lib.rs` §2 rule 5 states: the generated entry thunk, the backend's opaque record, and
 /// the two strides. Gathered into one `Copy` value because a fan-out hands the
 /// same six things to every step and differs only in the index.
 #[derive(Clone, Copy)]
@@ -1323,11 +1322,8 @@ fn finish(handoff: Option<Handoff<()>>) {
 /// [`crate::memory::buri_rt_values_may_cross_tasks`] (§2). Either way the `[B]`
 /// is the same `[B]`, which is what `core/tasks`'s order promise is worth.
 ///
-/// `in_order` below is `buri_rt_list_map_ctx_step`'s walk, and the two stay
-/// separate for the reason D3 gave when they were the same three lines: they are
-/// the same *code* and different *contracts*. One is a pilot for the boundary that
-/// may be deleted the day a real key uses it; this one is `Tasks.parallel`'s body,
-/// and it is now the arm a scheduler falls back to rather than the whole of it.
+/// `in_order` below is the arm a scheduler falls back to rather than the whole
+/// of it.
 ///
 /// # Safety
 /// `ptr` covers `len * in_stride` bytes; `entry` is the thunk the backend

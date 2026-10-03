@@ -166,11 +166,8 @@
 //!    signature (`list.rs`'s `StepEntry`).
 //!
 //!    §0 says a closure "cannot be called from C", and it still cannot: what
-//!    the runtime calls is the thunk, which is C. Two entries use this:
-//!    `list.mapCtxStep`, the pilot, which is `list.mapCtx` reached a second way
-//!    and exists to be compared against an answer that is already known; and
-//!    `host.HostTasks.parallel`, which is the scheduler the pilot was landed
-//!    for (`list.rs`'s `StepEntry`, `rt.rs`).
+//!    the runtime calls is the thunk, which is C. `host.HostTasks.parallel`
+//!    uses this (`list.rs`'s `StepEntry`, `rt.rs`).
 //!
 //! 6. **A body the runtime keeps arrives as that thunk, a record to copy, and
 //!    a place to put a frame.** Rule 5's closure runs during the call that
