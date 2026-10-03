@@ -37,7 +37,7 @@ error: `https://example.com/elsewhere.json` is not a file in this repository [sc
     https://json-schema.org/draft/2020-12/schema, which marks a file as a
     schema.
 
-error: `#/$defs/nothing` points at nothing in the schema [json-schema-invalid]
+error: `#/$defs/nothing` points at nothing in the schema [json-invalid-schema]
  --> lib/bad/broken_ref.schema.json:4:36
   |
 4 |     "properties": { "a": { "$ref": "#/$defs/nothing" } }
@@ -96,21 +96,21 @@ error: `http://json-schema.org/draft-07/schema#` is not JSON Schema 2020-12 [jso
       additionalItems  items
       dependencies     dependentRequired or dependentSchemas
 
-error: `minLength` is a whole number, zero or more [json-schema-invalid]
+error: `minLength` is a whole number, zero or more [json-invalid-schema]
  --> lib/bad/invalid.schema.json:5:50
   |
 5 |         "name": { "type": "string", "minLength": "two", "pattern": "(?<=a)b" }
   |                                                  ^^^^^
   |
   = fix: write a whole number
-error: the pattern `(?<=a)b` does not read: lookbehind is not supported [json-schema-invalid]
+error: the pattern `(?<=a)b` does not read: lookbehind is not supported [json-invalid-schema]
  --> lib/bad/invalid.schema.json:5:68
   |
 5 |         "name": { "type": "string", "minLength": "two", "pattern": "(?<=a)b" }
   |                                                                    ^^^^^^^^^
   |
   = fix: write an ECMA-262 regular expression this toolchain reads; `buri docs guides/json` lists the syntax
-error: `dependencies` is not a JSON Schema 2020-12 keyword [json-schema-invalid]
+error: `dependencies` is not a JSON Schema 2020-12 keyword [json-invalid-schema]
  --> lib/bad/invalid.schema.json:7:5
   |
 7 |     "dependencies": { "name": ["other"] }

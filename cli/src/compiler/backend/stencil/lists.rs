@@ -2013,10 +2013,10 @@ impl Jit<'_> {
                 let w = tag.size();
                 self.imm_w(at, w, v as u64);
             }
-            Repr::Enum { repr: EnumRepr::Niche { null_at }, variants } => {
-                if variants.get(v).is_some_and(|f| f.is_empty()) {
-                    self.imm_to(at + null_at, 0);
-                }
+            Repr::Enum { repr: EnumRepr::Niche { null_at }, variants }
+                if variants.get(v).is_some_and(|f| f.is_empty()) =>
+            {
+                self.imm_to(at + null_at, 0);
             }
             _ => {}
         }

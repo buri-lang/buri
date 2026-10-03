@@ -1,4 +1,4 @@
-warning: `total` takes 6 parameters [too-many-parameters]
+warning: `total` takes 6 parameters [parameter-count]
  --> lib/recovery_delete_separator_paren_app_185576/main.buri:9:4
   |
 9 | fn total(a: I64, b: I64, c: I64, d: I64, e: I64, f: I64): I64 {

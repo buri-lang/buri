@@ -1,4 +1,4 @@
-error: `milliseconds` takes 1 arguments, but 2 were given [argument-count]
+error: `milliseconds` takes 1 argument, but 2 were given [argument-count]
   --> main.buri:22:49
    |
 22 |     assert.equal(time.secondsFloat(0.0 - 0.25), time.milliseconds(- 0 250));

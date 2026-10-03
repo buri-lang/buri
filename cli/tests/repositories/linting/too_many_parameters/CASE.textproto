@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "six loose parameters that always travel together: too-many-parameters, and the struct that is the fix the diagnostic names"
+doc: "six loose parameters that always travel together: parameter-count, and the struct that is the fix the diagnostic names"
 
 run {
   args: ["lint", "//cmd/app"]

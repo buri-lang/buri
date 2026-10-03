@@ -500,8 +500,8 @@ impl Diagnostic {
         let bindings = &t.bindings;
         let fill = |template: &str| crate::documentation::frontmatter::render(template, bindings);
         self.message = fill(&front.message);
-        self.label = front.label.as_deref().map(&fill);
-        self.fix = front.fix.as_deref().map(&fill);
+        self.label = front.label.as_deref().map(fill);
+        self.fix = front.fix.as_deref().map(fill);
         // The page's note is the first of them, put there when the diagnostic
         // was built, so a re-render replaces it rather than the call site's own.
         if let Some(note) = front.note.as_deref() {
@@ -1323,6 +1323,26 @@ pub fn names(items: &[String]) -> String {
         None => String::new(),
         Some((last, [])) => last.clone(),
         Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+/// A count with its noun agreeing: `no arguments`, `1 argument`, `2 arguments`.
+/// Templates don't pluralize, so a call site binds the whole phrase.
+pub fn counted(n: usize, noun: &str) -> String {
+    match n {
+        0 => format!("no {noun}s"),
+        1 => format!("1 {noun}"),
+        _ => format!("{n} {noun}s"),
+    }
+}
+
+/// `none were given`, `1 was given`, `2 were given`: the other half of a count
+/// message, after [`counted`] names what was expected.
+pub fn were_given(n: usize) -> String {
+    match n {
+        0 => "none were given".to_string(),
+        1 => "1 was given".to_string(),
+        _ => format!("{n} were given"),
     }
 }
 

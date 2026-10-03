@@ -1301,7 +1301,7 @@ fn offset_of(text: &str, edit: &buri::json::Value, at: &str) -> usize {
         }
     }
     let rest = &text[offset..];
-    let end = rest.find('\n').map_or(rest.len(), |i| i);
+    let end = rest.find('\n').unwrap_or(rest.len());
     let column: usize = rest[..end]
         .chars()
         .take(character as usize)

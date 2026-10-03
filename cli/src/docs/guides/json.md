@@ -194,7 +194,7 @@ export enum ConfigTier {
   check already enforced them.
 - JSON5's `Infinity`, `-Infinity` and `NaN` read as `F64`.
 
-A construct with no single Buri type is refused as [`json-schema-no-type`](../reference/errors/json-schema-no-type.md): `if`,
+A construct with no single Buri type is refused as [`json-untyped-keyword`](../reference/errors/json-untyped-keyword.md): `if`,
 `then` and `else`; `allOf`; an `anyOf`, or a `oneOf` with no `const` tag;
 `patternProperties`; `dependentSchemas`; `additionalProperties` holding a
 schema beside `properties`; `unevaluatedProperties` or `unevaluatedItems`

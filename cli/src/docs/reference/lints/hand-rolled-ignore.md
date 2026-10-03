@@ -5,10 +5,15 @@ message: this drops a `Result` by hand
 note: "every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines"
 fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
 ---
-```
-match (io.println(ctx, line)) {
-    .Ok(_written) => (),
-    .Err(_error) => (),
+```buri lint code=hand-rolled-ignore
+# from "core/io" import * as io;
+# from "platform/effect" import { Stdout };
+
+fn say<C: Stdout>(ctx: C, line: Str): () {
+    match (io.println(ctx, line)) {
+        .Ok(_written) => (),
+        .Err(_error) => (),
+    }
 }
 ```
 

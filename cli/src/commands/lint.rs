@@ -1028,7 +1028,7 @@ const MAXIMUM_FUNCTION_LINES: usize = 40;
 const MAXIMUM_PARAMETERS: usize = 5;
 const MAXIMUM_NESTING: usize = 4;
 
-/// `oversized-function` and `too-many-parameters`, both read off the
+/// `oversized-function` and `parameter-count`, both read off the
 /// declaration rather than the body: the two questions are about the shape a
 /// reader meets, and that is what is written down.
 ///
@@ -1047,7 +1047,7 @@ fn check_function_shapes(session: &Session, m: &ModuleData, diagnostics: &mut Di
         let parameters = d.params.iter().filter(|p| p.kind == ParamKind::Normal).count();
         if parameters > MAXIMUM_PARAMETERS {
             diagnostics.push(
-                Diagnostic::templated("too-many-parameters", d.name.span)
+                Diagnostic::templated("parameter-count", d.name.span)
                     .with_bind("name", name)
                     .with_bind("count", parameters.to_string())
                     .with_bind("limit", MAXIMUM_PARAMETERS.to_string()),

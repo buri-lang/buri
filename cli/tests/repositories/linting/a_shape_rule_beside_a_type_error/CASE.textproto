@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a shape rule in a file that does not check: `too-many-parameters` is read off the declaration, so a body the checker refused takes nothing away from it"
+doc: "a shape rule in a file that does not check: `parameter-count` is read off the declaration, so a body the checker refused takes nothing away from it"
 
 run {
   args: ["lint", "//lib/money"]

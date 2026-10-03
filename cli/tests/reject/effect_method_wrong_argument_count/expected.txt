@@ -1,4 +1,4 @@
-error: `println` takes 1 arguments, but 2 were given [argument-count]
+error: `println` takes 1 argument, but 2 were given [argument-count]
  --> cmd/effect_method_wrong_argument_count/main.buri:9:3
   |
 9 |   ctx.println(what, what)

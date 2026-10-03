@@ -1,4 +1,4 @@
-error: `if` has no Buri type [json-schema-no-type]
+error: `if` has no Buri type [json-untyped-keyword]
   --> lib/deploy/deploy.schema.json:37:29
    |
 37 |         "extra": {}, "a": { "if": {}, "then": {} }, "b": { "anyOf": [{ "type": "string" }, { "type": "integer" }] }, "c": { "oneOf": [{ "type": "string" }, { "type": "integer" }] }, "d": { "patternProperties": { "^x": {} } }, "e": { "proper…
@@ -25,7 +25,7 @@ error: `if` has no Buri type [json-schema-no-type]
 
      buri docs guides/json has the whole mapping.
 
-error: `anyOf` has no Buri type [json-schema-no-type]
+error: `anyOf` has no Buri type [json-untyped-keyword]
   --> lib/deploy/deploy.schema.json:37:60
    |
 37 |         "extra": {}, "a": { "if": {}, "then": {} }, "b": { "anyOf": [{ "type": "string" }, { "type": "integer" }] }, "c": { "oneOf": [{ "type": "string" }, { "type": "integer" }] }, "d": { "patternProperties": { "^x": {} } }, "e": { "proper…
@@ -33,7 +33,7 @@ error: `anyOf` has no Buri type [json-schema-no-type]
    |
    = an `anyOf` has no tag saying which branch a value is
    = fix: describe the value with a construct that has a type
-error: `oneOf` has no Buri type [json-schema-no-type]
+error: `oneOf` has no Buri type [json-untyped-keyword]
   --> lib/deploy/deploy.schema.json:37:125
    |
 37 | …f": [{ "type": "string" }, { "type": "integer" }] }, "c": { "oneOf": [{ "type": "string" }, { "type": "integer" }] }, "d": { "patternProperties": { "^x": {} } }, "e": { "properties": { "x": {} }, "additionalProperties": { "type": "string" }…
@@ -41,7 +41,7 @@ error: `oneOf` has no Buri type [json-schema-no-type]
    |
    = a `oneOf` is typed only when every branch is an object with one required property whose `const` string names it
    = fix: describe the value with a construct that has a type
-error: `patternProperties` has no Buri type [json-schema-no-type]
+error: `patternProperties` has no Buri type [json-untyped-keyword]
   --> lib/deploy/deploy.schema.json:37:190
    |
 37 | …f": [{ "type": "string" }, { "type": "integer" }] }, "d": { "patternProperties": { "^x": {} } }, "e": { "properties": { "x": {} }, "additionalProperties": { "type": "string" } }, "f": { "type": "object", "unevaluatedProperties": { "type": "…
@@ -49,7 +49,7 @@ error: `patternProperties` has no Buri type [json-schema-no-type]
    |
    = `patternProperties` gives a property a type by its name's spelling
    = fix: describe the value with a construct that has a type
-error: `additionalProperties` has no Buri type [json-schema-no-type]
+error: `additionalProperties` has no Buri type [json-untyped-keyword]
   --> lib/deploy/deploy.schema.json:37:261
    |
 37 | …perties": { "^x": {} } }, "e": { "properties": { "x": {} }, "additionalProperties": { "type": "string" } }, "f": { "type": "object", "unevaluatedProperties": { "type": "string" } }, "g": { "type": ["string", "integer"] }, "h": { "enum": [1,…
@@ -57,7 +57,7 @@ error: `additionalProperties` has no Buri type [json-schema-no-type]
    |
    = a schema for the other properties beside `properties` makes an object both a struct and a map
    = fix: describe the value with a construct that has a type
-error: `unevaluatedProperties` has no Buri type [json-schema-no-type]
+error: `unevaluatedProperties` has no Buri type [json-untyped-keyword]
   --> lib/deploy/deploy.schema.json:37:334
    |
 37 | …operties": { "type": "string" } }, "f": { "type": "object", "unevaluatedProperties": { "type": "string" } }, "g": { "type": ["string", "integer"] }, "h": { "enum": [1, 2] }, "i": { "allOf": [{ "type": "string" }] }
@@ -65,7 +65,7 @@ error: `unevaluatedProperties` has no Buri type [json-schema-no-type]
    |
    = a schema for the leftover members gives them a type no field or element has
    = fix: describe the value with a construct that has a type
-error: `type` has no Buri type [json-schema-no-type]
+error: `type` has no Buri type [json-untyped-keyword]
   --> lib/deploy/deploy.schema.json:37:390
    |
 37 | …t", "unevaluatedProperties": { "type": "string" } }, "g": { "type": ["string", "integer"] }, "h": { "enum": [1, 2] }, "i": { "allOf": [{ "type": "string" }] }
@@ -73,7 +73,7 @@ error: `type` has no Buri type [json-schema-no-type]
    |
    = a value of several types has no one Buri type
    = fix: describe the value with a construct that has a type
-error: `enum` has no Buri type [json-schema-no-type]
+error: `enum` has no Buri type [json-untyped-keyword]
   --> lib/deploy/deploy.schema.json:37:430
    |
 37 | …string" } }, "g": { "type": ["string", "integer"] }, "h": { "enum": [1, 2] }, "i": { "allOf": [{ "type": "string" }] }
@@ -81,7 +81,7 @@ error: `enum` has no Buri type [json-schema-no-type]
    |
    = only an `enum` of strings is a Buri enum
    = fix: describe the value with a construct that has a type
-error: `allOf` has no Buri type [json-schema-no-type]
+error: `allOf` has no Buri type [json-untyped-keyword]
   --> lib/deploy/deploy.schema.json:37:455
    |
 37 | …": ["string", "integer"] }, "h": { "enum": [1, 2] }, "i": { "allOf": [{ "type": "string" }] }

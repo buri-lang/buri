@@ -282,6 +282,10 @@ BURI_RECOVERY_CAP=0 cargo test -p buri --test recovery   # every case, not a str
 A module is a name prefix, so `--test language conformance::` selects exactly
 what `--test conformance` used to, and `--skip` takes a module out the same way.
 
+Run them inside `nix develop`. Its rustc is the one CI uses, pinned in
+`rust-toolchain.toml`. To bump it, change `channel` there and run
+`nix flake update rust-overlay` if the overlay doesn't know the new version yet.
+
 The first line is the whole suite. `cargo test -p buri` runs the same set, but
 one binary after another, which is over ten minutes on a ten-core mac. nextest
 runs every test in a process of its own and keeps the machine busy instead.
@@ -395,7 +399,7 @@ say so before the suite spends ten minutes proving nothing.
 docker run --rm -it -v "$PWD":/w -w /w rust:latest bash -c '
   apt-get update &&
   apt-get install -y --no-install-recommends clang lld mold llvm binutils musl-dev musl-tools &&
-  rustup target add "$(uname -m)-unknown-linux-musl" &&
+  rustup toolchain install &&
   CC=clang BURI_CI=1 cargo test -p buri'
 ```
 
