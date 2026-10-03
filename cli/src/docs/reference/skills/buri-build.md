@@ -5,23 +5,21 @@ description: Use when adding or editing REPO.buri and BUILD.buri files, laying o
 
 # Buri: the build system
 
-A monorepo build system. Build files are textproto data with no expression
-language, and `buri gen` writes most of them. `buri docs build/overview`,
-`build/build-files`, `build/libraries`, `build/tags`, `build/repo-config` are
-the normative pages.
+Build files are textproto with no expression language, and `buri gen` writes
+most of them. The normative pages are `buri docs build/overview`,
+`build/build-files`, `build/libraries`, `build/tags` and `build/repo-config`.
 
-## Five rules the layout follows from
+## Layout rules
 
-- **A directory with a `BUILD.buri` is a package.** Subdirectories without
-  one belong to the nearest ancestor package.
-- **`lib.buri` is a library's whole public surface.** Nothing outside the
-  library can reach a name it does not export, as a function or as a method.
-- **`main.buri` is a binary's entry point** and exports `main`. Its rule
-  declares which outputs to produce.
+- **A directory with a `BUILD.buri` is a package.** Subdirectories without one
+  belong to the nearest ancestor package.
+- **`lib.buri` is a library's whole public surface.** Outside the library, a
+  name it doesn't export is unreachable, as a function or as a method.
+- **`main.buri` is a binary's entry point** and exports `main`.
 - **Tests live in `test/` and see only the target's surface.** Fixtures for
   *other people's* tests live in `testing/`.
-- **Everything is declared.** No globs, no discovery. A `.buri` file that no
-  rule lists is an error, and one listed twice is an error too.
+- **Everything is declared.** No globs, no discovery. A `.buri` file no rule
+  lists is an error, and so is one listed twice.
 
 ```
 REPO.buri                  # repository root, tag vocabulary, lint policy
@@ -43,13 +41,12 @@ tool/lines/
 
 ## Labels
 
-A label is a package path and **never carries a target name**: `//lib/money`,
-`//cmd/server`. A package holds at most one library, one binary and one tool, so
-a rule has no `name` field.
+A label is a repository-absolute package path and **never carries a target
+name**: `//lib/money`, `//cmd/server`. A package holds at most one library, one
+binary and one tool, so a rule has no `name` field.
 
-In `dependencies` a label always means the *library* of that package. In a CLI
-argument it means every target in it. Patterns are CLI-only: `//lib/...`,
-`//...`. Labels are always repository-absolute.
+In `dependencies` a label means the package's *library*. On the command line it
+means every target in it. Patterns like `//lib/...` and `//...` are CLI-only.
 
 ## `REPO.buri`
 
@@ -82,23 +79,22 @@ language {
 }
 ```
 
-`language` gives a built-in language (`json`, `jsonc`, `json5`, `proto`,
-`textproto`) more extensions, and nothing else.
+`language` only adds extensions to a built-in language (`json`, `jsonc`,
+`json5`, `proto`, `textproto`).
 
-`lint` says where the lint catalogue runs, what a finding costs, and which
-rules run. `check_during_build` makes `buri build` and `buri test` run it too.
-`fail_on_finding` makes a finding fail whichever command reported it.
-`rules { default: ENABLED|DISABLED, <lint_code>: bool }` turns rules off or on
-by name — `enabled(rule) = override.unwrap_or(default)`, one field per lint code
-with the hyphens underscored, so `default: DISABLED` plus a few `true` gives you
-an allow list. Both booleans default to false, every rule defaults to on, and an
-unknown rule name is `unknown-field`. A command whose repository turned rules
-off prints which. `buri lint` exits nonzero on any finding, whatever this file
-says.
+`lint` controls the lint catalogue:
 
-Those two are the only fields: no `flags`, no toolchain pin, no `name`, no
-defaults block, no per-directory or per-file lint exemption, no dependency
-versions, no profiles, no environment.
+- `check_during_build` (default false) makes `buri build` and `buri test` lint
+  too.
+- `fail_on_finding` (default false) makes a finding fail the command.
+- `rules { default: ENABLED|DISABLED, <lint_code>: bool }` toggles rules by name,
+  hyphens underscored. Every rule defaults to on; `default: DISABLED` plus a few
+  `true` is an allow list. An unknown name is `unknown-field`. Commands print
+  which rules are off.
+- `buri lint` exits nonzero on any finding regardless.
+
+Nothing else exists: no `flags`, toolchain pin, `name`, defaults, per-file lint
+exemptions, dependency versions, profiles or environment.
 
 ## `BUILD.buri`
 
@@ -130,11 +126,11 @@ library {
 | Field | Meaning |
 |---|---|
 | `sources` | Every `.buri` in the package belonging to this library, **excluding** `lib.buri` and the test sources. Package-relative, may descend. |
-| `generators` | Tools the build runs, whose `generate` answers with modules of this library. Each entry names a `tool` rule by `//label`, or a built-in tool by its bare name (`json`, `proto`, `textproto`), and its `inputs`. A `.proto` schema goes here, under `proto`. |
-| `dependencies` | Labels of libraries this one may use. Libraries only. |
-| `tags` | Labels saying what this code is. The policy lives in `REPO.buri`. |
-| `backends` | `NATIVE` or `JS`. Omit unless the code relies on one backend. Unset means both. |
-| `platforms` | `"native"`, `"node"` or `"web"`. Omit unless the code means something on one platform only. Unset means all. |
+| `generators` | Tools whose `generate` writes modules of this library. Each entry names a `tool` rule by `//label` or a built-in tool by bare name (`json`, `proto`, `textproto`), plus its `inputs`. A `.proto` schema goes here, under `proto`. |
+| `dependencies` | Libraries this one may use. Libraries only. |
+| `tags` | What this code is. The policy lives in `REPO.buri`. |
+| `backends` | `NATIVE` or `JS`. Unset means both; set it only if the code relies on one. |
+| `platforms` | `"native"`, `"node"` or `"web"`. Unset means all; set it only if the code means something on one platform only. |
 | `visibility` | Who may depend on it. Default is private. |
 | `test` | The suite. See the `buri-testing` skill. |
 | `testing` | Utilities for *other people's* tests, rooted at `testing/lib.buri`. |
@@ -160,17 +156,16 @@ binary {
 }
 ```
 
-`main.buri` is required, and you leave it out of `sources` as you leave out
-`lib.buri`. A `binary` takes **no `visibility`** and no `platforms`; `outputs`
-says where it runs. Each output is a separate artifact and a separate check of
-the whole graph, so a build can succeed for `native` and fail for `node`. Name an
-artifact with `artifact_name` on the output, not on the rule.
-
-A `native` output names its `variant`: `linux-arm64`, `linux-x86_64`,
-`macos-arm64` or `macos-x86_64`. Each platform's entry, `main`, is filled by the
-function of that name, and `entries: [{ name: "main", function: "other" }]` fills it from another.
-`LINUX`, `JS`, `arch`, `entry` and `js {}` are retired spellings, refused as
-`retired-platform-name`.
+- `main.buri` is required and, like `lib.buri`, stays out of `sources`.
+- A `binary` takes **no `visibility`** and no `platforms`; `outputs` says where
+  it runs. Each output is a separate artifact and a separate check of the whole
+  graph, so a build can pass for `native` and fail for `node`.
+- `artifact_name` goes on the output, not the rule.
+- A `native` output names its `variant`: `linux-arm64`, `linux-x86_64`,
+  `macos-arm64` or `macos-x86_64`.
+- The function named `main` fills each platform's `main` entry;
+  `entries: [{ name: "main", function: "other" }]` picks another.
+- `LINUX`, `JS`, `arch`, `entry` and `js {}` are `retired-platform-name`.
 
 An empty rule is enough to start, and `gen` never invents one:
 
@@ -181,9 +176,9 @@ library {}
 ## A package with both rules
 
 The two `sources` sets are disjoint. The binary **implicitly depends on the
-co-located library**, so do not list it. It reaches that library only through
-`//tools/report`, never `//tools/report/render.buri`. The library cannot reach
-the binary at all.
+co-located library**, so don't list it, and reaches it only through its surface
+(`//tools/report`, never `//tools/report/render.buri`). The library can't reach
+the binary.
 
 ## Visibility
 
@@ -196,26 +191,25 @@ the binary at all.
 
 Leave `visibility` out and the target is private; there is no package or
 repository default. Visibility applies to the **declared edge**, not
-transitively. Two edges skip the check: a target's own suite reaching the target
-under test, and a binary reaching the library in its own package.
+transitively. Two edges skip the check: a target's own suite reaching the
+target, and a binary reaching the library in its own package.
 
 ## Dependencies
 
-- **Use is what requires a dependency, and importing is not the only way to
-  use.** A method resolves through its receiver's type, so calling
-  `e.amount.format(ctx)` where `amount` is a `Cents` from `//lib/money` needs
-  `//lib/money` in `dependencies`, even though no import names it.
-- Dependencies are **direct**: a library you use is one you declare.
-- `core/*` and `ui/*` ship with the toolchain, so never list them.
-- **Every use needs an entry.** A use without one is an error (`missing-dep`),
-  and `buri gen` adds it.
-- Cycles are an error at the package level exactly as at the module level.
+- **Use requires a dependency, and importing isn't the only use.** A method
+  resolves through its receiver's type, so `e.amount.format(ctx)`, where
+  `amount` is a `Cents` from `//lib/money`, needs `//lib/money` in
+  `dependencies` even though no import names it.
+- Dependencies are **direct**: declare every library you use. A missing one is
+  `missing-dep`, and `buri gen` adds it.
+- `core/*` and `ui/*` ship with the toolchain; never list them.
+- Package cycles are an error, as module cycles are.
 
 ## Module paths
 
-**You name a surface as a module. Everything else is a file, and only its own
-package may name it.** The root is `//` for this repository, `core/` or `ui/`
-for the standard library.
+**You import a surface as a module. Any other file is reachable only from its
+own package.** The root is `//` for this repository, `core/` or `ui/` for the
+standard library.
 
 | Written | Is | Legal from |
 |---|---|---|
@@ -226,9 +220,7 @@ for the standard library.
 | `"//cmd/server/main.buri"` | a binary's entry point | only from that binary's own test sources |
 | `"//proto/address.proto"` | a schema | as an ordinary module of its package |
 
-`//lib/money` is a *label*, not a module path: it names a package in
-`dependencies` and on the command line. Write one where the other belongs and
-you get `import-path-without-a-file`.
+Mixing up a label and a module path is `import-path-without-a-file`.
 
 `lib.buri` is made of re-exports, and may declare things itself:
 
@@ -243,44 +235,39 @@ the module that declares the type.
 
 ## Tags and platforms
 
-Tags are **labels saying what code is**, the same on a library and on a binary.
-What follows from a tag is declared once, on the tag:
+Tags **say what code is**. Their consequences are declared once, on the tag:
 
-- `forbids { tags: [...] }` — two tags that forbid each other may not appear
-  anywhere in the same dependency closure. It is symmetric, checked at every
-  target, and a **union over the closure** rather than a path.
-- `forbids { backends: [...], platforms: [...] }` — what code carrying the tag
-  may not be built or tested for. A platform added later is admitted.
-- `requires { backends: [...], platforms: [...] }` — a **whitelist**. A
-  platform added later is not admitted until listed.
-- `backends` are `NATIVE` and `JS`; `platforms` are `"native"`, `"node"` and
-  `"web"`. A tag admits what its `requires` admits (all, when unset) minus what
-  its `forbids` names. `platforms(T)` is the intersection over the closure, and an empty
-  intersection is an error at the target itself (`unsatisfiable-target`).
+- `forbids { tags: [...] }`: two tags that forbid each other may not appear
+  anywhere in the same dependency closure. It's symmetric, checked at every
+  target, and a **union over the closure**, not a path.
+- `forbids { backends: [...], platforms: [...] }`: what the tagged code may not
+  be built or tested for. A platform added later is admitted.
+- `requires { backends: [...], platforms: [...] }`: a **whitelist**. A platform
+  added later isn't admitted until listed.
+- A tag admits what its `requires` admits (all, when unset) minus what its
+  `forbids` names. A target's platforms are the intersection over its closure,
+  and an empty intersection is `unsatisfiable-target`.
 
-The vocabulary is **closed**: a `tags` entry naming no `tag` block in
-`REPO.buri` is an error (`unknown-tag`).
+The vocabulary is **closed**: a `tags` entry with no `tag` block in `REPO.buri`
+is `unknown-tag`.
 
-The platforms are `"native"`, `"node"` and `"web"`, and adding one is a
-toolchain change. Each entry takes its platform's host, whose fields are the
-effects it offers: `main(host: NodeHost)` binding `Ui: host.ui` is
-`no-such-field`. Two platforms mean two entries: `entries: [{ name: "main", function: "mainForNode" }]`.
+Only the toolchain adds platforms. Each entry takes its platform's host, whose
+fields are the effects it offers: `main(host: NodeHost)` binding `Ui: host.ui`
+is `no-such-field`. Platforms needing different code get different entries:
+`entries: [{ name: "main", function: "mainForNode" }]`.
 
-There is no `#if` and no conditional compilation: two implementations means two
-libraries with different `backends` or `platforms` and one dependent that
-picks. Tags are not
-visibility, and not a boolean expression language.
+There's no `#if`: two implementations means two libraries with different
+`backends` or `platforms` and one dependent that picks. Tags aren't visibility
+or a boolean expression language.
 
 ## Caching and hermeticity
 
-An action's key is a hash of the `buri` binary, the build mode, the platform,
-and the content of every input, so the same commit built by the same binary hits
-the same entries on another machine. A rebuilt `buri` hashes differently and
-starts clean. **Tags never enter a cache key.** Actions run with an empty
-environment. A file lock serializes cache writes, so any number of `buri`
-processes can work in one repository at once. Two builds of one commit in one
-configuration produce byte-identical artifacts, and
-`buri build --check-reproducible` checks that.
+- An action's key hashes the `buri` binary, build mode, platform and input
+  contents, so the cache is portable across machines. **Tags never enter a
+  key.**
+- Actions run with an empty environment, and output is byte-identical;
+  `buri build --check-reproducible` checks it.
+- Any number of `buri` processes can share a repository.
 
 If you reach for `buri clean` to fix a build, report it as a bug.
 
@@ -295,6 +282,5 @@ buri lint //...           the graph rules: missing-dep, visibility, tags
 
 `gen` rewrites exactly six fields, sorted: `sources`, `dependencies`,
 `test.sources`, `test.dependencies`, `testing.sources` and
-`testing.dependencies`. It touches nothing else — rules, `generators`, `tags`,
-`platforms`, `visibility`, `outputs`, `timeout_seconds` and every comment
-survive — and it never creates a build file.
+`testing.dependencies`. Everything else survives, comments included, and it
+never creates a build file.

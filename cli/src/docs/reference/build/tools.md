@@ -1,6 +1,6 @@
 # Tools
 
-A tool is a program the build runs on a language's files. It is a rule of its
+A tool is a program the build runs on a language's files. It's a rule of its
 own, a peer of `library` and `binary`:
 
 ```textproto schema=build
@@ -13,10 +13,10 @@ tool {
 }
 ```
 
-Every `tool` rule lives under the repository's top-level `tool/` directory, at
-any depth: `//tool/lines`, `//tool/db/schema`. Anywhere else is
-[`rule-outside-its-directory`](../errors/rule-outside-its-directory.md). The
-rule only goes one way, so a library or a binary may live under `tool/` too.
+A `tool` rule must live under the top-level `tool/` directory, at any depth
+(`//tool/db/schema`), or it's
+[`rule-outside-its-directory`](../errors/rule-outside-its-directory.md).
+Libraries and binaries may live there too.
 
 Its root is `tool.buri`, which exports one function per block:
 
@@ -54,16 +54,14 @@ export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generat
   [`tool-entry-point-not-exported`](../errors/tool-entry-point-not-exported.md),
   and an exported `check`, `format` or `generate` without its block is
   [`tool-entry-point-undeclared`](../errors/tool-entry-point-undeclared.md).
-- **`ctx` has `Allocator` and nothing else.** A bound naming any other effect
-  is [`tool-context-beyond-allocator`](../errors/tool-context-beyond-allocator.md),
-  so what a tool answers is a function of what it was handed.
+- **`ctx` has only `Allocator`.** Any other effect is
+  [`tool-context-beyond-allocator`](../errors/tool-context-beyond-allocator.md),
+  so a tool's answer depends only on what it was handed.
 - **There is no `main`.** The toolchain writes one that reads the request,
-  calls the entry point and writes the answer, so a tool never sees `Stdin` or
-  `Stdout`.
+  calls the entry point and writes the answer.
 - `sources`, `dependencies` and `test` mean what they mean on a `binary`. A
-  tool's own tests import `tool.buri` as `//tool/lines/tool.buri`; nothing
-  else imports a tool's modules
-  ([`tool-source-import`](../errors/tool-source-import.md)).
+  tool's own tests import `//tool/lines/tool.buri`; nothing else may import a
+  tool's modules ([`tool-source-import`](../errors/tool-source-import.md)).
 - `buri gen` leaves a package with a `tool` rule as written.
 
 ## Who calls which entry point
@@ -74,43 +72,41 @@ export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generat
 | `format` | The same files, in a language whose `format` names the tool, by `buri format` and your editor. |
 | `generate` | Each `generators` entry naming the tool. See [`generators.md`](./generators.md). |
 
-A language names its tools in [`REPO.buri`](./repo-config.md). A reference to
-a tool without that entry point is
-[`tool-without-entry-point`](../errors/tool-without-entry-point.md), and a name
-that is no tool is [`no-such-tool`](../errors/no-such-tool.md).
+A language names its tools in [`REPO.buri`](./repo-config.md). Naming a tool
+that lacks the entry point is
+[`tool-without-entry-point`](../errors/tool-without-entry-point.md), and naming
+no tool at all is [`no-such-tool`](../errors/no-such-tool.md).
 
-The toolchain ships three, each with `check`, `format` and `generate`:
+The toolchain ships three tools, each with `check`, `format` and `generate`:
 `json` for `json`, `jsonc` and `json5`, `proto` for `.proto` schemas, and
-`textproto` for [text format files](../../guides/textproto.md). A built-in
-tool has a bare name and a tool of your own is a `//label`, so the two never
-collide. The old names, `std/json`, `std/proto`, `std/textproto` and
-`std/codegen/proto`, are [`retired-tool-name`](../errors/retired-tool-name.md).
+`textproto` for [text format files](../../guides/textproto.md). Built-in tools
+have bare names and yours are `//label`s, so they never collide. `std/json`,
+`std/proto`, `std/textproto` and `std/codegen/proto` are
+[`retired-tool-name`](../errors/retired-tool-name.md).
 
 ## What an entry point is handed
 
-`core/tool` has the types; `buri docs core/tool` prints them. Each input is an
-`Input<Str>`: its repository `path`, its `language`, and its text as `value`.
-Under a [contract](#input-contracts) it is an `Input<Root>` instead.
+`buri docs core/tool` prints the types. Each input is an `Input<Str>` with its
+repository `path`, its `language`, and its text as `value`. Under a
+[contract](#input-contracts) it's an `Input<Root>` instead.
 
-- **`check`** answers `Checked`: its diagnostics, and the repository paths it
-  `needs`. A file it needs, such as a schema, comes back in `files` on the next
+- **`check`** answers `Checked`: diagnostics, and the repository paths it
+  `needs`. A needed file, such as a schema, comes back in `files` on the next
   call. A path outside the repository is
   [`schema-not-local`](../errors/schema-not-local.md).
-- **`format`** answers a `core/format` `Doc`, and the toolchain lays it out at
-  the margin and indent every `.buri` file gets. A file the tool cannot read
-  gets diagnostics and no doc, and stays as it is.
-- **`generate`** answers modules, diagnostics and `needs`, as
-  [`generators.md`](./generators.md) describes.
+- **`format`** answers a `core/format` `Doc`, laid out at the same margin and
+  indent as `.buri` files. A file the tool can't read gets diagnostics and no
+  doc, and stays as it is.
+- **`generate`** answers modules, diagnostics and `needs`; see
+  [`generators.md`](./generators.md).
 
-A diagnostic's `code` prints under its catalogue page when there is one, with
-the tool's own sentence, and as
-[`tool-diagnostic`](../errors/tool-diagnostic.md) otherwise. A tool that does
-not build, or stops without answering, is
-[`tool-failed`](../errors/tool-failed.md).
+A diagnostic prints under its `code`'s catalogue page if there is one, else as
+[`tool-diagnostic`](../errors/tool-diagnostic.md). A tool that doesn't build or
+doesn't answer is [`tool-failed`](../errors/tool-failed.md).
 
 ## Input contracts
 
-A tool whose inputs always follow one schema says so in its own `BUILD.buri`:
+A tool whose inputs follow one schema declares it:
 
 ```textproto schema=build
 # tool/database_schema_codegen/BUILD.buri
@@ -152,36 +148,32 @@ export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Config>): Gene
 }
 ```
 
-- **The check uses the contract's schema.** `json` checks `schema.json`
-  against `config.schema.json`, wherever the tool is used. The file's own
-  `"$schema"` may be left out or name the same schema; anything else is
-  [`schema-mismatch`](../errors/schema-mismatch.md), and so is one file read
-  by two tools with different contracts.
-- **`type_schema` belongs to the language.** For `json`, `jsonc` and `json5`
-  it is a JSON Schema path relative to the tool's package, or a `//` path.
-  [`guides/json`](../../guides/json.md#generating-types) has the type mapping.
-  For `textproto` it is a schema path and a message, `routes.proto:Routes`,
-  and a file under it may leave out its `# proto-file:` and `# proto-message:`
-  header or name the same ones.
+- **The check uses the contract's schema.** The file's own `"$schema"` may be
+  absent or name the same schema. Anything else is
+  [`schema-mismatch`](../errors/schema-mismatch.md), as is one file read by two
+  tools with different contracts.
+- **`type_schema` depends on the language.** For `json`, `jsonc` and `json5`
+  it's a JSON Schema path relative to the tool's package, or a `//` path
+  ([type mapping](../../guides/json.md#generating-types)). For `textproto` it's
+  a schema and a message, `routes.proto:Routes`, and a file under it may omit
+  its `# proto-file:` and `# proto-message:` header or name the same ones.
   `proto` takes no contract, because a `.proto` file holds no value
   ([`proto-contract-unsupported`](../errors/proto-contract-unsupported.md)).
 - **One entry per language.** An input in a language no entry lists is
   [`input-language-not-accepted`](../errors/input-language-not-accepted.md), on
   the consumer's `inputs`.
-- **The request takes the root type.** `GenerateRequest<Config>`, or
-  `CheckRequest<Config>` for a `check` with `accepts`; anything else is
+- **The request takes the root type**: `GenerateRequest<Config>`, or
+  `CheckRequest<Config>` for a `check` with `accepts`. Anything else is
   [`tool-request-type`](../errors/tool-request-type.md). `format` takes no
   contract, because a typed value has lost the comments a formatter lays out.
 - **The consumer gets no types.** It never reads its config at run time.
 
-The module holds the types and
-`decode<C: Allocator>(ctx: C, text: Str): Result<Config, Str>`, which the
-`main` the build writes calls on each input before the entry point sees it. A
-JSON input arrives as strict JSON, whatever its dialect, so comments and
-JSON5 syntax never reach `decode`. A text format input arrives as its text,
-and its `decode` reads it against the schema. A language of your own supplies
-types by answering a `generate` whose `typesOf` is set: one module, with the
-root type and this `decode`, which reads the input's text.
+The generated module holds the types and
+`decode<C: Allocator>(ctx: C, text: Str): Result<Config, Str>`, which runs on
+each input before the entry point. JSON inputs reach `decode` as strict JSON,
+whatever their dialect; text format inputs as their text. A language of your own
+supplies types by answering a `generate` whose `typesOf` is set, with one module
+holding the root type and its `decode`.
 
 A `textproto` contract names a schema and a message, and the tool imports the
 message from `<tool label>/textproto`:
@@ -199,14 +191,12 @@ tool {
 
 ## The cache
 
-Every answer is an action keyed on the tool's program and the whole request:
+Every answer is an action keyed on:
 
-- the tool's sources and everything they import, the way a binary's `link` is
-  keyed;
+- the tool's sources and everything they import, as a binary's `link` is keyed;
 - the file, and every file the tool `needs`;
-- under a contract, the schema and every file it reaches, which also decide
-  the types the tool is built with.
+- under a contract, the schema and every file it reaches.
 
-So editing the tool, the file, or a schema it read asks again, and nothing else
-does. The tool is compiled to JavaScript once per key and kept under
+Editing the tool, the file, or a schema it read reruns it, and nothing else
+does. The tool compiles to JavaScript once per key, kept under
 `.buri/out/tools`.
