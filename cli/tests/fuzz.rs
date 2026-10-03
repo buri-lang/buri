@@ -2322,16 +2322,20 @@ fn random_params(rng: &mut Rng, lines: usize) -> generate::Params {
 }
 
 /// The whole multi-module program through the front end, the way the benchmark
-/// validates its corpus.
+/// validates its corpus: on top of the standard library's snapshot, as every
+/// analysis is.
 fn program_compiles(program: &generate::Program) -> Option<String> {
     use buri::compiler::modules::Loader;
     use buri::compiler::semantics::resolve::Checker;
+    use buri::compiler::snapshot::{self, Opening};
     use buri::diagnostics::Diagnostics;
     let mut map = SourceMap::new();
     let mut cache = buri::parsing::parser::Cache::new();
     let mut diagnostics = Diagnostics::new();
+    let snapshot = snapshot::of(Opening::Builtin, true);
+    diagnostics.extend(snapshot.diagnostics.items.iter().cloned());
     let loaded = {
-        let mut loader = Loader::new(None, &mut map, &mut diagnostics, &mut cache);
+        let mut loader = Loader::seeded(None, &mut map, &mut diagnostics, &mut cache, &snapshot);
         loader.load_builtin_modules();
         let last = program.modules.len().saturating_sub(1);
         for (i, m) in program.modules.iter().enumerate() {
@@ -2340,7 +2344,7 @@ fn program_compiles(program: &generate::Program) -> Option<String> {
         }
         loader.finish()
     };
-    let checked = Checker::new(&loaded, None, &mut diagnostics).run();
+    let checked = Checker::resume(&loaded, None, &mut diagnostics, &snapshot.base).run();
     let errors: Vec<String> = diagnostics
         .items
         .iter()

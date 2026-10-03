@@ -57,7 +57,7 @@ pub enum Sym {
     Alias(ModuleId, String),
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ModuleScope {
     /// Everything visible unqualified inside this module.
     pub names: HashMap<String, Sym>,
@@ -89,7 +89,7 @@ pub enum Bodies {
 pub struct Checked {
     pub tables: Tables,
     pub scopes: Vec<ModuleScope>,
-    pub bodies: HashMap<FnId, typed::Body>,
+    pub bodies: HashMap<FnId, std::sync::Arc<typed::Body>>,
     pub consts: HashMap<ConstId, typed::Expr>,
     /// `main`, when this compilation has one.
     pub entry: Option<FnId>,
@@ -162,7 +162,7 @@ pub struct Checker<'a> {
     pub diags: &'a mut Diagnostics,
     pub tables: Tables,
     pub scopes: Vec<ModuleScope>,
-    pub bodies: HashMap<FnId, typed::Body>,
+    pub bodies: HashMap<FnId, std::sync::Arc<typed::Body>>,
     pub const_values: HashMap<ConstId, typed::Expr>,
     pub entry: Option<FnId>,
     /// See [`Checked::entries`].
@@ -240,6 +240,86 @@ pub struct Checker<'a> {
     /// ever: a declaration already in here answers with what it has, which for
     /// one still in progress is nothing.
     pub ctx_decls_reached: HashSet<ContextDeclId>,
+    /// What checking the compilation's leading standard library modules
+    /// already settled, when this analysis starts from it. See [`Base`].
+    base: Option<&'a Base>,
+}
+
+/// What checking the standard library modules a compilation opens with left
+/// behind, for an analysis to start from rather than redo.
+///
+/// Every compilation loads the same modules first — `Loader::load_unit` loads
+/// the prelude and the built-in types' modules before anything of the
+/// repository's, and a snippet loads the whole library before its own text —
+/// and their text is compiled into this binary. So what the passes below make
+/// of them is the same every time, and `compiler::snapshot` keeps it once per
+/// thread. [`Checker::resume`] then runs each pass over the remaining modules
+/// only: their ids continue where these stop, so every type constructor,
+/// trait and module keeps the id a whole run would have given it.
+///
+/// It is sound because nothing a later module declares can change what these
+/// modules mean. They import nothing but each other; an `impl` lives in its
+/// type's own module, so none of their types gains a conformance later; and
+/// `analyze_std_module` already holds that each module checks on top of the
+/// prelude alone.
+pub struct Base {
+    /// How many of the compilation's leading modules this covers.
+    modules: usize,
+    tables: Tables,
+    scopes: Vec<ModuleScope>,
+    bodies: HashMap<FnId, std::sync::Arc<typed::Body>>,
+    const_values: HashMap<ConstId, typed::Expr>,
+    known_traits: HashMap<String, TraitId>,
+    known_types: HashMap<String, TyConId>,
+    prim_module: ModuleId,
+    ctx_rebindings: Vec<Span>,
+    ctx_decls_reached: HashSet<ContextDeclId>,
+    /// Whether every function body of these modules was checked, or only the
+    /// ones a scoped analysis must have whatever it asked for.
+    ///
+    /// Where they all were, the passes after checking walked them too, and
+    /// the two fields below are what those passes left.
+    bodies_checked: bool,
+    /// The functions among these that wait on `core/lazy`'s `load`.
+    waiting: HashSet<FnId>,
+    /// What style extraction made of these modules' constants and bodies.
+    styled: crate::compiler::semantics::styles::Styled,
+}
+
+/// Which constants and bodies the passes after checking — icons, reactive
+/// builders, style extraction — walk.
+///
+/// Those of the files a scoped analysis asked about, or every one; and of
+/// those, none a [`Base`] walked already. A base's bodies call nothing
+/// declared after them, so what a pass reports about one of them, or rewrites
+/// in it, is the same whatever comes after.
+pub struct Walked {
+    only: Option<Vec<FileId>>,
+    /// The functions and constants whose ids are below these were walked by
+    /// the base.
+    fns_from: usize,
+    consts_from: usize,
+}
+
+impl Walked {
+    /// Whether the base walked this function's body.
+    pub fn settled(&self, id: FnId) -> bool {
+        id.index() < self.fns_from
+    }
+
+    /// Whether a pass walks this function's body.
+    pub fn function(&self, tables: &Tables, id: FnId) -> bool {
+        !self.settled(id) && self.wants(tables.fn_info(id).span.file)
+    }
+
+    /// Whether a pass walks this constant's initializer.
+    pub fn constant(&self, tables: &Tables, id: ConstId) -> bool {
+        id.index() >= self.consts_from && self.wants(tables.const_(id).span.file)
+    }
+
+    fn wants(&self, file: FileId) -> bool {
+        self.only.as_ref().is_none_or(|files| files.contains(&file))
+    }
 }
 
 /// A signature waiting for rule 26.
@@ -300,7 +380,121 @@ impl<'a> Checker<'a> {
             self_scope: None,
             wanted: Bodies::All,
             ctx_decls_reached: HashSet::default(),
+            base: None,
         }
+    }
+
+    /// A checker for a compilation whose leading modules are the ones `base`
+    /// was made from, which runs every pass over the rest only.
+    ///
+    /// The caller loaded `base`'s modules first, in its order, which is what
+    /// makes the ids it holds the ids of this compilation's modules too.
+    pub fn resume(
+        loaded: &'a Loaded,
+        ws: Option<&'a Workspace>,
+        diags: &'a mut Diagnostics,
+        base: &'a Base,
+    ) -> Checker<'a> {
+        let mut c = Checker::new(loaded, ws, diags);
+        let mut scopes = base.scopes.clone();
+        scopes.resize_with(loaded.modules.len(), ModuleScope::default);
+        c.scopes = scopes;
+        c.tables = base.tables.clone();
+        c.bodies = base.bodies.clone();
+        c.const_values = base.const_values.clone();
+        c.known_traits = base.known_traits.clone();
+        c.known_types = base.known_types.clone();
+        c.prim_module = base.prim_module;
+        c.ctx_rebindings = base.ctx_rebindings.clone();
+        c.ctx_decls_reached = base.ctx_decls_reached.clone();
+        c.base = Some(base);
+        c
+    }
+
+    /// Runs every pass up to and including the bodies, and keeps what they
+    /// made for analyses to [`resume`](Checker::resume) from.
+    ///
+    /// Where every body was checked, the passes after them — icons, reactive
+    /// builders, styles — walk them here too, and what they found is kept
+    /// beside the rest; an analysis then walks only its own (see
+    /// [`Walked`]).
+    pub fn base(mut self) -> Base {
+        self.check_through_bodies();
+        let bodies_checked = matches!(self.wanted, Bodies::All);
+        // The passes after checking, over these modules alone, when every body
+        // is here to walk. Style extraction rewrites what it walks, and an
+        // analysis folds its own styles through the bodies as they were
+        // before that — so the pass runs on copies, and keeps only what it
+        // changed.
+        let (mut waiting, mut styled) = Default::default();
+        if bodies_checked {
+            let walked = self.walked();
+            waiting = self.check_icons_and_builders(&walked, &HashSet::default());
+            let (mut bodies, mut consts) = (self.bodies.clone(), self.const_values.clone());
+            let (found, _) = crate::compiler::semantics::styles::run(
+                self.loaded,
+                &self.tables,
+                &self.scopes,
+                &mut bodies,
+                &mut consts,
+                self.diags,
+                &walked,
+            );
+            styled = crate::compiler::semantics::styles::Styled {
+                bodies: bodies
+                    .into_iter()
+                    .filter(|(id, body)| {
+                        !self.bodies.get(id).is_some_and(|was| std::sync::Arc::ptr_eq(was, body))
+                    })
+                    .collect(),
+                consts,
+                ..found
+            };
+        }
+        Base {
+            modules: self.loaded.modules.len(),
+            bodies_checked,
+            waiting,
+            styled,
+            tables: self.tables,
+            scopes: self.scopes,
+            bodies: self.bodies,
+            const_values: self.const_values,
+            known_traits: self.known_traits,
+            known_types: self.known_types,
+            prim_module: self.prim_module,
+            ctx_rebindings: self.ctx_rebindings,
+            ctx_decls_reached: self.ctx_decls_reached,
+        }
+    }
+
+    /// The first module this checker elaborates: the one after its base's, or
+    /// the first.
+    fn first_module(&self) -> usize {
+        self.base.map_or(0, |b| b.modules)
+    }
+
+    /// The modules this checker elaborates, as ids.
+    fn own_modules(&self) -> impl Iterator<Item = ModuleId> {
+        (self.first_module()..self.loaded.modules.len()).map(|m| ModuleId(m as u32))
+    }
+
+    /// For a function the base declared, whether the base checked its body;
+    /// `None` for one this checker declared.
+    pub(crate) fn settled_by_base(&self, fid: FnId) -> Option<bool> {
+        let base = self.base?;
+        (fid.index() < base.tables.fns.len()).then_some(base.bodies_checked)
+    }
+
+    /// The well-known names the base registered, when there is one.
+    pub(crate) fn base_known_traits(&self) -> Option<&'a HashMap<String, TraitId>> {
+        self.base.map(|b| &b.known_traits)
+    }
+
+    /// How many constants and `context` declarations the base checked: the
+    /// ones whose ids come first.
+    pub(crate) fn base_counts(&self) -> (usize, usize) {
+        self.base.map_or((0, 0), |b| (b.tables.consts.len(), b.tables.ctx_decls.len()))
     }
 
     /// Narrows step 5 to the bodies written in one set of files.
@@ -323,67 +517,28 @@ impl<'a> Checker<'a> {
     }
 
     pub fn run(mut self) -> Checked {
-        self.register_primitives();
-        self.collect_declarations();
-        self.resolve_scopes();
-        self.register_known_names();
-        self.elaborate_signatures();
-        self.register_conformance();
-        // Both of these read what the two passes above finished: the fixpoint
-        // needs elaborated type bodies, and rule 26 needs to know which types
-        // implement an effect. Asking either question from inside
-        // `elaborate_signatures` — where the `ctx` rule used to be checked —
-        // means asking it of a half-built table.
-        self.tables.compute_variance();
-        self.check_ctx_rules();
-        // After the entry table is complete and before any body is checked, so
-        // an output naming a function that is not there is printed above its
-        // consequences.
-        self.check_declared_entries();
-        self.check_effect_test_implementations();
-        self.register_primitive_methods();
-        self.check_derives();
-        self.compute_surfaces();
-        self.check_module_rules();
-        self.check_bodies();
+        self.check_through_bodies();
         // Last, because it reads every checked body and rewrites the ones that
         // hold a static style. It must also run before `monomorphize` inlines a
         // constant, or a module-level `let` of `Style` would be extracted once
         // per use site instead of once.
-        let only: Option<Vec<FileId>> = match &self.wanted {
-            Bodies::All => None,
-            Bodies::In(files) => Some(files.clone()),
-        };
-        // Before extraction, so the folder reads bodies nothing has rewritten.
-        crate::compiler::semantics::icons::run(
-            self.loaded,
-            &self.tables,
-            &self.scopes,
-            &self.bodies,
-            &self.const_values,
-            self.diags,
-            only.as_deref(),
-        );
-        // A `load` reached synchronously from a reactive builder answers a
-        // promise the renderer cannot render (#152), so it is refused here where
-        // the builder's body is still a lambda in the typed tree.
-        crate::compiler::semantics::reactive::run(
-            self.loaded,
-            &self.tables,
-            &self.scopes,
-            &self.bodies,
-            self.diags,
-            only.as_deref(),
-        );
-        let (styles, style_con) = crate::compiler::semantics::styles::run(
+        let walked = self.walked();
+        let settled = self.base.filter(|b| b.bodies_checked);
+        let waiting = settled.map(|b| b.waiting.clone()).unwrap_or_default();
+        self.check_icons_and_builders(&walked, &waiting);
+        let (found, style_con) = crate::compiler::semantics::styles::run(
             self.loaded,
             &self.tables,
             &self.scopes,
             &mut self.bodies,
             &mut self.const_values,
             self.diags,
-            only.as_deref(),
+            &walked,
         );
+        let styles = match settled {
+            Some(base) => found.after(&base.styled, &mut self.bodies, &mut self.const_values),
+            None => found.const_rules.into_iter().chain(found.body_rules).collect(),
+        };
         // `ui/theme`'s one opaque type, looked up the way `styles::run` looks
         // up `Style`: by module path in the loaded set, then by name in that
         // module's own scope. `None` for every compilation that did not load
@@ -410,6 +565,77 @@ impl<'a> Checker<'a> {
             surfaces: self.surfaces,
             ctx_rebindings: self.ctx_rebindings,
         }
+    }
+
+    /// What the passes after checking walk: the bodies this analysis asked
+    /// for, less the ones its base walked already.
+    fn walked(&self) -> Walked {
+        let settled = self.base.filter(|b| b.bodies_checked);
+        Walked {
+            only: match &self.wanted {
+                Bodies::All => None,
+                Bodies::In(files) => Some(files.clone()),
+            },
+            fns_from: settled.map_or(0, |b| b.tables.fns.len()),
+            consts_from: settled.map_or(0, |b| b.tables.consts.len()),
+        }
+    }
+
+    /// The two passes after checking that only report, and answer which
+    /// functions wait on a `load` — starting from `waiting`, the base's answer.
+    fn check_icons_and_builders(&mut self, walked: &Walked, waiting: &HashSet<FnId>) -> HashSet<FnId> {
+        // Before extraction, so the folder reads bodies nothing has rewritten.
+        crate::compiler::semantics::icons::run(
+            self.loaded,
+            &self.tables,
+            &self.scopes,
+            &self.bodies,
+            &self.const_values,
+            self.diags,
+            walked,
+        );
+        // A `load` reached synchronously from a reactive builder answers a
+        // promise the renderer cannot render (#152), so it is refused here where
+        // the builder's body is still a lambda in the typed tree.
+        crate::compiler::semantics::reactive::run(
+            self.loaded,
+            &self.tables,
+            &self.scopes,
+            &self.bodies,
+            self.diags,
+            walked,
+            waiting,
+        )
+    }
+
+    /// Every pass up to and including the bodies, over the modules this
+    /// checker owns (see [`Base`]).
+    fn check_through_bodies(&mut self) {
+        if self.base.is_none() {
+            self.register_primitives();
+        }
+        self.collect_declarations();
+        self.resolve_scopes();
+        self.register_known_names();
+        self.elaborate_signatures();
+        self.register_conformance();
+        // Both of these read what the two passes above finished: the fixpoint
+        // needs elaborated type bodies, and rule 26 needs to know which types
+        // implement an effect. Asking either question from inside
+        // `elaborate_signatures` — where the `ctx` rule used to be checked —
+        // means asking it of a half-built table.
+        self.tables.compute_variance();
+        self.check_ctx_rules();
+        // After the entry table is complete and before any body is checked, so
+        // an output naming a function that is not there is printed above its
+        // consequences.
+        self.check_declared_entries();
+        self.check_effect_test_implementations();
+        self.register_primitive_methods();
+        self.check_derives();
+        self.compute_surfaces();
+        self.check_module_rules();
+        self.check_bodies();
     }
 
     /// One module's own type, by name, when this compilation loaded the module.
@@ -510,8 +736,7 @@ impl<'a> Checker<'a> {
     // -----------------------------------------------------------------------
 
     fn collect_declarations(&mut self) {
-        for m in 0..self.loaded.modules.len() {
-            let id = ModuleId(m as u32);
+        for id in self.own_modules() {
             let items = &self.module(id).ast.items;
             for (index, item) in items.iter().enumerate() {
                 self.collect_item(id, index as u32, item);
@@ -730,7 +955,8 @@ impl<'a> Checker<'a> {
     fn resolve_scopes(&mut self) {
         // Everything a module declares is visible unqualified inside it,
         // before its imports add to that.
-        for scope in &mut self.scopes {
+        let first = self.first_module();
+        for scope in self.scopes.iter_mut().skip(first) {
             scope.names = scope.own.clone();
         }
 
@@ -745,14 +971,13 @@ impl<'a> Checker<'a> {
                 Some((name.to_string(), sym))
             })
             .collect();
-        for scope in &mut self.scopes {
+        for scope in self.scopes.iter_mut().skip(first) {
             for (local, sym) in &prelude {
                 scope.names.entry(local.clone()).or_insert_with(|| sym.clone());
             }
         }
 
-        for m in 0..self.loaded.modules.len() {
-            let id = ModuleId(m as u32);
+        for id in self.own_modules() {
             let items = &self.module(id).ast.items;
             for item in items {
                 match item {
@@ -1001,8 +1226,7 @@ impl<'a> Checker<'a> {
     fn elaborate_signatures(&mut self) {
         // Bounds first: elaborating a signature may need to know whether a
         // parameter is effect-carrying.
-        for m in 0..self.loaded.modules.len() {
-            let id = ModuleId(m as u32);
+        for id in self.own_modules() {
             let items = &self.module(id).ast.items;
             let t = self.tree(id);
             for (index, item) in items.iter().enumerate() {
@@ -2234,8 +2458,7 @@ impl<'a> Checker<'a> {
     /// `method-outside-impl` diagnostic `elaborate_fn_signature` already
     /// reports.
     fn register_conformance(&mut self) {
-        for m in 0..self.loaded.modules.len() {
-            let id = ModuleId(m as u32);
+        for id in self.own_modules() {
             let items = &self.module(id).ast.items;
             for (index, item) in items.iter().enumerate() {
                 match item {
@@ -2760,6 +2983,8 @@ impl<'a> Checker<'a> {
             .impls
             .iter()
             .filter(|(_, i)| i.is_derived())
+            // The base checked its own, and they are the same ones.
+            .filter(|(key, _)| !self.base.is_some_and(|b| b.tables.impls.contains_key(key)))
             .map(|((t, c), i)| (*t, *c, i.span))
             .collect();
         let mut sorted = derived;
@@ -2864,8 +3089,7 @@ impl<'a> Checker<'a> {
     // -----------------------------------------------------------------------
 
     fn check_module_rules(&mut self) {
-        for m in 0..self.loaded.modules.len() {
-            let id = ModuleId(m as u32);
+        for id in self.own_modules() {
             let role = self.module(id).role;
             let items = &self.module(id).ast.items;
             // Where each title was first declared *in this file*. Two files of

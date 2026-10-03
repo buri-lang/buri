@@ -1049,7 +1049,7 @@ impl Monomorphizer<'_> {
                 let Some(checked) = self.tables().ctx_decl(c).checked else { return };
                 let ctor = checked.ctor;
                 let Some(body) = self.checked.bodies.get(&ctor) else { return };
-                let mut b = body.clone();
+                let mut b = typed::Body::clone(body);
                 self.locals = std::mem::take(&mut b.locals);
                 b.expr = self.rewrite(b.expr, &[]);
                 b.locals = std::mem::take(&mut self.locals);
@@ -1066,7 +1066,7 @@ impl Monomorphizer<'_> {
                     .or_ice("a test key holds the index `run` enumerated `checked.tests` with")
                     .func;
                 let Some(body) = self.checked.bodies.get(&fid) else { return };
-                let mut b = body.clone();
+                let mut b = typed::Body::clone(body);
                 self.locals = std::mem::take(&mut b.locals);
                 let rewritten = self.rewrite(b.expr, &[]);
                 b.expr = self.leaving(i, slot, rewritten);
@@ -1244,7 +1244,7 @@ impl Monomorphizer<'_> {
             // A trait method with no body and no impl: already diagnosed.
             return;
         };
-        let mut b = body.clone();
+        let mut b = typed::Body::clone(body);
         for l in &mut b.locals {
             l.ty = substitute(&l.ty, &targs, None);
         }

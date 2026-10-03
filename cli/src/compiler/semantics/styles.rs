@@ -43,7 +43,7 @@
 
 use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::consteval::{Env, Folder, Value};
-use crate::compiler::semantics::resolve::{ModuleScope, Sym};
+use crate::compiler::semantics::resolve::{ModuleScope, Sym, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{ConstId, FnId, Tables, Ty, TyConId};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
@@ -343,10 +343,60 @@ const STATES: [(&str, &str); 7] = [
 // The pass
 // ---------------------------------------------------------------------------
 
+/// What one run of the pass found, kept apart by where it was found.
+///
+/// Apart because a run over a compilation that opens with a base
+/// (`resolve::Base`) walks only what came after it, and the rules have to come
+/// out in the order one run over everything would have found them in:
+/// constants before bodies, and each in id order, which puts the base's first
+/// within each. [`Styled::after`] is that merge.
+#[derive(Default)]
+pub struct Styled {
+    /// The rules the constants produced, in walk order.
+    pub const_rules: Vec<StyleRule>,
+    /// The rules the bodies produced, in walk order.
+    pub body_rules: Vec<StyleRule>,
+    /// What the base's constants and bodies are once the pass has rewritten
+    /// them, where it did. Empty for a run that is not a base's.
+    pub consts: HashMap<ConstId, typed::Expr>,
+    pub bodies: HashMap<FnId, std::sync::Arc<typed::Body>>,
+}
+
+impl Styled {
+    /// The rules of a run over what came after `base`, merged with the base's,
+    /// with the base's rewrites put back into the maps the run left them out
+    /// of.
+    ///
+    /// A class names itself, so a rule both runs found is one rule, kept
+    /// where it was found first.
+    pub fn after(
+        self,
+        base: &Styled,
+        bodies: &mut HashMap<FnId, std::sync::Arc<typed::Body>>,
+        consts: &mut HashMap<ConstId, typed::Expr>,
+    ) -> Vec<StyleRule> {
+        for (id, body) in &base.bodies {
+            bodies.insert(*id, std::sync::Arc::clone(body));
+        }
+        for (id, init) in &base.consts {
+            consts.insert(*id, init.clone());
+        }
+        let mut seen: HashSet<String> = HashSet::default();
+        base.const_rules
+            .iter()
+            .chain(&self.const_rules)
+            .chain(&base.body_rules)
+            .chain(&self.body_rules)
+            .filter(|r| seen.insert(r.class.clone()))
+            .cloned()
+            .collect()
+    }
+}
+
 /// Extracts every static style in the compilation.
 ///
 /// Rewrites `bodies` and `consts` in place, and answers the rules the module's
-/// styles produced, in walk order. A build merges the answers of every module
+/// styles produced, in walk order, constants' first. A build merges the answers of every module
 /// it links; since a class names itself, merging is a dedupe and never a
 /// renumbering.
 ///
@@ -357,14 +407,14 @@ pub fn run(
     loaded: &Loaded,
     tables: &Tables,
     scopes: &[ModuleScope],
-    bodies: &mut HashMap<FnId, typed::Body>,
+    bodies: &mut HashMap<FnId, std::sync::Arc<typed::Body>>,
     consts: &mut HashMap<ConstId, typed::Expr>,
     diags: &mut Diagnostics,
-    only: Option<&[crate::diagnostics::FileId]>,
-) -> (Vec<StyleRule>, Option<TyConId>) {
-    let Some(style_con) = style_constructor(loaded, scopes) else { return (Vec::new(), None) };
+    walked: &Walked,
+) -> (Styled, Option<TyConId>) {
+    let Some(style_con) = style_constructor(loaded, scopes) else { return (Styled::default(), None) };
     let Some(classes_con) = ui_style_type(loaded, scopes, "Classes") else {
-        return (Vec::new(), None);
+        return (Styled::default(), None);
     };
 
     // The interpreter reads bodies and constants as they were *before* this
@@ -395,11 +445,10 @@ pub fn run(
     // what they wrote. The rest of the closure is here to be *folded into*
     // those — which is what `original_bodies` above is — rather than to be
     // rewritten and reported on by a run that is not about it.
-    let wanted = |file| only.is_none_or(|files| files.contains(&file));
     let mut const_ids: Vec<ConstId> = consts.keys().copied().collect();
     const_ids.sort_by_key(|c| c.index());
     for id in const_ids {
-        if !wanted(tables.const_(id).span.file) {
+        if !walked.constant(tables, id) {
             continue;
         }
         if let Some(init) = consts.get_mut(&id) {
@@ -407,18 +456,20 @@ pub fn run(
             ex.walk(init, Cond::default());
         }
     }
+    let const_rules = std::mem::take(&mut ex.rules);
     let mut fn_ids: Vec<FnId> = bodies.keys().copied().collect();
     fn_ids.sort_by_key(|f| f.index());
     for id in fn_ids {
-        if !wanted(tables.fn_info(id).span.file) {
+        if !walked.function(tables, id) {
             continue;
         }
         if let Some(body) = bodies.get_mut(&id) {
             ex.alphas(&body.expr);
-            ex.walk(&mut body.expr, Cond::default());
+            ex.walk(&mut std::sync::Arc::make_mut(body).expr, Cond::default());
         }
     }
-    (ex.rules, Some(style_con))
+    let styled = Styled { const_rules, body_rules: ex.rules, ..Styled::default() };
+    (styled, Some(style_con))
 }
 
 /// `ui/style`'s `Style`, when this compilation loaded it.
@@ -443,7 +494,7 @@ struct Extractor<'a> {
     /// `ui/style`'s `Color`, which is how [`Extractor::alphas`] recognises one.
     color_con: Option<TyConId>,
     tables: &'a Tables,
-    original_bodies: &'a HashMap<FnId, typed::Body>,
+    original_bodies: &'a HashMap<FnId, std::sync::Arc<typed::Body>>,
     original_consts: &'a HashMap<ConstId, typed::Expr>,
     rules: Vec<StyleRule>,
     recorded: HashSet<String>,

@@ -5,6 +5,7 @@ use crate::build::buildfile::Platform;
 use crate::build::workspace::Workspace;
 use crate::compiler::modules::{Loaded, Loader, Unit};
 use crate::compiler::semantics::resolve::{Bodies, Checked, Checker};
+use crate::compiler::snapshot::{self, Opening};
 use crate::diagnostics::{Diagnostic, Diagnostics, FileId, SourceMap, Span};
 
 pub struct Analysis {
@@ -60,15 +61,42 @@ pub fn analyze_all(
     cache: &mut crate::parsing::parser::Cache,
     units: &[Unit],
 ) -> Analysis {
-    let mut diags = Diagnostics::new();
-    let loaded = {
-        let mut loader = Loader::new(ws, map, &mut diags, cache);
+    analyze_on(ws, map, cache, Opening::Builtin, Bodies::All, |loader| {
         for unit in units {
             loader.load_unit(unit);
         }
+    })
+}
+
+/// Loads with `load` on top of the standard library modules `opening` names,
+/// checked once per thread rather than once per call (`compiler::snapshot`),
+/// and checks the rest with `bodies`.
+///
+/// `load` has to load the opening's modules first, which every caller does
+/// by starting the way a loader from nothing would: `Loader::load_unit` loads
+/// [`Opening::Builtin`]'s before anything else, and a snippet loads the whole
+/// library after it, which is [`Opening::Library`].
+///
+/// What comes back is what a loader and a checker starting from nothing
+/// return, diagnostics included: the modules keep their ids, and so does every
+/// type constructor, trait and constant they declare.
+fn analyze_on(
+    ws: Option<&Workspace>,
+    map: &mut SourceMap,
+    cache: &mut crate::parsing::parser::Cache,
+    opening: Opening,
+    bodies: Bodies,
+    load: impl FnOnce(&mut Loader),
+) -> Analysis {
+    let snapshot = snapshot::of(opening, matches!(bodies, Bodies::All));
+    let mut diags = Diagnostics::new();
+    diags.extend(snapshot.diagnostics.items.iter().cloned());
+    let loaded = {
+        let mut loader = Loader::seeded(ws, map, &mut diags, cache, &snapshot);
+        load(&mut loader);
         loader.finish()
     };
-    let checked = Checker::new(&loaded, ws, &mut diags).run();
+    let checked = Checker::resume(&loaded, ws, &mut diags, &snapshot.base).checking(bodies).run();
     diags.sort(map);
     Analysis { loaded, checked, diagnostics: diags }
 }
@@ -105,16 +133,7 @@ pub fn analyze_program(
     cache: &mut crate::parsing::parser::Cache,
     unit: &Unit,
 ) -> Analysis {
-    let mut diags = Diagnostics::new();
-    let loaded = {
-        let mut loader = Loader::new(ws, map, &mut diags, cache);
-        loader.load_unit(unit);
-        loader.finish()
-    };
-    let files = repository_files(&loaded);
-    let checked = Checker::new(&loaded, ws, &mut diags).checking(Bodies::In(files)).run();
-    diags.sort(map);
-    Analysis { loaded, checked, diagnostics: diags }
+    analyze_program_all(ws, map, cache, std::slice::from_ref(unit))
 }
 
 /// The same, over several units batched into one compilation. See
@@ -126,16 +145,22 @@ pub fn analyze_program_all(
     cache: &mut crate::parsing::parser::Cache,
     units: &[Unit],
 ) -> Analysis {
+    // Which files are the repository's is known once loading is over, and
+    // the checker is asked for their bodies alone — so the snapshot is the
+    // one with no bodies, and the files are named afterwards.
+    let snapshot = snapshot::of(Opening::Builtin, false);
     let mut diags = Diagnostics::new();
+    diags.extend(snapshot.diagnostics.items.iter().cloned());
     let loaded = {
-        let mut loader = Loader::new(ws, map, &mut diags, cache);
+        let mut loader = Loader::seeded(ws, map, &mut diags, cache, &snapshot);
         for unit in units {
             loader.load_unit(unit);
         }
         loader.finish()
     };
     let files = repository_files(&loaded);
-    let checked = Checker::new(&loaded, ws, &mut diags).checking(Bodies::In(files)).run();
+    let checked =
+        Checker::resume(&loaded, ws, &mut diags, &snapshot.base).checking(Bodies::In(files)).run();
     diags.sort(map);
     Analysis { loaded, checked, diagnostics: diags }
 }
@@ -182,16 +207,9 @@ pub fn analyze_bodies_in(
     unit: &Unit,
     files: &[FileId],
 ) -> Analysis {
-    let mut diags = Diagnostics::new();
-    let loaded = {
-        let mut loader = Loader::new(ws, map, &mut diags, cache);
+    analyze_on(ws, map, cache, Opening::Builtin, Bodies::In(files.to_vec()), |loader| {
         loader.load_unit(unit);
-        loader.finish()
-    };
-    let checked =
-        Checker::new(&loaded, ws, &mut diags).checking(Bodies::In(files.to_vec())).run();
-    diags.sort(map);
-    Analysis { loaded, checked, diagnostics: diags }
+    })
 }
 
 /// Loads and checks every module of the standard library, with no repository.
@@ -210,6 +228,34 @@ pub fn analyze_stdlib(map: &mut SourceMap) -> Analysis {
     Analysis { loaded, checked, diagnostics: diags }
 }
 
+/// Loads every module of the standard library, as [`analyze_stdlib`] does,
+/// and checks none of it.
+///
+/// For a reader of declarations rather than of types: `buri docs` renders a
+/// module's page from its syntax tree, and checking forty thousand lines to
+/// print one of them was most of what the command cost.
+pub fn load_stdlib(map: &mut SourceMap) -> Loaded {
+    let mut diags = Diagnostics::new();
+    let mut cache = crate::parsing::parser::Cache::new();
+    let mut loader = Loader::new(None, map, &mut diags, &mut cache);
+    loader.load_all_std();
+    loader.finish()
+}
+
+/// Loads one unit, as [`analyze`] does, and checks none of it. What
+/// [`load_stdlib`] is for the standard library, for a repository's target.
+pub fn load(
+    ws: Option<&Workspace>,
+    map: &mut SourceMap,
+    cache: &mut crate::parsing::parser::Cache,
+    unit: &Unit,
+) -> Loaded {
+    let mut diags = Diagnostics::new();
+    let mut loader = Loader::new(ws, map, &mut diags, cache);
+    loader.load_unit(unit);
+    loader.finish()
+}
+
 /// Loads and checks one standard library module the way a *program* would
 /// reach it: on top of the built-in types and whatever it imports for itself,
 /// and nothing else.
@@ -220,17 +266,11 @@ pub fn analyze_stdlib(map: &mut SourceMap) -> Analysis {
 /// a module is first seen in a compilation holding the eager set and its own
 /// imports.
 pub fn analyze_std_module(map: &mut SourceMap, path: &str) -> Analysis {
-    let mut diags = Diagnostics::new();
     let mut cache = crate::parsing::parser::Cache::new();
-    let loaded = {
-        let mut loader = Loader::new(None, map, &mut diags, &mut cache);
+    analyze_on(None, map, &mut cache, Opening::Builtin, Bodies::All, |loader| {
         loader.load_builtin_modules();
         loader.load_std_module(path);
-        loader.finish()
-    };
-    let checked = Checker::new(&loaded, None, &mut diags).run();
-    diags.sort(map);
-    Analysis { loaded, checked, diagnostics: diags }
+    })
 }
 
 /// Loads and checks one module given as text, on top of the whole standard
@@ -305,9 +345,7 @@ pub fn analyze_snippet_on(
     role: crate::compiler::modules::Role,
     platform: Option<Platform>,
 ) -> Analysis {
-    let mut diags = Diagnostics::new();
-    let loaded = {
-        let mut loader = Loader::new(ws, map, &mut diags, cache);
+    analyze_on(ws, map, cache, Opening::Library, Bodies::All, |loader| {
         loader.load_unit(&crate::compiler::modules::Unit {
             target: None,
             platform,
@@ -316,11 +354,7 @@ pub fn analyze_snippet_on(
         });
         loader.load_all_std();
         loader.load_source_in(name, role, text.to_string(), pkg);
-        loader.finish()
-    };
-    let checked = Checker::new(&loaded, ws, &mut diags).run();
-    diags.sort(map);
-    Analysis { loaded, checked, diagnostics: diags }
+    })
 }
 
 /// Compiles a snippet that exports `main`, runs it, and returns its standard

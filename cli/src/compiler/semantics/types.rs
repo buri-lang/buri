@@ -560,7 +560,7 @@ impl CtxType {
 // The nominal tables
 // ---------------------------------------------------------------------------
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Tables {
     pub tycons: Vec<TyCon>,
     pub fns: Vec<FnInfo>,

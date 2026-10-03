@@ -291,11 +291,12 @@ is what the flag turned up the first time somebody used it.
 
 **Phase isolation at the compiler's own seams.** Each timer wraps the same
 function the driver calls, and the isolation falls out of the signatures —
-`Checker::run` takes `&Loaded` and returns a fresh `Checked`,
+`Checker::resume(..).run()` takes `&Loaded` and returns a fresh `Checked`,
 `monomorphize::run` takes `&Checked` and returns a fresh `Program` — so a
 repetition cannot see the previous one's work and nothing has to be cloned. The
 harness fills the parse cache (`parser::Cache`) before the semantic-analysis
-timer starts, which keeps parsing out of that measurement.
+timer starts, which keeps parsing out of that measurement, and builds the
+standard library's snapshot once, as an analysis does (see "The prelude floor").
 
 **Block the optimizer, but not the code under test.** Each result goes through
 `std::hint::black_box`. Carbon has a sharper version — the barrier on the loop's
@@ -316,6 +317,30 @@ rate net of it. At 1,000 lines the floor is most of the measurement; at 100,000
 it is a rounding error, and the two figures converging is itself a check that
 the floor came out right. It is what explains Carbon's otherwise puzzling result
 that checking is *faster* at 16k lines than at 256.
+
+**The standard library part of the floor is paid once per thread.** Every
+compilation opens with the same modules: the prelude and the built-in types'
+modules, or for a snippet the whole library. `compiler::snapshot` loads and
+checks them once, and each analysis resumes from that (`Loader::seeded`,
+`Checker::resume`), checking only the modules after them. Ids come out the same
+as a whole run's, so diagnostics and output don't move. `sema` measures the
+resumed run, and the header prints the snapshot's one-time cost beside it.
+
+What's left is the floor program's own imports past the prelude. `"node"`
+names `platform/host`, which imports `core/fs`, `core/path` and `core/process`
+for the effects its structs implement: about 3,800 lines on every compilation
+that names a platform. They load after the program's own modules, so they
+can't join the snapshot without changing the ids a program's types get.
+
+| Revision | `sema` floor | `lower` floor | snapshot, once a thread |
+|---|---:|---:|---:|
+| 2026-09-01 | 0.57 ms | | |
+| `afb169cd`, 2026-10-03 | 5.52–5.84 ms | 6.0 ms | |
+| snapshot, 2026-10-03 | 2.65–2.77 ms | 6.0 ms | 4.3–4.5 ms |
+
+The two 2026-10-03 rows are two alternating `--quick --only=mixed` runs each, on
+a shared machine at load 15–25. The growth since September is the standard
+library: 11.2k to 45.6k lines, and the floor program now imports `NodeHost`.
 
 ### 3.2 What was deliberately not adopted
 
@@ -603,7 +628,7 @@ decimal integers, `true`/`false`, `lo..hi` inclusive ranges, or `0x…`.
 ```text
 lex              parsing::lexer::lex                       text     -> tokens
 lex+parse        parsing::parser::parse                    text     -> tree          (goal 1)
-sema             semantics::resolve::Checker::run          Loaded   -> Checked       (goal 2)
+sema             semantics::resolve::Checker::resume+run   Loaded   -> Checked       (goal 2)
 lower+js         monomorphize::run + actions::emit         Checked  -> JavaScript    (goal 3)
 lower+<triple>   monomorphize::run + actions::prepare
                                    + Backend::emit         Checked  -> object bytes  (goal 3)
