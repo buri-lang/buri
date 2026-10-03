@@ -488,6 +488,8 @@ pub struct Monomorphizer<'a> {
     desc_modules: Vec<Option<String>>,
     desc_index: HashMap<Ty, usize>,
     ctx_layouts: HashMap<CtxTypeId, Vec<TraitId>>,
+    /// See [`canonical_contexts`].
+    ctx_canon: Vec<CtxTypeId>,
     module_paths: Vec<String>,
     /// Every instantiation symbol minted so far, against the type arguments
     /// that minted it. See [`Monomorphizer::instantiation`]: it is what makes
@@ -526,6 +528,7 @@ pub fn run(
         desc_modules: Vec::new(),
         desc_index: HashMap::default(),
         ctx_layouts: HashMap::default(),
+        ctx_canon: canonical_contexts(&checked.tables),
         module_paths,
         taken: HashMap::default(),
         locals: Vec::new(),
@@ -906,7 +909,9 @@ impl<'a> Monomorphizer<'a> {
                 ));
                 let span = info.span;
                 if !targs.is_empty() {
-                    symbol = self.instantiation(&symbol, &format!("{targs:?}"));
+                    let mangled: Vec<Mangled> =
+                        targs.iter().map(|t| Mangled(t, self.tables())).collect();
+                    symbol = self.instantiation(&symbol, &format!("{mangled:?}"));
                 }
                 (symbol, debug, span)
             }
@@ -1059,6 +1064,9 @@ impl Monomorphizer<'_> {
                 let ctor = checked.ctor;
                 let Some(body) = self.checked.bodies.get(&ctor) else { return };
                 let mut b = typed::Body::clone(body);
+                for l in &mut b.locals {
+                    l.ty = self.sub(&l.ty, &[]);
+                }
                 self.locals = std::mem::take(&mut b.locals);
                 b.expr = self.rewrite(b.expr, &[]);
                 b.locals = std::mem::take(&mut self.locals);
@@ -1076,6 +1084,9 @@ impl Monomorphizer<'_> {
                     .func;
                 let Some(body) = self.checked.bodies.get(&fid) else { return };
                 let mut b = typed::Body::clone(body);
+                for l in &mut b.locals {
+                    l.ty = self.sub(&l.ty, &[]);
+                }
                 self.locals = std::mem::take(&mut b.locals);
                 let rewritten = self.rewrite(b.expr, &[]);
                 b.expr = self.leaving(i, slot, rewritten);
@@ -1191,18 +1202,17 @@ impl Monomorphizer<'_> {
             // choice below reads. They used to live on `Func` as a second
             // vector parallel to `params`, filled on this path and left empty
             // on the body path, and nothing outside this function read them.
-            let param_types: Vec<Ty> =
-                info.params.iter().map(|p| substitute(&p.ty, &targs, None)).collect();
+            let param_types: Vec<Ty> = info.params.iter().map(|p| self.sub(&p.ty, &targs)).collect();
             let locals: Vec<typed::Local> = info
                 .params
                 .iter()
                 .map(|p| typed::Local {
                     name: p.name.clone(),
-                    ty: substitute(&p.ty, &targs, None),
+                    ty: self.sub(&p.ty, &targs),
                     span: p.span,
                 })
                 .collect();
-            let ret = substitute(&info.ret, &targs, None);
+            let ret = self.sub(&info.ret, &targs);
             // A body-less declaration in a platform's `platform.buri`, a
             // repository's or a bundled one's, is its `js` file's to
             // implement: the parser refuses one anywhere else outside the
@@ -1255,7 +1265,7 @@ impl Monomorphizer<'_> {
         };
         let mut b = typed::Body::clone(body);
         for l in &mut b.locals {
-            l.ty = substitute(&l.ty, &targs, None);
+            l.ty = self.sub(&l.ty, &targs);
         }
         // Parked so that `rewrite` can retype the ones a corrected `Self`
         // reaches — a lambda's parameter is a local of the function it is
@@ -1338,8 +1348,13 @@ impl Monomorphizer<'_> {
     /// Every type this pass writes goes through here. It used to apply a
     /// `Self` *correction* on the way out — see
     /// [`Monomorphizer::rewrite_call_args`] for what replaced it and why.
+    ///
+    /// It also replaces each context type with its canonical one
+    /// ([`canonical_contexts`]), so every type the pass writes, and every
+    /// instance key built from them, names one context type per list of
+    /// bindings.
     fn sub(&self, ty: &Ty, targs: &[Ty]) -> Ty {
-        substitute(ty, targs, None)
+        canonical_ty(&self.ctx_canon, &substitute(ty, targs, None))
     }
 
     /// Appends a local to the table of the body being rewritten and answers
@@ -2787,6 +2802,107 @@ pub fn runtime_module_key(module: &str) -> String {
     }
 }
 
+/// Each context type's canonical id: the first one minted with the same
+/// bindings, compared in order with their bound types.
+///
+/// Every `context { ... }` expression mints its own `CtxTypeId`, so a suite of
+/// a hundred tests that each build the same context has a hundred context
+/// types. The checker keeps them apart: two contexts are one type in the
+/// language only when they are one expression. But two contexts with equal
+/// bindings have the same layout and resolve every effect call to the same
+/// method, so an instance at one is the same code as an instance at the other.
+/// [`Monomorphizer::sub`] rewrites every context type to its canonical one, and
+/// a generic that takes a context is then instantiated once per list of
+/// bindings rather than once per test.
+///
+/// Binding order is part of the identity: a context's slots are laid out in
+/// the order the bindings were written, so `{ Allocator, Clock }` and
+/// `{ Clock, Allocator }` are two layouts.
+///
+/// A context minted before its bindings were resolved keeps its own id. An
+/// inference variable is local to the body that holds it, so two equal ones in
+/// two bodies are not one type.
+fn canonical_contexts(tables: &Tables) -> Vec<CtxTypeId> {
+    let mut first: HashMap<Vec<(TraitId, Ty)>, CtxTypeId> = HashMap::default();
+    let mut canon: Vec<CtxTypeId> = Vec::with_capacity(tables.ctx_types.len());
+    for (i, c) in tables.ctx_types.iter().enumerate() {
+        let id = CtxTypeId(i as u32);
+        // A context's bindings were resolved before its id was minted, so any
+        // context type they name has a smaller id and is already in `canon`.
+        let bindings: Vec<(TraitId, Ty)> =
+            c.bindings.iter().map(|(t, ty)| (*t, canonical_ty(&canon, ty))).collect();
+        let canonical = if bindings.iter().all(|(_, ty)| closed(ty)) {
+            *first.entry(bindings).or_insert(id)
+        } else {
+            id
+        };
+        canon.push(canonical);
+    }
+    canon
+}
+
+/// `ty` with every context type replaced by its canonical one.
+fn canonical_ty(canon: &[CtxTypeId], ty: &Ty) -> Ty {
+    match ty {
+        Ty::Ctx(id) => Ty::Ctx(canon.get(id.index()).copied().unwrap_or(*id)),
+        Ty::Con(id, xs) => Ty::Con(*id, xs.iter().map(|x| canonical_ty(canon, x)).collect()),
+        Ty::Array(e) => Ty::Array(Box::new(canonical_ty(canon, e))),
+        Ty::Tuple(es) => Ty::Tuple(es.iter().map(|e| canonical_ty(canon, e)).collect()),
+        Ty::Fn(ps, r) => Ty::Fn(
+            ps.iter().map(|p| canonical_ty(canon, p)).collect(),
+            Box::new(canonical_ty(canon, r)),
+        ),
+        Ty::Var(_) | Ty::Param(_) | Ty::Unit | Ty::SelfTy | Ty::Error => ty.clone(),
+    }
+}
+
+/// Whether `ty` names no inference variable, generic parameter or `Self`.
+fn closed(ty: &Ty) -> bool {
+    match ty {
+        Ty::Var(_) | Ty::Param(_) | Ty::SelfTy => false,
+        Ty::Con(_, xs) | Ty::Tuple(xs) => xs.iter().all(closed),
+        Ty::Array(e) => closed(e),
+        Ty::Fn(ps, r) => ps.iter().all(closed) && closed(r),
+        Ty::Ctx(_) | Ty::Unit | Ty::Error => true,
+    }
+}
+
+/// A type argument as an instantiation symbol hashes it: its `Debug` form,
+/// except that a context type is spelled by its bindings rather than by its
+/// `CtxTypeId`.
+///
+/// A `CtxTypeId` comes from a counter over the whole check, so adding one
+/// `context { ... }` renumbers every context minted after it. Hashing the id
+/// renamed every instance reachable from those contexts, and every renamed
+/// symbol missed the `codegen` cache. The bindings move only when the context
+/// does.
+struct Mangled<'a>(&'a Ty, &'a Tables);
+
+impl<'a> std::fmt::Debug for Mangled<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let tables = self.1;
+        let each = |xs: &'a [Ty]| -> Vec<Mangled<'a>> { xs.iter().map(|x| Mangled(x, tables)).collect() };
+        match self.0 {
+            Ty::Ctx(id) => {
+                let bindings: Vec<(TraitId, Mangled)> = tables
+                    .ctx_type(*id)
+                    .bindings
+                    .iter()
+                    .map(|(t, ty)| (*t, Mangled(ty, tables)))
+                    .collect();
+                f.debug_tuple("Ctx").field(&bindings).finish()
+            }
+            // The rest is `#[derive(Debug)]`'s output, so a symbol whose type
+            // arguments hold no context is the symbol it always was.
+            Ty::Con(id, xs) => f.debug_tuple("Con").field(id).field(&each(xs)).finish(),
+            Ty::Array(e) => f.debug_tuple("Array").field(&Mangled(e, tables)).finish(),
+            Ty::Tuple(es) => f.debug_tuple("Tuple").field(&each(es)).finish(),
+            Ty::Fn(ps, r) => f.debug_tuple("Fn").field(&each(ps)).field(&Mangled(r, tables)).finish(),
+            other => other.fmt(f),
+        }
+    }
+}
+
 fn sanitize(s: &str) -> String {
     s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '$' { c } else { '_' }).collect()
 }
@@ -2794,23 +2910,16 @@ fn sanitize(s: &str) -> String {
 /// A short, deterministic tag distinguishing two instantiations of one
 /// function.
 ///
-/// It is taken over the `Debug` form of the type arguments, which contains
-/// `TyConId`s — indices into this compilation's type table. Two builds of the
-/// same sources agree, because the table is built the same way both times; two
-/// builds under *different toolchains* need not, and `golden_javascript` re-records
-/// when that happens.
+/// It is taken over the `Debug` form of the type arguments ([`Mangled`]),
+/// which contains `TyConId`s: indices into this compilation's type table. Two
+/// builds of the same sources agree. Two builds under *different toolchains*
+/// need not, and `golden_javascript` re-records when that happens.
 ///
-/// Hashing a rendering instead would be tidier, and does not work: a context
-/// type is generated and has no name (SPEC 11.3), so `types::show` prints every
-/// one of them as `a context`. Two generics instantiated over different
-/// contexts would land on the same symbol and one body would silently replace
-/// the other — a miscompile, and a worse thing than a symbol that moves. Nor
-/// would rendering a context by the effects it binds help: two contexts binding
-/// the same effects to different implementations are still different types,
-/// which is what `Ty::Ctx(x) == Ty::Ctx(y)` means. The index is the identity.
-///
-/// `golden_javascript::generics_over_different_contexts_do_not_share_a_symbol` is the
-/// test that says so.
+/// A context is spelled by its bindings, effects and bound types both, and not
+/// by `types::show`, which prints every context as `a context`. Two contexts
+/// binding the same effects to different implementations get different symbols;
+/// `golden_javascript::generics_over_different_contexts_do_not_share_a_symbol`
+/// is the test that says so.
 pub(super) fn short_hash(s: &str) -> String {
     base36_hash(s, TAG_DIGITS)
 }

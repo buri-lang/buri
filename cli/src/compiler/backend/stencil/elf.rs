@@ -92,14 +92,20 @@ const SHT_SYMTAB: u32 = 2;
 const SHT_STRTAB: u32 = 3;
 const SHT_RELA: u32 = 4;
 const SHT_NOBITS: u32 = 8;
+const SHT_GROUP: u32 = 17;
+
+const GRP_COMDAT: u32 = 1;
 
 const SHF_WRITE: u64 = 0x1;
 const SHF_ALLOC: u64 = 0x2;
 const SHF_EXECINSTR: u64 = 0x4;
 const SHF_INFO_LINK: u64 = 0x40;
+const SHF_GROUP: u64 = 0x200;
 
 const STB_LOCAL: u8 = 0;
 const STB_GLOBAL: u8 = 1;
+const STB_WEAK: u8 = 2;
+const STV_HIDDEN: u8 = 2;
 const STT_NOTYPE: u8 = 0;
 const STT_OBJECT: u8 = 1;
 const STT_FUNC: u8 = 2;
@@ -297,10 +303,11 @@ pub fn write(
         }
     }
 
-    // Section numbering: 0 is the mandatory null section, then the caller's, in
-    // their order, so `Definition::section` and `Reloc::section` need no
-    // translation beyond the +1.
-    let out_section = |i: usize| (i + 1) as u16;
+    // Section numbering: 0 is the mandatory null section, then one `.group` per
+    // grouped section (the gABI wants a group before its members), then the
+    // caller's, in their order.
+    let groups = sections.iter().filter(|s| s.group.is_some()).count();
+    let out_section = |i: usize| (i + 1 + groups) as u16;
 
     // Group the relocations by the section they apply to, keeping the caller's
     // order within each group.
@@ -345,6 +352,7 @@ pub fn write(
             }
         })
         .collect();
+    let group_name = shstr.add(".group");
     let gnu_stack_name = shstr.add(".note.GNU-stack");
     let symtab_name = shstr.add(".symtab");
     let strtab_name = shstr.add(".strtab");
@@ -372,10 +380,14 @@ pub fn write(
                 (out_section(d.section), d.offset, kind)
             }
         };
-        let bind = if s.global { STB_GLOBAL } else { STB_LOCAL };
+        let bind = match (s.global, s.weak) {
+            (false, _) => STB_LOCAL,
+            (true, false) => STB_GLOBAL,
+            (true, true) => STB_WEAK,
+        };
         symtab.extend_from_slice(&name.to_le_bytes());
         symtab.push((bind << 4) | kind);
-        symtab.push(0); // st_other: default visibility.
+        symtab.push(if s.global && s.weak { STV_HIDDEN } else { 0 });
         symtab.extend_from_slice(&shndx.to_le_bytes());
         symtab.extend_from_slice(&value.to_le_bytes());
         // st_size. Zero rather than a guess: this emitter knows a symbol's
@@ -427,6 +439,20 @@ pub fn write(
         entsize: 0,
     });
 
+    // Where each section's `.rela` lands, for the group that has to list it.
+    let mut rela_index: Vec<Option<u32>> = vec![None; sections.len()];
+    let mut next = (1 + groups + sections.len()) as u32;
+    for (i, t) in relatabs.iter().enumerate() {
+        if !t.is_empty() {
+            if let Some(r) = rela_index.get_mut(i) {
+                *r = Some(next);
+            }
+            next += 1;
+        }
+    }
+    // After the `.rela` sections and `.note.GNU-stack`.
+    let symtab_index = next + 1;
+
     let place = |body: &mut Vec<u8>, at: &mut u64, data: &[u8], align: u64| -> u64 {
         let a = align.max(1);
         while !(*at).is_multiple_of(a) {
@@ -438,6 +464,35 @@ pub fn write(
         *at += data.len() as u64;
         off
     };
+
+    // One COMDAT group per grouped section: the section and its `.rela`, under
+    // the symbol that names the group. The linker keeps the first group of a
+    // name it meets and discards the rest, bytes and relocations both.
+    for (i, s) in sections.iter().enumerate() {
+        let Some(signature) = &s.group else { continue };
+        let symbol = symbols
+            .iter()
+            .position(|sym| &sym.name == signature)
+            .and_then(|old| slot.get(old).copied())
+            .ok_or_else(|| format!("section group {signature} names no symbol"))?;
+        let mut members = GRP_COMDAT.to_le_bytes().to_vec();
+        members.extend_from_slice(&u32::from(out_section(i)).to_le_bytes());
+        if let Some(r) = rela_index.get(i).copied().flatten() {
+            members.extend_from_slice(&r.to_le_bytes());
+        }
+        let off = place(&mut body, &mut at, &members, 4);
+        shdrs.push(Shdr {
+            name: group_name,
+            kind: SHT_GROUP,
+            flags: 0,
+            offset: off,
+            size: members.len() as u64,
+            link: symtab_index,
+            info: symbol as u32,
+            align: 4,
+            entsize: 4,
+        });
+    }
 
     for (i, s) in sections.iter().enumerate() {
         let align = 1u64 << s.align;
@@ -461,7 +516,9 @@ pub fn write(
         // than a hardening detail. `PT_GNU_RELRO` is what gives the pool its
         // read-onlyness back, and the linker builds that from the section
         // *name*.
-        let flags = SHF_ALLOC | if exec { SHF_EXECINSTR } else { SHF_WRITE };
+        let flags = SHF_ALLOC
+            | if exec { SHF_EXECINSTR } else { SHF_WRITE }
+            | if s.group.is_some() { SHF_GROUP } else { 0 };
         shdrs.push(Shdr {
             name: sec_name.get(i).copied().unwrap_or(0),
             kind,
@@ -478,17 +535,16 @@ pub fn write(
     // The `.rela` sections, each pointing at the section it relocates. Written
     // after every `PROGBITS` so that the section indices above are contiguous
     // and `out_section` stays the simple `+1`.
-    let symtab_index = (1 + sections.len() + relatabs.iter().filter(|t| !t.is_empty()).count() + 1)
-        as u32;
     for (i, t) in relatabs.iter().enumerate() {
         if t.is_empty() {
             continue;
         }
         let off = place(&mut body, &mut at, t, 8);
+        let grouped = sections.get(i).is_some_and(|s| s.group.is_some());
         shdrs.push(Shdr {
             name: rela_name.get(i).copied().unwrap_or(0),
             kind: SHT_RELA,
-            flags: SHF_INFO_LINK,
+            flags: SHF_INFO_LINK | if grouped { SHF_GROUP } else { 0 },
             offset: off,
             size: t.len() as u64,
             link: symtab_index,
@@ -616,6 +672,7 @@ mod tests {
             segment: "",
             align: 2,
             zerofill: 0,
+            group: None,
             attributes: CODE_ATTRIBUTES,
             data,
         }
@@ -679,6 +736,7 @@ mod tests {
                 segment: "",
                 align: 3,
                 zerofill: 0,
+                group: None,
                 attributes: 0,
                 data: vec![0; 8],
             },
@@ -688,12 +746,14 @@ mod tests {
                 name: String::from("f"),
                 defined: Some(Definition { section: 0, offset: 0 }),
                 global: true,
+                weak: false,
             },
-            Symbol { name: String::from("buri_rt_abort"), defined: None, global: true },
+            Symbol { name: String::from("buri_rt_abort"), defined: None, global: true, weak: false },
             Symbol {
                 name: String::from("pool"),
                 defined: Some(Definition { section: 1, offset: 0 }),
                 global: false,
+                weak: false,
             },
         ];
         let relocs = vec![
@@ -735,8 +795,9 @@ mod tests {
                 name: String::from("a"),
                 defined: Some(Definition { section: 0, offset: 0 }),
                 global: true,
+                weak: false,
             },
-            Symbol { name: String::from("b"), defined: None, global: true },
+            Symbol { name: String::from("b"), defined: None, global: true, weak: false },
         ];
         let a = write(StencilTarget::LinuxArm64, &sections, &symbols, &[]).unwrap();
         let b = write(StencilTarget::LinuxArm64, &sections, &symbols, &[]).unwrap();
