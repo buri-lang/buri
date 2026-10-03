@@ -18,6 +18,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 mod case;
 pub mod ci;
 pub mod hang;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod inherited;
 pub mod pool;
 #[macro_use]
 pub mod shard;
