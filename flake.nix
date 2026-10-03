@@ -24,7 +24,7 @@
     # (`build/link.rs::libc_for`): loud, correct, and a compiler with its
     # native backend switched off by the way it was packaged.
     #
-    # `rust-bin.fromRustupToolchainFile ./rust-toolchain.toml` is
+    # `rust-bin.fromRustupToolchain`, with the musl targets added, is
     # upstream's own dist tarball, which is exactly where the
     # `self-contained/` directory comes from — measured, not assumed: the
     # override's sysroot holds precisely the eleven files `cli/src/build/musl.rs`
@@ -77,12 +77,22 @@
 
         # The compiler this package and the dev shell are built by, on every
         # system: the one `rust-toolchain.toml` pins, which is also the one CI
-        # installs. Its `targets` carry the musl std the Linux build needs.
+        # installs. The flake adds both musl targets, which the toml leaves to
+        # each CI job: the Linux build needs its own, and macOS cross-builds
+        # x86_64 Linux output.
         #
         # `makeRustPlatform`, because `buildRustPackage` takes its `rustc` and
         # `cargo` from a platform rather than from the arguments, and a
         # toolchain wired anywhere else is a toolchain the build does not use.
-        rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+        rustToolchain = pkgs.rust-bin.fromRustupToolchain (
+          (builtins.fromTOML (builtins.readFile ./rust-toolchain.toml)).toolchain
+          // {
+            targets = [
+              "x86_64-unknown-linux-musl"
+              "aarch64-unknown-linux-musl"
+            ];
+          }
+        );
         rustPlatform = pkgs.makeRustPlatform {
           cargo = rustToolchain;
           rustc = rustToolchain;
@@ -394,7 +404,7 @@
           # --target <musl>` for a `self-contained/` directory, and that
           # directory exists only where the musl `rust-std` is installed beside
           # the compiler. `rustToolchain` above is that compiler: the
-          # `targets` in `rust-toolchain.toml` are what put the directory
+          # musl `targets` it adds are what put the directory
           # there, and the `postBuild` assertion above is what says so.
           #
           # This block used to set `BURI_ARCHIVE_LIBC_MAY_BE_GLIBC=1`, the one
