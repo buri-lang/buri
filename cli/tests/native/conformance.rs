@@ -899,7 +899,7 @@ fn corpus() -> PathBuf {
 /// about the backend, and the single largest reason a conformance file was not
 /// running natively.
 ///
-/// [`driver::analyze_snippet_as`] takes a workspace and the package the text
+/// [`driver::analyze_snippet_on`] takes a workspace and the package the text
 /// stands in for, which is exactly what a test source of that package is. The
 /// text still comes from the string this harness read rather than from the
 /// loader, because [`the_native_set_can_fail`] edits one assertion and
@@ -920,7 +920,7 @@ fn analyze(case_path: &str, source: &str, map: &mut SourceMap) -> driver::Analys
         w.package_by_path(&format!("lib/{package}"))
     });
     let mut cache = buri::parsing::parser::Cache::new();
-    driver::analyze_snippet_as(
+    driver::analyze_snippet_on(
         repository,
         package,
         map,
@@ -928,6 +928,7 @@ fn analyze(case_path: &str, source: &str, map: &mut SourceMap) -> driver::Analys
         "main",
         source,
         Role::TestSource,
+        None,
     )
 }
 

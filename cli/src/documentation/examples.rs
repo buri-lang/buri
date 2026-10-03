@@ -994,7 +994,7 @@ fn run_block_in(
         _ => None,
     };
     if let Some(want) = pinned {
-        match driver::run_snippet_in(workspace, map, &name, &base.text) {
+        match driver::run_snippet(workspace, map, &name, &base.text) {
             Ok(stdout) => {
                 if &stdout != want {
                     failures.push(Failure {

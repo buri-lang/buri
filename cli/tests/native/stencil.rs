@@ -1994,7 +1994,7 @@ fn compile_corpus(path: &str) -> Compiled {
     let repository = repository();
     let package = repository.and_then(|w| w.package_by_path(&format!("lib/{package}")));
     let mut cache = buri::parsing::parser::Cache::new();
-    let analysis = driver::analyze_snippet_as(
+    let analysis = driver::analyze_snippet_on(
         repository,
         package,
         &mut map,
@@ -2002,6 +2002,7 @@ fn compile_corpus(path: &str) -> Compiled {
         "main",
         &source,
         Role::TestSource,
+        None,
     );
     if analysis.diagnostics.has_errors() {
         return Compiled::Front(String::from("the front end refused it"));
