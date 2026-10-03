@@ -1636,6 +1636,56 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert_eq!(live, 0, "{total} blocks allocated and {live} still live at exit");
 }
 
+/// A `Str` ten structs deep is still released. The backend once gave up
+/// asking whether a type holds a count past eight levels and answered no, so
+/// the outer value was dropped without releasing the string.
+#[test]
+fn a_count_nested_ten_structs_deep_is_released() {
+    if !supported() {
+        return;
+    }
+    let ran = run_with(
+        "deep",
+        r#"
+from "core/alloc" import * as alloc;
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+export struct L9 { s: Str }
+export struct L8 { a: L9 }
+export struct L7 { a: L8 }
+export struct L6 { a: L7 }
+export struct L5 { a: L6 }
+export struct L4 { a: L5 }
+export struct L3 { a: L4 }
+export struct L2 { a: L3 }
+export struct L1 { a: L2 }
+export struct L0 { a: L1 }
+
+fn wrap(s: Str): L0 {
+  L0 { a: L1 { a: L2 { a: L3 { a: L4 { a: L5 { a: L6 { a: L7 { a: L8 { a: L9 { s: s } } } } } } } } } }
+}
+
+fn inner(x: L0): Str { x.a.a.a.a.a.a.a.a.a.s }
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: alloc.generalPurpose() };
+  let x = wrap(str.format(ctx, "deep ${10}"));
+  let _ = io.println(host.stdout, inner(x)).ignore();
+  .Ok(())
+}
+"#,
+        Some(ALLOC_PROBE),
+    );
+    assert_eq!(ran.status, 0, "{}", ran.stderr);
+    assert_eq!(ran.stdout, "deep 10\n", "{}", ran.stderr);
+    let (total, live) = probed(&ran.stderr);
+    assert!(total > 0, "the program allocated nothing, so this asserts nothing");
+    assert_eq!(live, 0, "{total} blocks allocated and {live} still live at exit");
+}
+
 // -----------------------------------------------------------------------
 // MEMORY.md §5.3: uniqueness, in-place growth, and what must not move
 // -----------------------------------------------------------------------
