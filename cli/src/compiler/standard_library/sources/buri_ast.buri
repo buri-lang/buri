@@ -72,6 +72,7 @@
 
 from "core/bytes" import * as bytes;
 from "core/list" import * as list;
+from "core/map" import * as map;
 from "core/number" import * as number;
 from "core/order" import * as order;
 from "core/str" import * as str;
@@ -830,9 +831,26 @@ fn specText<C: Allocator>(ctx: C, spec: ImportSpec): Str {
 
 /// The declarations, one blank line apart, with every `derive` sitting on the
 /// declaration it is about — which is where the formatter moves it.
+///
+/// Both lookups are maps rather than searches: a `derive` finds its
+/// declaration by name, and a declaration finds its `derive`s by index. Each
+/// used to be a pass over every item, which made printing quadratic in how many
+/// declarations a module holds, and a module generated from a schema of a
+/// thousand messages holds several thousand.
 fn printDecls<C: Allocator>(ctx: C, out: Out, items: [Item]): Out {
-    let attached = items.map(ctx, fn(it) => attachment(items, it));
     let indexed = list.range(ctx, 0, items.length());
+    // `map.of` keeps the last entry for a name, so back to front leaves each
+    // name at its first declaration.
+    let declared = map.of(
+        ctx,
+        indexed.filterMap(ctx, fn(i) => declaredAt(items, i)).reverse(ctx),
+    );
+    let attached = items.map(ctx, fn(it) => attachment(declared, it));
+    let derives = map.groupBy(
+        ctx,
+        indexed.filter(ctx, fn(j) => attached.get(j).withDefault(-1) >= 0),
+        fn(j: Int) => attached.get(j).withDefault(-1),
+    );
     indexed.foldCtx(
         ctx,
         fn(c, acc, i) => {
@@ -840,33 +858,26 @@ fn printDecls<C: Allocator>(ctx: C, out: Out, items: [Item]): Out {
                 acc
             } else {
                 let opened = nextLine(c, acc);
-                let derived = indexed.foldCtx(
-                    c,
-                    fn(d, o, j) => {
-                        if (attached.get(j).withDefault(-1) == i) {
-                            nl(
-                                d,
-                                item(
-                                    d,
-                                    o,
-                                    items
-                                        .get(j)
-                                        .withDefault(
-                                            items.get(i).withDefault(placeholder()),
-                                        ),
-                                ),
-                            )
-                        } else {
-                            o
-                        }
-                    },
-                    opened,
-                );
+                let derived = derives
+                    .get(i)
+                    .withDefault([])
+                    .foldCtx(
+                        c,
+                        fn(d, o, j) => {
+                            nl(d, item(d, o, items.get(j).withDefault(placeholder())))
+                        },
+                        opened,
+                    );
                 (nl(c, item(c, derived, items.get(i).withDefault(placeholder()))), true)
             }
         },
         (out, false),
     ).0
+}
+
+/// The name item `i` declares, beside `i`.
+fn declaredAt(items: [Item], i: Int): Option<(Str, Int)> {
+    items.get(i).andThen(fn(it) => declaredName(it)).map(fn(name) => (name, i))
 }
 
 /// An item nothing can name, for the array reads that cannot miss.
@@ -883,15 +894,10 @@ fn unitType(): Type {
 
 /// The index of the declaration a `derive` belongs above, or `-1` for anything
 /// that is not one, or a `derive` for a type this module does not declare.
-fn attachment(items: [Item], it: Item): Int {
+fn attachment(declared: map.Map<Str, Int>, it: Item): Int {
     match (derivedName(it)) {
         .None => -1,
-        .Some(name) => {
-            match (items.findIndex(fn(other) => declaredName(other) == .Some(name))) {
-                .Some(i) => i,
-                .None => -1,
-            }
-        },
+        .Some(name) => declared.get(name).withDefault(-1),
     }
 }
 
