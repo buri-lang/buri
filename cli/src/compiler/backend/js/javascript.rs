@@ -351,6 +351,203 @@ impl Expr {
             _ => false,
         }
     }
+
+    /// Rebuilds this node with each direct child passed through `r`, using
+    /// the raw constructors. Children are visited in evaluation order.
+    fn map_children<R: Rewrite + ?Sized>(self, r: &mut R) -> Expr {
+        let mut go = |x: Box<Expr>| Box::new(r.expr(*x));
+        match self {
+            Expr::Array(xs) => Expr::Array(xs.into_iter().map(|x| r.expr(x)).collect()),
+            Expr::Seq(xs) => Expr::Seq(xs.into_iter().map(|x| r.expr(x)).collect()),
+            Expr::Object(fs) => Expr::Object(fs.into_iter().map(|(k, v)| (k, r.expr(v))).collect()),
+            Expr::Member { obj, prop } => Expr::Member { obj: go(obj), prop },
+            Expr::Index { obj, index } => {
+                let obj = go(obj);
+                Expr::Index { obj, index: go(index) }
+            }
+            Expr::Call { callee, args } => {
+                let callee = Box::new(r.expr(*callee));
+                Expr::Call { callee, args: args.into_iter().map(|a| r.expr(a)).collect() }
+            }
+            Expr::New { callee, args } => {
+                let callee = Box::new(r.expr(*callee));
+                Expr::New { callee, args: args.into_iter().map(|a| r.expr(a)).collect() }
+            }
+            Expr::Unary { op, operand } => Expr::Unary { op, operand: go(operand) },
+            Expr::Binary { op, lhs, rhs } => {
+                let lhs = go(lhs);
+                Expr::Binary { op, lhs, rhs: go(rhs) }
+            }
+            Expr::Cond { test, cons, alt } => {
+                let test = go(test);
+                let cons = go(cons);
+                Expr::Cond { test, cons, alt: go(alt) }
+            }
+            Expr::Assign { target, value } => {
+                let target = go(target);
+                Expr::Assign { target, value: go(value) }
+            }
+            Expr::Arrow { params, body, is_async } => Expr::Arrow { params, body: go(body), is_async },
+            Expr::ArrowBlock { params, body, is_async } => {
+                Expr::ArrowBlock { params, body: r.block(body), is_async }
+            }
+            Expr::Await(x) => Expr::Await(go(x)),
+            Expr::Spread(x) => Expr::Spread(go(x)),
+            leaf => leaf,
+        }
+    }
+
+    /// Passes each direct child to `v`, in evaluation order.
+    fn visit_children<V: Visit + ?Sized>(&self, v: &mut V) {
+        match self {
+            Expr::Array(xs) | Expr::Seq(xs) => xs.iter().for_each(|x| v.expr(x)),
+            Expr::Object(fs) => fs.iter().for_each(|(_, x)| v.expr(x)),
+            Expr::Member { obj: x, .. }
+            | Expr::Unary { operand: x, .. }
+            | Expr::Arrow { body: x, .. }
+            | Expr::Await(x)
+            | Expr::Spread(x) => v.expr(x),
+            Expr::Index { obj: a, index: b }
+            | Expr::Binary { lhs: a, rhs: b, .. }
+            | Expr::Assign { target: a, value: b } => {
+                v.expr(a);
+                v.expr(b);
+            }
+            Expr::Call { callee, args } | Expr::New { callee, args } => {
+                v.expr(callee);
+                args.iter().for_each(|a| v.expr(a));
+            }
+            Expr::Cond { test, cons, alt } => {
+                v.expr(test);
+                v.expr(cons);
+                v.expr(alt);
+            }
+            Expr::ArrowBlock { body, .. } => body.iter().for_each(|s| v.stmt(s)),
+            _ => {}
+        }
+    }
+}
+
+impl Stmt {
+    /// Rebuilds this statement with each direct child passed through `r`:
+    /// expressions to [`Rewrite::expr`], nested bodies to [`Rewrite::block`].
+    fn map_children<R: Rewrite + ?Sized>(self, r: &mut R) -> Stmt {
+        match self {
+            Stmt::Var { kind, name, init } => Stmt::Var { kind, name, init: init.map(|e| r.expr(e)) },
+            Stmt::Func { name, params, body, is_async } => {
+                Stmt::Func { name, params, body: r.block(body), is_async }
+            }
+            Stmt::Return(e) => Stmt::Return(e.map(|e| r.expr(e))),
+            Stmt::If { cond, then, else_ } => {
+                let cond = r.expr(cond);
+                let then = r.block(then);
+                Stmt::If { cond, then, else_: r.block(else_) }
+            }
+            Stmt::While { cond, body } => {
+                let cond = r.expr(cond);
+                Stmt::While { cond, body: r.block(body) }
+            }
+            Stmt::Switch { disc, cases } => {
+                let disc = r.expr(disc);
+                let cases = cases
+                    .into_iter()
+                    .map(|(t, b)| {
+                        let t = t.map(|t| r.expr(t));
+                        (t, r.block(b))
+                    })
+                    .collect();
+                Stmt::Switch { disc, cases }
+            }
+            Stmt::Expr(e) => Stmt::Expr(r.expr(e)),
+            Stmt::Throw(e) => Stmt::Throw(r.expr(e)),
+            Stmt::ExportDefault(e) => Stmt::ExportDefault(r.expr(e)),
+            Stmt::Block(b) => Stmt::Block(r.block(b)),
+            other @ (Stmt::Break | Stmt::Continue | Stmt::Raw(_) | Stmt::RawDecl { .. }) => other,
+        }
+    }
+
+    /// Passes each direct child to `v`, in evaluation order.
+    fn visit_children<V: Visit + ?Sized>(&self, v: &mut V) {
+        match self {
+            Stmt::Var { init: e, .. } | Stmt::Return(e) => {
+                if let Some(e) = e {
+                    v.expr(e);
+                }
+            }
+            Stmt::Func { body, .. } | Stmt::Block(body) => body.iter().for_each(|s| v.stmt(s)),
+            Stmt::If { cond, then, else_ } => {
+                v.expr(cond);
+                then.iter().chain(else_).for_each(|s| v.stmt(s));
+            }
+            Stmt::While { cond, body } => {
+                v.expr(cond);
+                body.iter().for_each(|s| v.stmt(s));
+            }
+            Stmt::Switch { disc, cases } => {
+                v.expr(disc);
+                for (t, b) in cases {
+                    if let Some(t) = t {
+                        v.expr(t);
+                    }
+                    b.iter().for_each(|s| v.stmt(s));
+                }
+            }
+            Stmt::Expr(e) | Stmt::Throw(e) | Stmt::ExportDefault(e) => v.expr(e),
+            Stmt::Break | Stmt::Continue | Stmt::Raw(_) | Stmt::RawDecl { .. } => {}
+        }
+    }
+}
+
+/// A rewrite of the tree. Each method's default rebuilds the node from its
+/// rewritten children, so a pass overrides only the nodes it acts on.
+pub(crate) trait Rewrite {
+    fn expr(&mut self, e: Expr) -> Expr {
+        e.map_children(self)
+    }
+    fn stmt(&mut self, s: Stmt) -> Stmt {
+        s.map_children(self)
+    }
+    fn block(&mut self, body: Vec<Stmt>) -> Vec<Stmt> {
+        body.into_iter().map(|s| self.stmt(s)).collect()
+    }
+}
+
+/// A read-only walk of the tree. Each method's default visits the node's
+/// children, so a pass overrides only the nodes it looks at.
+pub(crate) trait Visit {
+    fn expr(&mut self, e: &Expr) {
+        e.visit_children(self);
+    }
+    fn stmt(&mut self, s: &Stmt) {
+        s.visit_children(self);
+    }
+}
+
+/// Reapplies the simplifying constructors to a node whose children were just
+/// rebuilt, for the passes that fold as they go.
+fn simplified(e: Expr) -> Expr {
+    match e {
+        Expr::Unary { op, operand } => Expr::un(op, *operand),
+        Expr::Binary { op, lhs, rhs } => Expr::bin(op, *lhs, *rhs),
+        Expr::Cond { test, cons, alt } => Expr::cond(*test, *cons, *alt),
+        Expr::Await(x) => Expr::awaited(*x),
+        other => other,
+    }
+}
+
+/// An arrow whose body is a single `return e` is just `=> e`.
+fn concise(e: Expr) -> Expr {
+    match e {
+        Expr::ArrowBlock { params, mut body, is_async }
+            if matches!(body.as_slice(), [Stmt::Return(Some(_))]) =>
+        {
+            let Some(Stmt::Return(Some(x))) = body.pop() else {
+                crate::ice!("the body was matched as one `return` a line above")
+            };
+            Expr::Arrow { params, body: Box::new(x), is_async }
+        }
+        other => other,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1123,99 +1320,133 @@ fn always_exits(body: &[Stmt]) -> bool {
     }
 }
 
-fn fold_stmt(s: Stmt) -> Stmt {
-    match s {
-        Stmt::Var { kind, name, init } => Stmt::Var { kind, name, init: init.map(fold) },
-        Stmt::Func { name, params, body, is_async } => {
-            Stmt::Func { name, params, body: fold_block(body), is_async }
-        }
-        Stmt::Return(e) => Stmt::Return(e.map(fold)),
-        Stmt::If { cond, then, else_ } => {
-            let cond = fold(cond);
-            let then = fold_block(then);
-            let else_ = fold_block(else_);
-            // A branch whose condition is a known constant is not emitted.
-            match &cond {
-                Expr::Bool(true) => return Stmt::Block(then),
-                Expr::Bool(false) if !else_.is_empty() => return Stmt::Block(else_),
-                Expr::Bool(false) => return Stmt::Block(Vec::new()),
-                _ => {}
-            }
-            // Two branches that differ only in a value are one expression.
-            // Because this pass runs bottom-up, a chain collapses from the
-            // inside out: the innermost `if`/`else` becomes a ternary, which
-            // makes its parent's branch a single `return`, and so on.
-            if let (Some(a), Some(b)) = (sole_return(&then), sole_return(&else_)) {
-                return Stmt::Return(Some(Expr::cond(cond, a.clone(), b.clone())));
-            }
-            if let (Some((ta, a)), Some((tb, b))) =
-                (sole_assignment(&then), sole_assignment(&else_))
-            {
-                if ta.same_as(tb) {
-                    return Stmt::Expr(Expr::Assign {
-                        target: Box::new(ta.clone()),
-                        value: Box::new(Expr::cond(cond, a.clone(), b.clone())),
-                    });
+struct Fold;
+
+impl Rewrite for Fold {
+    fn stmt(&mut self, s: Stmt) -> Stmt {
+        match s.map_children(self) {
+            Stmt::If { cond, then, else_ } => {
+                // A branch whose condition is a known constant is not emitted.
+                match &cond {
+                    Expr::Bool(true) => return Stmt::Block(then),
+                    Expr::Bool(false) if !else_.is_empty() => return Stmt::Block(else_),
+                    Expr::Bool(false) => return Stmt::Block(Vec::new()),
+                    _ => {}
                 }
+                // Two branches that differ only in a value are one expression.
+                // Because this pass runs bottom-up, a chain collapses from the
+                // inside out: the innermost `if`/`else` becomes a ternary, which
+                // makes its parent's branch a single `return`, and so on.
+                if let (Some(a), Some(b)) = (sole_return(&then), sole_return(&else_)) {
+                    return Stmt::Return(Some(Expr::cond(cond, a.clone(), b.clone())));
+                }
+                if let (Some((ta, a)), Some((tb, b))) =
+                    (sole_assignment(&then), sole_assignment(&else_))
+                {
+                    if ta.same_as(tb) {
+                        return Stmt::Expr(Expr::Assign {
+                            target: Box::new(ta.clone()),
+                            value: Box::new(Expr::cond(cond, a.clone(), b.clone())),
+                        });
+                    }
+                }
+                Stmt::If { cond, then, else_ }
             }
-            Stmt::If { cond, then, else_ }
-        }
-        Stmt::While { cond, body } => {
-            let cond = fold(cond);
-            let body = fold_block(body);
-            // A guarded match compiles to `while(true)` because an arm that
-            // matches may still fall through to the next one. Where no arm
-            // does — every one of them `return`s — nothing jumps back to the
-            // top and nothing jumps out, so the loop runs exactly once and is
-            // only a wrapper. Removing it is what lets `fold_block`'s
-            // truncation-after-a-terminator and the `sole_return` rule above
-            // reach the arms.
-            //
-            // A tail-call loop and a merged dispatch group both `continue`,
-            // and a guarded match in statement position `break`s out with its
-            // answer — where the `break` is doing real work and removing the
-            // loop around it would run the arms after it as well. Both are
-            // left exactly as they were.
-            if matches!(cond, Expr::Bool(true))
-                && !reaches_continue(&body)
-                && !reaches_break(&body)
-                && always_exits(&body)
-            {
-                return Stmt::Block(fold_block(body));
+            Stmt::While { cond, body } => {
+                // A guarded match compiles to `while(true)` because an arm that
+                // matches may still fall through to the next one. Where no arm
+                // does — every one of them `return`s — nothing jumps back to the
+                // top and nothing jumps out, so the loop runs exactly once and is
+                // only a wrapper. Removing it is what lets `block`'s
+                // truncation-after-a-terminator and the `sole_return` rule above
+                // reach the arms.
+                //
+                // A tail-call loop and a merged dispatch group both `continue`,
+                // and a guarded match in statement position `break`s out with its
+                // answer — where the `break` is doing real work and removing the
+                // loop around it would run the arms after it as well. Both are
+                // left exactly as they were.
+                if matches!(cond, Expr::Bool(true))
+                    && !reaches_continue(&body)
+                    && !reaches_break(&body)
+                    && always_exits(&body)
+                {
+                    return Stmt::Block(self.block(body));
+                }
+                Stmt::While { cond, body }
             }
-            Stmt::While { cond, body }
+            other => other,
         }
-        Stmt::Switch { disc, cases } => Stmt::Switch {
-            disc: fold(disc),
-            cases: cases.into_iter().map(|(t, b)| (t.map(fold), fold_block(b))).collect(),
-        },
-        Stmt::Expr(e) => Stmt::Expr(fold(e)),
-        Stmt::Throw(e) => Stmt::Throw(fold(e)),
-        Stmt::Block(b) => Stmt::Block(fold_block(b)),
-        Stmt::ExportDefault(e) => Stmt::ExportDefault(fold(e)),
-        other => other,
+    }
+
+    fn block(&mut self, body: Vec<Stmt>) -> Vec<Stmt> {
+        let mut out = Vec::new();
+        for s in body {
+            let s = self.stmt(s);
+            // Flatten the empty and singleton blocks folding produces.
+            match s {
+                Stmt::Block(inner) if inner.is_empty() => continue,
+                Stmt::Block(inner) if !inner.iter().any(is_declaration) => out.extend(inner),
+                other => out.push(other),
+            }
+            // Nothing after `return`, `throw`, `break` or `continue` runs.
+            if matches!(
+                out.last(),
+                Some(Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break | Stmt::Continue)
+            ) {
+                break;
+            }
+        }
+        out
+    }
+
+    fn expr(&mut self, e: Expr) -> Expr {
+        // The simplifications themselves live in the smart constructors, so
+        // that the backend gets them at construction and this pass gets them
+        // again once its operands have folded.
+        match simplified(e.map_children(self)) {
+            Expr::Call { callee, args } => {
+                // `Math.trunc` of something already known. Integer division emits
+                // one of these, so this is what finishes folding `18 / 3`.
+                if let (Expr::Member { obj, prop }, [Expr::Num(n)]) = (&*callee, &args[..]) {
+                    if prop == "trunc" && matches!(&**obj, Expr::Ident(m) if m == "Math") {
+                        return Expr::Num(n.trunc());
+                    }
+                }
+                Expr::Call { callee, args }
+            }
+            Expr::Index { obj, index } => {
+                // Reading a known slot out of a value built right here. Structs,
+                // tuples and enum payloads are all arrays, so this is what an
+                // inlined accessor leaves behind once its argument has been moved
+                // to where it is read.
+                if let (Expr::Array(items), Expr::Num(i)) = (&*obj, &*index) {
+                    let n = *i as usize;
+                    // A negative or fractional index is not a slot, and casting
+                    // one to `usize` would land on a slot that is.
+                    let slot = items.get(n).filter(|_| *i >= 0.0 && i.fract() == 0.0);
+                    if let Some(item) = slot {
+                        // Only a scalar comes out. Lifting an aggregate out of a
+                        // literal replaces one read of an array that was being
+                        // built anyway with a *fresh* array at every occurrence —
+                        // `ctx[1]` became `[]`, allocating on every call to
+                        // something that ignores the argument.
+                        if item.is_pure_literal()
+                            && items.iter().enumerate().all(|(k, x)| k == n || x.is_pure())
+                        {
+                            return item.clone();
+                        }
+                    }
+                }
+                Expr::Index { obj, index }
+            }
+            other => concise(other),
+        }
     }
 }
 
 fn fold_block(body: Vec<Stmt>) -> Vec<Stmt> {
-    let mut out = Vec::new();
-    for s in body {
-        let s = fold_stmt(s);
-        // Flatten the empty and singleton blocks folding produces.
-        match s {
-            Stmt::Block(inner) if inner.is_empty() => continue,
-            Stmt::Block(inner) if !inner.iter().any(is_declaration) => out.extend(inner),
-            other => out.push(other),
-        }
-        // Nothing after `return`, `throw`, `break` or `continue` runs.
-        if matches!(
-            out.last(),
-            Some(Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break | Stmt::Continue)
-        ) {
-            break;
-        }
-    }
-    out
+    Fold.block(body)
 }
 
 fn is_declaration(s: &Stmt) -> bool {
@@ -1235,81 +1466,6 @@ fn sole_assignment(body: &[Stmt]) -> Option<(&Expr, &Expr)> {
     match body {
         [Stmt::Expr(Expr::Assign { target, value })] => Some((target, value)),
         _ => None,
-    }
-}
-
-fn fold(e: Expr) -> Expr {
-    match e {
-        // The simplifications themselves live in the smart constructors, so
-        // that the backend gets them at construction and this pass gets them
-        // again once its operands have folded.
-        Expr::Unary { op, operand } => Expr::un(op, fold(*operand)),
-        Expr::Binary { op, lhs, rhs } => Expr::bin(op, fold(*lhs), fold(*rhs)),
-        Expr::Cond { test, cons, alt } => Expr::cond(fold(*test), fold(*cons), fold(*alt)),
-        Expr::Call { callee, args } => {
-            let callee = fold(*callee);
-            let args: Vec<Expr> = args.into_iter().map(fold).collect();
-            // `Math.trunc` of something already known. Integer division emits
-            // one of these, so this is what finishes folding `18 / 3`.
-            if let (Expr::Member { obj, prop }, [Expr::Num(n)]) = (&callee, &args[..]) {
-                if prop == "trunc" && matches!(&**obj, Expr::Ident(m) if m == "Math") {
-                    return Expr::Num(n.trunc());
-                }
-            }
-            Expr::Call { callee: Box::new(callee), args }
-        }
-        Expr::New { callee, args } => Expr::New {
-            callee: Box::new(fold(*callee)),
-            args: args.into_iter().map(fold).collect(),
-        },
-        Expr::Member { obj, prop } => Expr::Member { obj: Box::new(fold(*obj)), prop },
-        Expr::Index { obj, index } => {
-            let obj = fold(*obj);
-            let index = fold(*index);
-            // Reading a known slot out of a value built right here. Structs,
-            // tuples and enum payloads are all arrays, so this is what an
-            // inlined accessor leaves behind once its argument has been moved
-            // to where it is read.
-            if let (Expr::Array(items), Expr::Num(i)) = (&obj, &index) {
-                let n = *i as usize;
-                // A negative or fractional index is not a slot, and casting
-                // one to `usize` would land on a slot that is.
-                let slot = items.get(n).filter(|_| *i >= 0.0 && i.fract() == 0.0);
-                if let Some(item) = slot {
-                    // Only a scalar comes out. Lifting an aggregate out of a
-                    // literal replaces one read of an array that was being
-                    // built anyway with a *fresh* array at every occurrence —
-                    // `ctx[1]` became `[]`, allocating on every call to
-                    // something that ignores the argument.
-                    if item.is_pure_literal()
-                        && items.iter().enumerate().all(|(k, x)| k == n || x.is_pure())
-                    {
-                        return item.clone();
-                    }
-                }
-            }
-            Expr::Index { obj: Box::new(obj), index: Box::new(index) }
-        }
-        Expr::Array(xs) => Expr::Array(xs.into_iter().map(fold).collect()),
-        Expr::Object(fs) => Expr::Object(fs.into_iter().map(|(k, v)| (k, fold(v))).collect()),
-        Expr::Assign { target, value } => {
-            Expr::Assign { target: Box::new(fold(*target)), value: Box::new(fold(*value)) }
-        }
-        Expr::Arrow { params, body, is_async } => {
-            Expr::Arrow { params, body: Box::new(fold(*body)), is_async }
-        }
-        Expr::ArrowBlock { params, body, is_async } => {
-            let body = fold_block(body);
-            // An arrow whose body is a single `return e` is just `=> e`.
-            if let [Stmt::Return(Some(e))] = body.as_slice() {
-                return Expr::Arrow { params, body: Box::new(e.clone()), is_async };
-            }
-            Expr::ArrowBlock { params, body, is_async }
-        }
-        Expr::Seq(xs) => Expr::Seq(xs.into_iter().map(fold).collect()),
-        Expr::Await(x) => Expr::awaited(fold(*x)),
-        Expr::Spread(x) => Expr::Spread(Box::new(fold(*x))),
-        other => other,
     }
 }
 
@@ -1334,118 +1490,34 @@ fn constant_table(stmts: &[Stmt]) -> HashMap<String, Vec<Expr>> {
     table
 }
 
-fn read_through_stmt(s: Stmt, table: &HashMap<String, Vec<Expr>>) -> Stmt {
-    match s {
-        // The declarations themselves are left alone: one of them may name
-        // another, and rewriting a constant into itself is not the point.
-        Stmt::Var { kind: VarKind::Const, ref name, .. } if name.starts_with("$k") => s,
-        Stmt::Var { kind, name, init } => {
-            Stmt::Var { kind, name, init: init.map(|e| read_through_expr(e, table)) }
-        }
-        Stmt::Func { name, params, body, is_async } => Stmt::Func {
-            name,
-            params,
-            body: body.into_iter().map(|s| read_through_stmt(s, table)).collect(),
-            is_async,
-        },
-        Stmt::Return(e) => Stmt::Return(e.map(|e| read_through_expr(e, table))),
-        Stmt::If { cond, then, else_ } => Stmt::If {
-            cond: read_through_expr(cond, table),
-            then: then.into_iter().map(|s| read_through_stmt(s, table)).collect(),
-            else_: else_.into_iter().map(|s| read_through_stmt(s, table)).collect(),
-        },
-        Stmt::While { cond, body } => Stmt::While {
-            cond: read_through_expr(cond, table),
-            body: body.into_iter().map(|s| read_through_stmt(s, table)).collect(),
-        },
-        Stmt::Switch { disc, cases } => Stmt::Switch {
-            disc: read_through_expr(disc, table),
-            cases: cases
-                .into_iter()
-                .map(|(t, b)| {
-                    (
-                        t.map(|t| read_through_expr(t, table)),
-                        b.into_iter().map(|s| read_through_stmt(s, table)).collect(),
-                    )
-                })
-                .collect(),
-        },
-        Stmt::Expr(e) => Stmt::Expr(read_through_expr(e, table)),
-        Stmt::Throw(e) => Stmt::Throw(read_through_expr(e, table)),
-        Stmt::ExportDefault(e) => Stmt::ExportDefault(read_through_expr(e, table)),
-        Stmt::Block(b) => {
-            Stmt::Block(b.into_iter().map(|s| read_through_stmt(s, table)).collect())
-        }
-        other => other,
-    }
-}
+struct ReadThrough<'a>(&'a HashMap<String, Vec<Expr>>);
 
-fn read_through_expr(e: Expr, table: &HashMap<String, Vec<Expr>>) -> Expr {
-    // `$k0[2]`, where slot 2 holds something free to copy.
-    if let Expr::Index { obj, index } = &e {
-        if let (Expr::Ident(name), Expr::Num(i)) = (&**obj, &**index) {
-            if let Some(items) = table.get(name) {
-                let n = *i as usize;
-                let slot = items.get(n).filter(|_| *i >= 0.0 && i.fract() == 0.0);
-                // Only a literal: copying a nested aggregate out of a shared
-                // one would undo the sharing.
-                if let Some(item) = slot.filter(|x| x.is_pure_literal()) {
-                    return item.clone();
+impl Rewrite for ReadThrough<'_> {
+    fn stmt(&mut self, s: Stmt) -> Stmt {
+        match s {
+            // The declarations themselves are left alone: one of them may name
+            // another, and rewriting a constant into itself is not the point.
+            Stmt::Var { kind: VarKind::Const, ref name, .. } if name.starts_with("$k") => s,
+            other => other.map_children(self),
+        }
+    }
+
+    fn expr(&mut self, e: Expr) -> Expr {
+        // `$k0[2]`, where slot 2 holds something free to copy.
+        if let Expr::Index { obj, index } = &e {
+            if let (Expr::Ident(name), Expr::Num(i)) = (&**obj, &**index) {
+                if let Some(items) = self.0.get(name) {
+                    let n = *i as usize;
+                    let slot = items.get(n).filter(|_| *i >= 0.0 && i.fract() == 0.0);
+                    // Only a literal: copying a nested aggregate out of a shared
+                    // one would undo the sharing.
+                    if let Some(item) = slot.filter(|x| x.is_pure_literal()) {
+                        return item.clone();
+                    }
                 }
             }
         }
-    }
-    match e {
-        Expr::Array(xs) => {
-            Expr::Array(xs.into_iter().map(|x| read_through_expr(x, table)).collect())
-        }
-        Expr::Seq(xs) => {
-            Expr::Seq(xs.into_iter().map(|x| read_through_expr(x, table)).collect())
-        }
-        Expr::Object(fs) => Expr::Object(
-            fs.into_iter().map(|(k, v)| (k, read_through_expr(v, table))).collect(),
-        ),
-        Expr::Member { obj, prop } => {
-            Expr::Member { obj: Box::new(read_through_expr(*obj, table)), prop }
-        }
-        Expr::Index { obj, index } => Expr::Index {
-            obj: Box::new(read_through_expr(*obj, table)),
-            index: Box::new(read_through_expr(*index, table)),
-        },
-        Expr::Call { callee, args } => Expr::Call {
-            callee: Box::new(read_through_expr(*callee, table)),
-            args: args.into_iter().map(|a| read_through_expr(a, table)).collect(),
-        },
-        Expr::New { callee, args } => Expr::New {
-            callee: Box::new(read_through_expr(*callee, table)),
-            args: args.into_iter().map(|a| read_through_expr(a, table)).collect(),
-        },
-        Expr::Unary { op, operand } => Expr::un(op, read_through_expr(*operand, table)),
-        Expr::Binary { op, lhs, rhs } => Expr::bin(
-            op,
-            read_through_expr(*lhs, table),
-            read_through_expr(*rhs, table),
-        ),
-        Expr::Cond { test, cons, alt } => Expr::cond(
-            read_through_expr(*test, table),
-            read_through_expr(*cons, table),
-            read_through_expr(*alt, table),
-        ),
-        Expr::Assign { target, value } => Expr::Assign {
-            target: Box::new(read_through_expr(*target, table)),
-            value: Box::new(read_through_expr(*value, table)),
-        },
-        Expr::Arrow { params, body, is_async } => {
-            Expr::Arrow { params, body: Box::new(read_through_expr(*body, table)), is_async }
-        }
-        Expr::ArrowBlock { params, body, is_async } => Expr::ArrowBlock {
-            params,
-            body: body.into_iter().map(|s| read_through_stmt(s, table)).collect(),
-            is_async,
-        },
-        Expr::Await(x) => Expr::awaited(read_through_expr(*x, table)),
-        Expr::Spread(x) => Expr::Spread(Box::new(read_through_expr(*x, table))),
-        other => other,
+        simplified(e.map_children(self))
     }
 }
 
@@ -1784,7 +1856,7 @@ impl LocalFacts {
 /// on is reassigned between where it is bound and where it would be moved to.
 fn reads_of(e: &Expr, out: &mut HashSet<String>) {
     let mut f = LocalFacts::default();
-    count_expr(e, &mut f);
+    f.expr(e);
     out.extend(f.uses.into_keys());
 }
 
@@ -1795,102 +1867,49 @@ impl LocalFacts {
     }
 }
 
-fn count_expr(e: &Expr, f: &mut LocalFacts) {
-    match e {
-        Expr::Ident(name) => f.read(name),
-        Expr::Assign { target, value } => {
-            match &**target {
-                // The target of a plain assignment is written, not read.
-                Expr::Ident(name) => f.assign(name),
-                other => count_expr(other, f),
-            }
-            count_expr(value, f);
-        }
-        Expr::Array(xs) | Expr::Seq(xs) => xs.iter().for_each(|x| count_expr(x, f)),
-        Expr::Object(fs) => fs.iter().for_each(|(_, v)| count_expr(v, f)),
-        Expr::Member { obj, .. } => count_expr(obj, f),
-        Expr::Index { obj, index } => {
-            count_expr(obj, f);
-            count_expr(index, f);
-        }
-        Expr::Call { callee, args } | Expr::New { callee, args } => {
-            count_expr(callee, f);
-            args.iter().for_each(|a| count_expr(a, f));
-        }
-        Expr::Unary { operand, .. } => count_expr(operand, f),
-        Expr::Binary { lhs, rhs, .. } => {
-            count_expr(lhs, f);
-            count_expr(rhs, f);
-        }
-        Expr::Cond { test, cons, alt } => {
-            count_expr(test, f);
-            count_expr(cons, f);
-            count_expr(alt, f);
-        }
-        // A closure body runs an unknown number of times, so anything read
-        // inside it counts as read deeper than the enclosing code.
-        Expr::Arrow { params, body, .. } => {
-            params.iter().for_each(|p| f.declare(p));
-            f.depth += 1;
-            count_expr(body, f);
-            f.depth -= 1;
-        }
-        Expr::ArrowBlock { params, body, .. } => {
-            params.iter().for_each(|p| f.declare(p));
-            f.depth += 1;
-            body.iter().for_each(|s| count_stmt(s, f));
-            f.depth -= 1;
-        }
-        Expr::Await(x) => count_expr(x, f),
-        Expr::Spread(x) => count_expr(x, f),
-        _ => {}
-    }
-}
-
-fn count_stmt(s: &Stmt, f: &mut LocalFacts) {
-    match s {
-        Stmt::Var { name, init, .. } => {
-            f.declare(name);
-            if let Some(e) = init {
-                count_expr(e, f);
-            }
-        }
-        Stmt::Func { name, params, body, .. } => {
-            f.declare(name);
-            params.iter().for_each(|p| f.declare(p));
-            body.iter().for_each(|s| count_stmt(s, f));
-        }
-        Stmt::Return(e) => {
-            if let Some(e) = e {
-                count_expr(e, f);
-            }
-        }
-        Stmt::If { cond, then, else_ } => {
-            count_expr(cond, f);
-            then.iter().for_each(|s| count_stmt(s, f));
-            else_.iter().for_each(|s| count_stmt(s, f));
-        }
-        Stmt::While { cond, body } => {
-            count_expr(cond, f);
-            f.depth += 1;
-            body.iter().for_each(|s| count_stmt(s, f));
-            f.depth -= 1;
-        }
-        Stmt::Switch { disc, cases } => {
-            count_expr(disc, f);
-            for (t, b) in cases {
-                if let Some(t) = t {
-                    count_expr(t, f);
+impl Visit for LocalFacts {
+    fn expr(&mut self, e: &Expr) {
+        match e {
+            Expr::Ident(name) => self.read(name),
+            // The target of a plain assignment is written, not read.
+            Expr::Assign { target, value } if matches!(&**target, Expr::Ident(_)) => {
+                if let Expr::Ident(name) = &**target {
+                    self.assign(name);
                 }
-                b.iter().for_each(|s| count_stmt(s, f));
+                self.expr(value);
             }
+            // A closure body runs an unknown number of times, so anything read
+            // inside it counts as read deeper than the enclosing code.
+            Expr::Arrow { params, .. } | Expr::ArrowBlock { params, .. } => {
+                params.iter().for_each(|p| self.declare(p));
+                self.depth += 1;
+                e.visit_children(self);
+                self.depth -= 1;
+            }
+            _ => e.visit_children(self),
         }
-        Stmt::Expr(e) | Stmt::Throw(e) | Stmt::ExportDefault(e) => count_expr(e, f),
-        Stmt::Block(b) => b.iter().for_each(|s| count_stmt(s, f)),
-        // Verbatim source names identifiers this pass cannot see, so a body
-        // holding any is left exactly as it was rather than guessed at.
-        Stmt::Raw(_) | Stmt::RawDecl { .. } => f.opaque = true,
-        Stmt::Break | Stmt::Continue => {}
+    }
+
+    fn stmt(&mut self, s: &Stmt) {
+        match s {
+            Stmt::Var { name, .. } => self.declare(name),
+            Stmt::Func { name, params, .. } => {
+                self.declare(name);
+                params.iter().for_each(|p| self.declare(p));
+            }
+            Stmt::While { cond, body } => {
+                self.expr(cond);
+                self.depth += 1;
+                body.iter().for_each(|s| self.stmt(s));
+                self.depth -= 1;
+                return;
+            }
+            // Verbatim source names identifiers this pass cannot see, so a body
+            // holding any is left exactly as it was rather than guessed at.
+            Stmt::Raw(_) | Stmt::RawDecl { .. } => self.opaque = true,
+            _ => {}
+        }
+        s.visit_children(self);
     }
 }
 
@@ -1923,193 +1942,63 @@ impl Subst<'_> {
 }
 
 fn subst_stmt(s: Stmt, map: &HashMap<String, Expr>) -> Stmt {
-    subst_stmt_with(s, &mut Subst::Copying(map))
+    Subst::Copying(map).stmt(s)
 }
 
-fn subst_expr_with(e: Expr, map: &mut Subst) -> Expr {
-    match e {
-        Expr::Ident(name) => match map.value(&name) {
-            Some(v) => v,
-            None => Expr::Ident(name),
-        },
-        Expr::Assign { target, value } => {
+impl Rewrite for Subst<'_> {
+    fn expr(&mut self, e: Expr) -> Expr {
+        match e {
+            Expr::Ident(name) => match self.value(&name) {
+                Some(v) => v,
+                None => Expr::Ident(name),
+            },
             // The target names a storage location, not a value, so it is never
             // rewritten — only what is assigned to it.
-            let target = match *target {
-                Expr::Ident(n) => Expr::Ident(n),
-                other => subst_expr_with(other, map),
-            };
-            Expr::Assign { target: Box::new(target), value: Box::new(subst_expr_with(*value, map)) }
-        }
-        Expr::Array(xs) => Expr::Array(xs.into_iter().map(|x| subst_expr_with(x, map)).collect()),
-        Expr::Seq(xs) => Expr::Seq(xs.into_iter().map(|x| subst_expr_with(x, map)).collect()),
-        Expr::Object(fs) => {
-            Expr::Object(fs.into_iter().map(|(k, v)| (k, subst_expr_with(v, map))).collect())
-        }
-        Expr::Member { obj, prop } => Expr::Member { obj: Box::new(subst_expr_with(*obj, map)), prop },
-        Expr::Index { obj, index } => Expr::Index {
-            obj: Box::new(subst_expr_with(*obj, map)),
-            index: Box::new(subst_expr_with(*index, map)),
-        },
-        Expr::Call { callee, args } => Expr::Call {
-            callee: Box::new(subst_expr_with(*callee, map)),
-            args: args.into_iter().map(|a| subst_expr_with(a, map)).collect(),
-        },
-        Expr::New { callee, args } => Expr::New {
-            callee: Box::new(subst_expr_with(*callee, map)),
-            args: args.into_iter().map(|a| subst_expr_with(a, map)).collect(),
-        },
-        Expr::Unary { op, operand } => Expr::un(op, subst_expr_with(*operand, map)),
-        Expr::Binary { op, lhs, rhs } => {
-            Expr::bin(op, subst_expr_with(*lhs, map), subst_expr_with(*rhs, map))
-        }
-        Expr::Cond { test, cons, alt } => Expr::cond(
-            subst_expr_with(*test, map),
-            subst_expr_with(*cons, map),
-            subst_expr_with(*alt, map),
-        ),
-        Expr::Arrow { params, body, is_async } => {
-            Expr::Arrow { params, body: Box::new(subst_expr_with(*body, map)), is_async }
-        }
-        Expr::ArrowBlock { params, body, is_async } => {
-            let body: Vec<Stmt> = body.into_iter().map(|s| subst_stmt_with(s, map)).collect();
-            // Rebuilding may leave a body that is one `return`, which is the
-            // concise form.
-            if let [Stmt::Return(Some(e))] = &body[..] {
-                return Expr::Arrow { params, body: Box::new(e.clone()), is_async };
+            Expr::Assign { target, value } if matches!(&*target, Expr::Ident(_)) => {
+                Expr::Assign { target, value: Box::new(self.expr(*value)) }
             }
-            Expr::ArrowBlock { params, body, is_async }
+            // Rebuilding may leave an arrow body that is one `return`, which is
+            // the concise form.
+            other => concise(simplified(other.map_children(self))),
         }
-        Expr::Await(x) => Expr::awaited(subst_expr_with(*x, map)),
-        Expr::Spread(x) => Expr::Spread(Box::new(subst_expr_with(*x, map))),
-        other => other,
-    }
-}
-
-fn subst_stmt_with(s: Stmt, map: &mut Subst) -> Stmt {
-    match s {
-        Stmt::Var { kind, name, init } => {
-            Stmt::Var { kind, name, init: init.map(|e| subst_expr_with(e, map)) }
-        }
-        Stmt::Func { name, params, body, is_async } => Stmt::Func {
-            name,
-            params,
-            body: body.into_iter().map(|s| subst_stmt_with(s, map)).collect(),
-            is_async,
-        },
-        Stmt::Return(e) => Stmt::Return(e.map(|e| subst_expr_with(e, map))),
-        Stmt::If { cond, then, else_ } => Stmt::If {
-            cond: subst_expr_with(cond, map),
-            then: then.into_iter().map(|s| subst_stmt_with(s, map)).collect(),
-            else_: else_.into_iter().map(|s| subst_stmt_with(s, map)).collect(),
-        },
-        Stmt::While { cond, body } => Stmt::While {
-            cond: subst_expr_with(cond, map),
-            body: body.into_iter().map(|s| subst_stmt_with(s, map)).collect(),
-        },
-        Stmt::Switch { disc, cases } => Stmt::Switch {
-            disc: subst_expr_with(disc, map),
-            cases: cases
-                .into_iter()
-                .map(|(t, b)| {
-                    (
-                        t.map(|t| subst_expr_with(t, map)),
-                        b.into_iter().map(|s| subst_stmt_with(s, map)).collect(),
-                    )
-                })
-                .collect(),
-        },
-        Stmt::Expr(e) => Stmt::Expr(subst_expr_with(e, map)),
-        Stmt::Throw(e) => Stmt::Throw(subst_expr_with(e, map)),
-        Stmt::ExportDefault(e) => Stmt::ExportDefault(subst_expr_with(e, map)),
-        Stmt::Block(b) => Stmt::Block(b.into_iter().map(|s| subst_stmt_with(s, map)).collect()),
-        other => other,
     }
 }
 
 /// Removes the declarations `drop` names, keeping any value that still has
 /// work to do as a bare expression statement.
 fn drop_bindings(body: Vec<Stmt>, drop: &HashSet<String>) -> Vec<Stmt> {
-    let mut out = Vec::new();
-    for s in body {
-        let s = match s {
-            Stmt::Var { name, init, .. } if drop.contains(&name) => match init {
-                Some(e) if !e.is_pure() => Stmt::Expr(drop_in_expr(e, drop)),
-                _ => continue,
-            },
-            Stmt::Var { kind, name, init } => {
-                Stmt::Var { kind, name, init: init.map(|e| drop_in_expr(e, drop)) }
-            }
-            Stmt::If { cond, then, else_ } => Stmt::If {
-                cond: drop_in_expr(cond, drop),
-                then: drop_bindings(then, drop),
-                else_: drop_bindings(else_, drop),
-            },
-            Stmt::While { cond, body } => Stmt::While {
-                cond: drop_in_expr(cond, drop),
-                body: drop_bindings(body, drop),
-            },
-            Stmt::Switch { disc, cases } => Stmt::Switch {
-                disc: drop_in_expr(disc, drop),
-                cases: cases.into_iter().map(|(t, b)| (t, drop_bindings(b, drop))).collect(),
-            },
-            Stmt::Block(b) => Stmt::Block(drop_bindings(b, drop)),
-            Stmt::Func { name, params, body, is_async } => {
-                Stmt::Func { name, params, body: drop_bindings(body, drop), is_async }
-            }
-            Stmt::Return(e) => Stmt::Return(e.map(|e| drop_in_expr(e, drop))),
-            Stmt::Expr(e) => Stmt::Expr(drop_in_expr(e, drop)),
-            Stmt::Throw(e) => Stmt::Throw(drop_in_expr(e, drop)),
-            Stmt::ExportDefault(e) => Stmt::ExportDefault(drop_in_expr(e, drop)),
-            other => other,
-        };
-        out.push(s);
-    }
-    out
+    DropBindings(drop).block(body)
 }
 
-/// The same removal, inside the closures an expression holds — which is where
-/// `collect_cleanup` now also looks, and a binding it marked dead there has to
-/// actually go.
-fn drop_in_expr(e: Expr, drop: &HashSet<String>) -> Expr {
-    let go = |x: Box<Expr>| Box::new(drop_in_expr(*x, drop));
-    match e {
-        Expr::ArrowBlock { params, body, is_async } => {
-            let body = drop_bindings(body, drop);
-            // Rebuilding may leave a body that is one `return`, which is the
-            // concise form — the same collapse `subst_expr` makes.
-            if let [Stmt::Return(Some(x))] = &body[..] {
-                return Expr::Arrow { params, body: Box::new(x.clone()), is_async };
+struct DropBindings<'a>(&'a HashSet<String>);
+
+impl Rewrite for DropBindings<'_> {
+    fn block(&mut self, body: Vec<Stmt>) -> Vec<Stmt> {
+        let mut out = Vec::new();
+        for s in body {
+            out.push(match s {
+                Stmt::Var { name, init, .. } if self.0.contains(&name) => match init {
+                    Some(e) if !e.is_pure() => Stmt::Expr(self.expr(e)),
+                    _ => continue,
+                },
+                other => self.stmt(other),
+            });
+        }
+        out
+    }
+
+    /// The same removal, inside the closures an expression holds — which is
+    /// where `Cleanup` also looks, and a binding it marked dead there has to
+    /// actually go.
+    fn expr(&mut self, e: Expr) -> Expr {
+        match e {
+            Expr::Assign { target, value } => {
+                Expr::Assign { target, value: Box::new(self.expr(*value)) }
             }
-            Expr::ArrowBlock { params, body, is_async }
+            // Rebuilding may leave a body that is one `return`, which is the
+            // concise form — the same collapse `Subst` makes.
+            other => concise(other.map_children(self)),
         }
-        Expr::Arrow { params, body, is_async } => {
-            Expr::Arrow { params, body: go(body), is_async }
-        }
-        Expr::Array(xs) => Expr::Array(xs.into_iter().map(|x| drop_in_expr(x, drop)).collect()),
-        Expr::Seq(xs) => Expr::Seq(xs.into_iter().map(|x| drop_in_expr(x, drop)).collect()),
-        Expr::Object(fs) => {
-            Expr::Object(fs.into_iter().map(|(k, v)| (k, drop_in_expr(v, drop))).collect())
-        }
-        Expr::Member { obj, prop } => Expr::Member { obj: go(obj), prop },
-        Expr::Index { obj, index } => Expr::Index { obj: go(obj), index: go(index) },
-        Expr::Call { callee, args } => Expr::Call {
-            callee: go(callee),
-            args: args.into_iter().map(|a| drop_in_expr(a, drop)).collect(),
-        },
-        Expr::New { callee, args } => Expr::New {
-            callee: go(callee),
-            args: args.into_iter().map(|a| drop_in_expr(a, drop)).collect(),
-        },
-        Expr::Unary { op, operand } => Expr::Unary { op, operand: go(operand) },
-        Expr::Binary { op, lhs, rhs } => Expr::Binary { op, lhs: go(lhs), rhs: go(rhs) },
-        Expr::Cond { test, cons, alt } => {
-            Expr::Cond { test: go(test), cons: go(cons), alt: go(alt) }
-        }
-        Expr::Assign { target, value } => Expr::Assign { target, value: go(value) },
-        Expr::Await(x) => Expr::Await(go(x)),
-        Expr::Spread(x) => Expr::Spread(go(x)),
-        other => other,
     }
 }
 
@@ -2119,141 +2008,75 @@ fn collect_cleanup(
     map: &mut HashMap<String, Expr>,
     dead: &mut HashSet<String>,
 ) {
-    for s in body {
-        match s {
-            Stmt::Var { name, init, .. } => {
-                // A name declared twice, or ever assigned, is not one binding
-                // and nothing here applies to it.
-                if facts.declared.get(name).copied() != Some(1)
-                    || facts.is_assigned(name)
+    let mut c = Cleanup { facts, map, dead };
+    body.iter().for_each(|s| c.stmt(s));
+}
+
+/// Decides, for every binding in a body, whether it goes and what replaces its
+/// reads.
+///
+/// A lambda's body is a statement list like any other, and it is where
+/// inlining leaves the most bindings behind — but it hangs off an
+/// *expression*, so the walk goes through expressions as well as statements.
+/// The facts were collected over the whole body, including the closures, so
+/// everything decided here is decided on the same information.
+struct Cleanup<'a> {
+    facts: &'a LocalFacts,
+    map: &'a mut HashMap<String, Expr>,
+    dead: &'a mut HashSet<String>,
+}
+
+impl Visit for Cleanup<'_> {
+    fn stmt(&mut self, s: &Stmt) {
+        if let Stmt::Var { name, init, .. } = s {
+            let facts = self.facts;
+            // A name declared twice, or ever assigned, is not one binding
+            // and nothing here applies to it.
+            if facts.declared.get(name).copied() != Some(1) || facts.is_assigned(name) {
+                return;
+            }
+            let uses = facts.uses.get(name).copied().unwrap_or(0);
+            match init {
+                // Never read: the binding goes, and the value with it when
+                // it has nothing to do.
+                _ if uses == 0 => {
+                    self.dead.insert(name.clone());
+                }
+                // An alias to a name that is never reassigned denotes the
+                // same value everywhere the alias does, however often it
+                // is read. This is the `const t = x;` the backend emits
+                // before every match.
+                Some(Expr::Ident(src))
+                    if !facts.is_assigned(src)
+                        && facts.declared.get(src).copied().unwrap_or(1) == 1 =>
                 {
-                    continue;
+                    self.map.insert(name.clone(), Expr::Ident(src.clone()));
+                    self.dead.insert(name.clone());
                 }
-                let uses = facts.uses.get(name).copied().unwrap_or(0);
-                match init {
-                    // Never read: the binding goes, and the value with it when
-                    // it has nothing to do.
-                    _ if uses == 0 => {
-                        dead.insert(name.clone());
-                    }
-                    // An alias to a name that is never reassigned denotes the
-                    // same value everywhere the alias does, however often it
-                    // is read. This is the `const t = x;` the backend emits
-                    // before every match.
-                    Some(Expr::Ident(src))
-                        if !facts.is_assigned(src)
-                            && facts.declared.get(src).copied().unwrap_or(1) == 1 =>
-                    {
-                        map.insert(name.clone(), Expr::Ident(src.clone()));
-                        dead.insert(name.clone());
-                    }
-                    // Read exactly once, so moving the value to its use
-                    // duplicates nothing. Three conditions make the move
-                    // legal:
-                    //
-                    //  * the value is pure, so running it later — or, if the
-                    //    use is under a branch, not at all — is unobservable;
-                    //  * nothing it reads is ever reassigned, which is what
-                    //    stops a tail-call loop's rebinding from being read
-                    //    after the parameter it names has moved on;
-                    //  * the use is no deeper than the binding, so the work
-                    //    does not move inside a loop or a closure.
-                    Some(e)
-                        if uses == 1
-                            && e.is_pure()
-                            && facts.read_where_bound(name)
-                            && !depends_on_assigned(e, facts) =>
-                    {
-                        map.insert(name.clone(), e.clone());
-                        dead.insert(name.clone());
-                    }
-                    _ => {}
+                // Read exactly once, so moving the value to its use
+                // duplicates nothing. Three conditions make the move
+                // legal:
+                //
+                //  * the value is pure, so running it later — or, if the
+                //    use is under a branch, not at all — is unobservable;
+                //  * nothing it reads is ever reassigned, which is what
+                //    stops a tail-call loop's rebinding from being read
+                //    after the parameter it names has moved on;
+                //  * the use is no deeper than the binding, so the work
+                //    does not move inside a loop or a closure.
+                Some(e)
+                    if uses == 1
+                        && e.is_pure()
+                        && facts.read_where_bound(name)
+                        && !depends_on_assigned(e, facts) =>
+                {
+                    self.map.insert(name.clone(), e.clone());
+                    self.dead.insert(name.clone());
                 }
-            }
-            Stmt::If { then, else_, .. } => {
-                collect_cleanup(then, facts, map, dead);
-                collect_cleanup(else_, facts, map, dead);
-            }
-            Stmt::While { body, .. } => collect_cleanup(body, facts, map, dead),
-            Stmt::Switch { cases, .. } => {
-                for (_, b) in cases {
-                    collect_cleanup(b, facts, map, dead);
-                }
-            }
-            Stmt::Block(b) => collect_cleanup(b, facts, map, dead),
-            Stmt::Func { body, .. } => collect_cleanup(body, facts, map, dead),
-            _ => {}
-        }
-        // A lambda's body is a statement list like any other, and it is where
-        // inlining leaves the most bindings behind — but it hangs off an
-        // *expression*, so a walk over statements alone never reaches it. The
-        // facts were collected over the whole body, including the closures, so
-        // everything decided here is decided on the same information.
-        stmt_exprs(s, &mut |e| expr_cleanup(e, facts, map, dead));
-    }
-}
-
-/// Applies `f` to the expressions a statement holds directly. The statements
-/// nested in it are the caller's business.
-fn stmt_exprs(s: &Stmt, f: &mut impl FnMut(&Expr)) {
-    match s {
-        Stmt::Var { init: Some(e), .. }
-        | Stmt::Return(Some(e))
-        | Stmt::Expr(e)
-        | Stmt::Throw(e)
-        | Stmt::ExportDefault(e) => f(e),
-        Stmt::If { cond, .. } | Stmt::While { cond, .. } => f(cond),
-        Stmt::Switch { disc, cases } => {
-            f(disc);
-            for (label, _) in cases {
-                if let Some(l) = label {
-                    f(l);
-                }
+                _ => {}
             }
         }
-        _ => {}
-    }
-}
-
-/// Finds the closures in an expression and cleans up inside them.
-fn expr_cleanup(
-    e: &Expr,
-    facts: &LocalFacts,
-    map: &mut HashMap<String, Expr>,
-    dead: &mut HashSet<String>,
-) {
-    let mut go = |x: &Expr| expr_cleanup(x, facts, map, dead);
-    match e {
-        Expr::ArrowBlock { body, .. } => collect_cleanup(body, facts, map, dead),
-        Expr::Arrow { body, .. } => go(body),
-        Expr::Array(xs) | Expr::Seq(xs) => xs.iter().for_each(go),
-        Expr::Object(fs) => fs.iter().for_each(|(_, v)| go(v)),
-        Expr::Member { obj, .. } => go(obj),
-        Expr::Index { obj, index } => {
-            expr_cleanup(obj, facts, map, dead);
-            expr_cleanup(index, facts, map, dead);
-        }
-        Expr::Call { callee, args } | Expr::New { callee, args } => {
-            expr_cleanup(callee, facts, map, dead);
-            args.iter().for_each(|a| expr_cleanup(a, facts, map, dead));
-        }
-        Expr::Unary { operand, .. } => go(operand),
-        Expr::Binary { lhs, rhs, .. } => {
-            expr_cleanup(lhs, facts, map, dead);
-            expr_cleanup(rhs, facts, map, dead);
-        }
-        Expr::Cond { test, cons, alt } => {
-            expr_cleanup(test, facts, map, dead);
-            expr_cleanup(cons, facts, map, dead);
-            expr_cleanup(alt, facts, map, dead);
-        }
-        Expr::Assign { target, value } => {
-            expr_cleanup(target, facts, map, dead);
-            expr_cleanup(value, facts, map, dead);
-        }
-        Expr::Await(x) => go(x),
-        Expr::Spread(x) => go(x),
-        _ => {}
+        s.visit_children(self);
     }
 }
 
@@ -2371,7 +2194,7 @@ fn resolve_one(
     let out = if reads.is_empty() {
         raw
     } else {
-        subst_expr_with(raw, &mut Subst::Moving { values: done, movable })
+        Subst::Moving { values: done, movable }.expr(raw)
     };
     done.insert(name.to_string(), out);
 }
@@ -2438,47 +2261,39 @@ fn merge_declarations(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
 fn rename_slot(body: Vec<Stmt>, from: &str, to: &str) -> Vec<Stmt> {
     let mut map = HashMap::default();
     map.insert(from.to_string(), Expr::ident(to.to_string()));
-    body.into_iter()
-        .map(|s| retarget_stmt(subst_stmt(s, &map), from, to))
-        .collect()
+    Retarget { from, to }.block(Subst::Copying(&map).block(body))
 }
 
-fn retarget_stmt(s: Stmt, from: &str, to: &str) -> Stmt {
-    match s {
-        // The declaration is the slot, so it is renamed too. Where the caller
-        // has already removed it this matches nothing.
-        Stmt::Var { kind, name, init } if name == from => {
-            Stmt::Var { kind, name: to.to_string(), init }
+/// The assignments to a slot, and its declaration, moved to another name.
+struct Retarget<'a> {
+    from: &'a str,
+    to: &'a str,
+}
+
+impl Rewrite for Retarget<'_> {
+    /// Only statements assign, so no expression is entered.
+    fn expr(&mut self, e: Expr) -> Expr {
+        e
+    }
+
+    fn stmt(&mut self, s: Stmt) -> Stmt {
+        match s {
+            // The declaration is the slot, so it is renamed too. Where the caller
+            // has already removed it this matches nothing.
+            Stmt::Var { kind, name, init } if name == self.from => {
+                Stmt::Var { kind, name: self.to.to_string(), init }
+            }
+            Stmt::Expr(Expr::Assign { target, value }) => {
+                let target = match *target {
+                    Expr::Ident(n) if n == self.from => Expr::ident(self.to.to_string()),
+                    other => other,
+                };
+                Stmt::Expr(Expr::Assign { target: Box::new(target), value })
+            }
+            // A nested function is not entered.
+            s @ Stmt::Func { .. } => s,
+            other => other.map_children(self),
         }
-        Stmt::Expr(Expr::Assign { target, value }) => {
-            let target = match *target {
-                Expr::Ident(n) if n == from => Expr::ident(to.to_string()),
-                other => other,
-            };
-            Stmt::Expr(Expr::Assign { target: Box::new(target), value })
-        }
-        Stmt::If { cond, then, else_ } => Stmt::If {
-            cond,
-            then: then.into_iter().map(|s| retarget_stmt(s, from, to)).collect(),
-            else_: else_.into_iter().map(|s| retarget_stmt(s, from, to)).collect(),
-        },
-        Stmt::While { cond, body } => Stmt::While {
-            cond,
-            body: body.into_iter().map(|s| retarget_stmt(s, from, to)).collect(),
-        },
-        Stmt::Switch { disc, cases } => Stmt::Switch {
-            disc,
-            cases: cases
-                .into_iter()
-                .map(|(t, b)| {
-                    (t, b.into_iter().map(|s| retarget_stmt(s, from, to)).collect())
-                })
-                .collect(),
-        },
-        Stmt::Block(b) => {
-            Stmt::Block(b.into_iter().map(|s| retarget_stmt(s, from, to)).collect())
-        }
-        other => other,
     }
 }
 
@@ -2550,7 +2365,7 @@ fn coalesce_copies(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
         // moved still precedes the point the copy stood at.
         let mut region = LocalFacts::default();
         for s in body.get(i..j).unwrap_or_default() {
-            count_stmt(s, &mut region);
+            region.stmt(s);
         }
         if region.uses.contains_key(&to) || region.is_assigned(&to) {
             continue;
@@ -2579,7 +2394,7 @@ fn coalesce_copies(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
 /// anything changed, so the caller can run it again.
 fn clean_body(body: &mut Vec<Stmt>) -> bool {
     let mut facts = LocalFacts::default();
-    body.iter().for_each(|s| count_stmt(s, &mut facts));
+    body.iter().for_each(|s| facts.stmt(s));
     if facts.opaque {
         return false;
     }
@@ -2739,7 +2554,7 @@ fn read_through_locals(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
     for name in cands.keys() {
         uses.insert(name.clone(), AggregateUse::default());
     }
-    survey_aggregates(body, &mut uses);
+    body.iter().for_each(|s| Survey(&mut uses).stmt(s));
 
     let mut table: HashMap<String, Vec<Expr>> = cands
         .into_iter()
@@ -2775,7 +2590,7 @@ fn read_through_locals(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
             .map(|(name, items)| {
                 let items = items
                     .iter()
-                    .map(|e| extract_expr(e.clone(), &snapshot))
+                    .map(|e| Extract(&snapshot).expr(e.clone()))
                     .collect::<Vec<_>>();
                 (name.clone(), items)
             })
@@ -2787,7 +2602,7 @@ fn read_through_locals(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
     }
 
     let taken = std::mem::take(body);
-    *body = taken.into_iter().map(|s| extract_stmt(s, &table)).collect();
+    *body = Extract(&table).block(taken);
     let names: HashSet<String> = table.into_keys().collect();
     *body = drop_bindings(std::mem::take(body), &names);
     true
@@ -2827,179 +2642,61 @@ fn collect_aggregates(
     }
 }
 
-fn survey_aggregates(body: &[Stmt], out: &mut HashMap<String, AggregateUse>) {
-    for s in body {
-        stmt_exprs(s, &mut |e| survey_aggregate_expr(e, out));
+struct Survey<'a>(&'a mut HashMap<String, AggregateUse>);
+
+impl Visit for Survey<'_> {
+    fn expr(&mut self, e: &Expr) {
+        // `t[k]`, the only shape that does not need the array itself.
+        if let Expr::Index { obj, index } = e {
+            if let (Expr::Ident(name), Expr::Num(i)) = (&**obj, &**index) {
+                if let Some(u) = self.0.get_mut(name) {
+                    if *i >= 0.0 && i.fract() == 0.0 {
+                        u.record_read(*i as usize);
+                    } else {
+                        u.escape();
+                    }
+                    return;
+                }
+            }
+        }
+        if let Expr::Ident(name) = e {
+            if let Some(u) = self.0.get_mut(name) {
+                u.escape();
+            }
+            return;
+        }
+        e.visit_children(self);
+    }
+}
+
+struct Extract<'a>(&'a HashMap<String, Vec<Expr>>);
+
+impl Rewrite for Extract<'_> {
+    fn stmt(&mut self, s: Stmt) -> Stmt {
         match s {
-            Stmt::If { then, else_, .. } => {
-                survey_aggregates(then, out);
-                survey_aggregates(else_, out);
-            }
-            Stmt::While { body, .. } => survey_aggregates(body, out),
-            Stmt::Switch { cases, .. } => {
-                for (_, b) in cases {
-                    survey_aggregates(b, out);
-                }
-            }
-            Stmt::Block(b) | Stmt::Func { body: b, .. } => survey_aggregates(b, out),
-            _ => {}
+            // The declarations themselves are left alone; `drop_bindings` removes
+            // them, and rewriting an aggregate into itself is not the point.
+            Stmt::Var { kind: VarKind::Const, ref name, .. } if self.0.contains_key(name) => s,
+            other => other.map_children(self),
         }
     }
-}
 
-fn survey_aggregate_expr(e: &Expr, out: &mut HashMap<String, AggregateUse>) {
-    // `t[k]`, the only shape that does not need the array itself.
-    if let Expr::Index { obj, index } = e {
-        if let (Expr::Ident(name), Expr::Num(i)) = (&**obj, &**index) {
-            if let Some(u) = out.get_mut(name) {
-                if *i >= 0.0 && i.fract() == 0.0 {
-                    u.record_read(*i as usize);
-                } else {
-                    u.escape();
-                }
-                return;
-            }
-        }
-    }
-    if let Expr::Ident(name) = e {
-        if let Some(u) = out.get_mut(name) {
-            u.escape();
-        }
-        return;
-    }
-    let mut go = |x: &Expr| survey_aggregate_expr(x, out);
-    match e {
-        Expr::Array(xs) | Expr::Seq(xs) => xs.iter().for_each(go),
-        Expr::Object(fs) => fs.iter().for_each(|(_, v)| go(v)),
-        Expr::Member { obj, .. } => go(obj),
-        Expr::Index { obj, index } => {
-            survey_aggregate_expr(obj, out);
-            survey_aggregate_expr(index, out);
-        }
-        Expr::Call { callee, args } | Expr::New { callee, args } => {
-            survey_aggregate_expr(callee, out);
-            args.iter().for_each(|a| survey_aggregate_expr(a, out));
-        }
-        Expr::Unary { operand, .. } => go(operand),
-        Expr::Binary { lhs, rhs, .. } => {
-            survey_aggregate_expr(lhs, out);
-            survey_aggregate_expr(rhs, out);
-        }
-        Expr::Cond { test, cons, alt } => {
-            survey_aggregate_expr(test, out);
-            survey_aggregate_expr(cons, out);
-            survey_aggregate_expr(alt, out);
-        }
-        Expr::Assign { target, value } => {
-            survey_aggregate_expr(target, out);
-            survey_aggregate_expr(value, out);
-        }
-        Expr::Arrow { body, .. } => go(body),
-        Expr::ArrowBlock { body, .. } => survey_aggregates(body, out),
-        Expr::Await(x) => go(x),
-        Expr::Spread(x) => go(x),
-        _ => {}
-    }
-}
-
-fn extract_stmt(s: Stmt, table: &HashMap<String, Vec<Expr>>) -> Stmt {
-    match s {
-        // The declarations themselves are left alone; `drop_bindings` removes
-        // them, and rewriting an aggregate into itself is not the point.
-        Stmt::Var { kind: VarKind::Const, ref name, .. } if table.contains_key(name) => s,
-        Stmt::Var { kind, name, init } => {
-            Stmt::Var { kind, name, init: init.map(|e| extract_expr(e, table)) }
-        }
-        Stmt::Func { name, params, body, is_async } => Stmt::Func {
-            name,
-            params,
-            body: body.into_iter().map(|s| extract_stmt(s, table)).collect(),
-            is_async,
-        },
-        Stmt::Return(e) => Stmt::Return(e.map(|e| extract_expr(e, table))),
-        Stmt::If { cond, then, else_ } => Stmt::If {
-            cond: extract_expr(cond, table),
-            then: then.into_iter().map(|s| extract_stmt(s, table)).collect(),
-            else_: else_.into_iter().map(|s| extract_stmt(s, table)).collect(),
-        },
-        Stmt::While { cond, body } => Stmt::While {
-            cond: extract_expr(cond, table),
-            body: body.into_iter().map(|s| extract_stmt(s, table)).collect(),
-        },
-        Stmt::Switch { disc, cases } => Stmt::Switch {
-            disc: extract_expr(disc, table),
-            cases: cases
-                .into_iter()
-                .map(|(t, b)| {
-                    (
-                        t.map(|t| extract_expr(t, table)),
-                        b.into_iter().map(|s| extract_stmt(s, table)).collect(),
-                    )
-                })
-                .collect(),
-        },
-        Stmt::Expr(e) => Stmt::Expr(extract_expr(e, table)),
-        Stmt::Throw(e) => Stmt::Throw(extract_expr(e, table)),
-        Stmt::ExportDefault(e) => Stmt::ExportDefault(extract_expr(e, table)),
-        Stmt::Block(b) => Stmt::Block(b.into_iter().map(|s| extract_stmt(s, table)).collect()),
-        other => other,
-    }
-}
-
-fn extract_expr(e: Expr, table: &HashMap<String, Vec<Expr>>) -> Expr {
-    if let Expr::Index { obj, index } = &e {
-        if let (Expr::Ident(name), Expr::Num(i)) = (&**obj, &**index) {
-            if let Some(items) = table.get(name) {
-                if let Some(item) = items.get(*i as usize) {
-                    return item.clone();
+    fn expr(&mut self, e: Expr) -> Expr {
+        if let Expr::Index { obj, index } = &e {
+            if let (Expr::Ident(name), Expr::Num(i)) = (&**obj, &**index) {
+                if let Some(items) = self.0.get(name) {
+                    if let Some(item) = items.get(*i as usize) {
+                        return item.clone();
+                    }
                 }
             }
         }
-    }
-    match e {
-        Expr::Array(xs) => Expr::Array(xs.into_iter().map(|x| extract_expr(x, table)).collect()),
-        Expr::Seq(xs) => Expr::Seq(xs.into_iter().map(|x| extract_expr(x, table)).collect()),
-        Expr::Object(fs) => {
-            Expr::Object(fs.into_iter().map(|(k, v)| (k, extract_expr(v, table))).collect())
+        match e {
+            Expr::Assign { target, value } => {
+                Expr::Assign { target, value: Box::new(self.expr(*value)) }
+            }
+            other => simplified(other.map_children(self)),
         }
-        Expr::Member { obj, prop } => {
-            Expr::Member { obj: Box::new(extract_expr(*obj, table)), prop }
-        }
-        Expr::Index { obj, index } => Expr::Index {
-            obj: Box::new(extract_expr(*obj, table)),
-            index: Box::new(extract_expr(*index, table)),
-        },
-        Expr::Call { callee, args } => Expr::Call {
-            callee: Box::new(extract_expr(*callee, table)),
-            args: args.into_iter().map(|a| extract_expr(a, table)).collect(),
-        },
-        Expr::New { callee, args } => Expr::New {
-            callee: Box::new(extract_expr(*callee, table)),
-            args: args.into_iter().map(|a| extract_expr(a, table)).collect(),
-        },
-        Expr::Unary { op, operand } => Expr::un(op, extract_expr(*operand, table)),
-        Expr::Binary { op, lhs, rhs } => {
-            Expr::bin(op, extract_expr(*lhs, table), extract_expr(*rhs, table))
-        }
-        Expr::Cond { test, cons, alt } => Expr::cond(
-            extract_expr(*test, table),
-            extract_expr(*cons, table),
-            extract_expr(*alt, table),
-        ),
-        Expr::Assign { target, value } => {
-            Expr::Assign { target, value: Box::new(extract_expr(*value, table)) }
-        }
-        Expr::Arrow { params, body, is_async } => {
-            Expr::Arrow { params, body: Box::new(extract_expr(*body, table)), is_async }
-        }
-        Expr::ArrowBlock { params, body, is_async } => Expr::ArrowBlock {
-            params,
-            body: body.into_iter().map(|s| extract_stmt(s, table)).collect(),
-            is_async,
-        },
-        Expr::Await(x) => Expr::awaited(extract_expr(*x, table)),
-        Expr::Spread(x) => Expr::Spread(Box::new(extract_expr(*x, table))),
-        other => other,
     }
 }
 
@@ -3018,8 +2715,7 @@ fn clean_locals(stmts: Vec<Stmt>, table: &HashMap<String, Vec<Expr>>) -> Vec<Stm
             Stmt::Func { name, params, mut body, is_async } => {
                 for _ in 0..CLEANUP_ROUNDS {
                     if !table.is_empty() {
-                        body =
-                            body.into_iter().map(|s| read_through_stmt(s, table)).collect();
+                        body = ReadThrough(table).block(body);
                     }
                     body = fold_block(body);
                     if !clean_body(&mut body) {
@@ -3108,7 +2804,7 @@ fn eliminate_dead(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
             Stmt::Func { name, body, params, .. } => {
                 let mut used = HashSet::default();
                 for st in body {
-                    collect_idents_stmt(st, &mut used);
+                    Idents(&mut used).stmt(st);
                 }
                 for p in params {
                     used.remove(p);
@@ -3119,7 +2815,7 @@ fn eliminate_dead(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
             Stmt::Var { name, init, .. } => {
                 let mut used = HashSet::default();
                 if let Some(e) = init {
-                    collect_idents(e, &mut used);
+                    Idents(&mut used).expr(e);
                 }
                 declared.insert(name.clone(), i);
                 deps.insert(name.clone(), used);
@@ -3142,7 +2838,7 @@ fn eliminate_dead(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     for s in &stmts {
         if !is_declaration(s) {
             let mut used = HashSet::default();
-            collect_idents_stmt(s, &mut used);
+            Idents(&mut used).stmt(s);
             stack.extend(used);
         }
     }
@@ -3177,45 +2873,26 @@ fn eliminate_dead(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
 /// to agree on. It is the same walk [`eliminate_dead`] does, exported rather
 /// than copied, so a node this misses is a node that suite would miss too.
 pub fn collect_idents_in(s: &Stmt, out: &mut HashSet<String>) {
-    collect_idents_stmt(s, out);
+    Idents(out).stmt(s);
 }
 
-fn collect_idents_stmt(s: &Stmt, out: &mut HashSet<String>) {
-    match s {
-        Stmt::Var { init, .. } => {
-            if let Some(e) = init {
-                collect_idents(e, out);
+struct Idents<'a>(&'a mut HashSet<String>);
+
+impl Visit for Idents<'_> {
+    fn expr(&mut self, e: &Expr) {
+        match e {
+            Expr::Ident(name) => {
+                self.0.insert(name.clone());
             }
+            _ => e.visit_children(self),
         }
-        Stmt::Func { body, .. } => body.iter().for_each(|x| collect_idents_stmt(x, out)),
-        Stmt::Return(e) => {
-            if let Some(e) = e {
-                collect_idents(e, out);
-            }
+    }
+
+    fn stmt(&mut self, s: &Stmt) {
+        match s {
+            Stmt::Raw(src) | Stmt::RawDecl { src, .. } => collect_idents_raw(src, self.0),
+            _ => s.visit_children(self),
         }
-        Stmt::If { cond, then, else_ } => {
-            collect_idents(cond, out);
-            then.iter().for_each(|x| collect_idents_stmt(x, out));
-            else_.iter().for_each(|x| collect_idents_stmt(x, out));
-        }
-        Stmt::While { cond, body } => {
-            collect_idents(cond, out);
-            body.iter().for_each(|x| collect_idents_stmt(x, out));
-        }
-        Stmt::Switch { disc, cases } => {
-            collect_idents(disc, out);
-            for (t, b) in cases {
-                if let Some(t) = t {
-                    collect_idents(t, out);
-                }
-                b.iter().for_each(|x| collect_idents_stmt(x, out));
-            }
-        }
-        Stmt::Expr(e) | Stmt::Throw(e) | Stmt::ExportDefault(e) => collect_idents(e, out),
-        Stmt::Block(b) => b.iter().for_each(|x| collect_idents_stmt(x, out)),
-        Stmt::Raw(src) => collect_idents_raw(src, out),
-        Stmt::RawDecl { src, .. } => collect_idents_raw(src, out),
-        Stmt::Break | Stmt::Continue => {}
     }
 }
 
@@ -3241,40 +2918,6 @@ fn collect_idents_raw(src: &str, out: &mut HashSet<String>) {
         } else {
             i += 1;
         }
-    }
-}
-
-fn collect_idents(e: &Expr, out: &mut HashSet<String>) {
-    match e {
-        Expr::Ident(name) => {
-            out.insert(name.clone());
-        }
-        Expr::Array(xs) | Expr::Seq(xs) => xs.iter().for_each(|x| collect_idents(x, out)),
-        Expr::Object(fs) => fs.iter().for_each(|(_, v)| collect_idents(v, out)),
-        Expr::Member { obj, .. } => collect_idents(obj, out),
-        Expr::Index { obj, index } => {
-            collect_idents(obj, out);
-            collect_idents(index, out);
-        }
-        Expr::Call { callee, args } | Expr::New { callee, args } => {
-            collect_idents(callee, out);
-            args.iter().for_each(|a| collect_idents(a, out));
-        }
-        Expr::Unary { operand, .. } => collect_idents(operand, out),
-        Expr::Binary { lhs, rhs, .. } | Expr::Assign { target: lhs, value: rhs } => {
-            collect_idents(lhs, out);
-            collect_idents(rhs, out);
-        }
-        Expr::Cond { test, cons, alt } => {
-            collect_idents(test, out);
-            collect_idents(cons, out);
-            collect_idents(alt, out);
-        }
-        Expr::Arrow { body, .. } => collect_idents(body, out),
-        Expr::ArrowBlock { body, .. } => body.iter().for_each(|s| collect_idents_stmt(s, out)),
-        Expr::Await(x) => collect_idents(x, out),
-        Expr::Spread(x) => collect_idents(x, out),
-        _ => {}
     }
 }
 
@@ -3360,7 +3003,7 @@ fn mangle_program(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
         map.iter().map(|(k, v)| (v.clone(), k.clone())).collect();
     let scope = Scope::global(&map, &by_short);
     let mut pool = Pool::default();
-    stmts.into_iter().map(|s| rename_stmt(s, &scope, &mut pool)).collect()
+    Rename { scope: &scope, pool: &mut pool }.block(stmts)
 }
 
 /// The names in scope while one body is renamed.
@@ -3474,59 +3117,64 @@ impl Pool {
     }
 }
 
-fn rename_stmt(s: Stmt, scope: &Scope, pool: &mut Pool) -> Stmt {
-    match s {
-        Stmt::Var { kind, name, init } => Stmt::Var {
-            kind,
-            name: scope.get(&name).cloned().unwrap_or(name),
-            init: init.map(|e| rename(e, scope, pool)),
-        },
-        Stmt::Func { name, params, body, is_async } => {
+/// Renames the names one scope can see, opening a fresh scope at each function
+/// and arrow.
+struct Rename<'r, 'a> {
+    scope: &'r Scope<'a>,
+    pool: &'r mut Pool,
+}
+
+impl<'a> Rename<'_, 'a> {
+    /// A function or arrow's own scope, with its parameters bound in it.
+    fn params(&mut self, params: Vec<String>) -> (Vec<String>, Scope<'a>, Counter) {
+        let mut local = self.scope.nested();
+        let mut counter = Counter::default();
+        let params = params
+            .into_iter()
+            .map(|p| fresh_local(&p, &mut local, &mut counter, self.pool))
+            .collect();
+        (params, local, counter)
+    }
+
+    fn name(&self, name: String) -> String {
+        self.scope.get(&name).cloned().unwrap_or(name)
+    }
+}
+
+impl Rewrite for Rename<'_, '_> {
+    fn stmt(&mut self, s: Stmt) -> Stmt {
+        match s {
+            Stmt::Var { kind, name, init } => {
+                Stmt::Var { kind, name: self.name(name), init: init.map(|e| self.expr(e)) }
+            }
             // Parameters and locals get their own short names, reused across
             // functions because each is a fresh scope.
-            let mut local = scope.nested();
-            let mut counter = Counter::default();
-            let params: Vec<String> = params
-                .into_iter()
-                .map(|p| fresh_local(&p, &mut local, &mut counter, pool))
-                .collect();
-            let body = rename_scope(body, &mut local, &mut counter, pool);
-            Stmt::Func {
-                name: scope.get(&name).cloned().unwrap_or(name),
-                params,
-                body,
-                is_async,
+            Stmt::Func { name, params, body, is_async } => {
+                let name = self.name(name);
+                let (params, mut local, mut counter) = self.params(params);
+                let body = rename_scope(body, &mut local, &mut counter, self.pool);
+                Stmt::Func { name, params, body, is_async }
             }
+            other => other.map_children(self),
         }
-        Stmt::Return(e) => Stmt::Return(e.map(|x| rename(x, scope, pool))),
-        Stmt::If { cond, then, else_ } => Stmt::If {
-            cond: rename(cond, scope, pool),
-            then: then.into_iter().map(|x| rename_stmt(x, scope, pool)).collect(),
-            else_: else_.into_iter().map(|x| rename_stmt(x, scope, pool)).collect(),
-        },
-        Stmt::While { cond, body } => Stmt::While {
-            cond: rename(cond, scope, pool),
-            body: body.into_iter().map(|x| rename_stmt(x, scope, pool)).collect(),
-        },
-        Stmt::Switch { disc, cases } => Stmt::Switch {
-            disc: rename(disc, scope, pool),
-            cases: cases
-                .into_iter()
-                .map(|(t, b)| {
-                    (
-                        t.map(|x| rename(x, scope, pool)),
-                        b.into_iter().map(|x| rename_stmt(x, scope, pool)).collect(),
-                    )
-                })
-                .collect(),
-        },
-        Stmt::Expr(e) => Stmt::Expr(rename(e, scope, pool)),
-        Stmt::Throw(e) => Stmt::Throw(rename(e, scope, pool)),
-        Stmt::Block(b) => {
-            Stmt::Block(b.into_iter().map(|x| rename_stmt(x, scope, pool)).collect())
+    }
+
+    fn expr(&mut self, e: Expr) -> Expr {
+        match e {
+            Expr::Ident(name) => Expr::Ident(self.name(name)),
+            Expr::Arrow { params, body, is_async } => {
+                let (params, local, _) = self.params(params);
+                let body = Rename { scope: &local, pool: self.pool }.expr(*body);
+                Expr::Arrow { params, body: Box::new(body), is_async }
+            }
+            Expr::ArrowBlock { params, body, is_async } => {
+                let (params, mut local, mut counter) = self.params(params);
+                let body = rename_scope(body, &mut local, &mut counter, self.pool);
+                Expr::ArrowBlock { params, body, is_async }
+            }
+            Expr::Await(x) => Expr::awaited(self.expr(*x)),
+            other => other.map_children(self),
         }
-        Stmt::ExportDefault(e) => Stmt::ExportDefault(rename(e, scope, pool)),
-        other => other,
     }
 }
 
@@ -3572,19 +3220,19 @@ fn rename_scope(
     for s in body {
         match s {
             Stmt::Var { kind, name, init } => {
-                let init = init.map(|e| rename(e, scope, pool));
+                let init = init.map(|e| Rename { scope, pool }.expr(e));
                 let renamed = fresh_local(&name, scope, counter, pool);
                 out.push(Stmt::Var { kind, name: renamed, init });
             }
             Stmt::If { cond, then, else_ } => {
-                let cond = rename(cond, scope, pool);
+                let cond = Rename { scope, pool }.expr(cond);
                 let then = rename_scope(then, &mut scope.nested(), &mut counter.clone(), pool);
                 let else_ =
                     rename_scope(else_, &mut scope.nested(), &mut counter.clone(), pool);
                 out.push(Stmt::If { cond, then, else_ });
             }
             Stmt::While { cond, body } => {
-                let cond = rename(cond, scope, pool);
+                let cond = Rename { scope, pool }.expr(cond);
                 let body = rename_scope(body, &mut scope.nested(), &mut counter.clone(), pool);
                 out.push(Stmt::While { cond, body });
             }
@@ -3597,92 +3245,22 @@ fn rename_scope(
                 )));
             }
             Stmt::Switch { disc, cases } => {
-                let disc = rename(disc, scope, pool);
+                let disc = Rename { scope, pool }.expr(disc);
                 let cases = cases
                     .into_iter()
                     .map(|(t, b)| {
                         (
-                            t.map(|x| rename(x, scope, pool)),
+                            t.map(|x| Rename { scope, pool }.expr(x)),
                             rename_scope(b, &mut scope.nested(), &mut counter.clone(), pool),
                         )
                     })
                     .collect();
                 out.push(Stmt::Switch { disc, cases });
             }
-            other => out.push(rename_stmt(other, scope, pool)),
+            other => out.push(Rename { scope, pool }.stmt(other)),
         }
     }
     out
-}
-
-fn rename(e: Expr, scope: &Scope, pool: &mut Pool) -> Expr {
-    match e {
-        Expr::Ident(name) => Expr::Ident(scope.get(&name).cloned().unwrap_or(name)),
-        Expr::Array(xs) => {
-            Expr::Array(xs.into_iter().map(|x| rename(x, scope, pool)).collect())
-        }
-        Expr::Seq(xs) => Expr::Seq(xs.into_iter().map(|x| rename(x, scope, pool)).collect()),
-        Expr::Object(fs) => {
-            Expr::Object(fs.into_iter().map(|(k, v)| (k, rename(v, scope, pool))).collect())
-        }
-        Expr::Member { obj, prop } => {
-            Expr::Member { obj: Box::new(rename(*obj, scope, pool)), prop }
-        }
-        Expr::Index { obj, index } => Expr::Index {
-            obj: Box::new(rename(*obj, scope, pool)),
-            index: Box::new(rename(*index, scope, pool)),
-        },
-        Expr::Call { callee, args } => Expr::Call {
-            callee: Box::new(rename(*callee, scope, pool)),
-            args: args.into_iter().map(|a| rename(a, scope, pool)).collect(),
-        },
-        Expr::New { callee, args } => Expr::New {
-            callee: Box::new(rename(*callee, scope, pool)),
-            args: args.into_iter().map(|a| rename(a, scope, pool)).collect(),
-        },
-        Expr::Unary { op, operand } => {
-            Expr::Unary { op, operand: Box::new(rename(*operand, scope, pool)) }
-        }
-        Expr::Binary { op, lhs, rhs } => Expr::Binary {
-            op,
-            lhs: Box::new(rename(*lhs, scope, pool)),
-            rhs: Box::new(rename(*rhs, scope, pool)),
-        },
-        Expr::Assign { target, value } => Expr::Assign {
-            target: Box::new(rename(*target, scope, pool)),
-            value: Box::new(rename(*value, scope, pool)),
-        },
-        Expr::Cond { test, cons, alt } => Expr::Cond {
-            test: Box::new(rename(*test, scope, pool)),
-            cons: Box::new(rename(*cons, scope, pool)),
-            alt: Box::new(rename(*alt, scope, pool)),
-        },
-        Expr::Arrow { params, body, is_async } => {
-            let mut local = scope.nested();
-            let mut counter = Counter::default();
-            let params: Vec<String> = params
-                .into_iter()
-                .map(|p| fresh_local(&p, &mut local, &mut counter, pool))
-                .collect();
-            Expr::Arrow { params, body: Box::new(rename(*body, &local, pool)), is_async }
-        }
-        Expr::ArrowBlock { params, body, is_async } => {
-            let mut local = scope.nested();
-            let mut counter = Counter::default();
-            let params: Vec<String> = params
-                .into_iter()
-                .map(|p| fresh_local(&p, &mut local, &mut counter, pool))
-                .collect();
-            Expr::ArrowBlock {
-                params,
-                body: rename_scope(body, &mut local, &mut counter, pool),
-                is_async,
-            }
-        }
-        Expr::Await(x) => Expr::awaited(rename(*x, scope, pool)),
-        Expr::Spread(x) => Expr::Spread(Box::new(rename(*x, scope, pool))),
-        other => other,
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3802,48 +3380,29 @@ pub fn split_declarations(src: &str) -> Vec<(String, String)> {
 /// asked about. Used to decide whether a lambda is printed `async`, which is
 /// the one function this backend emits that `middle::rc` has no row for.
 pub fn has_await(stmts: &[Stmt]) -> bool {
-    fn in_expr(e: &Expr) -> bool {
-        match e {
-            Expr::Await(_) => true,
-            // A nested function body is not this one.
-            Expr::Arrow { .. } | Expr::ArrowBlock { .. } => false,
-            Expr::Member { obj, .. } => in_expr(obj),
-            Expr::Index { obj, index } => in_expr(obj) || in_expr(index),
-            Expr::Call { callee, args } | Expr::New { callee, args } => {
-                in_expr(callee) || args.iter().any(in_expr)
+    struct Finds(bool);
+    impl Visit for Finds {
+        fn expr(&mut self, e: &Expr) {
+            match e {
+                _ if self.0 => {}
+                Expr::Await(_) => self.0 = true,
+                // A nested function body is not this one.
+                Expr::Arrow { .. } | Expr::ArrowBlock { .. } => {}
+                _ => e.visit_children(self),
             }
-            Expr::Unary { operand, .. } => in_expr(operand),
-            Expr::Binary { lhs, rhs, .. } => in_expr(lhs) || in_expr(rhs),
-            Expr::Cond { test, cons, alt } => in_expr(test) || in_expr(cons) || in_expr(alt),
-            Expr::Assign { target, value } => in_expr(target) || in_expr(value),
-            Expr::Array(xs) | Expr::Seq(xs) => xs.iter().any(in_expr),
-            Expr::Object(fs) => fs.iter().any(|(_, v)| in_expr(v)),
-            Expr::Spread(x) => in_expr(x),
-            _ => false,
+        }
+        fn stmt(&mut self, s: &Stmt) {
+            match s {
+                // Same reason as the arrow above.
+                _ if self.0 => {}
+                Stmt::Func { .. } => {}
+                _ => s.visit_children(self),
+            }
         }
     }
-    fn in_stmt(s: &Stmt) -> bool {
-        match s {
-            Stmt::Var { init, .. } => init.as_ref().is_some_and(in_expr),
-            // Same reason as the arrow above.
-            Stmt::Func { .. } => false,
-            Stmt::Return(e) => e.as_ref().is_some_and(in_expr),
-            Stmt::If { cond, then, else_ } => {
-                in_expr(cond) || then.iter().any(in_stmt) || else_.iter().any(in_stmt)
-            }
-            Stmt::While { cond, body } => in_expr(cond) || body.iter().any(in_stmt),
-            Stmt::Switch { disc, cases } => {
-                in_expr(disc)
-                    || cases.iter().any(|(t, b)| {
-                        t.as_ref().is_some_and(in_expr) || b.iter().any(in_stmt)
-                    })
-            }
-            Stmt::Expr(e) | Stmt::Throw(e) | Stmt::ExportDefault(e) => in_expr(e),
-            Stmt::Block(b) => b.iter().any(in_stmt),
-            Stmt::Break | Stmt::Continue | Stmt::Raw(_) | Stmt::RawDecl { .. } => false,
-        }
-    }
-    stmts.iter().any(in_stmt)
+    let mut finds = Finds(false);
+    stmts.iter().for_each(|s| finds.stmt(s));
+    finds.0
 }
 
 /// Removes comments and unnecessary whitespace from JavaScript source, with a
@@ -4290,8 +3849,7 @@ mod shared_constant_tests {
             },
         ];
         let table = constant_table(&stmts);
-        let out: Vec<Stmt> =
-            stmts.into_iter().map(|s| read_through_stmt(s, &table)).collect();
+        let out = ReadThrough(&table).block(stmts);
         let printed = print(&out, false);
         assert!(printed.contains("return 3;"), "did not read through: {printed}");
     }
