@@ -93,6 +93,26 @@ edit {
   with: "{ platform: \"node\" },"
 }
 
+# Retired: a Cloudflare Worker, which is a platform a repository writes now.
+# The fix shows the shape of one and names the guide.
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "{ platform: \"node\" },"
+  with: "{ platform: CLOUDFLARE_WORKER },"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 2
+  golden: "cloudflare_worker.txt"
+}
+
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "{ platform: CLOUDFLARE_WORKER },"
+  with: "{ platform: \"node\" },"
+}
+
 # Retired: `arch` beside a variant.
 edit {
   file: "cmd/app/BUILD.buri"
@@ -185,6 +205,25 @@ run {
 edit {
   file: "lib/greet/BUILD.buri"
   replace: "    visibility: [\"//visibility:public\"]\n    platforms: [LINUX, MACOS]"
+  with: "    visibility: [\"//visibility:public\"]"
+}
+
+# Retired: a library's `platforms` naming the worker.
+edit {
+  file: "lib/greet/BUILD.buri"
+  replace: "    visibility: [\"//visibility:public\"]"
+  with: "    visibility: [\"//visibility:public\"]\n    platforms: [CLOUDFLARE_WORKER]"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 2
+  golden: "library_cloudflare_worker.txt"
+}
+
+edit {
+  file: "lib/greet/BUILD.buri"
+  replace: "    visibility: [\"//visibility:public\"]\n    platforms: [CLOUDFLARE_WORKER]"
   with: "    visibility: [\"//visibility:public\"]"
 }
 

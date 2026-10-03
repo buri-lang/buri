@@ -1,9 +1,9 @@
 .buri/out/web/cmd/site/site.mjs (N bytes, cached)
 error: //cmd/site exports no `fetsh` [entry-not-found]
- --> cmd/site/BUILD.buri:4:77
+ --> cmd/site/BUILD.buri:4:90
   |
-4 |         { platform: CLOUDFLARE_WORKER, entries: [{ name: "fetch", function: "fetsh" }] },
-  |                                                                             ^^^^^^^
+4 |         { platform: "//platform/cloudflare_worker", entries: [{ name: "fetch", function: "fetsh" }] },
+  |                                                                                          ^^^^^^^
   |
   = did you mean `fetch`?
   = `main.buri` exports: fetch, main
@@ -15,21 +15,21 @@ error: //cmd/site exports no `fetsh` [entry-not-found]
     Export the function the output names, or name one the binary already
     exports.
 
-      from "platform/effect" import { Request, Response };
+      from "node" import { NodeHost };
       from "web" import { WebHost };
 
       export fn main(host: WebHost): Result<(), Str> {
           .Ok(())
       }
 
-      export fn fetch(request: Request): Response {
-          Response { status: 200, headers: [], body: [] }
+      export fn mainForNode(host: NodeHost): Result<(), Str> {
+          .Ok(())
       }
 
       binary {
           outputs: [
               { platform: "web" },
-              { platform: CLOUDFLARE_WORKER },
+              { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
           ]
       }
 

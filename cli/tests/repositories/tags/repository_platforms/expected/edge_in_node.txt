@@ -1,0 +1,9 @@
+error: //cmd/tool cannot be built for node [platform-violation]
+ --> cmd/tool/BUILD.buri:4:9
+  |
+4 |         { platform: "node" },
+  |         ^^^^^^^^^^^^^^^^^^^^
+  |
+  = //lib/edge declares platforms //platform/cloudflare_worker
+  = reached by: //cmd/tool -> //lib/edge
+  = fix: drop the node output, or widen the tag's `requires` in REPO.buri

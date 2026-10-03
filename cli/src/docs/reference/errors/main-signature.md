@@ -17,14 +17,14 @@ Give the entry the signature its platform's `platform.buri` declares.
 | `native` | `fn main(host: NativeHost): Result<(), Str>` |
 | `node` | `fn main(host: NodeHost): Result<(), Str>` |
 | `web` | `fn main(host: WebHost): Result<(), Str>` |
-| `CLOUDFLARE_WORKER` | `fn <entry>(request: Request): Response` |
+| `//platform/<name>` | the signature its `platform.buri` declares |
 
 ## Why
 
 The platform calls the entry, so the platform fixes its signature. A program is
 handed its host, runs, and reports how it went: `.Ok(())` exits 0, `.Err(msg)`
-prints `msg` to stderr and exits 1. A worker is called once per request, so the
-request is the argument and the response is the answer.
+prints `msg` to stderr and exits 1. A repository platform's entry, like a
+worker's `fetch`, takes and answers what its declaration says.
 
 Nothing calls an entry with a type argument, so none declares generic
 parameters. An `outputs` entry says which function enters and which platform

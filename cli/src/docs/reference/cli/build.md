@@ -8,8 +8,9 @@ after the function it enters through where `entries` names one other than
 own, so building one type-checks it: `buri build //lib/money` asks "is this
 library correct?"
 
-`--output=<selector>` builds some of them: `node`, `web`, `cloudflare-worker`,
-`native/linux-x86_64`, or `native` for every `native` output.
+`--output=<selector>` builds some of them: `node`, `web`,
+`native/linux-x86_64`, `native` for every `native` output, or a repository
+platform's label, `//platform/cloudflare_worker`.
 
 With no target argument it builds the whole repository: bare `buri build` is
 `buri build //...`, from any directory in it.

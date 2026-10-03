@@ -1,0 +1,16 @@
+/// A worker's vars and secrets: the bindings its runtime hands each request
+/// whose value is a string.
+export effect Vars {
+    fn get(self, name: Str): Option<Str>;
+    fn all(self): [(Str, Str)];
+}
+
+/// The variable called `name`, or `.None` where nothing by that name is bound.
+export fn get<C: Vars>(ctx: C, name: Str): Option<Str> {
+    ctx.get(name)
+}
+
+/// Every variable, as `(name, value)`, in no promised order.
+export fn all<C: Vars>(ctx: C): [(Str, Str)] {
+    ctx.all()
+}

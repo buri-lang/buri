@@ -1,5 +1,6 @@
 # A website: one `main.buri`, a page and a worker, and the document that goes
-# between them.
+# between them. The worker is `//platform/cloudflare_worker`, a repository
+# platform whose host holds an allocator and standard output.
 #
 #   * **The worker renders.** `fetch` builds the tree, renders it to HTML with
 #     `web.render`, and `web.shell` writes the document with the state embedded
@@ -16,8 +17,7 @@
 #     and swap a history entry, so the page carries both and the worker carries
 #     neither.
 #   * **`Location` is the page's alone.** The last edit binds it in the
-#     worker's context, which is the one thing this feature adds to the grant
-#     table and the one thing it must not widen.
+#     worker's context, and the worker's host has no such field.
 #
 # What this case cannot do is *run* either artifact: a worker is called by its
 # platform and a page needs a document, and no `buri` command is either.
@@ -37,12 +37,12 @@ run {
 # The worker's half: the renderer that writes the markup, and the shell around
 # it. `$ui_web_render` is that renderer.
 file {
-  path: ".buri/out/cloudflare-worker/cmd/site/fetch.mjs"
+  path: ".buri/out/platform/cloudflare_worker/cmd/site/fetch.mjs"
   contains: "$ui_web_render"
 }
 
 file {
-  path: ".buri/out/cloudflare-worker/cmd/site/fetch.mjs"
+  path: ".buri/out/platform/cloudflare_worker/cmd/site/fetch.mjs"
   absent: "$ui_web_resume"
 }
 
@@ -66,7 +66,7 @@ file {
 }
 
 file {
-  path: ".buri/out/cloudflare-worker/cmd/site/fetch.mjs"
+  path: ".buri/out/platform/cloudflare_worker/cmd/site/fetch.mjs"
   absent: "$host_HostLocation_path"
 }
 
@@ -84,7 +84,7 @@ file {
 }
 
 file {
-  path: ".buri/out/cloudflare-worker/cmd/site/fetch.mjs"
+  path: ".buri/out/platform/cloudflare_worker/cmd/site/fetch.mjs"
   absent: "$host_HostLocation_push"
 }
 
@@ -98,17 +98,16 @@ file {
 }
 
 file {
-  path: ".buri/out/cloudflare-worker/cmd/site/fetch.mjs"
+  path: ".buri/out/platform/cloudflare_worker/cmd/site/fetch.mjs"
   absent: "$ui_web_setTitle"
 }
 
-# The negative twin. `Location` is granted on WEB and on nothing else, and a
-# worker that asks for the address bar is refused where it asked — not because
-# the page beside it is fine, but because a worker has no address of its own.
+# The negative twin. `Location` is `web`'s, and a worker that asks for the
+# address bar is refused where it asked: `CloudflareHost` has no `location`.
 edit {
   file: "cmd/site/main.buri"
-  replace: "export fn fetch(request: Request): Response {\n    let ctx = context {\n        Allocator: host.alloc,\n    };"
-  with: "export fn fetch(request: Request): Response {\n    let ctx = context {\n        Allocator: host.alloc,\n        Location: host.location,\n    };"
+  replace: "export fn fetch(host: CloudflareHost, request: Request): Response {\n    let ctx = context {\n        Allocator: host.alloc,\n    };"
+  with: "export fn fetch(host: CloudflareHost, request: Request): Response {\n    let ctx = context {\n        Allocator: host.alloc,\n        Location: host.location,\n    };"
 }
 
 run {

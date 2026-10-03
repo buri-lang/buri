@@ -747,231 +747,6 @@ fn version_works_outside_a_repository() {
     verbose.silent_about("unreadable");
 }
 
-/// A worker artifact, driven by the platform's own `Request` and `Response`.
-///
-/// **The highest tier a worker can reach.** A `CLOUDFLARE_WORKER` output is
-/// called by its runtime rather than started, so no `buri` command runs one and
-/// no repository fixture can. What a driver module can do is exactly what the
-/// platform does: import the artifact's default export, hand `fetch` a real
-/// `Request`, and read a real `Response` back. Every JavaScript engine this
-/// suite runs on has both globals.
-///
-/// Every field of the crossing, in one run: each of the seven methods HTTP has,
-/// the path routed on, the query string beside it, a header read by name, a
-/// header written on the way out, a body echoed, a body that is not text, and
-/// the two answers that are not `200`. Each is a field of the bridge, and a
-/// bridge that lost one would still answer the rest.
-#[test]
-fn a_worker_answers_the_platforms_request_with_the_platforms_response() {
-    let scratch = Scratch::repo("worker-fetch");
-    scratch.write(
-        "cmd/site/BUILD.buri",
-        "binary {\n    outputs: [\n        { platform: CLOUDFLARE_WORKER },\n    ]\n}\n",
-    );
-    scratch.write(
-        "cmd/site/main.buri",
-        r#"
-from "platform/effect" import { Allocator, Method, Request, Response };
-from "core/host" import * as host;
-from "core/net/http" import * as http;
-from "core/str" import * as str;
-
-export fn fetch(request: Request): Response {
-  let ctx = context { Allocator: host.alloc };
-  match (request.path()) {
-    // What was sent, read back off the request the platform handed over.
-    "/echo" => http.text(ctx, bodyOrExcuse(ctx, request)),
-    "/query" => http.text(ctx, request.query()),
-    "/header" => http.text(ctx, request.header("x-asked").withDefault("nothing")),
-    // A header the worker writes, which the platform has to carry back.
-    "/tagged" => http.text(ctx, "tagged").withHeader(ctx, "x-answered", "yes"),
-    // The two answers that are not 200. A worker says so with a status, and
-    // there is no exit code anywhere in it.
-    "/missing" => http.status(404),
-    "/broken" => http.status(500),
-    other => http.text(ctx, str.format(ctx, "${verb(request.method)} ${other}")),
-  }
-}
-
-/// Every method HTTP has, so a method the bridge drops is a line that changed.
-fn verb(method: Method): Str {
-  match (method) {
-    .Get => "GET",
-    .Head => "HEAD",
-    .Post => "POST",
-    .Put => "PUT",
-    .Patch => "PATCH",
-    .Delete => "DELETE",
-    .Options => "OPTIONS",
-  }
-}
-
-fn bodyOrExcuse<C: Allocator>(ctx: C, request: Request): Str {
-  match (http.bodyText(ctx, request.body)) {
-    .Ok(text) => text,
-    .Err(_e) => "not utf-8",
-  }
-}
-"#,
-    );
-    scratch.run(&["build", "//cmd/site"]).ok();
-
-    // The driver is the platform's half, written the way a worker runtime calls
-    // one. It prints a line per exchange, so a wrong answer names which.
-    let driver = scratch.write(
-        "drive.mjs",
-        r#"
-import worker from "./.buri/out/cloudflare-worker/cmd/site/fetch.mjs";
-
-const say = async (request) => {
-  const answer = await worker.fetch(request);
-  const tag = answer.headers.get("x-answered");
-  const said = `${answer.status} ${answer.headers.get("content-type")} ${await answer.text()}`;
-  console.log(tag === null ? said : `${said} x-answered=${tag}`);
-};
-
-await say(new Request("https://example.com/about?ref=x#top"));
-
-// Every method, on a path that answers with the one it was called by. A `GET`
-// and a `HEAD` may carry no body, so none of these do.
-for (const method of ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
-  await say(new Request("https://example.com/", { method }));
-}
-
-await say(new Request("https://example.com/echo", { method: "POST", body: "hello" }));
-// A body that is not text at all: the bridge carries octets, so what comes back
-// is the entry's own excuse rather than a crash.
-await say(
-  new Request("https://example.com/echo", { method: "POST", body: new Uint8Array([0xff, 0xfe]) }),
-);
-await say(new Request("https://example.com/query?ref=x&page=2#top"));
-await say(new Request("https://example.com/header", { headers: { "X-Asked": "please" } }));
-await say(new Request("https://example.com/header"));
-await say(new Request("https://example.com/tagged"));
-await say(new Request("https://example.com/missing"));
-await say(new Request("https://example.com/broken"));
-"#,
-    );
-
-    let out = Command::new(js_runtime())
-        .arg(&driver)
-        .output()
-        .expect("the javascript runtime runs");
-    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(out.status.success(), "the worker refused the platform's request:\n{stderr}");
-    assert_eq!(
-        stdout,
-        "200 text/plain; charset=utf-8 GET /about\n\
-         200 text/plain; charset=utf-8 GET /\n\
-         200 text/plain; charset=utf-8 HEAD /\n\
-         200 text/plain; charset=utf-8 POST /\n\
-         200 text/plain; charset=utf-8 PUT /\n\
-         200 text/plain; charset=utf-8 PATCH /\n\
-         200 text/plain; charset=utf-8 DELETE /\n\
-         200 text/plain; charset=utf-8 OPTIONS /\n\
-         200 text/plain; charset=utf-8 hello\n\
-         200 text/plain; charset=utf-8 not utf-8\n\
-         200 text/plain; charset=utf-8 ref=x&page=2\n\
-         200 text/plain; charset=utf-8 please\n\
-         200 text/plain; charset=utf-8 nothing\n\
-         200 text/plain; charset=utf-8 tagged x-answered=yes\n\
-         404 null \n\
-         500 null \n",
-        "the crossing lost a field:\n{stderr}"
-    );
-}
-
-/// A worker reads its vars and secrets through `Environment`, from the `env`
-/// the platform passes to `fetch` beside the request.
-///
-/// The driver hands `fetch` an `env` the way a worker runtime does: string
-/// bindings, which are what a `[vars]` entry and a secret both arrive as, and
-/// one binding that is not a string, which is what a KV namespace or any
-/// other resource arrives as. A variable the `env` does not carry is `.None`,
-/// the same answer a missing variable gets on every other platform — and the
-/// name is one the JavaScript runtime's own process environment does not have
-/// either, so the value can only have come from the argument.
-#[test]
-fn a_worker_reads_its_variables_from_the_env_the_platform_passes() {
-    let scratch = Scratch::repo("worker-env");
-    scratch.write(
-        "cmd/site/BUILD.buri",
-        "binary {\n    outputs: [\n        { platform: CLOUDFLARE_WORKER },\n    ]\n}\n",
-    );
-    scratch.write(
-        "cmd/site/main.buri",
-        r#"
-from "platform/effect" import { Allocator, Environment, Request, Response };
-from "core/env" import * as env;
-from "core/host" import * as host;
-from "core/net/http" import * as http;
-from "core/str" import * as str;
-
-export fn fetch(request: Request): Response {
-  let ctx = context { Allocator: host.alloc, Environment: host.env };
-  match (request.path()) {
-    "/all" => http.text(ctx, names(ctx)),
-    "/arguments" => http.text(ctx, str.format(ctx, "${env.arguments(ctx).length()}")),
-    other => match (env.get(ctx, other.slice(1, other.length()))) {
-      .Some(value) => http.text(ctx, value),
-      .None => http.status(404),
-    },
-  }
-}
-
-/// Every variable's name, sorted, because `core/env` promises no order.
-fn names<C: Allocator + Environment>(ctx: C): Str {
-  env.all(ctx).map(ctx, fn(pair) => pair.0).sort(ctx).join(ctx, ",")
-}
-"#,
-    );
-    scratch.run(&["build", "//cmd/site"]).ok();
-
-    let driver = scratch.write(
-        "drive.mjs",
-        r#"
-import worker from "./.buri/out/cloudflare-worker/cmd/site/fetch.mjs";
-
-const env = {
-  GREETING: "hello from a var",
-  BURI_WORKER_SECRET: "s3cret",
-  STORE: { get() {} },
-};
-
-const say = async (path) => {
-  const answer = await worker.fetch(new Request(`https://example.com${path}`), env, {});
-  console.log(`${answer.status} ${await answer.text()}`);
-};
-
-await say("/GREETING");
-await say("/BURI_WORKER_SECRET");
-await say("/BURI_WORKER_NOT_BOUND");
-await say("/STORE");
-await say("/all");
-await say("/arguments");
-"#,
-    );
-
-    let out = Command::new(js_runtime())
-        .arg(&driver)
-        .output()
-        .expect("the javascript runtime runs");
-    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(out.status.success(), "the worker refused the platform's request:\n{stderr}");
-    assert_eq!(
-        stdout,
-        "200 hello from a var\n\
-         200 s3cret\n\
-         404 \n\
-         404 \n\
-         200 BURI_WORKER_SECRET,GREETING\n\
-         200 0\n",
-        "the worker did not read the env it was handed:\n{stderr}"
-    );
-}
-
 /// How long anything in the bounded-fetch case below may take before the claim
 /// it makes — that the *program's own* bound is what ends a request — is the
 /// thing that failed. Fifty times the bound the program asks for, so a loaded
@@ -1260,114 +1035,6 @@ export fn main(host: NodeHost): Result<(), Str> {
         still_running,
         "the program had already exited, so both lines could have been its exit flush"
     );
-}
-
-/// **When a `core/lazy` chunk is fetched**, asked of a running artifact.
-///
-/// `build::repositories`' `lazy_chunks` case reads the split off the two files
-/// a build wrote. What it cannot see is the half the feature exists for: that
-/// the chunk is not fetched by a request that never reaches the `load`. This is
-/// the driver-module pattern
-/// [`a_worker_answers_the_platforms_request_with_the_platforms_response`] uses,
-/// for the same reason — a worker is called per request, so one process can
-/// take two paths through one artifact.
-///
-/// **The chunk file is deleted between the two runs**, which is the only
-/// evidence that cannot be faked by a program that merely did not print. A run
-/// with no chunk on disk answers `/` and fails `/heavy`; with the chunk there,
-/// both answer. An artifact that fetched its chunks at start-up would fail the
-/// first run's `/` as well, and one that fetched nothing would pass `/heavy`
-/// without the file.
-///
-/// A chunk that is on disk and is *not a module* is the same answer from the
-/// other side: the request that needs it fails and the request that does not is
-/// untouched, so a half-written file cannot take the whole artifact down with
-/// it.
-#[test]
-fn a_chunk_is_fetched_only_where_the_program_asks_for_it() {
-    let scratch = Scratch::repo("lazy-when-fetched");
-    scratch.write(
-        "cmd/site/BUILD.buri",
-        "binary {\n    outputs: [\n        { platform: CLOUDFLARE_WORKER },\n    ]\n}\n",
-    );
-    scratch.write(
-        "cmd/site/main.buri",
-        r#"
-from "platform/effect" import { Allocator, Request, Response };
-from "core/host" import * as host;
-from "core/lazy" import * as lazy;
-from "core/net/http" import * as http;
-from "core/str" import * as str;
-
-fn onlyTheChunkReachesThis<C: Allocator>(ctx: C, path: Str): Str {
-  str.format(ctx, "heavy ${path}")
-}
-
-fn heavy<C: Allocator>(ctx: C, path: Str): Str {
-  onlyTheChunkReachesThis(ctx, path)
-}
-
-export fn fetch(request: Request): Response {
-  let ctx = context { Allocator: host.alloc };
-  match (request.path()) {
-    "/heavy" => http.text(ctx, lazy.load(heavy)(ctx, request.path())),
-    other => http.text(ctx, other),
-  }
-}
-"#,
-    );
-    scratch.run(&["build", "//cmd/site"]).ok();
-
-    let artifact = scratch.path(".buri/out/cloudflare-worker/cmd/site/fetch.mjs");
-    let chunk = artifact.with_file_name("fetch.0.mjs");
-    let held = std::fs::read(&chunk).expect("the build wrote a chunk beside the module");
-
-    let driver = scratch.write(
-        "drive.mjs",
-        r#"
-import worker from "./.buri/out/cloudflare-worker/cmd/site/fetch.mjs";
-
-const say = async (path) => {
-  try {
-    const answer = await worker.fetch(new Request("https://example.com" + path));
-    console.log(await answer.text());
-  } catch (e) {
-    console.log("no chunk");
-  }
-};
-
-await say("/home");
-await say("/heavy");
-"#,
-    );
-
-    let run = || {
-        let out = Command::new(js_runtime())
-            .arg(&driver)
-            .output()
-            .expect("the javascript runtime runs");
-        String::from_utf8_lossy(&out.stdout).to_string()
-    };
-
-    std::fs::remove_file(&chunk).expect("the chunk is removable");
-    assert_eq!(
-        run(),
-        "/home\nno chunk\n",
-        "a request that never reaches the `load` needs no chunk, and one that does needs it"
-    );
-
-    // A file that is there and is not a module. Half a download and a truncated
-    // deploy both look like this, and neither may cost the requests that never
-    // reach the `load`.
-    std::fs::write(&chunk, b"export const $bind = (").expect("the chunk is writable");
-    assert_eq!(
-        run(),
-        "/home\nno chunk\n",
-        "a chunk that will not load must cost only the request that needed it"
-    );
-
-    std::fs::write(&chunk, &held).expect("the chunk goes back");
-    assert_eq!(run(), "/home\nheavy /heavy\n", "and with the chunk there, both answer");
 }
 
 /// A page that mounts an interface and then dials a socket, driven by the
@@ -1958,187 +1625,6 @@ export fn main(host: NodeHost): Result<(), Str> {
     );
 }
 
-/// A worker that dials a socket while answering a request — five times, and
-/// each dial ends a different way.
-///
-/// `WebSocketClient` and `Sockets` are granted on `CLOUDFLARE_WORKER` like every
-/// other platform, and this is what that grant buys: a worker handed a request
-/// dials somebody else's socket, reads what comes back, and answers with it.
-///
-/// The driver is the platform's half — the worker's default export, a real
-/// `Request`, a real `Response` — with the same `WebSocket` double the page row
-/// uses. A worker parks on the dial exactly as a page does, which is what
-/// `$fetchEntry` awaiting the entry is for.
-///
-/// **Five requests rather than one, because a browser has five endings and one
-/// request only reaches the first of them.** The engine hands a page one `close`
-/// event and one `error` event, and what they *mean* depends entirely on whether
-/// the socket had opened yet — so the same two events are four different answers
-/// and there is no other way to reach three of them:
-///
-/// | The event | Before the socket opened | After |
-/// |---|---|---|
-/// | `close` with a code | the handshake failed: `.Err` | that code's `CloseReason` |
-/// | `close` with no code | the handshake failed: `.Err` | 1005, which is `.Abnormal` |
-/// | `error` | the handshake failed: `.Err` | 1006, which is `.Abnormal` |
-///
-/// So the five sessions are: a clean close with `1000`, a close with no code, an
-/// `error` on an open socket, an `error` before the handshake finished, and a
-/// `close` before it finished. The last two are the two sentences a program is
-/// given for a socket that never opened, and no hook runs for either — which is
-/// the absence of a `sent` line in the log.
-#[test]
-fn a_worker_dials_a_socket_while_it_answers_a_request() {
-    let scratch = Scratch::repo("worker-dials");
-    scratch.write(
-        "cmd/relay/BUILD.buri",
-        "binary {\n    outputs: [\n        { platform: CLOUDFLARE_WORKER },\n    ]\n}\n",
-    );
-    scratch.write(
-        "cmd/relay/main.buri",
-        r#"
-from "platform/effect" import { Allocator, Request, Response, Sockets, WebSocketClient };
-from "core/host" import * as host;
-from "core/net/http" import * as http;
-from "core/net/websocket" import * as websocket;
-from "core/net/websocket" import { Client };
-from "core/str" import * as str;
-
-export fn fetch(request: Request): Response {
-  let ctx = context {
-    Allocator: host.alloc,
-    Sockets: host.sockets,
-    WebSocketClient: host.websocketClient,
-  };
-  match (websocket.connect(ctx, relaying(request.path()))) {
-    .Err(e) => http.text(ctx, str.format(ctx, "no socket: ${e.detail}")),
-    .Ok(ended) => http.text(ctx, str.format(ctx, "ended ${ended.0} ${ended.1}")),
-  }
-}
-
-/// The three hooks, over a socket a worker dialled.
-///
-/// A worker has nowhere to print, so what the far side said reaches the world
-/// the only way it can: `onMessage` pushes it back on the socket, and the
-/// double's own log is where the test reads it.
-fn relaying<C: Allocator + Sockets + WebSocketClient>(path: Str): Client<C, Int> {
-  Client {
-    url: "wss://example.test/relay",
-    onOpen: fn(c, socket, _response) => {
-      let _sent = socket.send(c, .Text(str.format(c, "asking ${path}")));
-      0
-    },
-    onMessage: fn(c, socket, seen, message) => {
-      let said = match (message) {
-        .Text(text) => str.format(c, "heard text ${text.length()}:${text}"),
-        .Binary(data) => str.format(c, "heard binary ${data.length()}"),
-      };
-      let _sent = socket.send(c, .Text(said));
-      seen + 1
-    },
-    onClose: fn(_c, _socket, seen, _reason) => seen,
-  }
-}
-"#,
-    );
-    scratch.run(&["build", "//cmd/relay"]).ok();
-
-    let driver = scratch.write(
-        "drive.mjs",
-        r#"
-import worker from "./.buri/out/cloudflare-worker/cmd/relay/fetch.mjs";
-
-// Five dials, five endings, one script each. Everything is on a timer, so the
-// worker parks on each step and nothing here runs unless the event loop is
-// free — a `connect` that held it would not reach the open, let alone the
-// close.
-const scripts = [
-  // A socket that opened, carried three messages of three shapes, and closed
-  // normally. The empty text is a message like any other; the binary one
-  // arrives as the `ArrayBuffer` the runtime asked `binaryType` for.
-  (ws) => {
-    setTimeout(() => ws.onopen({}), 5);
-    setTimeout(() => ws.onmessage({ data: "pong" }), 10);
-    setTimeout(() => ws.onmessage({ data: "" }), 15);
-    setTimeout(() => ws.onmessage({ data: new Uint8Array([1, 2, 3]).buffer }), 20);
-    setTimeout(() => ws.onclose({ code: 1000, wasClean: true }), 25);
-  },
-  // A close carrying no code at all, which RFC 6455 calls 1005.
-  (ws) => {
-    setTimeout(() => ws.onopen({}), 5);
-    setTimeout(() => ws.onclose({ wasClean: true }), 10);
-  },
-  // An error on a socket that was open, which is the connection breaking:
-  // 1006, and there is no close frame to say otherwise.
-  (ws) => {
-    setTimeout(() => ws.onopen({}), 5);
-    setTimeout(() => ws.onerror({}), 10);
-  },
-  // The same two events before the handshake finished, which are not endings
-  // at all — they are a socket that never opened.
-  (ws) => {
-    setTimeout(() => ws.onerror({}), 5);
-  },
-  (ws) => {
-    setTimeout(() => ws.onclose({ code: 1006, wasClean: false }), 5);
-  },
-];
-
-const log = [];
-let at = 0;
-globalThis.WebSocket = class {
-  constructor(url) {
-    log.push(`dialled ${url}`);
-    this.protocol = "";
-    this.extensions = "";
-    scripts[at++](this);
-  }
-  send(data) {
-    log.push(`sent ${data}`);
-  }
-  close(code) {
-    log.push(`closed ${code}`);
-  }
-};
-
-for (const path of ["/rooms/9", "/b", "/c", "/d", "/e"]) {
-  const answer = await worker.fetch(new Request(`https://example.com${path}`));
-  console.log(`${answer.status} ${await answer.text()}`);
-}
-console.log(log.join("\n"));
-"#,
-    );
-
-    let out = Command::new(js_runtime())
-        .arg(&driver)
-        .output()
-        .expect("the javascript runtime runs");
-    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(out.status.success(), "the worker did not answer:\n{stdout}{stderr}");
-    assert_eq!(
-        stdout,
-        "200 ended .Normal 3\n\
-         200 ended .Abnormal 0\n\
-         200 ended .Abnormal 0\n\
-         200 no socket: the connection failed before the handshake finished\n\
-         200 no socket: the socket closed before the handshake finished\n\
-         dialled wss://example.test/relay\n\
-         sent asking /rooms/9\n\
-         sent heard text 4:pong\n\
-         sent heard text 0:\n\
-         sent heard binary 3\n\
-         dialled wss://example.test/relay\n\
-         sent asking /b\n\
-         dialled wss://example.test/relay\n\
-         sent asking /c\n\
-         dialled wss://example.test/relay\n\
-         dialled wss://example.test/relay\n",
-        "a worker did not dial, lost what it heard, or read an ending as the \
-         wrong one:\n{stderr}"
-    );
-}
-
 /// A website, both halves, driven the way the two platforms drive them.
 ///
 /// **The top of what a website can be asked.** The repository is
@@ -2268,6 +1754,36 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
              is /about"
         ),
         "and it must name both: {stderr}"
+    );
+}
+
+/// A Cloudflare Workers platform written into `scratch`, at
+/// `//platform/cloudflare_worker`: a host with an allocator, standard output, a
+/// clock and tasks, and a `fetch.mjs` that hands each request to the entry,
+/// the way the worker runtime calls a module's default export.
+fn write_worker_platform(scratch: &Scratch) {
+    scratch.write(
+        "platform/cloudflare_worker/BUILD.buri",
+        "platform {\n    entry {\n        name: \"fetch\"\n        backend: JS\n        js: \"fetch.mjs\"\n    }\n}\n",
+    );
+    scratch.write(
+        "platform/cloudflare_worker/platform.buri",
+        r#"from "platform/effect" import { Request, Response };
+from "platform/host" import { HostAllocator, HostClock, HostStdout, HostTasks };
+
+export struct CloudflareHost {
+    export alloc: HostAllocator,
+    export stdout: HostStdout,
+    export clock: HostClock,
+    export tasks: HostTasks,
+}
+
+export fn fetch(host: CloudflareHost, request: Request): Response;
+"#,
+    );
+    scratch.write(
+        "platform/cloudflare_worker/fetch.mjs",
+        "import { fetch } from \"buri:program\";\n\nexport default { fetch: (request) => fetch(request) };\n",
     );
 }
 
@@ -2564,7 +2080,7 @@ const press = (button) => button.listeners.click({ preventDefault() {}, target: 
 /// the worker called the way a worker runtime calls one, and the page imported
 /// on top of the document it sent.
 const WEBSITE_DRIVER: &str = r##"
-import worker from "./.buri/out/cloudflare-worker/cmd/site/fetch.mjs";
+import worker from "./.buri/out/platform/cloudflare_worker/cmd/site/fetch.mjs";
 
 const at = process.argv[2];
 // The address the worker was asked for, where it differs from the address bar.
@@ -2637,9 +2153,10 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
     scratch.write(
         "cmd/edges/BUILD.buri",
         "binary {\n    outputs: [\n        { platform: \"web\" },\n        \
-         { platform: CLOUDFLARE_WORKER },\n    ]\n}\n",
+         { platform: \"//platform/cloudflare_worker\" },\n    ]\n}\n",
     );
     scratch.write("cmd/edges/main.buri", RESUME_EDGES_PAGE);
+    write_worker_platform(&scratch);
     scratch.run(&["build", "//cmd/edges"]).ok();
 
     let driver = scratch.write("drive.mjs", &format!("{DOCUMENT_DOUBLE}\n{RESUME_EDGES_DRIVER}"));
@@ -2841,7 +2358,7 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
 /// what makes the markup match, and is the shape the guide teaches.
 const RESUME_EDGES_PAGE: &str = r#"
 from "platform/effect" import { Allocator, Request, Response, Stdout };
-from "core/host" import * as host;
+from "//platform/cloudflare_worker" import { CloudflareHost };
 from "web" import { WebHost };
 from "core/io" import * as io;
 from "core/json" import * as json;
@@ -3008,7 +2525,7 @@ export fn main(host: WebHost): Result<(), Str> {
     }
 }
 
-export fn fetch(request: Request): Response {
+export fn fetch(host: CloudflareHost, request: Request): Response {
     let ctx = context {
         Allocator: host.alloc,
     };
@@ -3037,7 +2554,7 @@ export fn fetch(request: Request): Response {
 /// looking for is not there — so a scenario cannot quietly stop perturbing
 /// anything when the page it is written against moves.
 const RESUME_EDGES_DRIVER: &str = r##"
-import worker from "./.buri/out/cloudflare-worker/cmd/edges/fetch.mjs";
+import worker from "./.buri/out/platform/cloudflare_worker/cmd/edges/fetch.mjs";
 
 const how = process.argv[2];
 const at = process.argv[3];
@@ -3143,14 +2660,15 @@ fn a_page_spawns_from_a_handler_after_main_returned() {
     scratch.write(
         "cmd/page/BUILD.buri",
         "binary {\n    outputs: [\n        { platform: \"web\" },\n        \
-         { platform: CLOUDFLARE_WORKER },\n    ]\n}\n",
+         { platform: \"//platform/cloudflare_worker\" },\n    ]\n}\n",
     );
+    write_worker_platform(&scratch);
     scratch.write(
         "cmd/page/main.buri",
         r#"
 from "core/bytes" import * as bytes;
 from "platform/effect" import { Allocator, Clock, Request, Response, Stdout, Tasks };
-from "core/host" import * as host;
+from "//platform/cloudflare_worker" import { CloudflareHost };
 from "web" import { WebHost };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -3211,7 +2729,7 @@ export fn main(host: WebHost): Result<(), Str> {
 /// The line is written as bytes rather than printed, because a worker's
 /// process does not end when `fetch` does and a buffered line would still be
 /// waiting when the platform read the answer.
-export fn fetch(request: Request): Response {
+export fn fetch(host: CloudflareHost, request: Request): Response {
     let ctx = context {
         Allocator: host.alloc,
         Clock: host.clock,
@@ -3308,7 +2826,7 @@ globalThis.document = {
 };
 
 // The worker first, called the way its platform calls it.
-const worker = await import("./.buri/out/cloudflare-worker/cmd/page/fetch.mjs");
+const worker = await import("./.buri/out/platform/cloudflare_worker/cmd/page/fetch.mjs");
 const answer = await worker.default.fetch(new Request("https://example.com/"));
 console.log(`${answer.status} ${await answer.text()}`);
 

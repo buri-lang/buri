@@ -50,7 +50,6 @@ const RETIRED_PLATFORM_NAMES: &[(&str, &str)] = &[
     ("MACOS", "backends: [NATIVE]"),
     ("JS", "backends: [JS]"),
     ("WEB", "platforms: [\"web\"]"),
-    ("CLOUDFLARE_WORKER", "platforms: [\"//platform/cloudflare_worker\"]"),
 ];
 
 /// The fix `CLOUDFLARE_WORKER` gets on an output. Cloudflare Workers is a
@@ -1170,6 +1169,16 @@ impl Reader {
                     None
                 }
             },
+            Value::Ident(s, sp) if s == "CLOUDFLARE_WORKER" => {
+                self.retired(
+                    *sp,
+                    s,
+                    "write `platforms: [\"//platform/cloudflare_worker\"]`, naming a platform of \
+                     your own under `//platform/`; `buri docs guides/custom-platforms` walks through \
+                     one",
+                );
+                None
+            }
             Value::Ident(s, sp) => {
                 match RETIRED_PLATFORM_NAMES.iter().find(|(old, _)| old == s) {
                     Some((_, now)) => self.retired(*sp, s, format!("write `{now}`")),

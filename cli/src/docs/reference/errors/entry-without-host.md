@@ -38,8 +38,8 @@ The host types are `NativeHost`, `NodeHost` and `WebHost`, from `"native"`,
 
 ## Why
 
-An entry used to build its context from `core/host`, which exported names half
-the platforms lacked. A host type lists exactly what its platform offers, so the
+An entry used to build its context from `core/host`, now retired, which
+exported names half the platforms lacked. A host type lists exactly what its platform offers, so the
 type checker says which effects a program can bind.
 
 ## A program that provokes it

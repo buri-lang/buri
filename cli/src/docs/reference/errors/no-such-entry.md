@@ -10,7 +10,9 @@ reproduction: none
 ```textproto schema=build
 binary {
     outputs: [
-        { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+        { platform: "node", entries: [
+            { name: "main", function: "mainForNode" },
+        ] },
     ]
 }
 ```

@@ -1,0 +1,10 @@
+error: //cmd/worker cannot be built for //platform/cloudflare_worker [platform-violation]
+ --> cmd/worker/BUILD.buri:4:9
+  |
+4 |         { platform: "//platform/cloudflare_worker" },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = //lib/anyjs is tagged "no_worker", which forbids //platform/cloudflare_worker
+  = reached by: //cmd/worker -> //lib/anyjs
+  = "no_worker": needs more than a worker's runtime has
+  = fix: drop the //platform/cloudflare_worker output, or take //platform/cloudflare_worker out of the tag's `forbids` in REPO.buri

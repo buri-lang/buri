@@ -1,0 +1,9 @@
+platform {
+    dependencies: ["//platform/effect/vars"]
+
+    entry {
+        name: "fetch"
+        backend: JS
+        js: "fetch.mjs"
+    }
+}

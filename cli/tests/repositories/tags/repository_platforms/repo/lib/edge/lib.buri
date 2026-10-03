@@ -1,0 +1,4 @@
+/// Only a worker may hold this.
+export fn region(): Str {
+    "edge"
+}

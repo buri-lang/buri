@@ -46,7 +46,9 @@ against the whole graph:
 binary {
     outputs: [
         { platform: "native", variant: "linux-x86_64" },
-        { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+        { platform: "node", entries: [
+            { name: "main", function: "mainForNode" },
+        ] },
     ]
 }
 ```
@@ -112,69 +114,11 @@ every package in the build, and an HTML shell that links the one and loads the
 other. Serve the directory. Writing the page is
 [user interfaces](./user-interfaces.md).
 
-## A worker
+## Another host
 
-`platform: CLOUDFLARE_WORKER` is the other JavaScript artifact: a module the
-platform *calls*, once per request, rather than a program that starts itself.
-It enters through `fetch`, or the function `entries: [{ name: "fetch", function: "..." }]` names.
-
-```textproto schema=build
-# cmd/site/BUILD.buri
-binary {
-    outputs: [
-        { platform: "web" },
-        { platform: CLOUDFLARE_WORKER },
-    ]
-}
-```
-
-```text
-$ buri build //cmd/site
-.buri/out/web/cmd/site/site.mjs (47662 bytes)
-.buri/out/cloudflare-worker/cmd/site/fetch.mjs (35559 bytes)
-```
-
-Two entries out of one `main.buri`, and the platform fixes each one's signature:
-a page is `fn main(host: WebHost): Result<(), Str>`, a worker is
-`fn fetch(request: Request): Response`. The wrong shape is a type error.
-
-Each entry is its own dead-code root, so the page carries nothing only the
-worker reaches and the worker carries nothing only the page does. A worker's
-`fetch` takes no host yet: it binds `core/host`'s values, which only a worker's
-module may import, and `main`'s `host` parameter shadows that import inside
-`main`.
-
-The worker's module ends in `export default { fetch }` instead of the
-self-starting epilogue every other JavaScript output gets. `buri run` never runs
-one: there is nothing to start. Build it, and let the platform call it.
-[Build a website](./websites.md) is both halves end to end.
-
-A worker reads its vars and secrets through `Environment`:
-
-```buri repo=cli/tests/repositories/build-files/several_entries/repo package=//cmd/worker role=entry
-from "core/env" import * as env;
-from "core/host" import * as host;
-from "core/net/http" import * as http;
-from "platform/effect" import { Allocator, Environment, Request, Response };
-
-export fn fetch(request: Request): Response {
-    let ctx = context {
-        Allocator: host.alloc,
-        Environment: host.env,
-    };
-    match (env.get(ctx, "API_KEY")) {
-        .Some(_) => http.text(ctx, "the key is bound"),
-        .None => http.status(500),
-    }
-}
-```
-
-`host.env` reads the `env` the platform calls the worker with. A `[vars]` entry
-in `wrangler.toml` and a `wrangler secret put` both arrive as a string, so
-`env.get` answers either one, and `env.all` lists every string binding. A
-binding to a resource, like a KV namespace, isn't a variable, so `env.get`
-answers `.None` for it. A worker has no command line, so `env.arguments` is
-empty.
+A JavaScript host the toolchain doesn't ship, like a Cloudflare Worker, is a
+platform your repository writes. [Write your own platform](./custom-platforms.md)
+builds one.
 
 ## Shipping part of it later
 

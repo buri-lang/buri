@@ -35,7 +35,7 @@ fn library_boundaries() {
 /// be built.
 #[test]
 fn tag_policy() {
-    run_corpus(&tests_dir().join("repositories/tags"), "tags", 7);
+    run_corpus(&tests_dir().join("repositories/tags"), "tags", 8);
 }
 
 /// CLI.md: the exit codes, and the commands whose contract is about what they
@@ -74,10 +74,10 @@ fn graph_queries() {
 /// otherwise refuses: the constructs that are out of scope, and the files that
 /// are not schemas at all. The sixth is `google.protobuf.Any`, which is a
 /// message like any other here and is resolved by name rather than recognised.
-/// The seventh is the platforms: one schema behind a `LINUX`, a `MACOS`, a
-/// `JS`, a `WEB` and a `CLOUDFLARE_WORKER` output, because a generated module
-/// is compiled once per platform and each of those is a compile that can fail
-/// on its own.
+/// The seventh is the platforms: one schema behind two `native` outputs, a
+/// `node`, a `web` and a repository platform's output, because a generated
+/// module is compiled once per platform and each of those is a compile that
+/// can fail on its own.
 ///
 /// The eighth is the generated *JSON* codec under a plain `buri test`, which is
 /// the native backend on a host that has one. A JSON number reaches a decoder
@@ -275,7 +275,7 @@ fn the_host_on_node() {
 /// honest.
 #[test]
 fn custom_platforms() {
-    run_corpus(&tests_dir().join("repositories/custom-platforms"), "custom-platforms", 2);
+    run_corpus(&tests_dir().join("repositories/custom-platforms"), "custom-platforms", 3);
 }
 
 /// `buri run` on a page: the flags that belong to the server it starts, and
@@ -1186,12 +1186,12 @@ impl Editor {
     fn warmed(scratch: &Scratch) -> Editor {
         let imports: String = buri::compiler::standard_library::MODULES
             .iter()
-            .filter(|module| !matches!(module.path, "core/host" | "platform/host"))
+            .filter(|module| module.path != "platform/host")
             .enumerate()
             .map(|(n, module)| format!("from \"{}\" import * as m{n};\n", module.path))
             .collect();
         // A binary and a test, because only a test may import a `testing`
-        // module. The two host modules are a platform's alone.
+        // module. `platform/host` is a platform's alone.
         scratch.write(
             &format!("{WARM_UP}/BUILD.buri"),
             "binary {\n    test {\n        sources: [\"test/warm.buri\"]\n    }\n}\n",
