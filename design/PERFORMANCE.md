@@ -1847,6 +1847,18 @@ themselves. With room
 for ten builds (`BURI_TEST_MEMORY_BYTES`) the edit pass drops to 4.9–5.2 s and
 cold stays where it is.
 
+So the budget is now bytes, not builds. Run one at a time, a suite's build adds
+25–440 MB to the peak, and the batch of 58 suites peaks at 1.9 GB for the whole
+run. Each build is queued with `64 MB + 400 × its repository source bytes`, an
+upper bound on every one of those, and the builds in flight share half the
+machine's memory. On 32 GB that is room for every worker.
+
+The generator tools weren't the cold pass's long pole either: building all
+five took 0.6 s. Running them did. The session asked the `proto` check about 33
+schemas one process at a time, then ran each rule one after another, for 6.1 s
+of `open_at` under load. Rules now run in rounds, side by side, with a rule's
+checks side by side too, and the same `open_at` takes 1.9 s.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
