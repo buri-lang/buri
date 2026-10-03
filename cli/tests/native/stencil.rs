@@ -113,6 +113,7 @@ fn workspace(name: &str) -> PathBuf {
 /// A C shim linked beside the program, whose destructor reports the
 /// runtime's allocation counters once `main` has returned.
 ///
+use crate::shard;
 use crate::shared::{self, probed, Ran, ALLOC_PROBE};
 
 /// The whole pipeline, for one snippet, with an optional C probe linked
@@ -2137,8 +2138,8 @@ const CORPUS_COMPILES: &[&str] = &[
 /// whether this host has a backend at all — and a ratchet that linked and ran
 /// thirty-eight programs to answer that would put the whole corpus through the
 /// gate twice, once there and once in the step after it. So the ratchet asks
-/// for [`Depth::Compile`] and the run test asks for [`Depth::Run`]; under
-/// `cargo test` the two children overlap and the deeper one sets the wall time.
+/// for [`Depth::Compile`] and the run test's shards ask for [`Depth::Run`];
+/// under `cargo test` the children overlap.
 const CENSUS: &str = "BURI_STENCIL_CENSUS";
 
 /// How far into a corpus file a census goes.
@@ -2247,31 +2248,15 @@ struct Report {
     ended: String,
 }
 
-/// The corpus, read once per depth for this process.
+/// The whole corpus at [`Depth::Compile`], read once for this process.
 ///
-/// Once, rather than once per test: what this replaces was two serial walks of
-/// the corpus, each running the whole front end, monomorphizer and backend over
-/// every file, and the second of them linking and running thirty-eight programs
-/// one after another. A memo per depth is what makes a second `#[test]` asking
-/// the same question free under `cargo test`; under `cargo nextest`, which puts
-/// every test in a process of its own, each pays for its own child — which is
-/// the arrangement CI already runs on purpose.
-fn census(depth: Depth) -> &'static Census {
+/// The whole corpus, because the count the ratchet prints is a count of the
+/// corpus and its second half is about files that are *not* on the list. The
+/// run test asks only for the files whose programs it asserts, a shard at a
+/// time: the ones the backend refuses have nothing to run.
+fn census() -> &'static Census {
     static COMPILED: OnceLock<Census> = OnceLock::new();
-    static RAN: OnceLock<Census> = OnceLock::new();
-    match depth {
-        // The whole corpus, because the count it prints is a count of the
-        // corpus and the ratchet's second half is about files that are *not*
-        // on the list.
-        Depth::Compile => COMPILED.get_or_init(|| collect(&corpus_files(), depth, "")),
-        // Only the files whose programs are asserted. The nine the backend
-        // refuses have nothing to run, and compiling them again here would be
-        // the ratchet's work done twice.
-        Depth::Run => RAN.get_or_init(|| {
-            let files: Vec<String> = CORPUS_COMPILES.iter().map(|p| (*p).to_string()).collect();
-            collect(&files, depth, "")
-        }),
-    }
+    COMPILED.get_or_init(|| collect(&corpus_files(), Depth::Compile, ""))
 }
 
 /// `files`, through one child, with whatever that child did not finish asked
@@ -2616,7 +2601,7 @@ fn the_corpus_census_is_a_ratchet() {
         report_census(&spec);
         return;
     }
-    let census = census(Depth::Compile);
+    let census = census();
     assert!(
         census.unfinished.is_empty(),
         "{} corpus files did not finish the census:\n{}",
@@ -2673,11 +2658,13 @@ fn the_corpus_census_is_a_ratchet() {
 /// Linux/arm64 job selects `stencil::` by name and this is the test in that
 /// selection that runs a program per corpus file.
 ///
-/// It shares the census's child rather than compiling the corpus a second
-/// time: the objects it needs were emitted while the ratchet was being
-/// counted, and linking them where they were made is what the batch buys.
-#[test]
-fn the_corpus_files_it_compiles_pass() {
+/// Each file is compiled, linked and run in a census child at
+/// [`Depth::Run`], the same child the ratchet uses at [`Depth::Compile`].
+///
+/// The files are four tests, `the_corpus_files_it_compiles_pass::shard_0` to
+/// `shard_3`, each with a child of its own (`harness/shard.rs`). One child ran
+/// the forty programs one after another and was a minute or more of the run.
+fn corpus_files_shard(at: usize, count: usize) {
     if !supported() {
         return;
     }
@@ -2687,24 +2674,36 @@ fn the_corpus_files_it_compiles_pass() {
     if std::env::var_os(CENSUS).is_some() {
         return;
     }
-    let census = census(Depth::Run);
+    let mine: Vec<&str> = shard::of(CORPUS_COMPILES, at, count).into_iter().copied().collect();
+    assert!(!mine.is_empty(), "shard {at} of {count} holds no corpus file");
+    let files: Vec<String> = mine.iter().map(|p| (*p).to_string()).collect();
+    let census = collect(&files, Depth::Run, "");
     assert!(
         census.unfinished.is_empty(),
         "{} corpus files did not finish the census:\n{}",
         census.unfinished.len(),
         census.unfinished.join("\n")
     );
-    for path in CORPUS_COMPILES {
+    for path in &mine {
         let (package, file) = path.split_once('/').unwrap_or((path, ""));
         let full = corpus().join(package).join("test").join(file);
         let source = std::fs::read_to_string(&full).unwrap();
         let blocks = source.matches("\ntest \"").count();
         assert!(blocks > 0, "`{path}` has no test blocks, so running it proves nothing");
     }
-    let failures = failures_in(census, CORPUS_COMPILES);
+    let failures = failures_in(&census, &mine);
     // Every failing file, not the first: two platforms failing on two
     // different files is one report here and two runs otherwise.
     assert!(failures.is_empty(), "{} corpus files failed:\n{}", failures.len(), failures.join("\n"));
+}
+
+shards! {
+    the_corpus_files_it_compiles_pass(corpus_files_shard, corpus_files_count) =
+        shard_0 shard_1 shard_2 shard_3;
+}
+
+fn corpus_files_count() -> usize {
+    CORPUS_COMPILES.len()
 }
 
 /// Every file in `wanted` the census did not run, or ran to a non-zero exit, as
