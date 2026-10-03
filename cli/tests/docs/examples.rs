@@ -398,6 +398,11 @@ fn every_example_is_laid_out_the_way_the_formatter_writes_source() {
                 layout::Verdict::Drifted(_) => drifted.push(block.origin.to_string()),
             }
         }
+        // A blessing run rewrites a page with `format_document`, textproto
+        // fences included, so a page it would rewrite is one this run fails.
+        if file.ends_with(".md") && layout::format_document(file, text).is_some() {
+            drifted.push(format!("{file}: a fence `buri format` would rewrite"));
+        }
     };
 
     for t in topics::TOPICS {
