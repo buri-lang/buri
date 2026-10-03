@@ -152,13 +152,10 @@ fn a_generated_module_links_into_the_hosts_native_artifact() {
     let scratch = repository("generators-native");
     let run = scratch.run(&["run", "//cmd/point"]);
     if !ran_natively(&run) {
-        ci::skipped(
+        ci::native_program_failed(
             "build::generators",
-            &format!(
-                "this toolchain builds no native artifact for {}, so nothing linked:\n{}",
-                host_platform(),
-                run.all()
-            ),
+            &format!("the native build for {} was refused", host_platform()),
+            &run.all(),
         );
         return;
     }
