@@ -205,19 +205,44 @@ pub fn memory_bytes() -> Option<u64> {
 /// function of an index: `buri test` builds and runs its suites on one.
 ///
 /// A job may queue more jobs. A *heavy* job holds a whole program in memory, so
-/// [`Queue::push`] waits while the pool's limit of heavy jobs are already
-/// queued or running.
+/// [`Queue::push`] waits while the pool's limit of heavy jobs hold one. A job
+/// holds its program from the moment it is queued until it drops the [`Held`]
+/// its worker hands it, which is usually long before it finishes: a suite
+/// emits or links, lets go of its program, and only then runs.
 pub struct Queue<J> {
     state: std::sync::Mutex<QueueState<J>>,
     ready: std::sync::Condvar,
-    room: std::sync::Condvar,
-    heavy_limit: usize,
+    room: Room,
 }
 
 struct QueueState<J> {
     jobs: std::collections::VecDeque<(J, bool)>,
-    heavy: usize,
     closed: bool,
+}
+
+/// How many heavy jobs hold a program, and the limit on that.
+struct Room {
+    held: std::sync::Mutex<usize>,
+    freed: std::sync::Condvar,
+    limit: usize,
+}
+
+/// A heavy job's claim on the pool's room for programs. Dropping it says the
+/// job no longer holds one, and lets the next heavy job be queued. A light
+/// job's claims nothing.
+#[must_use = "dropping it at once lets another program in while this one is still held"]
+pub struct Held<'a> {
+    room: Option<&'a Room>,
+}
+
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        if let Some(room) = self.room {
+            let mut held = room.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            *held = held.saturating_sub(1);
+            room.freed.notify_all();
+        }
+    }
 }
 
 impl<J> Queue<J> {
@@ -227,12 +252,15 @@ impl<J> Queue<J> {
 
     /// Queues a job behind the others, waiting first for room if it is heavy.
     pub fn push(&self, job: J, heavy: bool) {
-        let mut state = self.lock();
-        while heavy && state.heavy >= self.heavy_limit {
-            state = self.room.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+        if heavy {
+            let room = &self.room;
+            let mut held = room.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            while *held >= room.limit {
+                held = room.freed.wait(held).unwrap_or_else(std::sync::PoisonError::into_inner);
+            }
+            *held = held.saturating_add(1);
         }
-        state.heavy = state.heavy.saturating_add(usize::from(heavy));
-        state.jobs.push_back((job, heavy));
+        self.lock().jobs.push_back((job, heavy));
         self.ready.notify_one();
     }
 
@@ -242,24 +270,16 @@ impl<J> Queue<J> {
         self.ready.notify_one();
     }
 
-    fn take(&self) -> Option<(J, bool)> {
+    fn take(&self) -> Option<(J, Held<'_>)> {
         let mut state = self.lock();
         loop {
-            if let Some(job) = state.jobs.pop_front() {
-                return Some(job);
+            if let Some((job, heavy)) = state.jobs.pop_front() {
+                return Some((job, Held { room: heavy.then_some(&self.room) }));
             }
             if state.closed {
                 return None;
             }
             state = self.ready.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
-        }
-    }
-
-    fn finished(&self, heavy: bool) {
-        if heavy {
-            let mut state = self.lock();
-            state.heavy = state.heavy.saturating_sub(1);
-            self.room.notify_all();
         }
     }
 
@@ -269,16 +289,19 @@ impl<J> Queue<J> {
     }
 }
 
-/// Starts `width` workers running `work`, at most `heavy_limit` of them on heavy
-/// jobs, and hands `drive` the queue and the results. Returns once `drive` does
-/// and the workers have stopped.
+/// Starts `width` workers running `work`, and hands `drive` the queue and the
+/// results. Returns once `drive` does and the workers have stopped.
+///
+/// At most `heavy_limit` heavy jobs hold a program at once. It limits nothing
+/// else: a job that has dropped its [`Held`] leaves its worker free to run
+/// beside the others, so `width` jobs can always be in flight.
 ///
 /// A result is `None` when its job panicked, so `drive` never waits for a result
 /// that will not come.
 pub fn pool<J, R, T>(
     width: usize,
     heavy_limit: usize,
-    work: impl Fn(J, &Queue<J>) -> R + Sync,
+    work: impl Fn(J, Held<'_>, &Queue<J>) -> R + Sync,
     drive: impl FnOnce(&Queue<J>, &std::sync::mpsc::Receiver<Option<R>>) -> T,
 ) -> T
 where
@@ -288,12 +311,14 @@ where
     let queue = Queue {
         state: std::sync::Mutex::new(QueueState {
             jobs: std::collections::VecDeque::new(),
-            heavy: 0,
             closed: false,
         }),
         ready: std::sync::Condvar::new(),
-        room: std::sync::Condvar::new(),
-        heavy_limit: heavy_limit.max(1),
+        room: Room {
+            held: std::sync::Mutex::new(0),
+            freed: std::sync::Condvar::new(),
+            limit: heavy_limit.max(1),
+        },
     };
     let (send, receive) = std::sync::mpsc::channel();
     std::thread::scope(|scope| {
@@ -303,11 +328,11 @@ where
                 .name("buri-job".into())
                 .stack_size(STACK)
                 .spawn_scoped(scope, move || {
-                    while let Some((job, heavy)) = queue.take() {
+                    while let Some((job, held)) = queue.take() {
+                        // A job that panics drops its `Held` as it unwinds.
                         let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            work(job, queue)
+                            work(job, held, queue)
                         }));
-                        queue.finished(heavy);
                         let _ = send.send(done.ok());
                     }
                 });
