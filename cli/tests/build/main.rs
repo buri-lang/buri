@@ -50,6 +50,7 @@ mod heap;
 mod hermeticity;
 mod incrementality;
 mod init;
+mod instances;
 mod repositories;
 mod serving;
 mod watch;
