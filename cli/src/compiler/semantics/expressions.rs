@@ -376,7 +376,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.lit_checks.push(LitCheck {
                     value,
                     negative: false,
-                    raw: raw.to_string(),
+                    raw,
                     ty: ty.clone(),
                     span,
                 });
@@ -2684,7 +2684,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.lit_checks.push(LitCheck {
                     value,
                     negative: true,
-                    raw: raw.to_string(),
+                    raw,
                     ty: ty.clone(),
                     span,
                 });
