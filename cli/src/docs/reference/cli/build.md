@@ -50,8 +50,8 @@ build of an unchanged tree does no work. Keys are content-addressed, so moving
 the checkout, or building the same commit on another machine, hits the same
 entries.
 
-A file lock serializes cache writes and reads take none, so any number of `buri`
-processes can work in one repository at once.
+Cache reads and writes take no lock, so any number of `buri` processes can work
+in one repository at once.
 
 ## Reproducibility
 
