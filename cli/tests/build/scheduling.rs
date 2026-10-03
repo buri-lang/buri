@@ -45,7 +45,11 @@ fn wait_for(condition: &str, why: &str) -> String {
     )
 }
 
-/// Two suites are in flight at once.
+/// The memory of a host with room for one build at a time, so these tests run
+/// the way they would on a small machine whatever this one has.
+const SMALL_HOST: (&str, &str) = ("BURI_TEST_MEMORY_BYTES", "8589934592");
+
+/// Two suites are in flight at once, even on a host with room for one build.
 ///
 /// Each suite's runtime waits until the other's has started. Run one after the
 /// other, the first would wait alone and fail; side by side, both go at once.
@@ -66,7 +70,10 @@ fn two_suites_run_side_by_side() {
             ),
         ),
     );
-    let run = scratch.run_with_env(&["test", "//...", "--output=js", "--jobs=2"], &[("BURI_JS", &script)]);
+    let run = scratch.run_with_env(
+        &["test", "//...", "--output=js", "--jobs=2"],
+        &[("BURI_JS", &script), SMALL_HOST],
+    );
     run.ok();
     assert_eq!(run.tests_passed(), 2, "the suites did not both run:\n{}", indent(&run.all()));
 }
@@ -94,7 +101,7 @@ fn the_report_is_in_suite_order_whichever_finishes_first() {
     let report = || {
         let _ = std::fs::remove_file(&done);
         let run = scratch
-            .run_with_env(&["test", "//...", "--output=js", "--jobs=2"], &[("BURI_JS", &script)]);
+            .run_with_env(&["test", "//...", "--output=js", "--jobs=2"], &[("BURI_JS", &script), SMALL_HOST]);
         run.exits(1);
         // Everything but the summary line, which carries the time taken.
         run.stdout.lines().filter(|l| !l.contains(" passed, ")).collect::<Vec<_>>().join("\n")
