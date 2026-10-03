@@ -6,25 +6,23 @@ note: "`self` and `ctx` are not counted, so {limit} is the limit on the data a c
 fix: group the parameters that always travel together into a struct, and take that instead
 adapted-from: habit-hooks (https://github.com/habit-hooks/habit-hooks) guides/too-many-parameters.md, © 2026 Ivett Ördög, used under the MIT license
 ---
-A high parameter count is a sign of coupling. Parameters that travel together
-across several calls are a missing abstraction.
+Parameters that travel together across calls are a missing abstraction. To find
+it:
 
-**Find the missing abstraction:**
-1. Look at the call sites and nearby functions. Is there already a type a group
-   of these parameters belongs to? Values that keep appearing side by side are
-   the entity, and it is usually one of the domain's own nouns.
-2. If there is none, create it, then move the behaviour that uses those fields
-   onto it.
-3. If one value owns most of the parameters, it may be the natural home for this
-   function — or the function should take that value instead.
-4. Use it everywhere it fits, not only at the site that fired. A call passing
-   three of its fields is the same concept sitting under the threshold.
+- Look at the call sites and nearby functions for a type a group of these
+  parameters already belongs to. Values that keep appearing side by side are
+  usually one of the domain's nouns.
+- If there's none, create it, and move the behaviour that uses those fields onto
+  it.
+- If one value owns most of the parameters, the function may belong on it, or
+  should take it instead.
+- Use the new type everywhere it fits, not just here. A call passing three of
+  its fields is the same concept under the threshold.
 
-Useful tip: rewrite each call site with the signature that feels natural there,
-and let that shape the final function.
+Try rewriting each call site with the signature that feels natural there, and
+let that shape the function.
 
-**AVOID**: a `{ ...everything }` bag that merely renames the list. A `FooProps`
-or options value named after the function that takes it is the same bag,
-organised by function rather than by abstraction, so the next function invents
-another one and the concept stays unnamed. You are done when the entity carries
-a domain name and no call site still passes its fields loose.
+**Avoid** a `{ ...everything }` bag that just renames the list. A `FooProps`
+named after its function is the same bag, so the next function invents another
+and the concept stays unnamed. You're done when the type has a domain name and
+no call site passes its fields loose.

@@ -5,22 +5,14 @@ message: "nothing constructs or matches `{type}.{name}`"
 note: a variant nothing builds is a case the value can never be in, and every `match` on the enum still carries an arm for it
 fix: delete the variant, or construct it
 ---
-An enum is a claim about the cases a value can be in, and an unreachable case is
-not free: every reader has to work out what puts a value there.
+Every reader has to work out what could put a value in an unreachable case.
 
-A `_` arm names no variant, so an enum matched only by wildcard has nothing
-keeping its variants alive. A wildcard is what you write when you do not care
-which case it is, which is the opposite of evidence that a particular case
-occurs.
+- A `_` arm keeps no variant alive, since it says you don't care which case
+  occurs.
+- Naming the variant in a pattern does keep it alive, even if nothing constructs
+  it. Whoever wrote that arm thought the case could happen; check who's right
+  before deleting.
+- A `derive` keeps no variant alive.
 
-Naming the variant in a pattern is enough on its own, even with nothing
-constructing it. Somebody wrote that arm because they believe the case can
-happen, and the disagreement between that belief and the constructors is worth a
-look rather than a deletion.
-
-A `derive` does not keep a variant alive: a derived fold reads every field's
-value, and it puts a value into no case at all.
-
-The rule does not report an enum on a surface — `lib.buri` for a library's,
-`testing/lib.buri` for a fixture's. A consumer this analysis cannot see may
-build any of its cases.
+Enums on a surface (`lib.buri`, or `testing/lib.buri` for a fixture) are never
+reported, since an unseen consumer may build any case.
