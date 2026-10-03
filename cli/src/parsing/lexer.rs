@@ -214,13 +214,23 @@ const WORD_TABLE: [(u64, Option<Word>); WORD_SLOTS] = {
 };
 
 impl Word {
-    /// What an identifier-shaped run of bytes is, or `None` for an ordinary
-    /// identifier.
-    fn of(word: &[u8]) -> Option<Word> {
-        if word.len() > 8 {
+    /// What the identifier-shaped run of `len` bytes at the start of `rest`
+    /// is, or `None` for an ordinary identifier.
+    ///
+    /// `rest` runs on past the word, so that where eight bytes are there the
+    /// key is one load and a mask rather than a loop over the word's bytes.
+    fn of(rest: &[u8], len: usize) -> Option<Word> {
+        let word = rest.get(..len).unwrap_or(&[]);
+        if len > 8 {
             return (word == b"unreachable").then_some(Word::Reserved);
         }
-        let key = word_key(word);
+        let key = match rest.first_chunk::<8>() {
+            Some(eight) => {
+                let unused = 64usize.wrapping_sub(len.wrapping_mul(8)) as u32;
+                u64::from_le_bytes(*eight) & u64::MAX.checked_shr(unused).unwrap_or(0)
+            }
+            None => word_key(word),
+        };
         match WORD_TABLE.get(word_slot(key)) {
             Some(&(k, found)) if k == key => found,
             _ => None,
@@ -1383,9 +1393,8 @@ impl<'a> Lexer<'a> {
     fn ident(&mut self, start: usize) {
         let rest = self.src.get(start..).unwrap_or(&[]);
         let len = rest.iter().position(|c| !is_ident_continue(*c)).unwrap_or(rest.len());
-        let word = rest.get(..len).unwrap_or(&[]);
         self.pos = start.saturating_add(len);
-        match Word::of(word) {
+        match Word::of(rest, len) {
             Some(Word::Kind(kind)) => self.push(kind, 0, start),
             Some(Word::Reserved) => {
                 let span = self.span(start);
@@ -1735,9 +1744,16 @@ mod keyword_tests {
     /// each keyword has to be in it and lex to its own kind.
     #[test]
     fn every_keyword_lexes_as_itself() {
+        // Alone, and with enough after it that the key is read eight bytes at
+        // a time; and one letter longer, which is an identifier.
         for k in Keyword::ALL {
-            let l = super::lex(k.text(), crate::diagnostics::FileId(0));
-            assert_eq!(l.tokens.kind(0), super::TokenKind::of_keyword(*k), "{}", k.text());
+            for text in [k.text().to_string(), format!("{} padding", k.text())] {
+                let l = super::lex(&text, crate::diagnostics::FileId(0));
+                assert_eq!(l.tokens.kind(0), super::TokenKind::of_keyword(*k), "{text}");
+            }
+            let longer = format!("{}x padding", k.text());
+            let l = super::lex(&longer, crate::diagnostics::FileId(0));
+            assert_eq!(l.tokens.kind(0), super::TokenKind::Ident, "{longer}");
         }
     }
 }
