@@ -494,6 +494,7 @@ impl<'a> Checker<'a> {
             trait_id,
             self_con: con,
             head,
+            generics: Vec::new(),
             body: ImplBody::Written(slots),
             span: Span::NONE,
         });
@@ -509,6 +510,7 @@ impl<'a> Checker<'a> {
             trait_id,
             self_con: con,
             head,
+            generics: Vec::new(),
             body: ImplBody::Derived,
             span: Span::NONE,
         });
