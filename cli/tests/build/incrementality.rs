@@ -2273,6 +2273,92 @@ fn a_comparing_run_is_not_served_an_update_runs_verdict() {
     );
 }
 
+/// A suite's verdict depends on the goldens it compares against, so a cached
+/// pass must not outlive an edit to one.
+///
+/// The goldens in a package's `test/__snapshots__` were in no key: editing or
+/// deleting one left the suite's key where it was, and the next plain run was
+/// served the pass from before the edit. Each step below changes only the
+/// golden on disk and checks that the suite runs again, and that its verdict is
+/// the one the golden now gives. A file that is not a golden changes nothing.
+#[test]
+fn a_cached_pass_does_not_outlive_an_edit_to_its_golden() {
+    let scratch = Scratch::repo("golden-in-test-key");
+    painting_package(&scratch, "pic");
+    // Paints a different word, so its golden is a picture `//lib/pic` does
+    // not paint.
+    painting_package(&scratch, "decoy");
+
+    let recorded = scratch.run(&["test", "//...", "--update"]);
+    if recorded.stderr.contains("native-run-not-available") {
+        recorded.exits(1);
+        return;
+    }
+    recorded.ok();
+    let golden = "lib/pic/test/__snapshots__/panel.png";
+    let original = std::fs::read(scratch.path(golden)).expect("the recorded golden");
+
+    scratch.run(&["test", "//lib/pic"]).ok();
+    let warm = scratch.run(&["test", "//lib/pic", "--explain"]);
+    warm.ok();
+    assert_eq!(status(&warm, "test //lib/pic"), "cached", "{}", indent(&warm.all()));
+
+    // Not goldens: a note beside them, and a file elsewhere in the package.
+    scratch.write("lib/pic/test/__snapshots__/NOTES.txt", "not a golden\n");
+    scratch.write("lib/pic/NOTES.txt", "not a golden either\n");
+    let unrelated = scratch.run(&["test", "//lib/pic", "--explain"]);
+    unrelated.ok();
+    assert_eq!(
+        status(&unrelated, "test //lib/pic"),
+        "cached",
+        "a file that is not a golden re-ran the suite:\n{}",
+        indent(&unrelated.all())
+    );
+
+    // Edited: the golden now holds a different picture.
+    std::fs::copy(scratch.path("lib/decoy/test/__snapshots__/panel.png"), scratch.path(golden))
+        .expect("overwriting the golden");
+    let edited = scratch.run(&["test", "//lib/pic", "--explain"]);
+    assert_eq!(
+        status(&edited, "test //lib/pic"),
+        "run",
+        "an edited golden was served a cached verdict:\n{}",
+        indent(&edited.all())
+    );
+    edited.exits(1);
+    assert!(
+        edited.all().contains("the snapshot \"panel\" changed"),
+        "the edited golden did not fail the suite:\n{}",
+        indent(&edited.all())
+    );
+
+    // Restored, so the suite passes and is cached again.
+    std::fs::write(scratch.path(golden), &original).expect("restoring the golden");
+    scratch.run(&["test", "//lib/pic"]).ok();
+
+    // Deleted: there is nothing to compare against.
+    std::fs::remove_file(scratch.path(golden)).expect("deleting the golden");
+    let deleted = scratch.run(&["test", "//lib/pic", "--explain"]);
+    assert_eq!(
+        status(&deleted, "test //lib/pic"),
+        "run",
+        "a deleted golden was served a cached verdict:\n{}",
+        indent(&deleted.all())
+    );
+    deleted.exits(1);
+    assert!(
+        deleted.all().contains("no snapshot for \"panel\""),
+        "the deleted golden did not fail the suite:\n{}",
+        indent(&deleted.all())
+    );
+
+    // Added back: the suite compares against it and passes.
+    std::fs::write(scratch.path(golden), &original).expect("adding the golden");
+    let added = scratch.run(&["test", "//lib/pic"]);
+    added.ok();
+    assert_eq!(added.tests_passed(), 1, "{}", indent(&added.all()));
+}
+
 /// A plain `buri test` must never serve a cached pass over content that
 /// currently fails — the worst thing a cache can be is not slow but wrong.
 ///

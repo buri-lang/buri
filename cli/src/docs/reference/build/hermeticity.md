@@ -140,6 +140,7 @@ Given `//cmd/server` → `//lib/ledger` → `//lib/money`:
 | Adding a `tag` to `//lib/store` | No compilation. The tag check is a graph pass over cached facts that passes or fails a link. |
 | A rebuilt toolchain | Everything, even a rebuild of the same `buri` version. A different compiler makes a different artifact. |
 | A test file | That suite's `compile` and `test`. Nothing depends on a test. |
+| A golden in `test/__snapshots__`, edited, added or deleted | The `test` of every suite in that package. A `.diff.png` reruns nothing. |
 | A file in a library named by `test { dependencies }` | The `test` of every suite that names it, plus the `compile` and `link` of anything depending on it in production. Being a test dependency moves no artifact's key. |
 
 ## Reproducibility

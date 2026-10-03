@@ -797,6 +797,7 @@ pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
             k.file(rel, contents.as_deref());
         }
     }
+    goldens(&package.dir, &mut k);
     // A recording run and a comparing run are two kinds of result and must not
     // share a cache entry. `--update` paints goldens and never compares, so its
     // verdict is always "passed" — it proves a file was written, never that the
@@ -810,6 +811,30 @@ pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
         k.input("update", b"1");
     }
     k.finish()
+}
+
+/// Every golden in the package's `test/__snapshots__`, which a snapshot
+/// compares against (`cli/runtime/snapshot.rs`), so a suite's verdict depends
+/// on them as much as on its sources.
+///
+/// The whole directory rather than the goldens this suite reads: which names a
+/// suite snapshots is known only once it runs. A golden is `<name>.png`. A
+/// `<name>.diff.png` is not one: the runtime writes it beside a changed
+/// snapshot and removes it on a pass, so keying it would move the key under
+/// the run that stores it. Sorted, so the key does not depend on the order the
+/// directory lists in. Its being absent adds nothing, which is what a package
+/// with no goldens has always keyed.
+fn goldens(package_dir: &std::path::Path, k: &mut KeyBuilder) {
+    let dir = package_dir.join("test").join("__snapshots__");
+    let Ok(entries) = std::fs::read_dir(&dir) else { return };
+    let mut names: Vec<String> = entries
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .filter(|n| n.ends_with(".png") && !n.ends_with(".diff.png"))
+        .collect();
+    names.sort();
+    for name in names {
+        k.file(&format!("test/__snapshots__/{name}"), std::fs::read(dir.join(&name)).ok().as_deref());
+    }
 }
 
 /// The middle end and then a backend, over one monomorphized program.
