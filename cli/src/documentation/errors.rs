@@ -299,7 +299,6 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("type-not-crossable", "A value crosses to a `js` file by the crossing table", &["build/platforms"]),
     e!("type-not-value", "A type's name is not a value"),
     e!("typed-self", "`self` is written without a type", &["language/expressions"]),
-    e!("unbound-effect", "A context binds every effect its callee needs"),
     e!("unbraced-unicode-escape", "A Unicode escape braces its code point"),
     e!("unclosed-delimiter", "Every delimiter a construct opens is closed"),
     e!("undeclared-testing-surface", "A `testing/` directory is declared by a `testing` block", &["build/build-files"]),
