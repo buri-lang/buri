@@ -714,8 +714,8 @@ computes `test_key`, consults `Cache`, and returns cached results with
 `Provenance::Cache` when the key hits. The key reads each `.buri` file as the
 compiler does (`lexer::program_text`): tokens, doc comments and line breaks,
 not `//` comments or indentation. So saving a comment edit is a pass that
-re-runs nothing. Whatever misses is compiled on this thread and built and run
-on `--jobs` workers, and the report is printed in suite order. Only a clean run is cached,
+re-runs nothing. Whatever misses is loaded on this thread, then checked, built
+and run on `--jobs` workers, and the report is printed in suite order. Only a clean run is cached,
 deliberately — "a failure is what you are trying to fix, and re-running it
 should re-run it" (`test.rs`) — which is exactly what a watch loop wants.
 
