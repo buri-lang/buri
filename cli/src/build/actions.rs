@@ -484,6 +484,22 @@ fn host_file(
     };
     let text = session.map.text(file).to_string();
     let exports = crate::build::hosted::read(&text);
+    // `buri:program` holds this artifact's entry and nothing else, and
+    // `buri:ui` its two functions. Any other name would arrive `undefined`.
+    for (module, name, at) in &exports.named {
+        let offered: &[&str] = if *module == "buri:program" { &[point] } else { &["signal", "write"] };
+        if !offered.contains(&name.as_str()) {
+            diagnostics.push(
+                Diagnostic::templated("unknown-export", Span::new(file, *at, *at))
+                    .with_bind("path", *module)
+                    .with_bind("name", name.as_str())
+                    .with_note(format!("`{module}` exports {}", offered.iter().map(|o| format!("`{o}`")).collect::<Vec<_>>().join(" and "))),
+            );
+        }
+    }
+    if diagnostics.has_errors() {
+        return Err(std::mem::take(diagnostics));
+    }
     let gaps = crate::build::hosted::gaps(&exports, &needed);
     for gap in &gaps {
         let mut d = Diagnostic::templated("host-file-missing-method", Span::new(file, gap.at, gap.at))
@@ -836,16 +852,24 @@ pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
 /// directory lists in. Its being absent adds nothing, which is what a package
 /// with no goldens has always keyed.
 fn goldens(package_dir: &std::path::Path, k: &mut KeyBuilder) {
-    let dir = package_dir.join("test").join("__snapshots__");
-    let Ok(entries) = std::fs::read_dir(&dir) else { return };
+    for rel in golden_files(package_dir) {
+        k.file(&rel, std::fs::read(package_dir.join(&rel)).ok().as_deref());
+    }
+}
+
+/// The goldens [`goldens`] keys, package-relative and sorted. `--watch`
+/// watches the same list.
+pub fn golden_files(package_dir: &std::path::Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(package_dir.join("test").join("__snapshots__")) else {
+        return Vec::new();
+    };
     let mut names: Vec<String> = entries
         .filter_map(|e| e.ok()?.file_name().into_string().ok())
         .filter(|n| n.ends_with(".png") && !n.ends_with(".diff.png"))
+        .map(|n| format!("test/__snapshots__/{n}"))
         .collect();
     names.sort();
-    for name in names {
-        k.file(&format!("test/__snapshots__/{name}"), std::fs::read(dir.join(&name)).ok().as_deref());
-    }
+    names
 }
 
 /// The middle end and then a backend, over one monomorphized program.

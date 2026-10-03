@@ -432,6 +432,10 @@ impl Workspace {
         dirs.sort();
 
         let mut packages = Vec::new();
+        // Platform rules the reader refused something in. Their outputs aren't
+        // checked against them, so the rule's error isn't followed by one per
+        // output that names an entry the rule lost.
+        let mut refused: Vec<String> = Vec::new();
         for path in dirs {
             let dir = if path.is_empty() { root.to_path_buf() } else { root.join(&path) };
             let build_path = dir.join("BUILD.buri");
@@ -442,6 +446,9 @@ impl Workspace {
             };
             let id = map.load(&rel, &build_path)?;
             let read = buildfile::read_build_file(map.text(id), id);
+            if read.value.platform.is_some() && !read.errors.is_empty() {
+                refused.push(path.clone());
+            }
             diagnostics.extend(read.errors);
             let name = path.rsplit('/').next().filter(|n| !n.is_empty()).unwrap_or("<name>");
             let misplaced = [
@@ -495,7 +502,7 @@ impl Workspace {
             .enumerate()
             .map(|(i, p)| (p.path.clone(), PackageId(i as u32)))
             .collect();
-        resolve_custom_outputs(&mut packages, &by_path, diagnostics);
+        resolve_custom_outputs(&mut packages, &by_path, &refused, diagnostics);
         check_artifact_paths(root, &packages, diagnostics);
         let mut sorted_paths: Vec<(String, PackageId)> =
             by_path.iter().map(|(k, v)| (k.clone(), *v)).collect();
@@ -1294,6 +1301,7 @@ impl Workspace {
 fn resolve_custom_outputs(
     packages: &mut [Package],
     by_path: &HashMap<String, PackageId>,
+    refused: &[String],
     diagnostics: &mut Diagnostics,
 ) {
     use buildfile::{NativePlatform, OutputTarget};
@@ -1311,6 +1319,9 @@ fn resolve_custom_outputs(
                 continue;
             };
             let path = custom.package_path().to_string();
+            if refused.contains(&path) {
+                continue;
+            }
             let rule = by_path.get(&path).and_then(|_| rules.get(&path));
             let Some(rule) = rule.filter(|_| is_platform_directory(&path)) else {
                 let platforms: Vec<&str> = rules.keys().map(String::as_str).collect();

@@ -203,6 +203,11 @@ pub struct Exports {
     /// Whether the file imports `buri:ui`, the reactive graph the backend
     /// publishes, so the program has to hand it over.
     pub ui: bool,
+    /// Every name the file imports from `buri:program` or `buri:ui`, with the
+    /// module and where the import is: `default` for a default import.
+    pub named: Vec<(&'static str, String, usize)>,
+    /// How many re-exports have been given a local name.
+    reexports: usize,
 }
 
 impl Exports {
@@ -375,17 +380,65 @@ fn named_list(lexemes: &[Lexeme], open: usize) -> (Vec<(String, String)>, usize)
     (out, i)
 }
 
+/// Whether the file waits outside every function: an `await` that no
+/// function body or arrow function encloses, however deep in brackets it is.
+fn waits_at_top_level(lexemes: &[Lexeme]) -> bool {
+    // One entry per open bracket: whether it opens a function body.
+    let mut open: Vec<bool> = Vec::new();
+    // Where each open `(` is, so a `{` after its `)` can look before it.
+    let mut parens: Vec<usize> = Vec::new();
+    let mut closed_paren: Option<usize> = None;
+    // The bracket depth of each arrow function whose body is an expression:
+    // it ends at a `,` or `;` at that depth, or at the bracket enclosing it.
+    let mut arrows: Vec<usize> = Vec::new();
+    let token = |k: usize| lexemes.get(k).map(|l| &l.token);
+    for (i, l) in lexemes.iter().enumerate() {
+        let before = i.checked_sub(1).and_then(token);
+        match &l.token {
+            Token::Punct('(') => {
+                parens.push(i);
+                open.push(false);
+            }
+            Token::Punct('[') => open.push(false),
+            Token::Punct('{') => {
+                let function = match before {
+                    Some(Token::Arrow) => true,
+                    Some(Token::Ident(w)) => w == "static",
+                    // `if (x) {` is a block, `f(x) {` and `function (x) {` a body.
+                    Some(Token::Punct(')')) => !matches!(
+                        closed_paren.and_then(|o| o.checked_sub(1)).and_then(token),
+                        Some(Token::Ident(w)) if matches!(w.as_str(), "if" | "for" | "while" | "switch" | "catch" | "with" | "await")
+                    ),
+                    _ => false,
+                };
+                open.push(function);
+            }
+            Token::Punct(c @ (')' | ']' | '}')) => {
+                arrows.retain(|&at| at < open.len());
+                open.pop();
+                if *c == ')' {
+                    closed_paren = parens.pop();
+                }
+            }
+            Token::Punct(',' | ';') => arrows.retain(|&at| at != open.len()),
+            Token::Arrow if !matches!(token(i.saturating_add(1)), Some(Token::Punct('{'))) => arrows.push(open.len()),
+            Token::Ident(w) if w == "await" && arrows.is_empty() && !open.contains(&true) => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
 /// Reads a `js` file's top level.
 pub fn read(src: &str) -> Exports {
     let lexemes = lex(src);
-    let mut found = Exports::default();
+    let mut found = Exports { waits: waits_at_top_level(&lexemes), ..Exports::default() };
     let mut depth = 0usize;
     let mut i = 0usize;
     while let Some(l) = lexemes.get(i) {
         match &l.token {
             Token::Punct('(' | '[' | '{') => depth = depth.saturating_add(1),
             Token::Punct(')' | ']' | '}') => depth = depth.saturating_sub(1),
-            Token::Ident(w) if depth == 0 && w == "await" => found.waits = true,
             Token::Ident(w) if depth == 0 && w == "import" => {
                 // `import(...)` and `import.meta` are expressions.
                 if matches!(lexemes.get(i.saturating_add(1)).map(|l| &l.token), Some(Token::Punct('(' | '.'))) {
@@ -403,10 +456,16 @@ pub fn read(src: &str) -> Exports {
                         .any(|x| x.token == Token::Str(String::from(module)))
                 };
                 let with = if names("buri:program") {
-                    program_import(&lexemes, i, end, crate::compiler::backend::js::crossing::HOSTED_PROGRAM)
+                    let (with, named) =
+                        program_import(&lexemes, i, end, crate::compiler::backend::js::crossing::HOSTED_PROGRAM);
+                    found.named.extend(named.into_iter().map(|(name, at)| ("buri:program", name, at)));
+                    with
                 } else if names("buri:ui") {
                     found.ui = true;
-                    program_import(&lexemes, i, end, crate::compiler::backend::js::crossing::HOSTED_UI)
+                    let (with, named) =
+                        program_import(&lexemes, i, end, crate::compiler::backend::js::crossing::HOSTED_UI);
+                    found.named.extend(named.into_iter().map(|(name, at)| ("buri:ui", name, at)));
+                    with
                 } else {
                     found.imports.push(text);
                     String::new()
@@ -428,14 +487,19 @@ pub fn read(src: &str) -> Exports {
 
 /// `import { fetch, other as mine } from "buri:program";` as the statement
 /// that takes the same names out of the artifact's binding, `program`:
-/// `$buri$program` for `buri:program` and `$buri$ui` for `buri:ui`.
-fn program_import(lexemes: &[Lexeme], start: usize, end: usize, program: &str) -> String {
+/// `$buri$program` for `buri:program` and `$buri$ui` for `buri:ui`. Also
+/// answers each name the statement imports, `default` for a default import,
+/// with where it is written.
+fn program_import(lexemes: &[Lexeme], start: usize, end: usize, program: &str) -> (String, Vec<(String, usize)>) {
     let mut i = start.saturating_add(1);
     let mut parts: Vec<String> = Vec::new();
+    let mut named: Vec<(String, usize)> = Vec::new();
     while i <= end {
         match lexemes.get(i).map(|l| &l.token) {
             Some(Token::Punct('{')) => {
                 let (names, close) = named_list(lexemes, i);
+                let at = lexemes.get(i).map_or(0, |l| l.start);
+                named.extend(names.iter().map(|(a, _)| (a.clone(), at)));
                 let fields: Vec<String> = names
                     .iter()
                     .map(|(a, b)| if a == b { a.clone() } else { format!("{a}: {b}") })
@@ -450,13 +514,14 @@ fn program_import(lexemes: &[Lexeme], start: usize, end: usize, program: &str) -
                 i = i.saturating_add(3);
             }
             Some(Token::Ident(w)) if w != "from" && w != "as" => {
+                named.push((String::from("default"), lexemes.get(i).map_or(0, |l| l.start)));
                 parts.push(format!("const {w} = {program}.default;"));
                 i = i.saturating_add(1);
             }
             _ => i = i.saturating_add(1),
         }
     }
-    parts.join(" ")
+    (parts.join(" "), named)
 }
 
 /// One `export` statement starting at `i`; answers where reading resumes.
@@ -472,6 +537,32 @@ fn export(src: &str, lexemes: &[Lexeme], i: usize, found: &mut Exports) -> usize
     };
     match word(i.saturating_add(1)).as_deref() {
         Some("default") => {
+            // `export default function name() {}` keeps `name` bound in the
+            // file, so only `export default` goes.
+            let mut k = i.saturating_add(2);
+            if word(k).as_deref() == Some("async") {
+                k = k.saturating_add(1);
+            }
+            let declared = match word(k).as_deref() {
+                Some("function") => {
+                    let mut n = k.saturating_add(1);
+                    if lexemes.get(n).map(|l| &l.token) == Some(&Token::Punct('*')) {
+                        n = n.saturating_add(1);
+                    }
+                    word(n).map(|name| {
+                        let shape = count_params(lexemes, n.saturating_add(1))
+                            .map_or(Shape::Other, |(c, _)| Shape::Function(c));
+                        (name, shape)
+                    })
+                }
+                Some("class") => word(k.saturating_add(1)).filter(|w| w != "extends").map(|name| (name, Shape::Other)),
+                _ => None,
+            };
+            if let Some((local, shape)) = declared {
+                strip(found, i.saturating_add(2), "");
+                found.exports.push(Export { name: String::from("default"), local, shape, at: at.start });
+                return i.saturating_add(2);
+            }
             let shape = match lexemes.get(i.saturating_add(2)).map(|l| &l.token) {
                 Some(Token::Punct('{')) => Shape::Object(object_keys(lexemes, i.saturating_add(2))),
                 _ => Shape::Other,
@@ -486,16 +577,30 @@ fn export(src: &str, lexemes: &[Lexeme], i: usize, found: &mut Exports) -> usize
             i.saturating_add(2)
         }
         Some("const" | "let" | "var") => {
-            let Some(name) = word(i.saturating_add(2)) else { return i.saturating_add(1) };
-            let assigned = lexemes.get(i.saturating_add(3)).map(|l| &l.token) == Some(&Token::Punct('='));
+            let names = declared_names(src, lexemes, i.saturating_add(2));
+            let Some(first) = names.first().cloned() else { return i.saturating_add(1) };
+            let assigned = word(i.saturating_add(2)).as_deref() == Some(first.as_str())
+                && lexemes.get(i.saturating_add(3)).map(|l| &l.token) == Some(&Token::Punct('='));
             let shape = match (assigned, lexemes.get(i.saturating_add(4)).map(|l| &l.token)) {
                 (true, Some(Token::Punct('{'))) => Shape::Object(object_keys(lexemes, i.saturating_add(4))),
                 (true, _) => function_value(lexemes, i.saturating_add(4)).map_or(Shape::Other, Shape::Function),
                 _ => Shape::Other,
             };
             strip(found, i.saturating_add(1), "");
-            found.exports.push(Export { name: name.clone(), local: name, shape, at: at.start });
+            found.exports.push(Export { name: first.clone(), local: first, shape, at: at.start });
+            for name in names.into_iter().skip(1) {
+                found.exports.push(Export { name: name.clone(), local: name, shape: Shape::Other, at: at.start });
+            }
             i.saturating_add(2)
+        }
+        // `export * from "m"` and `export * as ns from "m"` are legal only at
+        // the module's top level, so they move there whole.
+        _ if lexemes.get(i.saturating_add(1)).map(|l| &l.token) == Some(&Token::Punct('*')) => {
+            let end = statement_end(src, lexemes, i);
+            let last = lexemes.get(end).map_or(src.len(), |l| l.end);
+            found.imports.push(src.get(at.start..last).unwrap_or_default().to_string());
+            found.edits.push(Edit::Replace { start: at.start, end: last, with: String::new() });
+            end.saturating_add(1)
         }
         Some("function" | "async" | "class") => {
             let mut k = i.saturating_add(1);
@@ -519,16 +624,96 @@ fn export(src: &str, lexemes: &[Lexeme], i: usize, found: &mut Exports) -> usize
         }
         _ if lexemes.get(i.saturating_add(1)).map(|l| &l.token) == Some(&Token::Punct('{')) => {
             let (names, close) = named_list(lexemes, i.saturating_add(1));
-            let end = statement_end(src, lexemes, close);
+            let next = |k: usize| lexemes.get(k).map(|l| &l.token);
+            let from = matches!(next(close.saturating_add(1)), Some(Token::Ident(w)) if w == "from");
+            // The statement ends at its `}`, its module's name, or a `;`
+            // after either: never on the next line's statement.
+            let mut end = if from { close.saturating_add(2) } else { close };
+            if next(end.saturating_add(1)) == Some(&Token::Punct(';')) {
+                end = end.saturating_add(1);
+            }
             let last = lexemes.get(end).map_or(src.len(), |l| l.end);
-            for (local, name) in names {
-                found.exports.push(Export { name, local, shape: Shape::Other, at: at.start });
+            if from {
+                // A re-export becomes an import at the top, under names the
+                // program can't be using, and the file's exports name those.
+                let module = match next(close.saturating_add(2)) {
+                    Some(Token::Str(m)) => m.clone(),
+                    _ => String::new(),
+                };
+                let mut imported = Vec::new();
+                for (theirs, name) in names {
+                    let local = format!("$buri$r{}", found.reexports);
+                    found.reexports = found.reexports.saturating_add(1);
+                    imported.push(format!("{theirs} as {local}"));
+                    found.exports.push(Export { name, local, shape: Shape::Other, at: at.start });
+                }
+                found.imports.push(format!("import {{ {} }} from {};", imported.join(", "), js_string(&module)));
+            } else {
+                for (local, name) in names {
+                    found.exports.push(Export { name, local, shape: Shape::Other, at: at.start });
+                }
             }
             found.edits.push(Edit::Replace { start: at.start, end: last, with: String::new() });
             end.saturating_add(1)
         }
         _ => i.saturating_add(1),
     }
+}
+
+/// The names an `export const`, `let` or `var` starting at `i` declares: one
+/// per declarator, and every name a destructuring pattern binds.
+fn declared_names(src: &str, lexemes: &[Lexeme], i: usize) -> Vec<String> {
+    let end = statement_end(src, lexemes, i);
+    let token = |k: usize| lexemes.get(k).map(|l| &l.token);
+    let mut out = Vec::new();
+    let mut k = i;
+    while k <= end {
+        match token(k) {
+            Some(Token::Ident(name)) => out.push(name.clone()),
+            Some(Token::Punct('{' | '[')) => {
+                // A pattern: a name is bound where it isn't a key (`a:`) and
+                // isn't inside a default value.
+                let mut depth = 0usize;
+                let mut in_default = false;
+                while k <= end {
+                    match token(k) {
+                        Some(Token::Punct('{' | '[' | '(')) => depth = depth.saturating_add(1),
+                        Some(Token::Punct('}' | ']' | ')')) => {
+                            depth = depth.saturating_sub(1);
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                        Some(Token::Punct(',')) => in_default = false,
+                        Some(Token::Punct('=')) => in_default = true,
+                        Some(Token::Ident(name)) if !in_default => {
+                            let key = token(k.saturating_add(1)) == Some(&Token::Punct(':'));
+                            if !key {
+                                out.push(name.clone());
+                            }
+                        }
+                        _ => {}
+                    }
+                    k = k.saturating_add(1);
+                }
+            }
+            _ => {}
+        }
+        // Past the initializer, to the next declarator.
+        let mut depth = 0usize;
+        k = k.saturating_add(1);
+        while k <= end {
+            match token(k) {
+                Some(Token::Punct('(' | '[' | '{')) => depth = depth.saturating_add(1),
+                Some(Token::Punct(')' | ']' | '}')) => depth = depth.saturating_sub(1),
+                Some(Token::Punct(',')) if depth == 0 => break,
+                _ => {}
+            }
+            k = k.saturating_add(1);
+        }
+        k = k.saturating_add(1);
+    }
+    out
 }
 
 /// One method a `js` file has to implement.
@@ -786,6 +971,31 @@ export const HostKv = {
         assert!(out.contains("export default $buri$platform.default;"), "{out}");
         assert!(!out.contains("export const HostKv"), "{out}");
         assert!(!out.contains("from \"buri:program\""), "{out}");
+    }
+
+    /// An `await` waits at the top level wherever the brackets put it, and
+    /// never inside a function, however the function is written.
+    #[test]
+    fn a_top_level_await_is_found_in_brackets_and_not_in_functions() {
+        for waits in [
+            "const x = [await f()][0];",
+            "console.log(await f());",
+            "if (ready) { await f(); }",
+            "for await (const x of xs) {}",
+            "const g = (a) => a; await g(1);",
+        ] {
+            assert!(read(waits).waits, "{waits}");
+        }
+        for not in [
+            "async function f() { await g(); }",
+            "const f = async () => { await g(); };",
+            "const f = async () => await g();",
+            "const o = { async m() { await g(); } };",
+            "export default async function h() { return await g(); }",
+            "class C { async m() { await g(); } }",
+        ] {
+            assert!(!read(not).waits, "{not}");
+        }
     }
 
     #[test]

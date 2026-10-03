@@ -1,0 +1,17 @@
+error: this `platform` rule declares no entries [platform-missing-entry]
+ --> platform/pair/BUILD.buri:1:10
+  |
+1 | platform {
+  |          ^
+  |
+  = an output builds one artifact per entry, so a platform without one has nothing to build
+  = fix: add one, as `entry { name: "main"  backend: JS }`
+
+      # platform/cli/BUILD.buri
+      platform {
+          entry {
+              name: "main"
+              backend: JS
+          }
+      }
+

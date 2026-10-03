@@ -6,4 +6,5 @@ export struct PairHost {
 }
 
 export fn left(host: PairHost, name: Str): Str;
+
 export fn right(host: PairHost, name: Str): Str;

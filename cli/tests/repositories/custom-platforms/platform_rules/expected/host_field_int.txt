@@ -1,0 +1,19 @@
+error: `count` is `I64`, which is not a production struct [host-field-not-production]
+ --> platform/pair/platform.buri:6:5
+  |
+6 |     export count: Int,
+  |     ^^^^^^^^^^^^^^^^^
+  |
+  = the CLI builds the host, so each field is a struct with no fields: one from `platform/host`, or one the platform declares
+  = fix: use a struct from `platform/host`, or declare one with no fields in `platform.buri`; hand anything else to the entry as a parameter
+
+      export struct CloudflareHost {
+          export alloc: HostAllocator,
+          export kv: HostKv,
+      }
+
+      struct HostKv {}
+
+    A value the entry needs from its host, such as a request, is a parameter of
+    the entry instead.
+

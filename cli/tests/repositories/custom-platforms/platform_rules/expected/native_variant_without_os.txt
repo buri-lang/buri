@@ -1,0 +1,20 @@
+error: `arm64` is not a native variant [invalid-platform-variant]
+  --> platform/pair/BUILD.buri:10:20
+   |
+10 |         variants: ["arm64"]
+   |                    ^^^^^^^
+   |
+   = a `NATIVE` entry builds for `<os>-<arch>`: `linux` or `macos`, then `arm64` or `x86_64`
+   = fix: write it as `linux-arm64`, `linux-x86_64`, `macos-arm64` or `macos-x86_64`
+
+       # platform/lambda/BUILD.buri
+       platform {
+           entry {
+               name: "bootstrap"
+               backend: NATIVE
+               variants: ["linux-arm64", "linux-x86_64"]
+           }
+       }
+
+     A JS entry's variants are free-form names.
+

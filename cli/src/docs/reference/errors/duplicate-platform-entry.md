@@ -15,7 +15,14 @@ error: the platform declares `main` twice [duplicate-platform-entry]
 ```textproto schema=build
 # platform/desktop/BUILD.buri
 platform {
-    entry { name: "main"  backend: NATIVE }
-    entry { name: "window"  backend: JS  js: "window.mjs" }
+    entry {
+        name: "main"
+        backend: NATIVE
+    }
+    entry {
+        name: "window"
+        backend: JS
+        js: "window.mjs"
+    }
 }
 ```

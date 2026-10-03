@@ -31,16 +31,24 @@ platform {
   `misplaced-rule`.
 - **`entry`** names one way in, its `backend` (`NATIVE` or `JS`), and on `JS` an
   optional `js` file. An output builds every entry, each to a file named after
-  it: `fetch.mjs`, or a native `bootstrap`.
+  it: `fetch.mjs`, or a native `bootstrap`. A rule has at least one entry
+  (`platform-missing-entry`), each with a `name` and a `backend`
+  (`platform-entry-missing-field`), and no two with one name
+  (`duplicate-platform-entry`). `js` on a `NATIVE` entry is
+  `js-outside-js-entry`.
 - **An entry's `variants`** are names an output picks between with `variant`,
-  and `variant_required: true` makes every output pick one. A `NATIVE` entry
-  reads its target from the variant, as `linux-arm64`, and builds the host's
-  without one.
+  and `variant_required: true` makes every output pick one. An output's
+  variant is one every entry declares. A `NATIVE` entry reads its target from
+  the variant, `<os>-<arch>` as in `linux-arm64` (anything else is
+  `invalid-platform-variant`), and builds the host's without one.
 - **`assets`** are files copied beside every output. An `index.html` among
-  them makes every output a page, which `buri run` serves.
+  them makes every output a page, which `buri run` serves after building every
+  entry. The assets load each entry by its file's name, so an output of a
+  platform with assets takes no `artifact_name` (`misplaced-artifact-name`).
 - **`sources`** and **`dependencies`** are the rule's other `.buri` files and
   the libraries `platform.buri` imports. An output's platform is a dependency of
-  its binary without being listed.
+  its binary without being listed, and its dependencies are held to visibility,
+  tags and `platforms` like the binary's own.
 
 ## `platform.buri`
 
@@ -58,7 +66,9 @@ impl Kv for HostKv { fn get(self, namespace: Str, key: Str): Option<Str>; ... }
 The whole file is in [the guide](../../guides/custom-platforms.md#the-platform).
 
 - **The host type** lists what the platform offers, one production struct per
-  field. The CLI builds the value and hands it to the entry.
+  field: a struct with no fields, from `platform/host` or the platform's own.
+  Anything else is `host-field-not-production`. The CLI builds the value and
+  hands it to the entry.
 - **The function filling an entry** has the declaration's signature. It's the
   function of the same name unless the output's `entries` names another.
   Another host is `entry-host-mismatch`, and no host is `entry-missing-host`.
@@ -93,7 +103,11 @@ export const HostKv = {
   with one function per method: `export const HostKv = { get: (self, ...) => ... }`.
   The build checks every method is there with the same parameter count, `self`
   included. A gap is `host-file-missing-method`.
-- **Every other export is the module's own**, such as `default` here.
+- **Every other export is the module's own**, such as `default` here. The file
+  may re-export from other modules, and may `await` at its top level.
+- **`buri:program` exports the artifact's entry**, by the entry's name, and
+  nothing else. Importing another name, a default included, is
+  `unknown-export`.
 - **Every call to a method the file implements is awaited**, so a method may
   return a promise.
 - **`buri:ui` hands the file the reactive graph**, for a method that answers a
@@ -141,8 +155,10 @@ implements takes and answers, crosses to JavaScript like this:
 | a struct                | a plain object of its fields   |
 | `Request`, `Response`   | the Fetch standard's           |
 
-`Result` crosses only as a whole answer, and `null` arrives as `None`. Anything
-else is `type-not-crossable`. A production struct's `self` arrives as `{}`.
+`Result` crosses only as a whole answer, and `null` arrives as `None`.
+`Option<Option<T>>` and `Option<()>` don't cross, because `None` and `Some`
+would both be `undefined`. Anything else is `type-not-crossable`. A production
+struct's `self` arrives as `{}`.
 
 ## Effect packages
 
@@ -181,5 +197,6 @@ names no `platform` rule is `unknown-platform`.
 
 An output's key holds its platform's `BUILD.buri`, `platform.buri`, sources,
 `js` files, assets and dependencies, so editing any of them rebuilds the outputs
-that use it. Outputs land in `.buri/out/platform/<name>/<package>/`, with the
-variant after the name when the output names one.
+that use it, and `--watch` watches the same files. Outputs land in
+`.buri/out/platform/<name>/<package>/`, with the variant after the name when
+the output names one.

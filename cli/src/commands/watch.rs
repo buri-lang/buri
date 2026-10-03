@@ -62,9 +62,9 @@ const SWEEP: Duration = Duration::from_millis(150);
 ///   * every path `actions::contribute` enumerates for every member of the
 ///     target's closure — the rule's entry point, its `sources`, its
 ///     its generators' `inputs`, and its `testing/` sources;
-///   * every path `actions::test_key` enumerates — the suite's `sources` and
-///     the closure of every library its `test { dependencies }` and
-///     `testing { dependencies }` name;
+///   * every path `actions::test_key` enumerates — the suite's `sources`, the
+///     goldens in its package's `test/__snapshots__`, and the closure of every
+///     library its `test { dependencies }` and `testing { dependencies }` name;
 ///   * every file of each repository platform the target's outputs name, and
 ///     its dependencies' sources, as `actions::platform_inputs` enumerates;
 ///   * every `BUILD.buri` in the repository;
@@ -125,6 +125,11 @@ pub fn inputs(session: &Session, targets: &[TargetId]) -> Vec<PathBuf> {
             for x in &suite.sources {
                 out.insert(package.dir.join(&x.value));
             }
+        }
+        // The goldens a snapshot compares against, which are in the suite's
+        // key too.
+        for rel in crate::build::actions::golden_files(&package.dir) {
+            out.insert(package.dir.join(rel));
         }
     }
     out.into_iter().collect()

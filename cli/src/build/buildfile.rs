@@ -2326,7 +2326,10 @@ library {
         assert_eq!(variants, ["a", "b"]);
         assert!(rule.entries[0].variant_required);
         // Variants moved onto each entry.
-        assert_eq!(codes("platform {\n  variants: [\"a\"]\n}\n"), ["build-unknown-field"]);
+        assert_eq!(
+            codes("platform {\n  variants: [\"a\"]\n  entry {\n    name: \"main\"\n    backend: JS\n  }\n}\n"),
+            ["build-unknown-field"]
+        );
     }
 
     #[test]
