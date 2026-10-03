@@ -141,7 +141,9 @@
 //! unmap*. **While any scope holds pages, `core/alloc`'s `copyAcross` builds
 //! every one of those blocks**: a deep copy made with every arena left behind.
 //! While none does, no value is in an arena, so the value crosses as it is and
-//! a step that leaves a large state alone costs nothing extra.
+//! a step that leaves a large state alone costs nothing extra. Inside a scope,
+//! the copy shares whatever an earlier crossing already copied, so it costs
+//! what the step changed rather than the whole state.
 
 from "core/alloc" import * as alloc;
 from "platform/effect" import { Allocator, Tasks };
@@ -265,12 +267,16 @@ fn carried<T>(value: T): Carried<T> {
 
 /// `value`, as a block no scope will unmap.
 ///
-/// While any scope holds pages that takes `copyAcross`. While none does, no
-/// block anywhere is in an arena, so `value` already is one and the runtime
-/// takes another reference to it. That keeps a large state that a step leaves
-/// alone from costing a copy per drive. Sharing is safe across threads: a
+/// While any scope holds pages that takes `copyAcross`, which shares every
+/// block an earlier crossing already copied out of the arenas
+/// (`cli/runtime/memory.rs`'s settled blocks). While none does, no block
+/// anywhere is in an arena, so `value` already is one and the runtime takes
+/// another reference to it. Either way a large state that a step leaves alone
+/// does not cost a copy per drive. Sharing is safe across threads: a
 /// program that reaches this module marks every block shared, so each is
-/// counted atomically and never written in place.
+/// counted atomically. A block is written in place only by the holder of its
+/// one reference, and while the runtime holds a reference too nobody is that
+/// holder.
 fn across<T>(value: T): T {
     if (scopesLive()) { alloc.copyAcross(value) } else { value }
 }
