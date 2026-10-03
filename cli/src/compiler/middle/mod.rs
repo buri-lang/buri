@@ -146,8 +146,14 @@ pub fn native(program: &mut Program) -> rc::Plan {
     // precondition rather than a transformation anybody else wants: a value a
     // `let` pattern skips over has no name, and `rc`'s plan can only release
     // what it can name. `rc::name_discards` is where the argument is.
-    rc::name_discards(program);
-    rc::run(program)
+    //
+    // One classifier for both, built once: it is a walk of every body, and
+    // naming a discard adds patterns and locals, neither of which it reads.
+    // Each pass gets a clone with an empty memo, so each answers exactly as a
+    // classifier of its own would.
+    let counted = rc::Syntactic::new(program);
+    rc::name_discards(program, &mut counted.clone());
+    rc::analyze(program, &mut counted.clone(), &rc::Options::default())
 }
 
 /// What Tarjan's algorithm needs to know about one node, as one row rather than

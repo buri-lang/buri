@@ -277,8 +277,8 @@ pub trait Backend {
     ///
     /// It is a **hint and not a seam**: the emission entry point is still
     /// [`Backend::emit_units`] and it still takes a `Program`, so a backend
-    /// that ignores this — every backend but one — is not a backend that
-    /// works differently. What is offered is a value the caller is about to
+    /// that ignores this — JavaScript — is not a backend that works
+    /// differently. What is offered is a value the caller is about to
     /// throw away and the callee is about to recompute:
     /// `build::actions::objects_named` lowers to hash the unit keys, and
     /// `middle::lower` is a pure function of the program, so the IR it holds is
@@ -526,7 +526,7 @@ pub fn select(target: Target, profile: Profile) -> Result<Box<dyn Backend>, Stri
         #[cfg(not(feature = "backend-stencil"))]
         (_, Profile::Debug) => Err(no_development_code_generator()),
         #[cfg(feature = "backend-llvm")]
-        (Platform::Linux | Platform::Macos, Profile::Release) => Ok(Box::new(llvm::Llvm)),
+        (Platform::Linux | Platform::Macos, Profile::Release) => Ok(Box::new(llvm::Llvm::default())),
         // Gated the other way for the same reason the debug arm above is: with
         // the feature on the arm above is total for a native release build.
         #[cfg(not(feature = "backend-llvm"))]
@@ -926,7 +926,7 @@ mod tests {
         );
         #[cfg(feature = "backend-llvm")]
         assert!(
-            reports(llvm::Llvm.missing_intrinsics(&program, &tables)),
+            reports(llvm::Llvm::default().missing_intrinsics(&program, &tables)),
             "the llvm backend claimed a key no runtime answers"
         );
         // A toolchain with neither native backend has nothing to ask, and the

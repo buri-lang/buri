@@ -199,7 +199,7 @@ impl Native {
             Ok(b) => b,
             #[cfg(feature = "backend-llvm")]
             Err(_) if matches!(self.profile, Profile::Release) => {
-                Box::new(backend::llvm::Llvm)
+                Box::new(backend::llvm::Llvm::default())
             }
             Err(message) => panic!("no `{}` backend: {message}", self.name),
         }
