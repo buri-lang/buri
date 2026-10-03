@@ -30,6 +30,13 @@
 //! mechanism that can be deleted without a test noticing is a mechanism that
 //! will be.
 //!
+//! ## A failed build is never a host's answer
+//!
+//! A guard asks the machine, never the program under test. A test that builds
+//! a native program and sees it fail calls [`native_program_failed`]: it skips
+//! only when [`native_host_gap`] names a missing prerequisite, and otherwise
+//! fails on every host, because the program is what broke.
+//!
 //! ## The second kind of skip, which is not a host's answer either
 //!
 //! Two tests in `cli/tests/build/repositories.rs` assert milliseconds. They are
@@ -84,6 +91,42 @@ pub fn skipped(domain: &str, why: &str) -> bool {
     }
     eprintln!("{domain}: skipped ({why})");
     true
+}
+
+/// Why this machine cannot build a native artifact for itself, or `None`.
+///
+/// The build system's own answer — [`buri::build::actions::native_gap`] at the
+/// debug profile, then whether a C driver is on `PATH` for the link — so a
+/// guard asks the machine and never the program under test.
+pub fn native_host_gap() -> Option<String> {
+    use buri::build::{actions, link};
+    use buri::compiler::backend::{Profile, Target};
+    let Some(platform) = link::host_platform() else {
+        return Some(String::from("no native backend exists for this host's platform"));
+    };
+    let target = Target { platform, arch: link::host_arch() };
+    if let Some(gap) = actions::native_gap(target, Profile::Debug) {
+        return Some(gap.reason);
+    }
+    link::select(target).err().map(|refusal| refusal.message)
+}
+
+/// A native program under test did not build or did not run.
+///
+/// That is a skip only when [`native_host_gap`] names a missing prerequisite;
+/// then it goes through [`skipped`]. On a machine that has everything, the
+/// program itself failed, and this **panics** on every host — a local run
+/// included — with what the command printed.
+pub fn native_program_failed(domain: &str, what: &str, output: &str) {
+    match native_host_gap() {
+        Some(why) => {
+            skipped(domain, &why);
+        }
+        None => panic!(
+            "{domain}: {what}. This machine has everything a native build needs, so the program \
+             under test is what broke:\n{output}"
+        ),
+    }
 }
 
 /// This test is not run here, and the job that does run it is named.
