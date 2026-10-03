@@ -639,10 +639,9 @@ fn run_on(
         };
     }
 
-    let mut source = actions::emit(
+    let mut source = actions::emit_test_bundle(
         &mut program,
         &analysis.checked.tables,
-        crate::compiler::backend::Target { platform: Platform::Js, arch: None },
         &args.flags,
         &mut diagnostics,
     )?;
