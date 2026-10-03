@@ -313,6 +313,13 @@ symbolic link to it. Tests still compile and link every time, and run the bytes
 they linked. Bytes repeat across runs because the runtime archive sits at a path
 named for its digest: the linker writes that path into every executable.
 
+**The cross runtime is built once per input.** `native::cross` builds the
+runtime for `linux-x86_64` into its `BURI_HOME`, a release build of the whole
+crate. That home is kept under `CARGO_TARGET_TMPDIR/cross-homes`, keyed by the
+code that does the building (`kept::cross_home`). Buri's own key covers the
+rest: runtime sources, triple, features and toolchain. So the build runs from
+cold whenever any of them changes, and is reused otherwise.
+
 **A long corpus is several tests.** nextest can't spread one test over cores,
 so a corpus that a single test walks holds the run open for as long as it
 takes. `shards!` (`harness/shard.rs`) turns one into a module of tests, where
@@ -396,8 +403,8 @@ about 180 MB a run — are named for the process so two overlapping runs cannot
 share one, and nothing deletes them; fourteen gigabytes of them filled a disk
 twice. The sweep takes only what has not been written to for **two hours**,
 which no live run can manage, and it does not run at all under `BURI_KEEP`. It
-never takes the current runtime archive, and it takes kept programs one at a
-time, each under its lock.
+never takes the current runtime archive, and it takes kept programs and cross
+homes one at a time, each under its lock.
 
 ### Reproducing a Linux CI leg on a mac
 
