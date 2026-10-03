@@ -79,6 +79,7 @@
 
 use super::jit::{Fn2, Jit, V};
 use super::runtime;
+use crate::compiler::backend::counts::Op;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 use crate::compiler::semantics::types::Ty;
@@ -198,7 +199,7 @@ impl<'a> Jit<'a> {
     /// one `incref`, because what is handed over may be a struct with a
     /// counted field rather than a bare pointer.
     fn retain_value(&mut self, st: &mut Fn2, ty: &Ty, at: u32) {
-        if let Err(why) = self.walk_rc(st, ty, at, true, 0) {
+        if let Err(why) = self.walk_rc(st, ty, at, Op::Retain, 0) {
             self.unsupported(why);
         }
     }
@@ -875,7 +876,7 @@ impl<'a> Jit<'a> {
 /// **Derived rather than written.** It was `256` — word 32 — and the emitter's
 /// own run ends at word 33, so the first two words of this half were the last
 /// two of that one. What wrote them is a reference walk that goes out of line
-/// (`emit::walk_deep`, at `RAW_WORD + 3`), which is exactly what retaining an
+/// (`emit::walk_field`, at `RAW_WORD + 3`), which is exactly what retaining an
 /// element whose type holds an enum does — so `list.sortBy` lost its
 /// destination pointer between reading an element and storing it, and answered
 /// a block of zeros. Issue #41.
@@ -1898,7 +1899,7 @@ impl Jit<'_> {
         st.place(freeing, self.region.code_addr());
         self.br_lt(i, n, V::Fall, V::Blk(freed), Some("JIT_T"));
         self.elem_load(staging, ptr, i, out_stride, out_size);
-        if let Err(why) = self.walk_rc(st, &str_ty, staging, false, 0) {
+        if let Err(why) = self.walk_rc(st, &str_ty, staging, Op::Release, 0) {
             self.unsupported(why);
         }
         self.add_imm(i, i, 1);
