@@ -7,8 +7,8 @@
 //! effort.
 //!
 //! **Hermeticity here is a property of the type system.** Every ambient read is
-//! a `$host_*` intrinsic; `core/host` is importable only from the module that
-//! exports `main`; a test's capabilities are fakes the runner injects. A library
+//! a `$host_*` intrinsic; only an entry is handed its platform's host, and
+//! only a `platform.buri` may import `platform/host`; a test's capabilities are fakes the runner injects. A library
 //! or a test source has no *name* for the environment, the clock, the
 //! filesystem, or the network, so there is nothing for an OS confinement to
 //! confine.

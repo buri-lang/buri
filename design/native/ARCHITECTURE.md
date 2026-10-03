@@ -562,11 +562,10 @@ The manifest is the input to CODEGEN-STENCIL.md §12.2's incremental relink, and
 it is also what `--explain` reads to print one `codegen` line per unit with its
 status. `buri clean` takes `.buri/link` with the rest.
 
-`actions::artifact_path` already produces
-`.buri/out/<output.dir()>/<pkg.path>/<name>` and `Output::dir()` already produces
-`linux-x86_64`. The only change is that `Platform::Js => format!("{base}.mjs")`
-gains no sibling: a native artifact's name is `base`, with no extension, which is
-what `artifact_path`'s `_` arm already does.
+`actions::artifact_path` produces `.buri/out/<output.dir()>/<pkg.path>/<name>`,
+where `Output::dir()` is `native/linux-x86_64` (or `platform/<name>[/<variant>]`
+for a repository platform). A JavaScript artifact is `<base>.mjs` and a native
+one is `base`, with no extension.
 
 ## 7. `--check-reproducible` for a native artifact
 

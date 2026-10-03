@@ -264,7 +264,7 @@ pub const MODULES: &[StdModule] = &[
     m("core/net/tcp", include_str!("sources/tcp.buri")),
     // Not a platform module: it *names* `Tasks` in its bounds rather than
     // declaring or implementing it, exactly as `core/fs` names `FileSystem`. The
-    // authority is still `core/host`'s to hand out.
+    // authority is still the entry's host's to hand out.
     m("core/tasks", include_str!("sources/tasks.buri")),
     // The other half of concurrency: state that outlives one call, reachable
     // only through the protocol its own enum declares. Not a platform module
@@ -833,11 +833,10 @@ mod tests {
         }
     }
 
-    /// The declared effect methods, read off the two platform sources that may
-    /// declare an effect: `(effect, method)`, in declaration order.
+    /// The declared effect methods, read off the bundled sources that declare
+    /// an effect: `(effect, method)`, in declaration order.
     ///
-    /// Off the source text rather than off a second list, for
-    /// `every_host_export_is_in_the_grant_table`'s reason — a method added to
+    /// Off the source text rather than off a second list: a method added to
     /// `platform/effect` and forgotten here would be a method with no way to call
     /// it, which is precisely the hole [`WRAPPERS`] exists to close.
     fn declared_effect_methods() -> Vec<(String, String)> {
