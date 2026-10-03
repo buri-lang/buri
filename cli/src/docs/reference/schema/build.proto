@@ -61,12 +61,8 @@ message Library {
   // is a build error, not a silently ignored file.
   repeated string sources = 1;
 
-  // Field 8 was `proto_sources` — the .proto schemas this rule owned, each
-  // becoming a module. Retired: it was a generator the build could not name,
-  // running one program on one language, so a repository wanting a second kind
-  // of generated code had no way to ask. A schema is a generator's input now,
-  // handed to the `proto` tool through `generators`. The number is not
-  // reused.
+  // Retired: a .proto schema is a generator's input, handed to the `proto`
+  // tool through `generators`.
   reserved 8;
   reserved "proto_sources";
 
@@ -129,9 +125,10 @@ message TestingSurface {
   repeated string dependencies = 2;
 }
 
-// A `binary` requires `main.buri` in the package directory, and that file must
-// export `main`. `main.buri` is the binary's surface for tests, the same way
-// `lib.buri` is a library's surface for dependents.
+// A `binary` requires `main.buri` in the package directory, and that file
+// exports the function each output enters through. `main.buri` is the binary's
+// surface for tests, the same way `lib.buri` is a library's surface for
+// dependents.
 //
 // No `name` field, for the same reason a library has none: a package holds at
 // most one binary, so `//cmd/server` names it. The artifact filename defaults
@@ -141,10 +138,8 @@ message Binary {
   // a co-located library, excluding `main.buri` and the test sources.
   repeated string sources = 1;
 
-  // Field 6 was `proto_sources`, retired for the reason the library's was.
-  // Field 8 was `web`, which named the `<title>` and the `lang` of the `.html`
-  // a `web` output gets; a page names its own tab now, with `ui/web`'s `title`
-  // on the page and `Document` on a server. Neither number is reused.
+  // Retired: `proto_sources`, as on a library; and `web`, because a page names
+  // its own tab with `ui/web`'s `title`, and a server with `Document`.
   reserved 6, 8;
   reserved "proto_sources", "web";
 
@@ -277,9 +272,8 @@ message Output {
   // for JavaScript).
   string artifact_name = 3;
 
-  // Field 2 was `arch`, now the half of `variant` after the operating system.
-  // Field 4 was `js`: every JavaScript output is an ES module. Field 5 was
-  // `entry`, now `entries`. None of the numbers is reused.
+  // Retired: `arch`, which `variant` names; `js`, because every JavaScript
+  // output is an ES module; and `entry`, which `entries` replaces.
   reserved 2, 4, 5;
   reserved "arch", "js", "entry";
 
@@ -323,13 +317,13 @@ message Platform {
   // serves its directory instead of starting an entry. `web` ships one.
   repeated string assets = 5;
 
-  // Field 3 was `variants`, now on each `entry`. The number is not reused.
+  // Retired: `variants`, which each `entry` declares.
   reserved 3;
   reserved "variants";
 
   message Entry {
-    // The function an output fills it with, unless its `entries` says
-    // otherwise.
+    // The entry's name, and the function an output fills it with unless its
+    // `entries` says otherwise.
     string name = 1;
 
     Backend backend = 2;
@@ -366,11 +360,8 @@ message TestSuite {
   // `dependencies`. Fakes, fixtures, golden-file helpers.
   repeated string dependencies = 2;
 
-  // Field 3 was `data` — files the runner read from disk and handed the suite
-  // as its in-memory filesystem. Retired: only a runner could hand a suite those
-  // entries, so `data()` was empty in a linked test binary and the two backends
-  // answered differently. A suite writes its own filesystem now, with
-  // `fs().files([...])` from `platform/effect/testing`. The number is not reused.
+  // Retired: `data`. A suite writes its own filesystem with
+  // `fs().files([...])` from `platform/effect/testing`.
   reserved 3;
   reserved "data";
 
@@ -383,8 +374,8 @@ message TestSuite {
   // The suite inherits the target's tags either way.
   repeated Backend backends = 6;
 
-  // Field 5 was `platforms`. A suite runs on a backend, and test
-  // implementations are plain Buri, so one runs anywhere.
+  // Retired: `platforms`. A suite runs on a backend, and test implementations
+  // are plain Buri, so one runs anywhere.
   reserved 5;
   reserved "platforms";
 }

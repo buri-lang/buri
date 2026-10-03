@@ -7,6 +7,10 @@ reproduction: none
 ---
 # An output's entry names the entry and its function
 
+```text
+error: this item in `entries` has no `function` [entry-missing-field]
+```
+
 ```textproto schema=build
 binary {
     outputs: [

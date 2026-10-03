@@ -7,6 +7,10 @@ reproduction: none
 ---
 # A variant is one its platform declares
 
+```text
+error: `linux-amd64` is not a variant of `native` [unknown-platform-variant]
+```
+
 ```textproto schema=build
 binary {
     outputs: [

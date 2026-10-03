@@ -16,25 +16,23 @@ an effect without one is an effect nobody can test. Keep its state in
 `core/platforms/testing/state`, which only an effect's testing surface may
 import:
 
-```buri ignore why="an effect package's testing surface, compiled only in its package"
+```buri repo=cli/tests/repositories/custom-platforms/cloudflare_kv/repo package=//platform/effect/kv role=testing
 from "core/map" import * as map;
 from "core/map" import { Map };
 from "core/platforms/testing/state" import * as state;
 from "//platform/effect/kv" import { Kv };
 
 export struct TestKv {
-    store: state.State<Map<Str, Str>>,
+    store: state.State<Map<(Str, Str), Str>>,
 }
 
 impl Kv for TestKv {
     fn get(self, namespace: Str, key: Str): Option<Str> {
-        state.read(self.store).get("${namespace}/${key}")
+        state.read(self.store).get((namespace, key))
     }
 
     fn put(self, namespace: Str, key: Str, value: Str): () {
-        state.update(self.store, fn(c, m) => {
-            (m.insert(c, "${namespace}/${key}", value), ())
-        })
+        state.update(self.store, fn(c, m) => (m.insert(c, (namespace, key), value), ()))
     }
 }
 

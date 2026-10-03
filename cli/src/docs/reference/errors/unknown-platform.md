@@ -1,19 +1,25 @@
 ---
-title: A platform is one the toolchain bundles
+title: A platform is bundled or a repository's `platform` rule
 message: '`{platform}` is not a platform'
 note: the platforms bundled with the toolchain are `"native"`, `"node"` and `"web"`
 fix: name one of them
 reproduction: none
 ---
-# A platform is one the toolchain bundles
+# A platform is bundled or a repository's `platform` rule
+
+```text
+error: `//platform/workr` is not a platform [unknown-platform]
+```
 
 ```textproto schema=build
 binary {
     outputs: [
         { platform: "node" },
+        { platform: "//platform/worker" },
     ]
 }
 ```
 
-A platform name is a string. `node` runs under bun or Node, `web` is a page in
-a browser, and `native` is an executable for the `variant` it names.
+`node` runs under bun or node, `web` is a page in a browser, and `native` is an
+executable for the `variant` it names. A `//platform/` label names a package
+under `platform/` holding a [`platform` rule](../build/platforms.md).

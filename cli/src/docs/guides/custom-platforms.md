@@ -92,9 +92,9 @@ do, and the entry without a body. `HostKv` is the platform's own production
 struct, and its methods have no body either:
 
 ```buri ignore why="a platform's surface, compiled only with its rule"
+from "platform/effect" import { Request, Response };
 from "platform/host" import { HostAllocator, HostClock, HostNetwork, HostStdout };
 from "//platform/effect/kv" import { Kv };
-from "platform/effect" import { Request, Response };
 
 export struct CloudflareHost {
     export alloc: HostAllocator,
@@ -106,9 +106,12 @@ export struct CloudflareHost {
 
 export fn fetch(host: CloudflareHost, request: Request): Response;
 
+// fetch.mjs implements both methods.
 struct HostKv {}
+
 impl Kv for HostKv {
-    fn get(self, namespace: Str, key: Str): Option<Str>;    // fetch.mjs implements both
+    fn get(self, namespace: Str, key: Str): Option<Str>;
+
     fn put(self, namespace: Str, key: Str, value: Str): ();
 }
 ```
@@ -275,6 +278,7 @@ the `env` and implements it. A KV namespace is a binding too, but not a string,
 so it's no variable:
 
 ```js
+import { fetch } from "buri:program";
 let bindings = {};
 
 export default {
