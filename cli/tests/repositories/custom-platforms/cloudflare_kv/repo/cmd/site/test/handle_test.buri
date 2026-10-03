@@ -1,0 +1,40 @@
+// cmd/site/test/handle_test.buri
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Header, Request };
+from "platform/effect/testing" import { alloc };
+from "//cmd/site/main.buri" import { handle };
+from "//platform/effect/kv" import * as store;
+from "//platform/effect/kv" import { Kv };
+from "//platform/effect/kv/testing" import { kv };
+
+fn request(token: Str): Request {
+    Request {
+        method: .Get,
+        url: "https://site.example/",
+        headers: [Header { name: "x-session", value: token }],
+        body: [],
+        timeoutMillis: 0,
+    }
+}
+
+test "an unknown token is refused" {
+    assert.equal(
+        handle(
+            context {
+                Allocator: alloc(),
+                Kv: kv(),
+            },
+            request("t1"),
+        ).status,
+        401,
+    );
+}
+
+test "a known token is greeted" {
+    let ctx = context {
+        Allocator: alloc(),
+        Kv: kv(),
+    };
+    store.put(ctx, "SESSIONS", "session:t2", "ada");
+    assert.equal(handle(ctx, request("t2")).status, 200);
+}

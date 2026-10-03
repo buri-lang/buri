@@ -11,6 +11,7 @@
 
 pub mod builtins;
 pub mod consteval;
+pub mod crossing;
 pub mod exhaustiveness;
 pub mod expressions;
 pub mod icons;

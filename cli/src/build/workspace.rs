@@ -69,6 +69,9 @@ pub struct DeclaredEntry {
     /// The `entry` field, or the output itself where it named none.
     pub span: Span,
     pub platform: Platform,
+    /// The repository platform the output names, `//platform/<name>`, with
+    /// the entry of it this function fills. `None` for a bundled platform.
+    pub custom: Option<buildfile::CustomPlatform>,
 }
 
 pub struct Package {
@@ -293,6 +296,9 @@ pub enum ModuleKind {
     TestingSurface,
     /// `//pkg/main.buri` — a binary's entry point.
     BinaryEntry,
+    /// `//platform/<name>/platform.buri` — a repository platform's host type,
+    /// its entries and its production structs.
+    PlatformSurface,
     /// `//pkg/inner.buri` — one module inside a library.
     Internal,
     /// `//pkg/whatever` — a module a `generators` entry produced. Also
@@ -483,6 +489,7 @@ impl Workspace {
             .enumerate()
             .map(|(i, p)| (p.path.clone(), PackageId(i as u32)))
             .collect();
+        resolve_custom_outputs(&mut packages, &by_path, diagnostics);
         let mut sorted_paths: Vec<(String, PackageId)> =
             by_path.iter().map(|(k, v)| (k.clone(), *v)).collect();
         // Longest first, so `//lib/money/cents` finds `lib/money` before `lib`.
@@ -623,7 +630,7 @@ impl Workspace {
     /// package, because a library is the only thing that can be depended on.
     /// `//lib/ledger/testing` names the testing surface, which lives in the
     /// same package's library rule.
-    fn dep_target(&self, label: &str) -> Option<TargetId> {
+    pub fn dep_target(&self, label: &str) -> Option<TargetId> {
         let path = label.strip_prefix("//")?;
         if let Some(id) = self.package_by_path(path) {
             if self.package(id).has_library() {
@@ -791,6 +798,11 @@ impl Workspace {
         if loc.package == own {
             return None;
         }
+        // A platform is no library: an output that names it depends on it,
+        // and nothing writes it in `dependencies`.
+        if loc.kind == ModuleKind::PlatformSurface {
+            return None;
+        }
         let label = self.package(loc.package).label();
         Some(if is_test_only_path(path) { format!("{label}/testing") } else { label })
     }
@@ -881,7 +893,13 @@ impl Workspace {
             // than by listing — `lib.buri`, `testing/lib.buri`, `main.buri` —
             // are what decide which kind of module a file is, and `testing`
             // and `main` are the extensionless spellings of two of them.
+            // A repository platform's surface is its `platform.buri`, named by
+            // the platform's label as a library is by its own.
+            let platform = package.build.platform.is_some() && is_platform_directory(package_path);
             let (kind, file) = match remainder {
+                "" | "platform.buri" if platform => {
+                    (ModuleKind::PlatformSurface, package.dir.join("platform.buri"))
+                }
                 "" => (ModuleKind::LibrarySurface, package.dir.join("lib.buri")),
                 "lib.buri" => (ModuleKind::LibrarySurface, package.dir.join("lib.buri")),
                 "testing" | "testing/lib.buri" => {
@@ -1014,8 +1032,40 @@ impl Workspace {
                 // otherwise: a caret on a field nobody wrote points at nothing.
                 span: o.entry.as_ref().map_or(o.span, |e| e.span),
                 platform: o.platform(),
+                custom: o.custom.clone(),
             })
             .collect()
+    }
+
+    /// The repository platform a label names: its package and its rule.
+    /// `None` for a label naming no `platform` rule under `//platform/`.
+    pub fn platform_rule(&self, label: &str) -> Option<(PackageId, &buildfile::PlatformRule)> {
+        let path = label.strip_prefix("//")?;
+        if !is_platform_directory(path) {
+            return None;
+        }
+        let id = self.package_by_path(path)?;
+        Some((id, self.package(id).build.platform.as_ref()?))
+    }
+
+    /// Whether a package holds a repository platform's rule.
+    pub fn is_platform_package(&self, id: PackageId) -> bool {
+        let p = self.package(id);
+        p.build.platform.is_some() && is_platform_directory(&p.path)
+    }
+
+    /// The repository platforms a binary's outputs name, each once, in the
+    /// order they are first named.
+    pub fn custom_platforms(&self, target: TargetId) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for e in self.declared_entries(target) {
+            if let Some(c) = e.custom {
+                if !out.contains(&c.label.value) {
+                    out.push(c.label.value);
+                }
+            }
+        }
+        out
     }
 
     /// The platforms a rule's **own** build file commits it to, or `None` when
@@ -1227,6 +1277,103 @@ impl Workspace {
 
     pub fn tag_doc(&self, name: &str) -> String {
         self.repo.tag(name).map(|t| t.doc.clone()).unwrap_or_default()
+    }
+}
+
+/// Checks every output that names a repository platform against that
+/// platform's rule, and turns it into one output per entry the platform has.
+///
+/// The reader keeps a `//platform/<name>` output as written, because the rule
+/// it names is in another build file. Here every build file has been read, so
+/// the label, the `variant` and the `entries` are held to the rule, through
+/// the checks a bundled platform's output gets from the reader. An
+/// output that fails is dropped, so nothing downstream builds it.
+fn resolve_custom_outputs(
+    packages: &mut [Package],
+    by_path: &HashMap<String, PackageId>,
+    diagnostics: &mut Diagnostics,
+) {
+    use buildfile::{Arch, NativePlatform, OutputTarget};
+    // The rules, by package path, read before any output is rewritten.
+    let rules: HashMap<String, buildfile::PlatformRule> = packages
+        .iter()
+        .filter_map(|p| Some((p.path.clone(), p.build.platform.clone()?)))
+        .collect();
+    for package in packages.iter_mut() {
+        let Some(binary) = package.build.binary.as_mut() else { continue };
+        let mut resolved = Vec::new();
+        for output in std::mem::take(&mut binary.outputs) {
+            let Some(custom) = output.custom.clone() else {
+                resolved.push(output);
+                continue;
+            };
+            let path = custom.package_path().to_string();
+            let rule = by_path.get(&path).and_then(|_| rules.get(&path));
+            let Some(rule) = rule.filter(|_| is_platform_directory(&path)) else {
+                let mut names: Vec<String> =
+                    buildfile::PlatformName::BUNDLED.iter().map(|p| format!("\"{}\"", p.name())).collect();
+                names.extend(rules.keys().filter(|k| is_platform_directory(k)).map(|k| format!("\"//{k}\"")));
+                names.sort();
+                diagnostics.push(
+                    Diagnostic::templated("no-such-platform", custom.label.span)
+                        .with_bind("platform", custom.label.value.as_str())
+                        .with_note(format!(
+                            "a repository's platform is a `platform` rule in a package under \
+                             `//platform/`, and `//{path}` holds none"
+                        ))
+                        .with_fix(format!("name one of {}", names.join(", "))),
+                );
+                continue;
+            };
+            let label = custom.label.value.as_str();
+            let variant = custom.variant.as_ref();
+            if let Some(d) =
+                buildfile::check_variant(label, &rule.variants(), rule.variant_required(), variant, output.span)
+            {
+                diagnostics.push(d);
+                continue;
+            }
+            let (filled, errors) = buildfile::check_entries(label, &rule.entry_names(), &custom.entries);
+            if !errors.is_empty() {
+                for d in errors {
+                    diagnostics.push(d);
+                }
+                continue;
+            }
+            // One output per entry: each entry is its own artifact, named after
+            // the entry, in the output's one directory.
+            for entry in &rule.entries {
+                let mut one = output.clone();
+                let function = filled.iter().find(|(k, _)| k.value == entry.name.value);
+                one.entry = function.map(|(_, f)| f.clone());
+                one.target = match entry.backend.value {
+                    Backend::Js => OutputTarget::Js,
+                    Backend::Native => {
+                        let written = custom.variant.as_ref();
+                        let os = match written.map(|v| v.value.as_str()) {
+                            Some(v) if v.starts_with("macos-") => NativePlatform::Macos,
+                            Some(_) => NativePlatform::Linux,
+                            None => match crate::compiler::driver::host_native_platform() {
+                                Platform::Macos => NativePlatform::Macos,
+                                _ => NativePlatform::Linux,
+                            },
+                        };
+                        let arch = written.and_then(|v| {
+                            let (_, a) = v.value.split_once('-')?;
+                            Arch::parse(a).map(|a| Spanned::new(a, v.span))
+                        });
+                        OutputTarget::Native { platform: os, arch }
+                    }
+                };
+                if let Some(c) = one.custom.as_mut() {
+                    c.point = entry.name.value.clone();
+                    c.backend = entry.backend.value;
+                    c.js = entry.js.as_ref().map(|j| j.value.clone());
+                }
+                resolved.push(one);
+            }
+        }
+        binary.outputs = resolved;
     }
 }
 

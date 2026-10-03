@@ -1,0 +1,9 @@
+// An AWS Lambda-shaped platform: one native entry, called `bootstrap`.
+from "platform/host" import { HostAllocator, HostStdout };
+
+export struct LambdaHost {
+    export alloc: HostAllocator,
+    export stdout: HostStdout,
+}
+
+export fn bootstrap(host: LambdaHost): Result<(), Str>;

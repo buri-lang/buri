@@ -29,6 +29,9 @@ use crate::parsing::tree;
 use crate::hash::{Map as HashMap, Set as HashSet};
 use std::collections::BTreeSet;
 
+mod platforms;
+pub use platforms::{is_effect_package_module, is_effect_package_path};
+
 /// What a name in scope refers to.
 #[derive(Clone, Debug)]
 pub enum Sym {
@@ -346,6 +349,7 @@ impl<'a> Checker<'a> {
         // an output naming a function that is not there is printed above its
         // consequences.
         self.check_declared_entries();
+        self.check_effect_test_implementations();
         self.register_primitive_methods();
         self.check_derives();
         self.compute_surfaces();
@@ -553,9 +557,14 @@ impl<'a> Checker<'a> {
                 self.declare(module, d.name, Sym::Ty(id), d.exported);
             }
             tree::Item::Trait(d) => {
-                // `effect` may be declared only by platform modules.
-                if d.is_effect && self.module(module).role != Role::Platform {
-                    self.templated("effect-outside-platform", d.span);
+                // `effect` may be declared only by the bundled platform modules
+                // and, in a repository, by an effect package under
+                // `//platform/effect/`.
+                if d.is_effect
+                    && self.module(module).role != Role::Platform
+                    && !is_effect_package_module(self.ws, self.module(module))
+                {
+                    self.templated("effect-outside-effect-directory", d.span);
                 }
                 // A trait's *own* parameters have nowhere to be bound. An
                 // `impl` is written `impl Trait for Type`, with no arguments
@@ -1429,6 +1438,11 @@ impl<'a> Checker<'a> {
         if self.declares_entry(module, &name) {
             self.entry_points.insert(name.clone());
         }
+        // An entry of a repository platform is held to that platform's own
+        // declaration of it.
+        for custom in self.custom_entries(module, &name).unwrap_or_default() {
+            self.check_custom_entry(fid, &d, &name, &custom);
+        }
         for (shape, platform) in self.entry_shapes(module, &name) {
             self.check_entry_signature(fid, &d, &name, shape, platform);
         }
@@ -1454,6 +1468,8 @@ impl<'a> Checker<'a> {
         if let (Some(platform), Some(built)) = (self.loaded.platform, self.loaded.entry.as_deref())
         {
             return match built == name {
+                // A repository platform's entry is its declaration's business.
+                true if self.loaded.custom.is_some() => Vec::new(),
                 true => vec![(platform.entry_shape(), Some(platform))],
                 // Not this artifact's entry. `main` still answers below,
                 // because every analysis that has one expects the one shape.
@@ -1462,10 +1478,19 @@ impl<'a> Checker<'a> {
         }
         let mut declared: Vec<(EntryShape, Option<Platform>)> = Vec::new();
         let mut outputs = false;
+        // Whether a repository platform's output enters here, which holds the
+        // function to that platform's declaration instead.
+        let mut custom = false;
         if let (Some(ws), Some(pkg)) = (self.ws, self.module(module).pkg) {
             let target = TargetId { package: pkg, kind: RuleKind::Binary };
             for entry in ws.declared_entries(target) {
                 outputs = true;
+                if entry.custom.is_some() {
+                    if entry.name == name {
+                        custom = true;
+                    }
+                    continue;
+                }
                 let shape = (entry.platform.entry_shape(), Some(entry.platform));
                 // `native` is two platforms here, Linux and macOS, and one host.
                 let same = |(s, p): &(EntryShape, Option<Platform>)| {
@@ -1476,7 +1501,7 @@ impl<'a> Checker<'a> {
                 }
             }
         }
-        if !declared.is_empty() {
+        if !declared.is_empty() || custom {
             return declared;
         }
         // A binary that names no output builds for `node`. Where the build
@@ -1863,7 +1888,7 @@ impl<'a> Checker<'a> {
         // this cannot mark a fenced signature as something the runtime is
         // expected to supply. Anything else bodyless was already reported by
         // the parser.
-        if crate::compiler::standard_library::find(&path).is_none() {
+        if crate::compiler::standard_library::find(&path).is_none() && !self.is_platform_surface(module) {
             return;
         }
         self.tables.fn_info_mut(fid).intrinsic = true;
