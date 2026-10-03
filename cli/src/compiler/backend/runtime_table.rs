@@ -588,22 +588,6 @@ pub const ENTRIES: &[Entry] = &[
     cx(er("list.repeat", "buri_rt_list_repeat", Ret::Out, 1), 0),
     cx(e("list.range", "buri_rt_list_range", Ret::Out), 0),
     cx(e("list.join", "buri_rt_list_join", Ret::Out), 1),
-    // -- the closure trampoline, and its one pilot key ----------------------
-    //
-    // `list.mapCtxStep` is `list.mapCtx` with its step reached through the
-    // C-ABI entry thunk of [`Extra::Step`] instead of through the loop
-    // `stencil/lists.rs` open-codes. It is the *pilot* for that mechanism and
-    // nothing in `core/list` uses it: those combinators keep their loops, which
-    // are faster than a call per element can be.
-    //
-    // So this row landed to be *called*, by a conformance fixture and by an
-    // agreement row, before there was anything else to call it with. The
-    // alternative was landing the boundary underneath `Tasks.parallel` and
-    // debugging two new things at once. `host.HostTasks.parallel` is that
-    // second key and it is in the `platform/host` block below, beside the rest of
-    // the host surface rather than up here — the trampoline is a mechanism, not
-    // a section of this table.
-    cx(es("list.mapCtxStep", "buri_rt_list_map_ctx_step", Ret::Out), 1),
     // -- core/bytes ---------------------------------------------------------
     //
     // Six of `bytes.buri`'s surface, and the rest of that module is Buri:
@@ -1831,8 +1815,9 @@ mod tests {
         // whose first parameter is the context, which is the second of the two
         // shapes below. `host_testing.mount` is the forty-ninth — the renderer
         // drops its context the way every one of these does. `core/crypto`'s
-        // `seal` and `open` entries are the fiftieth and fifty-first.
-        assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 51);
+        // `seal` and `open` entries made it fifty-one, and dropping
+        // the trampoline's pilot row made it fifty.
+        assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 50);
     }
 
     /// The two shapes the column takes, by example, so that the indices are

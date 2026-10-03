@@ -38,7 +38,7 @@
 //! their own terms rather than to make the fast suite slow, and a module is a
 //! name prefix: `cargo test --test native -- --skip float_parity` leaves the
 //! rest of the domain fast, and `--test native float_parity` runs only this.
-use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
+use buri::compiler::backend::runtime_native::AVAILABLE;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -288,10 +288,9 @@ fn a_native_float_renders_as_javascript_renders_it() {
         return;
     };
     let dir = workspace("parity");
-    let archive = dir.join(ARCHIVE_NAME);
+    let archive = crate::shared::runtime_archive();
     let source = dir.join("floats.c");
     let binary = dir.join("floats");
-    std::fs::write(&archive, ARCHIVE).unwrap();
     std::fs::write(&source, DRIVER).unwrap();
 
     // `build/link.rs`'s own driver and trailing arguments
@@ -299,7 +298,7 @@ fn a_native_float_renders_as_javascript_renders_it() {
     // is the product's — a musl one on Linux — and a harness that answered the
     // libc question differently would not link at all.
     let mut cc = crate::shared::product_cc();
-    cc.arg("-std=c11").arg("-O1").arg("-o").arg(&binary).arg(&source).arg(&archive);
+    cc.arg("-std=c11").arg("-O1").arg("-o").arg(&binary).arg(&source).arg(archive);
     cc.args(crate::shared::product_link_args());
     let built = cc.output().unwrap();
     assert!(
@@ -307,6 +306,7 @@ fn a_native_float_renders_as_javascript_renders_it() {
         "the driver did not build:\n{}",
         String::from_utf8_lossy(&built.stderr)
     );
+    crate::sweep::kept::settle(&binary);
 
     let bits = corpus();
     let mut input = String::with_capacity(bits.len().saturating_mul(17));
@@ -407,6 +407,7 @@ fn the_runtimes_own_unit_tests_pass() {
         "the runtime did not build as a test binary:\n{}",
         String::from_utf8_lossy(&built.stderr)
     );
+    crate::sweep::kept::settle(&binary);
     let out = Command::new(&binary).output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout).to_string();
     assert!(out.status.success(), "the runtime's own tests failed:\n{text}");

@@ -1,0 +1,13 @@
+error: `Labelled<Plain>` does not implement `Measurable` [missing-impl]
+  --> cmd/conditional_impl_unmet_bound/main.buri:26:12
+   |
+26 |   let _n = total(Labelled(Plain(1)));
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `Labelled<T>` implements `Measurable` only when `T` satisfies `Measurable`, and here `T` is `Plain`
+   = fix: make `Plain` satisfy `Measurable`
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+

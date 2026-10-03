@@ -3173,7 +3173,6 @@ mod tests {
             "list.foldCtx",
             "list.foldResultCtx",
             "list.mapCtx",
-            "list.mapCtxStep",
             "list.filterCtx",
         ] {
             assert!(crate::compiler::backend::intrinsic_keys::ctx_step_key(key));

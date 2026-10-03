@@ -509,22 +509,6 @@ pub fn find(name: &str) -> Option<&'static Command> {
     COMMANDS.iter().find(|c| c.name == name)
 }
 
-/// The commands that used to be spelled differently, and what they are now.
-///
-/// A rename is not a typo, so `nearest` cannot answer it: `add-skills` is
-/// seven edits from `add`, which is exactly the distance that stops a
-/// suggestion from being noise. The old spelling still fails — an alias would
-/// keep two names alive and nothing would ever retire the first — but it fails
-/// naming its replacement, which is the whole of what somebody with the old
-/// command in a script needs.
-pub const RENAMED: &[(&str, &str)] = &[("add-skills", "add skills")];
-
-/// What to type instead of `name`, when `name` is a command this toolchain
-/// used to have.
-pub fn renamed(name: &str) -> Option<&'static str> {
-    RENAMED.iter().find(|(was, _)| *was == name).map(|(_, now)| *now)
-}
-
 /// `buri <command> <subcommand>`, dispatched through the command's own table.
 ///
 /// The two refusals are the ones `main` makes for a command that is not there,
@@ -798,27 +782,6 @@ mod tests {
         assert!(text.contains("buri add skills"), "the list omits the one subcommand there is");
         assert!(text.contains("buri docs cli add"), "the list does not say where the page is");
         assert!(subcommand_usage("nonesuch").is_empty(), "a command that is not there has no list");
-    }
-
-    /// A renamed command is *gone* — no alias, no hidden entry — and the
-    /// spelling the hint offers is one the table can actually dispatch.
-    #[test]
-    fn a_renamed_command_is_gone_and_its_replacement_works() {
-        for (was, now) in RENAMED {
-            assert!(find(was).is_none(), "`{was}` was renamed but is still a command");
-            assert_eq!(renamed(was), Some(*now));
-            let mut words = now.split(' ');
-            let c = find(words.next().unwrap_or_default())
-                .unwrap_or_else(|| panic!("`{now}` names no command"));
-            if let Some(sub) = words.next() {
-                assert!(
-                    c.subcommands.iter().any(|s| s.name == sub),
-                    "`{now}` names no subcommand of `buri {}`",
-                    c.name
-                );
-            }
-            assert!(words.next().is_none(), "`{now}` is more words than a command and a subcommand");
-        }
     }
 
     /// Both ways of asking for a subcommand that is not there: none named, and

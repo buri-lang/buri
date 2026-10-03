@@ -27,6 +27,9 @@ use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+#[path = "kept.rs"]
+pub mod kept;
+
 /// How long a scratch tree must have been untouched to be nobody's.
 ///
 /// A full `cargo test -p buri --features backend-llvm` is minutes, and the
@@ -65,11 +68,24 @@ fn sweep() {
 /// [`sweep`] with the root and the bound named, so the rule can be asserted
 /// rather than waited out — the shape `actions::claim_runner_after` uses for
 /// the same reason.
+///
+/// Two trees are kept across runs (`kept.rs`), so they are not taken whole.
+/// The store of linked programs is swept entry by entry, and this binary's
+/// runtime archive is left alone, however old it is.
 fn sweep_dir(root: &Path, stale: Duration) {
     let Ok(entries) = std::fs::read_dir(root) else { return };
+    let archive = kept::archive_dir_name();
     for entry in entries.flatten() {
         let Ok(meta) = entry.metadata() else { continue };
         if !meta.is_dir() {
+            continue;
+        }
+        let name = entry.file_name();
+        if name == kept::PROGRAMS {
+            kept::sweep_store(&entry.path(), stale);
+            continue;
+        }
+        if name.to_str() == Some(archive.as_str()) {
             continue;
         }
         // A directory's mtime moves whenever an entry is added to or removed
@@ -118,6 +134,26 @@ mod sweep_tests {
         // A file is not a tree, and the sweep is over the scratch root rather
         // than over everything: whatever else is there is left alone.
         assert!(root.join("loose-file").is_file());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The kept trees are never taken whole. A stale program in the store is
+    /// taken on its own, and this binary's runtime archive stays.
+    #[test]
+    fn the_kept_trees_are_swept_by_entry() {
+        let root = std::env::temp_dir()
+            .join(format!("buri-sweep-kept-{}-{}", env!("CARGO_CRATE_NAME"), std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let program = root.join(kept::PROGRAMS).join("0123abcd");
+        let archive = root.join(kept::archive_dir_name());
+        std::fs::create_dir_all(&program).unwrap();
+        std::fs::create_dir_all(&archive).unwrap();
+
+        sweep_dir(&root, Duration::ZERO);
+        assert!(archive.is_dir(), "this binary's archive is kept");
+        assert!(root.join(kept::PROGRAMS).is_dir(), "the store is kept");
+        assert!(!program.exists(), "a program nothing has run for the bound is taken");
 
         let _ = std::fs::remove_dir_all(&root);
     }

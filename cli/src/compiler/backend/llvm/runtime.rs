@@ -1295,26 +1295,6 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::List, Arg::Dropped, Arg::Str],
         ret: Ret::Out,
     },
-    // -- the closure trampoline, and its one pilot key ----------------------
-    //
-    // `list.mapCtxStep` is `list.mapCtx` with its step reached through the
-    // generated `ccc` entry thunk of [`Arg::Step`] instead of through the loop
-    // [`super::emit::Unit::list_closure`] emits. It is the *pilot* for that
-    // mechanism and nothing in `core/list` uses it: those combinators keep
-    // their loops, which are faster than a call per element can be. The
-    // operation the trampoline exists for is `host.HostTasks.parallel`, whose
-    // row is in the `platform/host` block above.
-    //
-    // `Arg::Elems` and not `Arg::List`, because the source's element type is
-    // what `generic_element` answers and what the entry thunk is generated at.
-    // `Arg::Dropped` for the `Allocator` context, as every other `core/list` row
-    // has it: the runtime allocates through `buri_rt_alloc`.
-    Entry {
-        key: "list.mapCtxStep",
-        symbol: "buri_rt_list_map_ctx_step",
-        args: &[Arg::Elems, Arg::Dropped, Arg::Step],
-        ret: Ret::Out,
-    },
     // -- core/bytes ---------------------------------------------------------
     //
     // `Arg::List` at every `[U8]` argument, and the two alternatives are both

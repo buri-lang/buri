@@ -709,18 +709,6 @@ function $list_mapCtx(xs, c, f) {
   return $own(out);
 }
 
-// `list.mapCtxStep` is `mapCtx` with a runtime-driven step on the native
-// backends, and here it is the same loop as `$list_mapCtx` — deliberately.
-// JavaScript is the reference implementation the two natives are compared
-// against (`cli/tests/native/agreement.rs`), and a reference that shared the
-// mechanism under test would prove nothing about it. This is the same argument
-// `middle/fuse.rs` makes for running the fusion pass on the native branch only.
-function $list_mapCtxStep(xs, c, f) {
-  const out = new Array(xs.length);
-  for (let i = 0; i < xs.length; i++) out[i] = f(c, $share(xs[i]));
-  return $own(out);
-}
-
 function $list_filter(xs, c, p) {
   const out = [];
   for (let i = 0; i < xs.length; i++) if (p($share(xs[i]))) out.push(xs[i]);
@@ -733,7 +721,7 @@ function $list_filterCtx(xs, c, p) {
   return $own(out);
 }
 
-// --- the same five, awaiting their step --------------------------------------
+// --- the same four, awaiting their step --------------------------------------
 //
 // A `*Ctx` combinator hands its step the caller's **whole context**, so the
 // step may do anything the caller may: dial a socket, sleep on a clock, ask an
@@ -741,7 +729,7 @@ function $list_filterCtx(xs, c, p) {
 // arrow, and calling one returns a promise rather than an answer — so
 // `xs.mapCtx(ctx, fn(c, x) => …)` over a body that parks produced a list of
 // promises, `main` returned before any of them settled, and the work the step
-// was written to do silently did not happen. That is the bug these five exist
+// was written to do silently did not happen. That is the bug these four exist
 // to fix, and `$list_mapCtx` above is why the plain loop still exists: a step
 // that never waits must stay synchronous, because an `async` combinator makes
 // its caller `async`, and this compiler hands function values to JavaScript
@@ -773,12 +761,6 @@ async function $list_foldResultCtxAwait(xs, c, f, acc) {
 }
 
 async function $list_mapCtxAwait(xs, c, f) {
-  const out = new Array(xs.length);
-  for (let i = 0; i < xs.length; i++) out[i] = await f(c, $share(xs[i]));
-  return $own(out);
-}
-
-async function $list_mapCtxStepAwait(xs, c, f) {
   const out = new Array(xs.length);
   for (let i = 0; i < xs.length; i++) out[i] = await f(c, $share(xs[i]));
   return $own(out);

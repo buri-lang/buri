@@ -1208,9 +1208,9 @@ written because removing the retargetable backend (§13) would otherwise have
 left this target with no debug backend at all.
 
 **The landed state.** Five of the six are in; item 6 (`swap_arms`) is open,
-and it is a measurement rather than a correctness gap. `asm::AVAILABLE_X86_64`
-reads **`true`**, so `stencil::AVAILABLE`'s `linux-x86_64` disjunct holds and
-an x86-64 Linux host runs the suite rather than skipping it. CI's `x86_64`
+and it is a measurement rather than a correctness gap. `stencil::AVAILABLE`
+holds on any x86-64 Linux host with stencils, so that host runs the suite
+rather than skipping it. CI's `x86_64`
 `test` leg is the twin of the `arm64` one and asserts, instead of a skip: the
 corpus census at macOS parity (**26 of 36**, the same 26 by name, checked as a
 set rather than a count), the whole `stencil::` suite running real programs,
@@ -1257,7 +1257,7 @@ The six:
    The fallthrough elision drops **five** bytes here and four there, because
    the trailing branch is a `jmp rel32` and not an instruction word.
 
-3. **`region.rs`: an x86-64 relocation vocabulary.** `RelocKind` gained
+3. **`object.rs`: an x86-64 relocation vocabulary.** `RelKind` gained
    `Rel32` and `Pc32` beside the four A64 kinds; `elf::r_type` maps them to
    `R_X86_64_PLT32` and `R_X86_64_PC32`, and still **errors** on a kind the
    target has no counterpart for in either direction. The addend is explicit

@@ -532,12 +532,6 @@ const PACKAGES: &[Case] = &[
     // the check that the derived order and `Str.compare` agree.
     included("codegen/ordering.buri"),
     included("codegen/tail_calls.buri"),
-    // The closure trampoline's pilot. It is in the native set by construction:
-    // `list.mapCtxStep` exists so that the *native* boundary — the runtime
-    // calling back into Buri code through a generated entry thunk — has
-    // something to be exercised by, so a backend that could not compile this
-    // file would be a backend the key had failed on.
-    included("codegen/step_trampoline.buri"),
     // The four `//lib/semantics` files. Two of them reach the filesystem
     // double's methods and were waiting on `cli/runtime/lib.rs` §2.1 — the
     // `Result<T, E>` shape — as well as on the repository; the other two built
@@ -592,9 +586,8 @@ const PACKAGES: &[Case] = &[
     // intrinsic: the parse is Buri over `[Str]`, `Map` and `Set`, and the help
     // pages are `str.format` and `padEnd`. It is in the native set for
     // `semantics/host_testing.buri`'s reason — the doubles are the archive's
-    // table — plus one of its own: a closure called through a struct field is
-    // the shape `codegen/step_trampoline.buri` pilots, and a command's `run`
-    // is that shape in a library.
+    // table — plus one of its own: a closure called through a struct field,
+    // which a command's `run` is.
     included("cli/arguments.buri"),
     // Every conversion SPEC 6.2.1 defines, in one file, and it is the file the
     // inexact ones were written against: a float source with `NaN`, the
@@ -1111,6 +1104,7 @@ fn build(name: &str, source: &str, dir: &Path) -> Built {
         "{name}: the link failed:\n{}",
         String::from_utf8_lossy(&built.stderr)
     );
+    crate::sweep::kept::settle(&binary);
     Built::Linked(binary, blocks)
 }
 

@@ -2905,16 +2905,6 @@ impl<'a> Parser<'a> {
         let mut rung = usize::MAX;
         loop {
             let Some(p) = self.peek().as_punctuation() else { return Ok(lhs) };
-            // `??` is retired. The token is still lexed so that the operator
-            // somebody typed is named rather than read as `?` twice, and the
-            // expression is abandoned here: what follows is a default for a
-            // value this expression no longer produces, so reading on would
-            // report a second thing about the same mistake.
-            if p == Punctuation::QuestionQuestion {
-                let span = self.span();
-                self.templated("retired-coalesce", span);
-                return Err(Bail);
-            }
             let Some((op, lbp, rbp, level)) = binding_power(p) else { return Ok(lhs) };
             if lbp < min_bp {
                 return Ok(lhs);

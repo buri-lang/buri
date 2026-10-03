@@ -641,10 +641,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let _ = expected;
                 let note;
                 let fix;
-                if let Some((said, write)) = standard_library::renamed::anywhere(name) {
-                    note = Some(said);
-                    fix = write;
-                } else if self.c.scope(self.module).namespaces.contains_key(name) {
+                if self.c.scope(self.module).namespaces.contains_key(name) {
                     note = Some(format!("`{name}` is a module namespace; name a member of it"));
                     fix = "correct the spelling, or declare it".to_string();
                 } else if let Some(near) = self.nearest_value(name) {
@@ -1768,14 +1765,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
         let shown = self.show_ty(recv);
         let mut notes = Vec::new();
-        // A name the standard library used to have, asked of the type's own
-        // module first and of the whole table second: `Str.len` is `core/str`'s
-        // rename, and `.eq` is `core/order`'s however it was reached.
         let home = self.method_home(recv);
-        let renamed = home
-            .as_ref()
-            .and_then(|(path, ..)| standard_library::renamed::in_module(path, name))
-            .or_else(|| standard_library::renamed::anywhere(name));
         let mut near = None;
         match recv {
             Ty::Param(i) => {
@@ -1800,12 +1790,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
             }
             Ty::Con(con, _) => {
-                if renamed.is_none() {
-                    let refs: Vec<&str> = self.c.tables.method_names(*con).collect();
-                    near = nearest(name, &refs).map(str::to_string);
-                    if let Some(n) = &near {
-                        notes.push(format!("did you mean `{n}`?"));
-                    }
+                let refs: Vec<&str> = self.c.tables.method_names(*con).collect();
+                near = nearest(name, &refs).map(str::to_string);
+                if let Some(n) = &near {
+                    notes.push(format!("did you mean `{n}`?"));
                 }
                 if self.c.tables.field_index(*con, name).is_some() {
                     notes.push(format!("`{name}` is a field; a field is not called"));
@@ -1829,21 +1817,17 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             _ => {}
         }
-        let fix = match (&renamed, &near) {
-            (Some((_, write)), _) => Some(write.clone()),
-            (None, Some(n)) => Some(crate::diagnostics::candidate_fix(
+        let fix = match &near {
+            Some(n) => Some(crate::diagnostics::candidate_fix(
                 n,
                 &Self::where_the_methods_are(home.as_ref(), &shown),
             )),
-            (None, None) => self.no_method_fix(recv, &shown, name),
+            None => self.no_method_fix(recv, &shown, name),
         };
         let d = self
             .templated("unknown-method", span)
             .bind("type", shown)
             .bind("method", name.to_string());
-        if let Some((note, _)) = renamed {
-            d.notes.push(note);
-        }
         d.notes.extend(notes);
         // After the binds: every `bind` re-renders the page's own fix over it.
         if let Some(fix) = fix {
@@ -3325,13 +3309,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             };
             let Some(Sym::Trait(tid)) = self.c.resolve_path(self.module, path) else {
                 let shown = t.type_head(effect_id).unwrap_or("?").to_string();
-                let renamed = standard_library::renamed::anywhere(&shown);
-                let d = self.templated("unknown-effect", effect_span).bind("name", shown);
-                // After the binds: every `bind` re-renders the page's own fix over it.
-                if let Some((note, fix)) = renamed {
-                    d.fix(fix);
-                    d.notes.push(note);
-                }
+                self.templated("unknown-effect", effect_span).bind("name", shown);
                 continue;
             };
             if !self.c.tables.trait_(tid).is_effect {
