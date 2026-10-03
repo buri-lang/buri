@@ -2646,7 +2646,8 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "number.maxValue",
     "number.minValue",
     // `core/platforms/testing/state`, carried the way `host_testing.Headless`'s
-    // value is: a stride, a retain and a release, with `Carrier::Value`.
+    // value is: a stride, a retain and a release, for the whole value
+    // (`runtime_table`'s `Entry::whole_value`).
     "platforms_testing_state.stateNew",
     "platforms_testing_state.statePut",
     "platforms_testing_state.stateRead",
