@@ -7,16 +7,7 @@ error: `Allocator` is bound twice [duplicate-bound]
   = a spread's binding is replaced by an explicit one, but two explicit bindings of one effect are a mistake
   = fix: delete one of the two bindings
 
-    What to do
-    ──────────
-
-    Delete one of the two bindings.
-
-    Why
-    ───
-
-    An explicit binding replaces a spread's binding: context { ..Fixture(),
-    FileSystemRead: fs().files([]) } is how a test overrides a default. Two
-    explicit bindings have no such reading, so the later one does not silently
-    win.
+    Overriding a spread is how a test replaces a default: context { ..Fixture(),
+    FileSystemRead: fs().files([]) }. Two explicit bindings have no such
+    reading, so the later one doesn't silently win.
 

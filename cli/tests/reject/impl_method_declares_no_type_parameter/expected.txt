@@ -12,12 +12,7 @@ error: `wrap` does not have the signature `Pack` declares [signature-mismatch]
    = a call through a bound is checked against the trait's declaration and dispatched to the `impl`'s method, so the two are one signature
    = fix: give `wrap` the signature `Pack` declares
 
-     Why
-     ───
-
-     A caller reaching the method through a bound is typechecked against the
-     *trait's* declaration, and the code generator reconstructs the impl
-     function's type arguments from the trait's. So an impl that took one more
-     parameter, or a Str where the trait said Int, would break its promise at
+     The code generator also rebuilds the impl method's type arguments from the
+     trait's. An impl with an extra parameter or a different type would break at
      some later call site, if at all.
 

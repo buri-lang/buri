@@ -12,10 +12,10 @@ error: `config.json` is read under two contracts, `//schemas/names.schema.json` 
       # proto-file: other.proto
       # proto-message: Route
 
-    A tool with a contract reads a typed value, so the file is checked against
-    the contract's type_schema. A different "$schema", or a text format header
-    naming another schema or message, would say the file is something else.
+    A tool with a contract checks the file against the contract's type_schema. A
+    different "$schema", or a text format header naming another schema or
+    message, contradicts it.
 
-    Two tools with different contracts reading one file is the same mistake: one
-    file cannot have two schemas.
+    Two tools with different contracts reading one file is the same mistake: a
+    file has one schema.
 

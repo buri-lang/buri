@@ -6,14 +6,6 @@ error: field `a` is declared twice [duplicate-declaration]
   |
   = fix: rename one of them, or delete the duplicate
 
-    What to do
-    ──────────
-
-    Rename one of them.
-
-    Why
-    ───
-
-    A name is how you refer to the thing, and two of them in one scope leave the
-    reference with no answer.
+    Rename one of them. Two things with one name in one scope leave a reference
+    to that name with no answer.
 

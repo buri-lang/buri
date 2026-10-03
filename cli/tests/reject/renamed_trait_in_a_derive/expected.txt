@@ -19,16 +19,7 @@ error: `Point` does not implement `Equal` [missing-conformance]
    = conformance is nominal: a type satisfies a trait only where a declaration says so
    = fix: add `derive Equal for Point;` in that type's own module, or write `impl Equal for Point { ... }` there
 
-     What to do
-     ──────────
-
-     Bind a value whose type has impl Allocator for ....
-
-     Why
-     ───
-
-     You declare conformance; the compiler never infers it. A type with all the
-     right methods still does not satisfy an effect until an impl says so —
-     which is why a test double is a struct with those methods and an impl
-     block.
+     Bind a value whose type has an impl of the trait. Having the right methods
+     isn't enough: a type conforms only once an impl says so. That's why a test
+     double is a struct plus an impl block.
 

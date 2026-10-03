@@ -7,23 +7,14 @@ error: field `0` of `Event` is private to its module [private-to-module]
    = a struct with any private field cannot be constructed or destructured elsewhere, though functional update still works because it never names the hidden fields
    = fix: add `export` to the field, or go through a method `Event` provides
 
-     What to do
-     ──────────
+     Add export to the declaration, or go through a method the type provides.
 
-     Add export to the field, or go through a method the type provides.
+     Without export, a declaration, field, method or variant of a private enum
+     is reachable only from its own module.
 
-     Why
-     ───
-
-     export is the whole of visibility. A declaration, a field or a method
-     without it is reachable only from the module that wrote it, so one code
-     covers a function you cannot call, a field you cannot name, and a variant
-     of an enum whose own declaration is private.
-
-     The unusual half is that a struct with any private field cannot be
-     constructed anywhere else at all, not merely read: writing Scope(0) names
-     the hidden field. That makes a private field an invariant, and it is how
-     the standard library mints a type only from the inside.
-
-     Functional update still works, because it never names the hidden fields.
+     A struct with any private field can't be constructed outside its module at
+     all, because writing Scope(0) names the hidden field. That makes a private
+     field an invariant, and it's how the standard library mints a type only
+     from the inside. Functional update still works, because it never names the
+     hidden fields.
 

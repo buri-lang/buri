@@ -9,14 +9,6 @@ error: -1 is not representable in `U32` [literal-out-of-range]
   = `U32` has no negative values
   = fix: use a signed type, or drop the sign; `U32` starts at 0
 
-    What to do
-    ──────────
-
-    Write a value inside the type's range, or annotate a wider type.
-
-    Why
-    ───
-
-    The compiler checks a literal against the type it is pinned to rather than
-    widening it to fit. U64 holds 0 to 18446744073709551615.
+    Write a value inside the type's range, or annotate a wider type. A literal
+    never widens to fit.
 

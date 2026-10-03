@@ -6,18 +6,8 @@ error: this style is not statically known, and `On` and `At` exist only in the s
    |
    = fix: write the value out, or make it a module-level `let`, or apply it outside the `On`/`At`, where it can be an inline style
 
-     What to do
-     ──────────
-
-     Write the value out, or make it a module-level let, or apply it outside the
-     On/At, where it can be an inline style.
-
-     Why
-     ───
-
-     A style the compiler cannot evaluate normally degrades to the inline tier,
-     which is where Computed already lives. On and At have nowhere to degrade
-     *to*: there is no inline form of :hover and none of @media (min-width:
-     64rem). Both exist only as rules in a stylesheet, which the compiler writes
+     A style the compiler can't evaluate usually falls back to an inline style,
+     where Computed already lives. On and At can't: :hover and @media have no
+     inline form. They exist only as stylesheet rules, which the compiler writes
      at compile time.
 

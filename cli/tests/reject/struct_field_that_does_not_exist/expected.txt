@@ -7,10 +7,6 @@ error: `Rec` has no field `f1` [no-such-field]
    = did you mean `f0`?
    = fix: if you meant `f0`, use that; if not, `Rec`'s declaration lists its fields
 
-     Why
-     ───
-
-     There is no structural typing and no inheritance. A value's fields are
-     exactly the ones its declaration lists, which is how the diagnostic can
-     offer the nearest name the type does have.
+     There's no structural typing and no inheritance. A value has exactly the
+     fields its declaration lists.
 
