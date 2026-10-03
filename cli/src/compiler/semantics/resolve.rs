@@ -277,6 +277,9 @@ pub struct Base {
     const_values: ConstMap,
     known_traits: HashMap<String, TraitId>,
     known_types: HashMap<String, TyConId>,
+    /// What every prelude name refers to, which is the same in every module
+    /// and is found in these modules' scopes.
+    prelude: Vec<(String, Sym)>,
     prim_module: ModuleId,
     ctx_rebindings: Vec<Span>,
     ctx_decls_reached: HashSet<ContextDeclId>,
@@ -470,6 +473,7 @@ impl<'a> Checker<'a> {
                 ..found
             };
         }
+        let prelude = self.prelude();
         Base {
             modules: self.loaded.modules.len(),
             bodies_checked,
@@ -479,6 +483,7 @@ impl<'a> Checker<'a> {
             scopes: self.scopes,
             bodies: self.bodies,
             const_values: self.const_values,
+            prelude,
             known_traits: self.known_traits,
             known_types: self.known_types,
             prim_module: self.prim_module,
@@ -982,17 +987,18 @@ impl<'a> Checker<'a> {
 
         // Prelude names sit under everything, so a module may shadow any of
         // them and importing one explicitly is harmless. What each one refers
-        // to is the same in every module, so it is looked up once here rather
-        // than once per module.
-        let prelude: Vec<(String, Sym)> = standard_library::prelude()
-            .filter_map(|(path, name)| {
-                let from = self.loaded.find(path)?;
-                let sym = self.scope(from).exports.get(name)?.clone();
-                Some((name.to_string(), sym))
-            })
-            .collect();
+        // to is the same in every module, so it is looked up once rather than
+        // once per module — and once per process where a base looked it up.
+        let computed;
+        let prelude = match self.base {
+            Some(base) => &base.prelude,
+            None => {
+                computed = self.prelude();
+                &computed
+            }
+        };
         for scope in self.scopes.own_mut() {
-            for (local, sym) in &prelude {
+            for (local, sym) in prelude {
                 scope.names.entry(local.clone()).or_insert_with(|| sym.clone());
             }
         }
@@ -2400,18 +2406,22 @@ impl<'a> Checker<'a> {
     /// Well-known names, so operators, `derive`, and the `main` signature
     /// check can find their traits and types. Runs before signatures are
     /// elaborated, because that is where `main` is checked.
+    /// What every prelude name refers to, from the scopes of the modules
+    /// that export them.
+    fn prelude(&self) -> Vec<(String, Sym)> {
+        standard_library::prelude()
+            .filter_map(|(path, name)| {
+                let from = self.loaded.find(path)?;
+                let sym = self.scope(from).exports.get(name)?.clone();
+                Some((name.to_string(), sym))
+            })
+            .collect()
+    }
+
     fn register_known_names(&mut self) {
         for (path, name) in standard_library::prelude() {
             if let Some(m) = self.loaded.find(path) {
-                match self.scope(m).exports.get(name) {
-                    Some(Sym::Trait(t)) => {
-                        self.known_traits.insert(name.to_string(), *t);
-                    }
-                    Some(Sym::Ty(c)) => {
-                        self.known_types.insert(name.to_string(), *c);
-                    }
-                    _ => {}
-                }
+                self.know(m, name);
             }
         }
         // `core/json` is loaded on import rather than eagerly, so these are
@@ -2419,15 +2429,7 @@ impl<'a> Checker<'a> {
         // time a primitive needs an implementation of either to be found.
         if let Some(m) = self.loaded.find("core/json") {
             for name in ["ToJson", "FromJson", "DecodeError", "Json"] {
-                match self.scope(m).exports.get(name) {
-                    Some(Sym::Trait(t)) => {
-                        self.known_traits.insert(name.to_string(), *t);
-                    }
-                    Some(Sym::Ty(c)) => {
-                        self.known_types.insert(name.to_string(), *c);
-                    }
-                    _ => {}
-                }
+                self.know(m, name);
             }
         }
         if let Some(m) = self.loaded.find("platform/effect") {
@@ -2436,20 +2438,26 @@ impl<'a> Checker<'a> {
             // check is a comparison against the ids rather than against a
             // spelling a program could shadow.
             for name in ["Allocator", "IoError", "Region", "Request", "Response"] {
-                match self.scope(m).exports.get(name) {
-                    Some(Sym::Trait(t)) => {
-                        self.known_traits.insert(name.to_string(), *t);
-                    }
-                    Some(Sym::Ty(c)) => {
-                        self.known_types.insert(name.to_string(), *c);
-                    }
-                    _ => {}
-                }
+                self.know(m, name);
             }
         }
         self.option_con = self.known_types.get("Option").copied();
         self.result_con = self.known_types.get("Result").copied();
         self.order_con = self.known_types.get("Order").copied();
+    }
+
+    /// Records `module`'s export `name` as a well-known trait or type, when it
+    /// is one. A name a base already recorded is left as it is.
+    fn know(&mut self, module: ModuleId, name: &str) {
+        match self.scope(module).exports.get(name) {
+            Some(&Sym::Trait(t)) if self.known_traits.get(name) != Some(&t) => {
+                self.known_traits.insert(name.to_string(), t);
+            }
+            Some(&Sym::Ty(c)) if self.known_types.get(name) != Some(&c) => {
+                self.known_types.insert(name.to_string(), c);
+            }
+            _ => {}
+        }
     }
 
     /// Registers the methods of every `impl` block, and every `derive`.
