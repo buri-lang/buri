@@ -2081,6 +2081,12 @@ pub unsafe fn buri_rt_unique_cap(p: *const u8) -> Option<u64> {
 /// descriptor wrote on another thread. MEMORY.md §5.1, "Claiming a marked
 /// block", has the whole argument.
 ///
+/// A settled block fails before either test, whatever its count: a claim is a
+/// licence to append in place, and [`buri_rt_unique_cap`]'s "A settled block is
+/// never unique either" says why no such licence may cover one. Only a marked
+/// block is ever settled, so without that check a settled block would reach
+/// the compare-and-swap and win it at a count of one.
+///
 /// An unmarked block takes the plain `rc == 1` test and a store. `IMMORTAL`
 /// fails by construction. Give a claim back with [`buri_rt_unclaim`] when the
 /// caller doesn't write.
@@ -2097,7 +2103,9 @@ pub unsafe fn buri_rt_claim_unique(p: *const u8) -> Option<u64> {
     // bounds and aligned.
     unsafe {
         let h = header(p.cast_mut());
-        if is_shared(h) {
+        if is_settled(h) {
+            None
+        } else if is_shared(h) {
             rc_atomic(h)
                 .compare_exchange(1, 2, Ordering::Acquire, Ordering::Relaxed)
                 .is_ok()
