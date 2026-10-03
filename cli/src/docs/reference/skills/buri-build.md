@@ -168,7 +168,7 @@ artifact with `artifact_name` on the output, not on the rule.
 
 A `native` output names its `variant`: `linux-arm64`, `linux-x86_64`,
 `macos-arm64` or `macos-x86_64`. Each platform's entry, `main`, is filled by the
-function of that name, and `entries: { main: "other" }` fills it from another.
+function of that name, and `entries: [{ name: "main", function: "other" }]` fills it from another.
 `LINUX`, `JS`, `arch`, `entry` and `js {}` are retired spellings, refused as
 `retired-platform-name`.
 
@@ -264,7 +264,7 @@ The vocabulary is **closed**: a `tags` entry naming no `tag` block in
 The platforms are `"native"`, `"node"` and `"web"`, and adding one is a
 toolchain change. Each entry takes its platform's host, whose fields are the
 effects it offers: `main(host: NodeHost)` binding `Ui: host.ui` is
-`no-such-field`. Two platforms mean two entries: `entries: { main: "mainForNode" }`.
+`no-such-field`. Two platforms mean two entries: `entries: [{ name: "main", function: "mainForNode" }]`.
 
 There is no `#if` and no conditional compilation: two implementations means two
 libraries with different `backends` or `platforms` and one dependent that

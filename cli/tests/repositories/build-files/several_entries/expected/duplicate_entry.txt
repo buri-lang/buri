@@ -1,0 +1,15 @@
+error: `fetch` is filled twice [duplicate-entry]
+ --> cmd/site/BUILD.buri:4:96
+  |
+4 |         { platform: CLOUDFLARE_WORKER, entries: [{ name: "fetch", function: "fetch" }, { name: "fetch", function: "main" }] },
+  |                                                                                                ^^^^^^^
+  |
+  = an entry has one function, so a second item in `entries` naming it would contradict the first
+  = fix: delete the second `fetch`
+
+      binary {
+          outputs: [
+              { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+          ]
+      }
+

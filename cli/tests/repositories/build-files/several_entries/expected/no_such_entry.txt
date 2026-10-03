@@ -1,9 +1,9 @@
 .buri/out/web/cmd/site/site.mjs (N bytes, cached)
 error: //cmd/site exports no `handle` [entry-not-found]
- --> cmd/site/BUILD.buri:4:58
+ --> cmd/site/BUILD.buri:4:77
   |
-4 |         { platform: CLOUDFLARE_WORKER, entries: { fetch: "handle" } },
-  |                                                          ^^^^^^^^
+4 |         { platform: CLOUDFLARE_WORKER, entries: [{ name: "fetch", function: "handle" }] },
+  |                                                                             ^^^^^^^^
   |
   = `main.buri` exports: fetch, main
   = fix: export `handle` from its `main.buri`, or point this output at a function it does export

@@ -395,7 +395,7 @@ fn wide_match_build_file(native: bool) -> String {
     let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
     match os.filter(|_| native) {
         Some(os) => format!(
-            "binary {{\n  outputs: [{{ platform: \"node\" }}, {{ platform: \"native\", variant: \"{os}-{arch}\", entries: {{ main: \"mainNative\" }} }}]\n}}\n"
+            "binary {{\n  outputs: [{{ platform: \"node\" }}, {{ platform: \"native\", variant: \"{os}-{arch}\", entries: [{{ name: \"main\", function: \"mainNative\" }}] }}]\n}}\n"
         ),
         None => JS_BINARY.to_string(),
     }

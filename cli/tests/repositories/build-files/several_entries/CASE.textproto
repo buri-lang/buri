@@ -104,7 +104,7 @@ run {
 edit {
   file: "cmd/site/BUILD.buri"
   replace: "{ platform: CLOUDFLARE_WORKER }"
-  with: "{ platform: CLOUDFLARE_WORKER, entries: { fetch: \"handle\" } }"
+  with: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"handle\" }] }"
 }
 
 run {
@@ -117,8 +117,8 @@ run {
 # leaving it in a note the reader has to act on themselves.
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "{ platform: CLOUDFLARE_WORKER, entries: { fetch: \"handle\" } }"
-  with: "{ platform: CLOUDFLARE_WORKER, entries: { fetch: \"fetsh\" } }"
+  replace: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"handle\" }] }"
+  with: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"fetsh\" }] }"
 }
 
 run {
@@ -129,7 +129,7 @@ run {
 
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "{ platform: CLOUDFLARE_WORKER, entries: { fetch: \"fetsh\" } }"
+  replace: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"fetsh\" }] }"
   with: "{ platform: CLOUDFLARE_WORKER }"
 }
 
@@ -170,7 +170,7 @@ edit {
 edit {
   file: "cmd/site/BUILD.buri"
   replace: "{ platform: CLOUDFLARE_WORKER }"
-  with: "{ platform: CLOUDFLARE_WORKER, entries: { fetch: \"fetch handler\" } }"
+  with: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"fetch handler\" }] }"
 }
 
 run {
@@ -181,8 +181,8 @@ run {
 
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "{ platform: CLOUDFLARE_WORKER, entries: { fetch: \"fetch handler\" } }"
-  with: "{ platform: CLOUDFLARE_WORKER, entries: { fetch: \"\" } }"
+  replace: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"fetch handler\" }] }"
+  with: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"\" }] }"
 }
 
 run {
@@ -193,16 +193,16 @@ run {
 
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "{ platform: CLOUDFLARE_WORKER, entries: { fetch: \"\" } }"
+  replace: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"\" }] }"
   with: "{ platform: CLOUDFLARE_WORKER }"
 }
 
-# And a key in `entries` the platform does not offer: a worker is entered
+# And a `name` in `entries` the platform does not offer: a worker is entered
 # through `fetch`, never `main`.
 edit {
   file: "cmd/site/BUILD.buri"
   replace: "{ platform: CLOUDFLARE_WORKER }"
-  with: "{ platform: CLOUDFLARE_WORKER, entries: { main: \"fetch\" } }"
+  with: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"main\", function: \"fetch\" }] }"
 }
 
 run {
@@ -213,7 +213,26 @@ run {
 
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "{ platform: CLOUDFLARE_WORKER, entries: { main: \"fetch\" } }"
+  replace: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"main\", function: \"fetch\" }] }"
+  with: "{ platform: CLOUDFLARE_WORKER }"
+}
+
+# An entry filled twice: the two items would disagree about its function.
+edit {
+  file: "cmd/site/BUILD.buri"
+  replace: "{ platform: CLOUDFLARE_WORKER }"
+  with: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"fetch\" }, { name: \"fetch\", function: \"main\" }] }"
+}
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 2
+  golden: "duplicate_entry.txt"
+}
+
+edit {
+  file: "cmd/site/BUILD.buri"
+  replace: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"fetch\" }, { name: \"fetch\", function: \"main\" }] }"
   with: "{ platform: CLOUDFLARE_WORKER }"
 }
 
@@ -322,7 +341,7 @@ file {
 # hands its entry a `NodeHost`.
 edit {
   file: "cmd/both/BUILD.buri"
-  replace: "{ platform: \"node\", entries { main: \"mainForNode\" } }"
+  replace: "{ platform: \"node\", entries: [\n            { name: \"main\", function: \"mainForNode\" },\n        ] }"
   with: "{ platform: \"node\" }"
 }
 
@@ -335,7 +354,7 @@ run {
 edit {
   file: "cmd/both/BUILD.buri"
   replace: "{ platform: \"node\" }"
-  with: "{ platform: \"node\", entries { main: \"mainForNode\" } }"
+  with: "{ platform: \"node\", entries: [\n            { name: \"main\", function: \"mainForNode\" },\n        ] }"
 }
 
 # An entry the binary exports, and it is not a function. The entries table holds
@@ -344,7 +363,7 @@ edit {
 edit {
   file: "cmd/both/BUILD.buri"
   replace: "{ platform: \"web\" }"
-  with: "{ platform: \"web\", entries: { main: \"Page\" } }"
+  with: "{ platform: \"web\", entries: [{ name: \"main\", function: \"Page\" }] }"
 }
 
 run {
@@ -358,8 +377,8 @@ run {
 # export one.
 edit {
   file: "cmd/both/BUILD.buri"
-  replace: "{ platform: \"web\", entries: { main: \"Page\" } }"
-  with: "{ platform: \"web\", entries: { main: \"match\" } }"
+  replace: "{ platform: \"web\", entries: [{ name: \"main\", function: \"Page\" }] }"
+  with: "{ platform: \"web\", entries: [{ name: \"main\", function: \"match\" }] }"
 }
 
 run {
@@ -370,7 +389,7 @@ run {
 
 edit {
   file: "cmd/both/BUILD.buri"
-  replace: "{ platform: \"web\", entries: { main: \"match\" } }"
+  replace: "{ platform: \"web\", entries: [{ name: \"main\", function: \"match\" }] }"
   with: "{ platform: \"web\" }"
 }
 

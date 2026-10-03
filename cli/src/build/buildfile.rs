@@ -316,9 +316,21 @@ impl PlatformName {
         crate::build::platforms::bundled(self.name())
     }
 
-    /// The variants an output picks between. Empty when there are none.
+    /// The variants an output picks between: every one its entries declare,
+    /// once each. Empty when there are none.
     pub fn variants(self) -> Vec<&'static str> {
-        self.rule().map(|r| r.variants.iter().map(|v| v.value.as_str()).collect()).unwrap_or_default()
+        let mut out: Vec<&'static str> = Vec::new();
+        for v in self.rule().iter().flat_map(|r| &r.entries).flat_map(|e| &e.variants) {
+            if !out.contains(&v.value.as_str()) {
+                out.push(v.value.as_str());
+            }
+        }
+        out
+    }
+
+    /// Whether an output must name a variant: some entry requires one.
+    pub fn variant_required(self) -> bool {
+        self.rule().is_some_and(|r| r.entries.iter().any(|e| e.variant_required))
     }
 
     /// The names of the platform's entries.
@@ -646,7 +658,6 @@ impl Tool {
 pub struct PlatformRule {
     pub sources: Vec<Spanned<String>>,
     pub dependencies: Vec<Spanned<String>>,
-    pub variants: Vec<Spanned<String>>,
     pub entries: Vec<PlatformEntry>,
     pub assets: Vec<Spanned<String>>,
     pub span: Span,
@@ -658,6 +669,10 @@ pub struct PlatformEntry {
     pub name: Spanned<String>,
     pub backend: Spanned<Backend>,
     pub js: Option<Spanned<String>>,
+    /// The names an output picks between with `variant`.
+    pub variants: Vec<Spanned<String>>,
+    /// Whether an output must pick one of `variants`.
+    pub variant_required: bool,
     pub span: Span,
 }
 
@@ -1441,12 +1456,16 @@ impl Reader {
                 _ => String::from("main"),
             };
             let point = entry_names.first().copied().unwrap_or("main");
-            self.retired(e.name_span, "entry", format!("write `entries: {{ {point}: \"{written}\" }}`"));
+            self.retired(
+                e.name_span,
+                "entry",
+                format!("write `entries: [{{ name: \"{point}\", function: \"{written}\" }}]`"),
+            );
         }
 
         let variants = platform.value.variants();
         let arch = match &variant {
-            None if !variants.is_empty() => {
+            None if platform.value.variant_required() => {
                 self.templated("variant-required", span)
                     .bind("platform", platform.value.name())
                     .bind("variants", variants.join(", "))
@@ -1455,16 +1474,16 @@ impl Reader {
             }
             None => None,
             Some(v) if !variants.contains(&v.value.as_str()) => {
-                let choices = if variants.is_empty() {
-                    format!("remove it; `{}` has no variants", platform.value.name())
-                } else {
-                    format!("the variants are {}", variants.join(", "))
+                let (available, fix) = match variants.first() {
+                    None => (format!("`{}` has no variants", platform.value.name()), "remove `variant`".to_string()),
+                    Some(first) => (format!("available: {}", variants.join(", ")), format!("write `variant: \"{first}\"`")),
                 };
                 let d = self
                     .templated("no-such-platform-variant", v.span)
                     .bind("variant", v.value.clone())
                     .bind("platform", platform.value.name())
-                    .bind("choices", choices);
+                    .bind("available", available)
+                    .bind("fix", fix);
                 if let Some(n) = nearest(&v.value, &variants) {
                     d.fix(format!("did you mean `\"{n}\"`?"));
                 }
@@ -1489,47 +1508,86 @@ impl Reader {
         Some(Output { target, artifact_name, entry, span })
     }
 
-    /// `entries: { main: "mainForNode" }`: the function filling each of the
-    /// platform's entries, where it is not the one named after it.
+    /// `entries: [{ name: "main", function: "mainForNode" }]`: the function
+    /// filling each of the platform's entries, where it is not the one named
+    /// after it.
     fn entries(
         &mut self,
         m: &Message,
         platform: PlatformName,
         names: &[&str],
     ) -> Option<Spanned<String>> {
-        let (entries, _) = self.sub_message(m, "entries")?;
         let mut found = None;
-        for f in &entries.fields {
-            if !names.contains(&f.name.as_str()) {
-                let d = self
-                    .templated("no-such-entry", f.name_span)
-                    .bind("entry", f.name.clone())
-                    .bind("platform", platform.name())
-                    .bind("entries", names.join(", "));
-                if let Some(n) = nearest(&f.name, names) {
-                    d.fix(format!("did you mean `{n}`?"));
-                }
-                continue;
-            }
-            let Value::Str(s, sp) = &f.value else {
-                let kind = f.value.kind().to_string();
-                self.wrong_kind(f.value.span(), &f.name, "a function name", &kind);
-                continue;
+        let mut filled: Vec<String> = Vec::new();
+        for f in m.all("entries") {
+            let items: Vec<&Value> = match &f.value {
+                Value::List(items, _) => items.iter().collect(),
+                other => vec![other],
             };
-            // An entry names an exported function, so it has to look like
-            // one. The compiler reports a name that is spelled right and does
-            // not exist; a name that could not be a function at all is this
-            // reader's own refusal.
-            let ok = !s.is_empty()
-                && s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
-                && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-            if !ok {
-                self.templated("entry-not-a-name", *sp).bind("entry", s.clone());
-                continue;
+            for item in items {
+                let Value::Message(e, span) = item else {
+                    let kind = item.kind().to_string();
+                    self.wrong_kind(item.span(), "entries", "a block", &kind);
+                    continue;
+                };
+                self.check_known(e, textproto::schema_order("entries"), &[], "an `entries` item");
+                let (Some(name), Some(function)) =
+                    (self.spanned_string(e, "name"), self.spanned_string(e, "function"))
+                else {
+                    let missing = if e.get("name").is_none() { "name" } else { "function" };
+                    if e.get(missing).is_none() {
+                        let example = if missing == "name" { names.first().copied().unwrap_or("main") } else { "main" };
+                        self.templated("incomplete-entry", *span).bind("field", missing).bind("example", example);
+                    }
+                    continue;
+                };
+                if let Some(entry) = self.entry(platform, names, &name, &function, &mut filled) {
+                    found = Some(entry);
+                }
             }
-            found = Some(Spanned::new(s.clone(), *sp));
         }
         found
+    }
+
+    /// One `entries` item, checked: the function filling `name`, or `None`
+    /// once refused.
+    fn entry(
+        &mut self,
+        platform: PlatformName,
+        names: &[&str],
+        name: &Spanned<String>,
+        function: &Spanned<String>,
+        filled: &mut Vec<String>,
+    ) -> Option<Spanned<String>> {
+        if !names.contains(&name.value.as_str()) {
+            let d = self
+                .templated("no-such-entry", name.span)
+                .bind("entry", name.value.clone())
+                .bind("platform", platform.name())
+                .bind("entries", names.join(", "));
+            if let Some(n) = nearest(&name.value, names) {
+                d.fix(format!("did you mean `\"{n}\"`?"));
+            }
+            return None;
+        }
+        if filled.contains(&name.value) {
+            self.templated("duplicate-entry", name.span).bind("entry", name.value.clone());
+            return None;
+        }
+        filled.push(name.value.clone());
+        // An entry names an exported function, so it has to look like one.
+        // The compiler reports a name that is spelled right and does not
+        // exist; a name that could not be a function at all is this reader's
+        // own refusal.
+        let s = &function.value;
+        let ok = !s.is_empty()
+            && s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !ok {
+            self.templated("entry-not-a-name", function.span).bind("entry", s.clone());
+            return None;
+        }
+        Some(function.clone())
     }
 
     /// A `platform` rule.
@@ -1565,14 +1623,15 @@ impl Reader {
                 }
             });
             let js = self.spanned_string(e, "js");
+            let variants = self.strings(e, "variants");
+            let variant_required = self.bool_field(e, "variant_required").unwrap_or(false);
             if let (Some(name), Some(backend)) = (name, backend) {
-                entries.push(PlatformEntry { name, backend, js, span: *entry_span });
+                entries.push(PlatformEntry { name, backend, js, variants, variant_required, span: *entry_span });
             }
         }
         PlatformRule {
             sources: self.strings(m, "sources"),
             dependencies: self.strings(m, "dependencies"),
-            variants: self.strings(m, "variants"),
             entries,
             assets: self.strings(m, "assets"),
             span,
@@ -1878,7 +1937,8 @@ library {
     #[test]
     fn reads_outputs() {
         let src = "binary {\n  outputs: [\n    { platform: \"native\", variant: \"linux-x86_64\" },\n    \
-                   { platform: \"node\", entries { main: \"run\" } },\n    { platform: \"web\" },\n  ]\n}\n";
+                   { platform: \"node\", entries: [{ name: \"main\", function: \"run\" }] },\n    \
+                   { platform: \"web\" },\n  ]\n}\n";
         let read = read_build_file(src, FileId(0));
         assert!(read.errors.is_empty(), "{:#?}", read.errors);
         let b = read.value.binary.unwrap();
@@ -1949,10 +2009,47 @@ library {
             ["no-such-platform-variant"]
         );
         assert_eq!(codes("binary {\n  outputs: [{ platform: \"deno\" }]\n}\n"), ["no-such-platform"]);
-        assert_eq!(
-            codes("binary {\n  outputs: [{ platform: \"node\", entries { fetch: \"go\" } }]\n}\n"),
-            ["no-such-entry"]
+    }
+
+    /// A missing variant names every one there is, and the fix writes the
+    /// first.
+    #[test]
+    fn a_missing_variant_lists_the_variants() {
+        let read = read_build_file("binary {\n  outputs: [{ platform: \"native\" }]\n}\n", FileId(0));
+        let d = &read.errors[0];
+        assert_eq!(d.message, "`native` needs a variant");
+        assert_eq!(d.notes, ["available: linux-arm64, linux-x86_64, macos-arm64, macos-x86_64"]);
+        assert_eq!(d.fix.as_deref(), Some("add `variant: \"linux-arm64\"`"));
+
+        let read = read_build_file(
+            "binary {\n  outputs: [{ platform: \"native\", variant: \"linux-mips\" }]\n}\n",
+            FileId(0),
         );
+        let d = &read.errors[0];
+        assert_eq!(d.message, "`linux-mips` is not a variant of `native`");
+        assert_eq!(d.notes, ["available: linux-arm64, linux-x86_64, macos-arm64, macos-x86_64"]);
+
+        let read = read_build_file(
+            "binary {\n  outputs: [{ platform: \"node\", variant: \"linux-arm64\" }]\n}\n",
+            FileId(0),
+        );
+        assert_eq!(read.errors[0].notes, ["`node` has no variants"]);
+    }
+
+    #[test]
+    fn entries_are_a_list_of_names_and_functions() {
+        let one = |entries: &str| {
+            codes(&format!("binary {{\n  outputs: [{{ platform: \"node\", entries: [{entries}] }}]\n}}\n"))
+        };
+        assert!(one("{ name: \"main\", function: \"run\" }").is_empty());
+        assert_eq!(one("{ name: \"fetch\", function: \"go\" }"), ["no-such-entry"]);
+        assert_eq!(
+            one("{ name: \"main\", function: \"a\" }, { name: \"main\", function: \"b\" }"),
+            ["duplicate-entry"]
+        );
+        assert_eq!(one("{ function: \"run\" }"), ["incomplete-entry"]);
+        assert_eq!(one("{ name: \"main\" }"), ["incomplete-entry"]);
+        assert_eq!(one("{ main: \"run\" }"), ["unknown-field", "incomplete-entry"]);
     }
 
     #[test]
@@ -1966,13 +2063,19 @@ library {
 
     #[test]
     fn a_platform_rule_is_read() {
-        let src = "platform {\n  variants: [\"a\"]\n  entry {\n    name: \"fetch\"\n    backend: JS\n    js: \"fetch.mjs\"\n  }\n}\n";
+        let src = "platform {\n  entry {\n    name: \"fetch\"\n    backend: JS\n    js: \"fetch.mjs\"\n    \
+                   variants: [\"a\", \"b\"]\n    variant_required: true\n  }\n}\n";
         let read = read_build_file(src, FileId(0));
         assert!(read.errors.is_empty(), "{:#?}", read.errors);
         let rule = read.value.platform.unwrap();
         assert_eq!(rule.entries[0].name.value, "fetch");
         assert_eq!(rule.entries[0].backend.value, Backend::Js);
         assert_eq!(rule.entries[0].js.as_ref().map(|j| j.value.as_str()), Some("fetch.mjs"));
+        let variants: Vec<&str> = rule.entries[0].variants.iter().map(|v| v.value.as_str()).collect();
+        assert_eq!(variants, ["a", "b"]);
+        assert!(rule.entries[0].variant_required);
+        // Variants moved onto each entry.
+        assert_eq!(codes("platform {\n  variants: [\"a\"]\n}\n"), ["unknown-field"]);
     }
 
     #[test]

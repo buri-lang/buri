@@ -27,7 +27,7 @@ both delegate to one function that takes `ctx`:
 binary {
     outputs: [
         { platform: "native", variant: "linux-arm64" },
-        { platform: "node", entries { main: "mainForNode" } },
+        { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
     ]
 }
 ```

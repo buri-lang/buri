@@ -3,7 +3,9 @@
 # host's, filled in by the harness — see cli/tests/harness/case.rs.
 binary {
     outputs: [
-        { platform: "node", entries: { main: "mainForNode" } },
+        { platform: "node", entries: [
+            { name: "main", function: "mainForNode" },
+        ] },
         { platform: "native", variant: "{{CROSS_VARIANT}}" },
     ]
 }

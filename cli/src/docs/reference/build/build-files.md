@@ -199,9 +199,31 @@ Every output names one platform bundled with the toolchain:
 | `"web"` | A page: an `.mjs`, a `.css` and an `.html` shell. |
 
 A binary with no `outputs` builds `node`. Each output lands in a directory of
-its own: `.buri/out/native/linux-arm64/`, `.buri/out/node/`, `.buri/out/web/`.
+its own under `.buri/out/`:
+
+| Output | Directory |
+|---|---|
+| `{ platform: "native", variant: "linux-arm64" }` | `.buri/out/native/linux-arm64/` |
+| `{ platform: "node" }` | `.buri/out/node/` |
+| `{ platform: "web" }` | `.buri/out/web/` |
+
+`--output` picks outputs by that directory or by platform name:
 `buri build --output=native/linux-arm64` builds one output, and
-`--output=native` every `native` one.
+`--output=native` builds every `native` one.
+
+A variant belongs to a platform's entry, and the platform says whether an
+output must pick one. `native`'s `main` entry requires one, so an output
+without it is refused at the output:
+
+```text
+error: `native` needs a variant [variant-required]
+  = available: linux-arm64, linux-x86_64, macos-arm64, macos-x86_64
+  = fix: add `variant: "linux-arm64"`
+```
+
+A variant the platform doesn't declare is `no-such-platform-variant`, which
+lists the ones it does. `buri build`, `buri test`, `buri lint` and the language
+server all report both.
 
 `CLOUDFLARE_WORKER`, written bare, is the one older spelling still read; every
 other is `retired-platform-name`.
@@ -238,13 +260,13 @@ export fn fetch(request: Request): Response {
 
 That is one binary and two artifacts: `.buri/out/web/cmd/site/site.mjs` and
 `.buri/out/cloudflare-worker/cmd/site/fetch.mjs`. `entries` fills an entry from
-another function:
+another function. Each item names the entry and the function filling it:
 
 ```textproto schema=build
 binary {
     outputs: [
         { platform: "web" },
-        { platform: "node", entries { main: "mainForNode" } },
+        { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
     ]
 }
 ```
@@ -285,8 +307,9 @@ named entry, so the page carries nothing only `fetch` reaches and the worker
 carries nothing only `main` reaches.
 
 A function `main.buri` does not export is `entry-not-found`, and its page lists
-what the module does export. A key in `entries` the platform does not offer is
-`no-such-entry`.
+what the module does export. A `name` the platform doesn't offer is
+`no-such-entry`, the same `name` twice is `duplicate-entry`, and an item missing
+either field is `incomplete-entry`.
 
 ### The page's head
 

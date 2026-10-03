@@ -18,10 +18,11 @@ tool {
 ```textproto schema=build
 # platform/lambda/BUILD.buri
 platform {
-    variants: ["linux-arm64", "linux-x86_64"]
     entry {
         name: "bootstrap"
         backend: NATIVE
+        variants: ["linux-arm64", "linux-x86_64"]
+        variant_required: true
     }
 }
 ```
