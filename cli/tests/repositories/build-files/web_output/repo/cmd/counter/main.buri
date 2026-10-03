@@ -3,8 +3,7 @@
 // files, one of them loadable in a browser as it stands.
 
 from "core/io" import * as io;
-from "platform/effect" import { Allocator, Stdout };
-from "ui/effect" import { Event, Ui, Watch };
+from "platform/effect" import { Allocator, Event, Stdout, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };

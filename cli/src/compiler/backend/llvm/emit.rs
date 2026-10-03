@@ -2187,7 +2187,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// than a `[T]`'s element, for the case [`Unit::generic_element`] cannot
     /// answer.
     ///
-    /// `ui/effect`'s graph is the caller. `Headless.signal(initial: T)` names
+    /// `platform/effect`'s graph is the caller. `Headless.signal(initial: T)` names
     /// its type in a spilled argument and `Headless.read(id): T` names it only
     /// in the result, and neither has a list anywhere. What the runtime needs
     /// is the same pair either way — how many bytes one value is, and how to

@@ -7,7 +7,7 @@
 //! selection across the options and off the end of them; the other holds one
 //! option checked and paints its dot every colour.
 
-from "ui/effect" import { Ui };
+from "platform/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { signal };

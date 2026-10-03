@@ -310,7 +310,7 @@ Hand a test a filesystem only when the code under test is what does the reading,
 as in `fs().files([("statement.txt", "coffee")])` — one holding an expected
 string is a golden written the hard way.
 
-A picture is the exception, because nobody hand-writes a PNG. `ui/testing`'s
+A picture is the exception, because nobody hand-writes a PNG. `platform/effect/testing`'s
 `snapshot` compares what a tree paints against a golden in
 `test/__snapshots__/` beside the suite, and `buri test --update` records it. The
 [user interfaces guide](user-interfaces.md#snapshots) has the rest.

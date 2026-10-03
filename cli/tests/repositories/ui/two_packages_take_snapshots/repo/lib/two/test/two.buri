@@ -1,10 +1,8 @@
 // One picture, in this package's own `test/__snapshots__`.
 
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
-from "ui/effect" import { Ui };
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
 from "ui/node" import * as ui;
-from "ui/testing" import { headless, snapshot };
 
 test "the two panel" {
     let ctx = context {

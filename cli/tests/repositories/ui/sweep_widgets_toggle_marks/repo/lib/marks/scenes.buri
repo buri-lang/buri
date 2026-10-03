@@ -5,7 +5,7 @@
 //! each other and the difference between them is the whole subject — a tick
 //! that is there or is not, a thumb at the near end or at the far one.
 
-from "ui/effect" import { Ui };
+from "platform/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node, ToggleKind };
 from "ui/signal" import { signal };

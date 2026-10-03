@@ -551,7 +551,7 @@ fn run_on(
         crate::build::cache::Status::Run,
         crate::build::cache::Action::Test,
         &session.workspace.label(target),
-        platform,
+        platform.slug(),
         &key,
     );
 
@@ -1037,7 +1037,7 @@ fn served(
         crate::build::cache::Status::Cached,
         crate::build::cache::Action::Test,
         &session.workspace.label(target),
-        platform,
+        platform.slug(),
         key,
     );
     Some(Outcome { cases, skipped: 0 })
@@ -1193,7 +1193,7 @@ const RESUME: &str = "BURI_TEST_FROM";
 /// belong to several suites and a suite's order is its own.
 const SEED: &str = "BURI_TEST_SEED";
 
-/// The directory `ui/testing`'s `snapshot` compares against and records into:
+/// The directory `platform/effect/testing`'s `snapshot` compares against and records into:
 /// the package's own `test/__snapshots__`. `cli/runtime/snapshot.rs` is the
 /// other half of this and of the two below.
 const SNAPSHOT_DIR: &str = "BURI_SNAPSHOT_DIR";
@@ -1204,7 +1204,7 @@ const SNAPSHOT_UPDATE: &str = "BURI_SNAPSHOT_UPDATE";
 
 /// The file the artifact's extracted stylesheet was written to.
 ///
-/// `ui/testing`'s `stylesheet()` is a JavaScript intrinsic: the sheet is a
+/// `platform/effect/testing`'s `stylesheet()` is a JavaScript intrinsic: the sheet is a
 /// string the JavaScript backend splices into the artifact, and a native binary
 /// has nowhere to be handed one. A snapshot runs natively, so `buri test` hands
 /// the sheet over the way it hands over the directory above. A program with no
@@ -1234,9 +1234,9 @@ fn snapshot_dirs(session: &Session, targets: &[TargetId]) -> Vec<String> {
     dirs
 }
 
-/// The intrinsic `ui/testing`'s `snapshot` reaches, which is the whole of what
+/// The intrinsic `platform/effect/testing`'s `snapshot` reaches, which is the whole of what
 /// paints a golden.
-const PAINT_KEY: &str = "ui_testing.paint";
+const PAINT_KEY: &str = "host_testing.paint";
 
 /// Whether this program takes a snapshot.
 ///
@@ -1895,7 +1895,7 @@ fn run_batch(
             crate::build::cache::Status::Run,
             crate::build::cache::Action::Test,
             &session.workspace.label(target),
-            platform,
+            platform.slug(),
             &key,
         );
         seeds.push(seed_of(&key));

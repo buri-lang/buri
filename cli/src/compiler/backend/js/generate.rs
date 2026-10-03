@@ -16,7 +16,6 @@
               width, runs only after the width has been bounded"
 )]
 
-use crate::build::buildfile::Platform;
 use crate::compiler::backend::Profile;
 use crate::compiler::backend::js::crossing::HOSTED_PROGRAM;
 use crate::compiler::backend::js::javascript::{self, BinOp, Expr, Stmt, UnOp, VarKind};
@@ -294,7 +293,6 @@ pub fn generate(
     program: &Program,
     tables: &Tables,
     profile: Profile,
-    platform: Platform,
 ) -> Output {
     let mut g = Gen::over(program, tables, profile);
     // The ownership half of `middle::rc`, which this branch of the pipeline
@@ -313,7 +311,7 @@ pub fn generate(
     //
     // The `await` is module top level, where it is available because every
     // artifact this backend writes is an ES module.
-    if needs_require(program, platform) {
+    if needs_require(program) {
         stmts.push(Stmt::Raw(
             "const $require=typeof process===\"undefined\"?undefined:\
              (await import(\"node:module\")).createRequire(import.meta.url);"
@@ -333,7 +331,7 @@ pub fn generate(
     let runtime_end = stmts.len();
 
     // The stylesheet, as one string the compiler wrote. `mount` puts it in the
-    // document; `ui/testing` reads it back. It is an assignment rather than a
+    // document; `platform/effect/testing` reads it back. It is an assignment rather than a
     // declaration so that the runtime owns the binding — and a statement that
     // is not a declaration is a dead-code root, which is what keeps the
     // binding alive for the two readers above.
@@ -519,6 +517,10 @@ pub fn generate(
                 .or_ice("the entry point is one of the functions monomorphization emitted");
             stmts.push(g.hosted_export(name, &sym, f));
             roots.push(String::from(HOSTED_PROGRAM));
+            if program.hosted.ui {
+                stmts.push(Stmt::Raw(String::from(super::crossing::HOSTED_UI_DEFINITION)));
+                roots.push(String::from(super::crossing::HOSTED_UI));
+            }
         } else {
             // Awaited only when the entry itself parks, so an artifact whose
             // `main` never waits is the same bytes it was before this
@@ -711,20 +713,19 @@ fn split_chunks(
 /// buffered streams on the exit path, where an asynchronous write is truncated
 /// by `process.exit` (buri-lang/buri#37, buri-lang/buri#42).
 ///
-/// So every artifact for a platform that *has* an exit needs it, which is
-/// every platform but `WEB` and an entry a `js` file calls: neither has a
-/// `process.exit` to lose a write to, neither has a descriptor to write
-/// synchronously to, and — this is why the answer is not simply `true` — a
-/// bundler would try to resolve `node:module` for a browser, and a host such
-/// as a worker runtime deploys with no node under it at all. One that reaches `FileSystem` or `writeBytes`
+/// So every artifact that starts itself needs it, and an entry a `js` file
+/// calls — a page's, a worker's — does not: neither has a `process.exit` to
+/// lose a write to, neither has a descriptor to write synchronously to, and —
+/// this is why the answer is not simply `true` — a bundler would try to
+/// resolve `node:module` for a browser, and a host such as a worker runtime
+/// deploys with no node under it at all. One that reaches `FileSystem` or `writeBytes`
 /// still gets the prologue, guarded, and `$fs` says out loud that the platform
 /// grants neither.
 ///
 /// `Stdin` is on neither side of this: it reads `process.stdin`, which is a
 /// global rather than a module.
-fn needs_require(program: &Program, platform: Platform) -> bool {
-    let hosted = program.hosted.export.is_some();
-    if !hosted && platform != Platform::Web {
+fn needs_require(program: &Program) -> bool {
+    if program.hosted.export.is_none() {
         return true;
     }
     program.funcs.iter().any(|f| {

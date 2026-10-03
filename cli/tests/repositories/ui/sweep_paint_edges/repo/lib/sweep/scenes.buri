@@ -8,7 +8,7 @@
 //! subject is one blue box with a red border colour, because a colour is
 //! whole-box and what varies is where the line is and which corner is round.
 
-from "ui/effect" import { Ui };
+from "platform/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { signal };

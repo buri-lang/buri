@@ -143,7 +143,7 @@ message Binary {
 
   // Field 6 was `proto_sources`, retired for the reason the library's was.
   // Field 8 was `web`, which named the `<title>` and the `lang` of the `.html`
-  // a WEB output writes; a page names its own tab now, with `ui/web`'s `title`
+  // a `web` output gets; a page names its own tab now, with `ui/web`'s `title`
   // on the page and `Document` on a server. Neither number is reused.
   reserved 6, 8;
   reserved "proto_sources", "web";
@@ -319,7 +319,8 @@ message Platform {
   repeated Entry entry = 4;
 
   // Files the platform adds to every output, copied beside its artifacts at
-  // their own paths.
+  // their own paths. An `index.html` makes every output a page: `buri run`
+  // serves its directory instead of starting an entry. `web` ships one.
   repeated string assets = 5;
 
   // Field 3 was `variants`, now on each `entry`. The number is not reused.
@@ -334,7 +335,8 @@ message Platform {
     Backend backend = 2;
 
     // JS only: the adapter the host calls. The CLI bundles it with the
-    // compiled entry, which it imports from `buri:program`. An export named
+    // compiled entry, which it imports from `buri:program`, and may take the
+    // reactive graph's `signal` and `write` from `buri:ui`. An export named
     // after one of the platform's production structs implements that
     // struct's bodiless methods, and every other export is the artifact's.
     // Without one, the entry starts itself, so it takes the program

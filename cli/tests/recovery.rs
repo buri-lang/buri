@@ -486,7 +486,7 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // names a broken declaration keeps merged in beside them (issues 113,
         // 114 and 115) it is 217 of the same 1704, or 12.7%.
         //
-        // Read again the day the native renderer landed (#53): the `ui/testing`
+        // Read again the day the native renderer landed (#53): the `platform/effect/testing`
         // conformance files it added — `reactive.buri`, `styling.buri`,
         // `render.buri`, `ui_mount/mount.buri` — and the five new `ui/node`
         // constructors (`onPressOutside`, `routeLink`, `radioGroup`, `progress`,

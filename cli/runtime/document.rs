@@ -1,4 +1,4 @@
-//! The element document `ui/testing`'s `render` builds, the readers a
+//! The element document `platform/effect/testing`'s `render` builds, the readers a
 //! `Rendered` answers from it, and the reconciler that patches it on a write
 //! (issue #53, phases 2–3).
 //!
@@ -372,7 +372,7 @@ pub unsafe extern "C" fn buri_rt_ui_doc_open(out: *mut i64) {
 /// generated for the walk and `state` the record it was generated against;
 /// `frame_at` is an offset inside the record or negative.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_mount(
+pub unsafe extern "C" fn buri_rt_host_testing_mount(
     root: *const u8,
     entry: crate::ui::ComputeEntry,
     state: *mut u8,
@@ -843,7 +843,7 @@ pub unsafe extern "C" fn buri_rt_ui_node_reconcile(
 // submits the form. `press`/`fill`/`flip`/`submit` are the readers a `Rendered`
 // answers, each resolving a widget and applying the reachability, inertness and
 // implicit-submission rules before it mutates a signal or fires a handler — the
-// native `$ui_testing_Rendered_*`.
+// native `$host_testing_Rendered_*`.
 
 /// The element the walk currently has open — where an event arm attaches. The
 /// cursor's top frame's parent is that element, because emitting one pushes a
@@ -1125,7 +1125,7 @@ pub unsafe extern "C" fn buri_rt_ui_node_pointer_row(handle: i64, out: *mut Buri
 impl Document {
     /// The accessible name a reader hears for `node`: every run of text in its
     /// subtree, in document order, joined by a space — the same joining
-    /// [`text()`](buri_rt_ui_testing_rendered_text) does for a whole tree, and
+    /// [`text()`](buri_rt_host_testing_rendered_text) does for a whole tree, and
     /// what an anchor's name is, so a link wrapping many runs is addressed by
     /// the words it shows and not by the runs run together. It does not descend
     /// into a nested control, so a field label's name is its own text and not
@@ -1407,7 +1407,7 @@ fn blocks_submission(body: &str) -> bool {
 /// # Safety
 /// `label` is a readable UTF-8 range, or null with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_rendered_press(
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_press(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -1468,7 +1468,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_rendered_press(
 /// # Safety
 /// `label` and `value` are readable UTF-8 ranges, or null with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_rendered_fill(
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_fill(
     handle: i64,
     _lbase: *mut u8,
     lptr: *const u8,
@@ -1526,7 +1526,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_rendered_fill(
 /// # Safety
 /// `label` is a readable UTF-8 range, or null with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_rendered_select(
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_select(
     handle: i64,
     _lbase: *mut u8,
     lptr: *const u8,
@@ -1568,7 +1568,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_rendered_select(
 /// # Safety
 /// `label` is a readable UTF-8 range, or null with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_rendered_flip(
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_flip(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -1605,7 +1605,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_rendered_flip(
 /// `name` and `mime_type` are readable UTF-8 ranges, and `content` a readable
 /// byte range — each may be null with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_offer_file(
+pub unsafe extern "C" fn buri_rt_host_testing_offer_file(
     handle: i64,
     _nbase: *mut u8,
     nptr: *const u8,
@@ -1635,7 +1635,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_offer_file(
 /// # Safety
 /// `label` is a readable UTF-8 range, or null with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_deliver_file(
+pub unsafe extern "C" fn buri_rt_host_testing_deliver_file(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -1690,7 +1690,7 @@ unsafe fn pointer_target(handle: i64, ptr: *const u8, len: u64) -> usize {
 /// # Safety
 /// `label` is a readable UTF-8 range, or null with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_rendered_pointer_down(
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_pointer_down(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -1740,7 +1740,7 @@ fn pointer_route(doc: &Document, over: usize) -> Option<usize> {
 /// # Safety
 /// `over` is a readable UTF-8 range, or null with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_rendered_pointer_move(
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_pointer_move(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -1761,7 +1761,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_rendered_pointer_move(
 /// # Safety
 /// `over` is a readable UTF-8 range, or null with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_rendered_pointer_up(
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_pointer_up(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -1786,7 +1786,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_rendered_pointer_up(
 /// submission rule: an enabled submit button submits it, and a form with none is
 /// submitted only while exactly one of its fields blocks implicit submission.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_ui_testing_rendered_submit(handle: i64, index: i64) {
+pub extern "C" fn buri_rt_host_testing_rendered_submit(handle: i64, index: i64) {
     let forms = with_doc(handle, |doc| doc.elements("form")).unwrap_or_default();
     let form = usize::try_from(index).ok().and_then(|i| forms.get(i).copied());
     let Some(form) = form else {
@@ -1875,7 +1875,7 @@ pub unsafe extern "C" fn buri_rt_ui_node_reactive(
 /// # Safety
 /// `out` is writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_rendered_markup(handle: i64, out: *mut BuriStr) {
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_markup(handle: i64, out: *mut BuriStr) {
     let all = documents();
     let text = usize::try_from(handle)
         .ok()
@@ -1908,7 +1908,7 @@ fn markup_of(doc: &Document) -> String {
 /// # Safety
 /// `out` is writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_rendered_text(handle: i64, out: *mut BuriStr) {
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_text(handle: i64, out: *mut BuriStr) {
     let all = documents();
     let text = usize::try_from(handle)
         .ok()
@@ -1935,7 +1935,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_rendered_text(handle: i64, out: *mut
 /// # Safety
 /// `name` is a readable UTF-8 range, or null with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_rendered_count(
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_count(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -1962,7 +1962,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_rendered_count(
 /// # Safety
 /// `name` is a readable UTF-8 range, or null with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_rendered_identity(
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_identity(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,

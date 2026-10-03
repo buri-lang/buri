@@ -13,9 +13,9 @@
 //     navigate rather than link.
 
 from "core/testing/assert" import * as assert;
-from "ui/effect" import { Location, Ui, Watch };
+from "platform/effect" import { Location, Ui, Watch };
+from "platform/effect/testing" import { address, headless, observer, recorder };
 from "ui/signal" import { signal, watch };
-from "ui/testing" import { address, headless, observer, recorder };
 from "ui/web" import * as web;
 
 /// Routing, as the guide teaches it: an ordinary match on the path.

@@ -683,6 +683,16 @@ impl<'a> Checker<'a> {
         let text = self.name_text(module, name);
         let scope = self.scope_mut(module);
         if let Some(existing) = scope.own.get(text) {
+            // An inherent method's entry is only a name to re-export, and
+            // nothing resolves through it, so a declaration of the same name
+            // takes its place, as it does when it comes first.
+            if matches!(existing, Sym::Method(_)) {
+                scope.own.insert(text.to_string(), sym.clone());
+                if exported {
+                    scope.exports.insert(text.to_string(), sym);
+                }
+                return;
+            }
             // Two methods of the same name on different types are the shape
             // `core/number`'s conversions have; anything else is a redeclaration.
             if let (Sym::Fn(a), Sym::Fn(b)) = (existing.clone(), &sym) {

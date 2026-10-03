@@ -214,8 +214,8 @@ pub const MODULES: &[StdModule] = &[
     // touches nothing would be the first exception. `Path` is the type
     // `core/fs` takes, and this is where it and its methods live.
     m("core/path", include_str!("sources/path.buri")),
-    // A **platform module**, and the only one outside `platform/effect` and
-    // `ui/effect` that declares effects. `FileSystemRead` and `FileSystemWrite` name a `Path`
+    // A **platform module**, and one of two outside `platform/effect`, with
+    // `core/process`, that declares effects. `FileSystemRead` and `FileSystemWrite` name a `Path`
     // in every method, `core/path` names `Allocator`, and `platform/effect` is below
     // `core/path` — so the declarations live here, where they can say what
     // they mean, rather than one module down where they could only say `Str`.
@@ -298,21 +298,19 @@ pub const MODULES: &[StdModule] = &[
     m("core/platforms/testing/state", include_str!("sources/platforms_testing_state.buri")),
     // `ui/*`. A user interface is not one of the deliberately small
     // essentials, and its vocabulary is large, so it gets its own reserved
-    // root rather than growing `core/`. Only `ui/effect` is a platform module —
-    // it declares the effects; everything else is ordinary Buri over inert
+    // root rather than growing `core/`. None of it is a platform module: the
+    // effects it is written over, `Ui`, `Watch` and `Location`, are
+    // `platform/effect`'s, and their test implementations are
+    // `platform/effect/testing`'s. Everything here is ordinary Buri over inert
     // handles and could move to a real library once external repositories
     // land.
-    StdModule { platform: true, ..m("ui/effect", include_str!("sources/ui_effect.buri")) },
     m("ui/signal", include_str!("sources/ui_signal.buri")),
     m("ui/prop", include_str!("sources/ui_prop.buri")),
     m("ui/style", include_str!("sources/ui_style.buri")),
     m("ui/theme", include_str!("sources/ui_theme.buri")),
     m("ui/node", include_str!("sources/ui_node.buri")),
-    m("ui/testing", include_str!("sources/ui_testing.buri")),
     // A website: the same tree, rendered to HTML on a worker and resumed on
-    // the page. Not a platform module — it declares no effect; `Location` is
-    // `ui/effect`'s, beside the two graph effects, because that is the module a
-    // platform's host implements.
+    // the page. Not a platform module — it declares no effect.
     m("ui/web", include_str!("sources/web.buri")),
 ];
 
@@ -415,10 +413,11 @@ pub fn roots_phrase() -> String {
 /// reader to guess. Most rows are an abbreviation and the same module spelled
 /// out: `core/char` is `core/character`, `core/proc` is `core/process`,
 /// `core/num` is `core/number`, and `core/ordmap` and `core/ordset` are
-/// `core/orderedmap` and `core/orderedset`. The last three moved: effects live
-/// apart from any platform, under `platform/effect`, and an entry takes its
-/// platform's host rather than importing `core/host`'s values, which
-/// [`retired_note`] says.
+/// `core/orderedmap` and `core/orderedset`. The rest moved: effects live
+/// apart from any platform, under `platform/effect`, `Ui`, `Watch` and
+/// `Location` among them, with their test implementations in
+/// `platform/effect/testing`; and an entry takes its platform's host rather
+/// than importing `core/host`'s values, which [`retired_note`] says.
 ///
 /// Nothing here is loadable, and [`find`] is asked first, so a name that came
 /// back into service would shadow its own row rather than collide with it.
@@ -432,6 +431,8 @@ pub const RETIRED: &[(&str, &str)] = &[
     ("core/effect", "platform/effect"),
     ("core/host/testing", "platform/effect/testing"),
     ("core/host", "platform/effect"),
+    ("ui/effect", "platform/effect"),
+    ("ui/testing", "platform/effect/testing"),
 ];
 
 /// What a retired path's diagnostic adds, where the new path is not the whole
@@ -636,7 +637,7 @@ pub fn is_effect_testing_path(path: &str) -> bool {
 /// effect methods had no wrapper at all before this table existed, and nothing
 /// said so.
 pub struct Wrapper {
-    /// The effect, as `platform/effect`, `core/fs` or `ui/effect` spells it.
+    /// The effect, as `platform/effect`, `core/fs` or `core/process` spells it.
     pub effect: &'static str,
     /// The method it declares.
     pub method: &'static str,
@@ -660,7 +661,7 @@ const fn w(
 /// Every method of every declared effect, and the function that calls it.
 ///
 /// The order is `platform/effect`'s declaration order, then `core/fs`'s two, then
-/// `ui/effect`'s, so the table reads beside the sources it is about.
+/// the reactive graph's, so the table reads beside the sources it is about.
 pub const WRAPPERS: &[Wrapper] = &[
     w("Allocator", "allocate", "core/alloc", "alloc.allocate(ctx, bytes)"),
     w("Stdout", "print", "core/io", "io.print(ctx, text)"),
@@ -735,8 +736,8 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Ui", "write", "ui/signal", "aSignal.set(ctx, value)"),
     w("Ui", "memo", "ui/prop", "prop.memo(ctx, compute)"),
     w("Ui", "watch", "ui/signal", "signal.watch(ctx, run)"),
-    w("Ui", "schedule", "ui/effect", "effect.after(ctx, duration, run)"),
-    w("Ui", "unschedule", "ui/effect", "effect.cancel(ctx, timer)"),
+    w("Ui", "schedule", "platform/effect", "effect.after(ctx, duration, run)"),
+    w("Ui", "unschedule", "platform/effect", "effect.cancel(ctx, timer)"),
     // The address bar. Its reader answers a cell, and the door that turns that
     // into something a tree can hold is `route`; `web.path(ctx)` is the same
     // cell read once. Its two writers put an address in the bar, and each door
@@ -841,7 +842,7 @@ mod tests {
     /// it, which is precisely the hole [`WRAPPERS`] exists to close.
     fn declared_effect_methods() -> Vec<(String, String)> {
         let mut out = Vec::new();
-        for path in ["platform/effect", "core/fs", "core/process", "ui/effect"] {
+        for path in ["platform/effect", "core/fs", "core/process"] {
             let src = source(path).expect("a platform module");
             let mut effect: Option<String> = None;
             for line in src.lines() {
@@ -1174,7 +1175,7 @@ mod tests {
     fn the_server_effects_claim_no_method_name_another_effect_claims() {
         let mut mine: Vec<(&str, String)> = Vec::new();
         let mut theirs: Vec<(String, String)> = Vec::new();
-        for path in ["platform/effect/lib.buri", "ui/effect/lib.buri"] {
+        for path in ["platform/effect/lib.buri"] {
             let src = source(path).expect("a platform module");
             let mut effect: Option<String> = None;
             for line in src.lines() {

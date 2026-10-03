@@ -898,7 +898,7 @@ fn dependencies_stay_behind_the_bar() {
     //
     // `taffy`, `cosmic-text` and `tiny-skia` are the eighth, ninth and tenth,
     // and they are one capability between them: painting a user interface with
-    // no window, which is what `ui/testing`'s `snapshot` compares. Flexbox and
+    // no window, which is what `platform/effect/testing`'s `snapshot` compares. Flexbox and
     // grid, shaping and glyph rasterisation, and a path rasteriser are three
     // specifications rather than three algorithms, and a snapshot suite rests
     // on all three agreeing to the byte on two operating systems.
@@ -968,7 +968,7 @@ fn dependencies_stay_behind_the_bar() {
     assert!(
         default_line.contains("\"paint\""),
         "`paint` left the runtime's default feature set ({default_line}). A toolchain whose \
-         runtime cannot paint answers no `ui/testing` snapshot at all, so a visual test would \
+         runtime cannot paint answers no `platform/effect/testing` snapshot at all, so a visual test would \
          be a build-flag question for every user rather than a line in a suite"
     );
 

@@ -86,7 +86,7 @@ impl Backend for Js {
         }
 
         let release = opts.profile == Profile::Release;
-        let out = generate::generate(program, tables, opts.profile, opts.target.platform);
+        let out = generate::generate(program, tables, opts.profile);
         // Debug builds stay readable: the names are what make a stack trace
         // useful, and `--release` is where size matters.
         let render = |stmts: Vec<javascript::Stmt>, roots: &[String]| {

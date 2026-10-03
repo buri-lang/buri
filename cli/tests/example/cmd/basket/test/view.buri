@@ -1,6 +1,6 @@
 // The page itself, rendered.
 //
-// `ui/testing` renders with the renderer `mount` uses, into a document the
+// `platform/effect/testing` renders with the renderer `mount` uses, into a document the
 // runtime supplies rather than a browser's — so what these tests exercise is
 // the shipping reconciler and not a substitute for it. What a browser keeps for
 // itself is layout, painting, focus, and its own dispatch of a press; nothing
@@ -13,12 +13,14 @@
 // one is to write one.
 
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Allocator, NetError, Network, Request, Response };
-from "platform/effect/testing" import { alloc, net };
-from "ui/effect" import { Ui, Watch };
+from "platform/effect" import {
+    Allocator, NetError, Network, Request, Response, Ui, Watch,
+};
+from "platform/effect/testing" import {
+    alloc, headless, install, net, observer, recorder, render, variables,
+};
 from "ui/prop" import { memo };
 from "ui/signal" import { signal, watch };
-from "ui/testing" import { headless, install, observer, recorder, render, variables };
 from "ui/theme" import * as theme;
 from "//cmd/basket/main.buri" import {
     appThemed, day, kitTheme, newState, night, page, settledFraction,

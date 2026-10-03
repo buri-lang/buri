@@ -2192,7 +2192,7 @@ pub const ENTRIES: &[Entry] = &[
         args: &[],
         ret: Ret::Out,
     },
-    // The theme artifact `ui/testing` reads (#53 phase 5) — `runtime_table.rs`'s
+    // The theme artifact `platform/effect/testing` reads (#53 phase 5) — `runtime_table.rs`'s
     // group of the same name argues both. `installDoc` takes the flattened
     // document and answers the block; `variables` answers the last install's.
     Entry {
@@ -2208,8 +2208,8 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Out,
     },
     Entry {
-        key: "ui_effect.Scope.read",
-        symbol: "buri_rt_ui_effect_scope_read",
+        key: "effect.Scope.read",
+        symbol: "buri_rt_effect_scope_read",
         args: &[Arg::Scalar, Arg::Scalar, Arg::Stride, Arg::Retain],
         ret: Ret::Out,
     },
@@ -2247,14 +2247,14 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Void,
     },
     Entry {
-        key: "ui_testing.headless",
-        symbol: "buri_rt_ui_testing_headless",
+        key: "host_testing.headless",
+        symbol: "buri_rt_host_testing_headless",
         args: &[],
         ret: Ret::Out,
     },
     Entry {
-        key: "ui_testing.Headless.signal",
-        symbol: "buri_rt_ui_testing_headless_signal",
+        key: "host_testing.Headless.signal",
+        symbol: "buri_rt_host_testing_headless_signal",
         args: &[
             Arg::Scalar,
             Arg::Spilled,
@@ -2266,20 +2266,20 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Scalar,
     },
     Entry {
-        key: "ui_testing.Headless.read",
-        symbol: "buri_rt_ui_testing_headless_read",
+        key: "host_testing.Headless.read",
+        symbol: "buri_rt_host_testing_headless_read",
         args: &[Arg::Scalar, Arg::Scalar, Arg::Stride, Arg::Retain],
         ret: Ret::Out,
     },
     Entry {
-        key: "ui_testing.observer",
-        symbol: "buri_rt_ui_testing_observer",
+        key: "host_testing.observer",
+        symbol: "buri_rt_host_testing_observer",
         args: &[],
         ret: Ret::Out,
     },
     Entry {
-        key: "ui_testing.Observer.read",
-        symbol: "buri_rt_ui_testing_observer_read",
+        key: "host_testing.Observer.read",
+        symbol: "buri_rt_host_testing_observer_read",
         args: &[Arg::Scalar, Arg::Scalar, Arg::Stride, Arg::Retain],
         ret: Ret::Out,
     },
@@ -2289,8 +2289,8 @@ pub const ENTRIES: &[Entry] = &[
     // the new value is not the one already there, which is `==` at the cell's
     // type and not a comparison of its bytes.
     Entry {
-        key: "ui_testing.Headless.write",
-        symbol: "buri_rt_ui_testing_headless_write",
+        key: "host_testing.Headless.write",
+        symbol: "buri_rt_host_testing_headless_write",
         args: &[
             Arg::Scalar,
             Arg::Scalar,
@@ -2306,14 +2306,14 @@ pub const ENTRIES: &[Entry] = &[
     // the other table names no argument shapes, so "the closure is the last
     // argument" is what lets one row describe one C signature in both.
     Entry {
-        key: "ui_testing.Headless.memo",
-        symbol: "buri_rt_ui_testing_headless_memo",
+        key: "host_testing.Headless.memo",
+        symbol: "buri_rt_host_testing_headless_memo",
         args: &[Arg::Scalar, Arg::Compute],
         ret: Ret::Scalar,
     },
     Entry {
-        key: "ui_testing.Headless.watch",
-        symbol: "buri_rt_ui_testing_headless_watch",
+        key: "host_testing.Headless.watch",
+        symbol: "buri_rt_host_testing_headless_watch",
         args: &[Arg::Scalar, Arg::Compute],
         ret: Ret::Void,
     },
@@ -2322,53 +2322,53 @@ pub const ENTRIES: &[Entry] = &[
     // One `Str` and a call of its own, because four of them is twelve machine
     // words and the copy-and-patch backend's runtime call is ten.
     Entry {
-        key: "ui_testing.installThemes",
-        symbol: "buri_rt_ui_testing_install_themes",
+        key: "host_testing.installThemes",
+        symbol: "buri_rt_host_testing_install_themes",
         args: &[Arg::Str],
         ret: Ret::Void,
     },
     // The extracted sheet, a compile artifact (#53 phase 5) — no argument, a
     // `Str` out.
     Entry {
-        key: "ui_testing.stylesheet",
-        symbol: "buri_rt_ui_testing_stylesheet",
+        key: "host_testing.stylesheet",
+        symbol: "buri_rt_host_testing_stylesheet",
         args: &[],
         ret: Ret::Out,
     },
     Entry {
-        key: "ui_testing.paint",
-        symbol: "buri_rt_ui_testing_paint",
+        key: "host_testing.paint",
+        symbol: "buri_rt_host_testing_paint",
         args: &[Arg::Str, Arg::Str, Arg::Str],
         ret: Ret::Void,
     },
     // The recorder — `runtime_table.rs`'s group of the same name argues it.
     Entry {
-        key: "ui_testing.recorder",
-        symbol: "buri_rt_ui_testing_recorder",
+        key: "host_testing.recorder",
+        symbol: "buri_rt_host_testing_recorder",
         args: &[],
         ret: Ret::Out,
     },
     Entry {
-        key: "ui_testing.Recorder.record",
-        symbol: "buri_rt_ui_testing_recorder_record",
+        key: "host_testing.Recorder.record",
+        symbol: "buri_rt_host_testing_recorder_record",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Void,
     },
     Entry {
-        key: "ui_testing.Recorder.recorded",
-        symbol: "buri_rt_ui_testing_recorder_recorded",
+        key: "host_testing.Recorder.recorded",
+        symbol: "buri_rt_host_testing_recorder_recorded",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
     Entry {
-        key: "ui_testing.Recorder.note",
-        symbol: "buri_rt_ui_testing_recorder_note",
+        key: "host_testing.Recorder.note",
+        symbol: "buri_rt_host_testing_recorder_note",
         args: &[Arg::Scalar, Arg::Scalar],
         ret: Ret::Scalar,
     },
     Entry {
-        key: "ui_testing.Recorder.noted",
-        symbol: "buri_rt_ui_testing_recorder_noted",
+        key: "host_testing.Recorder.noted",
+        symbol: "buri_rt_host_testing_recorder_noted",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
@@ -2378,8 +2378,8 @@ pub const ENTRIES: &[Entry] = &[
     // last argument. The builders `renderInto` emits to, and the readers a
     // `Rendered` answers, are monomorphic.
     Entry {
-        key: "ui_testing.mount",
-        symbol: "buri_rt_ui_testing_mount",
+        key: "host_testing.mount",
+        symbol: "buri_rt_host_testing_mount",
         args: &[Arg::Dropped, Arg::Spilled, Arg::Walk],
         ret: Ret::Scalar,
     },
@@ -2545,69 +2545,69 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Out,
     },
     Entry {
-        key: "ui_testing.offerFile",
-        symbol: "buri_rt_ui_testing_offer_file",
+        key: "host_testing.offerFile",
+        symbol: "buri_rt_host_testing_offer_file",
         args: &[Arg::Scalar, Arg::Str, Arg::Str, Arg::List],
         ret: Ret::Void,
     },
     Entry {
-        key: "ui_testing.deliverFile",
-        symbol: "buri_rt_ui_testing_deliver_file",
+        key: "host_testing.deliverFile",
+        symbol: "buri_rt_host_testing_deliver_file",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Void,
     },
     Entry {
-        key: "ui_testing.Rendered.markup",
-        symbol: "buri_rt_ui_testing_rendered_markup",
+        key: "host_testing.Rendered.markup",
+        symbol: "buri_rt_host_testing_rendered_markup",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
     Entry {
-        key: "ui_testing.Rendered.text",
-        symbol: "buri_rt_ui_testing_rendered_text",
+        key: "host_testing.Rendered.text",
+        symbol: "buri_rt_host_testing_rendered_text",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
     Entry {
-        key: "ui_testing.Rendered.count",
-        symbol: "buri_rt_ui_testing_rendered_count",
+        key: "host_testing.Rendered.count",
+        symbol: "buri_rt_host_testing_rendered_count",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Scalar,
     },
     Entry {
-        key: "ui_testing.Rendered.identity",
-        symbol: "buri_rt_ui_testing_rendered_identity",
+        key: "host_testing.Rendered.identity",
+        symbol: "buri_rt_host_testing_rendered_identity",
         args: &[Arg::Scalar, Arg::Str, Arg::Scalar],
         ret: Ret::Scalar,
     },
     // The event dispatch (#53 phase 4).
     Entry {
-        key: "ui_testing.Rendered.press",
-        symbol: "buri_rt_ui_testing_rendered_press",
+        key: "host_testing.Rendered.press",
+        symbol: "buri_rt_host_testing_rendered_press",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Void,
     },
     Entry {
-        key: "ui_testing.Rendered.fill",
-        symbol: "buri_rt_ui_testing_rendered_fill",
+        key: "host_testing.Rendered.fill",
+        symbol: "buri_rt_host_testing_rendered_fill",
         args: &[Arg::Scalar, Arg::Str, Arg::Str],
         ret: Ret::Void,
     },
     Entry {
-        key: "ui_testing.Rendered.select",
-        symbol: "buri_rt_ui_testing_rendered_select",
+        key: "host_testing.Rendered.select",
+        symbol: "buri_rt_host_testing_rendered_select",
         args: &[Arg::Scalar, Arg::Str, Arg::Scalar, Arg::Scalar],
         ret: Ret::Void,
     },
     Entry {
-        key: "ui_testing.Rendered.flip",
-        symbol: "buri_rt_ui_testing_rendered_flip",
+        key: "host_testing.Rendered.flip",
+        symbol: "buri_rt_host_testing_rendered_flip",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Void,
     },
     Entry {
-        key: "ui_testing.Rendered.submit",
-        symbol: "buri_rt_ui_testing_rendered_submit",
+        key: "host_testing.Rendered.submit",
+        symbol: "buri_rt_host_testing_rendered_submit",
         args: &[Arg::Scalar, Arg::Scalar],
         ret: Ret::Void,
     },
@@ -2644,20 +2644,20 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Out,
     },
     Entry {
-        key: "ui_testing.Rendered.pointerDown",
-        symbol: "buri_rt_ui_testing_rendered_pointer_down",
+        key: "host_testing.Rendered.pointerDown",
+        symbol: "buri_rt_host_testing_rendered_pointer_down",
         args: &[Arg::Scalar, Arg::Str, Arg::Scalar, Arg::Scalar],
         ret: Ret::Void,
     },
     Entry {
-        key: "ui_testing.Rendered.pointerMove",
-        symbol: "buri_rt_ui_testing_rendered_pointer_move",
+        key: "host_testing.Rendered.pointerMove",
+        symbol: "buri_rt_host_testing_rendered_pointer_move",
         args: &[Arg::Scalar, Arg::Str, Arg::Scalar, Arg::Scalar],
         ret: Ret::Void,
     },
     Entry {
-        key: "ui_testing.Rendered.pointerUp",
-        symbol: "buri_rt_ui_testing_rendered_pointer_up",
+        key: "host_testing.Rendered.pointerUp",
+        symbol: "buri_rt_host_testing_rendered_pointer_up",
         args: &[Arg::Scalar, Arg::Str, Arg::Scalar, Arg::Scalar],
         ret: Ret::Void,
     },
@@ -3115,7 +3115,7 @@ mod tests {
             assert_eq!(equals, releases, "{}", e.key);
             // A row may name its `T` in the **result** rather than in an
             // argument, and then there is no `Arg::Elems` and no `Arg::Spilled`
-            // to see: `ui_effect.Scope.read` and `ui_testing.Headless.read` are
+            // to see: `effect.Scope.read` and `host_testing.Headless.read` are
             // both `fn(id: Int) -> T`. The other table marks exactly the rows
             // that carry the pair with `Extra::Element`, so that is what is
             // asked rather than a second column here — and it keeps the claim
@@ -3292,7 +3292,7 @@ mod tests {
     /// argument here.
     ///
     /// It is the same claim as the row above, one column over, and it exists
-    /// because nothing else asks it. `ui/effect`'s graph is where the two
+    /// because nothing else asks it. `platform/effect`'s graph is where the two
     /// tables could most easily drift: those keys name their `T` in a bare
     /// argument or in the result rather than as a `[T]`'s element, so each
     /// backend had to widen its own "which type is `T`" answer, and two

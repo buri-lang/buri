@@ -9,7 +9,7 @@ error: field `0` of `Scope` is private to its module [private-to-module]
 ```
 
 ```buri fail code=private-to-module
-# from "ui/effect" import { Scope };
+# from "platform/effect" import { Scope };
 # from "ui/signal" import { Signal };
 
 fn peek(n: Signal<Int>): Int {

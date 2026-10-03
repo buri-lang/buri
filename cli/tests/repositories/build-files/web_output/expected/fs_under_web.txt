@@ -1,7 +1,7 @@
 error: `WebHost` has no field `fs` [no-such-field]
-  --> cmd/counter/main.buri:39:30
+  --> cmd/counter/main.buri:38:30
    |
-39 |         FileSystemRead: host.fs,
+38 |         FileSystemRead: host.fs,
    |                              ^^
    |
    = web does not offer `FileSystemRead` or `FileSystemWrite`; native and node do

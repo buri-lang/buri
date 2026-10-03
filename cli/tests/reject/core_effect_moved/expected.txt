@@ -21,9 +21,9 @@ error: "core/effect" is now "platform/effect" [retired-module]
 
     Five abbreviations were replaced by the word: core/char is core/character,
     core/num is core/number, core/ordmap is core/orderedmap, core/ordset is
-    core/orderedset, and core/proc is core/process. Two modules moved when
-    effects left core/: core/effect is platform/effect, and core/host/testing is
-    platform/effect/testing.
+    core/orderedset, and core/proc is core/process. Four modules moved when
+    effects left core/ and ui/: core/effect and ui/effect are platform/effect,
+    and core/host/testing and ui/testing are platform/effect/testing.
 
     core/host is retired rather than moved. Its values are an entry's host now:
     the entry takes its platform's host type, such as NodeHost, and binds the

@@ -8,7 +8,7 @@
 //! **The rule it exists for.** A page routes on `web.route(ctx)` — the address
 //! bar — so a reader who asks for `/components/button` has to arrive at the
 //! page with `/components/button` still in the address bar. A static server
-//! answering `/main.html` hands the router `/main.html` and the page renders
+//! answering `/index.html` hands the router `/index.html` and the page renders
 //! its not-found route; a plain one answers 404, because there is no file
 //! there. So: **a path that names a file is that file, and every other path is
 //! the shell.** What separates the two is the last segment having an extension,
@@ -39,7 +39,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 /// it talks to can both be up.
 pub const DEFAULT_PORT: u16 = 4000;
 
-/// The artifact directory a page is answered out of, and the shell within it.
+/// The artifact directory a page is answered out of, and the `index.html`
+/// within it that its platform ships.
 #[derive(Debug)]
 pub struct Page {
     /// Everything under here is answered as itself. It is the directory the
@@ -61,11 +62,11 @@ impl Page {
     /// the command. Serving anyway would answer every route with nothing at
     /// all, which reads as a broken page rather than as a missing file.
     pub fn beside(module: &Path) -> Result<Page, String> {
-        let shell = shell_beside(module);
+        let dir = module.parent().unwrap_or(Path::new(".")).to_path_buf();
+        let shell = dir.join(crate::build::actions::PAGE);
         if !shell.is_file() {
             return Err(format!("{} is not there", shell.display()));
         }
-        let dir = module.parent().unwrap_or(Path::new(".")).to_path_buf();
         Ok(Page { dir, shell, building: Mutex::new(()) })
     }
 
@@ -104,15 +105,6 @@ impl Page {
         }
         Some(self.shell.clone())
     }
-}
-
-/// Where the entry shell sits: beside the module, under the same name.
-///
-/// `build/actions.rs`'s `web_companions` writes it there, and this is the same
-/// convention read from the other end — one agreement, and the file name is the
-/// whole of it.
-pub fn shell_beside(module: &Path) -> PathBuf {
-    module.with_extension("html")
 }
 
 /// Binds loopback, or says why it could not.
@@ -252,13 +244,13 @@ fn percent_decoded(path: &str) -> String {
 mod tests {
     use super::*;
 
-    /// A directory holding a shell, a module and a stylesheet — the three files
-    /// a WEB output is.
+    /// A directory holding an `index.html`, a module and a stylesheet — the
+    /// three files a `web` output is.
     fn artifact(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("buri-serve-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
-        let _ = std::fs::write(dir.join("main.html"), "<!doctype html>\n");
+        let _ = std::fs::write(dir.join("index.html"), "<!doctype html>\n");
         let _ = std::fs::write(dir.join("main.mjs"), "export {};\n");
         let _ = std::fs::write(dir.join("main.css"), ".p-r1{padding:1rem}\n");
         dir
@@ -271,13 +263,13 @@ mod tests {
         let dir = artifact("routes");
         let page = Page::beside(&dir.join("main.mjs")).expect("a page");
 
-        assert_eq!(page.answer("/"), Some(dir.join("main.html")));
-        assert_eq!(page.answer("/components/button"), Some(dir.join("main.html")));
+        assert_eq!(page.answer("/"), Some(dir.join("index.html")));
+        assert_eq!(page.answer("/components/button"), Some(dir.join("index.html")));
         assert_eq!(page.answer("/main.css"), Some(dir.join("main.css")));
         assert_eq!(page.answer("/main.mjs"), Some(dir.join("main.mjs")));
         // The shell by its own name is the shell, which is what an address bar
-        // holding `/main.html` after a reload has to keep working.
-        assert_eq!(page.answer("/main.html"), Some(dir.join("main.html")));
+        // holding `/index.html` after a reload has to keep working.
+        assert_eq!(page.answer("/index.html"), Some(dir.join("index.html")));
 
         // A path that named a file this page does not have is missing. Handing
         // back the shell here is what turns a mistyped asset into a page with
@@ -298,13 +290,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A page with no shell beside it is a refusal naming the file, rather than
-    /// a server that answers every route with nothing.
+    /// A directory with no `index.html` is a refusal naming the file, rather
+    /// than a server that answers every route with nothing.
     #[test]
     fn a_module_with_no_shell_beside_it_is_not_a_page() {
         let dir = artifact("no-shell");
-        let refusal = Page::beside(&dir.join("gone.mjs")).expect_err("no shell");
-        assert!(refusal.contains("gone.html"), "the refusal does not name the shell: {refusal}");
+        let _ = std::fs::remove_file(dir.join("index.html"));
+        let refusal = Page::beside(&dir.join("main.mjs")).expect_err("no shell");
+        assert!(refusal.contains("index.html"), "the refusal does not name the shell: {refusal}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -312,7 +305,7 @@ mod tests {
     /// told about a name this table has nothing for.
     #[test]
     fn every_file_a_page_is_made_of_has_a_type() {
-        assert_eq!(content_type(Path::new("main.html")), "text/html; charset=utf-8");
+        assert_eq!(content_type(Path::new("index.html")), "text/html; charset=utf-8");
         assert_eq!(content_type(Path::new("main.css")), "text/css; charset=utf-8");
         assert_eq!(content_type(Path::new("main.mjs")), "text/javascript; charset=utf-8");
         assert_eq!(content_type(Path::new("main.0.js")), "text/javascript; charset=utf-8");
@@ -327,15 +320,5 @@ mod tests {
     fn a_percent_escape_is_decoded_and_a_stray_one_is_kept() {
         assert_eq!(percent_decoded("/a%20b"), "/a b");
         assert_eq!(percent_decoded("/100%"), "/100%");
-    }
-
-    /// The shell is the module's own name with the extension swapped, which is
-    /// the one agreement between what the build writes and what this reads.
-    #[test]
-    fn the_shell_sits_beside_the_module_under_the_same_name() {
-        assert_eq!(
-            shell_beside(Path::new("/repo/.buri/out/web/apps/design/main.mjs")),
-            PathBuf::from("/repo/.buri/out/web/apps/design/main.html")
-        );
     }
 }

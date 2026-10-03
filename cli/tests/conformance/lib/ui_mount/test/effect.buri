@@ -1,21 +1,21 @@
-// `ui/effect`'s scheduler (#125): `after` runs a closure on the graph's own
+// `platform/effect`'s scheduler (#125): `after` runs a closure on the graph's own
 // turn once a duration has passed, so a handler — which runs to completion —
 // can make something happen *later*, and a toast can take itself away. `cancel`
 // stops one that has not fired.
 //
 // JS-only for the reason its sibling `mount.buri` is: a page's timers run on a
 // real clock, and the headless double queues them against a virtual one that
-// `ui/testing`'s `elapse` drives. `native::conformance` records this file as
+// `platform/effect/testing`'s `elapse` drives. `native::conformance` records this file as
 // excluded, with that reason.
 
 from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
-from "ui/effect" import { after, cancel, Ui, Watch };
+from "platform/effect" import { after, cancel, Ui, Watch };
+from "platform/effect/testing" import { elapse, headless, observer, render };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
 from "ui/signal" import { signal };
-from "ui/testing" import { elapse, headless, observer, render };
 
 /// A toast that shows its message and takes it away three seconds later — the
 /// shape #125 could not express. The press writes the message and schedules the

@@ -5,11 +5,9 @@
 // that binds one token of the four, two lists where the second rebinds two of
 // the first's, and a chain that goes through another package's tokens.
 
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
-from "ui/effect" import { Ui };
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
 from "ui/style" import { Color, token };
-from "ui/testing" import { headless, snapshot };
 from "ui/theme" import { themed };
 from "//lib/tokens" import { page, themedBy, Token };
 

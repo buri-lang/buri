@@ -2,5 +2,7 @@ platform {
     entry {
         name: "main"
         backend: JS
+        js: "main.mjs"
     }
+    assets: ["index.html"]
 }

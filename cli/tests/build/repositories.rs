@@ -329,7 +329,7 @@ fn serving_a_page() {
 /// The eighth is what a snapshot is built on, and the only case here that
 /// declares no `platforms` at all: the reactive graph and `describe`'s tree
 /// walk, run natively, plus the diagnostic a suite gets when it reaches a
-/// `ui/testing` facility the native backend has no body for. Both bugs it pins
+/// `platform/effect/testing` facility the native backend has no body for. Both bugs it pins
 /// reported as an abort with no message, which is a shape no lower tier can
 /// see — the binary linked, the front end was happy, and the process died.
 ///

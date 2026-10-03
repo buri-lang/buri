@@ -1167,7 +1167,7 @@ impl Jit<'_> {
     /// The stride and glue of a row that carries **one whole value** rather
     /// than a `[T]`'s element ([`Carrier::Value`]).
     ///
-    /// `ui/effect`'s graph is where this shape arrives: `signal(initial: T)`
+    /// `platform/effect`'s graph is where this shape arrives: `signal(initial: T)`
     /// names its type in a `by_ref` argument and `read(id): T` names it only in
     /// the result. What the runtime needs is the same pair either way — how
     /// many bytes one value is, and how to take a reference on what it holds —

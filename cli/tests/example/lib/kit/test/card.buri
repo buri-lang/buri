@@ -1,7 +1,7 @@
 // The suite for //lib/kit. It imports the library by label, exactly as
 // //cmd/basket does, so it can only assert on what a consumer can call.
 //
-// `ui/testing` renders with the same renderer `mount` uses, against a document
+// `platform/effect/testing` renders with the same renderer `mount` uses, against a document
 // the runtime supplies instead of a browser's. What that cannot see is what
 // only a browser does — layout, painting, and the browser's own dispatch of a
 // press — so nothing here asserts a pixel. What it can see is the whole of what
@@ -9,11 +9,11 @@
 // which element, and what the stylesheet says that class means.
 
 from "core/testing/assert" import * as assert;
-from "ui/effect" import { Ui };
+from "platform/effect" import { Ui };
+from "platform/effect/testing" import { headless, install, render, stylesheet };
 from "ui/node" import * as ui;
 from "ui/signal" import { signal };
 from "ui/style" import { Color };
-from "ui/testing" import { headless, install, render, stylesheet };
 from "//lib/kit" import { card, meter, pill, themed, Token };
 
 /// The mapping an app writes. Its `match` is the compatibility check, and the

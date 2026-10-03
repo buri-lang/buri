@@ -953,7 +953,9 @@ impl<'a> Loader<'a> {
         // and is the module that needed this. It grants nothing new: a module
         // with a `testing` segment is already out of reach of a library source,
         // so what it may import is a question about test sources only.
+        // A retired path is answered by where it went, which says more.
         if is_test_only_path(path)
+            && standard_library::retired(path).is_none()
             && !role.is_test_context()
             && !is_test_only_path(importer_path)
         {

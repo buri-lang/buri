@@ -15,11 +15,11 @@
 // coarse instrument yields a different identity, the fine one keeps it.
 
 from "core/testing/assert" import * as assert;
-from "ui/effect" import { Ui, Watch };
+from "platform/effect" import { Ui, Watch };
+from "platform/effect/testing" import { headless, observer, recorder, render };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { signal };
-from "ui/testing" import { headless, observer, recorder, render };
 
 /// A heading whose text does not depend on `value`, so that what changes when
 /// `value` changes is only whether the subtree was built again — `tree.buri`'s

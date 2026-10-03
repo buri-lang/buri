@@ -5,7 +5,7 @@
 //! band is a labelled slider per value. The label is the field's own, so what a
 //! cell says is what a reader is announced.
 
-from "ui/effect" import { Ui };
+from "platform/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { signal };

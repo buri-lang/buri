@@ -400,11 +400,11 @@ fn get(port: u16, path: &str) -> Reply {
 /// **`/` and `/components/button` answer the same shell.** That is the point of
 /// the command rather than an implementation detail: the page routes on
 /// `web.route(ctx)`, so a deep link has to arrive with the address the reader
-/// typed still in the address bar. A server that answered `/site.html` would
-/// hand the router `/site.html`, and a plain static one would 404 where there
-/// is no file.
+/// typed still in the address bar. A server that redirected to `/index.html`
+/// would hand the router `/index.html`, and a plain static one would 404 where
+/// there is no file.
 ///
-/// **`/site.css` is itself.** The shell links it by name, so a server that
+/// **`/main.css` is itself.** The shell links it by name, so a server that
 /// answered the shell for *everything* would hand a browser HTML where it asked
 /// for a stylesheet — which is why the rule is about what the path names rather
 /// than about what happens to be missing.
@@ -413,7 +413,7 @@ fn a_page_is_served_with_the_shell_for_every_route() {
     let scratch = page_repo("serving-routes");
     let server = serving(&scratch, "//cmd/site", &[]);
 
-    let shell = scratch.read(".buri/out/web/cmd/site/site.html");
+    let shell = scratch.read(".buri/out/web/cmd/site/index.html");
     let front = get(server.port, "/");
     front.ok();
     assert_eq!(front.body, shell, "`/` is not the shell on disk");
@@ -429,11 +429,11 @@ fn a_page_is_served_with_the_shell_for_every_route() {
     // the address bar both say, so it is the same page.
     assert_eq!(get(server.port, "/components/button?tab=api").ok().body, shell);
 
-    let styles = get(server.port, "/site.css");
+    let styles = get(server.port, "/main.css");
     styles.ok().holds("padding:1rem");
     assert_eq!(styles.header("content-type"), "Content-Type: text/css; charset=utf-8");
 
-    let module = get(server.port, "/site.mjs");
+    let module = get(server.port, "/main.mjs");
     module.ok().holds("the front page");
     assert_eq!(module.header("content-type"), "Content-Type: text/javascript; charset=utf-8");
 
@@ -450,8 +450,8 @@ fn a_page_is_served_with_the_shell_for_every_route() {
 ///
 /// A reader following a shared link arrives at `/components/button/states`,
 /// and the browser resolves every address in the document it got against
-/// *that* path rather than against the root. A shell naming `./site.mjs` sends
-/// it to `/components/button/site.mjs`, which nothing wrote — so the module
+/// *that* path rather than against the root. A shell naming `./main.mjs` sends
+/// it to `/components/button/main.mjs`, which nothing wrote — so the module
 /// never arrives, nothing mounts, and the page is blank with no error anywhere
 /// a reader can see it. Deep links are the case the shell-for-every-path rule
 /// exists for, so the shell has to name its two companions from the root.
@@ -482,7 +482,7 @@ fn a_deep_links_shell_asks_for_the_files_beside_it() {
 /// the next pass rather than being absorbed by the stamp.
 ///
 /// What it asserts is the *rebuilt bytes*, polled for until they arrive. The
-/// shell is a fixed function of the artifact's name, so what moves when a
+/// shell is the `index.html` `web` ships, so what moves when a
 /// page's source moves is the stylesheet and the module — both are read back
 /// here, along with the shell, which has to keep being answered across a
 /// rebuild.
@@ -491,8 +491,8 @@ fn a_watching_run_serves_what_the_rebuild_wrote() {
     let scratch = page_repo("serving-watch");
     let server = serving(&scratch, "//cmd/site", &["--watch"]);
 
-    get(server.port, "/site.css").ok().holds("padding:1rem");
-    get(server.port, "/site.mjs").ok().holds("the front page");
+    get(server.port, "/main.css").ok().holds("padding:1rem");
+    get(server.port, "/main.mjs").ok().holds("the front page");
 
     // One write, not two: the loop coalesces a burst into one pass, and two
     // writes could also be two passes — the first of which would have rebuilt
@@ -503,15 +503,15 @@ fn a_watching_run_serves_what_the_rebuild_wrote() {
     scratch.write("cmd/site/main.buri", &edited);
 
     let rebuilt = until(DEADLINE, || {
-        let styles = get(server.port, "/site.css");
+        let styles = get(server.port, "/main.css");
         styles.body.contains("padding:2rem").then_some(())
     });
     assert!(rebuilt.is_some(), "the stylesheet was not rebuilt within {DEADLINE:?}");
-    get(server.port, "/site.mjs").ok().holds("the rebuilt front page");
+    get(server.port, "/main.mjs").ok().holds("the rebuilt front page");
     // The same server: a route with no file behind it is still the shell.
     get(server.port, "/components/button")
         .ok()
-        .holds("<script type=\"module\" src=\"/site.mjs\"></script>");
+        .holds("<script type=\"module\" src=\"/main.mjs\"></script>");
 }
 
 /// A rebuild that fails leaves the page that was working where it was, and the
@@ -541,7 +541,7 @@ fn a_watching_run_that_cannot_rebuild_keeps_serving_the_last_page() {
     let server = serving(&scratch, "//cmd/site", &["--watch"]);
 
     let shell = get(server.port, "/").ok().body.clone();
-    get(server.port, "/site.mjs").ok().holds("the front page");
+    get(server.port, "/main.mjs").ok().holds("the front page");
 
     // A name that is not in scope: the file still parses, so the pass gets as
     // far as the checker and the failure is a diagnostic about the program
@@ -552,14 +552,14 @@ fn a_watching_run_that_cannot_rebuild_keeps_serving_the_last_page() {
     scratch.write("cmd/site/main.buri", &broken);
     server.complained_about("unresolved-name");
 
-    get(server.port, "/site.mjs").ok().holds("the front page");
+    get(server.port, "/main.mjs").ok().holds("the front page");
     assert_eq!(get(server.port, "/").ok().body, shell, "the shell the reader had is gone");
 
     let repaired = source.replace("the front page", "the repaired front page");
     assert_ne!(repaired, source, "the repair changed nothing");
     scratch.write("cmd/site/main.buri", &repaired);
     let served = until(DEADLINE, || {
-        get(server.port, "/site.mjs").body.contains("the repaired front page").then_some(())
+        get(server.port, "/main.mjs").body.contains("the repaired front page").then_some(())
     });
     assert!(served.is_some(), "the repair was not served within {DEADLINE:?}");
 }
@@ -573,16 +573,50 @@ fn a_watching_run_that_cannot_rebuild_keeps_serving_the_last_page() {
 /// answer that came back over a socket.
 ///
 /// What it does not do is put the worker in front of the page. `buri run`
-/// answers the shell the compiler wrote rather than the document `fetch`
+/// answers the `index.html` `web` ships rather than the document `fetch`
 /// renders, which is why `cmd/both`'s page mounts instead of resuming.
 #[test]
 fn a_binary_with_a_worker_beside_its_page_serves_the_page() {
     let scratch = page_repo("serving-both");
     let server = serving(&scratch, "//cmd/both", &[]);
 
-    let shell = scratch.read(".buri/out/web/cmd/both/both.html");
+    let shell = scratch.read(".buri/out/web/cmd/both/index.html");
     assert_eq!(get(server.port, "/").ok().body, shell, "`/` is not the page's shell");
-    get(server.port, "/both.mjs").ok().holds("both halves, one tree");
+    get(server.port, "/main.mjs").ok().holds("both halves, one tree");
+}
+
+/// A repository platform that ships an `index.html` among its `assets` is a
+/// page too: `buri run` serves its output directory rather than starting the
+/// entry, though its `js` file would otherwise make it `platform-cannot-run`.
+#[test]
+fn a_repository_platform_with_an_index_html_is_served() {
+    let scratch = Scratch::copy_of("serving-repository", &tests_dir().join("repositories/serving/a_page_is_served/repo"));
+    scratch.write(
+        "platform/kiosk/BUILD.buri",
+        "platform {\n    entry {\n        name: \"main\"\n        backend: JS\n        js: \"main.mjs\"\n    }\n    assets: [\"index.html\"]\n}\n",
+    );
+    scratch.write(
+        "platform/kiosk/platform.buri",
+        "from \"platform/host\" import { HostAllocator, HostStdout };\n\n\
+         export struct KioskHost {\n    export alloc: HostAllocator,\n    export stdout: HostStdout,\n}\n\n\
+         export fn main(host: KioskHost): Result<(), Str>;\n",
+    );
+    scratch.write("platform/kiosk/main.mjs", "import { main } from \"buri:program\";\nawait main();\n");
+    scratch.write("platform/kiosk/index.html", "<!doctype html>\n<title>kiosk</title>\n<script type=\"module\" src=\"/main.mjs\"></script>\n");
+    scratch.write("cmd/kiosk/BUILD.buri", "binary {\n    outputs: [{ platform: \"//platform/kiosk\" }]\n}\n");
+    scratch.write(
+        "cmd/kiosk/main.buri",
+        "from \"core/io\" import * as io;\nfrom \"platform/effect\" import { Stdout };\n\
+         from \"//platform/kiosk\" import { KioskHost };\n\n\
+         export fn main(host: KioskHost): Result<(), Str> {\n    \
+         let _ = io.println(context { Stdout: host.stdout }, \"the kiosk\").ignore();\n    .Ok(())\n}\n",
+    );
+    let server = serving(&scratch, "//cmd/kiosk", &[]);
+
+    let front = get(server.port, "/somewhere/deep");
+    front.ok().holds("<title>kiosk</title>");
+    assert_eq!(front.header("content-type"), "Content-Type: text/html; charset=utf-8");
+    get(server.port, "/main.mjs").ok().holds("the kiosk");
 }
 
 /// A port something else is already on is a refusal naming it, rather than a

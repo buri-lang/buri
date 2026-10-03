@@ -2,10 +2,8 @@
 // image as the same grey box, so a suite full of icons asserted their geometry
 // and nothing else (buri-lang/buri#85).
 
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
-from "ui/effect" import { Ui };
-from "ui/testing" import { headless, snapshot };
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
 from "//lib/icons" import { icons };
 
 test "a red square, two red plus signs, and one box that stays grey" {

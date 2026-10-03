@@ -1,4 +1,4 @@
-.buri/out/web/cmd/both/both.mjs (N bytes, cached)
+.buri/out/web/cmd/both/main.mjs (N bytes, cached)
 error: `main` takes `WebHost`, and the node platform hands its entry a `NodeHost` [entry-host-mismatch]
   --> cmd/both/main.buri:16:16
    |

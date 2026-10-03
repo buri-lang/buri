@@ -35,56 +35,56 @@ run {
 
 # What the editor builds is in the chunk...
 file {
-  path: ".buri/out/web/cmd/page/page.0.mjs"
+  path: ".buri/out/web/cmd/page/main.0.mjs"
   contains: "ONLY_IN_THE_CHUNK"
 }
 
 # ...and not in the page.
 file {
-  path: ".buri/out/web/cmd/page/page.mjs"
+  path: ".buri/out/web/cmd/page/main.mjs"
   absent: "ONLY_IN_THE_CHUNK"
 }
 
 # The page's own half is where it always was, so the split moved the editor
 # rather than everything.
 file {
-  path: ".buri/out/web/cmd/page/page.mjs"
+  path: ".buri/out/web/cmd/page/main.mjs"
   contains: "ONLY_IN_THE_PAGE"
 }
 
 file {
-  path: ".buri/out/web/cmd/page/page.0.mjs"
+  path: ".buri/out/web/cmd/page/main.0.mjs"
   absent: "ONLY_IN_THE_PAGE"
 }
 
 # The chunk hands itself the page's bindings rather than importing them back: a
 # static import of a module that is mid-evaluation is a page that never starts.
 file {
-  path: ".buri/out/web/cmd/page/page.0.mjs"
+  path: ".buri/out/web/cmd/page/main.0.mjs"
   contains: "$bind"
 }
 
 file {
-  path: ".buri/out/web/cmd/page/page.0.mjs"
+  path: ".buri/out/web/cmd/page/main.0.mjs"
   absent: "import.meta.url"
 }
 
 # A page is still a shell, a module and — here — a chunk.
 file {
-  path: ".buri/out/web/cmd/page/page.html"
-  contains: "page.mjs"
+  path: ".buri/out/web/cmd/page/index.html"
+  contains: "/main.mjs"
 }
 
 # **A library splits itself.** `//lib/report` writes the `load`, the binary
 # writes nothing, and the chunk lands beside the binary's own — because a chunk
 # belongs to an artifact and a library has none.
 file {
-  path: ".buri/out/web/cmd/page/page.1.mjs"
+  path: ".buri/out/web/cmd/page/main.1.mjs"
   contains: "ONLY_IN_THE_LIBRARY_CHUNK"
 }
 
 file {
-  path: ".buri/out/web/cmd/page/page.mjs"
+  path: ".buri/out/web/cmd/page/main.mjs"
   absent: "ONLY_IN_THE_LIBRARY_CHUNK"
 }
 

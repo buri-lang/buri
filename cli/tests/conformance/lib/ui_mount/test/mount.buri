@@ -6,13 +6,13 @@
 // that still cannot cross (#53 phase 6).
 
 from "core/testing/assert" import * as assert;
-from "ui/effect" import { Ui };
+from "platform/effect" import { Ui };
+from "platform/effect/testing" import { headless };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
 from "ui/signal" import { signal };
 from "ui/style" import { Style };
-from "ui/testing" import { headless };
 from "ui/theme" import { Theme };
 
 let badgeStyle: Style = .Group([

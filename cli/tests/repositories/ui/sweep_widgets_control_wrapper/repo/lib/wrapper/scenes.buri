@@ -8,7 +8,7 @@
 //! `insidePage` is the label as a box in its own right: paint on `around`, and
 //! the arrangement `around` overrides.
 
-from "ui/effect" import { Ui };
+from "platform/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { signal };

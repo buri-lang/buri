@@ -147,7 +147,7 @@
 //!
 //!    An entry that **keeps** what it was given takes a third word, the
 //!    per-value **release** function, and calls it when the store ends. One
-//!    entry does: `ui/effect`'s `write`, where a cell holds the bytes it was
+//!    entry does: `platform/effect`'s `write`, where a cell holds the bytes it was
 //!    written until the next write replaces them
 //!    (`backend/runtime_table.rs`'s `Extra::Owned`). Nothing in `core/list`
 //!    holds a value past the call it was made in, so nothing there has a
@@ -174,7 +174,7 @@
 //!
 //! 6. **A body the runtime keeps arrives as that thunk, a record to copy, and
 //!    a place to put a frame.** Rule 5's closure runs during the call that
-//!    handed it over; `ui/effect`'s `memo` and `watch` run on the first read
+//!    handed it over; `platform/effect`'s `memo` and `watch` run on the first read
 //!    and on every change, long after. So three more words follow the four:
 //!    how many bytes of the record there are, because the runtime **copies**
 //!    it — the caller's frame will be gone; where in the copy to write a
@@ -624,7 +624,7 @@ mod character;
 /// `crypto` beside `entropy`, and refused by name the same way without it.
 #[cfg(feature = "crypto")]
 mod crypto;
-/// `ui/testing`'s element document and the readers a `Rendered` answers from
+/// `platform/effect/testing`'s element document and the readers a `Rendered` answers from
 /// it (issue #53): the arena `render` builds, its `markup`/`text`/`count`/
 /// `identity`, and the builder the Buri `renderInto` walk emits to. Static —
 /// a `Prop` read once, a region built once, no watcher and no reconciler yet.
@@ -647,7 +647,7 @@ mod net;
 /// The renderer: a scene document and a stylesheet in, PNG bytes out. Behind
 /// the `paint` feature because its three crates are, and it is in `default`
 /// for `net`'s reason — a toolchain that could not paint would make
-/// `ui/testing`'s `snapshot` a build-flag question for every user.
+/// `platform/effect/testing`'s `snapshot` a build-flag question for every user.
 #[cfg(feature = "paint")]
 mod paint;
 mod rng;
@@ -666,7 +666,7 @@ pub mod rt;
 /// nothing to switch.
 #[cfg(feature = "net")]
 mod switch;
-/// `ui/testing`'s `snapshot`: paint the scene `ui/node`'s `describe` wrote,
+/// `platform/effect/testing`'s `snapshot`: paint the scene `ui/node`'s `describe` wrote,
 /// then compare it against the golden or record it. Four `Str`s in — the last
 /// is the flattened theme document, which says what each token is worth — and
 /// nothing out, and a changed snapshot is reported as a failed assertion

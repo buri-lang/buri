@@ -70,8 +70,7 @@
 
 from "core/json" import * as json;
 from "core/json" import { Json };
-from "platform/effect" import { Allocator };
-from "ui/effect" import { Location, Ui, Watch };
+from "platform/effect" import { Allocator, Location, Ui, Watch };
 from "ui/node" import * as node;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
@@ -244,7 +243,7 @@ export fn state<C: Ui>(ctx: C): Option<Str>;
 /// every navigation. Routing is a match, so a title is a match too.
 ///
 /// ```buri role=std
-/// # from "ui/effect" import { Location, Ui };
+/// # from "platform/effect" import { Location, Ui };
 /// # from "ui/web" import * as web;
 ///
 /// export fn name<C: Location + Ui>(ctx: C): () {

@@ -34,8 +34,7 @@
 from "core/alloc" import * as alloc;
 from "core/bytes" import * as bytes;
 from "core/str" import * as str;
-from "platform/effect" import { Allocator };
-from "ui/effect" import { Event, Scope, Ui };
+from "platform/effect" import { Allocator, Event, Scope, Ui };
 from "ui/prop" import { Prop };
 from "ui/signal" import { Signal };
 from "ui/style" import {
@@ -232,7 +231,7 @@ export struct PointerAt {
 /// plain box is the "clickable div" anti-pattern), so it stays on those nodes.
 ///
 /// A snapshot has no pointer, keyboard or scroll, so every one of these is inert
-/// in `describe`. `ui/testing`'s `render` registers `onPressOutside` and the
+/// in `describe`. `platform/effect/testing`'s `render` registers `onPressOutside` and the
 /// three pointer handlers, which its `press` and `pointerDown` drive. In a
 /// browser all eight are wired.
 struct Events<C> {
@@ -1331,7 +1330,7 @@ struct FilePicker<C> {
 
 /// On the web it is a `<button>` that opens a hidden `<input type="file">`, so
 /// the button is what a reader focuses, hears and styles. A snapshot paints the
-/// button with its label, the way it paints a `button`, and `ui/testing`'s
+/// button with its label, the way it paints a `button`, and `platform/effect/testing`'s
 /// `pickFile` stands in for the reader choosing a file.
 export fn filePicker<C>(config: FilePicker<C>): Node<C> {
     let events = listen(
@@ -1670,13 +1669,13 @@ export fn rebuild<C, K: Show>(on: Prop<K>, build: fn(C, K) => Node<C>): Node<C> 
 /// Run outside a browser, under `bun` or `node`, there is no document at all, so
 /// the runtime supplies one. A program written for a page builds, mounts and
 /// reacts from a command line, which is what lets a test and a golden run it.
-/// `ui/testing` lists what a substitute cannot answer.
+/// `platform/effect/testing` lists what a substitute cannot answer.
 export fn mount<C: Ui>(ctx: C, root: Node<C>, themes: [Theme]): Result<(), Str>;
 
 // --- The scene document ------------------------------------------------------
 //
 // `describe` writes down what a tree would look like instead of putting it on a
-// screen. `ui/testing`'s `snapshot` paints what comes out, and
+// screen. `platform/effect/testing`'s `snapshot` paints what comes out, and
 // `cli/runtime/paint.rs` reads it.
 //
 // It is ordinary Buri and not an intrinsic: a node holds closures, and a runtime
@@ -2230,7 +2229,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
     }
 }
 
-/// The file `ui/testing`'s `pickFile` offered, read back off the document. The
+/// The file `platform/effect/testing`'s `pickFile` offered, read back off the document. The
 /// bytes are decoded here, strictly, the way a browser's `TextDecoder` with
 /// `fatal` decodes them, and a leading byte-order mark is dropped the way it
 /// drops one.
@@ -2504,7 +2503,7 @@ fn emitSliderControl(
 
 /// Registers the generic events a scene document can carry: `onPressOutside`, a
 /// document listener the runtime pairs with the open element, disposed with the
-/// subtree, and the three pointer handlers `ui/testing`'s `pointerDown`,
+/// subtree, and the three pointer handlers `platform/effect/testing`'s `pointerDown`,
 /// `pointerMove` and `pointerUp` drive. The other four (`onHover`, `onFocus`,
 /// `onScroll`, `onKey`) are the browser's alone, wired only in `runtime.js`'s
 /// `$tree_events`. Each public handler is adapted here to the intrinsic's
@@ -2953,7 +2952,7 @@ fn registerPress<C>(builder: Builder, onPress: fn(C, Event) => ()): ();
 fn registerOutside<C>(builder: Builder, handler: fn(C, Event) => ()): ();
 
 /// Keeps a pointer handler on the open element under `phase` — 0 down, 1 move,
-/// 2 up — for `ui/testing`'s pointer dispatch to fire.
+/// 2 up — for `platform/effect/testing`'s pointer dispatch to fire.
 fn registerPointer<C>(builder: Builder, phase: Int, handler: fn(C, Event) => ()): ();
 
 /// The x of the pointer the dispatch in flight carries.

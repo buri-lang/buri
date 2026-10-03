@@ -56,7 +56,7 @@
 //! one. **The variant order is load-bearing for that reason and for one
 //! more:** the JavaScript runtime reads a `Style` by its tag.
 
-from "ui/effect" import { Scope };
+from "platform/effect" import { Scope };
 from "ui/prop" import { Prop };
 
 /// The pairs a static style was extracted into: a conflict slot, and the name

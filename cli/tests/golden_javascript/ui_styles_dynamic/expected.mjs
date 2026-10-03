@@ -34,7 +34,7 @@ function __cmd_x_main_buri$main$withHost(host_0){
     $abort('no arm matched');
   }
   const $t3=ui_node$stack$u3rqgv([[$k8,[3,[1,lit_2],$k13,$k18]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
-  const $t4=ui_node$stack$u3rqgv([[$k8,[4,scope_4=>[[24,[0,$ui_effect_Scope_read(scope_4,width_3[0])]]]]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+  const $t4=ui_node$stack$u3rqgv([[$k8,[4,scope_4=>[[24,[0,$effect_Scope_read(scope_4,width_3[0])]]]]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
   return $ui_node_mount(ctx_1,ui_node$stack$u3rqgv([$k4,[$t3,$t4,ui_node$stack$u3rqgv([[$k8,[12,$host_HostWatch_read(ctx_1[3],width_3[0])]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
 }
 function __cmd_x_main_buri$main(){
@@ -51,3 +51,65 @@ function ui_node$stack$u3rqgv(config_0){
     $abort('no arm matched');
   }
 }
+const $buri$program={main:async ()=>{
+  const $r=await __cmd_x_main_buri$main();
+  $host.flush();
+  return void $crossThrow($r);
+}};
+const $buri$ui={signal:(v)=>$host_HostUi_signal(null,v),write:(id,v)=>{$host_HostUi_write(null,id,v)}};
+var $buri$host;
+const $buri$platform = await (async () => {
+$buri$host = () => ({ HostLocation: HostLocation });
+// web's entry adapter. It starts the page's `main` when the module loads, and
+// implements `HostLocation`, the address bar, over the browser's own
+// `location` and `history`.
+//
+// A JavaScript host that is not a browser has neither, so each is asked for
+// before it is used: the page still runs to its first paint under bun, at `/`,
+// with nowhere to push an address.
+const { main } = $buri$program;
+const { signal, write } = $buri$ui;
+
+// The signal holding the path, made on first ask so a page that never routes
+// registers nothing, and written from `popstate`, which is what the browser
+// fires when the reader goes back or forward.
+let address;
+
+function current() {
+  if (typeof location === "undefined" || location === null) return "/";
+  return location.pathname || "/";
+}
+
+function hasHistory() {
+  return typeof history !== "undefined" && history !== null;
+}
+
+// `ui/web`'s `navigate` and `replace` call `push` or `replace` and then write
+// the signal themselves, so the graph and the address bar move together
+// however the address was reached.
+const HostLocation = {
+  path: (self) => {
+    if (address === undefined) {
+      address = signal(current());
+      if (typeof addEventListener === "function") {
+        addEventListener("popstate", () => write(address, current()));
+      }
+    }
+    return address;
+  },
+  push: (self, path) => {
+    if (hasHistory()) history.pushState({}, "", path);
+  },
+  replace: (self, path) => {
+    if (hasHistory()) history.replaceState({}, "", path);
+  },
+};
+
+// `.Err(msg)` arrives as a thrown `Error`, and the message goes to the console.
+// Under a host with a process, such as bun, the process exits 1.
+await main().catch((e) => {
+  console.error(e && e.message ? e.message : String(e));
+  if (typeof process !== "undefined") process.exitCode = 1;
+});
+return { "HostLocation": HostLocation };
+})();

@@ -4120,7 +4120,7 @@ function $host_HostWatch_read(self, id) {
   return $ui_read(id);
 }
 
-function $ui_effect_Scope_read(self, id) {
+function $effect_Scope_read(self, id) {
   return $ui_read(id);
 }
 
@@ -4415,7 +4415,7 @@ function $dom_body() {
 
 // --- Reading the substitute document ----------------------------------------
 //
-// Only the substitute: these are what `ui/testing` is, and a test holds one of
+// Only the substitute: these are what `platform/effect/testing` is, and a test holds one of
 // its trees. Markers are left out of the markup deliberately — they are the
 // runtime's own bookkeeping, not something a reader sees, and pinning a test to
 // them would pin it to how a region is anchored.
@@ -6214,7 +6214,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
 // The text is a string constant in the artifact — the compiler wrote every
 // rule in it — so this copies rather than generates, and a second mount finds
 // the element already there. Off a browser there is nowhere to put it and
-// nothing to look at it, which is why `ui/testing` reads `$ui_sheet` instead.
+// nothing to look at it, which is why `platform/effect/testing` reads `$ui_sheet` instead.
 // --- Themes ------------------------------------------------------------------
 //
 // A design token is a namespaced custom property, and a theme is the block of
@@ -6237,7 +6237,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
 const $UI_COLOR_TOKEN = 2;
 
 // The custom-property block installed right now, without the `<style>` element
-// around it. Off a browser this is all there is, which is what `ui/testing`
+// around it. Off a browser this is all there is, which is what `platform/effect/testing`
 // reads.
 let $ui_theme_text = "";
 
@@ -6374,7 +6374,7 @@ function $ui_theme_install(themes) {
 }
 
 // The `:root`/`body`/scheme text a *flattened* theme document resolves to — the
-// twin of `cli/runtime/ui.rs`'s `render`, byte for byte, so `ui/testing`'s
+// twin of `cli/runtime/ui.rs`'s `render`, byte for byte, so `platform/effect/testing`'s
 // `install` reads the same block on both backends. `ui/theme`'s `document`
 // flattens the switches away (through the tracked scope its reactive caller
 // passes); this follows the chains and writes the blocks. The format is that
@@ -6450,7 +6450,7 @@ function $ui_theme_render_doc(doc) {
 }
 
 // `ui/theme`'s `installDoc(doc)` — resolve a flattened document to its block,
-// store it where `variables` reads it, and answer it. `ui/testing`'s `install`
+// store it where `variables` reads it, and answer it. `platform/effect/testing`'s `install`
 // is the caller, through the reactive computation `$ui_node_reactive` registers,
 // so a switching theme re-runs this with the other branch's document.
 function $ui_theme_installDoc(doc) {
@@ -6459,7 +6459,7 @@ function $ui_theme_installDoc(doc) {
 }
 
 // `ui/theme`'s `variables()` — the block installed right now, which is what
-// `ui/testing`'s `variables` answers.
+// `platform/effect/testing`'s `variables` answers.
 function $ui_theme_variables() {
   return $ui_theme_text;
 }
@@ -6505,17 +6505,17 @@ function $ui_theme_rootScope() {
 
 // --- The headless user-interface platform ------------------------------------
 //
-// The same graph, with no document attached: `ui/testing` is about what the
+// The same graph, with no document attached: `platform/effect/testing` is about what the
 // runtime does, and a second implementation of it would be a second thing to
 // be right. The handles are unused — the graph is the state — but the structs
 // carry one so that the shape matches every other test double.
 
-const $ui_testing_Headless_signal = $host_HostUi_signal;
-const $ui_testing_Headless_read = $host_HostUi_read;
-const $ui_testing_Headless_write = $host_HostUi_write;
-const $ui_testing_Headless_memo = $host_HostUi_memo;
-const $ui_testing_Headless_watch = $host_HostUi_watch;
-const $ui_testing_Observer_read = $host_HostWatch_read;
+const $host_testing_Headless_signal = $host_HostUi_signal;
+const $host_testing_Headless_read = $host_HostUi_read;
+const $host_testing_Headless_write = $host_HostUi_write;
+const $host_testing_Headless_memo = $host_HostUi_memo;
+const $host_testing_Headless_watch = $host_HostUi_watch;
+const $host_testing_Observer_read = $host_HostWatch_read;
 
 // The headless double's timers, on a virtual clock. A test has no wall clock to
 // wait on, so what `after` schedules is queued here against `$ui_fake_now`
@@ -6527,7 +6527,7 @@ const $ui_fake_timers = [];
 let $ui_fake_timer_next = 1;
 let $ui_fake_now = 0;
 
-function $ui_testing_Headless_schedule(self, millis, run) {
+function $host_testing_Headless_schedule(self, millis, run) {
   const handle = $ui_fake_timer_next++;
   const ms = Number(millis);
   $ui_fake_timers.push({
@@ -6540,7 +6540,7 @@ function $ui_testing_Headless_schedule(self, millis, run) {
   return BigInt(handle);
 }
 
-function $ui_testing_Headless_unschedule(self, id) {
+function $host_testing_Headless_unschedule(self, id) {
   const handle = Number(id);
   for (const timer of $ui_fake_timers) {
     if (timer.handle === handle) timer.done = true;
@@ -6548,7 +6548,7 @@ function $ui_testing_Headless_unschedule(self, id) {
   return 0;
 }
 
-function $ui_testing_elapse(millis) {
+function $host_testing_elapse(millis) {
   const target = $ui_fake_now + Number(millis);
   // Fire due timers in due-time order — a timer scheduled by a timer that just
   // fired joins this pass if it too is due by `target`, the way a page's clock
@@ -6569,11 +6569,11 @@ function $ui_testing_elapse(millis) {
   return 0;
 }
 
-function $ui_testing_headless() {
+function $host_testing_headless() {
   return $handle(0);
 }
 
-function $ui_testing_observer() {
+function $host_testing_observer() {
   return $handle(0);
 }
 
@@ -6581,7 +6581,7 @@ function $ui_testing_observer() {
 // is how a test asserts what a class *means* rather than only what it is
 // called, and how it sees that two modules asking for one padding produced one
 // rule.
-function $ui_testing_stylesheet() {
+function $host_testing_stylesheet() {
   return $ui_sheet;
 }
 
@@ -6590,7 +6590,7 @@ function $ui_testing_stylesheet() {
 // with `$ui_theme_installDoc`, registering the switching computation through
 // `$ui_node_reactive`; `variables` reads `$ui_theme_variables`. So the block a
 // test asserts is resolved by the same `ui/theme` Buri on both backends, and
-// there is nothing named `$ui_testing_install`/`$ui_testing_variables` for this
+// there is nothing named `$host_testing_install`/`$host_testing_variables` for this
 // side to hold.
 
 // A snapshot is painted by the native runtime — taffy, cosmic-text and
@@ -6599,40 +6599,40 @@ function $ui_testing_stylesheet() {
 // than passing without having painted anything.
 // A snapshot's themes, for a painter this side does not have. `paint` below
 // fails the block whatever was installed, so there is nothing here to keep.
-function $ui_testing_installThemes(document) {
+function $host_testing_installThemes(document) {
   return 0;
 }
 
-function $ui_testing_paint(name, scene, state) {
+function $host_testing_paint(name, scene, state) {
   $testing_assert_failWith(
     'the snapshot "' + name + '" was not painted: snapshots run natively, and this suite is JS',
   );
   return 0;
 }
 
-function $ui_testing_recorder() {
+function $host_testing_recorder() {
   return $handle({ tags: [], values: [] });
 }
 
-function $ui_testing_Recorder_record(self, tag) {
+function $host_testing_Recorder_record(self, tag) {
   $slot(self).tags.push(tag);
   return 0;
 }
 
-function $ui_testing_Recorder_recorded(self) {
+function $host_testing_Recorder_recorded(self) {
   return $slot(self).tags.slice();
 }
 
-function $ui_testing_Recorder_note(self, value) {
+function $host_testing_Recorder_note(self, value) {
   $slot(self).values.push(value);
   return value;
 }
 
-function $ui_testing_Recorder_noted(self) {
+function $host_testing_Recorder_noted(self) {
   return $slot(self).values.slice();
 }
 
-// --- ui/testing: the scene document (issue #53, phase 6) ----------------------
+// --- platform/effect/testing: the scene document (issue #53, phase 6) ----------------------
 //
 // `render(ctx, root)` is `Rendered(mount(ctx, root, renderInto))`. On this
 // backend `mount` now drives the `renderInto` walk (`ui/node`) into a scene
@@ -7076,7 +7076,7 @@ function $ui_node_offeredBytes(builder) {
 // carries. The builder is the same one-field handle a `Rendered` is, so a
 // reader and the walk name the one document. The initial walk runs each leaf
 // and region watcher once, so what comes back is already the resting tree.
-function $ui_testing_mount(ctx, root, walk) {
+function $host_testing_mount(ctx, root, walk) {
   const handle = $handle($scene_open(ctx));
   walk(ctx, handle, root);
   return handle[0];
@@ -7264,7 +7264,7 @@ function $scene_escapeRun(content) {
   return content.split("\\").join("\\\\").split("\n").join("\\n").split("\r").join("\\r");
 }
 
-function $ui_testing_Rendered_markup(self) {
+function $host_testing_Rendered_markup(self) {
   const doc = $scene_of(self);
   const lines = [];
   for (const pair of $scene_ordered(doc)) {
@@ -7275,7 +7275,7 @@ function $ui_testing_Rendered_markup(self) {
   return lines.join("\n");
 }
 
-function $ui_testing_Rendered_text(self) {
+function $host_testing_Rendered_text(self) {
   const doc = $scene_of(self);
   const runs = [];
   for (const pair of $scene_ordered(doc)) {
@@ -7284,7 +7284,7 @@ function $ui_testing_Rendered_text(self) {
   return runs.join(" ");
 }
 
-function $ui_testing_Rendered_press(self, label) {
+function $host_testing_Rendered_press(self, label) {
   const doc = $scene_of(self);
   const button = $scene_labelled(doc, "button", label);
   if (button < 0) $abort('this tree has no button labelled "' + label + '"');
@@ -7314,7 +7314,7 @@ function $ui_testing_Rendered_press(self, label) {
 // that assert following render the HTML document double and live in the JS-only
 // sibling; this resolves the anchor by its text the way a reader would and
 // otherwise does nothing, the same observable nothing an ordinary link is.
-function $ui_testing_Rendered_follow(self, label) {
+function $host_testing_Rendered_follow(self, label) {
   const doc = $scene_of(self);
   const anchor = $scene_labelled(doc, "a", label);
   if (anchor < 0) $abort('this tree has no a labelled "' + label + '"');
@@ -7327,7 +7327,7 @@ function $ui_testing_Rendered_follow(self, label) {
   return 0;
 }
 
-function $ui_testing_Rendered_openInNewTab(self, label) {
+function $host_testing_Rendered_openInNewTab(self, label) {
   const doc = $scene_of(self);
   const anchor = $scene_labelled(doc, "a", label);
   if (anchor < 0) $abort('this tree has no a labelled "' + label + '"');
@@ -7337,7 +7337,7 @@ function $ui_testing_Rendered_openInNewTab(self, label) {
   return 0;
 }
 
-function $ui_testing_Rendered_fill(self, label, value) {
+function $host_testing_Rendered_fill(self, label, value) {
   const doc = $scene_of(self);
   const labelNode = $scene_labelled(doc, "label", label);
   const field = labelNode < 0 ? -1 : $scene_firstNamed(doc, labelNode, ["input", "textarea"]);
@@ -7359,7 +7359,7 @@ function $ui_testing_Rendered_fill(self, label, value) {
   return 0;
 }
 
-function $ui_testing_Rendered_select(self, label, start, end) {
+function $host_testing_Rendered_select(self, label, start, end) {
   const doc = $scene_of(self);
   const labelNode = $scene_labelled(doc, "label", label);
   const field = labelNode < 0 ? -1 : $scene_firstNamed(doc, labelNode, ["input", "textarea"]);
@@ -7379,7 +7379,7 @@ function $ui_testing_Rendered_select(self, label, start, end) {
   return 0;
 }
 
-function $ui_testing_Rendered_flip(self, label) {
+function $host_testing_Rendered_flip(self, label) {
   const doc = $scene_of(self);
   const labelNode = $scene_labelled(doc, "label", label);
   const box = labelNode < 0 ? -1 : $scene_firstNamed(doc, labelNode, ["input"]);
@@ -7396,12 +7396,12 @@ function $ui_testing_Rendered_flip(self, label) {
 // `pickFile`'s two halves: keep the file on the document, then fire the
 // picker's handler, which reads it back. A disabled or unreachable picker opens
 // no chooser, so nothing runs.
-function $ui_testing_offerFile(page, name, type, content) {
+function $host_testing_offerFile(page, name, type, content) {
   $scene_of(page).offer = { name, type, content };
   return 0;
 }
 
-function $ui_testing_deliverFile(page, label) {
+function $host_testing_deliverFile(page, label) {
   const doc = $scene_of(page);
   const button = $scene_labelled(doc, "button", label);
   if (button < 0 || doc.records[button].pick === null) {
@@ -7418,7 +7418,7 @@ function $ui_testing_deliverFile(page, label) {
 // rule, the native `submit`: an enabled submit button submits the form, and a
 // form with none is submitted only while exactly one of its fields blocks
 // implicit submission. A form a `dialog` has taken out of reach submits nothing.
-function $ui_testing_Rendered_submit(self, at) {
+function $host_testing_Rendered_submit(self, at) {
   const doc = $scene_of(self);
   const forms = $scene_elements(doc, "form");
   const index = Number(at);
@@ -7526,7 +7526,7 @@ function $scene_pointerTarget(doc, label) {
   return node;
 }
 
-function $ui_testing_Rendered_pointerDown(self, label, x, y) {
+function $host_testing_Rendered_pointerDown(self, label, x, y) {
   const doc = $scene_of(self);
   const target = $scene_pointerTarget(doc, label);
   if (!$scene_reachable(doc, target) || $scene_inert(doc, target)) return 0;
@@ -7554,7 +7554,7 @@ function $scene_pointerRoute(doc, over) {
   return over;
 }
 
-function $ui_testing_Rendered_pointerMove(self, label, x, y) {
+function $host_testing_Rendered_pointerMove(self, label, x, y) {
   const doc = $scene_of(self);
   const over = $scene_pointerTarget(doc, label);
   const target = $scene_pointerRoute(doc, over);
@@ -7562,7 +7562,7 @@ function $ui_testing_Rendered_pointerMove(self, label, x, y) {
   return 0;
 }
 
-function $ui_testing_Rendered_pointerUp(self, label, x, y) {
+function $host_testing_Rendered_pointerUp(self, label, x, y) {
   const doc = $scene_of(self);
   const over = $scene_pointerTarget(doc, label);
   const target = $scene_pointerRoute(doc, over);
@@ -7571,11 +7571,11 @@ function $ui_testing_Rendered_pointerUp(self, label, x, y) {
   return 0;
 }
 
-function $ui_testing_Rendered_count(self, name) {
+function $host_testing_Rendered_count(self, name) {
   return BigInt($scene_elements($scene_of(self), name).length);
 }
 
-function $ui_testing_Rendered_identity(self, name, at) {
+function $host_testing_Rendered_identity(self, name, at) {
   const doc = $scene_of(self);
   const elements = $scene_elements(doc, name);
   const index = Number(at);
@@ -8968,9 +8968,6 @@ function $lazy(n, env) {
 // is the one `mount` uses, pointed at the substitute document — so what a
 // worker writes is what the page would have built.
 
-// The address bar's cell, made once: there is one address bar.
-const $ui_web = { location: -1 };
-
 function $ui_web_stylesheet() {
   return $ui_sheet;
 }
@@ -9075,40 +9072,10 @@ function $ui_web_setTitle(text) {
   return 0;
 }
 
-// The address bar, as one cell of the graph. Made on first ask, so a page that
-// never routes registers nothing, and written from `popstate` — which is what
-// the browser fires when the reader goes back or forward.
-function $host_HostLocation_path(self) {
-  if ($ui_web.location < 0) {
-    $ui_web.location = $ui_cell(0, $ui_web_path(), null);
-    if (typeof addEventListener === "function") {
-      addEventListener("popstate", () => $ui_write($ui_web.location, $ui_web_path()));
-    }
-  }
-  return BigInt($ui_web.location);
-}
-
+// The address the document is at, for `resume`'s check against the address
+// the server rendered. `web`'s `main.mjs` reads the same thing for
+// `HostLocation`.
 function $ui_web_path() {
   if (typeof location === "undefined" || location === null) return "/";
   return location.pathname || "/";
-}
-
-// The two writers. `ui/web`'s `navigate` and `replace` call one of these and
-// then write the cell above, so the graph and the address bar move together
-// however the address was reached — a press here, or the reader pressing Back,
-// which is `popstate` writing the same cell.
-//
-// A host with no history is every JavaScript host that is not a browser. There
-// is nothing to push onto there, and the cell the caller writes next is the
-// whole of the address.
-function $host_HostLocation_push(self, path) {
-  if (typeof history === "undefined" || history === null) return 0;
-  history.pushState({}, "", path);
-  return 0;
-}
-
-function $host_HostLocation_replace(self, path) {
-  if (typeof history === "undefined" || history === null) return 0;
-  history.replaceState({}, "", path);
-  return 0;
 }

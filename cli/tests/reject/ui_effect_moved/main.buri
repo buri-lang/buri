@@ -1,0 +1,11 @@
+// EXPECT: "ui/effect" is now "platform/effect"
+//
+// `Ui` and `Watch` are bundled effects like any other, so they moved to
+// `platform/effect`. The old path is refused, and the fix names the new one.
+from "ui/effect" import { Ui };
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
+  let _ctx = context { Ui: host.ui };
+  .Ok(())
+}

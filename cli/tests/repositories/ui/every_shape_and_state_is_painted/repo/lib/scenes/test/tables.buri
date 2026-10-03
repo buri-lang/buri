@@ -8,12 +8,10 @@
 // Twice, because the rows carry an `On(.Hover)` background: the hovered picture
 // and the resting one are two pictures of one tree.
 
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
-from "ui/effect" import { Ui };
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
-from "ui/testing" import { headless, snapshot };
 
 /// Three columns and three rows, the second and third of which have to line up
 /// under the first.

@@ -11,7 +11,7 @@
 from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "web" import { WebHost };
-from "ui/effect" import { Scope, Ui, Watch };
+from "platform/effect" import { Scope, Ui, Watch };
 from "ui/prop" import { Prop };
 from "ui/signal" import { Signal, signal };
 

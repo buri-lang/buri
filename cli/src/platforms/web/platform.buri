@@ -1,8 +1,14 @@
 //! web — a page in a browser, built by the `JS` backend.
 //!
 //! `main` is handed a `WebHost`: the effects a page has. A page has a
-//! document, so it has `ui`, `watch` and `location`; it has no filesystem, no
-//! standard input, no environment, no process and no port of its own.
+//! document, so it has `ui` and `watch`, which the backend implements, and
+//! `location`, which this platform implements itself in `main.mjs`. It has no
+//! filesystem, no standard input, no environment, no process and no port of
+//! its own.
+//!
+//! Every output gets `main.mjs`, the page's module, and `index.html`, the
+//! document that loads it, with `main.css` beside them when the page uses
+//! styles.
 //!
 //! ```buri ignore why="an entry is checked against its platform, and this page is the platform"
 //! from "web" import { WebHost };
@@ -15,10 +21,10 @@
 //! }
 //! ```
 
+from "platform/effect" import { Location };
 from "platform/host" import {
-    HostAllocator, HostClock, HostEntropy, HostLocation, HostNetwork, HostRandom,
-    HostSockets, HostStderr, HostStdout, HostTasks, HostUi, HostWatch,
-    HostWebSocketClient,
+    HostAllocator, HostClock, HostEntropy, HostNetwork, HostRandom, HostSockets,
+    HostStderr, HostStdout, HostTasks, HostUi, HostWatch, HostWebSocketClient,
 };
 
 /// What a `web` entry is handed.
@@ -36,6 +42,23 @@ export struct WebHost {
     export ui: HostUi,
     export watch: HostWatch,
     export location: HostLocation,
+}
+
+/// The address bar, over the browser's own `location` and `history`. A page
+/// binds it to route on the path it was opened at and to re-route when the
+/// reader navigates.
+///
+/// `main.mjs` implements it: `path` is a signal holding `location.pathname`,
+/// written again on every `popstate`, and `push` and `replace` are
+/// `history.pushState` and `history.replaceState`.
+export struct HostLocation {}
+
+impl Location for HostLocation {
+    fn path(self): Int;
+
+    fn push(self, path: Str): ();
+
+    fn replace(self, path: Str): ();
 }
 
 /// The page. It runs once, when the page loads; `.Err(msg)` prints `msg` to

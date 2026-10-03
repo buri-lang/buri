@@ -238,7 +238,7 @@ extern void buri_rt_list_repeat(const uint8_t *item, int64_t times, uint64_t str
                                 void (*retain)(uint8_t *), BuriList *out);
 extern void buri_rt_list_range(int64_t start, int64_t end, BuriList *out);
 
-/* ui/effect + the renderer's closure trampolines — `cli/runtime/ui.rs`. The
+/* platform/effect + the renderer's closure trampolines — `cli/runtime/ui.rs`. The
  * graph is one static table per process, so a fresh driver run starts empty.
  * A `ComputeEntry` is the one thunk shape a memo, a step and every renderer
  * closure is reached through: `(state, index, arg, out)`. */
@@ -257,7 +257,7 @@ extern void buri_rt_ui_event(int64_t *out);
 extern void buri_rt_ui_render_walk(ComputeEntry entry, uint8_t *state,
                                    int64_t builder, const uint8_t *node,
                                    int64_t frame_at);
-extern int64_t buri_rt_ui_testing_mount(const uint8_t *root, ComputeEntry entry,
+extern int64_t buri_rt_host_testing_mount(const uint8_t *root, ComputeEntry entry,
                                         uint8_t *state, int64_t frame_at);
 
 /* The element document (issue #53, phase 2). The Buri `renderInto` walk drives
@@ -271,11 +271,11 @@ extern void buri_rt_ui_node_emit_element(int64_t handle, uint8_t *name_base,
 extern void buri_rt_ui_node_exit_element(int64_t handle);
 extern void buri_rt_ui_node_emit_text(int64_t handle, uint8_t *base,
                                 const uint8_t *ptr, uint64_t len);
-extern void buri_rt_ui_testing_rendered_markup(int64_t handle, BuriStr *out);
-extern void buri_rt_ui_testing_rendered_text(int64_t handle, BuriStr *out);
-extern int64_t buri_rt_ui_testing_rendered_count(int64_t handle, uint8_t *base,
+extern void buri_rt_host_testing_rendered_markup(int64_t handle, BuriStr *out);
+extern void buri_rt_host_testing_rendered_text(int64_t handle, BuriStr *out);
+extern int64_t buri_rt_host_testing_rendered_count(int64_t handle, uint8_t *base,
                                     const uint8_t *ptr, uint64_t len);
-extern int64_t buri_rt_ui_testing_rendered_identity(int64_t handle, uint8_t *base,
+extern int64_t buri_rt_host_testing_rendered_identity(int64_t handle, uint8_t *base,
                                        const uint8_t *ptr, uint64_t len,
                                        int64_t index);
 
@@ -375,11 +375,11 @@ static void doc_text(int64_t d, const char *content) {
 }
 
 static int64_t doc_count(int64_t d, const char *name) {
-  return buri_rt_ui_testing_rendered_count(d, NULL, (const uint8_t *)name, strlen(name));
+  return buri_rt_host_testing_rendered_count(d, NULL, (const uint8_t *)name, strlen(name));
 }
 
 static int64_t doc_identity(int64_t d, const char *name, int64_t at) {
-  return buri_rt_ui_testing_rendered_identity(d, NULL, (const uint8_t *)name, strlen(name), at);
+  return buri_rt_host_testing_rendered_identity(d, NULL, (const uint8_t *)name, strlen(name), at);
 }
 
 /* shape 4 — `fn(Builder, Node) => ()`, the `renderInto` walk. The builder
@@ -407,9 +407,9 @@ static void walk_thunk(uint8_t *state, int64_t index, const uint8_t *arg, uint8_
 static int mode_ui_walk(void) {
   int64_t node = 2; /* a fake node the thunk reads as a heading level */
   int64_t builder =
-      buri_rt_ui_testing_mount((const uint8_t *)&node, walk_thunk, NULL, -1);
+      buri_rt_host_testing_mount((const uint8_t *)&node, walk_thunk, NULL, -1);
   BuriStr markup = {0, 0, 0};
-  buri_rt_ui_testing_rendered_markup(builder, &markup);
+  buri_rt_host_testing_rendered_markup(builder, &markup);
   printf("%.*s\n", bytes_of(markup), (const char *)markup.ptr);
   printf("::count h2=%lld\n", (long long)doc_count(builder, "h2"));
   return 0;
@@ -431,9 +431,9 @@ static int mode_ui_doc(void) {
   buri_rt_ui_node_exit_element(d);
 
   BuriStr markup = {0, 0, 0};
-  buri_rt_ui_testing_rendered_markup(d, &markup);
+  buri_rt_host_testing_rendered_markup(d, &markup);
   BuriStr runs = {0, 0, 0};
-  buri_rt_ui_testing_rendered_text(d, &runs);
+  buri_rt_host_testing_rendered_text(d, &runs);
   /* The identities are stamped from zero in this fresh process: the host is 0,
    * so the first `li` is 2 and the second 4, and the heading is 6. A second
    * read of the first `li` is the same number — a read mints nothing. */

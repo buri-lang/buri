@@ -49,7 +49,7 @@ file {
 
 # And the page is started, not called.
 file {
-  path: ".buri/out/web/cmd/site/site.mjs"
+  path: ".buri/out/web/cmd/site/main.mjs"
   absent: "export default"
 }
 
@@ -62,15 +62,15 @@ file {
 }
 
 file {
-  path: ".buri/out/web/cmd/site/site.mjs"
+  path: ".buri/out/web/cmd/site/main.mjs"
   absent: "$crossRequestIn"
 }
 
 # A page is three files, and a worker is one: there is no document to shell and
 # no stylesheet to link.
 file {
-  path: ".buri/out/web/cmd/site/site.html"
-  contains: "site.mjs"
+  path: ".buri/out/web/cmd/site/index.html"
+  contains: "/main.mjs"
 }
 
 # Built twice from two fresh sessions with the cache off. Two entries out of one

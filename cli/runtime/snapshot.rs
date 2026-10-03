@@ -1,4 +1,4 @@
-//! `ui/testing`'s `snapshot` — paint the scene, then compare or record.
+//! `platform/effect/testing`'s `snapshot` — paint the scene, then compare or record.
 //!
 //! `ui/node`'s `describe` resolves a tree to a scene document and hands three
 //! strings across: the snapshot's name, the scene, and the pseudo-class to
@@ -33,10 +33,10 @@ const SHEET: &str = "BURI_SNAPSHOT_SHEET";
 
 /// What the paint that follows is to make of a `var(--token)`.
 ///
-/// `ui/testing`'s `installThemes(document)`: the flattened theme document
+/// `platform/effect/testing`'s `installThemes(document)`: the flattened theme document
 /// `ui/theme`'s `document` built, resolved here — by the same function `mount`
 /// resolves through — into the custom-property values the painter reads. A
-/// call of its own rather than a fourth string on [`buri_rt_ui_testing_paint`],
+/// call of its own rather than a fourth string on [`buri_rt_host_testing_paint`],
 /// because four `Str`s is twelve machine words and a runtime call is ten.
 ///
 /// The values live until the next call replaces them, which is one `snapshot`
@@ -46,7 +46,7 @@ const SHEET: &str = "BURI_SNAPSHOT_SHEET";
 /// # Safety
 /// The pointer must address its byte length, or be null with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_install_themes(
+pub unsafe extern "C" fn buri_rt_host_testing_install_themes(
     _base: *mut u8,
     ptr: *const u8,
     len: u64,
@@ -62,12 +62,12 @@ fn variables_lock() -> std::sync::MutexGuard<'static, String> {
     VARIABLES.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// `ui/testing`'s `paint(name, scene, state)`.
+/// `platform/effect/testing`'s `paint(name, scene, state)`.
 ///
 /// # Safety
 /// Each pointer must address its byte length, or be null with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_paint(
+pub unsafe extern "C" fn buri_rt_host_testing_paint(
     _name_base: *mut u8,
     name_ptr: *const u8,
     name_len: u64,
@@ -165,7 +165,7 @@ fn compare(name: &str, scene: &str, state: &str) {
     }
 }
 
-/// `ui/testing`'s `stylesheet()` — the stylesheet the compiler extracted for
+/// `platform/effect/testing`'s `stylesheet()` — the stylesheet the compiler extracted for
 /// this artifact, as text.
 ///
 /// The sheet is a compile artifact, the same string the JavaScript backend
@@ -177,7 +177,7 @@ fn compare(name: &str, scene: &str, state: &str) {
 /// # Safety
 /// `out` is writable and aligned for a [`crate::value::BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_testing_stylesheet(out: *mut crate::value::BuriStr) {
+pub unsafe extern "C" fn buri_rt_host_testing_stylesheet(out: *mut crate::value::BuriStr) {
     let answer = crate::value::str_of(&stylesheet());
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(answer) };

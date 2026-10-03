@@ -10,11 +10,9 @@
 // box it cuts to and once for the corner that box was rounded to. A picture is
 // the only place the second reading shows.
 
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
-from "ui/effect" import { Ui };
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
 from "ui/node" import * as ui;
-from "ui/testing" import { headless, snapshot };
 from "//lib/scenes" import { corners, fractions, plate, tinted };
 
 test "every property at zero" {

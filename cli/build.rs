@@ -1455,7 +1455,7 @@ fn runtime_archive(manifest: &Path) {
     // something a host might not be able to pay - a dependency tree to fetch, a
     // C compiler for `ring`. The painter is three pure-Rust crates and a font,
     // so the fallback path a host with no `cc` takes keeps it, and
-    // `ui/testing`'s `snapshot` works on every toolchain this script can build.
+    // `platform/effect/testing`'s `snapshot` works on every toolchain this script can build.
     features.push("paint");
 
     // The command line is built **before** the freshness question rather than

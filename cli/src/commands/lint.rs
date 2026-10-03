@@ -3301,7 +3301,7 @@ fn check_tests_assert(
     // What fails a test, named by the module that owns it and the name that
     // module gives it rather than by the spelling at the call, so a local alias
     // or a re-export is the same function. `core/testing/assert` counts whole:
-    // every function it exports is an assertion. `ui/testing`'s `snapshot` is
+    // every function it exports is an assertion. `platform/effect/testing`'s `snapshot` is
     // the one function outside it, because a golden that differs — or one that
     // is not there yet — fails the test exactly as `assert.equal` does.
     // `core/testing/check`'s `forAll` needs no entry: it reports through
@@ -3311,7 +3311,7 @@ fn check_tests_assert(
         let Some(module) = analysis.loaded.modules.get(info.module.index()) else { return false };
         match module.path.as_str() {
             "core/testing/assert" => true,
-            "ui/testing" => info.name == "snapshot",
+            "platform/effect/testing" => info.name == "snapshot",
             _ => false,
         }
     };

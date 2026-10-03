@@ -6,11 +6,9 @@
 // card's own box.
 
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
-from "ui/effect" import { Ui };
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
 from "ui/node" import * as ui;
-from "ui/testing" import { headless, snapshot };
 from "//lib/sections" import { page };
 
 test "a shut disclosure shows its summary and nothing under it" {

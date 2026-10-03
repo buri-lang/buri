@@ -14,7 +14,7 @@
 #
 # A `<div>` is never focused or focus-within in a browser by itself; a
 # snapshot's state applies to every element in the tree by construction, which
-# is what `ui/testing`'s `snapshot` documents, so the painter fires both. These
+# is what `platform/effect/testing`'s `snapshot` documents, so the painter fires both. These
 # four are the record of that.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.

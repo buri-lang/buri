@@ -12,7 +12,7 @@
 //! card the caller drew, with the platform's own card taken away by the sheet's
 //! reset.
 
-from "ui/effect" import { Ui };
+from "platform/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { signal };

@@ -18,13 +18,11 @@ from "core/json" import * as json;
 from "core/json" import { DecodeError, FromJson, Json, ToJson };
 from "core/net/http" import * as http;
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
-from "ui/effect" import { Location, Ui, Watch };
+from "platform/effect" import { Allocator, Location, Ui, Watch };
+from "platform/effect/testing" import { address, alloc, headless, observer, render };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { signal };
-from "ui/testing" import { address, headless, observer, render };
 from "ui/web" import * as web;
 
 derive FromJson, ToJson for Reading;

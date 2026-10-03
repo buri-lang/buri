@@ -776,16 +776,16 @@ millisecond. A bearer token is [`crypto.token`](#cryptography).
 
 ## User interfaces
 
-[`ui/effect`](../../compiler/standard_library/sources/ui_effect.buri),
 [`ui/signal`](../../compiler/standard_library/sources/ui_signal.buri),
 [`ui/prop`](../../compiler/standard_library/sources/ui_prop.buri),
 [`ui/node`](../../compiler/standard_library/sources/ui_node.buri),
 [`ui/style`](../../compiler/standard_library/sources/ui_style.buri),
 [`ui/theme`](../../compiler/standard_library/sources/ui_theme.buri),
-[`ui/web`](../../compiler/standard_library/sources/web.buri) and
-[`ui/testing`](../../compiler/standard_library/sources/ui_testing.buri) are the
-second reserved root. They have a page of their own:
-[user interfaces](../guides/user-interfaces.md).
+[`ui/web`](../../compiler/standard_library/sources/web.buri) are the second
+reserved root. They have a page of their own:
+[user interfaces](../guides/user-interfaces.md). The effects they are written
+over, `Ui`, `Watch` and `Location`, are `platform/effect`'s, and the headless
+doubles a test binds are `platform/effect/testing`'s.
 
 A reactive closure is handed a `Scope`, which implements `Watch` and
 `Allocator`. So a derivation may map, filter, sort or format what it read —
@@ -871,7 +871,7 @@ is its handler: pressing it and pressing Enter in a field arrive at the same
 place. A form needs one — HTML submits a form implicitly through its submit
 button, and a form with none is submitted only while it holds exactly one field,
 so a name and an email with no submit button discard the keypress.
-`ui/testing`'s `submit` refuses the same forms a browser does, so a suite cannot
+`platform/effect/testing`'s `submit` refuses the same forms a browser does, so a suite cannot
 go green on markup nobody can send.
 
 `field({ label, kind, value, styles, hint, around, isInvalid, isDisabled })` and
@@ -974,7 +974,7 @@ the moves and the release reach the pressed element after the pointer leaves
 it. `PointerAt` is the position against the element (`x`, `y`) and the viewport
 (`viewportX`, `viewportY`), and `overRow`: the key of the row under the pointer,
 in the `each` the element is a row of, looking through the element's own row.
-`ui/testing`'s `drag(label, to)`, `pointerDown`, `pointerMove` and `pointerUp`
+`platform/effect/testing`'s `drag(label, to)`, `pointerDown`, `pointerMove` and `pointerUp`
 drive them. A native painter leaves them inert.
 
 `picker({ label, options, value, styles, style, isDisabled })` is a single choice
@@ -994,7 +994,7 @@ nothing. The `styles` land on the group, and the options share one `name` and
 draw their own dot — the reset's `:checked::before` in the group's `Foreground`.
 
 Two of them answer what a tree *looks* like. `ui/node`'s `describe` resolves one
-to a scene document, and `ui/testing`'s `snapshot` paints that document and
+to a scene document, and `platform/effect/testing`'s `snapshot` paints that document and
 holds the PNG to a golden checked in beside the suite. The toolchain paints it
 itself, so neither needs a browser. `snapshot` takes a `[Theme]` where `mount`
 does, which is how a component gets a light golden and a dark one. The picture
@@ -1044,8 +1044,8 @@ names the language, both escaped. `defaultDocument` is the one to write over,
 so a page names the fields it differs in and nothing else. Routing is a match,
 so a page's title is one too. A page that *mounts* says the same thing with
 `web.title(ctx, text)`, which takes a `Prop<Str>` and rewrites the tab whenever
-it changes — the `.html` a `web` output writes carries the artifact's name and
-knows nothing about the route.
+it changes — the `index.html` a `web` output ships knows nothing about the
+route.
 
 On the page, `web.state(ctx)` reads that state back and `web.resume(ctx, tree)`
 takes the document over. It creates no element and no run of text — the renderer

@@ -58,8 +58,9 @@ from "core/json" import * as json;
 from "core/json" import { FromJson, ToJson };
 from "core/net/http" import * as http;
 from "core/str" import * as str;
-from "platform/effect" import { Allocator, Request, Response, Stdout };
-from "ui/effect" import { Location, Ui, Watch };
+from "platform/effect" import {
+    Allocator, Location, Request, Response, Stdout, Ui, Watch,
+};
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
@@ -257,11 +258,11 @@ fn document(path: Str): web.Document {
 Hand that to `shell` beside the tree the same match built, and each route names
 its own tab.
 
-The page's half is `web.title`, because the `.html` a `web` output writes carries
-the artifact's name and nothing about the route:
+The page's half is `web.title`, because the `index.html` a `web` output ships
+knows nothing about the route:
 
 ```buri
-# from "ui/effect" import { Location, Ui };
+# from "platform/effect" import { Location, Ui };
 # from "ui/web" import * as web;
 
 fn name<C: Location + Ui>(ctx: C): () {
@@ -353,7 +354,7 @@ screen reader announces an action rather than a link. `web.routeLink` is that
 navigation *as* a link:
 
 ```buri
-# from "ui/effect" import { Location, Ui };
+# from "platform/effect" import { Location, Ui };
 # from "ui/node" import * as ui;
 # from "ui/node" import { Node };
 # from "ui/web" import * as web;
@@ -446,8 +447,9 @@ that mounts rather than resumes.
 ## Location is the page's alone
 
 A worker has no address bar. It's handed a request and reads the path off
-that, `Request.path`. `CloudflareHost` has no `location`, so a `fetch` that
-asks for one is refused on the line that asked:
+that, `Request.path`. `web` implements `HostLocation` itself, in its
+`main.mjs`, and `CloudflareHost` has no `location`, so a `fetch` that asks
+for one is refused on the line that asked:
 
 ```text
 $ buri build //cmd/site
@@ -469,12 +471,12 @@ serving //cmd/site on http://127.0.0.1:4000/
 ```
 
 Files under the artifact directory are answered as themselves and every other
-path is answered with the entry shell — so `/about` arrives with `/about` in the
+path is answered with `index.html` — so `/about` arrives with `/about` in the
 address bar, and the match above sees it. `--watch` rebuilds on a save, and
 nothing is cached, so a reload is the new build.
 [`buri run`](../reference/cli/run.md) has the port, the flags and the rest.
 
-What it serves is the shell the compiler wrote, not the document `fetch`
+What it serves is the `index.html` `web` ships, not the document `fetch`
 renders. A `main` that resumes therefore finds markup no `shell` wrote and says
 so: this is how you look at a page that *mounts*. The resumed page is the
 worker's, and the worker runs on its host's own local runner.

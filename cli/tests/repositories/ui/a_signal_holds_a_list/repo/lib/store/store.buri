@@ -1,8 +1,7 @@
 //! One cell per list, built in one function from a plain record — the shape an
 //! application holds its state in.
 
-from "platform/effect" import { Allocator };
-from "ui/effect" import { Ui };
+from "platform/effect" import { Allocator, Ui };
 from "ui/signal" import { Signal, signal };
 
 /// A row with a counted pointer in it, so a cell holding `[Account]` has to

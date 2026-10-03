@@ -509,6 +509,15 @@ impl Output {
         }
     }
 
+    /// The platform as `--explain` and a message name it: `native`, `node`,
+    /// `web`, or a repository platform's label.
+    pub fn platform_label(&self) -> String {
+        match &self.custom {
+            Some(custom) => custom.label.value.clone(),
+            None => self.platform().slug().to_string(),
+        }
+    }
+
     /// What this output is built for, as a library's and a tag's lists see it.
     pub fn output_platform(&self) -> OutputPlatform {
         match &self.custom {

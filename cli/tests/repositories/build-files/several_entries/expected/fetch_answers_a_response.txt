@@ -1,8 +1,8 @@
-.buri/out/web/cmd/site/site.mjs (N bytes)
+.buri/out/web/cmd/site/main.mjs (N bytes)
 error: `fetch` has the signature `//platform/cloudflare_worker` declares, `fn fetch(host: CloudflareHost, request: Request): Response` [main-signature]
-  --> cmd/site/main.buri:31:1
+  --> cmd/site/main.buri:30:1
    |
-31 | export fn fetch(host: CloudflareHost, request: Request): Str {
+30 | export fn fetch(host: CloudflareHost, request: Request): Str {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: write it `fn fetch(host: CloudflareHost, request: Request): Response`
