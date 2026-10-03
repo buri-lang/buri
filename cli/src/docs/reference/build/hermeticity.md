@@ -88,7 +88,7 @@ Every action's key hashes everything that can affect its output:
 ```
 key = H(
   action_kind,             // interface | compile | codegen | link | test
-  toolchain_identity,      // a hash of this compiler's own binary
+  toolchain_identity,      // the linker's id for this compiler's own binary
   build_mode,              // --release / --debug
   platform, variant, entry, // the only things a build varies along
   rule_identity,           // label, rule kind, and the ordered sources paths
@@ -171,10 +171,12 @@ reading `--explain` when a rebuild does more work than an edit implies.
 
 ## The toolchain in the key
 
-Every key holds a hash of the running `buri` binary — the hash, not the
-version, since a rebuilt `0.3.0` has different bytes. A rebuilt compiler can
-never be served the previous build's entries. On first open it also drops what
-the old binary left in `.buri/cache/` and records its hash in
+Every key holds the running `buri` binary's identity, not its version, since a
+rebuilt `0.3.0` is a different compiler. The identity is the id the linker
+derives from the linked bytes (`LC_UUID` on macOS, the GNU build id on Linux),
+read from the header, or a hash of the binary where it has none. A rebuilt
+compiler can never be served the previous build's entries. On first open it also
+drops what the old binary left in `.buri/cache/` and records its identity in
 `.buri/cache/.toolchain`, so rebuilding the compiler needs no `rm -rf .buri`
 and no `--force`. The backend's identity also carries the LLVM the binary
 linked against, and the linker's identity the linker it found.

@@ -381,6 +381,36 @@ fn two_concurrent_builds_leave_the_cache_intact() {
     );
 }
 
+/// The toolchain in every key is the id the linker wrote into the `buri`
+/// binary, and it has to be one: a rebuilt `buri` with different code must
+/// name itself differently, and the same binary must name itself the same way
+/// every time it is asked.
+///
+/// Two real binaries linked by this build stand in for a rebuild — the `buri`
+/// under test and this test's own executable, which share a toolchain, a
+/// profile and the linker flags `cli/build.rs` asks for, and differ in code.
+/// Each must carry a linker-written id rather than falling back to hashing its
+/// bytes, which is what proves the flags reach the link on this host, and
+/// `buri version --verbose` must print the one this reads.
+#[test]
+fn the_toolchain_is_named_by_its_linker_id() {
+    use buri::build::exe_identity::linker_identity;
+    let compiler = Path::new(buri());
+    let other = std::env::current_exe().expect("this test's own executable");
+
+    let named = linker_identity(compiler).expect("`buri` carries no LC_UUID or build id");
+    assert!(
+        named.starts_with("macho-uuid:") || named.starts_with("elf-build-id:"),
+        "{named}"
+    );
+    assert_eq!(linker_identity(compiler).as_deref(), Some(&*named), "one binary, two names");
+    let different = linker_identity(&other).expect("the test binary carries no linker id");
+    assert_ne!(named, different, "two different binaries share an identity");
+
+    let nowhere = Scratch::empty("toolchain-identity");
+    nowhere.run(&["version", "--verbose"]).ok().says(&format!("this executable: {named}\n"));
+}
+
 fn walk(dir: &Path, f: &mut dyn FnMut(&Path)) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for e in entries.filter_map(Result::ok) {

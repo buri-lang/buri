@@ -305,6 +305,13 @@ fn main() {
     // without this line an edit to the hash would leave a digest baked by the
     // old one beside bytes the new one reads differently.
     println!("cargo:rerun-if-changed={}", manifest.join("src/build/sha256.rs").display());
+    // The toolchain names itself by the id its linker writes into the header
+    // (`src/build/exe_identity.rs`). ld64 always writes an `LC_UUID`; on Linux
+    // not every linker writes a build id unless asked, the static-PIE musl
+    // release included, and without one every process hashes its own binary.
+    if std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "linux") {
+        println!("cargo:rustc-link-arg=-Wl,--build-id=sha1");
+    }
     runtime_archive(&manifest);
     stencil_library(&manifest);
 }

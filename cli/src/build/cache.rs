@@ -13,9 +13,10 @@
 //!         platform, arch, rule_identity, H(content of each input file),
 //!         key(each input action))
 //!
-//! `toolchain_identity` is the hash of the running executable, not its version:
-//! a rebuilt `buri` at the same version is a different compiler, and hashing the
-//! binary is what stops it from being served the previous build's artifacts.
+//! `toolchain_identity` names the running executable, not its version: a
+//! rebuilt `buri` at the same version is a different compiler, and the id its
+//! linker derived from the linked bytes is what stops it from being served the
+//! previous build's artifacts.
 //! ```
 //!
 //! Four properties, each ruling out a class of stale-cache bug: content rather
@@ -58,34 +59,33 @@ pub use super::sha256::{hash_bytes, Sha256};
 // The toolchain's identity
 // ---------------------------------------------------------------------------
 
-/// The SHA-256 of the running executable, read and hashed **once**. `None` when
-/// `current_exe` or the read of it fails — nothing a build should die of, and
-/// the two callers each fall back their own way.
+/// Which build of `buri` this process is, asked **once**: the id the linker
+/// wrote into the executable's header, or the hash of its bytes where it wrote
+/// none ([`super::exe_identity`]). `None` when `current_exe` or the read of it
+/// fails — nothing a build should die of, and the two callers each fall back
+/// their own way.
 ///
 /// One implementation, shared by the cache key and `buri version --verbose`,
-/// because reading and hashing the whole binary on every action key would be
-/// wasteful and computing it two different ways would be a bug waiting to
-/// diverge.
-pub fn running_exe_hash() -> Option<&'static str> {
-    static HASH: OnceLock<Option<String>> = OnceLock::new();
-    HASH.get_or_init(|| {
-        let exe = std::env::current_exe().ok()?;
-        Some(hash_bytes(&std::fs::read(exe).ok()?))
-    })
-    .as_deref()
+/// because computing it two different ways would be a bug waiting to diverge.
+pub fn running_exe_identity() -> Option<&'static str> {
+    static IDENTITY: OnceLock<Option<String>> = OnceLock::new();
+    IDENTITY
+        .get_or_init(|| super::exe_identity::of(&std::env::current_exe().ok()?))
+        .as_deref()
 }
 
-/// The toolchain's identity for a cache key: the running executable's hash, or
-/// the version string when the binary can't be read.
+/// The toolchain's identity for a cache key: the running executable's
+/// identity, or the version string when the binary can't be read.
 ///
-/// The hash is what tells two builds of one version apart — the version stays
-/// `0.3.0` across a rebuild, the bytes do not — so it strictly subsumes the
-/// version and folding it is what keeps a rebuilt `buri` from being served the
-/// previous build's entries. The fallback keeps a build that cannot read its
-/// own binary from panicking; it degrades to the version-only key the cache
-/// used to have, which is a hazard but not a crash.
+/// The identity is what tells two builds of one version apart — the version
+/// stays `0.3.0` across a rebuild, the linked bytes and the id the linker
+/// derives from them do not — so it strictly subsumes the version, and folding
+/// it is what keeps a rebuilt `buri` from being served the previous build's
+/// entries. The fallback keeps a build that cannot read its own binary from
+/// panicking; it degrades to the version-only key the cache used to have,
+/// which is a hazard but not a crash.
 pub fn toolchain_identity() -> &'static str {
-    running_exe_hash().unwrap_or(crate::commands::arguments::VERSION)
+    running_exe_identity().unwrap_or(crate::commands::arguments::VERSION)
 }
 
 // ---------------------------------------------------------------------------
@@ -404,7 +404,7 @@ const TOOLCHAIN_MARKER: &str = ".toolchain";
 
 /// Drops what a different toolchain left behind, before the cache is used.
 ///
-/// The key folds the running binary's hash ([`toolchain_identity`]), so a
+/// The key folds the running binary's identity ([`toolchain_identity`]), so a
 /// rebuilt `buri` computes different keys and can never be *served* an old
 /// build's entry — but those entries still sit on disk taking room, and reaching
 /// for `rm -rf .buri` after every rebuild is what this replaces. The marker
@@ -534,16 +534,16 @@ impl KeyBuilder {
         // compiler is a different artifact, so a rebuild moves every key in
         // every repository at once.
         //
-        // It is the hash of the running executable, not `CARGO_PKG_VERSION`.
+        // It names the running executable, not `CARGO_PKG_VERSION`.
         // The version stays `0.3.0` across a rebuild, so two `buri` binaries
         // built from different source at the same version used to compute the
         // same keys and share a cache — behaviour changed under a key that did
         // not, and whoever rebuilt the toolchain had to `rm -rf .buri` by hand.
-        // Hashing the binary catches it: a rebuild hashes differently and can
-        // never be served the old build's entries. The pass over the binary is
-        // paid once per process ([`toolchain_identity`], memoized), and it falls
-        // back to the version string when the binary can't be read so a build
-        // never dies for want of its own hash. What a *user* can vary is caught
+        // The linker's id for the binary catches it: a rebuild links different
+        // bytes, gets a different id, and can never be served the old build's
+        // entries. The header is read once per process ([`toolchain_identity`],
+        // memoized), and it falls back to the version string when the binary
+        // can't be read so a build never dies for want of its own identity. What a *user* can vary is caught
         // besides: `Backend::identity` carries the LLVM the binary was linked
         // against, and `Linker::version` the linker it found.
         hasher.text(toolchain_identity());
@@ -683,7 +683,7 @@ mod tests {
     ///
     /// It is asserted by rebuilding the key field by field rather than by
     /// varying the identity, because the identity is a fact about this process:
-    /// the hash of the binary running the test, so varying it would take a
+    /// the identity of the binary running the test, so varying it would take a
     /// second binary to compare against. What can be held is that it is in
     /// there, in a key that holds nothing else — an identity dropped from the
     /// key, or a fourth field slipped in beside it, fails here.
