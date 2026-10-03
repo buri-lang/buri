@@ -564,7 +564,7 @@ impl Tree {
     /// arenas that corpus writes less than one entry per hundred tokens into
     /// start empty, so a file with no `context` pays nothing for one.
     pub fn new(file: FileId, src: &str, tokens: usize) -> Tree {
-        let per = |n: usize, d: usize| tokens.saturating_mul(n) / d;
+        let per = |n: usize, d: usize| tokens.saturating_mul(n).checked_div(d).unwrap_or(0);
         Tree {
             file,
             src: Rc::from(src),

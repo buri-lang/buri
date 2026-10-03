@@ -206,8 +206,13 @@ const WORD_TABLE: [(u64, Option<Word>); WORD_SLOTS] = {
         assert!(word.len() <= 8, "a word longer than a key holds");
         let key = word_key(word);
         let slot = word_slot(key);
-        assert!(table[slot].1.is_none(), "two words share a slot: find a new WORD_HASH");
-        table[slot] = (key, Some(*kind));
+        match table.split_at_mut_checked(slot) {
+            Some((_, [entry, ..])) => {
+                assert!(entry.1.is_none(), "two words share a slot: find a new WORD_HASH");
+                *entry = (key, Some(*kind));
+            }
+            _ => panic!("a slot past the table"),
+        }
         rest = tail;
     }
     table
@@ -1713,7 +1718,9 @@ const IDENT_CONTINUE: [bool; 256] = {
     let mut c = 0usize;
     while c < 256 {
         let b = c as u8;
-        table[c] = b == b'_' || b.is_ascii_alphanumeric();
+        if let Some((_, [entry, ..])) = table.split_at_mut_checked(c) {
+            *entry = b == b'_' || b.is_ascii_alphanumeric();
+        }
         c = c.wrapping_add(1);
     }
     table
