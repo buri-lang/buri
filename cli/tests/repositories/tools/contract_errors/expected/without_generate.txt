@@ -1,4 +1,4 @@
-error: `lines` has no `generate`, so nothing turns its schema into types [accepts-language-without-generate]
+error: `lines` has no `generate`, so nothing turns its schema into types [accepts-missing-generate]
  --> tool/b/BUILD.buri:5:25
   |
 5 |             { language: "lines", type_schema: "b.schema.json" },

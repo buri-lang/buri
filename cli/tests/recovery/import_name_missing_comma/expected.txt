@@ -1,4 +1,4 @@
-error [missing-separator] 2:32-2:32
+error [missing-comma] 2:32-2:32
 message: an import name ends with `,`
 fix: write `,` here
 edit: 2:32-2:32 ","

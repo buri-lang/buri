@@ -1,4 +1,4 @@
-error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
+error: `equal` takes 2 arguments, but 1 were given [argument-count]
   --> main.buri:20:5
    |
 20 |     assert.equal(simd.f32x4(-0.5, 0.5, -2.5, 2.5.toInt(), simd.i32x4(0, 0, -2, 2));
@@ -7,7 +7,7 @@ error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
    = expected: 2
    = actual: 1
    = fix: pass `equal` the following arguments: equal<T: Equal>(actual: T, expected: T)
-error: `f32x4` takes 4 arguments, but 5 were given [wrong-argument-count]
+error: `f32x4` takes 4 arguments, but 5 were given [argument-count]
   --> main.buri:20:18
    |
 20 |     assert.equal(simd.f32x4(-0.5, 0.5, -2.5, 2.5.toInt(), simd.i32x4(0, 0, -2, 2));
@@ -16,7 +16,7 @@ error: `f32x4` takes 4 arguments, but 5 were given [wrong-argument-count]
    = expected: 4
    = actual: 5
    = fix: pass `f32x4` the following arguments: f32x4(x: Float, y: Float, z: Float, w: Float)
-error: `F64` has no method `toInt` [no-such-method]
+error: `F64` has no method `toInt` [unknown-method]
   --> main.buri:20:50
    |
 20 |     assert.equal(simd.f32x4(-0.5, 0.5, -2.5, 2.5.toInt(), simd.i32x4(0, 0, -2, 2));

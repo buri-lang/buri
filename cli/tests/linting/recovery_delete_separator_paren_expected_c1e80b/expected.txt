@@ -1,4 +1,4 @@
-error: a call argument ends with `,` [missing-separator]
+error: a call argument ends with `,` [missing-comma]
   --> lib/recovery_delete_separator_paren_expected_c1e80b/main.buri:51:35
    |
 51 |         .println(ctx, rendered(ctx fn(c, l) => str.format(c, "<${l}>"), label))

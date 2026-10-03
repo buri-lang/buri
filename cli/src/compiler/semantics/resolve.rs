@@ -620,7 +620,7 @@ impl<'a> Checker<'a> {
                 // exporting `main`, a test source, or a test-only module.
                 let role = self.module(module).role;
                 if !role.may_build_context() {
-                    self.templated("context-declaration-not-allowed", d.span);
+                    self.templated("misplaced-context-declaration", d.span);
                 }
                 if d.exported && !matches!(role, Role::TestOnly | Role::Platform) {
                     self.templated("context-export", d.span);
@@ -711,8 +711,9 @@ impl<'a> Checker<'a> {
                 return;
             }
             self.diags.push(
-                Diagnostic::templated("duplicate-module-declaration", name.span)
-                    .with_bind("name", text),
+                Diagnostic::templated("duplicate-declaration", name.span)
+                    .with_bind("declaration", format!("`{text}`"))
+                    .with_fix("rename one of them; a name has one meaning in a module"),
             );
             return;
         }
@@ -816,7 +817,7 @@ impl<'a> Checker<'a> {
                             .and_then(|d| d.file_name())
                             .is_some_and(|f| f == "lib.buri");
                         let d = self
-                            .templated("no-such-export", spec.name.span)
+                            .templated("unknown-export", spec.name.span)
                             .bind("path", module_path.clone())
                             .bind("name", name.clone());
                         if let Some((_, fix)) = renamed {
@@ -879,7 +880,7 @@ impl<'a> Checker<'a> {
                     format!("check the spelling, or drop `{name}` from this list")
                 };
                 let d = self
-                    .templated("no-such-export", spec.name.span)
+                    .templated("unknown-export", spec.name.span)
                     .bind("path", path)
                     .bind("name", name)
                     .fix(fix);
@@ -973,13 +974,13 @@ impl<'a> Checker<'a> {
             None => self.nearest_export(ns, name),
         };
         let d = self
-            .templated("no-such-member", span)
+            .templated("unknown-export", span)
             .bind("path", path.clone())
             .bind("name", name)
-            .bind("exports", listed);
-        // After the binds: every `bind` re-renders the page's own fix over it.
+            .note(format!("the module exports {listed}"))
+            .fix(format!("correct the member name, or check `buri docs {path}`"));
         if let Some((note, fix)) = renamed {
-            // In place of the page's standing note. How many names the module
+            // In place of the standing note. How many names the module
             // exports is what a reader needs when the name is a guess, and this
             // one is not a guess.
             match d.notes.first_mut() {
@@ -1185,7 +1186,7 @@ impl<'a> Checker<'a> {
         if let Some(first) = params.first() {
             if first.role == ParamRole::SelfParam {
                 let n = self.name_text(module, d.name).to_string();
-                self.templated("method-declared-free", first.span).bind("name", n);
+                self.templated("method-outside-impl", first.span).bind("name", n);
             }
         }
 
@@ -1403,7 +1404,7 @@ impl<'a> Checker<'a> {
         let label = ws.package(pkg).label();
         let mut said: Vec<String> = Vec::new();
         for entry in ws.declared_entries(target) {
-            // An output that named nothing is `no-main`'s business, which is a
+            // An output that named nothing is `missing-main`'s business, which is a
             // different mistake and is reported by the build.
             if !entry.named || self.entries.contains_key(&entry.name) {
                 continue;
@@ -1417,7 +1418,7 @@ impl<'a> Checker<'a> {
             let refs: Vec<&str> = exported.iter().map(String::as_str).collect();
             let near = crate::build::buildfile::nearest(&entry.name, &refs).map(str::to_string);
             let d = self
-                .templated("entry-not-found", entry.span)
+                .templated("unknown-entry-function", entry.span)
                 .bind("entry", entry.name.clone())
                 .bind("package", label.clone());
             if let Some(near) = near {
@@ -1489,7 +1490,7 @@ impl<'a> Checker<'a> {
                         self.templated("ctx-not-first", p.span);
                     }
                     if ctx_count > 1 {
-                        self.templated("duplicate-ctx-parameter", p.span);
+                        self.templated("duplicate-ctx", p.span);
                     }
                 }
                 ParamRole::Normal => {
@@ -1518,7 +1519,7 @@ impl<'a> Checker<'a> {
                                  drop the effect bound if this parameter is ordinary data"
                             ),
                         };
-                        let d = self.templated("effect-param-not-ctx", p.span);
+                        let d = self.templated("effect-parameter-not-ctx", p.span);
                         d.bind("name", name.clone());
                         d.fix(fix);
                         if let Some((con, tr)) = nominal {
@@ -1549,7 +1550,7 @@ impl<'a> Checker<'a> {
     ) {
         let info = self.tables.fn_info(fid).clone();
         if !info.generics.is_empty() {
-            self.templated("main-signature", d.span)
+            self.templated("entry-signature-mismatch", d.span)
                 .bind("entry", name.to_string())
                 .bind("requirement", "declares no generic parameters")
                 .fix(format!(
@@ -1585,7 +1586,7 @@ impl<'a> Checker<'a> {
                      run(context {{ Allocator: host.alloc, Stdout: host.stdout }})\n     \
                      }}"
                 );
-                self.templated("entry-without-host", d.span)
+                self.templated("entry-missing-host", d.span)
                     .bind("entry", name.to_string())
                     .fix(fix)
                     .notes
@@ -1614,7 +1615,7 @@ impl<'a> Checker<'a> {
                     }
                     (Some(_), _) => {}
                     (None, _) => {
-                        self.templated("main-signature", param.span)
+                        self.templated("entry-signature-mismatch", param.span)
                             .bind("entry", name.to_string())
                             .bind("requirement", format!("takes its platform's host, `{host}`"))
                             .fix(format!(
@@ -1624,7 +1625,7 @@ impl<'a> Checker<'a> {
                     }
                 }
                 if let Some(extra) = rest.first() {
-                    self.templated("main-signature", extra.span)
+                    self.templated("entry-signature-mismatch", extra.span)
                         .bind("entry", name.to_string())
                         .bind("requirement", "takes one parameter, its platform's host")
                         .fix(format!(
@@ -1645,7 +1646,7 @@ impl<'a> Checker<'a> {
         };
         if !ok && !info.ret.is_error() {
             let at = self.tree(info.module).type_span(d.ret);
-            self.templated("main-signature", at)
+            self.templated("entry-signature-mismatch", at)
                 .bind("entry", name.to_string())
                 .bind("requirement", "must return `Result<(), Str>`")
                 .fix("change the return type to `Result<(), Str>`")
@@ -1719,7 +1720,7 @@ impl<'a> Checker<'a> {
                         let shown = t.type_head(*b).unwrap_or("?").to_string();
                         let at = t.type_span(*b);
                         let renamed = standard_library::renamed::anywhere(&shown);
-                        let d = self.templated("not-a-trait", at).bind("name", shown.clone());
+                        let d = self.templated("bound-not-trait", at).bind("name", shown.clone());
                         match renamed {
                             Some((note, fix)) => {
                                 d.fix(fix);
@@ -1775,7 +1776,7 @@ impl<'a> Checker<'a> {
     /// is the same scope [`Checker::elaborate`] resolves a *written* `Self`
     /// against, so the two spellings of the receiver's type cannot part
     /// company. Outside both, a `self` parameter is the mistake
-    /// `method-declared-free` reports and there is no type to give it.
+    /// `method-outside-impl` reports and there is no type to give it.
     fn elaborate_params(
         &mut self,
         module: ModuleId,
@@ -1840,8 +1841,11 @@ impl<'a> Checker<'a> {
                 if path.len() == 1 {
                     if let Some(i) = generics.iter().position(|g| g.name == name) {
                         if !args.is_empty() {
-                            self.templated("type-parameter-with-arguments", span)
-                                .bind("name", name);
+                            self.templated("type-argument-count", span)
+                                .bind("subject", format!("the type parameter `{name}`"))
+                                .bind("expected", "no")
+                                .bind("given", args.len().to_string())
+                                .fix("drop the arguments; a type parameter stands for one type already");
                         }
                         return Ty::Param(i as u32);
                     }
@@ -1860,7 +1864,11 @@ impl<'a> Checker<'a> {
                 if path.len() == 1 {
                     if let Some(id) = self.builtin_type(name) {
                         if !elaborated_args.is_empty() {
-                            self.templated("no-type-arguments", span).bind("name", name);
+                            self.templated("type-argument-count", span)
+                                .bind("subject", format!("`{name}`"))
+                                .bind("expected", "no")
+                                .bind("given", elaborated_args.len().to_string())
+                                .fix("drop them");
                         }
                         return Ty::Con(id, Vec::new());
                     }
@@ -1872,7 +1880,7 @@ impl<'a> Checker<'a> {
                             let n = self.tables.tycon(id).name.clone();
                             let got = elaborated_args.len();
                             self.templated("type-argument-count", span)
-                                .bind("type", n)
+                                .bind("subject", format!("`{n}`"))
                                 .bind("expected", arity.to_string())
                                 .bind("given", got.to_string())
                                 .mismatch(arity.to_string(), got.to_string());
@@ -1882,7 +1890,7 @@ impl<'a> Checker<'a> {
                     }
                     Some(Sym::Trait(_)) => {
                         let shown = name.to_string();
-                        self.templated("trait-used-as-a-type", span).bind("name", shown);
+                        self.templated("trait-not-type", span).bind("name", shown);
                         Ty::Error
                     }
                     _ => {
@@ -1899,7 +1907,7 @@ impl<'a> Checker<'a> {
                             Some(_) => None,
                             None => self.nearest_type_name(module, name),
                         };
-                        let d = self.templated("unresolved-type", span).bind("name", shown);
+                        let d = self.templated("unknown-type", span).bind("name", shown);
                         if let Some((note, fix)) = renamed {
                             d.fix(fix);
                             d.notes.push(note);
@@ -1951,10 +1959,10 @@ impl<'a> Checker<'a> {
             .map(|g| GenericInfo { name: t.name(g.name).to_string(), bounds: Vec::new(), span: g.span })
             .collect();
         if args.len() != generics.len() {
-            self.templated("type-argument-arity", span)
-                .bind("type", name)
+            self.templated("type-argument-count", span)
+                .bind("subject", format!("`{name}`"))
                 .bind("expected", generics.len().to_string())
-                .fix(format!("supply exactly {}", generics.len()));
+                .bind("given", args.len().to_string());
             return Some(Ty::Error);
         }
         self.expanding.push(key);
@@ -2223,7 +2231,7 @@ impl<'a> Checker<'a> {
     /// A top-level `fn` taking `self` used to be registered here as well, off
     /// the type its annotation named. There is no such annotation now, so a
     /// method declared free has no receiver type at all — only the
-    /// `method-declared-free` diagnostic `elaborate_fn_signature` already
+    /// `method-outside-impl` diagnostic `elaborate_fn_signature` already
     /// reports.
     fn register_conformance(&mut self) {
         for m in 0..self.loaded.modules.len() {
@@ -2300,7 +2308,7 @@ impl<'a> Checker<'a> {
             let t = self.tree(module);
             let shown = t.type_head(trait_ref).unwrap_or("?").to_string();
             let at = t.type_span(trait_ref);
-            self.templated("not-a-trait", at)
+            self.templated("bound-not-trait", at)
                 .bind("name", shown.clone())
                 .fix(format!(
                     "name a declared trait or effect after `impl`, or drop the `for` clause if \
@@ -2316,7 +2324,7 @@ impl<'a> Checker<'a> {
         let Some(self_con) = self_ty.head() else {
             if !self_ty.is_error() {
                 let at = self.tree(module).type_span(d.self_ty);
-                self.templated("impl-head-not-a-type", at);
+                self.templated("impl-target-not-type", at);
             }
             return;
         };
@@ -2330,7 +2338,7 @@ impl<'a> Checker<'a> {
         if owner != module && !is_prim {
             let name = self.tables.tycon(self_con).name.clone();
             let at = self.tree(module).type_span(d.self_ty);
-            self.templated("impl-outside-its-module", at)
+            self.templated("impl-outside-type-module", at)
                 .bind("name", name.clone())
                 .fix(format!(
                     "move the `impl` into `{name}`'s own module, or wrap it in a type of yours \
@@ -2384,7 +2392,7 @@ impl<'a> Checker<'a> {
         if self.tables.impls.contains_key(&(trait_id, self_con)) {
             let t = self.tables.trait_(trait_id).name.clone();
             let c = self.tables.tycon(self_con).name.clone();
-            self.templated("duplicate-implementation", d.span)
+            self.templated("duplicate-impl", d.span)
                 .bind("type", c)
                 .bind("trait", t)
                 .fix("delete one of the two, or merge them")
@@ -2400,7 +2408,7 @@ impl<'a> Checker<'a> {
             let Some(slot) = trait_methods.iter().position(|m| m.name == mname) else {
                 let t = self.tables.trait_(trait_id).name.clone();
                 let n = mname.to_string();
-                self.templated("not-a-trait-method", method.name.span)
+                self.templated("impl-unknown-method", method.name.span)
                     .bind("trait", t.clone())
                     .bind("method", n)
                     .fix(format!("remove it, or move it into an inherent `impl` block for the type — `{t}` supplies only what it declares"));
@@ -2445,13 +2453,8 @@ impl<'a> Checker<'a> {
                 intrinsic: method.body.is_none(),
             });
             self.pending_ctx_rules.push(PendingCtxRule::Method(fid));
-            // `slot` is a position in `trait_methods`, which is what `supplied`
-            // was sized to, so it is always in range.
-            let already = supplied.get(slot).is_some_and(Option::is_some);
-            if already {
-                let n = mname.to_string();
-                self.templated("method-supplied-twice", method.name.span).bind("method", n);
-            }
+            // A method supplied twice is reported by `register_method` below,
+            // as `duplicate-method`, the way one declared twice anywhere is.
             if let Some(cell) = supplied.get_mut(slot) {
                 *cell = Some(fid);
             }
@@ -2469,7 +2472,7 @@ impl<'a> Checker<'a> {
             let t = self.tables.trait_(trait_id).name.clone();
             let c = self.tables.tycon(self_con).name.clone();
             let missing = crate::diagnostics::names(&missing);
-            self.templated("incomplete-impl", d.span)
+            self.templated("impl-missing-method", d.span)
                 .bind("type", c)
                 .bind("trait", t)
                 .bind("methods", missing);
@@ -2550,7 +2553,7 @@ impl<'a> Checker<'a> {
                 }
             };
             let name = supplied.name.to_string();
-            self.templated("signature-mismatch", at)
+            self.templated("impl-signature-mismatch", at)
                 .bind("method", name)
                 .bind("trait", trait_name.clone())
                 .bind("expected", expected)
@@ -2600,7 +2603,7 @@ impl<'a> Checker<'a> {
             if owner != module && !is_prim {
                 let name = self.tables.tycon(con).name.clone();
                 let at = self.tree(module).type_span(d.self_ty);
-                self.templated("impl-outside-its-module", at)
+                self.templated("impl-outside-type-module", at)
                     .bind("name", name.clone())
                     .fix(format!(
                         "move the `impl` into `{name}`'s own module, or write a free function \
@@ -2628,7 +2631,7 @@ impl<'a> Checker<'a> {
                 Some(p) if p.role == ParamRole::SelfParam => {}
                 _ => {
                     let n = mname.to_string();
-                    self.templated("impl-fn-without-self", method.name.span).bind("name", n);
+                    self.templated("impl-missing-self", method.name.span).bind("name", n);
                     continue;
                 }
             }
@@ -2674,7 +2677,7 @@ impl<'a> Checker<'a> {
         if self.tables.tycon(self_con).module != module {
             let name = self.tables.tycon(self_con).name.clone();
             let at = self.tree(module).type_span(d.self_ty);
-            self.templated("impl-outside-its-module", at)
+            self.templated("impl-outside-type-module", at)
                 .bind("name", name.clone())
                 .fix(format!("move the `derive` into `{name}`'s own module"));
             return;
@@ -2684,7 +2687,7 @@ impl<'a> Checker<'a> {
             let Some(trait_id) = self.resolve_trait(module, *ty) else {
                 let shown = self.tree(module).type_head(*ty).unwrap_or("?").to_string();
                 let renamed = standard_library::renamed::anywhere(&shown);
-                let d = self.templated("derive-not-a-trait", at).bind("name", shown);
+                let d = self.templated("derive-not-trait", at).bind("name", shown);
                 if let Some((note, fix)) = renamed {
                     d.fix(fix);
                     d.notes.push(note);
@@ -2703,7 +2706,7 @@ impl<'a> Checker<'a> {
             }
             if self.tables.impls.contains_key(&(trait_id, self_con)) {
                 let c = self.tables.tycon(self_con).name.clone();
-                self.templated("duplicate-implementation", at)
+                self.templated("duplicate-impl", at)
                     .bind("type", c)
                     .bind("trait", name)
                     .fix("drop it from this `derive`, or delete the hand-written `impl`");
@@ -2723,7 +2726,7 @@ impl<'a> Checker<'a> {
     fn derive_target(&mut self, module: ModuleId, id: TypeId) -> Option<TyConId> {
         let flat::TypeView::Named { path, args, span } = self.tree(module).ty(id) else {
             let at = self.tree(module).type_span(id);
-            self.templated("derive-target-not-a-type", at);
+            self.templated("derive-target-not-type", at);
             return None;
         };
         match self.resolve_path(module, path) {
@@ -2732,16 +2735,17 @@ impl<'a> Checker<'a> {
                 if !args.is_empty() && args.len() != self.tables.tycon(con).arity() {
                     let n = self.tables.tycon(con).name.clone();
                     let arity = self.tables.tycon(con).arity();
-                    self.templated("type-argument-arity", span)
-                        .bind("type", n.clone())
+                    self.templated("type-argument-count", span)
+                        .bind("subject", format!("`{n}`"))
                         .bind("expected", arity.to_string())
+                        .bind("given", args.len().to_string())
                         .fix(format!("a `derive` names the constructor alone: `derive ... for {n};`"));
                 }
                 Some(con)
             }
             _ => {
                 let shown = self.tree(module).path_text(path);
-                self.templated("unresolved-type", span).bind("name", shown);
+                self.templated("unknown-type", span).bind("name", shown);
                 None
             }
         }
@@ -2786,7 +2790,7 @@ impl<'a> Checker<'a> {
                     let t = self.tables.trait_(tr).name.clone();
                     let c = self.tables.tycon(con).name.clone();
                     let shown = show(&self.tables, None, &self.tables.tycon(con).generics, &ty);
-                    self.templated("underivable", span)
+                    self.templated("underivable-field", span)
                         .bind("type", c)
                         .bind("trait", t.clone())
                         .bind("field", name)
@@ -2874,7 +2878,7 @@ impl<'a> Checker<'a> {
                 if let tree::Item::Test(t) = item {
                     if let Some(first) = titles.insert(t.name.as_str(), t.span) {
                         let name = t.name.clone();
-                        self.templated("duplicate-test-name", t.span)
+                        self.templated("duplicate-test", t.span)
                             .bind("quoted_title", format!("{name:?}"))
                             .secondary_span(first, "first declared here");
                     }
@@ -3280,7 +3284,7 @@ fn main(): () {}
     /// often taken — was exempt from the rule its own callers read.
     #[test]
     fn an_effect_carrying_parameter_is_refused_in_every_kind_of_method() {
-        assert_eq!(reported(SINKS, "effect-param-not-ctx"), 3);
+        assert_eq!(reported(SINKS, "effect-parameter-not-ctx"), 3);
     }
 
     /// The position half of the rule reaches a method too: receiver first,
@@ -3315,7 +3319,7 @@ fn main(): () {}
 
     /// A misplaced receiver, in the two places one survives to rule 26: an
     /// inherent `impl` refuses a method that does not open with `self` before
-    /// it is ever registered — that is `impl-fn-without-self` — so what is
+    /// it is ever registered — that is `impl-missing-self` — so what is
     /// left is a `trait` body and the `impl` that supplies it.
     #[test]
     fn a_misplaced_self_is_refused_in_a_trait_body_and_in_its_impl() {
@@ -3356,7 +3360,7 @@ impl Twice {
 
 fn main(): () {}
 "#;
-        assert_eq!(reported(src, "effect-param-not-ctx"), 1);
+        assert_eq!(reported(src, "effect-parameter-not-ctx"), 1);
     }
 
     /// The other direction, which is what keeps this from being a rule against
@@ -3386,7 +3390,7 @@ impl Quiet {
 
 fn main(): () {}
 "#;
-        for code in ["effect-param-not-ctx", "ctx-not-first", "self-not-first"] {
+        for code in ["effect-parameter-not-ctx", "ctx-not-first", "self-not-first"] {
             assert_eq!(reported(src, code), 0, "a well-formed method reported `{code}`");
         }
     }
@@ -3631,7 +3635,7 @@ impl Pick for Knob {
 
 fn main(): () {}
 "#;
-        assert_eq!(reported(src, "signature-mismatch"), 0);
+        assert_eq!(reported(src, "impl-signature-mismatch"), 0);
     }
 
     /// And the same `impl` written with `Self` throughout, which A1 made
@@ -3654,7 +3658,7 @@ impl Pick for Knob {
 
 fn main(): () {}
 "#;
-        assert_eq!(reported(src, "signature-mismatch"), 0);
+        assert_eq!(reported(src, "impl-signature-mismatch"), 0);
     }
 
     /// End to end in the other direction: three methods, one disagreement
@@ -3678,7 +3682,7 @@ impl Pick for Knob {
 
 fn main(): () {}
 "#;
-        assert_eq!(reported(src, "signature-mismatch"), 3);
+        assert_eq!(reported(src, "impl-signature-mismatch"), 3);
     }
 
     /// And `Self` outside both is still the mistake it was: the scope is
@@ -3722,7 +3726,7 @@ fn main(): () {}
     /// minted: item order inside a module, and module-*discovery* order across
     /// them. So a declaration whose base came later kept only the bindings it
     /// wrote itself, silently — no diagnostic where the mistake was, and an
-    /// `unsatisfied-bound` at every use for an effect that is right there in
+    /// `missing-impl` at every use for an effect that is right there in
     /// the source.
     ///
     /// It is not a contrived order. `cli/tests/conformance`'s

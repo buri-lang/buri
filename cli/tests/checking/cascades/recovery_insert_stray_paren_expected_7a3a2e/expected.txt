@@ -1,4 +1,4 @@
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
  --> main.buri:2:13
   |
 2 |     if (x > extra 0) { "yes" } else { "no" }

@@ -1,4 +1,4 @@
-error: `doubled` is not on //widget/testing's surface [not-on-the-surface]
+error: `doubled` is not on //widget/testing's surface [not-on-surface]
  --> user/test/user.buri:5:27
   |
 5 |     assert.equal(fake(21).doubled(), 42);

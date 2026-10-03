@@ -415,7 +415,7 @@ fn text<C: Allocator>(ctx: C, p: P, start: Int, end: Int): Str {
 /// edit are what each site supplies.
 fn err<C: Allocator>(ctx: C, p: P, origin: ast.Origin, problem: Str, remedy: Str): P {
     capped(ctx, p, codegen.Diagnostic {
-        code: "proto-schema",
+        code: "proto-syntax",
         message: problem,
         note: .None,
         fix: .Some(remedy),
@@ -1072,7 +1072,7 @@ fn endOfFile<C: Allocator>(ctx: C, p: P, seen: Bool): P {
         p
     } else {
         record(ctx, p, codegen.Diagnostic {
-            code: "proto-edition-missing",
+            code: "proto-missing-edition",
             message: "the file does not declare its edition",
             note: .Some(
                 "a file with no declaration is proto2 to every other tool, and proto2 is not what this mapping implements",
@@ -1185,7 +1185,7 @@ fn syntaxDeclaration<C: Allocator>(ctx: C, p: P, start: Int): P {
         },
     };
     let q = record(ctx, p3, codegen.Diagnostic {
-        code: "proto-syntax-declaration",
+        code: "proto-unsupported-edition",
         message: str.format(ctx, "${named} is not accepted"),
         note: .Some(
             "this reader implements Protobuf Editions. proto2 and proto3 differ from it in field presence, in what a default means on the wire, and in whether an enum is open — so a `syntax` file is not a file it can read a little differently, it is a file it would read wrongly",
@@ -1218,7 +1218,7 @@ fn editionDeclaration<C: Allocator>(ctx: C, p: P): P {
             },
         };
         record(ctx, p3, codegen.Diagnostic {
-            code: "proto-edition",
+            code: "proto-unsupported-edition",
             message: str.format(ctx, "${named} is not accepted"),
             note: .Some(
                 str.format(
@@ -1681,7 +1681,7 @@ fn reused<C: Allocator>(
     remedy: Str,
 ): P {
     capped(ctx, p, codegen.Diagnostic {
-        code: "proto-field-reused",
+        code: "proto-duplicate-field",
         message: problem,
         note: .Some(
             "a number is what names a field on the wire, and a name what names it in JSON, so a second use would read as the first field",

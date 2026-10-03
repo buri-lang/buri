@@ -1,4 +1,4 @@
-error: `Eq` is not a trait [derive-not-a-trait]
+error: `Eq` is not a trait [derive-not-trait]
  --> cmd/renamed_trait_in_a_derive/main.buri:7:8
   |
 7 | derive Eq for Point;
@@ -10,7 +10,7 @@ error: `Eq` is not a trait [derive-not-a-trait]
     A trait the standard library renamed is answered with what it is called now:
     Eq is Equal, and the fix says to write it.
 
-error: `Point` does not implement `Equal` [missing-conformance]
+error: `Point` does not implement `Equal` [missing-impl]
   --> cmd/renamed_trait_in_a_derive/main.buri:13:30
    |
 13 |   let _ = io.println(ctx, "${p == p}").ignore();
@@ -19,7 +19,7 @@ error: `Point` does not implement `Equal` [missing-conformance]
    = conformance is nominal: a type satisfies a trait only where a declaration says so
    = fix: add `derive Equal for Point;` in that type's own module, or write `impl Equal for Point { ... }` there
 
-     Bind a value whose type has an impl of the trait. Having the right methods
-     isn't enough: a type conforms only once an impl says so. That's why a test
-     double is a struct plus an impl block.
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
 

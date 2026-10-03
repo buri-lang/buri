@@ -29,7 +29,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 
 A `Result` can be thrown away in only two places: bound to `_` in a `let`, or
 left as an expression statement. Both are this error, so `.ignore()` is the one
-spelling of a deliberate drop, and `buri lint` reports it as `discarded-result`.
+spelling of a deliberate drop, and `buri lint` reports it as `ignored-result`.
 
 A `_` anywhere in the pattern counts, so `let (count, _) = (1, mayFail());` is
 this error too.

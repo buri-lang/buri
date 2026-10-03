@@ -1,4 +1,4 @@
-error: nothing here says what this literal builds [struct-literal-type]
+error: nothing here says what this literal builds [untyped-struct-literal]
   --> cmd/anonymous_struct_literal_expects_an_enum/main.buri:18:18
    |
 18 |   let s: Shape = { width: 2, height: 3 };

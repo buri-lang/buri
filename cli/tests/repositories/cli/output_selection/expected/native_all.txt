@@ -1,5 +1,5 @@
 .buri/out/node/cmd/native/mainForNode.mjs (N bytes, cached)
-error: no native artifact for {{CROSS_VARIANT}} [native-artifact-not-available]
+error: no native artifact for {{CROSS_VARIANT}} [native-artifact-unavailable]
  --> cmd/native/BUILD.buri:9:9
   |
 9 |         { platform: "native", variant: "{{CROSS_VARIANT}}" },

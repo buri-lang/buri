@@ -16,7 +16,7 @@ from "platform/effect/testing" import { alloc, tcp, TestTcp };
 let PONG: [U8] = [80, 79, 78, 71, 10];
 
 // The double is the capability, so it is named `ctx` and comes first, which is
-// what `effect-param-not-ctx` asks of anything holding an effect.
+// what `effect-parameter-not-ctx` asks of anything holding an effect.
 fn dial(ctx: TestTcp): Result<Stream, IoError> {
     let dialling = context {
         Allocator: alloc(),

@@ -1,4 +1,4 @@
-error: there is no type `Shape.Circle` [unresolved-type-in-pattern]
+error: there is no type `Shape.Circle` [unknown-type]
  --> cmd/unresolved_type_in_pattern/main.buri:4:3
   |
 4 |   Shape.Circle => 1,
@@ -6,3 +6,7 @@ error: there is no type `Shape.Circle` [unresolved-type-in-pattern]
   |
   = a bare identifier in a pattern is always a binding; a variant is written `.Variant` or `Enum.Variant`
   = fix: write `.Variant` for a variant, or a lowerCamelCase name to bind the value
+
+    Types are nominal, with no structural fallback, so a misspelling can't
+    quietly become a different type that happens to fit.
+

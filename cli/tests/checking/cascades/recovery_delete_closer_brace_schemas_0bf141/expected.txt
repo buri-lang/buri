@@ -1,4 +1,4 @@
-error: `(Anchor, [U8])` has no method `find` [no-such-method]
+error: `(Anchor, [U8])` has no method `find` [unknown-method]
   --> main.buri:74:10
    |
 74 |         .find(fn(pair) => pair.1 == wanted);
@@ -27,7 +27,7 @@ error: expected `[_3]`, found a variant `.Some` [type-mismatch]
    = expected: `[_3]`
    = actual: a variant `.Some`
    = a value written with a leading dot names a variant of the enum the position expects, and this position expects `[_3]`
-error: there is nothing named `pair` in scope [unresolved-name]
+error: there is nothing named `pair` in scope [unknown-name]
   --> main.buri:76:30
    |
 76 |         .Some(pair) => .Some(pair.0),

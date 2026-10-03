@@ -1,4 +1,4 @@
-warning: test "constructing a Cents does nothing observable" asserts nothing [test-without-assertion]
+warning: test "constructing a Cents does nothing observable" asserts nothing [test-missing-assertion]
   --> lib/money/test/cents.buri:21:1
    |
 21 | test "constructing a Cents does nothing observable" {

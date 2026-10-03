@@ -1,4 +1,4 @@
-error: a context binding ends with `,` [missing-separator]
+error: a context binding ends with `,` [missing-comma]
   --> main.buri:72:27
    |
 72 |         Allocator: alloc()

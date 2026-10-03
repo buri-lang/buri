@@ -6,7 +6,7 @@ error: //cmd/tool/main.buri is a binary's entry point [binary-entry-import]
   |
   = only that binary's own test sources may import it; a library may not reach the binary in its package at all
   = fix: move what you need into a library both can depend on
-warning: lib/other/lib.buri imports //cmd/tool, which is not in dependencies [missing-dep]
+warning: lib/other/lib.buri imports //cmd/tool, which is not in dependencies [missing-dependency]
  --> lib/other/lib.buri:2:6
   |
 2 | from "//cmd/tool/main.buri" import { banner };

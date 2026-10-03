@@ -1,7 +1,12 @@
-error: `T` does not satisfy `Equal` [unsatisfied-bound]
+error: `T` does not implement `Equal` [missing-impl]
   --> cmd/ui_each_item_unbounded/main.buri:17:3
    |
 17 |   ui.each(items, name, fn(c, item, index) => ui.text({ content: .Const(name(item)) }))
    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: bound the type parameter with `Equal`, or use a type that has one
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+

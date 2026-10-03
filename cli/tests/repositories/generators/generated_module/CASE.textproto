@@ -3,7 +3,7 @@
 
 doc: "a generator is a tool rule's generate: the build runs it, its inputs are declared and keyed like any other source, and what it hands back is a module of the rule that declared it"
 
-# An input no rule lists is `unused-library`, exactly as a stray .buri is — and
+# An input no rule lists is `unused-source`, exactly as a stray .buri is — and
 # the fix names `generators`, because that is the field it belongs in.
 run {
   args: ["lint", "//lib/wire"]

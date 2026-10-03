@@ -1,4 +1,4 @@
-error: unknown field `unused_varible` in a `rules` block [unknown-field]
+error: unknown field `unused_varible` in a `rules` block [build-unknown-field]
  --> REPO.buri:7:9
   |
 7 |         unused_varible: false

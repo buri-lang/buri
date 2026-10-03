@@ -1,4 +1,4 @@
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> main.buri:39:33
    |
 39 |         let whole = self.0 / 100

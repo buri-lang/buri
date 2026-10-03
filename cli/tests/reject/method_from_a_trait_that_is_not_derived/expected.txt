@@ -1,4 +1,4 @@
-error: `State` has no method `show` [no-such-method]
+error: `State` has no method `show` [unknown-method]
   --> cmd/method_from_a_trait_that_is_not_derived/main.buri:13:29
    |
 13 |   let _ = io.println(ctx, s.show(ctx)).ignore();

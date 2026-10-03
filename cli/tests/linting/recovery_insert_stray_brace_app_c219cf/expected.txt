@@ -1,18 +1,18 @@
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> lib/recovery_insert_stray_brace_app_c219cf/main.buri:11:15
    |
 11 |     let ctx = extra context {
    |               ^^^^^
    |
    = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_insert_stray_brace_app_c219cf/main.buri:11:20
    |
 11 |     let ctx = extra context {
    |                    ^
    |
    = fix: write `;` here
-error: an expression statement is legal only in a test source [expression-statement]
+error: an expression statement is legal only in a test source [statement-outside-test]
   --> lib/recovery_insert_stray_brace_app_c219cf/main.buri:11:21
    |
 11 |     let ctx = extra context {

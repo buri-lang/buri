@@ -459,7 +459,7 @@ impl Workspace {
                 }
                 let span = read.document.as_message().get(rule).map_or(Span::point(id, 0), |f| f.name_span);
                 diagnostics.push(
-                    Diagnostic::templated("rule-outside-its-directory", span)
+                    Diagnostic::templated("misplaced-rule", span)
                         .with_bind("package", format!("//{path}"))
                         .with_bind("rule", rule)
                         .with_bind("directory", directory)
@@ -472,7 +472,7 @@ impl Workspace {
                 && read.value.platform.is_none()
             {
                 diagnostics.push(
-                    Diagnostic::templated("package-without-a-rule", Span::point(id, 0))
+                    Diagnostic::templated("package-missing-rule", Span::point(id, 0))
                         .with_bind("package_path", path.clone()),
                 );
             }
@@ -699,7 +699,7 @@ impl Workspace {
     ///
     /// The entry points answer first, because they are named by the rule kind
     /// rather than listed. A file no rule reaches is `None`, which is
-    /// `unused-library`'s business rather than this function's.
+    /// `unused-source`'s business rather than this function's.
     pub fn rule_of_file(&self, package: PackageId, rel: &str) -> Option<RuleKind> {
         let p = self.package(package);
         match rel {
@@ -838,7 +838,7 @@ impl Workspace {
             // Canonical here too, and for the same reason: `platform/effect` and
             // `platform/effect/lib.buri` are one module or they are two copies of
             // `Allocator`. A path the library does not have keeps its spelling, so
-            // that `no-such-module` quotes back what was written.
+            // that `unknown-module` quotes back what was written.
             let canonical = crate::compiler::standard_library::canonical(path).unwrap_or(path);
             return Ok(ModuleLocation::Std { path: canonical.to_string() });
         }
@@ -938,7 +938,7 @@ impl Workspace {
                 // An extensionless inner path. Legal to *resolve* — it is how
                 // a dependent used to name someone else's internals, and it is
                 // an `internal-import` from there and an
-                // `import-path-without-a-file` from inside — so both
+                // `import-missing-extension` from inside — so both
                 // diagnostics can name the file it meant.
                 r => (ModuleKind::Internal, package.dir.join(format!("{r}.buri"))),
             };
@@ -1333,7 +1333,7 @@ fn resolve_custom_outputs(
     }
 }
 
-/// `no-such-platform` for a `//` label that names no `platform` rule under
+/// `unknown-platform` for a `//` label that names no `platform` rule under
 /// `//platform/`. `rules` are the package paths holding a `platform` rule.
 fn no_such_platform(label: &Spanned<String>, rules: &[&str]) -> Diagnostic {
     let path = label.value.strip_prefix("//").unwrap_or(&label.value);
@@ -1341,7 +1341,7 @@ fn no_such_platform(label: &Spanned<String>, rules: &[&str]) -> Diagnostic {
         buildfile::PlatformName::BUNDLED.iter().map(|p| format!("\"{}\"", p.name())).collect();
     names.extend(rules.iter().filter(|k| is_platform_directory(k)).map(|k| format!("\"//{k}\"")));
     names.sort();
-    Diagnostic::templated("no-such-platform", label.span)
+    Diagnostic::templated("unknown-platform", label.span)
         .with_bind("platform", label.value.as_str())
         .with_note(format!(
             "a repository's platform is a `platform` rule in a package under `//platform/`, and \
@@ -1505,7 +1505,7 @@ mod tests {
 
     /// The half of the import rule that can be read off the string. The other
     /// half — which package the writer is in — is the loader's, and the two
-    /// together are `import-path-without-a-file`.
+    /// together are `import-missing-extension`.
     #[test]
     fn a_path_that_names_a_file_is_the_form_for_a_file_inside_your_own_package() {
         assert!(names_a_file("//lib/money/lib.buri"));

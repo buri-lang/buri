@@ -1,4 +1,4 @@
-error: `Pair` holds 2 values, but 3 were given [wrong-value-count]
+error: `Pair` holds 2 values, but 3 were given [payload-count]
   --> cmd/variant_with_one_value_too_many/main.buri:10:3
    |
 10 |   .Pair(1, "row", true)

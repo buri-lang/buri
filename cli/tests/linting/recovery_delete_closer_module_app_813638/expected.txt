@@ -14,7 +14,7 @@ warning: this branch is nested 5 levels deep [deep-nesting]
    |
    = the limit is 4; an `else if` chain counts as one level, and a lambda body starts again at zero
    = fix: pull the inner branch into a named function, or replace the ladder with one `match`
-error: an `if` used as a statement ends with `;` [missing-terminator]
+error: an `if` used as a statement ends with `;` [missing-semicolon]
   --> lib/recovery_delete_closer_module_app_813638/main.buri:26:6
    |
 26 |     }

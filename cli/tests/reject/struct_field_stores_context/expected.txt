@@ -1,4 +1,4 @@
-error: `held` carries an effect, so it must be named `ctx` [effect-param-not-ctx]
+error: `held` carries an effect, so it must be named `ctx` [effect-parameter-not-ctx]
   --> cmd/struct_field_stores_context/main.buri:11:29
    |
 11 | fn stash<C: FileSystemRead>(held: Holder<C>, at: Path): Bool {

@@ -1,4 +1,4 @@
-error: `//platform/lambda` needs a variant [variant-required]
+error: `//platform/lambda` needs a variant [missing-platform-variant]
  --> cmd/hello/BUILD.buri:3:9
   |
 3 |         { platform: "//platform/lambda" },

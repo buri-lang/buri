@@ -1,6 +1,6 @@
 ---
 title: A name is declared once
-message: {declaration} is declared twice
+message: '{declaration} is declared twice'
 ---
 # A name is declared once
 
@@ -13,6 +13,16 @@ enum Choice {
     Yes,
     No,
     Yes,
+}
+```
+
+```buri fail code=duplicate-declaration
+struct Point {
+    export x: Int,
+}
+
+struct Point {
+    export y: Int,
 }
 ```
 

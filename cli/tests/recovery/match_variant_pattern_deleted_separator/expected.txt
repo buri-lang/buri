@@ -1,4 +1,4 @@
-error [missing-separator] 9:17-9:17
+error [missing-comma] 9:17-9:17
 message: a match arm ends with `,`
 fix: write `,` here
 edit: 9:17-9:17 ","

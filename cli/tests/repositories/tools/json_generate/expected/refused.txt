@@ -89,7 +89,7 @@ error: `allOf` has no Buri type [json-schema-no-type]
    |
    = `allOf` merges schemas, and a merge is not one type
    = fix: describe the value with a construct that has a type
-error: "//lib/deploy/deploy.json5" names no file (lib/deploy/deploy.json5.buri) [module-not-found]
+error: "//lib/deploy/deploy.json5" names no file (lib/deploy/deploy.json5.buri) [unknown-module]
  --> lib/deploy/lib.buri:1:6
   |
 1 | from "//lib/deploy/deploy.json5" export { deploy };
@@ -97,12 +97,9 @@ error: "//lib/deploy/deploy.json5" names no file (lib/deploy/deploy.json5.buri) 
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
 
-    This resolves against the example monorepo in cli/tests/example, which has
-    no lib/nope:
-
     There's no search path and no fallback, so a path never has two candidates.
 
-error: "//lib/deploy/deploy.schema.json" names no file (lib/deploy/deploy.schema.json.buri) [module-not-found]
+error: "//lib/deploy/deploy.schema.json" names no file (lib/deploy/deploy.schema.json.buri) [unknown-module]
  --> lib/deploy/lib.buri:3:6
   |
 3 | from "//lib/deploy/deploy.schema.json" export {

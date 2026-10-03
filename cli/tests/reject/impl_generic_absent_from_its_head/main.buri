@@ -1,4 +1,4 @@
-// EXPECT: `Describe` could not be resolved to a concrete type
+// EXPECT: a `Describe` method is called at a type nothing determines
 //
 // `impl<T> Describe for Point` declares a type parameter the head never
 // mentions, so no receiver says what `T` is. Monomorphization used to pad the

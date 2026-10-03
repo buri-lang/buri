@@ -1,4 +1,4 @@
-// EXPECT: "core/fs" has no member `appendBytes`
+// EXPECT: "core/fs" does not export `appendBytes`
 // The same missing member as `namespace_member_missing`, written where a value
 // goes rather than in front of an argument list: nothing about the answer
 // depends on the call, so neither does the diagnostic.

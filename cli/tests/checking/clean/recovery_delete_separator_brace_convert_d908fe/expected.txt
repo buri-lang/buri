@@ -1,4 +1,4 @@
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> main.buri:27:26
    |
 27 |     let got = far.toInt()

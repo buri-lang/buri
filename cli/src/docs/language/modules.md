@@ -63,7 +63,7 @@ because a suite reaches its library the way a dependent does.
 **You cannot tell the two apart by their shape.** `"//lib/money/testing"` and
 `"//lib/money/cents"` are the same string with one segment changed, yet the first
 is a surface and the second is a file with its name left off. What is on disk
-decides. A path missing a file name is `import-path-without-a-file`, and the
+decides. A path missing a file name is `import-missing-extension`, and the
 diagnostic works out which file it meant. A path that leaves the package and
 names a file inside it is `internal-import`.
 

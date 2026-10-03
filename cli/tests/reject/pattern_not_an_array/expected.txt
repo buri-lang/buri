@@ -1,4 +1,4 @@
-error: `I64` is not an array [pattern-not-an-array]
+error: `I64` is not an array [pattern-not-array]
  --> cmd/pattern_not_an_array/main.buri:4:5
   |
 4 |     [a] => a,

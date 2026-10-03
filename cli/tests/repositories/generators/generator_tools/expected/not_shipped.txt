@@ -1,4 +1,4 @@
-error: `std/codegen/thrift` names no tool [no-such-tool]
+error: `std/codegen/thrift` names no tool [unknown-tool]
  --> lib/wire/BUILD.buri:3:17
   |
 3 |         { tool: "std/codegen/thrift", inputs: ["point.proto"] },

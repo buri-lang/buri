@@ -202,7 +202,7 @@ fn holder(items: &[Span], skipped: &[bool], d: &Diagnostic) -> Option<usize> {
 fn names_a_missing_token(code: Option<&str>) -> bool {
     matches!(
         code,
-        Some("missing-arrow" | "missing-separator" | "missing-terminator" | "unclosed-delimiter")
+        Some("missing-arrow" | "missing-comma" | "missing-semicolon" | "unclosed-delimiter")
     )
 }
 

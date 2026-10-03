@@ -1,4 +1,4 @@
-error [missing-separator] 3:9-3:9
+error [missing-comma] 3:9-3:9
 message: an enum variant ends with `,`
 fix: write `,` here
 edit: 3:9-3:9 ","

@@ -14,7 +14,7 @@ warning: this is `order.bool`, written out [hand-rolled-comparator]
    |
    = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ordered` impl both take
    = fix: call `order.bool` with the two operands, and delete the chain
-error: a match arm ends with `,` [missing-separator]
+error: a match arm ends with `,` [missing-comma]
   --> lib/recovery_delete_separator_brace_app_4c01d3/main.buri:52:24
    |
 52 |         .Less => "less"

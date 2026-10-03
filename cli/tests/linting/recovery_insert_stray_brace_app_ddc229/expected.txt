@@ -15,14 +15,14 @@ error: expected an expression, found `,` [unexpected-token]
     = expected: an expression
     = actual: `,`
     = fix: write a value here
-error: there is nothing named `packing` in scope [unresolved-name]
+error: there is nothing named `packing` in scope [unknown-name]
    --> lib/recovery_insert_stray_brace_app_ddc229/main.buri:126:20
     |
 126 |     let handling = packing * 2;
     |                    ^^^^^^^
     |
     = fix: declare `packing`, or import it — a name is in scope only from this module's own declarations and its imports
-error: there is nothing named `packing` in scope [unresolved-name]
+error: there is nothing named `packing` in scope [unknown-name]
    --> lib/recovery_insert_stray_brace_app_ddc229/main.buri:127:31
     |
 127 |     let carriage = delivery + packing + handling;

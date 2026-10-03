@@ -19,7 +19,7 @@ error: expected `=>`, found `Str` [unexpected-token]
    = expected: `=>`
    = actual: `Str`
    = fix: write `=>` here
-error: there is nothing named `rendered` in scope [unresolved-name]
+error: there is nothing named `rendered` in scope [unknown-name]
   --> lib/recovery_swap_adjacent_paren_expected_7bd549/main.buri:51:23
    |
 51 |         .println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label))

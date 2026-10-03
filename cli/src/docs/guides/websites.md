@@ -453,7 +453,7 @@ for one is refused on the line that asked:
 
 ```text
 $ buri build //cmd/site
-error: `CloudflareHost` has no field `location` [no-such-field]
+error: `CloudflareHost` has no field `location` [unknown-field]
    --> cmd/site/main.buri:159:24
     |
 159 |         Location: host.location,

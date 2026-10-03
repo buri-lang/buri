@@ -1,4 +1,4 @@
-error: `Some` holds 1 values, but 2 were matched [wrong-matched-value-count]
+error: `Some` holds 1 values, but 2 were matched [payload-pattern-count]
  --> main.buri:5:5
   |
 5 |     .Some(extra n) => n,
@@ -7,14 +7,14 @@ error: `Some` holds 1 values, but 2 were matched [wrong-matched-value-count]
   = expected: 1
   = actual: 2
   = fix: match exactly 1, or end the pattern with `..`
-error: a variant-pattern field ends with `,` [missing-separator]
+error: a variant-pattern field ends with `,` [missing-comma]
  --> main.buri:5:16
   |
 5 |     .Some(extra n) => n,
   |                ^
   |
   = fix: write `,` here
-error: there is nothing named `n` in scope [unresolved-name]
+error: there is nothing named `n` in scope [unknown-name]
  --> main.buri:5:23
   |
 5 |     .Some(extra n) => n,

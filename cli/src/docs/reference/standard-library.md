@@ -647,7 +647,7 @@ Every platform grants `Entropy`. What can be missing is the *toolchain*: a
 runtime archive built without its `crypto` feature refuses `randomBytes` by
 name, before code generation, rather than answering from a generator that is
 merely uniform. See
-[cryptography-not-available](./errors/cryptography-not-available.md).
+[cryptography-unavailable](./errors/cryptography-unavailable.md).
 
 ### Sealing
 
@@ -1739,7 +1739,7 @@ The fetch is at the `load`, not at the first call of what it answers, so write
 the `load` on the path that needs the code. `route` above never fetches the
 chunk for `/`.
 
-`load` takes the name of a function; anything else is `lazy-not-a-function`.
+`load` takes the name of a function; anything else is `load-not-function`.
 There has to be a body to move.
 
 ## What is deliberately not here

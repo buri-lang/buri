@@ -22,7 +22,7 @@ error: a `context` may be exported only from a test-only module [context-export]
           .Ok(())
       }
 
-error: there is nothing named `host` in scope [unresolved-name]
+error: there is nothing named `host` in scope [unknown-name]
  --> cmd/context_export/main.buri:7:14
   |
 7 |   Allocator: host.alloc,
@@ -33,7 +33,7 @@ error: there is nothing named `host` in scope [unresolved-name]
     There is no prelude. A module sees only what it declares and what its own
     imports name, which is why the suggestion is trustworthy.
 
-error: there is nothing named `host` in scope [unresolved-name]
+error: there is nothing named `host` in scope [unknown-name]
  --> cmd/context_export/main.buri:8:11
   |
 8 |   Stdout: host.stdout,

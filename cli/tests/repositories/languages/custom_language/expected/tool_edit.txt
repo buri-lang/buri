@@ -15,16 +15,13 @@ error: `purple` is not in the dictionary [tool-diagnostic]
     lands at the start of the file a check was handed, or on the generators
     entry that ran a generate.
 
-error: "//lib/colors/words" names no file (lib/colors/words.buri) [module-not-found]
+error: "//lib/colors/words" names no file (lib/colors/words.buri) [unknown-module]
  --> lib/colors/lib.buri:1:6
   |
 1 | from "//lib/colors/words" export { count };
   |      ^^^^^^^^^^^^^^^^^^^^
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
-
-    This resolves against the example monorepo in cli/tests/example, which has
-    no lib/nope:
 
     There's no search path and no fallback, so a path never has two candidates.
 

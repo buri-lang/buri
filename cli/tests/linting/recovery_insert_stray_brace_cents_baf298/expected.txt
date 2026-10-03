@@ -5,7 +5,7 @@ error: `Entry` is missing `packer` [missing-field-value]
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: give `packer` a value — only an `Option` field may be left out — or start from an existing one with `Entry { ..base, field: value }`
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> lib/recovery_insert_stray_brace_cents_baf298/lib.buri:21:25
    |
 21 |     Entry { cents, tax: extra 0, packer: "till" }

@@ -1,4 +1,4 @@
-error: `\u{D800}` is not a Unicode scalar value [not-a-scalar-value]
+error: `\u{D800}` is not a Unicode scalar value [invalid-unicode-escape]
  --> cmd/not_a_scalar_value/main.buri:8:12
   |
 8 |   let s = "\u{D800}";

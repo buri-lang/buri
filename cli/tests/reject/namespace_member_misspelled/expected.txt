@@ -1,4 +1,4 @@
-error: "core/fs" has no member `readTxt` [no-such-member]
+error: "core/fs" does not export `readTxt` [unknown-export]
   --> cmd/namespace_member_misspelled/main.buri:10:14
    |
 10 |   let _ = fs.readTxt(ctx, filepath.of(ctx, "wal"));
@@ -8,8 +8,10 @@ error: "core/fs" has no member `readTxt` [no-such-member]
    = did you mean `readText`?
    = fix: if you meant `readText`, use that; if not, `buri docs core/fs` lists what the module exports
 
-     A namespace like fs stands for the module its import named, and only that
-     module's exports may follow the dot. This covers types, bounds and impl
-     heads too, such as list.Vector<Int> and <T: order.Comparable>. If no import
-     bound the namespace at all, the error is unresolved-name instead.
+     A re-export names only what its module exports, so a library's surface is
+     never wider than the modules behind it. A namespace like fs stands for the
+     module its import named, and only that module's exports may follow the dot.
+     This covers types, bounds and impl heads too, such as list.Vector<Int> and
+     <T: order.Comparable>. If no import bound the namespace at all, the error
+     is unknown-name instead.
 

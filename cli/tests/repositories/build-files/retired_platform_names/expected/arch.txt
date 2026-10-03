@@ -1,4 +1,4 @@
-error: `arch` is retired [retired-platform-name]
+error: `arch` is retired [retired-platform]
  --> cmd/app/BUILD.buri:5:55
   |
 5 |         { platform: "native", variant: "linux-arm64", arch: ARM64 },
@@ -10,7 +10,9 @@ error: `arch` is retired [retired-platform-name]
       binary {
           outputs: [
               { platform: "native", variant: "linux-arm64" },
-              { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+              { platform: "node", entries: [
+                  { name: "main", function: "mainForNode" },
+              ] },
               { platform: "web" },
           ]
 

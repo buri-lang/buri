@@ -1,4 +1,4 @@
-error: `std/codegen/proto` is retired [retired-tool-name]
+error: `std/codegen/proto` is retired [retired-tool]
  --> lib/app/BUILD.buri:3:17
   |
 3 |         { tool: "std/codegen/proto", inputs: ["input.txt"] },

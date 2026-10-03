@@ -1,4 +1,4 @@
-error: there is nothing named `host` in scope [unresolved-name]
+error: there is nothing named `host` in scope [unknown-name]
  --> cmd/context_call_with_arguments/main.buri:7:11
   |
 7 |   Stdout: host.stdout,
@@ -9,7 +9,7 @@ error: there is nothing named `host` in scope [unresolved-name]
     There is no prelude. A module sees only what it declares and what its own
     imports name, which is why the suggestion is trustworthy.
 
-error: a context declaration takes no parameters [context-call-with-arguments]
+error: a context declaration takes no parameters [context-parameters]
   --> cmd/context_call_with_arguments/main.buri:11:22
    |
 11 |   let _ = io.println(Console(1), "hi").ignore();

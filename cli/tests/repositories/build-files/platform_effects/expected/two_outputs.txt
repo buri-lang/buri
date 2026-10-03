@@ -23,7 +23,9 @@ error: `main` takes `WebHost`, and the node platform hands its entry a `NodeHost
        binary {
            outputs: [
                { platform: "native", variant: "linux-arm64" },
-               { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+               { platform: "node", entries: [
+                   { name: "main", function: "mainForNode" },
+               ] },
            ]
        }
 
@@ -33,7 +35,7 @@ error: `main` takes `WebHost`, and the node platform hands its entry a `NodeHost
      Each platform offers different effects, so each declares its own host type.
      One entry can't take two.
 
-error: `WebHost` has no field `fs` [no-such-field]
+error: `WebHost` has no field `fs` [unknown-field]
   --> cmd/page/main.buri:17:30
    |
 17 |         FileSystemRead: host.fs,

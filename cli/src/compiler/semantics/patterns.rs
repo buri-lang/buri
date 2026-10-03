@@ -86,7 +86,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     other => {
                         let shown = self.show_ty(other);
                         let n = elems.len();
-                        self.templated("pattern-not-a-tuple", span)
+                        self.templated("pattern-not-tuple", span)
                             .bind("type", shown.clone())
                             .bind("arity", n.to_string())
                             .fix(format!("match the shape of `{shown}`, not a {n}-tuple"));
@@ -108,7 +108,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     Ty::Error => Ty::Error,
                     other => {
                         let shown = self.show_ty(other);
-                        self.templated("pattern-not-an-array", span)
+                        self.templated("pattern-not-array", span)
                             .bind("type", shown.clone())
                             .fix(format!("an array pattern matches `[T]`, not `{shown}`"));
                         Ty::Error
@@ -322,7 +322,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 if is_enum {
                     let Some(vname) = variant_name else {
                         let n = self.c.tables.tycon(con).name.clone();
-                        self.templated("enum-without-a-variant", span)
+                        self.templated("enum-not-value", span)
                             .bind("type", n.clone())
                             .fix(format!("write `{n}.Variant` or `.Variant`"));
                         return typed::PatKind::Error;
@@ -339,7 +339,13 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             _ => {
                 let shown = path.iter().map(|i| t.text(*i)).collect::<Vec<_>>().join(".");
-                self.templated("unresolved-type-in-pattern", span).bind("name", shown);
+                self.templated("unknown-type", span)
+                    .bind("name", shown)
+                    .note(
+                        "a bare identifier in a pattern is always a binding; a variant is \
+                         written `.Variant` or `Enum.Variant`",
+                    )
+                    .fix("write `.Variant` for a variant, or a lowerCamelCase name to bind the value");
                 typed::PatKind::Error
             }
         }
@@ -349,7 +355,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         let ty = self.c.tables.tycon(con).name.clone();
         let (note, fix) = no_variant_advice(&self.c.tables, con, name);
         let d = self
-            .templated("no-such-variant", span)
+            .templated("unknown-variant", span)
             .bind("type", ty)
             .bind("variant", name.to_string());
         d.notes.extend(note);
@@ -437,7 +443,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 if ps.len() != decl.len() {
                     let want = decl.len();
                     let have = ps.len();
-                    self.templated("wrong-matched-value-count", span)
+                    self.templated("payload-pattern-count", span)
                         .bind("name", what.to_string())
                         .bind("expected", want.to_string())
                         .bind("matched", have.to_string())
@@ -466,7 +472,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     let fspan = t.span_of(f.name);
                     let Some((i, d)) = decl.iter().enumerate().find(|(_, d)| d.name == fname)
                     else {
-                        self.templated("no-such-field", fspan)
+                        self.templated("unknown-field", fspan)
                             .bind("type", what.to_string())
                             .bind("field", fname.to_string());
                         continue;

@@ -1,4 +1,4 @@
-error: `linux-arm46` is not a variant of `//platform/lambda` [no-such-platform-variant]
+error: `linux-arm46` is not a variant of `//platform/lambda` [unknown-platform-variant]
  --> cmd/hello/BUILD.buri:3:51
   |
 3 |         { platform: "//platform/lambda", variant: "linux-arm46" },

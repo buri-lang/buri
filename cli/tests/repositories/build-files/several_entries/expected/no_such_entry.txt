@@ -1,5 +1,5 @@
 .buri/out/web/cmd/site/main.mjs (N bytes, cached)
-error: //cmd/site exports no `handle` [entry-not-found]
+error: //cmd/site exports no `handle` [unknown-entry-function]
  --> cmd/site/BUILD.buri:4:90
   |
 4 |         { platform: "//platform/cloudflare_worker", entries: [{ name: "fetch", function: "handle" }] },
@@ -28,7 +28,9 @@ error: //cmd/site exports no `handle` [entry-not-found]
       binary {
           outputs: [
               { platform: "web" },
-              { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+              { platform: "node", entries: [
+                  { name: "main", function: "mainForNode" },
+              ] },
           ]
       }
 
@@ -44,11 +46,11 @@ error: //cmd/site exports no `handle` [entry-not-found]
     "if you meant fetch, use that; if not, export fetsh from its main.buri".
 
     An output whose entries names nothing enters through main, and a binary with
-    no main gets no-main instead. Those are different mistakes: one binary has
-    not written its entry point, the other wrote the name twice and spelled it
-    differently once.
+    no main gets missing-main instead. Those are different mistakes: one binary
+    has not written its entry point, the other wrote the name twice and spelled
+    it differently once.
 
-error: a context may not be constructed here [context-not-allowed]
+error: a context may not be constructed here [misplaced-context]
   --> cmd/site/main.buri:31:15
    |
 31 |     let ctx = context {

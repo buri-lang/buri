@@ -1,4 +1,4 @@
-error: a type alias ends with `;` [missing-terminator]
+error: a type alias ends with `;` [missing-semicolon]
  --> cmd/missing_terminator/main.buri:2:20
   |
 2 | type Meters = Float

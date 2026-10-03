@@ -367,10 +367,10 @@ fn report_findings(session: &mut Session, diagnostics: &Diagnostics) -> i32 {
 /// preserving `tags`, `visibility`, `outputs` and comments, so calling it is
 /// the only way `lint --fix` and `gen` cannot end up disagreeing about what a
 /// package's `BUILD.buri` should say.
-const REGENERABLE: &[&str] = &["missing-dep", "unused-library", "duplicate-source"];
+const REGENERABLE: &[&str] = &["missing-dependency", "unused-source", "duplicate-source"];
 
 fn regenerate_build_files(session: &mut Session, diagnostics: &Diagnostics) -> usize {
-    // Which package a finding is about. `missing-dep` points at the import in
+    // Which package a finding is about. `missing-dependency` points at the import in
     // a source file, not at the build file, so this is by path prefix — the
     // longest package path the file sits under.
     let mut packages: BTreeSet<PackageId> = BTreeSet::new();
@@ -541,7 +541,7 @@ fn check_test_suites(session: &Session, package: PackageId, diagnostics: &mut Di
     }
 }
 
-/// `unused-library` and `duplicate-source`: every `.buri` file in a package
+/// `unused-source` and `duplicate-source`: every `.buri` file in a package
 /// must appear in exactly one rule. A file that appears in none belongs to no
 /// library and no binary, so nothing ever builds it.
 fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &mut Diagnostics) {
@@ -649,7 +649,7 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
             "`buri gen` leaves `generators` alone, so write the entry by hand".to_string()
         };
         diagnostics.push(
-            Diagnostic::templated("unused-library", Span::point(p.build_file_id, 0))
+            Diagnostic::templated("unused-source", Span::point(p.build_file_id, 0))
                 .with_bind("package_path", p.path.as_str())
                 .with_bind("source", rel)
                 .with_bind("field", field)
@@ -693,7 +693,7 @@ fn collect_package_sources(
     }
 }
 
-/// `missing-dep`. Use is what requires a dep, and an import is not the only way
+/// `missing-dependency`. Use is what requires a dep, and an import is not the only way
 /// to use: a method resolving into a library counts too.
 fn check_dependencies(
     session: &Session,
@@ -734,7 +734,7 @@ fn check_dependencies(
                 let package_path = session.workspace.package(own).path.clone();
                 reported.insert(wanted.clone());
                 diagnostics.push(
-                    Diagnostic::templated("missing-dep", span)
+                    Diagnostic::templated("missing-dependency", span)
                         .with_bind("user", importer)
                         .with_bind("reaches", "imports")
                         .with_bind("dependency", wanted.as_str())
@@ -759,7 +759,7 @@ fn check_dependencies(
         }
         diagnostics.push(
             Diagnostic::templated(
-                "missing-dep",
+                "missing-dependency",
                 Span::point(session.workspace.package(own).build_file_id, 0),
             )
             .with_bind("user", own_label.as_str())
@@ -777,8 +777,8 @@ fn check_dependencies(
 
 }
 
-/// The hygiene and shape rules — `unused-import`, `discarded-result`,
-/// `test-without-assertion` and the rest. Every one of them asks about a
+/// The hygiene and shape rules — `unused-import`, `ignored-result`,
+/// `test-missing-assertion` and the rest. Every one of them asks about a
 /// package's own code rather than about the build graph, so they share the
 /// analysis `check_dependencies` has already paid for.
 /// The modules this package owns, which is what separates "my code" from
@@ -865,7 +865,7 @@ struct Unchecked {
     /// the body or in the signature above it.
     ///
     /// A name the parser skipped, or one an unresolved import never bound, is
-    /// reached here the same way: a body that uses it gets `unresolved-name`
+    /// reached here the same way: a body that uses it gets `unknown-name`
     /// at the use, which is an error inside that body. So the bodies that lost
     /// something say so themselves, and the ones that did not are read.
     bodies: BTreeSet<FnId>,
@@ -1130,7 +1130,7 @@ fn check_duplicate_imports(m: &ModuleData, diagnostics: &mut Diagnostics) {
 /// spelled in prose, and `\uXXXX` appears in this repository's own comments.
 const WARNING_MARKERS: &[&str] = &["TODO", "FIXME", "HACK"];
 
-/// `warning-comment`. The markers are found in the gaps between tokens, which
+/// `todo-comment`. The markers are found in the gaps between tokens, which
 /// is what makes the rule about comments rather than about text: everything
 /// between two tokens is whitespace or a comment, so a `TODO` inside a string
 /// literal is inside a token and is never looked at.
@@ -1150,7 +1150,7 @@ fn check_warning_comments(session: &Session, m: &ModuleData, diagnostics: &mut D
     for (offset, marker) in found {
         diagnostics.push(
             Diagnostic::templated(
-                "warning-comment",
+                "todo-comment",
                 Span::new(m.file, offset, offset + marker.len()),
             )
             .with_bind("marker", marker),
@@ -1182,11 +1182,11 @@ fn markers_in(text: &str, from: usize, to: usize, out: &mut Vec<(usize, &'static
 const HEX_DIGITS: [char; 16] =
     ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'];
 
-/// `hex-digit-table`. A program that writes the digits out has written the
+/// `hand-rolled-hex-digits`. A program that writes the digits out has written the
 /// half of a hexadecimal encoder that `core/character` already is, and the half
 /// underneath it — the shift, the mask, the index — comes with it every time.
 ///
-/// Read off the tokens rather than off the tree, for `warning-comment`'s
+/// Read off the tokens rather than off the tree, for `todo-comment`'s
 /// reason turned around: this is about a *literal*, and a literal is one token
 /// whether or not the declaration around it type-checked. Two shapes are the
 /// table, and they are the two ways to write a sequence of characters down: a
@@ -1218,7 +1218,7 @@ fn check_hex_digit_tables(session: &Session, m: &ModuleData, diagnostics: &mut D
         match found {
             Some(end) => {
                 diagnostics
-                    .push(Diagnostic::templated("hex-digit-table", lexed.tokens.span(at)));
+                    .push(Diagnostic::templated("hand-rolled-hex-digits", lexed.tokens.span(at)));
                 at = end;
             }
             None => at += 1,
@@ -1487,7 +1487,7 @@ fn nesting(e: &typed::Expr, depth: usize, reported: bool, out: &mut Vec<(Span, u
 /// output is prose that wraps.
 ///
 /// A warning rather than an error, because it is a matter of taste about the
-/// text and not a rule about the program: `duplicate-test-name` is the rule.
+/// text and not a rule about the program: `duplicate-test` is the rule.
 fn check_test_titles(
     own: PackageId,
     analysis: &crate::compiler::driver::Analysis,
@@ -2435,7 +2435,7 @@ fn names_ctx(session: &Session, extent: Span, param: Span) -> bool {
 /// directory's (BUILD-FILES.md: "rules inside a package do not reach into each
 /// other"), which is the question [`Workspace::rule_of_file`] answers.
 ///
-/// A file no rule lists is `unused-library`'s business rather than this one's:
+/// A file no rule lists is `unused-source`'s business rather than this one's:
 /// every pass that can see it answers, and the report deduplicates.
 ///
 /// [`Workspace::rule_of_file`]: crate::build::workspace::Workspace::rule_of_file
@@ -2967,7 +2967,7 @@ fn only_separators(text: &str, from: usize, to: usize, spans: &[Span]) -> bool {
     })
 }
 
-/// `discarded-result`. `let _ = <Result>` is already a hard type error
+/// `ignored-result`. `let _ = <Result>` is already a hard type error
 /// (`result-discarded`), so the only way a `Result` is dropped on purpose is
 /// `core/result.ignore` — the greppable escape hatch. This is the grep,
 /// promoted to a warning so it appears in a report rather than only when
@@ -2986,7 +2986,7 @@ fn check_discarded_results(
     diagnostics: &mut Diagnostics,
 ) {
     for (span, _) in calls_into(analysis, own, "core/result", &["ignore"]) {
-        diagnostics.push(Diagnostic::templated("discarded-result", span));
+        diagnostics.push(Diagnostic::templated("ignored-result", span));
     }
 }
 
@@ -3210,14 +3210,14 @@ fn comparator_chain(
     }
 }
 
-/// `discarded-result-by-hand`. The four-line `match` whose every arm answers
+/// `hand-rolled-ignore`. The four-line `match` whose every arm answers
 /// `()` is `core/result.ignore`, written out.
 ///
-/// The rule exists because the *other* rule created it. `discarded-result`
+/// The rule exists because the *other* rule created it. `ignored-result`
 /// reports `ignore`, so a repository whose gate is "lint clean" is a
 /// repository whose authors write this match instead — and the drop is then
 /// scattered where only a reader who thought to look would find it, which is
-/// the thing `discarded-result` was written to prevent. Both forms are
+/// the thing `ignored-result` was written to prevent. Both forms are
 /// reported, so neither is a way around the other.
 ///
 /// **The shape cannot mean anything else.** Two arms, `.Ok` and `.Err`, no
@@ -3246,7 +3246,7 @@ fn check_hand_rolled_discards(
     }
     found.sort_by_key(|span| (span.file.0, span.start));
     for span in found {
-        diagnostics.push(Diagnostic::templated("discarded-result-by-hand", span));
+        diagnostics.push(Diagnostic::templated("hand-rolled-ignore", span));
     }
 }
 
@@ -3286,7 +3286,7 @@ fn discards_by_hand(analysis: &crate::compiler::driver::Analysis, e: &typed::Exp
     (a == "Ok" && b == "Err") || (a == "Err" && b == "Ok")
 }
 
-/// `test-without-assertion`. Read syntactically — "the body contains no
+/// `test-missing-assertion`. Read syntactically — "the body contains no
 /// `assert`" — this fires on every test that asserts through a helper, which
 /// is most of the ones worth writing. So it is transitive: a test passes if
 /// anything reachable from it calls something that can fail the test.
@@ -3354,7 +3354,7 @@ fn check_tests_assert(
             continue;
         }
         diagnostics.push(
-            Diagnostic::templated("test-without-assertion", case.span)
+            Diagnostic::templated("test-missing-assertion", case.span)
                 .with_bind("quoted_title", format!("{:?}", case.name)),
         );
     }
@@ -3405,7 +3405,7 @@ fn in_test_deps(session: &Session, target: TargetId, label: &str) -> bool {
         || testing.is_some_and(|t| t.dependencies.iter().any(|d| d.value == label))
 }
 
-/// `dep-cycle`: package cycles are the module rule one level up.
+/// `circular-dependency`: package cycles are the module rule one level up.
 ///
 /// One diagnostic per cycle, not one per edge in it. A cycle has no first end,
 /// so reporting it from each is the same finding written twice — and
@@ -3438,7 +3438,7 @@ fn check_cycles(session: &Session, diagnostics: &mut Diagnostics) {
             let b = session.workspace.label(dep);
             diagnostics.push(
                 Diagnostic::templated(
-                    "dep-cycle",
+                    "circular-dependency",
                     span.unwrap_or(Span::point(
                         session.workspace.package(t.package).build_file_id,
                         0,

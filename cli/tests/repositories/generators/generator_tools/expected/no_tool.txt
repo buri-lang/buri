@@ -1,4 +1,4 @@
-error: this `generators` entry names no tool [generator-without-a-tool]
+error: this `generators` entry names no tool [generator-missing-tool]
  --> lib/wire/BUILD.buri:3:9
   |
 3 |         { inputs: ["point.proto"] },

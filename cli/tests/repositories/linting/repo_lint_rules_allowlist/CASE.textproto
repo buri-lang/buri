@@ -19,7 +19,7 @@ run {
   golden: "lint.txt"
 }
 
-# The same block with the default the other way round. `warning_comment: true`
+# The same block with the default the other way round. `todo_comment: true`
 # is now the value it would have had anyway, so this is a `rules` block that
 # changes nothing — and a report with no line above it.
 edit {

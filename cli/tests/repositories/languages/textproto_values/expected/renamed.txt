@@ -1,13 +1,10 @@
-error: "//lib/deploy/server.txtpb" names no file (lib/deploy/server.txtpb.buri) [module-not-found]
+error: "//lib/deploy/server.txtpb" names no file (lib/deploy/server.txtpb.buri) [unknown-module]
  --> lib/deploy/lib.buri:1:6
   |
 1 | from "//lib/deploy/server.txtpb" export { Server, server };
   |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
-
-    This resolves against the example monorepo in cli/tests/example, which has
-    no lib/nope:
 
     There's no search path and no fallback, so a path never has two candidates.
 

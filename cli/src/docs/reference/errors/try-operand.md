@@ -1,5 +1,5 @@
 ---
-title: `?` propagates a failure
+title: `?` takes a `Result` or an `Option`
 message: '`?` takes a `Result` or an `Option`, found `{type}`'
 fix: '`?` propagates a failure; this value is neither a `Result` nor an `Option`'
 ---

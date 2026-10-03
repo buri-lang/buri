@@ -1,12 +1,9 @@
-error: "//lib/plain/testing/lib.buri" names no file (lib/plain/testing/lib.buri) [module-not-found]
+error: "//lib/plain/testing/lib.buri" names no file (lib/plain/testing/lib.buri) [unknown-module]
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
-
-    This resolves against the example monorepo in cli/tests/example, which has
-    no lib/nope:
 
     There's no search path and no fallback, so a path never has two candidates.
 
-error: testing/helpers.buri does not exist [no-such-source]
+error: testing/helpers.buri does not exist [unknown-source]
  --> lib/plain/BUILD.buri:6:15
   |
 6 |     sources: ["testing/helpers.buri"]

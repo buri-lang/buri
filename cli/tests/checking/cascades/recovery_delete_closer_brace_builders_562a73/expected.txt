@@ -5,7 +5,7 @@ error: `LetDecl` is missing `value`, `exported` and `docs` [missing-field-value]
    |              ^^^^^^^^^^^^^
    |
    = fix: give `value`, `exported` and `docs` a value — only an `Option` field may be left out — or start from an existing one with `LetDecl { ..base, field: value }`
-error: `ty` takes 1 arguments, but 2 were given [wrong-argument-count]
+error: `ty` takes 1 arguments, but 2 were given [argument-count]
   --> main.buri:90:17
    |
 90 |             ty: ty("Int",

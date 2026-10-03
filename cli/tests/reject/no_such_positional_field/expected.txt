@@ -1,4 +1,4 @@
-error: `Wrapper` has no field 3 [no-such-positional-field]
+error: `Wrapper` has no field 3 [unknown-positional-field]
  --> cmd/no_such_positional_field/main.buri:5:5
   |
 5 |   w.3

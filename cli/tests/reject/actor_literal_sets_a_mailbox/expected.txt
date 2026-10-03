@@ -1,4 +1,4 @@
-error: `Actor` has no field `mailbox` [no-such-field]
+error: `Actor` has no field `mailbox` [unknown-field]
   --> cmd/actor_literal_sets_a_mailbox/main.buri:22:9
    |
 22 |         mailbox: .Some(8),

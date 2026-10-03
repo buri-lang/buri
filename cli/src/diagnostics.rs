@@ -1594,19 +1594,19 @@ mod tests {
     }
 
     /// The one thing a migration has to preserve: the same inputs produce the
-    /// same bytes. `type-args-on-a-value` is the worked case — its message and
+    /// same bytes. `type-arguments-on-value` is the worked case — its message and
     /// its fix moved from `semantics/expressions.rs` into the frontmatter of
-    /// `docs/reference/errors/type-args-on-a-value.md` and nothing about what a user
+    /// `docs/reference/errors/type-arguments-on-value.md` and nothing about what a user
     /// reads changed.
     #[test]
     fn a_templated_diagnostic_renders_what_the_call_site_used_to_build() {
         let (map, id) = one_file();
         let span = Span::new(id, 16, 21);
         let by_hand = Diagnostic::error(span, "explicit type arguments qualify a function or a call")
-            .with_code("type-args-on-a-value")
+            .with_code("type-arguments-on-value")
             .with_fix("attach the type arguments to the call, as in `a<Str>(x)`");
         let templated =
-            Diagnostic::templated("type-args-on-a-value", span).with_bind("function", "a");
+            Diagnostic::templated("type-arguments-on-value", span).with_bind("function", "a");
         assert_eq!(map.render(&templated, false), map.render(&by_hand, false));
         assert_eq!(map.to_json(&templated), map.to_json(&by_hand));
     }
@@ -1617,7 +1617,7 @@ mod tests {
     #[test]
     fn only_the_first_of_a_code_is_explained() {
         let (map, id) = one_file();
-        let d = Diagnostic::templated("type-args-on-a-value", Span::new(id, 16, 21))
+        let d = Diagnostic::templated("type-arguments-on-value", Span::new(id, 16, 21))
             .with_bind("function", "a");
 
         forget_explanations();
@@ -1651,7 +1651,7 @@ mod tests {
     #[should_panic(expected = "nothing bound it")]
     fn an_unbound_placeholder_is_a_failure_rather_than_a_hole_in_a_sentence() {
         let (map, id) = one_file();
-        let d = Diagnostic::templated("type-args-on-a-value", Span::new(id, 16, 21));
+        let d = Diagnostic::templated("type-arguments-on-value", Span::new(id, 16, 21));
         let _ = map.render(&d, false);
     }
 
@@ -1659,7 +1659,7 @@ mod tests {
     #[should_panic(expected = "no template of its page uses it")]
     fn a_binding_nothing_uses_is_a_failure_too() {
         let (map, id) = one_file();
-        let d = Diagnostic::templated("type-args-on-a-value", Span::new(id, 16, 21))
+        let d = Diagnostic::templated("type-arguments-on-value", Span::new(id, 16, 21))
             .with_bind("function", "a")
             .with_bind("callee", "a");
         let _ = map.render(&d, false);

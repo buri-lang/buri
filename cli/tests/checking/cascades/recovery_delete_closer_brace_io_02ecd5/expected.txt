@@ -1,4 +1,4 @@
-error: `stdin` takes 0 arguments, but 1 were given [wrong-argument-count]
+error: `stdin` takes 0 arguments, but 1 were given [argument-count]
   --> main.buri:56:16
    |
 56 |         Stdin: stdin(.lines(["café", "\ttabbed", "a b  c"]),
@@ -7,7 +7,7 @@ error: `stdin` takes 0 arguments, but 1 were given [wrong-argument-count]
    = expected: 0
    = actual: 1
    = fix: pass `stdin` the following arguments: stdin()
-error: `.lines` needs a known expected type [unannotated-variant]
+error: `.lines` needs a known expected type [untyped-variant]
   --> main.buri:56:22
    |
 56 |         Stdin: stdin(.lines(["café", "\ttabbed", "a b  c"]),

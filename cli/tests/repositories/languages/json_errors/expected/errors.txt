@@ -1,4 +1,4 @@
-error: this file has no `"$schema"` [json-without-schema]
+error: this file has no `"$schema"` [json-missing-schema]
  --> lib/bad/bare.json:1:1
   |
 1 | { "a": 1 }
@@ -16,7 +16,7 @@ error: this file has no `"$schema"` [json-without-schema]
     as wrong generated code instead of an error at the typo. buri format never
     adds the key: which schema a file follows is yours to say.
 
-error: `https://example.com/elsewhere.json` is not a file in this repository [schema-not-local]
+error: `https://example.com/elsewhere.json` is not a file in this repository [schema-outside-repository]
  --> lib/bad/broken_ref.schema.json:3:13
   |
 3 |     "$ref": "https://example.com/elsewhere.json",
@@ -117,7 +117,7 @@ error: `dependencies` is not a JSON Schema 2020-12 keyword [json-schema-invalid]
   |     ^^^^^^^^^^^^^^
   |
   = fix: use `dependentRequired` for a list of names, and `dependentSchemas` for a schema
-error: there is no schema at `lib/bad/nowhere.schema.json` [schema-not-found]
+error: there is no schema at `lib/bad/nowhere.schema.json` [unknown-schema]
  --> lib/bad/missing.json:1:14
   |
 1 | { "$schema": "nowhere.schema.json" }
@@ -129,7 +129,7 @@ error: there is no schema at `lib/bad/nowhere.schema.json` [schema-not-found]
     way a browser resolves a link. A path starting // is read from the
     repository root.
 
-error: `../../../ok.schema.json` is not a file in this repository [schema-not-local]
+error: `../../../ok.schema.json` is not a file in this repository [schema-outside-repository]
  --> lib/bad/outside.json:1:14
   |
 1 | { "$schema": "../../../ok.schema.json" }
@@ -144,7 +144,7 @@ error: a single-quoted string is JSON5, not JSON [json-syntax]
   |              ^
   |
   = fix: write it the JSON way, or rename the file to `.json5`
-error: `https://example.com/ok.schema.json` is not a file in this repository [schema-not-local]
+error: `https://example.com/ok.schema.json` is not a file in this repository [schema-outside-repository]
  --> lib/bad/remote.json:1:14
   |
 1 | { "$schema": "https://example.com/ok.schema.json" }

@@ -1,7 +1,7 @@
 // EXPECT: `Stack` has no field `onPressOutide`
 //
 // The config field that dismisses an overlay is `onPressOutside`, and dropping
-// a letter is the mistake the long name invites. It is a no-such-field on the
+// a letter is the mistake the long name invites. It is a unknown-field on the
 // config struct rather than a node quietly built with the handler silently
 // dropped.
 from "platform/effect" import { Allocator };

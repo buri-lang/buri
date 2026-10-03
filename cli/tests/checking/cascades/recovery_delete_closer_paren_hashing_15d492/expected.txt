@@ -1,4 +1,4 @@
-error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
+error: `equal` takes 2 arguments, but 1 were given [argument-count]
   --> main.buri:34:5
    |
 34 |     assert.equal(table.get(uuid.zero(), .Some("nil"));
@@ -7,7 +7,7 @@ error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
    = expected: 2
    = actual: 1
    = fix: pass `equal` the following arguments: equal<T: Equal>(actual: T, expected: T)
-error: `get` takes 1 arguments, but 2 were given [wrong-argument-count]
+error: `get` takes 1 arguments, but 2 were given [argument-count]
   --> main.buri:34:18
    |
 34 |     assert.equal(table.get(uuid.zero(), .Some("nil"));
@@ -16,7 +16,7 @@ error: `get` takes 1 arguments, but 2 were given [wrong-argument-count]
    = expected: 1
    = actual: 2
    = fix: pass `get` the following arguments: get(self, key: K)
-error: `.Some` needs a known expected type [unannotated-variant]
+error: `.Some` needs a known expected type [untyped-variant]
   --> main.buri:34:41
    |
 34 |     assert.equal(table.get(uuid.zero(), .Some("nil"));

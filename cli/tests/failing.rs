@@ -45,7 +45,7 @@
 //! The pin stays for one reason, and it is about the machine rather than about
 //! the report: a toolchain built with `--no-default-features`, a host outside
 //! macOS and Linux, and a machine with no C toolchain cannot build a test
-//! binary at all, and the default there is a `native-run-not-available`
+//! binary at all, and the default there is a `test-run-unavailable`
 //! refusal rather than a run. `does_not_compile`, `duplicate_titles` and
 //! `exit_codes` record standard error, and an unpinned one of those would
 //! record that refusal instead of the report it is about, depending on how the
@@ -294,7 +294,7 @@ fn every_case_documents_itself_and_runs_the_test_command() {
 /// this toolchain has to say about *itself* — so comparing stderr would be
 /// comparing how the binary running the test was built. On a machine that
 /// cannot build a native test binary the default run is refused
-/// (`native-run-not-available`) and prints no report at all, which is a
+/// (`test-run-unavailable`) and prints no report at all, which is a
 /// difference in stdout and is meant to be: this test asserts the two backends
 /// agree, and a machine with only one of them has nothing to compare. The exit
 /// status is compared, because a report that agrees and a status that does not
@@ -387,7 +387,7 @@ fn default_backend_cases() -> usize {
 /// It is a *skip* rather than a second expectation because the machine that
 /// answers `Some` has one backend, and a test that compared one backend against
 /// itself would pass without asserting anything. What the default does there —
-/// refuse with `native-run-not-available` rather than reroute — is pinned in
+/// refuse with `test-run-unavailable` rather than reroute — is pinned in
 /// `build::incrementality`, on every machine.
 fn no_native_default() -> Option<String> {
     let host = buri::compiler::driver::host_native_platform();

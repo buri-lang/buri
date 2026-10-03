@@ -1,4 +1,4 @@
-error: a derived trait ends with `,` [missing-separator]
+error: a derived trait ends with `,` [missing-comma]
   --> main.buri:12:13
    |
 12 | derive Equal Ordered, Show for Cents;

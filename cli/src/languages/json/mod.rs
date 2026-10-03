@@ -65,11 +65,11 @@ fn named<'d>(path: &str, doc: &'d Document, contract: Option<&str>) -> Named<'d>
     }
     let Some(member) = root.member("$schema") else {
         let at = (root.span.0, root.span.0.saturating_add(1));
-        return Named::Refused(Finding::new("json-without-schema", path, at, Vec::new()));
+        return Named::Refused(Finding::new("json-missing-schema", path, at, Vec::new()));
     };
     let value = &member.value;
     let Some(uri) = value.as_str() else {
-        return Named::Refused(Finding::new("schema-not-local", path, value.span, vec![("schema", value.raw.clone())]));
+        return Named::Refused(Finding::new("schema-outside-repository", path, value.span, vec![("schema", value.raw.clone())]));
     };
     if is_2020_12(uri) {
         return Named::Schema;
@@ -80,7 +80,7 @@ fn named<'d>(path: &str, doc: &'d Document, contract: Option<&str>) -> Named<'d>
     let local = if has_scheme(uri) { None } else { local_path(path, uri.split('#').next().unwrap_or_default()) };
     match local {
         Some(file) => Named::File(file, value),
-        None => Named::Refused(Finding::new("schema-not-local", path, value.span, vec![("schema", uri.to_string())])),
+        None => Named::Refused(Finding::new("schema-outside-repository", path, value.span, vec![("schema", uri.to_string())])),
     }
 }
 
@@ -150,7 +150,7 @@ pub fn check(
         }
         Named::File(schema, value) => {
             if !files.contains_key(&schema) {
-                return vec![Finding::new("schema-not-found", path, value.span, vec![("path", schema)])];
+                return vec![Finding::new("unknown-schema", path, value.span, vec![("path", schema)])];
             }
             (Some(schema), Some(&doc.root))
         }
@@ -211,7 +211,7 @@ fn schema_set(
     dialect_of: &dyn Fn(&str) -> Dialect,
 ) -> Result<Vec<SchemaFile>, Vec<Finding>> {
     let Some(text) = files.get(path) else {
-        return Err(vec![Finding::new("schema-not-found", path, (0, 0), vec![("path", path.to_string())])]);
+        return Err(vec![Finding::new("unknown-schema", path, (0, 0), vec![("path", path.to_string())])]);
     };
     let found = check(path, text, None, dialect_of, files);
     if !found.is_empty() {
@@ -309,14 +309,14 @@ mod tests {
     #[test]
     fn the_schema_must_be_local_and_2020_12() {
         let remote = r##"{ "$schema": "https://example.com/app.schema.json" }"##;
-        assert_eq!(codes(&run("a.json", remote, &[])), vec!["schema-not-local"]);
+        assert_eq!(codes(&run("a.json", remote, &[])), vec!["schema-outside-repository"]);
         let outside = r##"{ "$schema": "../../app.schema.json" }"##;
-        assert_eq!(codes(&run("lib/a.json", outside, &[])), vec!["schema-not-local"]);
+        assert_eq!(codes(&run("lib/a.json", outside, &[])), vec!["schema-outside-repository"]);
         let draft = r##"{ "$schema": "http://json-schema.org/draft-07/schema#" }"##;
         assert_eq!(codes(&run("a.json", draft, &[])), vec!["json-schema-draft-unsupported"]);
         let missing = r##"{ "$schema": "nope.json" }"##;
-        assert_eq!(codes(&run("a.json", missing, &[])), vec!["schema-not-found"]);
-        assert_eq!(codes(&run("a.json", "{}", &[])), vec!["json-without-schema"]);
+        assert_eq!(codes(&run("a.json", missing, &[])), vec!["unknown-schema"]);
+        assert_eq!(codes(&run("a.json", "{}", &[])), vec!["json-missing-schema"]);
     }
 
     #[test]

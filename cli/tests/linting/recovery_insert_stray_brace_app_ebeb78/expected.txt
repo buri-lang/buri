@@ -1,4 +1,4 @@
-warning: this discards a `Result` [discarded-result]
+warning: this discards a `Result` [ignored-result]
   --> lib/recovery_insert_stray_brace_app_ebeb78/main.buri:26:13
    |
 26 |     let _ = record().ignore();

@@ -1,4 +1,4 @@
-error: `main` takes no host [entry-without-host]
+error: `main` takes no host [entry-missing-host]
  --> cmd/entry_without_host/main.buri:9:1
   |
 9 | export fn main(): Result<(), Str> {

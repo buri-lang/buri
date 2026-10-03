@@ -20,7 +20,7 @@ warning: `platform/effect` is imported twice [duplicate-import]
    |
    = two statements for one module drift apart, and the top of the file stops being the whole account of what it borrows
    = fix: merge the two into one import
-error: there is nothing named `print` in scope [unresolved-name]
+error: there is nothing named `print` in scope [unknown-name]
   --> lib/recovery_insert_stray_module_app_f8123c/main.buri:19:13
    |
 19 |     let _ = print(ctx, "half a line").mapErr(fn(_e) => {

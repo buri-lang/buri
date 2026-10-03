@@ -1,4 +1,4 @@
-warning: this comment is marked `TODO` [warning-comment]
+warning: this comment is marked `TODO` [todo-comment]
  --> lib/money/test/cents.buri:6:4
   |
 6 | // TODO: this suite is not finished.
@@ -36,7 +36,7 @@ warning: `platform/effect` is imported twice [duplicate-import]
      from a value import — say that with the language's own type-import syntax
      rather than two plain imports that look accidental.
 
-warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
+warning: this is a table of the sixteen hexadecimal digits [hand-rolled-hex-digits]
   --> lib/money/test/cents.buri:17:23
    |
 17 | let HEX_DIGITS: Str = "0123456789abcdef";
@@ -345,7 +345,7 @@ warning: bound `Allocator` on `C` is not used by this function [unused-context-b
      The fix is withheld when anything but separators sits between the bounds,
      so a comment inside a bound list never gets deleted.
 
-warning: this discards a `Result` [discarded-result]
+warning: this discards a `Result` [ignored-result]
   --> lib/money/test/cents.buri:52:13
    |
 52 |     let _ = io.println(ctx, line).ignore();
@@ -368,8 +368,8 @@ warning: this discards a `Result` [discarded-result]
            .Err(_error) => (),
        }
 
-     It's ignore() spelled out, minus the greppability, and
-     discarded-result-by-hand reports it too.
+     It's ignore() spelled out, minus the greppability, and hand-rolled-ignore
+     reports it too.
 
      let _ = someResult() and a bare Result statement are already a type error,
      result-discarded, so ignore is the only drop left to report.
@@ -382,7 +382,7 @@ warning: this discards a `Result` [discarded-result]
      If the failure truly doesn't matter, keeping the ignore and letting the
      warning stand is fine. The point is that somebody decided.
 
-warning: this drops a `Result` by hand [discarded-result-by-hand]
+warning: this drops a `Result` by hand [hand-rolled-ignore]
   --> lib/money/test/cents.buri:56:5
    |
 56 |     match (io.println(ctx, line)) {
@@ -403,10 +403,10 @@ warning: this drops a `Result` by hand [discarded-result-by-hand]
      it, report it, fall back), or use ? to hand it to a caller who can.
 
      If the drop is deliberate, like a cache write whose failure no caller could
-     act on, say ignore(). It's one greppable call, and discarded-result
-     collects every one into a single report.
+     act on, say ignore(). It's one greppable call, and ignored-result collects
+     every one into a single report.
 
-     This rule exists so the four-line form can't dodge discarded-result in a
+     This rule exists so the four-line form can't dodge ignored-result in a
      repository gated on a clean lint run. Both forms are reported.
 
      It fires only on exactly this shape: two arms, .Ok and .Err, no guards,
@@ -484,7 +484,7 @@ warning: `unread` is bound and never used [unused-variable]
       need, keep the call and drop the binding. If the value was meant to be
       returned or passed on, finish that instead of silencing the warning.
 
-warning: this discards a `Result` [discarded-result]
+warning: this discards a `Result` [ignored-result]
    --> lib/money/test/cents.buri:138:13
     |
 138 |     let _ = announce(ctx, "three").ignore();
@@ -500,7 +500,7 @@ warning: test "a title that\nwraps" has a newline in its title [test-title-newli
     |
     = a failure report is one line per test, so the runner prints the title escaped — the break shows up as `\n` rather than as a line break
     = fix: write the title on one line; a sentence is enough, and the body says the rest
-warning: test "a test that asserts nothing is still a test" asserts nothing [test-without-assertion]
+warning: test "a test that asserts nothing is still a test" asserts nothing [test-missing-assertion]
    --> lib/money/test/cents.buri:156:1
     |
 156 | test "a test that asserts nothing is still a test" {

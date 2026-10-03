@@ -1,4 +1,4 @@
-error: an import declaration ends with `;` [missing-terminator]
+error: an import declaration ends with `;` [missing-semicolon]
   --> main.buri:14:77
    |
 14 | from "platform/effect/testing" import { elapse, headless, observer, render }extra ;

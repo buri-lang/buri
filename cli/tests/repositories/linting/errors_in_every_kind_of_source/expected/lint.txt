@@ -1,4 +1,4 @@
-error: `Fs` is not a trait or effect [not-a-trait]
+error: `Fs` is not a trait or effect [bound-not-trait]
  --> lib/db/manager.buri:6:20
   |
 6 | export fn stamp<C: Fs>(ctx: C, name: Str): Str {
@@ -6,13 +6,18 @@ error: `Fs` is not a trait or effect [not-a-trait]
   |
   = a bound names a declared trait; there are no where clauses
   = fix: name a declared trait or effect, or declare `Fs` as one
-error: `C` does not satisfy `Allocator` [unsatisfied-bound]
+error: `C` does not implement `Allocator` [missing-impl]
  --> lib/db/manager.buri:7:5
   |
 7 |     str.format(ctx, "db/${name}")
   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = fix: bound the type parameter with `Allocator`, or use a type that has one
+
+    A context binding and a bound both ask for an impl. Having the right methods
+    isn't enough: a type conforms only once an impl says so. That's why a test
+    double is a struct plus an impl block.
+
 error: expected `Str`, found `Int` [type-mismatch]
   --> lib/db/manager.buri:10:24
    |
@@ -42,7 +47,7 @@ error: expected `Str`, found `Int` [type-mismatch]
      side names the variant, not a type, because the compiler won't guess an
      enum from the payload.
 
-error: `Fs` is not a declared effect [not-an-effect]
+error: `Fs` is not a declared effect [unknown-effect]
   --> lib/db/test/residency.buri:14:9
    |
 14 |         Fs: alloc(),
@@ -58,7 +63,7 @@ error: expected `Str`, found `Int` [type-mismatch]
    = expected: `Str`
    = actual: `Int`
    = an integer literal defaults to `Int` but takes any integer type, and `Str` is not one
-error: `Fs` is not a trait or effect [not-a-trait]
+error: `Fs` is not a trait or effect [bound-not-trait]
  --> lib/db/testing/fakes.buri:6:24
   |
 6 | export fn fakeStamp<C: Fs>(ctx: C, name: Str): Str {
@@ -66,7 +71,7 @@ error: `Fs` is not a trait or effect [not-a-trait]
   |
   = a bound names a declared trait; there are no where clauses
   = fix: name a declared trait or effect, or declare `Fs` as one
-error: `C` does not satisfy `Allocator` [unsatisfied-bound]
+error: `C` does not implement `Allocator` [missing-impl]
  --> lib/db/testing/fakes.buri:7:5
   |
 7 |     str.format(ctx, "fake/${name}")

@@ -1,4 +1,4 @@
-error: `Measurable` is a trait, not a type [trait-used-as-a-type]
+error: `Measurable` is a trait, not a type [trait-not-type]
  --> cmd/trait_used_as_a_type/main.buri:6:12
   |
 6 | fn take(m: Measurable): Int {

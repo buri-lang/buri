@@ -1,4 +1,4 @@
-error: `WebHost` has no field `fs` [no-such-field]
+error: `WebHost` has no field `fs` [unknown-field]
   --> cmd/host_effect_not_granted_on_web/main.buri:19:26
    |
 19 |     FileSystemRead: host.fs,

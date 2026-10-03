@@ -171,7 +171,7 @@ $ curl -s http://127.0.0.1:3000/health
 `sendMessage` answers a `Result`, and its `SendError` says why a send failed:
 `.Err(.Stopped)` once the actor has stopped, for one. A handler that cannot act
 on a failed send drops it with `withDefault` or `ignore`, and
-[`discarded-result`](../reference/lints/discarded-result.md) reports every such
+[`ignored-result`](../reference/lints/ignored-result.md) reports every such
 decision in one list. [Tasks and actors](./concurrency.md) is the rest of the
 model.
 
@@ -388,7 +388,7 @@ every host, so they are not among them:
 
 ```text
 $ buri build //cmd/server
-error: `WebHost` has no field `listen` [no-such-field]
+error: `WebHost` has no field `listen` [unknown-field]
   --> cmd/server/main.buri:57:22
    |
 57 |         Listen: host.listen,

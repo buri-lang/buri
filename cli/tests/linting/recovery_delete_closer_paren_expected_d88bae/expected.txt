@@ -6,7 +6,7 @@ error: expected `Str`, found `IoError` [type-mismatch]
    |
    = expected: `Str`
    = actual: `IoError`
-error: `rendered` takes 3 arguments, but 2 were given [wrong-argument-count]
+error: `rendered` takes 3 arguments, but 2 were given [argument-count]
   --> lib/recovery_delete_closer_paren_expected_d88bae/main.buri:51:23
    |
 51 |         .println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>", label))
@@ -15,7 +15,7 @@ error: `rendered` takes 3 arguments, but 2 were given [wrong-argument-count]
    = expected: 3
    = actual: 2
    = fix: `rendered` requires a `label` parameter: rendered<C: Allocator>(ctx: C, render: fn(C, Str) => Str, label: Str)
-error: `format` takes 2 arguments, but 3 were given [wrong-argument-count]
+error: `format` takes 2 arguments, but 3 were given [argument-count]
   --> lib/recovery_delete_closer_paren_expected_d88bae/main.buri:51:49
    |
 51 |         .println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>", label))
@@ -24,7 +24,7 @@ error: `format` takes 2 arguments, but 3 were given [wrong-argument-count]
    = expected: 2
    = actual: 3
    = fix: pass `format` the following arguments: format<C: Allocator>(ctx: C, template: Template)
-error: `Str` has no method `mapErr` [no-such-method]
+error: `Str` has no method `mapErr` [unknown-method]
   --> lib/recovery_delete_closer_paren_expected_d88bae/main.buri:52:10
    |
 52 |         .mapErr(fn(_e) => "could not write to standard output")

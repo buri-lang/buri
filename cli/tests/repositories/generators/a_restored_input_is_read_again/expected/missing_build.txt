@@ -1,4 +1,4 @@
-error: b.txt does not exist [no-such-source]
+error: b.txt does not exist [unknown-source]
  --> lib/schemas/BUILD.buri:4:51
   |
 4 |         { tool: "//tool/embed", inputs: ["a.txt", "b.txt"] },
@@ -6,7 +6,7 @@ error: b.txt does not exist [no-such-source]
   |
   = every source is declared one path at a time; there are no globs
   = fix: create the file, or remove it from `generators`
-error: "//lib/schemas/files" names no file (lib/schemas/files.buri) [module-not-found]
+error: "//lib/schemas/files" names no file (lib/schemas/files.buri) [unknown-module]
  --> lib/schemas/schemas.buri:1:6
   |
 1 | from "//lib/schemas/files" import { A_TXT };
@@ -14,12 +14,9 @@ error: "//lib/schemas/files" names no file (lib/schemas/files.buri) [module-not-
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
 
-    This resolves against the example monorepo in cli/tests/example, which has
-    no lib/nope:
-
     There's no search path and no fallback, so a path never has two candidates.
 
-error: there is nothing named `A_TXT` in scope [unresolved-name]
+error: there is nothing named `A_TXT` in scope [unknown-name]
  --> lib/schemas/schemas.buri:5:5
   |
 5 |     A_TXT

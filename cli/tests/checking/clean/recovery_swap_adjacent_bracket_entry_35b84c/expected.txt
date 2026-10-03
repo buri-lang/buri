@@ -1,4 +1,4 @@
-error: an array element ends with `,` [missing-separator]
+error: an array element ends with `,` [missing-comma]
   --> main.buri:33:70
    |
 33 |     assert.equal(out.modules.map(ctx, fn(m) => m.0), ["address.proto""point.proto" ,]);

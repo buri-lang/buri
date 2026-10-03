@@ -1,5 +1,5 @@
 # Two tests with one title in one file. It is a compile error
-# (`duplicate-test-name`), so what this case records is the combination no
+# (`duplicate-test`), so what this case records is the combination no
 # reject case can state: the diagnostic on stderr, a summary line of zeros on
 # stdout, and exit 1 — the code is wrong, not the invocation.
 #

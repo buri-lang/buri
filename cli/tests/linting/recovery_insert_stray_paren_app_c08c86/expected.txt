@@ -31,7 +31,7 @@ error: expected a type, found `,` [unexpected-token]
    = expected: a type
    = actual: `,`
    = fix: name a type here, as in `Int` or `[Str]`
-error: there is nothing named `rendered` in scope [unresolved-name]
+error: there is nothing named `rendered` in scope [unknown-name]
   --> lib/recovery_insert_stray_paren_app_c08c86/main.buri:60:18
    |
 60 |     whisper(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label)).mapErr(

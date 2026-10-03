@@ -1300,7 +1300,7 @@ impl Monomorphizer<'_> {
         };
         // Only a bundled standard-library module can declare an operation the
         // runtime supplies — `resolve::record_intrinsic` guards on exactly this
-        // — and a bodyless `fn` anywhere else is `declaration-without-a-body`
+        // — and a bodyless `fn` anywhere else is `missing-body`
         // from the parser. So this cannot be reached by any input, which is
         // what makes an `ice` the right shape for it rather than a diagnostic:
         // there is nothing the author of the *program* could do about it.
@@ -1436,7 +1436,7 @@ impl Monomorphizer<'_> {
     /// **Only the arguments the declaration spells with `Self`, and only at the
     /// parameter positions it spells it in.** A trait method's other parameters
     /// cannot be a context — an effect-carrying parameter must be named `ctx`
-    /// (SPEC 10.6, `effect-param-not-ctx`) — but a *method-generic* one
+    /// (SPEC 10.6, `effect-parameter-not-ctx`) — but a *method-generic* one
     /// instantiated at this same context would be an ordinary use of that type
     /// and not a `Self` at all, so the declaration says what is in scope rather
     /// than the shape of a type.
@@ -1447,7 +1447,7 @@ impl Monomorphizer<'_> {
     ///
     /// A `Self` **result**, and a `Self` that is not a callback parameter, are
     /// left alone: no effect declares either — only an effect can be a context
-    /// binding (`context-binding-not-an-effect`), only a platform module or an effect package can
+    /// binding (`context-binding-not-effect`), only a platform module or an effect package can
     /// declare an effect (`effect-outside-effect-directory`), and `Listen.listen` is
     /// the standard library's only `Self`-spelled parameter. A value at the
     /// context's type reaching a parameter at the implementation's is a type
@@ -1881,8 +1881,10 @@ impl Monomorphizer<'_> {
 
         let Some(con) = recv.head() else {
             self.diags.push(
-                Diagnostic::templated("type-arguments-required", span)
-                    .with_bind("trait", self.tables().trait_(trait_id).name.clone()),
+                Diagnostic::templated("undetermined-type", span).with_bind(
+                    "function",
+                    format!("a `{}` method", self.tables().trait_(trait_id).name),
+                ),
             );
             return ExprKind::Error;
         };
@@ -1891,7 +1893,7 @@ impl Monomorphizer<'_> {
             let t = self.tables().trait_(trait_id).name.clone();
             let c = self.tables().tycon(con).name.clone();
             self.diags.push(
-                Diagnostic::templated("missing-conformance", span)
+                Diagnostic::templated("missing-impl", span)
                     .with_bind("type", c.clone())
                     .with_bind("trait", t.clone())
                     .with_note("conformance is nominal: a type satisfies a trait only where a declaration says so")
@@ -1919,8 +1921,8 @@ impl Monomorphizer<'_> {
             Err(err) => {
                 let name = self.tables().trait_(trait_id).name.clone();
                 self.diags.push(
-                    Diagnostic::templated("type-arguments-required", span)
-                        .with_bind("trait", name)
+                    Diagnostic::templated("undetermined-type", span)
+                        .with_bind("function", format!("a `{name}` method"))
                         .with_note(err.note())
                         .with_fix(err.fix()),
                 );
@@ -2010,7 +2012,7 @@ impl Monomorphizer<'_> {
             }
             _ => {
                 self.diags.push(
-                    Diagnostic::templated("no-structural-derive", span)
+                    Diagnostic::templated("trait-not-derivable", span)
                         .with_bind("trait", name.clone()),
                 );
                 ExprKind::Error
@@ -2034,7 +2036,7 @@ impl Monomorphizer<'_> {
         let fields = tycon.fields().to_vec();
         let [field] = fields.as_slice() else {
             self.diags.push(
-                Diagnostic::templated("derive-operator-not-a-newtype", span)
+                Diagnostic::templated("derive-operator-not-newtype", span)
                     .with_bind("type", tycon.name.clone())
                     .with_bind("operator", op),
             );
@@ -2247,7 +2249,7 @@ struct Counts {
 
 /// Why an implementation's type arguments could not be rebuilt. Every variant
 /// is a disagreement between an `impl` and the trait it implements, which is
-/// what `signature-mismatch` will report at the declaration once it exists;
+/// what `impl-signature-mismatch` will report at the declaration once it exists;
 /// until then it is reported here, at the call that would have been
 /// miscompiled.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -2440,7 +2442,7 @@ fn zip_match(heads: &[Ty], recvs: &[Ty], bound: &mut [Option<Ty>]) -> bool {
 /// the block and lets go of nothing inside it. `core/actor`'s `stop` was
 /// exactly that, and every undelivered message's payload leaked.
 /// `semantics/inference.rs`'s `check_erased_calls` is where the call site is
-/// now held to it, and `undetermined-intrinsic-type` is what it says.
+/// now held to it, and `undetermined-type` is what it says.
 ///
 /// Sorted, and asserted sorted, so a reader can find a key and a duplicate is
 /// visible. `number.<Prim>.show` and `number.<Prim>.toJson` are **not** here: they
@@ -2990,7 +2992,7 @@ mod tests {
     }
 
     /// The truncation the old code did: an `impl` whose method declares more
-    /// generics than the trait's does. `signature-mismatch` will catch it at
+    /// generics than the trait's does. `impl-signature-mismatch` will catch it at
     /// the declaration; until then it is caught here rather than papered over.
     #[test]
     fn an_impl_that_declares_too_few_generics_is_reported() {

@@ -5,7 +5,7 @@ error: a `Result` may not be discarded [result-discarded]
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)` to supply one — or, when you really mean to drop it, the explicit and greppable `.ignore()`
-error: `record` takes 0 arguments, but 1 were given [wrong-argument-count]
+error: `record` takes 0 arguments, but 1 were given [argument-count]
   --> lib/recovery_delete_closer_brace_app_ab1eff/main.buri:26:13
    |
 26 |     let _ = record(.ignore();
@@ -14,7 +14,7 @@ error: `record` takes 0 arguments, but 1 were given [wrong-argument-count]
    = expected: 0
    = actual: 1
    = fix: pass `record` the following arguments: record()
-error: `.ignore` needs a known expected type [unannotated-variant]
+error: `.ignore` needs a known expected type [untyped-variant]
   --> lib/recovery_delete_closer_brace_app_ab1eff/main.buri:26:20
    |
 26 |     let _ = record(.ignore();
@@ -33,7 +33,7 @@ error: this call is missing its closing `)` [unclosed-delimiter]
    |                   ^ opened here
    |
    = fix: write `)` here
-warning: this discards a `Result` [discarded-result]
+warning: this discards a `Result` [ignored-result]
   --> lib/recovery_delete_closer_brace_app_ab1eff/main.buri:27:13
    |
 27 |     let _ = io.println(ctx, "done").ignore();

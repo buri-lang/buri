@@ -1,4 +1,4 @@
-error: `dice` is a `HostDice`, which `//platform/lambda` declares itself, and a `NATIVE` entry has no `js` file to implement it [custom-effect-on-native-backend]
+error: `dice` is a `HostDice`, which `//platform/lambda` declares itself, and a `NATIVE` entry has no `js` file to implement it [custom-effect-outside-js]
  --> platform/lambda/platform.buri:8:5
   |
 8 |     export dice: HostDice,

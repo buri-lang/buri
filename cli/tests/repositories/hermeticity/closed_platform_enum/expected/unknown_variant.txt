@@ -1,4 +1,4 @@
-error: `linux-riscv` is not a variant of `native` [no-such-platform-variant]
+error: `linux-riscv` is not a variant of `native` [unknown-platform-variant]
  --> cmd/ok/BUILD.buri:3:40
   |
 3 |         { platform: "native", variant: "linux-riscv" },

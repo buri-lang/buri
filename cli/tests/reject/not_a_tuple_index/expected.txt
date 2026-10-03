@@ -1,4 +1,4 @@
-error: `99999999999` is not a tuple index [not-a-tuple-index]
+error: `99999999999` is not a tuple index [invalid-tuple-index]
  --> cmd/not_a_tuple_index/main.buri:9:16
   |
 9 |   let n = pair.99999999999;

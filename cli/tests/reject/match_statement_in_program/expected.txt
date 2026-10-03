@@ -1,4 +1,4 @@
-error: an expression statement is legal only in a test source [expression-statement]
+error: an expression statement is legal only in a test source [statement-outside-test]
  --> cmd/match_statement_in_program/main.buri:8:3
   |
 8 |   match (1) {

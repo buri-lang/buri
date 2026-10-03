@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "the sixteen hexadecimal digits written out as a table, and the `nibble` that comes with them: hex-digit-table, and the base64 alphabet beside it that is a table of something else and is not a finding"
+doc: "the sixteen hexadecimal digits written out as a table, and the `nibble` that comes with them: hand-rolled-hex-digits, and the base64 alphabet beside it that is a table of something else and is not a finding"
 
 run {
   args: ["lint", "//cmd/app"]

@@ -22,7 +22,7 @@ that declares a worker and nothing else is refused:
 
 ```text
 $ buri run //cmd/site
-error: //cmd/site builds `fetch` for `//platform/cloudflare_worker`, and its `js` file calls it, so there is nothing to start [platform-cannot-run]
+error: //cmd/site builds `fetch` for `//platform/cloudflare_worker`, and its `js` file calls it, so there is nothing to start [entry-not-runnable]
 ```
 
 ## A page is served

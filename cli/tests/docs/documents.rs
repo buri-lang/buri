@@ -1236,7 +1236,7 @@ fn copy_tree(from: &Path, to: &Path) {
 ///
 /// Two catalogues, because there are two kinds of diagnostic. A compile error
 /// can be provoked by one program, so it earns a page with that program on it.
-/// A build-graph finding cannot — `dep-cycle` needs two packages — so it is a
+/// A build-graph finding cannot — `circular-dependency` needs two packages — so it is a
 /// page under `reference/lints/` instead, registered in `documentation/lints.rs`.
 ///
 /// There is no third place. A prose table used to be allowed to stand in for a
@@ -1304,7 +1304,7 @@ fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
 fn codes_in(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     // The quote is matched separately from the marker because rustfmt breaks a
-    // long call after the `(`, which put `dep-cycle` on its own line and out of
+    // long call after the `(`, which put `circular-dependency` on its own line and out of
     // sight of a `templated("` that had to be one piece.
     for marker in ["with_code(", ".code(", "templated("] {
         let mut rest = text;

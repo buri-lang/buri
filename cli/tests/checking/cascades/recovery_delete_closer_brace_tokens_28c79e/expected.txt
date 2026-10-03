@@ -6,7 +6,7 @@ error: this `match` does not cover `.OnSurface` [match-not-exhaustive]
    |
    = every `match` must cover its scrutinee's type
    = fix: add an arm for `.OnSurface`, or a `_` arm for everything left
-error: `token` takes 2 arguments, but 3 were given [wrong-argument-count]
+error: `token` takes 2 arguments, but 3 were given [argument-count]
   --> main.buri:39:25
    |
 39 |             .Surface => style.token("kit", "surface",
@@ -15,7 +15,7 @@ error: `token` takes 2 arguments, but 3 were given [wrong-argument-count]
    = expected: 2
    = actual: 3
    = fix: pass `token` the following arguments: token(namespace: Str, name: Str)
-error: `.OnSurface` needs a known expected type [unannotated-variant]
+error: `.OnSurface` needs a known expected type [untyped-variant]
   --> main.buri:40:13
    |
 40 |             .OnSurface => style.token("kit", "onSurface"),

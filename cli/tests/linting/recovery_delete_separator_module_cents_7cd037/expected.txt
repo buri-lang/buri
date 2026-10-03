@@ -1,4 +1,4 @@
-error: a `struct` declaration ends with `;` [missing-terminator]
+error: a `struct` declaration ends with `;` [missing-semicolon]
  --> lib/recovery_delete_separator_module_cents_7cd037/lib.buri:2:32
   |
 2 | export struct Cents(export I64)

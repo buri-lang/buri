@@ -1,5 +1,5 @@
 ---
-title: A test reaches its library the way a dependent does
+title: A test imports its library through the surface
 message: '{test_source} imports a library-internal module'
 label: internal to the library under test
 note: tests reach their library the same way dependents do

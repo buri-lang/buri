@@ -1,4 +1,4 @@
-error: `//platform/cloudflare_worker` has no entry `main` [no-such-entry]
+error: `//platform/cloudflare_worker` has no entry `main` [unknown-entry]
  --> cmd/site/BUILD.buri:4:71
   |
 4 |         { platform: "//platform/cloudflare_worker", entries: [{ name: "main", function: "fetch" }] },
@@ -9,7 +9,9 @@ error: `//platform/cloudflare_worker` has no entry `main` [no-such-entry]
 
       binary {
           outputs: [
-              { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+              { platform: "node", entries: [
+                  { name: "main", function: "mainForNode" },
+              ] },
           ]
       }
 

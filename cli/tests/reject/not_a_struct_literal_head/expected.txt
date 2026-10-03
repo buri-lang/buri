@@ -1,7 +1,12 @@
-error: this is not a struct or an enum variant [not-a-struct-literal-head]
+error: the head of a struct literal must be a struct or an enum variant [struct-literal-head]
  --> cmd/not_a_struct_literal_head/main.buri:5:11
   |
 5 |   let v = Int { x: 1 };
   |           ^^^
   |
-  = fix: name a struct, or an enum variant that has fields
+  = fix: name the type, as in `Point { x: 1, y: 2 }`, or a variant that has fields, as in `.Variant { ... }` where the expected type is known
+
+    The grammar decides shape without name resolution, so it accepts any head,
+    such as f(x) { a: 1 }. The checker rejects it, one phase later than you
+    might expect.
+

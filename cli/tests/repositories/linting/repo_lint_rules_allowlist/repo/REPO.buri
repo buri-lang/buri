@@ -6,6 +6,6 @@ lint {
     rules {
         default: DISABLED
 
-        warning_comment: true
+        todo_comment: true
     }
 }

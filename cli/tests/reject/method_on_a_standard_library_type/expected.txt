@@ -1,4 +1,4 @@
-error: `Result<I64, Str>` has no method `mapErrContext` [no-such-method]
+error: `Result<I64, Str>` has no method `mapErrContext` [unknown-method]
  --> cmd/method_on_a_standard_library_type/main.buri:9:9
   |
 9 |   value.mapErrContext(fn(e) => e)

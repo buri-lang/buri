@@ -1,4 +1,4 @@
-error: unknown field `web` in a `binary` rule [unknown-field]
+error: unknown field `web` in a `binary` rule [build-unknown-field]
  --> cmd/counter/BUILD.buri:2:5
   |
 2 |     web {

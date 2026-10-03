@@ -1,4 +1,4 @@
-error: a `match` used as a statement ends with `;` [missing-terminator]
+error: a `match` used as a statement ends with `;` [missing-semicolon]
   --> main.buri:35:6
    |
 35 |     }

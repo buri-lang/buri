@@ -1,4 +1,4 @@
-error: `self` is written without a type [self-with-a-type]
+error: `self` is written without a type [typed-self]
   --> cmd/self_with_a_type/main.buri:15:22
    |
 15 |   export fn area(self: Square): Int {

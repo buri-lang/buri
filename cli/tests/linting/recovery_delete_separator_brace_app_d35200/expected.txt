@@ -1,4 +1,4 @@
-warning: this discards a `Result` [discarded-result]
+warning: this discards a `Result` [ignored-result]
   --> lib/recovery_delete_separator_brace_app_d35200/main.buri:26:13
    |
 26 |     let _ = record().ignore()
@@ -6,14 +6,14 @@ warning: this discards a `Result` [discarded-result]
    |
    = `ignore` is the one way to drop a `Result`, so every place a failure is deliberately unhandled is one of these
    = fix: handle the error with `match`, propagate it with `?`, or keep `ignore` if dropping it is deliberate
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_delete_separator_brace_app_d35200/main.buri:26:30
    |
 26 |     let _ = record().ignore()
    |                              ^
    |
    = fix: write `;` here
-warning: this discards a `Result` [discarded-result]
+warning: this discards a `Result` [ignored-result]
   --> lib/recovery_delete_separator_brace_app_d35200/main.buri:27:13
    |
 27 |     let _ = io.println(ctx, "done").ignore();

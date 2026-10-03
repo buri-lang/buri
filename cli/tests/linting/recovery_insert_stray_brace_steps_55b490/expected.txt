@@ -14,14 +14,14 @@ warning: nothing constructs or matches `Step.Reset` [unused-variant]
    |
    = a variant nothing builds is a case the value can never be in, and every `match` on the enum still carries an arm for it
    = fix: delete the variant, or construct it
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> lib/recovery_insert_stray_brace_steps_55b490/lib.buri:19:27
    |
 19 |         .Increment => n + extra 1,
    |                           ^^^^^
    |
    = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
-error: a match arm ends with `,` [missing-separator]
+error: a match arm ends with `,` [missing-comma]
   --> lib/recovery_insert_stray_brace_steps_55b490/lib.buri:19:32
    |
 19 |         .Increment => n + extra 1,

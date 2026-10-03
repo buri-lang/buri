@@ -247,7 +247,7 @@ An `impl` with a `for` clause declares trait conformance instead
 (Section 5.12.2).
 
 `self` takes no type; the `impl` head already gives it. Writing one is the
-`self-with-a-type` error.
+`typed-self` error.
 
 An `impl` block may appear only in the module that declares its type. Neither it
 nor a `derive` is ever `export`ed. Methods carry their own `export`, except

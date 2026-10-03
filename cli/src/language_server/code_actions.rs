@@ -3,7 +3,7 @@
 //! Two sources, and they are the same two `buri lint --fix` has: a finding that
 //! carries byte edits becomes a text edit, and one about a build file is handed
 //! to `buri gen`, which writes the whole file. Nothing here invents an answer —
-//! a `dep-cycle` has no action, because which edge to cut is a decision.
+//! a `circular-dependency` has no action, because which edge to cut is a decision.
 //!
 //! **Why there are two halves.** The list arrives on every cursor move onto a
 //! squiggle, and the second source is expensive in a way the first is not:
@@ -231,7 +231,7 @@ fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) ->
         }
 
         // A finding whose answer is a build file `buri gen` already writes.
-        if !matches!(code, "missing-dep" | "unused-library" | "duplicate-source") {
+        if !matches!(code, "missing-dependency" | "unused-source" | "duplicate-source") {
             continue;
         }
         let Some(package) = package_of(session, d.span.file, path) else { continue };

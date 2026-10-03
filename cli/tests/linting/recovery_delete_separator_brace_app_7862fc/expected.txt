@@ -1,4 +1,4 @@
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_delete_separator_brace_app_7862fc/main.buri:15:22
    |
 15 |     let total = 3 * 4

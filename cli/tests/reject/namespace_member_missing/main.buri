@@ -1,4 +1,4 @@
-// EXPECT: "core/fs" has no member `chmod`
+// EXPECT: "core/fs" does not export `chmod`
 // Not `appendBytes` and not `copy`: `core/fs` exports `append`, `readBytes` and
 // now `copy` itself, and each of those draws a did-you-mean that stops this
 // case pinning the no-suggestion branch. Permissions are the part of a

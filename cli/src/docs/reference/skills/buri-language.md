@@ -48,7 +48,7 @@ hand-rolled one compiles and gives the wrong answer.
   error (`result-discarded`), and so is a nested `_` like
   `let (n, _) = (1, someResult())`, or the bare call as a statement. Consume it
   with `?`, `match` or `.withDefault(...)`, or drop it on purpose with
-  `.ignore()`, which `buri lint` reports as `discarded-result`. **Prints return
+  `.ignore()`, which `buri lint` reports as `ignored-result`. **Prints return
   one too:** `let _ = io.println(ctx, "hi").ignore();`.
 - **No relative imports.** A module path is `core/...`, `ui/...`, `std/...`, or
   `//...` from the repository root.
@@ -106,8 +106,8 @@ export fn main(host: NativeHost): Result<(), Str> {
 `Result<(), Str>`. The hosts are `NativeHost` from `"native"`, `NodeHost` from
 `"node"` (the default when a binary has no `outputs`), and `WebHost` from
 `"web"`. Only an entry may build a context, from the host's fields. A bare
-`fn main()` is `entry-without-host`; a field the platform lacks is
-`no-such-field`. `.Ok(())` exits 0; `.Err(msg)` prints `msg` on stderr and
+`fn main()` is `entry-missing-host`; a field the platform lacks is
+`unknown-field`. `.Ok(())` exits 0; `.Err(msg)` prints `msg` on stderr and
 exits 1.
 
 A program for two platforms gives each output its own entry,
@@ -117,7 +117,7 @@ like a Cloudflare Worker, is a repository platform:
 `{ platform: "//platform/cloudflare_worker" }` (`buri docs guides/custom-platforms`).
 
 **Import the effect names.** `context { Allocator: host.alloc }` without
-`from "platform/effect" import { Allocator };` fails with `not-an-effect`.
+`from "platform/effect" import { Allocator };` fails with `unknown-effect`.
 
 ## Modules
 
@@ -143,7 +143,7 @@ from "//lib/money" import { Cents };
   `"//lib/money"`, `"//lib/money/testing"`; its own suite does the same. Inside
   the package, you name a file: `"//lib/money/cents.buri"`,
   `"//cmd/app/main.buri"`. Dropping the file name there is
-  `import-path-without-a-file`; naming a file in another package is
+  `import-missing-extension`; naming a file in another package is
   `internal-import`.
 - A `testing` directory segment makes a module test-only. Only a platform's
   `platform.buri` may import `platform/host`.
@@ -286,7 +286,7 @@ reader. A `//!` below the first item is `module-doc-not-first`.
 
 ## When something does not compile
 
-Every diagnostic ends with a bracketed code such as `[unsatisfied-bound]`.
+Every diagnostic ends with a bracketed code such as `[missing-impl]`.
 `buri docs error <code>` explains it with a program that provokes it, and
 `buri docs error` lists them all. Lint findings work the same way:
 `buri docs lint <code>`.

@@ -1,4 +1,4 @@
-error [missing-separator] 9:18-9:18
+error [missing-comma] 9:18-9:18
 message: a field pattern ends with `,`
 fix: write `,` here
 edit: 9:18-9:18 ","

@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a test from which nothing reachable calls assert: test-without-assertion, and the two that must not fire — one asserting through a helper, one whose whole check is a snapshot"
+doc: "a test from which nothing reachable calls assert: test-missing-assertion, and the two that must not fire — one asserting through a helper, one whose whole check is a snapshot"
 
 run {
   args: ["lint", "//lib/money"]

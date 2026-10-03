@@ -1,4 +1,4 @@
-error: `load` takes the name of a function, and this is a function value [lazy-not-a-function]
+error: `load` takes the name of a function, and this is a function value [load-not-function]
   --> cmd/page/main.buri:28:26
    |
 28 |     let open = lazy.load(fn(c, rows) => editor(c, rows));

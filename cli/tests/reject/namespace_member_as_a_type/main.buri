@@ -1,4 +1,4 @@
-// EXPECT: "core/list" has no member `Vector`
+// EXPECT: "core/list" does not export `Vector`
 // A namespace qualifies a type the same way it qualifies a function, so a
 // missing one is the same missing member — and answering it with "there is no
 // type `list.Vector`" would offer the nearest of *this* module's types, which

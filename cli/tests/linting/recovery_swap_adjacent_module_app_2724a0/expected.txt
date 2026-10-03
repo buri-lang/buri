@@ -15,7 +15,7 @@ error: expected an identifier, found `+` [unexpected-token]
    = expected: an identifier
    = actual: `+`
    = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
-error: there is nothing named `shout` in scope [unresolved-name]
+error: there is nothing named `shout` in scope [unknown-name]
   --> lib/recovery_swap_adjacent_module_app_2724a0/main.buri:56:13
    |
 56 |     let _ = shout(ctx, label).mapErr(fn(_e) => "could not write to standard output")?;

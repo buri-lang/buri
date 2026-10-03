@@ -1,5 +1,5 @@
 // A source `cmd/app/BUILD.buri` does not list, which is the lint pass's half:
-// an `unused-library` finding, reported against the build file rather than
+// an `unused-source` finding, reported against the build file rather than
 // against this one. Nothing analyses this module — it is in no target — so the
 // finding is the whole of what the toolchain has to say about it.
 

@@ -1,11 +1,11 @@
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> main.buri:19:43
    |
 19 |     assert.equal(one.hash(), other.hash())extra ;
    |                                           ^
    |
    = fix: write `;` here
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> main.buri:19:43
    |
 19 |     assert.equal(one.hash(), other.hash())extra ;

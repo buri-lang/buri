@@ -1,16 +1,16 @@
-error: a tuple type has arity 2 or more [tuple-type-arity]
+error: a tuple type has two elements or more [tuple-element-count]
  --> cmd/tuple_type_arity/main.buri:2:12
   |
 2 | fn only(): (Int,) {
   |            ^^^^^^
   |
-  = `(T)` is a parenthesized type and `()` is unit
-  = fix: write the element type on its own for one, or `()` for none
-error: a tuple has arity 2 or more [tuple-arity]
+  = `(x)` is grouping and `()` is unit
+  = fix: drop the parentheses for one element, or write `()` for none
+error: a tuple has two elements or more [tuple-element-count]
  --> cmd/tuple_type_arity/main.buri:3:3
   |
 3 |   (1,)
   |   ^^^^
   |
-  = `(e)` is grouping and `()` is the unit value
+  = `(x)` is grouping and `()` is unit
   = fix: drop the parentheses for one element, or write `()` for none

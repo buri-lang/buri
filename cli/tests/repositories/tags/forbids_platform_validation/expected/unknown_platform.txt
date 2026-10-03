@@ -1,4 +1,4 @@
-error: `wbe` is not a platform [no-such-platform]
+error: `wbe` is not a platform [unknown-platform]
  --> REPO.buri:6:21
   |
 6 |         platforms: ["wbe"]

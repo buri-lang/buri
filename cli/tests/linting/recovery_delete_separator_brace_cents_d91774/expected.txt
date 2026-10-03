@@ -1,4 +1,4 @@
-error: a match arm ends with `,` [missing-separator]
+error: a match arm ends with `,` [missing-comma]
   --> lib/recovery_delete_separator_brace_cents_d91774/lib.buri:21:27
    |
 21 |         .Open => l.entries

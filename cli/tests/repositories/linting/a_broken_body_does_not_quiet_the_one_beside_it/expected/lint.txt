@@ -1,4 +1,4 @@
-error: a match arm ends with `,` [missing-separator]
+error: a match arm ends with `,` [missing-comma]
   --> lib/money/cents.buri:13:25
    |
 13 |     1 => fromInt(ctx, 1)

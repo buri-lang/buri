@@ -1,4 +1,4 @@
-error: `main` must return `Result<(), Str>` [main-signature]
+error: `main` must return `Result<(), Str>` [entry-signature-mismatch]
  --> cmd/main_wrong_return_type/main.buri:6:33
   |
 6 | export fn main(host: NodeHost): Int {

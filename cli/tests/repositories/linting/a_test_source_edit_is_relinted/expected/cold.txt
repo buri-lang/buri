@@ -1,4 +1,4 @@
-warning: this comment is marked `TODO` [warning-comment]
+warning: this comment is marked `TODO` [todo-comment]
  --> lib/kit/kit.buri:4:4
   |
 4 | // TODO: the kit is not finished.

@@ -69,7 +69,7 @@ and the line named.
 The emission site looks like this:
 
 ```rust
-self.templated("type-args-on-a-value", span).bind("function", name);
+self.templated("type-arguments-on-value", span).bind("function", name);
 // or, off a Diagnostic of your own:
 Diagnostic::templated(code, span).with_bind("function", name)
 ```
@@ -138,7 +138,9 @@ joining; the template supplies the backticks.
 |---|---|
 | `{arity}` | The number of elements a tuple or a tuple pattern has. Always the *N* in `{arity}-tuple`. |
 | `{artifact}` | What a non-native platform produces, as the fix's subject: `JavaScript`, `a page`. |
+| `{binding}` | What a context binding wrote where an effect belongs, as a noun phrase with its own backticks: `` the trait `Measurable` ``, `this type`. |
 | `{block}` | Where an unknown build-file field was written, already described: `` a `binary` rule ``, `` a `tag` block ``, `REPO.buri`. |
+| `{callee}` | What a miscounted call called, with its own backticks: `` `add` ``, or `this function` for a call through a value. |
 | `{candidates}` | The schemas that could claim an ambiguous proto type name, sorted and joined with `, or `. |
 | `{character}` | The character the lexer could not start a token with, as the source wrote it. |
 | `{choices}` | The finished list of the bare words a build-file field accepts. |
@@ -201,7 +203,6 @@ joining; the template supplies the backticks.
 | `{backend}` | A backend as `test.backends` spells it: `NATIVE`, `JS`. |
 | `{position}` | Where `self` may appear, as a phrase: `a function's first parameter`, `the first parameter`. |
 | `{problem}` | The whole message sentence, supplied by the call site. See “When a page binds its whole sentence”. |
-| `{profile}` | The build profile the invocation asked for — `BuildMode::name()`, `debug` or `release`. The two have different requirements, so the sentence about a missing one has to say which was asked for. |
 | `{quoted_title}` | A test's title **with its quotes**, bound as `format!("{name:?}")`, so a title holding a quote or a backslash escapes exactly as it did. |
 | `{radix}` | The base an integer prefix names, as a decimal number (`2`, `8`, `16`). |
 | `{reached}` | Which way reachability went, as a finished phrase: `` both `lib.buri` and `main.buri` `` or `` neither `lib.buri` nor `main.buri` ``. |
@@ -210,15 +211,16 @@ joining; the template supplies the backticks.
 | `{fix}` | The whole fix sentence, supplied by the call site, where the fix depends on which of several causes the diagnostic found (`NativeGap::fix`). |
 | `{remedy}` | The whole fix sentence, supplied by the call site. |
 | `{requirement}` | One of an entry's requirements, as a phrase (`declares no generic parameters`). |
-| `{roots}` | `standard_library::roots_phrase()` — the reserved module roots as a finished phrase. |
 | `{rule}` | The rule kind that owns the empty `test` block: `library` or `binary`. |
 | `{second_origin}` | The second of the two schemas that declare one proto type. |
 | `{second_tag}` | The second of the two tags that forbid each other. |
 | `{second_trait}` | The second of the two bounds declaring one method name. |
 | `{seconds}` | A suite's declared `timeout_seconds`, or `0` when it declares none. Bound as a string; the `s` suffix is in the page. |
 | `{source}` | A source file as the rule, or the directory walk, spells it — relative to its package. |
+| `{subject}` | What takes the type arguments, with its own backticks: `` `Pair` ``, `` the type parameter `T` ``, `this function`. |
 | `{tag}` | A tag's name as `REPO.buri` or a `tags` list wrote it. |
 | `{target}` | The label of the target the rule is reported against. |
+| `{tuple}` | `tuple` or `tuple type`, for the one rule both state. |
 | `{test_source}` | The importing test source's file. |
 | `{to}` | The error type the function returns. |
 | `{to_package_path}` | The dependency's package path, for the `BUILD.buri` to edit. |
@@ -250,12 +252,41 @@ and `{to_target}` are labels that keep it.
 
 `{declaration}` carries two meanings: the noun phrase for a thing declared on
 `duplicate-declaration` and `private-to-module`, and the text of a schema's own
-declaration on `proto-edition` and `proto-syntax-declaration`. The two never
-meet on one page.
+declaration on `proto-unsupported-edition`. The two never meet on one page.
 
 A handful of pages are `message: {problem}`, each a helper whose dozen callers
 all state the same rule. They are the exception, not a pattern to copy: a page
 whose message is a placeholder is a page with nothing on it to edit.
+
+## Naming a code
+
+A code is `[subject-]adjective-thing` or `subject-relation`, and reads as a
+short phrase: `unknown-module`, `impl-missing-method`, `self-outside-method`,
+`type-argument-count`. An optional subject such as `proto-`, `tool-`, `tag-`,
+`entry-` or `build-` comes first.
+
+Adjectives go before the thing, one meaning each:
+
+- `unknown`: names something that doesn't exist.
+- `missing`: something required is absent.
+- `duplicate`: given twice.
+- `invalid`: a malformed literal or value.
+- `untyped`: nothing gives it a type.
+- `misplaced`: in the wrong place, when no one place is the right one.
+- `unused`, `retired`, `circular`, `ambiguous`, `unreachable`, `unterminated`.
+
+Relations go after the subject:
+
+- `-not-<kind>`: the wrong kind of thing.
+- `-outside-<place>`: the wrong place.
+- `-mismatch`: two things disagree.
+- `-count`: the wrong number.
+- `-unavailable`: this toolchain build lacks it.
+- `-unsupported`: the language or reader lacks it.
+
+No articles, possessives or `wrong`, and words spelled out (`dependency`, not
+`dep`) except `ctx` and `impl`. A lint code is also a `REPO.buri` field, so
+renaming one renames the field.
 
 ## Adding a code
 

@@ -1,4 +1,4 @@
-error: `some` takes 1 arguments, but 2 were given [wrong-argument-count]
+error: `some` takes 1 arguments, but 2 were given [argument-count]
   --> main.buri:18:17
    |
 18 |     let other = assert.some(extra uuid.parse("550E8400-E29B-41D4-A716-446655440000"));
@@ -7,21 +7,21 @@ error: `some` takes 1 arguments, but 2 were given [wrong-argument-count]
    = expected: 1
    = actual: 2
    = fix: pass `some` the following arguments: some<T>(option: Option<T>)
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> main.buri:18:29
    |
 18 |     let other = assert.some(extra uuid.parse("550E8400-E29B-41D4-A716-446655440000"));
    |                             ^^^^^
    |
    = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
-error: a call argument ends with `,` [missing-separator]
+error: a call argument ends with `,` [missing-comma]
   --> main.buri:18:34
    |
 18 |     let other = assert.some(extra uuid.parse("550E8400-E29B-41D4-A716-446655440000"));
    |                                  ^
    |
    = fix: write `,` here
-error: `_1` has no method `hash` [no-such-method]
+error: `_1` has no method `hash` [unknown-method]
   --> main.buri:19:36
    |
 19 |     assert.equal(one.hash(), other.hash());

@@ -1,5 +1,5 @@
 0 passed, 0 failed, 0 skipped, 1 failed to compile (0.0s)
-error: "//lib/deploy/config" names no file (lib/deploy/config.buri) [module-not-found]
+error: "//lib/deploy/config" names no file (lib/deploy/config.buri) [unknown-module]
  --> lib/deploy/lib.buri:1:6
   |
 1 | from "//lib/deploy/config" export { inputs };
@@ -22,14 +22,14 @@ error: `"backup"` is not a property the schema declares [json-schema-violation]
   |
   = the schema says so at `lib/deploy/regions.schema.json#/additionalProperties`
   = fix: delete it, or declare it in the schema's `properties`
-error: "//lib/deploy" does not export `inputs` [no-such-export]
+error: "//lib/deploy" does not export `inputs` [unknown-export]
  --> lib/deploy/test/deploy.buri:2:30
   |
 2 | from "//lib/deploy" import { inputs };
   |                              ^^^^^^
   |
   = fix: check the spelling, or re-export `inputs` from "//lib/deploy"'s `lib.buri`
-error: there is nothing named `inputs` in scope [unresolved-name]
+error: there is nothing named `inputs` in scope [unknown-name]
  --> lib/deploy/test/deploy.buri:5:18
   |
 5 |     assert.equal(inputs, 3);

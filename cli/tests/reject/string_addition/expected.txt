@@ -1,4 +1,4 @@
-error: `Str` does not implement `Add` [missing-conformance]
+error: `Str` does not implement `Add` [missing-impl]
  --> cmd/string_addition/main.buri:7:3
   |
 7 |   a + b
@@ -7,7 +7,7 @@ error: `Str` does not implement `Add` [missing-conformance]
   = conformance is nominal: a type satisfies a trait only where a declaration says so
   = fix: add `derive Add for Str;` in that type's own module, or write `impl Add for Str { ... }` there
 
-    Bind a value whose type has an impl of the trait. Having the right methods
+    A context binding and a bound both ask for an impl. Having the right methods
     isn't enough: a type conforms only once an impl says so. That's why a test
     double is a struct plus an impl block.
 

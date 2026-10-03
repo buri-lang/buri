@@ -1,4 +1,4 @@
-error: tag "legacy" both requires and forbids `JS` [platform-required-and-forbidden]
+error: tag "legacy" both requires and forbids `JS` [tag-platform-conflict]
  --> REPO.buri:6:20
   |
 6 |         backends: [JS]

@@ -1,4 +1,4 @@
-error: `Template` does not implement `Equal` [missing-conformance]
+error: `Template` does not implement `Equal` [missing-impl]
   --> cmd/eq_on_template/main.buri:10:16
    |
 10 |   let same = a == a;
@@ -7,7 +7,7 @@ error: `Template` does not implement `Equal` [missing-conformance]
    = a Template is a fixed-size view of literal fragments and evaluated holes, not the text it would produce
    = fix: render both sides first: `str.format(ctx, a) == str.format(ctx, b)`
 
-     Bind a value whose type has an impl of the trait. Having the right methods
-     isn't enough: a type conforms only once an impl says so. That's why a test
-     double is a struct plus an impl block.
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
 

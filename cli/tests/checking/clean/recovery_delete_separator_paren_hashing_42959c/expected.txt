@@ -1,4 +1,4 @@
-error: a call argument ends with `,` [missing-separator]
+error: a call argument ends with `,` [missing-comma]
   --> main.buri:24:31
    |
 24 |         bigint.of(2).power(ctx 100).hash(),

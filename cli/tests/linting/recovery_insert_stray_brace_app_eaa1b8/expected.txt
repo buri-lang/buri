@@ -1,11 +1,11 @@
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_insert_stray_brace_app_eaa1b8/main.buri:15:18
    |
 15 |     let total = 3 extra * 4;
    |                  ^
    |
    = fix: write `;` here
-error: an expression statement is legal only in a test source [expression-statement]
+error: an expression statement is legal only in a test source [statement-outside-test]
   --> lib/recovery_insert_stray_brace_app_eaa1b8/main.buri:15:19
    |
 15 |     let total = 3 extra * 4;
@@ -13,7 +13,7 @@ error: an expression statement is legal only in a test source [expression-statem
    |
    = a block is `let`s followed by a result expression
    = fix: bind it: `let _ = ...;`, or make it the block's result expression
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> lib/recovery_insert_stray_brace_app_eaa1b8/main.buri:15:19
    |
 15 |     let total = 3 extra * 4;

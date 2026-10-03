@@ -1,4 +1,4 @@
-// EXPECT: `Scope` does not satisfy `Ui`
+// EXPECT: `Scope` does not implement `Ui`
 //
 // A `Scope` reads the graph and allocates, so a derivation may map, filter and
 // format its answer. It still cannot *write*, and that is what keeps a

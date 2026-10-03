@@ -1,4 +1,4 @@
-error: //lib/money declares neither a library nor a binary [package-without-a-rule]
+error: //lib/money declares neither a library nor a binary [package-missing-rule]
  --> lib/money/BUILD.buri:1:1
   |
 1 | library {

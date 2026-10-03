@@ -7,7 +7,7 @@ error: expected `{`, found `,` [unexpected-token]
   = expected: `{`
   = actual: `,`
   = fix: write `{` here
-error: there is no type `Point` [unresolved-type]
+error: there is no type `Point` [unknown-type]
  --> main.buri:7:14
   |
 7 | fn origin(): Point {
@@ -15,10 +15,10 @@ error: there is no type `Point` [unresolved-type]
   |
   = did you mean `Uint`?
   = fix: if you meant `Uint`, use that; if not, a name is in scope only from this module's own declarations and its imports
-error: this is not a struct or an enum variant [not-a-struct-literal-head]
+error: the head of a struct literal must be a struct or an enum variant [struct-literal-head]
  --> main.buri:8:5
   |
 8 |     Point {
   |     ^^^^^
   |
-  = fix: name a struct, or an enum variant that has fields
+  = fix: name the type, as in `Point { x: 1, y: 2 }`, or a variant that has fields, as in `.Variant { ... }` where the expected type is known

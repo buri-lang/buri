@@ -1305,7 +1305,7 @@ fn socketsIsOpen(handle: I64, socket: Int): Bool;
 ///
 /// It is a method on `TestSockets` rather than a builder of its own because a
 /// `TestSockets` carries an effect, so it may be passed only as `ctx` or as
-/// `self` (`effect-param-not-ctx`).
+/// `self` (`effect-parameter-not-ctx`).
 ///
 /// ```buri ignore why="a test source is the one place a `test` block is legal, and this file is not one"
 /// from "core/net/websocket" import * as websocket;

@@ -1,4 +1,4 @@
-error [missing-terminator] 6:65-6:65
+error [missing-semicolon] 6:65-6:65
 message: a statement ends with `;`
 fix: write `;` here
 edit: 6:65-6:65 ";"

@@ -26,7 +26,7 @@ their spans.
 
 `buri gen` doesn't write `generators`: it's hand-authored, like `visibility` and
 `outputs`, because nothing can tell which generator owns a new file. A schema no
-entry lists is [`unused-library`](../lints/unused-library.md).
+entry lists is [`unused-source`](../lints/unused-source.md).
 
 `proto` is a tool written in Buri, and its `generate` is what the old field ran.
 See [`generators.md`](../build/generators.md).

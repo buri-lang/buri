@@ -7,14 +7,14 @@ error: expected a function body, found `extra` [unexpected-token]
    = expected: a function body
    = actual: `extra`
    = fix: write `{ ... }` after the return type
-error: there is nothing named `record` in scope [unresolved-name]
+error: there is nothing named `record` in scope [unknown-name]
   --> lib/recovery_insert_stray_module_app_9b1ced/main.buri:26:13
    |
 26 |     let _ = record().ignore();
    |             ^^^^^^
    |
    = fix: declare `record`, or import it — a name is in scope only from this module's own declarations and its imports
-warning: this discards a `Result` [discarded-result]
+warning: this discards a `Result` [ignored-result]
   --> lib/recovery_insert_stray_module_app_9b1ced/main.buri:27:13
    |
 27 |     let _ = io.println(ctx, "done").ignore();

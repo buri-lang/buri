@@ -216,12 +216,12 @@ output must pick one. `native`'s `main` entry requires one, so an output
 without it is refused at the output:
 
 ```text
-error: `native` needs a variant [variant-required]
+error: `native` needs a variant [missing-platform-variant]
   = available: linux-arm64, linux-x86_64, macos-arm64, macos-x86_64
   = fix: add `variant: "linux-arm64"`
 ```
 
-A variant the platform doesn't declare is `no-such-platform-variant`, which
+A variant the platform doesn't declare is `unknown-platform-variant`, which
 lists the ones it does. `buri build`, `buri test`, `buri lint` and the language
 server all report both.
 
@@ -237,7 +237,9 @@ the function filling it:
 binary {
     outputs: [
         { platform: "web" },
-        { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+        { platform: "node", entries: [
+            { name: "main", function: "mainForNode" },
+        ] },
     ]
 }
 ```
@@ -247,9 +249,9 @@ An artifact entered through a function other than `main` is named after it,
 one path. `artifact_name` overrides that.
 
 **The platform fixes the entry's signature**, in its `platform.buri`. The wrong
-shape is a type error at the function: `entry-without-host` for an entry that
+shape is a type error at the function: `entry-missing-host` for an entry that
 takes no host, `entry-host-mismatch` for another platform's host, and
-`main-signature` for the rest.
+`entry-signature-mismatch` for the rest.
 
 | Platform | The entry |
 |---|---|
@@ -267,10 +269,10 @@ call one function that takes `ctx`.
 **Each entry is its own dead-code root.** The compiler monomorphizes from the
 named entry, so each artifact carries only what its own entry reaches.
 
-A function `main.buri` does not export is `entry-not-found`, and its page lists
+A function `main.buri` does not export is `unknown-entry-function`, and its page lists
 what the module does export. A `name` the platform doesn't offer is
-`no-such-entry`, the same `name` twice is `duplicate-entry`, and an item missing
-either field is `incomplete-entry`.
+`unknown-entry`, the same `name` twice is `duplicate-entry`, and an item missing
+either field is `entry-missing-field`.
 
 ### The page's head
 
@@ -290,7 +292,7 @@ serve the artifact directory at the site's root.
 
 A platform's host type *is* the set of effects it offers. A platform that does
 not offer an effect has no field for it, so asking for it fails to compile at
-the line that asked, as `no-such-field`, with a note naming the platforms that
+the line that asked, as `unknown-field`, with a note naming the platforms that
 do offer it. An entry binding `Ui: host.ui` on a `NodeHost` does not compile,
 and neither does one binding `FileSystemRead: host.fs` on a `WebHost`.
 [The effects chapter](../../language/effects.md) has the table of which platform
@@ -311,7 +313,7 @@ self-contained static-PIE musl executable, so **any host builds a Linux output**
 in `~/.buri`, which needs the target's Rust standard library installed
 (`rustup target add x86_64-unknown-linux-musl`). A macOS artifact links against
 Apple's `libSystem`, which does not ship, so **only a macOS host builds a macOS
-output**. A macOS output on a Linux host is `native-artifact-not-available`.
+output**. A macOS output on a Linux host is `native-artifact-unavailable`.
 `buri test` is stricter than `buri build`: a suite has to *run*, so it runs only
 on a host that can execute the artifact — its own — never cross.
 
@@ -346,7 +348,7 @@ points. `buri build //tool/lines` checks it.
 
 A `tool` rule lives under the top-level `tool/` directory, at any depth, and
 nowhere else
-([`rule-outside-its-directory`](../errors/rule-outside-its-directory.md)).
+([`misplaced-rule`](../errors/misplaced-rule.md)).
 Libraries and binaries may live there too. [`tools.md`](./tools.md) has the
 entry points and what each is handed.
 

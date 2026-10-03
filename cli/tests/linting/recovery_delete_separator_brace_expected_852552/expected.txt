@@ -1,4 +1,4 @@
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_delete_separator_brace_expected_852552/main.buri:46:8
    |
 46 |     })?

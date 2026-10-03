@@ -24,7 +24,7 @@ suppression comment, so that one file answers "is this rule on here".
 A rule that's off drops out of the report, and the report says so:
 
 ```
-REPO.buri turns off 2 of 25 lint rules: discarded-result, hex-digit-table
+REPO.buri turns off 2 of 25 lint rules: hand-rolled-hex-digits, ignored-result
 no findings
 ```
 

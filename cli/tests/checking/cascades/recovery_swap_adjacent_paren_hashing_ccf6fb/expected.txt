@@ -1,4 +1,4 @@
-error: `equal` takes 2 arguments, but 3 were given [wrong-argument-count]
+error: `equal` takes 2 arguments, but 3 were given [argument-count]
   --> main.buri:22:5
    |
 22 |     assert.equal(bigint.zero().hash()bigint ,.of(5).subtract(ctx, bigint.of(5)).hash());
@@ -7,14 +7,14 @@ error: `equal` takes 2 arguments, but 3 were given [wrong-argument-count]
    = expected: 2
    = actual: 3
    = fix: pass `equal` the following arguments: equal<T: Equal>(actual: T, expected: T)
-error: a call argument ends with `,` [missing-separator]
+error: a call argument ends with `,` [missing-comma]
   --> main.buri:22:38
    |
 22 |     assert.equal(bigint.zero().hash()bigint ,.of(5).subtract(ctx, bigint.of(5)).hash());
    |                                      ^
    |
    = fix: write `,` here
-error: there is nothing named `bigint` in scope [unresolved-name]
+error: there is nothing named `bigint` in scope [unknown-name]
   --> main.buri:22:38
    |
 22 |     assert.equal(bigint.zero().hash()bigint ,.of(5).subtract(ctx, bigint.of(5)).hash());
@@ -22,7 +22,7 @@ error: there is nothing named `bigint` in scope [unresolved-name]
    |
    = `bigint` is a module namespace; name a member of it
    = fix: correct the spelling, or declare it
-error: `.of` needs a known expected type [unannotated-variant]
+error: `.of` needs a known expected type [untyped-variant]
   --> main.buri:22:46
    |
 22 |     assert.equal(bigint.zero().hash()bigint ,.of(5).subtract(ctx, bigint.of(5)).hash());

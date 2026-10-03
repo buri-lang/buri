@@ -1,4 +1,4 @@
-error: an `impl` names a declared type [impl-head-not-a-type]
+error: an `impl` names a declared type [impl-target-not-type]
  --> cmd/impl_head_not_a_type/main.buri:6:21
   |
 6 | impl Measurable for [Int] {

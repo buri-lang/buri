@@ -1,4 +1,4 @@
-error: `LINUX` is retired [retired-platform-name]
+error: `LINUX` is retired [retired-platform]
  --> lib/greet/BUILD.buri:3:17
   |
 3 |     platforms: [LINUX, MACOS]
@@ -10,7 +10,9 @@ error: `LINUX` is retired [retired-platform-name]
       binary {
           outputs: [
               { platform: "native", variant: "linux-arm64" },
-              { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+              { platform: "node", entries: [
+                  { name: "main", function: "mainForNode" },
+              ] },
               { platform: "web" },
           ]
 
@@ -44,7 +46,7 @@ error: `LINUX` is retired [retired-platform-name]
     entry and a fetch.mjs adapter; buri docs guides/custom-platforms walks
     through one.
 
-error: `MACOS` is retired [retired-platform-name]
+error: `MACOS` is retired [retired-platform]
  --> lib/greet/BUILD.buri:3:24
   |
 3 |     platforms: [LINUX, MACOS]

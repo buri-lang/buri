@@ -830,14 +830,27 @@ fn not_ready(
             let why = actions::native_gap(target, actions::profile_of(flags))
                 .map(|gap| gap.reason)
                 .unwrap_or_else(|| "this host has no C toolchain to link one with".to_string());
-            Diagnostic::templated("platform-not-implemented", span)
-                .with_bind("platform", platform.slug())
-                .with_bind("reason", why)
-                .with_bind("backend", platform.backend().proto())
+            let backend = platform.backend().proto();
+            let slug = platform.slug();
+            Diagnostic::templated("test-run-unavailable", span)
+                .with_bind("platform", slug)
+                .with_note(format!("{why}, so this suite can be executed only on JavaScript"))
+                .with_fix(format!(
+                    "drop {backend} from `test.backends`, or run this suite where a {slug} \
+                     artifact can be built"
+                ))
         }
-        Chosen::Default => Diagnostic::templated("native-run-not-available", span)
+        Chosen::Default => Diagnostic::templated("test-run-unavailable", span)
             .with_bind("platform", platform.slug())
-            .with_bind("profile", flags.mode.name()),
+            .with_note(format!(
+                "a native run in the {} profile needs a code generator for it compiled into this \
+                 toolchain, a runtime archive for this host, and a C toolchain to link them with",
+                flags.mode.name()
+            ))
+            .with_fix(
+                "run the suite on JavaScript with `buri test --output=js`, or declare \
+                 `test { backends: [JS] }` if that is where it belongs",
+            ),
     }
 }
 
@@ -2086,7 +2099,7 @@ fn noted_failure(stdout: &str) -> Option<Noted> {
 /// legal, and each reports its own failure at its own line — so a match on the
 /// title alone gives the second file's failure the first file's location, in
 /// the first file. Two tests sharing a title inside one file cannot arise:
-/// `duplicate-test-name` refuses them before anything is compiled.
+/// `duplicate-test` refuses them before anything is compiled.
 fn locate(session: &Session, program: &monomorphize::Program, cases: &mut [Case]) {
     for c in cases.iter_mut() {
         if let Some(t) =

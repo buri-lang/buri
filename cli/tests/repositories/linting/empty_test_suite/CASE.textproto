@@ -16,7 +16,7 @@ run {
 }
 
 # Dropping the block is the second of the two fixes. The first — listing
-# sources — is what `test_without_assertion` does instead.
+# sources — is what `test_missing_assertion` does instead.
 edit {
   file: "lib/money/BUILD.buri"
   replace: "\n    # Written, and backed by nothing. Every tool that walks the graph reads this\n    # as \"this library has tests\".\n    test {}\n"

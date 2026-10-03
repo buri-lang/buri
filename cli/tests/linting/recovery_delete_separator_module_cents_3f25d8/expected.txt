@@ -1,4 +1,4 @@
-error: a `derive` declaration ends with `;` [missing-terminator]
+error: a `derive` declaration ends with `;` [missing-semicolon]
  --> lib/recovery_delete_separator_module_cents_3f25d8/lib.buri:1:29
   |
 1 | derive Equal, Show for Cents

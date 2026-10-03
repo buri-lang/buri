@@ -160,7 +160,7 @@ fn load_slots(program: &Program) -> Vec<usize> {
 ///
 /// `None` for anything else, and for a `load` whose argument monomorphization
 /// could not resolve to a function — which the front end's
-/// `lazy-not-a-function` has already refused, and which is answered here by
+/// `load-not-function` has already refused, and which is answered here by
 /// splitting nothing rather than by an assertion.
 fn load_target(e: &Expr, loads: &[usize]) -> Option<usize> {
     let ExprKind::CallFn { func, args } = &e.kind else { return None };

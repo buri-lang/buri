@@ -1,4 +1,4 @@
-error: a call argument ends with `,` [missing-separator]
+error: a call argument ends with `,` [missing-comma]
   --> main.buri:26:29
    |
 26 |     let far = simd.f32x4(nan 1.0e300, -1.0e300, 3.0);

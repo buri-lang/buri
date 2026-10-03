@@ -16,7 +16,7 @@ error: expected an identifier, found `(` [unexpected-token]
    = expected: an identifier
    = actual: `(`
    = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
-error: there is nothing named `rendered` in scope [unresolved-name]
+error: there is nothing named `rendered` in scope [unknown-name]
   --> lib/recovery_insert_stray_paren_expected_b1915b/main.buri:60:18
    |
 60 |     whisper(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label)).mapErr(

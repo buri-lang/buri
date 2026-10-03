@@ -1,4 +1,4 @@
-error: `T` has no method `length` [no-such-method]
+error: `T` has no method `length` [unknown-method]
  --> cmd/method_on_unbounded_type_param/main.buri:7:5
   |
 7 |   x.length()

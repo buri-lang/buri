@@ -1,4 +1,4 @@
-error: there is no type `Poimt` [unresolved-type]
+error: there is no type `Poimt` [unknown-type]
   --> cmd/type_near_miss/main.buri:10:13
    |
 10 | fn readX(p: Poimt): Int {

@@ -33,7 +33,7 @@ warning: `spare` is bound and never used [unused-variable]
    |
    = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
    = fix: use it, delete the `let`, or write `_` in its place
-error: a match arm ends with `,` [missing-separator]
+error: a match arm ends with `,` [missing-comma]
   --> lib/routes/routes.buri:12:42
    |
 12 |     "/health" => Route { name: "health" }

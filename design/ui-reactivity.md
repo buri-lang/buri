@@ -627,7 +627,7 @@ language one, and the existing machinery covers it:
   platform's host — `NativeHost`, `NodeHost` or `WebHost` — and a host type is
   that platform's list of effects: `WebHost` has `ui`, `watch` and `location`
   and no `fs`; `NativeHost` has no `ui`. So binding `Ui: host.ui` in a `native`
-  entry, or `FileSystemRead: host.fs` in a `web` one, is `no-such-field` on the
+  entry, or `FileSystemRead: host.fs` in a `web` one, is `unknown-field` on the
   field, with a note naming the platforms that do offer the effect. An entry
   built for another platform's host is `entry-host-mismatch`; a binary for both
   gives each output its own entry. It is the type checker, so `buri lint`,

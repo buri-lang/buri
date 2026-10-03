@@ -372,7 +372,7 @@ the other backend agrees with itself. So:
 - A toolchain that cannot build for its own host — `--no-default-features`, a
   host outside macOS and Linux, no stencil library for the triple, no C
   compiler, or `--release` without `backend-llvm` — is `not_ready`, reported as
-  `native-run-not-available` and naming the profile that was asked for.
+  `test-run-unavailable` and naming the profile that was asked for.
 
 The only two ways a suite reaches JavaScript are the two ways to say so out
 loud: `--output=js` for an invocation, `test { backends: [JS] }` for a suite.
@@ -389,7 +389,7 @@ debug build of the same output works (buri-lang/buri#25, buri-lang/buri#26).
 `build/actions.rs`'s **`native_gap`** asks the three questions in order and
 answers which one failed, as an output, a reason and a fix; `native_ready` is
 now "is there no gap"; and all three sites print it through one templated
-diagnostic, `native-artifact-not-available`.
+diagnostic, `native-artifact-unavailable`.
 `repositories/cli/output_selection` pins the host half. The profile half cannot
 be a golden, because what `--release` answers for the host's own target depends
 on which leg of `cli/tests/README.md`'s bar the toolchain was built on.
@@ -629,7 +629,7 @@ backend".
   it needs a macOS host. The policy lives in one predicate, `link::can_link`
   (`is_host_target(target) || target.platform == Linux`), with
   `actions::native_ready` in front of it; the one direction it refuses —
-  Linux → macOS — keeps the honest `native-artifact-not-available` diagnostic.
+  Linux → macOS — keeps the honest `native-artifact-unavailable` diagnostic.
   `buri test` is stricter: a suite must *run*, so `commands/test.rs` narrows to
   `link::is_host_target`, and a cross platform is refused there even where
   `buri build` allows it.

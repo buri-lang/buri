@@ -7,7 +7,7 @@ error: expected `;`, found `@` [unexpected-token]
    = expected: `;`
    = actual: `@`
    = fix: write `;` here
-error: there is no type `Money` [unresolved-type]
+error: there is no type `Money` [unknown-type]
   --> lib/recovery_insert_stray_module_cents_9cd46f/lib.buri:19:34
    |
 19 | export fn describe(l: Ledger, m: Money): I64 {

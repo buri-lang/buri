@@ -1,4 +1,4 @@
-error: a call argument ends with `,` [missing-separator]
+error: a call argument ends with `,` [missing-comma]
   --> main.buri:22:20
    |
 22 |     HEAD.concat(ctx body)

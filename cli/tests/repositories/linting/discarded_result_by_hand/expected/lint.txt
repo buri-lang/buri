@@ -1,4 +1,4 @@
-warning: this drops a `Result` by hand [discarded-result-by-hand]
+warning: this drops a `Result` by hand [hand-rolled-ignore]
   --> cmd/app/main.buri:25:5
    |
 25 |     match (write(ctx, line)) {
@@ -19,10 +19,10 @@ warning: this drops a `Result` by hand [discarded-result-by-hand]
      it, report it, fall back), or use ? to hand it to a caller who can.
 
      If the drop is deliberate, like a cache write whose failure no caller could
-     act on, say ignore(). It's one greppable call, and discarded-result
-     collects every one into a single report.
+     act on, say ignore(). It's one greppable call, and ignored-result collects
+     every one into a single report.
 
-     This rule exists so the four-line form can't dodge discarded-result in a
+     This rule exists so the four-line form can't dodge ignored-result in a
      repository gated on a clean lint run. Both forms are reported.
 
      It fires only on exactly this shape: two arms, .Ok and .Err, no guards,

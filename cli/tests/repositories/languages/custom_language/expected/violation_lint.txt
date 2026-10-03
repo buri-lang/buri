@@ -6,7 +6,7 @@ error: `purple` is not in the dictionary [tool-diagnostic]
   |
   = the tool reported this as `lines-unknown-word`, which is not a code this toolchain has a page for
   = fix: add it to tool/lines/dictionary.txt
-error: "//lib/colors/words" names no file (lib/colors/words.buri) [module-not-found]
+error: "//lib/colors/words" names no file (lib/colors/words.buri) [unknown-module]
  --> lib/colors/lib.buri:1:6
   |
 1 | from "//lib/colors/words" export { count };

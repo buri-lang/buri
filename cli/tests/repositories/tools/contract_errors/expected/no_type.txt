@@ -25,7 +25,7 @@ error: `prefixItems` has no Buri type [json-schema-no-type]
 
     buri docs guides/json has the whole mapping.
 
-error: "//tool/b/json" names no file (tool/b/json.buri) [module-not-found]
+error: "//tool/b/json" names no file (tool/b/json.buri) [unknown-module]
  --> tool/b/tool.buri:6:6
   |
 6 | from "//tool/b/json" import * as a;
@@ -33,12 +33,9 @@ error: "//tool/b/json" names no file (tool/b/json.buri) [module-not-found]
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
 
-    This resolves against the example monorepo in cli/tests/example, which has
-    no lib/nope:
-
     There's no search path and no fallback, so a path never has two candidates.
 
-error: there is no type `a.Names` [unresolved-type]
+error: there is no type `a.Names` [unknown-type]
  --> tool/b/tool.buri:8:67
   |
 8 | export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<a.Names>): Generated {

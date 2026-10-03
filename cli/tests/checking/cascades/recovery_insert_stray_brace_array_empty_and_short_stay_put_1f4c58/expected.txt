@@ -6,7 +6,7 @@ error: expected `[I64]`, found `Option<<error>>` [type-mismatch]
   |
   = expected: `[I64]`
   = actual: `Option<<error>>`
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
  --> main.buri:3:11
   |
 3 |   let b = extra [1, 2, 3];

@@ -1,4 +1,4 @@
-// EXPECT: `Point` is declared twice in this module
+// EXPECT: `Point` is declared twice
 struct Point {
   export x: Int,
 }

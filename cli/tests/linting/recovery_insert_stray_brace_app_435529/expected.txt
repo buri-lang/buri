@@ -7,7 +7,7 @@ error: expected an expression, found `@` [unexpected-token]
    = expected: an expression
    = actual: `@`
    = fix: write a value here
-warning: this discards a `Result` [discarded-result]
+warning: this discards a `Result` [ignored-result]
   --> lib/recovery_insert_stray_brace_app_435529/main.buri:27:13
    |
 27 |     let _ = io.println(ctx, "done").ignore();

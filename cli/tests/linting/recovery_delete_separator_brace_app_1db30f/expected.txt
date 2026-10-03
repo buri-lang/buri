@@ -14,7 +14,7 @@ warning: this is `order.bool`, written out [hand-rolled-comparator]
    |
    = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ordered` impl both take
    = fix: call `order.bool` with the two operands, and delete the chain
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_delete_separator_brace_app_1db30f/main.buri:69:6
    |
 69 |     ]

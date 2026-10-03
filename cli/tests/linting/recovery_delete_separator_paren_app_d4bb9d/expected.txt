@@ -6,7 +6,7 @@ warning: `total` takes 6 parameters [too-many-parameters]
   |
   = `self` and `ctx` are not counted, so 5 is the limit on the data a caller has to assemble
   = fix: group the parameters that always travel together into a struct, and take that instead
-error: a call argument ends with `,` [missing-separator]
+error: a call argument ends with `,` [missing-comma]
   --> lib/recovery_delete_separator_paren_app_d4bb9d/main.buri:19:33
    |
 19 |         .println(ctx, "${total(1 2, 3, 4, 5, 6)}")

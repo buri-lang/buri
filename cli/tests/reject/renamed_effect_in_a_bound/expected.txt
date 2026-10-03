@@ -1,4 +1,4 @@
-error: "platform/effect" does not export `Alloc` [no-such-export]
+error: "platform/effect" does not export `Alloc` [unknown-export]
  --> cmd/renamed_effect_in_a_bound/main.buri:5:33
   |
 5 | from "platform/effect" import { Alloc, Stdout };
@@ -8,9 +8,13 @@ error: "platform/effect" does not export `Alloc` [no-such-export]
   = fix: write `Allocator`
 
     A re-export names only what its module exports, so a library's surface is
-    never wider than the modules behind it.
+    never wider than the modules behind it. A namespace like fs stands for the
+    module its import named, and only that module's exports may follow the dot.
+    This covers types, bounds and impl heads too, such as list.Vector<Int> and
+    <T: order.Comparable>. If no import bound the namespace at all, the error is
+    unknown-name instead.
 
-error: `Alloc` is not a trait or effect [not-a-trait]
+error: `Alloc` is not a trait or effect [bound-not-trait]
  --> cmd/renamed_effect_in_a_bound/main.buri:8:20
   |
 8 | export fn greet<C: Alloc + Stdout>(ctx: C): () {

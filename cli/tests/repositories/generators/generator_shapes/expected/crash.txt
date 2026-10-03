@@ -22,7 +22,7 @@ error: `//tool/gen` did not answer [tool-failed]
     A slow tool isn't this error. The build waits for a tool as long as it runs,
     the way it waits for a compiler.
 
-error: "//lib/wire/left" names no file (lib/wire/left.buri) [module-not-found]
+error: "//lib/wire/left" names no file (lib/wire/left.buri) [unknown-module]
  --> lib/wire/lib.buri:1:6
   |
 1 | from "//lib/wire/left" export { leftValue };
@@ -30,12 +30,9 @@ error: "//lib/wire/left" names no file (lib/wire/left.buri) [module-not-found]
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
 
-    This resolves against the example monorepo in cli/tests/example, which has
-    no lib/nope:
-
     There's no search path and no fallback, so a path never has two candidates.
 
-error: "//lib/wire/right" names no file (lib/wire/right.buri) [module-not-found]
+error: "//lib/wire/right" names no file (lib/wire/right.buri) [unknown-module]
  --> lib/wire/lib.buri:5:6
   |
 5 | from "//lib/wire/right" export { rightValue };

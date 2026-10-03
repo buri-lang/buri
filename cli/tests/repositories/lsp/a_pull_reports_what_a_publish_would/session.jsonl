@@ -13,7 +13,7 @@
 # two passes made about the build file.
 {"jsonrpc": "2.0", "id": 2, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}}}
 # The same two findings, asked about from the other end. `severity: 1` on an
-# `unused-library` is `REPO.buri`'s `fail_on_finding`: every finding from the
+# `unused-source` is `REPO.buri`'s `fail_on_finding`: every finding from the
 # catalogue is an error here, and a pulled report wears the severity the
 # terminal prints for exactly the reason a pushed one does — one producer.
 {"jsonrpc": "2.0", "id": 3, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}}}

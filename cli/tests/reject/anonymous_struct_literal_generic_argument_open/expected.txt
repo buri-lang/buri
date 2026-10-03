@@ -1,4 +1,4 @@
-error: nothing here says what this literal builds [struct-literal-type]
+error: nothing here says what this literal builds [untyped-struct-literal]
   --> cmd/anonymous_struct_literal_generic_argument_open/main.buri:17:17
    |
 17 |   let n = first({ only: 1 });

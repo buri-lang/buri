@@ -1,4 +1,4 @@
-error: a reactive builder may not `load` — `ui.computed`'s body must be synchronous [load-in-a-reactive-builder]
+error: a reactive builder may not `load` — `ui.computed`'s body must be synchronous [load-in-reactive-builder]
   --> cmd/ui_reactive_builder_loads/main.buri:23:21
    |
 23 |         let build = lazy.load(page);

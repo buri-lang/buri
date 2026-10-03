@@ -2740,7 +2740,7 @@ fn resolveImports<C: Allocator>(
                 .Some(entry) => Resolved { ..acc, deps: acc.deps.push(c, entry) },
                 .None => {
                     let d = Diagnostic {
-                        code: "proto-import-not-found",
+                        code: "proto-unknown-import",
                         message: str.format(
                             c,
                             "\"${i.path}\" names no schema in this repository",

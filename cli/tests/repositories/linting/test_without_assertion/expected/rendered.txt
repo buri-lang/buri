@@ -1,4 +1,4 @@
-warning: test "the price paints" asserts nothing [test-without-assertion]
+warning: test "the price paints" asserts nothing [test-missing-assertion]
   --> lib/money/test/cents.buri:29:1
    |
 29 | test "the price paints" {

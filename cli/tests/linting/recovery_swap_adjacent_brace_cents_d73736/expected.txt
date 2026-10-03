@@ -1,4 +1,4 @@
-error: a struct-literal field ends with `,` [missing-separator]
+error: a struct-literal field ends with `,` [missing-comma]
   --> lib/recovery_swap_adjacent_brace_cents_d73736/lib.buri:21:26
    |
 21 |     Entry { cents, tax: 0packer ,: "till" }

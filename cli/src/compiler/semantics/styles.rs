@@ -491,7 +491,7 @@ impl<'a> Extractor<'a> {
                 if let Some(a) = alpha_of(&value) {
                     if !(0.0..=1.0).contains(&a) {
                         self.diags.items.push(
-                            Diagnostic::templated("style-alpha-out-of-range", e.span)
+                            Diagnostic::templated("alpha-out-of-range", e.span)
                                 .with_bind("alpha", a.to_string()),
                         );
                     }

@@ -1,4 +1,4 @@
-error: "core/time" has no member `sleepMs` [no-such-member]
+error: "core/time" does not export `sleepMs` [unknown-export]
   --> cmd/renamed_name_is_gone/main.buri:10:16
    |
 10 |   let _ = time.sleepMs(ctx, 5);
@@ -7,8 +7,10 @@ error: "core/time" has no member `sleepMs` [no-such-member]
    = `sleepMs` was removed; write `time.sleep(ctx, time.milliseconds(n))`
    = fix: write `time.sleep(ctx, time.milliseconds(n))`
 
-     A namespace like fs stands for the module its import named, and only that
-     module's exports may follow the dot. This covers types, bounds and impl
-     heads too, such as list.Vector<Int> and <T: order.Comparable>. If no import
-     bound the namespace at all, the error is unresolved-name instead.
+     A re-export names only what its module exports, so a library's surface is
+     never wider than the modules behind it. A namespace like fs stands for the
+     module its import named, and only that module's exports may follow the dot.
+     This covers types, bounds and impl heads too, such as list.Vector<Int> and
+     <T: order.Comparable>. If no import bound the namespace at all, the error
+     is unknown-name instead.
 

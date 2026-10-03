@@ -24,7 +24,9 @@ error: `main` takes `WebHost`, and the node platform hands its entry a `NodeHost
        binary {
            outputs: [
                { platform: "native", variant: "linux-arm64" },
-               { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+               { platform: "node", entries: [
+                   { name: "main", function: "mainForNode" },
+               ] },
            ]
        }
 
@@ -34,7 +36,7 @@ error: `main` takes `WebHost`, and the node platform hands its entry a `NodeHost
      Each platform offers different effects, so each declares its own host type.
      One entry can't take two.
 
-error: a context may not be constructed here [context-not-allowed]
+error: a context may not be constructed here [misplaced-context]
   --> cmd/both/main.buri:24:9
    |
 24 |     run(context {

@@ -386,7 +386,7 @@ pub fn compile_snippet_js_as(
     }
     let mut diags = Diagnostics::new();
     let Some(entry) = analysis.checked.entry else {
-        diags.push(Diagnostic::templated("example-without-main", Span::NONE));
+        diags.push(Diagnostic::templated("example-missing-main", Span::NONE));
         return Err(diags);
     };
     let module_paths: Vec<String> =

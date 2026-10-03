@@ -1,4 +1,4 @@
-error: a `match` is an operand, not the head of a `.` [postfix-on-a-block]
+error: a `match` is an operand, not the head of a `.` [postfix-on-block]
   --> cmd/match_heads_postfix_chain/main.buri:12:4
    |
 12 |   }.x

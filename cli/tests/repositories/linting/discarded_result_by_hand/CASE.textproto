@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "the four-line `match` whose every arm answers `()`: discarded-result-by-hand, beside the three matches on a `Result` that are not it — one that handles the failure, one that reads the success, and an `Option` whose arms are `()` as well"
+doc: "the four-line `match` whose every arm answers `()`: hand-rolled-ignore, beside the three matches on a `Result` that are not it — one that handles the failure, one that reads the success, and an `Option` whose arms are `()` as well"
 
 run {
   args: ["lint", "//cmd/app"]

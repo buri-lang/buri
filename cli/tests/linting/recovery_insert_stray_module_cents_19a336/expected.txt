@@ -15,7 +15,7 @@ error: expected `;`, found `?` [unexpected-token]
   = expected: `;`
   = actual: `?`
   = fix: write `;` here
-error: `Allocator` is not a trait or effect [not-a-trait]
+error: `Allocator` is not a trait or effect [bound-not-trait]
  --> lib/recovery_insert_stray_module_cents_19a336/lib.buri:7:23
   |
 7 | export fn describe<C: Allocator>(ctx: C): Str {
@@ -23,7 +23,7 @@ error: `Allocator` is not a trait or effect [not-a-trait]
   |
   = a bound names a declared trait; there are no where clauses
   = fix: name a declared trait or effect, or declare `Allocator` as one
-error: `C` does not satisfy `Allocator` [unsatisfied-bound]
+error: `C` does not implement `Allocator` [missing-impl]
  --> lib/recovery_insert_stray_module_cents_19a336/lib.buri:8:5
   |
 8 |     "some".concat(ctx, " cents")

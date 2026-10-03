@@ -1,4 +1,4 @@
-error: a lambda parameter ends with `,` [missing-separator]
+error: a lambda parameter ends with `,` [missing-comma]
   --> main.buri:16:40
    |
 16 |     let doubled = [1, 2, 3].fold(fn(acc x) => acc + x, 0);

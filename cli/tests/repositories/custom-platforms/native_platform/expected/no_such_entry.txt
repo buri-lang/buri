@@ -1,4 +1,4 @@
-error: `//platform/lambda` has no entry `bootstap` [no-such-entry]
+error: `//platform/lambda` has no entry `bootstap` [unknown-entry]
  --> cmd/hello/BUILD.buri:3:84
   |
 3 |         { platform: "//platform/lambda", variant: "linux-arm64", entries: [{ name: "bootstap", function: "main" }] },
@@ -9,7 +9,9 @@ error: `//platform/lambda` has no entry `bootstap` [no-such-entry]
 
       binary {
           outputs: [
-              { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+              { platform: "node", entries: [
+                  { name: "main", function: "mainForNode" },
+              ] },
           ]
       }
 

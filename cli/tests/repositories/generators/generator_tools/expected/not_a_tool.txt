@@ -1,4 +1,4 @@
-error: `//lib/wire` names no tool [no-such-tool]
+error: `//lib/wire` names no tool [unknown-tool]
  --> lib/wire/BUILD.buri:3:17
   |
 3 |         { tool: "//lib/wire", inputs: ["point.proto"] },

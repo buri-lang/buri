@@ -1,4 +1,4 @@
-warning: this comment is marked `TODO` [warning-comment]
+warning: this comment is marked `TODO` [todo-comment]
  --> lib/recovery_insert_stray_brace_app_157e85/main.buri:9:4
   |
 9 | // TODO: decide what this program is for.
@@ -6,14 +6,14 @@ warning: this comment is marked `TODO` [warning-comment]
   |
   = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
   = fix: finish the work, or delete the marker
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_insert_stray_brace_app_157e85/main.buri:18:6
    |
 18 |     }extra ;
    |      ^
    |
    = fix: write `;` here
-error: an expression statement is legal only in a test source [expression-statement]
+error: an expression statement is legal only in a test source [statement-outside-test]
   --> lib/recovery_insert_stray_brace_app_157e85/main.buri:18:6
    |
 18 |     }extra ;
@@ -21,7 +21,7 @@ error: an expression statement is legal only in a test source [expression-statem
    |
    = a block is `let`s followed by a result expression
    = fix: bind it: `let _ = ...;`, or make it the block's result expression
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> lib/recovery_insert_stray_brace_app_157e85/main.buri:18:6
    |
 18 |     }extra ;

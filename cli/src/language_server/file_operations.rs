@@ -14,7 +14,7 @@
 //! where the file is and neither is a decision. `dependencies` is not: a
 //! cross-package move changes which libraries a package uses, and that answer
 //! comes from analysing the repository *after* the move — so it arrives as an
-//! ordinary `missing-dep` finding with the code action `buri gen` already
+//! ordinary `missing-dependency` finding with the code action `buri gen` already
 //! carries. A delete leaves its importers dangling for the same reason: which
 //! of them should now import what is a judgement, and a server that guessed
 //! would be editing code nobody asked it to.
@@ -134,7 +134,7 @@ pub fn will_rename(state: &mut State, params: &Value) -> Option<Value> {
             // Across packages the entry moves between two build files. What
             // the move does to either package's `dependencies` is derived from
             // the repository as it will be, so it is left to `buri gen` and to
-            // the `missing-dep` finding that asks for it.
+            // the `missing-dependency` finding that asks for it.
             let dropped = Change::Dropped { rel: before.rel.clone() };
             sources(state, &mut edits, &before.build_path, &dropped);
             if let Some((rule, field)) = destination(&after) {

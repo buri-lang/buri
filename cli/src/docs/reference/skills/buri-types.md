@@ -100,7 +100,7 @@ field types; it fails if a field type doesn't satisfy the trait. Derivable:
 traits. `ToJson` and `FromJson` are **derive-only**; a hand-written `impl` is
 rejected.
 
-`assert.equal(a, b)` needs `Equal` and `Show`, so an `unsatisfied-bound` in a
+`assert.equal(a, b)` needs `Equal` and `Show`, so an `missing-impl` in a
 test usually wants `derive Equal, Show for YourType;`.
 
 ### Operators are trait methods

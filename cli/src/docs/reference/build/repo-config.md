@@ -82,8 +82,8 @@ lint {
         # or absent `rules` block changes nothing.
         default: ENABLED
 
-        discarded_result: false
-        hex_digit_table: false
+        hand_rolled_hex_digits: false
+        ignored_result: false
     }
 }
 ```
@@ -109,7 +109,7 @@ One field per lint code, with underscores for hyphens, plus a `default`:
 enabled(rule) = override.unwrap_or(default)
 ```
 
-`discarded_result: false` turns off one rule. `default: DISABLED` plus a few
+`ignored_result: false` turns off one rule. `default: DISABLED` plus a few
 rules set to `true` is an allow list:
 
 ```textproto schema=repo
@@ -120,7 +120,7 @@ lint {
         # Nothing runs but what is named here.
         default: DISABLED
 
-        missing_dep: true
+        missing_dependency: true
         unused_import: true
     }
 }
@@ -128,7 +128,7 @@ lint {
 
 The catalogue **generates the field set**, so the block accepts exactly the
 lint codes this `buri` has. `unused_improt: false` gets the
-[`unknown-field`](../errors/unknown-field.md) diagnostic, offering
+[`build-unknown-field`](../errors/build-unknown-field.md) diagnostic, offering
 `unused_import` as the fix. A misspelled rule never stays quietly on.
 
 Turning a rule off here turns it off everywhere: `buri lint`,
@@ -136,7 +136,7 @@ Turning a rule off here turns it off everywhere: `buri lint`,
 says which rules this file turned off:
 
 ```
-REPO.buri turns off 2 of 25 lint rules: discarded-result, hex-digit-table
+REPO.buri turns off 2 of 25 lint rules: hand-rolled-hex-digits, ignored-result
 ```
 
 Under `default: DISABLED` it prints the smaller side, the rules that still run.
@@ -183,14 +183,14 @@ language {
   `buri format` and your editor use. A language without one isn't checked, or
   isn't formatted.
 - A tool without the entry point is
-  [`tool-without-entry-point`](../errors/tool-without-entry-point.md), and a
-  name that's no tool is [`no-such-tool`](../errors/no-such-tool.md).
+  [`tool-missing-entry-point`](../errors/tool-missing-entry-point.md), and a
+  name that's no tool is [`unknown-tool`](../errors/unknown-tool.md).
 - `generate` is validated the same way, but nothing runs it yet: a
   `generators` entry names its own tool.
 - One extension names one language, so claiming a taken one is
-  [`language-extension-taken`](../errors/language-extension-taken.md). A
+  [`duplicate-extension`](../errors/duplicate-extension.md). A
   language is declared once
-  ([`language-declared-twice`](../errors/language-declared-twice.md)).
+  ([`duplicate-language`](../errors/duplicate-language.md)).
 
 A built-in language keeps its own check so a `.json` file means the same thing
 in every repository. [`guides/json.md`](../../guides/json.md) covers that check.
@@ -199,7 +199,7 @@ in every repository. [`guides/json.md`](../../guides/json.md) covers that check.
 
 - **No toolchain pin.** Nothing fetches a toolchain, so a pin has nothing to
   do. `buri version --verbose` prints the running executable's hash for bug
-  reports. A leftover `toolchain` block gets the unknown-field diagnostic.
+  reports. A leftover `toolchain` block gets the build-unknown-field diagnostic.
 - **No `name`.** Labels are `//`-rooted, artifacts take their names from their
   package directory, and a name here would compete with the checkout directory.
   Rules in a `BUILD.buri` have no `name` either

@@ -6,7 +6,7 @@ warning: str is imported but not used [unused-import]
   |
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
   = fix: remove the import
-error: an import declaration ends with `;` [missing-terminator]
+error: an import declaration ends with `;` [missing-semicolon]
  --> lib/recovery_delete_separator_module_cents_9e80ae/lib.buri:4:32
   |
 4 | from "core/str" import * as str

@@ -1,4 +1,4 @@
-error: //cmd/api cannot contain both "client" and "server" code [tag-violation]
+error: //cmd/api cannot contain both "client" and "server" code [tag-conflict]
  --> cmd/api/BUILD.buri:3:12
   |
 3 |     tags: ["server"]

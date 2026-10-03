@@ -1,5 +1,5 @@
 ---
-title: Every `let` names something the code below it reads
+title: Every `let` binding is read
 severity: warning
 message: "`{name}` is bound and never used"
 note: a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not

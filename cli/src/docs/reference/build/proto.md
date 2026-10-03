@@ -23,7 +23,7 @@ library {
 
 You write `generators` by hand; `buri gen` can't know which generator owns a
 file. A schema no entry lists is
-[`unused-library`](../lints/unused-library.md). The old `proto_sources` field is
+[`unused-source`](../lints/unused-source.md). The old `proto_sources` field is
 [retired](../errors/retired-proto-sources.md).
 
 The generated module belongs to the declaring rule, so library boundaries apply.
@@ -46,16 +46,16 @@ nothing else.
 
 The check reports everything `generate` would, each on its own span:
 
-- a statement that does not parse ([`proto-schema`](../errors/proto-schema.md));
+- a statement that does not parse ([`proto-syntax`](../errors/proto-syntax.md));
 - the edition, and everything the reader refuses (see below);
 - a type that names nothing, or two things
   ([`proto-unknown-type`](../errors/proto-unknown-type.md),
   [`proto-ambiguous-type`](../errors/proto-ambiguous-type.md));
 - a field number or name used twice in a message, `oneof` cases included, or
   one the message `reserved`
-  ([`proto-field-reused`](../errors/proto-field-reused.md));
+  ([`proto-duplicate-field`](../errors/proto-duplicate-field.md));
 - an `import` that names no schema in the repository
-  ([`proto-import-not-found`](../errors/proto-import-not-found.md)). Imports
+  ([`proto-unknown-import`](../errors/proto-unknown-import.md)). Imports
   resolve from the repository root, never outside it.
 
 A schema that fails never reaches its generator.
@@ -95,7 +95,7 @@ no presence, under editions it does by default. No reader can paper over that,
 so Buri refuses an older file and puts the migration in the `fix`:
 
 ```text
-error: `syntax = "proto3"` is not accepted [proto-syntax-declaration]
+error: `syntax = "proto3"` is not accepted [proto-unsupported-edition]
  --> libs/wire/point.proto:1:1
   |
 1 | syntax = "proto3";

@@ -1,4 +1,4 @@
-error: a `derive` clause names no traits [derive-without-traits]
+error: a `derive` clause names no traits [derive-missing-traits]
  --> cmd/derive_names_no_traits/main.buri:4:8
   |
 4 | derive for Meters;

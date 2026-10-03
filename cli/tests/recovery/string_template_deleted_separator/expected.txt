@@ -1,4 +1,4 @@
-error [missing-separator] 6:17-6:17
+error [missing-comma] 6:17-6:17
 message: a call argument ends with `,`
 fix: write `,` here
 edit: 6:17-6:17 ","

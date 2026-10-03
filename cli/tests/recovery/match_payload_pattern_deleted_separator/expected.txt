@@ -1,4 +1,4 @@
-error [missing-separator] 9:13-9:13
+error [missing-comma] 9:13-9:13
 message: a variant-pattern field ends with `,`
 fix: write `,` here
 edit: 9:13-9:13 ","

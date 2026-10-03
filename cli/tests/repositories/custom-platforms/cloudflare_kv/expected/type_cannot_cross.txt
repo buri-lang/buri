@@ -1,4 +1,4 @@
-error: `Char` cannot cross to JavaScript, as `fetch`'s parameter `initial` [type-cannot-cross]
+error: `Char` cannot cross to JavaScript, as `fetch`'s parameter `initial` [type-not-crossable]
   --> platform/cloudflare_worker/platform.buri:13:57
    |
 13 | export fn fetch(host: CloudflareHost, request: Request, initial: Char): Response;

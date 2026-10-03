@@ -1,11 +1,11 @@
-error: an import name ends with `,` [missing-separator]
+error: an import name ends with `,` [missing-comma]
  --> lib/recovery_delete_separator_brace_app_34e874/main.buri:7:42
   |
 7 | from "platform/effect" import { Allocator Stdout };
   |                                          ^
   |
   = fix: write `,` here
-warning: this comment is marked `TODO` [warning-comment]
+warning: this comment is marked `TODO` [todo-comment]
  --> lib/recovery_delete_separator_brace_app_34e874/main.buri:9:4
   |
 9 | // TODO: decide what this program is for.

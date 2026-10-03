@@ -1,4 +1,4 @@
-error: an expression statement is legal only in a test source [expression-statement]
+error: an expression statement is legal only in a test source [statement-outside-test]
   --> lib/recovery_swap_adjacent_brace_cents_4f10b6/lib.buri:21:7
    |
 21 |     { Entry cents, label: "" }
@@ -6,14 +6,14 @@ error: an expression statement is legal only in a test source [expression-statem
    |
    = a block is `let`s followed by a result expression
    = fix: bind it: `let _ = ...;`, or make it the block's result expression
-error: `Entry` is a type, not a value [type-not-a-value]
+error: `Entry` is a type, not a value [type-not-value]
   --> lib/recovery_swap_adjacent_brace_cents_4f10b6/lib.buri:21:7
    |
 21 |     { Entry cents, label: "" }
    |       ^^^^^
    |
    = fix: construct one, as in `Point { x: 1, y: 2 }`, or name a value
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_swap_adjacent_brace_cents_4f10b6/lib.buri:21:12
    |
 21 |     { Entry cents, label: "" }

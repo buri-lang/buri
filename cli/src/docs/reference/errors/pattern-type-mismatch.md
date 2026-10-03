@@ -1,5 +1,5 @@
 ---
-title: A pattern matches the shape of the scrutinee
+title: A pattern matches the matched value's shape
 message: 'expected `{expected}`, found a `{found}` pattern'
 ---
 

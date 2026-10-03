@@ -1,2 +1,2 @@
-error: //cmd/no_main exports no `main` [no-main]
+error: //cmd/no_main exports no `main` [missing-main]
   = fix: add `export fn main(host: NodeHost): Result<(), Str> { ... }` to its `main.buri`

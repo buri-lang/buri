@@ -1490,7 +1490,7 @@ impl State {
         // command opens a repository through — and where the generators run. An
         // editor that took the copy for itself never ran one, so every module a
         // generator produces resolved to nothing and every import of one was
-        // `module-not-found` in a repository that builds.
+        // `unknown-module` in a repository that builds.
         let (sources, open) = self.sources_of(root);
         sources.session(open).ok()
     }

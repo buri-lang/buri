@@ -550,7 +550,7 @@ fn a_watching_run_that_cannot_rebuild_keeps_serving_the_last_page() {
     let broken = source.replace("\"the front page\"", "theFrontPage");
     assert_ne!(broken, source, "the edit changed nothing");
     scratch.write("cmd/site/main.buri", &broken);
-    server.complained_about("unresolved-name");
+    server.complained_about("unknown-name");
 
     get(server.port, "/main.mjs").ok().holds("the front page");
     assert_eq!(get(server.port, "/").ok().body, shell, "the shell the reader had is gone");
@@ -587,7 +587,7 @@ fn a_binary_with_a_worker_beside_its_page_serves_the_page() {
 
 /// A repository platform that ships an `index.html` among its `assets` is a
 /// page too: `buri run` serves its output directory rather than starting the
-/// entry, though its `js` file would otherwise make it `platform-cannot-run`.
+/// entry, though its `js` file would otherwise make it `entry-not-runnable`.
 #[test]
 fn a_repository_platform_with_an_index_html_is_served() {
     let scratch = Scratch::copy_of("serving-repository", &tests_dir().join("repositories/serving/a_page_is_served/repo"));

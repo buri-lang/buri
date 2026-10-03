@@ -1016,7 +1016,7 @@ fn problem<C: Allocator>(
 }
 
 fn wrong<C: Allocator>(ctx: C, o: ast.Origin, message: Str, fix: Str): [Diagnostic] {
-    [problem(ctx, "textproto-wrong-value", o, message, fix)]
+    [problem(ctx, "textproto-invalid-value", o, message, fix)]
 }
 
 /// Checks `fields` as a value of `m`, and answers it as proto3 JSON. The JSON
@@ -1108,7 +1108,7 @@ fn fieldInto<C: Allocator>(
                 .Some(taken) => {
                     let d = problem(
                         ctx,
-                        "textproto-field-repeated",
+                        "textproto-duplicate-field",
                         f.nameAt,
                         str.format(
                             ctx,
@@ -1140,7 +1140,7 @@ fn singularInto<C: Allocator>(
     if (acc.set.contains(f.name)) {
         let d = problem(
             ctx,
-            "textproto-field-repeated",
+            "textproto-duplicate-field",
             f.nameAt,
             str.format(ctx, "`${f.name}` is set twice, and it holds one value"),
             "delete one of the two, or make the field `repeated` in the schema",
@@ -1152,7 +1152,7 @@ fn singularInto<C: Allocator>(
             .List(_items, o) => {
                 let d = problem(
                     ctx,
-                    "textproto-wrong-value",
+                    "textproto-invalid-value",
                     o,
                     str.format(
                         ctx,

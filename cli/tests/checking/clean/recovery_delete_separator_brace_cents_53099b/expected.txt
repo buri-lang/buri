@@ -1,4 +1,4 @@
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> main.buri:41:53
    |
 41 |         let pad = if (rest < 10) { "0" } else { "" }

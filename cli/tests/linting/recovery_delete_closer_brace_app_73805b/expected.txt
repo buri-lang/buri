@@ -1,4 +1,4 @@
-warning: this discards a `Result` [discarded-result]
+warning: this discards a `Result` [ignored-result]
   --> lib/recovery_delete_closer_brace_app_73805b/main.buri:26:13
    |
 26 |     let _ = record().ignore(;
@@ -18,7 +18,7 @@ error: this call is missing its closing `)` [unclosed-delimiter]
    |                            ^ opened here
    |
    = fix: write `)` here
-warning: this discards a `Result` [discarded-result]
+warning: this discards a `Result` [ignored-result]
   --> lib/recovery_delete_closer_brace_app_73805b/main.buri:27:13
    |
 27 |     let _ = io.println(ctx, "done").ignore();

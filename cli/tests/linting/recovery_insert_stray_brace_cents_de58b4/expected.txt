@@ -14,7 +14,7 @@ warning: nothing reads `Entry.note` [unused-field]
    |
    = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
    = fix: delete the field, or read it
-error: an expression statement is legal only in a test source [expression-statement]
+error: an expression statement is legal only in a test source [statement-outside-test]
   --> lib/recovery_insert_stray_brace_cents_de58b4/lib.buri:25:5
    |
 25 |     e.extra cents + e.tax
@@ -22,21 +22,21 @@ error: an expression statement is legal only in a test source [expression-statem
    |
    = a block is `let`s followed by a result expression
    = fix: bind it: `let _ = ...;`, or make it the block's result expression
-error: `Entry` has no field `extra` [no-such-field]
+error: `Entry` has no field `extra` [unknown-field]
   --> lib/recovery_insert_stray_brace_cents_de58b4/lib.buri:25:7
    |
 25 |     e.extra cents + e.tax
    |       ^^^^^
    |
    = fix: check the spelling, or name a field the type declares
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_insert_stray_brace_cents_de58b4/lib.buri:25:12
    |
 25 |     e.extra cents + e.tax
    |            ^
    |
    = fix: write `;` here
-error: there is nothing named `cents` in scope [unresolved-name]
+error: there is nothing named `cents` in scope [unknown-name]
   --> lib/recovery_insert_stray_brace_cents_de58b4/lib.buri:25:13
    |
 25 |     e.extra cents + e.tax

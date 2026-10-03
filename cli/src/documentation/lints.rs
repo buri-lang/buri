@@ -47,41 +47,33 @@ macro_rules! l {
 
 /// Every `buri lint` finding, in the order the index lists them.
 pub const LINTS: &[LintDoc] = &[
+    l!("circular-dependency", "Two targets may not depend on each other", &["build/build-files"]),
     l!("ctx-rebinding", "`ctx` names the context a function was handed"),
-    l!("dead-code", "Every declaration is reached from a `lib.buri` or a `main.buri`", &[
-        "build/libraries"
-    ]),
+    l!("dead-code", "Every declaration is reachable", &["build/libraries"]),
     l!("deep-nesting", "Branches nest shallowly"),
-    l!("dep-cycle", "Two targets may not depend on each other", &["build/build-files"]),
-    l!("discarded-result", "Every deliberately dropped `Result` is reported", &[
-        "language/expressions"
-    ]),
-    l!("discarded-result-by-hand", "The four-line `match` that drops a `Result` is the anti-pattern", &[
-        "language/expressions"
-    ]),
     l!("duplicate-import", "A module is imported once"),
     l!("duplicate-source", "A source file is listed by one rule", &["build/build-files"]),
     l!("empty-test-suite", "A `test` block declares the sources it tests"),
     l!("hand-rolled-comparator", "A comparator over a primitive is already in `core/order`"),
-    l!("hex-digit-table", "The hexadecimal digits are not yours to keep"),
-    l!("missing-dep", "Every library a package uses is in its dependencies", &["build/build-files"]),
+    l!("hand-rolled-hex-digits", "The standard library keeps the hex digits"),
+    l!("hand-rolled-ignore", "A `match` that drops a `Result` is `ignore` written out", &["language/expressions"]),
+    l!("ignored-result", "Every `ignore` of a `Result` is reported", &["language/expressions"]),
+    l!("missing-dependency", "A package lists every library it uses", &["build/build-files"]),
     l!("oversized-function", "A function is one responsibility"),
+    l!("test-missing-assertion", "A test asserts something"),
     l!("test-title-newline", "A test title is one line"),
-    l!("test-without-assertion", "A test asserts something"),
     l!("time-unit-conversion", "A length of time is a `Duration`"),
+    l!("todo-comment", "A `TODO` comment is unfinished work"),
     l!("too-many-parameters", "A function takes few parameters"),
     l!("unsatisfiable-target", "A target admits at least one platform", &["build/tags"]),
     l!("unused-context", "A function that takes `ctx` uses it"),
     l!("unused-context-bound", "A context asks for the effects it uses"),
     l!("unused-field", "Every field is read"),
     l!("unused-import", "Every import is used"),
-    l!("unused-library", "Every source file belongs to a library or a binary", &[
-        "build/build-files"
-    ]),
+    l!("unused-source", "Every source file belongs to a rule", &["build/build-files"]),
     l!("unused-type", "Every declared type is used", &["build/libraries"]),
-    l!("unused-variable", "Every `let` names something the code below it reads"),
+    l!("unused-variable", "Every `let` binding is read"),
     l!("unused-variant", "Every variant is constructed or matched"),
-    l!("warning-comment", "A marker comment is work that was left behind"),
 ];
 
 /// The `lint { rules { … } }` field a code is written as in a `REPO.buri`: the

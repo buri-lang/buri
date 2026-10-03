@@ -1,4 +1,4 @@
-error: `equal` takes 2 arguments, but 3 were given [wrong-argument-count]
+error: `equal` takes 2 arguments, but 3 were given [argument-count]
   --> main.buri:69:5
    |
 69 |     assert.equal(heap, "2026-03-01"extra );
@@ -7,14 +7,14 @@ error: `equal` takes 2 arguments, but 3 were given [wrong-argument-count]
    = expected: 2
    = actual: 3
    = fix: pass `equal` the following arguments: equal<T: Equal>(actual: T, expected: T)
-error: a call argument ends with `,` [missing-separator]
+error: a call argument ends with `,` [missing-comma]
   --> main.buri:69:36
    |
 69 |     assert.equal(heap, "2026-03-01"extra );
    |                                    ^
    |
    = fix: write `,` here
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> main.buri:69:36
    |
 69 |     assert.equal(heap, "2026-03-01"extra );

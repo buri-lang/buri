@@ -14,7 +14,7 @@ error: the `required` label is not supported [proto-unsupported]
   |
   = editions replaced the labels with `features.field_presence`, and the value that corresponds to `required` is LEGACY_REQUIRED — which this reader refuses in its own right
   = fix: drop the label; a singular field already has presence
-error: a oneof case takes no label [proto-schema]
+error: a oneof case takes no label [proto-syntax]
  --> lib/bad/service.proto:9:16
   |
 9 |   oneof pick { repeated string many = 7; }

@@ -1,4 +1,4 @@
-error: this file already has a test called "the same title" [duplicate-test-name]
+error: this file already has a test called "the same title" [duplicate-test]
   --> lib/twice/test/twice.buri:17:1
    |
 17 | test "the same title" {

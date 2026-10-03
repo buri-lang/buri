@@ -1,4 +1,4 @@
-error: `Scope` does not satisfy `Ui` [unsatisfied-bound]
+error: `Scope` does not implement `Ui` [missing-impl]
   --> cmd/ui_scope_cannot_write/main.buri:23:11
    |
 23 |   let _ = n.set(ctx, 0);
@@ -6,3 +6,8 @@ error: `Scope` does not satisfy `Ui` [unsatisfied-bound]
    |
    = `Scope` implements `Allocator` and `Watch`, but not `Ui`
    = fix: add `derive Ui for Scope;` in that type's own module, or write `impl Ui for Scope { ... }` there
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+

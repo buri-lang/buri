@@ -23,7 +23,9 @@ error: `fetch` takes `NodeHost`, and the //platform/cloudflare_worker platform h
        binary {
            outputs: [
                { platform: "native", variant: "linux-arm64" },
-               { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+               { platform: "node", entries: [
+                   { name: "main", function: "mainForNode" },
+               ] },
            ]
        }
 

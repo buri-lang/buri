@@ -35,7 +35,7 @@ library {
 }
 ```
 
-A schema no entry lists is `unused-library`.
+A schema no entry lists is `unused-source`.
 
 ## Decide what leaves the library
 
@@ -88,7 +88,7 @@ A failure is a `ProtoError` carrying a byte offset or a field number.
 generating from it:
 
 ```text
-error: `radius` and `sides` both use field number 3 [proto-field-reused]
+error: `radius` and `sides` both use field number 3 [proto-duplicate-field]
   --> libs/wire/shape.proto:17:5
    |
 17 |     double radius = 3;

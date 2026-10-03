@@ -1,5 +1,5 @@
 ---
-title: Two bounds declaring one method name need disambiguating
+title: A method two bounds share needs qualifying
 message: '`{method}` is declared by both `{first_trait}` and `{second_trait}`'
 ---
 

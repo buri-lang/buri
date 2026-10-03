@@ -1,4 +1,4 @@
-// EXPECT: `a context` does not satisfy `Clock`
+// EXPECT: `a context` does not implement `Clock`
 //
 // What makes a generator deterministic. `codegen.run` hands `generate` the
 // context `main` built, bounded by `Allocator + Stdin + Stdout` and nothing more —

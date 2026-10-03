@@ -14,7 +14,7 @@ warning: this is `order.bool`, written out [hand-rolled-comparator]
    |
    = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ordered` impl both take
    = fix: call `order.bool` with the two operands, and delete the chain
-error: an expression statement is legal only in a test source [expression-statement]
+error: an expression statement is legal only in a test source [statement-outside-test]
   --> lib/recovery_insert_stray_brace_app_b2296c/main.buri:40:9
    |
 40 |         .extra Less
@@ -22,21 +22,21 @@ error: an expression statement is legal only in a test source [expression-statem
    |
    = a block is `let`s followed by a result expression
    = fix: bind it: `let _ = ...;`, or make it the block's result expression
-error: `.extra` needs a known expected type [unannotated-variant]
+error: `.extra` needs a known expected type [untyped-variant]
   --> lib/recovery_insert_stray_brace_app_b2296c/main.buri:40:9
    |
 40 |         .extra Less
    |         ^^^^^^
    |
    = fix: write the qualified form, as in `Option.extra(...)`, or annotate what this value is being used as
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_insert_stray_brace_app_b2296c/main.buri:40:15
    |
 40 |         .extra Less
    |               ^
    |
    = fix: write `;` here
-error: there is nothing named `Less` in scope [unresolved-name]
+error: there is nothing named `Less` in scope [unknown-name]
   --> lib/recovery_insert_stray_brace_app_b2296c/main.buri:40:16
    |
 40 |         .extra Less

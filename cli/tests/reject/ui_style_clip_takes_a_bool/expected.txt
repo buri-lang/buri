@@ -1,4 +1,4 @@
-error: `Bool` has no variant `Px` [no-such-variant]
+error: `Bool` has no variant `Px` [unknown-variant]
   --> cmd/ui_style_clip_takes_a_bool/main.buri:14:43
    |
 14 |   ui.mount(ctx, ui.stack({ styles: [.Clip(.Px(12))], children: [] }), [])

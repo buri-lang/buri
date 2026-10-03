@@ -5,7 +5,7 @@ error: `Route` is missing `path` [missing-field-value]
    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: give `path` a value — only an `Option` field may be left out — or start from an existing one with `Route { ..base, field: value }`
-error: a match arm ends with `,` [missing-separator]
+error: a match arm ends with `,` [missing-comma]
   --> main.buri:12:41
    |
 12 |         _ => Route { name: "fallback", } path,

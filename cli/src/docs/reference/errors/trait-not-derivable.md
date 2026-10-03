@@ -1,5 +1,5 @@
 ---
-title: A trait is derivable or it is written by hand
+title: Only some traits can be derived
 message: '`{trait}` cannot be derived'
 fix: write `impl {trait} for ... {{ ... }}` by hand
 ---

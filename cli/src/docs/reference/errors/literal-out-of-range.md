@@ -1,8 +1,8 @@
 ---
-title: A literal must fit the type it is pinned to
+title: A literal fits its type
 message: {literal} is not representable in `{type}`
 ---
-# A literal must fit the type it is pinned to
+# A literal fits its type
 
 ```text
 error: 18_446_744_073_709_551_616 is not representable in `U64` [literal-out-of-range]

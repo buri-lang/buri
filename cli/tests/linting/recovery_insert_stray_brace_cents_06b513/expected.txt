@@ -1,4 +1,4 @@
-error: an expression statement is legal only in a test source [expression-statement]
+error: an expression statement is legal only in a test source [statement-outside-test]
  --> lib/recovery_insert_stray_brace_cents_06b513/lib.buri:6:35
   |
 6 |     if (n == 0) { "zero" } else { extra "some" }
@@ -6,14 +6,14 @@ error: an expression statement is legal only in a test source [expression-statem
   |
   = a block is `let`s followed by a result expression
   = fix: bind it: `let _ = ...;`, or make it the block's result expression
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
  --> lib/recovery_insert_stray_brace_cents_06b513/lib.buri:6:35
   |
 6 |     if (n == 0) { "zero" } else { extra "some" }
   |                                   ^^^^^
   |
   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
  --> lib/recovery_insert_stray_brace_cents_06b513/lib.buri:6:40
   |
 6 |     if (n == 0) { "zero" } else { extra "some" }

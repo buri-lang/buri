@@ -282,7 +282,7 @@ because a suite reaches its library the way a dependent does.
 **You cannot tell the two apart by their shape.** `"//lib/money/testing"` and
 `"//lib/money/cents"` are the same string with one segment changed, yet the first
 is a surface and the second is a file with its name left off. What is on disk
-decides. A path missing a file name is `import-path-without-a-file`, and the
+decides. A path missing a file name is `import-missing-extension`, and the
 diagnostic works out which file it meant. A path that leaves the package and
 names a file inside it is `internal-import`.
 
@@ -613,7 +613,7 @@ fn result(): World {
 The type comes from an annotated `let`, a call argument, a field value, a match
 arm, or a function's result; it is never inferred from the fields. Without one,
 or when the expected type is an enum, a primitive, or a generic struct with an
-unsettled type argument, the literal is `struct-literal-type`.
+unsettled type argument, the literal is `untyped-struct-literal`.
 
 Braces are a literal when `{` is followed by `..` or `name :`, and a block
 otherwise (`design/grammar-rationale.md` 12.3). So `World { hi }` and `{}` need
@@ -706,7 +706,7 @@ fs.writeText(ctx, path, body).ignore()                // explicitly, greppably, 
 ```
 
 `ignore` is a method only, so it's greppable, and `buri lint` reports each one as
-`discarded-result`.
+`ignored-result`.
 
 The rule follows the type, so a pure function's `Result` is must-use too. So is
 `io.println`'s `Result<(), IoError>`: pipes close and disks fill.
@@ -1154,7 +1154,7 @@ An `impl` with a `for` clause declares trait conformance instead
 (Section 5.12.2).
 
 `self` takes no type; the `impl` head already gives it. Writing one is the
-`self-with-a-type` error.
+`typed-self` error.
 
 An `impl` block may appear only in the module that declares its type. Neither it
 nor a `derive` is ever `export`ed. Methods carry their own `export`, except
@@ -1706,7 +1706,7 @@ Binding one half of the filesystem and not the other is the ordinary case
 rather than a precaution.
 
 **A host type is its platform's list of effects.** A platform that does not
-offer an effect has no field for it, so asking for one is `no-such-field` on
+offer an effect has no field for it, so asking for one is `unknown-field` on
 the line that asked, with a note naming the platforms that do offer it:
 
 | Field | Effect | `native` | `node` | `web` |
@@ -2064,7 +2064,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 
 - `main` takes one parameter, its platform's host — `NativeHost`, `NodeHost` or
   `WebHost` — and declares no generic parameters (Section 10.3). The old
-  host-less `main()` is `entry-without-host`.
+  host-less `main()` is `entry-missing-host`.
 - `main` must return `Result<(), Str>`.
 - `.Ok(())` exits 0. `.Err(msg)` prints `msg` to stderr and exits 1.
 - An **entry's** body is the only place in a program that may construct a context
@@ -2134,7 +2134,7 @@ A test declaration is `test STRING Block`. A test takes no parameters and return
 nothing: it passes unless an assertion in it fails.
 
 **A name is used once per file.** Two `test` declarations in one module with the
-same name are a compile error (`duplicate-test-name`), since the name is how a
+same name are a compile error (`duplicate-test`), since the name is how a
 report identifies a failing test and how `--filter` selects one. Two *different*
 files may use the same name.
 

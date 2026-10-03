@@ -1,5 +1,5 @@
 ---
-title: A `context` is not exported from a test-only module
+title: A `context` is exported only from a test-only module
 message: a `context` may be exported only from a test-only module
 note: a test module is anything under a `testing` directory
 fix: drop the `export`, or move it into a test-only module

@@ -90,7 +90,7 @@ error: expected `I32`, found `I64` [type-mismatch]
 ```
 buri docs error type-mismatch    one diagnostic in full, with a program that provokes it
 buri docs error                  every compiler and build code, listed
-buri docs lint missing-dep       the same for a `buri lint` finding
+buri docs lint missing-dependency       the same for a `buri lint` finding
 buri docs lint                   every lint code, listed
 ```
 
@@ -165,7 +165,7 @@ reports the checker's errors for all three. Only `dead-code` and
 `testing/lib.buri`.
 
 `--fix` applies the findings with exactly one mechanical answer, then re-checks
-from disk. It hands `missing-dep`, `unused-library` and `duplicate-source` to
+from disk. It hands `missing-dependency`, `unused-source` and `duplicate-source` to
 `buri gen`, and applies `unused-import` as bytes. It does **not** reformat. If
 two edits in one file overlap, it applies none of that file's.
 
@@ -212,7 +212,7 @@ buri docs cli build                one command, flags generated from the dispatc
 buri docs error result-discarded   one diagnostic, with a program that provokes it
 buri docs core/list                a standard library module, rendered from its source
 buri docs core/list.map            one item of one module
-buri docs lint missing-dep         one lint finding in full
+buri docs lint missing-dependency         one lint finding in full
 buri docs search compare ints      every page at once, by name or by intent
 buri docs manifest                 every id and output shape, for an agent
 ```

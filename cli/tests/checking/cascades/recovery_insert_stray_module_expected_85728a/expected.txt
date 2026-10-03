@@ -7,7 +7,7 @@ error: expected `{`, found `,` [unexpected-token]
   = expected: `{`
   = actual: `,`
   = fix: write `{` here
-error: there is no type `S` [unresolved-type]
+error: there is no type `S` [unknown-type]
  --> main.buri:9:6
   |
 9 | impl S {}

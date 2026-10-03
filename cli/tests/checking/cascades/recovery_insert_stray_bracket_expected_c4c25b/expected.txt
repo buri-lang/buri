@@ -1,11 +1,11 @@
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
  --> main.buri:4:6
   |
 4 |     [extra "a\${x}b", "$4.00", "$.tags[2]", "ends in a $"]
   |      ^^^^^
   |
   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
-error: an array element ends with `,` [missing-separator]
+error: an array element ends with `,` [missing-comma]
  --> main.buri:4:11
   |
 4 |     [extra "a\${x}b", "$4.00", "$.tags[2]", "ends in a $"]

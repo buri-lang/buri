@@ -1,4 +1,4 @@
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_delete_separator_brace_app_c98bbe/main.buri:19:30
    |
 19 |     let ctx = "not a context"

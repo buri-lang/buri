@@ -1068,7 +1068,7 @@ pair in every theme, where the two drift apart the day one of them moves. A
 colour written out
 has nothing to defer and fades to a plain `Rgba`; `.Transparent` and `.Inherit`
 answer themselves. The fraction is `0.0` to `1.0` and anything else is refused
-([`style-alpha-out-of-range`](../reference/errors/style-alpha-out-of-range.md)),
+([`alpha-out-of-range`](../reference/errors/alpha-out-of-range.md)),
 because a `color-mix` percentage outside 0 to 100 makes the whole declaration
 invalid and the element loses the colour rather than gaining a louder one.
 

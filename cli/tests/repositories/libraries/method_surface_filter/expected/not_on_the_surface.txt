@@ -1,4 +1,4 @@
-error: `toCents` is not on //lib/money's surface [not-on-the-surface]
+error: `toCents` is not on //lib/money's surface [not-on-surface]
   --> cmd/app/main.buri:15:41
    |
 15 |         .println(ctx, "${fromCents(450).toCents()}")

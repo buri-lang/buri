@@ -127,7 +127,7 @@ const FLOOR: usize = 250;
 /// tree, and a body that did not check is not asked at all — so what changed
 /// is which sources the sampler drew, not what any rule says about one.
 ///
-/// `hex-digit-table` and `time-unit-conversion`'s two fixtures move it again,
+/// `hand-rolled-hex-digits` and `time-unit-conversion`'s two fixtures move it again,
 /// to **26 of 2,000 (1.30%) and 8 of 600**. Those two rules are the first that
 /// read *tokens* rather than the typed tree — a literal is one token whether or
 /// not the declaration around it checked — which is precisely the shape that
@@ -136,7 +136,7 @@ const FLOOR: usize = 250;
 /// reports more of either code than its seed did**. Two new seeds redraw all
 /// two thousand, and what moved is which sources came up.
 ///
-/// `hand-rolled-comparator` and `discarded-result-by-hand`'s two fixtures move
+/// `hand-rolled-comparator` and `hand-rolled-ignore`'s two fixtures move
 /// it once more, to **42 of 2,000 (2.10%) and 13 of 600 (2.16%)**, and the
 /// ceiling goes to three to keep the point of headroom that makes it a bound
 /// rather than a description.
@@ -189,15 +189,15 @@ const INVENTED_CEILING: usize = 3;
 ///
 /// Forty-seven cases, and **none of them is a lint going quiet about code that
 /// was read**. Two of the three lints in the residue — `duplicate-import` and
-/// `discarded-result` — never consulted `Unchecked` at all, and the third is
+/// `ignored-result` — never consulted `Unchecked` at all, and the third is
 /// stopped by the per-body rule, which is the rule doing its job:
 ///
 /// * **`unused-variable`, 30 cases.** The mutation broke the import the body
-///   depends on, so the body itself no longer checks — `not-an-effect`,
-///   `unsatisfied-bound`, `unresolved-name`, reported *inside* it. A body the
+///   depends on, so the body itself no longer checks — `unknown-effect`,
+///   `missing-impl`, `unknown-name`, reported *inside* it. A body the
 ///   checker stopped in has lost the reads under wherever it stopped, so what
 ///   the binding is read by is not something the report can claim to know.
-/// * **`discarded-result`, 11 cases.** The rule looks for calls landing on
+/// * **`ignored-result`, 11 cases.** The rule looks for calls landing on
 ///   `core/result.ignore` in the typed tree. The mutation broke the callee's
 ///   declaration, so the call resolves to nothing and is not in the tree to
 ///   find.
@@ -245,13 +245,13 @@ const INVENTED_CEILING: usize = 3;
 /// and 13 of 600.** The population count fell rather than rose, which is the
 /// sampler drawing different sources and not any rule changing its mind — two
 /// new seeds redraw all two thousand. The residue is 46 cases losing 69
-/// findings: `unused-field` 40, `discarded-result` 9, `unused-variant` 8,
+/// findings: `unused-field` 40, `ignored-result` 9, `unused-variant` 8,
 /// `unused-context-bound` 6, `unused-variable` 5, `unused-type` 1 — the
 /// dead-code family's share having grown with the fixtures those rules
 /// brought, and every entry still a rule that read a truncated tree or a
 /// broken declaration rather than one going quiet about code it could see.
 ///
-/// Re-measured once more with `hex-digit-table` and `time-unit-conversion`'s
+/// Re-measured once more with `hand-rolled-hex-digits` and `time-unit-conversion`'s
 /// two fixtures in the seed set: **38 of 2,000 (1.90%) and 12 of 600**. The
 /// population count fell again, and again that is the redraw rather than a rule
 /// changing its mind. **Four of the twelve are the two new rules**, and each of
@@ -262,7 +262,7 @@ const INVENTED_CEILING: usize = 3;
 /// a multiplication with those operands. Both are the `duplicate-import` shape
 /// — half the evidence gone, not overlooked.
 ///
-/// `hand-rolled-comparator` and `discarded-result-by-hand`'s two fixtures move
+/// `hand-rolled-comparator` and `hand-rolled-ignore`'s two fixtures move
 /// it to **39 of 2,000 (1.95%) and 12 of 600 (2.00%)**, and this time **none of
 /// the twelve is either new rule**: the losses are `unused-field`,
 /// `unused-variable`, `unused-variant`, `unused-type` and

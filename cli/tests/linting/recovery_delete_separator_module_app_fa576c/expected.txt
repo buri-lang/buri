@@ -1,11 +1,11 @@
-error: an import declaration ends with `;` [missing-terminator]
+error: an import declaration ends with `;` [missing-semicolon]
  --> lib/recovery_delete_separator_module_app_fa576c/main.buri:7:52
   |
 7 | from "platform/effect" import { Allocator, Stdout }
   |                                                    ^
   |
   = fix: write `;` here
-warning: this comment is marked `TODO` [warning-comment]
+warning: this comment is marked `TODO` [todo-comment]
  --> lib/recovery_delete_separator_module_app_fa576c/main.buri:9:4
   |
 9 | // TODO: decide what this program is for.

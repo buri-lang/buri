@@ -1,4 +1,4 @@
-error: this file has no `# proto-file:` and `# proto-message:` header [textproto-without-header]
+error: this file has no `# proto-file:` and `# proto-message:` header [textproto-missing-header]
  --> lib/bad/bare.txtpb:1:1
   |
 1 | id: "o-1"
@@ -21,7 +21,7 @@ error: this file has no `# proto-file:` and `# proto-message:` header [textproto
     read by a tool with a contract (../build/tools.md#input-contracts) may leave
     both out, because the contract names the message.
 
-error: `b` and `a` both use field number 1 [proto-field-reused]
+error: `b` and `a` both use field number 1 [proto-duplicate-field]
  --> lib/bad/broken.proto:5:5
   |
 5 |     int32 b = 1;
@@ -72,7 +72,7 @@ error: `# proto-import:` is not supported [textproto-unsupported]
   |
   = the text format's specification gives it no meaning, so nothing reads it the same way twice
   = fix: delete the line: `# proto-file:` names the schema, and its own imports bring the rest
-error: there is no schema at `lib/bad/gone.proto` [schema-not-found]
+error: there is no schema at `lib/bad/gone.proto` [unknown-schema]
  --> lib/bad/missing.txtpb:1:15
   |
 1 | # proto-file: gone.proto
@@ -84,7 +84,7 @@ error: there is no schema at `lib/bad/gone.proto` [schema-not-found]
     way a browser resolves a link. A path starting // is read from the
     repository root.
 
-error: this file has no `# proto-message:` header [textproto-without-header]
+error: this file has no `# proto-message:` header [textproto-missing-header]
  --> lib/bad/no_message.txtpb:1:1
   |
 1 | # proto-file: shop.proto
@@ -92,7 +92,7 @@ error: this file has no `# proto-message:` header [textproto-without-header]
   |
   = a text format file a build reads is checked against its message before any generator reads it
   = fix: start the file with `# proto-file: <schema path>` and `# proto-message: <Message>`: a path relative to this file, or a `//` path
-error: `../../../shop.proto` is not a file in this repository [schema-not-local]
+error: `../../../shop.proto` is not a file in this repository [schema-outside-repository]
  --> lib/bad/outside.txtpb:1:15
   |
 1 | # proto-file: ../../../shop.proto
@@ -113,7 +113,7 @@ error: `../../../shop.proto` is not a file in this repository [schema-not-local]
     https://json-schema.org/draft/2020-12/schema, which marks a file as a
     schema.
 
-error: `https://example.com/shop.proto` is not a file in this repository [schema-not-local]
+error: `https://example.com/shop.proto` is not a file in this repository [schema-outside-repository]
  --> lib/bad/remote.txtpb:1:15
   |
 1 | # proto-file: https://example.com/shop.proto
@@ -151,7 +151,7 @@ error: `lib/bad/shop.proto` declares no message `Ordr` [textproto-unknown-messag
     package, or whole with a leading .. A contract's type_schema names its
     message after a :, as server.proto:Server.
 
-error: `id` is set twice, and it holds one value [textproto-field-repeated]
+error: `id` is set twice, and it holds one value [textproto-duplicate-field]
  --> lib/bad/values.txtpb:5:1
   |
 5 | id: "o-2"
@@ -171,7 +171,7 @@ error: `id` is set twice, and it holds one value [textproto-field-repeated]
     order. Any other field holds one value, and so does a oneof, whichever case
     holds it.
 
-error: `count` is of type `int32`, and this is not a whole number [textproto-wrong-value]
+error: `count` is of type `int32`, and this is not a whole number [textproto-invalid-value]
  --> lib/bad/values.txtpb:6:8
   |
 6 | count: "3"
@@ -206,28 +206,28 @@ error: `count` is of type `int32`, and this is not a whole number [textproto-wro
     A uint64 or fixed64 past what a Buri Int holds is refused, because the
     generated field is an Int.
 
-error: `-1` does not fit `weight`, of type `uint32` [textproto-wrong-value]
+error: `-1` does not fit `weight`, of type `uint32` [textproto-invalid-value]
  --> lib/bad/values.txtpb:7:9
   |
 7 | weight: -1
   |         ^^
   |
   = fix: write a whole number from 0 to 4294967295
-error: `LARGE` is not a value of `Size` [textproto-wrong-value]
+error: `LARGE` is not a value of `Size` [textproto-invalid-value]
  --> lib/bad/values.txtpb:8:7
   |
 8 | size: LARGE
   |       ^^^^^
   |
   = fix: write one of `SIZE_UNSPECIFIED`, `SMALL`, or a number
-error: `backup` is a `Line` message, written `backup { ... }` [textproto-wrong-value]
+error: `backup` is a `Line` message, written `backup { ... }` [textproto-invalid-value]
  --> lib/bad/values.txtpb:9:9
   |
 9 | backup: "sku-1"
   |         ^^^^^^^
   |
   = fix: write the message's fields inside `backup { ... }`
-error: `sku` is of type `string`, and this is not a quoted string [textproto-wrong-value]
+error: `sku` is of type `string`, and this is not a quoted string [textproto-invalid-value]
   --> lib/bad/values.txtpb:10:13
    |
 10 | line { sku: 4 colour: "red" }
@@ -250,28 +250,28 @@ error: `Line` has no field `colour` [textproto-unknown-field]
 
      A field is written by the name the schema gives it, not its JSON name.
 
-error: `count_by` is of type `int32`, not a message [textproto-wrong-value]
+error: `count_by` is of type `int32`, not a message [textproto-invalid-value]
   --> lib/bad/values.txtpb:11:10
    |
 11 | count_by { }
    |          ^^^
    |
    = fix: write a value rather than `{ ... }`
-error: `tags` is of type `string`, and this is not a quoted string [textproto-wrong-value]
+error: `tags` is of type `string`, and this is not a quoted string [textproto-invalid-value]
   --> lib/bad/values.txtpb:13:13
    |
 13 | tags: ["b", 7]
    |             ^
    |
    = fix: write a quoted string
-error: `gift` is not `repeated`, so it holds one value, not a list [textproto-wrong-value]
+error: `gift` is not `repeated`, so it holds one value, not a list [textproto-invalid-value]
   --> lib/bad/values.txtpb:14:7
    |
 14 | gift: [true]
    |       ^^^^^^
    |
    = fix: write one value without `[` and `]`
-error: `locker` and `address` are cases of one `oneof`, which holds one of them [textproto-field-repeated]
+error: `locker` and `address` are cases of one `oneof`, which holds one of them [textproto-duplicate-field]
   --> lib/bad/values.txtpb:16:1
    |
 16 | locker: "L4"

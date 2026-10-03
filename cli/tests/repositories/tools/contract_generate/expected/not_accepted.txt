@@ -1,4 +1,4 @@
-error: `notes.jsonc` is in `jsonc`, and `//tool/database_schema_codegen` accepts `json` [input-language-not-accepted]
+error: `notes.jsonc` is in `jsonc`, and `//tool/database_schema_codegen` accepts `json` [input-not-accepted]
  --> lib/orders/BUILD.buri:3:75
   |
 3 |         { tool: "//tool/database_schema_codegen", inputs: ["schema.json", "notes.jsonc"] },

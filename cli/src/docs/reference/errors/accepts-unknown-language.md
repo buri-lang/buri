@@ -1,11 +1,11 @@
 ---
-title: A contract names a language the repository has
+title: A contract names a declared language
 message: '`{language}` is not a language this repository has'
 note: 'the languages are {known}'
 fix: 'name one of them, or declare `{language}` in `REPO.buri`'
 reproduction: none
 ---
-# A contract names a language the repository has
+# A contract names a declared language
 
 ```textproto schema=build
 tool {

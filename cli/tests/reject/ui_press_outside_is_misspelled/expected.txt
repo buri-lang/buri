@@ -1,4 +1,4 @@
-error: `Stack` has no field `onPressOutide` [no-such-field]
+error: `Stack` has no field `onPressOutide` [unknown-field]
   --> cmd/ui_press_outside_is_misspelled/main.buri:16:45
    |
 16 |   ui.stack({ styles: [], children: [panel], onPressOutide: .Some(fn(c) => open.set(c, false)) })

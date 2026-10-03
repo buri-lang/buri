@@ -12,7 +12,7 @@ error: this is a test-only module [test-only-import]
     //lib/ledger/testing, //lib/testing/fakes. A file named testing.buri
     doesn't, because that segment is the file's own name.
 
-error: there is nothing named `fake` in scope [unresolved-name]
+error: there is nothing named `fake` in scope [unknown-name]
  --> user/user.buri:4:5
   |
 4 |     fake(1).doubled() - 1

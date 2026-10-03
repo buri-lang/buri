@@ -37,7 +37,7 @@ that named no backend runs natively or does not run.
 
 Sometimes a native run is not available, because this toolchain has no backend
 for the host in this profile, no runtime archive, or no C compiler to link with.
-Then it **refuses** the suite with `native-run-not-available`, naming the
+Then it **refuses** the suite with `test-run-unavailable`, naming the
 platform and the profile you asked for. `--release` is the case worth knowing
 about: the release profile routes to LLVM, so a toolchain built without
 `backend-llvm` refuses `buri test --release` rather than quietly handing it to

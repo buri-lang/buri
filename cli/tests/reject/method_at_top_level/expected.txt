@@ -1,4 +1,4 @@
-error: `area` takes `self`, so it is a method [method-declared-free]
+error: `area` takes `self`, so it is a method [method-outside-impl]
   --> cmd/method_at_top_level/main.buri:11:9
    |
 11 | fn area(self): Int {
@@ -9,7 +9,7 @@ error: `area` takes `self`, so it is a method [method-declared-free]
 
      The impl block goes in the module that declares the type.
 
-error: `Square` has no method `area` [no-such-method]
+error: `Square` has no method `area` [unknown-method]
   --> cmd/method_at_top_level/main.buri:17:49
    |
 17 |   let _ = io.println(ctx, "${Square { side: 3 }.area()}").ignore();

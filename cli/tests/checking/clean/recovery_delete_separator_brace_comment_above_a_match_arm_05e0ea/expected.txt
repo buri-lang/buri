@@ -1,4 +1,4 @@
-error: a match arm ends with `,` [missing-separator]
+error: a match arm ends with `,` [missing-comma]
  --> main.buri:4:15
   |
 4 |     .None => 0

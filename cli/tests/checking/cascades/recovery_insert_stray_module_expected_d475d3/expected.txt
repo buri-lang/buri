@@ -1,11 +1,11 @@
-error: an import name ends with `,` [missing-separator]
+error: an import name ends with `,` [missing-comma]
  --> main.buri:1:39
   |
 1 | from "core/str" import { concat, split extra };
   |                                       ^
   |
   = fix: write `,` here
-error: "core/str" does not export `extra` [no-such-export]
+error: "core/str" does not export `extra` [unknown-export]
  --> main.buri:1:40
   |
 1 | from "core/str" import { concat, split extra };

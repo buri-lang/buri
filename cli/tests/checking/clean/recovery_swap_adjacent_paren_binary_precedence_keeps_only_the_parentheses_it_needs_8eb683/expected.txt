@@ -1,4 +1,4 @@
-error: a tuple element ends with `,` [missing-separator]
+error: a tuple element ends with `,` [missing-comma]
  --> main.buri:2:6
   |
 2 |   ((a b +) * c) + (a * (b + c)) - ((a) - (b))

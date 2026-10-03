@@ -1,4 +1,4 @@
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_delete_closer_module_app_899195/main.buri:15:87
    |
 15 |     io.println(ctx, describe()).mapErr(fn(_e) => "could not write to standard output")

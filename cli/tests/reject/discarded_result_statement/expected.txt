@@ -1,4 +1,4 @@
-error: an expression statement is legal only in a test source [expression-statement]
+error: an expression statement is legal only in a test source [statement-outside-test]
   --> cmd/discarded_result_statement/main.buri:14:3
    |
 14 |   parse("hi");

@@ -1,11 +1,11 @@
-error: an array element ends with `,` [missing-separator]
+error: an array element ends with `,` [missing-comma]
   --> main.buri:73:41
    |
 73 |         Stdin: stdin().bytes([0, 255, 10extra , 65]),
    |                                         ^
    |
    = fix: write `,` here
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> main.buri:73:41
    |
 73 |         Stdin: stdin().bytes([0, 255, 10extra , 65]),

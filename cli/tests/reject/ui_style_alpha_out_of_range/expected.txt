@@ -1,4 +1,4 @@
-error: a colour's alpha is 1.5, and an alpha is a fraction from 0 to 1 [style-alpha-out-of-range]
+error: a colour's alpha is 1.5, and an alpha is a fraction from 0 to 1 [alpha-out-of-range]
   --> cmd/ui_style_alpha_out_of_range/main.buri:20:19
    |
 20 |       .Background(.Rgba(0, 0, 0, 1.5)),
@@ -16,7 +16,7 @@ error: a colour's alpha is 1.5, and an alpha is a fraction from 0 to 1 [style-al
      Only an alpha known at compile time is checked. One built from a parameter
      isn't.
 
-error: a colour's alpha is -0.25, and an alpha is a fraction from 0 to 1 [style-alpha-out-of-range]
+error: a colour's alpha is -0.25, and an alpha is a fraction from 0 to 1 [alpha-out-of-range]
   --> cmd/ui_style_alpha_out_of_range/main.buri:21:20
    |
 21 |       .BorderColor(style.token("cardlib", "ring").alpha(-0.25)),

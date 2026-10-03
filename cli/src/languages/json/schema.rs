@@ -359,8 +359,8 @@ impl<'r> Registry<'r> {
     fn unresolved(&mut self, file: usize, span: Range, reference: &str, e: Unresolved) {
         let path = self.path_of(file);
         let finding = match e {
-            Unresolved::NotLocal => Finding::new("schema-not-local", &path, span, vec![("schema", reference.to_string())]),
-            Unresolved::NoFile(missing) => Finding::new("schema-not-found", &path, span, vec![("path", missing)]),
+            Unresolved::NotLocal => Finding::new("schema-outside-repository", &path, span, vec![("schema", reference.to_string())]),
+            Unresolved::NoFile(missing) => Finding::new("unknown-schema", &path, span, vec![("path", missing)]),
             Unresolved::NoTarget => Finding::new(
                 "json-schema-invalid",
                 &path,

@@ -1,4 +1,4 @@
-error: field `x` is given twice [duplicate-field-initializer]
+error: field `x` is given twice [duplicate-field-value]
  --> cmd/duplicate_field_initializer/main.buri:8:17
   |
 8 |   Point { x: 1, x: 2, y: 3 }

@@ -1,4 +1,4 @@
-error: an import declaration ends with `;` [missing-terminator]
+error: an import declaration ends with `;` [missing-semicolon]
  --> main.buri:1:35
   |
 1 | from "core/str" import { concat, } split;

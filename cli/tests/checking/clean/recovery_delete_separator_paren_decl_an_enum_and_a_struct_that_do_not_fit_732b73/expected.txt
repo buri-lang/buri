@@ -1,4 +1,4 @@
-error: a variant payload field ends with `,` [missing-separator]
+error: a variant payload field ends with `,` [missing-comma]
  --> main.buri:1:95
   |
 1 | export enum Shape { Circle(Float), Rect { width: Float, height: Float }, Triangle(Float, Float Float), Empty }

@@ -1,4 +1,4 @@
-error: an array element ends with `,` [missing-separator]
+error: an array element ends with `,` [missing-comma]
   --> main.buri:16:21
    |
 16 |     let doubled = [1 2, 3].fold(fn(acc, x) => acc + x, 0);
