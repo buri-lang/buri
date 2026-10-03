@@ -70,8 +70,8 @@ use inkwell::values::{
 use inkwell::{FloatPredicate, IntPredicate};
 
 use crate::compiler::backend::intrinsic_keys::{
-    bits_op, derive_key, json_arm, json_variant, list_call, list_closure_key, step_call, JsonArm,
-    Step,
+    bits_op, checked_kind, conversion_target, derive_key, json_arm, json_variant, list_call,
+    list_closure_key, numeric_key, step_call, CheckedKind, JsonArm, Step,
 };
 use crate::compiler::backend::task_thread;
 use crate::compiler::backend::runtime_native;
@@ -387,26 +387,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 inkwell::attributes::AttributeLoc::Function,
                 self.ctx.create_enum_attribute(kind, 0),
             );
-        }
-    }
-
-    /// The thread entry signature as an LLVM function type, built from
-    /// `backend/task_thread.rs` rather than spelled here.
-    ///
-    /// Every word of that ABI is a pointer today; the `match` is what makes a
-    /// widening a compile error in this function instead of a silently wrong
-    /// type.
-    fn thread_fn_type(&self) -> inkwell::types::FunctionType<'ctx> {
-        let params: Vec<BasicMetadataTypeEnum<'ctx>> = task_thread::ENTRY
-            .params
-            .iter()
-            .map(|w| match w {
-                task_thread::Word::Ptr => self.ptr_ty().into(),
-            })
-            .collect();
-        match task_thread::ENTRY.ret {
-            None => self.ctx.void_type().fn_type(&params, false),
-            Some(task_thread::Word::Ptr) => self.ptr_ty().fn_type(&params, false),
         }
     }
 
@@ -8386,9 +8366,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // building a `RangeError`, whose fields are two `Str`s naming the
         // value and the target — a rendering, not a conversion — so those keys
         // are left to the table and to `missing_intrinsics`.
-        if let Some((to, exact)) = conversion_target(from, op) {
+        if let Some(to) = conversion_target(op) {
             let Some(v) = a else { return false };
-            if exact {
+            // The modular form always answers the target type. Its float source
+            // is the one place this backend and JavaScript differ: `$wrapTo`
+            // truncates and then takes the low bits through a `BigInt`, and
+            // this saturates, because `llvm.fptosi.sat` is the only
+            // float-to-integer conversion that is not `poison` out of range.
+            // VALUE-MODEL.md §11 and its divergence table's row 1 put overflow
+            // outside what the two backends promise each other.
+            if op.starts_with("wrapTo") || conversion_is_exact(from, to) {
                 let out = self.cast(v, from, to, want);
                 self.set(state, dest, out);
                 return true;
@@ -9050,7 +9037,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// The four shapes "does not fit" comes in are [`checked_kind`]'s, and a
     /// pair that is none of them is a pair this backend has no body for — the
-    /// same refusal `numeric_op` predicts, so it is never reached from a claim.
+    /// same refusal `numeric_key` predicts, so it is never reached from a claim.
     fn convert_checked(
         &mut self,
         state: &mut Function<'ctx>,
@@ -9563,7 +9550,7 @@ pub fn implemented(key: &str) -> bool {
         || key == "deriveArrayShow"
         || derive_key(key).is_some()
         || runtime::entry(key).is_some()
-        || numeric_op(key)
+        || numeric_key(key)
         || prim_leaf(key).is_some()
 }
 
@@ -9574,7 +9561,7 @@ pub fn implemented(key: &str) -> bool {
 /// type's own module — so `Str`'s live under `str.`, `Char`'s under
 /// `character.` and `Bool`'s under `bool.`, while the numeric ones are three
 /// segments under `number.` because `core/number` defines a dozen types. One rule,
-/// two spellings, and this is the half of it `numeric_op` does not cover.
+/// two spellings, and this is the half of it `numeric_key` does not cover.
 ///
 /// `str.equal`, `str.compare` and `str.hash` are absent because the archive has
 /// bodies for all three and [`runtime::ENTRIES`] is where a body goes.
@@ -9592,72 +9579,6 @@ fn prim_leaf(key: &str) -> Option<(Prim, &str)> {
         }
         _ => None,
     }
-}
-
-/// `toI64`, `wrapToU8`: the target primitive, and whether the conversion's
-/// result is that primitive rather than a `Result<T, RangeError>`.
-///
-/// `Char`, `Str`, `Bool` and `Template` are excluded as targets even though
-/// `Prim::all` lists them: `U32.toChar` answers a `Result` because not every
-/// `U32` is a Unicode scalar, and `conversion_is_exact` — which classifies by
-/// `is_integer`/`is_float` — would call it exact by falling into its
-/// integer-to-float arm.
-fn conversion_target(from: Prim, op: &str) -> Option<(Prim, bool)> {
-    let numeric = |name: &str| {
-        Prim::all().iter().copied().find(|p| p.name() == name && (p.is_integer() || p.is_float()))
-    };
-    if let Some(target) = op.strip_prefix("wrapTo") {
-        // The modular form always answers the target type. Its float source is
-        // the one place this backend and JavaScript differ: `$wrapTo` truncates
-        // and then takes the low bits through a `BigInt`, and this saturates,
-        // because `llvm.fptosi.sat` is the only float-to-integer conversion
-        // that is not `poison` out of range. VALUE-MODEL.md §11 and its
-        // divergence table's row 1 put overflow outside what the two backends
-        // promise each other, which is the ground this stands on.
-        return numeric(target).map(|to| (to, true));
-    }
-    let to = numeric(op.strip_prefix("to")?)?;
-    Some((to, conversion_is_exact(from, to)))
-}
-
-/// The shapes a fallible `toT()` conversion comes in — the twin of
-/// `stencil/emit.rs`'s `Checked`, and the same four questions, because "does
-/// not fit" is not one machine test. [`Unit::convert_checked`] switches on it
-/// to emit the range check, and [`numeric_op`] asks it whether a key with an
-/// inexact target is one this backend has a body for, so a claim never outruns
-/// an implementation.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum CheckedKind {
-    /// Both integers: a range at the source's own width.
-    Ints,
-    /// A float into an integer, which can also be fractional, `NaN` or
-    /// infinite. Refused past sixty-four bits, as the debug backend refuses it.
-    FloatToInt,
-    /// `U32 -> Char`: a set with the surrogate block cut out of the middle.
-    ToChar,
-    /// `F64 -> F32`, which has no integer range to test at all.
-    ToF32,
-}
-
-/// Which fallible shape a conversion is, or `None` when the pair is exact,
-/// modular, or one no backend has a body for (a float into a 128-bit integer).
-fn checked_kind(from: Prim, to: Prim) -> Option<CheckedKind> {
-    if from == to {
-        return None;
-    }
-    if from.is_integer() && to.is_integer() {
-        return (!conversion_is_exact(from, to)).then_some(CheckedKind::Ints);
-    }
-    if from.is_float() && to.is_integer() && to.bits() <= 64 {
-        return Some(CheckedKind::FloatToInt);
-    }
-    if from == Prim::U32 && to == Prim::Char {
-        return Some(CheckedKind::ToChar);
-    }
-    if from == Prim::F64 && to == Prim::F32 {
-        return Some(CheckedKind::ToF32);
-    }
-    None
 }
 
 /// The intrinsics this backend emits as instructions rather than as a call.
@@ -9700,135 +9621,15 @@ fn open_coded_key(key: &str) -> bool {
     )
 }
 
-/// The `number.<T>.<op>` operations [`Unit::numeric`] emits, asked before
-/// emission rather than during it.
-///
-/// Four families are deliberately absent, and each for its own reason:
-///
-///  * **`checked*`** answers an `Option<T>`, which needs the overflow test
-///    (`llvm.*.with.overflow`) *and* the enum construction; the second half is
-///    [`Unit::call_sum`]'s machinery driven by something that is not a call.
-///  * **`saturating*`** is the same test with a clamp instead of an `Option`.
-///  * **`wrapping*`** is the plain operation — every one of `add`, `subtract` and
-///    `multiply` already wraps here, because §3.4 declines to set `nsw`/`nuw` — but
-///    claiming the key without emitting it would be a silent miscompile if that
-///    ever changed, and emitting it is one line that has not been asked for.
-///  * **`hash`** is `$hashInto` from the FNV-1a **seed**, and the seed is a
-///    Rust `const` in `cli/runtime/hash.rs` rather than an exported symbol —
-///    so claiming it would mean writing `0x811c9dc5` into the backend, which is
-///    the one number VALUE-MODEL.md §12 most wants stated once.
-pub fn numeric_op(key: &str) -> bool {
-    // `missing_intrinsics` is asked of the *monomorphized* program, before
-    // `middle::lower` runs — so `Bounded` is still two segments there and three
-    // by the time `Unit::numeric` sees it (`lower.rs`'s `bounded_key`). Both
-    // spellings answer yes, because both describe an operation this backend
-    // compiles; `stencil/emit.rs::numeric_key` has said so since the change
-    // that found it, and this table had drifted from it.
-    if key == "number.minValue" || key == "number.maxValue" {
-        return true;
-    }
-    let parts: Vec<&str> = key.split('.').collect();
-    let (Some(&"number"), Some(name), Some(op), 3) =
-        (parts.first(), parts.get(1), parts.get(2), parts.len())
-    else {
-        return false;
-    };
-    let Some(prim) = Prim::all().iter().copied().find(|p| p.name() == *name) else {
-        return false;
-    };
-    if matches!(
-        *op,
-        "add"
-            | "subtract"
-            | "multiply"
-            | "divide"
-            | "remainder"
-            | "negate"
-            | "abs"
-            | "signum"
-            | "equal"
-            | "compare"
-            | "show"
-            | "hash"
-            | "wrappingAdd"
-            | "wrappingSubtract"
-            | "wrappingMultiply"
-            | "minValue"
-            | "maxValue"
-    ) {
-        return true;
-    }
-    // `Checked`, `Wrapping` and `Saturating` are declared on the integer types
-    // only (`semantics/builtins.rs`), so a float spelling of one is a key that
-    // does not exist rather than one this backend declines.
-    if matches!(
-        *op,
-        "checkedAdd"
-            | "checkedSubtract"
-            | "checkedMultiply"
-            | "checkedDivide"
-            | "checkedRemainder"
-            | "checkedNegate"
-            | "checkedPower"
-            | "saturatingAdd"
-            | "saturatingSubtract"
-            | "saturatingMultiply"
-    ) {
-        return prim.is_integer();
-    }
-    // `U32.toChar` answers a `Result<Char, RangeError>` and `Char` is not a
-    // numeric target, so [`conversion_target`] does not name it; [`checked_kind`]
-    // does, and [`Unit::convert_checked`] has its body.
-    if *op == "toChar" {
-        return checked_kind(prim, Prim::Char).is_some();
-    }
-    // A numeric conversion is claimed both ways now: an **exact** target
-    // ([`Unit::cast`]) and a **fallible** one whose `Result<T, RangeError>`
-    // [`Unit::convert_checked`] builds. The fallible half is gated on
-    // [`checked_kind`], so a pair with no body — a float into a 128-bit integer
-    // — is refused here rather than claimed and then declined.
-    conversion_target(prim, op)
-        .is_some_and(|(to, exact)| exact || checked_kind(prim, to).is_some())
-}
-
 // ---------------------------------------------------------------------------
 // The emitted entry point
 // ---------------------------------------------------------------------------
 
-/// The thread entry signature **as this backend actually emits it**, read
-/// back out of an LLVM module.
-///
-/// Not the shared constant restated: a throwaway context and module are made,
-/// a door type is built the way [`Unit::thread_fn_type`] builds one, and its
-/// LLVM type is *printed* and translated into `backend/task_thread.rs`'s canonical
-/// spelling. So the bytes this answers come from LLVM's own idea of the
-/// function type — which is what a linker and a caller will see — rather than
-/// from the table the type was meant to be built from.
-///
-/// `stencil::asm::thread_signature` is the other side, and
-/// `the_two_thread_doors_have_one_signature` diffs the two.
-pub fn thread_signature() -> Vec<u8> {
-    let ctx = inkwell::context::Context::create();
-    let module = ctx.create_module("thread.signature");
+/// The thread entry signature as an LLVM function type: `void(ptr, ptr)`, the
+/// caller's record and where to put the answer (`backend/task_thread.rs`).
+fn thread_fn_type(ctx: &Context) -> FunctionType<'_> {
     let ptr = ctx.ptr_type(inkwell::AddressSpace::default());
-    let params: Vec<BasicMetadataTypeEnum<'_>> = task_thread::ENTRY
-        .params
-        .iter()
-        .map(|w| match w {
-            task_thread::Word::Ptr => ptr.into(),
-        })
-        .collect();
-    let ty = match task_thread::ENTRY.ret {
-        None => ctx.void_type().fn_type(&params, false),
-        Some(task_thread::Word::Ptr) => ptr.fn_type(&params, false),
-    };
-    let f = module.add_function(task_thread::MAIN_ENTRY, ty, Some(Linkage::External));
-    // `void (ptr, ptr)`, as LLVM prints it. The translation to the canonical
-    // spelling is whitespace and nothing else, which is the point: a third
-    // parameter or an `i32` return would come through this untouched and would
-    // not match.
-    let printed = f.get_type().print_to_string().to_string();
-    printed.split_whitespace().collect::<String>().into_bytes()
+    ctx.void_type().fn_type(&[ptr.into(), ptr.into()], false)
 }
 
 impl<'ctx, 'a> Unit<'ctx, 'a> {
@@ -9928,7 +9729,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         let sig = ir::Signature { params: Vec::new(), rets: func.sig.rets.clone() };
         let Some(callee) = self.declare(root) else { return };
-        let door = self.module.add_function(symbol, self.thread_fn_type(), Some(Linkage::External));
+        let door = self.module.add_function(symbol, thread_fn_type(self.ctx), Some(Linkage::External));
         self.platform_abi(door);
         let block = self.ctx.append_basic_block(door, "entry");
         self.builder.position_at_end(block);
@@ -10621,65 +10422,18 @@ fn float_predicate(op: ir::BinOp) -> FloatPredicate {
 mod tests {
     use super::*;
 
-    /// **The two thread doors have one signature, byte for byte.**
-    ///
-    /// The acceptance test of slices B7 and B8 together. Two backends emit a
-    /// function under the same name for the same caller to call, and nothing
-    /// links them: `stencil/asm.rs` writes machine code and this file writes
-    /// LLVM IR, in two modules that never meet. A disagreement would not be a
-    /// compile error or a link error — it would be a `ccc` call made with the
-    /// wrong number of arguments at run time, in whichever profile the user
-    /// happened to build, which is `cli/runtime/lib.rs` §1's *"a wrong answer
-    /// at run time"* exactly.
-    ///
-    /// The two sides are derived rather than restated. The stencil side is the
-    /// table its emitter reads its argument registers out of; this side is an
-    /// LLVM `FunctionType`, built and then **printed**, so what is compared is
-    /// LLVM's own idea of the type a caller will see.
-    #[cfg(feature = "backend-stencil")]
+    /// **The thread door is `void(ptr, ptr)`**, as LLVM prints the type it is
+    /// emitted at — the signature `backend/task_thread.rs` fixes, and the one
+    /// the frame-threaded door reads its argument registers by
+    /// (`stencil/asm.rs`'s
+    /// `the_door_saves_the_argument_register_the_shared_table_names`). A
+    /// disagreement would be a `ccc` call made with the wrong number of
+    /// arguments at run time.
     #[test]
-    fn the_two_thread_doors_have_one_signature() {
-        let stencil = crate::compiler::backend::stencil::asm::thread_signature();
-        let llvm = thread_signature();
-        assert_eq!(
-            String::from_utf8_lossy(&stencil),
-            String::from_utf8_lossy(&llvm),
-            "the two backends' thread doors do not have the same C signature"
-        );
-        assert_eq!(stencil, llvm);
-        assert_eq!(llvm, b"void(ptr,ptr)".to_vec());
-    }
-
-    /// The LLVM side is read out of a module and not out of the constant, so a
-    /// type built with a different arity or a different answer is a different
-    /// string. This is what makes the comparison above worth making.
-    #[test]
-    fn the_printed_signature_is_llvms_own() {
-        let ctx = inkwell::context::Context::create();
-        let module = ctx.create_module("thread.signature.control");
-        let ptr = ctx.ptr_type(inkwell::AddressSpace::default());
-        let render = |f: FunctionValue<'_>| {
-            f.get_type().print_to_string().to_string().split_whitespace().collect::<String>()
-        };
-        let three = module.add_function(
-            "three",
-            ctx.void_type().fn_type(&[ptr.into(), ptr.into(), ptr.into()], false),
-            None,
-        );
-        let answering =
-            module.add_function("answering", ptr.fn_type(&[ptr.into(), ptr.into()], false), None);
-        assert_eq!(render(three), "void(ptr,ptr,ptr)");
-        assert_eq!(render(answering), "ptr(ptr,ptr)");
-        assert_ne!(render(three).into_bytes(), thread_signature());
-        assert_ne!(render(answering).into_bytes(), thread_signature());
-    }
-
-    /// The signature is the shared table's, not a copy of it: the type is
-    /// built by walking `task_thread::ENTRY`, so an entry added there appears here
-    /// without this file being edited.
-    #[test]
-    fn the_door_type_is_built_from_the_shared_table() {
-        assert_eq!(thread_signature(), task_thread::ENTRY.render());
+    fn the_thread_door_is_two_pointers_and_no_answer() {
+        let ctx = Context::create();
+        let printed = thread_fn_type(&ctx).print_to_string().to_string();
+        assert_eq!(printed.split_whitespace().collect::<String>(), "void(ptr,ptr)");
     }
 }
 

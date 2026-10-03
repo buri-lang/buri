@@ -40,8 +40,10 @@
 //! runtime knows. This one is the mirror image — the symbol is the
 //! **backend's**, two of them emit it, and if they do not agree byte for byte
 //! then whichever one the scheduler happens to call first decides what the
-//! other one meant. Fixing it here, once, with a test that reads it back out
-//! of both emitters, is what stops that.
+//! other one meant. Fixing it here, once, with a test on each emitter
+//! (`llvm/emit.rs`'s `the_thread_door_is_two_pointers_and_no_answer`,
+//! `stencil/asm.rs`'s `the_door_saves_the_argument_register_the_shared_table_names`),
+//! is what stops that.
 //!
 //! `state` is passed and not read today, and that is the half a later slice
 //! fills in: what goes in the record is the *call site's* business (D2 already
@@ -64,69 +66,6 @@
 //!    front of the `fastcc` body and asks for no stack at all.
 //!
 //! The signature does not know which, which is the point of having one.
-
-/// One word of the C signature.
-///
-/// Every word of this ABI is a pointer; the enum exists so that
-/// [`Signature::render`] is a match rather than a format string, and so that a
-/// widening — an `i32` status, say — is a variant rather than a second
-/// renderer.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Word {
-    /// An untyped address: `void *` in C, `ptr` in LLVM's opaque-pointer IR,
-    /// and one integer argument register on both machines this compiles for.
-    Ptr,
-}
-
-impl Word {
-    /// The word's name in the rendered signature.
-    pub fn name(self) -> &'static str {
-        match self {
-            Word::Ptr => "ptr",
-        }
-    }
-}
-
-/// A C signature, as much of one as this ABI needs.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Signature {
-    /// The parameters, in order, one integer argument register each.
-    pub params: &'static [Word],
-    /// `None` is `void`. Nothing here answers a value: the callee's return
-    /// area goes through `out`, because a Buri return can be wider than a
-    /// register and a signature that was sometimes wide and sometimes not
-    /// would be two signatures.
-    pub ret: Option<Word>,
-}
-
-impl Signature {
-    /// The signature as bytes, in one canonical spelling.
-    ///
-    /// This is what the two backends are compared on. Bytes rather than a
-    /// structural `==` because the comparison is the *test's* whole content: a
-    /// rendering each backend derives from what it actually emitted, read back
-    /// and diffed, says more than two copies of the same constant being equal
-    /// to themselves.
-    pub fn render(&self) -> Vec<u8> {
-        let mut out = String::from(match self.ret {
-            None => "void",
-            Some(w) => w.name(),
-        });
-        out.push('(');
-        for (i, p) in self.params.iter().enumerate() {
-            if i > 0 {
-                out.push(',');
-            }
-            out.push_str(p.name());
-        }
-        out.push(')');
-        out.into_bytes()
-    }
-}
-
-/// **The thread entry signature.** `void(ptr, ptr)`: the caller's record, and
-/// where to put the answer.
-pub const ENTRY: Signature = Signature { params: &[Word::Ptr, Word::Ptr], ret: None };
 
 /// Where the caller's record arrives: argument register 0.
 pub const STATE: usize = 0;
@@ -164,32 +103,6 @@ pub fn test_entry(i: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The signature is two pointers and no answer, and this is the byte
-    /// string both backends are held to.
-    #[test]
-    fn the_entry_signature_is_two_pointers_and_no_answer() {
-        assert_eq!(ENTRY.params.len(), 2);
-        assert_eq!(ENTRY.ret, None);
-        assert_eq!(ENTRY.render(), b"void(ptr,ptr)".to_vec());
-        // The two names are positions, and a backend reads its argument
-        // registers by them.
-        assert_eq!(STATE, 0);
-        assert_eq!(OUT, 1);
-        assert!(STATE < ENTRY.params.len() && OUT < ENTRY.params.len());
-    }
-
-    /// The renderer distinguishes what it is meant to distinguish: a different
-    /// arity and a different return are different bytes.
-    #[test]
-    fn a_different_signature_renders_differently() {
-        let one = Signature { params: &[Word::Ptr], ret: None };
-        let answering = Signature { params: &[Word::Ptr, Word::Ptr], ret: Some(Word::Ptr) };
-        assert_ne!(one.render(), ENTRY.render());
-        assert_ne!(answering.render(), ENTRY.render());
-        assert_eq!(one.render(), b"void(ptr)".to_vec());
-        assert_eq!(answering.render(), b"ptr(ptr,ptr)".to_vec());
-    }
 
     /// Every symbol this ABI names is one no Buri path can spell.
     #[test]

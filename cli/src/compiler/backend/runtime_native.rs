@@ -25,11 +25,11 @@ pub const SYMBOL_PREFIX: &str = "buri_rt_";
 
 /// The symbol `cli/runtime/lib.rs` §1's rule names for an intrinsic key.
 ///
-/// Used to *check* a backend's runtime table rather than to drive emission —
-/// each table spells its own symbol, and this is what says the spelling obeys
-/// the contract. A key the rule names is not thereby a key a table has a row
-/// for: `str.concat` mangles to `buri_rt_str_concat`, which the archive does
-/// export, and `runtime_table.rs` still has no row for it and says why.
+/// This names the symbol of a `runtime_table.rs` row (`Entry::symbol`); the
+/// table, not this rule, decides which keys exist. A key the rule names is not
+/// thereby a key the table has a row for: `str.concat` mangles to
+/// `buri_rt_str_concat`, which the archive does export, and `runtime_table.rs`
+/// still has no row for it and says why.
 ///
 /// The rule is "[`SYMBOL_PREFIX`] followed by `snake_case`", plus one thing the
 /// contract states by example rather than in words: `host.HostStdout.println`
@@ -90,7 +90,7 @@ use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 /// message-carrying variants hold, or `None` for an `E` with nowhere to put one.
 ///
 /// This is `cli/runtime/lib.rs` §2.1's **message** shape: *where* the message
-/// goes. *Whether* an entry writes one is a column of each runtime table
+/// goes. *Whether* an entry writes one is a column of the runtime table
 /// (`Ret::ResMsg`), because two entries answering one `Result<Str, IoError>`
 /// can differ: one meets an `EISDIR`, the other is a map in memory.
 ///

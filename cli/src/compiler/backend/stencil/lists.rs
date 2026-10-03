@@ -95,10 +95,9 @@ pub enum Step {
     Count,
 }
 
-/// One `core/list` key, with the argument positions the declaration fixes.
-/// Receiver first, context second, everything else after (SPEC 10.7) — the
-/// same rows as `backend/intrinsic_keys.rs`'s table, for the nine keys of it
-/// this backend open-codes.
+/// One `core/list` key, with the argument positions the declaration fixes —
+/// `backend/intrinsic_keys.rs`'s row, for the nine keys of it whose loop is one
+/// of [`Step`]'s.
 pub struct ListCall {
     pub kind: Step,
     /// The context, where the *step* takes one. `map` and `mapCtx` both have a
@@ -111,19 +110,18 @@ pub struct ListCall {
 }
 
 pub fn list_call(key: &str) -> Option<ListCall> {
-    let call = |kind, ctx, func, init| Some(ListCall { kind, ctx, func, init });
-    match key {
-        "list.map" => call(Step::Map, None, 2, None),
-        "list.mapCtx" => call(Step::Map, Some(1), 2, None),
-        "list.filter" => call(Step::Filter, None, 2, None),
-        "list.filterCtx" => call(Step::Filter, Some(1), 2, None),
-        "list.fold" => call(Step::Fold, None, 1, Some(2)),
-        "list.foldCtx" => call(Step::Fold, Some(1), 2, Some(3)),
-        "list.any" => call(Step::Any, None, 1, None),
-        "list.all" => call(Step::All, None, 1, None),
-        "list.count" => call(Step::Count, None, 1, None),
-        _ => None,
-    }
+    use crate::compiler::backend::intrinsic_keys::{self, Step as Loop};
+    let call = intrinsic_keys::list_call(key)?;
+    let kind = match call.kind {
+        Loop::Map => Step::Map,
+        Loop::Filter => Step::Filter,
+        Loop::Fold => Step::Fold,
+        Loop::Any => Step::Any,
+        Loop::All => Step::All,
+        Loop::Count => Step::Count,
+        Loop::FoldResult | Loop::Sort | Loop::Find | Loop::FindIndex => return None,
+    };
+    Some(ListCall { kind, ctx: call.ctx, func: call.func, init: call.init })
 }
 
 /// The scratch words this file uses, as offsets from `Fn2::scratch`.

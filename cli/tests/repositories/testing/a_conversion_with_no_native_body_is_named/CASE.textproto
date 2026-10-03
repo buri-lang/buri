@@ -1,0 +1,20 @@
+# A float converted to a 128-bit integer has no native body on either native
+# backend: neither has a single conversion past sixty-four bits.
+#
+# Both backends refuse it, and they used to refuse it differently. The release
+# backend named the operation before compiling anything. The debug backend
+# claimed the key, started emitting, and stopped partway with a sentence about
+# its own internals ("cannot compile Body::Runtime ..."). Both now read one
+# table (`backend/intrinsic_keys.rs`'s `numeric_key`), so a suite that reaches
+# the conversion is refused by name, up front.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a numeric conversion neither native backend has a body for is refused by name before code generation"
+
+run {
+  args: ["test", "//lib/conv", "--force"]
+  exit: 1
+  golden: "missing.txt"
+}
