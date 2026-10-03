@@ -2150,7 +2150,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// for a rule to be nearly right.
     ///
     /// A row that carries **one whole value** has no element at all and says
-    /// so ([`runtime::carries_a_whole_value`]), which is what keeps a
+    /// so ([`runtime::Entry::whole_value`]), which is what keeps a
     /// `Signal<[Account]>` from being read as a store of `Account`s: the
     /// destination of `read` at that instantiation *is* a list, and the
     /// fallback below would happily take its element.
@@ -2161,7 +2161,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         entry: &runtime::Entry,
         args: &[ir::ValueId],
     ) -> Option<Ty> {
-        if runtime::carries_a_whole_value(entry.key) {
+        if entry.whole_value {
             return None;
         }
         let mut cursor = 0usize;
@@ -2680,7 +2680,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         match entry.ret {
             runtime::Ret::Out => {
                 let Some(dest) = dests.first().copied() else { return };
-                self.call_out(state, code, dest, entry.symbol, &mut argv);
+                self.call_out(state, code, dest, &entry.symbol(), &mut argv);
                 return;
             }
             runtime::Ret::Sum => {
@@ -2709,7 +2709,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 .map(|d| repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(*d))),
             runtime::Ret::Int(bits) => Some(self.int_of_width(bits).as_basic_type_enum()),
         };
-        let f = self.declare_rt(entry.symbol, &param_types, ret_type);
+        let f = self.declare_rt(&entry.symbol(), &param_types, ret_type);
         if matches!(entry.ret, runtime::Ret::NoReturn) {
             attrs::mark_noreturn(self.ctx, f);
         }
@@ -4870,7 +4870,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
             argv.iter().map(|a| metadata_type_of(self.ctx, *a)).collect();
         let i32t = self.ctx.i32_type();
-        let f = self.declare_rt(entry.symbol, &param_types, Some(i32t.as_basic_type_enum()));
+        let f = self.declare_rt(&entry.symbol(), &param_types, Some(i32t.as_basic_type_enum()));
         let Ok(call) = self.builder.build_call(f, &argv, "") else { return };
         attrs::set_call_convention(call, attrs::C);
         state.observed.allocates = true;
@@ -5070,7 +5070,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
             argv.iter().map(|a| metadata_type_of(self.ctx, *a)).collect();
         let i32t = self.ctx.i32_type();
-        let f = self.declare_rt(entry.symbol, &param_types, Some(i32t.as_basic_type_enum()));
+        let f = self.declare_rt(&entry.symbol(), &param_types, Some(i32t.as_basic_type_enum()));
         let Ok(call) = self.builder.build_call(f, &argv, "") else { return };
         attrs::set_call_convention(call, attrs::C);
         state.observed.allocates = true;
@@ -5326,9 +5326,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         let equality = matches!(op, ir::BinOp::Eq | ir::BinOp::Ne);
         let (symbol, width) = if equality {
-            (runtime::entry("str.equal").map_or("buri_rt_str_equal", |e| e.symbol), 8)
+            ("buri_rt_str_equal", 8)
         } else {
-            (runtime::entry("str.compare").map_or("buri_rt_str_compare", |e| e.symbol), 32)
+            ("buri_rt_str_compare", 32)
         };
         let ret = self.int_of_width(width);
         let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
