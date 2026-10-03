@@ -2099,7 +2099,7 @@ fn load(
     diagnostics: &mut Diagnostics,
 ) -> Loaded {
     let snapshot = snapshot::of(Opening::Builtin, true);
-    let mut loader = Loader::seeded(None, map, diagnostics, cache, &snapshot);
+    let mut loader = Loader::seeded(None, map, diagnostics, cache, snapshot);
     loader.load_builtin_modules();
     let last = program.modules.len().saturating_sub(1);
     for (i, m) in program.modules.iter().enumerate() {

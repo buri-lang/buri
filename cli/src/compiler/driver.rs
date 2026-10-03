@@ -133,7 +133,7 @@ fn analyze_on(
     let mut diags = Diagnostics::new();
     diags.extend(snapshot.diagnostics.items.iter().cloned());
     let loaded = {
-        let mut loader = Loader::seeded(ws, map, &mut diags, cache, &snapshot);
+        let mut loader = Loader::seeded(ws, map, &mut diags, cache, snapshot);
         load(&mut loader);
         loader.finish()
     };
@@ -193,7 +193,7 @@ pub fn analyze_program_all(
     let mut diags = Diagnostics::new();
     diags.extend(snapshot.diagnostics.items.iter().cloned());
     let loaded = {
-        let mut loader = Loader::seeded(ws, map, &mut diags, cache, &snapshot);
+        let mut loader = Loader::seeded(ws, map, &mut diags, cache, snapshot);
         for unit in units {
             loader.load_unit(unit);
         }

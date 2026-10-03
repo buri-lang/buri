@@ -905,7 +905,7 @@ fn solo(
         chosen,
         key,
         loading,
-        map: session.map.clone(),
+        map: session.map.shared(),
         keep: pre.promise(target),
         label: session.workspace.label(target),
         limit,
@@ -930,7 +930,7 @@ struct FrontJob {
     loading: crate::compiler::driver::Loading,
     /// The session's map as the load left it, which names every file the
     /// check can report on.
-    map: crate::diagnostics::SourceMap,
+    map: std::sync::Arc<crate::diagnostics::SourceMap>,
     /// Whether the lint reads this suite's analysis.
     keep: bool,
     label: String,
@@ -2184,7 +2184,7 @@ fn queue_batch(
             s.queued = true;
         }
     }
-    let job = BatchJob { info: std::sync::Arc::new(info), loading, map: session.map.clone() };
+    let job = BatchJob { info: std::sync::Arc::new(info), loading, map: session.map.shared() };
     queue.push(Job::Batch(Box::new(job)), true);
 }
 
@@ -2220,7 +2220,7 @@ struct BatchJob {
     info: std::sync::Arc<BatchInfo>,
     loading: crate::compiler::driver::Loading,
     /// The session's map as the load left it.
-    map: crate::diagnostics::SourceMap,
+    map: std::sync::Arc<crate::diagnostics::SourceMap>,
 }
 
 /// One batch's front end: one type check, one program per group ([`groups_of`]),
@@ -2425,7 +2425,7 @@ fn submit_group(
         })
         .collect();
     // A member a `--filter` left nothing in is answered here, with no process.
-    let (members, empty): (Vec<(usize, MemberSpec)>, Vec<(usize, MemberSpec)>) =
+    let (members, empty): (Vec<_>, Vec<_>) =
         members.into_iter().partition(|(_, m)| !m.ranges.is_empty());
     for (i, _) in &empty {
         tell.tell(nothing(*i));
