@@ -6,4 +6,9 @@ error: //lib/codec cannot be built for native [platform-violation]
   |
   = //lib/codec is tagged "browser", which requires backends JS
   = "browser": runs in a web page, and nowhere else
-  = fix: drop the native output, or widen the tag's `requires` in REPO.buri
+  = fix: drop the native output, or widen the list the note names
+
+    Every library a binary reaches, and every tag those libraries carry, must
+    admit the platform each output names. The note says which member rules it
+    out: a library's own backends or platforms, or a tag's requires or forbids.
+

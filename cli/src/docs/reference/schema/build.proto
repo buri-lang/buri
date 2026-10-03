@@ -268,8 +268,9 @@ message Output {
   // the other reaches.
   repeated Entry entries = 7;
 
-  // Artifact filename. Defaults to the package's directory name (plus `.mjs`
-  // for JavaScript).
+  // Artifact filename, plus `.mjs` for JavaScript. Defaults to the package's
+  // directory name, or to the entry's name as `buri docs build/build-files`
+  // describes.
   string artifact_name = 3;
 
   // Retired: `arch`, which `variant` names; `js`, because every JavaScript
@@ -350,7 +351,7 @@ message Platform {
 
 // Tests live in the package's `test/` directory and are declared here. A test
 // source imports the target under test by its label — `//lib/money` for a
-// library, `//lib/money/main` for a binary — which is what confines a test to
+// library, `//cmd/server/main.buri` for a binary — which is what confines a test to
 // the target's public surface.
 message TestSuite {
   // Package-relative paths, conventionally under `test/`.

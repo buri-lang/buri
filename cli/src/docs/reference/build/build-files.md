@@ -48,7 +48,7 @@ lib/ledger/
 Subdirectories organize a library that has grown, and they cost nothing: no
 rule, no visibility, no dependency edge. Only a `BUILD.buri` creates a boundary.
 
-A package declares **at most one library, one binary and one tool**. The fixed
+A package declares **at most one library, one binary, one tool and one platform**. The fixed
 entry-point filenames force that: one `lib.buri`, one `main.buri` and one
 `tool.buri` per directory. It is also what lets a label be a bare path.
 
@@ -269,7 +269,7 @@ One function can't take two hosts, so two platforms mean two entries, and both
 call one function that takes `ctx`.
 
 **Each entry builds its own context** from its own host. `main` may bind
-`Ui: host.ui` only where it takes `WebHost`.
+`Ui: host.ui` only where its host has a `ui` field.
 
 **Each entry is its own dead-code root.** The compiler monomorphizes from the
 named entry, so each artifact carries only what its own entry reaches.
@@ -364,7 +364,7 @@ tools/report/
   flags.buri
   test/
     render.buri       <- tests //tools/report
-    flags.buri        <- tests //tools/report/main
+    flags.buri        <- tests //tools/report/main.buri
 ```
 
 ```textproto schema=build

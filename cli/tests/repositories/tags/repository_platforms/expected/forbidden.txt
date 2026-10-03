@@ -8,3 +8,8 @@ error: //cmd/worker cannot be built for //platform/cloudflare_worker [platform-v
   = reached by: //cmd/worker -> //lib/anyjs
   = "no_worker": needs more than a worker's runtime has
   = fix: drop the //platform/cloudflare_worker output, or take //platform/cloudflare_worker out of the tag's `forbids` in REPO.buri
+
+    Every library a binary reaches, and every tag those libraries carry, must
+    admit the platform each output names. The note says which member rules it
+    out: a library's own backends or platforms, or a tag's requires or forbids.
+

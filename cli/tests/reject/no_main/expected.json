@@ -1,1 +1,1 @@
-{"severity":"error","message":"//cmd/no_main exports no `main`","code":"missing-main","location":null,"fix":"add `export fn main(host: NodeHost): Result<(), Str> { ... }` to its `main.buri`","notes":[],"related":[]}
+{"severity":"error","message":"//cmd/no_main exports no `main`","code":"missing-main","location":null,"fix":"add `export fn main(...)` to its `main.buri`, with the signature its platform declares","notes":[],"related":[]}

@@ -33,8 +33,9 @@ export fn put<C: Kv>(ctx: C, namespace: Str, key: Str, value: Str): () {
 }
 ```
 
-Every effect ships a test implementation in its package's `testing` surface. It
-keeps its store in `core/platforms/testing/state`, so each `kv()` starts empty:
+Every effect ships a test implementation in its package's `testing` surface.
+An effect method can't mutate anything, so `TestKv` keeps its store in
+`core/platforms/testing/state`, and each `kv()` starts empty:
 
 ```buri repo=cli/tests/repositories/custom-platforms/cloudflare_kv/repo package=//platform/effect/kv role=testing
 from "core/map" import * as map;
@@ -138,7 +139,8 @@ says how every other type crosses.
 ## The program
 
 A library bounds its context by the effect and calls the wrappers. It never
-sees `HostKv` or `TestKv`:
+sees `HostKv` or `TestKv`, so it compiles anywhere and runs wherever an entry
+can bind a `Kv`:
 
 ```buri repo=cli/tests/repositories/custom-platforms/cloudflare_kv/repo package=//lib/sessions
 from "core/str" import * as str;
@@ -248,8 +250,7 @@ buri build //cmd/site
 
 The worker lands at `.buri/out/platform/cloudflare_worker/cmd/site/fetch.mjs`,
 ready for the worker runtime. `buri run` refuses it: a worker is called, not
-started. Editing `fetch.mjs` or `platform.buri` rebuilds it, no `buri clean`
-needed.
+started.
 
 ## Vars and secrets
 
@@ -304,7 +305,5 @@ repository is `cli/tests/repositories/custom-platforms/cloudflare_worker/repo`.
   the bundled effects instead.
 - **A platform can't add a backend, linker flags or native libraries.** Those
   are the toolchain's.
-- **Libraries need nothing.** One bounded by `C: Kv` compiles anywhere and runs
-  wherever an entry can bind a `Kv`.
 
 The rules in full are in [platforms](../reference/build/platforms.md).

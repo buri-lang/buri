@@ -1,7 +1,7 @@
 ---
 title: Only a `JS` entry offers an effect its platform implements
 message: '`{field}` is a `{struct}`, which `{platform}` declares itself, and a `NATIVE` entry has no `js` file to implement it'
-note: a platform implements an effect the backend lacks in its entry's `js` file, and only a `JS` entry has one
+note: a platform's own production structs are implemented in its entry's `js` file, and only a `JS` entry has one
 fix: build the entry with `backend: JS`, or drop the field and ship ordinary functions over the bundled effects
 reproduction: none
 ---

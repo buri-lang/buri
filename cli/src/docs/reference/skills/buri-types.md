@@ -162,7 +162,8 @@ An **effect** is an interface declared with `effect` instead of `trait`.
 `platform/effect` declares the bundled ones: `Allocator`, `Network`, `Clock`,
 `Random`, `Environment`, `Stdin`, `Stdout`, `Stderr`, `Process`, `Tasks`,
 `Listen` and `Tcp` (`native` only), `Sockets` and `WebSocketClient` (a page
-dials a socket but never accepts one), and `Ui`, `Watch` and `Location` (`web`).
+dials a socket but never accepts one), and `Ui`, `Watch` and `Location` (`web`
+of the bundled ones).
 A repository declares its own only in an effect package under
 `//platform/effect/`. `core/fs` declares the filesystem's two, `FileSystemRead` and
 `FileSystemWrite`, so reading your configuration doesn't grant deleting it.

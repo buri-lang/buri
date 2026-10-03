@@ -8,3 +8,8 @@ error: //cmd/direct cannot be built for node [platform-violation]
   = reached by: //cmd/direct -> //lib/driver
   = "legacy": wraps the old storage driver, which has no JavaScript port
   = fix: drop the node output, or take JS out of the tag's `forbids` in REPO.buri
+
+    Every library a binary reaches, and every tag those libraries carry, must
+    admit the platform each output names. The note says which member rules it
+    out: a library's own backends or platforms, or a tag's requires or forbids.
+
