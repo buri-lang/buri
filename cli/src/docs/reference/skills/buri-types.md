@@ -5,11 +5,10 @@ description: Use when working with Buri types, generics, traits, derives, effect
 
 # Buri: types, traits, effects, contexts
 
-`buri docs language/types` and `buri docs language/effects` are the normative
-text. **Look in the library before writing a helper.** `buri docs core/list`
-renders one module, and bare `buri docs` lists every module.
-`buri docs search <intent>` takes a phrase like "pad a string" or "group by
-key", and prints each hit as the command that reads it.
+The full rules are `buri docs language/types` and `buri docs language/effects`.
+**Check the library before writing a helper:** bare `buri docs` lists every
+module, `buri docs core/list` renders one, and `buri docs search <intent>` takes
+a phrase like "pad a string" or "group by key".
 
 ## Primitives
 
@@ -24,9 +23,9 @@ key", and prints each hit as the command that reads it.
 | `Template` | an interpolated string literal |
 
 `Int = I64`, `Float = F64`, `Uint = U64`, `Byte = U8` are **aliases, not
-distinct types**, so `Int` and `I64` interoperate with no conversion. There is
-no `null`; absence is `Option<T>`. Everyday code writes `Int` and `Float`. Code
-with a size on the wire writes `U8`, `I32`, `F32`.
+distinct types**, so `Int` and `I64` mix freely. Everyday code writes `Int` and
+`Float`; code with a size on the wire writes `U8`, `I32`, `F32`. There's no
+`null`; absence is `Option<T>`.
 
 ## Composites
 
@@ -37,24 +36,21 @@ let xs: [Int] = [1, 2, 3];              // immutable, densely packed
 let maybe = xs[0];                      // Option<Int>, never Int
 ```
 
-- **There are no anonymous records.** Every product type is a named `struct`,
-  and every type is nominal, trait conformance included, so two structs with
-  identical fields are different types.
-- Fields stay module-private unless you `export` them. Nobody outside the
-  module can build a struct with a private field from scratch, but
-  `{ ..u, name: "x" }` still works.
-- A literal gives every *required* field a value. You may leave out a field
-  whose **declared** type is `Option<...>`, and it comes out `.None`. The
-  compiler judges the declaration, so `type Maybe = Option<Str>` counts and the
-  `T` of a `struct S<T>` does not, even at `S<Option<Int>>`.
-- An enum's variants carry no `export` of their own; they go out exactly when
-  the enum does. To hide a representation, use a struct with a private field.
-- An array literal is not an allocation. Any operation whose result length
-  depends on runtime data — `map`, `filter`, `concat`, `sort`, `range` — needs
-  `Allocator`.
+- **No anonymous records.** Every product type is a named `struct`, and every
+  type is nominal, so two structs with identical fields are different types.
+- Fields are private unless exported. Outside the module, you can't build a
+  struct with a private field from scratch, but `{ ..u, name: "x" }` works.
+- A literal must set every *required* field. A field whose **declared** type is
+  `Option<...>` may be left out and becomes `.None`. The declaration is what
+  counts: `type Maybe = Option<Str>` qualifies, but the `T` of a `struct S<T>`
+  doesn't, even at `S<Option<Int>>`.
+- Enum variants are exported exactly when the enum is. To hide a
+  representation, use a struct with a private field.
+- An array literal doesn't allocate. Anything whose result length depends on
+  runtime data — `map`, `filter`, `concat`, `sort`, `range` — needs `Allocator`.
 
 `Option<T>`, `Result<T, E>` and `Order` are in the prelude. **You may not
-discard a `Result`.** Consume it with `?`, `match`, `result.withDefault`, or
+discard a `Result`**: consume it with `?`, `match`, `result.withDefault`, or
 the greppable `result.ignore`. `Option` is not must-use.
 
 ## Generics
@@ -68,14 +64,12 @@ let f = identity<Int>;                  // type arguments go on the expression
 let e: [Int] = list.empty<Int>();
 ```
 
-Inside such a function you may call **only the bound's methods** on the
-parameter. Generic code that needs an operation no trait provides takes it as a
-function argument: `sortBy(xs, cmp)`. There is one constraint mechanism:
-`<T: Ordered + Show>` and `<C: Allocator + FileSystemRead>` are the same feature.
+On a type parameter you can call **only its bounds' methods**. If you need an
+operation no trait provides, take it as a function argument: `sortBy(xs, cmp)`.
+`<T: Ordered + Show>` and `<C: Allocator + FileSystemRead>` are the same
+feature.
 
 ## Traits
-
-A trait is an interface: a named set of method signatures.
 
 ```buri
 trait Ordered {
@@ -87,12 +81,12 @@ trait Show {
 ```
 
 - **Conformance is nominal.** A type satisfies a trait only where an `impl` or
-  a `derive` says so, and nothing follows from shape.
-- An `impl` may appear only in its type's defining module, so you cannot
-  implement a trait for somebody else's type.
-- `impl Trait for Type { ... }` supplies conformance, and `impl Type { ... }`
-  declares the type's own methods. They share a namespace and resolve the same
-  way, and only the type's own methods take `export`.
+  `derive` says so.
+- An `impl` may appear only in its type's module, so you can't implement a
+  trait for someone else's type.
+- `impl Trait for Type { ... }` supplies conformance; `impl Type { ... }`
+  declares the type's own methods. They share a namespace, and only the type's
+  own methods take `export`.
 
 ### `derive`
 
@@ -100,15 +94,14 @@ trait Show {
 derive Equal, Ordered, Show for Version;
 ```
 
-`derive` writes the methods structurally: fields and variants in declaration
-order, recursing into field types. It fails to compile when a field type does
-not satisfy the trait itself. You can derive `Equal`, `Ordered`, `Show`, `Hash`,
-`ToJson`, `FromJson` and the operator traits. `ToJson` and `FromJson` are
-**derive-only**, and the compiler rejects a hand-written `impl` of either.
+`derive` writes the methods structurally, in declaration order, recursing into
+field types; it fails if a field type doesn't satisfy the trait. Derivable:
+`Equal`, `Ordered`, `Show`, `Hash`, `ToJson`, `FromJson` and the operator
+traits. `ToJson` and `FromJson` are **derive-only**; a hand-written `impl` is
+rejected.
 
-`assert.equal(a, b)` needs `Equal` for the comparison and `Show` for the failure
-message, so `derive Equal, Show for YourType;` is usually what an
-`unsatisfied-bound` on a test is asking for.
+`assert.equal(a, b)` needs `Equal` and `Show`, so an `unsatisfied-bound` in a
+test usually wants `derive Equal, Show for YourType;`.
 
 ### Operators are trait methods
 
@@ -127,28 +120,25 @@ let total = Meters(1.5) + Meters(2.0);     // Meters
 // let bad = Meters(1.5) + 2.0;            // ERROR: F64 is not Meters
 ```
 
-**An operator implementation cannot allocate or perform an effect**: `a + b`
-has no argument position for a context. So `Matrix + Matrix` is not
-expressible; matrix addition allocates, so it is `a.add(ctx, b)`.
+**An operator can't allocate or perform an effect**, since `a + b` has nowhere
+to pass a context. Matrix addition allocates, so it's `a.add(ctx, b)`, not
+`a + b`.
 
-Integer-specific behaviour is trait-shaped too: `Bounded`, `Checked`,
-`Wrapping`, `Saturating`. Every built-in integer satisfies all four, and the
-float types satisfy `Bounded` only.
+Every built-in integer satisfies `Bounded`, `Checked`, `Wrapping` and
+`Saturating`; floats satisfy `Bounded` only.
 
-### What traits deliberately lack
-
-No blanket implementations, no associated types, no `where` clauses, no
-supertraits, no trait objects, no dynamic dispatch.
+Traits have no blanket implementations, associated types, `where` clauses,
+supertraits, trait objects, or dynamic dispatch.
 
 ## Method resolution
 
-`x.f(...)` resolves in three steps, each a lookup:
+`x.f(...)` resolves to the first match:
 
-1. a field named `f` on `x`'s type — call a field of function type as
+1. a field named `f` on `x`'s type — call a function-typed field as
    `(x.f)(...)`;
-2. otherwise, for a concrete type, a method declared by an `impl` block in
-   that type's **defining module**;
-3. otherwise, for a type parameter, a method declared by one of its **bounds**.
+2. for a concrete type, a method from an `impl` in that type's **defining
+   module**;
+3. for a type parameter, a method from one of its **bounds**.
 
 | Type | Defining module |
 |---|---|
@@ -159,46 +149,46 @@ supertraits, no trait objects, no dynamic dispatch.
 | `Option<T>` `Result<T, E>` | `core/option` `core/result` |
 | tuples, function types, `Template` | none — no methods |
 
-**You cannot extend a type's methods**: `impl Str { ... }` in your module is an
-error, so write a free function. **Methods are not values**: `sq.area` is not
-one, so wrap the call in a lambda. **The receiver's type must be known.** Where
-two bounds declare the same method name, call the trait method as a function to
-disambiguate: `Ordered.compare(x, y)`.
+- **You can't add methods to a type** from another module: `impl Str { ... }`
+  is an error, so write a free function.
+- **Methods aren't values**: `sq.area` isn't one, so wrap the call in a lambda.
+- **The receiver's type must be known.**
+- When two bounds declare the same method name, call it as a function:
+  `Ordered.compare(x, y)`.
 
 ## Effects
 
 An **effect** is an interface declared with `effect` instead of `trait`, and
-only platform modules may declare one. `platform/effect` declares `Allocator`, `Network`,
-`Clock`, `Random`, `Environment`, `Stdin`, `Stdout`, `Stderr`, `Process`, `Tasks`, `Listen`
-(`native`, where a program serves a page), and `Sockets` and
-`WebSocketClient` (everywhere: a page dials a socket, and never accepts one).
-`core/fs` is a platform module too, and it declares the filesystem's
-two, `FileSystemRead` and `FileSystemWrite`: reading your configuration does not earn you the
-right to delete it. Every method there names a `Path` (`core/path`), which
-`core/fs` re-exports.
+only platform modules may declare one. `platform/effect` declares `Allocator`,
+`Network`, `Clock`, `Random`, `Environment`, `Stdin`, `Stdout`, `Stderr`,
+`Process`, `Tasks`, `Listen` (`native`, where a program serves a page), and
+`Sockets` and `WebSocketClient` (everywhere: a page dials a socket but never
+accepts one). `core/fs` declares the filesystem's two, `FileSystemRead` and
+`FileSystemWrite`, so reading your configuration doesn't grant deleting it.
+Every `core/fs` function takes a `Path`, which `core/fs` re-exports from
+`core/path`; build one with `path.of(ctx, text)`.
 
-An effect is a trait in every other respect but three:
+An effect differs from a trait in three ways:
 
-- an effect's implementors are **effect-carrying**, so you may pass one only as
-  `self` or `ctx`;
-- **no type may implement both an effect and a trait**, so an effect-carrying
-  type satisfies no ordinary bound, which keeps `T: Ordered` from being a context;
-- **you perform an effect by handing the context to a function.**
-  `ctx.println("hi")` is `io.println(ctx, "hi")`, and `ctx.readFile(p)` is
-  `fs.readText(ctx, p)`. The doors are `core/alloc`, `core/io`, `core/fs`,
+- Its implementors are **effect-carrying**, so you may pass one only as `self`
+  or `ctx`.
+- **No type may implement both an effect and a trait**, so an effect-carrying
+  value never satisfies a bound like `T: Ordered`.
+- **You perform an effect by passing the context to a function**:
+  `io.println(ctx, "hi")`, not `ctx.println("hi")`; `fs.readText(ctx, p)`, not
+  `ctx.readFile(p)`. The doors are `core/alloc`, `core/io`, `core/fs`,
   `core/net/http`, `core/time`, `core/random`, `core/env`, `core/process`,
-  `core/tasks`, `core/net/server` and `ui/signal`, and a method on the value is
-  `effect-method-call`. Only `core/*` and an `impl` supplying an effect keep
-  the method form, which lets a wrapper delegate with `self.0.readFile(path)`.
-  Every `core/fs` function takes a `Path`, built once with
-  `path.of(ctx, text)`. **A print returns `Result<(), IoError>`**, so drop one
-  with `let _ = io.println(ctx, "hi").ignore();`, and `buri lint` reports it
-  like any other drop.
+  `core/tasks`, `core/net/server` and `ui/signal`. Calling the method on the
+  value is `effect-method-call`, except in `core/*` and in an `impl` supplying
+  an effect, so a wrapper can delegate with `self.0.readFile(path)`. **A print
+  returns `Result<(), IoError>`**: drop one with
+  `let _ = io.println(ctx, "hi").ignore();`, which `buri lint` reports like any
+  other drop.
 
 ### The `ctx` rule
 
-**An effect-carrying parameter must be named `self` or `ctx`** — never any
-other name, never any other position, at most one of each.
+**An effect-carrying parameter must be named `self` or `ctx`**, at most one of
+each, with the receiver first, the context second, and everything else after.
 
 ```buri
 fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError>  // ok
@@ -207,13 +197,8 @@ fn sneaky<C: FileSystemRead>(a: Int, handle: C): Bool                           
 fn twoWorlds<A: FileSystemRead, B: Network>(ctx: A, other: B): ()                   // ERROR
 ```
 
-**Receiver first, context second, everything else after**, and the compiler
-enforces it rather than leaving it to you.
-
 > A function is effectful if and only if it has a `ctx` parameter or an
 > effect-carrying `self`.
-
-That is the purity theorem in usable form.
 
 ### The three tiers
 
@@ -223,9 +208,9 @@ That is the purity theorem in usable form.
 | **Deterministic** | `ctx` bounded by `Allocator` alone | `xs.map(ctx, f)` |
 | **Effectful** | `ctx` bounded by anything else | `fs.readText(ctx, p)` |
 
-An operation with a fixed result size is pure; one whose result size depends on
-runtime data names `Allocator`. Fixed-size construction — literals, tuples, enum
-payloads, closures, `Template`s — never needs it.
+An operation whose result size depends on runtime data needs `Allocator`.
+Fixed-size construction — literals, tuples, enum payloads, closures,
+`Template`s — never does.
 
 ### The capture rule
 
@@ -239,17 +224,16 @@ let texts = paths.map(ctx, fn(p) => fs.readText(ctx, p));
 let texts = paths.mapCtx(ctx, fn(c, p) => fs.readText(c, p));
 ```
 
-The library gives you `list.mapCtx`, `list.filterCtx`, `result.mapCtx`,
-`result.andThenCtx` and friends, and explicit recursion always works. The rule
-also catches a value whose type *could* be a context: an unbounded `T`, or one
-bounded only by effects. So a closure-builder over a bare type parameter takes
-the value as a parameter instead. A `T` with an ordinary trait bound is exempt,
-and so is any function type.
+Use `list.mapCtx`, `list.filterCtx`, `result.mapCtx`, `result.andThenCtx` and
+friends, or explicit recursion. The rule also catches any value whose type
+*could* be a context: an unbounded `T`, or one bounded only by effects. A
+closure-builder over a bare type parameter must take the value as a parameter
+instead. A `T` with an ordinary trait bound is exempt, as is any function type.
 
 ## Contexts
 
-A context binds each effect to a value implementing it. One form, used by both
-`main` and a test.
+A context binds each effect to a value implementing it. `main` and tests use the
+same form.
 
 ```buri
 let ctx = context { Allocator: host.alloc, Stdout: host.stdout, FileSystemRead: host.fs };
@@ -260,24 +244,21 @@ context Fixture {
 }
 ```
 
-- You build a named context by **calling it**, `Fixture()`, and each call
-  builds a fresh one.
-- Either form may begin with a spread. A later binding replaces a spread one
-  rather than duplicating it.
-- Every left side must name a declared effect (import it!), and every right
-  side must implement it. The result satisfies exactly the effects you bound,
-  so a `<C: ...>` naming a subset accepts it and one naming more does not.
-- A context's type never appears in source: the compiler generates it, unnamed.
+- Build a named context by **calling it**: `Fixture()` makes a fresh one each
+  time.
+- Either form may start with a spread; a later binding replaces the spread one.
+- Every left side must name a declared effect (import it!), and every right side
+  must implement it. The result satisfies exactly the bound effects, so a
+  `<C: ...>` naming a subset accepts it and one naming more doesn't.
+- A context's type is generated and unnamed; it never appears in source.
 
-**Where you may build a context:** an entry's body, a test source, or a test-only
-module (a path with a `testing` segment). Never inside a lambda, and nowhere
-else.
+**You may build a context only** in an entry's body, a test source, or a
+test-only module (a path with a `testing` segment) — never inside a lambda.
 
 ### Restricting what propagates
 
-**Static confinement**: bound the callee to fewer effects. It receives the
-same value, and it can neither use nor pass on anything its bounds do not name.
-That holds transitively.
+**Static confinement**: bound the callee to fewer effects. It gets the same
+value but can't use or pass on anything its bounds don't name, transitively.
 
 ```buri
 fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
@@ -287,8 +268,7 @@ fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
 ```
 
 **Attenuation**: wrap the context in a type satisfying fewer effects, so the
-callee holds a value that genuinely lacks the rest. It narrows the whole
-context, never one effect out of it. Reach for confinement by default and
-attenuation at trust boundaries. You may import `core/alloc`'s
-`GeneralPurpose`, `Arena` and `FixedBuffer` anywhere, because `Allocator` is the
-one effect whose implementation grants nothing.
+callee's value genuinely lacks the rest. It narrows the whole context, never one
+effect inside it. Use confinement by default and attenuation at trust
+boundaries. `core/alloc`'s `GeneralPurpose`, `Arena` and `FixedBuffer` can be
+imported anywhere, because `Allocator` is the one effect that grants nothing.

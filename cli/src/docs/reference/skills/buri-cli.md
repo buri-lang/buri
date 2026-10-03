@@ -5,12 +5,9 @@ description: Use when running the buri toolchain — build, run, test, lint, for
 
 # Buri: the CLI
 
-One binary: build, run, test, format, lint, generate build files, query the
-graph, serve its own documentation, host the language server. There is no
-package manager, no task runner, and no configuration beyond `REPO.buri`.
-
-`buri --help` prints the table below, and `buri docs cli <command>` is the page
-for one command.
+One binary does everything. There is no package manager, no task runner, and no
+configuration beyond `REPO.buri`. `buri docs cli <command>` is the page for one
+command.
 
 ## Commands
 
@@ -30,11 +27,10 @@ for one command.
 | `buri clean` | drop the local cache |
 | `buri version` | toolchain version; `--verbose` adds the executable's hash |
 
-Target arguments accept labels and patterns: `//lib/money`, `//lib/...`,
-`//...`. **With no argument, a command works on the whole repository** — bare
-means `//...`, whatever directory you are standing in. `buri format` takes a
-path too — a file or a directory, and everything under it. Every command is safe
-to run concurrently, since a file lock serializes cache writes.
+Targets are labels or patterns: `//lib/money`, `//lib/...`, `//...`. **With no
+argument, a command works on the whole repository** (`//...`), whatever
+directory you're in. `buri format` also takes a file or directory path. Every
+command is safe to run concurrently.
 
 ## Exit codes
 
@@ -44,13 +40,13 @@ to run concurrently, since a file lock serializes cache writes.
 | `1` | the thing you asked *about* is wrong — a build, lint, or test failure |
 | `2` | the thing you asked *with* is wrong — a malformed invocation or an unparseable build file |
 
-So you can use `buri test //...` and `buri format --check` directly as gates.
+So `buri test //...` and `buri format --check` work directly as gates.
 
 ## Flags
 
-Three are global: `--verbose`, `--color[=never]` (`buri` honours `NO_COLOR`
-too), and `--error-format=json`. Every other flag belongs to the commands that
-read it, and naming one elsewhere is an error that says which commands do.
+Three are global: `--verbose`, `--color[=never]` (`NO_COLOR` works too), and
+`--error-format=json`. Every other flag belongs to specific commands, and
+passing it elsewhere is an error that names them.
 
 | Flag | Commands | Meaning |
 |---|---|---|
@@ -73,9 +69,8 @@ Everything after a bare `--` goes to the program `buri run` executes.
 
 ## Diagnostics, and the `[code]`
 
-Every diagnostic answers four questions in a fixed order: **where** (a span
-with a caret), **expected**, **actual** and **fix**. An error that is not a
-mismatch drops `expected` and `actual`. Nothing ever drops `fix`.
+Every diagnostic gives **where**, **expected**, **actual** and **fix**, in that
+order. Non-mismatch errors drop `expected` and `actual`. Nothing drops `fix`.
 
 ```
 error: expected `I32`, found `I64` [type-mismatch]
@@ -90,24 +85,22 @@ error: expected `I32`, found `I64` [type-mismatch]
   = fix: convert explicitly with `.toI32()?`, which returns a `Result<I32, RangeError>`
 ```
 
-**The bracketed name at the end of the message is a code you can look up.**
+**The bracketed name is a code you can look up.**
 
 ```
 buri docs error type-mismatch    one diagnostic in full, with a program that provokes it
-buri docs error                  every compiler code, listed
+buri docs error                  every compiler and build code, listed
 buri docs lint missing-dep       the same for a `buri lint` finding
 buri docs lint                   every lint code, listed
 ```
 
-The `error` catalogue holds compiler and build diagnostics, and the `lint` one
-holds `buri lint` findings. The first time a code appears in a run, `buri`
-prints the explanation under the diagnostic. Later occurrences print the short
-form only, and `--dense` drops it.
+The first time a code appears in a run, `buri` prints its explanation under the
+diagnostic. Later occurrences print the short form, and `--dense` drops it.
 
 ### `--error-format=json`
 
-For editors, CI, and coding agents. One JSON object per diagnostic, one per
-line, on stderr. It implies `--color=never`.
+One JSON object per diagnostic, one per line, on stderr. Implies
+`--color=never`.
 
 ```
 buri build //... --error-format=json
@@ -124,85 +117,78 @@ buri build //... --error-format=json
 | `fix` | the edit to make. Always present |
 | `related` | other locations, each shaped like `location` |
 
-An absent field means "not applicable" rather than "empty".
+An absent field means "not applicable", not "empty".
 
-## The commands, in the order you reach for them
+## The commands
 
 ### `build`
 
-A binary produces an artifact under `.buri/out/<platform>/<package>/`. A
-library has no artifact of its own, so `buri build //lib/money` type-checks it:
-it answers "is this library correct".
+A binary's artifact lands under `.buri/out/<platform>/<package>/`. A library
+has no artifact, so `buri build //lib/money` just type-checks it.
 
 ### `test`
 
-It builds the targets with their `test.sources`, runs every `test` declaration,
-and reports one line per failure plus a summary. See the `buri-testing` skill.
+Builds the targets with their `test.sources`, runs every `test` declaration,
+and prints one line per failure plus a summary. See the `buri-testing` skill.
 
-`--watch` re-runs the same invocation whenever a declared input moves: the
-closure's entry points, `sources`, generator `inputs` and `testing/` sources; the
-suite's `sources`; every `BUILD.buri`; and `REPO.buri`. It polls each with one
-`stat` every 150 ms, so a burst of writes is one run. A run with nothing to do
-prints nothing at all. **Nothing watches a new file until something declares
-it** — run `buri gen`, and the loop sees the build file change. A `BUILD.buri`
-that stops parsing prints its diagnostics, and the loop keeps watching. `buri`
-refuses `--watch` with `--force`, and — for `test` — when stdout is not a
-terminal.
+`--watch` re-runs whenever a declared input changes: the closure's entry points,
+`sources`, generator `inputs` and `testing/` sources; the suite's `sources`;
+every `BUILD.buri`; and `REPO.buri`. It polls every 150 ms, so a burst of writes
+is one run, and a run with nothing to do prints nothing. **A new file isn't
+watched until something declares it** — run `buri gen`. A `BUILD.buri` that
+stops parsing prints its diagnostics and the loop keeps going. `--watch` is
+refused with `--force`, and for `test`, when stdout isn't a terminal.
 
 ### `run`
 
-It builds exactly one binary and executes it, with real authority: the real
-filesystem, the real environment. The context its `main` builds still bounds
-what the program can do.
+Builds exactly one binary and executes it with real authority: the real
+filesystem and environment. The context its `main` builds still bounds what the
+program can do.
 
-A `web` output has no process to start, so it is served instead — the address is
-printed once, files under the artifact directory are answered as themselves, and
-every other path gets the entry shell, so the page's own router sees the address
-that was typed. Nothing is cached, `--watch` rebuilds into the next request, and
-the worker half of a website is not run in front of it.
+A `web` output is served instead. The address prints once, files under the
+artifact directory are served as themselves, and every other path gets the
+entry shell so the page's router sees the typed address. Nothing is cached,
+`--watch` rebuilds into the next request, and a website's worker half isn't run.
 
 ### `lint`
 
-The static checks that are not type errors: sources declared but absent, a
-source no rule names, a dependency declared and unused, one used and
-undeclared, visibility and tag violations, package and import cycles, and the
-hygiene rules — an import nothing uses, an `export` nothing reaches, a test
-that asserts nothing. Each finding carries a stable code.
+Checks that aren't type errors: sources declared but absent, a source no rule
+names, a dependency unused or undeclared, visibility and tag violations,
+package and import cycles, and hygiene rules — an unused import, an
+unreachable `export`, a test that asserts nothing. Each finding has a stable
+code.
 
-It reads `sources`, `test { sources }` and `testing { sources }` alike, so a
-suite meets the same rules and the report carries the checker's errors about all
-three. Only `dead-code` and `ctx-rebinding` never fire in a test source, and a
-`testing/` module's surface is `testing/lib.buri`.
+It reads `sources`, `test { sources }` and `testing { sources }` alike, and
+reports the checker's errors for all three. Only `dead-code` and
+`ctx-rebinding` never fire in a test source. A `testing/` module's surface is
+`testing/lib.buri`.
 
-`--fix` applies the findings with exactly one mechanical answer, then runs the
-whole check again from the files on disk. It hands the build-file findings
-(`missing-dep`, `unused-library`, `duplicate-source`) to `buri gen`, and applies
-`unused-import` as bytes. `--fix` edits and does **not** reformat. Where two
-edits in one file overlap, it applies none of that file's.
+`--fix` applies the findings with exactly one mechanical answer, then re-checks
+from disk. It hands `missing-dep`, `unused-library` and `duplicate-source` to
+`buri gen`, and applies `unused-import` as bytes. It does **not** reformat. If
+two edits in one file overlap, it applies none of that file's.
 
-It exits 1 if it reported anything at all. One catalogue, one severity —
-warning — the same in every repository, and no per-file suppression comment.
-`REPO.buri`'s `lint` block decides where the catalogue runs and which rules run;
-see the `buri-build` skill for the fields.
+It exits 1 if it reported anything. Every finding is a warning, the catalogue
+is the same in every repository, and there's no per-file suppression comment.
+`REPO.buri`'s `lint` block picks where it runs and which rules run; see the
+`buri-build` skill.
 
 ### `format`
 
 One canonical layout, no options: four-space indent, one field per line in
 build files, and the **leading** run of imports sorted (`core/*` before `//*`,
-then by path). `--check` writes nothing and exits 1 if anything would change,
-which is the form for CI.
+then by path). Use `--check` in CI.
 
 ### `gen`
 
-It rewrites the seven fields that restate the sources, in build files **that
-already exist**, sorted, and touches nothing else. It never creates a build
-file. In a package with both rules, a file no rule lists goes to the rule whose
-entry point reaches it, and a file reached from both or neither is an error.
-With no target argument it regenerates every package.
+Rewrites the seven fields that restate the sources, sorted, in build files
+**that already exist**. It touches nothing else and never creates a build file.
+In a package with both rules, an unlisted file goes to the rule whose entry
+point reaches it; a file reached from both or neither is an error.
 
 ### `query`
 
-It answers questions about the build graph without building anything.
+Answers questions about the build graph without building.
 
 ```
 buri query 'deps(//cmd/server)'             what it depends on, transitively
@@ -215,7 +201,7 @@ buri query 'sources(//lib/money)'           the files the rule names
 
 ### `docs`
 
-The binary serves these pages, so they work outside a repository and cannot go
+The binary serves these pages, so they work outside a repository and can't go
 stale.
 
 ```
@@ -230,40 +216,36 @@ buri docs search compare ints      every page at once, by name or by intent
 buri docs manifest                 every id and output shape, for an agent
 ```
 
-Search takes words rather than a name: "compare ints" reaches `core/order`,
-"fixture" reaches `platform/effect/testing`. Each hit prints as the command that reads
-it.
+Search takes intent: "compare ints" reaches `core/order`, "fixture" reaches
+`platform/effect/testing`. Each hit prints as the command that reads it.
 
-**Explore before you hand-roll.** Bare `buri docs` is the whole index — every
-topic, command, diagnostic code and standard library module — and it is the
-cheapest call here. Before writing a comparator, a table of hex digits, a
-`groupBy`, a base64 encoder or a date calculation, read the module:
-`buri docs core/order`, `core/bytes`, `core/map`, `core/list`, `core/date`.
-Search by intent when you cannot name the module.
+**Explore before you hand-roll.** Bare `buri docs` is the cheapest call here.
+Before writing a comparator, a hex-digit table, a `groupBy`, a base64 encoder or
+a date calculation, read `buri docs core/order`, `core/bytes`, `core/map`,
+`core/list`, `core/date`.
 
-For an agent: `--format=json` prints one object on one line, and `--dense`
-drops prose but keeps every heading and **every example**.
+`--format=json` prints one object on one line. `--dense` drops prose but keeps
+every heading and **every example**.
 
 ### `clean`
 
-It removes `.buri/out`, the action cache under `.buri/cache`, the staged
-objects under `.buri/link/`, and the `out` symlink. `--outputs` drops
-`.buri/out` alone. If you reach for it to fix a build, report that as a bug.
+Removes `.buri/out`, the action cache under `.buri/cache`, staged objects under
+`.buri/link/`, and the `out` symlink. `--outputs` drops `.buri/out` alone. If
+you need it to fix a build, report that as a bug.
 
 ### `init`
 
-It writes a working repository into an empty directory — `REPO.buri`, a
-library, a binary that depends on it, a test suite, a `.gitignore`, and these
-skills — and creates the directory if it is not there. It never writes over a
-file: a `REPO.buri` already at the target, or any other collision, stops it with
-exit 2 before the first byte. An existing `.gitignore` is the one exception, and
-`init` appends the build's entries below its lines.
+Writes a working repository — `REPO.buri`, a library, a binary that depends on
+it, a test suite, a `.gitignore`, and these skills — creating the directory if
+needed. It never overwrites a file: any collision stops it with exit 2 before
+writing anything. The exception is an existing `.gitignore`, which gets the
+build's entries appended.
 
 ### `add skills`
 
-It writes the toolchain's agent skills into `.agent/skills/<name>/SKILL.md`,
-under the working directory or under a directory you name. Re-running refreshes
-every `buri-*` skill and leaves every other skill alone.
+Writes the agent skills into `.agent/skills/<name>/SKILL.md`, under the working
+directory or one you name. Re-running refreshes every `buri-*` skill and leaves
+others alone.
 
 ## A first session in an unfamiliar repository
 
