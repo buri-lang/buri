@@ -1414,8 +1414,8 @@ mod placeholder_tests {
             assert!(!golden.contains("{{"), "{host}: a placeholder survived the fill");
             assert!(golden.starts_with(&format!("error: no native artifact for {cross} ")), "{host}");
             assert!(golden.contains(&format!("build this output on a {cross} host")), "{host}");
-            let quoted = golden.lines().find_map(|l| l.strip_prefix("7 |         ")).unwrap();
-            assert_eq!(fixture.lines().nth(6).unwrap().trim(), quoted, "{host}");
+            let quoted = golden.lines().find_map(|l| l.strip_prefix("9 |         ")).unwrap();
+            assert_eq!(fixture.lines().nth(8).unwrap().trim(), quoted, "{host}");
             assert_eq!(quoted, format!("{{ platform: \"native\", variant: \"{cross}\" }},"), "{host}");
             let carets = golden.lines().find_map(|l| l.strip_prefix("  |         ")).unwrap();
             assert_eq!(carets, "^".repeat(quoted.len() - 1), "{host}: the carets do not span the output");
