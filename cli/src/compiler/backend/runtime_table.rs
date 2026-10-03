@@ -1477,8 +1477,8 @@ pub const VALUES_MAY_CROSS_TASKS: &str = "buri_rt_values_may_cross_tasks";
 /// holding the same bytes, with `rc == 1` and nothing shared with the original.
 ///
 /// G5's half of the copy out of a scope. The *type*-dependent half is the
-/// per-type walk each backend generates (`Unit::copy_rc`,
-/// `stencil/glue.rs`'s `Helper::Copy`); this is the block-dependent half, and
+/// per-type walk each backend generates (`Op::Copy` in both
+/// backends' `walk_rc`); this is the block-dependent half, and
 /// the division is where it is because this archive is compiled once against no
 /// Buri type and a walk knows no header.
 pub const COPY_BLOCK: &str = "buri_rt_copy_block";

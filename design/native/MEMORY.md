@@ -484,7 +484,7 @@ visible the moment an allocation reused the freed block.
 
 **Counted elements need spare slots.** The generated release and copy glue
 for a `[T]` block walk **`cap / stride`** elements (`stencil/glue.rs`'s
-`Elems`, `llvm/emit.rs`'s `Job::ReleaseElems`), so headroom is slots those
+`Elems`, `llvm/emit.rs`'s `Job::Glue`), so headroom is slots those
 walks meet. Two rules keep that sound, both in `append_dest`:
 
 - **The grown path zeroes the headroom**, and both backends' walks skip an
@@ -1018,9 +1018,8 @@ heap.
 **What makes the bulk free sound is the copy at the boundary.** Exactly one
 value leaves a scope — `body`'s answer — and `core/alloc::copyOut` deep-copies
 it onto the caller's allocator before the pages go back. The copy is
-generated, not called: `Helper::Copy` in the frame-threaded backend and
-`Job::Copy` under LLVM are `Helper::Walk`'s recursion with
-`buri_rt_copy_block` where the release walk has `decref`. The two functions
+generated, not called: `Op::Copy` in both backends' `walk_rc` is the release
+walk with `buri_rt_copy_block` where the release has `decref`. The two functions
 the walk reaches a block through are the whole of the runtime's half —
 `buri_rt_copy_block`, and `buri_rt_copy_str` because a `Str`'s `ptr` points
 *into* its block and has to be rebased. **A copy is not a share**, with one

@@ -6,16 +6,13 @@
 //! | Helper | Why it is generated rather than called |
 //! |---|---|
 //! | [`Helper::Thunk`] | A closure's `code` takes its environment as a **pointer**; a lifted lambda takes it as an aggregate parameter laid out flat in its frame. Something has to convert, and it is also the one place the indirect-call ownership convention meets the callee's own. |
-//! | [`Helper::Walk`] | The per-type reference-count walk, as a C function `fn(*mut u8)`: the drop glue [`buri_rt_decref`](cli/runtime/memory.rs) calls, and the per-element retain `cli/runtime/list.rs` is handed. |
+//! | [`Helper::Walk`] | The per-type reference-count walk, as a C function `fn(*mut u8)`: the drop glue [`buri_rt_decref`](cli/runtime/memory.rs) calls, the per-element retain `cli/runtime/list.rs` is handed, and the **copy** `core/alloc::copyOut` is compiled into, so that a value leaving a scope shares no block with the one it left behind. |
 //! | [`Helper::Elems`] | The same for a whole `[T]` block, whose element count is `cap / stride`. |
-//! | [`Helper::Copy`] | The per-type **copy** walk, the same recursion with allocation where [`Helper::Walk`] has release: what `core/alloc::copyOut` is compiled into, so that a value leaving a scope shares no block with the one it left behind. |
-//! | [`Helper::CopyElems`] | The same for a whole `[T]` block, [`Helper::Elems`]'s twin. |
-//! | [`Helper::EnvGlue`] | The one indirection that lets a closure environment carry its own drop glue: `Ty::Fn` does not record what was captured, so the block holds the release function in its first word. |
-//! | [`Helper::EnvCopy`] | The same indirection for the copy, out of the block's **second** word. `Ty::Fn` is as silent about a copy as it is about a release, and one word is what that silence costs — see [`ENV_FIELDS`]. |
+//! | [`Helper::Env`] | The one indirection that lets a closure environment carry its own glue: `Ty::Fn` does not record what was captured, so the block holds the release function in its first word and the copy in its second — see [`ENV_FIELDS`]. |
 //! | [`Helper::Entry`] | The other direction through the C boundary: a `void(state, index, in, out)` the **runtime** calls to run one Buri step. A closure's `code` has a parameter list that depends on the element type, so the runtime cannot call it; this is generated where that type is known and is the only thing that does. |
 //! | [`Helper::Equal`] | The same direction and the same reason, one shape smaller: a `void(frame, a, b, out)` the reactive graph compares a write through. `==` is structural, so a cell holding a `Str` cannot answer "is this the value already there" from its bytes — and the comparison's parameter list depends on the type, so the runtime cannot make the call either. |
 //!
-//! The drop and copy glue ([`Helper::Walk`] through [`Helper::EnvCopy`]) is
+//! The drop and copy glue ([`Helper::Walk`] through [`Helper::Env`]) is
 //! named by what it does and by the type's glue key
 //! (`layout::Layouts::glue_key`), and defined weak ([`shared_symbol`]): every
 //! unit that drops a `[Str]` emits the same symbol and the linker keeps one.
@@ -48,7 +45,7 @@
 //! this is the word that changes and nothing else here does.
 //!
 //! The walk itself reads the value out of a *copy* in that frame rather than
-//! through the pointer. That is what lets `Lower::walk_rc` — which addresses
+//! through the pointer. That is what lets `Jit::walk_rc` — which addresses
 //! everything as a frame offset — serve both an `Inst::DecRef` and a glue
 //! function with no second implementation of the walk.
 
@@ -64,6 +61,7 @@
 
 use super::asm::{Asm, RAX, RCX, RDI, RDX, RSI, RSP, SP, X86};
 use super::jit::{Fn2, FrameSig, Jit, V};
+use crate::compiler::backend::counts::Op;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{Layouts, CAP_MASK, CLOSURE_ENV};
 use crate::compiler::semantics::types::Ty;
@@ -79,29 +77,14 @@ pub enum Helper {
     /// `FnRef` has none at all. `boxed` says whether the `env` word holds a
     /// block to read the record out of.
     Thunk { func: u32, args: u32, boxed: bool },
-    /// The counted-pointer walk over one value of a type, as `fn(*mut u8)`.
-    Walk { ty: Ty, retain: bool },
+    /// `op` over one value of a type, as `fn(*mut u8)`. A copy replaces every
+    /// counted pointer in the value, in place, by a pointer to a fresh block.
+    Walk { ty: Ty, op: Op },
     /// The same over every element of a `[T]` block.
-    Elems { ty: Ty },
-    /// The **copy** walk over one value of a type, as `fn(*mut u8)`: every
-    /// counted pointer inside the value it is handed is replaced, in place, by
-    /// a pointer to a fresh block holding a copy of the same thing.
-    ///
-    /// It is [`Helper::Walk`]'s recursion exactly — the same `Repr` arms, the
-    /// same tag dispatch, the same depth bound and the same going out of line
-    /// when a field is compound and the walk is already deep — with one
-    /// substitution: where the walk emits a `decref`, this emits
-    /// `buri_rt_copy_block` and stores what it answered. There is no `retain`
-    /// column, because a copy has only one direction.
-    Copy { ty: Ty },
-    /// The same over every element of a `[T]` block, [`Helper::Elems`]'s twin.
-    CopyElems { ty: Ty },
-    /// Read a release function out of a block's first word and call it on the
-    /// rest.
-    EnvGlue,
-    /// Read a **copy** function out of a block's second word and call it on the
-    /// rest.
-    EnvCopy,
+    Elems { ty: Ty, op: Op },
+    /// Read a release (or, for [`Op::Copy`], a copy) function out of a
+    /// block's first (second) word and call it on the rest.
+    Env { op: Op },
     /// The C-ABI **entry thunk** a runtime-driven step is reached through:
     /// `extern "C" fn(state, index, arg, out)`, which runs the closure in
     /// `state` once on the element at `arg` and writes its answer through `out`
@@ -141,13 +124,14 @@ pub enum Helper {
 /// `ld64` coalesces, and on ELF a COMDAT group per function (`mod.rs`).
 pub fn shared_symbol(h: &Helper, layouts: &mut Layouts<'_>) -> Option<String> {
     let (what, key) = match h {
-        Helper::Walk { ty, retain: false } => ("release", layouts.glue_key(ty)),
-        Helper::Walk { ty, retain: true } => ("retain", layouts.glue_key(ty)),
-        Helper::Elems { ty } => ("elems", layouts.glue_key(ty)),
-        Helper::Copy { ty } => ("copy", layouts.glue_key(ty)),
-        Helper::CopyElems { ty } => ("copyelems", layouts.glue_key(ty)),
-        Helper::EnvGlue => return Some(String::from("buri$stencil$glue$env")),
-        Helper::EnvCopy => return Some(String::from("buri$stencil$glue$envcopy")),
+        Helper::Walk { ty, op: Op::Release } => ("release", layouts.glue_key(ty)),
+        Helper::Walk { ty, op: Op::Retain } => ("retain", layouts.glue_key(ty)),
+        Helper::Walk { ty, op: Op::Copy } => ("copy", layouts.glue_key(ty)),
+        Helper::Elems { ty, op: Op::Release } => ("elems", layouts.glue_key(ty)),
+        Helper::Elems { ty, op: Op::Retain } => ("retainelems", layouts.glue_key(ty)),
+        Helper::Elems { ty, op: Op::Copy } => ("copyelems", layouts.glue_key(ty)),
+        Helper::Env { op: Op::Copy } => return Some(String::from("buri$stencil$glue$envcopy")),
+        Helper::Env { .. } => return Some(String::from("buri$stencil$glue$env")),
         Helper::Thunk { .. } | Helper::Entry { .. } | Helper::Equal { .. } => return None,
     };
     Some(format!("buri$stencil$glue${what}${key}"))
@@ -188,7 +172,7 @@ pub fn symbol(part: usize, i: usize) -> String {
 /// costs the same eight bytes per *type* rather than per closure but puts a
 /// second load in front of every drop of every closure in the language. Eight
 /// bytes on a block that already carries sixteen of header is the cheaper of
-/// the two, and it keeps [`Helper::EnvGlue`] the five instructions it was.
+/// the two, and it keeps [`Helper::Env`] the five instructions it was.
 pub const ENV_FIELDS: u32 = 16;
 
 /// Where a block's copy function sits inside its environment header.
@@ -310,12 +294,11 @@ impl Jit<'_> {
         let at = self.region.code_addr();
         match h {
             Helper::Thunk { func, args, boxed } => self.thunk(prog, *func, *args, *boxed),
-            Helper::Walk { ty, retain } => self.walk_glue(ty.clone(), *retain),
-            Helper::Elems { ty } => self.elems_glue(ty.clone()),
-            Helper::Copy { ty } => self.copy_glue(ty.clone()),
-            Helper::CopyElems { ty } => self.copy_elems_glue(ty.clone()),
-            Helper::EnvGlue => self.env_glue(),
-            Helper::EnvCopy => self.env_copy_glue(),
+            Helper::Walk { ty, op } => self.walk_glue(ty.clone(), *op),
+            Helper::Elems { ty, op } => self.elems_glue(ty.clone(), *op),
+            Helper::Env { op } => {
+                self.env_glue(if *op == Op::Copy { ENV_COPY_WORD } else { 0 })
+            }
             Helper::Entry { params, ret, index } => {
                 self.entry_thunk(params.clone(), ret.clone(), *index)
             }
@@ -353,8 +336,8 @@ impl Jit<'_> {
             ],
         );
         let counted = source_ty(prog, ty).filter(|t| self.rc_counted(t));
-        let glue = counted.clone().map(|t| self.helper(Helper::Walk { ty: t, retain: false }));
-        let copy = counted.map(|t| self.helper(Helper::Copy { ty: t }));
+        let glue = counted.clone().map(|t| self.helper(Helper::Walk { ty: t, op: Op::Release }));
+        let copy = counted.map(|t| self.helper(Helper::Walk { ty: t, op: Op::Copy }));
         for (name, at) in [(glue, 0u32), (copy, ENV_COPY_WORD)] {
             match name {
                 Some(sym) => self.emit(
@@ -384,16 +367,16 @@ impl Jit<'_> {
     }
 
     /// The environment glue, which is the same five instructions for every
-    /// closure: the block's first word is the release function of whatever was
-    /// captured, and the record follows it.
+    /// closure: the block's word at `word` is the release (or copy) function of
+    /// whatever was captured, and the record follows it.
     ///
     /// Hand-assembled rather than emitted from stencils because the call it
     /// makes is an indirect **tail** call — there is nothing to do after it —
     /// and no stencil in the library has that shape.
-    fn env_glue(&mut self) {
+    fn env_glue(&mut self, word: u32) {
         if !self.target.is_arm64() {
             let mut a = X86::new();
-            a.ldr(RSI, RDI, 0);
+            a.ldr(RSI, RDI, word);
             let done = a.cbz_x(RSI);
             a.add_imm(RDI, ENV_FIELDS);
             a.jmp_reg(RSI);
@@ -404,7 +387,7 @@ impl Jit<'_> {
             return;
         }
         let mut a = Asm::new();
-        a.ldr(1, 0, 0);
+        a.ldr(1, 0, word);
         let done = a.cbz_x(1);
         a.add_imm(0, 0, ENV_FIELDS);
         a.br_reg(1);
@@ -414,47 +397,10 @@ impl Jit<'_> {
         self.region.put(&bytes);
     }
 
-    /// [`Jit::env_glue`]'s twin for the copy, reading the **second** word of
-    /// the block instead of the first.
-    ///
-    /// The same five instructions, and hand-assembled for the same reason: the
-    /// call it makes is an indirect tail call and no stencil has that shape.
-    fn env_copy_glue(&mut self) {
-        if !self.target.is_arm64() {
-            let mut a = X86::new();
-            a.ldr(RSI, RDI, ENV_COPY_WORD);
-            let done = a.cbz_x(RSI);
-            a.add_imm(RDI, ENV_FIELDS);
-            a.jmp_reg(RSI);
-            a.here(done);
-            a.ret();
-            let (bytes, _) = a.finish();
-            self.region.put(&bytes);
-            return;
-        }
-        let mut a = Asm::new();
-        a.ldr(1, 0, ENV_COPY_WORD);
-        let done = a.cbz_x(1);
-        a.add_imm(0, 0, ENV_FIELDS);
-        a.br_reg(1);
-        a.here(done);
-        a.ret();
-        let (bytes, _) = a.finish();
-        self.region.put(&bytes);
-    }
-
-    /// `fn(*mut u8)` over one value of `ty`: the **copy** glue, which replaces
-    /// every counted pointer inside the value it is handed with a pointer to a
-    /// fresh block of its own.
-    ///
-    /// [`Jit::walk_glue`]'s shape exactly, and deliberately so: the two are the
-    /// same recursion over the same `Repr` arms, and keeping them the same
-    /// shape is what makes a new layout case a two-line change in each rather
-    /// than a second traversal to keep in step. The one addition is the store
-    /// at the end — a walk leaves nothing behind and a copy is all
-    /// replacement, so the value has to go back through the pointer it came
-    /// in on.
-    fn copy_glue(&mut self, ty: Ty) {
+    /// `fn(*mut u8)` over one value of `ty`: the drop glue, the per-element
+    /// retain `cli/runtime/list.rs` takes, or the copy glue. A copy is all
+    /// replacement, so the value goes back through the pointer it came in on.
+    fn walk_glue(&mut self, ty: Ty, op: Op) {
         let size = self.layouts_of(ty.clone()).size.max(8);
         let frame = round16(G_VALUE + round8(size) + SCRATCH_BYTES);
         if !self.glue_stub(frame) {
@@ -464,100 +410,12 @@ impl Jit<'_> {
         self.imm_to(G_INDEX, 0);
         self.elem_load(G_VALUE, G_PTR, G_INDEX, 8, size);
         let base = self.fixups_len();
-        if let Err(why) = self.copy_rc(&mut st, &ty, G_VALUE, 0) {
+        if let Err(why) = self.walk_rc(&mut st, &ty, G_VALUE, op, 0) {
             self.unsupported(why);
         }
-        self.imm_to(G_INDEX, 0);
-        self.elem_store(G_VALUE, G_PTR, G_INDEX, 8, size);
-        self.emit("ret", &[]);
-        self.resolve_helper_blocks(base, &st);
-    }
-
-    /// [`Jit::elems_glue`] for the copy: every element of a `[T]` block,
-    /// replaced in place.
-    fn copy_elems_glue(&mut self, ty: Ty) {
-        let l = self.layouts_of(ty.clone());
-        let (size, stride) = (l.size.max(1), l.stride.max(1));
-        // The frame holds a whole *stride*, padding and all, because
-        // [`Jit::unless_spare`] reads every byte of the slot.
-        let frame = round16(G_VALUE + round8(stride) + SCRATCH_BYTES);
-        if !self.glue_stub(frame) {
-            return;
-        }
-        let mut st = self.glue_frame(frame, G_VALUE + round8(stride));
-        self.emit(
-            "bin/sub/u64/fi/f",
-            &[
-                ("JIT_D", V::I(u64::from(G_SPARE))),
-                ("JIT_A", V::I(u64::from(G_PTR))),
-                ("JIT_K", V::I(8)),
-                ("JIT_CONT", V::Fall),
-            ],
-        );
-        self.imm_to(G_INDEX, 0);
-        self.elem_load(G_COUNT, G_SPARE, G_INDEX, 8, 8);
-        self.emit(
-            "bin/and/u64/fi/f",
-            &[
-                ("JIT_D", V::I(u64::from(G_COUNT))),
-                ("JIT_A", V::I(u64::from(G_COUNT))),
-                ("JIT_K", V::I(CAP_MASK)),
-                ("JIT_CONT", V::Fall),
-            ],
-        );
-        self.emit(
-            "bin/div/u64/fi/f",
-            &[
-                ("JIT_D", V::I(u64::from(G_COUNT))),
-                ("JIT_A", V::I(u64::from(G_COUNT))),
-                ("JIT_K", V::I(u64::from(stride))),
-                ("JIT_CONT", V::Fall),
-            ],
-        );
-        let base = self.fixups_len();
-        let body = st.label();
-        let done = st.label();
-        let next = st.label();
-        self.glue_loop_test(G_INDEX, G_COUNT, V::Fall, V::Blk(done), "JIT_T");
-        let here = self.region.code_addr();
-        st.place(body, here);
-        self.unless_spare(stride, next);
-        if let Err(why) = self.copy_rc(&mut st, &ty, G_VALUE, 0) {
-            self.unsupported(why);
-        }
-        self.elem_store(G_VALUE, G_PTR, G_INDEX, stride, size);
-        let here = self.region.code_addr();
-        st.place(next, here);
-        self.emit(
-            "bin/add/u64/fi/f",
-            &[
-                ("JIT_D", V::I(u64::from(G_INDEX))),
-                ("JIT_A", V::I(u64::from(G_INDEX))),
-                ("JIT_K", V::I(1)),
-                ("JIT_CONT", V::Fall),
-            ],
-        );
-        self.glue_loop_test(G_INDEX, G_COUNT, V::Blk(body), V::Fall, "JIT_F");
-        let here = self.region.code_addr();
-        st.place(done, here);
-        self.emit("ret", &[]);
-        self.resolve_helper_blocks(base, &st);
-    }
-
-    /// `fn(*mut u8)` over one value of `ty`: the drop glue, or the per-element
-    /// retain `cli/runtime/list.rs` takes.
-    fn walk_glue(&mut self, ty: Ty, retain: bool) {
-        let size = self.layouts_of(ty.clone()).size.max(8);
-        let frame = round16(G_VALUE + round8(size) + SCRATCH_BYTES);
-        if !self.glue_stub(frame) {
-            return;
-        }
-        let mut st = self.glue_frame(frame, G_VALUE + round8(size));
-        self.imm_to(G_INDEX, 0);
-        self.elem_load(G_VALUE, G_PTR, G_INDEX, 8, size);
-        let base = self.fixups_len();
-        if let Err(why) = self.walk_rc(&mut st, &ty, G_VALUE, retain, 0) {
-            self.unsupported(why);
+        if op == Op::Copy {
+            self.imm_to(G_INDEX, 0);
+            self.elem_store(G_VALUE, G_PTR, G_INDEX, 8, size);
         }
         self.emit("ret", &[]);
         self.resolve_helper_blocks(base, &st);
@@ -567,7 +425,7 @@ impl Jit<'_> {
     ///
     /// The count is `cap / stride`, and `cap` is the second header word
     /// (VALUE-MODEL.md §2) — which is what makes a drop glue taking only a
-    /// pointer enough for a whole list. `llvm/emit.rs::release_elems_glue`
+    /// pointer enough for a whole list. `llvm/emit.rs::elems_glue`
     /// reads the same word and divides by the same stride. Headroom past the
     /// last element is zeroed and skipped ([`Jit::unless_spare`]).
     ///
@@ -575,8 +433,11 @@ impl Jit<'_> {
     /// (`layout::CAP_SHARED_FLAG`), so the load is masked with [`CAP_MASK`]
     /// before the divide — a set bit would turn this loop into a walk over
     /// 2^60 elements of a block that holds a handful.
-    fn elems_glue(&mut self, ty: Ty) {
-        let stride = self.layouts_of(ty.clone()).stride.max(1);
+    ///
+    /// A copy stores each element back once it is replaced.
+    fn elems_glue(&mut self, ty: Ty, op: Op) {
+        let l = self.layouts_of(ty.clone());
+        let (size, stride) = (l.size.max(1), l.stride.max(1));
         // The frame holds a whole *stride*, padding and all, because
         // [`Jit::unless_spare`] reads every byte of the slot.
         let frame = round16(G_VALUE + round8(stride) + SCRATCH_BYTES);
@@ -623,8 +484,11 @@ impl Jit<'_> {
         let here = self.region.code_addr();
         st.place(body, here);
         self.unless_spare(stride, next);
-        if let Err(why) = self.walk_rc(&mut st, &ty, G_VALUE, false, 0) {
+        if let Err(why) = self.walk_rc(&mut st, &ty, G_VALUE, op, 0) {
             self.unsupported(why);
+        }
+        if op == Op::Copy {
+            self.elem_store(G_VALUE, G_PTR, G_INDEX, stride, size);
         }
         let here = self.region.code_addr();
         st.place(next, here);
@@ -882,7 +746,7 @@ impl Jit<'_> {
             // so the step's is taken here — the same retain `lists.rs` emits
             // before its own `calli`, and for the same sentence.
             if self.rc_counted(&elem) {
-                if let Err(why) = self.walk_rc(&mut st, &elem, E_ELEM, true, 0) {
+                if let Err(why) = self.walk_rc(&mut st, &elem, E_ELEM, Op::Retain, 0) {
                     self.unsupported(why);
                 }
             }
@@ -999,7 +863,7 @@ impl Jit<'_> {
                 self.elem_load(at, from, Q_ZERO, 8, size);
             }
             if counted && facts.get(i) == Some(&ir::Ownership::Own) {
-                if let Err(why) = self.walk_rc(&mut st, &ty, at, true, 0) {
+                if let Err(why) = self.walk_rc(&mut st, &ty, at, Op::Retain, 0) {
                     self.unsupported(why);
                 }
             }
@@ -1132,7 +996,7 @@ impl Jit<'_> {
             if owns {
                 if let Some(ty) = sig_params.first().and_then(|t| source_ty(prog, *t)) {
                     if self.rc_counted(&ty) {
-                        if let Err(why) = self.walk_rc(&mut st, &ty, to, true, 0) {
+                        if let Err(why) = self.walk_rc(&mut st, &ty, to, Op::Retain, 0) {
                             self.unsupported(why);
                         }
                     }
@@ -1178,7 +1042,7 @@ impl Jit<'_> {
         // this every step of a `list.map` over a `[Str]` leaks one block per
         // element, which is exactly what it did.
         for (at, ty) in borrowed {
-            if let Err(why) = self.walk_rc(&mut st, &ty, at, false, 0) {
+            if let Err(why) = self.walk_rc(&mut st, &ty, at, Op::Release, 0) {
                 self.unsupported(why);
             }
         }

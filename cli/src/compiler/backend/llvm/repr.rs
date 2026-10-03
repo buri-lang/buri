@@ -52,11 +52,12 @@ use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValue, BasicValueEnum, IntValue, PointerValue};
 
 
+use crate::compiler::backend::counts::{Counted, Counts, Site};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{
     self, Cycles, EnumRepr, Layout, Layouts, Repr as LayoutRepr, Scalar,
 };
-use crate::compiler::semantics::types::{Prim, Tables, Ty, TyDef};
+use crate::compiler::semantics::types::{Tables, Ty};
 use crate::hash::Map;
 
 /// What one machine-sized piece of an aggregate is.
@@ -97,23 +98,6 @@ impl SlotTy {
 pub struct Slot {
     pub offset: u32,
     pub ty: SlotTy,
-}
-
-/// Which counted pointer a slot is, where it is one.
-///
-/// This is what an `incref` or a `decref` walks (MEMORY.md §5.1): the header is
-/// at `p - 16` for every one of them, so the only question a backend has to
-/// answer is *which* words of a value are payload pointers, and whether they
-/// can be null.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Counted {
-    /// A `Str`'s `base`, or a closure's `env`: null is a real value and means
-    /// "there is no block here" (a literal, a lambda that captured nothing).
-    Nullable,
-    /// The indirection a recursive type's field is behind: never null, so the
-    /// null test MEMORY.md §5.1 puts in front of both operations is eliminated
-    /// here rather than by LLVM.
-    NonNull,
 }
 
 /// One aggregate type's flattening: the whole answer, computed once.
@@ -163,6 +147,7 @@ pub struct Reprs<'a> {
     /// than a panic, because the lint set forbids one and "this value occupies
     /// nothing" degrades rather than crashes.
     empty: Repr,
+    counts: Counts,
 }
 
 impl<'a> Reprs<'a> {
@@ -201,6 +186,7 @@ impl<'a> Reprs<'a> {
                 counted: Vec::new(),
                 ty: Ty::Unit,
             },
+            counts: Counts::default(),
         }
     }
 
@@ -385,126 +371,19 @@ impl<'a> Reprs<'a> {
         self.of_ty(ty).layout.stride.max(1)
     }
 
-    /// Whether a value of this type owns any reference count at all.
-    ///
-    /// The question every reference-counting emission asks first, because the
-    /// answer is `false` for most types and `false` means no code.
     /// See `Layouts::glue_key`.
     pub fn glue_key(&mut self, ty: &Ty) -> std::rc::Rc<str> {
         self.layouts.glue_key(ty)
     }
 
+    /// Whether a value of this type owns any reference count at all.
     pub fn counted_type(&mut self, ty: &Ty) -> bool {
-        counted_ty(self.tables, &mut self.layouts, ty, 0)
+        self.counts.counted(self.tables, &mut self.layouts, ty)
     }
 
     /// Every place a reference count lives inside one value of this type.
-    ///
-    /// The offsets are **absolute within the value**, exactly as
-    /// `layout::Repr::Enum` records a variant's, so a walk can carry one base
-    /// and add — which is what lets the same list drive a walk over a value in
-    /// registers and a walk over one at an address.
-    pub fn sites(&mut self, ty: &Ty) -> Vec<Site> {
-        match ty {
-            // A `[T]`'s block is released element by element, and the element
-            // type is what says how (VALUE-MODEL.md §4).
-            Ty::Array(elem) => vec![Site::Block {
-                offset: self.of_ty(ty).layout.field(layout::LIST_PTR),
-                glue: Glue::Elems((**elem).clone()),
-                counted: Counted::Nullable,
-            }],
-            // A closure's environment carries its own glue in its first word,
-            // because `Ty::Fn` does not record what was captured — see
-            // `emit.rs`'s header.
-            Ty::Fn(_, _) => vec![Site::Block {
-                offset: self.of_ty(ty).layout.field(layout::CLOSURE_ENV),
-                glue: Glue::Env,
-                counted: Counted::Nullable,
-            }],
-            Ty::Tuple(_) | Ty::Ctx(_) => {
-                let fields = field_types(self.tables, ty);
-                self.record_sites(ty, &fields)
-            }
-            Ty::Con(id, _) => match &self.tables.tycon(*id).def {
-                // A `Str`'s block is bytes: there is nothing inside it to
-                // release, so the glue is `None` and `base` is null for a
-                // literal (VALUE-MODEL.md §3).
-                TyDef::Prim(Prim::Str | Prim::Template) => vec![Site::Block {
-                    offset: self.of_ty(ty).layout.field(layout::STR_BASE),
-                    glue: Glue::Str,
-                    counted: Counted::Nullable,
-                }],
-                TyDef::Prim(_) => Vec::new(),
-                TyDef::Struct { .. } => {
-                    let fields = field_types(self.tables, ty);
-                    self.record_sites(ty, &fields)
-                }
-                TyDef::Enum { .. } => self.enum_sites(ty),
-            },
-            _ => Vec::new(),
-        }
-    }
-
-    fn record_sites(&mut self, owner: &Ty, fields: &[Ty]) -> Vec<Site> {
-        let offsets = self.of_ty(owner).layout.fields.clone();
-        let mut out = Vec::new();
-        for (i, f) in fields.iter().enumerate() {
-            let offset = offsets.get(i).copied().unwrap_or(0);
-            if self.layouts.boxes(owner, f) {
-                out.push(Site::Boxed { offset, ty: f.clone() });
-            } else if self.counted_type(f) {
-                out.push(Site::Nested { offset, ty: f.clone() });
-            }
-        }
-        out
-    }
-
-    fn enum_sites(&mut self, owner: &Ty) -> Vec<Site> {
-        let layout = self.of_ty(owner).layout.clone();
-        let LayoutRepr::Enum { repr, .. } = layout.repr.clone() else { return Vec::new() };
-        match repr {
-            // The value is the tag and nothing else (VALUE-MODEL.md §6, first
-            // niche), so there is nothing to walk.
-            EnumRepr::Bare { .. } => Vec::new(),
-            // `.Some`'s payload *is* the value, and `.None` is its niche
-            // pointer set to null — so the payload is walked only where that
-            // pointer is not null, which is the guard this site names.
-            EnumRepr::Niche { null_at } => {
-                let Ty::Con(_, args) = owner else { return Vec::new() };
-                let Some(payload) = args.first().cloned() else { return Vec::new() };
-                if self.counted_type(&payload) {
-                    vec![Site::Guarded { null_at, ty: payload }]
-                } else {
-                    Vec::new()
-                }
-            }
-            EnumRepr::Tagged { tag, .. } => {
-                let Ty::Con(id, _) = owner else { return Vec::new() };
-                let count = self.tables.tycon(*id).variants().len();
-                let mut variants = Vec::new();
-                for v in 0..count {
-                    let fields = variant_types(self.tables, owner, v);
-                    let offsets = layout.variant(v).to_vec();
-                    for (i, f) in fields.iter().enumerate() {
-                        let offset = offsets.get(i).copied().unwrap_or(0);
-                        let boxed = self.layouts.boxes(owner, f);
-                        if boxed || self.counted_type(f) {
-                            variants.push((
-                                u32::try_from(v).unwrap_or(0),
-                                f.clone(),
-                                offset,
-                                boxed,
-                            ));
-                        }
-                    }
-                }
-                if variants.is_empty() {
-                    Vec::new()
-                } else {
-                    vec![Site::Tagged { tag, variants }]
-                }
-            }
-        }
+    pub fn sites(&mut self, ty: &Ty) -> std::rc::Rc<[Site]> {
+        self.counts.sites(self.tables, &mut self.layouts, ty)
     }
 
     /// `T` of an `Option<T>` that took the niche.
@@ -528,93 +407,12 @@ fn ptr() -> SlotTy {
     SlotTy::Scalar(Scalar::Ptr)
 }
 
-// ---------------------------------------------------------------------------
-// Where the counts are — MEMORY.md §5.1
-// ---------------------------------------------------------------------------
-
-/// What drops the *contents* of the block a counted pointer names, once its
-/// count reaches zero and before the block itself goes back.
-///
-/// Three answers and no more, because there are three kinds of block: a `Str`'s
-/// bytes hold nothing, a `[T]`'s block holds `cap / stride` elements, and a
-/// closure environment holds whatever was captured — which `Ty::Fn` does not
-/// record, so that one block carries its own answer in its first word.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub enum Glue {
-    /// Bytes, with nothing inside them to release.
-    None,
-    /// A `Str`'s bytes. Nothing to *release* — this is [`Glue::None`] on the
-    /// drop side and says so — but a copy has to rebase the `ptr` that points
-    /// into the block as well as replace the block, so the two sides need to
-    /// tell a `Str`'s allocation apart from an `[Int]`'s (G5,
-    /// `buri_rt_copy_str`).
-    Str,
-    /// A closure environment, which carries its own (`emit.rs`'s header).
-    Env,
-    /// A `[T]` block, element by element.
-    Elems(Ty),
-}
-
-/// One place a reference count lives inside a value.
-///
-/// This is [`Counted`] generalized from "which slot" to "which *byte offset*,
-/// and what is behind it". The slot list cannot express two of these — a
-/// tagged enum's payload area is one opaque `Blob` (see the module header) and
-/// a boxed field is a pointer whose pointee has its own type — so a walk driven
-/// by slots alone silently skips exactly the counts that are hardest to find by
-/// hand.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub enum Site {
-    /// A counted block pointer at this byte offset.
-    Block { offset: u32, glue: Glue, counted: Counted },
-    /// A field that is itself an aggregate with counts inside it. Walked in
-    /// place: its own sites are at offsets relative to this one.
-    Nested { offset: u32, ty: Ty },
-    /// The pointer a recursive type's field is behind (VALUE-MODEL.md §5.2).
-    /// Never null, and its pointee is released by that type's own glue.
-    Boxed { offset: u32, ty: Ty },
-    /// An enum: switch on the tag, then walk only the variant that is live.
-    ///
-    /// Each entry is `(variant, field type, offset, boxed)`. The last is the
-    /// same distinction [`Site::Boxed`] makes for a struct's field, and this
-    /// list used to drop it: a variant field whose type is the enum's own is
-    /// behind a pointer (VALUE-MODEL.md §5.2), and walking it *in place*
-    /// reads the pointer's bytes as if the pointee were inline and then
-    /// descends into the enum's own type again. `stencil/emit.rs::box_into`
-    /// writes the same boxed field for the same reason.
-    Tagged { tag: Scalar, variants: Vec<(u32, Ty, u32, bool)> },
-    /// A niche-encoded `Option`: walk the payload only where it is `.Some`.
-    Guarded { null_at: u32, ty: Ty },
-}
-
-/// How deep the counted-pointer walk descends before concluding the type graph
+/// How deep a reference-count walk descends before concluding the type graph
 /// has a cycle the boxing rule failed to cut. A fuse, not a limit:
 /// `Layouts::boxes` cuts every cycle, so reaching it is an inconsistency and
 /// stopping is the conservative answer — a leak rather than a stack overflow in
 /// the compiler.
 pub const RC_DEPTH: u32 = 64;
-
-fn counted_ty(tables: &Tables, layouts: &mut Layouts<'_>, ty: &Ty, depth: u32) -> bool {
-    if depth > RC_DEPTH {
-        return false;
-    }
-    let next = depth.saturating_add(1);
-    let any = |fields: Vec<Ty>, layouts: &mut Layouts<'_>| {
-        fields.iter().any(|f| layouts.boxes(ty, f) || counted_ty(tables, layouts, f, next))
-    };
-    match ty {
-        Ty::Array(_) | Ty::Fn(_, _) => true,
-        Ty::Tuple(_) | Ty::Ctx(_) => any(field_types(tables, ty), layouts),
-        Ty::Con(id, _) => match &tables.tycon(*id).def {
-            TyDef::Prim(Prim::Str | Prim::Template) => true,
-            TyDef::Prim(_) => false,
-            TyDef::Struct { .. } => any(field_types(tables, ty), layouts),
-            TyDef::Enum { .. } => (0..tables.tycon(*id).variants().len())
-                .any(|v| any(variant_types(tables, ty, v), layouts)),
-        },
-        _ => false,
-    }
-}
 
 /// What is inside a struct, a tuple, a context or one enum variant.
 ///

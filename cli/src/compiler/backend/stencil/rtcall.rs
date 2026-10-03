@@ -51,6 +51,7 @@
 use super::abi::{MAX_FLOAT_ARGS as MAX_FLOAT, MAX_INT_ARGS as MAX_INT};
 use super::jit::{Fn2, Jit, V};
 use super::runtime::{self, Entry, Extra, OptRepr, Ret, BURI_OK};
+use crate::compiler::backend::counts::Op;
 use crate::compiler::backend::intrinsic_keys::step_call;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
@@ -81,7 +82,7 @@ pub(crate) const SPARE_WORD: u32 = DISC_WORD + 1;
 /// ordering operator wants is built out of it.
 ///
 /// Three more words follow it: `emit.rs`'s widening sequences take `RAW_WORD +
-/// 1`, and [`Jit::walk_deep`](super::emit) takes `RAW_WORD + 3` for the address
+/// 1`, and [`Jit::walk_field`](super::emit) takes `RAW_WORD + 3` for the address
 /// it hands the out-of-line reference walk. [`RESERVED_WORDS`] is where that
 /// ends.
 pub(crate) const RAW_WORD: u32 = SPARE_WORD + 1;
@@ -96,7 +97,7 @@ pub(crate) const RAW_WORD: u32 = SPARE_WORD + 1;
 ///
 /// It was written as a number, and the number was two words short.
 /// `list.sortBy` kept its destination block's pointer at `LOOP_SCRATCH + 8`,
-/// which was `RAW_WORD + 3` — the word `walk_deep` writes the address of a
+/// which was `RAW_WORD + 3` — the word `walk_field` writes the address of a
 /// value whose reference walk went out of line into. Sorting a list whose
 /// element is a struct holding an enum therefore retained the first element and
 /// then stored it *through the address of itself*, leaving the result block
@@ -745,7 +746,7 @@ impl Jit<'_> {
     /// reads a null pointer as.
     pub(crate) fn element_glue(&mut self, elem: Ty) -> Option<String> {
         self.rc_counted(&elem)
-            .then(|| self.helper(super::glue::Helper::Walk { ty: elem, retain: true }))
+            .then(|| self.helper(super::glue::Helper::Walk { ty: elem, op: Op::Retain }))
     }
 
     /// [`Self::element_glue`]'s mirror: the release, for a value the runtime
@@ -756,7 +757,7 @@ impl Jit<'_> {
     /// store ends and this is the side that knows *what* is in it.
     fn value_release(&mut self, ty: Ty) -> Option<String> {
         self.rc_counted(&ty)
-            .then(|| self.helper(super::glue::Helper::Walk { ty, retain: false }))
+            .then(|| self.helper(super::glue::Helper::Walk { ty, op: Op::Release }))
     }
 
     /// The per-value **equality** glue for a type the reactive graph keeps a
@@ -1015,7 +1016,7 @@ impl Jit<'_> {
         // use, and without this the environment would be freed under a memo
         // that has not run yet.
         if self.rc_counted(&ty) {
-            self.walk_rc(st, &ty, state, true, 0)?;
+            self.walk_rc(st, &ty, state, Op::Retain, 0)?;
         }
         let stride = u64::from(self.layouts_of((*ret).clone()).stride);
         let release = self.value_release((*ret).clone());
@@ -1127,7 +1128,7 @@ impl Jit<'_> {
         // The graph keeps the closure, so the graph owes it a reference — taken
         // here, at the handler's last use, exactly as `compute_extra` takes one.
         if self.rc_counted(&ty) {
-            self.walk_rc(st, &ty, state, true, 0)?;
+            self.walk_rc(st, &ty, state, Op::Retain, 0)?;
         }
         let thunk =
             self.helper(super::glue::Helper::Entry { params, ret: *ret, index: None });
