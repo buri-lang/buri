@@ -1,4 +1,4 @@
-error: there is no type `extra` [unresolved-type]
+error: there is no type `extra` [unknown-type]
  --> main.buri:1:17
   |
 1 | export fn f(): [extra Int] {

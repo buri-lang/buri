@@ -1,4 +1,4 @@
-error: this `accepts` entry has no `type_schema` [accepts-incomplete]
+error: this `accepts` entry has no `type_schema` [accepts-missing-field]
  --> tool/b/BUILD.buri:4:13
   |
 4 |             { language: "json" },

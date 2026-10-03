@@ -7,7 +7,7 @@ error: expected an identifier, found `?` [unexpected-token]
    = expected: an identifier
    = actual: `?`
    = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
-error: there is no type `Ledger` [unresolved-type]
+error: there is no type `Ledger` [unknown-type]
   --> lib/recovery_insert_stray_module_cents_82b7d8/lib.buri:16:33
    |
 16 | export fn ledger(entries: I64): Ledger {
@@ -15,10 +15,10 @@ error: there is no type `Ledger` [unresolved-type]
    |
    = did you mean `Order`?
    = fix: if you meant `Order`, use that; if not, a name is in scope only from this module's own declarations and its imports
-error: this is not a struct or an enum variant [not-a-struct-literal-head]
+error: the head of a struct literal must be a struct or an enum variant [struct-literal-head]
   --> lib/recovery_insert_stray_module_cents_82b7d8/lib.buri:17:5
    |
 17 |     Ledger { entries, seal: "" }
    |     ^^^^^^
    |
-   = fix: name a struct, or an enum variant that has fields
+   = fix: name the type, as in `Point { x: 1, y: 2 }`, or a variant that has fields, as in `.Variant { ... }` where the expected type is known

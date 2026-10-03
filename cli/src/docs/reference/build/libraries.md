@@ -86,7 +86,7 @@ you write it. You name a **surface** as a module. Everything else is a
 `dependencies`, and the module path an import writes. A suite reaches the
 library it tests by the same name its dependents use.
 
-A path with the file name left off is `import-path-without-a-file`, and the
+A path with the file name left off is `import-missing-extension`, and the
 diagnostic names the file it meant. Reaching into another package's file is
 `internal-import`. `"//lib/money/lib.buri"` also resolves to the surface; it's
 unidiomatic, not wrong.

@@ -58,7 +58,7 @@ pub fn command_run(args: &arguments::Args) -> i32 {
         if let Some(hosted) = outputs.iter().find(|o| !starts_itself(o)) {
             let custom = hosted.custom.as_ref().map(|c| (c.label.value.clone(), c.point.clone()));
             let (platform, entry) = custom.unwrap_or_default();
-            let d = crate::diagnostics::Diagnostic::templated("platform-cannot-run", hosted.span)
+            let d = crate::diagnostics::Diagnostic::templated("entry-not-runnable", hosted.span)
                 .with_bind("target", session.workspace.label(target))
                 .with_bind("platform", platform)
                 .with_bind("entry", entry);

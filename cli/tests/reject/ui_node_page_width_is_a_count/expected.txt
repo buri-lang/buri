@@ -1,4 +1,4 @@
-error: `I64` has no variant `Px` [no-such-variant]
+error: `I64` has no variant `Px` [unknown-variant]
   --> cmd/ui_node_page_width_is_a_count/main.buri:16:80
    |
 16 |   let _ = ui.describeWide(ctx, ui.stack({ styles: [], children: [] }), .Hover, .Px(390));

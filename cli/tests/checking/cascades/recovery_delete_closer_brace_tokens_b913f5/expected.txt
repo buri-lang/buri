@@ -1,4 +1,4 @@
-error: `themed` is in an `impl` block but takes no `self` [impl-fn-without-self]
+error: `themed` is in an `impl` block but takes no `self` [impl-missing-self]
   --> main.buri:57:11
    |
 57 | export fn themed(f: fn(Token) => Color): Theme {

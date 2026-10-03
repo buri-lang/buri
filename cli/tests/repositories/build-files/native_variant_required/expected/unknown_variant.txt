@@ -1,4 +1,4 @@
-error: `linux-mips` is not a variant of `native` [no-such-platform-variant]
+error: `linux-mips` is not a variant of `native` [unknown-platform-variant]
  --> cmd/app/BUILD.buri:5:40
   |
 5 |         { platform: "native", variant: "linux-mips" },

@@ -1,4 +1,4 @@
-error: `Point` is a type, not a value [type-not-a-value]
+error: `Point` is a type, not a value [type-not-value]
  --> cmd/type_not_a_value/main.buri:8:11
   |
 8 |   let p = Point;

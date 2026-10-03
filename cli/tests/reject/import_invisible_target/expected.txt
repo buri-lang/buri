@@ -1,13 +1,10 @@
-error: "//cmd/discarded_result" names no file (cmd/discarded_result/lib.buri) [module-not-found]
+error: "//cmd/discarded_result" names no file (cmd/discarded_result/lib.buri) [unknown-module]
  --> cmd/import_invisible_target/main.buri:5:6
   |
 5 | from "//cmd/discarded_result" import { main };
   |      ^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
-
-    This resolves against the example monorepo in cli/tests/example, which has
-    no lib/nope:
 
     There's no search path and no fallback, so a path never has two candidates.
 

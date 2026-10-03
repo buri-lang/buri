@@ -1,4 +1,4 @@
-error: `size` does not have the signature `Measurable` declares [signature-mismatch]
+error: `size` does not have the signature `Measurable` declares [impl-signature-mismatch]
   --> cmd/impl_method_takes_an_extra_parameter/main.buri:15:6
    |
 15 |   fn size(self, scale: Int): Int { self.count * scale }

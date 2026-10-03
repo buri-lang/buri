@@ -162,7 +162,7 @@ be paired with another build's.
 missing on a toolchain whose archive has no `net`, whatever the backend has a
 body for, and `backend::split_networking` sorts that half out from the
 ordinary "this backend has no implementation of" half at each of the two
-emission sites. The refusal is `networking-not-available`, whose fix names the
+emission sites. The refusal is `networking-unavailable`, whose fix names the
 feature rather than asking for a bug report: the program is fine and the
 toolchain is what has to change.
 
@@ -340,7 +340,7 @@ emptiness and the backend reports itself unavailable, exactly as
 `runtime_native::AVAILABLE` does for the archive. `actions::native_ready` is
 then false and `host_platform()` answers `Js`, so a build still produces a
 JavaScript artifact. `buri test` does **not** quietly follow: a suite that
-names no platform is refused with `native-run-not-available`, naming the
+names no platform is refused with `test-run-unavailable`, naming the
 platform and the profile, because a suite run on a backend nobody chose
 reports a pass about the other backend (ARCHITECTURE.md §4). `--output=js`, or
 `test { backends: [JS] }`, is how a suite runs there on purpose.
@@ -670,7 +670,7 @@ generate the stencil library (§2). It is Xcode's command-line tools on macOS
 (`xcode-select --install`) and `build-essential` on Debian-likes. A host
 without `cc` still builds a `buri`, and gets an empty library, a backend that
 reports itself unavailable, a JavaScript artifact from a build, and a
-`native-run-not-available` refusal from every suite that does not name a
+`test-run-unavailable` refusal from every suite that does not name a
 platform.
 
 Everything below is for the two things the default build does not do: build

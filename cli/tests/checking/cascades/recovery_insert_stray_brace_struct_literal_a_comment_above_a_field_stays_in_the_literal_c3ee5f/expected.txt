@@ -5,7 +5,7 @@ error: `Point` is missing `z` [missing-field-value]
   |   ^^^^^^^
   |
   = fix: give `z` a value — only an `Option` field may be left out — or start from an existing one with `Point { ..base, field: value }`
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> main.buri:11:8
    |
 11 |     y: extra 0, // the vertical one

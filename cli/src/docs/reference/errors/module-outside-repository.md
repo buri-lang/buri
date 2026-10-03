@@ -1,5 +1,5 @@
 ---
-title: A `//` path needs a repository to be relative to
+title: A `//` path needs a repository
 message: "{path}" is outside any repository
 fix: import from `"core/..."` or from a `//...` path in this repository
 ---

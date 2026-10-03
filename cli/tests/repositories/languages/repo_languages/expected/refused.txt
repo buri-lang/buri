@@ -1,4 +1,4 @@
-error: `//tool/yaml` names no tool [no-such-tool]
+error: `//tool/yaml` names no tool [unknown-tool]
   --> REPO.buri:10:12
    |
 10 |     check: "//tool/yaml"
@@ -16,7 +16,7 @@ error: `//tool/yaml` names no tool [no-such-tool]
      //tool/routes is a package whose BUILD.buri holds tool { generate {} }. See
      `tools.md` (../build/tools.md).
 
-error: `yaml` is declared twice [language-declared-twice]
+error: `yaml` is declared twice [duplicate-language]
   --> REPO.buri:14:11
    |
 14 |     name: "yaml"
@@ -29,7 +29,7 @@ error: `yaml` is declared twice [language-declared-twice]
   |
   = one block says which extensions and tools a language has, so no two blocks can disagree
   = fix: merge the two blocks into one
-error: `.code-workspace` already belongs to `jsonc` [language-extension-taken]
+error: `.code-workspace` already belongs to `jsonc` [duplicate-extension]
   --> REPO.buri:20:18
    |
 20 |     extensions: [".code-workspace", "json5", ".json"]
@@ -49,7 +49,7 @@ error: `json5` is not an extension [language-extension-invalid]
    |                                     ^^^^^^^
    |
    = fix: write it with a leading dot and no `/`, such as `".jsonc"`
-error: `.json` already belongs to `json` [language-extension-taken]
+error: `.json` already belongs to `json` [duplicate-extension]
   --> REPO.buri:20:46
    |
 20 |     extensions: [".code-workspace", "json5", ".json"]
@@ -75,7 +75,7 @@ error: `check` cannot be set on `json`, a built-in language [built-in-language-t
      something different in each repository, and a schema that passed here could
      fail next door.
 
-error: a `language` block must have a `name` [language-without-a-name]
+error: a `language` block must have a `name` [language-missing-name]
   --> REPO.buri:24:10
    |
 24 | language {

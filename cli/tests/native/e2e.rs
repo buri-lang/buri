@@ -48,7 +48,7 @@
 //!
 //! **Ask a toolchain built without networking what it says.**
 //! `backend::networking_gap` reads a file baked into this binary, so the
-//! `networking-not-available` refusal cannot be provoked by a program; it is
+//! `networking-unavailable` refusal cannot be provoked by a program; it is
 //! covered by [`the_refusal_a_toolchain_without_networking_names_what_a_real_server_reached`],
 //! which drives the *real front end over real source* into the *real* refusal
 //! and pins the page a user reads. That is as far as one toolchain reaches,
@@ -1351,7 +1351,7 @@ fn compiled(source: &str) -> buri::compiler::middle::monomorphize::Program {
 ///
 /// The close-out audit's F-4 recorded this as a hole: the design row named
 /// *"a test compiling a `Listen`-using program with the feature off and
-/// asserting the diagnostic"*, `grep -rl networking-not-available cli/tests/`
+/// asserting the diagnostic"*, `grep -rl networking-unavailable cli/tests/`
 /// returned nothing, and the only coverage was over `Program`s a unit test had
 /// built by hand out of a list of key strings. A hand-built `Program` cannot
 /// answer the question the row was written for, which is **whether an ordinary
@@ -1423,7 +1423,7 @@ fn the_refusal_a_toolchain_without_networking_names_what_a_real_server_reached()
     );
 
     let refusal = no_networking(&gap, Span::NONE);
-    assert_eq!(refusal.code.as_deref(), Some("networking-not-available"));
+    assert_eq!(refusal.code.as_deref(), Some("networking-unavailable"));
     for key in &gap {
         assert!(
             refusal.message.contains(&format!("`{key}`")),
@@ -1975,7 +1975,7 @@ fn harnessMade<C: Allocator + Environment + FileSystemRead + FileSystemWrite + S
         )
         .mapErr(fn(_e) => "print")?;
     let _p3 = io
-        .println(ctx, "gone ${refused(fs.metadata(ctx, here.join(ctx, "no-such-entry")))}")
+        .println(ctx, "gone ${refused(fs.metadata(ctx, here.join(ctx, "unknown-entry")))}")
         .mapErr(fn(_e) => "print")?;
 
     // A link to a link to a file: only the filesystem can follow the chain.

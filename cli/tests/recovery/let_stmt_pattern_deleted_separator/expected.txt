@@ -1,4 +1,4 @@
-error [missing-separator] 3:12-3:12
+error [missing-comma] 3:12-3:12
 message: a tuple-pattern element ends with `,`
 fix: write `,` here
 edit: 3:12-3:12 ","

@@ -1,4 +1,4 @@
-error [missing-terminator] 2:18-2:18
+error [missing-semicolon] 2:18-2:18
 message: a `let` declaration ends with `;`
 fix: write `;` here
 edit: 2:18-2:18 ";"

@@ -17,7 +17,7 @@
 //! | a struct                | a plain object of its fields   |
 //! | `Request`, `Response`   | the Fetch standard's           |
 //!
-//! The checker refuses anything else as `type-cannot-cross`, and the backend
+//! The checker refuses anything else as `type-not-crossable`, and the backend
 //! reads the same answer to write the conversion, so the two cannot disagree
 //! about what crosses.
 

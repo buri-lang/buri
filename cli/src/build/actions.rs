@@ -76,7 +76,7 @@ fn copy_assets(session: &Session, target: TargetId, output: &Output, diagnostics
         };
         if let Err(e) = copied {
             diagnostics.push(
-                Diagnostic::templated("no-such-source", asset.span)
+                Diagnostic::templated("unknown-source", asset.span)
                     .with_bind("source", asset.value.as_str())
                     .with_bind("field", "assets")
                     .with_note(format!("copying it failed: {e}")),
@@ -310,11 +310,11 @@ fn missing_entry(
     let package = session.workspace.package(target.package).label();
     let name = output.entry_name();
     if output.entry.is_none() {
-        return Diagnostic::templated("no-main", Span::NONE).with_bind("package", package);
+        return Diagnostic::templated("missing-main", Span::NONE).with_bind("package", package);
     }
     let mut exported: Vec<&str> = checked.entries.keys().map(String::as_str).collect();
     exported.sort_unstable();
-    let mut d = Diagnostic::templated("entry-not-found", output.span)
+    let mut d = Diagnostic::templated("unknown-entry-function", output.span)
         .with_bind("entry", name)
         .with_bind("package", package);
     if let Some(near) = crate::build::buildfile::nearest(name, &exported) {
@@ -450,7 +450,7 @@ fn host_file(
     let Some(js) = js else {
         if let Some(first) = needed.first() {
             diagnostics.push(
-                Diagnostic::templated("host-file-incomplete", output.span)
+                Diagnostic::templated("host-file-missing-method", output.span)
                     .with_bind("file", point)
                     .with_bind("gap", format!("has no `js` file to implement `{}`", first.name))
                     .with_note(
@@ -488,7 +488,7 @@ fn host_file(
     let exports = crate::build::hosted::read(&text);
     let gaps = crate::build::hosted::gaps(&exports, &needed);
     for gap in &gaps {
-        let mut d = Diagnostic::templated("host-file-incomplete", Span::new(file, gap.at, gap.at))
+        let mut d = Diagnostic::templated("host-file-missing-method", Span::new(file, gap.at, gap.at))
             .with_bind("file", js.as_str())
             .with_bind("gap", gap.gap.as_str());
         if let Some(note) = &gap.note {
@@ -1227,7 +1227,7 @@ pub fn native_gap(target: Target, profile: Profile) -> Option<NativeGap> {
 /// One function so that `buri build`, `buri test` and `--check-reproducible`
 /// cannot describe the same gap three ways.
 pub fn no_native_artifact(gap: &NativeGap, span: Span) -> Diagnostic {
-    Diagnostic::templated("native-artifact-not-available", span)
+    Diagnostic::templated("native-artifact-unavailable", span)
         .with_bind("output", gap.output.clone())
         .with_bind("reason", gap.reason.clone())
         .with_bind("fix", gap.fix.clone())
@@ -2391,7 +2391,7 @@ pub fn check_tags(session: &Session, target: TargetId, diagnostics: &mut Diagnos
         .next()
         .unwrap_or(Span::point(session.workspace.package(target.package).build_file_id, 0));
 
-    let mut d = Diagnostic::templated("tag-violation", span)
+    let mut d = Diagnostic::templated("tag-conflict", span)
         .with_bind("target", label.as_str())
         .with_bind("first_tag", a.as_str())
         .with_bind("second_tag", b.as_str());
@@ -2745,7 +2745,7 @@ mod tests {
     fn the_refusal_is_one_page_with_the_gap_bound_into_it() {
         let gap = native_gap(cross_target(), Profile::Debug).expect("a cross target is refused");
         let d = no_native_artifact(&gap, Span::NONE);
-        assert_eq!(d.code.as_deref(), Some("native-artifact-not-available"));
+        assert_eq!(d.code.as_deref(), Some("native-artifact-unavailable"));
         assert!(d.message.contains(&gap.output), "{}", d.message);
         assert_eq!(d.notes.first().map(String::as_str), Some(gap.reason.as_str()));
         assert_eq!(d.fix.as_deref(), Some(gap.fix.as_str()));

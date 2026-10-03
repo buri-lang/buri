@@ -6,7 +6,7 @@ error: expected `Result<(), Str>`, found `()` [type-mismatch]
    |
    = expected: `Result<(), Str>`
    = actual: `()`
-warning: this discards a `Result` [discarded-result]
+warning: this discards a `Result` [ignored-result]
   --> lib/recovery_delete_separator_brace_app_b2699a/main.buri:26:13
    |
 26 |     let _ = record().ignore();
@@ -14,14 +14,14 @@ warning: this discards a `Result` [discarded-result]
    |
    = `ignore` is the one way to drop a `Result`, so every place a failure is deliberately unhandled is one of these
    = fix: handle the error with `match`, propagate it with `?`, or keep `ignore` if dropping it is deliberate
-error: `()` has no method `Ok` [no-such-method]
+error: `()` has no method `Ok` [unknown-method]
   --> lib/recovery_delete_separator_brace_app_b2699a/main.buri:28:6
    |
 28 |     .Ok(())
    |      ^^
    |
    = fix: check the spelling, or declare it in `impl () { ... }` in that type's own module
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_delete_separator_brace_app_b2699a/main.buri:28:12
    |
 28 |     .Ok(())

@@ -1,5 +1,5 @@
 .buri/out/node/cmd/both/mainForNode.mjs (N bytes, cached)
-error: //cmd/both exports no `match` [entry-not-found]
+error: //cmd/both exports no `match` [unknown-entry-function]
  --> cmd/both/BUILD.buri:3:64
   |
 3 |         { platform: "web", entries: [{ name: "main", function: "match" }] },
@@ -28,7 +28,9 @@ error: //cmd/both exports no `match` [entry-not-found]
       binary {
           outputs: [
               { platform: "web" },
-              { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+              { platform: "node", entries: [
+                  { name: "main", function: "mainForNode" },
+              ] },
           ]
       }
 
@@ -44,7 +46,7 @@ error: //cmd/both exports no `match` [entry-not-found]
     "if you meant fetch, use that; if not, export fetsh from its main.buri".
 
     An output whose entries names nothing enters through main, and a binary with
-    no main gets no-main instead. Those are different mistakes: one binary has
-    not written its entry point, the other wrote the name twice and spelled it
-    differently once.
+    no main gets missing-main instead. Those are different mistakes: one binary
+    has not written its entry point, the other wrote the name twice and spelled
+    it differently once.
 

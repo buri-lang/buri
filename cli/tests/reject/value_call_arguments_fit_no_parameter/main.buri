@@ -1,4 +1,4 @@
-// EXPECT: expected 3 arguments, found 2
+// EXPECT: this function takes 3 arguments, but 2 were given
 //
 // A `Bool` fills none of the first two positions, so no reading of this call
 // leaves exactly one parameter out, and the fix prints the type alone.

@@ -28,7 +28,7 @@
 #
 # Then the two ways a path that names a file can still name nothing: a file
 # that is not there, and a directory that has no `lib.buri` in it. Both are
-# `module-not-found` and both name the file they looked for.
+# `unknown-module` and both name the file they looked for.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.

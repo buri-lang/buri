@@ -1,4 +1,4 @@
-error: `entry` is retired [retired-platform-name]
+error: `entry` is retired [retired-platform]
  --> cmd/app/BUILD.buri:5:29
   |
 5 |         { platform: "node", entry: "main" },
@@ -10,7 +10,9 @@ error: `entry` is retired [retired-platform-name]
       binary {
           outputs: [
               { platform: "native", variant: "linux-arm64" },
-              { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+              { platform: "node", entries: [
+                  { name: "main", function: "mainForNode" },
+              ] },
               { platform: "web" },
           ]
 

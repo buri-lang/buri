@@ -1,4 +1,4 @@
-error: `Colour` has no variant `Purple` [no-such-variant]
+error: `Colour` has no variant `Purple` [unknown-variant]
   --> cmd/no_such_variant_in_a_pattern_and_an_expression/main.buri:14:5
    |
 14 |     .Purple => "purple",
@@ -10,7 +10,7 @@ error: `Colour` has no variant `Purple` [no-such-variant]
      The fix names a near miss when there is one. Otherwise the diagnostic
      prints the enum's declaration.
 
-error: `Colour` has no variant `Purple` [no-such-variant]
+error: `Colour` has no variant `Purple` [unknown-variant]
   --> cmd/no_such_variant_in_a_pattern_and_an_expression/main.buri:21:24
    |
 21 |   let colour: Colour = .Purple;

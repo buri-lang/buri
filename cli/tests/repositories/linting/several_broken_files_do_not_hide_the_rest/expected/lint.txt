@@ -25,7 +25,7 @@ warning: `spare` is bound and never used [unused-variable]
      need, keep the call and drop the binding. If the value was meant to be
      returned or passed on, finish that instead of silencing the warning.
 
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
  --> lib/money/round.buri:4:16
   |
 4 |   let half = 50
@@ -39,7 +39,7 @@ error: a statement ends with `;` [missing-terminator]
     derive, an import and a tuple struct end with ;, while a fn, a struct with
     fields, an enum, a trait and an impl end with }.
 
-error: a match arm ends with `,` [missing-separator]
+error: a match arm ends with `,` [missing-comma]
  --> lib/money/routes.buri:9:42
   |
 9 |     "/health" => Route { name: "health" }

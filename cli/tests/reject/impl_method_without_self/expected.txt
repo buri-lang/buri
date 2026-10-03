@@ -1,4 +1,4 @@
-error: `unit` is in an `impl` block but takes no `self` [impl-fn-without-self]
+error: `unit` is in an `impl` block but takes no `self` [impl-missing-self]
   --> cmd/impl_method_without_self/main.buri:11:6
    |
 11 |   fn unit(): Square { Square { side: 1 } }

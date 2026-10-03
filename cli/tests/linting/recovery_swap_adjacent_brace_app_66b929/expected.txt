@@ -1,4 +1,4 @@
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_swap_adjacent_brace_app_66b929/main.buri:15:18
    |
 15 |     let total = 3 4 *;

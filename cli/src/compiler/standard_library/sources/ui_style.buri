@@ -469,7 +469,7 @@ impl Color {
     /// there is anything to fade.
     ///
     /// The fraction is `0.0` to `1.0`, and the extractor refuses anything else
-    /// (`style-alpha-out-of-range`).
+    /// (`alpha-out-of-range`).
     export fn alpha(self, a: Float): Color {
         match (self) {
             .Rgb(r, g, b) => .Rgba(r, g, b, a),

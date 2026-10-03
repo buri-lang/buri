@@ -1,4 +1,4 @@
-error: an expression statement is legal only in a test source [expression-statement]
+error: an expression statement is legal only in a test source [statement-outside-test]
  --> main.buri:2:5
   |
 2 |     a > 0 b && > 0
@@ -14,7 +14,7 @@ error: this statement has type `Bool`, not `()` [statement-not-unit]
   |
   = only an expression whose type is `()` may stand alone; bind anything else
   = fix: bind it with `let _ = ...;`
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
  --> main.buri:2:10
   |
 2 |     a > 0 b && > 0

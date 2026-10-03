@@ -1,4 +1,4 @@
-error: `FieldKind` has no variant `Radio` [no-such-variant]
+error: `FieldKind` has no variant `Radio` [unknown-variant]
   --> cmd/ui_field_kind_has_no_radio/main.buri:15:42
    |
 15 |   ui.field({ label: .Const("Pro"), kind: .Radio, value: value, styles: [] })

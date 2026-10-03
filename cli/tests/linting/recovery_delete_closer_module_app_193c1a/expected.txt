@@ -14,7 +14,7 @@ warning: this spells the milliseconds to nanoseconds conversion out in integers 
    |
    = `core/time`'s `Duration` is the length itself — `time.milliseconds(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
    = fix: build a `Duration` and let the unit live in the type rather than in the name
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_delete_closer_module_app_193c1a/main.buri:17:51
    |
 17 |     startedNanos + IDLE_TIMEOUT_MILLIS * 1_000_000

@@ -1,4 +1,4 @@
-error: there is nothing named `theFrontPage` in scope [unresolved-name]
+error: there is nothing named `theFrontPage` in scope [unknown-name]
   --> cmd/site/main.buri:19:54
    |
 19 |                 children: [ui.text({ content: .Const(theFrontPage) })],

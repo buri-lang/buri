@@ -1,4 +1,4 @@
-warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
+warning: this is a table of the sixteen hexadecimal digits [hand-rolled-hex-digits]
   --> cmd/app/main.buri:12:5
    |
 12 |     '0',

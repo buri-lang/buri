@@ -265,7 +265,7 @@ Binding one half of the filesystem and not the other is the ordinary case
 rather than a precaution.
 
 **A host type is its platform's list of effects.** A platform that does not
-offer an effect has no field for it, so asking for one is `no-such-field` on
+offer an effect has no field for it, so asking for one is `unknown-field` on
 the line that asked, with a note naming the platforms that do offer it:
 
 | Field | Effect | `native` | `node` | `web` |

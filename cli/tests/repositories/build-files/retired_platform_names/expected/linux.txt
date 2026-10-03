@@ -1,4 +1,4 @@
-error: `LINUX` is retired [retired-platform-name]
+error: `LINUX` is retired [retired-platform]
  --> cmd/app/BUILD.buri:5:21
   |
 5 |         { platform: LINUX },
@@ -10,7 +10,9 @@ error: `LINUX` is retired [retired-platform-name]
       binary {
           outputs: [
               { platform: "native", variant: "linux-arm64" },
-              { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+              { platform: "node", entries: [
+                  { name: "main", function: "mainForNode" },
+              ] },
               { platform: "web" },
           ]
 

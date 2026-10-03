@@ -1,4 +1,4 @@
-error [missing-separator] 2:28-2:28
+error [missing-comma] 2:28-2:28
 message: a type argument ends with `,`
 fix: write `,` here
 edit: 2:28-2:28 ","

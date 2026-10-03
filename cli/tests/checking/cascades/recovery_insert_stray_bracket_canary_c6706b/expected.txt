@@ -1,11 +1,11 @@
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> main.buri:16:23
    |
 16 |     let doubled = [1, extra 2, 3].fold(fn(acc, x) => acc + x, 0);
    |                       ^^^^^
    |
    = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
-error: an array element ends with `,` [missing-separator]
+error: an array element ends with `,` [missing-comma]
   --> main.buri:16:28
    |
 16 |     let doubled = [1, extra 2, 3].fold(fn(acc, x) => acc + x, 0);

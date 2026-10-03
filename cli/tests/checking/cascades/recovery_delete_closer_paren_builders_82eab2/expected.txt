@@ -5,7 +5,7 @@ error: `Type` is missing `origin` [missing-field-value]
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: give `origin` a value — only an `Option` field may be left out — or start from an existing one with `Type { ..base, field: value }`
-error: `n` takes 1 arguments, but 2 were given [wrong-argument-count]
+error: `n` takes 1 arguments, but 2 were given [argument-count]
   --> main.buri:37:29
    |
 37 |     ast.Type { kind: .Named(n(text, args), origin: ast.nowhere() }
@@ -14,7 +14,7 @@ error: `n` takes 1 arguments, but 2 were given [wrong-argument-count]
    = expected: 1
    = actual: 2
    = fix: pass `n` the following arguments: n(text: Str)
-error: there is nothing named `origin` in scope [unresolved-name]
+error: there is nothing named `origin` in scope [unknown-name]
   --> main.buri:37:44
    |
 37 |     ast.Type { kind: .Named(n(text, args), origin: ast.nowhere() }

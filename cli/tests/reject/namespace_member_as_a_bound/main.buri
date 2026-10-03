@@ -1,4 +1,4 @@
-// EXPECT: "core/order" has no member `Comparable`
+// EXPECT: "core/order" does not export `Comparable`
 // A bound that names `ns.Name` used to read "`Comparable` is not a trait or
 // effect", which says the name is the wrong kind of thing when the module has
 // no such thing at all.

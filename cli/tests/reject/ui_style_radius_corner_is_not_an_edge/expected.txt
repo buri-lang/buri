@@ -1,4 +1,4 @@
-error: `Corner` has no variant `Top` [no-such-variant]
+error: `Corner` has no variant `Top` [unknown-variant]
   --> cmd/ui_style_radius_corner_is_not_an_edge/main.buri:14:36
    |
 14 | let rounded: Style = .RadiusCorner(.Top, .Px(4));

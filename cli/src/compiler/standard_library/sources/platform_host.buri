@@ -146,7 +146,7 @@ impl Random for HostRandom {
 /// promise.
 ///
 /// **On every host.** The toolchain varies instead: a runtime archive
-/// built without the `crypto` feature answers `cryptography-not-available` before
+/// built without the `crypto` feature answers `cryptography-unavailable` before
 /// code generation, the way `net` does.
 export struct HostEntropy {}
 

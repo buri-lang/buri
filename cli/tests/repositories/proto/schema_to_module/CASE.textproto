@@ -3,7 +3,7 @@
 
 doc: "a .proto in a package is a generator's input: undeclared until a `generators` entry names it, hand-authored because `buri gen` cannot place it, keyed by its contents, and reachable only through lib.buri"
 
-# A schema no entry hands to a tool is `unused-library`, exactly as a stray
+# A schema no entry hands to a tool is `unused-source`, exactly as a stray
 # .buri is — and the fix names `generators` rather than `sources`. Nothing can
 # read it either: the module a schema becomes is the one a generator handed
 # back, and nothing ran one.

@@ -1,4 +1,4 @@
-error: an expression statement is legal only in a test source [expression-statement]
+error: an expression statement is legal only in a test source [statement-outside-test]
  --> main.buri:1:28
   |
 1 | export fn f(x: Int): Str { if (x > 0) { "yes" } else { } "no" }
@@ -22,7 +22,7 @@ error: expected `Str`, found `()` [type-mismatch]
   |
   = expected: `Str`
   = actual: `()`
-error: an `if` used as a statement ends with `;` [missing-terminator]
+error: an `if` used as a statement ends with `;` [missing-semicolon]
  --> main.buri:1:57
   |
 1 | export fn f(x: Int): Str { if (x > 0) { "yes" } else { } "no" }

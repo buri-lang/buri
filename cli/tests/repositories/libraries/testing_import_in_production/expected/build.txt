@@ -12,7 +12,7 @@ error: this is a test-only module [test-only-import]
     //lib/ledger/testing, //lib/testing/fakes. A file named testing.buri
     doesn't, because that segment is the file's own name.
 
-error: there is nothing named `sample` in scope [unresolved-name]
+error: there is nothing named `sample` in scope [unknown-name]
   --> cmd/app/main.buri:16:23
    |
 16 |         .println(ctx, sample().format(ctx))

@@ -14,7 +14,7 @@ warning: this spells the milliseconds to nanoseconds conversion out in integers 
    |
    = `core/time`'s `Duration` is the length itself — `time.milliseconds(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
    = fix: build a `Duration` and let the unit live in the type rather than in the name
-error: `println` takes 2 arguments, but 3 were given [wrong-argument-count]
+error: `println` takes 2 arguments, but 3 were given [argument-count]
   --> lib/recovery_insert_stray_paren_app_75ec2b/main.buri:34:5
    |
 34 |     io
@@ -23,14 +23,14 @@ error: `println` takes 2 arguments, but 3 were given [wrong-argument-count]
    = expected: 2
    = actual: 3
    = fix: pass `println` the following arguments: println<C: Stdout>(ctx: C, text: Template)
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> lib/recovery_insert_stray_paren_app_75ec2b/main.buri:35:23
    |
 35 |         .println(ctx, extra "${waited} ${perMillion(2_000_000, 250)}")
    |                       ^^^^^
    |
    = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
-error: a call argument ends with `,` [missing-separator]
+error: a call argument ends with `,` [missing-comma]
   --> lib/recovery_insert_stray_paren_app_75ec2b/main.buri:35:28
    |
 35 |         .println(ctx, extra "${waited} ${perMillion(2_000_000, 250)}")

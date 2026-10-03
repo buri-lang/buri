@@ -1,4 +1,4 @@
-warning: lib/wire/point.proto belongs to no library or binary, so nothing builds it [unused-library]
+warning: lib/wire/point.proto belongs to no library or binary, so nothing builds it [unused-source]
  --> lib/wire/BUILD.buri:1:1
   |
 1 | library {
@@ -16,16 +16,13 @@ warning: lib/wire/point.proto belongs to no library or binary, so nothing builds
     something else runs. Add it to the library or binary that should build it.
     Don't silence the finding by ignoring the path.
 
-error: "//lib/wire/point.proto" names a schema, and no `generators` entry in //lib/wire hands it to a tool [module-not-found]
+error: "//lib/wire/point.proto" names a schema, and no `generators` entry in //lib/wire hands it to a tool [unknown-module]
  --> lib/wire/lib.buri:1:6
   |
 1 | from "//lib/wire/point.proto" export { decodePoint, defaultPoint, encodePoint, Point };
   |      ^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
-
-    This resolves against the example monorepo in cli/tests/example, which has
-    no lib/nope:
 
     There's no search path and no fallback, so a path never has two candidates.
 

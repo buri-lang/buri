@@ -1,4 +1,4 @@
-error: `Order` is an enum; name a variant [enum-without-a-variant]
+error: `Order` is an enum; name a variant [enum-not-value]
   --> cmd/namespace_enum_pattern_without_a_variant/main.buri:10:5
    |
 10 |     order.Order => 0,

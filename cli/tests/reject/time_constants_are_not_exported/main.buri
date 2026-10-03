@@ -1,4 +1,4 @@
-// EXPECT: "core/time" has no member `NANOSECONDS_PER_SECOND`
+// EXPECT: "core/time" does not export `NANOSECONDS_PER_SECOND`
 // A `Duration` is the only way to name a span. `time.seconds(1)` builds one and
 // `d.nanoseconds()` reads it back, so the counts behind them are the module's
 // own business and neither `NANOSECONDS_PER_SECOND` nor `ZERO` is a member.

@@ -7,7 +7,7 @@ error: expected `;`, found `,` [unexpected-token]
   = expected: `;`
   = actual: `,`
   = fix: write `;` here
-warning: this comment is marked `TODO` [warning-comment]
+warning: this comment is marked `TODO` [todo-comment]
  --> lib/recovery_insert_stray_module_app_7f2c3a/main.buri:9:4
   |
 9 | // TODO: decide what this program is for.
@@ -15,21 +15,21 @@ warning: this comment is marked `TODO` [warning-comment]
   |
   = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
   = fix: finish the work, or delete the marker
-error: `Allocator` is not a declared effect [not-an-effect]
+error: `Allocator` is not a declared effect [unknown-effect]
   --> lib/recovery_insert_stray_module_app_7f2c3a/main.buri:16:9
    |
 16 |         Allocator: host.alloc,
    |         ^^^^^^^^^
    |
    = fix: name an effect the platform declares, as in `Allocator` or `Stdout`; `Allocator` is not one
-error: `Stdout` is not a declared effect [not-an-effect]
+error: `Stdout` is not a declared effect [unknown-effect]
   --> lib/recovery_insert_stray_module_app_7f2c3a/main.buri:17:9
    |
 17 |         Stdout: host.stdout,
    |         ^^^^^^
    |
    = fix: name an effect the platform declares, as in `Allocator` or `Stdout`; `Stdout` is not one
-error: `a context` does not satisfy `Stdout` [unsatisfied-bound]
+error: `a context` does not implement `Stdout` [missing-impl]
   --> lib/recovery_insert_stray_module_app_7f2c3a/main.buri:19:5
    |
 19 |     io.println(ctx, banner()).mapErr(fn(_e) => "could not write to standard output")

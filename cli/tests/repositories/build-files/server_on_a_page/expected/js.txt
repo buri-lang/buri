@@ -1,4 +1,4 @@
-error: `NodeHost` has no field `listen` [no-such-field]
+error: `NodeHost` has no field `listen` [unknown-field]
   --> cmd/app/main.buri:19:22
    |
 19 |         Listen: host.listen,

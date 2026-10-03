@@ -1,4 +1,4 @@
-error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
+error: `equal` takes 2 arguments, but 1 were given [argument-count]
   --> main.buri:29:5
    |
 29 |     assert.equal(got.lane(1, number.maxValue<I64>());
@@ -7,7 +7,7 @@ error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
    = expected: 2
    = actual: 1
    = fix: pass `equal` the following arguments: equal<T: Equal>(actual: T, expected: T)
-error: `lane` takes 1 arguments, but 2 were given [wrong-argument-count]
+error: `lane` takes 1 arguments, but 2 were given [argument-count]
   --> main.buri:29:18
    |
 29 |     assert.equal(got.lane(1, number.maxValue<I64>());

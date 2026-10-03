@@ -42,7 +42,7 @@ message Server {
 A mistake stops the generator:
 
 ```text
-error: `ports` is of type `int32`, and this is not a whole number [textproto-wrong-value]
+error: `ports` is of type `int32`, and this is not a whole number [textproto-invalid-value]
  --> lib/deploy/server.txtpb:5:13
   |
 5 | ports: [80, "443"]
@@ -71,10 +71,10 @@ language {
   above the first field, per the
   [text format specification](https://protobuf.dev/reference/protobuf/textformat-spec/#header).
   Without them it's
-  [`textproto-without-header`](../reference/errors/textproto-without-header.md).
+  [`textproto-missing-header`](../reference/errors/textproto-missing-header.md).
 - **`proto-file`** is relative to the file, or a `//` path. A URL or a path
   outside the repository is
-  [`schema-not-local`](../reference/errors/schema-not-local.md).
+  [`schema-outside-repository`](../reference/errors/schema-outside-repository.md).
 - **`proto-message`** is relative to the schema's `package`, or fully
   qualified, as `deploy.v1.Server`.
 - `# proto-import:` is refused; the schema's own `import`s bring in what it

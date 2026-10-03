@@ -530,7 +530,7 @@ struct Parser<'a> {
     arm_body: u32,
     /// How the construct that just finished got its closing delimiter — see
     /// [`Closed`]. Written by [`Parser::expect_close`] and read the moment it
-    /// returns: by [`Parser::if_expr`], because `if-without-else` behind a
+    /// returns: by [`Parser::if_expr`], because `missing-else` behind a
     /// branch whose `}` was already reported missing is one mistake said
     /// twice, and by [`Parser::block_inner`], because a block that never
     /// closed is a region rather than a body.
@@ -899,7 +899,7 @@ impl<'a> Parser<'a> {
     fn separator_missing(&mut self, construct: &str) {
         let prev = self.prev_span();
         let at = Span::point(prev.file, prev.end as usize);
-        if let Some(d) = self.templated("missing-separator", at) {
+        if let Some(d) = self.templated("missing-comma", at) {
             d.bind("construct", construct);
             d.edit(at, ",");
         }
@@ -949,7 +949,7 @@ impl<'a> Parser<'a> {
             _ => return,
         };
         let span = self.span();
-        if let Some(d) = self.templated("postfix-on-a-block", span) {
+        if let Some(d) = self.templated("postfix-on-block", span) {
             d.bind("construct", what);
             d.bind("token", token);
         }
@@ -1207,7 +1207,7 @@ impl<'a> Parser<'a> {
         }
         let prev = self.prev_span();
         let at = Span::point(prev.file, prev.end as usize);
-        if let Some(d) = self.templated("missing-terminator", at) {
+        if let Some(d) = self.templated("missing-semicolon", at) {
             d.bind("construct", construct);
             d.edit(at, ";");
         }
@@ -1650,7 +1650,7 @@ impl<'a> Parser<'a> {
             // `from "..." export { ... }` after a stray `export`.
             Some(Keyword::From) if exported => {
                 let span = self.span();
-                self.templated("re-export-with-a-leading-export", span);
+                self.templated("leading-export", span);
                 return Err(Bail);
             }
             _ => {
@@ -1895,7 +1895,7 @@ impl<'a> Parser<'a> {
         let colon = self.bump();
         let Ok(ty) = self.ty() else { return self.prev_span() };
         let end = self.tree.type_span(ty);
-        self.templated("self-with-a-type", colon.to(end))
+        self.templated("typed-self", colon.to(end))
             .map(|d| d.edit(keyword.to(end), "self"));
         end
     }
@@ -1925,7 +1925,7 @@ impl<'a> Parser<'a> {
             if !self.allow_bodyless {
                 let span = self.span();
                 let n = self.slice(name.span).to_string();
-                self.templated("declaration-without-a-body", span).map(|d| d.bind("name", n));
+                self.templated("missing-body", span).map(|d| d.bind("name", n));
             }
             self.bump();
             None
@@ -2237,7 +2237,7 @@ impl<'a> Parser<'a> {
             // back: the `fn` after a mangled `impl` still deserves to be
             // parsed and type-checked.
             let span = self.span();
-            self.templated("impl-body-not-a-method", span);
+            self.templated("impl-item-not-method", span);
         } else {
             self.expect_close(Punctuation::RBrace, "`impl` body", open)?;
         }
@@ -2255,7 +2255,7 @@ impl<'a> Parser<'a> {
         // clause naming no traits would generate nothing.
         if self.is_keyword(Keyword::For) {
             let span = self.span();
-            self.templated("derive-without-traits", span);
+            self.templated("derive-missing-traits", span);
             return Err(Bail);
         }
         let base = self.scratch.tys.len();
@@ -2558,7 +2558,9 @@ impl<'a> Parser<'a> {
             self.scratch.tys.truncate(base);
             if n < 2 {
                 let span = start.to(self.prev_span());
-                self.templated("tuple-type-arity", span);
+                if let Some(d) = self.templated("tuple-element-count", span) {
+                    d.bind("tuple", "tuple type");
+                }
             }
             let span = start.to(self.prev_span());
             return Ok(self.tree.push_type(TypeKind::Tuple, [elems.start, elems.len, 0, 0], span));
@@ -2645,7 +2647,7 @@ impl<'a> Parser<'a> {
                             // error names the whole mistake and the rest of
                             // the block is read for what it says.
                             let eq = self.span();
-                            self.templated("no-assignment", eq);
+                            self.templated("reassignment", eq);
                             self.bump();
                             let _ = self.expr();
                             self.eat(Punctuation::Semi);
@@ -3081,7 +3083,7 @@ impl<'a> Parser<'a> {
                 // never reached, and naming a branch nobody omitted on top of
                 // it is the same mistake twice.
                 let span = self.tree.span_of(self.tree.block(then).span);
-                self.templated("if-without-else", span);
+                self.templated("missing-else", span);
             }
             return Err(Bail);
         }
@@ -3316,7 +3318,9 @@ impl<'a> Parser<'a> {
                     return Ok(self.error_expr(start.to(end)));
                 }
                 if self.scratch.exprs.len().saturating_sub(base) < 2 {
-                    self.templated("tuple-arity", start.to(end));
+                    if let Some(d) = self.templated("tuple-element-count", start.to(end)) {
+                        d.bind("tuple", "tuple");
+                    }
                 }
                 let (ks, kl) = self.tree.push_kids(since(&self.scratch.exprs, base));
                 self.scratch.exprs.truncate(base);
@@ -3423,7 +3427,7 @@ impl<'a> Parser<'a> {
                             // so what stands here after it did not parse.
                             let Ok(index) = u32::try_from(value) else {
                                 let raw = self.raw();
-                                self.templated("not-a-tuple-index", index_span)
+                                self.templated("invalid-tuple-index", index_span)
                                     .map(|d| d.bind("literal", raw));
                                 self.bump();
                                 base = self.tree.push(
@@ -3445,7 +3449,7 @@ impl<'a> Parser<'a> {
                         TokenKind::Float => {
                             let raw = self.raw();
                             let span = self.span();
-                            self.templated("float-as-a-tuple-index", span)
+                            self.templated("float-tuple-index", span)
                                 .map(|d| d.bind("literal", raw));
                             return Err(Bail);
                         }
@@ -3521,7 +3525,7 @@ impl<'a> Parser<'a> {
                     let colons = self.bump();
                     if !self.is(Punctuation::Lt) {
                         // `::` is not an operator at all any more.
-                        self.templated("colon-colon-not-an-operator", colons);
+                        self.templated("double-colon", colons);
                         return Err(Bail);
                     }
                     self.templated("turbofish", colons).map(|d| d.edit(colons, ""));
@@ -4137,7 +4141,7 @@ mod tests {
         let src = "impl Square { fn area(self: Square): Int { 1 } }";
         let e = bad(src);
         assert_eq!(e.len(), 1, "one error names the whole mistake: {e:#?}");
-        assert_eq!(e[0].code.as_deref(), Some("self-with-a-type"));
+        assert_eq!(e[0].code.as_deref(), Some("typed-self"));
         // The fix is mechanical, so it travels as bytes: the whole parameter
         // is replaced, which is what makes `self : Square` come out right too.
         assert_eq!(e[0].edits.len(), 1);

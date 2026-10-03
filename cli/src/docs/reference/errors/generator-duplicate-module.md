@@ -1,0 +1,20 @@
+---
+title: A generated module's name is unique
+message: '`{module}` is a module of this rule already'
+fix: give the generated module a name the package does not already declare
+reproduction: none
+---
+# A generated module's name is unique
+
+A module name belongs to a generator or to a person, never both. Two
+`generators` entries naming one module, or a generated module named after a
+file in the package, would declare one module path twice.
+
+Whichever came first wins, so a file on disk keeps meaning what it says. The
+note says which it was: another entry on the rule, or a source of the package.
+
+`lib.buri` matters most: it's a library's whole public surface, so a generator
+that took it over would silently decide what leaves the library.
+
+A schema isn't a collision. `proto` names its module `point.proto`, and the file
+`lib/wire/point.proto` is the generator's input, not a module anyone imports.

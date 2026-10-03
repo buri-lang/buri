@@ -581,7 +581,7 @@
 //! `runtime_native::net()` reads it, and `Backend::missing_intrinsics` refuses a
 //! program reaching `host.HostListen.*`, `host.HostSockets.*` or
 //! `host.HostTasks.*` with a diagnostic naming the operations
-//! (`networking-not-available`) before code generation starts. Two of those
+//! (`networking-unavailable`) before code generation starts. Two of those
 //! three families are reachable from ordinary source now: `Tasks` is granted on
 //! the three non-page platforms and `Listen` on the two native ones, so a
 //! program that calls `core/tasks` or serves through `core/net/server` meets a

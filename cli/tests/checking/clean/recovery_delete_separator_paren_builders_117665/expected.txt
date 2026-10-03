@@ -1,4 +1,4 @@
-error: a function parameter ends with `,` [missing-separator]
+error: a function parameter ends with `,` [missing-comma]
   --> main.buri:60:34
    |
 60 | export fn block(stmts: [ast.Stmt] tail: [ast.Expr]): ast.Block {

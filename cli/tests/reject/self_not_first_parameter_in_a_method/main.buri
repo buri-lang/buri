@@ -2,7 +2,7 @@
 //
 // The receiver comes first wherever the signature is written. An inherent
 // `impl` has a diagnostic of its own for a method that does not open with
-// `self` (`impl-fn-without-self`), so the two places a misplaced `self` can
+// `self` (`impl-missing-self`), so the two places a misplaced `self` can
 // reach rule 26 are a `trait` body and the `impl` that supplies it.
 from "platform/effect" import { Allocator, Stdout };
 from "node" import { NodeHost };

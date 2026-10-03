@@ -1,4 +1,4 @@
-error: `self` is legal only in a method body [self-outside-a-method]
+error: `self` is legal only in a method body [self-outside-method]
  --> cmd/self_outside_a_method/main.buri:3:3
   |
 3 |   self

@@ -1,4 +1,4 @@
-error: the file does not declare its edition [proto-edition-missing]
+error: the file does not declare its edition [proto-missing-edition]
  --> lib/bad/broken.proto:1:1
   |
 1 | package bad.v1;
@@ -6,7 +6,7 @@ error: the file does not declare its edition [proto-edition-missing]
   |
   = a file with no declaration is proto2 to every other tool, and proto2 is not what this mapping implements
   = fix: add `edition = "2026";` as the first line
-error: "lib/bad/missing.proto" names no schema in this repository [proto-import-not-found]
+error: "lib/bad/missing.proto" names no schema in this repository [proto-unknown-import]
  --> lib/bad/broken.proto:3:8
   |
 3 | import "lib/bad/missing.proto";
@@ -14,7 +14,7 @@ error: "lib/bad/missing.proto" names no schema in this repository [proto-import-
   |
   = an import inside a schema is written from the repository root, the way protoc resolves one against `-I.`
   = fix: write the path from the repository root, as in `import "proto/address.proto";`
-error: the first value of `Level` is not zero [proto-schema]
+error: the first value of `Level` is not zero [proto-syntax]
  --> lib/bad/broken.proto:6:3
   |
 6 |   LOW = 1;
@@ -36,14 +36,14 @@ error: `Unknown` names no message or enum [proto-unknown-type]
    |   ^^^^^^^^^^^^^^^^^^
    |
    = fix: declare it in this file, or `import` the file that declares it — an import path is written from the repository root
-error: 19500 is in the range protobuf reserves for itself [proto-schema]
+error: 19500 is in the range protobuf reserves for itself [proto-syntax]
   --> lib/bad/broken.proto:13:26
    |
 13 |   int32 reserved_range = 19500;
    |                          ^^^^^
    |
    = fix: use a number outside 19000..19999
-error: `Thing` is not closed [proto-schema]
+error: `Thing` is not closed [proto-syntax]
   --> lib/bad/broken.proto:14:1
    |
 14 | 

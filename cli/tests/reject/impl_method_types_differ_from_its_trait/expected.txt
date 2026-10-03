@@ -1,4 +1,4 @@
-error: `label` does not have the signature `Describe` declares [signature-mismatch]
+error: `label` does not have the signature `Describe` declares [impl-signature-mismatch]
   --> cmd/impl_method_types_differ_from_its_trait/main.buri:21:18
    |
 21 |   fn label(self, prefix: Int): Str { "point" }
@@ -16,7 +16,7 @@ error: `label` does not have the signature `Describe` declares [signature-mismat
      trait's. An impl with an extra parameter or a different type would break at
      some later call site, if at all.
 
-error: `size` does not have the signature `Describe` declares [signature-mismatch]
+error: `size` does not have the signature `Describe` declares [impl-signature-mismatch]
   --> cmd/impl_method_types_differ_from_its_trait/main.buri:22:18
    |
 22 |   fn size(self): Str { "small" }

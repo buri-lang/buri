@@ -1,4 +1,4 @@
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
  --> main.buri:3:123
   |
 3 |         "a single string literal that is far too long to fit inside the margin and has no shape a formatter could give it"

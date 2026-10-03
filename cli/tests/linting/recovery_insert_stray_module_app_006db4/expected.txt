@@ -1,4 +1,4 @@
-warning: this comment is marked `TODO` [warning-comment]
+warning: this comment is marked `TODO` [todo-comment]
  --> lib/recovery_insert_stray_module_app_006db4/main.buri:9:4
   |
 9 | // TODO: decide what this program is for.
@@ -15,14 +15,14 @@ error: `Result` takes 2 type arguments, but 3 were given [type-argument-count]
    = expected: 2
    = actual: 3
    = fix: supply exactly 2
-error: there is no type `extra` [unresolved-type]
+error: there is no type `extra` [unknown-type]
   --> lib/recovery_insert_stray_module_app_006db4/main.buri:14:40
    |
 14 | export fn main(host: NodeHost): Result<extra (), Str> {
    |                                        ^^^^^
    |
    = fix: declare it, import it, or correct the spelling
-error: a type argument ends with `,` [missing-separator]
+error: a type argument ends with `,` [missing-comma]
   --> lib/recovery_insert_stray_module_app_006db4/main.buri:14:45
    |
 14 | export fn main(host: NodeHost): Result<extra (), Str> {

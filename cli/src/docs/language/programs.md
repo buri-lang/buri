@@ -18,7 +18,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 
 - `main` takes one parameter, its platform's host — `NativeHost`, `NodeHost` or
   `WebHost` — and declares no generic parameters (Section 10.3). The old
-  host-less `main()` is `entry-without-host`.
+  host-less `main()` is `entry-missing-host`.
 - `main` must return `Result<(), Str>`.
 - `.Ok(())` exits 0. `.Err(msg)` prints `msg` to stderr and exits 1.
 - An **entry's** body is the only place in a program that may construct a context
@@ -88,7 +88,7 @@ A test declaration is `test STRING Block`. A test takes no parameters and return
 nothing: it passes unless an assertion in it fails.
 
 **A name is used once per file.** Two `test` declarations in one module with the
-same name are a compile error (`duplicate-test-name`), since the name is how a
+same name are a compile error (`duplicate-test`), since the name is how a
 report identifies a failing test and how `--filter` selects one. Two *different*
 files may use the same name.
 

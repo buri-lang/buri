@@ -1,4 +1,4 @@
-error: a function parameter ends with `,` [missing-separator]
+error: a function parameter ends with `,` [missing-comma]
   --> main.buri:27:23
    |
 27 |     export fn add(self other: Cents): Cents {

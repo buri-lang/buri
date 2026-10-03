@@ -82,7 +82,7 @@ reading it. It binds `FileSystemRead` and not `FileSystemWrite`, so this program
 file, and it cannot open a socket in its own code, a dependency or a build
 script, because nothing anywhere can obtain a value bounded by `Network`. A
 platform's host has a field only for the effects it offers: `WebHost` has no
-`fs`, so asking a page for one is `no-such-field` on the line that asked, and
+`fs`, so asking a page for one is `unknown-field` on the line that asked, and
 the note names the platforms that offer it.
 
 ## Giving a callee less is naming fewer bounds
@@ -100,7 +100,7 @@ value, and cannot use or pass on anything its bounds omit:
 
 fn logOnly<C: Stdout>(ctx: C, msg: Str, at: Path): () {
     let _ = io.println(ctx, msg).ignore();
-    let _f = fs.readText(ctx, at); // ERROR: `C` does not satisfy `FileSystemRead`
+    let _f = fs.readText(ctx, at); // ERROR: `C` does not implement `FileSystemRead`
 }
 
 export fn main(host: NativeHost): Result<(), Str> {

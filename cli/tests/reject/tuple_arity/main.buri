@@ -1,4 +1,4 @@
-// EXPECT: a tuple has arity 2 or more
+// EXPECT: a tuple has two elements or more
 from "node" import { NodeHost };
 
 export fn main(host: NodeHost): Result<(), Str> {

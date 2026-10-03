@@ -1,4 +1,4 @@
-error: `json` has two contracts on this tool [accepts-language-twice]
+error: `json` has two contracts on this tool [accepts-duplicate-language]
  --> tool/b/BUILD.buri:5:25
   |
 5 |             { language: "json", type_schema: "other.schema.json" },

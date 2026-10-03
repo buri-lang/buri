@@ -1,4 +1,4 @@
-error: an array element ends with `,` [missing-separator]
+error: an array element ends with `,` [missing-comma]
   --> main.buri:93:44
    |
 93 |     assert.equal(io.readAllBytes(ctx), [104 0, 105, 255, 0]);

@@ -1,4 +1,4 @@
-error: `native` needs a variant [variant-required]
+error: `native` needs a variant [missing-platform-variant]
  --> cmd/ok/BUILD.buri:3:9
   |
 3 |         { platform: "native" },

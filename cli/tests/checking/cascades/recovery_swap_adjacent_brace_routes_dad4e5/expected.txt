@@ -1,11 +1,11 @@
-error: `Route` is a type, not a value [type-not-a-value]
+error: `Route` is a type, not a value [type-not-value]
   --> main.buri:10:23
    |
 10 |         "/entries" => Route name {: "entries", path },
    |                       ^^^^^
    |
    = fix: construct one, as in `Point { x: 1, y: 2 }`, or name a value
-error: a match arm ends with `,` [missing-separator]
+error: a match arm ends with `,` [missing-comma]
   --> main.buri:10:28
    |
 10 |         "/entries" => Route name {: "entries", path },

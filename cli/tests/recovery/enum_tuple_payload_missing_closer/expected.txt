@@ -1,4 +1,4 @@
-error [unresolved-type] 4:3-4:8
+error [unknown-type] 4:3-4:8
 message: there is no type `Empty`
 fix: declare it, import it, or correct the spelling
 

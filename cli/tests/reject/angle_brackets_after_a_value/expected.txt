@@ -1,4 +1,4 @@
-error: explicit type arguments qualify a function or a call [type-args-on-a-value]
+error: explicit type arguments qualify a function or a call [type-arguments-on-value]
   --> cmd/angle_brackets_after_a_value/main.buri:13:3
    |
 13 |   a < Int > (c)

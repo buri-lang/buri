@@ -1,4 +1,4 @@
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
  --> lib/recovery_delete_separator_brace_cents_486e2c/lib.buri:8:24
   |
 8 |     let doubled = n * 2

@@ -1,4 +1,4 @@
-error: `Call` holds 2 values, but 1 were given [wrong-value-count]
+error: `Call` holds 2 values, but 1 were given [payload-count]
   --> main.buri:76:8
    |
 76 |     ex(.Call([callee, args))

@@ -1,4 +1,4 @@
-error [missing-separator] 3:8-3:8
+error [missing-comma] 3:8-3:8
 message: an array element ends with `,`
 fix: write `,` here
 edit: 3:8-3:8 ","

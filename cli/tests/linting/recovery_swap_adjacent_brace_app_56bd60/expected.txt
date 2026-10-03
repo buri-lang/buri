@@ -6,7 +6,7 @@ warning: this is `order.int`, written out [hand-rolled-comparator]
    |
    = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ordered` impl both take
    = fix: call `order.int` with the two operands, and delete the chain
-error: an expression statement is legal only in a test source [expression-statement]
+error: an expression statement is legal only in a test source [statement-outside-test]
   --> lib/recovery_swap_adjacent_brace_app_56bd60/main.buri:25:5
    |
 25 |     if (left == right) { .Equal } else if (left) { .Greater } else { .} Less
@@ -14,7 +14,7 @@ error: an expression statement is legal only in a test source [expression-statem
    |
    = a block is `let`s followed by a result expression
    = fix: bind it: `let _ = ...;`, or make it the block's result expression
-error: `.Equal` needs a known expected type [unannotated-variant]
+error: `.Equal` needs a known expected type [untyped-variant]
   --> lib/recovery_swap_adjacent_brace_app_56bd60/main.buri:25:26
    |
 25 |     if (left == right) { .Equal } else if (left) { .Greater } else { .} Less
@@ -30,14 +30,14 @@ error: expected an identifier, found `}` [unexpected-token]
    = expected: an identifier
    = actual: `}`
    = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
-error: an `if` used as a statement ends with `;` [missing-terminator]
+error: an `if` used as a statement ends with `;` [missing-semicolon]
   --> lib/recovery_swap_adjacent_brace_app_56bd60/main.buri:25:72
    |
 25 |     if (left == right) { .Equal } else if (left) { .Greater } else { .} Less
    |                                                                        ^
    |
    = fix: write `;` here
-error: there is nothing named `Less` in scope [unresolved-name]
+error: there is nothing named `Less` in scope [unknown-name]
   --> lib/recovery_swap_adjacent_brace_app_56bd60/main.buri:25:73
    |
 25 |     if (left == right) { .Equal } else if (left) { .Greater } else { .} Less

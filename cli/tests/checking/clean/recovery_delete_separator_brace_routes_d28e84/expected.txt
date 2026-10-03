@@ -1,4 +1,4 @@
-error: a match arm ends with `,` [missing-separator]
+error: a match arm ends with `,` [missing-comma]
   --> main.buri:11:52
    |
 11 |         "/health" => Route { name: "health", path }

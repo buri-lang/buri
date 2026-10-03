@@ -1,4 +1,4 @@
-error: there is no type `Cents` [unresolved-type]
+error: there is no type `Cents` [unknown-type]
  --> lib/recovery_insert_stray_paren_cents_f9a97c/lib.buri:1:24
   |
 1 | derive Equal, Show for Cents;
@@ -14,14 +14,14 @@ error: expected a type, found `@` [unexpected-token]
   = expected: a type
   = actual: `@`
   = fix: name a type here, as in `Int` or `[Str]`
-error: there is no type `Cents` [unresolved-type]
+error: there is no type `Cents` [unknown-type]
  --> lib/recovery_insert_stray_paren_cents_f9a97c/lib.buri:4:30
   |
 4 | export fn fromCents(c: I64): Cents {
   |                              ^^^^^
   |
   = fix: declare it, import it, or correct the spelling
-error: there is nothing named `Cents` in scope [unresolved-name]
+error: there is nothing named `Cents` in scope [unknown-name]
  --> lib/recovery_insert_stray_paren_cents_f9a97c/lib.buri:5:5
   |
 5 |     Cents(c)

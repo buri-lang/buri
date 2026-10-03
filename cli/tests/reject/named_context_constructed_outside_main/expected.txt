@@ -1,4 +1,4 @@
-error: there is nothing named `host` in scope [unresolved-name]
+error: there is nothing named `host` in scope [unknown-name]
  --> cmd/named_context_constructed_outside_main/main.buri:7:14
   |
 7 |   Allocator: host.alloc,
@@ -9,14 +9,14 @@ error: there is nothing named `host` in scope [unresolved-name]
     There is no prelude. A module sees only what it declares and what its own
     imports name, which is why the suggestion is trustworthy.
 
-error: there is nothing named `host` in scope [unresolved-name]
+error: there is nothing named `host` in scope [unknown-name]
  --> cmd/named_context_constructed_outside_main/main.buri:8:11
   |
 8 |   Stdout: host.stdout,
   |           ^^^^
   |
   = fix: declare `host`, or import it — a name is in scope only from this module's own declarations and its imports
-error: a context may not be constructed here [context-not-allowed]
+error: a context may not be constructed here [misplaced-context]
   --> cmd/named_context_constructed_outside_main/main.buri:12:15
    |
 12 |   let inner = Program();

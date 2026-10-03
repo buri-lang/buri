@@ -1,4 +1,4 @@
-error: there is nothing named `label` in scope [unresolved-name]
+error: there is nothing named `label` in scope [unknown-name]
   --> lib/recovery_swap_adjacent_brace_cents_a4aedb/lib.buri:21:20
    |
 21 |     Entry { cents, label"" : }

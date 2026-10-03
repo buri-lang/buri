@@ -1,4 +1,4 @@
-error: `describe` takes 3 arguments, but 2 were given [wrong-argument-count]
+error: `describe` takes 3 arguments, but 2 were given [argument-count]
   --> cmd/call_arguments_fit_no_parameter/main.buri:11:3
    |
 11 |   describe(true, "ready")

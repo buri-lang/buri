@@ -1,4 +1,4 @@
-error: `Point` already implements `Measurable` [duplicate-implementation]
+error: `Point` already implements `Measurable` [duplicate-impl]
   --> cmd/duplicate_implementation/main.buri:16:1
    |
 16 | impl Measurable for Point {

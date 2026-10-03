@@ -339,7 +339,7 @@ pub const HOST_STRUCTS_MODULE: &str = "platform/host";
 ///
 /// This is a question about the *path*, not about whether the module exists —
 /// `"core/nope"` answers `true`, so that naming a module the standard library
-/// does not have is a `no-such-module` error rather than a search of the
+/// does not have is a `unknown-module` error rather than a search of the
 /// repository that reports something else. A bundled platform's bare name is
 /// one of these too.
 pub fn is_std_path(path: &str) -> bool {

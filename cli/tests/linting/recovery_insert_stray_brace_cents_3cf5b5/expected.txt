@@ -1,11 +1,11 @@
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> lib/recovery_insert_stray_brace_cents_3cf5b5/lib.buri:22:20
    |
 22 |         .Closed => extra 0,
    |                    ^^^^^
    |
    = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
-error: a match arm ends with `,` [missing-separator]
+error: a match arm ends with `,` [missing-comma]
   --> lib/recovery_insert_stray_brace_cents_3cf5b5/lib.buri:22:25
    |
 22 |         .Closed => extra 0,

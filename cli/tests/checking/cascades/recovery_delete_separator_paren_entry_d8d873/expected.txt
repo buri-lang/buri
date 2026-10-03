@@ -1,4 +1,4 @@
-error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
+error: `equal` takes 2 arguments, but 1 were given [argument-count]
   --> main.buri:52:5
    |
 52 |     assert.equal(out.diagnostics.map(ctx, fn(d) => d.code) [
@@ -10,16 +10,16 @@ error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
 error: expected `I64`, found `Str` [type-mismatch]
   --> main.buri:53:9
    |
-53 |         "proto-syntax-declaration",
-   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^ an index is `I64`
+53 |         "proto-unsupported-edition",
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^ an index is `I64`
    |
    = expected: `I64`
    = actual: `Str`
 error: this index is missing its closing `]` [unclosed-delimiter]
-  --> main.buri:53:35
+  --> main.buri:53:36
    |
-53 |         "proto-syntax-declaration",
-   |                                   ^
+53 |         "proto-unsupported-edition",
+   |                                    ^
    |
   --> main.buri:52:60
    |

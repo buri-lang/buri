@@ -1,4 +1,4 @@
-error: `total` has no body [declaration-without-a-body]
+error: `total` has no body [missing-body]
  --> cmd/declaration_without_a_body/main.buri:2:30
   |
 2 | fn total(a: Int, b: Int): Int;

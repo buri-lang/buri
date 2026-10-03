@@ -1,4 +1,4 @@
-error [missing-separator] 2:13-2:13
+error [missing-comma] 2:13-2:13
 message: a derived trait ends with `,`
 fix: write `,` here
 edit: 2:13-2:13 ","

@@ -1,4 +1,4 @@
-error: an enum variant ends with `,` [missing-separator]
+error: an enum variant ends with `,` [missing-comma]
  --> main.buri:3:41
   |
 3 |     Rect { width: Float, height: Float }extra ,

@@ -1,4 +1,4 @@
-error: a match arm ends with `,` [missing-separator]
+error: a match arm ends with `,` [missing-comma]
   --> main.buri:13:58
    |
 13 |     match (s) { "\r\n" => 1, "\u{7f}" => 2, "\u{41}" => 3 _ => 0 }

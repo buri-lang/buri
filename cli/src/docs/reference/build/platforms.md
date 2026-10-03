@@ -28,7 +28,7 @@ platform {
 ```
 
 - **Location.** Under `platform/`, outside `platform/effect/`. Anywhere else is
-  `rule-outside-its-directory`.
+  `misplaced-rule`.
 - **`entry`** names one way in, its `backend` (`NATIVE` or `JS`), and on `JS` an
   optional `js` file. An output builds every entry, each to a file named after
   it: `fetch.mjs`, or a native `bootstrap`.
@@ -60,13 +60,13 @@ The whole file is in [the guide](../../guides/custom-platforms.md#the-platform).
 - **The host type** lists what the platform offers, one production struct per
   field. The CLI builds the value and hands it to the entry.
 - **A consumer's entry** has the declaration's name and signature. Another host
-  is `entry-host-mismatch`, and no host is `entry-without-host`.
+  is `entry-host-mismatch`, and no host is `entry-missing-host`.
 - **A field the backend lacks** is `effect-not-on-backend`: `JS` has no `Listen`
   or `Tcp`, and `NATIVE` no `Ui` or `Watch`. Any `JS` platform may offer
   `HostUi` and `HostWatch`.
 - **The platform's own structs** have bodiless methods, which the entry's `js`
   file implements. Only `JS` entries have one, so on `NATIVE` such a field is
-  `custom-effect-on-native-backend`.
+  `custom-effect-outside-js`.
 - Only `platform.buri` may import `platform/host` or declare a function without
   a body.
 
@@ -90,7 +90,7 @@ export const HostKv = {
 - **An export named after a production struct implements it.** The build reads
   `export const HostKv = { ... }` and `export function`, and checks every method
   is there with the same parameter count, `self` included. A gap is
-  `host-file-incomplete`.
+  `host-file-missing-method`.
 - **Every other export is the module's own**, such as `default` here.
 - **Every call to a method the file implements is awaited**, so a method may
   return a promise.
@@ -99,7 +99,7 @@ export const HostKv = {
   replaces its value. A `Str` is a string.
 - An entry without a `js` file starts itself, so it has the program signature,
   `fn(host: H): Result<(), Str>`, and `buri run` runs it. One with a `js` file
-  is `platform-cannot-run`, unless the platform ships an `index.html`.
+  is `entry-not-runnable`, unless the platform ships an `index.html`.
 
 ## `web`
 
@@ -140,7 +140,7 @@ implements takes and answers, crosses to JavaScript like this:
 | `Request`, `Response`   | the Fetch standard's           |
 
 `Result` crosses only as a whole answer, and `null` arrives as `None`. Anything
-else is `type-cannot-cross`. A production struct's `self` arrives as `{}`.
+else is `type-not-crossable`. A production struct's `self` arrives as `{}`.
 
 ## Effect packages
 
@@ -154,7 +154,7 @@ platform/effect/kv/testing/lib.buri   TestKv, the test implementation
 
 - **Declared anywhere else**, an effect is `effect-outside-effect-directory`.
 - **Every effect has a test implementation** in the package's `testing`
-  surface, or it's `effect-without-test-implementation`. Its state lives in
+  surface, or it's `effect-missing-test-impl`. Its state lives in
   `core/platforms/testing/state`, which only an effect's testing surface may
   import.
 - **Code calls the wrapper functions**, `kv.get(ctx, ...)`. Only the package
@@ -173,7 +173,7 @@ library {
 
 That library goes only into the worker's outputs. `backends: [JS]` admits every
 platform the `JS` backend builds, a repository's own included. A label that
-names no `platform` rule is `no-such-platform`.
+names no `platform` rule is `unknown-platform`.
 
 ## Caching and layout
 

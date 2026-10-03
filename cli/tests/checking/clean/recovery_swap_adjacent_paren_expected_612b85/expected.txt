@@ -1,4 +1,4 @@
-error: a tuple element ends with `,` [missing-separator]
+error: a tuple element ends with `,` [missing-comma]
   --> main.buri:38:8
    |
 38 |     !(a b <) == true

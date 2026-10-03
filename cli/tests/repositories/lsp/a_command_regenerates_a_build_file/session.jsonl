@@ -1,7 +1,7 @@
 # One JSON-RPC request per line. `<scratch>` becomes the copied repository.
 #
 # `cmd/app/main.buri` imports `//lib/money` and its `BUILD.buri` does not name
-# it in `dependencies`, which is the `missing-dep` finding. This is the other
+# it in `dependencies`, which is the `missing-dependency` finding. This is the other
 # way to fix it: the command a palette or a code lens invokes, rather than the
 # quick fix on the squiggle.
 {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}

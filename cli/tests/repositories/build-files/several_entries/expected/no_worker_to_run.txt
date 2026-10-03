@@ -1,4 +1,4 @@
-error: //cmd/worker builds `fetch` for `//platform/cloudflare_worker`, and its `js` file calls it, so there is nothing to start [platform-cannot-run]
+error: //cmd/worker builds `fetch` for `//platform/cloudflare_worker`, and its `js` file calls it, so there is nothing to start [entry-not-runnable]
  --> cmd/worker/BUILD.buri:3:9
   |
 3 |         { platform: "//platform/cloudflare_worker" },

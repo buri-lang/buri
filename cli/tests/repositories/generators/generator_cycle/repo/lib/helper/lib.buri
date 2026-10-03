@@ -1,4 +1,4 @@
-// The third library the `generator-cycle` page recommends: somewhere both
+// The third library the `circular-generator` page recommends: somewhere both
 // the tool and the target that runs it may depend on.
 export fn helped(): Int {
     1

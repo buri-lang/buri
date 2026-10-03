@@ -1,4 +1,4 @@
-error: an expression statement is legal only in a test source [expression-statement]
+error: an expression statement is legal only in a test source [statement-outside-test]
   --> main.buri:38:9
    |
 38 |         match (self) {
@@ -14,14 +14,14 @@ error: this statement has type `Color`, not `()` [statement-not-unit]
    |
    = only an expression whose type is `()` may stand alone; bind anything else
    = fix: bind it with `let _ = ...;`
-error: a `match` used as a statement ends with `;` [missing-terminator]
+error: a `match` used as a statement ends with `;` [missing-semicolon]
   --> main.buri:43:10
    |
 43 |         }
    |          ^
    |
    = fix: write `;` here
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> main.buri:44:5
    |
 44 |     extra }

@@ -1,4 +1,4 @@
-error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
+error: `equal` takes 2 arguments, but 1 were given [argument-count]
   --> main.buri:40:5
    |
 40 |     assert.equal(io.readAll(ctx, "\nb\n");
@@ -7,7 +7,7 @@ error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
    = expected: 2
    = actual: 1
    = fix: pass `equal` the following arguments: equal<T: Equal>(actual: T, expected: T)
-error: `readAll` takes 1 arguments, but 2 were given [wrong-argument-count]
+error: `readAll` takes 1 arguments, but 2 were given [argument-count]
   --> main.buri:40:18
    |
 40 |     assert.equal(io.readAll(ctx, "\nb\n");

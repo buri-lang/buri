@@ -1,5 +1,5 @@
 ---
-title: A hole in a string holds a value nothing renders
+title: A string hole holds a renderable value
 message: '`{type}` cannot be interpolated'
 note: a hole holds a primitive — `Int`, `Float`, `Bool`, `Char`, `Str` — or a value whose `Show` is derived
 fix: render it first, for instance with `.show(ctx)`

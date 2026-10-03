@@ -89,7 +89,7 @@ language {
 - `fail_on_finding` (default false) makes a finding fail the command.
 - `rules { default: ENABLED|DISABLED, <lint_code>: bool }` toggles rules by name,
   hyphens underscored. Every rule defaults to on; `default: DISABLED` plus a few
-  `true` is an allow list. An unknown name is `unknown-field`. Commands print
+  `true` is an allow list. An unknown name is `build-unknown-field`. Commands print
   which rules are off.
 - `buri lint` exits nonzero on any finding regardless.
 
@@ -165,7 +165,7 @@ binary {
   `macos-arm64` or `macos-x86_64`.
 - The function named `main` fills each platform's `main` entry;
   `entries: [{ name: "main", function: "other" }]` picks another.
-- `LINUX`, `JS`, `arch`, `entry` and `js {}` are `retired-platform-name`.
+- `LINUX`, `JS`, `arch`, `entry` and `js {}` are `retired-platform`.
 
 An empty rule is enough to start, and `gen` never invents one:
 
@@ -201,7 +201,7 @@ target, and a binary reaching the library in its own package.
   `amount` is a `Cents` from `//lib/money`, needs `//lib/money` in
   `dependencies` even though no import names it.
 - Dependencies are **direct**: declare every library you use. A missing one is
-  `missing-dep`, and `buri gen` adds it.
+  `missing-dependency`, and `buri gen` adds it.
 - `core/*` and `ui/*` ship with the toolchain; never list them.
 - Package cycles are an error, as module cycles are.
 
@@ -220,7 +220,7 @@ standard library.
 | `"//cmd/server/main.buri"` | a binary's entry point | only from that binary's own test sources |
 | `"//proto/address.proto"` | a schema | as an ordinary module of its package |
 
-Mixing up a label and a module path is `import-path-without-a-file`.
+Mixing up a label and a module path is `import-missing-extension`.
 
 `lib.buri` is made of re-exports, and may declare things itself:
 
@@ -230,7 +230,7 @@ from "//lib/money/parse.buri" export { ParseError, parse };
 ```
 
 Export `add` and callers get both `add(a, b)` and `a.add(b)`. Leave `toCents`
-out and they get neither (`not-on-the-surface`). A type's methods must live in
+out and they get neither (`not-on-surface`). A type's methods must live in
 the module that declares the type.
 
 ## Tags and platforms
@@ -253,7 +253,7 @@ is `unknown-tag`.
 
 Only the toolchain adds platforms. Each entry takes its platform's host, whose
 fields are the effects it offers: `main(host: NodeHost)` binding `Ui: host.ui`
-is `no-such-field`. Platforms needing different code get different entries:
+is `unknown-field`. Platforms needing different code get different entries:
 `entries: [{ name: "main", function: "mainForNode" }]`.
 
 There's no `#if`: two implementations means two libraries with different
@@ -277,7 +277,7 @@ If you reach for `buri clean` to fix a build, report it as a bug.
 buri gen //...            rewrite the fields that restate the sources
 buri gen //... --check    exit 1 if anything would change; write nothing
 buri format               canonical layout for sources and build files
-buri lint //...           the graph rules: missing-dep, visibility, tags
+buri lint //...           the graph rules: missing-dependency, visibility, tags
 ```
 
 `gen` rewrites exactly six fields, sorted: `sources`, `dependencies`,

@@ -1,4 +1,4 @@
-error: `//platform/deno_deploy` is not a platform [no-such-platform]
+error: `//platform/deno_deploy` is not a platform [unknown-platform]
  --> lib/edge/BUILD.buri:2:17
   |
 2 |     platforms: ["//platform/deno_deploy"]

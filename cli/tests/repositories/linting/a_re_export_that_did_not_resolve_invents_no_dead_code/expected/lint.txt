@@ -1,4 +1,4 @@
-error: "//lib/money/cents.buri" does not export `markup` [no-such-export]
+error: "//lib/money/cents.buri" does not export `markup` [unknown-export]
  --> lib/money/lib.buri:7:40
   |
 7 | from "//lib/money/cents.buri" export { markup };
@@ -8,5 +8,9 @@ error: "//lib/money/cents.buri" does not export `markup` [no-such-export]
   = fix: check the spelling, or drop `markup` from this list
 
     A re-export names only what its module exports, so a library's surface is
-    never wider than the modules behind it.
+    never wider than the modules behind it. A namespace like fs stands for the
+    module its import named, and only that module's exports may follow the dot.
+    This covers types, bounds and impl heads too, such as list.Vector<Int> and
+    <T: order.Comparable>. If no import bound the namespace at all, the error is
+    unknown-name instead.
 

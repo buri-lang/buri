@@ -8,7 +8,7 @@
 //! `export function`, and for finding the file's imports and exports so the
 //! bundle can move them. A struct written any other way is reported as a shape
 //! the build cannot read, which is the same refusal as a missing method:
-//! `host-file-incomplete`.
+//! `host-file-missing-method`.
 //!
 //! Two modules are the artifact's own rather than files: `buri:program`, the
 //! entries the file calls, and `buri:ui`, the reactive graph's `signal` and

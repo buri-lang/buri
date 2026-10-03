@@ -1,5 +1,5 @@
 ---
-title: A library does not reach the binary beside it
+title: A library never imports its binary
 message: '{path} belongs to the binary in {owner}'
 label: a library may not reach the binary beside it
 note: '{importer_file} belongs to the {rule} rule, and nothing depends on a binary'

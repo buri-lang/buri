@@ -6,14 +6,14 @@ error: expected `(Str, Str)`, found `(Str, <error>, Str)` [type-mismatch]
    |
    = expected: `(Str, Str)`
    = actual: `(Str, <error>, Str)`
-error: a tuple element ends with `,` [missing-separator]
+error: a tuple element ends with `,` [missing-comma]
   --> main.buri:25:39
    |
 25 |                 "lib/wire/point.proto"extra ,
    |                                       ^
    |
    = fix: write `,` here
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> main.buri:25:39
    |
 25 |                 "lib/wire/point.proto"extra ,

@@ -1,4 +1,4 @@
-error: a `derive` declaration ends with `;` [missing-terminator]
+error: a `derive` declaration ends with `;` [missing-semicolon]
   --> main.buri:12:38
    |
 12 | derive Equal, Ordered, Show for Cents

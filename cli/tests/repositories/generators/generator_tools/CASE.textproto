@@ -68,7 +68,7 @@ run {
 }
 
 # An input is a declared source like any other: no globs, and a path that names
-# nothing is `no-such-source` with the field it was written in.
+# nothing is `unknown-source` with the field it was written in.
 edit {
   file: "lib/wire/BUILD.buri"
   replace: "{ tool: \"//lib/wire\", inputs: [\"point.proto\"] },"

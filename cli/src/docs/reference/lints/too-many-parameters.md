@@ -1,5 +1,5 @@
 ---
-title: A function takes too many parameters
+title: A function takes few parameters
 severity: warning
 message: "`{name}` takes {count} parameters"
 note: "`self` and `ctx` are not counted, so {limit} is the limit on the data a caller has to assemble"

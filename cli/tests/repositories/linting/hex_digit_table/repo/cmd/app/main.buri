@@ -1,5 +1,5 @@
 // The sixteen digits written out, and the `nibble` that always comes with
-// them: hex-digit-table. The base64 alphabet below is a table too and is not a
+// them: hand-rolled-hex-digits. The base64 alphabet below is a table too and is not a
 // finding — a rule about the hexadecimal digits is about those sixteen and
 // nothing else.
 

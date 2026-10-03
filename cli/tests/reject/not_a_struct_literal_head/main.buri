@@ -1,4 +1,4 @@
-// EXPECT: this is not a struct or an enum variant
+// EXPECT: the head of a struct literal must be a struct or an enum variant
 from "node" import { NodeHost };
 
 export fn main(host: NodeHost): Result<(), Str> {

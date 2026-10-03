@@ -7,7 +7,7 @@ error: expected an expression, found `@` [unexpected-token]
   = expected: an expression
   = actual: `@`
   = fix: write a value here
-error: there is nothing named `x` in scope [unresolved-name]
+error: there is nothing named `x` in scope [unknown-name]
  --> main.buri:3:3
   |
 3 |   x

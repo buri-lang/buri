@@ -1,4 +1,4 @@
-error: an import name ends with `,` [missing-separator]
+error: an import name ends with `,` [missing-comma]
  --> main.buri:1:31
   |
 1 | from "core/list" export { fold map };

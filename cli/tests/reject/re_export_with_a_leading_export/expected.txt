@@ -1,4 +1,4 @@
-error: write `from "..." export { ... }`, without a leading `export` [re-export-with-a-leading-export]
+error: write `from "..." export { ... }`, without a leading `export` [leading-export]
  --> cmd/re_export_with_a_leading_export/main.buri:2:8
   |
 2 | export from "core/list" export { map };

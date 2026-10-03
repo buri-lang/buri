@@ -1,4 +1,4 @@
-error: `s` carries an effect, so it must be named `ctx` [effect-param-not-ctx]
+error: `s` carries an effect, so it must be named `ctx` [effect-parameter-not-ctx]
   --> cmd/ui_scope_param_not_ctx/main.buri:14:9
    |
 14 | fn peek(s: Scope, n: Signal<Int>): Int {

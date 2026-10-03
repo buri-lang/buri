@@ -352,7 +352,7 @@ impl Tally {
 /// hundred-case row is a sample and a sample has a spread.
 fn ceiling(invariant: &str, row: &str) -> usize {
     match (invariant, row) {
-        // Lowered when `if-without-else` stopped being reported behind a branch
+        // Lowered when `missing-else` stopped being reported behind a branch
         // whose own `}` was already reported missing (issue 111). Every case
         // that row lost was a deleted closer inside an `if`, said twice.
         //
@@ -399,7 +399,7 @@ fn ceiling(invariant: &str, row: &str) -> usize {
 
         // Read again over the same three (issues 110, 117 and 118): a signature
         // whose `)` is missing is one `unclosed-delimiter` whose fix is
-        // `write \`)\` here`, where it used to be a `self-with-a-type` carrying
+        // `write \`)\` here`, where it used to be a `typed-self` carrying
         // an edit that deleted the return type. 298 of 1704 is 17.5%, and
         // eighteen is that rounded up. Read again the day the pointer handlers
         // landed (#220): the stride moved with the corpus and the same shape

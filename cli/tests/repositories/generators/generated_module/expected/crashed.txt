@@ -1,4 +1,4 @@
-error: "//lib/wire" does not export `height` [no-such-export]
+error: "//lib/wire" does not export `height` [unknown-export]
  --> cmd/app/main.buri:4:28
   |
 4 | from "//lib/wire" import { height, width };
@@ -7,16 +7,20 @@ error: "//lib/wire" does not export `height` [no-such-export]
   = fix: check the spelling, or re-export `height` from "//lib/wire"'s `lib.buri`
 
     A re-export names only what its module exports, so a library's surface is
-    never wider than the modules behind it.
+    never wider than the modules behind it. A namespace like fs stands for the
+    module its import named, and only that module's exports may follow the dot.
+    This covers types, bounds and impl heads too, such as list.Vector<Int> and
+    <T: order.Comparable>. If no import bound the namespace at all, the error is
+    unknown-name instead.
 
-error: "//lib/wire" does not export `width` [no-such-export]
+error: "//lib/wire" does not export `width` [unknown-export]
  --> cmd/app/main.buri:4:36
   |
 4 | from "//lib/wire" import { height, width };
   |                                    ^^^^^
   |
   = fix: check the spelling, or re-export `width` from "//lib/wire"'s `lib.buri`
-error: there is nothing named `width` in scope [unresolved-name]
+error: there is nothing named `width` in scope [unknown-name]
   --> cmd/app/main.buri:12:26
    |
 12 |         .println(ctx, "${width * height}")
@@ -27,7 +31,7 @@ error: there is nothing named `width` in scope [unresolved-name]
      There is no prelude. A module sees only what it declares and what its own
      imports name, which is why the suggestion is trustworthy.
 
-error: there is nothing named `height` in scope [unresolved-name]
+error: there is nothing named `height` in scope [unknown-name]
   --> cmd/app/main.buri:12:34
    |
 12 |         .println(ctx, "${width * height}")
@@ -58,16 +62,13 @@ error: `//tool/gen` did not answer [tool-failed]
     A slow tool isn't this error. The build waits for a tool as long as it runs,
     the way it waits for a compiler.
 
-error: "//lib/wire/units" names no file (lib/wire/units.buri) [module-not-found]
+error: "//lib/wire/units" names no file (lib/wire/units.buri) [unknown-module]
  --> lib/wire/lib.buri:1:6
   |
 1 | from "//lib/wire/units" export { height, width };
   |      ^^^^^^^^^^^^^^^^^^
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
-
-    This resolves against the example monorepo in cli/tests/example, which has
-    no lib/nope:
 
     There's no search path and no fallback, so a path never has two candidates.
 

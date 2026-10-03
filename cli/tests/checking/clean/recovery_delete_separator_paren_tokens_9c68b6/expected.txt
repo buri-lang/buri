@@ -1,4 +1,4 @@
-error: a tuple element ends with `,` [missing-separator]
+error: a tuple element ends with `,` [missing-comma]
   --> main.buri:60:33
    |
 60 |         (Token.OnSurface.color() f(.OnSurface)),

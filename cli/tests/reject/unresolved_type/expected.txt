@@ -1,4 +1,4 @@
-error: there is no type `Widgett` [unresolved-type]
+error: there is no type `Widgett` [unknown-type]
  --> cmd/unresolved_type/main.buri:8:10
   |
 8 |   let n: Widgett = 1;

@@ -11,7 +11,7 @@
 # standard library: the package the file is in, and the one its target already
 # depends on. `detail` is what tells them apart, and it is the thing a reader
 # cannot see in the path itself. A label the target does *not* depend on is not
-# offered at all — offering one would be offering a `missing-dep`.
+# offered at all — offering one would be offering a `missing-dependency`.
 {"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "from \"//"}}}
 {"jsonrpc": "2.0", "id": 3, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 0, "character": 8}}}
 # The prose for one of them. It is not in the list: every module's `//!` lines

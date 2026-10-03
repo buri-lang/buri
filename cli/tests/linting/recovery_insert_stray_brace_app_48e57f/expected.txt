@@ -1,4 +1,4 @@
-error: a match arm ends with `,` [missing-separator]
+error: a match arm ends with `,` [missing-comma]
   --> lib/recovery_insert_stray_brace_app_48e57f/main.buri:65:21
    |
 65 |         7 => "seven"extra ,

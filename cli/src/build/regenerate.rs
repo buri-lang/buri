@@ -166,7 +166,7 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
             Unplaceable::ReachableFromBoth(f) => (f, "both `lib.buri` and `main.buri`"),
             Unplaceable::ReachableFromNeither(f) => (f, "neither `lib.buri` nor `main.buri`"),
         };
-        return Err(Diagnostic::templated("unplaceable-source", Span::point(file_id, 0))
+        return Err(Diagnostic::templated("ambiguous-source", Span::point(file_id, 0))
             .with_bind("source", file.clone())
             .with_bind("reached", reached)
             .with_bind("field", "sources"));
@@ -427,7 +427,7 @@ fn derive_dependencies(
 /// is written in.
 ///
 /// `commands::lint` asks the same question of a package as a whole, because
-/// `missing-dep` is satisfied by a declaration in any of the three. `gen` has
+/// `missing-dependency` is satisfied by a declaration in any of the three. `gen` has
 /// to write one of them, so it needs the finer answer.
 fn resolved_by_role(
     session: &Session,

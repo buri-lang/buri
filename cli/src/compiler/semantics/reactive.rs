@@ -134,7 +134,7 @@ fn walk(
                 if let ExprKind::Lambda { body, .. } = &arg.kind {
                     if let Some(span) = reaches(body, load, waiting) {
                         diags.items.push(
-                            Diagnostic::templated("load-in-a-reactive-builder", span)
+                            Diagnostic::templated("load-in-reactive-builder", span)
                                 .with_bind("builder", label),
                         );
                     }

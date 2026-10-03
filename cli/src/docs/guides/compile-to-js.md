@@ -46,7 +46,9 @@ against the whole graph:
 binary {
     outputs: [
         { platform: "native", variant: "linux-x86_64" },
-        { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+        { platform: "node", entries: [
+            { name: "main", function: "mainForNode" },
+        ] },
     ]
 }
 ```
@@ -160,7 +162,7 @@ function straight back.
 **The effects `main` may ask for.** A platform's host type *is* the set of
 effects it offers. `WebHost` has no `fs`, `stdin`, `env` or `proc`, and has `ui`
 and `watch`, which no other host has. Ask for one a platform does not offer and
-you get `no-such-field` on the line that asked, with a note naming the
+you get `unknown-field` on the line that asked, with a note naming the
 platforms that do.
 
 **Nothing else.** No source file changes meaning across platforms, because there

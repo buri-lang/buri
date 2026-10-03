@@ -1,4 +1,4 @@
-error: a 2-tuple has no element 5 [no-such-tuple-element]
+error: a 2-tuple has no element 5 [unknown-tuple-element]
  --> cmd/no_such_tuple_element/main.buri:9:16
   |
 9 |   let n = pair.5;

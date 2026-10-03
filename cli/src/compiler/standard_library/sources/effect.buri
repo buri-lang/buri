@@ -52,7 +52,7 @@ export effect Allocator {
 ///
 /// You have to look at the `Result`. Discarding one is `result-discarded`, in
 /// both of the two places a value can be dropped, and `buri lint` reports every
-/// one as `discarded-result`. A program that does not care says so:
+/// one as `ignored-result`. A program that does not care says so:
 ///
 /// ```text
 /// io.println(ctx, "ready").ignore();

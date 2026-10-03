@@ -1,4 +1,4 @@
-error: a `let` declaration ends with `;` [missing-terminator]
+error: a `let` declaration ends with `;` [missing-semicolon]
   --> main.buri:15:45
    |
 15 | export let FILE: Str = "lib/wire/case.proto"

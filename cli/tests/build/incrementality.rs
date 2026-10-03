@@ -879,7 +879,7 @@ fn a_suite_naming_the_host_platform_runs_natively() {
     if first.all().contains("backend is not implemented") {
         first.exits(1);
         assert!(
-            first.stderr.contains("platform-not-implemented"),
+            first.stderr.contains("test-run-unavailable"),
             "a native suite was refused in words nothing pins:\n{}",
             indent(&first.all())
         );
@@ -955,7 +955,7 @@ fn a_suite_naming_no_platform_runs_natively() {
     );
 
     let run = scratch.run(&["test", "//lib/n", "--explain"]);
-    if run.stderr.contains("native-run-not-available") {
+    if run.stderr.contains("test-run-unavailable") {
         // A toolchain that cannot build for its own host. The refusal is the
         // whole answer: nothing ran, and in particular nothing ran on
         // JavaScript.
@@ -1047,7 +1047,7 @@ fn a_release_run_this_toolchain_cannot_produce_is_refused() {
     );
 
     let run = scratch.run(&["test", "//lib/n", "--release", "--explain"]);
-    if run.stderr.contains("native-run-not-available") {
+    if run.stderr.contains("test-run-unavailable") {
         run.exits(1);
         assert_eq!(
             run.tests_passed(),
@@ -1110,7 +1110,7 @@ fn a_suite_the_native_backend_cannot_compile_is_refused() {
     // On a host this toolchain cannot build a binary for, the refusal is the
     // earlier one — there is no program to ask about a gap, because there is no
     // backend to ask it of. Either way the suite did not run somewhere else.
-    if run.stderr.contains("native-run-not-available") {
+    if run.stderr.contains("test-run-unavailable") {
         return;
     }
     assert!(
@@ -1350,7 +1350,7 @@ fn suites_share_a_binary_only_where_their_tags_allow_it() {
     suite_package(&scratch, "d", "  tags: [\"client\"]\n");
 
     let run = scratch.run(&["test", "//...", "--explain"]);
-    if run.stderr.contains("native-run-not-available") {
+    if run.stderr.contains("test-run-unavailable") {
         // This toolchain cannot build for its own host, so there is no batch to
         // look at — and what a suite gets is the refusal rather than a run
         // somewhere else.

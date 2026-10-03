@@ -1,4 +1,4 @@
-error: "lib/wire/missing.proto" names no schema in this repository [proto-import-not-found]
+error: "lib/wire/missing.proto" names no schema in this repository [proto-unknown-import]
  --> lib/wire/shape.proto:6:8
   |
 6 | import "lib/wire/missing.proto";
@@ -6,7 +6,7 @@ error: "lib/wire/missing.proto" names no schema in this repository [proto-import
   |
   = an import inside a schema is written from the repository root, the way protoc resolves one against `-I.`
   = fix: write the path from the repository root, as in `import "proto/address.proto";`
-error: "../outside.proto" names no schema in this repository [proto-import-not-found]
+error: "../outside.proto" names no schema in this repository [proto-unknown-import]
  --> lib/wire/shape.proto:7:8
   |
 7 | import "../outside.proto";
@@ -14,7 +14,7 @@ error: "../outside.proto" names no schema in this repository [proto-import-not-f
   |
   = an import inside a schema is written from the repository root, the way protoc resolves one against `-I.`
   = fix: write the path from the repository root, as in `import "proto/address.proto";`
-error: `radius` and `sides` both use field number 3 [proto-field-reused]
+error: `radius` and `sides` both use field number 3 [proto-duplicate-field]
   --> lib/wire/shape.proto:17:5
    |
 17 |     double radius = 3;
@@ -22,7 +22,7 @@ error: `radius` and `sides` both use field number 3 [proto-field-reused]
    |
    = a number is what names a field on the wire, and a name what names it in JSON, so a second use would read as the first field
    = fix: give each field of a message its own number
-error: `Shape` declares `name` twice [proto-field-reused]
+error: `Shape` declares `name` twice [proto-duplicate-field]
   --> lib/wire/shape.proto:19:3
    |
 19 |   string name = 5;
@@ -30,7 +30,7 @@ error: `Shape` declares `name` twice [proto-field-reused]
    |
    = a number is what names a field on the wire, and a name what names it in JSON, so a second use would read as the first field
    = fix: rename one of them
-error: `Shape` reserves 11, and `area` uses it [proto-field-reused]
+error: `Shape` reserves 11, and `area` uses it [proto-duplicate-field]
   --> lib/wire/shape.proto:20:3
    |
 20 |   int64 area = 11;
@@ -38,7 +38,7 @@ error: `Shape` reserves 11, and `area` uses it [proto-field-reused]
    |
    = a number is what names a field on the wire, and a name what names it in JSON, so a second use would read as the first field
    = fix: give the field a number the message does not reserve
-error: `Shape` reserves the name `legacy` [proto-field-reused]
+error: `Shape` reserves the name `legacy` [proto-duplicate-field]
   --> lib/wire/shape.proto:21:3
    |
 21 |   bool legacy = 6;
@@ -53,7 +53,7 @@ error: `Texture` names no message or enum [proto-unknown-type]
    |   ^^^^^^^^^^^^^^^^^^^^
    |
    = fix: declare it in this file, or `import` the file that declares it — an import path is written from the repository root
-error: expected a field name, found `=` [proto-schema]
+error: expected a field name, found `=` [proto-syntax]
   --> lib/wire/shape.proto:23:9
    |
 23 |   int32 = 9;

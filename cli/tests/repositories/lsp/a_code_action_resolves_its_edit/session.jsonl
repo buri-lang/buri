@@ -12,12 +12,12 @@
 # that, which is what tells an editor which squiggle to hang the lightbulb on —
 # and a `data` to hand back. No `edit`: writing it means running `buri gen`,
 # and this request arrives every time the cursor lands on the squiggle.
-{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "range": {"start": {"line": 8, "character": 5}, "end": {"line": 8, "character": 18}}, "context": {"diagnostics": [{"code": "missing-dep", "message": "cmd/app/main.buri imports //lib/money, which is not in dependencies", "severity": 2, "source": "buri", "range": {"start": {"line": 8, "character": 5}, "end": {"line": 8, "character": 18}}}]}}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "range": {"start": {"line": 8, "character": 5}, "end": {"line": 8, "character": 18}}, "context": {"diagnostics": [{"code": "missing-dependency", "message": "cmd/app/main.buri imports //lib/money, which is not in dependencies", "severity": 2, "source": "buri", "range": {"start": {"line": 8, "character": 5}, "end": {"line": 8, "character": 18}}}]}}}
 # Accepted. The action comes back as it went out and is computed again from the
 # `data` it carries, which is why nothing is remembered between the two.
-{"jsonrpc": "2.0", "id": 3, "method": "codeAction/resolve", "params": {"title": "cmd/app/BUILD.buri: as `buri gen` would write it", "kind": "quickfix", "diagnostics": [{"code": "missing-dep", "message": "cmd/app/main.buri imports //lib/money, which is not in dependencies", "severity": 2, "source": "buri", "range": {"start": {"line": 8, "character": 5}, "end": {"line": 8, "character": 18}}}], "data": {"uri": "file://<scratch>/cmd/app/main.buri", "code": "missing-dep", "title": "cmd/app/BUILD.buri: as `buri gen` would write it"}}}
+{"jsonrpc": "2.0", "id": 3, "method": "codeAction/resolve", "params": {"title": "cmd/app/BUILD.buri: as `buri gen` would write it", "kind": "quickfix", "diagnostics": [{"code": "missing-dependency", "message": "cmd/app/main.buri imports //lib/money, which is not in dependencies", "severity": 2, "source": "buri", "range": {"start": {"line": 8, "character": 5}, "end": {"line": 8, "character": 18}}}], "data": {"uri": "file://<scratch>/cmd/app/main.buri", "code": "missing-dependency", "title": "cmd/app/BUILD.buri: as `buri gen` would write it"}}}
 # An action whose `data` names a title nothing offers resolves to itself. A
 # `codeAction/resolve` has no legal null result, so the answer is the action.
-{"jsonrpc": "2.0", "id": 4, "method": "codeAction/resolve", "params": {"title": "not one of ours", "kind": "quickfix", "data": {"uri": "file://<scratch>/cmd/app/main.buri", "code": "missing-dep", "title": "not one of ours"}}}
+{"jsonrpc": "2.0", "id": 4, "method": "codeAction/resolve", "params": {"title": "not one of ours", "kind": "quickfix", "data": {"uri": "file://<scratch>/cmd/app/main.buri", "code": "missing-dependency", "title": "not one of ours"}}}
 {"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

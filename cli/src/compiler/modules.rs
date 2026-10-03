@@ -413,7 +413,7 @@ impl<'a> Loader<'a> {
     /// The `testing` block is required when the directory is there
     /// (BUILD-FILES.md:194-196).
     ///
-    /// Nothing else can ask this. `unused-library` walks the files and
+    /// Nothing else can ask this. `unused-source` walks the files and
     /// finds the ones inside `testing/` — but `testing/lib.buri` is an entry
     /// point, so it is in the known set unconditionally, and a `testing/`
     /// directory holding nothing but its own entry point passed with no block
@@ -465,7 +465,7 @@ impl<'a> Loader<'a> {
         let disk = pkg.dir.join(rel);
         if !disk.is_file() {
             self.diags.push(
-                Diagnostic::templated("no-such-source", span)
+                Diagnostic::templated("unknown-source", span)
                     .with_bind("source", rel)
                     .with_bind("field", "sources"),
             );
@@ -513,7 +513,7 @@ impl<'a> Loader<'a> {
         // declares it is a cycle, and saying so is the whole answer.
         if let Some((generator, path)) = crate::build::generators::cycle_of(ws, target) {
             self.diags.push(
-                Diagnostic::templated("generator-cycle", generator.tool.span)
+                Diagnostic::templated("circular-generator", generator.tool.span)
                     .with_bind("tool", generator.tool.value.as_str())
                     .with_bind("target", ws.label(target))
                     .with_bind("path", crate::build::generators::cycle_sentence(ws, &path)),
@@ -557,8 +557,8 @@ impl<'a> Loader<'a> {
                 .with_bind("tool", d.message.clone())
                 .with_bind("why", d.note.clone().unwrap_or_default());
         }
-        if d.code == "no-such-source" {
-            return Diagnostic::templated("no-such-source", span)
+        if d.code == "unknown-source" {
+            return Diagnostic::templated("unknown-source", span)
                 .with_bind("source", d.message.clone())
                 .with_bind("field", "generators");
         }
@@ -571,8 +571,8 @@ impl<'a> Loader<'a> {
             }
             return reported;
         }
-        if d.code == "generator-module-taken" {
-            let mut reported = Diagnostic::templated("generator-module-taken", span)
+        if d.code == "generator-duplicate-module" {
+            let mut reported = Diagnostic::templated("generator-duplicate-module", span)
                 .with_bind("module", d.message.clone());
             if let Some(note) = &d.note {
                 reported = reported.with_note(note.clone());
@@ -650,9 +650,12 @@ impl<'a> Loader<'a> {
                         None => d,
                     }
                 }
-                None => Diagnostic::templated("no-such-module", span)
-                    .with_bind("path", path)
-                    .with_bind("roots", standard_library::roots_phrase()),
+                None => Diagnostic::templated("unknown-module", span)
+                    .with_bind("problem", format!("there is no module \"{path}\""))
+                    .with_fix(format!(
+                        "check the path; the standard library's modules are all {}",
+                        standard_library::roots_phrase()
+                    )),
             };
             self.diags.push(diagnostic);
             return None;
@@ -737,7 +740,12 @@ impl<'a> Loader<'a> {
                 // second one here would only repeat them.
                 if msg != crate::build::workspace::SCHEMA_HAS_ERRORS {
                     self.diags.push(
-                        Diagnostic::templated("module-not-found", span).with_bind("problem", msg),
+                        Diagnostic::templated("unknown-module", span)
+                            .with_bind("problem", msg)
+                            .with_fix(
+                                "create the file the path names, or correct the path — a module \
+                                 path maps to exactly one file, with no search",
+                            ),
                     );
                 }
                 None
@@ -1033,7 +1041,7 @@ impl<'a> Loader<'a> {
             && !names_itself
             && !crate::build::workspace::names_a_file(path)
         {
-            let d = Diagnostic::templated("import-path-without-a-file", span)
+            let d = Diagnostic::templated("import-missing-extension", span)
                 .with_bind("path", path)
                 .with_fix(format!("write \"{}\"", loc.path))
                 .with_edit(span.inside_quotes(self.map.text(span.file)), &loc.path);

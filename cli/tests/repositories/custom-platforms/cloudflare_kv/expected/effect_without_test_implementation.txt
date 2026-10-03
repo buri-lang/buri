@@ -1,4 +1,4 @@
-error: `Kv` has no test implementation in `//platform/effect/kv/testing` [effect-without-test-implementation]
+error: `Kv` has no test implementation in `//platform/effect/kv/testing` [effect-missing-test-impl]
  --> platform/effect/kv/lib.buri:2:15
   |
 2 | export effect Kv {

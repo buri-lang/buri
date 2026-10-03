@@ -1,4 +1,4 @@
-error: there is nothing named `appendBytes` in scope [unresolved-name]
+error: there is nothing named `appendBytes` in scope [unknown-name]
   --> cmd/unresolved_bare_name/main.buri:13:11
    |
 13 |   let _ = appendBytes(ctx, "wal");

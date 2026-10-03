@@ -6,7 +6,7 @@ error: this `match` does not cover `.Int` [match-not-exhaustive]
    |
    = every `match` must cover its scrutinee's type
    = fix: add an arm for `.Int`, or a `_` arm for everything left
-error: `textOf` takes 1 arguments, but 2 were given [wrong-argument-count]
+error: `textOf` takes 1 arguments, but 2 were given [argument-count]
   --> main.buri:84:17
    |
 84 |         .Str => textOf(Value.Text(heap),
@@ -15,7 +15,7 @@ error: `textOf` takes 1 arguments, but 2 were given [wrong-argument-count]
    = expected: 1
    = actual: 2
    = fix: pass `textOf` the following arguments: textOf(value: Value)
-error: `.Int` needs a known expected type [unannotated-variant]
+error: `.Int` needs a known expected type [untyped-variant]
   --> main.buri:85:9
    |
 85 |         .Int => "int",

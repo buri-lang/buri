@@ -1,18 +1,18 @@
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
  --> main.buri:2:11
   |
 2 |   let x = extra 1;
   |           ^^^^^
   |
   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
  --> main.buri:2:16
   |
 2 |   let x = extra 1;
   |                ^
   |
   = fix: write `;` here
-error: an expression statement is legal only in a test source [expression-statement]
+error: an expression statement is legal only in a test source [statement-outside-test]
  --> main.buri:2:17
   |
 2 |   let x = extra 1;

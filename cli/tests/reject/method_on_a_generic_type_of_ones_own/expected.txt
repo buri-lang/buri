@@ -1,4 +1,4 @@
-error: `Pair<Int, Int>` has no method `second` [no-such-method]
+error: `Pair<Int, Int>` has no method `second` [unknown-method]
   --> cmd/method_on_a_generic_type_of_ones_own/main.buri:13:32
    |
 13 |   let _ = io.println(ctx, "${p.second()}").ignore();

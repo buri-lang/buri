@@ -1,4 +1,4 @@
-error: a struct-literal field ends with `,` [missing-separator]
+error: a struct-literal field ends with `,` [missing-comma]
   --> main.buri:32:27
    |
 32 |                 styles: []

@@ -1,4 +1,4 @@
-error: `extra` is not a trait or effect [not-a-trait]
+error: `extra` is not a trait or effect [bound-not-trait]
   --> lib/recovery_insert_stray_module_stamp_f72fd0/lib.buri:25:5
    |
 25 |   + extra Stdout>(ctx: C, label: Str): Result<(), IoError> {
@@ -6,14 +6,14 @@ error: `extra` is not a trait or effect [not-a-trait]
    |
    = a bound names a declared trait; there are no where clauses
    = fix: name a declared trait or effect, or declare `extra` as one
-error: a generic parameter ends with `,` [missing-separator]
+error: a generic parameter ends with `,` [missing-comma]
   --> lib/recovery_insert_stray_module_stamp_f72fd0/lib.buri:25:10
    |
 25 |   + extra Stdout>(ctx: C, label: Str): Result<(), IoError> {
    |          ^
    |
    = fix: write `,` here
-error: `C` does not satisfy `Stdout` [unsatisfied-bound]
+error: `C` does not implement `Stdout` [missing-impl]
   --> lib/recovery_insert_stray_module_stamp_f72fd0/lib.buri:26:3
    |
 26 |   io.println(ctx, ".. ${label}")

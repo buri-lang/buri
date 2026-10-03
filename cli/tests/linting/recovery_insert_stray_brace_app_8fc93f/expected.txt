@@ -1,4 +1,4 @@
-warning: this discards a `Result` [discarded-result]
+warning: this discards a `Result` [ignored-result]
   --> lib/recovery_insert_stray_brace_app_8fc93f/main.buri:26:13
    |
 26 |     let _ = record().ignore();
@@ -6,7 +6,7 @@ warning: this discards a `Result` [discarded-result]
    |
    = `ignore` is the one way to drop a `Result`, so every place a failure is deliberately unhandled is one of these
    = fix: handle the error with `match`, propagate it with `?`, or keep `ignore` if dropping it is deliberate
-warning: this discards a `Result` [discarded-result]
+warning: this discards a `Result` [ignored-result]
   --> lib/recovery_insert_stray_brace_app_8fc93f/main.buri:27:13
    |
 27 |     let _ = io.println(ctx, "done").ignore();
@@ -14,7 +14,7 @@ warning: this discards a `Result` [discarded-result]
    |
    = `ignore` is the one way to drop a `Result`, so every place a failure is deliberately unhandled is one of these
    = fix: handle the error with `match`, propagate it with `?`, or keep `ignore` if dropping it is deliberate
-error: `Ok` holds 1 values, but 2 were given [wrong-value-count]
+error: `Ok` holds 1 values, but 2 were given [payload-count]
   --> lib/recovery_insert_stray_brace_app_8fc93f/main.buri:28:5
    |
 28 |     .Ok(()extra )
@@ -23,14 +23,14 @@ error: `Ok` holds 1 values, but 2 were given [wrong-value-count]
    = expected: 1
    = actual: 2
    = fix: pass `Ok` the following values: Ok(T)
-error: a call argument ends with `,` [missing-separator]
+error: a call argument ends with `,` [missing-comma]
   --> lib/recovery_insert_stray_brace_app_8fc93f/main.buri:28:11
    |
 28 |     .Ok(()extra )
    |           ^
    |
    = fix: write `,` here
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> lib/recovery_insert_stray_brace_app_8fc93f/main.buri:28:11
    |
 28 |     .Ok(()extra )

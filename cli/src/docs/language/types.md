@@ -215,7 +215,7 @@ fn result(): World {
 The type comes from an annotated `let`, a call argument, a field value, a match
 arm, or a function's result; it is never inferred from the fields. Without one,
 or when the expected type is an enum, a primitive, or a generic struct with an
-unsettled type argument, the literal is `struct-literal-type`.
+unsettled type argument, the literal is `untyped-struct-literal`.
 
 Braces are a literal when `{` is followed by `..` or `name :`, and a block
 otherwise (`design/grammar-rationale.md` 12.3). So `World { hi }` and `{}` need
@@ -308,7 +308,7 @@ fs.writeText(ctx, path, body).ignore()                // explicitly, greppably, 
 ```
 
 `ignore` is a method only, so it's greppable, and `buri lint` reports each one as
-`discarded-result`.
+`ignored-result`.
 
 The rule follows the type, so a pure function's `Result` is must-use too. So is
 `io.println`'s `Result<(), IoError>`: pipes close and disks fill.

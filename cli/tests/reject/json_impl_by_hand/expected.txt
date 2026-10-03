@@ -16,10 +16,15 @@ error: `ToJson` is derived, not implemented [derive-only-trait]
      visible at the call site. Only core/json's ToJson and FromJson work this
      way.
 
-error: `Point` does not satisfy `ToJson` [unsatisfied-bound]
+error: `Point` does not implement `ToJson` [missing-impl]
   --> cmd/json_impl_by_hand/main.buri:19:47
    |
 19 |   let _ = io.println(ctx, json.stringify(ctx, json.encode(ctx, p))).ignore();
    |                                               ^^^^^^^^^^^^^^^^^^^
    |
    = fix: add `derive ToJson for Point;` in that type's own module
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+

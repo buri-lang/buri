@@ -19,7 +19,7 @@ error: expected `fn(IoError) => Str`, found `fn(_8, _9) => Str` [type-mismatch]
    |
    = expected: `fn(IoError) => Str`
    = actual: `fn(_8, _9) => Str`
-error: a lambda parameter ends with `,` [missing-separator]
+error: a lambda parameter ends with `,` [missing-comma]
   --> lib/recovery_insert_stray_paren_app_1e612d/main.buri:24:25
    |
 24 |         .mapErr(fn(extra _e) => "could not write to standard output")

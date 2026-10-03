@@ -1,4 +1,4 @@
-error: `Row` holds 3 values, but 2 were given [wrong-value-count]
+error: `Row` holds 3 values, but 2 were given [payload-count]
  --> cmd/constructor_missing_a_middle_value/main.buri:8:3
   |
 8 |   Row(1, true)

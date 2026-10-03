@@ -1,10 +1,10 @@
-error: a tuple has arity 2 or more [tuple-arity]
+error: a tuple has two elements or more [tuple-element-count]
   --> main.buri:18:30
    |
 18 |     ((a < b) == (c > d)) != ((a > b, ) == (c < d))
    |                              ^^^^^^^^^
    |
-   = `(e)` is grouping and `()` is the unit value
+   = `(x)` is grouping and `()` is unit
    = fix: drop the parentheses for one element, or write `()` for none
 error: expected `(Bool)`, found `Bool` [type-mismatch]
   --> main.buri:18:44

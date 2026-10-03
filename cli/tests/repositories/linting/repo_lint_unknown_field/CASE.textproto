@@ -7,7 +7,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "an unknown field in REPO.buri's lint block: unknown-field, with the near miss, and every command refuses to start"
+doc: "an unknown field in REPO.buri's lint block: build-unknown-field, with the near miss, and every command refuses to start"
 
 run {
   args: ["build", "//lib/money", "--verbose"]

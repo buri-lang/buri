@@ -1,4 +1,4 @@
-error: `//tool/good` has no `format` entry point [tool-without-entry-point]
+error: `//tool/good` has no `format` entry point [tool-missing-entry-point]
  --> REPO.buri:7:13
   |
 7 |     format: "//tool/good"

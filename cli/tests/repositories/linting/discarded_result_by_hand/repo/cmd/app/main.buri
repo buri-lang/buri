@@ -1,5 +1,5 @@
 // The four-line `match` whose every arm answers `()` is `core/result.ignore`
-// written out: discarded-result-by-hand. It is reported because the rule that
+// written out: hand-rolled-ignore. It is reported because the rule that
 // reports `ignore` made this shape the way around itself — a repository whose
 // gate is "lint clean" writes these instead, and the drop is then scattered
 // where nobody can grep for it.

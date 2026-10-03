@@ -1,0 +1,14 @@
+error: an array element ends with `,` [missing-comma]
+  --> lib/recovery_insert_stray_bracket_app_1c7e16/main.buri:14:8
+   |
+14 |     '2'extra ,
+   |        ^
+   |
+   = fix: write `,` here
+error: there is nothing named `extra` in scope [unknown-name]
+  --> lib/recovery_insert_stray_bracket_app_1c7e16/main.buri:14:8
+   |
+14 |     '2'extra ,
+   |        ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

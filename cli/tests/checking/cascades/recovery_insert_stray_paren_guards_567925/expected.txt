@@ -1,4 +1,4 @@
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> main.buri:48:9
    |
 48 |     if (extra marker.length() > 3) { .Str } else { .Int }

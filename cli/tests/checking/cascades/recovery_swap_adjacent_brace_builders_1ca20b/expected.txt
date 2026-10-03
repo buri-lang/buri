@@ -5,7 +5,7 @@ error: `Type` is missing `origin` [missing-field-value]
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: give `origin` a value — only an `Option` field may be left out — or start from an existing one with `Type { ..base, field: value }`
-error: there is nothing named `kind` in scope [unresolved-name]
+error: there is nothing named `kind` in scope [unknown-name]
   --> main.buri:32:16
    |
 32 |     ast.Type { kind. :Named(n(text), []), origin: ast.nowhere() }

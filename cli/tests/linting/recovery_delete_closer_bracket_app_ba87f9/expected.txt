@@ -14,7 +14,7 @@ warning: this is `order.bool`, written out [hand-rolled-comparator]
    |
    = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ordered` impl both take
    = fix: call `order.bool` with the two operands, and delete the chain
-error: `label` takes 1 arguments, but 3 were given [wrong-argument-count]
+error: `label` takes 1 arguments, but 3 were given [argument-count]
   --> lib/recovery_delete_closer_bracket_app_ba87f9/main.buri:66:9
    |
 66 |         label(compareDescending(1, 2),

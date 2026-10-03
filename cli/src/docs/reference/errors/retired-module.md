@@ -1,10 +1,10 @@
 ---
-title: A renamed standard library module is imported by its new name
+title: A renamed module is imported by its new name
 message: '"{path}" is now "{now}"'
 note: the old path was retired rather than kept beside the new one, so one module has one path and two imports of it are the same import
 fix: write "{now}" in the import
 ---
-# A renamed standard library module is imported by its new name
+# A renamed module is imported by its new name
 
 ```text
 error: "core/char" is now "core/character" [retired-module]

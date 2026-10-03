@@ -1,4 +1,4 @@
-error: a call argument ends with `,` [missing-separator]
+error: a call argument ends with `,` [missing-comma]
   --> main.buri:33:39
    |
 33 |     assert.equal(time.secondsFloat(0.0 0.0 /), time.nanoseconds(0));

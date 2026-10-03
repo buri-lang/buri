@@ -1,4 +1,4 @@
-// EXPECT: `empty` is called at a type nothing determines: T
+// EXPECT: `empty` is called at a type nothing determines
 //
 // `list.empty` is supplied by the runtime, which is compiled once against no
 // Buri type at all: the type argument written at the call is the only record

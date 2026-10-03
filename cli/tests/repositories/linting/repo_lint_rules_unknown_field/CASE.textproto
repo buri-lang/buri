@@ -1,4 +1,4 @@
-# A rule name the catalogue does not have is the `unknown-field` diagnostic any
+# A rule name the catalogue does not have is the `build-unknown-field` diagnostic any
 # other undeclared field gets, with the rule it is one letter from as the fix.
 # It is refused before any command does its work — `build`, `test` and `lint`
 # all stop at the same diagnostic with the same exit code, because a repository
@@ -12,7 +12,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a misspelled rule in REPO.buri's rules block: unknown-field with the near miss, and every command refuses to start"
+doc: "a misspelled rule in REPO.buri's rules block: build-unknown-field with the near miss, and every command refuses to start"
 
 run {
   args: ["build", "//lib/money", "--verbose"]

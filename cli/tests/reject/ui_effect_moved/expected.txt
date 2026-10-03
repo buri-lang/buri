@@ -62,7 +62,9 @@ error: `main` takes `WebHost`, and the node platform hands its entry a `NodeHost
       binary {
           outputs: [
               { platform: "native", variant: "linux-arm64" },
-              { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+              { platform: "node", entries: [
+                  { name: "main", function: "mainForNode" },
+              ] },
           ]
       }
 
@@ -72,7 +74,7 @@ error: `main` takes `WebHost`, and the node platform hands its entry a `NodeHost
     Each platform offers different effects, so each declares its own host type.
     One entry can't take two.
 
-error: `Ui` is not a declared effect [not-an-effect]
+error: `Ui` is not a declared effect [unknown-effect]
  --> cmd/ui_effect_moved/main.buri:9:24
   |
 9 |   let _ctx = context { Ui: host.ui };

@@ -1,4 +1,4 @@
-// EXPECT: "core/time" has no member `sleepMs`
+// EXPECT: "core/time" does not export `sleepMs`
 // `sleepMs` is not renamed, it is gone: a span is a `Duration` now.
 from "platform/effect" import { Allocator, Clock, Stdout };
 from "node" import { NodeHost };

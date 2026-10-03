@@ -1,4 +1,4 @@
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> main.buri:51:12
    |
 51 |     match (extra bytes.fromUtf8(ctx, octets)) {
@@ -17,7 +17,7 @@ error: this `match` scrutinee is missing its closing `)` [unclosed-delimiter]
    |           ^ opened here
    |
    = fix: write `)` here
-error: there is nothing named `s` in scope [unresolved-name]
+error: there is nothing named `s` in scope [unknown-name]
   --> main.buri:52:19
    |
 52 |         .Ok(s) => s,

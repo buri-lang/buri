@@ -1,4 +1,4 @@
-error: //tools/gen declares a `tool` rule outside //tool/ [rule-outside-its-directory]
+error: //tools/gen declares a `tool` rule outside //tool/ [misplaced-rule]
  --> tools/gen/BUILD.buri:1:1
   |
 1 | tool {

@@ -1,4 +1,4 @@
-error: `send` takes 2 arguments, but 4 were given [wrong-argument-count]
+error: `send` takes 2 arguments, but 4 were given [argument-count]
   --> cmd/net_fetch_old_arity/main.buri:18:10
    |
 18 |   match (http.send(ctx, "GET", url, "")) {

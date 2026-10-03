@@ -1,4 +1,4 @@
-// EXPECT: "core/math" has no member `sqrt`
+// EXPECT: "core/math" does not export `sqrt`
 // `sqrt` is `squareRoot` now. The diagnostic says so, rather than offering
 // whatever is nearest by edit distance.
 from "platform/effect" import { Allocator, Stdout };

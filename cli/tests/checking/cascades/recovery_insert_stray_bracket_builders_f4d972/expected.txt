@@ -7,7 +7,7 @@ error: expected a type, found `@` [unexpected-token]
    = expected: a type
    = actual: `@`
    = fix: name a type here, as in `Int` or `[Str]`
-error: there is nothing named `block` in scope [unresolved-name]
+error: there is nothing named `block` in scope [unknown-name]
    --> main.buri:106:20
     |
 106 |             body: [block(stmts, tail)],

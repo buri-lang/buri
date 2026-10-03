@@ -1,13 +1,12 @@
 ---
-title: A struct literal is headed by a type
-message: the head of a struct literal must be a type
-note: the grammar permits `f(x) {{ a: 1 }}`; the checker does not
-fix: name the type, as in `Point {{ x: 1, y: 2 }}`, or `.Variant {{ ... }}` where the expected type is known
+title: A struct literal starts with a type or variant
+message: the head of a struct literal must be a struct or an enum variant
+fix: name the type, as in `Point {{ x: 1, y: 2 }}`, or a variant that has fields, as in `.Variant {{ ... }}` where the expected type is known
 ---
-# A struct literal is headed by a type
+# A struct literal starts with a type or variant
 
 ```text
-error: the head of a struct literal must be a type [struct-literal-head]
+error: the head of a struct literal must be a struct or an enum variant [struct-literal-head]
 ```
 
 ```buri fail code=struct-literal-head
@@ -25,5 +24,6 @@ fn build(): Int {
 }
 ```
 
-The grammar decides shape without name resolution, so it accepts any head. The
-checker rejects it, one phase later than you might expect.
+The grammar decides shape without name resolution, so it accepts any head, such
+as `f(x) { a: 1 }`. The checker rejects it, one phase later than you might
+expect.

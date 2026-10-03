@@ -60,7 +60,7 @@ test "addition composes" {
 
 - A test takes no parameters and returns nothing. It passes unless an assertion
   fails, and a failing assertion ends only that test.
-- **A title appears once per file** (`duplicate-test-name`); two files may
+- **A title appears once per file** (`duplicate-test`); two files may
   share one.
 - A pure assertion needs no context. `assert` isn't a keyword; the name comes
   from `import * as assert`.
@@ -96,7 +96,7 @@ test "reads the config it wrote" {
 }
 ```
 
-If `assert.equal` reports `unsatisfied-bound`, add
+If `assert.equal` reports `missing-impl`, add
 `derive Equal, Show for ThatType;` in the type's **own** module.
 
 ## The runner's context
@@ -267,7 +267,7 @@ FAIL //lib/money  test/cents.buri  "pads the cents place"
 - The runner always shards and reorders.
 - Suites run natively unless `test { backends: [JS] }` or `--output=js`. A
   missing backend body or an unbuildable host is an **error**
-  (`native-run-not-available`, `platform-not-implemented`), never a reroute.
+  (`test-run-unavailable`), never a reroute.
 - Suites naming no backend share one binary per tag-compatible batch; results
   stay per suite. `test { backends }`, `timeout_seconds` or `--output=` opts a
   suite out.
@@ -275,8 +275,7 @@ FAIL //lib/money  test/cents.buri  "pads the cents place"
 ## Lint findings about tests
 
 - `empty-test-suite`: a `test` block with no `sources`.
-- `test-without-assertion`: nothing reachable from the test calls into
+- `test-missing-assertion`: nothing reachable from the test calls into
   `core/testing/assert`. It's transitive, so asserting through a helper is fine.
 - `test-title-newline`.
-- At run time: `test-timeout`, `platform-not-implemented` and
-  `native-run-not-available`.
+- At run time: `test-timeout` and `test-run-unavailable`.

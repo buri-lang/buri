@@ -1,4 +1,4 @@
-error: `//lib/wire/spare.buri` is a module of this rule already [generator-module-taken]
+error: `//lib/wire/spare.buri` is a module of this rule already [generator-duplicate-module]
  --> lib/wire/BUILD.buri:7:9
   |
 7 |         { tool: "//tool/gen", inputs: ["mode.txt"] },

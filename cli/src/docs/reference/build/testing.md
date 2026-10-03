@@ -31,7 +31,7 @@ and the compiler puts it in a test binary rather than in the library.
 - A `test` declaration takes no parameters and returns nothing. It passes unless
   an assertion in it fails, and a failing assertion ends that test and no other.
 - **Use a title once per file.** Two tests in one module that share one are a
-  compile error (`duplicate-test-name`). The title is how the runner reports a
+  compile error (`duplicate-test`). The title is how the runner reports a
   failure and how `--filter` picks a test out. Two files of one suite may share
   a title: each failure names its own file and its own line.
 - A test source and an entry's body are the only places in the language that

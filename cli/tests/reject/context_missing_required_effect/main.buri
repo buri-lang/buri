@@ -1,4 +1,4 @@
-// EXPECT: does not satisfy `FileSystemRead`
+// EXPECT: does not implement `FileSystemRead`
 from "platform/effect" import { Allocator, Stdout };
 from "core/fs" import { FileSystemRead };
 from "core/fs" import * as fs;

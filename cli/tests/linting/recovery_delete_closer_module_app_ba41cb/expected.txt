@@ -1,4 +1,4 @@
-warning: this comment is marked `TODO` [warning-comment]
+warning: this comment is marked `TODO` [todo-comment]
  --> lib/recovery_delete_closer_module_app_ba41cb/main.buri:9:4
   |
 9 | // TODO: decide what this program is for.

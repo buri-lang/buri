@@ -1,4 +1,4 @@
-warning: this comment is marked `TODO` [warning-comment]
+warning: this comment is marked `TODO` [todo-comment]
  --> lib/recovery_insert_stray_brace_app_30b579/main.buri:9:4
   |
 9 | // TODO: decide what this program is for.
@@ -15,7 +15,7 @@ error: expected a pattern, found `,` [unexpected-token]
    = expected: a pattern
    = actual: `,`
    = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
-error: there is nothing named `ctx` in scope [unresolved-name]
+error: there is nothing named `ctx` in scope [unknown-name]
   --> lib/recovery_insert_stray_brace_app_30b579/main.buri:19:16
    |
 19 |     io.println(ctx, banner()).mapErr(fn(_e) => "could not write to standard output")

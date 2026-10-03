@@ -6,14 +6,14 @@ error: expected `(Color, Color)`, found `(Color, fn(Token) => Color, <error>)` [
    |
    = expected: `(Color, Color)`
    = actual: `(Color, fn(Token) => Color, <error>)`
-error: a tuple element ends with `,` [missing-separator]
+error: a tuple element ends with `,` [missing-comma]
   --> main.buri:60:33
    |
 60 |         (Token.OnSurface.color()f ,(.OnSurface)),
    |                                 ^
    |
    = fix: write `,` here
-error: `.OnSurface` needs a known expected type [unannotated-variant]
+error: `.OnSurface` needs a known expected type [untyped-variant]
   --> main.buri:60:37
    |
 60 |         (Token.OnSurface.color()f ,(.OnSurface)),

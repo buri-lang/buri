@@ -1,4 +1,4 @@
-error: an array element ends with `,` [missing-separator]
+error: an array element ends with `,` [missing-comma]
  --> main.buri:4:13
   |
 4 |   ["a\${x}b" "$4.00", "$.tags[2]", "ends in a $"]

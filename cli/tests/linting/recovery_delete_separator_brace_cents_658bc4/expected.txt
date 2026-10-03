@@ -1,4 +1,4 @@
-error: a record field ends with `,` [missing-separator]
+error: a record field ends with `,` [missing-comma]
   --> lib/recovery_delete_separator_brace_cents_658bc4/lib.buri:12:24
    |
 12 |     export entries: I64

@@ -1,4 +1,4 @@
-error: `[I64]` is not a tuple [not-a-tuple]
+error: `[I64]` is not a tuple [not-tuple]
  --> cmd/not_a_tuple/main.buri:3:3
   |
 3 |   xs.0

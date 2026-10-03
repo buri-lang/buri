@@ -356,7 +356,7 @@ pub const H3_UNSUPPORTED: &str = "HTTP/3 is not supported by this toolchain's na
 /// **The `net` question is deliberately not asked here.** `host.HostListen.*`
 /// is in `runtime_native::net_intrinsic`'s family, so a program that reaches
 /// `serve` at all has already been refused before code generation on a
-/// `net`-off toolchain (`networking-not-available`, C3). `net-h3` is *not* in
+/// `net`-off toolchain (`networking-unavailable`, C3). `net-h3` is *not* in
 /// that family and must not be: refusing at compile time would refuse every
 /// program that mentions `serve`, including every one that was only ever going
 /// to ask for HTTP/1.1. That asymmetry is exactly the one `HostNetwork.fetch` and

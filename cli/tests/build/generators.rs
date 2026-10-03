@@ -136,7 +136,7 @@ fn repository(name: &str) -> Scratch {
 const ENCODED: &str = "10ac02800102f20103010203 true";
 
 fn ran_natively(run: &Run) -> bool {
-    !run.all().contains("native-artifact-not-available")
+    !run.all().contains("native-artifact-unavailable")
 }
 
 /// A generated module goes through the host's native backend and its linker,
@@ -184,7 +184,7 @@ fn a_generated_module_links_into_a_release_artifact_or_is_refused_by_name() {
         "a release artifact ran and printed nothing the schema decided:\n{}",
         run.all()
     );
-    run.says("native-artifact-not-available");
+    run.says("native-artifact-unavailable");
 }
 
 /// The generator the toolchain ships is compiled **once per repository**.

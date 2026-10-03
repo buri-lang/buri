@@ -63,7 +63,7 @@
 //! the program calls stays in the artifact and the chunk reads it from there.
 //!
 //! `load` takes the **name of a function**. A lambda, a local holding one, or
-//! anything that is not a function at all is `lazy-not-a-function`.
+//! anything that is not a function at all is `load-not-function`.
 
 /// Answers `transform`, having fetched the chunk it was split into.
 ///

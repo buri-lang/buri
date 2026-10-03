@@ -1,4 +1,4 @@
-error: `ToggleKind` has no variant `Tick` [no-such-variant]
+error: `ToggleKind` has no variant `Tick` [unknown-variant]
   --> cmd/ui_toggle_kind_is_closed/main.buri:16:44
    |
 16 |   ui.toggle({ label: .Const("done"), kind: .Tick, isOn: value, styles: [] })

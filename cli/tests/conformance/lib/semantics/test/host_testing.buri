@@ -884,7 +884,7 @@ test "a responder may fail one request and answer another" {
 }
 
 /// One responder, five answers, chosen by the URL — a context may not be built
-/// inside a lambda (`context-not-allowed`), so the sweep is one network asked
+/// inside a lambda (`misplaced-context`), so the sweep is one network asked
 /// five times rather than five networks asked once.
 test "every NetError variant a responder can name crosses unchanged" {
     let server = net().respond(fn(request) => {

@@ -1,4 +1,4 @@
-warning: this comment is marked `TODO` [warning-comment]
+warning: this comment is marked `TODO` [todo-comment]
  --> lib/recovery_delete_separator_brace_app_ea82e0/main.buri:9:4
   |
 9 | // TODO: decide what this program is for.
@@ -6,7 +6,7 @@ warning: this comment is marked `TODO` [warning-comment]
   |
   = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
   = fix: finish the work, or delete the marker
-error: a context binding ends with `,` [missing-separator]
+error: a context binding ends with `,` [missing-comma]
   --> lib/recovery_delete_separator_brace_app_ea82e0/main.buri:16:30
    |
 16 |         Allocator: host.alloc

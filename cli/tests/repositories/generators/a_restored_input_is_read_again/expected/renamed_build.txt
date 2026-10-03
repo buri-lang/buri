@@ -1,4 +1,4 @@
-error: "//lib/schemas/files" does not export `A_TXT` [no-such-export]
+error: "//lib/schemas/files" does not export `A_TXT` [unknown-export]
  --> lib/schemas/schemas.buri:1:37
   |
 1 | from "//lib/schemas/files" import { A_TXT };
@@ -7,9 +7,13 @@ error: "//lib/schemas/files" does not export `A_TXT` [no-such-export]
   = fix: check the spelling, or add `export` to `A_TXT`'s declaration in "//lib/schemas/files"
 
     A re-export names only what its module exports, so a library's surface is
-    never wider than the modules behind it.
+    never wider than the modules behind it. A namespace like fs stands for the
+    module its import named, and only that module's exports may follow the dot.
+    This covers types, bounds and impl heads too, such as list.Vector<Int> and
+    <T: order.Comparable>. If no import bound the namespace at all, the error is
+    unknown-name instead.
 
-error: there is nothing named `A_TXT` in scope [unresolved-name]
+error: there is nothing named `A_TXT` in scope [unknown-name]
  --> lib/schemas/schemas.buri:5:5
   |
 5 |     A_TXT

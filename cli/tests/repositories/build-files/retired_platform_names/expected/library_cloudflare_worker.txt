@@ -1,4 +1,4 @@
-error: `CLOUDFLARE_WORKER` is retired [retired-platform-name]
+error: `CLOUDFLARE_WORKER` is retired [retired-platform]
  --> lib/greet/BUILD.buri:3:17
   |
 3 |     platforms: [CLOUDFLARE_WORKER]
@@ -10,7 +10,9 @@ error: `CLOUDFLARE_WORKER` is retired [retired-platform-name]
       binary {
           outputs: [
               { platform: "native", variant: "linux-arm64" },
-              { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+              { platform: "node", entries: [
+                  { name: "main", function: "mainForNode" },
+              ] },
               { platform: "web" },
           ]
 

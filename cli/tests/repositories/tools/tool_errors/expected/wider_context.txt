@@ -1,4 +1,4 @@
-error: `generate` asks for `Stdout`, and `ctx` in a tool has `Allocator` only [tool-context-beyond-allocator]
+error: `generate` asks for `Stdout`, and `ctx` in a tool has `Allocator` only [tool-effect-unavailable]
  --> tool/good/tool.buri:8:35
   |
 8 | export fn generate<C: Allocator + Stdout>(ctx: C, request: GenerateRequest<Str>): Generated {

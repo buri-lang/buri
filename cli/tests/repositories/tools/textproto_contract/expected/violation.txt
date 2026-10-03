@@ -1,4 +1,4 @@
-error: "//lib/routes/table" names no file (lib/routes/table.buri) [module-not-found]
+error: "//lib/routes/table" names no file (lib/routes/table.buri) [unknown-module]
  --> lib/routes/lib.buri:1:6
   |
 1 | from "//lib/routes/table" export { shown, table };
@@ -6,12 +6,9 @@ error: "//lib/routes/table" names no file (lib/routes/table.buri) [module-not-fo
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
 
-    This resolves against the example monorepo in cli/tests/example, which has
-    no lib/nope:
-
     There's no search path and no fallback, so a path never has two candidates.
 
-error: `port` is of type `int32`, and this is not a whole number [textproto-wrong-value]
+error: `port` is of type `int32`, and this is not a whole number [textproto-invalid-value]
  --> lib/routes/routes.txtpb:8:11
   |
 8 |     port: "8080"

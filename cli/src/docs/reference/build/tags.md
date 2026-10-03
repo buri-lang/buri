@@ -94,7 +94,7 @@ platform that backend builds, a repository's own included. `platforms` names
 bundled platforms, `"native"`, `"node"` or `"web"`, or a repository platform by
 label, `"//platform/cloudflare_worker"`, for code that means something on one
 platform only. A platform must satisfy every list written, and a label that
-names no `platform` rule is `no-such-platform`.
+names no `platform` rule is `unknown-platform`.
 
 A binary names its platforms in `outputs`. A library names them only when it is
 genuinely platform-specific, and writes them as a plain field:
@@ -151,8 +151,8 @@ than a default.
 
 One tag may carry both. It admits what its `requires` admits, or every
 platform when that is unset, minus what its `forbids` names. Naming the same
-backend or platform in both is `platform-required-and-forbidden`, and naming one
-twice in a list is `duplicate-platform`.
+backend or platform in both is `tag-platform-conflict`, and naming one
+twice in a list is `tag-duplicate-platform`.
 
 ## The platform rule
 
@@ -192,7 +192,7 @@ so it runs once.
 
 ## What a failure reports
 
-A `tag-violation` names both tags, the target carrying each, the path that
+A `tag-conflict` names both tags, the target carrying each, the path that
 reaches it, and each tag's `doc`. It prints the path because the interesting
 question is never "which library is tagged `server`" but "who dragged it in." A
 `platform-violation` reports the same way. [Enforce policy with
@@ -243,12 +243,12 @@ outputs name, or else the first it admits: `node`, then `web`.
 A suite that names no backends also runs on the host natively. Where this
 toolchain cannot build a binary for the host, or where the suite's program
 reaches something the backend has no body for yet, the runner **refuses**:
-`native-run-not-available` for the first, and a message naming the intrinsic and
+`test-run-unavailable` for the first, and a message naming the intrinsic and
 the backend for the second. It reroutes nothing, because a suite that ran on a
 backend nobody chose would report a pass about the other backend.
 
 The two refusals say different things, because the two are different problems.
-`native-run-not-available` is about your toolchain, so it names the two ways to
+`test-run-unavailable` is about your toolchain, so it names the two ways to
 ask for JavaScript: `test { backends: [JS] }` in the build file, and `buri test
 --output=js` for a whole invocation. A missing body is about the *toolchain's*
 gap rather than yours, so it says to report it — a program the front end

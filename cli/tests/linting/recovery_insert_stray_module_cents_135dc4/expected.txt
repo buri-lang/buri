@@ -1,11 +1,11 @@
-error: there is no type `extra` [unresolved-type]
+error: there is no type `extra` [unknown-type]
   --> lib/recovery_insert_stray_module_cents_135dc4/lib.buri:17:14
    |
 17 | type Money = extra Tally;
    |              ^^^^^
    |
    = fix: declare it, import it, or correct the spelling
-error: a type alias ends with `;` [missing-terminator]
+error: a type alias ends with `;` [missing-semicolon]
   --> lib/recovery_insert_stray_module_cents_135dc4/lib.buri:17:19
    |
 17 | type Money = extra Tally;

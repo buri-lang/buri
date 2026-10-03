@@ -1,4 +1,4 @@
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_delete_separator_brace_expected_efd6ce/main.buri:43:25
    |
 43 |     let label = "ledger"

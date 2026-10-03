@@ -1,4 +1,4 @@
-error: a tuple element ends with `,` [missing-separator]
+error: a tuple element ends with `,` [missing-comma]
   --> main.buri:57:16
    |
 57 |         (self.0 100 /, self.0 % 100)

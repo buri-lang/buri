@@ -1,4 +1,4 @@
-error: `NodeHost` has no field `listen` [no-such-field]
+error: `NodeHost` has no field `listen` [unknown-field]
   --> cmd/server_effects_not_granted_on_js/main.buri:20:18
    |
 20 |     Listen: host.listen,

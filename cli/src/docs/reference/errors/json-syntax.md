@@ -1,10 +1,10 @@
 ---
-title: A JSON file is written in its language
+title: A JSON file parses
 message: '{problem}'
 fix: '{remedy}'
 reproduction: none
 ---
-# A JSON file is written in its language
+# A JSON file parses
 
 ```text
 error: JSON has no comments [json-syntax]

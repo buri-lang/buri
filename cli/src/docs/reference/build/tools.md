@@ -15,7 +15,7 @@ tool {
 
 A `tool` rule must live under the top-level `tool/` directory, at any depth
 (`//tool/db/schema`), or it's
-[`rule-outside-its-directory`](../errors/rule-outside-its-directory.md).
+[`misplaced-rule`](../errors/misplaced-rule.md).
 Libraries and binaries may live there too.
 
 Its root is `tool.buri`, which exports one function per block:
@@ -55,7 +55,7 @@ export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generat
   and an exported `check`, `format` or `generate` without its block is
   [`tool-entry-point-undeclared`](../errors/tool-entry-point-undeclared.md).
 - **`ctx` has only `Allocator`.** Any other effect is
-  [`tool-context-beyond-allocator`](../errors/tool-context-beyond-allocator.md),
+  [`tool-effect-unavailable`](../errors/tool-effect-unavailable.md),
   so a tool's answer depends only on what it was handed.
 - **There is no `main`.** The toolchain writes one that reads the request,
   calls the entry point and writes the answer.
@@ -74,15 +74,15 @@ export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generat
 
 A language names its tools in [`REPO.buri`](./repo-config.md). Naming a tool
 that lacks the entry point is
-[`tool-without-entry-point`](../errors/tool-without-entry-point.md), and naming
-no tool at all is [`no-such-tool`](../errors/no-such-tool.md).
+[`tool-missing-entry-point`](../errors/tool-missing-entry-point.md), and naming
+no tool at all is [`unknown-tool`](../errors/unknown-tool.md).
 
 The toolchain ships three tools, each with `check`, `format` and `generate`:
 `json` for `json`, `jsonc` and `json5`, `proto` for `.proto` schemas, and
 `textproto` for [text format files](../../guides/textproto.md). Built-in tools
 have bare names and yours are `//label`s, so they never collide. `std/json`,
 `std/proto`, `std/textproto` and `std/codegen/proto` are
-[`retired-tool-name`](../errors/retired-tool-name.md).
+[`retired-tool`](../errors/retired-tool.md).
 
 ## What an entry point is handed
 
@@ -93,7 +93,7 @@ repository `path`, its `language`, and its text as `value`. Under a
 - **`check`** answers `Checked`: diagnostics, and the repository paths it
   `needs`. A needed file, such as a schema, comes back in `files` on the next
   call. A path outside the repository is
-  [`schema-not-local`](../errors/schema-not-local.md).
+  [`schema-outside-repository`](../errors/schema-outside-repository.md).
 - **`format`** answers a `core/format` `Doc`, laid out at the same margin and
   indent as `.buri` files. A file the tool can't read gets diagnostics and no
   doc, and stays as it is.
@@ -160,11 +160,11 @@ export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Config>): Gene
   `proto` takes no contract, because a `.proto` file holds no value
   ([`proto-contract-unsupported`](../errors/proto-contract-unsupported.md)).
 - **One entry per language.** An input in a language no entry lists is
-  [`input-language-not-accepted`](../errors/input-language-not-accepted.md), on
+  [`input-not-accepted`](../errors/input-not-accepted.md), on
   the consumer's `inputs`.
 - **The request takes the root type**: `GenerateRequest<Config>`, or
   `CheckRequest<Config>` for a `check` with `accepts`. Anything else is
-  [`tool-request-type`](../errors/tool-request-type.md). `format` takes no
+  [`tool-request-mismatch`](../errors/tool-request-mismatch.md). `format` takes no
   contract, because a typed value has lost the comments a formatter lays out.
 - **The consumer gets no types.** It never reads its config at run time.
 

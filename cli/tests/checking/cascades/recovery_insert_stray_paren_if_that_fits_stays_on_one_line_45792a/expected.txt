@@ -1,4 +1,4 @@
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
  --> main.buri:1:36
   |
 1 | export fn f(x: Int): Str { if (x > extra 0) { "yes" } else { "no" } }

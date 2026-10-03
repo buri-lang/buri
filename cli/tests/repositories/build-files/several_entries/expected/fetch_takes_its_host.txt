@@ -24,7 +24,9 @@ error: `fetch` takes `Request`, and the //platform/cloudflare_worker platform ha
        binary {
            outputs: [
                { platform: "native", variant: "linux-arm64" },
-               { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+               { platform: "node", entries: [
+                   { name: "main", function: "mainForNode" },
+               ] },
            ]
        }
 

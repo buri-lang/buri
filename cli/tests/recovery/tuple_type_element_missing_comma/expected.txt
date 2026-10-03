@@ -1,4 +1,4 @@
-error [missing-separator] 2:24-2:24
+error [missing-comma] 2:24-2:24
 message: a tuple type element ends with `,`
 fix: write `,` here
 edit: 2:24-2:24 ","

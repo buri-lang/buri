@@ -1,18 +1,18 @@
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
  --> main.buri:7:22
   |
 7 |     Flags { verbose: extra args.any(fn(a) => a == "--verbose") }
   |                      ^^^^^
   |
   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
-error: a struct-literal field ends with `,` [missing-separator]
+error: a struct-literal field ends with `,` [missing-comma]
  --> main.buri:7:27
   |
 7 |     Flags { verbose: extra args.any(fn(a) => a == "--verbose") }
   |                           ^
   |
   = fix: write `,` here
-error: `Flags` has no field `args` [no-such-field]
+error: `Flags` has no field `args` [unknown-field]
  --> main.buri:7:28
   |
 7 |     Flags { verbose: extra args.any(fn(a) => a == "--verbose") }

@@ -6,7 +6,7 @@ error: //lib/widget has a testing/ directory and no `testing` block [undeclared-
   |
   = the block is what puts the surface in the build; without it nothing compiles testing/lib.buri and no dependent can name it
   = fix: add a `testing { }` block to the library rule in lib/widget/BUILD.buri — empty if the entry point is the whole of it — or delete the directory
-warning: lib/widget/testing/fixtures.buri belongs to no library or binary, so nothing builds it [unused-library]
+warning: lib/widget/testing/fixtures.buri belongs to no library or binary, so nothing builds it [unused-source]
  --> lib/widget/BUILD.buri:1:1
   |
 1 | # The `testing` block has `dependencies` of its own. They are the testing

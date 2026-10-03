@@ -1,4 +1,4 @@
-error: `JS` is listed twice in `forbids` [duplicate-platform]
+error: `JS` is listed twice in `forbids` [tag-duplicate-platform]
  --> REPO.buri:6:24
   |
 6 |         backends: [JS, JS]

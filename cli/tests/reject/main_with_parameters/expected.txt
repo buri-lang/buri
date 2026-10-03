@@ -1,4 +1,4 @@
-error: `main` takes one parameter, its platform's host [main-signature]
+error: `main` takes one parameter, its platform's host [entry-signature-mismatch]
  --> cmd/main_with_parameters/main.buri:6:32
   |
 6 | export fn main(host: NodeHost, argc: Int): Result<(), Str> {

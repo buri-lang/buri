@@ -1,4 +1,4 @@
-error: `button` takes 1 arguments, but 2 were given [wrong-argument-count]
+error: `button` takes 1 arguments, but 2 were given [argument-count]
   --> main.buri:30:13
    |
 30 |             ui.button({
@@ -7,7 +7,7 @@ error: `button` takes 1 arguments, but 2 were given [wrong-argument-count]
    = expected: 1
    = actual: 2
    = fix: pass `button` the following arguments: button<C>(config: Button<C>)
-error: nothing here says what this literal builds [struct-literal-type]
+error: nothing here says what this literal builds [untyped-struct-literal]
   --> main.buri:30:23
    |
 30 |             ui.button({
@@ -36,14 +36,14 @@ error: this struct literal is missing its closing `}` [unclosed-delimiter]
    |                       ^ opened here
    |
    = fix: write `}` here
-error: a call argument ends with `,` [missing-separator]
+error: a call argument ends with `,` [missing-comma]
   --> main.buri:40:15
    |
 40 |             ui.choose(
    |               ^
    |
    = fix: write `,` here
-error: `.choose` needs a known expected type [unannotated-variant]
+error: `.choose` needs a known expected type [untyped-variant]
   --> main.buri:40:15
    |
 40 |             ui.choose(

@@ -1,4 +1,4 @@
-error: a call argument ends with `,` [missing-separator]
+error: a call argument ends with `,` [missing-comma]
   --> main.buri:50:51
    |
 50 |     let octets = bytes.toUtf8(ctx, text).slice(ctx origin.span.start, origin.span.end);

@@ -5,7 +5,7 @@ error: `Route` is missing `path` [missing-field-value]
    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: give `path` a value — only an `Option` field may be left out — or start from an existing one with `Route { ..base, field: value }`
-error: there is nothing named `name` in scope [unresolved-name]
+error: there is nothing named `name` in scope [unknown-name]
   --> main.buri:10:31
    |
 10 |         "/entries" => Route { name"entries" :, path },

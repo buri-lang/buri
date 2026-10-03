@@ -6,7 +6,7 @@ error: //lib/money/test/parse.buri is a test source [test-source-import]
   |
   = test sources are compiled independently and are not modules anybody can name
   = fix: put the shared helper in a library and list it in `test.dependencies` — a path with a `testing` segment if it is test-only
-error: "//lib/money/test/parse.buri" does not export `digits` [no-such-export]
+error: "//lib/money/test/parse.buri" does not export `digits` [unknown-export]
  --> lib/money/test/cents.buri:1:45
   |
 1 | from "//lib/money/test/parse.buri" import { digits };
@@ -16,9 +16,13 @@ error: "//lib/money/test/parse.buri" does not export `digits` [no-such-export]
   = fix: check the spelling, or add `export` to `digits`'s declaration in "//lib/money/test/parse.buri"
 
     A re-export names only what its module exports, so a library's surface is
-    never wider than the modules behind it.
+    never wider than the modules behind it. A namespace like fs stands for the
+    module its import named, and only that module's exports may follow the dot.
+    This covers types, bounds and impl heads too, such as list.Vector<Int> and
+    <T: order.Comparable>. If no import bound the namespace at all, the error is
+    unknown-name instead.
 
-error: there is nothing named `digits` in scope [unresolved-name]
+error: there is nothing named `digits` in scope [unknown-name]
  --> lib/money/test/cents.buri:6:35
   |
 6 |     assert.equal(format(fromCents(digits(1905))), "some");

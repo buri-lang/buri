@@ -1,4 +1,4 @@
-// EXPECT: the head of a struct literal must be a type
+// EXPECT: the head of a struct literal must be a struct or an enum variant
 from "platform/effect" import { Allocator, Stdout };
 from "node" import { NodeHost };
 from "core/io" import * as io;

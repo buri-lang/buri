@@ -1,4 +1,4 @@
-error [missing-terminator] 2:24-2:24
+error [missing-semicolon] 2:24-2:24
 message: a `derive` declaration ends with `;`
 fix: write `;` here
 edit: 2:24-2:24 ";"

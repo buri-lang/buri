@@ -772,7 +772,7 @@ pub fn tool_target(workspace: &Workspace, tool: &str) -> Option<TargetId> {
 /// every other action's does: cleared, then `TZ` and `SOURCE_DATE_EPOCH`.
 ///
 /// What keeps a tool off the clock is its entry points' bound: `ctx` has
-/// `Allocator` and nothing else (`tool-context-beyond-allocator`).
+/// `Allocator` and nothing else (`tool-effect-unavailable`).
 pub fn run_artifact(artifact: &std::path::Path, request: &str) -> Result<String, String> {
     use std::io::{Read as _, Write as _};
     use std::process::Stdio;
@@ -1176,7 +1176,7 @@ fn run_contracts(session: &mut Session, target: TargetId, flags: &Flags, overlay
 
 fn not_local(path: &str) -> Diagnostic {
     Diagnostic {
-        code: "schema-not-local".to_string(),
+        code: "schema-outside-repository".to_string(),
         message: format!("`{path}` is not a file in this repository"),
         note: None,
         fix: Some("check the schema in, and name it by a path relative to the tool or a `//` path".to_string()),
@@ -1254,7 +1254,7 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
                     missing.push((
                         match e.kind() {
                             std::io::ErrorKind::NotFound => Diagnostic {
-                                code: "no-such-source".to_string(),
+                                code: "unknown-source".to_string(),
                                 // The entry, so the loader can name it.
                                 message: input.value.clone(),
                                 note: None,
@@ -1465,7 +1465,7 @@ fn answer(
         .map_err(|e| format!("the tool's answer is not one `generate` gives: {e}"))?;
     for path in answer.outside {
         response.diagnostics.push(Diagnostic {
-            code: "schema-not-local".to_string(),
+            code: "schema-outside-repository".to_string(),
             message: format!("`{path}` is not in this repository"),
             note: None,
             fix: Some("check the file in, and name it by its repository path".to_string()),
@@ -1576,7 +1576,7 @@ fn keep_the_names_that_are_free(
             }
             Some(note) => outcome.diagnostics.push((
                 Diagnostic {
-                    code: "generator-module-taken".to_string(),
+                    code: "generator-duplicate-module".to_string(),
                     // The path a person would write, which is what the page
                     // asks for and what an import would have named.
                     message: package.module_path(&module.name),

@@ -1,4 +1,4 @@
-error: `main` declares no generic parameters [main-signature]
+error: `main` declares no generic parameters [entry-signature-mismatch]
   --> cmd/both/main.buri:16:1
    |
 16 | export fn main<T>(host: WebHost): Result<(), Str> {

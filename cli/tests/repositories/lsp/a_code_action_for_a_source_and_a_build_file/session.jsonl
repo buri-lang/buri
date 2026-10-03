@@ -3,9 +3,9 @@
 # the list — which is what puts all three edits in this golden.
 {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
-# `unused-library`: a file on disk that no rule lists. The fix is the whole
+# `unused-source`: a file on disk that no rule lists. The fix is the whole
 # build file as `buri gen` writes it, with the file added in sorted order.
-{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/one.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": [{"code": "unused-library", "message": "lib/one/extra.buri belongs to no library or binary, so nothing builds it", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]}}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/one.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": [{"code": "unused-source", "message": "lib/one/extra.buri belongs to no library or binary, so nothing builds it", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]}}}
 # `duplicate-source`: the same file listed twice. The same fix, from the same
 # generator — which is why one action answers both codes.
 {"jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/two/two.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": [{"code": "duplicate-source", "message": "two.buri is listed by two rules", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]}}}

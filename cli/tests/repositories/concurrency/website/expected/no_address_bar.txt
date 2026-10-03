@@ -1,4 +1,4 @@
-error: `CloudflareHost` has no field `location` [no-such-field]
+error: `CloudflareHost` has no field `location` [unknown-field]
    --> cmd/site/main.buri:160:24
     |
 160 |         Location: host.location,

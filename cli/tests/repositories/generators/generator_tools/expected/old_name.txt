@@ -1,4 +1,4 @@
-error: `std/proto` is retired [retired-tool-name]
+error: `std/proto` is retired [retired-tool]
  --> lib/wire/BUILD.buri:3:17
   |
 3 |         { tool: "std/proto", inputs: ["point.proto"] },

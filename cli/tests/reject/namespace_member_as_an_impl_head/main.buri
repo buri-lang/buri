@@ -1,4 +1,4 @@
-// EXPECT: "core/order" has no member `Comparable`
+// EXPECT: "core/order" does not export `Comparable`
 // The fourth position a namespace qualifies: the trait an `impl` conforms to.
 from "node" import { NodeHost };
 from "core/order" import * as order;

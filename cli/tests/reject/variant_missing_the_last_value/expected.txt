@@ -1,4 +1,4 @@
-error: `Pair` holds 2 values, but 1 were given [wrong-value-count]
+error: `Pair` holds 2 values, but 1 were given [payload-count]
   --> cmd/variant_missing_the_last_value/main.buri:11:3
    |
 11 |   .Pair(1)

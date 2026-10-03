@@ -206,14 +206,14 @@ fn the_reference_is_grouped_and_the_catalogues_are_not_in_the_sidebar() {
     let (sidebar, _) = rest.split_once("</nav>").expect("the sidebar ends");
     assert!(sidebar.contains(">Errors<"), "the sidebar has no Errors group:\n{sidebar}");
     assert!(
-        !sidebar.contains("unresolved-name"),
+        !sidebar.contains("unknown-name"),
         "the sidebar lists sibling codes:\n{sidebar}"
     );
     assert!(sidebar.matches("<li>").count() < 40, "the sidebar is a catalogue:\n{sidebar}");
 
     // The index page is where the whole catalogue is written down.
     let index = std::fs::read_to_string(out.join("reference/errors/index.html")).unwrap();
-    for code in ["circular-import", "unresolved-name", "type-mismatch"] {
+    for code in ["circular-import", "unknown-name", "type-mismatch"] {
         assert!(index.contains(code), "the errors index omits `{code}`");
     }
 

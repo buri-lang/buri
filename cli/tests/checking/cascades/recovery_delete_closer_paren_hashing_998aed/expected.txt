@@ -1,4 +1,4 @@
-error: `notEqual` takes 2 arguments, but 1 were given [wrong-argument-count]
+error: `notEqual` takes 2 arguments, but 1 were given [argument-count]
   --> main.buri:37:5
    |
 37 |     assert.notEqual(bigint.of(42.hash(), bigint.of(-42).hash());
@@ -7,7 +7,7 @@ error: `notEqual` takes 2 arguments, but 1 were given [wrong-argument-count]
    = expected: 2
    = actual: 1
    = fix: pass `notEqual` the following arguments: notEqual<T: Equal>(actual: T, expected: T)
-error: `of` takes 1 arguments, but 2 were given [wrong-argument-count]
+error: `of` takes 1 arguments, but 2 were given [argument-count]
   --> main.buri:37:21
    |
 37 |     assert.notEqual(bigint.of(42.hash(), bigint.of(-42).hash());

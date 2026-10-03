@@ -1,4 +1,4 @@
-error: a function parameter ends with `,` [missing-separator]
+error: a function parameter ends with `,` [missing-comma]
   --> main.buri:49:34
    |
 49 | export fn at<C: Allocator>(ctx: C text: Str, origin: ast.Origin): Str {

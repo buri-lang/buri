@@ -205,7 +205,7 @@ fn check_const(c: &mut Checker, cid: ConstId) {
 /// the modules were discovered in — so `context Fixture { ..Base() }` in a file
 /// that is the first in its package to import the module `Base` comes from used
 /// to be checked *before* `Base` was, and quietly kept only the bindings it
-/// wrote itself. Every use of it then failed `unsatisfied-bound` for an effect
+/// wrote itself. Every use of it then failed `missing-impl` for an effect
 /// the spread was supposed to supply.
 ///
 /// [`Checker::ctx_decls_reached`] is what keeps this to once each: a second
@@ -906,7 +906,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let fix = fix.unwrap_or_else(|| {
                 format!("bound the type parameter with `{trait_name}`, or use a type that has one")
             });
-            let d = self.templated("unsatisfied-bound", span);
+            let d = self.templated("missing-impl", span);
             d.bind("type", shown).bind("trait", trait_name);
             d.fix(fix);
             if let Some(n) = note {
@@ -1147,9 +1147,18 @@ impl<'a, 'b> Infer<'a, 'b> {
                 (info.name.clone(), undetermined.join(", "))
             };
             self.c.diags.push(
-                Diagnostic::templated("undetermined-intrinsic-type", span)
-                    .with_bind("function", name)
-                    .with_bind("parameters", parameters),
+                Diagnostic::templated("undetermined-type", span)
+                    .with_bind("function", format!("`{name}`"))
+                    .with_label("nothing here says what this answers")
+                    .with_note(format!(
+                        "nothing determines {parameters}, and a runtime operation is compiled \
+                         once against no Buri type, so the type argument written at the call is \
+                         the only record of what the value it answers holds"
+                    ))
+                    .with_fix(
+                        "use the value the call answers at the type it really has, or write the \
+                         type argument out",
+                    ),
             );
         }
     }

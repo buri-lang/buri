@@ -102,9 +102,9 @@ Contexts (Section 11.3):
     the spread and the explicit bindings; each right side's type must implement
     that effect. The result satisfies exactly the effects bound.
 34. An entry takes its platform's host — `NativeHost`, `NodeHost`, `WebHost`
-    or a repository platform's — as its first parameter (`entry-without-host`,
+    or a repository platform's — as its first parameter (`entry-missing-host`,
     `entry-host-mismatch`), and may bind only the fields that host declares
-    (`no-such-field`, with a note naming the platforms that offer the effect).
+    (`unknown-field`, with a note naming the platforms that offer the effect).
     Only a platform's `platform.buri` may import `"platform/host"`
     (`host-import-outside-platform`).
 

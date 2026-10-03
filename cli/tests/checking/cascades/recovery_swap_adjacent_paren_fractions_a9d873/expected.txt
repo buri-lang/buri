@@ -1,4 +1,4 @@
-error: `secondsFloat` takes 1 arguments, but 2 were given [wrong-argument-count]
+error: `secondsFloat` takes 1 arguments, but 2 were given [argument-count]
   --> main.buri:42:9
    |
 42 |         time.secondsFloat(- 0.0 1.5).asSecondsFloat(),
@@ -7,7 +7,7 @@ error: `secondsFloat` takes 1 arguments, but 2 were given [wrong-argument-count]
    = expected: 1
    = actual: 2
    = fix: pass `secondsFloat` the following arguments: secondsFloat(seconds: Float)
-error: a call argument ends with `,` [missing-separator]
+error: a call argument ends with `,` [missing-comma]
   --> main.buri:42:32
    |
 42 |         time.secondsFloat(- 0.0 1.5).asSecondsFloat(),

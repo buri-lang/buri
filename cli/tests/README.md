@@ -249,7 +249,7 @@ close, and the child killed on the way out however the row leaves.
 `repositories/serving/` is the fixture it shares with the manifest case that
 pins the halves a command which *finishes* can pin.
 
-**`networking-not-available` has no whole-process row.**
+**`networking-unavailable` has no whole-process row.**
 `runtime_native::net()` reads a file `cli/build.rs` writes beside the archive
 and `include_str!` bakes into the binary, so *running* that refusal would mean
 building `buri` a second time with `BURI_RUNTIME_NET=0`.
@@ -640,7 +640,7 @@ Recording is opt-in because nothing else here writes into a checked-in tree.
 
 **The repository corpus** exists because the two corpora above cannot hold a
 build-system test. A reject case is synthesised as a single-package binary with
-no dependencies, so nothing in it can express `missing-dep`, `dep-cycle`,
+no dependencies, so nothing in it can express `missing-dependency`, `circular-dependency`,
 `visibility-violation`, or a tag conflict. A case there is a repository instead:
 
 ```

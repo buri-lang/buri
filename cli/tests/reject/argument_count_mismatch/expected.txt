@@ -1,4 +1,4 @@
-error: expected 1 arguments, found 2 [argument-count-mismatch]
+error: this function takes 1 arguments, but 2 were given [argument-count]
  --> cmd/argument_count_mismatch/main.buri:4:3
   |
 4 |   f(1, 2)
@@ -6,4 +6,4 @@ error: expected 1 arguments, found 2 [argument-count-mismatch]
   |
   = expected: 1
   = actual: 2
-  = fix: pass the following arguments: fn(I64) => I64
+  = fix: pass this function the following arguments: fn(I64) => I64

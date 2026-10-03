@@ -6,7 +6,7 @@ warning: `palette` is 104 lines long [oversized-function]
    |
    = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
    = fix: find the responsibility boundaries in the body and give each one a function of its own
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_delete_closer_module_app_38e242/main.buri:53:6
    |
 53 |     ]

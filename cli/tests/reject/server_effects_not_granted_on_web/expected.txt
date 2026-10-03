@@ -1,4 +1,4 @@
-error: `WebHost` has no field `listen` [no-such-field]
+error: `WebHost` has no field `listen` [unknown-field]
   --> cmd/server_effects_not_granted_on_web/main.buri:23:18
    |
 23 |     Listen: host.listen,

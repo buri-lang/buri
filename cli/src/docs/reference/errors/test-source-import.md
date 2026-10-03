@@ -1,5 +1,5 @@
 ---
-title: A test source is not a module anybody can name
+title: Nothing imports a test source
 message: '{path} is a test source'
 label: test sources are not importable
 note: test sources are compiled independently and are not modules anybody can name

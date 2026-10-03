@@ -1,4 +1,4 @@
-error: //cmd/ok declares neither a library nor a binary [package-without-a-rule]
+error: //cmd/ok declares neither a library nor a binary [package-missing-rule]
  --> cmd/ok/BUILD.buri:1:1
   |
 1 | binary {

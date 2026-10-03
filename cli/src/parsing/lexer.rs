@@ -1127,7 +1127,7 @@ impl<'a> Lexer<'a> {
             let digits = without_underscores(self.slice(digits_start, self.pos));
             if digits.is_empty() {
                 let span = self.span(start);
-                self.templated("integer-without-digits", span).bind("literal", raw);
+                self.templated("integer-missing-digits", span).bind("literal", raw);
                 self.push_int(0, start);
                 return;
             }
@@ -1135,7 +1135,7 @@ impl<'a> Lexer<'a> {
                 Ok(v) => self.push_int(v, start),
                 Err(_) => {
                     let span = self.span(start);
-                    self.templated("integer-not-in-base", span)
+                    self.templated("invalid-integer", span)
                         .bind("literal", raw)
                         .bind("radix", radix.to_string());
                     self.push_int(0, start);
@@ -1181,7 +1181,7 @@ impl<'a> Lexer<'a> {
                 Ok(v) => self.push_float(v, start),
                 Err(_) => {
                     let span = self.span(start);
-                    self.templated("not-a-float-literal", span).bind("literal", raw);
+                    self.templated("invalid-float", span).bind("literal", raw);
                     self.push_float(0.0, start);
                 }
             }
@@ -1307,7 +1307,7 @@ impl<'a> Lexer<'a> {
                     Some(c) => c,
                     None => {
                         let span = self.span(start);
-                        self.templated("not-a-scalar-value", span).bind("digits", digits);
+                        self.templated("invalid-unicode-escape", span).bind("digits", digits);
                         return None;
                     }
                 }

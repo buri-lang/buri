@@ -1,4 +1,4 @@
-error: there is no assignment; a binding is given its value once, where it is declared [no-assignment]
+error: there is no assignment; a binding is given its value once, where it is declared [reassignment]
  --> cmd/assignment_to_binding/main.buri:9:5
   |
 9 |   n = 2;

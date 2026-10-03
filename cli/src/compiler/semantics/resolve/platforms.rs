@@ -122,7 +122,7 @@ impl<'a> Checker<'a> {
         let info = self.tables.fn_info(fid).clone();
         let label = custom.label.value.clone();
         if !info.generics.is_empty() {
-            self.templated("main-signature", d.span)
+            self.templated("entry-signature-mismatch", d.span)
                 .bind("entry", name.to_string())
                 .bind("requirement", "declares no generic parameters")
                 .fix(format!(
@@ -139,7 +139,7 @@ impl<'a> Checker<'a> {
                     "take the platform's host and bind its fields:\n     export {wanted} {{\n         \
                      ...\n     }}"
                 );
-                self.templated("entry-without-host", d.span)
+                self.templated("entry-missing-host", d.span)
                     .bind("entry", name.to_string())
                     .fix(fix)
                     .notes
@@ -172,7 +172,7 @@ impl<'a> Checker<'a> {
             && info.params.iter().zip(&want.params).skip(skip).all(|(a, b)| a.ty == b.ty || a.ty.is_error())
             && (info.ret == want.ret || info.ret.is_error());
         if !same {
-            self.templated("main-signature", d.span)
+            self.templated("entry-signature-mismatch", d.span)
                 .bind("entry", name.to_string())
                 .bind("requirement", format!("has the signature `{label}` declares, `{wanted}`"))
                 .fix(format!("write it `{wanted}`"));
@@ -218,9 +218,9 @@ impl<'a> Checker<'a> {
             } else if tycon.module == platform
                 && custom.backend == Backend::Native
                 && self.has_bodiless_methods(*con)
-                && !self.already(field.span, "custom-effect-on-native-backend")
+                && !self.already(field.span, "custom-effect-outside-js")
             {
-                self.templated("custom-effect-on-native-backend", field.span)
+                self.templated("custom-effect-outside-js", field.span)
                     .bind("field", field.name.clone())
                     .bind("struct", struct_name.clone())
                     .bind("platform", label.clone());
@@ -260,8 +260,8 @@ impl<'a> Checker<'a> {
         for p in info.params.iter().skip(skip) {
             if let Err(bad) = crossing::classify(&self.tables, known, &p.ty, false) {
                 let shown = self.shown(&bad);
-                if !self.already(p.span, "type-cannot-cross") {
-                    self.templated("type-cannot-cross", p.span)
+                if !self.already(p.span, "type-not-crossable") {
+                    self.templated("type-not-crossable", p.span)
                         .bind("type", shown)
                         .bind("place", format!("{what}'s parameter `{}`", p.name));
                 }
@@ -269,8 +269,8 @@ impl<'a> Checker<'a> {
         }
         if let Err(bad) = crossing::classify(&self.tables, known, &info.ret, true) {
             let shown = self.shown(&bad);
-            if !self.already(info.span, "type-cannot-cross") {
-                self.templated("type-cannot-cross", info.span)
+            if !self.already(info.span, "type-not-crossable") {
+                self.templated("type-not-crossable", info.span)
                     .bind("type", shown)
                     .bind("place", format!("{what}'s answer"));
             }
@@ -288,8 +288,8 @@ impl<'a> Checker<'a> {
             let struct_name = self.tables.tycon(*con).name.clone();
             for method in self.bodiless_methods(*con) {
                 let info = self.tables.fn_info(method).clone();
-                if !info.generics.is_empty() && !self.already(info.span, "type-cannot-cross") {
-                    self.templated("type-cannot-cross", info.span)
+                if !info.generics.is_empty() && !self.already(info.span, "type-not-crossable") {
+                    self.templated("type-not-crossable", info.span)
                         .bind("type", "a type parameter")
                         .bind("place", format!("`{struct_name}.{}`", info.name));
                     continue;
@@ -335,7 +335,7 @@ impl<'a> Checker<'a> {
             }
         }
         for (span, effect, package) in missing {
-            self.templated("effect-without-test-implementation", span)
+            self.templated("effect-missing-test-impl", span)
                 .bind("effect", effect)
                 .bind("package", package);
         }

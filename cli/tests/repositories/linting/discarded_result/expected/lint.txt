@@ -1,4 +1,4 @@
-warning: this discards a `Result` [discarded-result]
+warning: this discards a `Result` [ignored-result]
   --> cmd/app/main.buri:26:13
    |
 26 |     let _ = record().ignore();
@@ -21,8 +21,8 @@ warning: this discards a `Result` [discarded-result]
            .Err(_error) => (),
        }
 
-     It's ignore() spelled out, minus the greppability, and
-     discarded-result-by-hand reports it too.
+     It's ignore() spelled out, minus the greppability, and hand-rolled-ignore
+     reports it too.
 
      let _ = someResult() and a bare Result statement are already a type error,
      result-discarded, so ignore is the only drop left to report.
@@ -35,7 +35,7 @@ warning: this discards a `Result` [discarded-result]
      If the failure truly doesn't matter, keeping the ignore and letting the
      warning stand is fine. The point is that somebody decided.
 
-warning: this discards a `Result` [discarded-result]
+warning: this discards a `Result` [ignored-result]
   --> cmd/app/main.buri:27:13
    |
 27 |     let _ = io.println(ctx, "done").ignore();

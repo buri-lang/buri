@@ -126,7 +126,7 @@ schema:
 - **34 are 64-bit precision.** An `Int` is an `I64` and an `I64` is a double, so
   a value past 2^53 survives only to a double's precision and one at ±2^63 does
   not survive at all. Closing this needs a real 64-bit integer in the language.
-- **2 are unknown-field retention.** Decoding skips a field the schema does not
+- **2 are build-unknown-field retention.** Decoding skips a field the schema does not
   know rather than keeping the bytes, so they do not survive a re-encode.
 - **1 is explicit presence**, and it is not a gap. The schema under test is
   edition 2026 and the reference is proto3, so the two disagree about whether a

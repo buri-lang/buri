@@ -1,4 +1,4 @@
-error: `NATIVEE` is not a backend [unknown-bare-word]
+error: `NATIVEE` is not a backend [build-unknown-word]
  --> REPO.buri:6:25
   |
 6 |   requires { backends: [NATIVEE] }

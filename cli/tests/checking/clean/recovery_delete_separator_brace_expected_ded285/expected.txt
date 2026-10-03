@@ -1,4 +1,4 @@
-error: a record field ends with `,` [missing-separator]
+error: a record field ends with `,` [missing-comma]
  --> main.buri:3:18
   |
 3 |     export a: Int

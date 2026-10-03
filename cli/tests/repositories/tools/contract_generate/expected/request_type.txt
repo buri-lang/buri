@@ -1,4 +1,4 @@
-error: `generate` takes `GenerateRequest<Config>` under its `json` contract [tool-request-type]
+error: `generate` takes `GenerateRequest<Config>` under its `json` contract [tool-request-mismatch]
   --> tool/database_schema_codegen/tool.buri:10:51
    |
 10 | export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
@@ -18,7 +18,7 @@ error: `generate` takes `GenerateRequest<Config>` under its `json` contract [too
      With accepts, the build generates the contract's types into the tool and
      hands the entry point typed values. Without it, the entry point takes Str.
 
-error: `Str` has no field `tables` [no-such-field]
+error: `Str` has no field `tables` [unknown-field]
   --> tool/database_schema_codegen/tool.buri:14:25
    |
 14 |             input.value.tables.mapCtx(c, fn(c2, t) => table(c2, t)).join(c, "; ")

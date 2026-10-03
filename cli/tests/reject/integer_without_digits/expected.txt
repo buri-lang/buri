@@ -1,4 +1,4 @@
-error: `0x` has no digits [integer-without-digits]
+error: `0x` has no digits [integer-missing-digits]
  --> cmd/integer_without_digits/main.buri:8:11
   |
 8 |   let n = 0x;

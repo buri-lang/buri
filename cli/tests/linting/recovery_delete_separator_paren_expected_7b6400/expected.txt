@@ -1,4 +1,4 @@
-error: a function-type parameter ends with `,` [missing-separator]
+error: a function-type parameter ends with `,` [missing-comma]
   --> lib/recovery_delete_separator_paren_expected_7b6400/main.buri:34:47
    |
 34 | fn rendered<C: Allocator>(ctx: C, render: fn(C Str) => Str, label: Str): Str {

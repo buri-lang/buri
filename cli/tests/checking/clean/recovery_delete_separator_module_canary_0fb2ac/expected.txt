@@ -1,4 +1,4 @@
-error: an import declaration ends with `;` [missing-terminator]
+error: an import declaration ends with `;` [missing-semicolon]
  --> main.buri:9:46
   |
 9 | from "core/testing/assert" import * as assert

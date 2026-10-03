@@ -122,7 +122,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         None
                     } else {
                         let at = self.c.diags.items.len();
-                        self.templated("expression-statement", span);
+                        self.templated("statement-outside-test", span);
                         Some(at)
                     };
                     let e = self.check_expr(ExprId(s.value), None);
@@ -180,7 +180,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         span: Span,
     ) -> typed::Stmt {
         // Binding a value to `ctx` builds nothing, so it is not an error here —
-        // `context-not-allowed` guards the construction itself. The name is
+        // `misplaced-context` guards the construction itself. The name is
         // still a convention, and `ctx-rebinding` reports it from `buri lint`.
         if is_ctx && !self.may_build_context() {
             self.c.ctx_rebindings.push(span);
@@ -410,7 +410,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             V::SelfValue { span } => match self.lookup_local("self") {
                 Some(l) => typed::Expr::new(typed::ExprKind::Local(l), self.local_ty(l), span),
                 None => {
-                    self.templated("self-outside-a-method", span);
+                    self.templated("self-outside-method", span);
                     self.error_expr(span)
                 }
             },
@@ -420,7 +420,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     // A name nothing in scope declares, reported as one. `ctx`
                     // is a keyword, so a parameter is the only thing that ever
                     // puts it in scope, and that is what the fix says.
-                    self.templated("unresolved-name", span)
+                    self.templated("unknown-name", span)
                         .bind("name", "ctx")
                         .fix("declare `ctx` as a parameter of this function");
                     self.error_expr(span)
@@ -490,7 +490,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         ),
                         None => {
                             let n = elems.len();
-                            self.templated("no-such-tuple-element", index_span)
+                            self.templated("unknown-tuple-element", index_span)
                                 .bind("arity", n.to_string())
                                 .bind("index", index.to_string())
                                 .bind("last", n.saturating_sub(1).to_string());
@@ -512,7 +512,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                             }
                             None => {
                                 let n = self.c.tables.tycon(*con).name.clone();
-                                self.templated("no-such-positional-field", index_span)
+                                self.templated("unknown-positional-field", index_span)
                                     .bind("type", n)
                                     .bind("index", index.to_string())
                                     .bind("count", fields.len().to_string());
@@ -523,7 +523,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     _ => {
                         if !bty.is_error() {
                             let shown = self.show_ty(&bty);
-                            self.templated("not-a-tuple", span).bind("type", shown);
+                            self.templated("not-tuple", span).bind("type", shown);
                         }
                         self.error_expr(span)
                     }
@@ -564,7 +564,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     Some(Static::Fn(f)) => self.fn_ref(f, Some(targs), span),
                     _ => {
                         let function = self.written_name(base);
-                        self.templated("type-args-on-a-value", span).bind("function", function);
+                        self.templated("type-arguments-on-value", span).bind("function", function);
                         self.error_expr(span)
                     }
                 }
@@ -602,12 +602,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                 typed::Expr::new(typed::ExprKind::Const(cid), ty, span)
             }
             Some(Sym::Context(cid)) => {
-                self.templated("context-not-a-value", span).bind("name", name);
+                self.templated("context-not-called", span).bind("name", name);
                 let _ = cid;
                 self.error_expr(span)
             }
             Some(Sym::Method(owner)) => {
-                self.templated("method-not-a-value", span).bind("name", name).fix(format!(
+                self.templated("method-not-value", span).bind("name", name).fix(format!(
                     "call it on a receiver: `x.{name}(...)`, where `x` is a `{owner}`; to \
                      pass it on, wrap it in a lambda"
                 ));
@@ -634,7 +634,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             | Some(Sym::Trait(_))
             | Some(Sym::Namespace(_))
             | Some(Sym::Alias(..)) => {
-                self.templated("type-not-a-value", span).bind("name", name);
+                self.templated("type-not-value", span).bind("name", name);
                 self.error_expr(span)
             }
             None => {
@@ -660,7 +660,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                          module's own declarations and its imports"
                     );
                 }
-                let d = self.templated("unresolved-name", span).bind("name", name);
+                let d = self.templated("unknown-name", span).bind("name", name);
                 d.fix(fix);
                 if let Some(n) = note {
                     d.notes.push(n);
@@ -705,9 +705,10 @@ impl<'a, 'b> Infer<'a, 'b> {
             Some(ts) => {
                 let want = generics.len();
                 let got = ts.len();
-                self.templated("type-argument-mismatch", span)
+                self.templated("type-argument-count", span)
+                    .bind("subject", "this function")
                     .bind("expected", want.to_string())
-                    .bind("found", got.to_string())
+                    .bind("given", got.to_string())
                     .mismatch(want.to_string(), got.to_string());
                 (0..generics.len()).map(|_| self.fresh(span)).collect()
             }
@@ -905,10 +906,10 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             Some(Static::Context(cid)) => {
                 if !args.is_empty() {
-                    self.templated("context-call-with-arguments", span);
+                    self.templated("context-parameters", span);
                 }
                 if !self.may_build_context() {
-                    self.templated("context-not-allowed", span);
+                    self.templated("misplaced-context", span);
                 }
                 // Checked here if checking has not reached it yet. A
                 // declaration built from another reads the base's *recorded*
@@ -1100,8 +1101,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         signature: &str,
         call: &Miscounted<'_>,
     ) {
-        let mut d = Diagnostic::templated("wrong-argument-count", span)
-            .with_bind("function", name.to_string())
+        let mut d = Diagnostic::templated("argument-count", span)
+            .with_bind("callee", format!("`{name}`"))
             .with_bind("expected", call.types.len().to_string())
             .with_bind("given", call.checked.len().to_string())
             .with_bind("signature", signature.to_string())
@@ -1121,10 +1122,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         shown: &str,
         call: &Miscounted<'_>,
     ) {
-        let mut d = Diagnostic::templated("argument-count-mismatch", span)
+        let mut d = Diagnostic::templated("argument-count", span)
+            .with_bind("callee", "this function")
             .with_bind("expected", call.types.len().to_string())
-            .with_bind("found", call.checked.len().to_string())
-            .with_bind("type", shown.to_string())
+            .with_bind("given", call.checked.len().to_string())
+            .with_bind("signature", shown.to_string())
             .with_mismatch(call.types.len().to_string(), call.checked.len().to_string());
         if let Some(at) = self.missing_slot(call) {
             let which = ordinal(at.saturating_add(1));
@@ -1142,7 +1144,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         shape: &str,
         call: &Miscounted<'_>,
     ) {
-        let mut d = Diagnostic::templated("wrong-value-count", span)
+        let mut d = Diagnostic::templated("payload-count", span)
             .with_bind("name", name.to_string())
             .with_bind("expected", call.types.len().to_string())
             .with_bind("given", call.checked.len().to_string())
@@ -1282,7 +1284,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
         };
         self.c.diags.push(
-            Diagnostic::templated("lazy-not-a-function", at).with_bind("got", described),
+            Diagnostic::templated("load-not-function", at).with_bind("got", described),
         );
     }
 
@@ -1552,9 +1554,10 @@ impl<'a, 'b> Infer<'a, 'b> {
         let owner = self.c.tables.trait_(tid).generics.len();
         let want = generics.len().saturating_sub(owner);
         if explicit.len() != want {
-            self.templated("type-argument-mismatch", span)
+            self.templated("type-argument-count", span)
+                .bind("subject", "this method")
                 .bind("expected", want.to_string())
-                .bind("found", explicit.len().to_string())
+                .bind("given", explicit.len().to_string())
                 .mismatch(want.to_string(), explicit.len().to_string());
             return None;
         }
@@ -1725,7 +1728,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         if let Some(surface) = surfaces.get(&there) {
             if !surface.contains(&self.c.tables.fn_info(f).name) {
                 let name = self.c.tables.fn_info(f).name.clone();
-                self.templated("not-on-the-surface", span)
+                self.templated("not-on-surface", span)
                     .bind("name", name.clone())
                     .bind("owner", label)
                     .fix(format!("re-export `{name}` from that library's {file}, if it is part of the API"));
@@ -1835,7 +1838,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             (None, None) => self.no_method_fix(recv, &shown, name),
         };
         let d = self
-            .templated("no-such-method", span)
+            .templated("unknown-method", span)
             .bind("type", shown)
             .bind("method", name.to_string());
         if let Some((note, _)) = renamed {
@@ -1949,7 +1952,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     self.construct_variant(con, index, &[], span, expected, span)
                 }
                 Static::Context(_) => {
-                    self.templated("context-not-called", span);
+                    self.templated("context-not-called", span).bind("name", name);
                     self.error_expr(span)
                 }
                 Static::TupleStruct(_) => {
@@ -1987,7 +1990,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 // A method is not a value: `x.f` must be immediately called.
                 if self.c.tables.method(*con, name).is_some() {
                     let n = name.to_string();
-                    self.templated("method-not-a-value", span).bind("name", n);
+                    self.templated("method-not-value", span).bind("name", n);
                     return self.error_expr(span);
                 }
                 self.report_no_field(&bty, name, name_span);
@@ -2056,7 +2059,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
         let elsewhere = self.host_field_elsewhere(ty, name);
         let d = self
-            .templated("no-such-field", span)
+            .templated("unknown-field", span)
             .bind("type", shown.clone())
             .bind("field", name.to_string());
         // After the binds: every `bind` re-renders the page's own fix over it.
@@ -2135,7 +2138,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     ) -> typed::Expr {
         let Some(exp) = expected.map(|t| self.resolve(t)) else {
             let n = name.to_string();
-            self.templated("unannotated-variant", dot_span).bind("variant", n);
+            self.templated("untyped-variant", dot_span).bind("variant", n);
             return self.error_expr(span);
         };
         let Ty::Con(con, _) = &exp else {
@@ -2152,7 +2155,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 *con,
                 name,
             );
-            let d = self.templated("no-such-variant", dot_span)
+            let d = self.templated("unknown-variant", dot_span)
                 .bind("type", ty)
                 .bind("variant", name.to_string());
             d.notes.extend(note);
@@ -2303,7 +2306,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             _ => None,
         };
         let Some(con) = self.struct_lit_head(head) else {
-            self.templated("not-a-struct-literal-head", head_span);
+            self.templated("struct-literal-head", head_span);
             return self.error_expr(span);
         };
         // The fields are what this needs; copying the `TyCon` for them copied
@@ -2314,7 +2317,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         };
         if !is_struct {
             let n = self.c.tables.tycon(con).name.clone();
-            self.templated("enum-without-a-variant", head_span)
+            self.templated("enum-not-value", head_span)
                 .bind("type", n.clone())
                 .fix(format!("write `{n}.Variant {{ ... }}`"));
             return self.error_expr(span);
@@ -2360,13 +2363,13 @@ impl<'a, 'b> Infer<'a, 'b> {
                 .map(|(i, f)| (i, f.clone()));
             let Some((i, decl)) = found else {
                 let t = self.c.tables.tycon(con).name.clone();
-                self.templated("no-such-field", ispan)
+                self.templated("unknown-field", ispan)
                     .bind("type", t)
                     .bind("field", iname.to_string());
                 continue;
             };
             if seen.contains(&iname) {
-                self.templated("duplicate-field-initializer", ispan)
+                self.templated("duplicate-field-value", ispan)
                     .bind("field", iname.to_string());
             }
             seen.push(iname);
@@ -2485,7 +2488,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         expected: Option<&Ty>,
     ) -> Option<(TyConId, Vec<Ty>)> {
         let refuse = |me: &mut Self, fix: String| {
-            me.templated("struct-literal-type", span).fix(fix);
+            me.templated("untyped-struct-literal", span).fix(fix);
             None
         };
         let name_it = "write the type before the `{`, as in `World { hi: \"hi\" }`".to_string();
@@ -2617,7 +2620,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 .map(|(i, f)| (i, f.ty.clone()));
             let Some((i, decl_ty)) = found else {
                 let v = variant.name.clone();
-                self.templated("no-such-field", ispan)
+                self.templated("unknown-field", ispan)
                     .bind("type", v)
                     .bind("field", iname.to_string());
                 continue;
@@ -2751,7 +2754,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 } else {
                     let shown = self.show_ty(&ty);
                     if !ty.is_error() {
-                        self.templated("bitwise-on-a-non-integer", span)
+                        self.templated("bitwise-non-integer", span)
                             .bind("operator", "~")
                             .bind("type", shown)
                             .fix("use `!` for a `Bool`");
@@ -2811,7 +2814,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         if matches!(prim, Some(Prim::Template))
             && matches!(op, B::Eq | B::Ne | B::Lt | B::Le | B::Gt | B::Ge)
         {
-            self.templated("missing-conformance", op_span)
+            self.templated("missing-impl", op_span)
                 .bind("type", "Template")
                 .bind("trait", "Equal")
                 .fix("render both sides first: `str.format(ctx, a) == str.format(ctx, b)`")
@@ -2848,7 +2851,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             if bitwise {
                 if !ty.is_error() {
                     let shown = self.show_ty(&ty);
-                    self.templated("bitwise-on-a-non-integer", op_span)
+                    self.templated("bitwise-non-integer", op_span)
                         .bind("operator", op.text())
                         .bind("type", shown)
                         .fix("use `&&` and `||` for a `Bool`");
@@ -2930,7 +2933,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
         if !self.satisfies(&ty, tid) {
             let shown = self.show_ty(&ty);
-            let mut d = Diagnostic::templated("missing-conformance", span)
+            let mut d = Diagnostic::templated("missing-impl", span)
                 .with_bind("type", shown.clone())
                 .with_bind("trait", trait_name);
             if ty.head().is_some() {
@@ -3036,14 +3039,14 @@ impl<'a, 'b> Infer<'a, 'b> {
                         if self.subst.unify(&self.c.tables, &err_ty, &ret_err).is_err() {
                             let from = self.show_ty(&err_ty);
                             let to = self.show_ty(&ret_err);
-                            self.templated("error-type-mismatch", span)
+                            self.templated("try-error-mismatch", span)
                                 .bind("from", from)
                                 .bind("to", to);
                         }
                     }
                     None => {
                         let shown = self.show_ty(&ret);
-                        self.templated("question-mark-mismatch", span)
+                        self.templated("try-return-mismatch", span)
                             .bind("container", "a `Result`")
                             .bind("type", shown)
                             .fix("return a `Result` from this function, or handle the error here with `match` or `withDefault`");
@@ -3054,7 +3057,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             (None, Some(inner)) => {
                 if !self.is_known_option(&ret) {
                     let shown = self.show_ty(&ret);
-                    self.templated("question-mark-mismatch", span)
+                    self.templated("try-return-mismatch", span)
                         .bind("container", "an `Option`")
                         .bind("type", shown)
                         .fix("return an `Option` from this function, or turn absence into an error with `.okOr(e)?`");
@@ -3263,7 +3266,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         span: Span,
     ) -> typed::Expr {
         if !self.may_build_context() {
-            self.templated("context-not-allowed", span);
+            self.templated("misplaced-context", span);
         }
 
         let mut bindings: Vec<(TraitId, typed::Expr)> = Vec::new();
@@ -3284,7 +3287,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     // The inherited binding keeps the *implementing type* the
                     // base recorded. Without it monomorphization has nothing
                     // to dispatch on, and every effect a spread supplies is
-                    // unusable — the failure is `type-arguments-required` at
+                    // unusable — the failure is `undetermined-type` at
                     // the *use*, "`Clock` could not be resolved to a concrete
                     // type", far from the context that lost it. What pins that
                     // is the section "An effect INHERITED through a spread" in
@@ -3316,13 +3319,14 @@ impl<'a, 'b> Infer<'a, 'b> {
             let binding_span = t.span_of(binding.span);
             let value_span = t.span(ExprId(binding.value));
             let flat::TypeView::Named { path, .. } = effect else {
-                self.templated("context-binding-not-an-effect", effect_span);
+                self.templated("context-binding-not-effect", effect_span)
+                    .bind("binding", "this type");
                 continue;
             };
             let Some(Sym::Trait(tid)) = self.c.resolve_path(self.module, path) else {
                 let shown = t.type_head(effect_id).unwrap_or("?").to_string();
                 let renamed = standard_library::renamed::anywhere(&shown);
-                let d = self.templated("not-an-effect", effect_span).bind("name", shown);
+                let d = self.templated("unknown-effect", effect_span).bind("name", shown);
                 // After the binds: every `bind` re-renders the page's own fix over it.
                 if let Some((note, fix)) = renamed {
                     d.fix(fix);
@@ -3332,7 +3336,8 @@ impl<'a, 'b> Infer<'a, 'b> {
             };
             if !self.c.tables.trait_(tid).is_effect {
                 let shown = self.c.tables.trait_(tid).name.clone();
-                self.templated("trait-not-an-effect", effect_span).bind("name", shown);
+                self.templated("context-binding-not-effect", effect_span)
+                    .bind("binding", format!("the trait `{shown}`"));
                 continue;
             }
             let value = self.check_expr(ExprId(binding.value), None);
@@ -3342,7 +3347,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             if !self.satisfies(&vty, tid) && !vty.is_error() {
                 let shown = self.show_ty(&vty);
                 let eff = self.c.tables.trait_(tid).name.clone();
-                self.templated("missing-conformance", value_span)
+                self.templated("missing-impl", value_span)
                     .bind("type", shown)
                     .bind("trait", eff.clone())
                     .fix(format!(
@@ -3533,7 +3538,7 @@ fn wildcard_types(pat: &typed::Pattern, at: Span, out: &mut Vec<(Span, Ty)>) {
 ///
 /// Borrowed rather than repeated, because a `Result` left in statement
 /// position is the same mistake as one bound to `_`, and the two diagnostics
-/// that shape earns — `expression-statement` and `statement-not-unit` — would
+/// that shape earns — `statement-outside-test` and `statement-not-unit` — would
 /// otherwise answer it with `let _ = ...;`, which is the error the reader hits
 /// next. One rule, one sentence, and it lives on the page that explains it.
 fn result_discard_fix() -> Option<&'static str> {
@@ -3584,7 +3589,7 @@ mod tests {
     /// the one thing the tests below disagree about.
     ///
     /// The context is built in `main` because that is one of the three places
-    /// authority may enter (`context-not-allowed`), and a snippet is a whole
+    /// authority may enter (`misplaced-context`), and a snippet is a whole
     /// module rather than a body.
     fn snippet(handler: &str) -> String {
         format!(

@@ -1,4 +1,4 @@
-// EXPECT: expected 1 arguments, found 2
+// EXPECT: this function takes 1 arguments, but 2 were given
 fn go(): Int {
   let f = fn(a: Int): Int => a;
   f(1, 2)

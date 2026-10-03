@@ -1,4 +1,4 @@
-error: `I64` has no method `eq` [no-such-method]
+error: `I64` has no method `eq` [unknown-method]
   --> cmd/renamed_trait_method/main.buri:10:32
    |
 10 |   let _ = io.println(ctx, "${a.eq(2)}").ignore();

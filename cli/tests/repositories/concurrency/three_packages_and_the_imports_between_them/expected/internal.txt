@@ -6,7 +6,7 @@ error: //lib/ledger/entry.buri is internal to //lib/ledger [internal-import]
   |
   = only names re-exported by lib/ledger/lib.buri are available
   = fix: import the library instead: from "//lib/ledger" import { ... }
-error: there is nothing named `total` in scope [unresolved-name]
+error: there is nothing named `total` in scope [unknown-name]
   --> cmd/report/main.buri:15:42
    |
 15 |         .println(ctx, "total ${show(ctx, total(entries()))}")

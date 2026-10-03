@@ -1,4 +1,4 @@
-error: `Describe` could not be resolved to a concrete type [type-arguments-required]
+error: a `Describe` method is called at a type nothing determines [undetermined-type]
   --> cmd/impl_generic_absent_from_its_head/main.buri:22:3
    |
 22 |   d.describe()
@@ -6,3 +6,14 @@ error: `Describe` could not be resolved to a concrete type [type-arguments-requi
    |
    = the implementation's type parameter 0 is never mentioned in the type it is written for, so the receiver does not say what it is
    = fix: mention every one of the `impl`'s type parameters in the type it is written for, or drop the ones it does not use
+
+     Write the argument out, as in list.empty<Int>(), or use the answer
+     somewhere that says what it holds.
+
+     A type parameter that appears only in the answer has nothing else to pin
+     it, so the checker would resolve it to (). That matters most for a runtime
+     operation. A [T] crosses into the runtime as two words whatever T is, so
+     the compiler derives the answer's width, and the code that releases what it
+     holds, from the type argument at the call. A release generated for () frees
+     the block but nothing inside it, so its contents leak.
+

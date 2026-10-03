@@ -1,4 +1,4 @@
-error: `//tool/gen` is built from //lib/wire, which is the target that runs it [generator-cycle]
+error: `//tool/gen` is built from //lib/wire, which is the target that runs it [circular-generator]
  --> lib/wire/BUILD.buri:3:17
   |
 3 |         { tool: "//tool/gen", inputs: ["units.txt"] },

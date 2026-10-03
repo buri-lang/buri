@@ -1,4 +1,4 @@
-error: there is nothing named `docs` in scope [unresolved-name]
+error: there is nothing named `docs` in scope [unknown-name]
   --> main.buri:81:39
    |
 81 |     ast.Module { items: [item(kind)], docs[ :] }

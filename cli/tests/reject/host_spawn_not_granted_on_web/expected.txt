@@ -1,4 +1,4 @@
-error: `WebHost` has no field `spawn` [no-such-field]
+error: `WebHost` has no field `spawn` [unknown-field]
   --> cmd/host_spawn_not_granted_on_web/main.buri:19:17
    |
 19 |     Spawn: host.spawn,

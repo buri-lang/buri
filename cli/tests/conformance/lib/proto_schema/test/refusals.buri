@@ -28,17 +28,17 @@ test "a syntax declaration asks for the migration, not for a different word" {
     refuses(
         ctx,
         "syntax = \"proto3\";\n",
-        "proto-syntax-declaration",
+        "proto-unsupported-edition",
         "syntax = \"proto3\"",
     );
     refuses(
         ctx,
         "syntax = \"proto2\";\n",
-        "proto-syntax-declaration",
+        "proto-unsupported-edition",
         "syntax = \"proto2\"",
     );
     let parsed = read(ctx, "syntax = \"proto3\";\n");
-    let d = assert.some(under(parsed, "proto-syntax-declaration"));
+    let d = assert.some(under(parsed, "proto-unsupported-edition"));
     assert.equal(d.message, "`syntax = \"proto3\"` is not accepted");
 }
 
@@ -46,11 +46,11 @@ test "an edition before 2026 is refused at the edition it names" {
     let ctx = context {
         Allocator: alloc(),
     };
-    refuses(ctx, "edition = \"2023\";\n", "proto-edition", "\"2023\"");
-    refuses(ctx, "edition = \"2024\";\n", "proto-edition", "\"2024\"");
+    refuses(ctx, "edition = \"2023\";\n", "proto-unsupported-edition", "\"2023\"");
+    refuses(ctx, "edition = \"2024\";\n", "proto-unsupported-edition", "\"2024\"");
     let parsed = read(ctx, "edition = \"2023\";\n");
     assert.equal(
-        assert.some(under(parsed, "proto-edition")).message,
+        assert.some(under(parsed, "proto-unsupported-edition")).message,
         "edition 2023 is not accepted",
     );
 }
@@ -62,7 +62,7 @@ test "a file that declares no edition is refused at the file" {
     // The span is the start of the file, because there is no token to point at
     // — the problem is the line that is not there.
     let missing = read(ctx, "message M { int32 x = 1; }\n");
-    let d = assert.some(under(missing, "proto-edition-missing"));
+    let d = assert.some(under(missing, "proto-missing-edition"));
     let origin = assert.some(d.origin);
     assert.equal(origin.file, FILE);
     assert.equal(origin.span.start, 0);
@@ -242,7 +242,7 @@ test "a oneof case takes no label, and the case is kept so the rest is still rea
         ctx,
         "message M { oneof pick { repeated string a = 1; string b = 2; } }\n",
     );
-    refuses(ctx, text, "proto-schema", "repeated string a = 1;");
+    refuses(ctx, text, "proto-syntax", "repeated string a = 1;");
     let parsed = read(ctx, text);
     let cases = assert
         .some(assert.some(parsed.schema.messages.get(0)).oneofs.get(0))
@@ -255,17 +255,17 @@ test "a field number outside the range, and one protobuf reserves, are refused" 
     let ctx = context {
         Allocator: alloc(),
     };
-    refuses(ctx, withEdition(ctx, "message M { int32 x = 0; }\n"), "proto-schema", "0");
+    refuses(ctx, withEdition(ctx, "message M { int32 x = 0; }\n"), "proto-syntax", "0");
     refuses(
         ctx,
         withEdition(ctx, "message M { int32 x = 19500; }\n"),
-        "proto-schema",
+        "proto-syntax",
         "19500",
     );
     let text = withEdition(ctx, "message M { int32 x = 19500; }\n");
     assert.isTrue(
         assert
-            .some(under(read(ctx, text), "proto-schema"))
+            .some(under(read(ctx, text), "proto-syntax"))
             .message
             .contains("reserves"),
     );
@@ -275,8 +275,8 @@ test "an enum starts at zero, and an empty one is refused at its name" {
     let ctx = context {
         Allocator: alloc(),
     };
-    refuses(ctx, withEdition(ctx, "enum E { E_ONE = 1; }\n"), "proto-schema", "E_ONE");
-    refuses(ctx, withEdition(ctx, "enum E { }\n"), "proto-schema", "E");
+    refuses(ctx, withEdition(ctx, "enum E { E_ONE = 1; }\n"), "proto-syntax", "E_ONE");
+    refuses(ctx, withEdition(ctx, "enum E { }\n"), "proto-syntax", "E");
 }
 
 test "nesting is bounded, so a file of nothing but message M { is a diagnostic" {

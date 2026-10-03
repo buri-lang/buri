@@ -7,7 +7,7 @@ error: expected an identifier, found `{` [unexpected-token]
    = expected: an identifier
    = actual: `{`
    = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
-error: there is nothing named `printed` in scope [unresolved-name]
+error: there is nothing named `printed` in scope [unknown-name]
   --> main.buri:45:5
    |
 45 |     printed(ctx, text).text.lines(ctx)

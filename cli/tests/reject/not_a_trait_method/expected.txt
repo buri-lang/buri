@@ -1,4 +1,4 @@
-error: `Measurable` declares no method `extra` [not-a-trait-method]
+error: `Measurable` declares no method `extra` [impl-unknown-method]
   --> cmd/not_a_trait_method/main.buri:15:6
    |
 15 |   fn extra(self): Int {

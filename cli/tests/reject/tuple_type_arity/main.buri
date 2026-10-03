@@ -1,4 +1,4 @@
-// EXPECT: a tuple type has arity 2 or more
+// EXPECT: a tuple type has two elements or more
 fn only(): (Int,) {
   (1,)
 }

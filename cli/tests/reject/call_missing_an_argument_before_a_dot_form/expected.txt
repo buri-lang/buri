@@ -1,4 +1,4 @@
-error: `heading` takes 3 arguments, but 2 were given [wrong-argument-count]
+error: `heading` takes 3 arguments, but 2 were given [argument-count]
   --> cmd/call_missing_an_argument_before_a_dot_form/main.buri:23:3
    |
 23 |   heading(2, .Const("title"))
@@ -7,7 +7,7 @@ error: `heading` takes 3 arguments, but 2 were given [wrong-argument-count]
    = expected: 3
    = actual: 2
    = fix: `heading` requires a `styles` parameter: heading(level: Int, styles: [Style], content: Prop)
-error: `.Const` needs a known expected type [unannotated-variant]
+error: `.Const` needs a known expected type [untyped-variant]
   --> cmd/call_missing_an_argument_before_a_dot_form/main.buri:23:14
    |
 23 |   heading(2, .Const("title"))

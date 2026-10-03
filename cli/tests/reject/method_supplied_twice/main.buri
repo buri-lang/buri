@@ -1,4 +1,4 @@
-// EXPECT: `size` is supplied twice
+// EXPECT: `Point` already has a method `size`
 struct Point {
   export x: Int,
 }

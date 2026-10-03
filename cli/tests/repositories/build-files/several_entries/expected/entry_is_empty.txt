@@ -1,4 +1,4 @@
-error: `` is not a function name [entry-not-a-name]
+error: `` is not a function name [invalid-entry-function]
  --> cmd/site/BUILD.buri:4:90
   |
 4 |         { platform: "//platform/cloudflare_worker", entries: [{ name: "fetch", function: "" }] },

@@ -29,7 +29,7 @@ it**. If the check fails, the entry doesn't run. See [`guides/json.md`](../../gu
 An input counts as declared, like a `sources` entry. Undeclared files are
 flagged only if a generator in the package reads their extension: once an entry
 names a `.units`, a second `.units` nothing names is
-[`unused-library`](../lints/unused-library.md). A stray `README.md` isn't.
+[`unused-source`](../lints/unused-source.md). A stray `README.md` isn't.
 
 ## Writing one
 
@@ -82,7 +82,7 @@ To *read* Buri input, use `ast.parse(ctx, file, source)`. Every node carries an
 hand-built nodes.
 
 A `binary` named as a generator is
-[`generator-is-a-binary`](../errors/generator-is-a-binary.md): move the package
+[`generator-not-tool`](../errors/generator-not-tool.md): move the package
 under `tool/`, rename `main.buri` to `tool.buri`, export `generate`, and declare
 `generate {}`.
 
@@ -107,7 +107,7 @@ In your editor:
 
 Two entries naming one module, or a module named after a `.buri` file in the
 package (`lib.buri` included), is
-[`generator-module-taken`](../errors/generator-module-taken.md); the build
+[`generator-duplicate-module`](../errors/generator-duplicate-module.md); the build
 compiles whichever came first.
 
 ## What a generator says
@@ -121,7 +121,7 @@ on the `generators` entry.
 A tool that doesn't build, exits non-zero, is killed by a signal, or writes
 something that isn't an answer is [`tool-failed`](../errors/tool-failed.md),
 with the reason and the tail of stderr in the note. A tool built from the
-target that declares it is [`generator-cycle`](../errors/generator-cycle.md).
+target that declares it is [`circular-generator`](../errors/circular-generator.md).
 
 There's no timeout: the build waits as long as a tool runs.
 

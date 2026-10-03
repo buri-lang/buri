@@ -42,12 +42,12 @@ const RETRIEVAL: &str = "a schema is reached by its path or its `$id`, and nothi
 const REFUSED: &[Refused] = &[
     Refused { file: "vocabulary.json", group: "schema that uses custom metaschema with with no validation vocabulary", code: "json-schema-draft-unsupported", problem: "", why: DRAFT },
     Refused { file: "vocabulary.json", group: "ignore unrecognized optional vocabulary", code: "json-schema-draft-unsupported", problem: "", why: DRAFT },
-    Refused { file: "defs.json", group: "validate definition against metaschema", code: "schema-not-local", problem: "", why: META },
-    Refused { file: "ref.json", group: "remote ref, containing refs itself", code: "schema-not-local", problem: "", why: META },
+    Refused { file: "defs.json", group: "validate definition against metaschema", code: "schema-outside-repository", problem: "", why: META },
+    Refused { file: "ref.json", group: "remote ref, containing refs itself", code: "schema-outside-repository", problem: "", why: META },
     Refused { file: "pattern.json", group: "pattern with Unicode property escape requires unicode mode", code: "json-schema-invalid", problem: "`\\p{…}` Unicode properties are not supported", why: UNICODE },
     Refused { file: "patternProperties.json", group: "patternProperties with Unicode property escape", code: "json-schema-invalid", problem: "`\\p{…}` Unicode properties are not supported", why: UNICODE },
-    Refused { file: "refRemote.json", group: "remote HTTP ref with different $id", code: "schema-not-local", problem: "", why: RETRIEVAL },
-    Refused { file: "refRemote.json", group: "remote HTTP ref with different URN $id", code: "schema-not-local", problem: "", why: RETRIEVAL },
+    Refused { file: "refRemote.json", group: "remote HTTP ref with different $id", code: "schema-outside-repository", problem: "", why: RETRIEVAL },
+    Refused { file: "refRemote.json", group: "remote HTTP ref with different URN $id", code: "schema-outside-repository", problem: "", why: RETRIEVAL },
 ];
 
 fn data_dir() -> PathBuf {

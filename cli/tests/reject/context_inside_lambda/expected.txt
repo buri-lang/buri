@@ -1,4 +1,4 @@
-error: a context may not be constructed here [context-not-allowed]
+error: a context may not be constructed here [misplaced-context]
  --> cmd/context_inside_lambda/main.buri:9:17
   |
 9 |     let inner = context { Allocator: host.alloc, Stdout: host.stdout };

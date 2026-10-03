@@ -221,7 +221,7 @@ Params          ::= SelfParam ("," CtxParam)? ("," Param)* ","?
    sits in has already written it: the `impl` head for a method, and the
    implementing type — `Self` — for a MethodSig. The type checker reads it from
    there rather than from the signature, so the two can no longer disagree.
-   `self: Type` was the older spelling and is now the `self-with-a-type` error,
+   `self: Type` was the older spelling and is now the `typed-self` error,
    which carries the edit that deletes the annotation. *)
 SelfParam       ::= "self"
 CtxParam        ::= "ctx" ":" Type

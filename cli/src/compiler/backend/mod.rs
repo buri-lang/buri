@@ -406,7 +406,7 @@ pub fn split_networking_when(missing: &[String], net: bool) -> (Vec<String>, Vec
 /// toolchain to replace rather than a program to fix, and "report it" — the
 /// fix every other missing intrinsic carries — would be the wrong instruction.
 pub fn no_networking(operations: &[String], span: Span) -> Diagnostic {
-    Diagnostic::templated("networking-not-available", span)
+    Diagnostic::templated("networking-unavailable", span)
         .with_bind("operations", crate::diagnostics::names(operations))
 }
 
@@ -433,7 +433,7 @@ pub fn split_cryptography_when(missing: &[String], crypto: bool) -> (Vec<String>
 /// [`no_networking`]'s twin, and templated for its reason: a reader who meets
 /// this has a toolchain to replace rather than a program to fix.
 pub fn no_cryptography(operations: &[String], span: Span) -> Diagnostic {
-    Diagnostic::templated("cryptography-not-available", span)
+    Diagnostic::templated("cryptography-unavailable", span)
         .with_bind("operations", crate::diagnostics::names(operations))
 }
 
@@ -788,7 +788,7 @@ mod tests {
         assert_eq!(rest, vec!["json.encode"]);
 
         let refusal = no_networking(&networking, Span::NONE);
-        assert_eq!(refusal.code.as_deref(), Some("networking-not-available"));
+        assert_eq!(refusal.code.as_deref(), Some("networking-unavailable"));
         assert!(
             refusal.message.contains("`host.HostListen.listen`")
                 && refusal.message.contains("`host.HostTasks.parallel`"),
@@ -859,7 +859,7 @@ mod tests {
         assert_eq!(rest, vec!["json.encode"]);
 
         let refusal = no_cryptography(&cryptography, Span::NONE);
-        assert_eq!(refusal.code.as_deref(), Some("cryptography-not-available"));
+        assert_eq!(refusal.code.as_deref(), Some("cryptography-unavailable"));
         assert!(
             refusal.message.contains("`host.HostEntropy.bytes`"),
             "the refusal names no operation: {}",

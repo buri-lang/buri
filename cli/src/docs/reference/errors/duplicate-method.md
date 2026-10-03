@@ -19,3 +19,23 @@ impl Point {
     }
 }
 ```
+
+```buri fail code=duplicate-method
+struct Point {
+    export x: Int,
+}
+
+trait Measurable {
+    fn size(self): Int;
+}
+
+impl Measurable for Point {
+    fn size(self): Int {
+        self.x
+    }
+
+    fn size(self): Int {
+        self.x
+    }
+}
+```

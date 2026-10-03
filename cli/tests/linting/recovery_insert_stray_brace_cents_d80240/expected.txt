@@ -1,18 +1,18 @@
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
  --> lib/recovery_insert_stray_brace_cents_d80240/lib.buri:8:19
   |
 8 |     let doubled = extra n * 2;
   |                   ^^^^^
   |
   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
  --> lib/recovery_insert_stray_brace_cents_d80240/lib.buri:8:24
   |
 8 |     let doubled = extra n * 2;
   |                        ^
   |
   = fix: write `;` here
-error: an expression statement is legal only in a test source [expression-statement]
+error: an expression statement is legal only in a test source [statement-outside-test]
  --> lib/recovery_insert_stray_brace_cents_d80240/lib.buri:8:25
   |
 8 |     let doubled = extra n * 2;

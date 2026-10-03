@@ -1,4 +1,4 @@
-error: `rendered` takes 3 arguments, but 2 were given [wrong-argument-count]
+error: `rendered` takes 3 arguments, but 2 were given [argument-count]
   --> lib/recovery_swap_adjacent_paren_expected_4c6d0b/main.buri:60:18
    |
 60 |     whisper(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label)).mapErr(
@@ -7,7 +7,7 @@ error: `rendered` takes 3 arguments, but 2 were given [wrong-argument-count]
    = expected: 3
    = actual: 2
    = fix: pass `rendered` the following arguments: rendered<C: Allocator + Clock>(ctx: C, render: fn(C, Str) => Str, label: Str)
-error: there is nothing named `ctxfn` in scope [unresolved-name]
+error: there is nothing named `ctxfn` in scope [unknown-name]
   --> lib/recovery_swap_adjacent_paren_expected_4c6d0b/main.buri:60:27
    |
 60 |     whisper(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label)).mapErr(
@@ -15,7 +15,7 @@ error: there is nothing named `ctxfn` in scope [unresolved-name]
    |
    = did you mean `ctx`?
    = fix: if you meant `ctx`, use that; if not, a name is in scope only from this module's own declarations and its imports
-error: there is nothing named `c` in scope [unresolved-name]
+error: there is nothing named `c` in scope [unknown-name]
   --> lib/recovery_swap_adjacent_paren_expected_4c6d0b/main.buri:60:35
    |
 60 |     whisper(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label)).mapErr(
@@ -23,7 +23,7 @@ error: there is nothing named `c` in scope [unresolved-name]
    |
    = did you mean `ctx`?
    = fix: if you meant `ctx`, use that; if not, a name is in scope only from this module's own declarations and its imports
-error: there is nothing named `l` in scope [unresolved-name]
+error: there is nothing named `l` in scope [unknown-name]
   --> lib/recovery_swap_adjacent_paren_expected_4c6d0b/main.buri:60:38
    |
 60 |     whisper(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label)).mapErr(

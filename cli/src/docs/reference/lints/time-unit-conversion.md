@@ -1,5 +1,5 @@
 ---
-title: A length of time is a `Duration`, not an integer and a factor
+title: A length of time is a `Duration`
 severity: warning
 message: this spells the {units} conversion out in integers
 note: "`core/time`'s `Duration` is the length itself — `time.milliseconds(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past"

@@ -62,7 +62,7 @@ name, so a typo can't silently skip the check.
 
 ```text
 $ buri build //apps/scan
-error: //apps/scan cannot contain both "net" and "sandboxed" code [tag-violation]
+error: //apps/scan cannot contain both "net" and "sandboxed" code [tag-conflict]
  --> apps/scan/BUILD.buri:3:12
   |
 3 |     tags: ["sandboxed"]

@@ -1,4 +1,4 @@
-error: `Edge` has no variant `TopStart` [no-such-variant]
+error: `Edge` has no variant `TopStart` [unknown-variant]
   --> cmd/ui_style_border_edge_names_an_edge/main.buri:15:35
    |
 15 | let hairline: Style = .BorderEdge(.TopStart, .Px(1));

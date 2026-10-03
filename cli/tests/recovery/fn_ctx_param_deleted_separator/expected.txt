@@ -1,4 +1,4 @@
-error [missing-separator] 5:33-5:33
+error [missing-comma] 5:33-5:33
 message: a function parameter ends with `,`
 fix: write `,` here
 edit: 5:33-5:33 ","

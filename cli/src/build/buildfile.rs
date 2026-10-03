@@ -20,7 +20,7 @@ const REPO_FILE_RULES: &[&str] = &["tag", "lint", "language"];
 
 /// The fields a `test` block used to declare and no longer does.
 ///
-/// A retired field is not an unknown one. `unknown-field` offers the nearest
+/// A retired field is not an unknown one. `build-unknown-field` offers the nearest
 /// name it does know, and to somebody who wrote what the last release
 /// documented that reads as a typo they did not make; a retired field has a
 /// page of its own instead, saying what replaced it. `check_known` passes the
@@ -755,7 +755,7 @@ pub fn check_variant(
 ) -> Option<Diagnostic> {
     match variant {
         None if required => Some(
-            Diagnostic::templated("variant-required", output)
+            Diagnostic::templated("missing-platform-variant", output)
                 .with_bind("platform", platform)
                 .with_bind("variants", variants.join(", "))
                 .with_bind("example", variants.first().copied().unwrap_or_default()),
@@ -765,7 +765,7 @@ pub fn check_variant(
                 None => (format!("`{platform}` has no variants"), "remove `variant`".to_string()),
                 Some(first) => (format!("available: {}", variants.join(", ")), format!("write `variant: \"{first}\"`")),
             };
-            let mut d = Diagnostic::templated("no-such-platform-variant", v.span)
+            let mut d = Diagnostic::templated("unknown-platform-variant", v.span)
                 .with_bind("variant", v.value.clone())
                 .with_bind("platform", platform)
                 .with_bind("available", available)
@@ -798,7 +798,7 @@ pub fn check_entries(
     let mut filled: Vec<&str> = Vec::new();
     for (name, function) in items {
         if !names.contains(&name.value.as_str()) {
-            let mut d = Diagnostic::templated("no-such-entry", name.span)
+            let mut d = Diagnostic::templated("unknown-entry", name.span)
                 .with_bind("entry", name.value.clone())
                 .with_bind("platform", platform)
                 .with_bind("entries", names.join(", "));
@@ -822,7 +822,7 @@ pub fn check_entries(
             && s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
             && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
         if !ok {
-            errors.push(Diagnostic::templated("entry-not-a-name", function.span).with_bind("entry", s.clone()));
+            errors.push(Diagnostic::templated("invalid-entry-function", function.span).with_bind("entry", s.clone()));
             continue;
         }
         passed.push((name.clone(), function.clone()));
@@ -1003,7 +1003,7 @@ impl Reader {
     /// The common shape: a field holds one kind of value and was given
     /// another.
     fn wrong_kind(&mut self, span: Span, name: &str, want: &str, found: &str) {
-        self.templated("field-wrong-kind", span)
+        self.templated("build-field-mismatch", span)
             .bind("field", name)
             .bind("expected", want)
             .bind("found", found)
@@ -1029,7 +1029,7 @@ impl Reader {
             if !known.contains(&f.name.as_str()) {
                 let near = nearest(&f.name, known);
                 let d = self
-                    .templated("unknown-field", f.name_span)
+                    .templated("build-unknown-field", f.name_span)
                     .bind("field", f.name.clone())
                     .bind("block", what)
                     .bind(
@@ -1123,7 +1123,7 @@ impl Reader {
 
     /// Refuses a retired platform or field, naming what replaced it.
     fn retired(&mut self, span: Span, name: &str, replacement: impl Into<String>) {
-        self.templated("retired-platform-name", span)
+        self.templated("retired-platform", span)
             .bind("name", name)
             .bind("replacement", replacement);
     }
@@ -1143,7 +1143,7 @@ impl Reader {
                         None => {
                             let near = nearest(s, Backend::NAMES);
                             let d = self
-                                .templated("unknown-bare-word", *sp)
+                                .templated("build-unknown-word", *sp)
                                 .bind("value", s.clone())
                                 .bind("expected", "a backend")
                                 .bind("expected_plural", "backends")
@@ -1171,7 +1171,7 @@ impl Reader {
                 Some(p) => Some(Spanned::new(p, *sp)),
                 None => {
                     let names: Vec<&str> = PlatformName::BUNDLED.iter().map(|p| p.name()).collect();
-                    let d = self.templated("no-such-platform", *sp).bind("platform", s.clone());
+                    let d = self.templated("unknown-platform", *sp).bind("platform", s.clone());
                     if let Some(n) = nearest(s, &names) {
                         d.fix(format!("did you mean `\"{n}\"`?"));
                     }
@@ -1192,7 +1192,7 @@ impl Reader {
                 match RETIRED_PLATFORM_NAMES.iter().find(|(old, _)| old == s) {
                     Some((_, now)) => self.retired(*sp, s, format!("write `{now}`")),
                     None => {
-                        self.templated("no-such-platform", *sp).bind("platform", s.clone());
+                        self.templated("unknown-platform", *sp).bind("platform", s.clone());
                     }
                 }
                 None
@@ -1246,7 +1246,7 @@ impl Reader {
         for (list, field) in [(&requires, "requires"), (&forbids, "forbids")] {
             for (i, (word, span)) in list.iter().enumerate() {
                 if let Some((_, first)) = list.iter().take(i).find(|(w, _)| w == word) {
-                    self.templated("duplicate-platform", *span)
+                    self.templated("tag-duplicate-platform", *span)
                         .bind("platform", *word)
                         .bind("field", field)
                         .secondary_span(*first, "first listed here");
@@ -1255,7 +1255,7 @@ impl Reader {
         }
         for (word, span) in &forbids {
             if let Some((_, r)) = requires.iter().find(|(w, _)| w == word) {
-                self.templated("platform-required-and-forbidden", *span)
+                self.templated("tag-platform-conflict", *span)
                     .bind("tag", tag)
                     .bind("platform", *word)
                     .secondary_span(*r, "required here");
@@ -1290,7 +1290,7 @@ impl Reader {
     /// The field set is `documentation::lints`' own — see
     /// [`crate::documentation::lints::rule_fields`] — so a code added to the
     /// catalogue is nameable here on the same commit, and a name the catalogue
-    /// does not have is the `unknown-field` any other undeclared field gets,
+    /// does not have is the `build-unknown-field` any other undeclared field gets,
     /// with the nearest rule offered as the fix.
     fn lint_rules(&mut self, message: &Message) -> LintRules {
         use crate::documentation::lints;
@@ -1303,7 +1303,7 @@ impl Reader {
                     None => {
                         let near = nearest(s, RuleDefault::NAMES);
                         let d = self
-                            .templated("unknown-bare-word", *sp)
+                            .templated("build-unknown-word", *sp)
                             .bind("value", s.clone())
                             .bind("expected", "a rule default")
                             .bind("expected_plural", "rule defaults")
@@ -1314,7 +1314,7 @@ impl Reader {
                     }
                 },
                 other => {
-                    self.templated("not-a-bare-word", other.span())
+                    self.templated("build-quoted-word", other.span())
                         .bind("field", "default")
                         .bind("expected", "a rule default")
                         .bind("choices", "ENABLED or DISABLED");
@@ -1351,7 +1351,7 @@ impl Reader {
             self.check_known(m, textproto::schema_order("language"), &[], "a `language` block");
             let Some(name) = self.spanned_string(m, "name") else {
                 if m.get("name").is_none() {
-                    self.templated("language-without-a-name", *span);
+                    self.templated("language-missing-name", *span);
                 }
                 continue;
             };
@@ -1366,7 +1366,7 @@ impl Reader {
                 }
             } else {
                 if let Some((_, first)) = declared.iter().find(|(n, _)| *n == name.value) {
-                    self.templated("language-declared-twice", name.span)
+                    self.templated("duplicate-language", name.span)
                         .bind("language", name.value.clone())
                         .secondary_span(*first, "declared here");
                     continue;
@@ -1403,7 +1403,7 @@ impl Reader {
                     });
                 if let Some((owner, first)) = owner {
                     let d = self
-                        .templated("language-extension-taken", extension.span)
+                        .templated("duplicate-extension", extension.span)
                         .bind("extension", e.clone())
                         .bind("language", owner);
                     if first != Span::NONE {
@@ -1425,7 +1425,7 @@ impl Reader {
     /// release documented, and the page says what it is called now.
     fn retired_tool_name(&mut self, tool: &Spanned<String>) {
         if let Some((_, now)) = RETIRED_TOOL_NAMES.iter().find(|(old, _)| *old == tool.value) {
-            self.templated("retired-tool-name", tool.span)
+            self.templated("retired-tool", tool.span)
                 .bind("tool", tool.value.clone())
                 .bind("replacement", *now);
         }
@@ -1452,7 +1452,7 @@ impl Reader {
                 let (Some(language), Some(type_schema)) = (language, type_schema) else {
                     for field in ["language", "type_schema"] {
                         if m.get(field).is_none() {
-                            self.templated("accepts-incomplete", *span).bind("field", field);
+                            self.templated("accepts-missing-field", *span).bind("field", field);
                         }
                     }
                     continue;
@@ -1555,7 +1555,7 @@ impl Reader {
                         }
                     },
                     None => {
-                        self.templated("generator-without-a-tool", *span);
+                        self.templated("generator-missing-tool", *span);
                         continue;
                     }
                 };
@@ -1599,7 +1599,7 @@ impl Reader {
         // rejected and dropped rather than carried forward for each consumer
         // to guess about.
         let Some(field) = m.get("platform") else {
-            self.templated("output-without-a-platform", span);
+            self.templated("output-missing-platform", span);
             return None;
         };
         let arch = m.get("arch");
@@ -1723,7 +1723,7 @@ impl Reader {
                     let missing = if e.get("name").is_none() { "name" } else { "function" };
                     if e.get(missing).is_none() {
                         let example = if missing == "name" { names.first().copied().unwrap_or("main") } else { "main" };
-                        self.templated("incomplete-entry", *span).bind("field", missing).bind("example", example);
+                        self.templated("entry-missing-field", *span).bind("field", missing).bind("example", example);
                     }
                     continue;
                 };
@@ -1749,7 +1749,7 @@ impl Reader {
                 Value::Ident(s, sp) => match Backend::parse(s) {
                     Some(backend) => Some(Spanned::new(backend, *sp)),
                     None => {
-                        self.templated("unknown-bare-word", *sp)
+                        self.templated("build-unknown-word", *sp)
                             .bind("value", s.clone())
                             .bind("expected", "a backend")
                             .bind("expected_plural", "backends")
@@ -1758,7 +1758,7 @@ impl Reader {
                     }
                 },
                 other => {
-                    self.templated("not-a-bare-word", other.span())
+                    self.templated("build-quoted-word", other.span())
                         .bind("field", "backend")
                         .bind("expected", "a backend")
                         .bind("choices", "NATIVE or JS");
@@ -1948,7 +1948,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
     let mut tags: Vec<Tag> = Vec::new();
     for f in parsed.document.all("tag") {
         let Value::Message(m, span) = &f.value else {
-            reader.templated("tag-not-a-block", f.value.span());
+            reader.templated("tag-not-block", f.value.span());
             continue;
         };
         reader.check_known(m, textproto::schema_order("tag"), &[], "a `tag` block");
@@ -1957,11 +1957,11 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
         let name = match name_field.map(|field| &field.value) {
             Some(Value::Str(s, sp)) => Spanned::new(s.clone(), *sp),
             Some(other) => {
-                reader.templated("tag-name-not-a-string", other.span());
+                reader.templated("tag-name-not-string", other.span());
                 continue;
             }
             None => {
-                reader.templated("tag-without-a-name", *span);
+                reader.templated("tag-missing-name", *span);
                 continue;
             }
         };
@@ -2120,7 +2120,7 @@ library {
             "library {\n  platforms: [JS]\n}\n",
             "library {\n  test { platforms: [JS] }\n}\n",
         ] {
-            assert_eq!(codes(src), ["retired-platform-name"], "{src}");
+            assert_eq!(codes(src), ["retired-platform"], "{src}");
         }
         let read = read_build_file("binary {\n  outputs: [{ platform: MACOS, arch: ARM64 }]\n}\n", FileId(0));
         let fix = read.errors[0].fix.clone().unwrap_or_default();
@@ -2129,16 +2129,16 @@ library {
 
     #[test]
     fn a_native_output_names_one_of_its_variants() {
-        assert_eq!(codes("binary {\n  outputs: [{ platform: \"native\" }]\n}\n"), ["variant-required"]);
+        assert_eq!(codes("binary {\n  outputs: [{ platform: \"native\" }]\n}\n"), ["missing-platform-variant"]);
         assert_eq!(
             codes("binary {\n  outputs: [{ platform: \"native\", variant: \"linux-mips\" }]\n}\n"),
-            ["no-such-platform-variant"]
+            ["unknown-platform-variant"]
         );
         assert_eq!(
             codes("binary {\n  outputs: [{ platform: \"node\", variant: \"linux-arm64\" }]\n}\n"),
-            ["no-such-platform-variant"]
+            ["unknown-platform-variant"]
         );
-        assert_eq!(codes("binary {\n  outputs: [{ platform: \"deno\" }]\n}\n"), ["no-such-platform"]);
+        assert_eq!(codes("binary {\n  outputs: [{ platform: \"deno\" }]\n}\n"), ["unknown-platform"]);
     }
 
     /// A missing variant names every one there is, and the fix writes the
@@ -2172,14 +2172,14 @@ library {
             codes(&format!("binary {{\n  outputs: [{{ platform: \"node\", entries: [{entries}] }}]\n}}\n"))
         };
         assert!(one("{ name: \"main\", function: \"run\" }").is_empty());
-        assert_eq!(one("{ name: \"fetch\", function: \"go\" }"), ["no-such-entry"]);
+        assert_eq!(one("{ name: \"fetch\", function: \"go\" }"), ["unknown-entry"]);
         assert_eq!(
             one("{ name: \"main\", function: \"a\" }, { name: \"main\", function: \"b\" }"),
             ["duplicate-entry"]
         );
-        assert_eq!(one("{ function: \"run\" }"), ["incomplete-entry"]);
-        assert_eq!(one("{ name: \"main\" }"), ["incomplete-entry"]);
-        assert_eq!(one("{ main: \"run\" }"), ["unknown-field", "incomplete-entry"]);
+        assert_eq!(one("{ function: \"run\" }"), ["entry-missing-field"]);
+        assert_eq!(one("{ name: \"main\" }"), ["entry-missing-field"]);
+        assert_eq!(one("{ main: \"run\" }"), ["build-unknown-field", "entry-missing-field"]);
     }
 
     /// Cloudflare Workers is a platform a repository writes, so the old bare
@@ -2189,11 +2189,11 @@ library {
     fn a_worker_is_a_platform_a_repository_writes() {
         let read = read_build_file("binary {\n  outputs: [{ platform: CLOUDFLARE_WORKER }]\n}\n", FileId(0));
         let written: Vec<_> = read.errors.iter().filter_map(|e| e.code.clone()).collect();
-        assert_eq!(written, ["retired-platform-name"]);
+        assert_eq!(written, ["retired-platform"]);
         let fix = read.errors[0].fix.clone().unwrap_or_default();
         assert!(fix.contains("buri docs guides/custom-platforms"), "{fix}");
         assert!(fix.contains("{ platform: \"//platform/cloudflare_worker\" }"), "{fix}");
-        assert_eq!(codes("library {\n  platforms: [CLOUDFLARE_WORKER]\n}\n"), ["retired-platform-name"]);
+        assert_eq!(codes("library {\n  platforms: [CLOUDFLARE_WORKER]\n}\n"), ["retired-platform"]);
     }
 
     /// A library's list names a repository platform by its label, kept as
@@ -2230,7 +2230,7 @@ library {
         assert_eq!(variants, ["a", "b"]);
         assert!(rule.entries[0].variant_required);
         // Variants moved onto each entry.
-        assert_eq!(codes("platform {\n  variants: [\"a\"]\n}\n"), ["unknown-field"]);
+        assert_eq!(codes("platform {\n  variants: [\"a\"]\n}\n"), ["build-unknown-field"]);
     }
 
     #[test]
@@ -2335,17 +2335,17 @@ library {
     #[test]
     fn a_rules_block_is_read() {
         let src = "lint {\n  check_during_build: true\n  rules {\n    default: ENABLED\n    \
-                   discarded_result: false\n    hex_digit_table: false\n  }\n}\n";
+                   ignored_result: false\n    hand_rolled_hex_digits: false\n  }\n}\n";
         let read = read_repo_config(src, FileId(0));
         assert!(read.errors.is_empty(), "{:#?}", read.errors);
         let rules = &read.value.lint.rules;
         assert_eq!(rules.default, RuleDefault::Enabled);
-        assert!(!rules.enabled("discarded-result"));
-        assert!(!rules.enabled("hex-digit-table"));
+        assert!(!rules.enabled("ignored-result"));
+        assert!(!rules.enabled("hand-rolled-hex-digits"));
         // Everything else is what it was.
         assert!(rules.enabled("unused-import"));
         assert!(!rules.everything_runs());
-        assert_eq!(rules.disabled(), ["discarded-result", "hex-digit-table"]);
+        assert_eq!(rules.disabled(), ["hand-rolled-hex-digits", "ignored-result"]);
     }
 
     /// `enabled(rule) = override.unwrap_or(default)`, and the one interesting

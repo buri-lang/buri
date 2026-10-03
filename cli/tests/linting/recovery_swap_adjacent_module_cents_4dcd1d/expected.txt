@@ -24,7 +24,7 @@ error: expected a declaration, found `;` [unexpected-token]
   = expected: a declaration
   = actual: `;`
   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
-error: `Allocator` is not a trait or effect [not-a-trait]
+error: `Allocator` is not a trait or effect [bound-not-trait]
  --> lib/recovery_swap_adjacent_module_cents_4dcd1d/lib.buri:7:23
   |
 7 | export fn describe<C: Allocator>(ctx: C): Str {
@@ -32,7 +32,7 @@ error: `Allocator` is not a trait or effect [not-a-trait]
   |
   = a bound names a declared trait; there are no where clauses
   = fix: name a declared trait or effect, or declare `Allocator` as one
-error: `C` does not satisfy `Allocator` [unsatisfied-bound]
+error: `C` does not implement `Allocator` [missing-impl]
  --> lib/recovery_swap_adjacent_module_cents_4dcd1d/lib.buri:8:5
   |
 8 |     "some".concat(ctx, " cents")

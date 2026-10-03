@@ -1,4 +1,4 @@
-error: "//lib/units/units.buri" does not export `Raw` [no-such-export]
+error: "//lib/units/units.buri" does not export `Raw` [unknown-export]
  --> lib/units/lib.buri:5:20
   |
 5 |     depth, Meters, Raw, Sample, sample, Trip, widen,
@@ -9,5 +9,9 @@ error: "//lib/units/units.buri" does not export `Raw` [no-such-export]
   = fix: add `export` to `Raw`'s declaration in "//lib/units/units.buri", or drop it from this list
 
     A re-export names only what its module exports, so a library's surface is
-    never wider than the modules behind it.
+    never wider than the modules behind it. A namespace like fs stands for the
+    module its import named, and only that module's exports may follow the dot.
+    This covers types, bounds and impl heads too, such as list.Vector<Int> and
+    <T: order.Comparable>. If no import bound the namespace at all, the error is
+    unknown-name instead.
 

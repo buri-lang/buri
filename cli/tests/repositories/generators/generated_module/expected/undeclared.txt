@@ -1,4 +1,4 @@
-warning: lib/wire/spare.txt belongs to no library or binary, so nothing builds it [unused-library]
+warning: lib/wire/spare.txt belongs to no library or binary, so nothing builds it [unused-source]
  --> lib/wire/BUILD.buri:1:1
   |
 1 | library {

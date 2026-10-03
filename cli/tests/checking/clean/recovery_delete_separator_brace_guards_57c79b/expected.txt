@@ -1,4 +1,4 @@
-error: a statement ends with `;` [missing-terminator]
+error: a statement ends with `;` [missing-semicolon]
   --> main.buri:80:50
    |
 80 |     let heap = str.format(ctx, "2026-03-${"01"}")

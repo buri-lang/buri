@@ -1,4 +1,4 @@
-error: `linux-arm64` is not a variant of `web` [no-such-platform-variant]
+error: `linux-arm64` is not a variant of `web` [unknown-platform-variant]
  --> cmd/counter/BUILD.buri:3:37
   |
 3 |         { platform: "web", variant: "linux-arm64" },

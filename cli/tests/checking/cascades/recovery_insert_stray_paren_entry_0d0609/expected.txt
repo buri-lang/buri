@@ -1,4 +1,4 @@
-error: `contains` takes 2 arguments, but 3 were given [wrong-argument-count]
+error: `contains` takes 2 arguments, but 3 were given [argument-count]
   --> main.buri:40:5
    |
 40 |     assert.contains(extra text, "    export home: Option<Address>,");
@@ -7,14 +7,14 @@ error: `contains` takes 2 arguments, but 3 were given [wrong-argument-count]
    = expected: 2
    = actual: 3
    = fix: pass `contains` the following arguments: contains<T: Equal>(haystack: [T], needle: T)
-error: there is nothing named `extra` in scope [unresolved-name]
+error: there is nothing named `extra` in scope [unknown-name]
   --> main.buri:40:21
    |
 40 |     assert.contains(extra text, "    export home: Option<Address>,");
    |                     ^^^^^
    |
    = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
-error: a call argument ends with `,` [missing-separator]
+error: a call argument ends with `,` [missing-comma]
   --> main.buri:40:26
    |
 40 |     assert.contains(extra text, "    export home: Option<Address>,");

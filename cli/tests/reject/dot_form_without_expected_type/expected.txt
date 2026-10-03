@@ -1,4 +1,4 @@
-error: `.Some` needs a known expected type [unannotated-variant]
+error: `.Some` needs a known expected type [untyped-variant]
  --> cmd/dot_form_without_expected_type/main.buri:7:11
   |
 7 |   let v = .Some(3);
@@ -10,7 +10,7 @@ error: `.Some` needs a known expected type [unannotated-variant]
     with no annotation expects nothing. Inference flows into the shorthand,
     never out of it, so two enums can share a variant name.
 
-error: there is nothing named `n` in scope [unresolved-name]
+error: there is nothing named `n` in scope [unknown-name]
  --> cmd/dot_form_without_expected_type/main.buri:9:17
   |
 9 |     .Some(n) => n,

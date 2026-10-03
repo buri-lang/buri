@@ -1,4 +1,4 @@
-error: `accepts` takes 2 arguments, but 1 were given [wrong-argument-count]
+error: `accepts` takes 2 arguments, but 1 were given [argument-count]
   --> main.buri:68:19
    |
 68 |     assert.isTrue(accepts(kindOf(heap, Value.Text(heap)));
@@ -7,7 +7,7 @@ error: `accepts` takes 2 arguments, but 1 were given [wrong-argument-count]
    = expected: 2
    = actual: 1
    = fix: `accepts` requires a `value` parameter: accepts(kind: Kind, value: Value)
-error: `kindOf` takes 1 arguments, but 2 were given [wrong-argument-count]
+error: `kindOf` takes 1 arguments, but 2 were given [argument-count]
   --> main.buri:68:27
    |
 68 |     assert.isTrue(accepts(kindOf(heap, Value.Text(heap)));

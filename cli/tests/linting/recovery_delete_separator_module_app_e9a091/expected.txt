@@ -1,4 +1,4 @@
-warning: this comment is marked `TODO` [warning-comment]
+warning: this comment is marked `TODO` [todo-comment]
  --> lib/recovery_delete_separator_module_app_e9a091/main.buri:9:4
   |
 9 | // TODO: decide what this program is for.
@@ -6,7 +6,7 @@ warning: this comment is marked `TODO` [warning-comment]
   |
   = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
   = fix: finish the work, or delete the marker
-error: a type argument ends with `,` [missing-separator]
+error: a type argument ends with `,` [missing-comma]
   --> lib/recovery_delete_separator_module_app_e9a091/main.buri:14:42
    |
 14 | export fn main(host: NodeHost): Result<() Str> {

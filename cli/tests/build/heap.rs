@@ -190,5 +190,5 @@ fn a_release_artifact_is_asked_for_its_blocks_back_or_is_refused_by_name() {
         "a release artifact ran and was never asked for its blocks back:\n{}",
         run.all()
     );
-    run.says("native-artifact-not-available");
+    run.says("native-artifact-unavailable");
 }

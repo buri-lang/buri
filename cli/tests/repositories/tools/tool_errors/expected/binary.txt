@@ -1,4 +1,4 @@
-error: `//cmd/bin` is a binary, and a generator is a `tool` rule [generator-is-a-binary]
+error: `//cmd/bin` is a binary, and a generator is a `tool` rule [generator-not-tool]
  --> lib/app/BUILD.buri:3:17
   |
 3 |         { tool: "//cmd/bin", inputs: ["input.txt"] },

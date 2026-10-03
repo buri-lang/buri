@@ -1,4 +1,4 @@
-error: `JSS` is not a backend [unknown-bare-word]
+error: `JSS` is not a backend [build-unknown-word]
  --> REPO.buri:6:20
   |
 6 |         backends: [JSS]

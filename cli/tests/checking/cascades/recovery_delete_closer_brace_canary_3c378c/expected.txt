@@ -1,4 +1,4 @@
-error: `I64` has no method `fold` [no-such-method]
+error: `I64` has no method `fold` [unknown-method]
   --> main.buri:16:28
    |
 16 |     let doubled = [1, 2, 3.fold(fn(acc, x) => acc + x, 0);

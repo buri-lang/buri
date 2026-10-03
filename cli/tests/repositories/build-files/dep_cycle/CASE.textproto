@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "two packages that depend on each other: dep-cycle, once from each end"
+doc: "two packages that depend on each other: circular-dependency, once from each end"
 
 # `//lib/a` really uses `//lib/b`; `//lib/b` only declares `//lib/a`, so the
 # cycle is the one kind of finding here and the golden is about it alone.

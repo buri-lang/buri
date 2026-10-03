@@ -1,4 +1,4 @@
-error: `T` is a type parameter and takes no type arguments [type-parameter-with-arguments]
+error: the type parameter `T` takes no type arguments, but 1 were given [type-argument-count]
  --> cmd/type_parameter_with_arguments/main.buri:2:17
   |
 2 | fn first<T>(xs: T<Int>): Int {

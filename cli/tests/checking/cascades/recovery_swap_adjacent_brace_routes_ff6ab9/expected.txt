@@ -13,7 +13,7 @@ error: a match arm is `pattern => expression` [missing-arrow]
    |                  ^
    |
    = fix: write `=>` here
-error: `Route` is a type, not a value [type-not-a-value]
+error: `Route` is a type, not a value [type-not-value]
   --> main.buri:11:19
    |
 11 |         "/health" Route => { name: "health", path },

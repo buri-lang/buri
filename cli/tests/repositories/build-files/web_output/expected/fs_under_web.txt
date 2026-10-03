@@ -1,4 +1,4 @@
-error: `WebHost` has no field `fs` [no-such-field]
+error: `WebHost` has no field `fs` [unknown-field]
   --> cmd/counter/main.buri:38:30
    |
 38 |         FileSystemRead: host.fs,

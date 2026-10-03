@@ -145,7 +145,7 @@ what confines it:
 /// the same one; the bound is what this function can do with it.
 fn logOnly<C: Stdout>(ctx: C, msg: Str, at: Path): () {
     let _ = io.println(ctx, msg).ignore();
-    let _f = fs.readText(ctx, at); // ERROR: `C` does not satisfy `FileSystemRead`
+    let _f = fs.readText(ctx, at); // ERROR: `C` does not implement `FileSystemRead`
 }
 ```
 

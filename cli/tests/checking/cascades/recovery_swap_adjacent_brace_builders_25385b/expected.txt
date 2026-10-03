@@ -5,7 +5,7 @@ error: `Module` is missing `docs` [missing-field-value]
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: give `docs` a value — only an `Option` field may be left out — or start from an existing one with `Module { ..base, field: value }`
-error: there is nothing named `items` in scope [unresolved-name]
+error: there is nothing named `items` in scope [unknown-name]
   --> main.buri:81:18
    |
 81 |     ast.Module { items[ :item(kind)], docs: [] }

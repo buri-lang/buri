@@ -1,7 +1,10 @@
-error: there is no module "core/lists" [no-such-module]
+error: there is no module "core/lists" [unknown-module]
  --> cmd/no_such_module/main.buri:2:6
   |
 2 | from "core/lists" import * as lists;
   |      ^^^^^^^^^^^^
   |
   = fix: check the path; the standard library's modules are all `core/...`, `ui/...`, `std/...` or `platform/...`
+
+    There's no search path and no fallback, so a path never has two candidates.
+

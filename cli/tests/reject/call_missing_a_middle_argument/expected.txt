@@ -1,4 +1,4 @@
-error: `snapshot` takes 5 arguments, but 4 were given [wrong-argument-count]
+error: `snapshot` takes 5 arguments, but 4 were given [argument-count]
   --> cmd/call_missing_a_middle_argument/main.buri:31:3
    |
 31 |   snapshot(ctx, root, state, themes)

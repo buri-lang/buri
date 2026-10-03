@@ -1,4 +1,4 @@
-error [missing-separator] 6:44-6:44
+error [missing-comma] 6:44-6:44
 message: a context binding ends with `,`
 fix: write `,` here
 edit: 6:44-6:44 ","

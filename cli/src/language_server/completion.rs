@@ -867,7 +867,7 @@ fn lexical(text: &str, prefix: &str, replacing: (u32, u32), uri: &str) -> Vec<Va
 /// lives.
 ///
 /// A path the target does not depend on is left out: offering it would be
-/// offering a `missing-dep`.
+/// offering a `missing-dependency`.
 ///
 /// `detail` says which of the three a path came from, because that is the thing
 /// a reader cannot see in the path itself.

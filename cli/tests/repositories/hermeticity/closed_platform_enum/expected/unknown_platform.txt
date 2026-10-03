@@ -1,4 +1,4 @@
-error: `windows` is not a platform [no-such-platform]
+error: `windows` is not a platform [unknown-platform]
  --> cmd/ok/BUILD.buri:3:21
   |
 3 |         { platform: "windows" },

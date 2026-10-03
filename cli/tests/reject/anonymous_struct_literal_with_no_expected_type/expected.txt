@@ -1,4 +1,4 @@
-error: nothing here says what this literal builds [struct-literal-type]
+error: nothing here says what this literal builds [untyped-struct-literal]
   --> cmd/anonymous_struct_literal_with_no_expected_type/main.buri:15:11
    |
 15 |   let w = { hi: "hi" };

@@ -1,5 +1,5 @@
-REPO.buri runs 1 of 27 lint rules: warning-comment
-warning: this comment is marked `TODO` [warning-comment]
+REPO.buri runs 1 of 27 lint rules: todo-comment
+warning: this comment is marked `TODO` [todo-comment]
  --> lib/money/cents.buri:5:4
   |
 5 | // TODO: decide what a negative amount formats as

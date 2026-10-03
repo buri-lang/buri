@@ -1,4 +1,4 @@
-error: `wrap` does not have the signature `Pack` declares [signature-mismatch]
+error: `wrap` does not have the signature `Pack` declares [impl-signature-mismatch]
   --> cmd/impl_method_declares_no_type_parameter/main.buri:18:6
    |
 18 |   fn wrap(self, value: Int): Int { self.weight + value }

@@ -158,7 +158,7 @@ fn accepted(workspace: &Workspace, g: &buildfile::Generator, out: &mut Vec<Diagn
             continue;
         }
         out.push(
-            Diagnostic::templated("input-language-not-accepted", input.span)
+            Diagnostic::templated("input-not-accepted", input.span)
                 .with_bind("input", input.value.as_str())
                 .with_bind("language", language.map_or("no language".to_string(), |l| format!("`{l}`")))
                 .with_bind("tool", g.tool.value.as_str())
@@ -178,7 +178,7 @@ fn contracts(workspace: &Workspace, rule: &buildfile::Tool, out: &mut Vec<Diagno
             let twice = !here.insert(name)
                 || seen.iter().any(|b| b.language.value == name && b.type_schema.value != a.type_schema.value);
             if twice {
-                out.push(Diagnostic::templated("accepts-language-twice", a.language.span).with_bind("language", name));
+                out.push(Diagnostic::templated("accepts-duplicate-language", a.language.span).with_bind("language", name));
                 continue;
             }
             seen.push(a);
@@ -195,7 +195,7 @@ fn contracts(workspace: &Workspace, rule: &buildfile::Tool, out: &mut Vec<Diagno
                     Diagnostic::templated("proto-contract-unsupported", a.language.span).with_bind("tool_entry", entry),
                 ),
                 Some(l) if l.tools().is_some_and(|t| t.generate.is_none()) => out.push(
-                    Diagnostic::templated("accepts-language-without-generate", a.language.span).with_bind("language", name),
+                    Diagnostic::templated("accepts-missing-generate", a.language.span).with_bind("language", name),
                 ),
                 Some(_) => {}
             }
@@ -211,14 +211,14 @@ fn refer(workspace: &Workspace, named: &Spanned<String>, entry: &str, generator:
     match resolve(workspace, &named.value) {
         Ok(tool) if tool.provides(workspace, entry) => {}
         Ok(_) => out.push(
-            Diagnostic::templated("tool-without-entry-point", named.span)
+            Diagnostic::templated("tool-missing-entry-point", named.span)
                 .with_bind("tool", named.value.as_str())
                 .with_bind("entry", entry),
         ),
         Err(Unresolved::Binary) if generator => out.push(
-            Diagnostic::templated("generator-is-a-binary", named.span).with_bind("tool", named.value.as_str()),
+            Diagnostic::templated("generator-not-tool", named.span).with_bind("tool", named.value.as_str()),
         ),
-        Err(_) => out.push(Diagnostic::templated("no-such-tool", named.span).with_bind("tool", named.value.as_str())),
+        Err(_) => out.push(Diagnostic::templated("unknown-tool", named.span).with_bind("tool", named.value.as_str())),
     }
 }
 
@@ -271,7 +271,7 @@ pub fn contract(
             let effect = tree.type_head(*bound).unwrap_or_default();
             if effect != "Allocator" {
                 out.push(
-                    Diagnostic::templated("tool-context-beyond-allocator", tree.type_span(*bound))
+                    Diagnostic::templated("tool-effect-unavailable", tree.type_span(*bound))
                         .with_bind("entry", *entry)
                         .with_bind("effect", effect),
                 );
@@ -339,7 +339,7 @@ fn request_type(
         return None;
     }
     Some(
-        Diagnostic::templated("tool-request-type", tree.type_span(request))
+        Diagnostic::templated("tool-request-mismatch", tree.type_span(request))
             .with_bind("entry", entry)
             .with_bind("expected", format!("{head}<{root}>"))
             .with_bind("module", path)
@@ -840,7 +840,7 @@ pub fn check_file(
                 })
                 .collect();
             findings.extend(
-                answer.outside.iter().map(|p| Finding::new("schema-not-local", rel, (0, 0), vec![("schema", p.clone())])),
+                answer.outside.iter().map(|p| Finding::new("schema-outside-repository", rel, (0, 0), vec![("schema", p.clone())])),
             );
             Checked { key: answer.key, findings, asked: answer.asked }
         }
@@ -875,7 +875,7 @@ fn check_json(
     let schema = match schema {
         Some(None) => {
             let written = contract.map(|c| c.type_schema.clone()).unwrap_or_default();
-            let finding = Finding::new("schema-not-local", rel, (0, 0), vec![("schema", written)]);
+            let finding = Finding::new("schema-outside-repository", rel, (0, 0), vec![("schema", written)]);
             return Checked { key: k.finish(), findings: vec![finding], asked: BTreeSet::new() };
         }
         Some(Some(schema)) => Some(schema),

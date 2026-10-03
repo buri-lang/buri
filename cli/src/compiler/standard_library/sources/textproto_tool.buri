@@ -128,7 +128,7 @@ fn dirOf<C: Allocator>(ctx: C, path: Str): Str {
 
 fn notLocal<C: Allocator>(ctx: C, o: ast.Origin, written: Str, fix: Str): Diagnostic {
     diagnostic(
-        "schema-not-local",
+        "schema-outside-repository",
         o,
         str.format(ctx, "`${written}` is not a file in this repository"),
         .Some(
@@ -275,7 +275,7 @@ fn targetOf<C: Allocator>(
                             };
                             .Err([
                                 diagnostic(
-                                    "textproto-without-header",
+                                    "textproto-missing-header",
                                     start,
                                     str.format(
                                         ctx,
@@ -367,7 +367,7 @@ fn load<C: Allocator>(ctx: C, file: Str, files: [(Str, Str)]): Loaded {
                     } else {
                         .Some(
                             diagnostic(
-                                "proto-import-not-found",
+                                "proto-unknown-import",
                                 i.origin,
                                 str.format(
                                     c,
@@ -467,7 +467,7 @@ fn readInput<C: Allocator>(ctx: C, input: Input<Str>, files: [(Str, Str)]): Read
                     let loaded = load(ctx, target.file, files);
                     if (!loaded.present) {
                         let d = diagnostic(
-                            "schema-not-found",
+                            "unknown-schema",
                             target.fileAt,
                             str.format(ctx, "there is no schema at `${target.file}`"),
                             .None,
@@ -858,7 +858,7 @@ fn typesOf<C: Allocator>(ctx: C, t: TypeSchema, files: [(Str, Str)]): Generated 
             let loaded = load(ctx, target.file, files);
             if (!loaded.present) {
                 let d = Diagnostic {
-                    code: "schema-not-found",
+                    code: "unknown-schema",
                     message: str.format(ctx, "there is no schema at `${target.file}`"),
                     note: .None,
                     fix: .Some("create the schema, or correct the path"),

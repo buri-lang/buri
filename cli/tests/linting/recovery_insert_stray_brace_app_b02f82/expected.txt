@@ -1,4 +1,4 @@
-error: `NodeHost` does not implement `Allocator` [missing-conformance]
+error: `NodeHost` does not implement `Allocator` [missing-impl]
   --> lib/recovery_insert_stray_brace_app_b02f82/main.buri:12:20
    |
 12 |         Allocator: host@ .alloc,
@@ -17,7 +17,7 @@ error: this context is missing its closing `}` [unclosed-delimiter]
    |                       ^ opened here
    |
    = fix: write `}` here
-error: `a context` does not satisfy `Stdout` [unsatisfied-bound]
+error: `a context` does not implement `Stdout` [missing-impl]
   --> lib/recovery_insert_stray_brace_app_b02f82/main.buri:16:5
    |
 16 |     io.println(ctx, "done").mapErr(fn(_e) => "could not write to standard output")

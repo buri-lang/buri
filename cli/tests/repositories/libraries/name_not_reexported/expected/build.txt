@@ -1,4 +1,4 @@
-error: "//lib/money" does not export `rawValue` [no-such-export]
+error: "//lib/money" does not export `rawValue` [unknown-export]
  --> cmd/app/main.buri:8:40
   |
 8 | from "//lib/money" import { fromCents, rawValue };
@@ -7,9 +7,13 @@ error: "//lib/money" does not export `rawValue` [no-such-export]
   = fix: check the spelling, or re-export `rawValue` from "//lib/money"'s `lib.buri`
 
     A re-export names only what its module exports, so a library's surface is
-    never wider than the modules behind it.
+    never wider than the modules behind it. A namespace like fs stands for the
+    module its import named, and only that module's exports may follow the dot.
+    This covers types, bounds and impl heads too, such as list.Vector<Int> and
+    <T: order.Comparable>. If no import bound the namespace at all, the error is
+    unknown-name instead.
 
-error: there is nothing named `rawValue` in scope [unresolved-name]
+error: there is nothing named `rawValue` in scope [unknown-name]
   --> cmd/app/main.buri:16:26
    |
 16 |         .println(ctx, "${rawValue(fromCents(450))}")

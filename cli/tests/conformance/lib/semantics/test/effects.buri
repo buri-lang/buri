@@ -107,7 +107,7 @@ context WrappedFixture {
 /// module-discovery order across them, neither of which has anything to do with
 /// which declaration spreads which. When the base lost that race the spread
 /// contributed nothing: no diagnostic where the mistake was, and an
-/// `unsatisfied-bound` at every use for an effect bound a few lines below. So
+/// `missing-impl` at every use for an effect bound a few lines below. So
 /// this pair is written in the order that used to lose, and every declaration
 /// above it is written in the order that always worked.
 context SpreadsWhatFollows {
