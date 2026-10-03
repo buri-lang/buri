@@ -39,7 +39,7 @@ use buri::build::buildfile::{Arch, Platform};
 use buri::build::cache::{ActionKey, Cache};
 use buri::build::link::{self, Row};
 use buri::commands::arguments::BuildMode;
-use buri::compiler::backend::{Emitted, LinkOptions, Linker, Profile, Target};
+use buri::compiler::backend::{Emitted, LinkOptions, Profile, Target};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -197,7 +197,7 @@ fn two_objects_link_into_a_program_that_runs() {
     assert_eq!(String::from_utf8_lossy(&ran.stdout), "answer=42\n");
 
     // The objects and the runtime archive are where the design says they are,
-    // because a linker takes paths and `Linker::link` takes bytes.
+    // because a linker takes paths and `CDriver::link` takes bytes.
     assert!(dir.join("link/lib_answer.o").exists(), "the object was not staged");
     assert!(dir.join("link/main.o").exists());
     assert!(dir.join("link/manifest").exists(), "the link wrote no manifest");
@@ -573,40 +573,27 @@ fn the_link_key_is_the_ordered_units_and_the_linker() {
     let linker = link::select(target).unwrap();
     let key = |units: &[&str]| {
         let keys: Vec<ActionKey> = units.iter().map(|u| ActionKey::of(u.as_bytes())).collect();
-        actions::link_key_of(BuildMode::Debug, target, &linker, &keys, link::RuntimeArchive::Linked)
+        actions::link_key_of(BuildMode::Debug, target, &linker.identity(), &keys, link::RuntimeArchive::Linked)
     };
     assert_eq!(key(&["a", "b"]), key(&["a", "b"]));
     assert_ne!(key(&["a", "b"]), key(&["b", "a"]), "link order is not in the key");
     assert_ne!(key(&["a", "b"]), key(&["a", "c"]), "a unit's key is not in the link key");
     assert_ne!(key(&["a", "b"]), key(&["a"]), "the unit count is not in the link key");
 
-    /// A linker that is only its name and version, which is all the key sees.
-    struct Named(&'static str);
-    impl Linker for Named {
-        fn name(&self) -> &'static str {
-            self.0
-        }
-        fn version(&self) -> String {
-            format!("{}-1", self.0)
-        }
-        fn link(
-            &self,
-            _units: &[Emitted],
-            _unchanged: &[usize],
-            _out: &Path,
-            _opts: &LinkOptions<'_>,
-        ) -> Result<(), buri::diagnostics::Diagnostics> {
-            Ok(())
-        }
-    }
+    // A linker that is only its name and version, which is all the key sees.
+    let named = |name: &str| link::LinkerIdentity {
+        name: name.to_string(),
+        version: format!("{name}-1"),
+        link: String::new(),
+    };
     let one = [ActionKey::of(b"a")];
     let linked = link::RuntimeArchive::Linked;
-    let mold = actions::link_key_of(BuildMode::Debug, target, &Named("cc+mold"), &one, linked);
-    let lld = actions::link_key_of(BuildMode::Debug, target, &Named("cc+lld"), &one, linked);
+    let mold = actions::link_key_of(BuildMode::Debug, target, &named("cc+mold"), &one, linked);
+    let lld = actions::link_key_of(BuildMode::Debug, target, &named("cc+lld"), &one, linked);
     assert_ne!(mold, lld, "the linker's identity is not in the link key");
 
     // And the build mode, like everywhere else.
-    let release = actions::link_key_of(BuildMode::Release, target, &Named("cc+lld"), &one, linked);
+    let release = actions::link_key_of(BuildMode::Release, target, &named("cc+lld"), &one, linked);
     assert_ne!(lld, release, "the build mode is not in the link key");
 }
 
@@ -621,11 +608,11 @@ fn the_link_key_is_the_ordered_units_and_the_linker() {
 /// baked sysroot. Same `cc`, same `mold`, same `--version` banners, same objects,
 /// same runtime archive digest — every term the `link` key used to hold is
 /// unchanged, and the artifact is a completely different file. Without
-/// `Linker::link_identity` the second build is served the first one's
+/// `CDriver::link_identity` the second build is served the first one's
 /// executable out of the cache, and the developer's "static" binary is the
 /// glibc one.
 ///
-/// Asserted through a linker that is *only* its identity, because the real
+/// Asserted through identities alone, because the real
 /// `CDriver` can produce only one of the three answers on any given host and
 /// the claim is about all three.
 #[test]
@@ -635,33 +622,17 @@ fn the_link_key_moves_with_the_libc() {
         return;
     };
 
-    /// One name, one version, and a libc term that varies — which is exactly
-    /// the situation a rebuilt toolchain is in.
-    struct Libc(&'static str);
-    impl Linker for Libc {
-        fn name(&self) -> &'static str {
-            "cc+mold"
-        }
-        fn version(&self) -> String {
-            String::from("cc+mold:same-banner")
-        }
-        fn link_identity(&self) -> String {
-            self.0.to_string()
-        }
-        fn link(
-            &self,
-            _units: &[Emitted],
-            _unchanged: &[usize],
-            _out: &Path,
-            _opts: &LinkOptions<'_>,
-        ) -> Result<(), buri::diagnostics::Diagnostics> {
-            Ok(())
-        }
-    }
+    // One name, one version, and a libc term that varies — which is exactly
+    // the situation a rebuilt toolchain is in.
+    let libc = |identity: &str| link::LinkerIdentity {
+        name: String::from("cc+mold"),
+        version: String::from("cc+mold:same-banner"),
+        link: identity.to_string(),
+    };
 
     let one = [ActionKey::of(b"a")];
     let linked = link::RuntimeArchive::Linked;
-    let key = |identity| actions::link_key_of(BuildMode::Debug, target, &Libc(identity), &one, linked);
+    let key = |identity| actions::link_key_of(BuildMode::Debug, target, &libc(identity), &one, linked);
 
     let baked = key("musl-baked");
     let system = key("musl-system");
@@ -672,8 +643,7 @@ fn the_link_key_moves_with_the_libc() {
     // A function of its input, like every other term: an unchanged toolchain
     // must still hit.
     assert_eq!(baked, key("musl-baked"));
-    // And the default — the empty identity a linker with no command line to
-    // vary returns — is its own key rather than an alias of any of them.
+    // And an empty term is its own key rather than an alias of any of them.
     assert_ne!(baked, key(""), "an empty libc term collides with a real one");
 }
 
@@ -699,7 +669,7 @@ fn the_link_key_moves_with_the_archive_decision_and_not_otherwise() {
     let linker = link::select(target).unwrap();
     let units = [ActionKey::of(b"a"), ActionKey::of(b"b")];
     let key = |runtime| {
-        actions::link_key_of(BuildMode::Debug, target, &linker, &units, runtime)
+        actions::link_key_of(BuildMode::Debug, target, &linker.identity(), &units, runtime)
     };
     let linked = key(link::RuntimeArchive::Linked);
     let omitted = key(link::RuntimeArchive::Omitted);
@@ -719,14 +689,14 @@ fn the_link_key_moves_with_the_archive_decision_and_not_otherwise() {
     // did before the term existed.
     for runtime in [link::RuntimeArchive::Linked, link::RuntimeArchive::Omitted] {
         let of = |keys: &[ActionKey]| {
-            actions::link_key_of(BuildMode::Debug, target, &linker, keys, runtime)
+            actions::link_key_of(BuildMode::Debug, target, &linker.identity(), keys, runtime)
         };
         let swapped = [ActionKey::of(b"b"), ActionKey::of(b"a")];
         assert_ne!(of(&units), of(&swapped), "link order left the key");
         assert_ne!(of(&units), of(&units[..1]), "the unit count left the key");
         assert_ne!(
             of(&units),
-            actions::link_key_of(BuildMode::Release, target, &linker, &units, runtime),
+            actions::link_key_of(BuildMode::Release, target, &linker.identity(), &units, runtime),
             "the build mode left the key"
         );
     }
