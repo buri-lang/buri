@@ -46,6 +46,11 @@
 //! compilable joins this sweep with no edit here — and the count it prints is
 //! how a reader knows the sweep did not quietly shrink.
 //!
+//! Nothing is skipped. A file the JavaScript pipeline cannot answer for fails,
+//! and so does one the native backend cannot build — unless `PACKAGES`
+//! excludes it, in which case the line it prints names the reason the ledger
+//! gives.
+//!
 //! # What it costs
 //!
 //! Almost nothing, because the native half is `conformance::linked`, which is
@@ -62,6 +67,7 @@ use buri::compiler::middle::monomorphize;
 use buri::compiler::modules::Role;
 use buri::diagnostics::{Diagnostics, SourceMap};
 use crate::shard;
+use crate::conformance::Built;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -296,12 +302,22 @@ fn field(chunk: &str, name: &str) -> Option<String> {
 
 /// The verdicts the **native** backend reports, one process per failing block.
 ///
-/// `Ok(None)` where the native backend has no answer for this file — a missing
-/// intrinsic or a refusal, which `conformance.rs`'s ledger already accounts
-/// for and which is not a disagreement.
+/// `Ok(None)` where the native backend refuses this file and `conformance.rs`'s
+/// `PACKAGES` excludes it for that gap, which is not a disagreement. A refusal
+/// the ledger does not account for, or a front-end error, is an `Err`.
 fn native(name: &str, source: &str, blocks: usize) -> Result<Option<Vec<Verdict>>, String> {
-    let Some((binary, declared)) = crate::conformance::linked_if_supported(name, source) else {
-        return Ok(None);
+    let (binary, declared) = match crate::conformance::linked(name, source) {
+        Built::Linked(binary, declared) => (binary, declared),
+        Built::FrontEnd(why) => return Err(format!("the native front end refused it: {why}")),
+        Built::Unsupported(why) => {
+            return match crate::conformance::excluded_because(name) {
+                Some(_) => Ok(None),
+                None => Err(format!(
+                    "the native backend refused it ({why}), and `conformance.rs`'s \
+                     `PACKAGES` does not exclude it"
+                )),
+            };
+        }
     };
     if declared != blocks {
         return Err(format!(
@@ -366,32 +382,29 @@ fn agreement_shard(at: usize, count: usize) {
     }
     let mut compared = 0usize;
     let mut blocks = 0usize;
-    let mut skipped: Vec<String> = Vec::new();
+    let mut excluded: Vec<String> = Vec::new();
     let mut failures: Vec<String> = Vec::new();
     let files = corpus_files();
     let mine = shard::of(&files, at, count);
     for path in &mine {
         let path = path.to_string();
         if NATIVE_ONLY.contains(&path.as_str()) {
-            skipped.push(format!("{path} (native-only by design)"));
+            excluded.push(format!("{path} (native-only by design)"));
             continue;
         }
         let source = read(&path);
         let reference = match javascript(&path, &source) {
             Ok(v) => v,
-            // A file the *reference* pipeline cannot answer for is not a
-            // disagreement: the corpus is shared with the JavaScript suite and
-            // may be mid-change, and that suite is where a refusal is a
-            // failure.
             Err(why) => {
-                skipped.push(format!("{path} (javascript: {why})"));
+                failures.push(format!("`{path}`: the JavaScript pipeline failed: {why}"));
                 continue;
             }
         };
         let native = match native(&path, &source, reference.len()) {
             Ok(Some(v)) => v,
             Ok(None) => {
-                skipped.push(format!("{path} (the native backend has no answer for it)"));
+                let why = crate::conformance::excluded_because(&path).unwrap_or_default();
+                excluded.push(format!("{path} (`PACKAGES` excludes it natively: {why})"));
                 continue;
             }
             Err(why) => {
@@ -411,8 +424,8 @@ fn agreement_shard(at: usize, count: usize) {
         compared += 1;
         blocks += reference.len();
     }
-    for s in &skipped {
-        eprintln!("corpus differential: skipped {s}");
+    for e in &excluded {
+        eprintln!("corpus differential: not compared, excluded {e}");
     }
     assert!(
         failures.is_empty(),
