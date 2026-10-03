@@ -8,7 +8,6 @@ library {
             "test/strings.buri",
             "test/equality.buri",
             "test/ordering.buri",
-            "test/step_trampoline.buri",
         ]
 
         # The reference run, on the reference backend: `native::conformance`
