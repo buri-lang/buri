@@ -1,0 +1,7 @@
+library {
+    sources: ["greeting.buri"]
+    generators: [
+        { tool: "//tool/embed", inputs: ["hello.txt"] },
+    ]
+    visibility: ["//visibility:public"]
+}
