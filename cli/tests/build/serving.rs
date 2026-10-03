@@ -664,7 +664,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// A program that catches nothing, so a signal it is sent ends it the operating
 /// system's way. It opens no port, and `up` is how a row knows it is running.
 const SLEEPER: &str = r#"from "platform/effect" import { Clock, Stdout };
-from "node" import { NodeHost };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/time" import * as time;
 
@@ -673,7 +673,7 @@ fn forever<C: Clock>(ctx: C): () {
     forever(ctx)
 }
 
-export fn main(host: NodeHost): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Clock: host.clock,
         Stdout: host.stdout,
