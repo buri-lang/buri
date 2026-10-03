@@ -78,7 +78,10 @@ fn main() {
         // question is only whether there is one.
         let mut map = buri::diagnostics::SourceMap::new();
         let id = map.add(path.to_string(), std::path::PathBuf::from(path), text.clone());
-        let parsed = if stdlib {
+        // A platform's surface declares its entries without a body, as the
+        // standard library does, wherever the repository keeps it.
+        let platform = path == "platform.buri" || path.ends_with("/platform.buri");
+        let parsed = if stdlib || platform {
             buri::parsing::parser::parse_stdlib(&text, id)
         } else {
             buri::parsing::parser::parse(&text, id)
