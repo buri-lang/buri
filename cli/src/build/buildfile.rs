@@ -18,61 +18,6 @@ use crate::diagnostics::{Diagnostic, FileId, Invariant, Span};
 const BUILD_FILE_RULES: &[&str] = &["library", "binary", "tool", "platform"];
 const REPO_FILE_RULES: &[&str] = &["tag", "lint", "language"];
 
-/// The fields a `test` block used to declare and no longer does.
-///
-/// A retired field is not an unknown one. `build-unknown-field` offers the nearest
-/// name it does know, and to somebody who wrote what the last release
-/// documented that reads as a typo they did not make; a retired field has a
-/// page of its own instead, saying what replaced it. `check_known` passes the
-/// names here over, and `test_suite` — which is where the block is known —
-/// emits the code.
-///
-/// Per block rather than one list for the file, because a `data` entry in a
-/// `library` rule is still an unknown field and still gets told so.
-const RETIRED_TEST_FIELDS: &[&str] = &["data", "platforms"];
-
-/// The fields a `library` rule used to declare and no longer does. Same rule as
-/// [`RETIRED_TEST_FIELDS`]: the name is passed over by `check_known` and gets
-/// its own page instead of a near miss.
-const RETIRED_LIBRARY_FIELDS: &[&str] = &["proto_sources"];
-
-/// The same, for a `binary` rule.
-const RETIRED_BINARY_FIELDS: &[&str] = &["proto_sources"];
-
-/// The same, for an `outputs` entry: `variant` replaced `arch`, `entries`
-/// replaced `entry`, and every JavaScript output is an ES module.
-const RETIRED_OUTPUT_FIELDS: &[&str] = &["arch", "js", "entry"];
-
-/// The platform names a build file wrote before platforms were strings, and
-/// the list that says the same thing now.
-const RETIRED_PLATFORM_NAMES: &[(&str, &str)] = &[
-    ("LINUX", "backends: [NATIVE]"),
-    ("MACOS", "backends: [NATIVE]"),
-    ("JS", "backends: [JS]"),
-    ("WEB", "platforms: [\"web\"]"),
-];
-
-/// The fix `CLOUDFLARE_WORKER` gets on an output. Cloudflare Workers is a
-/// platform a repository writes for itself, so the fix shows the shape of one
-/// and names the guide that walks through it.
-const CLOUDFLARE_WORKER_FIX: &str = "write the worker as a platform of your own under `//platform/` \
-     and name it by its label; `buri docs guides/custom-platforms` walks through one:\n     \
-     # platform/cloudflare_worker/BUILD.buri\n     \
-     platform { entry { name: \"fetch\"  backend: JS  js: \"fetch.mjs\" } }\n     \
-     # this output\n     \
-     { platform: \"//platform/cloudflare_worker\" }";
-
-/// The tool names this toolchain used to answer to, and what each is called
-/// now. A built-in tool is its language's bare name, as a built-in platform
-/// is; it was `std/<language>` before that, and the proto generator was named
-/// for what it did before it was named for its language.
-pub const RETIRED_TOOL_NAMES: &[(&str, &str)] = &[
-    ("std/codegen/proto", "proto"),
-    ("std/json", "json"),
-    ("std/proto", "proto"),
-    ("std/textproto", "textproto"),
-];
-
 #[derive(Clone, Debug)]
 pub struct Spanned<T> {
     pub value: T,
@@ -1065,17 +1010,16 @@ impl Reader {
     /// Rejects any field the schema does not declare, naming the nearest
     /// known field when there is one.
     ///
-    /// `retired` is passed over here and answered where the block is read,
-    /// because a retired field is not an unknown one.
+    /// `skip` is passed over here and answered where the block is read.
     fn check_known(
         &mut self,
         message: &Message,
         known: &[&str],
-        retired: &[&str],
+        skip: &[&str],
         what: &str,
     ) {
         for f in &message.fields {
-            if retired.contains(&f.name.as_str()) {
+            if skip.contains(&f.name.as_str()) {
                 continue;
             }
             if !known.contains(&f.name.as_str()) {
@@ -1173,15 +1117,6 @@ impl Reader {
         }
     }
 
-    /// Refuses a retired platform or field, naming what replaced it.
-    fn retired(&mut self, span: Span, name: &str, replacement: impl Into<String>) {
-        let code =
-            if RETIRED_OUTPUT_FIELDS.contains(&name) { "retired-output-field" } else { "retired-platform" };
-        self.templated(code, span)
-            .bind("name", name)
-            .bind("replacement", replacement);
-    }
-
     /// `backends: [NATIVE, JS]`.
     fn backends(&mut self, message: &Message) -> Vec<Spanned<Backend>> {
         let mut out = Vec::new();
@@ -1232,23 +1167,8 @@ impl Reader {
                     None
                 }
             },
-            Value::Ident(s, sp) if s == "CLOUDFLARE_WORKER" => {
-                self.retired(
-                    *sp,
-                    s,
-                    "write `platforms: [\"//platform/cloudflare_worker\"]`, naming a platform of \
-                     your own under `//platform/`; `buri docs guides/custom-platforms` walks through \
-                     one",
-                );
-                None
-            }
             Value::Ident(s, sp) => {
-                match RETIRED_PLATFORM_NAMES.iter().find(|(old, _)| old == s) {
-                    Some((_, now)) => self.retired(*sp, s, format!("write `{now}`")),
-                    None => {
-                        self.templated("unknown-platform", *sp).bind("platform", s.clone());
-                    }
-                }
+                self.templated("unknown-platform", *sp).bind("platform", s.clone());
                 None
             }
             other => {
@@ -1427,9 +1347,7 @@ impl Reader {
                 }
                 declared.push((name.value.clone(), name.span));
                 let mut tool = |field: &str| {
-                    let named = self.spanned_string(m, field)?;
-                    self.retired_tool_name(&named);
-                    Some(named)
+                    self.spanned_string(m, field)
                 };
                 let tools =
                     Tools { check: tool("check"), format: tool("format"), generate: tool("generate") };
@@ -1471,18 +1389,6 @@ impl Reader {
             }
         }
         languages
-    }
-
-    /// Refuses a tool name this toolchain has retired, naming what replaced it.
-    ///
-    /// A retired name is not an unknown one: somebody wrote what the last
-    /// release documented, and the page says what it is called now.
-    fn retired_tool_name(&mut self, tool: &Spanned<String>) {
-        if let Some((_, now)) = RETIRED_TOOL_NAMES.iter().find(|(old, _)| *old == tool.value) {
-            self.templated("retired-tool", tool.span)
-                .bind("tool", tool.value.clone())
-                .bind("replacement", *now);
-        }
     }
 
     /// A block's `accepts`, a list of `{ language, type_schema }`. An entry
@@ -1531,33 +1437,7 @@ impl Reader {
 
     fn test_suite(&mut self, parent: &Message) -> Option<TestSuite> {
         let (m, span) = self.sub_message(parent, "test")?;
-        // Before `check_known`, and not one of its near misses: `data` is not a
-        // field this schema never had, it is one this schema *retired*, and
-        // "unknown field `data` in a `test` block" would send a reader looking
-        // for a typo. The page is the whole of the answer, so the emission
-        // carries no binds.
-        for f in m.all("data") {
-            self.templated("retired-test-data", f.name_span);
-        }
-        // A suite runs on a backend, so the list it used to write names one.
-        for f in m.all("platforms") {
-            let items: Vec<&Value> = match &f.value {
-                Value::List(items, _) => items.iter().collect(),
-                other => vec![other],
-            };
-            let mut backends: Vec<&str> = Vec::new();
-            for item in items {
-                let backend = match item {
-                    Value::Ident(s, _) if s == "LINUX" || s == "MACOS" => "NATIVE",
-                    _ => "JS",
-                };
-                if !backends.contains(&backend) {
-                    backends.push(backend);
-                }
-            }
-            self.retired(f.name_span, "platforms", format!("write `backends: [{}]`", backends.join(", ")));
-        }
-        self.check_known(m, textproto::schema_order("test"), RETIRED_TEST_FIELDS, "a `test` block");
+        self.check_known(m, textproto::schema_order("test"), &[], "a `test` block");
         Some(TestSuite {
             sources: self.strings(m, "sources"),
             dependencies: self.strings(m, "dependencies"),
@@ -1613,7 +1493,6 @@ impl Reader {
                         continue;
                     }
                 };
-                self.retired_tool_name(&tool);
                 out.push(Generator { tool, inputs, span: *span });
             }
         }
@@ -1643,12 +1522,9 @@ impl Reader {
 
     /// One `outputs` entry, or `None` once refused.
     fn output(&mut self, m: &Message, span: Span) -> Option<Output> {
-        self.check_known(m, textproto::schema_order("outputs"), RETIRED_OUTPUT_FIELDS, "an output");
+        self.check_known(m, textproto::schema_order("outputs"), &[], "an output");
         let artifact_name = self.spanned_string(m, "artifact_name");
         let variant = self.spanned_string(m, "variant");
-        if let Some(js) = m.get("js") {
-            self.retired(js.name_span, "js", "remove it; every JavaScript output is an ES module");
-        }
         // A platform is what an output *is*, so an entry without one is
         // rejected and dropped rather than carried forward for each consumer
         // to guess about.
@@ -1656,14 +1532,10 @@ impl Reader {
             self.templated("output-missing-platform", span);
             return None;
         };
-        let arch = m.get("arch");
         // A repository's own platform. Its rule is in another build file, so
         // what was written is kept and checked once every build file is read.
         if let Value::Str(label, label_span) = &field.value {
             if label.starts_with("//") {
-                if let Some(a) = arch {
-                    self.retired(a.name_span, "arch", "name it in `variant`, as `variant: \"linux-arm64\"`");
-                }
                 let entries = self.entry_items(m, &[]);
                 let custom = CustomPlatform {
                     label: Spanned::new(label.clone(), *label_span),
@@ -1682,48 +1554,8 @@ impl Reader {
                 });
             }
         }
-        let platform = match &field.value {
-            Value::Ident(s, sp) if matches!(s.as_str(), "LINUX" | "MACOS" | "JS" | "WEB" | "CLOUDFLARE_WORKER") => {
-                let replacement = match s.as_str() {
-                    "JS" => "write `platform: \"node\"`".to_string(),
-                    "CLOUDFLARE_WORKER" => CLOUDFLARE_WORKER_FIX.to_string(),
-                    "WEB" => "write `platform: \"web\"`".to_string(),
-                    _ => {
-                        let os = s.to_lowercase();
-                        let written = arch.and_then(|a| match &a.value {
-                            Value::Ident(a, _) => Arch::parse(&a.to_lowercase()),
-                            _ => None,
-                        });
-                        match written {
-                            Some(a) => format!("write `platform: \"native\", variant: \"{os}-{}\"`", a.slug()),
-                            None => format!(
-                                "write `platform: \"native\", variant: \"{os}-arm64\"` or `\"{os}-x86_64\"`"
-                            ),
-                        }
-                    }
-                };
-                self.retired(*sp, s, replacement);
-                return None;
-            }
-            value => self.platform_name(value),
-        };
-        if let Some(a) = arch {
-            self.retired(a.name_span, "arch", "name it in `variant`, as `variant: \"linux-arm64\"`");
-        }
-        let platform = platform?;
+        let platform = self.platform_name(&field.value)?;
         let entry_names = platform.value.entries();
-        if let Some(e) = m.get("entry") {
-            let written = match &e.value {
-                Value::Str(s, _) => s.clone(),
-                _ => String::from("main"),
-            };
-            let point = entry_names.first().copied().unwrap_or("main");
-            self.retired(
-                e.name_span,
-                "entry",
-                format!("write `entries: [{{ name: \"{point}\", function: \"{written}\" }}]`"),
-            );
-        }
 
         let variants = platform.value.variants();
         let required = platform.value.variant_required();
@@ -1938,18 +1770,7 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
     reader.check_known(&message, BUILD_FILE_RULES, &[], "a build file");
 
     let library = reader.sub_message(&message, "library").map(|(m, span)| {
-        // Before `check_known`, for the reason `test`'s `data` is: a schema is
-        // a generator's input now, and `proto_sources` is a field this schema
-        // retired rather than one it never had.
-        for f in m.all("proto_sources") {
-            reader.templated("retired-proto-sources", f.name_span);
-        }
-        reader.check_known(
-            m,
-            textproto::schema_order("library"),
-            RETIRED_LIBRARY_FIELDS,
-            "a `library` rule",
-        );
+        reader.check_known(m, textproto::schema_order("library"), &[], "a `library` rule");
         Library {
             sources: reader.strings(m, "sources"),
             generators: reader.generators(m),
@@ -1966,14 +1787,9 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
     let binary = reader.sub_message(&message, "binary").map(|(m, span)| {
         // A binary has no `platforms` field of its own — `outputs` already
         // says — and no `visibility`, because nothing can depend on a binary.
-        for f in m.all("proto_sources") {
-            reader.templated("retired-proto-sources", f.name_span);
-        }
         // The two fields reported below get that one diagnostic, not a second
         // `build-unknown-field` on the same span.
-        let skipped: Vec<&str> =
-            RETIRED_BINARY_FIELDS.iter().copied().chain(["platforms", "visibility"]).collect();
-        reader.check_known(m, textproto::schema_order("binary"), &skipped, "a `binary` rule");
+        reader.check_known(m, textproto::schema_order("binary"), &["platforms", "visibility"], "a `binary` rule");
         for bad in ["platforms", "visibility"] {
             if let Some(f) = m.get(bad) {
                 let note = if bad == "platforms" {
@@ -2200,29 +2016,6 @@ library {
         read_build_file(src, FileId(0)).errors.iter().filter_map(|e| e.code.clone()).collect()
     }
 
-    /// Every spelling a build file wrote before platforms were strings is
-    /// refused, with what replaced it.
-    #[test]
-    fn retired_spellings_are_refused() {
-        for src in [
-            "binary {\n  outputs: [{ platform: LINUX }]\n}\n",
-            "library {\n  platforms: [JS]\n}\n",
-            "library {\n  test { platforms: [JS] }\n}\n",
-        ] {
-            assert_eq!(codes(src), ["retired-platform"], "{src}");
-        }
-        for src in [
-            "binary {\n  outputs: [{ platform: \"native\", variant: \"linux-arm64\", arch: ARM64 }]\n}\n",
-            "binary {\n  outputs: [{ platform: \"node\", js { module: ESM } }]\n}\n",
-            "binary {\n  outputs: [{ platform: \"node\", entry: \"run\" }]\n}\n",
-        ] {
-            assert_eq!(codes(src), ["retired-output-field"], "{src}");
-        }
-        let read = read_build_file("binary {\n  outputs: [{ platform: MACOS, arch: ARM64 }]\n}\n", FileId(0));
-        let fix = read.errors[0].fix.clone().unwrap_or_default();
-        assert!(fix.contains("variant: \"macos-arm64\""), "{fix}");
-    }
-
     #[test]
     fn a_native_output_names_one_of_its_variants() {
         assert_eq!(codes("binary {\n  outputs: [{ platform: \"native\" }]\n}\n"), ["missing-platform-variant"]);
@@ -2276,20 +2069,6 @@ library {
         assert_eq!(one("{ function: \"run\" }"), ["entry-missing-field"]);
         assert_eq!(one("{ name: \"main\" }"), ["entry-missing-field"]);
         assert_eq!(one("{ main: \"run\" }"), ["build-unknown-field", "entry-missing-field"]);
-    }
-
-    /// Cloudflare Workers is a platform a repository writes, so the old bare
-    /// word is retired on an output and in a list, and the output's fix shows
-    /// the repository platform and names the guide.
-    #[test]
-    fn a_worker_is_a_platform_a_repository_writes() {
-        let read = read_build_file("binary {\n  outputs: [{ platform: CLOUDFLARE_WORKER }]\n}\n", FileId(0));
-        let written: Vec<_> = read.errors.iter().filter_map(|e| e.code.clone()).collect();
-        assert_eq!(written, ["retired-platform"]);
-        let fix = read.errors[0].fix.clone().unwrap_or_default();
-        assert!(fix.contains("buri docs guides/custom-platforms"), "{fix}");
-        assert!(fix.contains("{ platform: \"//platform/cloudflare_worker\" }"), "{fix}");
-        assert_eq!(codes("library {\n  platforms: [CLOUDFLARE_WORKER]\n}\n"), ["retired-platform"]);
     }
 
     /// A library's list names a repository platform by its label, kept as
