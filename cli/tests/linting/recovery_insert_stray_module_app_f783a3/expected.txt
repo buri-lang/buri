@@ -29,5 +29,4 @@ error: there is nothing named `NANOSECONDS_PER_MILLISECOND` in scope [unknown-na
 21 |     nanoseconds / NANOSECONDS_PER_MILLISECOND
    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = `NANOSECONDS_PER_MILLISECOND` was removed; write `time.milliseconds(1).nanoseconds()`
-   = fix: write `time.milliseconds(1).nanoseconds()`
+   = fix: declare `NANOSECONDS_PER_MILLISECOND`, or import it — a name is in scope only from this module's own declarations and its imports

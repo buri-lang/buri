@@ -298,11 +298,20 @@ process, so one process per test would write it from several at once.
 
 Process per test also means a `OnceLock` no longer shares work across a
 binary's tests. Four things still need to be shared by the whole run, so they
-are named for it (`sweep::run_name`): the corpus pool's permits, the native
-suites' runtime archive, the conformance binaries `native::conformance` and
+are named for it (`sweep::run_name`): the corpus pool's permits, the C driver
+`native::runtime` runs, the conformance binaries `native::conformance` and
 `native::differential` both run (`conformance::linked`), and `checking`'s
 corpus, two CPU-minutes that four tests read. The first process to take a
 lock file builds the shared thing and the rest read it.
+
+**A program runs from the file that first held its bytes.** macOS checks every
+new executable on its first launch, about 0.2 s each and one at a time. So the
+native suites hand each linked program to `kept::settle` (`harness/kept.rs`),
+which keeps one file per distinct executable under
+`CARGO_TARGET_TMPDIR/native-programs` and turns the fresh output into a
+symbolic link to it. Tests still compile and link every time, and run the bytes
+they linked. Bytes repeat across runs because the runtime archive sits at a path
+named for its digest: the linker writes that path into every executable.
 
 **A long corpus is several tests.** nextest can't spread one test over cores,
 so a corpus that a single test walks holds the run open for as long as it
@@ -386,7 +395,9 @@ native suites' per-process trees — `native-stencil-<pid>` and its siblings,
 about 180 MB a run — are named for the process so two overlapping runs cannot
 share one, and nothing deletes them; fourteen gigabytes of them filled a disk
 twice. The sweep takes only what has not been written to for **two hours**,
-which no live run can manage, and it does not run at all under `BURI_KEEP`.
+which no live run can manage, and it does not run at all under `BURI_KEEP`. It
+never takes the current runtime archive, and it takes kept programs one at a
+time, each under its lock.
 
 ### Reproducing a Linux CI leg on a mac
 
