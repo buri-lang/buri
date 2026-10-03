@@ -14,10 +14,6 @@ error: there is nothing named `fromCents` in scope [unresolved-name]
    |
    = fix: declare `fromCents`, or import it — a name is in scope only from this module's own declarations and its imports
 
-     Why
-     ───
-
-     There is no prelude and no ambient scope. A module's available names are
-     the ones it declares plus the ones its own imports name, which is what
-     makes the suggestion trustworthy.
+     There is no prelude. A module sees only what it declares and what its own
+     imports name, which is why the suggestion is trustworthy.
 

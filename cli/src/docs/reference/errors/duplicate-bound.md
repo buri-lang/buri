@@ -10,18 +10,6 @@ fix: delete one of the two bindings
 error: `Allocator` is bound twice [duplicate-bound]
 ```
 
-## What to do
-
-Delete one of the two bindings.
-
-## Why
-
-An explicit binding replaces a spread's binding: `context { ..Fixture(),
-FileSystemRead: fs().files([]) }` is how a test overrides a default. Two explicit
-bindings have no such reading, so the later one does not silently win.
-
-## A program that provokes it
-
 ```buri fail code=duplicate-bound
 # from "core/io" import * as io;
 # from "native" import { NativeHost };
@@ -37,3 +25,7 @@ export fn main(host: NativeHost): Result<(), Str> {
     .Ok(())
 }
 ```
+
+Overriding a spread is how a test replaces a default:
+`context { ..Fixture(), FileSystemRead: fs().files([]) }`. Two explicit
+bindings have no such reading, so the later one doesn't silently win.

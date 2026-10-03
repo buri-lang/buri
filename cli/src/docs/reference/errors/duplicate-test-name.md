@@ -11,18 +11,6 @@ fix: rename one of them, so each test in this file has its own title
 error: this file already has a test called "pads the cents place" [duplicate-test-name]
 ```
 
-## What to do
-
-Rename one of them.
-
-## Why
-
-A title is how the report names a failing test and how `--filter` selects one.
-Two *different* files may reuse a title, since the report names the file and the
-line each failure came from.
-
-## A program that provokes it
-
 ```buri fail code=duplicate-test-name role=test
 from "core/testing/assert" import * as assert;
 
@@ -34,3 +22,6 @@ test "adds" {
     assert.equal(2 + 2, 4);
 }
 ```
+
+Two different files may share a title, since the report names each failure's
+file and line.

@@ -6,14 +6,6 @@ error: this pattern does not mention `y` [missing-field-pattern]
   |
   = fix: match `y` too, or end the pattern with `..` to ignore the rest
 
-    What to do
-    ──────────
-
-    Match y too, or end the pattern with .. to ignore the rest.
-
-    Why
-    ───
-
-    Adding a field should be a compile error everywhere the type is taken apart,
-    and .. is how a pattern opts out.
+    Adding a field should break every pattern that takes the type apart. .. is
+    how a pattern opts out.
 

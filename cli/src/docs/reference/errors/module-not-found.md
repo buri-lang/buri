@@ -9,19 +9,8 @@ fix: create the file the path names, or correct the path — a module path maps 
 error: "//lib/nope" is in no package of this repository [module-not-found]
 ```
 
-## What to do
-
-Create the file the path names, or correct the path.
-
-## Why
-
-A module path maps to exactly one file, with no search path and no fallback, so
-there is never a question of which of two candidates a path meant.
-
-## A program that provokes it
-
-This snippet resolves against the worked monorepo in `cli/tests/example`, which
-has no `lib/nope`.
+This resolves against the example monorepo in `cli/tests/example`, which has no
+`lib/nope`:
 
 ```buri fail code=module-not-found repo=cli/tests/example
 from "native" import { NativeHost };
@@ -31,3 +20,5 @@ export fn main(host: NativeHost): Result<(), Str> {
     .Ok(())
 }
 ```
+
+There's no search path and no fallback, so a path never has two candidates.

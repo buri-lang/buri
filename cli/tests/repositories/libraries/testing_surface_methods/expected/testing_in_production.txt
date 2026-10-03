@@ -8,14 +8,9 @@ error: this is a test-only module [test-only-import]
   = //user/user.buri is not one
   = fix: import it from a file listed in a target's `test.sources`, or drop the import
 
-    What to do
-    ──────────
-
-    Import it from a test source, or drop the import.
-
-    Any module path with a testing *directory* segment is covered:
-    core/testing/assert, //lib/ledger/testing, //lib/testing/fakes. A file
-    called testing.buri is not one, because that segment is the file's own name.
+    Any path with a testing directory segment counts: core/testing/assert,
+    //lib/ledger/testing, //lib/testing/fakes. A file named testing.buri
+    doesn't, because that segment is the file's own name.
 
 error: there is nothing named `fake` in scope [unresolved-name]
  --> user/user.buri:4:5
@@ -25,10 +20,6 @@ error: there is nothing named `fake` in scope [unresolved-name]
   |
   = fix: declare `fake`, or import it — a name is in scope only from this module's own declarations and its imports
 
-    Why
-    ───
-
-    There is no prelude and no ambient scope. A module's available names are the
-    ones it declares plus the ones its own imports name, which is what makes the
-    suggestion trustworthy.
+    There is no prelude. A module sees only what it declares and what its own
+    imports name, which is why the suggestion is trustworthy.
 

@@ -20,30 +20,19 @@ error: "//lib/money/cents" names no file [import-path-without-a-file]
   = fix: write "//lib/money/cents.buri"
 ```
 
-## What to do
-
-Add the file name the path already meant. The compiler works out which file
-that is and offers the edit, so `buri lint --fix` and the editor's quick fix
-will make it for you.
-
-## Why
-
-An import path names one of two things, spelled differently because they are
-different:
+`buri lint --fix` and the editor's quick fix make the edit for you.
 
 | what | written | who may write it |
 |---|---|---|
 | a **surface** — a library's `lib.buri`, or its `testing/lib.buri` | `"//lib/money"`, `"//lib/money/testing"`, `"core/list"` | anyone the dependency and visibility rules allow, including the package's own suite |
 | a **file** inside a package | `"//lib/money/cents.buri"`, `"//cmd/app/main.buri"` | only another file of that same package |
 
-**Their shape cannot tell them apart**, which is why the compiler resolves the
-fix rather than spelling it. `"//lib/money/testing"` and `"//lib/money/cents"`
-differ by one segment; what decides them is whether `lib/money/testing/lib.buri`
-or `lib/money/cents.buri` is on disk.
+The two look alike: `"//lib/money/testing"` and `"//lib/money/cents"` differ by
+one segment. What's on disk decides, so the compiler works out the fix rather
+than the path spelling it.
 
-A binary's entry point is a file for the same reason: `//cmd/app` would be that
-package's `lib.buri`, and a package with only a binary has none. So you write
-`"//cmd/app/main.buri"`, from that binary's own test sources and nowhere else.
+A binary's entry point is a file too: a package with only a binary has no
+`lib.buri` for `//cmd/app` to name. Write `"//cmd/app/main.buri"`, from that
+binary's own test sources only.
 
-A path that leaves the package and names a file inside it is `internal-import`
-instead.
+A path that names a file inside another package is `internal-import` instead.

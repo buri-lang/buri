@@ -11,16 +11,10 @@ fix: import it from a file listed in a target's `test.sources`, or drop the impo
 error: this is a test-only module [test-only-import]
 ```
 
-## What to do
-
-Import it from a test source, or drop the import.
-
-Any module path with a `testing` *directory* segment is covered:
-`core/testing/assert`, `//lib/ledger/testing`, `//lib/testing/fakes`. A file
-called `testing.buri` is not one, because that segment is the file's own name.
-
-## A program that provokes it
-
 ```buri fail code=test-only-import
 from "core/testing/assert" import * as assert;
 ```
+
+Any path with a `testing` directory segment counts: `core/testing/assert`,
+`//lib/ledger/testing`, `//lib/testing/fakes`. A file named `testing.buri`
+doesn't, because that segment is the file's own name.

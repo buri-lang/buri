@@ -6,11 +6,8 @@ error: "//lib/money" does not export `rawValue` [no-such-export]
   |
   = fix: check the spelling, or re-export `rawValue` from "//lib/money"'s `lib.buri`
 
-    Why
-    ───
-
-    A re-export may name only what its module path exports, so a library's
-    surface is never wider than the modules it is built from.
+    A re-export names only what its module exports, so a library's surface is
+    never wider than the modules behind it.
 
 error: there is nothing named `rawValue` in scope [unresolved-name]
   --> cmd/app/main.buri:16:26
@@ -20,10 +17,6 @@ error: there is nothing named `rawValue` in scope [unresolved-name]
    |
    = fix: declare `rawValue`, or import it — a name is in scope only from this module's own declarations and its imports
 
-     Why
-     ───
-
-     There is no prelude and no ambient scope. A module's available names are
-     the ones it declares plus the ones its own imports name, which is what
-     makes the suggestion trustworthy.
+     There is no prelude. A module sees only what it declares and what its own
+     imports name, which is why the suggestion is trustworthy.
 

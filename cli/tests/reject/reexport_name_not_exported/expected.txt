@@ -7,9 +7,6 @@ error: "core/list" does not export `notAThing` [no-such-export]
   = a re-export may name only what its module path exports
   = fix: check the spelling, or drop `notAThing` from this list
 
-    Why
-    ───
-
-    A re-export may name only what its module path exports, so a library's
-    surface is never wider than the modules it is built from.
+    A re-export names only what its module exports, so a library's surface is
+    never wider than the modules behind it.
 

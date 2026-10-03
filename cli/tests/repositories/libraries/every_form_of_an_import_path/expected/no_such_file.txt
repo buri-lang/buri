@@ -6,22 +6,10 @@ error: "//lib/money/nope.buri" names no file (lib/money/nope.buri) [module-not-f
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
 
-    What to do
-    ──────────
+    This resolves against the example monorepo in cli/tests/example, which has
+    no lib/nope:
 
-    Create the file the path names, or correct the path.
-
-    Why
-    ───
-
-    A module path maps to exactly one file, with no search path and no fallback,
-    so there is never a question of which of two candidates a path meant.
-
-    A program that provokes it
-    ──────────────────────────
-
-    This snippet resolves against the worked monorepo in cli/tests/example,
-    which has no lib/nope.
+    There's no search path and no fallback, so a path never has two candidates.
 
 error: there is no type `Cents` [unresolved-type]
  --> cmd/app/routes.buri:6:12
@@ -31,12 +19,8 @@ error: there is no type `Cents` [unresolved-type]
   |
   = fix: declare it, import it, or correct the spelling
 
-    Why
-    ───
-
-    Types are nominal throughout. There is no structural fallback and no
-    inference from shape, so a misspelling cannot quietly become a different
-    type that happens to fit.
+    Types are nominal, with no structural fallback, so a misspelling can't
+    quietly become a different type that happens to fit.
 
 error: there is nothing named `fromCents` in scope [unresolved-name]
  --> cmd/app/routes.buri:6:20
@@ -46,10 +30,6 @@ error: there is nothing named `fromCents` in scope [unresolved-name]
   |
   = fix: declare `fromCents`, or import it — a name is in scope only from this module's own declarations and its imports
 
-    Why
-    ───
-
-    There is no prelude and no ambient scope. A module's available names are the
-    ones it declares plus the ones its own imports name, which is what makes the
-    suggestion trustworthy.
+    There is no prelude. A module sees only what it declares and what its own
+    imports name, which is why the suggestion is trustworthy.
 

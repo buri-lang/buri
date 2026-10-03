@@ -10,18 +10,6 @@ fix: 'break the cycle: give one of these a body that is a struct, an enum or a n
 error: circular type alias: `A` -> `A` [circular-type-alias]
 ```
 
-## Why
-
-`type Handle = Str` introduces a spelling, not a type: everywhere you write
-`Handle` the compiler substitutes `Str`. So `type A = A;` substitutes to itself,
-and there is nothing to reach.
-
-The diagnostic names the whole chain, because changing any name on it fixes the
-error. An exported alias lets the chain cross a module, and then each name is
-printed with the module that declares it.
-
-## A program that provokes it
-
 ```buri fail code=circular-type-alias
 type Celsius = Fahrenheit;
 
@@ -31,3 +19,9 @@ export fn freezing(t: Celsius): Bool {
     t == t
 }
 ```
+
+`type Handle = Str` is a new spelling, not a new type: the compiler substitutes
+`Str` wherever you write `Handle`. A chain that loops never reaches a type.
+
+Changing any name on the chain fixes it, so the diagnostic prints the whole
+chain. When it crosses modules, each name carries its declaring module.

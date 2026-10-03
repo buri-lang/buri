@@ -10,14 +10,6 @@ fix: name the traits between `derive` and `for`, as in `derive Equal, Show for M
 error: a `derive` clause names no traits [derive-without-traits]
 ```
 
-## What to do
-
-Name the traits between `derive` and `for`, as in `derive Equal, Show for Meters;`,
-or delete the clause. It generates one implementation per trait it names, so a
-clause naming none generates nothing.
-
-## A program that provokes it
-
 ```buri fail code=derive-without-traits
 struct Meters(export Float);
 

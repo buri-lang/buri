@@ -7,18 +7,9 @@ error: `if` requires an `else` branch [if-without-else]
   = `if` is an expression, so both branches must produce a value of the same type
   = fix: add `else { ... }`; an `if` is an expression, so it has a value either way
 
-    What to do
-    ──────────
+    Without an else, the language would have to invent a value for the other
+    path.
 
-    Add else { ... }.
-
-    Why
-    ───
-
-    An if has a value, so it has one on both paths. A missing else would be a
-    value the language had to invent.
-
-    You only see this when the else is really absent. A branch whose } was
-    already reported missing, and a stray token between } and else, each get the
-    error that names them instead.
+    This error means the else really is absent. A branch missing its }, or a
+    stray token between } and else, gets its own error instead.
 

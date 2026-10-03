@@ -10,16 +10,11 @@ fix: give `{name}` a variant that does not mention itself, the way `.None` termi
 error: `Endless` can never be constructed [uninhabited]
 ```
 
-## What to do
-
-Give the type a terminating variant. There is no laziness and no null to break
-the cycle with, so the compiler catches this at the declaration rather than at
-the first attempt to construct one.
-
-## A program that provokes it
-
 ```buri fail code=uninhabited
 enum Endless {
     Node(Endless),
 }
 ```
+
+There is no laziness and no null to break the cycle, so the compiler reports it
+at the declaration.

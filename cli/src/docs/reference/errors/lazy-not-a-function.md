@@ -10,9 +10,16 @@ fix: 'name a function: `lazy.load(adminPage)`'
 error: `load` takes the name of a function, and this is Int [lazy-not-a-function]
 ```
 
-## What to do
+```buri fail code=lazy-not-a-function
+# from "core/lazy" import * as lazy;
 
-Write the function down somewhere and hand `load` its name.
+fn eager(): Int {
+    let f = lazy.load(3);
+    f
+}
+```
+
+Declare the function and hand `load` its name:
 
 ```buri
 from "core/io" import * as io;
@@ -29,23 +36,8 @@ fn route<C: Stdout>(ctx: C): () {
 }
 ```
 
-## Why
-
-`load` moves a function into a chunk of its own, so there has to be a function
-to move. A lambda written at the call site is part of the body it sits in and
-has nowhere to move from. A local holding a function value is a value, and the
-compiler cannot see which body it will hold.
-
-`load<F>(f: F): F` is generic, because what it answers is what it was handed. So
-the type cannot refuse anything here, and this is the check that does.
-
-## A program that provokes it
-
-```buri fail code=lazy-not-a-function
-# from "core/lazy" import * as lazy;
-
-fn eager(): Int {
-    let f = lazy.load(3);
-    f
-}
-```
+`load` moves a function into its own chunk, so it needs a declared function to
+move. A lambda at the call site is part of the surrounding body. A local holding
+a function is a value, and the compiler can't see which body it holds. The
+signature, `load<F>(f: F): F`, accepts anything, so this check does the
+refusing.

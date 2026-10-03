@@ -9,21 +9,12 @@ fix: call it on a receiver: `x.{name}()`; to pass it on, wrap it in a lambda: `f
 error: `area` is a method, and a method is not a value [method-not-a-value]
 ```
 
-## What to do
-
-Call it on a receiver — `x.area()` — or, to pass it on, wrap it in a lambda:
-`fn(x) => x.area()`.
-
-## Why
-
-The compiler resolves a method through its receiver's type rather than looking
-it up in scope, so `sq.area` on its own has nothing to evaluate to. The lambda
-turns the receiver into an argument.
-
-## A program that provokes it
-
 ```buri fail code=method-not-a-value use=errors wrap=body
 let sq = Square { side: 3 };
 let f = sq.area;
 let _ = io.println(ctx, "${f()}").ignore();
 ```
+
+A method is found through its receiver's type, not looked up in scope, so
+`sq.area` alone has nothing to evaluate to. The lambda turns the receiver into
+an argument.

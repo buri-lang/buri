@@ -10,17 +10,6 @@ fix: rename the method, or rename the field
 error: `side` is already a field of `Square` [duplicate-field]
 ```
 
-## What to do
-
-Rename the method, or rename the field.
-
-## Why
-
-A `.` resolves to a field before a method, so `sq.side` and `sq.side()` sharing
-a name would be decided by a rule nobody should have to remember.
-
-## A program that provokes it
-
 ```buri fail code=duplicate-field use=errors
 impl Square {
     fn side(self): Int {
@@ -28,3 +17,6 @@ impl Square {
     }
 }
 ```
+
+Otherwise `x.side` and `x.side()` would differ by a lookup rule nobody should
+have to remember.

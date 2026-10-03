@@ -11,17 +11,7 @@ reproduction: none
 error: this toolchain was built without networking, so `host.HostListen.listen` cannot be compiled [networking-not-available]
 ```
 
-## What to do
+Your program is fine: a different toolchain compiles it unchanged.
 
-Install or build a toolchain whose runtime archive has networking in it. The
-runtime's `net` feature is on by default, so an ordinary `cargo build -p buri`
-produces one. `BURI_RUNTIME_NET=0` turns it off, and a machine that could not
-reach the runtime's dependencies when the toolchain was built gets the same
-result plus a warning in the build log.
-
-## Why
-
-A runtime without networking is a missing *language capability*, so the compiler
-says so before code generation rather than leaving the linker to report an
-unresolved `buri_rt_*` symbol. Nothing about your program is wrong: a different
-toolchain compiles it unchanged.
+`BURI_RUNTIME_NET=0` turns networking off. A build machine that couldn't reach
+the runtime's dependencies also leaves it out, with a warning in the build log.

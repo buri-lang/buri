@@ -10,13 +10,8 @@ fix: pick another name; `{word}` is not available
 error: `return` is a reserved word and may not be used as an identifier [reserved-word]
 ```
 
-## What to do
-
-Pick another name. `buri docs grammar` lists the whole reserved set under
-`ReservedWord`.
-
-## A program that provokes it
-
 ```buri fail code=reserved-word
 fn return(n: Int): Int { n }
 ```
+
+`buri docs grammar` lists every reserved word under `ReservedWord`.

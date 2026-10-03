@@ -7,12 +7,8 @@ error: `NodeHost` has no field `ui` [no-such-field]
    = node does not offer `Ui`; web does
    = fix: build this output for web, or drop `Ui` from the context — a program for two platforms gives each output an entry of its own
 
-     Why
-     ───
-
-     There is no structural typing and no inheritance. A value's fields are
-     exactly the ones its declaration lists, which is how the diagnostic can
-     offer the nearest name the type does have.
+     There's no structural typing and no inheritance. A value has exactly the
+     fields its declaration lists.
 
 error: `NodeHost` has no field `watch` [no-such-field]
   --> cmd/host_effect_not_granted_on_js/main.buri:20:17

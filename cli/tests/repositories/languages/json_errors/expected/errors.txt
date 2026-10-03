@@ -12,12 +12,9 @@ error: this file has no `"$schema"` [json-without-schema]
           "regions": ["eu-west", "us-east"]
       }
 
-    The schema is what a mistake in the file is measured against. Without one, a
-    typo in a key reaches the generator as data, and the error surfaces as wrong
-    generated code rather than at the line that holds the typo.
-
-    buri format never adds the key for you: which schema a file follows is yours
-    to say.
+    Without a schema, a typo in a key reaches the generator as data and shows up
+    as wrong generated code instead of an error at the typo. buri format never
+    adds the key: which schema a file follows is yours to say.
 
 error: `https://example.com/elsewhere.json` is not a file in this repository [schema-not-local]
  --> lib/bad/broken_ref.schema.json:3:13
@@ -28,16 +25,15 @@ error: `https://example.com/elsewhere.json` is not a file in this repository [sc
   = a schema is read from the repository and never fetched, so every machine checks against the same one
   = fix: check the schema in, and name it by a path relative to this file or a `//` path
 
-    "$schema", and every $ref to another file, names a file in this repository:
+    "$schema" and every $ref to another file name a file in this repository:
 
       { "$schema": "regions.schema.json" }
       { "$schema": "//schemas/regions.schema.json" }
 
     A URL, an absolute path, or a relative path that climbs out of the
-    repository is refused. Fetching one would put the network in the build, and
-    two machines could check one file against two different schemas.
+    repository is refused.
 
-    The one URL known by name is the JSON Schema 2020-12 meta-schema,
+    The one URL allowed is the JSON Schema 2020-12 meta-schema,
     https://json-schema.org/draft/2020-12/schema, which marks a file as a
     schema.
 
@@ -49,19 +45,16 @@ error: `#/$defs/nothing` points at nothing in the schema [json-schema-invalid]
   |
   = fix: correct the pointer or the anchor it names
 
-    Every keyword a schema writes is checked before any file is checked against
-    it, so a mistake in the schema is reported in the schema rather than as a
-    puzzling verdict on the data.
-
-    Two kinds of refusal are not mistakes in 2020-12 terms:
+    The schema is checked before any data, so its mistakes are reported in the
+    schema. Two refusals are valid 2020-12:
 
     - A draft-07 keyword with a 2020-12 replacement, such as dependencies or
-    additionalItems. 2020-12 would silently ignore it, so the check would pass
-    data the author meant to refuse.
+    additionalItems. 2020-12 silently ignores it, so data the author meant to
+    refuse would pass.
 
-    - A `pattern` this toolchain cannot read. Patterns are ECMA-262 regular
-    expressions over code points. Lookbehind, back-references and \p{…} are not
-    supported. buri docs guides/json lists the syntax that is.
+    - A pattern this toolchain can't read. Patterns are ECMA-262 regular
+    expressions over code points, without lookbehind, back-references or \p{…}.
+    buri docs guides/json lists the supported syntax.
 
 error: JSON has no comments [json-syntax]
  --> lib/bad/comment.json:1:1
@@ -94,11 +87,8 @@ error: `http://json-schema.org/draft-07/schema#` is not JSON Schema 2020-12 [jso
   = this toolchain reads one draft of JSON Schema, so every keyword has one meaning
   = fix: write `"$schema": "https://json-schema.org/draft/2020-12/schema"` in the schema, and update its keywords to 2020-12
 
-    The drafts disagree about what one keyword means: items holding a list is a
-    tuple in draft 7 and an error in 2020-12. Reading one draft means a schema
-    says one thing.
-
-    Moving a draft-07 schema to 2020-12 is mostly renaming:
+    Drafts disagree on keywords: items holding a list is a tuple in draft 7 and
+    an error in 2020-12. Moving a draft-07 schema is mostly renaming:
 
       Draft 7          2020-12
       definitions      $defs

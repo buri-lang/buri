@@ -10,19 +10,6 @@ fix: correct the member name, or check `buri docs {path}`
 error: "core/fs" has no member `appendBytes` [no-such-member]
 ```
 
-## Why
-
-`fs` in `fs.appendBytes(...)` is a namespace, not a value. It stands for the
-module its import named, and what you may write after the dot is exactly what
-that module exports.
-
-A namespace qualifies a type, a bound and an `impl` head the same way it
-qualifies a function, so `list.Vector<Int>` and `<T: order.Comparable>` are
-answered here too. When no import bound the name at all, `fs.readText(...)` is
-`unresolved-name` on `fs` instead.
-
-## A program that provokes it
-
 ```buri fail code=no-such-member
 from "core/fs" import * as fs;
 from "core/fs" import { FileSystemWrite };
@@ -42,3 +29,8 @@ export fn root<C: Allocator>(ctx: C): Float {
     math.sqrt(2.0)
 }
 ```
+
+A namespace like `fs` stands for the module its import named, and only that
+module's exports may follow the dot. This covers types, bounds and `impl` heads
+too, such as `list.Vector<Int>` and `<T: order.Comparable>`. If no import bound
+the namespace at all, the error is `unresolved-name` instead.

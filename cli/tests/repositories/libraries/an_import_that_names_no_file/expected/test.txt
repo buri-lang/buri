@@ -8,18 +8,7 @@ error: "//cmd/app/main" names no file [import-path-without-a-file]
   = a surface is named as a module and everything else is a file, so this path is that file's name — the one you would type into an editor, extension and all
   = fix: write "//cmd/app/main.buri"
 
-    What to do
-    ──────────
-
-    Add the file name the path already meant. The compiler works out which file
-    that is and offers the edit, so buri lint --fix and the editor's quick fix
-    will make it for you.
-
-    Why
-    ───
-
-    An import path names one of two things, spelled differently because they are
-    different:
+    buri lint --fix and the editor's quick fix make the edit for you.
 
       what                                                       written                                            who may write it
       a surface — a library's lib.buri, or its testing/lib.buri  "//lib/money", "//lib/money/testing", "core/list"  anyone the
@@ -30,18 +19,15 @@ error: "//cmd/app/main" names no file [import-path-without-a-file]
       a file inside a package                                    "//lib/money/cents.buri", "//cmd/app/main.buri"    only another file of
                                                                                                                     that same package
 
-    Their shape cannot tell them apart, which is why the compiler resolves the
-    fix rather than spelling it. "//lib/money/testing" and "//lib/money/cents"
-    differ by one segment; what decides them is whether
-    lib/money/testing/lib.buri or lib/money/cents.buri is on disk.
+    The two look alike: "//lib/money/testing" and "//lib/money/cents" differ by
+    one segment. What's on disk decides, so the compiler works out the fix
+    rather than the path spelling it.
 
-    A binary's entry point is a file for the same reason: //cmd/app would be
-    that package's lib.buri, and a package with only a binary has none. So you
-    write "//cmd/app/main.buri", from that binary's own test sources and nowhere
-    else.
+    A binary's entry point is a file too: a package with only a binary has no
+    lib.buri for //cmd/app to name. Write "//cmd/app/main.buri", from that
+    binary's own test sources only.
 
-    A path that leaves the package and names a file inside it is internal-import
-    instead.
+    A path that names a file inside another package is internal-import instead.
 
 error: there is nothing named `name` in scope [unresolved-name]
   --> cmd/app/test/main.buri:10:18
@@ -51,12 +37,8 @@ error: there is nothing named `name` in scope [unresolved-name]
    |
    = fix: declare `name`, or import it — a name is in scope only from this module's own declarations and its imports
 
-     Why
-     ───
-
-     There is no prelude and no ambient scope. A module's available names are
-     the ones it declares plus the ones its own imports name, which is what
-     makes the suggestion trustworthy.
+     There is no prelude. A module sees only what it declares and what its own
+     imports name, which is why the suggestion is trustworthy.
 
 error: "//lib/money/cents" names no file [import-path-without-a-file]
  --> lib/money/parse.buri:5:6
@@ -74,10 +56,6 @@ error: there is no type `Cents` [unresolved-type]
   |
   = fix: declare it, import it, or correct the spelling
 
-    Why
-    ───
-
-    Types are nominal throughout. There is no structural fallback and no
-    inference from shape, so a misspelling cannot quietly become a different
-    type that happens to fit.
+    Types are nominal, with no structural fallback, so a misspelling can't
+    quietly become a different type that happens to fit.
 

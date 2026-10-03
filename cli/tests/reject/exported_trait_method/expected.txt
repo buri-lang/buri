@@ -7,21 +7,7 @@ error: an `impl` method is not separately exported [impl-method-export]
    = conformance is a property of the type, visible wherever the type is
    = fix: drop the `export`
 
-     What to do
-     ──────────
-
-     Drop the export.
-
-     Why
-     ───
-
-     Conformance belongs to the type: once Version is visible, everything impl
-     Equal for Version supplies is visible with it. Withholding a method the
-     trait requires would be a conformance that does not hold.
-
-     A program that provokes it
-     ──────────────────────────
-
-     An impl block for the type's own methods is the other case, and export
-     means something there.
+     Wherever the type is visible, every method of its trait impls is too.
+     Hiding one would break the conformance. In an impl block for the type's own
+     methods, export does mean something.
 

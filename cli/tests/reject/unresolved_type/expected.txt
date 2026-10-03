@@ -6,10 +6,6 @@ error: there is no type `Widgett` [unresolved-type]
   |
   = fix: declare it, import it, or correct the spelling
 
-    Why
-    ───
-
-    Types are nominal throughout. There is no structural fallback and no
-    inference from shape, so a misspelling cannot quietly become a different
-    type that happens to fit.
+    Types are nominal, with no structural fallback, so a misspelling can't
+    quietly become a different type that happens to fit.
 
