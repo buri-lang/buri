@@ -9,14 +9,6 @@ fix: check the spelling, or name a field the type declares
 error: `Rec` has no field `f1` [no-such-field]
 ```
 
-## Why
-
-There is no structural typing and no inheritance. A value's fields are exactly
-the ones its declaration lists, which is how the diagnostic can offer the
-nearest name the type does have.
-
-## A program that provokes it
-
 ```buri fail code=no-such-field
 struct Rec {
     export f0: Int,
@@ -26,3 +18,6 @@ fn read(r: Rec): Int {
     r.f1
 }
 ```
+
+There's no structural typing and no inheritance. A value has exactly the fields
+its declaration lists.

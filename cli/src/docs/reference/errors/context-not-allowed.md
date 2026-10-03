@@ -10,24 +10,6 @@ fix: build it in the entry and pass it down as a `ctx` parameter, or make this a
 error: a context may not be constructed here [context-not-allowed]
 ```
 
-## What to do
-
-Build it in the entry and pass it down as a `ctx` parameter, or make this a test
-source.
-
-## Why
-
-Three places may mint authority: an entry's body, a test source, and a test-only
-module. A lambda is not one of them. A closure able to build a context could
-hand one to a caller that never named an effect, which is what the capture rule
-prevents.
-
-An **entry** is a function an `outputs` entry names — `main` unless the build
-file says otherwise. A binary with a page and a worker in it has two, and each
-builds its own.
-
-## A program that provokes it
-
 ```buri fail code=context-not-allowed
 # from "core/io" import * as io;
 # from "native" import { NativeHost };
@@ -49,3 +31,10 @@ export fn main(host: NativeHost): Result<(), Str> {
     .Ok(())
 }
 ```
+
+A closure that could build a context could hand one to a caller that never
+named an effect, which is what the capture rule prevents.
+
+An entry is a function an `outputs` entry names, `main` unless the build file
+says otherwise. A binary with a page and a worker has two, and each builds its
+own context.

@@ -7,10 +7,6 @@ error: `Endless` can never be constructed [uninhabited]
   = every variant recurses, so building one would need one already
   = fix: give `Endless` a variant that does not mention itself, the way `.None` terminates an `Option`
 
-    What to do
-    ──────────
-
-    Give the type a terminating variant. There is no laziness and no null to
-    break the cycle with, so the compiler catches this at the declaration rather
-    than at the first attempt to construct one.
+    There is no laziness and no null to break the cycle, so the compiler reports
+    it at the declaration.
 

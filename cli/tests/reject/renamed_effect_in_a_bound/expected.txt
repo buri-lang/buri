@@ -7,11 +7,8 @@ error: "platform/effect" does not export `Alloc` [no-such-export]
   = `Alloc` was renamed to `Allocator`
   = fix: write `Allocator`
 
-    Why
-    ───
-
-    A re-export may name only what its module path exports, so a library's
-    surface is never wider than the modules it is built from.
+    A re-export names only what its module exports, so a library's surface is
+    never wider than the modules behind it.
 
 error: `Alloc` is not a trait or effect [not-a-trait]
  --> cmd/renamed_effect_in_a_bound/main.buri:8:20

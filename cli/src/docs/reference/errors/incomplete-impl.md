@@ -10,17 +10,6 @@ fix: add {methods} to the block, with the signature `{trait}` declares
 error: `Bag`'s `impl Measurable` is missing `isEmptyThing` [incomplete-impl]
 ```
 
-## What to do
-
-Add `isEmptyThing` to the block, with the signature `Measurable` declares.
-
-## Why
-
-There are no default method bodies, so a trait's method list is the whole of
-what an `impl` owes it.
-
-## A program that provokes it
-
 ```buri fail code=incomplete-impl
 trait Measurable {
     fn size(self): Int;
@@ -37,3 +26,5 @@ impl Measurable for Bag {
     }
 }
 ```
+
+Traits have no default method bodies.

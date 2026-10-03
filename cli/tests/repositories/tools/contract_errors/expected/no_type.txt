@@ -9,10 +9,10 @@ error: `prefixItems` has no Buri type [json-schema-no-type]
 
       { "if": { "required": ["port"] }, "then": { "required": ["host"] } }
 
-    json turns a schema into types for a contract or a generators entry.
-    Keywords about values, such as pattern, minimum and format, stay the
-    check's. These change a value's shape in a way no one type follows, so they
-    are refused where they are written:
+    A schema that generates types, for a contract or a generators entry, can't
+    use keywords that change a value's shape in a way no one type follows. Value
+    keywords such as pattern, minimum and format are fine; they stay checks.
+    These are refused:
 
     - if, then and else;
     - allOf, and an anyOf that is not one type or null;
@@ -33,22 +33,10 @@ error: "//tool/b/json" names no file (tool/b/json.buri) [module-not-found]
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
 
-    What to do
-    ──────────
+    This resolves against the example monorepo in cli/tests/example, which has
+    no lib/nope:
 
-    Create the file the path names, or correct the path.
-
-    Why
-    ───
-
-    A module path maps to exactly one file, with no search path and no fallback,
-    so there is never a question of which of two candidates a path meant.
-
-    A program that provokes it
-    ──────────────────────────
-
-    This snippet resolves against the worked monorepo in cli/tests/example,
-    which has no lib/nope.
+    There's no search path and no fallback, so a path never has two candidates.
 
 error: there is no type `a.Names` [unresolved-type]
  --> tool/b/tool.buri:8:67
@@ -58,10 +46,6 @@ error: there is no type `a.Names` [unresolved-type]
   |
   = fix: declare it, import it, or correct the spelling
 
-    Why
-    ───
-
-    Types are nominal throughout. There is no structural fallback and no
-    inference from shape, so a misspelling cannot quietly become a different
-    type that happens to fit.
+    Types are nominal, with no structural fallback, so a misspelling can't
+    quietly become a different type that happens to fit.
 

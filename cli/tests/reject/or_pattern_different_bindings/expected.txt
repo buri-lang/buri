@@ -7,15 +7,6 @@ error: or-pattern alternatives must bind the same names [or-pattern-bindings]
    = it binds `y`, which the others do not
    = fix: bind the same names in every alternative, or split this into separate arms
 
-     What to do
-     ──────────
-
-     Bind the same names in every alternative, or split this into separate arms.
-
-     Why
-     ───
-
-     One arm has one body, and it can name only what every alternative supplies,
-     at the same type. An alternative that binds y where another binds x leaves
-     the body with a name that is sometimes missing.
+     An arm has one body, and it can use only the names every alternative binds,
+     at the same type.
 

@@ -11,26 +11,17 @@ reproduction: none
 error: this toolchain was built without cryptography, so `host.HostEntropy.bytes` cannot be compiled [cryptography-not-available]
 ```
 
-## What to do
-
-Install or build a toolchain whose runtime archive can reach the operating
-system's generator. The `crypto` feature is on by default, so an ordinary
-`cargo build -p buri` produces one; `BURI_RUNTIME_CRYPTO=0` turns it off. A
-machine that could not reach the runtime's dependencies at build time loses the
-whole archive, with a warning in the build log.
-
-Nothing about the program is wrong. A different toolchain compiles it unchanged.
+The program is fine; a different toolchain compiles it unchanged. The `crypto`
+feature is on by default, so a plain `cargo build -p buri` has it, and
+`BURI_RUNTIME_CRYPTO=0` turns it off. A machine that couldn't fetch the
+runtime's dependencies at build time loses the whole runtime archive, with a
+warning in the build log.
 
 The same feature carries `ring`, so `core/crypto`'s `seal`, `open`,
 `verifyEs256`, `verifyRs256` and `verifyEd25519` are refused the same way.
 
-## Why this is a refusal and not a fallback
-
-`core/random` is always compiled in and would answer this call, but it promises
-only that the output is uniform. `Entropy` promises that somebody who has
-watched the output cannot predict the rest, and nothing tells the two apart by
-inspection or by test. Substituting one for the other would be a security
-failure with no symptom, so the compiler refuses instead.
-
-If merely uniform octets are what you want, `core/random`'s `bytes` needs no
-feature at all.
+There's no fallback to `core/random`. It promises only uniform output, while
+`Entropy` promises that watching the output can't predict the rest. No test
+tells them apart, so swapping one for the other would be a silent security
+failure. If uniform bytes are all you need, `core/random`'s `bytes` needs no
+feature.

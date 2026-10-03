@@ -7,23 +7,14 @@ error: `ToJson` is derived, not implemented [derive-only-trait]
    = a derived encoder is a fold over the type's shape, and would encode a hand-written one structurally rather than calling it — so an `impl` would be obeyed at the top of a document and ignored inside it
    = fix: write `derive ToJson for Point;` instead
 
-     What to do
-     ──────────
-
-     Write derive ToJson for Point; instead.
-
-     Why
-     ───
-
-     A derived encoder stands for the type's *shape*, and one walker in the
-     runtime reads it. So json.encode(ctx, date) would call a hand-written impl
-     ToJson for Date, while json.encode(ctx, appointment) would walk straight
-     past it, because Appointment holds a Date and derives its own. One value,
+     One runtime walker encodes every derived type by its shape. So encoding a
+     Date directly would call a hand-written impl ToJson for Date, but encoding
+     an Appointment that holds a Date would walk straight past it. One value,
      two encodings.
 
-     A type that needs a different document is a type you convert to first,
-     through a function you can see at the call site. core/json's ToJson and
-     FromJson are the only two traits this applies to.
+     For a different document, convert to another type first, through a function
+     visible at the call site. Only core/json's ToJson and FromJson work this
+     way.
 
 error: `Point` does not satisfy `ToJson` [unsatisfied-bound]
   --> cmd/json_impl_by_hand/main.buri:19:47

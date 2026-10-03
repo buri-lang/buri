@@ -9,20 +9,15 @@ fix: write {token} here
 error: this `match` is missing its closing `}` [unclosed-delimiter]
 ```
 
-## Why
-
-An abandoned construct takes the rest of the file with it: whatever closer comes
-next is read as this construct's, and the errors that follow are about the
-miscount rather than about the program. Naming the opener stops that.
-
-Where a block whose `}` never turned up ends is the parser's guess, so this is
-the only error you get about it. The editor still reads it — the names bound in
-it complete and hover — but nothing else inside is reported until you close it.
-
-## A program that provokes it
-
 ```buri fail code=unclosed-delimiter
 fn seeds(): [Int] {
   [1, 2, 3
 }
 ```
+
+An unclosed construct claims the next closer it meets, and every error after
+that would be about the miscount. Naming the opener stops that cascade.
+
+Where an unclosed block ends is the parser's guess, so this is the only error
+you get about it. The editor still completes and hovers the names bound inside,
+but nothing else in it is reported until you close it.

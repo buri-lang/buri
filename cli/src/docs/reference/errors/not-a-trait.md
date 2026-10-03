@@ -8,8 +8,6 @@ message: `{name}` is not a trait or effect
 error: `Bogus` is not a trait or effect [not-a-trait]
 ```
 
-## A program that provokes it
-
 ```buri fail code=not-a-trait
 fn measure<T: Bogus>(x: T): Int {
     1

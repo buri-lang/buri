@@ -6,28 +6,15 @@ error: a colour's alpha is 1.5, and an alpha is a fraction from 0 to 1 [style-al
    |
    = fix: write an alpha between 0.0 and 1.0, or reach for `Opacity` to fade the whole element
 
-     What to do
-     ──────────
+     Rgba's fourth value and Color.alpha's argument both mean how much of the
+     colour there is, so nothing outside 0.0 to 1.0 makes sense.
 
-     Write an alpha between 0.0 and 1.0, or reach for Opacity to fade the whole
-     element.
+     On a token it would fail silently: alpha lowers to color-mix(in srgb,
+     var(--pkg-name) 50%, transparent), and a percentage outside 0 to 100
+     invalidates the whole declaration, so the element loses the colour.
 
-     Why
-     ───
-
-     Rgba's fourth value and Color.alpha's argument are the same number and it
-     means the same thing: how much of the colour there is. Outside 0.0 to 1.0
-     there is nothing for it to mean.
-
-     It matters most for a token, because alpha on one lowers to color-mix(in
-     srgb, var(--pkg-name) 50%, transparent) — and a percentage outside 0 to 100
-     makes the whole declaration invalid, so the element loses the colour rather
-     than gaining a louder one. Refusing the number is the only way a program
-     hears about that.
-
-     The extractor is what refuses it, so this is about a colour the compiler
-     could work out. One built out of a parameter is not refused, because
-     nothing at compile time knows what it will be.
+     Only an alpha known at compile time is checked. One built from a parameter
+     isn't.
 
 error: a colour's alpha is -0.25, and an alpha is a fraction from 0 to 1 [style-alpha-out-of-range]
   --> cmd/ui_style_alpha_out_of_range/main.buri:21:20

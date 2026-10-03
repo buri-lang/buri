@@ -7,9 +7,5 @@ error: a `test` declaration is legal only in a test source [test-outside-test-so
   = a module is a test source because a rule lists it in `test.sources`; that is the only thing that makes one
   = fix: move it into a file listed in the target's `test.sources`
 
-    What to do
-    ──────────
-
-    Move it into a file the target's test.sources lists. A test anywhere else is
-    a declaration the runner will never open.
+    The runner never opens a test anywhere else.
 

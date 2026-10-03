@@ -7,10 +7,6 @@ error: `WebHost` has no field `fs` [no-such-field]
    = web does not offer `FileSystemRead` or `FileSystemWrite`; native and node do
    = fix: build this output for native or node, or drop `FileSystemRead` or `FileSystemWrite` from the context — a program for two platforms gives each output an entry of its own
 
-     Why
-     ───
-
-     There is no structural typing and no inheritance. A value's fields are
-     exactly the ones its declaration lists, which is how the diagnostic can
-     offer the nearest name the type does have.
+     There's no structural typing and no inheritance. A value has exactly the
+     fields its declaration lists.
 

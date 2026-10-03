@@ -6,11 +6,8 @@ error: "//lib/schemas/files" does not export `A_TXT` [no-such-export]
   |
   = fix: check the spelling, or add `export` to `A_TXT`'s declaration in "//lib/schemas/files"
 
-    Why
-    ───
-
-    A re-export may name only what its module path exports, so a library's
-    surface is never wider than the modules it is built from.
+    A re-export names only what its module exports, so a library's surface is
+    never wider than the modules behind it.
 
 error: there is nothing named `A_TXT` in scope [unresolved-name]
  --> lib/schemas/schemas.buri:5:5
@@ -20,10 +17,6 @@ error: there is nothing named `A_TXT` in scope [unresolved-name]
   |
   = fix: declare `A_TXT`, or import it — a name is in scope only from this module's own declarations and its imports
 
-    Why
-    ───
-
-    There is no prelude and no ambient scope. A module's available names are the
-    ones it declares plus the ones its own imports name, which is what makes the
-    suggestion trustworthy.
+    There is no prelude. A module sees only what it declares and what its own
+    imports name, which is why the suggestion is trustworthy.
 

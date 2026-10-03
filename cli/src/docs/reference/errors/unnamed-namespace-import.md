@@ -10,14 +10,6 @@ fix: write `import * as list`, so every name it brings in is reached through one
 error: a namespace import must be named [unnamed-namespace-import]
 ```
 
-## What to do
-
-Name the import. Bare `import *` is not derivable from the grammar at all, so no
-identifier can enter a module's scope without appearing in that module's own
-source.
-
-## A program that provokes it
-
 ```buri fail code=unnamed-namespace-import
 from "core/list" import *;
 ```

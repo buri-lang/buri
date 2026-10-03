@@ -10,17 +10,6 @@ fix: give it a `self` parameter, or move it out of the `impl` block
 error: `unit` is in an `impl` block but takes no `self` [impl-fn-without-self]
 ```
 
-## What to do
-
-Give it a `self` parameter, or move it out of the `impl` block.
-
-## Why
-
-Method lookup goes through the receiver's type, so a function with no receiver
-belongs at the top level.
-
-## A program that provokes it
-
 ```buri fail code=impl-fn-without-self use=errors
 impl Square {
     fn unit(): Square {

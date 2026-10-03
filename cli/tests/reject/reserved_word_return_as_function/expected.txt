@@ -7,9 +7,5 @@ error: `return` is a reserved word and may not be used as an identifier [reserve
   = reserved for a future version of Buri; see grammar.ebnf, ReservedWord
   = fix: pick another name; `return` is not available
 
-    What to do
-    ──────────
-
-    Pick another name. buri docs grammar lists the whole reserved set under
-    ReservedWord.
+    buri docs grammar lists every reserved word under ReservedWord.
 

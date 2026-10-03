@@ -11,10 +11,10 @@ reproduction: none
 { "if": { "required": ["port"] }, "then": { "required": ["host"] } }
 ```
 
-`json` turns a schema into types for a contract or a `generators` entry.
-Keywords about values, such as `pattern`, `minimum` and `format`, stay the
-check's. These change a value's shape in a way no one type follows, so they
-are refused where they are written:
+A schema that generates types, for a contract or a `generators` entry, can't
+use keywords that change a value's shape in a way no one type follows. Value
+keywords such as `pattern`, `minimum` and `format` are fine; they stay checks.
+These are refused:
 
 - `if`, `then` and `else`;
 - `allOf`, and an `anyOf` that is not one type or `null`;

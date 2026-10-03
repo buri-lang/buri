@@ -6,16 +6,15 @@ error: `https://example.com/b.schema.json` is not a file in this repository [sch
   |
   = fix: check the schema in, and name it by a path relative to the tool or a `//` path
 
-    "$schema", and every $ref to another file, names a file in this repository:
+    "$schema" and every $ref to another file name a file in this repository:
 
       { "$schema": "regions.schema.json" }
       { "$schema": "//schemas/regions.schema.json" }
 
     A URL, an absolute path, or a relative path that climbs out of the
-    repository is refused. Fetching one would put the network in the build, and
-    two machines could check one file against two different schemas.
+    repository is refused.
 
-    The one URL known by name is the JSON Schema 2020-12 meta-schema,
+    The one URL allowed is the JSON Schema 2020-12 meta-schema,
     https://json-schema.org/draft/2020-12/schema, which marks a file as a
     schema.
 
@@ -27,22 +26,10 @@ error: "//tool/b/json" names no file (tool/b/json.buri) [module-not-found]
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
 
-    What to do
-    ──────────
+    This resolves against the example monorepo in cli/tests/example, which has
+    no lib/nope:
 
-    Create the file the path names, or correct the path.
-
-    Why
-    ───
-
-    A module path maps to exactly one file, with no search path and no fallback,
-    so there is never a question of which of two candidates a path meant.
-
-    A program that provokes it
-    ──────────────────────────
-
-    This snippet resolves against the worked monorepo in cli/tests/example,
-    which has no lib/nope.
+    There's no search path and no fallback, so a path never has two candidates.
 
 error: there is no type `a.Names` [unresolved-type]
  --> tool/b/tool.buri:8:67
@@ -52,10 +39,6 @@ error: there is no type `a.Names` [unresolved-type]
   |
   = fix: declare it, import it, or correct the spelling
 
-    Why
-    ───
-
-    Types are nominal throughout. There is no structural fallback and no
-    inference from shape, so a misspelling cannot quietly become a different
-    type that happens to fit.
+    Types are nominal, with no structural fallback, so a misspelling can't
+    quietly become a different type that happens to fit.
 

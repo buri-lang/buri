@@ -10,10 +10,13 @@ fix: write the default as a method call, as in `x.withDefault(0)`
 error: `??` is retired [retired-coalesce]
 ```
 
-## What to do
+```buri fail code=retired-coalesce
+fn portOr(port: Option<Int>): Int {
+    port ?? 8080
+}
+```
 
-Call `withDefault` on the value instead. `Option<T>` and `Result<T, E>` both
-have it, and it takes the same default the operator's right-hand side was:
+`Option<T>` and `Result<T, E>` both have `withDefault`:
 
 ```buri
 fn firstOr(xs: [Int], fallback: Int): Int {
@@ -21,15 +24,11 @@ fn firstOr(xs: [Int], fallback: Int): Int {
 }
 ```
 
-Chains chain the way method calls do. `a ?? b ?? c` becomes
-`a.withDefault(b.withDefault(c))`, or `a.or(b).withDefault(c)` when `a` and `b`
-are both `Option<T>`.
+`a ?? b ?? c` becomes `a.withDefault(b.withDefault(c))`, or
+`a.or(b).withDefault(c)` when `a` and `b` are both `Option<T>`.
 
-The operator did one thing the method does not: it left the default
-*unevaluated* until something needed it. `withDefault` takes the default as an
-argument, so it is computed either way. Where that matters — a fallback that
-allocates, or a call worth not making — write the `match` out. It is the only
-shape that promises the default runs in the absent branch alone:
+Unlike `??`, `withDefault` always evaluates its default. When the default is
+expensive, write the `match` out, so it runs only in the absent branch:
 
 ```buri
 fn portOr(port: Option<Int>): Int {
@@ -41,13 +40,5 @@ fn portOr(port: Option<Int>): Int {
 
 fn expensiveDefault(): Int {
     8080
-}
-```
-
-## A program that provokes it
-
-```buri fail code=retired-coalesce
-fn portOr(port: Option<Int>): Int {
-    port ?? 8080
 }
 ```

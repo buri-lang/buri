@@ -10,16 +10,12 @@ fix: use `match`, which makes you say what the other cases do
 error: this pattern does not match every value of its type [refutable-pattern]
 ```
 
-## What to do
-
-Use `match`. There is no exception to throw when the value does not fit, so the
-other cases have to be written out.
-
-## A program that provokes it
-
 ```buri fail code=refutable-pattern
 fn unwrap(o: Option<Int>): Int {
     let .Some(n) = o;
     n
 }
 ```
+
+Use `match`. No exception is thrown when the value doesn't fit, so you write out
+the other cases.

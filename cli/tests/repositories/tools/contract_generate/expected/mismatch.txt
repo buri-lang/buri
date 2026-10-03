@@ -6,22 +6,10 @@ error: "//lib/orders/tables" names no file (lib/orders/tables.buri) [module-not-
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
 
-    What to do
-    ──────────
+    This resolves against the example monorepo in cli/tests/example, which has
+    no lib/nope:
 
-    Create the file the path names, or correct the path.
-
-    Why
-    ───
-
-    A module path maps to exactly one file, with no search path and no fallback,
-    so there is never a question of which of two candidates a path meant.
-
-    A program that provokes it
-    ──────────────────────────
-
-    This snippet resolves against the worked monorepo in cli/tests/example,
-    which has no lib/nope.
+    There's no search path and no fallback, so a path never has two candidates.
 
 error: `"$schema": "orders.schema.json"` is not `//tool/database_schema_codegen/config.schema.json`, the schema the tool reading this file checks it against [schema-mismatch]
  --> lib/orders/schema.json:2:16
@@ -37,10 +25,10 @@ error: `"$schema": "orders.schema.json"` is not `//tool/database_schema_codegen/
       # proto-file: other.proto
       # proto-message: Route
 
-    A tool with a contract reads a typed value, so the file is checked against
-    the contract's type_schema. A different "$schema", or a text format header
-    naming another schema or message, would say the file is something else.
+    A tool with a contract checks the file against the contract's type_schema. A
+    different "$schema", or a text format header naming another schema or
+    message, contradicts it.
 
-    Two tools with different contracts reading one file is the same mistake: one
-    file cannot have two schemas.
+    Two tools with different contracts reading one file is the same mistake: a
+    file has one schema.
 

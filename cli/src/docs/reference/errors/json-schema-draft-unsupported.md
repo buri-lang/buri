@@ -12,11 +12,8 @@ error: `http://json-schema.org/draft-07/schema#` is not JSON Schema 2020-12 [jso
  --> lib/deploy/regions.schema.json:2:16
 ```
 
-The drafts disagree about what one keyword means: `items` holding a list is a
-tuple in draft 7 and an error in 2020-12. Reading one draft means a schema says
-one thing.
-
-Moving a draft-07 schema to 2020-12 is mostly renaming:
+Drafts disagree on keywords: `items` holding a list is a tuple in draft 7 and
+an error in 2020-12. Moving a draft-07 schema is mostly renaming:
 
 | Draft 7                   | 2020-12                                    |
 |---|---|

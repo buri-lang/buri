@@ -9,17 +9,6 @@ fix: match {fields} too, or end the pattern with `..` to ignore the rest
 error: this pattern does not mention `y` [missing-field-pattern]
 ```
 
-## What to do
-
-Match `y` too, or end the pattern with `..` to ignore the rest.
-
-## Why
-
-Adding a field should be a compile error everywhere the type is taken apart, and
-`..` is how a pattern opts out.
-
-## A program that provokes it
-
 ```buri fail code=missing-field-pattern
 struct Point {
     export x: Int,
@@ -31,3 +20,6 @@ fn xOf(p: Point): Int {
     x
 }
 ```
+
+Adding a field should break every pattern that takes the type apart. `..` is
+how a pattern opts out.

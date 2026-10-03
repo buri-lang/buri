@@ -17,14 +17,10 @@ error: circular type alias: `Depth` in "//lib/units/soundings.buri" -> `Sounding
   = an alias is transparent, so expanding it has to end at a type; this chain comes back to where it started
   = fix: break the cycle: give one of these a body that is a struct, an enum or a newtype, or point it at a type that is not on the chain
 
-    Why
-    ───
+    type Handle = Str is a new spelling, not a new type: the compiler
+    substitutes Str wherever you write Handle. A chain that loops never reaches
+    a type.
 
-    type Handle = Str introduces a spelling, not a type: everywhere you write
-    Handle the compiler substitutes Str. So type A = A; substitutes to itself,
-    and there is nothing to reach.
-
-    The diagnostic names the whole chain, because changing any name on it fixes
-    the error. An exported alias lets the chain cross a module, and then each
-    name is printed with the module that declares it.
+    Changing any name on the chain fixes it, so the diagnostic prints the whole
+    chain. When it crosses modules, each name carries its declaring module.
 

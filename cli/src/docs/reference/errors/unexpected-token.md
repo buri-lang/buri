@@ -8,8 +8,6 @@ message: expected {expected}, found {found}
 error: expected a declaration, found `@` [unexpected-token]
 ```
 
-## A program that provokes it
-
 ```buri fail code=unexpected-token
 fn one(): Int {
   1

@@ -9,38 +9,6 @@ note: a `{{ ... }}` with no type in front of it is given one by what it is check
 error: nothing here says what this literal builds [struct-literal-type]
 ```
 
-## What to do
-
-Write the type in front of the `{`. An annotation on the binding does the same
-job, so `let w: World = { hi: "hi" };` and `World { hi: "hi" }` are both
-answers.
-
-## Why
-
-The compiler reads an anonymous literal's type from above and never solves for
-it, so the rule is deliberately narrow. The expected type reaches a literal in a
-`let` with an annotation, an argument of a call, the value of a field, a match
-arm and a function's result — the places a type is already spelled out. Nowhere
-else, and never from the fields.
-
-A generic struct is accepted only where every one of its type arguments is
-settled. `Holder<Int>` is a type you can see; `Holder<?>`, where the argument is
-still an inference variable, is one the fields would have to decide.
-
-An enum is not a struct. A type alone does not say which variant a literal
-builds, so `.Variant { ... }` names it and stays the way to write one.
-
-## Which braces are a literal at all
-
-Separately from this rule, the grammar decides what the braces *are*, and it
-decides on two tokens. A `{` followed by a `..` or by a `name :` opens a
-literal; every other `{` opens a block. So `{ }`, `{ hi }` and `{ hi, hello }`
-are blocks, and a literal whose first field is shorthand keeps its type name —
-`World { hi, hello }`. Shorthand after a first keyed field is fine:
-`{ hi: hi, hello }`.
-
-## A program that provokes it
-
 ```buri fail code=struct-literal-type
 struct World {
     export hi: Str,
@@ -51,3 +19,22 @@ fn build(): Int {
     w.hi.length()
 }
 ```
+
+Write the type in front of the `{`, or annotate the binding:
+`World { hi: "hi" }` and `let w: World = { hi: "hi" };` both work.
+
+The expected type reaches a literal only from an annotated `let`, a call
+argument, a field value, a match arm or a function's result. The compiler never
+infers it from the fields.
+
+A generic struct needs every type argument settled: `Holder<Int>` works, but a
+`Holder` whose argument is still being inferred doesn't.
+
+An enum literal still needs `.Variant { ... }`, because a type alone doesn't say
+which variant it builds.
+
+The grammar decides what braces are from two tokens: a `{` followed by `..` or
+`name :` opens a literal, and any other `{` opens a block. So `{ }`, `{ hi }` and
+`{ hi, hello }` are blocks, and a literal whose first field is shorthand needs
+its type name: `World { hi, hello }`. Shorthand after a keyed first field is
+fine: `{ hi: hi, hello }`.

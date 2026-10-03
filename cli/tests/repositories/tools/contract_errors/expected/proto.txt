@@ -14,11 +14,9 @@ error: `generate` cannot take `proto` inputs typed: a `.proto` file is a schema,
           }
       }
 
-    A contract hands a tool each input as a value of the contract's root type. A
-    .proto file declares messages and holds none, so there is no Config to read
-    out of it.
-
-    The values live in text format files. Accept those:
+    A contract hands a tool each input as a value of its root type. A .proto
+    file declares messages but holds none, so there's no Config to read from it.
+    The values live in text format files, so accept those:
 
       tool {
           generate {

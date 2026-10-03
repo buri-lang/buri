@@ -8,18 +8,6 @@ message: `{type}` does not implement `{trait}`
 error: `HostStdout` does not implement `Allocator` [missing-conformance]
 ```
 
-## What to do
-
-Bind a value whose type has `impl Allocator for ...`.
-
-## Why
-
-You declare conformance; the compiler never infers it. A type with all the right
-methods still does not satisfy an effect until an `impl` says so — which is why
-a test double is a struct with those methods and an `impl` block.
-
-## A program that provokes it
-
 ```buri fail code=missing-conformance
 # from "core/io" import * as io;
 # from "native" import { NativeHost };
@@ -34,3 +22,7 @@ export fn main(host: NativeHost): Result<(), Str> {
     .Ok(())
 }
 ```
+
+Bind a value whose type has an `impl` of the trait. Having the right methods
+isn't enough: a type conforms only once an `impl` says so. That's why a test
+double is a struct plus an `impl` block.
