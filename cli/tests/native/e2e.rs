@@ -936,12 +936,7 @@ fn chose(back: &[u8]) -> Option<String> {
 fn what_a_server_prints_reaches_a_pipe_before_it_blocks() {
     unless_ready!();
     let binary = built("e2e-announces", &announcing_server());
-    let mut child = std::process::Command::new(&binary)
-        .env("BURI_RT_HEAP_CHECK", "1")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap_or_else(|e| panic!("cannot start {}: {e}", binary.display()));
+    let mut child = crate::shared::spawned(&binary);
 
     // The reader is a thread of its own so that the wait for each line is
     // bounded: `BufRead::read_line` on a pipe nobody writes to has no deadline,
@@ -1760,6 +1755,9 @@ fn a_native_binary_speaks_over_a_socket_it_dialled() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port");
     let port = listener.local_addr().expect("the bound address").port();
     listener.set_nonblocking(true).expect("a listener that can be polled");
+    // Built and admitted before the peer's clock starts, so neither is on it.
+    let binary = built("e2e-tcp-client", &tcp_client());
+    crate::shared::admitted(&binary);
 
     let peer = std::thread::spawn(move || {
         let until = std::time::Instant::now() + crate::shared::SERVER_DEADLINE;
@@ -1801,13 +1799,12 @@ fn a_native_binary_speaks_over_a_socket_it_dialled() {
         String::from_utf8_lossy(&asked).into_owned()
     });
 
-    let binary = built("e2e-tcp-client", &tcp_client());
-    let mut child = std::process::Command::new(&binary)
-        .arg(port.to_string())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("the program did not start");
+    let mut child = crate::shared::started(
+        std::process::Command::new(&binary)
+            .arg(port.to_string())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped()),
+    );
     let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
     let mut stdout = String::new();
     child.stdout.take().expect("a piped stdout").read_to_string(&mut stdout).expect("stdout");
@@ -2652,7 +2649,7 @@ fn a_native_binary_runs_a_real_child_and_reads_what_it_wrote() {
         if let Some(path) = path {
             command.env("PATH", path);
         }
-        let mut child = command.spawn().expect("the program did not start");
+        let mut child = crate::shared::started(&mut command);
         let mut pipe = child.stdin.take().expect("the child was given a pipe");
         let body = input.to_vec();
         let feeding = std::thread::spawn(move || {
@@ -3066,12 +3063,7 @@ fn an_actor_leaks_none_of_what_its_messages_and_answers_carried() {
 /// that hangs, and a hang here is a failing row with a sentence rather than a
 /// job CI has to kill.
 fn ran_within(binary: &std::path::Path, within: std::time::Duration) -> crate::shared::Ran {
-    let mut child = std::process::Command::new(binary)
-        .env("BURI_RT_HEAP_CHECK", "1")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("the program did not start");
+    let mut child = crate::shared::spawned(binary);
     let status = crate::shared::waited(&mut child, within);
     let mut stdout = String::new();
     let mut stderr = String::new();
@@ -4040,6 +4032,7 @@ fn a_buri_client_and_a_buri_server_carry_a_message_both_ways() {
     // time.
     let server = built("e2e-client-server-both-ways", &echoing_socket_server());
     let client = built("e2e-client-dial-both-ways", &dialling_client());
+    crate::shared::admitted(&client);
     let running = crate::shared::announced(&server);
     let port = running.2;
     let said = dialled_client(&client, port);
@@ -4366,6 +4359,7 @@ fn a_client_reconnects_by_calling_connect_again() {
     unless_ready!();
     let server = built("e2e-client-server-reconnect", &echoing_socket_server_for(2));
     let client = built("e2e-client-dial-reconnect", &reconnecting_client());
+    crate::shared::admitted(&client);
     let running = crate::shared::announced(&server);
     let port = running.2;
     let said = dialled_client(&client, port);
@@ -4950,7 +4944,7 @@ fn fetched(
     for (name, value) in environment {
         command.env(name, value);
     }
-    let mut child = command.spawn().expect("the program did not start");
+    let mut child = crate::shared::started(&mut command);
     let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
     let mut stdout = String::new();
     child.stdout.take().expect("a piped stdout").read_to_string(&mut stdout).expect("stdout");
@@ -4986,6 +4980,9 @@ fn a_native_binary_sends_a_request_and_reads_the_answer() {
         let released = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port");
         released.local_addr().expect("the bound address").port()
     };
+    // Built and admitted before the peer's clock starts, so neither is on it.
+    let binary = built("e2e-http-client", &fetching_client());
+    crate::shared::admitted(&binary);
 
     let peer = std::thread::spawn(move || {
         let until = std::time::Instant::now() + crate::shared::SERVER_DEADLINE;
@@ -5031,7 +5028,6 @@ fn a_native_binary_sends_a_request_and_reads_the_answer() {
         String::from_utf8_lossy(&asked).into_owned()
     });
 
-    let binary = built("e2e-http-client", &fetching_client());
     let out = fetched(
         &binary,
         &[
@@ -5087,6 +5083,7 @@ fn a_native_binary_speaks_https_and_refuses_a_certificate_it_cannot_trust() {
 
     let server = built("e2e-https-server", &tls_running_server(&certificate, &key));
     let client = built("e2e-https-client", &fetching_client());
+    crate::shared::admitted(&client);
     let running = crate::shared::announced(&server);
     let url = format!("https://localhost:{}/secure", running.2);
 
