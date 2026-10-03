@@ -1,7 +1,7 @@
 ---
 title: A `js` file implements every method its structs declare
 message: '`{file}` {gap}'
-note: an export named after one of the platform's production structs implements it, and the build reads `export const S = {{ ... }}` and `export function`
+note: an export named after one of the platform's production structs implements it, written `export const S = {{ ... }}` with one function per method
 fix: export the struct as an object with one function per method, `self` first
 reproduction: none
 ---

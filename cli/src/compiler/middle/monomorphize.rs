@@ -371,7 +371,7 @@ pub struct Effects {
 #[derive(Clone, Debug, Default)]
 pub struct ConEffects {
     /// The constructor implements an effect, so a value of it *is* a
-    /// capability — `Tables::con_carries_effect`. `core/host`'s `HostFileSystem` is
+    /// capability — `Tables::con_carries_effect`. `platform/host`'s `HostFileSystem` is
     /// one; `platform/effect`'s `Scope` is the one the standard library passes
     /// *as an ordinary argument*, and so the one this question is asked
     /// about most.
@@ -2545,7 +2545,7 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // carriers, so an entry then would have asserted an erasure nobody had
     // established. D2 built them; this commit is the one that uses them.
     "host.HostTasks.parallel",
-    // `core/host`'s two reactive impls, on WEB. `Ui.signal<T>`/`read<T>` name
+    // `platform/host`'s two reactive impls, on JS. `Ui.signal<T>`/`read<T>` name
     // a slot in the host's own table by `Int`, and the value never crosses in
     // a shape the runtime reads: `runtime.js` stores whatever it was handed.
     "host.HostUi.memo",
@@ -2885,7 +2885,7 @@ mod tests {
     }
 
     /// Shape one: neither the `impl` nor the method is generic. Every `impl`
-    /// in `core/host` is this — `impl FileSystemRead for HostFileSystem`, reached as
+    /// in `platform/host` is this — `impl FileSystemRead for HostFileSystem`, reached as
     /// `fs.readText(ctx, p)` and dispatched on `ctx`.
     #[test]
     fn a_plain_impl_of_a_plain_method_instantiates_at_nothing() {

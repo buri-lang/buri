@@ -15,9 +15,7 @@ error: `//platform/lambda` needs a variant [missing-platform-variant]
       }
 
     A variant says how an output is built: for native, the operating system and
-    the architecture. A platform's entry with variant_required: true makes every
-    output of that platform pick one.
-
-    Each variant builds into its own directory, .buri/out/native/<variant>/.
-    buri test and buri run build the machine's own variant without being told.
+    the architecture. An entry with variant_required: true makes every output of
+    its platform pick one. buri test builds the machine's own variant without
+    being told.
 

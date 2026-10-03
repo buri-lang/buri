@@ -7,9 +7,6 @@ error: `ui` is a `HostUi`, and the NATIVE backend has no implementation of `Ui` 
   = `JS` lacks `Listen` and `Tcp`, and `NATIVE` lacks `Ui` and `Watch`
   = fix: drop the field from `//platform/lambda`'s host, or build the entry with the other backend
 
-    A host's fields are production values its entry's backend supplies. Both
-    backends implement every bundled effect, except that JS holds no port open
-    and dials no raw socket, and NATIVE runs the reactive graph only for a test,
-    so it has no Ui or Watch to hand an entry. Location is no backend's: web
-    implements its own.
+    JS holds no port open and dials no raw socket. NATIVE runs the reactive
+    graph only for tests, so it has no Ui or Watch to hand an entry.
 

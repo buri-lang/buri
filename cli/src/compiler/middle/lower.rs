@@ -1352,7 +1352,7 @@ impl FnLower<'_> {
     ///
     /// The join is `str.concat` with no context argument, because a context of
     /// zero-sized implementations is dropped from every signature
-    /// (VALUE-MODEL.md §8) and `core/host`'s are all zero-sized. A program
+    /// (VALUE-MODEL.md §8) and `platform/host`'s are all zero-sized. A program
     /// whose allocator carries state would want the context threaded here, and
     /// the place to do that is the middle-end rewrite VALUE-MODEL.md §3.3
     /// describes — one that turns a `Template` into a `str.concat` chain in

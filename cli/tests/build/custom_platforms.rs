@@ -90,7 +90,8 @@ fn drive(scratch: &Scratch, target: &str, driver: &str) -> String {
 /// A worker driven by the runtime's own `Request` and `Response`: each of the
 /// seven methods HTTP has, the path routed on, the query string beside it, a
 /// header read by name, a header written on the way out, a body echoed, a
-/// body that is not text, and the two answers that are not `200`. Each is a
+/// body that is not text, and the answers that are not `200`, a `204` among
+/// them, which a Fetch `Response` refuses any body for. Each is a
 /// field of the crossing, and a crossing that lost one would still answer the
 /// rest.
 #[test]
@@ -113,7 +114,8 @@ fn a_worker_answers_the_runtimes_request_with_the_runtimes_response() {
          200 text/plain; charset=utf-8 nothing\n\
          200 text/plain; charset=utf-8 tagged x-answered=yes\n\
          404 null \n\
-         500 null \n",
+         500 null \n\
+         204 null \n",
         "the crossing lost a field"
     );
 }
@@ -148,6 +150,7 @@ await say(new Request("https://example.com/header"));
 await say(new Request("https://example.com/tagged"));
 await say(new Request("https://example.com/missing"));
 await say(new Request("https://example.com/broken"));
+await say(new Request("https://example.com/empty"));
 "#;
 
 /// A worker reads its vars and secrets through the repository's `Vars`

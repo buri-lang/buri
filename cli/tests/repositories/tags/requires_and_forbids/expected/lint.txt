@@ -8,3 +8,8 @@ error: //cmd/daemon cannot be built for web [platform-violation]
   = reached by: //cmd/daemon -> //lib/poll
   = "headless": has no document to draw into
   = fix: drop the web output, or take web out of the tag's `forbids` in REPO.buri
+
+    Every library a binary reaches, and every tag those libraries carry, must
+    admit the platform each output names. The note says which member rules it
+    out: a library's own backends or platforms, or a tag's requires or forbids.
+

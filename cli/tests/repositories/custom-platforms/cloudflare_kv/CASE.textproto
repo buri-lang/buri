@@ -12,11 +12,6 @@
 # `fetch.mjs`, and `build::custom_platforms` calls its default export under
 # bun. Then one refusal per thing a platform or an effect can get wrong.
 #
-# Two edits to the walkthrough's code, both because it doesn't compile as
-# written: an interpolated string is a `Template`, so `lib/sessions` and
-# `handle` format theirs with `str.format`; and `TestKv.get` has no allocator
-# to build a string key, so the map is keyed by `(namespace, key)`.
-#
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
 doc: "a repository platform with a custom effect builds, tests on both backends, and refuses a js file, an entry, a type or an effect that breaks its rules"
@@ -130,6 +125,37 @@ edit {
   file: "cmd/site/main.buri"
   replace: "export fn fetch(host: CloudflareHost, request: Request, initial: Char): Response {"
   with: "export fn fetch(host: CloudflareHost, request: Request): Response {"
+}
+
+# The table holds for an entry whose declaration takes no host, too.
+edit {
+  file: "platform/cloudflare_worker/platform.buri"
+  replace: "export fn fetch(host: CloudflareHost, request: Request): Response;"
+  with: "export fn fetch(request: Request, initial: Char): Response;"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "export fn fetch(host: CloudflareHost, request: Request): Response {\n    handle(\n        context {\n            Allocator: host.alloc,\n            Kv: host.kv,\n        },\n        request,\n    )\n}"
+  with: "export fn fetch(request: Request, initial: Char): Response {\n    http.status(500)\n}"
+}
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 1
+  golden: "type_cannot_cross_without_host.txt"
+}
+
+edit {
+  file: "platform/cloudflare_worker/platform.buri"
+  replace: "export fn fetch(request: Request, initial: Char): Response;"
+  with: "export fn fetch(host: CloudflareHost, request: Request): Response;"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "export fn fetch(request: Request, initial: Char): Response {\n    http.status(500)\n}"
+  with: "export fn fetch(host: CloudflareHost, request: Request): Response {\n    handle(\n        context {\n            Allocator: host.alloc,\n            Kv: host.kv,\n        },\n        request,\n    )\n}"
 }
 
 # An effect is declared in an effect package and nowhere else.

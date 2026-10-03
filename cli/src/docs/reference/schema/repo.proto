@@ -19,11 +19,8 @@ package buri.build.v1;
 import "build.proto";
 
 message RepoConfig {
-  // Field 1 was `toolchain`, an exact compiler version and the SHA-256 of the
-  // compiler that had to build this repository. It was removed: a pin only
-  // means something where a toolchain is fetched, and nothing fetches one.
-  // Reserved rather than reused, so that an old `REPO.buri` cannot be read as
-  // something else.
+  // Retired: `toolchain`. A pin means something only where a toolchain is
+  // fetched, and nothing fetches one.
   reserved 1;
 
   // The whole tag vocabulary, and the whole of build policy. See `buri docs build/tags`.

@@ -7,6 +7,12 @@ reproduction: none
 ---
 # An output fills each entry once
 
+```text
+error: `main` is filled twice [duplicate-entry]
+```
+
+Name each entry once:
+
 ```textproto schema=build
 binary {
     outputs: [

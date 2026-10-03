@@ -65,12 +65,17 @@ the same characters on every backend.
 
 Numeric conversions are explicit methods:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let a: I32 = 7;
-let b = a.toI64();                       // I64 — always exact
-let c: Result<I32, RangeError> = big.toI32();      // may not fit
-let d = big.wrapToU8();                  // modular, for checksums and wire formats
-let ratio = hits.toF64() / total.toF64();
+```buri
+# from "core/number" import { RangeError };
+#
+# fn demo(big: I64, hits: Int, total: Int): F64 {
+    let a: I32 = 7;
+    let b = a.toI64(); // I64, always exact
+    let c: Result<I32, RangeError> = big.toI32(); // may not fit
+    let d = big.wrapToU8(); // modular, for checksums and wire formats
+    let ratio = hits.toF64() / total.toF64();
+#     ratio
+# }
 ```
 
 Three families:
@@ -127,10 +132,15 @@ trait Bounded {
 }
 ```
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let safe = a.checkedAdd(b).withDefault(0);
-let hash = seed.wrappingMultiply(31).wrappingAdd(byte);
-let ceiling = number.maxValue<U8>();
+```buri
+# from "core/number" import * as number;
+#
+# fn demo(a: Int, b: Int, seed: U32, byte: U32): U8 {
+    let safe = a.checkedAdd(b).withDefault(0);
+    let hash = seed.wrappingMultiply(31).wrappingAdd(byte);
+    let ceiling = number.maxValue<U8>();
+#     ceiling
+# }
 ```
 
 Every built-in integer type satisfies all four; float types satisfy only
@@ -144,28 +154,41 @@ A block is zero or more `let` bindings followed by a result expression. The
 [grammar](./cli/src/docs/grammar.ebnf) makes the result optional, but the checker
 rejects a block without one.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let hypotenuse = {
-  let a2 = a * a;
-  let b2 = b * b;
-  math.squareRoot(a2 + b2)
-};
+```buri
+# from "core/math" import * as math;
+#
+# fn demo(a: Float, b: Float): Float {
+    let hypotenuse = {
+        let a2 = a * a;
+        let b2 = b * b;
+        math.squareRoot(a2 + b2)
+    };
+#     hypotenuse
+# }
 ```
 
 Bindings evaluate in order (Section 8.2) and are in scope for the rest of the
 block. Shadowing is allowed, even within one block:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let name = str.trim(raw);
-let name = str.toLower(ctx, name);   // legal; the earlier `name` is inaccessible
+```buri wrap=body
+# let raw = "  Ada ";
+let name = raw.trim();
+let name = name.toLower(ctx); // legal; the earlier `name` is inaccessible
 ```
 
 A `let` pattern must be irrefutable; use `match` otherwise.
 
 ### 6.4 `if`
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let label = if (n < 0) { "negative" } else if (n == 0) { "zero" } else { "positive" };
+```buri wrap=body
+# let n = 3;
+let label = if (n < 0) {
+    "negative"
+} else if (n == 0) {
+    "zero"
+} else {
+    "positive"
+};
 ```
 
 - The condition is parenthesized and has type `Bool`. There is no truthiness.
@@ -174,13 +197,22 @@ let label = if (n < 0) { "negative" } else if (n == 0) { "zero" } else { "positi
 
 ### 6.5 `match`
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let describe = match (shape) {
-  .Circle(r) if r > 100.0 => "huge circle",
-  .Circle(_) => "circle",
-  .Rect { width: w, height: h } => if (w == h) { "square" } else { "rect" },
-  .Empty => "nothing",
-};
+```buri
+# enum Shape {
+#     Empty,
+#     Circle(Float),
+#     Rect { width: Float, height: Float },
+# }
+#
+# fn demo(shape: Shape): Str {
+    let describe = match (shape) {
+        .Circle(r) if r > 100.0 => "huge circle",
+        .Circle(_) => "circle",
+        .Rect { width: w, height: h } => if (w == h) { "square" } else { "rect" },
+        .Empty => "nothing",
+    };
+#     describe
+# }
 ```
 
 - The scrutinee is parenthesized.
@@ -194,12 +226,17 @@ let describe = match (shape) {
 
 ### 6.6 Calls and lambdas
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-fn add(a: Int, b: Int): Int { a + b }
+```buri
+fn add(a: Int, b: Int): Int {
+    a + b
+}
 
-let inc = fn(x) => x + 1;
-let addTyped = fn(a: Int, b: Int): Int => a + b;
-let sum = xs.fold(fn(acc, x) => acc + x, 0);
+# fn demo(xs: [Int]): Int {
+    let inc = fn(x) => x + 1;
+    let addTyped = fn(a: Int, b: Int): Int => a + b;
+    let sum = xs.fold(fn(acc, x) => acc + x, 0);
+#     sum
+# }
 ```
 
 Lambdas begin with `fn` so `(x)` is never mistaken for a parameter list. Their
@@ -213,12 +250,29 @@ There is no partial application; write a lambda.
 
 ### 6.7 Method calls
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-user.name          // struct field
-pair.0             // tuple element
-xs[i]              // Option<T>
-list.map           // module member
-sq.area()          // method call
+```buri
+# from "core/math" import * as math;
+#
+# struct Square(Int);
+#
+# impl Square {
+#     fn area(self): Int {
+#         self.0 * self.0
+#     }
+# }
+#
+# struct User {
+#     name: Str,
+# }
+#
+# fn demo(user: User, pair: (Int, Str), xs: [Int], i: Int, sq: Square): Int {
+    let name = user.name; // struct field
+    let first = pair.0; // tuple element
+    let item = xs[i]; // Option<T>
+    let root = math.squareRoot; // module member
+    let area = sq.area(); // method call
+#     area
+# }
 ```
 
 The dotted forms all parse the same way; name resolution tells them apart.
@@ -229,18 +283,26 @@ A method is declared **inside an `impl` block for its type** and takes `self`
 first. A top-level `fn` taking `self` is an error, and so is an `impl` function
 without one:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-export struct Square { height: Int, width: Int }
-
-impl Square {
-  export fn area(self): Int { self.height * self.width }
-
-  export fn scaled(self, factor: Int): Square {
-    Square { height: self.height * factor, width: self.width * factor }
-  }
+```buri
+export struct Square {
+    height: Int,
+    width: Int,
 }
 
-export fn combine(a: Square, b: Square): Square { ... }   // NOT a method
+impl Square {
+    export fn area(self): Int {
+        self.height * self.width
+    }
+
+    export fn scaled(self, factor: Int): Square {
+        Square { height: self.height * factor, width: self.width * factor }
+    }
+}
+
+// NOT a method
+export fn combine(a: Square, b: Square): Square {
+    Square { height: a.height + b.height, width: a.width + b.width }
+}
 ```
 
 An `impl` with a `for` clause declares trait conformance instead
@@ -256,40 +318,37 @@ methods supplied to a trait, whose conformance travels with the type.
 Generic parameters the self type mentions belong to the `impl`; the rest belong
 to the method.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-impl<T> Option<T> {
-  export fn map<U>(self, f: fn(T) => U): Option<U> { ... }
+```buri
+export struct Pair<T>(T, T);
+
+impl<T> Pair<T> {
+    export fn map<U>(self, f: fn(T) => U): Pair<U> {
+        Pair(f(self.0), f(self.1))
+    }
 }
 ```
 
 #### 6.7.2 Calling a method
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-x.f(a, b)      //  self = x, then a and b
-x.f()          //  self = x
-```
+`x.f(a, b)` passes `x` as `self`, then `a` and `b`. **The receiver comes first**,
+then the context parameter if there is one. `core/list` declares `map` as
+`fn map<B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B]` in `impl<A> [A]`, so:
 
-**The receiver comes first**, then the context parameter if there is one:
-
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "platform/effect" import { Allocator };
-impl<A> [A] {
-  export fn map<B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B];
-}
-
-xs.map(ctx, double)          // reads as: this list, in this world, mapped
+```buri wrap=body
+# let xs = [1, 2, 3];
+# let double = fn(x: Int): Int => x * 2;
+let doubled = xs.map(ctx, double); // reads as: this list, in this world, mapped
 ```
 
 That's the calling convention of Section 10.7.
 
 **Methods need no import:**
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-// main.buri
-from "lib/square" import { Square }; // the type — not `area`, not `scaled`
+```buri repo=cli/tests/example package=//lib/ledger
+from "//lib/money" import { Cents }; // the type, not `add` or `isZero`
 
-fn describe(sq: Square): Int {
-    sq.scaled(2).area() // both resolve with no further imports
+fn cancels(a: Cents, b: Cents): Bool {
+    a.add(b).isZero() // both resolve with no further imports
 }
 ```
 
@@ -348,13 +407,30 @@ Consequences:
 Postfix `?` unwraps a `Result` or `Option`, or returns the failure from the
 enclosing function.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri
+# from "core/fs" import * as fs;
 # from "core/fs" import { FileSystemRead, Path };
-# from "platform/effect" import { Allocator };
-
+# from "platform/effect" import { Allocator, IoError };
+#
+# enum ConfigError {
+#     Unreadable(IoError),
+#     Malformed,
+# }
+#
+# struct Config {
+#     port: Int,
+# }
+#
+# fn parseConfig(text: Str): Result<Config, ConfigError> {
+#     match (text.toInt()) {
+#         .Some(port) => .Ok(Config { port }),
+#         .None => .Err(.Malformed),
+#     }
+# }
+#
 fn loadPort<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Int, ConfigError> {
-    let text = fs.readText(ctx, at)?; // Err(e) => return Err(e)
-    let cfg = parseConfig(text)?;
+    let text = fs.readText(ctx, at).mapErr(fn(e) => ConfigError.Unreadable(e))?;
+    let cfg = parseConfig(text)?; // on .Err(e), loadPort answers .Err(e)
     .Ok(cfg.port)
 }
 ```

@@ -1,5 +1,5 @@
 .buri/out/web/cmd/site/main.mjs (N bytes)
-error: `fetch` has the signature `//platform/cloudflare_worker` declares, `fn fetch(host: CloudflareHost, request: Request): Response` [entry-signature-mismatch]
+error: `fetch` must have the signature `//platform/cloudflare_worker` declares, `fn fetch(host: CloudflareHost, request: Request): Response` [entry-signature-mismatch]
   --> cmd/site/main.buri:30:1
    |
 30 | export fn fetch(host: CloudflareHost, request: Request): Str {
@@ -21,12 +21,8 @@ error: `fetch` has the signature `//platform/cloudflare_worker` declares, `fn fe
        web                fn main(host: WebHost): Result<(), Str>
        //platform/<name>  the signature its platform.buri declares
 
-     The platform calls the entry, so the platform fixes its signature. A
-     program is handed its host, runs, and reports how it went: .Ok(()) exits 0,
-     .Err(msg) prints msg to stderr and exits 1. A repository platform's entry,
-     like a worker's fetch, takes and answers what its declaration says.
-
-     Nothing calls an entry with a type argument, so none declares generic
-     parameters. An outputs entry says which function enters and which platform
-     fixes its signature.
+     The platform calls the entry, so the platform fixes its signature, and
+     nothing calls an entry with a type argument. A repository platform's entry
+     without a js file starts itself, so it takes only its host and answers
+     Result<(), Str>.
 

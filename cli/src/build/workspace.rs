@@ -48,11 +48,6 @@ pub struct TargetId {
     pub kind: RuleKind,
 }
 
-/// One entry a binary's `outputs` names, and the platform that fixes its shape.
-///
-/// This is what makes the `core/host` check and the entry-signature check per
-/// *entry* rather than per target. A binary with a page and a worker in it
-/// declares two of these out of one `main.buri`.
 /// The member of a closure that rules a platform out, and why.
 #[derive(Clone, Debug)]
 pub struct PlatformBlocker {
@@ -63,6 +58,11 @@ pub struct PlatformBlocker {
     pub forbidden: Option<String>,
 }
 
+/// One entry a binary's `outputs` names, and the platform that fixes its shape.
+///
+/// This is what makes the entry-signature check per *entry* rather than per
+/// target. A binary with a page and a worker in it declares two of these out
+/// of one `main.buri`.
 #[derive(Clone, Debug)]
 pub struct DeclaredEntry {
     pub name: String,
@@ -445,11 +445,15 @@ impl Workspace {
             diagnostics.extend(read.errors);
             let name = path.rsplit('/').next().filter(|n| !n.is_empty()).unwrap_or("<name>");
             let misplaced = [
-                ("tool", read.value.tool.is_some() && !is_tool_directory(&path), "//tool/", format!("//tool/{name}")),
+                ("tool", read.value.tool.is_some() && !is_tool_directory(&path), "outside //tool/", format!("//tool/{name}")),
                 (
                     "platform",
                     read.value.platform.is_some() && !is_platform_directory(&path),
-                    "//platform/, outside //platform/effect/",
+                    if path == "platform/effect" || path.starts_with("platform/effect/") {
+                        "inside //platform/effect/, which holds effect packages"
+                    } else {
+                        "outside //platform/"
+                    },
                     format!("//platform/{}", if name == "effect" { "<name>" } else { name }),
                 ),
             ];
@@ -462,7 +466,7 @@ impl Workspace {
                     Diagnostic::templated("misplaced-rule", span)
                         .with_bind("package", format!("//{path}"))
                         .with_bind("rule", rule)
-                        .with_bind("directory", directory)
+                        .with_bind("place", directory)
                         .with_bind("destination", destination),
                 );
             }
@@ -1012,11 +1016,9 @@ impl Workspace {
 
     /// Every entry a binary's `outputs` name, in declaration order.
     ///
-    /// This is what makes the `core/host` check per entry rather than per
-    /// target. A binary with a page and a worker in it declares two entries,
-    /// and a `host.ui` inside the page's entry is checked against WEB alone —
-    /// the worker never reaches it, and refusing it on the worker's behalf
-    /// would refuse a program that is correct.
+    /// This is what makes the entry checks per entry rather than per target. A
+    /// binary with a page and a worker in it declares two entries, and the
+    /// page's `host.ui` is checked against `WebHost` alone.
     ///
     /// Empty for a library, and for a binary that declares no `outputs`.
     pub fn declared_entries(&self, target: TargetId) -> Vec<DeclaredEntry> {
@@ -1049,12 +1051,6 @@ impl Workspace {
         }
         let id = self.package_by_path(path)?;
         Some((id, self.package(id).build.platform.as_ref()?))
-    }
-
-    /// Whether a package holds a repository platform's rule.
-    pub fn is_platform_package(&self, id: PackageId) -> bool {
-        let p = self.package(id);
-        p.build.platform.is_some() && is_platform_directory(&p.path)
     }
 
     /// The repository platforms a binary's outputs name, each once, in the

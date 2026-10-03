@@ -33,8 +33,9 @@ export fn put<C: Kv>(ctx: C, namespace: Str, key: Str, value: Str): () {
 }
 ```
 
-Every effect ships a test implementation in its package's `testing` surface. It
-keeps its store in `core/platforms/testing/state`, so each `kv()` starts empty:
+Every effect ships a test implementation in its package's `testing` surface.
+An effect method can't mutate anything, so `TestKv` keeps its store in
+`core/platforms/testing/state`, and each `kv()` starts empty:
 
 ```buri repo=cli/tests/repositories/custom-platforms/cloudflare_kv/repo package=//platform/effect/kv role=testing
 from "core/map" import * as map;
@@ -92,9 +93,9 @@ do, and the entry without a body. `HostKv` is the platform's own production
 struct, and its methods have no body either:
 
 ```buri ignore why="a platform's surface, compiled only with its rule"
+from "platform/effect" import { Request, Response };
 from "platform/host" import { HostAllocator, HostClock, HostNetwork, HostStdout };
 from "//platform/effect/kv" import { Kv };
-from "platform/effect" import { Request, Response };
 
 export struct CloudflareHost {
     export alloc: HostAllocator,
@@ -106,9 +107,12 @@ export struct CloudflareHost {
 
 export fn fetch(host: CloudflareHost, request: Request): Response;
 
+// fetch.mjs implements both methods.
 struct HostKv {}
+
 impl Kv for HostKv {
-    fn get(self, namespace: Str, key: Str): Option<Str>;    // fetch.mjs implements both
+    fn get(self, namespace: Str, key: Str): Option<Str>;
+
     fn put(self, namespace: Str, key: Str, value: Str): ();
 }
 ```
@@ -135,7 +139,8 @@ says how every other type crosses.
 ## The program
 
 A library bounds its context by the effect and calls the wrappers. It never
-sees `HostKv` or `TestKv`:
+sees `HostKv` or `TestKv`, so it compiles anywhere and runs wherever an entry
+can bind a `Kv`:
 
 ```buri repo=cli/tests/repositories/custom-platforms/cloudflare_kv/repo package=//lib/sessions
 from "core/str" import * as str;
@@ -245,8 +250,7 @@ buri build //cmd/site
 
 The worker lands at `.buri/out/platform/cloudflare_worker/cmd/site/fetch.mjs`,
 ready for the worker runtime. `buri run` refuses it: a worker is called, not
-started. Editing `fetch.mjs` or `platform.buri` rebuilds it, no `buri clean`
-needed.
+started.
 
 ## Vars and secrets
 
@@ -275,6 +279,7 @@ the `env` and implements it. A KV namespace is a binding too, but not a string,
 so it's no variable:
 
 ```js
+import { fetch } from "buri:program";
 let bindings = {};
 
 export default {
@@ -300,7 +305,5 @@ repository is `cli/tests/repositories/custom-platforms/cloudflare_worker/repo`.
   the bundled effects instead.
 - **A platform can't add a backend, linker flags or native libraries.** Those
   are the toolchain's.
-- **Libraries need nothing.** One bounded by `C: Kv` compiles anywhere and runs
-  wherever an entry can bind a `Kv`.
 
 The rules in full are in [platforms](../reference/build/platforms.md).

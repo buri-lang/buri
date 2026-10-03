@@ -41,8 +41,3 @@ error: `js` is retired [retired-platform]
     A library or a tag's requires and forbids take both lists, and a platform
     must satisfy every list written.
 
-    Cloudflare Workers isn't built into the toolchain. A repository that deploys
-    workers writes the platform under //platform/, with its host, its fetch
-    entry and a fetch.mjs adapter; buri docs guides/custom-platforms walks
-    through one.
-

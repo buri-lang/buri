@@ -2,17 +2,14 @@
 # an output that is a page.
 #
 # `platform: "web"` is not a flag on the JavaScript output: it is a different set
-# of effects. `core/host` exports `ui` and `watch` there and nowhere else, and
-# exports no `fs`, `stdin`, `env` or `proc` there at all — so main.buri below
-# builds for this output and would not build for //cmd/web's, and
-# //cmd/server/main.buri is the same refusal the other way round. A `web`
-# output takes no `variant`: there is no machine under a page to choose
-# between, and naming one is a build-file error rather than a field the
-# toolchain then ignores.
+# of effects. `WebHost` has `ui` and `watch`, and no `fs`, `stdin`, `env` or
+# `proc` — so main.buri below builds for this output and would not build for
+# //cmd/web's, and //cmd/server/main.buri is the same refusal the other way
+# round. A `web` output takes no `variant`: there is no machine under a page.
 #
-# Three files, one artifact each: `basket.mjs`, `basket.css` — the styles the
-# compiler extracted, deduped across every package in the build — and
-# `basket.html`, a shell that links the one and loads the other.
+# Three files: `main.mjs`, `main.css` — the styles the compiler extracted,
+# deduped across every package in the build — and the `index.html` `web` ships,
+# which loads both.
 binary {
     sources: ["model.buri", "state.buri", "theme.buri", "view.buri"]
     dependencies: ["//lib/kit", "//lib/ledger", "//lib/money"]

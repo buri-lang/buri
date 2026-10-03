@@ -5,7 +5,9 @@
 An **effect** is an interface declared with `effect` instead of `trait`. Its
 methods are the operations it grants:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri sig role=platform
+# from "platform/effect" import { IoError, NetError, Region };
+#
 // platform/effect
 export effect Allocator {
     fn allocate(self, bytes: Int): Region;
@@ -57,13 +59,19 @@ export effect Network {
 Not every effect is declared there. `core/fs` is a platform module too, and it
 declares the filesystem's two:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri sig role=platform
+# from "core/fs" import { Metadata, Path };
+# from "platform/effect" import { IoError };
+#
 // core/fs
 export effect FileSystemRead {
     fn readFile(self, path: Path): Result<Str, IoError>;
     fn fileExists(self, path: Path): Bool;
     fn readDir(self, path: Path): Result<[Str], IoError>;
     fn readFileBytes(self, path: Path): Result<[U8], IoError>;
+    fn metadata(self, path: Path): Result<Metadata, IoError>;
+    fn readRange(self, path: Path, at: Int, count: Int): Result<[U8], IoError>;
+    fn realPath(self, path: Path): Result<Str, IoError>;
 }
 
 export effect FileSystemWrite {
@@ -75,14 +83,20 @@ export effect FileSystemWrite {
     fn removeDir(self, path: Path): Result<(), IoError>;
     fn makeDir(self, path: Path): Result<(), IoError>;
     fn syncFile(self, path: Path): Result<(), IoError>;
+    fn copyFile(self, source: Path, destination: Path): Result<(), IoError>;
 }
 ```
 
-`platform/effect` declares `Allocator`, `Network`, `Clock`, `Random`, `Entropy`, `Environment`,
-`Stdin`, `Stdout`, `Stderr`, `Process`, `Tasks`, `Listen`, `Sockets` and
-`WebSocketClient`, and `core/fs` declares `FileSystemRead` and `FileSystemWrite`. **Only
-platform modules may declare effects**; `effect` in ordinary code is a compile
-error. So a program's platform fixes what that program can do to the world.
+`platform/effect` declares `Allocator`, `Network`, `Clock`, `Random`, `Entropy`,
+`Environment`, `Stdin`, `Stdout`, `Stderr`, `Process`, `Tasks`, `Listen`, `Sockets`,
+`Tcp`, `WebSocketClient`, `Ui`, `Watch` and `Location`. `core/fs` declares
+`FileSystemRead` and `FileSystemWrite`, and `core/process` declares `Spawn`.
+
+**Effects are declared only there and in effect packages**, libraries under
+`//platform/effect/` such as `//platform/effect/kv`
+(`buri docs guides/custom-platforms`). `effect` anywhere else is
+`effect-outside-effect-directory`. So what a program can do to the world is fixed
+by the effects its platform offers.
 
 **The filesystem is two effects because it is two grants.** A program that reads
 its configuration has not thereby earned the right to delete it. A
@@ -131,15 +145,26 @@ nominal conformance, same `impl`, same bounds. Two rules separate them:
 
 A function names the effects it needs as **bounds** on its context parameter:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri
+# from "core/fs" import * as fs;
 # from "core/fs" import { FileSystemRead, Path };
-# from "platform/effect" import { Allocator };
-
+# from "platform/effect" import { Allocator, IoError };
+#
+# struct Config(Str);
+#
+# enum ConfigError {
+#     Unreadable(IoError),
+# }
+#
+# fn parse<C: Allocator>(ctx: C, text: Str): Result<Config, ConfigError> {
+#     .Ok(Config(text))
+# }
+#
 fn loadConfig<C: Allocator + FileSystemRead>(
     ctx: C,
     at: Path,
 ): Result<Config, ConfigError> {
-    let text = fs.readText(ctx, at)?;
+    let text = fs.readText(ctx, at).mapErr(fn(e) => ConfigError.Unreadable(e))?;
     parse(ctx, text)
 }
 ```
@@ -153,21 +178,70 @@ must satisfy.
 **An effect-carrying parameter must be `self` or `ctx`** — never any other
 name, never any other position, and at most one of each:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "platform/effect" import { Allocator, IoError, Network, Region };
+```buri fail
+# from "core/fs" import * as fs;
 # from "core/fs" import { FileSystemRead, Path };
-fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError>    // ok
-fn render<C: Allocator>(self, ctx: C): Str                                    // ok
-fn allocate(self, bytes: Int): Region                                     // ok
-fn sneaky<C: FileSystemRead>(a: Int, handle: C): Bool                             // ERROR
-fn twoWorlds<A: FileSystemRead, B: Network>(ctx: A, other: B): ()                     // ERROR
+# from "platform/effect" import { Allocator, IoError, Network, Region };
+#
+# struct Page(Str);
+#
+# struct Arena(Int);
+#
+// ok
+fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError> {
+    fs.readText(ctx, at)
+}
 
-enum Widget<C> { Press(fn(C, Int) => Str), Group([Widget<C>]) }
-enum Boxed<C>  { Held(C) }
+impl Page {
+    // ok
+    fn render<C: Allocator>(self, ctx: C): Str {
+        self.0
+    }
+}
 
-fn render<C: Allocator>(ctx: C, root: Widget<C>): Str                         // ok
-fn peek<C: Allocator>(ctx: C, held: Boxed<C>): Int                            // ERROR
+impl Allocator for Arena {
+    // ok
+    fn allocate(self, bytes: Int): Region {
+        Region(bytes)
+    }
+}
+
+// ERROR
+fn sneaky<C: FileSystemRead>(a: Int, handle: C): Bool {
+    false
+}
+
+// ERROR
+fn twoWorlds<A: FileSystemRead, B: Network>(ctx: A, other: B): () {
+    ()
+}
+
+enum Widget<C> {
+    Press(fn(C, Int) => Str),
+    Group([Widget<C>]),
+}
+
+enum Boxed<C> {
+    Held(C),
+}
+
+// ok
+fn render<C: Allocator>(ctx: C, root: Widget<C>): Str {
+    ""
+}
+
+// ERROR
+fn peek<C: Allocator>(ctx: C, held: Boxed<C>): Int {
+    0
+}
 ```
+
+```error
+`handle` carries an effect, so it must be named `ctx`
+`other` carries an effect, so it must be named `ctx`
+`held` carries an effect, so it must be named `ctx`
+```
+
 
 A type is **effect-carrying** if it is a type variable with an effect
 bound, a type that implements an effect, or any type that can hand one of those
@@ -355,12 +429,18 @@ referentially transparent. `time.now(ctx)` is not.
 Tracking allocation is what makes "does no I/O" and "does not allocate"
 separately expressible:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "platform/effect" import { Allocator, IoError };
+```buri sig
 # from "core/fs" import { FileSystemRead, Path };
-fn sum(self): Int                                                      // pure
-fn map<A, B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B]               // deterministic
-fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError> // effectful
+# from "platform/effect" import { Allocator, IoError };
+#
+// pure
+fn sum(xs: [Int]): Int;
+
+// deterministic
+fn map<A, B, C: Allocator>(ctx: C, xs: [A], f: fn(A) => B): [B];
+
+// effectful
+fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError>;
 ```
 
 Fixed-size construction — struct literals, tuples, enum payloads, array literals,
@@ -372,12 +452,19 @@ on runtime data do.
 **A lambda may not capture an effect-carrying value.** Effects travel
 through the `ctx` parameter only.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-// ERROR: the lambda captures ctx
-let texts = paths.map(ctx, fn(p) => fs.readText(ctx, p));
-
-// Thread the context through a *Ctx combinator instead
-let texts = paths.mapCtx(ctx, fn(c, p) => fs.readText(c, p));
+```buri
+# from "core/fs" import * as fs;
+# from "core/fs" import { FileSystemRead, Path };
+# from "platform/effect" import { Allocator, IoError };
+#
+# type Read = Result<Str, IoError>;
+#
+# fn demo<C: Allocator + FileSystemRead>(ctx: C, paths: [Path]): [Read] {
+    let texts = paths.map(ctx, fn(p) => fs.readText(ctx, p)); // ERROR: a lambda may not capture `ctx`
+    // Thread the context through a *Ctx combinator instead
+    let texts = paths.mapCtx(ctx, fn(c, p) => fs.readText(c, p));
+#     texts
+# }
 ```
 
 Without this rule, a value of type `fn(Str) => Str` could smuggle a file handle
@@ -417,7 +504,9 @@ on every item — and that callback cannot close over a context, so whatever
 authority it is to have arrives as its first parameter. Two different values
 could arrive there, and the declaration says which:
 
-```buri ignore why="not yet converted to a compiled example: it declares an effect, which only a platform module may do"
+```buri sig role=platform
+# from "platform/effect" import { Request, Response, ServeError };
+#
 export effect Tasks {
     // `ctx` is the caller's whole context, and the step is handed it.
     fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
@@ -463,23 +552,35 @@ read a clock and start a task.
 **Receiver first, context second, everything else after.** Section 10.2 enforces
 this. A free function with no receiver takes the context first:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "platform/effect" import { Allocator, IoError };
+```buri sig
 # from "core/fs" import { FileSystemRead, Path };
-export fn map<A, B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B]
-export fn readText<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, IoError>
+# from "platform/effect" import { Allocator, IoError };
+
+export fn readText<C: Allocator + FileSystemRead>(
+    ctx: C,
+    at: Path,
+): Result<Str, IoError>;
 ```
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-xs.map(ctx, double)
-lines.filter(ctx, isLong).sortBy(ctx, order.str)
+A method takes its receiver, then the context:
+
+```buri
+# from "core/order" import * as order;
+# from "platform/effect" import { Allocator };
+#
+# fn demo<C: Allocator>(ctx: C, xs: [Int], lines: [Str]): [Str] {
+#     let double = fn(x: Int): Int => x * 2;
+#     let isLong = fn(line: Str): Bool => line.length() > 80;
+    let doubled = xs.map(ctx, double);
+    let sorted = lines.filter(ctx, isLong).sortBy(ctx, order.str);
+#     sorted
+# }
 ```
 
-An effect's own operations take the second shape and only the second shape. They
-have no receiver a program may name, so they are free functions taking the
-context first: `io.println(ctx, text)`, `fs.readText(ctx, path)`. The method form
-is not an alternative spelling of them; the compiler refuses it
-(`effect-method-call`).
+An effect's own operations are always free functions taking the context first,
+because they have no receiver a program may name: `io.println(ctx, text)`,
+`fs.readText(ctx, path)`. The method form is not an alternative spelling of them;
+the compiler refuses it (`effect-method-call`).
 
 ### 10.8 Restricting what propagates
 
@@ -488,15 +589,22 @@ Two forms, giving different guarantees.
 **Static confinement.** Bound the callee to fewer effects. It receives the
 same value and cannot use, or pass on, anything its bounds do not name:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/fs" import { FileSystemRead };
+```buri
+# from "core/fs" import * as fs;
+# from "core/fs" import { FileSystemRead, Path };
+# from "core/io" import * as io;
+# from "core/path" import * as path;
 # from "native" import { NativeHost };
 # from "platform/effect" import { Allocator, Stdout };
-
-fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
-    let _ = io.println(ctx, msg).ignore();
-    // fs.readText(ctx, secrets)           // ERROR: C is not bounded by FileSystemRead
-    // dangerous(ctx)                      // ERROR: dangerous needs C: FileSystemRead
+#
+# fn dangerous<C: FileSystemRead>(ctx: C): Bool {
+#     false
+# }
+#
+fn logOnly<C: Stdout>(ctx: C, msg: Str, secrets: Path): () {
+    let leaked = fs.readText(ctx, secrets); // ERROR: `C` does not implement `FileSystemRead`
+    let found = dangerous(ctx); // ERROR: `C` does not implement `FileSystemRead`
+    io.println(ctx, msg).ignore()
 }
 
 export fn main(host: NativeHost): Result<(), Str> {
@@ -505,7 +613,8 @@ export fn main(host: NativeHost): Result<(), Str> {
         Stdout: host.stdout,
         FileSystemRead: host.fs,
     };
-    let _ = logOnly(ctx, "starting"); // same value, confined by its bound
+    let secrets = path.of(ctx, "secrets");
+    let _ = logOnly(ctx, "starting", secrets); // same value, confined by its bound
     .Ok(())
 }
 ```
@@ -517,10 +626,10 @@ downstream.
 **Attenuation.** Wrap the context in a type that satisfies fewer effects, so
 the callee holds a value that genuinely lacks the rest:
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+```buri ignore why="the compiler refuses `self.0.readFile` here as `effect-method-call`: its carve-out covers an impl that supplies an effect, and this one is inherent"
 # from "core/fs" import { FileSystemRead, Path };
 # from "platform/effect" import { Allocator, IoError, Region };
-
+#
 // module: safe/readonly
 export struct ReadOnly<C>(C);
 
@@ -564,10 +673,10 @@ A pure function needs no harness. You test an effectful one by building a contex
 out of different implementations, and since effects are ordinary interfaces,
 writing one is writing a struct with methods. The call site does not change.
 
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/fs" import { FileSystemRead, Path };
-# from "platform/effect" import { Allocator, IoError };
-
+```buri
+# from "core/fs" import { FileSystemRead, Metadata, Path };
+# from "platform/effect" import { IoError };
+#
 struct FakeFs {
     export files: [(Str, Str)],
 }
@@ -592,6 +701,18 @@ impl FileSystemRead for FakeFs {
     }
 
     fn readFileBytes(self, at: Path): Result<[U8], IoError> {
+        .Err(.NotFound)
+    }
+
+    fn metadata(self, at: Path): Result<Metadata, IoError> {
+        .Err(.NotFound)
+    }
+
+    fn readRange(self, at: Path, offset: Int, count: Int): Result<[U8], IoError> {
+        .Err(.NotFound)
+    }
+
+    fn realPath(self, at: Path): Result<Str, IoError> {
         .Err(.NotFound)
     }
 }

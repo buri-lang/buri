@@ -124,7 +124,7 @@ impl<'a> Checker<'a> {
         if !info.generics.is_empty() {
             self.templated("entry-signature-mismatch", d.span)
                 .bind("entry", name.to_string())
-                .bind("requirement", "declares no generic parameters")
+                .bind("requirement", "declare no generic parameters")
                 .fix(format!(
                     "drop them: `{name}` is called by the platform, so there is nothing to infer \
                      them from"
@@ -174,18 +174,49 @@ impl<'a> Checker<'a> {
         if !same {
             self.templated("entry-signature-mismatch", d.span)
                 .bind("entry", name.to_string())
-                .bind("requirement", format!("has the signature `{label}` declares, `{wanted}`"))
+                .bind("requirement", format!("have the signature `{label}` declares, `{wanted}`"))
                 .fix(format!("write it `{wanted}`"));
+        } else if custom.js.is_none() && !self.starts_itself(&want, host.is_some()) {
+            // Nothing but the backend calls an entry without a `js` file, and
+            // the backend passes the host alone and reads a `Result<(), Str>`.
+            let point = &custom.point;
+            self.templated("entry-signature-mismatch", d.span)
+                .bind("entry", name.to_string())
+                .bind(
+                    "requirement",
+                    "take only its host and answer `Result<(), Str>`: its platform gives it no \
+                     `js` file, so it starts itself",
+                )
+                .fix(format!(
+                    "declare `{point}` in `{label}` as `fn {point}(host: H): Result<(), Str>`, or \
+                     give its `entry` a `js` file that calls it"
+                ));
+        }
+        // What a `js` file hands an entry and reads back crosses the table,
+        // whether or not the declaration takes a host.
+        if custom.backend == Backend::Js && custom.js.is_some() {
+            self.check_crossing_of(&want, skip, &format!("`{}`", custom.point));
         }
         if let Some(host) = host {
             self.check_host_fields(custom, platform, host);
             if custom.backend == Backend::Js {
-                if custom.js.is_some() {
-                    self.check_crossing_of(&want, skip, &format!("`{}`", custom.point));
-                }
                 self.check_js_methods(platform, host);
             }
         }
+    }
+
+    /// Whether a declaration has the program signature: the host alone, and a
+    /// `Result<(), Str>` answer.
+    fn starts_itself(&mut self, want: &FnInfo, has_host: bool) -> bool {
+        let str_ty = self.tables.prim(Prim::Str);
+        let answers = match &want.ret {
+            Ty::Con(id, args) => {
+                self.result_con.as_ref() == Some(id)
+                    && matches!(args.as_slice(), [ok, err] if *ok == Ty::Unit && *err == str_ty)
+            }
+            _ => false,
+        };
+        has_host && want.params.len() == 1 && (answers || want.ret.is_error())
     }
 
     /// Every field of a host type is a production struct its backend has: the
@@ -288,9 +319,10 @@ impl<'a> Checker<'a> {
             let struct_name = self.tables.tycon(*con).name.clone();
             for method in self.bodiless_methods(*con) {
                 let info = self.tables.fn_info(method).clone();
-                if !info.generics.is_empty() && !self.already(info.span, "type-not-crossable") {
+                let generic = info.generics.first().map(|g| g.name.clone());
+                if let Some(param) = generic.filter(|_| !self.already(info.span, "type-not-crossable")) {
                     self.templated("type-not-crossable", info.span)
-                        .bind("type", "a type parameter")
+                        .bind("type", param)
                         .bind("place", format!("`{struct_name}.{}`", info.name));
                     continue;
                 }

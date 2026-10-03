@@ -30,8 +30,8 @@ $ node .buri/out/node/cmd/web/web.mjs
 basket total: $36.50
 ```
 
-`buri run //cmd/web` does the same through the toolchain, resolving `bun` or
-`node` from `PATH`, or from `BURI_JS` naming one. You need nothing else: no
+`buri run //cmd/web` does the same through the toolchain, with `bun`, or with
+the runtime `BURI_JS` names. You need nothing else: no
 `package.json`, no bundler, no runtime dependency to install.
 
 A binary that declares no `outputs` at all builds `node`, which is why
@@ -160,8 +160,8 @@ function straight back.
 ## What changes about the program
 
 **The effects `main` may ask for.** A platform's host type *is* the set of
-effects it offers. `WebHost` has no `fs`, `stdin`, `env` or `proc`, and has `ui`
-and `watch`, which no other host has. Ask for one a platform does not offer and
+effects it offers. `WebHost` has no `fs`, `stdin`, `env` or `proc`, and has
+`ui`, `watch` and `location`, which no other bundled host has. Ask for one a platform does not offer and
 you get `unknown-field` on the line that asked, with a note naming the
 platforms that do.
 

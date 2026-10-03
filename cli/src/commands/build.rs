@@ -81,7 +81,7 @@ pub fn command_build(args: &arguments::Args) -> i32 {
                 let unit = crate::compiler::modules::Unit {
                     target: Some(target),
                     // A library is checked, not built for an output, and it
-                    // cannot import `core/host` at all. See `Unit::platform`.
+                    // is handed no host at all. See `Unit::platform`.
                     platform: None,
                     entry: None,
                     with_tests: false,

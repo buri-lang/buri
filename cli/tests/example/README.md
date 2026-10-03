@@ -182,12 +182,12 @@ through a callback.
 Building it writes three files rather than one:
 
 ```
-.buri/out/web/cmd/basket/basket.mjs      the module
-.buri/out/web/cmd/basket/basket.css      every static style, deduped across the build
-.buri/out/web/cmd/basket/basket.html     a shell that links the one and loads the other
+.buri/out/web/cmd/basket/main.mjs      the module
+.buri/out/web/cmd/basket/main.css      every static style, deduped across the build
+.buri/out/web/cmd/basket/index.html    the document `web` ships, which loads both
 ```
 
-Open the `.html` and the page runs. Run the `.mjs` under `bun` or `node` and it
+Serve the directory, or `buri run //cmd/basket`, and the page runs. Run the `.mjs` under `bun` or `node` and it
 also runs: there is no document, so the runtime supplies one, which is what lets
 a test render a page.
 

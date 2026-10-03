@@ -1063,21 +1063,19 @@ second call answers that same `.Err`.
 
 Routing is a match. A page function takes the path as a `Prop<Str>`: the worker
 passes `.Const(request.path())` and the page passes `web.route(ctx)`, which is
-the address bar as a cell. `Location` is granted on `web` alone, and it is what
-makes navigating re-run the smallest thing that read the path.
+the address bar as a signal. Of the bundled platforms only `web` offers
+`Location`, and it is what makes navigating re-run the smallest thing that read
+the path.
 
-`web.navigate(ctx, path)` is how a page goes somewhere itself: a history entry,
-and the cell `route` wraps written. Nothing is fetched and nothing is rebuilt but
-what read the path, so every signal in the program keeps its value — a store of
-signals survives the navigation, which a `ui.link` cannot manage.
-`web.replace(ctx, path)` writes the same address over the entry the reader is on
-instead of beside it, so Back does not return to it: that is a redirect. Both
-need `Location` and `Ui`, one for the address bar and one for the cell.
+`web.navigate(ctx, path)` is how a page goes somewhere itself: it pushes a
+history entry, then writes the signal `route` wraps. Nothing is fetched and
+nothing is rebuilt but what read the path, so every signal in the program keeps
+its value, which a `ui.link` can't manage. `web.replace(ctx, path)` replaces the
+current entry instead, so Back doesn't return to it: that's a redirect. Both
+need `Location` and `Ui`, one for the address bar and one for the signal.
 
-`web.routeLink(dest, styles, children)` is that navigation as a link, and its
-signature is unchanged: it wraps `ui.link` with an `onFollow` that calls
-`navigate`. It renders
-a real `<a href>`, so a reader keeps middle-click, ⌘-click, "open in new tab",
+`web.routeLink(dest, styles, children)` is that navigation as a link: it wraps
+`ui.link` with an `onFollow` that calls `navigate`. It renders a real `<a href>`, so a reader keeps middle-click, ⌘-click, "open in new tab",
 the status bar and the "link" a screen reader announces — everything a
 `ui.button` calling `navigate` throws away. A plain left-click does what
 `navigate` does instead of loading the document; a middle-click or a ⌘/Ctrl-click
@@ -1109,10 +1107,7 @@ export fn main(host: NodeHost): Result<(), Str> {
 | [`native`](../../platforms/native/platform.buri), [`node`](../../platforms/node/platform.buri), [`web`](../../platforms/web/platform.buri) | Each bundled platform's host type, `NativeHost`, `NodeHost` or `WebHost`, and its bodiless `main` | Anyone, for the host type; importing `main` is `entry-declaration-imported` |
 
 [`core/fs`](../../compiler/standard_library/sources/fs.buri) declares the
-filesystem's two effects, and `core/process` declares `Spawn`. `core/effect`
-and `core/host/testing` are retired: their names are `platform/effect` and
-`platform/effect/testing`. `core/host` is retired too: an entry takes its
-platform's host and binds its fields.
+filesystem's two effects, and `core/process` declares `Spawn`.
 [`core/alloc`](../../compiler/standard_library/sources/alloc.buri),
 [`core/io`](../../compiler/standard_library/sources/io.buri),
 [`core/fs`](../../compiler/standard_library/sources/fs.buri),
@@ -1141,8 +1136,8 @@ Only a test source may import
 [`platform/effect/testing`](../../compiler/standard_library/sources/host_testing.buri).
 `assert` is deliberately wide — `equal`,
 `equalWith`, `notEqual`, `isTrue`, `isFalse`, `contains`, `containsText`,
-`startsWith`, `isEmpty`, `notEmpty`, `len`, `unordered`, `gt`,
-`ge`, `lt`, `le`, `approximatelyEqual`, `approximatelyEqualRelative`, and the unwrapping `ok`,
+`startsWith`, `isEmpty`, `notEmpty`, `length`, `unordered`, `greaterThan`,
+`greaterOrEqual`, `lessThan`, `lessOrEqual`, `approximatelyEqual`, `approximatelyEqualRelative`, and the unwrapping `ok`,
 `err`, `some`, `none` —
 because the report is the point. Each one names the two values it compared,
 where `assert.isTrue(xs.contains(x))` can only say "expected true, got false".
@@ -1151,8 +1146,6 @@ where `assert.isTrue(xs.contains(x))` can only say "expected true, got false".
 `equals(ctx, other)` instead, and passing that comparison keeps the report.
 `unordered(ctx, actual, expected)` sorts both lists first and reports the sorted
 pair, which costs O(n log n).
-There is no `assert.fail`: it answered `()` rather than a bottom type, so a
-match arm using it could not produce a value.
 
 [`core/testing/check`](../../compiler/standard_library/sources/check.buri) is
 property testing over the same runner. `forAll(generator, property)` draws a
