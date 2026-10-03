@@ -1,7 +1,8 @@
 ---
 title: A variant is one its platform declares
 message: '`{variant}` is not a variant of `{platform}`'
-fix: '{choices}'
+note: '{available}'
+fix: '{fix}'
 reproduction: none
 ---
 # A variant is one its platform declares

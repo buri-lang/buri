@@ -1,11 +1,11 @@
 ---
-title: A native output names its variant
-message: 'a `{platform}` output names a variant'
-note: 'a variant says how an output is built: here, the operating system and the architecture'
-fix: 'add one of {variants}, as `variant: "{example}"`'
+title: An output names a variant its platform requires
+message: '`{platform}` needs a variant'
+note: 'available: {variants}'
+fix: 'add `variant: "{example}"`'
 reproduction: none
 ---
-# A native output names its variant
+# An output names a variant its platform requires
 
 ```textproto schema=build
 binary {
@@ -15,6 +15,10 @@ binary {
     ]
 }
 ```
+
+A variant says how an output is built: for `native`, the operating system and
+the architecture. A platform's `entry` with `variant_required: true` makes
+every output of that platform pick one.
 
 Each variant builds into its own directory, `.buri/out/native/<variant>/`.
 `buri test` and `buri run` build the machine's own variant without being told.

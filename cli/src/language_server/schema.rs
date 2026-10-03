@@ -134,9 +134,17 @@ fn message_blocks(blocks: &[Block]) -> HashMap<String, Vec<usize>> {
         found.push(index);
         let Some(block) = blocks.get(index) else { continue };
         for field in &block.fields {
+            // A type nested in this message first, as protobuf scopes it:
+            // `Output.Entry` and `Platform.Entry` are both written `Entry`.
+            let nested = format!("{}.{}", block.name, field.type_name);
             let Some(i) = blocks
                 .iter()
-                .position(|b| b.constants.is_empty() && ends_with_name(&b.name, &field.type_name))
+                .position(|b| b.constants.is_empty() && b.name == nested)
+                .or_else(|| {
+                    blocks
+                        .iter()
+                        .position(|b| b.constants.is_empty() && ends_with_name(&b.name, &field.type_name))
+                })
             else {
                 continue;
             };
@@ -193,7 +201,10 @@ fn read(text: &str, out: &mut Vec<Block>) {
                 fields: Vec::new(),
                 constants: Vec::new(),
             });
-            open.push(out.len().saturating_sub(1));
+            // `message Format {}` opens and closes on one line.
+            if !line.ends_with('}') {
+                open.push(out.len().saturating_sub(1));
+            }
             continue;
         }
         let Some(index) = open.last().copied() else {
@@ -285,6 +296,9 @@ mod tests {
         // Nested messages, reached through the field that holds them.
         assert_eq!(schema.block("forbids").map(|b| b.name.as_str()), Some("Tag.Forbids"));
         assert_eq!(schema.block("requires").map(|b| b.name.as_str()), Some("Tag.Requires"));
+        // Two messages named `Entry`, each found through its own field.
+        assert_eq!(schema.block("entries").map(|b| b.name.as_str()), Some("Output.Entry"));
+        assert_eq!(schema.block("entry").map(|b| b.name.as_str()), Some("Platform.Entry"));
     }
 
     /// The schemas and `textproto::schema_order` name the same fields. A field
@@ -295,7 +309,7 @@ mod tests {
         let schema = schema();
         for block in
             [
-                "", "library", "binary", "tool", "platform", "entry", "test", "testing", "outputs", "tag",
+                "", "library", "binary", "tool", "platform", "entry", "test", "testing", "outputs", "entries", "tag",
                 "forbids", "requires", "lint", "rules",
             ]
         {

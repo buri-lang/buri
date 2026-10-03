@@ -4,7 +4,9 @@ binary {
     outputs: [
         { platform: "node" },
         { platform: "web" },
-        { platform: CLOUDFLARE_WORKER, entries { fetch: "handle" } },
+        { platform: CLOUDFLARE_WORKER, entries: [
+            { name: "fetch", function: "handle" },
+        ] },
         { platform: "native", variant: "linux-x86_64" },
         { platform: "native", variant: "macos-arm64" },
     ]

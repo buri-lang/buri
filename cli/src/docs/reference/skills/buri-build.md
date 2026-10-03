@@ -168,7 +168,7 @@ artifact with `artifact_name` on the output, not on the rule.
 
 A `native` output names its `variant`: `linux-arm64`, `linux-x86_64`,
 `macos-arm64` or `macos-x86_64`. Each platform's entry, `main`, is filled by the
-function of that name, and `entries: { main: "other" }` fills it from another.
+function of that name, and `entries: [{ name: "main", function: "other" }]` fills it from another.
 `LINUX`, `JS`, `arch`, `entry` and `js {}` are retired spellings, refused as
 `retired-platform-name`.
 

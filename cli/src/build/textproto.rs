@@ -14,7 +14,7 @@
 //! }
 //! outputs: [
 //!   { platform: "native", variant: "linux-x86_64" },
-//!   { platform: "node", entries { main: "run" } },
+//!   { platform: "node", entries: [{ name: "main", function: "run" }] },
 //! ]
 //! ```
 //!
@@ -538,8 +538,9 @@ pub fn schema_order(message: &str) -> &'static [&'static str] {
         "test" => &["sources", "dependencies", "timeout_seconds", "backends"],
         "testing" => &["sources", "dependencies"],
         "outputs" => &["platform", "variant", "entries", "artifact_name"],
-        "platform" => &["sources", "dependencies", "variants", "entry", "assets"],
-        "entry" => &["name", "backend", "js"],
+        "entries" => &["name", "function"],
+        "platform" => &["sources", "dependencies", "entry", "assets"],
+        "entry" => &["name", "backend", "js", "variants", "variant_required"],
         "tag" => &["name", "doc", "forbids", "requires"],
         "forbids" => &["tags", "backends", "platforms"],
         "requires" => &["backends", "platforms"],
@@ -748,12 +749,12 @@ mod tests {
 
     #[test]
     fn list_of_messages_with_commas_between_fields() {
-        let d = p("outputs: [\n  { platform: \"native\", variant: \"linux-x86_64\" },\n  { platform: \"node\", entries { main: \"run\" } },\n]\n");
+        let d = p("outputs: [\n  { platform: \"native\", variant: \"linux-x86_64\" },\n  { platform: \"node\", entries: [{ name: \"main\", function: \"run\" }] },\n]\n");
         let Value::List(items, _) = &d.fields[0].value else { panic!() };
         assert_eq!(items.len(), 2);
         let Value::Message(m, _) = &items[1] else { panic!() };
         assert_eq!(m.fields.len(), 2);
-        assert!(matches!(m.fields[1].value, Value::Message(..)));
+        assert!(matches!(m.fields[1].value, Value::List(..)));
     }
 
     #[test]

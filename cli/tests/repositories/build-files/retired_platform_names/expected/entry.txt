@@ -5,12 +5,12 @@ error: `entry` is retired [retired-platform-name]
   |                             ^^^^^
   |
   = an output names a platform as a string, `"native"`, `"node"` or `"web"`, and code that relies on one backend says so in `backends`
-  = fix: write `entries: { main: "main" }`
+  = fix: write `entries: [{ name: "main", function: "main" }]`
 
       binary {
           outputs: [
               { platform: "native", variant: "linux-arm64" },
-              { platform: "node", entries { main: "mainForNode" } },
+              { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
               { platform: "web" },
           ]
 
@@ -23,7 +23,7 @@ error: `entry` is retired [retired-platform-name]
       platform: LINUX, arch: ARM64  platform: "native", variant: "linux-arm64"
       platform: JS                  platform: "node"
       platform: WEB                 platform: "web"
-      entry: "run"                  entries: { main: "run" }
+      entry: "run"                  entries: [{ name: "main", function: "run" }]
       js { module: ESM }            nothing: every JavaScript output is an ES
                                     module
       test { platforms: [JS] }      test { backends: [JS] }
