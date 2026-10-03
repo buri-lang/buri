@@ -1,4 +1,4 @@
-error: `any` takes 1 arguments, but 2 were given [argument-count]
+error: `any` takes 1 argument, but 2 were given [argument-count]
  --> main.buri:7:22
   |
 7 |     Flags { verbose: args.any(extra fn(a) => a == "--verbose") }

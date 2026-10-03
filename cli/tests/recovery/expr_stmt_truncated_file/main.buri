@@ -1,4 +1,4 @@
-// EXPECT: `equal` takes 2 arguments, but 0 were given
+// EXPECT: `equal` takes 2 arguments, but none were given
 // ROLE: test
 from "core/testing/assert" import * as assert;
 

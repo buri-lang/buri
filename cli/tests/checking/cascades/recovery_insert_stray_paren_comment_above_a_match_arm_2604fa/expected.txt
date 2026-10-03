@@ -1,4 +1,4 @@
-error: `Some` holds 1 values, but 2 were matched [payload-pattern-count]
+error: `Some` holds 1 value, but the pattern matches 2 values [payload-pattern-count]
  --> main.buri:5:5
   |
 5 |     .Some(extra n) => n,
@@ -6,7 +6,7 @@ error: `Some` holds 1 values, but 2 were matched [payload-pattern-count]
   |
   = expected: 1
   = actual: 2
-  = fix: match exactly 1, or end the pattern with `..`
+  = fix: match exactly 1 value, or end the pattern with `..`
 error: a variant-pattern field ends with `,` [missing-comma]
  --> main.buri:5:16
   |

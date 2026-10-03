@@ -11,9 +11,7 @@ reproduction: none
 binary {
     outputs: [
         { platform: "native", variant: "linux-arm64" },
-        { platform: "node", entries: [
-            { name: "main", function: "mainForNode" },
-        ] },
+        { platform: "node" },
         { platform: "web" },
     ]
 
@@ -29,8 +27,6 @@ binary {
 | `platform: JS`                      | `platform: "node"`                                |
 | `platform: WEB`                     | `platform: "web"`                                 |
 | `platform: CLOUDFLARE_WORKER`       | `platform: "//platform/cloudflare_worker"`, a platform you write |
-| `entry: "run"`                      | `entries: [{ name: "main", function: "run" }]`    |
-| `js { module: ESM }`                | nothing: every JavaScript output is an ES module  |
 | `test { platforms: [JS] }`          | `test { backends: [JS] }`                         |
 | `platforms: [LINUX, MACOS]`         | `backends: [NATIVE]`                              |
 | `platforms: [JS]`                   | `backends: [JS]`                                  |

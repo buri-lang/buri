@@ -4,7 +4,7 @@
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
-doc: "each retired platform spelling is refused with `retired-platform`, and its fix names what replaced it"
+doc: "each retired platform spelling is refused with `retired-platform`, each retired output field with `retired-output-field`, and the fix names what replaced it"
 
 # The new spellings build, and the suite runs on the backend it names.
 run {

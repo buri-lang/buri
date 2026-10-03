@@ -452,13 +452,9 @@ fn host_file(
     let Some(js) = js else {
         if let Some(first) = needed.first() {
             diagnostics.push(
-                Diagnostic::templated("host-file-missing-method", output.span)
-                    .with_bind("file", point)
-                    .with_bind("gap", format!("has no `js` file to implement `{}`", first.name))
-                    .with_note(
-                        "a method `platform.buri` declares without a body is the entry's `js` \
-                         file's to implement",
-                    ),
+                Diagnostic::templated("missing-host-file", output.span)
+                    .with_bind("entry", point)
+                    .with_bind("name", first.name.as_str()),
             );
             return Err(std::mem::take(diagnostics));
         }

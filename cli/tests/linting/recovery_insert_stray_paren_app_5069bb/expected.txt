@@ -1,4 +1,4 @@
-error: `println` takes 2 arguments, but 1 were given [argument-count]
+error: `println` takes 2 arguments, but 1 was given [argument-count]
   --> lib/recovery_insert_stray_paren_app_5069bb/main.buri:18:12
    |
 18 |     match (io.println(ctx@ , line)) {
