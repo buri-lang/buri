@@ -1759,21 +1759,9 @@ impl Linker for CDriver {
         if let Some(parent) = out.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        // The driver writes inside the link directory, and the bytes are then
-        // placed at `out` through the file that is already there.
-        //
-        // macOS charges about 200 ms the first time a *newly created* file is
-        // executed, and the charge is on the file's identity rather than on its
-        // contents: a 20 KB executable pays the same as an 8 MB one, and a file
-        // that has already been executed once pays nothing when it is truncated
-        // and rewritten with different bytes. A linker given the artifact's own
-        // path unlinks it and creates a new one, so every rebuild produced a
-        // first execution. Writing over the existing file keeps the identity.
-        //
-        // A `link` cache hit has always reached the artifact this way
-        // (`actions::write_executable`), so this makes the two paths agree
-        // rather than introducing a way of writing an artifact that did not
-        // already exist.
+        // The driver writes inside the link directory, and [`place_from`] puts
+        // the bytes at `out`, the same way a `link` cache hit does
+        // (`actions::write_executable`). Unchanged bytes leave `out` alone.
         //
         // What the driver wrote is *claimed* rather than read into memory:
         // renamed to a name this process owns, copied from there to `out`, and
@@ -1976,140 +1964,86 @@ fn same_contents(a: &mut std::fs::File, b: &mut std::fs::File) -> std::io::Resul
     }
 }
 
-/// Writes `src`'s bytes over whatever is at `dest`, keeping that file's
-/// identity, and makes it executable. Answers how many bytes it is.
+/// Puts `src`'s bytes at `dest` as an executable. Answers how many bytes it is.
 ///
-/// # The output's identity is the point
+/// **New bytes go in a new file, renamed over `dest`.** Never truncate and
+/// rewrite an executable in place. macOS caches the code signature on the file's
+/// inode, and an in-place rewrite can leave that cache stale. When it does,
+/// the kernel kills every later run of that inode with `SIGKILL` before it
+/// starts, and logs `load_code_signature: embedded signature doesn't match
+/// attached signature`. A crash between rewrites makes this near certain (two
+/// small C programs and one file: 54 of 60 runs killed). Heavy load does it
+/// rarely without one: `ui/sweep_states_nested` lost all six blocks of a step
+/// to it.
 ///
-/// `File::create` truncates rather than replaces, which is the whole point: see
-/// the note in [`Linker::link`] about what macOS charges for a file that has
-/// never been executed before. Measured on this repository's own batched test
-/// runner — 108 MB, ad-hoc signed by the linker, on an M-series mac: a file
-/// created fresh costs about **1.2 s** on its first execution *every time it is
-/// created fresh*, even when the bytes are byte for byte the ones the last
-/// file held, and the same file truncated and rewritten costs about **0.2 s**.
-/// The charge is on the identity, not on the contents. `buri test //...`
-/// executes one shared runner file (`actions::claim_runner`), so an
-/// identity lost per link is that charge paid per link.
+/// A new inode costs one first execution, about 0.2 s, or 1.2 s for a 108 MB
+/// test runner. A file whose bytes already match is left alone, so only a
+/// rebuild that changed the binary pays it.
 ///
-/// **So the bytes are written by hand, into the descriptor `File::create`
-/// returned.** Not `hard_link`, not an APFS `clonefile`, not `fs::copy`, and
-/// not `io::copy` — the first three take a *path* and can therefore give
-/// `dest` a new inode, and the fourth dispatches to whatever offload the
-/// standard library has for a pair of files on this platform, which its own
-/// documentation says "may change in the future". Today that dispatch cannot
-/// lose the identity (a `Write for File` only ever has a descriptor, and
-/// `copy_file_range`/`fcopyfile` write *into* one), and today on macOS there is
-/// no dispatch at all — `sys::io::kernel_copy` is Linux-only, so `io::copy`
-/// between two files is a userspace loop over an 8 KiB stack buffer. Neither of
-/// those is a property this function should rest on: what it needs from the
-/// write is that the executed file is the same file afterwards, and a loop is
-/// how that is *stated* rather than inherited. The chunk is [`CHUNK`], so a
-/// hundred-megabyte artifact is a hundred `write`s where `io::copy` on macOS
-/// makes thirteen thousand — measured at 108 MB, 173 ms -> 108 ms.
-///
-/// What the loop gives up is Linux's `copy_file_range`, which on a filesystem
-/// with reflinks is a copy that moves no bytes at all. That is a real cost and
-/// it is the smaller one: the artifact has already been written once by the
-/// linker, so this is the second and last pass over it, and one write path that
-/// is the same on both platforms is worth more than an offload on one of them.
-///
-/// A hard link out of the cache would additionally make the file being executed
-/// and the cache entry describing it *the same bytes* — a cache whose entries
-/// can be mutated by anything that opens the artifact is not a content-addressed
-/// store any more. The output and the entry are separate inodes on every path
-/// through this file, and the saving is taken on the write that produced the
-/// entry instead ([`Staged`]).
-///
-/// # The write that is not made
-///
-/// A write the file does not need is a write worth not doing. The charge above
-/// is on the first execution *after a write*, so an artifact whose bytes did
-/// not move — every rebuild whose edit the optimiser removed, and every
-/// rebuild of a target the edit did not reach — runs for nothing. The length
-/// is checked first, so the common case is not compared byte by byte; the
-/// *bytes* are then compared rather than the length alone, because skipping a
-/// write is a saving and never a licence to leave stale bytes. Neither half
-/// reads a whole artifact into memory: both work a [`CHUNK`] at a time.
+/// The output and the cache entry are always separate inodes: a hard link or
+/// clone would let anything that writes the artifact change the cache.
 pub fn place_from(src: &Path, dest: &Path) -> std::io::Result<u64> {
     let mut source = std::fs::File::open(src)?;
     let len = source.metadata()?.len();
     let settled = match std::fs::File::open(dest) {
         Ok(mut existing) => {
             existing.metadata().is_ok_and(|m| m.len() == len)
-                // An error mid-comparison is answered as "not settled", which
-                // spends a write rather than trusting a read that did not
-                // finish.
+                // A failed comparison spends a write rather than trusting a
+                // read that did not finish.
                 && same_contents(&mut source, &mut existing).unwrap_or(false)
         }
         Err(_) => false,
     };
-    if !settled {
-        use std::io::{Read, Seek, Write};
-        // The comparison above left the source wherever it stopped.
-        source.rewind()?;
-        // Truncated, never unlinked: this descriptor is the file that was
-        // already there, and every byte below goes into it.
-        let mut file = std::fs::File::create(dest)?;
-        let mut chunk = Vec::with_capacity(CHUNK as usize);
-        loop {
-            chunk.clear();
-            // `Read::by_ref` by name: `Write` is in scope for the line below
-            // and brings a `by_ref` of its own.
-            Read::by_ref(&mut source).take(CHUNK).read_to_end(&mut chunk)?;
-            if chunk.is_empty() {
-                break;
+    if settled {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dest).map(|m| m.permissions().mode() & 0o777).unwrap_or(0);
+            if mode != 0o755 {
+                std::fs::set_permissions(dest, std::fs::Permissions::from_mode(0o755))?;
             }
-            file.write_all(&chunk)?;
         }
+        return Ok(len);
+    }
+    use std::io::Seek;
+    source.rewind()?;
+    let fresh = beside(dest);
+    let placed = write_fresh(&mut source, &fresh).and_then(|()| std::fs::rename(&fresh, dest));
+    if placed.is_err() {
+        let _ = std::fs::remove_file(&fresh);
+    }
+    placed.map(|()| len)
+}
+
+/// A name next to `dest` that no other placement, in this process or another,
+/// is using.
+fn beside(dest: &Path) -> PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let name = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    dest.with_file_name(format!(".{name}.{}.{n}.partial", std::process::id()))
+}
+
+/// Copies `source` into a new executable file at `path`, a [`CHUNK`] at a time.
+fn write_fresh(source: &mut std::fs::File, path: &Path) -> std::io::Result<()> {
+    use std::io::{Read, Write};
+    let mut file = std::fs::File::create_new(path)?;
+    let mut chunk = Vec::with_capacity(CHUNK as usize);
+    loop {
+        chunk.clear();
+        // `Read::by_ref` by name: `Write` brings a `by_ref` of its own.
+        Read::by_ref(source).take(CHUNK).read_to_end(&mut chunk)?;
+        if chunk.is_empty() {
+            break;
+        }
+        file.write_all(&chunk)?;
     }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(dest).map(|m| m.permissions().mode() & 0o777).unwrap_or(0);
-        if mode != 0o755 {
-            std::fs::set_permissions(dest, std::fs::Permissions::from_mode(0o755))?;
-        }
+        file.set_permissions(std::fs::Permissions::from_mode(0o755))?;
     }
-    Ok(len)
-}
-
-/// Whether a signal ended this process, which is what spends the file it ran
-/// from ([`spend_identity`]).
-///
-/// `ExitStatus::code` is `None` for exactly those, and for nothing else.
-pub fn killed_by_signal(status: &std::process::ExitStatus) -> bool {
-    status.code().is_none()
-}
-
-/// **Give up a placed artifact's identity**, so the next [`place_from`] makes a
-/// new file instead of rewriting this one.
-///
-/// The identity [`place_from`] keeps is worth a second of first execution, and
-/// after a signal it is worth rather less than nothing. Once a process exec'd
-/// from an inode has been ended by a signal, macOS **kills the next execution
-/// of that inode with `SIGKILL`** if the file was rewritten in place in between
-/// — before a byte of the program runs. The bytes are not the problem: the same
-/// bytes at a fresh path run and exit 0. Reduced to two three-line C programs
-/// and one file rewritten in place between executions, `exec`,
-/// `rewrite-to-a-null-dereference, exec`, `rewrite-back, exec` gives
-/// `0, SIGSEGV, SIGKILL`; without the crash in the middle a file can be
-/// rewritten in place all day. It clears itself after one killed execution, and
-/// whether it happens at all varies with what the kernel still has cached —
-/// measured here at one run in six, which is the worst rate a defect can have.
-///
-/// So a suite whose binary segfaulted poisoned the shared runner file
-/// (`actions::claim_runner`) for the *next* `buri test` in that repository:
-/// every block of it came back killed before the first one ran, and `--force`
-/// did not help, because `--force` re-links and this was never about the link.
-/// `rm -rf .buri` was the only way out, which is what a person ends up doing
-/// with a build directory nobody has told them is spent.
-///
-/// Unconditional rather than `cfg(target_os = "macos")`: what it costs is one
-/// first execution, the run that pays it is a run that has already failed, and
-/// one rule on both platforms is worth more than the milliseconds.
-pub fn spend_identity(path: &Path) {
-    let _ = std::fs::remove_file(path);
+    Ok(())
 }
 
 /// The command as a person would type it, for a failure to quote back.
@@ -2187,25 +2121,13 @@ mod tests {
         dir
     }
 
-    /// **The executed output keeps its identity when it is rewritten**, on both
-    /// paths through [`place_from`], and it is never the same file as what it
-    /// was written from.
-    ///
-    /// This is the claim the shared test runner's whole existence rests on.
-    /// macOS charges a first execution per *file identity* — measured on this
-    /// repository's own 108 MB batched runner, about 1.2 s for a file created
-    /// fresh and about 0.2 s for the same file truncated and rewritten, and the
-    /// fresh charge is paid again on every fresh file even when the bytes have
-    /// not moved. `buri test //...` runs one shared runner file, so an output
-    /// that is unlinked and recreated, hard-linked, or `clonefile`d out of the
-    /// cache pays that charge once per link rather than once.
-    ///
-    /// Pinned as `dev` and `ino` before and after rather than as a wall clock:
-    /// the charge is the operating system's and can only be measured in
-    /// seconds, but the identity is this function's and can be stated exactly.
+    /// New bytes replace the output with a new file and never touch the old
+    /// one, which keeps macOS's per-inode signature cache from going stale
+    /// (see [`place_from`]). Matching bytes leave the output alone.
     #[cfg(unix)]
     #[test]
-    fn a_placed_artifact_keeps_the_file_it_overwrites() {
+    fn a_placed_artifact_never_rewrites_the_file_it_replaces() {
+        use std::io::Read;
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
         let dir = scratch("place-identity");
         let id = |p: &Path| {
@@ -2223,7 +2145,6 @@ mod tests {
 
         let out = dir.join("artifact");
         assert_eq!(place_from(&first, &out).expect("the first placement"), a.len() as u64);
-        let identity = id(&out);
         assert_eq!(std::fs::read(&out).expect("the output"), a);
         assert_eq!(
             std::fs::metadata(&out).expect("the output").permissions().mode() & 0o777,
@@ -2231,25 +2152,32 @@ mod tests {
             "a placed artifact is not executable"
         );
 
-        // The differing-bytes path: truncated and rewritten, and it is the
-        // same file afterwards.
+        // Held open the way a running program holds its executable.
+        let mut held = std::fs::File::open(&out).expect("opening the output");
+        let before = id(&out);
         assert_eq!(place_from(&second, &out).expect("a second placement"), b.len() as u64);
-        assert_eq!(id(&out), identity, "rewriting the output replaced the file");
+        assert_ne!(id(&out), before, "new bytes were written into the old file");
         assert_eq!(std::fs::read(&out).expect("the output"), b);
         assert_ne!(id(&out), id(&second), "the output is a hard link to its source");
+        let mut old = Vec::new();
+        held.read_to_end(&mut old).expect("reading the old file");
+        assert_eq!(old, a, "the old file changed under its reader");
 
-        // The identical-bytes path: no write at all, and still the same file.
+        let settled = id(&out);
         assert_eq!(place_from(&second, &out).expect("a settled placement"), b.len() as u64);
-        assert_eq!(id(&out), identity, "leaving the output alone replaced the file");
-        assert_eq!(std::fs::read(&out).expect("the output"), b);
+        assert_eq!(id(&out), settled, "matching bytes replaced the file");
 
-        // And a shorter artifact does not leave the tail of a longer one
-        // behind, which is what the truncation is for.
         let short = dir.join("short");
         std::fs::write(&short, b"cc").expect("writing a short source");
         assert_eq!(place_from(&short, &out).expect("a shorter placement"), 2);
-        assert_eq!(id(&out), identity, "shrinking the output replaced the file");
         assert_eq!(std::fs::read(&out).expect("the output"), b"cc");
+
+        let mut left: Vec<String> = std::fs::read_dir(&dir)
+            .expect("listing the directory")
+            .map(|e| e.expect("an entry").file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(left, ["artifact", "first", "second", "short"], "a placement left a file behind");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

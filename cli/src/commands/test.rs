@@ -1364,9 +1364,6 @@ fn run_blocks(
 ) -> std::io::Result<Verdicts> {
     let mut blocks: Vec<Block> = Vec::with_capacity(count);
     let mut from = 0usize;
-    // Whether any process this loop ran was ended by a signal, so that the way
-    // out of this function gives up the runner file — see [`Spent`].
-    let mut spent = Spent { program, killed: false };
     while from < count {
         let start = from.to_string();
         // The snapshot entries are the same for every process this makes, for
@@ -1377,13 +1374,8 @@ fn run_blocks(
         env.extend(snapshots.iter().map(|(name, value)| (*name, value.as_str())));
         let out = match execute(program, None, limit, &env)? {
             Execution::Finished(out) => out,
-            Execution::TimedOut => {
-                // The runner killed it, which is a signal like any other.
-                spent.killed = true;
-                return Ok(Verdicts::TimedOut);
-            }
+            Execution::TimedOut => return Ok(Verdicts::TimedOut),
         };
-        spent.killed |= crate::build::link::killed_by_signal(&out.status);
         let stderr = String::from_utf8_lossy(&out.stderr).to_string();
         // The heap check's own line is **never swallowed**, whichever way the
         // run ended. A failure comes back as [`Verdicts::HeapCheck`] and is
@@ -1443,36 +1435,6 @@ fn run_blocks(
     Ok(Verdicts::Blocks(blocks))
 }
 
-/// The runner file the blocks ran from, given up on the way out of
-/// [`run_blocks`] where a signal ended **any** of the processes that used it.
-///
-/// `link::spend_identity` is what that means and why. Any rather than the last,
-/// because the last one usually exited cleanly: a block that aborts ends its
-/// process and the next one resumes after it, so a suite with a crashing block
-/// in the middle finishes with a process that ran the rest of the file and
-/// returned 0. The file is spent all the same.
-///
-/// **A guard rather than a line at each exit.** `run_blocks` leaves four ways
-/// and the file is spent on three of them, which is the shape a guard exists
-/// for: the exit added next is covered by having been written at all.
-///
-/// Inside the loop the file is *not* given up, and that is the same rule rather
-/// than an exception to it: the resume run re-executes the very bytes that
-/// died, and an execution with no rewrite between it and the last one is one
-/// macOS is perfectly happy with.
-struct Spent<'a> {
-    program: &'a str,
-    killed: bool,
-}
-
-impl Drop for Spent<'_> {
-    fn drop(&mut self) {
-        if self.killed {
-            crate::build::link::spend_identity(std::path::Path::new(self.program));
-        }
-    }
-}
-
 /// The block a process that said nothing died in: the first one from `from` on
 /// that never wrote its `left` line. `None` when every block wrote one, which
 /// is a death outside all of them.
@@ -1504,7 +1466,7 @@ fn died_after(stdout: &str, from: usize, count: usize) -> Option<usize> {
 /// Whatever the binary wrote to standard error, where it wrote anything — that
 /// is the program's own account and beats any of ours. Otherwise the status:
 /// an exit code where there is one, and **a signal named as a signal** where
-/// there is not. `ExitStatus::code` is `None` for a process a signal killed, and
+/// there is not, named by the signal that did it. `ExitStatus::code` is `None` for a process a signal killed, and
 /// printing `-1` for it said the one thing that was certainly untrue.
 fn how_it_ended(status: &std::process::ExitStatus, stderr: &str) -> String {
     let text = stderr.trim();
@@ -1513,7 +1475,7 @@ fn how_it_ended(status: &std::process::ExitStatus, stderr: &str) -> String {
     }
     match status.code() {
         Some(code) => format!("the run exited {code}"),
-        None => String::from("the run was killed by a signal"),
+        None => format!("the run {}", crate::build::generators::how_it_ended(status)),
     }
 }
 
