@@ -2,4 +2,4 @@ keyed  compile //cmd/app node <key>
 keyed  generate //lib/wire node <key>
 keyed  compile //lib/wire node <key>
 run    link //cmd/app node <key>
-.buri/out/node/cmd/app/app.mjs (N bytes)
+.buri/out/node/cmd/app/mainForNode.mjs (N bytes)

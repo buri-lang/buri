@@ -3,9 +3,9 @@
 from "core/buri/ast" import * as ast;
 from "core/codegen" import * as codegen;
 from "core/codegen" import { Diagnostic, Request, Response };
-from "core/effect" import { Allocator, Stdin, Stdout };
-from "core/host/testing" import { alloc, stdin, stdout };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Stdin, Stdout };
+from "platform/effect/testing" import { alloc, stdin, stdout };
 
 // --- what the tests drive -------------------------------------------------------
 

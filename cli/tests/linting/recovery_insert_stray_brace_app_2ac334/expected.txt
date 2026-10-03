@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_app_2ac334/main.buri:19:15
+   |
+19 |     let ctx = , "not a context";
+   |               ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

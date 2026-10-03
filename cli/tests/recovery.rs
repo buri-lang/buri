@@ -1215,7 +1215,7 @@ fn format_check_refuses_an_unparseable_file() {
 }
 
 /// A file that is already exactly what the formatter would print.
-const CLEAN: &str = "export fn main(): Int {\n    1\n}\n";
+const CLEAN: &str = "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Int {\n    1\n}\n";
 
 /// The maintainer's example, with the comma still missing.
 const BROKEN: &str = "export struct Route {\n    export name: Str,\n}\n\n\
@@ -1274,14 +1274,16 @@ fn recorded_shard(at: usize, count: usize) {
         require_annotation(&text, "// EXPECT:", &name);
 
         // A case that builds a context is the module that exports `main`, and
-        // only that module may import `core/host`. `test` and `effect` are
+        // that module takes its platform's host. `test` and `effect` are
         // legal in exactly one kind of module each, so a case about either
         // says which with `// ROLE:` — otherwise its golden would carry a
         // placement error the mutation had nothing to do with.
         let role = match harness::annotation(&text, "// ROLE:").as_deref() {
             Some("test") => Role::TestSource,
             Some("platform") => Role::Platform,
-            _ if text.contains("\"core/host\"") => Role::Entry,
+            _ if ["NativeHost", "NodeHost", "WebHost"].iter().any(|h| text.contains(h)) => {
+                Role::Entry
+            }
             _ => Role::Source,
         };
         let mut map = SourceMap::new();

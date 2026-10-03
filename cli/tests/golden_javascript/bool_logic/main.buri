@@ -1,8 +1,9 @@
 // Boolean-valued conditionals. A branch that yields `true` or `false` is the
 // condition itself, and an `if` in value position is a ternary.
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+
 from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
 
 fn inRange(n: Int, lo: Int, hi: Int): Bool {
     if (n < lo) { false } else if (n > hi) { false } else { true }
@@ -20,7 +21,7 @@ fn pick(flag: Bool, a: Int, b: Int): Int {
     if (flag) { a } else { b }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,

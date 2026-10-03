@@ -1,80 +1,16 @@
-error: `listen` implements `Listen`, which is not allowed on the node platform [effect-not-on-platform]
-  --> cmd/app/main.buri:18:22
+error: `NodeHost` has no field `listen` [no-such-field]
+  --> cmd/app/main.buri:19:22
    |
-18 |         Listen: host.listen,
+19 |         Listen: host.listen,
    |                      ^^^^^^
    |
-   = a platform is the set of effects its host exports; holding a port open is a native program's authority; a page and a worker are served rather than serving, and neither host has a way to accept a connection
-   = fix: drop `Listen` from the context, or build this target for a platform that grants it: native
-
-     What to do
-     ──────────
-
-     Drop the effect from the context, or build this target for a platform that
-     grants it. If the fix names no platform to build for, no platform grants
-     the effect yet, and dropping it is the whole fix.
-
-     The error lands on the import when the program imported the name directly,
-     and on the member reference when the host came in as * as host — a
-     namespace import names no effect, so there is nothing to refuse until the
-     program reaches for a member.
-
-     Which platforms it is checked against
-     ─────────────────────────────────────
-
-     - A build producing one output is checked against that output, so
-     buri build --output=node on a binary that also declares web compiles only
-     the node one. A snippet pinned with platform= on its fence works the same
-     way.
-
-     - An entry's own body is checked against the outputs that enter through
-     *that* entry, plus every platform its suite names in test.backends. So a
-     binary whose page enters at main and whose worker enters at fetch may bind
-     Ui: host.ui in main and Network: host.net in fetch, and neither refuses the
-     other.
-
-     - Anywhere else in `main.buri` — a helper, a top-level named import — is
-     checked against every platform the outputs name, because any of them may
-     reach it. So a binary declaring native and web outputs whose helper binds
-     FileSystemRead: host.fs is refused, naming web.
-
-     - Every other module is checked against the platforms **its own rule
-     declared**. A rule that declared none is never checked, because a library
-     that says nothing about backends or platforms is platform-generic.
-
-     An effect type is never platform-bound. from "core/fs" import {
-     FileSystemRead } is legal on every platform, a page included, and so is
-     core/host/testing's double for every effect. A platform binds the host half
-     — the value main binds.
+   = node does not offer `Listen`; native does
+   = fix: build this output for native, or drop `Listen` from the context — a program for two platforms gives each output an entry of its own
 
      Why
      ───
 
-     A platform *is* the set of effects its host exports, so a platform that
-     does not grant an effect exports no name for it. The check needs only the
-     build file and the import line, both of which the editor has, so the
-     language server reports it as you type. The refusals that stay late —
-     native-run-not-available, cryptography-not-available,
-     networking-not-available — are about what *this toolchain* was built with
-     instead.
-
-     An effect nobody grants yet gets the same sentence, from an empty row in
-     the same table. Listen is granted on native, where holding a port open is a
-     native program's authority, and never will be on node, web or
-     CLOUDFLARE_WORKER. A row says who grants an effect now, not when the rest
-     will fill — and it can widen too: Sockets was granted with Listen and only
-     with it, until WebSocketClient let a page get a socket without accepting
-     one.
-
-     Tasks shows the other direction. It landed granted by nobody, then on the
-     platforms that are not a page, and now on every one — one edit to one row
-     each time, and nothing to change in a program already written against the
-     signature.
-
-     A program that provokes it
-     ──────────────────────────
-
-     The same source under platform: "web" compiles and mounts. platform=node
-     tells the documentation harness which output to check the snippet as;
-     without one it checks with the whole host granted.
+     There is no structural typing and no inheritance. A value's fields are
+     exactly the ones its declaration lists, which is how the diagnostic can
+     offer the nearest name the type does have.
 

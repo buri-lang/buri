@@ -882,7 +882,18 @@ impl<'a> Checker<'a> {
             }
             tree::ImportClause::Named(specs) => {
                 let host = self.loaded.module(from).path == standard_library::HOST_MODULE;
+                let platform = self.loaded.module(from).path.clone();
                 for spec in specs {
+                    // A platform's entry is a declaration for the program to
+                    // fill, with no body of its own: the program exports one of
+                    // the same name, and nothing calls the declaration.
+                    let name = t.name(spec.name);
+                    if standard_library::is_entry_declaration(&platform, name) {
+                        self.templated("entry-declaration-imported", spec.name.span)
+                            .bind("entry", name.to_string())
+                            .bind("platform", platform.clone());
+                        continue;
+                    }
                     // Asked before the lookup, not after it. A named import is
                     // where the reader wrote the name, so it is where the
                     // refusal belongs — and the lookup cannot stand in for the
@@ -1418,13 +1429,13 @@ impl<'a> Checker<'a> {
         if self.declares_entry(module, &name) {
             self.entry_points.insert(name.clone());
         }
-        for shape in self.entry_shapes(module, &name) {
-            self.check_entry_signature(fid, &d, &name, shape);
+        for (shape, platform) in self.entry_shapes(module, &name) {
+            self.check_entry_signature(fid, &d, &name, shape, platform);
         }
     }
 
     /// The shapes this function has to have, because an output enters through
-    /// it.
+    /// it, each with the platform that fixes it.
     ///
     /// Empty for an exported function no output names, which is an ordinary
     /// function that happens to live in `main.buri`. `main` is always checked
@@ -1432,9 +1443,10 @@ impl<'a> Checker<'a> {
     /// `main` at all expects the one shape — a documentation snippet included.
     ///
     /// Two shapes means two outputs fixed two different signatures for one
-    /// function. Both are checked, and at least one of them fails, which is
-    /// the refusal: a function cannot be entered both ways.
-    fn entry_shapes(&self, module: ModuleId, name: &str) -> Vec<EntryShape> {
+    /// function — a worker's and a program's, or two platforms' hosts. Both are
+    /// checked, and at least one of them fails, which is the refusal: a
+    /// function cannot be entered both ways.
+    fn entry_shapes(&self, module: ModuleId, name: &str) -> Vec<(EntryShape, Option<Platform>)> {
         // A build produces one artifact, and that artifact has one entry. Its
         // output is the whole answer, for the reason `module_platforms` gives:
         // reporting the other output's requirement here would report it twice,
@@ -1442,30 +1454,43 @@ impl<'a> Checker<'a> {
         if let (Some(platform), Some(built)) = (self.loaded.platform, self.loaded.entry.as_deref())
         {
             return match built == name {
-                true => vec![platform.entry_shape()],
+                true => vec![(platform.entry_shape(), Some(platform))],
                 // Not this artifact's entry. `main` still answers below,
                 // because every analysis that has one expects the one shape.
-                false => self.default_entry_shape(name),
+                false => self.default_entry_shape(name, None),
             };
         }
-        let declared: Vec<EntryShape> = match (self.ws, self.module(module).pkg) {
-            (Some(ws), Some(pkg)) => {
-                let target = TargetId { package: pkg, kind: RuleKind::Binary };
-                let mut shapes: Vec<EntryShape> = Vec::new();
-                for entry in ws.declared_entries(target) {
-                    let shape = entry.platform.entry_shape();
-                    if entry.name == name && !shapes.contains(&shape) {
-                        shapes.push(shape);
-                    }
+        let mut declared: Vec<(EntryShape, Option<Platform>)> = Vec::new();
+        let mut outputs = false;
+        if let (Some(ws), Some(pkg)) = (self.ws, self.module(module).pkg) {
+            let target = TargetId { package: pkg, kind: RuleKind::Binary };
+            for entry in ws.declared_entries(target) {
+                outputs = true;
+                let shape = (entry.platform.entry_shape(), Some(entry.platform));
+                // `native` is two platforms here, Linux and macOS, and one host.
+                let same = |(s, p): &(EntryShape, Option<Platform>)| {
+                    *s == shape.0 && p.map(Platform::proto) == shape.1.map(Platform::proto)
+                };
+                if entry.name == name && !declared.iter().any(same) {
+                    declared.push(shape);
                 }
-                shapes
             }
-            _ => Vec::new(),
-        };
-        match declared.is_empty() {
-            true => self.default_entry_shape(name),
-            false => declared,
         }
+        if !declared.is_empty() {
+            return declared;
+        }
+        // A binary that names no output builds for `node`. Where the build
+        // file names outputs and none of them enters here, or where there is
+        // no build file at all, the platform is whichever one this analysis
+        // was asked about — and any bundled host is accepted where it was
+        // asked about none.
+        let in_a_package = self.ws.is_some() && self.module(module).pkg.is_some();
+        let platform = match (outputs, in_a_package) {
+            (false, true) => Some(Platform::Js),
+            (true, _) => None,
+            (false, false) => self.loaded.platform,
+        };
+        self.default_entry_shape(name, platform)
     }
 
     /// Whether an `outputs` entry names this function.
@@ -1484,9 +1509,13 @@ impl<'a> Checker<'a> {
 
     /// What `main` is held to where no output names it: the one shape every
     /// analysis expects, a documentation snippet included.
-    fn default_entry_shape(&self, name: &str) -> Vec<EntryShape> {
+    fn default_entry_shape(
+        &self,
+        name: &str,
+        platform: Option<Platform>,
+    ) -> Vec<(EntryShape, Option<Platform>)> {
         match name {
-            "main" => vec![EntryShape::Program],
+            "main" => vec![(EntryShape::Program, platform)],
             _ => Vec::new(),
         }
     }
@@ -1654,6 +1683,7 @@ impl<'a> Checker<'a> {
         d: &tree::FnDecl,
         name: &str,
         shape: EntryShape,
+        platform: Option<Platform>,
     ) {
         let info = self.tables.fn_info(fid).clone();
         if !info.generics.is_empty() {
@@ -1661,31 +1691,89 @@ impl<'a> Checker<'a> {
                 .bind("entry", name.to_string())
                 .bind("requirement", "declares no generic parameters")
                 .fix(format!(
-                    "drop them: `{name}` is called by the runtime, so there is nothing to infer \
+                    "drop them: `{name}` is called by the platform, so there is nothing to infer \
                      them from"
                 ));
         }
         match shape {
-            EntryShape::Program => self.check_program_entry(&info, d, name),
+            EntryShape::Program => self.check_program_entry(&info, d, name, platform),
             EntryShape::Fetch => self.check_fetch_entry(&info, d, name),
         }
     }
 
-    /// `fn <entry>(): Result<(), Str>` — the program runs itself.
-    fn check_program_entry(&mut self, info: &FnInfo, d: &tree::FnDecl, name: &str) {
-        if !info.params.is_empty() {
-            self.templated("main-signature", d.span)
-                .bind("entry", name.to_string())
-                .bind("requirement", "takes no parameters")
-                .fix(format!(
-                    "drop them, and build the context `{name}` needs in its own body"
-                ))
-                .notes
-                .push(
-                "it builds the one context the program has, which is why there is no fake to \
-                 pass it and why logic worth testing goes in a function it calls"
-                    .into(),
-            );
+    /// `fn <entry>(host: H): Result<(), Str>` — the program runs itself, handed
+    /// the host its platform declares.
+    ///
+    /// `platform` is `None` where the analysis builds no particular output — a
+    /// snippet, or an entry another output's build is passing by — and then
+    /// any bundled platform's host is the host.
+    fn check_program_entry(
+        &mut self,
+        info: &FnInfo,
+        d: &tree::FnDecl,
+        name: &str,
+        platform: Option<Platform>,
+    ) {
+        let expected = platform.and_then(standard_library::host_type);
+        // The host type the fix spells: the platform's, or `node`'s — what a
+        // binary that names no output builds for.
+        let (owner, host) = expected.unwrap_or(("node", "NodeHost"));
+        match info.params.as_slice() {
+            [] => {
+                let fix = format!(
+                    "take the platform's host and bind its fields:\n     \
+                     export fn {name}(host: {host}): Result<(), Str> {{\n         \
+                     run(context {{ Allocator: host.alloc, Stdout: host.stdout }})\n     \
+                     }}"
+                );
+                self.templated("entry-without-host", d.span)
+                    .bind("entry", name.to_string())
+                    .fix(fix)
+                    .notes
+                    .push(format!(
+                        "the host type is `{owner}`'s: `from \"{owner}\" import {{ {host} }};`"
+                    ));
+            }
+            [param, rest @ ..] => {
+                let taken = self.bundled_host(&param.ty);
+                match (taken, expected) {
+                    // Unresolved already, and reported where it was written.
+                    _ if param.ty.is_error() => {}
+                    (Some(taken), Some((_, wanted))) if taken.1 != wanted => {
+                        let platform = platform.map_or("this", Platform::proto);
+                        self.templated("entry-host-mismatch", param.span)
+                            .bind("entry", name.to_string())
+                            .bind("taken", taken.1)
+                            .bind("platform", platform)
+                            .bind("wanted", wanted)
+                            .fix(format!(
+                                "take `{wanted}`, imported with `from \"{owner}\" import \
+                                 {{ {wanted} }};` — or build this function for {}, and give \
+                                 this output an entry of its own",
+                                taken.0
+                            ));
+                    }
+                    (Some(_), _) => {}
+                    (None, _) => {
+                        self.templated("main-signature", param.span)
+                            .bind("entry", name.to_string())
+                            .bind("requirement", format!("takes its platform's host, `{host}`"))
+                            .fix(format!(
+                                "write it `fn {name}(host: {host}): Result<(), Str>`, and take \
+                                 anything else from the host's fields"
+                            ));
+                    }
+                }
+                if let Some(extra) = rest.first() {
+                    self.templated("main-signature", extra.span)
+                        .bind("entry", name.to_string())
+                        .bind("requirement", "takes one parameter, its platform's host")
+                        .fix(format!(
+                            "drop the rest: the platform hands `{name}` its host and nothing \
+                             else, and a function `{name}` calls can take whatever it needs"
+                        ));
+                }
+            }
         }
         let unit = Ty::Unit;
         let str_ty = self.tables.prim(Prim::Str);
@@ -1707,11 +1795,27 @@ impl<'a> Checker<'a> {
         }
     }
 
+    /// The bundled platform and host type `ty` is, when it is one of the three
+    /// hosts the bundled platforms declare.
+    fn bundled_host(&self, ty: &Ty) -> Option<(&'static str, &'static str)> {
+        let Ty::Con(con, args) = ty else { return None };
+        if !args.is_empty() {
+            return None;
+        }
+        let tycon = self.tables.tycon(*con);
+        // A built-in type has no module, and is no host.
+        let module = self.loaded.modules.get(tycon.module.index())?.path.as_str();
+        standard_library::PLATFORMS
+            .iter()
+            .filter_map(|p| standard_library::host_type_of(p))
+            .find(|(owner, host)| *owner == module && *host == tycon.name)
+    }
+
     /// `fn <entry>(request: Request): Response` — the platform calls it.
     ///
-    /// `Request` and `Response` are `core/effect`'s, the ones `core/net/http`
+    /// `Request` and `Response` are `platform/effect`'s, the ones `core/net/http`
     /// re-exports and `Network.fetch` already speaks. A worker that has not loaded
-    /// `core/effect` cannot have named either type, so its parameter and return
+    /// `platform/effect` cannot have named either type, so its parameter and return
     /// types are unresolved already and this says nothing on top.
     fn check_fetch_entry(&mut self, info: &FnInfo, d: &tree::FnDecl, name: &str) {
         let (Some(request), Some(response)) = (
@@ -2274,7 +2378,7 @@ impl<'a> Checker<'a> {
                 }
             }
         }
-        if let Some(m) = self.loaded.find("core/effect") {
+        if let Some(m) = self.loaded.find("platform/effect") {
             // `Request` and `Response` are here for the entry check: a
             // platform that calls its entry fixes those two types, and the
             // check is a comparison against the ids rather than against a
@@ -3330,7 +3434,7 @@ fn main(): () {}
     /// type's own methods — the three shapes a method signature comes in, each
     /// taking a context under a name that is not `ctx`.
     const SINKS: &str = r#"
-from "core/effect" import { Stdout };
+from "platform/effect" import { Stdout };
 
 struct Ledger { lines: Int }
 
@@ -3366,7 +3470,7 @@ fn main(): () {}
     #[test]
     fn a_ctx_out_of_position_is_refused_in_every_kind_of_method() {
         let src = r#"
-from "core/effect" import { Stdout };
+from "platform/effect" import { Stdout };
 
 struct Bell { tone: Str }
 
@@ -3422,7 +3526,7 @@ fn main(): () {}
     #[test]
     fn an_effect_carrying_parameter_after_a_ctx_is_still_refused() {
         let src = r#"
-from "core/effect" import { Stdout };
+from "platform/effect" import { Stdout };
 
 struct Twice { n: Int }
 
@@ -3442,7 +3546,7 @@ fn main(): () {}
     #[test]
     fn a_method_that_follows_the_convention_is_admitted() {
         let src = r#"
-from "core/effect" import { Stdout };
+from "platform/effect" import { Stdout };
 
 struct Quiet { n: Int }
 
@@ -3813,7 +3917,7 @@ fn main(): () {}
     /// [`Checker::ctx_decls_reached`] is the fix: a use checks its declaration
     /// if checking has not reached it yet.
     const SPREAD_BEFORE_ITS_BASE: &str = r#"
-from "core/effect" import { Clock };
+from "platform/effect" import { Clock };
 from "core/time" import * as time;
 
 struct Frozen { at: I64 }

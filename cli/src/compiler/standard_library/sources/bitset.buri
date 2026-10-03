@@ -12,12 +12,12 @@
 //!
 //! ```buri run
 //! from "core/bitset" import * as bitset;
-//! from "core/effect" import { Allocator, Stdout };
-//! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/str" import * as str;
+//! from "node" import { NodeHost };
+//! from "platform/effect" import { Allocator, Stdout };
 //!
-//! export fn main(): Result<(), Str> {
+//! export fn main(host: NodeHost): Result<(), Str> {
 //!     let ctx = context {
 //!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
@@ -36,8 +36,8 @@
 //! ```
 
 from "core/bits" import * as bits;
-from "core/effect" import { Allocator };
 from "core/list" import * as list;
+from "platform/effect" import { Allocator };
 
 /// The number of bits one word holds. Not exported: it is the layout.
 let WORD: Int = 32;
@@ -144,12 +144,12 @@ impl BitSet {
     ///
     /// ```buri run
     /// from "core/bitset" import * as bitset;
-    /// from "core/effect" import { Allocator, Stdout };
-    /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     /// from "core/str" import * as str;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Allocator, Stdout };
     ///
-    /// export fn main(): Result<(), Str> {
+    /// export fn main(host: NodeHost): Result<(), Str> {
     ///     let ctx = context {
     ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,

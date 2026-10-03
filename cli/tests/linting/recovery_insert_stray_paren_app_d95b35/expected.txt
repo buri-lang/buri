@@ -1,0 +1,34 @@
+warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
+  --> lib/recovery_insert_stray_paren_app_d95b35/main.buri:12:5
+   |
+12 |     '0',
+   |     ^^^
+   |
+   = `character.fromDigit(n, 16)` is a digit and `character.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
+   = fix: delete the table, and reach for `character.fromDigit`, `number.toHex` or `bytes.toHex`
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_paren_app_d95b35/main.buri:33:12
+   |
+33 |     match (extra HEX_DIGITS[value / shift % 16]) {
+   |            ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: this `match` scrutinee is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_paren_app_d95b35/main.buri:33:18
+   |
+33 |     match (extra HEX_DIGITS[value / shift % 16]) {
+   |                  ^^^^^^^^^^
+   |
+  --> lib/recovery_insert_stray_paren_app_d95b35/main.buri:33:11
+   |
+33 |     match (extra HEX_DIGITS[value / shift % 16]) {
+   |           ^ opened here
+   |
+   = fix: write `)` here
+error: there is nothing named `digit` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_paren_app_d95b35/main.buri:34:25
+   |
+34 |         .Some(digit) => digit,
+   |                         ^^^^^
+   |
+   = fix: declare `digit`, or import it — a name is in scope only from this module's own declarations and its imports

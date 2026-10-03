@@ -1,0 +1,46 @@
+warning: this is `order.int`, written out [hand-rolled-comparator]
+  --> lib/recovery_swap_adjacent_brace_app_56bd60/main.buri:20:4
+   |
+20 | fn compareInts(left: Int, right: Int): Order {
+   |    ^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ordered` impl both take
+   = fix: call `order.int` with the two operands, and delete the chain
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_swap_adjacent_brace_app_56bd60/main.buri:25:5
+   |
+25 |     if (left == right) { .Equal } else if (left) { .Greater } else { .} Less
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: `.Equal` needs a known expected type [unannotated-variant]
+  --> lib/recovery_swap_adjacent_brace_app_56bd60/main.buri:25:26
+   |
+25 |     if (left == right) { .Equal } else if (left) { .Greater } else { .} Less
+   |                          ^^^^^^
+   |
+   = fix: write the qualified form, as in `Option.Equal(...)`, or annotate what this value is being used as
+error: expected an identifier, found `}` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_56bd60/main.buri:25:71
+   |
+25 |     if (left == right) { .Equal } else if (left) { .Greater } else { .} Less
+   |                                                                       ^
+   |
+   = expected: an identifier
+   = actual: `}`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: an `if` used as a statement ends with `;` [missing-terminator]
+  --> lib/recovery_swap_adjacent_brace_app_56bd60/main.buri:25:72
+   |
+25 |     if (left == right) { .Equal } else if (left) { .Greater } else { .} Less
+   |                                                                        ^
+   |
+   = fix: write `;` here
+error: there is nothing named `Less` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_brace_app_56bd60/main.buri:25:73
+   |
+25 |     if (left == right) { .Equal } else if (left) { .Greater } else { .} Less
+   |                                                                         ^^^^
+   |
+   = fix: declare `Less`, or import it — a name is in scope only from this module's own declarations and its imports

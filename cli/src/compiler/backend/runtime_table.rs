@@ -381,7 +381,7 @@ pub struct Entry {
     /// at a `context { … }` record, and `C` is an ordinary type parameter with
     /// an ordinary bound (SPEC 10.1): a value that *implements* `Allocator`
     /// satisfies `C: Allocator` without being a context, which is what SPEC 10.8's
-    /// attenuating `ReadOnly<C>` and `core/host/testing`'s `alloc()` both are.
+    /// attenuating `ReadOnly<C>` and `platform/effect/testing`'s `alloc()` both are.
     /// One of those in this position spread to a leaf the C signature has no
     /// parameter for and shifted every argument after it — which links, runs,
     /// and dies in `memmove`.
@@ -1043,7 +1043,7 @@ pub const ENTRIES: &[Entry] = &[
     cx(e("tasks.scopeClaim", "buri_rt_tasks_scope_claim", Ret::Scalar), 0),
     cx(e("tasks.scopeSpare", "buri_rt_tasks_scope_spare", Ret::Scalar), 0),
     cx(e("tasks.scopeRan", "buri_rt_tasks_scope_ran", Ret::Scalar), 0),
-    // -- core/host/testing's stateful half -----------------------------------
+    // -- platform/effect/testing's stateful half -----------------------------------
     //
     // `core/host`'s names for a test source, over one handle table.
     // `cli/runtime/testing.rs`'s header is the argument for these being in the
@@ -1477,7 +1477,7 @@ pub const ENTRIES: &[Entry] = &[
     // The recorder: how a computation says that it ran. A reactive body holds
     // a `Scope`, which grants reading the graph and nothing else, so it cannot
     // write a signal and it cannot print — the log lives on this side, exactly
-    // as `core/host/testing`'s captured stdout does.
+    // as `platform/effect/testing`'s captured stdout does.
     e("ui_testing.recorder", "buri_rt_ui_testing_recorder", Ret::Out),
     e("ui_testing.Recorder.record", "buri_rt_ui_testing_recorder_record", Ret::Void),
     e("ui_testing.Recorder.recorded", "buri_rt_ui_testing_recorder_recorded", Ret::Out),
@@ -1644,7 +1644,7 @@ mod tests {
             // shape, because `IoError.Other(Str)` is what a real filesystem
             // answers for every kind the six classified variants do not name.
             //
-            // `core/host/testing`'s `net()` needs no row at all: `TestNetwork`
+            // `platform/effect/testing`'s `net()` needs no row at all: `TestNetwork`
             // carries its responder as a value and `TestNetwork.fetch` is a Buri
             // body that calls it, so no key is produced for it here. A responder
             // is a `{ code, env }` pair the archive has no way to invoke. Its *log* is a different question and
@@ -1708,8 +1708,8 @@ mod tests {
         ("bytes", "core/bytes"),
         ("character", "core/character"),
         ("crypto", "core/crypto"),
-        ("host", "core/host"),
-        ("host_testing", "core/host/testing"),
+        ("host", "platform/host"),
+        ("host_testing", "platform/effect/testing"),
         ("list", "core/list"),
         ("math", "core/math"),
         ("str", "core/str"),
@@ -1849,15 +1849,15 @@ mod tests {
 
     // -- the host surface, against the effect that declares it ---------------
 
-    /// The `core/effect` source, which is where an effect's operations are
+    /// The `platform/effect` source, which is where an effect's operations are
     /// declared and therefore the only list worth checking a table against.
     fn effect_source() -> &'static str {
-        module_source("core/effect")
+        module_source("platform/effect")
     }
 
     /// One standard-library module's text.
     ///
-    /// Two modules declare effects that this table has rows for: `core/effect`,
+    /// Two modules declare effects that this table has rows for: `platform/effect`,
     /// and `core/fs`, which declares `FileSystemRead` and `FileSystemWrite` because their
     /// methods name a `Path` and `core/path` names `Allocator`.
     fn module_source(path: &str) -> &'static str {
@@ -1914,8 +1914,8 @@ mod tests {
         for (module, effect, host) in [
             ("core/fs", "FileSystemRead", "HostFileSystem"),
             ("core/fs", "FileSystemWrite", "HostFileSystem"),
-            ("core/effect", "Environment", "HostEnvironment"),
-            ("core/effect", "Stdin", "HostStdin"),
+            ("platform/effect", "Environment", "HostEnvironment"),
+            ("platform/effect", "Stdin", "HostStdin"),
         ] {
             let methods = effect_methods(module, effect);
             assert!(
@@ -2022,7 +2022,7 @@ mod tests {
     /// The rule itself is a function of a layout
     /// (`runtime_native::error_message_offset`, with its own rows over
     /// hand-built ones); what a layout cannot say is *which* declaration it came
-    /// from. So this reads `core/effect`: exactly one variant of `IoError`
+    /// from. So this reads `platform/effect`: exactly one variant of `IoError`
     /// carries anything, it is the last, and what it carries is one `Str`. An
     /// eighth variant with a payload, or a payload on any of the first six,
     /// takes the filesystem back out of the message shape and every row above
@@ -2033,7 +2033,7 @@ mod tests {
         let body = source
             .split("export enum IoError {")
             .nth(1)
-            .expect("`IoError` is declared in `core/effect`")
+            .expect("`IoError` is declared in `platform/effect`")
             .split("\n}")
             .next()
             .expect("`IoError` never closes");

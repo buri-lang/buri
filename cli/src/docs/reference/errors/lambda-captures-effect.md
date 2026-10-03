@@ -23,9 +23,9 @@ a context would carry authority behind a type mentioning no effect.
 ## A program that provokes it
 
 ```buri fail code=lambda-captures-effect
-# from "core/effect" import { Allocator };
 # from "core/fs" import * as fs;
 # from "core/fs" import { FileSystemRead, Path };
+# from "platform/effect" import { Allocator };
 
 fn checkAll<C: Allocator + FileSystemRead>(ctx: C, paths: [Path]): [Bool] {
     paths.map(ctx, fn(p) => fs.exists(ctx, p))

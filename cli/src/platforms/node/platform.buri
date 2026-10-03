@@ -1,0 +1,46 @@
+//! node — a program that runs as one JavaScript module under bun or node.
+//!
+//! `main` is handed a `NodeHost`: one production value per effect the `JS`
+//! backend implements outside a page. It is `NativeHost` without `listen` and
+//! `tcp`, because a JavaScript program holds no port open and dials no raw
+//! socket.
+//!
+//! ```buri ignore why="an entry is checked against its platform, and this page is the platform"
+//! from "node" import { NodeHost };
+//!
+//! export fn main(host: NodeHost): Result<(), Str> {
+//!     run(context {
+//!         Allocator: host.alloc,
+//!         Stdout: host.stdout,
+//!     })
+//! }
+//! ```
+
+from "platform/host" import {
+    HostAllocator, HostClock, HostEntropy, HostEnvironment, HostFileSystem, HostNetwork,
+    HostProcess, HostRandom, HostSockets, HostSpawn, HostStderr, HostStdin, HostStdout,
+    HostTasks, HostWebSocketClient,
+};
+
+/// What a `node` entry is handed.
+export struct NodeHost {
+    export alloc: HostAllocator,
+    export stdout: HostStdout,
+    export stderr: HostStderr,
+    export stdin: HostStdin,
+    export fs: HostFileSystem,
+    export net: HostNetwork,
+    export clock: HostClock,
+    export rand: HostRandom,
+    export entropy: HostEntropy,
+    export env: HostEnvironment,
+    export proc: HostProcess,
+    export spawn: HostSpawn,
+    export tasks: HostTasks,
+    export sockets: HostSockets,
+    export websocketClient: HostWebSocketClient,
+}
+
+/// The program. `.Ok(())` exits 0; `.Err(msg)` prints `msg` to standard error
+/// and exits 1.
+export fn main(host: NodeHost): Result<(), Str>;

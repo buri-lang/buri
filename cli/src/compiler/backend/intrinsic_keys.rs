@@ -319,7 +319,7 @@ pub fn step_call(key: &str) -> Option<StepCall> {
         "host.HostTasks.parallel" => {
             Some(StepCall { kind: Step::Map, ctx: Some(1), func: 3, arity: 4, index: Some(1) })
         }
-        // `core/host/testing`'s scheduler, at the same four arguments. The
+        // `platform/effect/testing`'s scheduler, at the same four arguments. The
         // double reaches its steps through this boundary rather than through a
         // Buri loop of its own, and that is the point of it: what a test runs
         // its program through is the mechanism the program will ship on, with

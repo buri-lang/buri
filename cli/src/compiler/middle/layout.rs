@@ -815,7 +815,7 @@ impl<'a> Layouts<'a> {
     //
     // **Nothing in the compiler calls these, and that is not a reason to
     // delete them.** MEMORY.md §7.1 names the table three times over — here,
-    // in `core/effect`'s source above the `Allocator` declaration, and in
+    // in `platform/effect`'s source above the `Allocator` declaration, and in
     // `core/alloc`'s `strBytes`, `listBytes` and `closureBytes` — and calls a
     // change to any row a breaking change to observable behaviour. The
     // charge a running program accounts for is `core/alloc`'s spelling; this

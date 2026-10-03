@@ -2,11 +2,11 @@
 # and the README beside this file.
 name = mixed-many-files-1k
 profile = mixed-many-files
-generator_revision = 7
-revision = 8
-recorded = 2026-09-08
+generator_revision = 8
+revision = 9
+recorded = 2026-10-02
 params = fanout=2..5 lines=1000 lines_per_module=40
 lines = 1094
-bytes = 40908
+bytes = 40964
 modules = 18
-digest = 4d8ac67dae76c87cc6bd52b5b69375a251fa1e6f31eb736168d2225eaa5f35b0
+digest = eb7286a5b246401642d17ebf55eca72709e827c1a40f4c7dfb5eb71b7ee0cc29

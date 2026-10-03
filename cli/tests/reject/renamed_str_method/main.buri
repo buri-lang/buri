@@ -1,10 +1,10 @@
 // EXPECT: has no method `len`
 // `Str.len` went the same way as every other collection's.
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let greeting = "hello";
   let _ = io.println(ctx, "${greeting.len()}").ignore();

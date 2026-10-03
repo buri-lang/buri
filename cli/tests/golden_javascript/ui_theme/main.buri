@@ -22,11 +22,9 @@
 // — the reference is compile-time and its *value* is the one part not knowable
 // until mount, which is the whole reason a theme is a parameter of `mount`
 // rather than a fact about a module.
-from "core/effect" import { Allocator, Stdout };
 
-// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
 from "core/io" import * as io;
+from "platform/effect" import { Allocator, Stdout };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
@@ -36,6 +34,9 @@ from "ui/style" import * as style;
 from "ui/style" import { Color, Style };
 from "ui/theme" import * as theme;
 from "ui/theme" import { Theme };
+
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "web" import { WebHost };
 
 // --- cardlib: a library with a token vocabulary of its own --------------------
 
@@ -148,7 +149,7 @@ fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
     })
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,

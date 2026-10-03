@@ -1,7 +1,7 @@
 error: a tuple has arity 2 or more [tuple-arity]
- --> cmd/tuple_arity/main.buri:3:11
+ --> cmd/tuple_arity/main.buri:5:11
   |
-3 |   let t = (1,);
+5 |   let t = (1,);
   |           ^^^^
   |
   = `(e)` is grouping and `()` is the unit value

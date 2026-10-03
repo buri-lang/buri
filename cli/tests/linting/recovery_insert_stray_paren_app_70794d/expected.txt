@@ -1,0 +1,29 @@
+error: `println` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> lib/recovery_insert_stray_paren_app_70794d/main.buri:18:12
+   |
+18 |     match (io.println(ctx@ , line)) {
+   |            ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: `println` requires a `text` parameter: println<C: Stdout>(ctx: C, text: Template)
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_paren_app_70794d/main.buri:18:26
+   |
+18 |     match (io.println(ctx@ , line)) {
+   |                          ^
+   |
+  --> lib/recovery_insert_stray_paren_app_70794d/main.buri:18:22
+   |
+18 |     match (io.println(ctx@ , line)) {
+   |                      ^ opened here
+   |
+   = fix: write `)` here
+warning: this drops a `Result` by hand [discarded-result-by-hand]
+  --> lib/recovery_insert_stray_paren_app_70794d/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate

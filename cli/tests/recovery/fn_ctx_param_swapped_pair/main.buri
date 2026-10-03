@@ -1,5 +1,5 @@
 // EXPECT: expected an identifier, found `export`
-from "core/effect" import { Stdout };
+from "platform/effect" import { Stdout };
 from "core/io" import * as io;
 
 fn export note<C: Stdout>(ctx: C, line: Str): () {

@@ -6,7 +6,7 @@
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
 # `café 🙂` puts a two-byte and a four-byte character on line 1, so character
 # 13 is inside the surrogate pair the protocol counts the emoji as.
-{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/app/main.buri", "languageId": "buri", "version": 1, "text": "export fn main(): Result<(), Str> {\n  let s = \"café 🙂\";\n  .Err(s)\n}\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/app/main.buri", "languageId": "buri", "version": 1, "text": "from \"node\" import { NodeHost }; export fn main(host: NodeHost): Result<(), Str> {\n  let s = \"café 🙂\";\n  .Err(s)\n}\n"}}}
 # The largest number the protocol can spell, on both axes.
 {"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/app/main.buri"}, "position": {"line": 4294967295, "character": 4294967295}}}
 # Inside the emoji's surrogate pair: a character offset that is not a

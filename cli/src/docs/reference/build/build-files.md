@@ -186,8 +186,7 @@ binary {
 ```
 
 `main.buri` is required, and `sources` does not list it. It exports the function
-each output enters through, and it is the only module in the binary that may
-import `core/host`.
+each output enters through, and each of those takes its platform's host.
 
 ### Outputs
 
@@ -222,10 +221,10 @@ binary {
 ```
 
 ```buri role=entry
-# from "core/effect" import { Allocator, Request, Response };
-# from "core/host" import * as host;
+# from "platform/effect" import { Allocator, Request, Response };
+# from "web" import { WebHost };
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
     };
@@ -254,24 +253,32 @@ An artifact entered through a function other than `main` is named after it,
 `mainForNode.mjs` here, because two outputs of one binary would otherwise write
 one path. `artifact_name` overrides that.
 
-**The platform fixes the entry's signature.** The wrong shape is a type error at
-the function, reported as `main-signature`.
+**The platform fixes the entry's signature**, in its `platform.buri`. The wrong
+shape is a type error at the function: `entry-without-host` for an entry that
+takes no host, `entry-host-mismatch` for another platform's host, and
+`main-signature` for the rest.
 
 | Platform | The entry |
 |---|---|
-| `native`, `node`, `web` | `fn <entry>(): Result<(), Str>` |
+| `native` | `fn <entry>(host: NativeHost): Result<(), Str>` |
+| `node` | `fn <entry>(host: NodeHost): Result<(), Str>` |
+| `web` | `fn <entry>(host: WebHost): Result<(), Str>` |
 | `CLOUDFLARE_WORKER` | `fn <entry>(request: Request): Response` |
 
-`Request` and `Response` are `core/effect`'s, which `core/net/http` re-exports.
+One function can't take two hosts, so two platforms mean two entries, and both
+call one function that takes `ctx`.
+
+`Request` and `Response` are `platform/effect`'s, which `core/net/http` re-exports.
 A worker's entry is *called* by its platform, once per request, so its artifact
 is a module with a default export rather than a program that starts itself. That
 is also why `buri run` runs a page and not a worker: there is nothing to start.
 
-**Each entry builds its own context**, and each is checked against its own
-platform's grants. `main` above may bind `Ui: host.ui`, which a worker does not
-grant, and `fetch` beside it may bind what a page cannot. A `core/host` name
-anywhere *else* in `main.buri` — a helper, a top-level named import — is checked
-against every platform the `outputs` name, because any of them may reach it.
+**Each entry builds its own context** from its own host. `main` above may bind
+`Ui: host.ui`, which only `WebHost` has. A worker's `fetch` takes no host yet
+and binds `core/host`'s values instead, which only its module may import; there
+a name anywhere outside an entry's body — a helper, a top-level named import —
+is checked against every platform the `outputs` name, because any of them may
+reach it.
 
 **Each entry is its own dead-code root.** The compiler monomorphizes from the
 named entry, so the page carries nothing only `fetch` reaches and the worker
@@ -297,24 +304,18 @@ serve the artifact directory at the site's root.
 
 ### Platforms and effects
 
-A platform *is* the set of effects its host exports. A platform that does not
-grant an effect does not export the name for it, so asking for it fails to
-compile at the line that asked, as `effect-not-on-platform`. An entry binding
-`Ui: host.ui` under `platform: "node"` does not compile, and neither does one
-binding `FileSystemRead: host.fs` under `platform: "web"`.
-`buri docs error effect-not-on-platform` has the table of what each platform
-grants.
+A platform's host type *is* the set of effects it offers. A platform that does
+not offer an effect has no field for it, so asking for it fails to compile at
+the line that asked, as `no-such-field`, with a note naming the platforms that
+do offer it. An entry binding `Ui: host.ui` on a `NodeHost` does not compile,
+and neither does one binding `FileSystemRead: host.fs` on a `WebHost`.
+[The effects chapter](../../language/effects.md) has the table of which platform
+offers what.
 
-The check does not wait for a build. An entry's body is checked against the
-outputs that enter through it, plus the platform each backend in its suite's
-`test.backends` runs as, since a test binary links the entry point in.
-Everything else in `main.buri` is checked against every platform the `outputs`
-name. So a binary declaring `native` and `web` outputs whose helper binds
-`FileSystemRead: host.fs` is refused
-whichever output you ask for, and `buri lint`, `buri test` and the language
-server all refuse it before anything is produced. Every other module is checked
-against the platforms **its own rule declared**, and a rule that declared none is
-never checked.
+The check does not wait for a build: it is the type checker, so `buri lint`,
+`buri test` and the language server all refuse it before anything is produced.
+A worker's `core/host` names are checked the old way, as
+`effect-not-on-platform`.
 
 `outputs` is a list because one program commonly ships several ways. The compiler
 checks the whole dependency graph against each output separately, so
@@ -481,7 +482,7 @@ closure.
   scope, so
 
   ```buri repo=cli/tests/example
-  # from "core/effect" import { Allocator };
+  # from "platform/effect" import { Allocator };
   from "//lib/ledger" import { Entry };
 
   // `amount` is a Cents from //lib/money, and `format` is one of its methods —

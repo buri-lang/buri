@@ -5,7 +5,7 @@ they reach only what a dependent could reach. There is no separate test target
 and no way to test a private function directly.
 
 This page is the exact rules: the `test` block, what a test source may import,
-every member of `core/host/testing`, and what a run does with a suite. To learn
+every member of `platform/effect/testing`, and what a run does with a suite. To learn
 to write one from scratch, read [testing your code](../../guides/testing.md).
 
 For the language side, read [`language/programs.md` §11.2 and
@@ -36,7 +36,7 @@ and the compiler puts it in a test binary rather than in the library.
   a title: each failure names its own file and its own line.
 - A test source and an entry's body are the only places in the language that
   **create** a context rather than receive one. That is why only a test source
-  may import `core/host/testing`.
+  may import `platform/effect/testing`.
 
 A test source is code, so [`buri lint`](../cli/lint.md#what-it-reads) holds it
 to every rule it holds a library source to, and `--fix` rewrites it the same
@@ -67,7 +67,7 @@ A test source may import:
 | The target under test | `//lib/money` for a library: its surface, the same name a dependent uses. `//cmd/server/main.buri` for a binary, whose entry point is a file and not a surface |
 | The target's `dependencies` | The same libraries the target itself depends on |
 | The suite's `test.dependencies` | Fakes, fixtures, matchers |
-| `core/*` | Including the test platform: `core/testing/assert` and `core/host/testing` |
+| `core/*` | Including the test platform: `core/testing/assert` and `platform/effect/testing` |
 | Any test-only path | `//lib/ledger/testing`, `//lib/testing/fakes`. You declare the package in `test.dependencies` like any other library |
 
 and may not:
@@ -122,18 +122,17 @@ A binary's entry point is a **file**, not a surface, so its test sources import
 else matches testing a library. The suite sees what `main.buri` exports and
 nothing more, so pushing logic behind the entry point is what makes it testable.
 
-**`main` itself is not testable**, deliberately. It takes no parameters and
-builds its own context out of `core/host`, so you have no fake to hand it
+**`main` itself is not testable**, deliberately. It takes its platform's host,
+which only the CLI can build, so you have no fake to hand it
 ([`language/programs.md` §11](../../language/programs.md)). To assert on a
 binary's failure modes, put them in a function taking an ordinary bounded `ctx`,
 and call that function from a test with doubles of its own.
 
 ## The runner's context
 
-`core/host/testing` is the platform a test source binds. It exports one double
-per effect rather than one pre-assembled world, each real where it can be and
-hermetic everywhere else. It is `core/host`'s surface written out for a test,
-with the same names. Here you **call** them rather than refer to them, so
+`platform/effect/testing` holds the effects' test implementations. It exports
+one double per effect rather than one pre-assembled world, each real where it
+can be and hermetic everywhere else, named after the host's fields. Here you **call** them rather than refer to them, so
 `clock()` answers a fresh clock every call and a test never inherits another
 test's.
 
@@ -230,10 +229,10 @@ it a function, and that function is the fake server: it sees every `Request` the
 code under test makes, and it either answers one or fails it.
 
 ```buri role=test
-from "core/effect" import { Allocator, NetError, Network, Request };
-from "core/host/testing" import { alloc, net };
 from "core/net/http" import * as http;
 # from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, NetError, Network, Request };
+from "platform/effect/testing" import { alloc, net };
 
 # fn load<C: Network>(ctx: C, request: Request): Result<Int, NetError> {
 #     http.send(ctx, request).map(fn(r) => r.status)
@@ -304,7 +303,7 @@ one](../../guides/testing.md#writing-your-own).
 A fake written this way answers from its fields rather than from a counter,
 because it has no mutation to hold one in. `clock()`'s advancing clock and
 `stdout()`'s accumulating buffer do change between calls, and that is a
-privilege of the runner's own implementations: `core/host/testing` hands out no
+privilege of the runner's own implementations: `platform/effect/testing` hands out no
 way to open a slot in the runtime's tables.
 
 ### What the code under test asked for
@@ -321,20 +320,20 @@ handle and answer them in the order they completed:
 | `sockets().sent()` | `[(Socket, Message)]`, one per message pushed, oldest first |
 
 A test writes the call it expects with the constructor of the same name. These
-are ordinary functions of `core/host/testing`: `readFile(path)`,
+are ordinary functions of `platform/effect/testing`: `readFile(path)`,
 `writeFile(path, body)`, `renameFile(source, destination)`, `fetch(request)`,
 `readBytes(n)`. There is one per method, and each takes the call's own
 arguments. A path in one of them is the `Str` a `Path` spells. They derive `Equal`,
 which an assertion compares, and `Show`, which a failing one prints.
 
 ```buri role=test
-from "core/effect" import { Allocator, NetError, Network, Response };
 # from "core/fs" import * as fs;
 from "core/fs" import { FileSystemRead };
-from "core/host/testing" import { alloc, fetch, fs, net, readFile };
 from "core/net/http" import * as http;
 from "core/path" import * as path;
 # from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, NetError, Network, Response };
+from "platform/effect/testing" import { alloc, fetch, fs, net, readFile };
 
 # fn cached<C: Allocator + FileSystemRead + Network>(
 #     ctx: C,
@@ -403,12 +402,12 @@ number. Matching uses the `Equal` those records derive, so you spell a fault
 exactly as `calls()` reports the call it names.
 
 ```buri role=test
-from "core/effect" import { Allocator, IoError };
 # from "core/fs" import * as fs;
 from "core/fs" import { FileSystemWrite, Path };
-from "core/host/testing" import { alloc, appendFile, fs };
 from "core/path" import * as path;
 # from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, IoError };
+from "platform/effect/testing" import { alloc, appendFile, fs };
 
 # fn commit<C: Allocator + FileSystemWrite>(
 #     ctx: C,
@@ -507,10 +506,10 @@ Nothing here is concurrent. A task runs to completion before the next one
 starts, and `calls()` reports them in the order they finished:
 
 ```buri repo=cli/tests/example role=test
-# from "core/effect" import { Allocator, Tasks };
-# from "core/host/testing" import { alloc, task, tasks };
 # from "core/tasks" import * as tasks;
 # from "core/testing/assert" import * as assert;
+# from "platform/effect" import { Allocator, Tasks };
+# from "platform/effect/testing" import { alloc, task, tasks };
 
 # fn doubled<C: Allocator + Tasks>(ctx: C, items: [Int]): [Int] {
 #     tasks.parallel(ctx, items, fn(_c, _i, item) => item * 2)
@@ -580,10 +579,10 @@ run the half of a WebSocket program that *pushes* on its own, against
 | `sockets().isOpen(socket)` | Whether that socket is still one this double will take a message for |
 
 ```buri role=test
-# from "core/effect" import { Sockets };
-# from "core/host/testing" import { sockets };
 # from "core/net/server" import { Message, Socket };
 # from "core/testing/assert" import * as assert;
+# from "platform/effect" import { Sockets };
+# from "platform/effect/testing" import { sockets };
 
 # fn broadcast<C: Sockets>(ctx: C, room: [Socket], said: Message): () {
 #     room.foldCtx(ctx, fn(c, _sofar, socket) => socket.send(c, said), ())

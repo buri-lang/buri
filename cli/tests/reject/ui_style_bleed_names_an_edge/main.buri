@@ -3,13 +3,13 @@
 // An edge is one of four, named by where it is in the reading order. There is
 // no middle of a box to bleed past, and a bleed that named one would have no
 // margin to write.
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   ui.mount(ctx, ui.stack({ styles: [.Bleed(.Middle, .Px(8))], children: [] }), [])
 }

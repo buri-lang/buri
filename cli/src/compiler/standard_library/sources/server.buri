@@ -6,18 +6,18 @@
 //! talks to servers, `Listen` means it accepts connections, and `Sockets` means
 //! it can push on one somebody else accepted.
 //!
-//! **The same two types.** `Request` and `Response` are `core/effect`'s, the
+//! **The same two types.** `Request` and `Response` are `platform/effect`'s, the
 //! ones `core/net/http` re-exports, so a handler here answers with the same
 //! `Response` a client reads and builds it with the same
 //! `http.text` / `http.status` / `withHeader`.
 //!
 //! ```buri
-//! from "core/effect" import { Allocator, Listen, Tasks };
-//! from "core/host" import * as host;
 //! from "core/net/http" import * as http;
 //! from "core/net/server" import * as server;
+//! from "native" import { NativeHost };
+//! from "platform/effect" import { Allocator, Listen, Tasks };
 //!
-//! export fn main(): Result<(), Str> {
+//! export fn main(host: NativeHost): Result<(), Str> {
 //!     let ctx = context {
 //!         Allocator: host.alloc,
 //!         Listen: host.listen,
@@ -107,12 +107,12 @@
 //! asking for a second protocol.
 //!
 //! ```buri
-//! from "core/effect" import { Allocator, Listen, Tasks };
-//! from "core/host" import * as host;
 //! from "core/net/http" import * as http;
 //! from "core/net/server" import * as server;
+//! from "native" import { NativeHost };
+//! from "platform/effect" import { Allocator, Listen, Tasks };
 //!
-//! export fn main(): Result<(), Str> {
+//! export fn main(host: NativeHost): Result<(), Str> {
 //!     let ctx = context {
 //!         Allocator: host.alloc,
 //!         Listen: host.listen,
@@ -189,11 +189,11 @@
 //! ```buri
 //! from "core/actor" import * as actor;
 //! from "core/actor" import { Actor, Stepped };
-//! from "core/effect" import { Allocator, Listen, Sockets, Tasks };
-//! from "core/host" import * as host;
 //! from "core/net/http" import * as http;
 //! from "core/net/server" import * as server;
 //! from "core/str" import * as str;
+//! from "native" import { NativeHost };
+//! from "platform/effect" import { Allocator, Listen, Sockets, Tasks };
 //!
 //! enum Counting {
 //!     Increment,
@@ -210,7 +210,7 @@
 //!     }
 //! }
 //!
-//! export fn main(): Result<(), Str> {
+//! export fn main(host: NativeHost): Result<(), Str> {
 //!     let ctx = context {
 //!         Allocator: host.alloc,
 //!         Listen: host.listen,
@@ -273,15 +273,15 @@
 //! the GOAWAY an HTTP/2 connection gets — so a drain does not wait out its
 //! deadline for a client that is doing nothing wrong. `onClose` still runs.
 
-from "core/effect" import {
-    Allocator, Listen, Listener, Protocol, Request, Response, Serve, ServeError,
-    ServeFailure, Sockets, Tasks,
-};
 from "core/list" import * as list;
 from "core/tasks" import * as tasks;
 from "core/time" import { Duration };
+from "platform/effect" import {
+    Allocator, Listen, Listener, Protocol, Request, Response, Serve, ServeError,
+    ServeFailure, Sockets, Tasks,
+};
 
-from "core/effect" export {
+from "platform/effect" export {
     Listener, Protocol, Request, Response, Serve, ServeError, ServeFailure,
 };
 
@@ -752,7 +752,7 @@ fn ending<C: Listen, S>(
 /// A `ServeError`'s cause as one line of English, for a `main` that answers
 /// `Result<(), Str>`.
 ///
-/// A free function rather than a method, because `core/effect` declares
+/// A free function rather than a method, because `platform/effect` declares
 /// `ServeError` and a method must live in its type's defining module.
 ///
 /// The **cause only**, and it costs no context: each answer is a constant per

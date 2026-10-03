@@ -54,9 +54,9 @@ Write `libs/units/units.buri`. This is the whole of what the program knows about
 lengths, and none of it can touch the world:
 
 ```buri repo=cli/tests/tutorial package=//libs/units
-from "core/effect" import { Allocator };
 from "core/math" import * as math;
 from "core/str" import * as str;
+from "platform/effect" import { Allocator };
 
 derive Equal, Show for Unit;
 /// A length unit. Every conversion goes through metres.
@@ -157,9 +157,9 @@ Write `libs/units/test/units.buri`. The suite imports the library by label, as a
 dependent does, so it can only assert on what dependents can call:
 
 ```buri repo=cli/tests/tutorial package=//libs/units role=test
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "//libs/units" import { ParseError, parseQuantity, Quantity, Unit };
 
 test "two words make a quantity" {
@@ -213,10 +213,10 @@ one function that reads the world and writes to it, and its bounds say which
 parts of the world it gets:
 
 ```buri repo=cli/tests/tutorial package=//libs/convert
-from "core/effect" import { Allocator, Environment, Stdout };
 from "core/env" import * as env;
 from "core/io" import * as io;
 from "core/str" import * as str;
+from "platform/effect" import { Allocator, Environment, Stdout };
 from "//libs/units" import { ParseError, parseQuantity, parseUnit, Quantity, Unit };
 
 derive Equal, Show for Request;
@@ -298,9 +298,9 @@ to stub.
 Write `libs/convert/test/convert.buri`:
 
 ```buri repo=cli/tests/tutorial package=//libs/convert role=test
-from "core/effect" import { Allocator, Environment, Stdout };
-from "core/host/testing" import { alloc, stdout };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Environment, Stdout };
+from "platform/effect/testing" import { alloc, stdout };
 from "//libs/convert" import { ConvertError, parseRequest, run };
 
 /// A test double for `Environment`: an ordinary struct with the effect's methods, and
@@ -376,16 +376,16 @@ binary {
 }
 ```
 
-Write `apps/convert/main.buri`. This is the only file allowed to import
-`core/host`, and the `context` it builds is the program's entire effect
-budget:
+Write `apps/convert/main.buri`. `main` takes the host of the platform it runs
+on — `node`, since the binary names no output — and the `context` it builds
+from the host's fields is the program's entire effect budget:
 
 ```buri repo=cli/tests/tutorial package=//apps/convert role=entry
-from "core/effect" import { Allocator, Environment, Stdout };
-from "core/host" import * as host;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
 from "//libs/convert" import { run };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Environment: host.env,
@@ -432,7 +432,7 @@ file and a `main`; and a repository root over them.
 - [The build system](../guides/build-system.md) — packages, labels,
   dependencies and visibility.
 - [Testing](../guides/testing.md) — fixtures, fault plans, and the rest of
-  `core/host/testing`.
+  `platform/effect/testing`.
 - [Restricting effects](../guides/effects.md) — how to hand a callee less of the
   world than you hold.
 - [The standard library](../reference/standard-library.md) — what is in

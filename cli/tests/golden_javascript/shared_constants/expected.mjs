@@ -1,29 +1,30 @@
-const $k0=[0];
-const $k2=[0,0];
-const $k3=[1,'zero'];
+const $k0=[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]];
+const $k1=[0];
+const $k3=[0,0];
+const $k4=[1,'zero'];
 function __cmd_x_main_buri$main(){
-  const ctx_0=[[],[]];
-  const text_2=String(__cmd_x_main_buri$tally(10n,0n));
-  const self_3=$host_HostStdout_println(ctx_0[1],text_2);
+  const ctx_1=[$k0[0],$k0[1]];
+  const text_3=String(__cmd_x_main_buri$tally(10n,0n));
+  const self_4=$host_HostStdout_println(ctx_1[1],text_3);
   let $t1;
-  if(self_3[0]===0){
+  if(self_4[0]===0){
     $t1=0;
-  }else if(self_3[0]===1){
+  }else if(self_4[0]===1){
     $t1=0;
   }else{
     $abort('no arm matched');
   }
-  const text_11=String(0n)+' '+String(1n);
-  const self_12=$host_HostStdout_println(ctx_0[1],text_11);
+  const text_12=String(0n)+' '+String(1n);
+  const self_13=$host_HostStdout_println(ctx_1[1],text_12);
   let $t7;
-  if(self_12[0]===0){
+  if(self_13[0]===0){
     $t7=0;
-  }else if(self_12[0]===1){
+  }else if(self_13[0]===1){
     $t7=0;
   }else{
     $abort('no arm matched');
   }
-  return $k2;
+  return $k3;
 }
 function __cmd_x_main_buri$tally(n_0,acc_1){
   while(true){
@@ -33,7 +34,7 @@ function __cmd_x_main_buri$tally(n_0,acc_1){
       const $t3=n_0-1n;
       const n_2=n_0-5n;
       let $t1;
-      const $t2=n_2<0n?$k0:n_2===0n?$k3:[2,n_2];
+      const $t2=n_2<0n?$k1:n_2===0n?$k4:[2,n_2];
       switch($t2[0]){
         case 0:
           {

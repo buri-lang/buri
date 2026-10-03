@@ -23,7 +23,7 @@ use std::path::PathBuf;
 pub enum Role {
     /// A `core/...` module, shipping with the toolchain.
     Std,
-    /// A platform module: `core/effect`, `core/host`, `core/testing/*`. Only
+    /// A platform module: `platform/effect`, `core/host`, `core/testing/*`. Only
     /// these may declare effects.
     Platform,
     /// Ordinary library or binary source.
@@ -646,7 +646,7 @@ impl<'a> Loader<'a> {
         if let Some(id) = self.by_path.get(path) {
             return Some(*id);
         }
-        // `core/effect` is what the table holds and `core/effect/lib.buri`
+        // `platform/effect` is what the table holds and `platform/effect/lib.buri`
         // names the same module the long way round. The module is keyed by the
         // canonical spelling, so the two cannot become two.
         let Some(module) = standard_library::find(path) else {
@@ -895,6 +895,14 @@ impl<'a> Loader<'a> {
         Role::Source
     }
 
+    /// Whether a package's binary has a `CLOUDFLARE_WORKER` output: the one
+    /// kind of entry that still binds `core/host` rather than taking a host.
+    fn enters_a_worker(&self, pkg: Option<crate::build::workspace::PackageId>) -> bool {
+        let (Some(ws), Some(package)) = (self.ws, pkg) else { return false };
+        let target = TargetId { package, kind: RuleKind::Binary };
+        ws.declared_entries(target).iter().any(|e| e.platform == Platform::CloudflareWorker)
+    }
+
     /// The import restrictions. Each one is visible in the import line, which
     /// is where the person writing it is looking.
     fn check_import_legality(
@@ -912,13 +920,32 @@ impl<'a> Loader<'a> {
             return false;
         }
 
-        // `core/host` is importable only from the module that exports `main`.
-        // Asked of the canonical spelling, so that naming the surface file the
-        // long way round is not a way past the gate.
-        if standard_library::canonical(path) == Some(standard_library::HOST_MODULE)
-            && role != Role::Entry
-        {
-            self.diags.push(Diagnostic::templated("host-import", span));
+        // The two host modules, and each has one kind of importer. Asked of the
+        // canonical spelling, so that naming the surface file the long way
+        // round is not a way past the gate.
+        //
+        // `platform/host` names the backends' production structs, which a
+        // platform lists as its host type's fields; only a `platform.buri` — a
+        // bundled one, today — may name them. `core/host` is what a
+        // `CLOUDFLARE_WORKER` entry binds, because a worker's `fetch` takes no
+        // host yet; nothing else may import it. Everything else takes its
+        // platform's host as `main`'s parameter, which is where authority
+        // enters a program.
+        let host_module = match standard_library::canonical(path) {
+            Some(p @ standard_library::HOST_STRUCTS_MODULE) => {
+                Some((p, standard_library::find(importer_path).is_some()))
+            }
+            Some(p @ standard_library::HOST_MODULE) => Some((
+                p,
+                standard_library::find(importer_path).is_some()
+                    || (role == Role::Entry && self.enters_a_worker(importer_pkg)),
+            )),
+            _ => None,
+        };
+        if let Some((host, false)) = host_module {
+            self.diags.push(
+                Diagnostic::templated("host-import-outside-platform", span).with_bind("path", host),
+            );
             return false;
         }
 

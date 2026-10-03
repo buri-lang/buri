@@ -4,9 +4,9 @@
 // a letter is the mistake the long name invites. It is a no-such-field on the
 // config struct rather than a node quietly built with the handler silently
 // dropped.
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
@@ -16,7 +16,7 @@ fn dismissable<C: Ui>(open: Signal<Bool>, panel: Node<C>): Node<C> {
   ui.stack({ styles: [], children: [panel], onPressOutide: .Some(fn(c) => open.set(c, false)) })
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let open = signal(ctx, true);
   ui.mount(ctx, dismissable(open, ui.text({ content: .Const("panel") })), [])

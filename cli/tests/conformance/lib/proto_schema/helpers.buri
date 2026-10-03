@@ -8,7 +8,7 @@
 from "core/buri/ast" import * as ast;
 from "core/bytes" import * as bytes;
 from "core/codegen" import { Diagnostic };
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 from "std/codegen/proto/schema" import * as schema;
 
 /// The path every case's schema is read from.

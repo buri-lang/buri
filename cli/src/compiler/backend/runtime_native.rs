@@ -661,7 +661,7 @@ mod tests {
     // Over layouts built by hand rather than over `IoError`'s, and deliberately:
     // what is under test is the *rule*, and every one of the four ways to fail
     // it has to be reachable from somewhere. `middle/layout.rs` produces the
-    // first of them from `core/effect`'s own declaration, and
+    // first of them from `platform/effect`'s own declaration, and
     // `the_message_shape_is_the_one_io_error_has` in `runtime_table.rs` is what
     // ties the rule to that type.
 

@@ -256,7 +256,7 @@ fn concurrency_and_memory() {
 /// binaries for: node.
 ///
 /// Everything `core/fs`, `core/env` and `core/process` reach has three
-/// answers — `core/host/testing`'s doubles in the conformance corpus, a real
+/// answers — `platform/effect/testing`'s doubles in the conformance corpus, a real
 /// Linux or macOS in `native::e2e`, and node's own `fs`, `process` and
 /// `child_process` here. The third one had no test at all, and a runtime
 /// function nothing calls is a runtime function nobody notices going wrong.
@@ -627,13 +627,13 @@ const NOTIFICATIONS: &[&str] = &[
 
 /// The program the surface is driven against: one file, one import and one
 /// call, so that a position request has something under it.
-const SURFACE_PROGRAM: &str = r#"from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+const SURFACE_PROGRAM: &str = r#"from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 fn answer(): Int { 41 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "answer=${answer()}").ignore();
   .Ok(())
@@ -1178,11 +1178,12 @@ impl Editor {
     fn warmed(scratch: &Scratch) -> Editor {
         let imports: String = buri::compiler::standard_library::MODULES
             .iter()
+            .filter(|module| !matches!(module.path, "core/host" | "platform/host"))
             .enumerate()
             .map(|(n, module)| format!("from \"{}\" import * as m{n};\n", module.path))
             .collect();
-        // A binary, because only an entry may import `core/host`, and a test,
-        // because only a test may import a `testing` module.
+        // A binary and a test, because only a test may import a `testing`
+        // module. The two host modules are a platform's alone.
         scratch.write(
             &format!("{WARM_UP}/BUILD.buri"),
             "binary {\n    test {\n        sources: [\"test/warm.buri\"]\n    }\n}\n",

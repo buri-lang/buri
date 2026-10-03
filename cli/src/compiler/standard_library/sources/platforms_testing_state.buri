@@ -47,7 +47,7 @@
 //! for a test double and the reason this isn't a general-purpose mutable box.
 
 from "core/alloc" import * as alloc;
-from "core/effect" import { Allocator, Region };
+from "platform/effect" import { Allocator, Region };
 
 /// A handle to a value the runtime holds. Copies share the value.
 ///

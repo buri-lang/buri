@@ -1,7 +1,7 @@
 warning: Order is imported but not used [unused-import]
- --> lib/money/test/cents.buri:8:28
+ --> lib/money/test/cents.buri:6:28
   |
-8 | from "core/order" import { Order };
+6 | from "core/order" import { Order };
   |                            ^^^^^
   |
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up

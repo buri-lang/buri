@@ -8,8 +8,8 @@ reproduction: none
 # A tool's entry point is handed an allocator and nothing else
 
 ```buri
-from "core/effect" import { Allocator };
 from "core/tool" import { Checked, CheckRequest };
+from "platform/effect" import { Allocator };
 
 export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
     Checked { diagnostics: [], needs: [] }

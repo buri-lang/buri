@@ -1,0 +1,15 @@
+error: a match arm ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_brace_app_8659ef/main.buri:19:44
+   |
+19 |         .Ok(_written) => .Ok(line.length())
+   |                                            ^
+   |
+   = fix: write `,` here
+warning: this drops a `Result` by hand [discarded-result-by-hand]
+  --> lib/recovery_delete_separator_brace_app_8659ef/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate

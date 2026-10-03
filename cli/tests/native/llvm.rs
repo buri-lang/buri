@@ -368,8 +368,7 @@ fn build_tests_as(name: &str, file: &str, source: &str) -> PathBuf {
 /// prints needs, and nothing else — so the context is a record of two empty
 /// implementations and is therefore zero-sized (VALUE-MODEL.md §8).
 const PRELUDE: &str = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
 from "core/io" import * as io;
 "#;
 
@@ -472,11 +471,11 @@ fn a_second_thread_enters_through_the_door() {
     // this slice's report. One side effect at the bottom takes `f` out of
     // `memory(none)` and leaves the depth this test is about intact.
     let source = r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
-fn f(i: Int): Int { if (i <= 0) { let _ = io.println(stdout, "bottom").ignore(); 0 } else { 1 + f(i - 1) } }
-export fn main(): Result<(), Str> {
-  let _ = io.println(stdout, "depth ${f(10000)}").ignore();
+fn f(host: NativeHost, i: Int): Int { if (i <= 0) { let _ = io.println(host.stdout, "bottom").ignore(); 0 } else { 1 + f(host, i - 1) } }
+export fn main(host: NativeHost): Result<(), Str> {
+  let _ = io.println(host.stdout, "depth ${f(host, 10000)}").ignore();
   .Ok(())
 }
 "#
@@ -518,7 +517,9 @@ export fn main(): Result<(), Str> {
 fn the_thread_door_is_a_ccc_wrapper_over_a_fastcc_body() {
     let source = program(
         r#"
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "hi").ignore();
   .Ok(())
@@ -560,7 +561,9 @@ fn hello_world_compiles_links_and_runs() {
         "hello",
         &program(
             r#"
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "hello, world").ignore();
   .Ok(())
@@ -592,7 +595,9 @@ fn hello_world_references_the_runtime_archive() {
     }
     let lowered = lower(&program(
         r#"
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "hello, world").ignore();
   .Ok(())
@@ -624,7 +629,9 @@ fn sum(a: Int, b: Int): Int { a + b }
 fn quotient(a: Int, b: Int): Int { a / b }
 fn remainder(a: Int, b: Int): Int { a % b }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let n = sum(40, 2);
   let _ = if (n == 42) { io.println(ctx, "sum ok").ignore() } else { io.println(ctx, "sum bad").ignore() };
@@ -651,7 +658,9 @@ fn division_by_zero_aborts_with_the_runtimes_message() {
             r#"
 fn quotient(a: Int, b: Int): Int { a / b }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "before").ignore();
   let _ = if (quotient(1, 0) == 0) { io.println(ctx, "no").ignore() } else { io.println(ctx, "no").ignore() };
@@ -683,7 +692,9 @@ struct Point { x: Int, y: Int }
 fn shifted(p: Point, d: Int): Point { Point { x: p.x + d, y: p.y + d } }
 fn magnitude(p: Point): Int { p.x * p.x + p.y * p.y }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let p = shifted(Point { x: 1, y: 2 }, 3);
   let _ = if (p.x == 4) { io.println(ctx, "x ok").ignore() } else { io.println(ctx, "x bad").ignore() };
@@ -718,7 +729,9 @@ fn area(s: Shape): Int {
   }
 }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let total = area(Shape.Circle(2)) + area(Shape.Rect(3, 4)) + area(Shape.Empty);
   let _ = if (total == 24) { io.println(ctx, "area ok").ignore() } else { io.println(ctx, "area bad").ignore() };
@@ -748,7 +761,9 @@ fn the_option_niche_runs() {
             r#"
 fn pick(yes: Bool): Option<Str> { if (yes) { .Some("some") } else { .None } }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = match (pick(true)) { .Some(s) => io.println(ctx, s).ignore(), .None => io.println(ctx, "none").ignore() };
   let _ = match (pick(false)) { .Some(s) => io.println(ctx, s).ignore(), .None => io.println(ctx, "none").ignore() };
@@ -777,7 +792,9 @@ fn total(n: Int, acc: Int): Int {
   if (n <= 0) { acc } else { total(n - 1, acc + n) }
 }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = if (total(10000, 0) == 50005000) { io.println(ctx, "loop ok").ignore() } else { io.println(ctx, "loop bad").ignore() };
   .Ok(())
@@ -817,7 +834,9 @@ fn a_pure_non_tail_recursion_returns_at_both_profiles() {
         r#"
 fn depth(i: Int): Int { if (i <= 0) { 0 } else { 1 + depth(i - 1) } }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let n = "ab".repeat(ctx, 5000).length();
   let _ = io.println(ctx, "depth ${depth(n)}").ignore();
@@ -847,7 +866,9 @@ fn wide(a: I128, b: I128): I128 { a / b }
 fn narrow(a: I32, b: I32): I32 { a * b }
 fn tiny(a: U8, b: U8): U8 { a + b }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let big: I128 = 1000000000000000000;
   let _ = if (wide(big, 1000) == 1000000000000000) { io.println(ctx, "i128 ok").ignore() } else { io.println(ctx, "i128 bad").ignore() };
@@ -884,7 +905,9 @@ fn i64ofF(x: F64): Template { match (x.toI64()) { .Ok(v) => "ok ${v}", .Err(e) =
 fn charof(x: U32): Template { match (x.toChar()) { .Ok(v) => "ok ${v}", .Err(e) => "err ${e.value} ${e.target}" } }
 fn f32of(x: F64): Template { match (x.toF32()) { .Ok(_v) => "ok ${x}", .Err(e) => "err ${e.target}" } }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, i32of(100)).ignore();
   let _ = io.println(ctx, i32of(3000000000)).ignore();
@@ -933,7 +956,9 @@ fn both_float_widths_run() {
 fn scale32(x: F32, by: F32): F32 { x * by }
 fn scale64(x: Float, by: Float): Float { x * by }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a: F32 = 0.5;
   let b: F32 = 4.0;
@@ -962,7 +987,9 @@ fn an_err_result_exits_one_and_prints_to_stderr() {
         "err",
         &program(
             r#"
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "working").ignore();
   .Err("it went wrong")
@@ -1000,7 +1027,9 @@ fn label(t: Token): Str {
   match (t) { .Number(_) => "number", .Word(w) => w, .End => "end" }
 }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a = step(State { seen: 0, total: 0 }, Token.Number(10));
   let b = step(a, Token.Word("hello"));
@@ -1090,7 +1119,9 @@ fn the_attribute_discipline_reaches_the_optimized_ir() {
         r#"
 fn magnitude(x: Int, y: Int): Int { x * x + y * y }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = if (magnitude(3, 4) == 25) { io.println(ctx, "ok").ignore() } else { io.println(ctx, "no").ignore() };
   .Ok(())
@@ -1153,7 +1184,9 @@ fn the_marking_statement_is_emitted_only_for_a_program_with_tasks() {
     skip_unless_executable!();
     let plain = optimized_ir(&program(
         r#"
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "no tasks here").ignore();
   .Ok(())
@@ -1170,13 +1203,14 @@ export fn main(): Result<(), Str> {
     let tasks = optimized_ir(&format!(
         "{}\n{}",
         r#"
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 "#,
         r#"
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let doubled = tasks.parallel(ctx, [1, 2, 3], fn(c, i, n) => n * 2);
   let _ = io.println(ctx, "${doubled.length()}").ignore();
@@ -1225,7 +1259,9 @@ fn steps(n: Int, so_far: Int): Int {
 
 fn risky(x: Int, y: Int): Int { if (x == 0) { 0 } else { x / y + risky(x - 1, y) } }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a = steps(27, 0);
   let b = risky(3, 2);
@@ -1312,7 +1348,9 @@ fn total(n: Int, acc: Int): Int { if (n <= 0) { acc } else { total(n - 1, acc + 
 // callees too. Two calls and two of them in the body, for the same reason.
 fn viaDown(i: Int): Int { down(i) + down(i + 1) }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "${viaLeaf(3)} ${viaLeaf(4)} ${classify(3)} ${classify(30)}").ignore();
   let _ = io.println(ctx, "${down(3)} ${pingA(3)} ${total(3, 0)} ${viaDown(2)} ${viaDown(3)}").ignore();
@@ -1386,7 +1424,9 @@ fn arithmetic(a: Int, b: Int): Int {
   (a + b) * (a - b) + (0 - a)
 }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = if (arithmetic(3, 2) == 2) { io.println(ctx, "ok").ignore() } else { io.println(ctx, "no").ignore() };
   .Ok(())
@@ -1417,7 +1457,9 @@ fn firstOrElse(s: Option<Str>, fallback: Str): Str {
   match (s) { .Some(t) => t, .None => fallback }
 }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, firstOrElse(.Some("yes"), "no")).ignore();
   let _ = io.println(ctx, firstOrElse(.None, "fallback")).ignore();
@@ -1525,7 +1567,9 @@ fn twice(s: Str, n: Int): (Str, Str) {
   if (n <= 0) { (s, s) } else { twice(s, n - 1) }
 }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let both = twice("ab".repeat(ctx, 2), 3);
   let _ = io.println(ctx, "${both.0}/${both.1}").ignore();
@@ -1610,7 +1654,9 @@ fn steps(n: Int, so_far: Int): Int {
   }
 }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let both = twice("ab".repeat(ctx, 2), 3);
   let _ = io.println(ctx, "${both.0}/${both.1} ${steps(27, 0)}").ignore();
@@ -1658,7 +1704,9 @@ fn the_two_pipelines_agree_about_a_shared_heap_strings_count() {
         r#"
 fn keep(s: Str, n: Int): Str { if (n <= 0) { s } else { keep(s, n - 1) } }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let owned = "ab".repeat(ctx, 3);
   let echoed = keep(owned, 4);
@@ -1712,6 +1760,7 @@ fn a_json_string_leaf_balances_its_own_count() {
         "tojson-count",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/json" import { Json, ToJson };
 
@@ -1731,7 +1780,7 @@ fn noteText(j: Json): Str {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let encoded = Note { text: "ab".repeat(ctx, 3) }.toJson(ctx);
   let _ = io.println(ctx, noteText(encoded)).ignore();
@@ -1772,7 +1821,9 @@ fn a_reference_operation_forks_on_the_multi_threaded_bit() {
         r#"
 fn keep(s: Str, n: Int): Str { if (n <= 0) { s } else { keep(s, n - 1) } }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let owned = "ab".repeat(ctx, 3);
   let echoed = keep(owned, 4);
@@ -1839,7 +1890,9 @@ fn walk(n: Int, at: Point): Point {
   }
 }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let end = walk(100, Point { x: 0, y: 0 });
   let _ = if (end.x == 100) { io.println(ctx, "ok").ignore() } else { io.println(ctx, "no").ignore() };
@@ -1875,7 +1928,9 @@ fn the_module_carries_the_target() {
     skip_unless_executable!();
     let ir = optimized_ir(&program(
         r#"
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "x").ignore();
   .Ok(())
@@ -1906,7 +1961,9 @@ fn an_unimplemented_intrinsic_is_reported_before_llvm_runs() {
     let mut cache = buri::parsing::parser::Cache::new();
     let source = program(
         r#"
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let n = 7;
   let _ = io.println(ctx, "n is ${n}").ignore();
@@ -1956,13 +2013,14 @@ export fn main(): Result<(), Str> {
     // times at things that were merely early.
     let with_closure = program(
         r#"
+from "native" import { NativeHost };
 from "core/bytes" import * as bytes;
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/math" import * as math;
 from "core/str" import * as str;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let sorted = list.range(ctx, 0, 3).sortBy(ctx, fn(a, b) => a.compare(b));
   let paired = sorted.zip(ctx, list.range(ctx, 0, 3));
@@ -2056,7 +2114,9 @@ fn emission_is_deterministic() {
 enum Shape { Circle(Int), Square(Int) }
 fn area(s: Shape): Int { match (s) { .Circle(r) => 3 * r * r, .Square(w) => w * w } }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = if (area(Shape.Circle(2)) == 12) { io.println(ctx, "ok").ignore() } else { io.println(ctx, "no").ignore() };
   .Ok(())
@@ -2086,7 +2146,9 @@ fn the_codegen_key_follows_the_ir() {
     skip_unless_executable!();
     let one = program(
         r#"
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "a").ignore();
   .Ok(())
@@ -2097,7 +2159,9 @@ export fn main(): Result<(), Str> {
     let same = program(
         r#"
 // a comment changes no instruction
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "a").ignore();
   .Ok(())
@@ -2106,7 +2170,9 @@ export fn main(): Result<(), Str> {
     );
     let other = program(
         r#"
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "b").ignore();
   .Ok(())
@@ -2143,7 +2209,9 @@ fn a_template_hole_renders_every_primitive() {
         "template",
         &program(
             r#"
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let n = 42;
   let neg: I32 = -7;
@@ -2190,10 +2258,11 @@ fn the_numeric_surface_runs() {
         "numeric",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/number" import * as number;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a = -9;
   let _ = io.println(ctx, "abs ${a.abs()}").ignore();
@@ -2241,7 +2310,9 @@ fn float_to_integer_conversions_saturate() {
             r#"
 fn narrow(x: Float): I32 { x.wrapToI32() }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "hi ${narrow(1.0e30)}").ignore();
   let _ = io.println(ctx, "lo ${narrow(-1.0e30)}").ignore();
@@ -2267,7 +2338,9 @@ fn str_len_counts_scalars_and_takes_both_paths() {
         "strlen",
         &program(
             r#"
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "ascii ${"hello".length()}").ignore();
   let _ = io.println(ctx, "wide ${"héllo".length()}").ignore();
@@ -2295,10 +2368,11 @@ fn str_concat_is_open_coded_and_keeps_the_ascii_flag() {
         "concat",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let joined = "abc".concat(ctx, "def");
   let _ = io.println(ctx, joined).ignore();
@@ -2332,16 +2406,17 @@ fn a_unique_concat_loop_allocates_logarithmically() {
         "concat-growth",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 
-export fn build(s: Str, i: Int): Str {
-  if (i == 0) { s } else { build(s.concat(host.alloc, "xy"), i - 1) }
+export fn build(host: NativeHost, s: Str, i: Int): Str {
+  if (i == 0) { s } else { build(host, s.concat(host.alloc, "xy"), i - 1) }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-  let s = build("", 1000);
+  let s = build(host, "", 1000);
   let _ = io.println(ctx, "${s.length()}").ignore();
   let _ = io.println(ctx, s.slice(0, 4)).ignore();
   .Ok(())
@@ -2370,10 +2445,11 @@ fn a_shared_concat_does_not_mutate_what_is_shared() {
         "concat-shared",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let base = "ab".concat(ctx, "cd");
   let a = base.concat(ctx, "-one");
@@ -2408,10 +2484,11 @@ fn a_borrowed_local_survives_a_sibling_that_holds_its_last_mention() {
         "borrow-across-siblings",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let base = "ab".concat(ctx, "cd");
   let a = base.concat(ctx, "-one");
@@ -2437,10 +2514,11 @@ fn appending_to_a_view_does_not_disturb_its_siblings() {
         "concat-view",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let whole = "left".concat(ctx, ",right");
   let head = whole.slice(0, 4);
@@ -2469,16 +2547,17 @@ fn a_unique_push_loop_allocates_logarithmically() {
         "push-growth",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
-export fn build(xs: [Int], i: Int): [Int] {
-  if (i == 0) { xs } else { build(xs.push(host.alloc, i), i - 1) }
+export fn build(host: NativeHost, xs: [Int], i: Int): [Int] {
+  if (i == 0) { xs } else { build(host, xs.push(host.alloc, i), i - 1) }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-  let xs = build([], 2000);
+  let xs = build(host, [], 2000);
   let _ = io.println(ctx, "${xs.length()}").ignore();
   .Ok(())
 }
@@ -2505,21 +2584,22 @@ fn a_unique_push_loop_of_counted_elements_allocates_logarithmically() {
         "push-growth-counted",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
-export fn words(xs: [Str], i: Int): [Str] {
-  if (i == 0) { xs } else { words(xs.push(host.alloc, "w"), i - 1) }
+export fn words(host: NativeHost, xs: [Str], i: Int): [Str] {
+  if (i == 0) { xs } else { words(host, xs.push(host.alloc, "w"), i - 1) }
 }
 
-export fn pairs(xs: [(Str, Int)], i: Int): [(Str, Int)] {
-  if (i == 0) { xs } else { pairs(xs.push(host.alloc, ("p", i)), i - 1) }
+export fn pairs(host: NativeHost, xs: [(Str, Int)], i: Int): [(Str, Int)] {
+  if (i == 0) { xs } else { pairs(host, xs.push(host.alloc, ("p", i)), i - 1) }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-  let ws = words([], 2000);
-  let ps = pairs([], 2000);
+  let ws = words(host, [], 2000);
+  let ps = pairs(host, [], 2000);
   let last = match (ps.last()) { .Some(p) => p.1, .None => -1 };
   let _ = io.println(ctx, "${ws.length()} ${ps.length()} ${last}").ignore();
   .Ok(())
@@ -2548,17 +2628,18 @@ fn a_push_after_a_longer_sibling_died_keeps_both_answers() {
         "push-after-sibling",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 
-export fn build(xs: [Str], i: Int): [Str] {
-  if (i == 0) { xs } else { build(xs.push(host.alloc, str.fromInt(host.alloc, i)), i - 1) }
+export fn build(host: NativeHost, xs: [Str], i: Int): [Str] {
+  if (i == 0) { xs } else { build(host, xs.push(host.alloc, str.fromInt(host.alloc, i)), i - 1) }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-  let xs = build([], 10);
+  let xs = build(host, [], 10);
   let longer = xs.push(ctx, str.fromInt(ctx, 100));
   let seen = longer.join(ctx, ",");
   let other = xs.push(ctx, str.fromInt(ctx, 200));
@@ -2595,6 +2676,7 @@ fn a_shared_push_does_not_mutate_what_is_shared() {
         "push-shared",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
@@ -2607,7 +2689,7 @@ export fn total(xs: [Int], i: Int, acc: Int): Int {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let xs = [1, 2, 3].push(host.alloc, 4);
   let a = xs.push(host.alloc, 100);
@@ -2633,10 +2715,11 @@ fn the_string_surface_runs() {
         "strings",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "trim [${"  hi  ".trim()}]").ignore();
   let _ = io.println(ctx, "ends [${"  hi  ".trimStart()}][${"  hi  ".trimEnd()}]").ignore();
@@ -2681,7 +2764,9 @@ fn an_option_returning_entry_takes_both_arms() {
         "sums",
         &program(
             r#"
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = match ("abc".charAt(1)) { .Some(c) => io.println(ctx, "at ${c}").ignore(), .None => io.println(ctx, "at none").ignore() };
   let _ = match ("abc".charAt(9)) { .Some(c) => io.println(ctx, "at ${c}").ignore(), .None => io.println(ctx, "at none").ignore() };
@@ -2721,10 +2806,11 @@ fn the_list_surface_runs_over_plain_elements() {
         "lists",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let xs = list.range(ctx, 0, 4);
   let _ = io.println(ctx, "range ${xs.length()}").ignore();
@@ -2774,11 +2860,12 @@ fn a_list_of_strings_is_retained_by_the_generated_glue() {
         "retain",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let kept = {
     let base = ["alpha".concat(ctx, "!"), "beta".concat(ctx, "!")];
@@ -2809,13 +2896,14 @@ fn strings_compare_and_order() {
         "strcmp",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/order" import { Order };
 
 struct Named { name: Str, rank: Int }
 derive Equal for Named;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "eq ${"abc" == "abc"} ${"abc" == "abd"}").ignore();
   // The declared method, which is the `Ret::Int(32)` path: `buri_rt_str_compare`
@@ -2863,6 +2951,7 @@ fn a_structural_ordered_over_a_list_compares_and_sorts() {
         "arraycompare",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/order" import { Order };
 
 struct Bag { xs: [Int] }
@@ -2872,7 +2961,7 @@ fn name(o: Order): Str {
   match (o) { .Less => "Less", .Equal => "Equal", .Greater => "Greater" }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
 
   // The minimal repro: `<` on two `[Int]` values.
@@ -2921,7 +3010,9 @@ fn a_derived_show_renders_every_primitive_leaf() {
 struct Tagged { label: Str, live: Bool, ratio: Float, n: Int, small: U8, c: Char }
 derive Show for Tagged;
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let t = Tagged { label: "hi", live: true, ratio: 0.5, n: -3, small: 255, c: 'q' };
   let _ = io.println(ctx, t.show(ctx)).ignore();
@@ -2951,7 +3042,9 @@ fn a_derived_show_distinguishes_a_signed_byte_from_an_unsigned_one() {
 struct Bytes { signed: I8, unsigned: U8 }
 derive Show for Bytes;
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, Bytes { signed: -1, unsigned: 255 }.show(ctx)).ignore();
   .Ok(())
@@ -2976,11 +3069,12 @@ fn the_rest_of_the_string_surface_runs() {
         "strings2",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "pad [${"abc".padStart(ctx, 5, '.')}][${"abc".padEnd(ctx, 5, '.')}]").ignore();
   let _ = io.println(ctx, "nopad [${"abc".padStart(ctx, 2, '.')}]").ignore();
@@ -3020,10 +3114,11 @@ fn the_char_and_bool_leaves_run() {
         "leaves",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/order" import { Order };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "show ${'q'.show(ctx)} ${true.show(ctx)} ${false.show(ctx)}").ignore();
   let _ = io.println(ctx, "show ${"raw".show(ctx)}").ignore();
@@ -3065,10 +3160,11 @@ fn an_empty_result_from_a_runtime_entry_survives_its_counts() {
         "empties",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let xs = list.range(ctx, 0, 4);
   let _ = io.println(ctx, "slice ${xs.slice(ctx, 2, 2).length()}").ignore();
@@ -3102,10 +3198,11 @@ fn getting_a_string_out_of_a_list_takes_a_reference() {
         "getstr",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let xs = ["a".concat(ctx, "1"), "b".concat(ctx, "2")];
   let _ = match (xs.get(1)) { .Some(s) => io.println(ctx, "got ${s}").ignore(), .None => io.println(ctx, "got none").ignore() };
@@ -3141,7 +3238,9 @@ derive Hash for Key;
 
 fn base(): Key { Key { label: "k", n: 1, live: true, ratio: 0.5, c: 'z', small: 3 } }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let a = base();
   let _ = io.println(ctx, "same ${a.hash() == base().hash()}").ignore();
@@ -3191,7 +3290,9 @@ fn a_capturing_closure_runs() {
 fn apply(f: fn(Int) => Int, x: Int): Int { f(x) }
 fn twice(f: fn(Int) => Int, x: Int): Int { f(f(x)) }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let n = 10;
   let add = fn(x: Int) => x + n;
@@ -3231,6 +3332,7 @@ fn a_closure_capturing_a_string_runs_and_releases_it() {
         "closure-str",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 
@@ -3238,7 +3340,7 @@ from "core/str" import * as str;
 // happens outside it and the capture is the `Str` it produced.
 fn run(f: fn(Int) => Str, n: Int): Str { f(n) }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let prefix = "pre".concat(ctx, "-x");
   let tag = fn(_n: Int) => prefix;
@@ -3277,13 +3379,14 @@ fn a_nested_aggregate_drop_balances_its_counts() {
     let source = |built: &str| {
         program(&format!(
             r#"
+from "native" import {{ NativeHost }};
 from "core/io" import * as io;
 from "core/str" import * as str;
 
 struct Row {{ name: Str, tags: [Str] }}
 enum Cell {{ Empty, Text(Str), Pair(Str, Str) }}
 
-export fn main(): Result<(), Str> {{
+export fn main(host: NativeHost): Result<(), Str> {{
   let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
 {built}
   let _ = io.println(ctx, "done ${{n}}").ignore();
@@ -3332,10 +3435,11 @@ fn the_bounded_methods_are_the_types_own_range() {
         "bounded",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/number" import * as number;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "u8 ${number.minValue<U8>()} ${number.maxValue<U8>()}").ignore();
   let _ = io.println(ctx, "i8 ${number.minValue<I8>()} ${number.maxValue<I8>()}").ignore();
@@ -3363,7 +3467,7 @@ export fn main(): Result<(), Str> {
 /// one — it allocates through `buri_rt_alloc` and reads no capability. The two
 /// readings agree for every context built from `core/host`, whose
 /// implementations are all empty structs, and they part company at
-/// `core/host/testing`, whose `TestAllocator` is `struct TestAllocator(I64)` and
+/// `platform/effect/testing`, whose `TestAllocator` is `struct TestAllocator(I64)` and
 /// carries a handle. Spreading that word into a C signature with no parameter
 /// for it shifts every argument after it by one register, which links and runs
 /// and answers garbage.
@@ -3378,20 +3482,21 @@ fn a_stateful_context_is_dropped_at_the_runtime_boundary() {
         "stateful-ctx",
         &program(
             r#"
-from "core/effect" import { Region };
+from "native" import { NativeHost };
+from "platform/effect" import { Region };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
-/// The shape `core/host/testing`'s `TestAllocator` has: a handle, because Buri
+/// The shape `platform/effect/testing`'s `TestAllocator` has: a handle, because Buri
 /// has no mutation and the state an allocator names lives elsewhere. Written
-/// out here rather than imported, because `core/host/testing` is importable
+/// out here rather than imported, because `platform/effect/testing` is importable
 /// only from a test source and the hazard is the *weight*, not the module.
 struct Arena { handle: Int }
 impl Allocator for Arena {
   fn allocate(self, bytes: Int): Region { Region(bytes) }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: Arena { handle: 7 }, Stdout: host.stdout };
   let _ = io.println(ctx, "pad [${"abc".padStart(ctx, 6, '.')}]").ignore();
   let _ = io.println(ctx, "cat ${"ab".concat(ctx, "cd")}").ignore();
@@ -3429,10 +3534,11 @@ fn the_exact_half_of_core_math_runs() {
         "math",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/math" import * as math;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "sqrt ${math.squareRoot(9.0)} abs ${math.absoluteFloat(0.0 - 2.5)}").ignore();
   let _ = io.println(ctx, "floor ${math.floor(1.7)} ceil ${math.ceiling(1.2)}").ignore();
@@ -3479,7 +3585,9 @@ fn the_checked_and_saturating_families_are_bounded_by_the_type() {
         "checked",
         &program(
             r#"
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let say = fn(o: Option<Int>) => match (o) { .Some(v) => "some", .None => "none" };
   let top: Int = 9223372036854775807;
@@ -3543,10 +3651,11 @@ fn the_bits_module_runs() {
         "bits",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/bits" import * as bits;
 from "core/io" import * as io;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "shl ${bits.shiftLeft(1, 10)} sar ${bits.shiftRightArithmetic(0 - 8, 1)}").ignore();
   let _ = io.println(ctx, "shr ${bits.shiftRight(0 - 8, 1)}").ignore();
@@ -3586,12 +3695,13 @@ fn a_shift_out_of_range_aborts() {
         "shift-range",
         &program(
             r#"
+from "native" import { NativeHost };
 from "core/bits" import * as bits;
 from "core/io" import * as io;
 
 fn go(n: Int): Int { bits.shiftLeft(1, n) }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "before").ignore();
   let _ = io.println(ctx, "${go(64)}").ignore();
@@ -3636,6 +3746,7 @@ fn an_aggregate_of_counted_values_outlives_its_own_projections() {
     skip_unless_executable!();
     let source = program(
         r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 
@@ -3645,7 +3756,7 @@ fn dupTuple(s: Str): (Str, Str) { (s, s) }
 fn dupStruct(s: Str): Pair { Pair { a: s, b: s } }
 fn twoTuple(a: Str, b: Str): (Str, Str) { (a, b) }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let heap = "ab".repeat(ctx, 3);
   let other = "cd".repeat(ctx, 2);
@@ -3704,6 +3815,7 @@ fn a_borrowing_projection_does_not_end_its_bases_lifetime() {
     skip_unless_executable!();
     let source = program(
         r#"
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -3717,7 +3829,7 @@ fn spin(n: Int, p: (Str, Str)): Str {
   if (n == 0) { p.0 } else { spin(n - 1, (p.1, p.0)) }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
 
   // 1. A field projection through a function's return value.
@@ -3774,22 +3886,23 @@ fn interpolating_in_a_loop_leaks_nothing() {
     let source = |n: u32| {
         program(&format!(
             r#"
+from "native" import {{ NativeHost }};
 from "core/io" import * as io;
 from "core/str" import * as str;
 
-fn go(n: Int, acc: Int): Int {{
+fn go(host: NativeHost, n: Int, acc: Int): Int {{
   if (n <= 0) {{ acc }} else {{
     let h = "ab".repeat(host.alloc, 3);
     let p = (h, h);
     let s = str.format(host.alloc, "[${{p.0}}][${{p.1}}]");
     let _ = io.println(host.stdout, "${{n}}").ignore();
-    go(n - 1, acc + s.length())
+    go(host, n - 1, acc + s.length())
   }}
 }}
 
-export fn main(): Result<(), Str> {{
+export fn main(host: NativeHost): Result<(), Str> {{
   let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
-  let _ = io.println(ctx, "total ${{go({n}, 0)}}").ignore();
+  let _ = io.println(ctx, "total ${{go(host, {n}, 0)}}").ignore();
   .Ok(())
 }}
 "#
@@ -3844,6 +3957,7 @@ fn an_empty_list_is_not_a_block() {
     let source = |n: u32| {
         program(&format!(
             r#"
+from "native" import {{ NativeHost }};
 from "core/list" import * as list;
 
 struct Wrapper {{ octets: [U8] }}
@@ -3858,7 +3972,7 @@ fn go(n: Int, acc: Int): Int {{
   }}
 }}
 
-export fn main(): Result<(), Str> {{
+export fn main(host: NativeHost): Result<(), Str> {{
   let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
   let _ = io.println(ctx, "total ${{go({n}, 0)}}").ignore();
   .Ok(())
@@ -3918,7 +4032,8 @@ fn a_value_that_implements_alloc_is_a_context_bounds_argument() {
         "bare-implementor",
         &program(
             r#"
-from "core/effect" import { Region };
+from "native" import { NativeHost };
+from "platform/effect" import { Region };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -3953,7 +4068,7 @@ fn joined<C: Allocator>(ctx: C, a: Str, b: Str): Str {
   a.concat(ctx, b)
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let bare = Tagged { inner: ctx, tag: 9 };
   let pushedOnto = pushed(bare, 7, [1]);
@@ -4259,7 +4374,7 @@ fn a_memo_and_a_watcher_run_under_the_release_backend() {
     skip_unless_executable!();
     let source = r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Scope, Ui, Watch };
 from "ui/prop" import { memo, Prop };
@@ -4329,7 +4444,7 @@ fn a_struct_holding_an_ordered_container_survives_a_signal() {
     skip_unless_executable!();
     let source = r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 from "core/orderedmap" import * as orderedmap;
 from "core/orderedmap" import { OrderedMap };
 from "core/orderedset" import * as orderedset;
@@ -4618,8 +4733,8 @@ fn the_text_a_shaper_has_to_survive_paints_the_same_bytes_under_the_release_back
 fn a_painted_snapshot_leaves_the_tree_intact_under_the_release_backend() {
     skip_unless_executable!();
     let source = r#"
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "core/orderedmap" import * as orderedmap;
 from "core/orderedmap" import { OrderedMap };
 from "core/testing/assert" import * as assert;
@@ -4710,7 +4825,9 @@ fn total(c: Chain): Int {
     }
 }
 
-export fn main(): Result<(), Str> {
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
     let chain = Chain.Link(Box { next: .Link(Box { next: .End, value: 20 }), value: 22 });
     let _ = io.println(ctx, "${total(chain)}").ignore();

@@ -8,9 +8,9 @@
 //!
 //! ```buri run
 //! from "core/cli" import * as cli;
-//! from "core/effect" import { Allocator, Environment, Stderr, Stdout };
-//! from "core/host" import * as host;
 //! from "core/io" import * as io;
+//! from "node" import { NodeHost };
+//! from "platform/effect" import { Allocator, Environment, Stderr, Stdout };
 //!
 //! fn greet<C: Allocator + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
 //!     let who = arguments.arg("name").withDefault("world");
@@ -60,7 +60,7 @@
 //!     }
 //! }
 //!
-//! export fn main(): Result<(), Str> {
+//! export fn main(host: NodeHost): Result<(), Str> {
 //!     let ctx = context {
 //!         Allocator: host.alloc,
 //!         Environment: host.env,
@@ -123,16 +123,16 @@
 //!
 //! ## Testing a spec
 //!
-//! `run` reads `env.arguments`, and a test hands it `core/host/testing`'s
+//! `run` reads `env.arguments`, and a test hands it `platform/effect/testing`'s
 //! environment double instead — with a captured `Stdout` and `Stderr` to read
 //! the answer back out of. No file, no process, no real host:
 //!
 //! ```buri role=test
 //! from "core/cli" import * as cli;
-//! from "core/effect" import { Allocator, Environment, Stderr, Stdout };
-//! from "core/host/testing" import { alloc, env, stderr, stdout };
 //! from "core/io" import * as io;
 //! from "core/testing/assert" import * as assert;
+//! from "platform/effect" import { Allocator, Environment, Stderr, Stdout };
+//! from "platform/effect/testing" import { alloc, env, stderr, stdout };
 //!
 //! fn greet<C: Allocator + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
 //!     let _ = io
@@ -202,7 +202,6 @@
 //! **There is no `argv[0]`.** Both hosts drop the program's own name before a
 //! Buri program sees it, so `Cli.name` is what `--help` calls the program.
 
-from "core/effect" import { Allocator, Environment, Stderr, Stdout };
 from "core/env" import * as env;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -211,6 +210,7 @@ from "core/map" import { Map };
 from "core/set" import * as set;
 from "core/set" import { Set };
 from "core/str" import * as str;
+from "platform/effect" import { Allocator, Environment, Stderr, Stdout };
 
 // ---------------------------------------------------------------------------
 // The declaration
@@ -388,7 +388,7 @@ struct Step {
 /// Read the arguments, parse them, and fire the command they name.
 ///
 /// The one call a `main` needs, and the only exported function here. A test
-/// reaches it by handing `core/host/testing`'s environment double an argv of its
+/// reaches it by handing `platform/effect/testing`'s environment double an argv of its
 /// own (see the module header).
 ///
 /// `.Ok(())` is exit 0. A parse error goes to stderr with the usage under it
@@ -402,7 +402,7 @@ export fn run<C: Allocator + Environment + Stderr + Stdout>(
 }
 
 /// `run`, with the arguments given rather than read. Private: a caller with an
-/// argv in hand is a test, which `core/host/testing` already serves.
+/// argv in hand is a test, which `platform/effect/testing` already serves.
 fn fire<C: Allocator + Stderr + Stdout>(
     ctx: C,
     spec: Cli<C>,

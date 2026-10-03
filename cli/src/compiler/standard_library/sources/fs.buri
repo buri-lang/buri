@@ -10,9 +10,9 @@
 //! delete it.
 //!
 //! ```buri sig
-//! # from "core/effect" import { Allocator, IoError };
 //! # from "core/fs" import * as fs;
 //! # from "core/fs" import { FileSystemRead, Path };
+//! # from "platform/effect" import { Allocator, IoError };
 //!
 //! export fn settings<C: Allocator + FileSystemRead>(
 //!     ctx: C,
@@ -69,7 +69,7 @@
 //! | native, Linux | `fsync(2)` | the process, and the operating system |
 //! | native, macOS | `fcntl(F_FULLFSYNC)` | those two, and the drive's own cache |
 //! | JavaScript runner | `fs.fsyncSync` | the process, and the operating system |
-//! | `core/host/testing`'s `TestFileSystem` | nothing to flush | the test that wrote it |
+//! | `platform/effect/testing`'s `TestFileSystem` | nothing to flush | the test that wrote it |
 //!
 //! Watch the macOS rows. Node's `fsync` is the plain `fsync(2)`, which on
 //! macOS asks the drive to write its cache and does not wait for it. The
@@ -82,14 +82,14 @@
 //! — and [`writeAtomic`] is those four written once.
 
 from "core/crypto" import * as crypto;
-from "core/effect" import { Allocator, Entropy, Environment, IoError };
 from "core/env" import * as env;
 from "core/path" import * as path;
 from "core/path" import { Path };
 from "core/str" import * as str;
 from "core/time" import { Instant };
+from "platform/effect" import { Allocator, Entropy, Environment, IoError };
 
-from "core/effect" export { IoError };
+from "platform/effect" export { IoError };
 
 from "core/path" export { Path };
 
@@ -234,14 +234,14 @@ export fn readBytes<C: Allocator + FileSystemRead>(
 /// read is `.Err(.PermissionDenied)`, not `.Ok(.None)`.
 ///
 /// ```buri run
-/// from "core/effect" import { Allocator, Stdout };
 /// from "core/fs" import * as fs;
 /// from "core/fs" import { FileSystemRead };
-/// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/path" import * as path;
+/// from "node" import { NodeHost };
+/// from "platform/effect" import { Allocator, Stdout };
 ///
-/// export fn main(): Result<(), Str> {
+/// export fn main(host: NodeHost): Result<(), Str> {
 ///     let ctx = context {
 ///         Allocator: host.alloc,
 ///         FileSystemRead: host.fs,
@@ -413,14 +413,14 @@ export fn sync<C: FileSystemWrite>(ctx: C, path: Path): Result<(), IoError> {
 /// What the filesystem knows about `path`, without opening it.
 ///
 /// ```buri run
-/// from "core/effect" import { Allocator, Stdout };
 /// from "core/fs" import * as fs;
 /// from "core/fs" import { FileSystemRead };
-/// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/path" import * as path;
+/// from "node" import { NodeHost };
+/// from "platform/effect" import { Allocator, Stdout };
 ///
-/// export fn main(): Result<(), Str> {
+/// export fn main(host: NodeHost): Result<(), Str> {
 ///     let ctx = context {
 ///         Allocator: host.alloc,
 ///         FileSystemRead: host.fs,

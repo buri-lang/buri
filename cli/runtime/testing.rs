@@ -1,4 +1,4 @@
-//! `core/host/testing` — the test runner's platform, natively — and the
+//! `platform/effect/testing` — the test runner's platform, natively — and the
 //! runner's own protocol, at the bottom of this file.
 //!
 //! Two halves of one subject, and the second is the shorter: a native test
@@ -106,7 +106,7 @@ enum Slot {
     /// `TestSpawn` — the log, and nothing else. The scripted answer stays in
     /// the program, because `IoError::Other` carries a `Str`.
     Spawn { calls: Vec<SpawnLog> },
-    /// `core/host/testing`'s `TestFileSystem` — a **view**: the handle of the
+    /// `platform/effect/testing`'s `TestFileSystem` — a **view**: the handle of the
     /// [`Slot::Files`] store its files live in, and whether writes through this
     /// view are refused.
     ///
@@ -126,7 +126,7 @@ enum Slot {
     /// `read_only` does — a builder is configuration and not a write — so the
     /// filesystem `fs().faults(p).files(x)` answers fails what `p` names.
     Fs { store: i64, read_only: bool, plan: i64, calls: Vec<FsLog> },
-    /// `core/host/testing`'s `TestNetwork` — its log and the plan it fails through,
+    /// `platform/effect/testing`'s `TestNetwork` — its log and the plan it fails through,
     /// and nothing else.
     ///
     /// The one slot that holds no state the double *reads*: a `TestNetwork` carries
@@ -150,7 +150,7 @@ enum Slot {
     /// call replaces the plan, and a promise nothing can keep any more is not
     /// one to report.
     Plan { entries: Vec<PlanEntry>, retired: bool },
-    /// `core/host/testing`'s `TestTasks` — the order it schedules its tasks
+    /// `platform/effect/testing`'s `TestTasks` — the order it schedules its tasks
     /// in, the plan it fails them through, and the tasks that have completed.
     ///
     /// `mode` is program order, one seeded order, or every order; `seed` is the
@@ -165,7 +165,7 @@ enum Slot {
     /// needs it. `plan` still names the [`Slot::Plan`] holding the *promise*,
     /// entry for entry with this list.
     Tasks { mode: i64, seed: i64, plan: i64, log: Vec<i64>, faults: Vec<TaskFault> },
-    /// `core/host/testing`'s `TestSockets` — every message pushed through it,
+    /// `platform/effect/testing`'s `TestSockets` — every message pushed through it,
     /// oldest first, and nothing else.
     ///
     /// The sockets are not in here. [`Slot::Socket`] is one apiece, which makes
@@ -174,7 +174,7 @@ enum Slot {
     /// has, and that is what makes two `sockets()` calls two worlds the way two
     /// `fs()` calls are two filesystems.
     Sockets { sent: Vec<SentLog> },
-    /// `core/host/testing`'s `TestTcp` — the octets a read draws from, how far
+    /// `platform/effect/testing`'s `TestTcp` — the octets a read draws from, how far
     /// through them it has got, which of its streams are still open, and the
     /// log.
     ///
@@ -185,7 +185,7 @@ enum Slot {
     ///
     /// `open` is the streams this double has minted and not yet been told to
     /// close. A handle outside it is one already closed, which is what
-    /// `core/effect` promises of the real effect and therefore what the double
+    /// `platform/effect` promises of the real effect and therefore what the double
     /// has to promise too.
     Tcp { stream: Vec<u8>, taken: usize, open: Vec<i64>, calls: Vec<TcpLog> },
     /// One socket `TestSockets::open` minted: which double owns it, whether it
@@ -200,7 +200,7 @@ enum Slot {
     /// is what makes `socket.close(c, .GoingAway)` reach `onClose` as
     /// `.GoingAway`. `None` while the socket is open.
     Socket { owner: i64, open: bool, closed: Option<i64> },
-    /// `core/host/testing`'s `TestWebSocketClient` — the `sockets()` double its
+    /// `platform/effect/testing`'s `TestWebSocketClient` — the `sockets()` double its
     /// socket belongs to, the messages it will deliver, and how far through them
     /// it has got.
     ///
@@ -236,7 +236,7 @@ struct Scripted {
     data: Vec<u8>,
 }
 
-/// One call to a `TestFileSystem`, as `core/host/testing`'s `FsCall` records it: the
+/// One call to a `TestFileSystem`, as `platform/effect/testing`'s `FsCall` records it: the
 /// method's name, the path, and the second argument as text.
 ///
 /// `name` is `&'static str` because the only names are the eleven this file
@@ -248,7 +248,7 @@ struct FsLog {
 }
 
 /// One request through a `TestNetwork`, as `NetCall` records it — `Request`'s five
-/// fields, in the order `core/effect` declares them.
+/// fields, in the order `platform/effect` declares them.
 ///
 /// `method` is the variant's index, which is what crosses in either direction:
 /// `host_testing.buri`'s `methodCode` sends it and [`BuriNetCall`] writes it
@@ -261,7 +261,7 @@ struct NetLog {
     timeout_millis: i64,
 }
 
-/// One call through a `TestTcp`, as `core/host/testing`'s `TcpCall` records it.
+/// One call through a `TestTcp`, as `platform/effect/testing`'s `TcpCall` records it.
 ///
 /// One record for four operations, because a log a test compares by value is
 /// easier to read as one shape than as four: the fields an operation does not
@@ -485,7 +485,7 @@ fn transcript(handle: i64) -> String {
     })
 }
 
-/// `IoError`'s variant indices, in declaration order in `core/effect`, for the
+/// `IoError`'s variant indices, in declaration order in `platform/effect`, for the
 /// two errors this filesystem produces.
 ///
 /// Named rather than written as literals because the numbers are `lib.rs`
@@ -567,7 +567,7 @@ fn next(handle: i64) -> u32 {
 }
 
 // ---------------------------------------------------------------------------
-// `core/host/testing` — the same doubles, under `core/host`'s names
+// `platform/effect/testing` — the same doubles, under `core/host`'s names
 // ---------------------------------------------------------------------------
 //
 // One table, not two: these share [`TABLE`] with the entries above, because a
@@ -699,7 +699,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_stdin(out: *mut i64) {
 ///
 /// It does not keep the receiver's octets, and `bytes` does not keep its
 /// lines: a stream is one or the other, and the last builder in a chain is the
-/// stream. `core/host/testing`'s header says so where a reader meets it.
+/// stream. `platform/effect/testing`'s header says so where a reader meets it.
 ///
 /// # Safety
 /// `xs` points at `count` [`BuriStr`]s; `out` is writable and aligned for an
@@ -797,7 +797,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_read_bytes(
     BURI_OK
 }
 
-// -- `core/host/testing`'s filesystem ---------------------------------------
+// -- `platform/effect/testing`'s filesystem ---------------------------------------
 //
 // A `TestFileSystem` handle is a **view**: [`Slot::Fs`] names the [`Slot::Files`] store
 // its files live in and says whether writes through *this* view are refused.
@@ -812,7 +812,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_read_bytes(
 // attenuate the receiver as well (a builder that edited what it was called
 // on, which no other builder in this module does).
 
-/// `IoError::ReadOnly`'s index, in declaration order in `core/effect`.
+/// `IoError::ReadOnly`'s index, in declaration order in `platform/effect`.
 ///
 /// `lib.rs` §2.1's "the error variant's index in declaration order", like
 /// [`IO_NOT_FOUND`] and [`IO_ALREADY_EXISTS`] above.
@@ -1598,8 +1598,8 @@ pub extern "C" fn buri_rt_host_testing_test_random_next_float(handle: i64) -> f6
 /// than two.
 ///
 /// It is also the whole of what a *test* wants from this effect, and the exact
-/// opposite of what `core/effect`'s `Entropy` promises a program — which is why
-/// `core/host/testing` is importable only from a test source.
+/// opposite of what `platform/effect`'s `Entropy` promises a program — which is why
+/// `platform/effect/testing` is importable only from a test source.
 ///
 /// # Safety
 /// `out` must be writable and aligned for an `i64`.
@@ -1769,13 +1769,13 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_environment_arguments(
     unsafe { out.write(value) }
 }
 
-// `core/host/testing`'s `proc()` has no entries here, and that is the whole of
+// `platform/effect/testing`'s `proc()` has no entries here, and that is the whole of
 // the double: `TestProcess` records nothing, because nothing can read it back.
 // `proc()` is `TestProcess(0)` and `exitWith` is an empty body, both written in
 // `host_testing.buri` — the same shape `TestNetwork` has, reached for the plainer
 // reason.
 
-// -- `core/host/testing`'s `sockets()` ---------------------------------------
+// -- `platform/effect/testing`'s `sockets()` ---------------------------------------
 //
 // A socket with no network behind it. `open` mints one, the three `Sockets`
 // methods act on it, and `sent` reads back what was pushed — which is the whole
@@ -1793,7 +1793,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_environment_arguments(
 // promises never to wait, and a double that records the push and returns keeps
 // that promise with nothing behind it.
 
-/// `Frame::Text`'s variant index, which is `core/effect`'s declared order and
+/// `Frame::Text`'s variant index, which is `platform/effect`'s declared order and
 /// the same number `net.rs` writes into a `Received`.
 const FRAME_TEXT: i8 = 0;
 
@@ -1806,7 +1806,7 @@ const FRAME_BINARY: i8 = 1;
 ///
 /// The other field is empty rather than absent, which is `Received`'s shape one
 /// file over and is there for `Received`'s reason: a flat record crosses whole,
-/// and `core/host/testing` builds the `Message` out of it on the Buri side.
+/// and `platform/effect/testing` builds the `Message` out of it on the Buri side.
 struct SentLog {
     socket: i64,
     frame: i8,
@@ -1979,7 +1979,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_sockets_sent(handle: i64, out: *mu
     unsafe { out.write(value) }
 }
 
-// -- `core/host/testing`'s `websocketClient()` -------------------------------
+// -- `platform/effect/testing`'s `websocketClient()` -------------------------------
 //
 // A WebSocket client with a script instead of a network. `connectSocket` mints
 // a socket on the `sockets()` double it was handed and answers a `101`;
@@ -1994,7 +1994,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_sockets_sent(handle: i64, out: *mu
 /// `Frame::Closed`'s variant index, beside [`FRAME_TEXT`] and [`FRAME_BINARY`].
 const FRAME_CLOSED: i8 = 2;
 
-/// `ServeFailure::Closed`'s variant index, in `core/effect`'s declared order.
+/// `ServeFailure::Closed`'s variant index, in `platform/effect`'s declared order.
 const SERVE_CLOSED: i8 = 5;
 
 /// `ServeFailure::Unsupported`'s, which is what a URL this double cannot dial
@@ -2282,7 +2282,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_rec
     BURI_OK
 }
 
-// -- `core/host/testing`'s call log -----------------------------------------
+// -- `platform/effect/testing`'s call log -----------------------------------------
 //
 // One append-only log per handle: `Slot::Fs`'s, `Slot::Net`'s and
 // `Slot::Stdin`'s. What a double answers comes from its fixture and what it was
@@ -3116,7 +3116,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_spelled(
 // `note_failure` already makes: the compiler's `Show` renders the values and
 // this file writes the line.
 
-/// `IoError`'s variant names, in declaration order in `core/effect`, as a
+/// `IoError`'s variant names, in declaration order in `platform/effect`, as a
 /// failure message spells them.
 ///
 /// The indices are `ioCode`'s, and the two lists are held together by
@@ -3516,7 +3516,7 @@ static WATERMARK: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsiz
 
 /// The end of a `test` block: every fault the block planned has happened.
 ///
-/// The other half of `core/host/testing`'s `faults`, and the half a program
+/// The other half of `platform/effect/testing`'s `faults`, and the half a program
 /// cannot check for itself — the block has returned by the time the question can
 /// be asked. `middle::monomorphize` emits this call after every test body, so it
 /// runs on all three backends from one place; `runtime.js`'s `$test_leave` is
@@ -5044,7 +5044,7 @@ mod tests {
         assert_eq!(sent_on(double), Vec::new());
     }
 
-    /// The log's shape, at the row `core/host/testing`'s `sent` reads it
+    /// The log's shape, at the row `platform/effect/testing`'s `sent` reads it
     /// through: a `[Sent]` whose stride is `Sent`'s own layout.
     ///
     /// `Sent` is `{ socket: Int, frame: Frame, text: Str, data: [U8] }` and
@@ -5083,7 +5083,7 @@ mod tests {
         assert_eq!(second.frame, FRAME_BINARY);
         assert_eq!(second.data.len, 3);
         // A framing names one field and the other is empty rather than absent,
-        // which is what lets `core/host/testing` build the `Message` from it.
+        // which is what lets `platform/effect/testing` build the `Message` from it.
         // SAFETY: written by the call above.
         assert_eq!(unsafe { second.text.as_str() }, "");
         assert_eq!(first.data.len, 0);

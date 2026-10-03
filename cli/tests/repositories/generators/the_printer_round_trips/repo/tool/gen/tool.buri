@@ -9,9 +9,9 @@
 //! that reads both is what says the two mean the same thing.
 
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/tool" import { Generated, GenerateRequest };
+from "platform/effect" import { Allocator };
 
 export fn generate<C: Allocator>(ctx: C, _request: GenerateRequest<Str>): Generated {
     Generated { modules: [("every", moduleOf(ctx))], diagnostics: [], needs: [] }
@@ -100,7 +100,7 @@ fn moduleOf<C: Allocator>(ctx: C): ast.Module {
         items: [
             item(
                 .Import(ast.Import {
-                    path: "core/effect",
+                    path: "platform/effect",
                     clause: .Named([spec("Allocator")]),
                 }),
             ),

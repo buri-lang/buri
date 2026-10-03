@@ -2510,7 +2510,7 @@ fn bounded_expr(rng: &mut Rng, depth: u32, x: i64) -> (String, i64) {
 fn printer(rng: &mut Rng) -> Printer {
     let funcs = 1 + rng.below(5);
     let mut text = String::from(
-        "from \"core/effect\" import { Allocator, Stdout };\nfrom \"core/host\" import * as host;\n\
+        "from \"platform/effect\" import { Allocator, Stdout };\n\
          from \"core/io\" import * as io;\n\n",
     );
     let mut lines: Vec<String> = Vec::new();
@@ -2581,7 +2581,9 @@ fn printer(rng: &mut Rng) -> Printer {
     expected.push(sum.to_string());
 
     text.push_str(
-        "export fn main(): Result<(), Str> {\n  \
+        "from \"node\" import { NodeHost };\n\
+\n\
+export fn main(host: NodeHost): Result<(), Str> {\n  \
          let ctx = context { Allocator: host.alloc, Stdout: host.stdout };\n",
     );
     for l in &lines {
@@ -2714,10 +2716,11 @@ fn report_native_participation(done: usize) {
 /// One string rather than a builder because none of it varies: what varies is
 /// the calls `main` makes, and a generator that rewrote the declarations would
 /// be generating a different language rather than a different program.
-const RC_PRELUDE: &str = r#"from "core/host" import { stdout, alloc };
+const RC_PRELUDE: &str = r#"from "platform/effect" import { Allocator, Stdout };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
+from "node" import { NodeHost };
 
 struct Body { text: Str }
 enum Held { Text(Body), Number(Int) }
@@ -2743,16 +2746,16 @@ struct Walk { seen: [Int], total: Int }
 
 fn identity<T>(value: T): T { value }
 
-fn rows(count: Int): [Row] {
-  list.range(alloc, 0, count).map(alloc, fn(n) => Row {
-    name: "r".repeat(alloc, n + 1),
-    cell: Cell { held: Held.Text(Body { text: "v".repeat(alloc, n + 1) }) },
+fn rows<C: Allocator>(ctx: C, count: Int): [Row] {
+  list.range(ctx, 0, count).mapCtx(ctx, fn(c, n) => Row {
+    name: "r".repeat(c, n + 1),
+    cell: Cell { held: Held.Text(Body { text: "v".repeat(c, n + 1) }) },
     rank: count - n,
   })
 }
 
-fn deep(count: Int): D3 {
-  D3 { inner: D2 { inner: D1 { inner: Items { items: rows(count) } } } }
+fn deep<C: Allocator>(ctx: C, count: Int): D3 {
+  D3 { inner: D2 { inner: D1 { inner: Items { items: rows(ctx, count) } } } }
 }
 
 // 1. A projection off the body `inline` pasted in, read three ways: one step
@@ -2760,97 +2763,97 @@ fn deep(count: Int): D3 {
 // and one step into a call.
 //
 // **Each of these takes exactly one field off the compound base**, and that is
-// deliberate. The *chained* spelling — `identity(deep(n)).inner.inner` — leaks
+// deliberate. The *chained* spelling — `identity(deep(ctx, n)).inner.inner` — leaks
 // its intermediate, which is pinned as its own row next door
 // (`native/agreement.rs`'s `a_projection_off_a_generic_calls_result_agrees`,
 // which asserts the exact number of blocks so a fix fails it). Drawing it here
 // would make every draw report that one finding and never reach a second,
 // which is the argument `known_signatures` makes for the recorded corpus.
-fn projectedInline(count: Int): Int {
-  let d2 = identity(deep(count)).inner;
+fn projectedInline<C: Allocator>(ctx: C, count: Int): Int {
+  let d2 = identity(deep(ctx, count)).inner;
   let d1 = d2.inner;
   let items = d1.inner;
   items.items.length()
 }
-fn projectedBound(count: Int): Int {
-  let held = identity(deep(count)).inner;
+fn projectedBound<C: Allocator>(ctx: C, count: Int): Int {
+  let held = identity(deep(ctx, count)).inner;
   countOf(held.inner.inner)
 }
-fn projectedTwice(count: Int): Int {
-  let outer = identity(deep(count)).inner;
+fn projectedTwice<C: Allocator>(ctx: C, count: Int): Int {
+  let outer = identity(deep(ctx, count)).inner;
   let inner = outer.inner;
   countOf(inner.inner)
 }
 fn countOf(items: Items): Int { items.items.length() }
 
-fn step(k: Int, held: Int): Step {
+fn step<C: Allocator>(ctx: C, k: Int, held: Int): Step {
   Step {
     manager: Manager { held: held },
     outcome: .Attached {
-      id: "se".repeat(alloc, k),
+      id: "se".repeat(ctx, k),
       status: 0,
-      reply: Msg { body: "re".repeat(alloc, k) },
-      flush: [Msg { body: "fl".repeat(alloc, k) }],
+      reply: Msg { body: "re".repeat(ctx, k) },
+      flush: [Msg { body: "fl".repeat(ctx, k) }],
     },
   }
 }
 
-fn sent(manager: Manager, messages: [Msg]): Str {
-  let bodies = messages.map(alloc, fn(message) => message.body).join(alloc, ",");
-  str.format(alloc, "${bodies}/${manager.held}")
+fn sent<C: Allocator>(ctx: C, manager: Manager, messages: [Msg]): Str {
+  let bodies = messages.map(ctx, fn(message) => message.body).join(ctx, ",");
+  str.format(ctx, "${bodies}/${manager.held}")
 }
 
 // 2. The scrutinee's base is read inside the arm, which is its last use.
-fn insideArm(k: Int, held: Int): Str {
-  let s = step(k, held);
+fn insideArm<C: Allocator>(ctx: C, k: Int, held: Int): Str {
+  let s = step(ctx, k, held);
   match (s.outcome) {
     .Attached { id, reply, flush, .. } => {
-      sent(s.manager, [Msg { body: id }].concat(alloc, [reply].concat(alloc, flush)))
+      sent(ctx, s.manager, [Msg { body: id }].concat(ctx, [reply].concat(ctx, flush)))
     },
-    .Refused { reply } => sent(s.manager, [reply]),
+    .Refused { reply } => sent(ctx, s.manager, [reply]),
   }
 }
 
 // The same, with the base read before the match, which is the workaround the
 // report found and which has to go on answering the same thing.
-fn beforeMatch(k: Int, held: Int): Str {
-  let s = step(k, held);
+fn beforeMatch<C: Allocator>(ctx: C, k: Int, held: Int): Str {
+  let s = step(ctx, k, held);
   let manager = s.manager;
   match (s.outcome) {
     .Attached { id, reply, flush, .. } => {
-      sent(manager, [Msg { body: id }].concat(alloc, [reply].concat(alloc, flush)))
+      sent(ctx, manager, [Msg { body: id }].concat(ctx, [reply].concat(ctx, flush)))
     },
-    .Refused { reply } => sent(manager, [reply]),
+    .Refused { reply } => sent(ctx, manager, [reply]),
   }
 }
 
 // 3. Two members of one tail-recursive group whose parameter lists differ.
-fn walkFrom(octets: [U8], at: Int, state: Walk): Result<Walk, Fault> {
+fn walkFrom<C: Allocator>(ctx: C, octets: [U8], at: Int, state: Walk): Result<Walk, Fault> {
   match (octets[at]) {
     .None => .Ok(state),
-    .Some(octet) => walkOne(octets, at, octet, state),
+    .Some(octet) => walkOne(ctx, octets, at, octet, state),
   }
 }
 
-fn walkOne(octets: [U8], at: Int, octet: U8, state: Walk): Result<Walk, Fault> {
+fn walkOne<C: Allocator>(ctx: C, octets: [U8], at: Int, octet: U8, state: Walk): Result<Walk, Fault> {
   if (octet == 255) {
     .Err(.Corrupt)
   } else {
-    walkFrom(octets, at + 1, Walk {
-      seen: state.seen.push(alloc, octet.toI64()),
+    walkFrom(ctx, octets, at + 1, Walk {
+      seen: state.seen.push(ctx, octet.toI64()),
       total: state.total + octet.toI64(),
     })
   }
 }
 
-fn walk(octets: [U8]): Result<Int, Fault> {
-  let walked = walkFrom(octets, 0, Walk { seen: list.empty<Int>(), total: 0 })?;
+fn walk<C: Allocator>(ctx: C, octets: [U8]): Result<Int, Fault> {
+  let walked = walkFrom(ctx, octets, 0, Walk { seen: list.empty<Int>(), total: 0 })?;
   .Ok(walked.total + walked.seen.length())
 }
 
-fn shownWalk(answer: Result<Int, Fault>): Str {
+fn shownWalk<C: Allocator>(ctx: C, answer: Result<Int, Fault>): Str {
   match (answer) {
-    .Ok(n) => str.format(alloc, "${n}"),
+    .Ok(n) => str.format(ctx, "${n}"),
     .Err(.Corrupt) => "corrupt",
     .Err(.Incomplete) => "incomplete",
   }
@@ -2872,25 +2875,25 @@ fn wrappedMatch(held: Option<Wrapper>): Int {
 }
 
 // 5. `sortBy` over an element whose type holds an enum two levels down.
-fn label(row: Row): Str {
+fn label<C: Allocator>(ctx: C, row: Row): Str {
   let inner = match (row.cell.held) {
     .Text(body) => body.text,
-    .Number(n) => str.format(alloc, "${n}"),
+    .Number(n) => str.format(ctx, "${n}"),
   };
-  str.format(alloc, "${row.name}=${inner}:${row.rank}")
+  str.format(ctx, "${row.name}=${inner}:${row.rank}")
 }
 
-fn shownRows(xs: [Row]): Str { xs.map(alloc, fn(row) => label(row)).join(alloc, " ") }
-fn byRank(xs: [Row]): [Row] { xs.sortBy(alloc, fn(a, b) => a.rank.compare(b.rank)) }
-fn sorted(count: Int): Str { shownRows(byRank(rows(count))) }
+fn shownRows<C: Allocator>(ctx: C, xs: [Row]): Str { xs.mapCtx(ctx, fn(c, row) => label(c, row)).join(ctx, " ") }
+fn byRank<C: Allocator>(ctx: C, xs: [Row]): [Row] { xs.sortBy(ctx, fn(a, b) => a.rank.compare(b.rank)) }
+fn sorted<C: Allocator>(ctx: C, count: Int): Str { shownRows(ctx, byRank(ctx, rows(ctx, count))) }
 
 // 6. A closure over a list built outside it, indexed back through an option.
-fn gathered(count: Int): Str {
-  let base = rows(count);
-  let names = base.map(alloc, fn(row) => row.name);
-  list.range(alloc, 0, count)
-    .map(alloc, fn(i) => names[i].withDefault("-"))
-    .join(alloc, "+")
+fn gathered<C: Allocator>(ctx: C, count: Int): Str {
+  let base = rows(ctx, count);
+  let names = base.map(ctx, fn(row) => row.name);
+  list.range(ctx, 0, count)
+    .map(ctx, fn(i) => names[i].withDefault("-"))
+    .join(ctx, "+")
 }
 "#;
 
@@ -2906,11 +2909,14 @@ fn rc_shapes(rng: &mut Rng) -> Printer {
     let mut expected: Vec<String> = Vec::new();
     for _ in 0..RC_LINES {
         let (call, answer) = rc_line(rng);
-        lines.push(format!("  let _ = io.println(stdout, {call}).ignore();\n"));
+        lines.push(format!("  let _ = io.println(ctx, {call}).ignore();\n"));
         expected.push(answer);
     }
     let mut text = String::from(RC_PRELUDE);
-    text.push_str("\nexport fn main(): Result<(), Str> {\n");
+    text.push_str(
+        "\nexport fn main(host: NodeHost): Result<(), Str> {\n  \
+         let ctx = context { Allocator: host.alloc, Stdout: host.stdout };\n",
+    );
     for l in &lines {
         text.push_str(l);
     }
@@ -2931,11 +2937,11 @@ fn rc_line(rng: &mut Rng) -> (String, String) {
     let n = 1 + rng.below(5) as i64;
     match rng.below(9) {
         0 => (
-            format!("\"${{projectedInline({n})}}\""),
+            format!("\"${{projectedInline(ctx, {n})}}\""),
             n.to_string(),
         ),
-        1 => (format!("\"${{projectedBound({n})}}\""), n.to_string()),
-        2 => (format!("\"${{projectedTwice({n})}}\""), n.to_string()),
+        1 => (format!("\"${{projectedBound(ctx, {n})}}\""), n.to_string()),
+        2 => (format!("\"${{projectedTwice(ctx, {n})}}\""), n.to_string()),
         3 => {
             let held = rng.below(100) as i64;
             let k = 1 + rng.below(3) as i64;
@@ -2945,9 +2951,9 @@ fn rc_line(rng: &mut Rng) -> (String, String) {
                 "fl".repeat(k as usize),
             );
             let call = if rng.chance(2) {
-                format!("insideArm({k}, {held})")
+                format!("insideArm(ctx, {k}, {held})")
             } else {
-                format!("beforeMatch({k}, {held})")
+                format!("beforeMatch(ctx, {k}, {held})")
             };
             (call, format!("{id},{reply},{flush}/{held}"))
         }
@@ -2966,10 +2972,10 @@ fn rc_line(rng: &mut Rng) -> (String, String) {
             } else {
                 (octets.iter().sum::<i64>() + octets.len() as i64).to_string()
             };
-            (format!("shownWalk(walk([{list}]))"), answer)
+            (format!("shownWalk(ctx, walk(ctx, [{list}]))"), answer)
         }
         5 => (
-            String::from("shownWalk(walk(list.empty<U8>()))"),
+            String::from("shownWalk(ctx, walk(ctx, list.empty<U8>()))"),
             String::from("0"),
         ),
         6 => {
@@ -3036,14 +3042,14 @@ fn rc_line(rng: &mut Rng) -> (String, String) {
                 })
                 .collect::<Vec<_>>()
                 .join(" ");
-            (format!("sorted({n})"), answer)
+            (format!("sorted(ctx, {n})"), answer)
         }
         _ => {
             let answer = (0..n)
                 .map(|i| "r".repeat((i + 1) as usize))
                 .collect::<Vec<_>>()
                 .join("+");
-            (format!("gathered({n})"), answer)
+            (format!("gathered(ctx, {n})"), answer)
         }
     }
 }
@@ -3277,7 +3283,7 @@ fn the_properties_can_fail() {
          `design/PERFORMANCE.md` quotes its numbers over"
     );
     assert!(
-        fires("output", "export fn main(): Result<(), Str> {\n  .Ok(())\n}\n", Some("nope"))
+        fires("output", "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n  .Ok(())\n}\n", Some("nope"))
             .is_some()
             || !engine_present(),
         "`output` accepted a program that prints nothing as printing `nope`"
@@ -3311,7 +3317,7 @@ fn the_properties_can_fail() {
 fn the_watchdog_reports_a_toolchain_that_does_not_stop() {
     let s = Scratch::repo("fuzz-watchdog");
     s.write("app/BUILD.buri", harness::JS_BINARY);
-    s.write("app/main.buri", "export fn main(): Result<(), Str> {\n  .Ok(())\n}\n");
+    s.write("app/main.buri", "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n  .Ok(())\n}\n");
     // Zero, not a millisecond: a fast machine can finish a no-op JS build
     // inside any positive period, and the question here is whether the rule
     // fires, not whether the build is slow.
@@ -3336,7 +3342,7 @@ fn the_watchdog_reports_a_toolchain_that_does_not_stop() {
 #[test]
 fn the_minimiser_shrinks_to_the_same_finding() {
     let padded = format!(
-        "{}\nexport fn main(): Result<(), Str> {{\n  .Ok(())\n}}\n",
+        "from \"node\" import {{ NodeHost }};\n{}\nexport fn main(host: NodeHost): Result<(), Str> {{\n  .Ok(())\n}}\n",
         (0..40).map(|i| format!("fn pad{i}(): Int {{ {i} }}\n")).collect::<String>()
     );
     // One line the checker will refuse, buried in forty it will not.

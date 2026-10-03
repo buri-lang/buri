@@ -5,10 +5,10 @@
 //! claim.
 //!
 //! ```buri role=test
-//! from "core/effect" import { Allocator };
-//! from "core/host/testing" import { alloc };
 //! from "core/list" import * as list;
 //! from "core/testing/check" import * as check;
+//! from "platform/effect" import { Allocator };
+//! from "platform/effect/testing" import { alloc };
 //!
 //! test "reversing twice gives the list back" {
 //!     let ctx = context {
@@ -47,11 +47,11 @@
 //! report the way every other assertion does: the file, the line, and both
 //! values.
 
-from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/random" import * as random;
 from "core/random" import { Generator };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
 
 /// How many cases [`forAll`] and [`forAllCtx`] draw. A hundred is enough to
 /// meet the shapes a generator makes often and cheap enough to sit in a suite
@@ -105,10 +105,10 @@ export fn forAll<T>(
 /// which anything that builds a list does.
 ///
 /// ```buri role=test
-/// from "core/effect" import { Allocator };
-/// from "core/host/testing" import { alloc };
 /// from "core/list" import * as list;
 /// from "core/testing/check" import * as check;
+/// from "platform/effect" import { Allocator };
+/// from "platform/effect/testing" import { alloc };
 ///
 /// test "sorting keeps the length" {
 ///     let ctx = context {
@@ -153,10 +153,10 @@ export fn int(low: Int, high: Int): fn(Generator) => (Int, Generator) {
 /// generator [`forAllCtx`] takes, never [`forAll`]'s.
 ///
 /// ```buri role=test
-/// from "core/effect" import { Allocator };
-/// from "core/host/testing" import { alloc };
 /// from "core/list" import * as list;
 /// from "core/testing/check" import * as check;
+/// from "platform/effect" import { Allocator };
+/// from "platform/effect/testing" import { alloc };
 ///
 /// test "a drawn list is never longer than the bound" {
 ///     let ctx = context {

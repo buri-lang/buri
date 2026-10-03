@@ -1,12 +1,12 @@
 // The suite reaches its own library the way a dependent does — by the
-// package's surface — and reaches `core/host/testing` because it is a test
+// package's surface — and reaches `platform/effect/testing` because it is a test
 // source and nothing else may.
 
 from "core/actor" import * as actor;
 from "core/actor" import { Address };
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host/testing" import { alloc, stdout, tasks };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "platform/effect/testing" import { alloc, stdout, tasks };
 from "//lib/room" import { counter, CounterAnswer, CounterMessage };
 
 /// Sends `left` messages, one at a time. Every one of them runs the mailbox

@@ -262,9 +262,9 @@ The vocabulary is **closed**: a `tags` entry naming no `tag` block in
 `REPO.buri` is an error (`unknown-tag`).
 
 The platforms are `"native"`, `"node"` and `"web"`, and adding one is a
-toolchain change. A platform *is* the set of effects its host exports, so a `main` binding
-`Ui: host.ui` under `platform: "node"` fails with `effect-not-on-platform` as you
-edit the file, on every output the binary declares.
+toolchain change. Each entry takes its platform's host, whose fields are the
+effects it offers: `main(host: NodeHost)` binding `Ui: host.ui` is
+`no-such-field`. Two platforms mean two entries: `entries: { main: "mainForNode" }`.
 
 There is no `#if` and no conditional compilation: two implementations means two
 libraries with different `backends` or `platforms` and one dependent that

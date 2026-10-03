@@ -12,10 +12,10 @@
 //! ## Running something
 //!
 //! ```buri sig
-//! # from "core/effect" import { Allocator, IoError };
 //! # from "core/process" import * as process;
 //! # from "core/process" import { Output, Spawn };
-//! #
+//! # from "platform/effect" import { Allocator, IoError };
+//!
 //! export fn version<C: Allocator + Spawn>(ctx: C): Result<Output, IoError> {
 //!     process.run(ctx, process.command("git", ["--version"]))
 //! }
@@ -33,14 +33,14 @@
 //! one by one, so a value with a space or a `;` in it is one argument and never
 //! a second command.
 
-from "core/effect" import { Allocator, Environment, IoError, Process };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
 from "core/fs" import { FileSystemRead };
 from "core/path" import * as path;
 from "core/path" import { Path };
+from "platform/effect" import { Allocator, Environment, IoError, Process };
 
-from "core/effect" export { IoError };
+from "platform/effect" export { IoError };
 
 from "core/path" export { Path };
 

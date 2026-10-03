@@ -2,11 +2,11 @@
 # and the README beside this file.
 name = mixed-wide-graph-100k
 profile = mixed-wide-graph
-generator_revision = 7
-revision = 7
-recorded = 2026-08-31
+generator_revision = 8
+revision = 8
+recorded = 2026-10-02
 params = fanout=6..12 lines=100000
 lines = 101076
-bytes = 3597726
+bytes = 3639859
 modules = 341
-digest = f15e45df456ce23b49f0f0b1525fd02e45e616cacd5836e03c666eb875b051a2
+digest = bbe8160aff87eb3782d5c6dfe0f564da7e73c51f7cd3684d2ff22e2fc44816cc

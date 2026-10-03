@@ -7,8 +7,6 @@
 // every answer against a sorted list, which is the model an ordered map is
 // supposed to behave like.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/order" import { Equal, Hash };
 from "core/orderedmap" import * as orderedmap;
@@ -17,6 +15,8 @@ from "core/orderedset" import * as orderedset;
 from "core/orderedset" import { OrderedSet };
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 
 /// The key half of an entry, for asserting on order.
 fn keyOf<V>(entry: (Int, V)): Int {

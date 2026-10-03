@@ -3,7 +3,7 @@
 // Which parameter was left out is read off the types that were given: a `Node`
 // is not the `Str` that comes second, and everything after it lines up one
 // place along. So the fix names `name`, and prints what `snapshot` takes.
-from "core/effect" import { Allocator, Clock };
+from "platform/effect" import { Allocator, Clock };
 
 struct Node {
   export tag: Str,

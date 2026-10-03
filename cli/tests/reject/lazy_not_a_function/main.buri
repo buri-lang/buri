@@ -1,4 +1,5 @@
 // EXPECT: `load` takes the name of a function, and this is Int
+from "node" import { NodeHost };
 from "core/lazy" import * as lazy;
 
 fn eager(): Int {
@@ -6,6 +7,6 @@ fn eager(): Int {
   f
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   .Ok(())
 }

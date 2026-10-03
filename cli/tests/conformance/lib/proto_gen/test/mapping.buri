@@ -1,8 +1,8 @@
 // The mapping table of `buri docs build/proto`, read off the generated module.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "//lib/proto_gen" import { block, HEAD, lines };
 
 test "the page's own example is the module the page says it is" {

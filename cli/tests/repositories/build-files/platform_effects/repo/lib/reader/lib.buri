@@ -1,9 +1,9 @@
 //! Reading a file, behind a bound.
 
-from "core/effect" import { Allocator };
 from "core/fs" import * as fs;
 from "core/fs" import { FileSystemRead };
 from "core/path" import { Path };
+from "platform/effect" import { Allocator };
 
 /// The whole of a file, or the empty string where there is none.
 ///

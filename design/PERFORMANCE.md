@@ -799,6 +799,15 @@ below 1.0 means it beats it.
 > Every `mixed/100k` row below is the better reading of three processes whose
 > every MAD is ≤ 2.8%, inside §2's ±5%.
 
+> **Generator revision 8, 2026-10-02 — a break in the series, bytes only.**
+> Effects moved to `platform/effect` and `main` takes its platform's host, so
+> every module's effect import is `platform/effect`, which the formatter sorts
+> after the `core/*` imports, and `main.buri` imports `NodeHost` from `"node"`.
+> **All eight** saved corpora were re-recorded and **all forty** pinned
+> manifests re-pinned. `lines` did not move on the anchor (`mixed-100k` 101,074,
+> `mixed-1M` 1,010,518), and `bytes` grew by 1.3% (`mixed-100k` 3,516,842 →
+> 3,562,098), so every reading below stands and nobody re-took the table.
+
 > **Generator revision 7, 2026-08-31 — a break in the series, announced, and
 > the first one that moves a corpus's *shape* rather than only its bytes.**
 > Every module now leaves `generate.rs` through `formatting::source`, so a
@@ -854,7 +863,7 @@ below 1.0 means it beats it.
 > below is still comparable with one taken at revision 5.
 
 > **Generator revisions 2 to 5 each broke the series, and each moved bytes
-> only.** `core/cap` became `core/effect` (rev 2, 2026-08-23); `self` stopped
+> only.** `core/cap` became `platform/effect` (rev 2, 2026-08-23); `self` stopped
 > writing its type (rev 3, 2026-08-27); an enum variant stopped carrying
 > `export` (rev 4, 2026-08-27); every import named a file, `core/list` →
 > `core/list/lib.buri` (rev 5, 2026-08-30). §3.1's rule applies to each: the

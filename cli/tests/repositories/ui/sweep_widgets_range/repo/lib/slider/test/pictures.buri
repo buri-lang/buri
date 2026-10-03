@@ -6,9 +6,9 @@
 // the painter puts the thumb at, and no run of text under the input — a browser
 // draws a slider and never the number behind one.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
 from "ui/signal" import { signal };

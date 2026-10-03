@@ -49,19 +49,24 @@ fn status(run: &Run, action_and_label: &str) -> String {
 fn program(answer: i32) -> String {
     format!(
         r#"
-from "core/effect" import {{ Allocator, Stdout }};
-from "core/host" import * as host;
+from "platform/effect" import {{ Allocator, Stdout }};
+from "node" import {{ NodeHost }};
 from "core/io" import * as io;
 
 fn answer(): Int {{ {answer} }}
 
-export fn main(): Result<(), Str> {{
+export fn main(host: NodeHost): Result<(), Str> {{
   let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
   let _ = io.println(ctx, "answer=${{answer()}}").ignore();
   .Ok(())
 }}
 "#
     )
+}
+
+/// The same program, for a native output.
+fn native_program(answer: i32) -> String {
+    program(answer).replace("from \"node\" import { NodeHost };", "from \"native\" import { NativeHost };").replace("host: NodeHost", "host: NativeHost")
 }
 
 /// A content-keyed cache must not be able to hold a wrong answer. This builds,
@@ -452,14 +457,14 @@ fn an_unchanged_program_schedules_the_same_way_twice_and_is_cached() {
     scratch.write("lib/fan/lib.buri", "from \"//lib/fan/fan.buri\" export { labelled };\n");
     scratch.write(
         "lib/fan/fan.buri",
-        "from \"core/effect\" import { Allocator, Tasks };\n\
+        "from \"platform/effect\" import { Allocator, Tasks };\n\
          from \"core/tasks\" import * as tasks;\n\n\
          export fn labelled<C: Allocator + Tasks>(ctx: C, items: [Int]): [Int] {\n  \
          tasks.parallel(ctx, items, fn(_c, i, item) => i * 100 + item)\n}\n",
     );
-    let preamble = "from \"core/effect\" import { Allocator, Tasks };\n\
+    let preamble = "from \"platform/effect\" import { Allocator, Tasks };\n\
          from \"core/testing/assert\" import * as assert;\n\
-         from \"core/host/testing\" import { alloc, tasks };\n\
+         from \"platform/effect/testing\" import { alloc, tasks };\n\
          from \"//lib/fan\" import { labelled };\n\n";
     // Passes whichever order the runner names: the results are the items'.
     scratch.write(
@@ -625,7 +630,7 @@ fn a_native_build_re_emits_the_unit_an_edit_landed_in() {
         "cmd/c/BUILD.buri",
         &format!("binary {{\n  outputs: [{{ platform: \"native\", variant: \"{host}-{arch}\" }}]\n}}\n"),
     );
-    scratch.write("cmd/c/main.buri", &program(1));
+    scratch.write("cmd/c/main.buri", &native_program(1));
 
     let selector = "--output=native".to_string();
     let first = scratch.run(&["build", "//cmd/c", &selector, "--explain"]);
@@ -673,7 +678,7 @@ fn a_native_build_re_emits_the_unit_an_edit_landed_in() {
 
     // One module edited. Exactly one unit re-emits, and the link runs again
     // because the ordered list of unit keys is what the link key is made of.
-    scratch.write("cmd/c/main.buri", &program(2));
+    scratch.write("cmd/c/main.buri", &native_program(2));
     let edited = scratch.run(&["build", "//cmd/c", &selector, "--explain"]);
     edited.ok();
     let ran = edited
@@ -690,7 +695,7 @@ fn a_native_build_re_emits_the_unit_an_edit_landed_in() {
 const SHAPE_STATE_LIB: &str = "from \"//apps/state/held.buri\" export { Held, newHeld, open };\n";
 
 /// `//apps/state`'s struct, two fields — the **before** of buri-lang/buri#196.
-const SHAPE_HELD_TWO_FIELDS: &str = r#"from "core/effect" import { Allocator };
+const SHAPE_HELD_TWO_FIELDS: &str = r#"from "platform/effect" import { Allocator };
 from "core/orderedmap" import * as ordmap;
 from "core/orderedmap" import { OrderedMap };
 
@@ -715,7 +720,7 @@ export fn open<C: Allocator>(ctx: C, held: Held, id: Int): (Held, Int) {
 
 /// The same struct with `seen` dropped — the **after**. One field, so the copy
 /// walk the backend sizes from the layout copies fewer bytes.
-const SHAPE_HELD_ONE_FIELD: &str = r#"from "core/effect" import { Allocator };
+const SHAPE_HELD_ONE_FIELD: &str = r#"from "platform/effect" import { Allocator };
 from "core/orderedmap" import * as ordmap;
 from "core/orderedmap" import { OrderedMap };
 
@@ -737,8 +742,8 @@ export fn open<C: Allocator>(ctx: C, held: Held, id: Int): (Held, Int) {
 /// the backend emit the copy walk this bug served stale.
 const SHAPE_APP_MAIN: &str = r#"from "core/actor" import * as actor;
 from "core/actor" import { Actor, Stepped };
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "//apps/state" import { Held, newHeld, open };
 
@@ -761,7 +766,7 @@ fn holder<C: Allocator>(): Actor<C, Held, Note, Int> {
     }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
@@ -1091,8 +1096,8 @@ fn a_suite_the_native_backend_cannot_compile_is_refused() {
     scratch.write(
         "lib/g/test/g.buri",
         "from \"core/testing/assert\" import * as assert;\n\
-         from \"core/host/testing\" import { alloc };\n\
-         from \"core/effect\" import { Allocator };\n\
+         from \"platform/effect/testing\" import { alloc };\n\
+         from \"platform/effect\" import { Allocator };\n\
          from \"core/json\" import * as json;\n\
          \ntest \"decodes\" {\n\
          \x20 let ctx = context { Allocator: alloc() };\n\
@@ -1672,12 +1677,12 @@ fn generated_repository(name: &str) -> Scratch {
     );
     scratch.write(
         "cmd/app/main.buri",
-        "from \"core/effect\" import { Allocator, Stdout };\n\
-         from \"core/host\" import * as host;\n\
+        "from \"platform/effect\" import { Allocator, Stdout };\n\
+         from \"node\" import { NodeHost };\n\
          from \"core/io\" import * as io;\n\
          from \"//lib/other\" import { unrelated };\n\
          from \"//lib/wire\" import { width };\n\n\
-         export fn main(): Result<(), Str> {\n  \
+         export fn main(host: NodeHost): Result<(), Str> {\n  \
          let ctx = context { Allocator: host.alloc, Stdout: host.stdout };\n  \
          let _ = io.println(ctx, \"width=${width * unrelated()}\").ignore();\n  \
          .Ok(())\n\
@@ -1689,7 +1694,7 @@ fn generated_repository(name: &str) -> Scratch {
 /// The tool [`generated_repository`] runs: the input's number times the
 /// constant `//lib/factor` exports.
 const GENERATOR: &str = r#"from "core/buri/ast" import * as ast;
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 from "core/str" import * as str;
 from "core/tool" import { Generated, GenerateRequest };
 from "//lib/factor" import { factor };
@@ -1788,8 +1793,8 @@ fn a_generate_key_moves_with_the_input_the_tool_and_the_tools_own_dependency() {
 /// what the helper computes — enough that the whole-program ownership analysis
 /// and the per-function lowering both have work to do.
 fn edit_base() -> &'static str {
-    r#"from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+    r#"from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 
 struct Point { x: Int, y: Int }
@@ -1798,7 +1803,7 @@ fn scale(p: Point, k: Int): Int { p.x * k + p.y }
 
 fn answer(): Int { scale(Point { x: 3, y: 4 }, 2) }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "answer=${answer()}").ignore();
   .Ok(())

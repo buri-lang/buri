@@ -5,20 +5,20 @@
 // copy, the recursive delete, the window into a large file, and the two paths
 // a program asks the platform for.
 //
-// Everything runs against `core/host/testing`'s `fs()`, which is a flat map in
+// Everything runs against `platform/effect/testing`'s `fs()`, which is a flat map in
 // memory: it holds no symbolic links, so `.Symlink` never appears here, and its
 // `modified` is the epoch. `native::e2e` is where a real tree answers.
 
-from "core/effect" import { Allocator, Entropy, Environment };
 from "core/fs" import * as fs;
 from "core/fs" import { FileSystemRead, FileSystemWrite };
-from "core/host/testing" import {
-    alloc, copyFile, entropy, env, fs as disk, metadata, readDir, readRange, realPath,
-    removeFile,
-};
 from "core/path" import * as path;
 from "core/testing/assert" import * as assert;
 from "core/time" import { Instant };
+from "platform/effect" import { Allocator, Entropy, Environment };
+from "platform/effect/testing" import {
+    alloc, copyFile, entropy, env, fs as disk, metadata, readDir, readRange, realPath,
+    removeFile,
+};
 
 // -----------------------------------------------------------------------------
 // metadata, and the two questions over it

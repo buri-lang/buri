@@ -1,7 +1,7 @@
 //! The host capabilities: one native entry per `$host_*` in `backend/js/runtime.js`.
 //!
 //! `core/host` exports one zero-sized implementation per effect a platform can
-//! grant, and `core/effect` declares what each of them grants. Every method of
+//! grant, and `platform/effect` declares what each of them grants. Every method of
 //! every one a *native* platform grants has a counterpart here, named by the
 //! rule in `lib.rs` §1: `host.HostFileSystem.readFile` is `buri_rt_host_file_system_read_file`.
 //!
@@ -39,7 +39,7 @@
 //!
 //! ## Errors
 //!
-//! `IoError`'s variants, in declaration order in `core/effect`, are the
+//! `IoError`'s variants, in declaration order in `platform/effect`, are the
 //! integers this file returns: `NotFound` 0, `PermissionDenied` 1, `ReadOnly` 2,
 //! `AlreadyExists` 3, `NotADirectory` 4, `CrossDevice` 5, `Other(Str)` 6.
 //! `NetError`'s are in `http.rs`. [`crate::BURI_OK`] is the success arm.

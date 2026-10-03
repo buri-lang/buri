@@ -48,7 +48,7 @@
 //! thirty-first — `Request` and `Response`, which are two structs over a
 //! `[Header]` and a `[U8]` and reach nothing past `core/bytes`'s UTF-8 pair.
 //! `semantics/host_testing.buri` is the
-//! thirtieth — `core/host/testing`'s seven doubles, which are handles over the
+//! thirtieth — `platform/effect/testing`'s seven doubles, which are handles over the
 //! table `cli/runtime/testing.rs` already carried, so it needed nothing the
 //! archive did not have. `semantics/anonymous.buri` is the
 //! twenty-ninth and `semantics/elision.buri` the twenty-eighth, with
@@ -88,7 +88,7 @@
 //! never determines stopped being a free variable: `Subst::default_unconstrained`
 //! makes it `()`, which every backend already lays out.
 //!
-//! # The `core/host/testing` migration, and why this list did not move
+//! # The `platform/effect/testing` migration, and why this list did not move
 //!
 //! Several of the reasons below are written in terms of a context that binds
 //! every effect whether a test uses one or not, because that is what the
@@ -139,7 +139,7 @@
 //! than merely settled. Of the six files that moved, three are `lib/ui`, a
 //! package the migration never listed; `semantics/effects.buri` is one of the
 //! two files it was told to hold; and `semantics/host_testing.buri` was
-//! written by hand against `core/host/testing` rather than rewritten from a
+//! written by hand against `platform/effect/testing` rather than rewritten from a
 //! world assembled for it — no commit in its history builds one. That leaves
 //! `semantics/evaluation.buri`, which is migrated and dropped fifty-one
 //! `Allocator`s: fifty of them are the dead bound on `note` and its nine
@@ -565,7 +565,7 @@ const PACKAGES: &[Case] = &[
     // by the checker and never reaches a backend — so this file is here to say
     // that out loud on the native one too (design/grammar-rationale.md 12.3).
     included("semantics/anonymous.buri"),
-    // The eighth: `core/host/testing`'s ten doubles. Seven of them are handles
+    // The eighth: `platform/effect/testing`'s ten doubles. Seven of them are handles
     // over `cli/runtime/testing.rs`'s table; `TestAllocator` is the two
     // instructions both backends open-code, and `TestNetwork` and `TestProcess` are
     // Buri bodies with no row at all. So the file reaches nothing the archive
@@ -737,7 +737,7 @@ const PACKAGES: &[Case] = &[
     // carries. All of it is string work over two structs and reaches no host,
     // which is why it is here rather than beside `semantics/http.buri`.
     included("http/messages.buri"),
-    // `core/net/tcp` against `core/host/testing`'s `tcp()` double, which opens
+    // `core/net/tcp` against `platform/effect/testing`'s `tcp()` double, which opens
     // no socket: seven runtime entries in both tables and a `[TcpCall]` coming
     // back through one of them. The socket half is `e2e`'s
     // `a_native_binary_speaks_over_a_socket_it_dialled`, which is a whole
@@ -1448,7 +1448,7 @@ fn every_leak_row_names_a_file_the_native_set_runs() {
     }
 }
 
-/// `core/host/testing`, natively, against the numbers and strings the
+/// `platform/effect/testing`, natively, against the numbers and strings the
 /// JavaScript runner answers.
 ///
 /// The stateful half of the test platform is a **handle table on the runner's
@@ -1484,9 +1484,9 @@ fn the_test_platform_agrees_with_the_runner() {
     if !supported() {
         return;
     }
-    const SOURCE: &str = r##"from "core/effect" import { Allocator, Clock, Environment, Random, Stderr, Stdin, Stdout };
+    const SOURCE: &str = r##"from "platform/effect" import { Allocator, Clock, Environment, Random, Stderr, Stdin, Stdout };
 from "core/env" import * as env;
-from "core/host/testing" import {
+from "platform/effect/testing" import {
   alloc, clock, env, rand, stderr, stdin, stdout,
 };
 from "core/io" import * as io;
@@ -1659,10 +1659,10 @@ fn self_through_a_context_is_the_implementing_type() {
     if !supported() {
         return;
     }
-    const SOURCE: &str = r#"from "core/effect" import {
+    const SOURCE: &str = r#"from "platform/effect" import {
   Allocator, Clock, Listen, Network, Request, Response, Sockets, Stdout, Tasks,
 };
-from "core/host/testing" import { alloc, clock, stdout };
+from "platform/effect/testing" import { alloc, clock, stdout };
 from "core/io" import * as io;
 from "core/net/server" import * as server;
 from "core/tasks" import * as tasks;

@@ -1,0 +1,35 @@
+error: `main` takes `NativeHost`, and the node platform hands its entry a `NodeHost` [entry-host-mismatch]
+ --> cmd/entry_host_mismatch/main.buri:9:16
+  |
+9 | export fn main(host: NativeHost): Result<(), Str> {
+  |                ^^^^^^^^^^^^^^^^
+  |
+  = fix: take `NodeHost`, imported with `from "node" import { NodeHost };` — or build this function for native, and give this output an entry of its own
+
+    What to do
+    ──────────
+
+    Take the host of the platform the output names:
+
+      from "native" import { NativeHost };
+
+      export fn main(host: NativeHost): Result<(), Str> {
+          .Ok(())
+      }
+
+    A program built for two platforms gives each output an entry of its own, and
+    both delegate to one function that takes ctx:
+
+      binary {
+          outputs: [
+              { platform: "native", variant: "linux-arm64" },
+              { platform: "node", entries { main: "mainForNode" } },
+          ]
+      }
+
+    Why
+    ───
+
+    Each platform offers different effects, so each declares its own host type.
+    One entry can't take two.
+

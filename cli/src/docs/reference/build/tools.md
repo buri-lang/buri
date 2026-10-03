@@ -21,10 +21,11 @@ rule only goes one way, so a library or a binary may live under `tool/` too.
 Its root is `tool.buri`, which exports one function per block:
 
 ```buri
-// tool/lines/tool.buri
-from "core/effect" import { Allocator };
 from "core/format" import { Doc };
 from "core/tool" import { Checked, CheckRequest, Diagnostic, FormatRequest };
+
+// tool/lines/tool.buri
+from "platform/effect" import { Allocator };
 
 export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
     Checked { diagnostics: [], needs: [] }
@@ -41,8 +42,8 @@ export fn format<C: Allocator>(
 A `generate {}` block adds the third:
 
 ```buri
-from "core/effect" import { Allocator };
 from "core/tool" import { Generated, GenerateRequest };
+from "platform/effect" import { Allocator };
 
 export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
     Generated { modules: [], diagnostics: [], needs: [] }
@@ -139,9 +140,10 @@ The build generates the schema's types into the tool as the module
 `<tool label>/<language>`, and `generate` takes them:
 
 ```buri ignore why="it imports the module the build generates into the tool from its contract"
-// tool/database_schema_codegen/tool.buri
-from "core/effect" import { Allocator };
 from "core/tool" import { Generated, GenerateRequest };
+
+// tool/database_schema_codegen/tool.buri
+from "platform/effect" import { Allocator };
 from "//tool/database_schema_codegen/json" import { Config };
 
 export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Config>): Generated {

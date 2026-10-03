@@ -1,102 +1,71 @@
-# **Which imports a platform allows, decided while the file is being edited.**
+# **Which effects a platform offers, decided while the file is being edited.**
 #
-# A platform *is* the set of effects its host exports, and that used to be a
-# claim a build made: `buri build` for one output resolved `core/host` against
-# that output and refused what it did not grant. Everything short of a build —
-# `buri lint`, `buri test`, the language server — granted the whole host and
-# said nothing, so a page that reached for a filesystem was a green editor and
-# a red build.
-#
-# It is a compile error now, and this case is where the rule is written down as
-# behaviour. The steps below are the whole matrix, in both directions:
+# A platform's host type is the list of effects it offers: `WebHost` has no
+# `fs`, so a page that reaches for one is a type error at the line that asked,
+# reported by `buri lint`, `buri test` and the language server alike. The steps
+# below are the whole matrix:
 #
 #   * the clean repository, which is most of the value — a library taking an
-#     `FileSystemRead` bound, a suite built on `core/host/testing`'s doubles, and a page
-#     with both in its closure, none of which may light up;
-#   * a named import of `fs` in a page's `main.buri`, refused on the name
-#     inside the braces;
-#   * the same effect reached through a namespace, refused on the member
-#     reference — the earliest line there is, because `import * as host` names
-#     no effect;
-#   * a binary with two outputs, one of which grants the effect: refused, and
-#     the message names the output that does not;
-#   * a suite that declares `backends: [JS]` over a binary whose `outputs`
-#     say `native`: refused, because a test binary links `main` in and `main`
-#     has to compile for the platform the suite runs on;
-#   * a library that declares `platforms` and imports `core/host` anyway, which
-#     meets `host-import` rather than this rule — `core/host` is importable
-#     only from the module that exports `main`, so a library's declared
-#     platforms have no host import to refuse.
+#     `FileSystemRead` bound, a suite built on `platform/effect/testing`'s test
+#     implementations, and a page with both in its closure, none of which may
+#     light up;
+#   * a page reaching for `host.fs`, refused on the field, with a note naming
+#     the platforms that do offer the effect;
+#   * a binary with two outputs entering through one `main`: refused, because
+#     the two platforms hand their entries different hosts;
+#   * the same body on `node`, whose host has a filesystem, which compiles;
+#   * a suite that declares `backends: [JS]` over a binary whose `outputs` say
+#     `native`: it compiles, because a test never calls `main` and so never
+#     needs the native host;
+#   * a library that imports `platform/host` to build itself a filesystem,
+#     refused as `host-import-outside-platform` — only a platform names the
+#     backends' production values.
 #
 # `buri lint` rather than `buri build` throughout, on purpose: a lint builds no
 # output, so a diagnostic recorded here is one that arrives before anything is
-# produced. That is the whole of what changed.
+# produced.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "an import a target's platform does not allow is a compile error, reported before anything is built"
+doc: "an effect a target's platform does not offer is a compile error, reported before anything is built"
 
-# Nothing fires. A bound is not an authority, a double is not a host, and a
-# rule that declares no platforms commits to none.
+# Nothing fires. A bound is not an authority, a test implementation is not a
+# host, and a rule that declares no platforms commits to none.
 run {
   args: ["lint", "//..."]
   exit: 0
   golden: "clean.txt"
 }
 
-# A named import: the caret lands on the name inside the braces, which is where
-# the program asked for it. One diagnostic, not two — `fs` is still bound to
-# what `core/host` declares, so the `FileSystemRead: fs` below does not go on to report
-# an unresolved name underneath.
+# The page reaches for a filesystem its host does not have. The caret lands on
+# the field, and the note says which platforms offer it.
 edit {
   file: "cmd/page/main.buri"
   replace: "from \"core/io\" import * as io;"
-  with: "from \"core/fs\" import { FileSystemRead };\nfrom \"core/host\" import { fs };\nfrom \"core/io\" import * as io;"
+  with: "from \"core/fs\" import { FileSystemRead };\nfrom \"core/io\" import * as io;"
 }
 
 edit {
   file: "cmd/page/main.buri"
   replace: "        Stdout: host.stdout,"
-  with: "        Stdout: host.stdout,\n        FileSystemRead: fs,"
+  with: "        Stdout: host.stdout,\n        FileSystemRead: host.fs,"
 }
 
 run {
   args: ["lint", "//cmd/page"]
   exit: 1
-  golden: "named_import.txt"
+  golden: "page_has_no_fs.txt"
 }
 
 run {
   args: ["lint", "//cmd/page", "--error-format=json"]
   exit: 1
-  golden: "named_import.json"
+  golden: "page_has_no_fs.json"
 }
 
-# The same effect through the namespace the file already has. There is nothing
-# on the import line to point at, so the member reference is what the caret
-# lands on.
-edit {
-  file: "cmd/page/main.buri"
-  replace: "from \"core/host\" import { fs };\n"
-  with: ""
-}
-
-edit {
-  file: "cmd/page/main.buri"
-  replace: "        FileSystemRead: fs,"
-  with: "        FileSystemRead: host.fs,"
-}
-
-run {
-  args: ["lint", "//cmd/page"]
-  exit: 1
-  golden: "namespace_use.txt"
-}
-
-# Two outputs, and only one of them refuses. Every output a binary declares has
-# to compile, so the answer is the same whichever one is being built — and the
-# message names the one that does not grant it rather than the whole list.
+# Two outputs entering through one `main`. Each platform hands its entry its
+# own host, so one function can't serve both.
 edit {
   file: "cmd/page/BUILD.buri"
   replace: "        { platform: \"web\" },"
@@ -109,12 +78,24 @@ run {
   golden: "two_outputs.txt"
 }
 
-# And back to a page that compiles, so the rule is shown firing and not firing
-# over the same file.
+# And a page that compiles: the same body on `node`, whose host has `fs`, so
+# the rule is shown firing and not firing over the same file.
 edit {
   file: "cmd/page/BUILD.buri"
   replace: "        { platform: \"node\" },\n        { platform: \"web\" },"
   with: "        { platform: \"node\" },"
+}
+
+edit {
+  file: "cmd/page/main.buri"
+  replace: "from \"web\" import { WebHost };"
+  with: "from \"node\" import { NodeHost };"
+}
+
+edit {
+  file: "cmd/page/main.buri"
+  replace: "export fn main(host: WebHost)"
+  with: "export fn main(host: NodeHost)"
 }
 
 run {
@@ -123,14 +104,26 @@ run {
   golden: "js_grants_it.txt"
 }
 
-# A suite is where the platform comes from next. `outputs` says `native`,
-# which grants a port to listen on; `test.backends` says JS, which builds
-# `node`, which does not — and a test binary links `main` in, so `main.buri`
-# has to compile for `node` too.
+# A suite is where the platform comes from next. `outputs` says `native`, so
+# `main` takes `NativeHost` and binds `Listen`; `test.backends` says JS. The
+# suite compiles and passes, because a test never calls `main` and so never
+# needs the host it takes.
 edit {
   file: "cmd/page/BUILD.buri"
   replace: "        { platform: \"node\" },"
   with: "        { platform: \"native\", variant: \"linux-x86_64\" },"
+}
+
+edit {
+  file: "cmd/page/main.buri"
+  replace: "from \"node\" import { NodeHost };"
+  with: "from \"native\" import { NativeHost };"
+}
+
+edit {
+  file: "cmd/page/main.buri"
+  replace: "export fn main(host: NodeHost)"
+  with: "export fn main(host: NativeHost)"
 }
 
 edit {
@@ -153,19 +146,18 @@ edit {
 
 run {
   args: ["test", "//cmd/page"]
-  exit: 1
+  exit: 0
   golden: "suite_platform.txt"
 }
 
-# The library half of the rule, and the reason it has nothing to refuse.
-# `lib/native` declares `backends: [NATIVE]` and imports `core/fs` — an
-# effect *type*, legal everywhere. Reaching for the host itself is refused by
-# `host-import` before a platform is ever consulted: `core/host` is importable
-# only from the module that exports `main`.
+# The library half. `lib/native` declares `backends: [NATIVE]` and imports
+# `core/fs` — an effect *type*, legal everywhere. Naming the backend's own
+# filesystem is refused before a platform is ever consulted: only a platform
+# names the backends' production values.
 edit {
   file: "lib/native/lib.buri"
   replace: "from \"core/fs\" import { FileSystemRead };"
-  with: "from \"core/fs\" import { FileSystemRead };\nfrom \"core/host\" import { fs };"
+  with: "from \"core/fs\" import { FileSystemRead };\nfrom \"platform/host\" import { HostFileSystem };"
 }
 
 run {

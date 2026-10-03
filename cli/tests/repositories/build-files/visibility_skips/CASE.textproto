@@ -39,8 +39,8 @@ edit {
 
 edit {
   file: "cmd/outsider/main.buri"
-  replace: "from \"core/host\" import * as host;"
-  with: "from \"core/host\" import * as host;\n\nfrom \"//cmd/tool\" import { render };"
+  replace: "from \"node\" import { NodeHost };"
+  with: "from \"node\" import { NodeHost };\n\nfrom \"//cmd/tool\" import { render };"
 }
 
 edit {

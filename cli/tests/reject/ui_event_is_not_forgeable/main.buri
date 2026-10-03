@@ -5,9 +5,9 @@
 // receives an event and cannot manufacture one to hand to another handler,
 // which keeps "this ran because somebody pressed it" true. The same shape as
 // `Scope`, and for the same reason.
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "ui/effect" import { Event, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
@@ -17,7 +17,7 @@ fn pressTwice<C>(again: fn(C, Event) => ()): Node<C> {
   ui.button({ label: .Const("twice"), styles: [], onPress: .Some(fn(c) => again(c, Event(0))) })
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let count = signal(ctx, 0);
   ui.mount(ctx, pressTwice(fn(c, e) => count.update(c, fn(n) => n + 1)), [])

@@ -40,7 +40,7 @@
 //!     754 does not fix their answers, so V8's fdlibm port and the platform's
 //!     libm differ in the last bit, and a rendered `Float` shows seventeen
 //!     digits of it;
-//!   * **the stateful half of `core/host/testing`** ([`testing`]) — a captured
+//!   * **the stateful half of `platform/effect/testing`** ([`testing`]) — a captured
 //!     stdout, a seeded generator, a test clock, a fixture environment, and a
 //!     stdin that was handed its lines. Every one of them is mutable process state outliving the expression
 //!     that made it, which is why each double carries an `I64` handle
@@ -127,7 +127,7 @@
 //!    is the backend's business, and a niche (VALUE-MODEL.md §6) can change
 //!    without touching this file. So the boundary is explicit:
 //!    [`BURI_OK`] (`-1`) means the success arm, and `0 ..= n` is the error
-//!    variant's index in *declaration order* in `core/effect`.
+//!    variant's index in *declaration order* in `platform/effect`.
 //!
 //!    An `Option<T>` is the case with exactly one non-success arm, so it uses
 //!    the same convention with nothing added: [`BURI_OK`] and the payload

@@ -1,104 +1,108 @@
-const $k0=[1200n,'lay-col'];
-const $k1=[$k0];
+const $k0=[[],[],[],[],[],[],[],[],[],[],[],[],[]];
+const $k1=[1200n,'lay-col'];
 const $k2=[$k1];
-const $k3=[5,$k2];
-const $k4=[$k3];
-const $k5=[0,false];
+const $k3=[$k2];
+const $k4=[5,$k3];
+const $k5=[$k4];
 const $k6=[0,'doubled'];
-const $k7=[1200n,'lay-row'];
-const $k8=[4200n,'px-r0_5'];
-const $k9=[7400n,'r-6'];
-const $k10=[6200n,'bg-f0f0f5'];
-const $k11=[6400n,'fg-18181b'];
-const $k12=[6205n,'hover_bg-18181b'];
-const $k13=[6405n,'hover_fg-f0f0f5'];
-const $k14=[$k7,$k8,$k9,$k10,$k11,$k12,$k13];
-const $k15=[$k14];
-const $k16=[5,$k15];
-const $k17=[$k16];
+const $k7=[0,false];
+const $k8=[1200n,'lay-row'];
+const $k9=[4200n,'px-r0_5'];
+const $k10=[7400n,'r-6'];
+const $k11=[6200n,'bg-f0f0f5'];
+const $k12=[6400n,'fg-18181b'];
+const $k13=[6205n,'hover_bg-18181b'];
+const $k14=[6405n,'hover_fg-f0f0f5'];
+const $k15=[$k8,$k9,$k10,$k11,$k12,$k13,$k14];
+const $k16=[$k15];
+const $k17=[5,$k16];
+const $k18=[$k17];
 $ui_sheet='*,*::before,*::after{box-sizing:border-box}\n*,*::before,*::after{border-width:0}\n*{overflow-wrap:break-word}\n:where(body){margin:0}\n:where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}\n:where(h1,h2,h3,h4,h5,h6){font-size:inherit;font-weight:inherit;margin:0}\n:where(button){appearance:none;background:none;border:0;padding:0;font:inherit;color:inherit}\n.lay-col{display:flex;flex-direction:column}\n.lay-row{display:flex;flex-direction:row}\n.px-r0_5{padding-inline:0.5rem}\n.bg-f0f0f5{background-color:rgb(240,240,245)}\n.hover_bg-18181b:hover{background-color:rgb(24,24,27)}\n.fg-18181b{color:rgb(24,24,27)}\n.hover_fg-f0f0f5:hover{color:rgb(240,240,245)}\n.r-6{border-radius:6px}\n';
 function __cmd_x_main_buri$main(){
-  const ctx_0=[[],[],[],[]];
-  const self_3=$host_HostStdout_println(ctx_0[1],'mounted');
+  const ctx_1=[$k0[0],$k0[1],$k0[10],$k0[11]];
+  const self_4=$host_HostStdout_println(ctx_1[1],'mounted');
   let $t1;
-  if(self_3[0]===0){
+  if(self_4[0]===0){
     $t1=0;
-  }else if(self_3[0]===1){
+  }else if(self_4[0]===1){
     $t1=0;
   }else{
     $abort('no arm matched');
   }
-  const label_7='clicks';
-  const count_8=[$host_HostUi_signal(ctx_0[2],0n)];
-  const config_17=[[0,label_7],[],void 0,c_9=>$host_HostUi_write(c_9[2],count_8[0],(n_10=>n_10+1n)($host_HostUi_read(c_9[2],count_8[0]))),void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
-  const events_18=ui_node$listen$u3rqgv(config_17[8],config_17[9],config_17[10],config_17[11],config_17[12],config_17[13],config_17[14],config_17[15]);
-  let $t3;
-  const $t4=config_17[4];
-  if($t4!==void 0&&$t4===1){
-    const $t8=$share(config_17[1]);
-    let $t5;
-    const $t6=config_17[5];
-    if($t6!==void 0){
-      $t5=$t6;
-    }else if($t6===void 0){
-      $t5=$k5;
+  const label_8='clicks';
+  const count_9=[$host_HostUi_signal(ctx_1[2],0n)];
+  return $ui_node_mount(ctx_1,ui_node$stack$u3rqgv([$k5,[ui_node$button$u3rqgv([[0,label_8],[],void 0,c_10=>ui_signal$Signal_update$gb9o2y(count_9,c_10,n_11=>n_11+1n),void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),__cmd_x_main_buri$badge$u3rqgv([0,label_8],[1,count_9]),__cmd_x_main_buri$badge$u3rqgv($k6,[2,c_12=>$ui_effect_Scope_read(c_12,count_9[0])*2n])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
+}
+function ui_signal$Signal_update$gb9o2y(self_0,ctx_1,f_2){
+  return $host_HostUi_write(ctx_1[2],self_0[0],f_2($host_HostUi_read(ctx_1[2],self_0[0])));
+}
+function ui_node$button$u3rqgv(config_0){
+  const events_1=ui_node$listen$u3rqgv(config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14],config_0[15]);
+  const $t1=config_0[4];
+  if($t1!==void 0&&$t1===1){
+    const $t5=$share(config_0[1]);
+    let $t2;
+    const $t3=config_0[5];
+    if($t3!==void 0){
+      $t2=$t3;
+    }else if($t3===void 0){
+      $t2=$k7;
     }else{
       $abort('no arm matched');
     }
-    $t3=[[14,config_17[0],$t8,$t5,events_18]];
+    return [[14,config_0[0],$t5,$t2,events_1]];
   }else{
-    const $t12=$share(config_17[1]);
-    const children_21=$share(config_17[2]);
-    let $t9;
-    if(children_21!==void 0){
-      $t9=$share(children_21);
-    }else if(children_21===void 0){
-      $t9=[];
+    const $t9=$share(config_0[1]);
+    const children_4=$share(config_0[2]);
+    let $t6;
+    if(children_4!==void 0){
+      $t6=$share(children_4);
+    }else if(children_4===void 0){
+      $t6=[];
     }else{
       $abort('no arm matched');
     }
-    let $t13;
-    const $t14=config_17[3];
-    if($t14!==void 0){
-      $t13=(c_25,_event_26)=>$t14(c_25);
-    }else if($t14===void 0){
-      $t13=(_c_27,_event_28)=>0;
+    let $t10;
+    const $t11=config_0[3];
+    if($t11!==void 0){
+      $t10=(c_8,_event_9)=>$t11(c_8);
+    }else if($t11===void 0){
+      $t10=(_c_10,_event_11)=>0;
     }else{
       $abort('no arm matched');
     }
-    let $t15;
-    const $t16=config_17[5];
-    if($t16!==void 0){
-      $t15=$t16;
-    }else if($t16===void 0){
-      $t15=$k5;
+    let $t12;
+    const $t13=config_0[5];
+    if($t13!==void 0){
+      $t12=$t13;
+    }else if($t13===void 0){
+      $t12=$k7;
     }else{
       $abort('no arm matched');
     }
-    let $t17;
-    const $t18=config_17[6];
-    if($t18!==void 0){
-      $t17=$t18;
-    }else if($t18===void 0){
-      $t17=$k5;
+    let $t14;
+    const $t15=config_0[6];
+    if($t15!==void 0){
+      $t14=$t15;
+    }else if($t15===void 0){
+      $t14=$k7;
     }else{
       $abort('no arm matched');
     }
-    let $t19;
-    const $t20=config_17[7];
-    if($t20!==void 0){
-      $t19=$t20;
-    }else if($t20===void 0){
-      $t19=$k5;
+    let $t16;
+    const $t17=config_0[7];
+    if($t17!==void 0){
+      $t16=$t17;
+    }else if($t17===void 0){
+      $t16=$k7;
     }else{
       $abort('no arm matched');
     }
-    $t3=[[5,config_17[0],$t12,$t9,$t13,$t15,$t17,$t19,events_18]];
+    return [[5,config_0[0],$t9,$t6,$t10,$t12,$t14,$t16,events_1]];
   }
-  return $ui_node_mount(ctx_0,ui_node$stack$u3rqgv([$k4,[$t3,__cmd_x_main_buri$badge$u3rqgv([0,label_7],[1,count_8]),__cmd_x_main_buri$badge$u3rqgv($k6,[2,c_11=>ui_signal$Signal_get$j9e9it(count_8,c_11)*2n])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
 }
 function __cmd_x_main_buri$badge$u3rqgv(title_0,count_1){
-  return ui_node$stack$u3rqgv([$k17,[ui_node$text$u3rqgv([title_0,void 0,void 0]),ui_node$text$u3rqgv([[2,c_2=>{
+  return ui_node$stack$u3rqgv([$k18,[ui_node$text$u3rqgv([title_0,void 0,void 0]),ui_node$text$u3rqgv([[2,c_2=>{
     let $t1;
     if(count_1[0]===0){
       $t1=count_1[1];
@@ -111,9 +115,6 @@ function __cmd_x_main_buri$badge$u3rqgv(title_0,count_1){
     }
     return String($t1);
   }],void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
-}
-function ui_signal$Signal_get$j9e9it(self_0,ctx_1){
-  return $ui_effect_Scope_read(ctx_1,self_0[0]);
 }
 function ui_node$stack$u3rqgv(config_0){
   const events_1=ui_node$listen$u3rqgv(config_0[3],config_0[4],config_0[5],config_0[6],config_0[7],config_0[8],config_0[9],config_0[10]);

@@ -4,9 +4,9 @@
 // when there is one thing in it. Handing it a bare node is the mistake the
 // shape invites, and it is a type error rather than a node quietly becoming a
 // list of one.
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
+from "web" import { WebHost };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
@@ -16,7 +16,7 @@ fn entry<C>(): Node<C> {
   ui.button({ label: .Const("Overview"), styles: [], children: .Some(ui.text({ content: .Const("Overview") })) })
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
   let _ = signal(ctx, 0);
   ui.mount(ctx, entry(), [])

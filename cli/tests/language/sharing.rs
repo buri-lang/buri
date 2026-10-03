@@ -142,8 +142,8 @@ const LAUNCHES: usize = 2;
 /// The order inside a pair alternates, so that nothing periodic in the
 /// machine can settle into always landing on the same half.
 const GROW: &str = r#"
-from "core/effect" import { Allocator, Clock, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Clock, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/time" import * as time;
@@ -218,7 +218,7 @@ fn pairs<C: Allocator + Clock + Stdout>(ctx: C, k: Int, count: Int): () {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let _ = pairs(ctx, 0, PAIRS);
   .Ok(())
@@ -383,8 +383,8 @@ fn growing_a_list_in_a_loop_is_linear() {
 /// out of the same record, and what reading it produces is an `Int` rather
 /// than a reference to anything.
 const GROW_BESIDE: &str = r#"
-from "core/effect" import { Allocator, Clock, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Clock, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/time" import * as time;
@@ -447,7 +447,7 @@ fn pairs<C: Allocator + Clock + Stdout>(ctx: C, k: Int, count: Int): () {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let _ = pairs(ctx, 0, PAIRS);
   .Ok(())
@@ -519,8 +519,8 @@ fn growing_a_list_beside_another_field_is_linear() {
 /// **total** number of fields, so linear growth makes them cost the same.
 const PRINT: &str = r#"
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Allocator, Clock, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Clock, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/time" import * as time;
@@ -614,7 +614,7 @@ fn pairs<C: Allocator + Clock + Stdout>(ctx: C, k: Int, count: Int): () {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let _ = pairs(ctx, 0, PAIRS);
   .Ok(())
@@ -728,8 +728,8 @@ await import(pathToFileURL(process.argv[2]).href);
 /// reference, because `acc` was still read by the second one, and each push
 /// copied its whole list: parsing a module was quadratic in its tokens.
 const GROW_TWO: &str = r#"
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
@@ -754,7 +754,7 @@ fn prepare<C: Allocator>(ctx: C, raw: [Int]): Prep {
   )
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let p = prepare(ctx, list.range(ctx, 0, 4000));
   let _ = io.println(ctx, "${p.tokens.length()} ${p.docs.length()}").ignore();
@@ -793,8 +793,8 @@ fn growing_two_lists_in_one_update_copies_neither() {
 /// the whole list so far: tokenizing was quadratic in the number of tokens.
 const TOKENIZE: &str = r#"
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -804,7 +804,7 @@ fn line<C: Allocator>(ctx: C, i: Int): Str {
   str.format(ctx, "/// doc ${n}\nlet x${n} = f(${n}, 0x1f, 2.5e3, \"s\\n\", \"a\${n}b\${n}c\", 'c', '\\u{41}') <= y; // ${n}\n/* a /* ${n} */ b */\n")
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let source = list.range(ctx, 0, 250).mapCtx(ctx, fn(c, i) => line(c, i)).join(ctx, "");
   let tokens = ast.tokenize(ctx, source);

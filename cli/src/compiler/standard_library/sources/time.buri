@@ -28,13 +28,13 @@
 //! passed.
 //!
 //! ```buri run
-//! from "core/effect" import { Allocator, Stdout };
-//! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/time" import * as time;
 //! from "core/time" import { Instant };
+//! from "node" import { NodeHost };
+//! from "platform/effect" import { Allocator, Stdout };
 //!
-//! export fn main(): Result<(), Str> {
+//! export fn main(host: NodeHost): Result<(), Str> {
 //!     let ctx = context {
 //!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
@@ -55,9 +55,9 @@
 //! 120s later, passed: true
 //! ```
 
-from "core/effect" import { Allocator, Clock };
 from "core/order" import { Equal, Ordered, Show };
 from "core/str" import * as str;
+from "platform/effect" import { Allocator, Clock };
 
 derive Equal, Ordered, Show for Instant;
 /// A point in time, in milliseconds. A distinct type rather than an `I64`, so
@@ -389,12 +389,12 @@ export fn monotonic<C: Clock>(ctx: C): Monotonic {
 /// How long since `started`. This is the one to measure with.
 ///
 /// ```buri run
-/// from "core/effect" import { Allocator, Clock, Stdout };
-/// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/time" import * as time;
+/// from "node" import { NodeHost };
+/// from "platform/effect" import { Allocator, Clock, Stdout };
 ///
-/// export fn main(): Result<(), Str> {
+/// export fn main(host: NodeHost): Result<(), Str> {
 ///     let ctx = context {
 ///         Allocator: host.alloc,
 ///         Clock: host.clock,

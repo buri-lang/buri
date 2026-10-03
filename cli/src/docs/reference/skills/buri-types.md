@@ -168,7 +168,7 @@ disambiguate: `Ordered.compare(x, y)`.
 ## Effects
 
 An **effect** is an interface declared with `effect` instead of `trait`, and
-only platform modules may declare one. `core/effect` declares `Allocator`, `Network`,
+only platform modules may declare one. `platform/effect` declares `Allocator`, `Network`,
 `Clock`, `Random`, `Environment`, `Stdin`, `Stdout`, `Stderr`, `Process`, `Tasks`, `Listen`
 (`native`, where a program serves a page), and `Sockets` and
 `WebSocketClient` (everywhere: a page dials a socket, and never accepts one).

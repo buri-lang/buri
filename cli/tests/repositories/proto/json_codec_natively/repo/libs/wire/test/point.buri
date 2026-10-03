@@ -1,8 +1,8 @@
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/json" import * as json;
 from "core/json" import { Json };
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "//libs/wire" import { decodePointJson, defaultPoint, encodePointJson, Point };
 
 /// The document a piece of text describes. Every text below is a literal, so

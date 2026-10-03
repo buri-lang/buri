@@ -117,11 +117,12 @@ const SEED: u64 = generate::SEED;
 /// measurement — so it is measured on its own and subtracted, and both figures
 /// are reported. See `design/PERFORMANCE.md` §3, "The prelude floor".
 const FLOOR: &str = "\
+from \"node\" import { NodeHost };
 from \"core/str\" import * as str;
 from \"core/list\" import * as list;
-from \"core/effect\" import { Allocator };
+from \"platform/effect\" import { Allocator };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
   let xs: [Int] = list.empty<Int>();
   if (xs.length() == 0) { .Ok(()) } else { .Err(\"impossible\") }
 }

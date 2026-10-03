@@ -1,23 +1,18 @@
-// EXPECT: `spawn` implements `Spawn`, which is not allowed on the web platform
+// EXPECT: `WebHost` has no field `spawn`
 //
 // Starting another program is the largest authority a context can carry, and a
 // page has nowhere to put a child: no process table, no `fork`, no `exec`. So
-// `Spawn` is its own row rather than a second export on `Process`'s, and both are
-// withheld from a page and from a worker.
-//
-// The corpus can ask for `JS` and `WEB` and no more, so the worker's half of
-// the same rule is asserted over `Platform::ALL` in
-// `standard_library::tests::spawn_is_withheld_from_a_page_and_a_worker`. What
-// this fixture pins is the sentence a person reads when they try it.
+// `WebHost` has no `spawn`, and what this fixture pins is the sentence a
+// person reads when they try it.
 //
 // PLATFORM: WEB — a page has no process table, so nothing it binds may start one.
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
 from "core/io" import * as io;
 from "core/process" import { Spawn };
 from "ui/effect" import { Ui, Watch };
+from "web" import { WebHost };
 
-export fn main(): Result<(), Str> {
+export fn main(host: WebHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc,
     Stdout: host.stdout,

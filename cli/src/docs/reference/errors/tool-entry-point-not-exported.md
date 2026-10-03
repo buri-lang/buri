@@ -14,9 +14,10 @@ tool {
 ```
 
 ```buri
-// tool.buri
-from "core/effect" import { Allocator };
 from "core/tool" import { Checked, CheckRequest };
+
+// tool.buri
+from "platform/effect" import { Allocator };
 
 export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
     Checked { diagnostics: [], needs: [] }

@@ -7,11 +7,11 @@
 //!
 //! ```buri run
 //! from "core/bigint" import * as bigint;
-//! from "core/effect" import { Allocator, Stdout };
-//! from "core/host" import * as host;
 //! from "core/io" import * as io;
+//! from "node" import { NodeHost };
+//! from "platform/effect" import { Allocator, Stdout };
 //!
-//! export fn main(): Result<(), Str> {
+//! export fn main(host: NodeHost): Result<(), Str> {
 //!     let ctx = context {
 //!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
@@ -52,12 +52,12 @@
 //! the column would overflow.
 
 from "core/character" import * as character;
-from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/number" import * as number;
 from "core/number" import { RangeError };
 from "core/order" import { Equal, Hash, Order, Ordered };
 from "core/str" import * as str;
+from "platform/effect" import { Allocator };
 
 /// A limb holds twenty-four bits. Two of them multiply to forty-eight, which
 /// leaves fifteen bits of headroom for summing a column of them.
@@ -147,7 +147,7 @@ export fn of(value: Int): BigInt {
 ///
 /// ```buri
 /// from "core/bigint" import * as bigint;
-/// from "core/effect" import { Allocator };
+/// from "platform/effect" import { Allocator };
 ///
 /// export fn read<C: Allocator>(ctx: C, text: Str): Option<bigint.BigInt> {
 ///     bigint.parse(ctx, text)
@@ -185,7 +185,7 @@ impl BigInt {
     ///
     /// ```buri
     /// from "core/bigint" import * as bigint;
-    /// from "core/effect" import { Allocator };
+    /// from "platform/effect" import { Allocator };
     ///
     /// export fn total<C: Allocator>(
     ///     ctx: C,
@@ -209,7 +209,7 @@ impl BigInt {
     ///
     /// ```buri
     /// from "core/bigint" import * as bigint;
-    /// from "core/effect" import { Allocator };
+    /// from "platform/effect" import { Allocator };
     ///
     /// export fn gap<C: Allocator>(ctx: C, a: bigint.BigInt, b: bigint.BigInt): bigint.BigInt {
     ///     a.subtract(ctx, b)
@@ -240,7 +240,7 @@ impl BigInt {
     ///
     /// ```buri
     /// from "core/bigint" import * as bigint;
-    /// from "core/effect" import { Allocator };
+    /// from "platform/effect" import { Allocator };
     ///
     /// export fn times<C: Allocator>(
     ///     ctx: C,
@@ -271,7 +271,7 @@ impl BigInt {
     ///
     /// ```buri
     /// from "core/bigint" import * as bigint;
-    /// from "core/effect" import { Allocator };
+    /// from "platform/effect" import { Allocator };
     ///
     /// export fn split<C: Allocator>(
     ///     ctx: C,
@@ -313,7 +313,7 @@ impl BigInt {
     ///
     /// ```buri
     /// from "core/bigint" import * as bigint;
-    /// from "core/effect" import { Allocator };
+    /// from "platform/effect" import { Allocator };
     ///
     /// export fn twoTo<C: Allocator>(ctx: C, n: Int): bigint.BigInt {
     ///     bigint.of(2).power(ctx, n)
@@ -341,7 +341,7 @@ impl BigInt {
     ///
     /// ```buri
     /// from "core/bigint" import * as bigint;
-    /// from "core/effect" import { Allocator };
+    /// from "platform/effect" import { Allocator };
     ///
     /// export fn residue<C: Allocator>(
     ///     ctx: C,
@@ -411,7 +411,7 @@ impl BigInt {
     ///
     /// ```buri
     /// from "core/bigint" import * as bigint;
-    /// from "core/effect" import { Allocator };
+    /// from "platform/effect" import { Allocator };
     ///
     /// export fn written<C: Allocator>(ctx: C, a: bigint.BigInt): Str {
     ///     a.text(ctx)

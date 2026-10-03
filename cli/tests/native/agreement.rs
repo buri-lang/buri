@@ -668,14 +668,14 @@ fn row_01_int_overflow() {
     diverge(
         "row 1",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/number" import * as number;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let m = number.maxValue<Int>();
   let over = m + 1;
-  let _ = io.println(stdout, "${over}").ignore();
+  let _ = io.println(host.stdout, "${over}").ignore();
   .Ok(())
 }
 "#,
@@ -693,15 +693,15 @@ fn row_01_integer_show_at_the_64_bit_extremes() {
     agree(
         "row 1 show",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/number" import * as number;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let a = number.minValue<I64>();
   let b = number.maxValue<I64>();
   let c = number.maxValue<U64>();
-  let _ = io.println(stdout, "${a} ${b} ${c}").ignore();
+  let _ = io.println(host.stdout, "${a} ${b} ${c}").ignore();
   .Ok(())
 }
 "#,
@@ -736,26 +736,26 @@ fn row_02_checked_above_the_exact_range() {
         "row 2",
         r#"
 from "core/bits" import * as bits;
-from "core/host" import { stdout, alloc };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 
-fn tell(x: Option<Int>): Str {
-  match (x) { .Some(v) => str.format(alloc, "Some ${v}"), .None => "None" }
+fn tell(host: NativeHost, x: Option<Int>): Str {
+  match (x) { .Some(v) => str.format(host.alloc, "Some ${v}"), .None => "None" }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let big = bits.shiftLeft(1, 60);
   // `maxValue<I64>()` as a literal: `number.minValue`/`number.maxValue` have no LLVM
   // body yet, and a row this one is about should not be skipped there.
   let top: Int = 9223372036854775807;
-  let a = tell(big.checkedAdd(1));
-  let b = tell(top.checkedAdd(0));
+  let a = tell(host, big.checkedAdd(1));
+  let b = tell(host, top.checkedAdd(0));
   let small: Int = 100;
-  let c = tell(small.checkedAdd(20));
-  let d = tell(small.checkedDivide(0));
-  let e = tell(top.checkedAdd(1));
-  let _ = io.println(stdout, "${a} ${b} ${c} ${d} ${e}").ignore();
+  let c = tell(host, small.checkedAdd(20));
+  let d = tell(host, small.checkedDivide(0));
+  let e = tell(host, top.checkedAdd(1));
+  let _ = io.println(host.stdout, "${a} ${b} ${c} ${d} ${e}").ignore();
   .Ok(())
 }
 "#,
@@ -780,18 +780,18 @@ fn row_02_saturating_is_bounded_by_the_type_on_both_backends() {
     agree(
         "row 2 saturating",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let a: I32 = 2147483000;
   let b: U8 = 250;
   let c: I8 = 100;
   let d: I32 = 46341;
   let e: I32 = 0 - 2147483647;
-  let _ = io.println(stdout, "${a.saturatingAdd(1000)} ${b.saturatingAdd(10)} ${b.saturatingSubtract(255)}").ignore();
-  let _ = io.println(stdout, "${c.saturatingMultiply(2)} ${c.saturatingMultiply(0 - 2)} ${d.saturatingMultiply(d)}").ignore();
-  let _ = io.println(stdout, "${e.saturatingSubtract(1000)}").ignore();
+  let _ = io.println(host.stdout, "${a.saturatingAdd(1000)} ${b.saturatingAdd(10)} ${b.saturatingSubtract(255)}").ignore();
+  let _ = io.println(host.stdout, "${c.saturatingMultiply(2)} ${c.saturatingMultiply(0 - 2)} ${d.saturatingMultiply(d)}").ignore();
+  let _ = io.println(host.stdout, "${e.saturatingSubtract(1000)}").ignore();
   .Ok(())
 }
 "#,
@@ -826,11 +826,11 @@ fn row_03_wrapping_arithmetic_agrees() {
     agree(
         "row 3",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/number" import * as number;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   // 2^32 * 2^32 = 2^64, which wraps to zero at 64 bits.
   let p: I64 = 4294967296;
   let a = p.wrappingMultiply(p);
@@ -844,7 +844,7 @@ export fn main(): Result<(), Str> {
   let i = w.wrappingAdd(2048);
   let x: I64 = 0 - 7;
   let y = x.wrappingSubtract(9);
-  let _ = io.println(stdout, "${a} ${c} ${d} ${f} ${g} ${i} ${y}").ignore();
+  let _ = io.println(host.stdout, "${a} ${c} ${d} ${f} ${g} ${i} ${y}").ignore();
   .Ok(())
 }
 "#,
@@ -865,11 +865,11 @@ fn row_03_wrapping_at_the_type_boundaries_agrees() {
     agree(
         "row 3 boundaries",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/number" import * as number;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let a: U64 = 18446744073709551615;
   let b = a.wrappingAdd(1);
   let c: U64 = 0;
@@ -880,7 +880,7 @@ export fn main(): Result<(), Str> {
   let f = e.wrappingAdd(1);
   let g: I64 = 9223372036854775807;
   let h = g.wrappingAdd(1) == number.minValue<I64>();
-  let _ = io.println(stdout, "${b} ${d} ${f} ${h}").ignore();
+  let _ = io.println(host.stdout, "${b} ${d} ${f} ${h}").ignore();
   .Ok(())
 }
 "#,
@@ -900,11 +900,11 @@ fn row_03_wrapping_at_narrow_widths_agrees() {
     agree(
         "row 3 narrow",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/number" import * as number;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let a: U32 = 4294967295;
   let b = a.wrappingMultiply(a);
   let c: U32 = 65536;
@@ -917,7 +917,7 @@ export fn main(): Result<(), Str> {
   let j = i.wrappingMultiply(i);
   let k: I8 = 127;
   let l = k.wrappingAdd(1);
-  let _ = io.println(stdout, "${b} ${d} ${f} ${h} ${j} ${l}").ignore();
+  let _ = io.println(host.stdout, "${b} ${d} ${f} ${h} ${j} ${l}").ignore();
   .Ok(())
 }
 "#,
@@ -938,13 +938,13 @@ fn row_04_wide_integer_arithmetic() {
     agree(
         "row 4",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let a: I128 = 1000000007;
   let b = a * a * a;
-  let _ = io.println(stdout, "${b}").ignore();
+  let _ = io.println(host.stdout, "${b}").ignore();
   .Ok(())
 }
 "#,
@@ -960,15 +960,15 @@ fn row_04_integer_show_at_the_128_bit_extremes() {
     agree(
         "row 4 show",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/number" import * as number;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let a = number.minValue<I128>();
   let b = number.maxValue<I128>();
   let c = number.maxValue<U128>();
-  let _ = io.println(stdout, "${a} ${b} ${c}").ignore();
+  let _ = io.println(host.stdout, "${a} ${b} ${c}").ignore();
   .Ok(())
 }
 "#,
@@ -996,24 +996,24 @@ fn row_05_nested_option_is_distinct() {
     agree(
         "row 5",
         r#"
-from "core/host" import { stdout, alloc };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 
 export struct Box3 { v: Option<Option<Option<Int>>> }
 derive Show, Equal for Box3;
 
-fn tell(x: Option<Option<Int>>): Str {
+fn tell(host: NativeHost, x: Option<Option<Int>>): Str {
   match (x) {
     .Some(inner) => match (inner) {
-      .Some(v) => str.format(alloc, "some some ${v}"),
+      .Some(v) => str.format(host.alloc, "some some ${v}"),
       .None => "some none",
     },
     .None => "none",
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let a: Option<Option<Int>> = .Some(.None);
   let b: Option<Option<Int>> = .None;
   let c: Option<Option<Int>> = .Some(.Some(7));
@@ -1021,8 +1021,8 @@ export fn main(): Result<(), Str> {
   let d = Box3 { v: .Some(.Some(.None)) };
   let e = Box3 { v: .Some(.None) };
   let f = Box3 { v: .None };
-  let _ = io.println(stdout, "${tell(a)} | ${tell(b)} | ${tell(c)} | ${same}").ignore();
-  let _ = io.println(stdout, "${d.show(alloc)} | ${e.show(alloc)} | ${f.show(alloc)} | ${d == e}").ignore();
+  let _ = io.println(host.stdout, "${tell(host, a)} | ${tell(host, b)} | ${tell(host, c)} | ${same}").ignore();
+  let _ = io.println(host.stdout, "${d.show(host.alloc)} | ${e.show(host.alloc)} | ${f.show(host.alloc)} | ${d == e}").ignore();
   .Ok(())
 }
 "#,
@@ -1045,16 +1045,16 @@ fn row_06_str_len_counts_scalars() {
     agree(
         "row 6",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let a = "abc".length();
   let b = "\u{1F600}".length();
   let c = "e\u{301}".length();
   let d = "".length();
   let e = "\u{1F600}\u{1F600}ab".length();
-  let _ = io.println(stdout, "${a} ${b} ${c} ${d} ${e}").ignore();
+  let _ = io.println(host.stdout, "${a} ${b} ${c} ${d} ${e}").ignore();
   .Ok(())
 }
 "#,
@@ -1083,11 +1083,11 @@ fn row_17_text_orders_by_scalar_value() {
     agree(
         "row 17",
         r#"
-from "core/host" import { stdout, alloc };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   // U+E000 is private use and U+1F600 is an emoji: 57344 below 128512.
   // JavaScript's `<` answers the other way round.
   let a = "\u{e000}" < "\u{1f600}";
@@ -1098,8 +1098,8 @@ export fn main(): Result<(), Str> {
   // A `Char` is a scalar, and orders like one.
   let d = '\u{e000}' < '\u{1f600}';
   // Sorting is the same conformance, so it moves with them.
-  let e = ["\u{1f600}", "\u{e000}", "a"].sort(alloc) == ["a", "\u{e000}", "\u{1f600}"];
-  let _ = io.println(stdout, "${a} ${b} ${c} ${d} ${e}").ignore();
+  let e = ["\u{1f600}", "\u{e000}", "a"].sort(host.alloc) == ["a", "\u{e000}", "\u{1f600}"];
+  let _ = io.println(host.stdout, "${a} ${b} ${c} ${d} ${e}").ignore();
   .Ok(())
 }
 "#,
@@ -1125,15 +1125,15 @@ fn row_15_char_case_of_a_multi_scalar_mapping() {
     diverge(
         "row 15",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let sharp = '\u{00df}'.toUpper();
   let scalar = sharp.toU32();
   let ligature = '\u{fb00}'.toUpper();
   let ordinary = 'a'.toUpper();
-  let _ = io.println(stdout, "${sharp} ${scalar} ${ligature} ${ordinary}").ignore();
+  let _ = io.println(host.stdout, "${sharp} ${scalar} ${ligature} ${ordinary}").ignore();
   .Ok(())
 }
 "#,
@@ -1150,17 +1150,17 @@ fn row_07_str_slice_clamps() {
     agree(
         "row 7",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let s = "abcdef";
   let a = s.slice(0, 100);
   let b = s.slice(4, 2);
   let c = s.slice(10, 20);
   let d = s.slice(2, 4);
   let e = s.slice(6, 6);
-  let _ = io.println(stdout, "${a}|${b}|${c}|${d}|${e}").ignore();
+  let _ = io.println(host.stdout, "${a}|${b}|${c}|${d}|${e}").ignore();
   .Ok(())
 }
 "#,
@@ -1185,10 +1185,10 @@ fn row_08_float_rendering() {
     agree(
         "row 8",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let a = 0.1 + 0.2;
   let b = 1.0;
   let c = 1e21;
@@ -1200,7 +1200,7 @@ export fn main(): Result<(), Str> {
   let i = 0.0 / 0.0;
   let j = 1.0 / 3.0;
   let k = 0.0 - 1.5;
-  let _ = io.println(stdout, "${a} ${b} ${c} ${d} ${e} ${f} ${g} ${h} ${i} ${j} ${k}").ignore();
+  let _ = io.println(host.stdout, "${a} ${b} ${c} ${d} ${e} ${f} ${g} ${h} ${i} ${j} ${k}").ignore();
   .Ok(())
 }
 "#,
@@ -1227,7 +1227,7 @@ fn row_09_derived_show() {
     agree(
         "row 9",
         r#"
-from "core/host" import { stdout, alloc };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 export struct Inner { n: I8, flag: Bool }
@@ -1244,7 +1244,7 @@ derive Show for Inner;
 derive Show for Shape;
 derive Show for Outer;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let i = Inner { n: 0 - 3, flag: true };
   let o = Outer {
     id: 7,
@@ -1257,10 +1257,10 @@ export fn main(): Result<(), Str> {
   let none: Option<Str> = .None;
   let ok: Result<Int, Str> = .Ok(5);
   let p = Outer { id: 0, tag: 'z', inner: i, shape: .Dot, maybe: none, res: ok };
-  let _ = io.println(stdout, o.show(alloc)).ignore();
-  let _ = io.println(stdout, Shape.Dot.show(alloc)).ignore();
-  let _ = io.println(stdout, Shape.Line(1, 0 - 2).show(alloc)).ignore();
-  let _ = io.println(stdout, p.show(alloc)).ignore();
+  let _ = io.println(host.stdout, o.show(host.alloc)).ignore();
+  let _ = io.println(host.stdout, Shape.Dot.show(host.alloc)).ignore();
+  let _ = io.println(host.stdout, Shape.Line(1, 0 - 2).show(host.alloc)).ignore();
+  let _ = io.println(host.stdout, p.show(host.alloc)).ignore();
   .Ok(())
 }
 "#,
@@ -1286,11 +1286,11 @@ fn row_09_integer_show_at_every_width() {
     agree(
         "row 9 integers",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/number" import * as number;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let a = number.minValue<I8>();
   let b = number.maxValue<I8>();
   let c = number.minValue<I16>();
@@ -1306,8 +1306,8 @@ export fn main(): Result<(), Str> {
   let m: Int = 1234567890123;
   let n: I128 = 0 - 9007199254740991;
   let o: U128 = 9007199254740991;
-  let _ = io.println(stdout, "${a} ${b} ${c} ${d} ${e} ${f} ${g} ${h} ${i} ${j}").ignore();
-  let _ = io.println(stdout, "${k} ${l} ${m} ${n} ${o}").ignore();
+  let _ = io.println(host.stdout, "${a} ${b} ${c} ${d} ${e} ${f} ${g} ${h} ${i} ${j}").ignore();
+  let _ = io.println(host.stdout, "${k} ${l} ${m} ${n} ${o}").ignore();
   .Ok(())
 }
 "#,
@@ -1332,20 +1332,20 @@ fn row_09_bool_char_and_str_show() {
     agree(
         "row 9 text",
         r#"
-from "core/host" import { stdout, alloc };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 export struct T { s: Str, c: Char, b: Bool }
 derive Show for T;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let a = T { s: "quote\" back\\ tab\t nl\n cr\r nul\u{0}", c: '"', b: true };
   let b = T { s: "\u{1F600} caf\u{e9}", c: '\u{1F600}', b: false };
   let d = T { s: "", c: '\\', b: true };
-  let _ = io.println(stdout, a.show(alloc)).ignore();
-  let _ = io.println(stdout, b.show(alloc)).ignore();
-  let _ = io.println(stdout, d.show(alloc)).ignore();
-  let _ = io.println(stdout, "${a.s.length()} ${b.s.length()} ${a.b} ${b.b}").ignore();
+  let _ = io.println(host.stdout, a.show(host.alloc)).ignore();
+  let _ = io.println(host.stdout, b.show(host.alloc)).ignore();
+  let _ = io.println(host.stdout, d.show(host.alloc)).ignore();
+  let _ = io.println(host.stdout, "${a.s.length()} ${b.s.length()} ${a.b} ${b.b}").ignore();
   .Ok(())
 }
 "#,
@@ -1376,16 +1376,16 @@ fn row_09_a_match_over_a_literal_and_an_interpolation() {
     agree(
         "row 9 template join",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let o: Option<Int> = .Some(5);
   let n: Option<Int> = .None;
   let a = match (o) { .Some(v) => "some ${v}", .None => "none" };
   let b = match (n) { .Some(v) => "some ${v}", .None => "none" };
-  let _ = io.println(stdout, a).ignore();
-  let _ = io.println(stdout, b).ignore();
+  let _ = io.println(host.stdout, a).ignore();
+  let _ = io.println(host.stdout, b).ignore();
   .Ok(())
 }
 "#,
@@ -1401,7 +1401,7 @@ fn row_09_derived_eq_and_ord_verdicts() {
     agree(
         "row 9 eq ord",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/order" import { Order };
 
@@ -1412,7 +1412,7 @@ derive Equal, Ordered for E;
 
 fn name(o: Order): Str { match (o) { .Less => "lt", .Equal => "eq", .Greater => "gt" } }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let p = P { a: 1, b: "m" };
   let q = P { a: 1, b: "n" };
   let r = P { a: 2, b: "a" };
@@ -1423,7 +1423,7 @@ export fn main(): Result<(), Str> {
   let ee = name(E.A.compare(E.B(1)));
   let ef = name(E.B(2).compare(E.B(1)));
   let eg = name(E.C { x: 1 }.compare(E.B(9)));
-  let _ = io.println(stdout, "${x} ${y} ${z} ${eq} ${ee} ${ef} ${eg}").ignore();
+  let _ = io.println(host.stdout, "${x} ${y} ${z} ${eq} ${ee} ${ef} ${eg}").ignore();
   .Ok(())
 }
 "#,
@@ -1454,7 +1454,7 @@ fn row_09_derived_eq_on_a_float_field() {
     agree(
         "row 9 float eq",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 export struct F { x: Float }
@@ -1465,7 +1465,7 @@ fn zeroF(): Float { 0.0 }
 fn negZeroF(): Float { -0.0 }
 fn notANumber(): Float { zeroF() / zeroF() }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let n = notANumber();
   let bare = n == n;
   let built = mk(notANumber()) == mk(notANumber());
@@ -1476,7 +1476,7 @@ export fn main(): Result<(), Str> {
   let nz = mk(negZeroF()) == mk(zeroF());
   let lt = n < n;
   let le = n <= n;
-  let _ = io.println(stdout, "${bare} ${built} ${itself} ${mixed} ${pz} ${nz} ${lt} ${le}").ignore();
+  let _ = io.println(host.stdout, "${bare} ${built} ${itself} ${mixed} ${pz} ${nz} ${lt} ${le}").ignore();
   .Ok(())
 }
 "#,
@@ -1503,7 +1503,7 @@ fn row_09_float_equality_is_the_same_in_every_position() {
     agree(
         "row 9 float eq positions",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 fn zeroF(): Float { 0.0 }
@@ -1522,7 +1522,7 @@ fn negated(a: Float, b: Float): Bool { if (!(a == b)) { false } else { true } }
 fn ltCondition(a: Float, b: Float): Bool { if (a < b) { true } else { false } }
 fn leCondition(a: Float, b: Float): Bool { if (a <= b) { true } else { false } }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let n = notANumber();
   let v = asValue(n, n);
   let c = asCondition(n, n);
@@ -1533,7 +1533,7 @@ export fn main(): Result<(), Str> {
   let le = leCondition(n, n);
   let ord = asCondition(1.5, 1.5);
   let neq = asCondition(1.5, 2.5);
-  let _ = io.println(stdout, "${v} ${c} ${b} ${g} ${x} ${lt} ${le} ${ord} ${neq}").ignore();
+  let _ = io.println(host.stdout, "${v} ${c} ${b} ${g} ${x} ${lt} ${le} ${ord} ${neq}").ignore();
   .Ok(())
 }
 "#,
@@ -1554,7 +1554,7 @@ fn row_09_derived_hash_values() {
     agree(
         "row 9 hash",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 export struct P { a: Int, b: Str }
@@ -1562,7 +1562,7 @@ export enum E { A, B(Int) }
 derive Hash for P;
 derive Hash for E;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let p = P { a: 1, b: "m" };
   let h = p.hash();
   let i = E.A.hash();
@@ -1571,7 +1571,7 @@ export fn main(): Result<(), Str> {
   let l = "".hash();
   let m = 'z'.hash();
   let n = false.hash();
-  let _ = io.println(stdout, "${h} ${i} ${j} ${k} ${l} ${m} ${n}").ignore();
+  let _ = io.println(host.stdout, "${h} ${i} ${j} ${k} ${l} ${m} ${n}").ignore();
   .Ok(())
 }
 "#,
@@ -1623,16 +1623,16 @@ fn a_derived_hash_over_a_list_is_a_named_gap() {
 }
 
 const HASH_A_LIST: &str = r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 export struct Bag { xs: [Int] }
 derive Equal, Hash, Show for Bag;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let a = Bag { xs: [1, 2] };
   let b = Bag { xs: [1, 2] };
-  let _ = io.println(stdout, if (a.hash() == b.hash()) { "same" } else { "differ" }).ignore();
+  let _ = io.println(host.stdout, if (a.hash() == b.hash()) { "same" } else { "differ" }).ignore();
   .Ok(())
 }
 "#;
@@ -1658,7 +1658,7 @@ fn a_derived_ord_over_a_list() {
 }
 
 const ORD_A_LIST: &str = r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/order" import { Order };
 
@@ -1676,7 +1676,7 @@ fn bag(xs: [U8]): Bag { Bag { xs: xs } }
 fn deep(xs: [Leaf], ss: [Str]): Deep { Deep { xs: xs, ss: ss } }
 fn leaf(a: Int, b: Str): Leaf { Leaf { a: a, b: b } }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let elem = name(bag([1]).compare(bag([2])));
   let nine = name(bag([9]).compare(bag([1, 2])));
   let same = name(bag([1, 2]).compare(bag([1, 2])));
@@ -1684,7 +1684,7 @@ export fn main(): Result<(), Str> {
   let empty = name(bag([0]).compare(bag([])));
   let inner = name(deep([leaf(1, "x")], []).compare(deep([leaf(1, "y")], [])));
   let words = name(deep([], ["ab"]).compare(deep([], ["aa", "zz"])));
-  let _ = io.println(stdout, "${elem} ${nine} ${same} ${prefix} ${empty} ${inner} ${words}").ignore();
+  let _ = io.println(host.stdout, "${elem} ${nine} ${same} ${prefix} ${empty} ${inner} ${words}").ignore();
   .Ok(())
 }
 "#;
@@ -1718,7 +1718,7 @@ fn a_derive_over_a_hand_written_impl_is_structural_on_both_backends() {
 }
 
 const DERIVE_OVER_IMPL: &str = r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/order" import { Order };
 
@@ -1740,26 +1740,26 @@ fn name(o: Order): Str { match (o) { .Less => "lt", .Equal => "eq", .Greater => 
 fn wrap(octets: [U8]): Wrapper { Wrapper(Holder { octets: octets }) }
 fn pair(octets: [U8]): Pair { Pair { wrapped: wrap(octets) } }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   // The hand-written ordering: fewer octets is `.Less`, whatever they hold.
   let direct = name(wrap([9]).compare(wrap([1, 2])));
   // The derived one over it: `[U8]`'s own order, which puts `[9]` above.
   let derived = name(pair([9]).compare(pair([1, 2])));
-  let _ = io.println(stdout, "${direct} ${derived}").ignore();
+  let _ = io.println(host.stdout, "${direct} ${derived}").ignore();
   .Ok(())
 }
 "#;
 
 const SHOW_A_LIST: &str = r#"
-from "core/host" import { stdout, alloc };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 export struct Bag { xs: [Int], ss: [Str], empty: [Int] }
 derive Show for Bag;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let b = Bag { xs: [1, 2, 3], ss: ["a", "b"], empty: [] };
-  let _ = io.println(stdout, b.show(alloc)).ignore();
+  let _ = io.println(host.stdout, b.show(host.alloc)).ignore();
   .Ok(())
 }
 "#;
@@ -1805,7 +1805,7 @@ fn row_10_derived_tojson() {
 
 /// A `Json` rendered without `json.stringify`, because that is closures.
 const TOJSON: &str = r#"
-from "core/host" import { stdout, alloc };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/json" import { Json, ToJson };
 from "core/str" import * as str;
@@ -1815,41 +1815,41 @@ export struct P { a: Int, b: Str, c: Bool, d: Float, e: Inner }
 derive ToJson for Inner;
 derive ToJson for P;
 
-fn render(j: Json): Str {
+fn render(host: NativeHost, j: Json): Str {
   match (j) {
     .Null => "null",
-    .Bool(b) => str.format(alloc, "${b}"),
-    .Num(x) => str.format(alloc, "${x}"),
-    .Str(s) => str.format(alloc, "\"${s}\""),
-    .Array(items) => str.format(alloc, "[${renderList(items)}]"),
-    .Object(entries) => str.format(alloc, "{${renderEntries(entries)}}"),
+    .Bool(b) => str.format(host.alloc, "${b}"),
+    .Num(x) => str.format(host.alloc, "${x}"),
+    .Str(s) => str.format(host.alloc, "\"${s}\""),
+    .Array(items) => str.format(host.alloc, "[${renderList(host, items)}]"),
+    .Object(entries) => str.format(host.alloc, "{${renderEntries(host, entries)}}"),
   }
 }
 
-fn renderList(items: [Json]): Str {
+fn renderList(host: NativeHost, items: [Json]): Str {
   match (items) {
     [] => "",
-    [h] => render(h),
-    [h, ..t] => str.format(alloc, "${render(h)},${renderList(t)}"),
+    [h] => render(host, h),
+    [h, ..t] => str.format(host.alloc, "${render(host, h)},${renderList(host, t)}"),
   }
 }
 
-fn renderEntries(entries: [(Str, Json)]): Str {
+fn renderEntries(host: NativeHost, entries: [(Str, Json)]): Str {
   match (entries) {
     [] => "",
-    [h] => entryText(h),
-    [h, ..t] => str.format(alloc, "${entryText(h)},${renderEntries(t)}"),
+    [h] => entryText(host, h),
+    [h, ..t] => str.format(host.alloc, "${entryText(host, h)},${renderEntries(host, t)}"),
   }
 }
 
-fn entryText(e: (Str, Json)): Str {
+fn entryText(host: NativeHost, e: (Str, Json)): Str {
   let (k, v) = e;
-  str.format(alloc, "\"${k}\":${render(v)}")
+  str.format(host.alloc, "\"${k}\":${render(host, v)}")
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let p = P { a: 3, b: "hi", c: false, d: 1.5, e: Inner { flag: true, note: "n" } };
-  let _ = io.println(stdout, render(p.toJson(alloc))).ignore();
+  let _ = io.println(host.stdout, render(host, p.toJson(host.alloc))).ignore();
   .Ok(())
 }
 "#;
@@ -1882,7 +1882,7 @@ fn row_10_derived_tojson_at_every_primitive() {
 }
 
 const TOJSON_WIDTHS: &str = r#"
-from "core/host" import { stdout, alloc };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/json" import { Json, ToJson };
 from "core/str" import * as str;
@@ -1894,46 +1894,46 @@ export struct W {
 }
 derive ToJson for W;
 
-fn render(j: Json): Str {
+fn render(host: NativeHost, j: Json): Str {
   match (j) {
     .Null => "null",
-    .Bool(b) => str.format(alloc, "${b}"),
-    .Num(x) => str.format(alloc, "${x}"),
-    .Str(s) => str.format(alloc, "\"${s}\""),
-    .Array(items) => str.format(alloc, "[${renderList(items)}]"),
-    .Object(entries) => str.format(alloc, "{${renderEntries(entries)}}"),
+    .Bool(b) => str.format(host.alloc, "${b}"),
+    .Num(x) => str.format(host.alloc, "${x}"),
+    .Str(s) => str.format(host.alloc, "\"${s}\""),
+    .Array(items) => str.format(host.alloc, "[${renderList(host, items)}]"),
+    .Object(entries) => str.format(host.alloc, "{${renderEntries(host, entries)}}"),
   }
 }
 
-fn renderList(items: [Json]): Str {
+fn renderList(host: NativeHost, items: [Json]): Str {
   match (items) {
     [] => "",
-    [h] => render(h),
-    [h, ..t] => str.format(alloc, "${render(h)},${renderList(t)}"),
+    [h] => render(host, h),
+    [h, ..t] => str.format(host.alloc, "${render(host, h)},${renderList(host, t)}"),
   }
 }
 
-fn renderEntries(entries: [(Str, Json)]): Str {
+fn renderEntries(host: NativeHost, entries: [(Str, Json)]): Str {
   match (entries) {
     [] => "",
-    [h] => entryText(h),
-    [h, ..t] => str.format(alloc, "${entryText(h)},${renderEntries(t)}"),
+    [h] => entryText(host, h),
+    [h, ..t] => str.format(host.alloc, "${entryText(host, h)},${renderEntries(host, t)}"),
   }
 }
 
-fn entryText(e: (Str, Json)): Str {
+fn entryText(host: NativeHost, e: (Str, Json)): Str {
   let (k, v) = e;
-  str.format(alloc, "\"${k}\":${render(v)}")
+  str.format(host.alloc, "\"${k}\":${render(host, v)}")
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let w = W {
     ch: 'é', em: '😀',
     u8v: 255, i8v: -3, u16v: 65535, i16v: -300,
     u32v: 4294967295, i32v: -70000, u64v: 7,
     f32v: 1.5,
   };
-  let _ = io.println(stdout, render(w.toJson(alloc))).ignore();
+  let _ = io.println(host.stdout, render(host, w.toJson(host.alloc))).ignore();
   .Ok(())
 }
 "#;
@@ -1955,15 +1955,15 @@ fn row_11_division_by_zero() {
     abort_agrees(
         "row 11",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 fn ratio(a: Int, b: Int): Int { a / b }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let zero = "".length();
-  let _ = io.println(stdout, "before").ignore();
-  let _ = io.println(stdout, "${ratio(10, zero)}").ignore();
+  let _ = io.println(host.stdout, "before").ignore();
+  let _ = io.println(host.stdout, "${ratio(10, zero)}").ignore();
   .Ok(())
 }
 "#,
@@ -1973,14 +1973,14 @@ export fn main(): Result<(), Str> {
     abort_agrees(
         "row 11 remainder",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 fn rest(a: Int, b: Int): Int { a % b }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let zero = "".length();
-  let _ = io.println(stdout, "${rest(10, zero)}").ignore();
+  let _ = io.println(host.stdout, "${rest(10, zero)}").ignore();
   .Ok(())
 }
 "#,
@@ -1998,14 +1998,14 @@ fn row_14_shift_out_of_range() {
         "row 14 shift",
         r#"
 from "core/bits" import * as bits;
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 fn push(x: U8, n: Int): U8 { bits.shiftLeftU8(x, n) }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let width = 8 + "".length();
-  let _ = io.println(stdout, "${push(1, width)}").ignore();
+  let _ = io.println(host.stdout, "${push(1, width)}").ignore();
   .Ok(())
 }
 "#,
@@ -2024,11 +2024,11 @@ fn row_14_an_error_return() {
     let (js, natives) = both(
         "row 14 err",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
-export fn main(): Result<(), Str> {
-  let _ = io.println(stdout, "before").ignore();
+export fn main(host: NativeHost): Result<(), Str> {
+  let _ = io.println(host.stdout, "before").ignore();
   .Err("it did not work")
 }
 "#,
@@ -2071,14 +2071,14 @@ fn row_12_alloc_accounting() {
 
 const ALLOCATE: &str = r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Allocator, Region };
-from "core/host" import { alloc as platform, stdout };
+from "platform/effect" import { Allocator, Region };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
-export fn main(): Result<(), Str> {
-  let r = alloc.allocate(platform, 64);
+export fn main(host: NativeHost): Result<(), Str> {
+  let r = alloc.allocate(host.alloc, 64);
   let n = r.0;
-  let _ = io.println(stdout, "${n}").ignore();
+  let _ = io.println(host.stdout, "${n}").ignore();
   .Ok(())
 }
 "#;
@@ -2106,14 +2106,14 @@ fn row_13_tail_calls_run_in_constant_stack() {
     agree(
         "row 13",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 fn count(n: Int, acc: Int): Int { if (n == 0) { acc } else { count(n - 1, acc + n) } }
 fn even(n: Int): Bool { if (n == 0) { true } else { odd(n - 1) } }
 fn odd(n: Int): Bool { if (n == 0) { false } else { even(n - 1) } }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let a = count(1000000, 0);
   let b = even(1000001);
   let c = even(1000000);
@@ -2121,7 +2121,7 @@ export fn main(): Result<(), Str> {
   // where a signature returning nothing stopped being a wrong answer and
   // started being a crash.
   let d = if (even(4)) { "yes" } else { "no" };
-  let _ = io.println(stdout, "${a} ${b} ${c} ${d}").ignore();
+  let _ = io.println(host.stdout, "${a} ${b} ${c} ${d}").ignore();
   .Ok(())
 }
 "#,
@@ -2154,7 +2154,7 @@ fn an_aggregate_of_two_counted_values_agrees_through_its_projections() {
     agree(
         "aggregate projections",
         r#"
-from "core/host" import { stdout, alloc };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 
@@ -2167,19 +2167,19 @@ fn spin(n: Int, p: (Str, Str)): Str {
   if (n == 0) { p.0 } else { spin(n - 1, (p.1, p.0)) }
 }
 
-export fn main(): Result<(), Str> {
-  let heap = "ab".repeat(alloc, 3);
-  let other = "cd".repeat(alloc, 2);
+export fn main(host: NativeHost): Result<(), Str> {
+  let heap = "ab".repeat(host.alloc, 3);
+  let other = "cd".repeat(host.alloc, 2);
   let dup = dupTuple(heap);
   let rec = dupStruct(heap);
   let two = (heap, other);
-  let xs = ["ef".repeat(alloc, 2)];
+  let xs = ["ef".repeat(host.alloc, 2)];
   let got = match (xs[0]) { .Some(v) => v, .None => "?" };
-  let _ = io.println(stdout, "${dup.0}|${dup.1}").ignore();
-  let _ = io.println(stdout, "${rec.a}|${rec.b}").ignore();
-  let _ = io.println(stdout, "${two.0}|${two.1}").ignore();
-  let _ = io.println(stdout, "${got}").ignore();
-  let _ = io.println(stdout, "${spin(5, ("kl".repeat(alloc, 2), "mn".repeat(alloc, 2)))}").ignore();
+  let _ = io.println(host.stdout, "${dup.0}|${dup.1}").ignore();
+  let _ = io.println(host.stdout, "${rec.a}|${rec.b}").ignore();
+  let _ = io.println(host.stdout, "${two.0}|${two.1}").ignore();
+  let _ = io.println(host.stdout, "${got}").ignore();
+  let _ = io.println(host.stdout, "${spin(5, ("kl".repeat(host.alloc, 2), "mn".repeat(host.alloc, 2)))}").ignore();
   .Ok(())
 }
 "#,
@@ -2217,20 +2217,20 @@ fn a_let_gives_back_the_positions_its_pattern_skips() {
     agree(
         "skipped let positions",
         r#"
-from "core/host" import { stdout, alloc };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 struct Pair { kept: Int, dropped: Str }
 
 fn step(at: Int, word: Str): (Int, Str) { (at + 1, word) }
 
-export fn main(): Result<(), Str> {
-  let (at, _) = step(0, "ab".repeat(alloc, 2));
-  let Pair { kept, dropped: _ } = Pair { kept: 2, dropped: "cd".repeat(alloc, 2) };
-  let (n, (_, m)) = (3, ("ef".repeat(alloc, 2), 4));
-  let held = step(5, "gh".repeat(alloc, 2));
+export fn main(host: NativeHost): Result<(), Str> {
+  let (at, _) = step(0, "ab".repeat(host.alloc, 2));
+  let Pair { kept, dropped: _ } = Pair { kept: 2, dropped: "cd".repeat(host.alloc, 2) };
+  let (n, (_, m)) = (3, ("ef".repeat(host.alloc, 2), 4));
+  let held = step(5, "gh".repeat(host.alloc, 2));
   let (six, _) = held;
-  let _ = io.println(stdout, "${at}|${kept}|${n}${m}|${six}|${held.1}").ignore();
+  let _ = io.println(host.stdout, "${at}|${kept}|${n}${m}|${six}|${held.1}").ignore();
   .Ok(())
 }
 "#,
@@ -2271,7 +2271,7 @@ fn a_struct_holding_nan_compared_with_itself_agrees() {
     agree(
         "nan self-identity",
         r#"
-from "core/host" import { stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 export struct F { x: Float }
@@ -2281,9 +2281,9 @@ fn mk(x: Float): F { F { x: x } }
 fn zeroF(): Float { 0.0 }
 fn notANumber(): Float { zeroF() / zeroF() }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let f = mk(notANumber());
-  let _ = io.println(stdout, "${f == f}").ignore();
+  let _ = io.println(host.stdout, "${f == f}").ignore();
   .Ok(())
 }
 "#,
@@ -2315,24 +2315,24 @@ fn row_16_nan_payloads_canonicalize_on_every_backend() {
         "row 16",
         r#"
 from "core/bytes" import * as bytes;
-from "core/host" import { stdout, alloc };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 
-fn ends(b: [U8]): Str {
-  str.format(alloc, "${b[0].withDefault(0)} ${b[6].withDefault(0)} ${b[7].withDefault(0)}")
+fn ends(host: NativeHost, b: [U8]): Str {
+  str.format(host.alloc, "${b[0].withDefault(0)} ${b[6].withDefault(0)} ${b[7].withDefault(0)}")
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let one = bytes.f64FromBytes([1, 0, 0, 0, 0, 0, 248, 127], 0).withDefault(0.0);
   let two = bytes.f64FromBytes([2, 0, 0, 0, 0, 0, 248, 127], 0).withDefault(0.0);
   let signalling = bytes.f64FromBytes([1, 0, 0, 0, 0, 0, 240, 255], 0).withDefault(0.0);
   let negativeZero = bytes.f64FromBytes([0, 0, 0, 0, 0, 0, 0, 128], 0).withDefault(1.0);
-  let _ = io.println(stdout, ends(bytes.f64ToBytes(alloc, one))).ignore();
-  let _ = io.println(stdout, ends(bytes.f64ToBytes(alloc, two))).ignore();
-  let _ = io.println(stdout, ends(bytes.f64ToBytes(alloc, signalling))).ignore();
-  let _ = io.println(stdout, "${one == two} ${one == signalling}").ignore();
-  let _ = io.println(stdout, ends(bytes.f64ToBytes(alloc, negativeZero))).ignore();
+  let _ = io.println(host.stdout, ends(host, bytes.f64ToBytes(host.alloc, one))).ignore();
+  let _ = io.println(host.stdout, ends(host, bytes.f64ToBytes(host.alloc, two))).ignore();
+  let _ = io.println(host.stdout, ends(host, bytes.f64ToBytes(host.alloc, signalling))).ignore();
+  let _ = io.println(host.stdout, "${one == two} ${one == signalling}").ignore();
+  let _ = io.println(host.stdout, ends(host, bytes.f64ToBytes(host.alloc, negativeZero))).ignore();
   .Ok(())
 }
 "#,
@@ -2379,41 +2379,41 @@ fn the_closure_trampoline_answers_what_the_open_coded_loop_does() {
     agree(
         "closure trampoline",
         r#"
-from "core/host" import { stdout, alloc };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 
-fn show(xs: [Str]): Str { xs.join(alloc, ",") }
+fn show(host: NativeHost, xs: [Str]): Str { xs.join(host.alloc, ",") }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ns = [1, 2, 3, 4];
-  let doubledStep = ns.mapCtxStep(alloc, fn(c, n) => n * 2);
-  let doubledLoop = ns.mapCtx(alloc, fn(c, n) => n * 2);
-  let _ = io.println(stdout, "${doubledStep.length()} ${doubledLoop.length()}").ignore();
-  let _ = io.println(stdout, "${show(doubledStep.mapCtx(alloc, fn(c, n) => str.fromInt(c, n)))}").ignore();
-  let _ = io.println(stdout, "${show(doubledLoop.mapCtx(alloc, fn(c, n) => str.fromInt(c, n)))}").ignore();
+  let doubledStep = ns.mapCtxStep(host.alloc, fn(c, n) => n * 2);
+  let doubledLoop = ns.mapCtx(host.alloc, fn(c, n) => n * 2);
+  let _ = io.println(host.stdout, "${doubledStep.length()} ${doubledLoop.length()}").ignore();
+  let _ = io.println(host.stdout, "${show(host, doubledStep.mapCtx(host.alloc, fn(c, n) => str.fromInt(c, n)))}").ignore();
+  let _ = io.println(host.stdout, "${show(host, doubledLoop.mapCtx(host.alloc, fn(c, n) => str.fromInt(c, n)))}").ignore();
 
   // A counted result, at a stride the source does not have.
-  let named = ns.mapCtxStep(alloc, fn(c, n) => "n".repeat(c, n));
-  let _ = io.println(stdout, show(named)).ignore();
+  let named = ns.mapCtxStep(host.alloc, fn(c, n) => "n".repeat(c, n));
+  let _ = io.println(host.stdout, show(host, named)).ignore();
 
   // A counted source: the retain the entry thunk takes is what keeps `named`
   // alive while its elements are read.
-  let louder = named.mapCtxStep(alloc, fn(c, s) => str.format(c, "<${s}>"));
-  let _ = io.println(stdout, show(louder)).ignore();
-  let _ = io.println(stdout, show(named)).ignore();
+  let louder = named.mapCtxStep(host.alloc, fn(c, s) => str.format(c, "<${s}>"));
+  let _ = io.println(host.stdout, show(host, louder)).ignore();
+  let _ = io.println(host.stdout, show(host, named)).ignore();
 
   // An aggregate result, through the out-pointer.
-  let pairs = ns.mapCtxStep(alloc, fn(c, n) => (n, n * n));
-  let _ = io.println(stdout, show(pairs.mapCtx(alloc, fn(c, p) => str.format(c, "${p.0}^${p.1}")))).ignore();
+  let pairs = ns.mapCtxStep(host.alloc, fn(c, n) => (n, n * n));
+  let _ = io.println(host.stdout, show(host, pairs.mapCtx(host.alloc, fn(c, p) => str.format(c, "${p.0}^${p.1}")))).ignore();
 
   // Nested: a step that is itself a call site.
-  let nested = ns.mapCtx(alloc, fn(c, n) => [n, n].mapCtxStep(c, fn(d, m) => m + 1).length());
-  let _ = io.println(stdout, "${nested.length()} ${nested[0].withDefault(0)}").ignore();
+  let nested = ns.mapCtx(host.alloc, fn(c, n) => [n, n].mapCtxStep(c, fn(d, m) => m + 1).length());
+  let _ = io.println(host.stdout, "${nested.length()} ${nested[0].withDefault(0)}").ignore();
 
   let empty: [Int] = [];
-  let _ = io.println(stdout, "${empty.mapCtxStep(alloc, fn(c, n) => n + 1).length()}").ignore();
+  let _ = io.println(host.stdout, "${empty.mapCtxStep(host.alloc, fn(c, n) => n + 1).length()}").ignore();
   .Ok(())
 }
 "#,
@@ -2474,8 +2474,8 @@ fn the_task_scheduler_answers_in_input_order_on_every_backend() {
     agree(
         "tasks.parallel",
         r#"
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -2483,7 +2483,7 @@ from "core/tasks" import * as tasks;
 
 fn show<C: Allocator>(ctx: C, xs: [Str]): Str { xs.join(ctx, ",") }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
 
   // The index is the item's own, and the answer is in the items' order.
@@ -2565,15 +2565,15 @@ fn a_shared_list_is_counted_correctly_by_every_task() {
     agree(
         "tasks.parallel shared",
         r#"
-from "core/effect" import { Allocator, Clock, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Clock, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "core/tasks" import * as tasks;
 from "core/time" import * as time;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks, Clock: host.clock,
   };
@@ -2648,15 +2648,15 @@ fn a_shared_buffer_is_never_appended_to_in_place_by_two_tasks() {
     agree(
         "tasks.parallel in-place",
         r#"
-from "core/effect" import { Allocator, Clock, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Clock, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "core/tasks" import * as tasks;
 from "core/time" import * as time;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks, Clock: host.clock,
   };
@@ -2721,8 +2721,8 @@ fn a_task_is_handed_the_callers_context_on_every_backend() {
     agree(
         "tasks.parallel context",
         r#"
-from "core/effect" import { Allocator, Clock, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Clock, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 from "core/tasks" import * as tasks;
@@ -2742,7 +2742,7 @@ impl Clock for Ticker {
 
 fn show<C: Allocator>(ctx: C, xs: [Str]): Str { xs.join(ctx, ",") }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc,
     Clock: Ticker { at: 5 },
@@ -2838,11 +2838,11 @@ fn a_handler_a_wrapper_rebuilt_is_entered_on_every_backend() {
     agree(
         "rebuilt handler",
         r#"
-from "core/effect" import {
+from "platform/effect" import {
   Allocator, Header, IoError, Listen, Listener, Received, Region, Request, Response,
   Serve, ServeError, Stdout, Tasks,
 };
-from "core/host" import * as host;
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/server" import * as server;
 
@@ -3009,7 +3009,7 @@ fn wrapped<C, T>(ctx: C, body: fn(Wrap<C>) => T): T {
   body(Wrap(ctx, 7))
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context {
     Allocator: Plain { n: 0 },
     Stdout: host.stdout,
@@ -3056,11 +3056,11 @@ fn a_bound_listener_crosses_a_wrapper_on_every_backend() {
     agree(
         "bound listener",
         r#"
-from "core/effect" import {
+from "platform/effect" import {
   Allocator, Header, IoError, Listen, Listener, Received, Region, Request, Response,
   Serve, ServeError, Stdout,
 };
-from "core/host" import * as host;
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/server" import * as server;
 from "core/str" import * as str;
@@ -3189,7 +3189,7 @@ fn wrapped<C, T>(ctx: C, body: fn(Wrap<C>) => T): T {
   body(Wrap(ctx, 7))
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let open = context { Allocator: host.alloc, Stdout: host.stdout, Listen: Gate { opens: 1 } };
   let shut = context { Allocator: host.alloc, Stdout: host.stdout, Listen: Gate { opens: 0 } };
   let _ = io.println(host.stdout, wrapped(open, fn(c) => published(c, true))).ignore();
@@ -3229,8 +3229,8 @@ fn a_value_leaves_a_scope_alive_on_every_backend() {
         "copy out of a scope",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
@@ -3249,7 +3249,7 @@ fn flatten<C: Allocator>(ctx: C, xss: [[Str]]): Str {
   xss.mapCtx(ctx, fn(c, xs) => xs.join(c, "+")).join(ctx, "|")
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
 
   let nested = alloc.scoped(ctx, fn(c) => [
@@ -3308,13 +3308,13 @@ fn a_scope_per_task_answers_on_every_backend() {
         "a scope per task",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/tasks" import * as tasks;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let ns = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
   let out = tasks.parallel(ctx, ns, fn(c, i, n) =>
@@ -3354,12 +3354,12 @@ fn a_spawned_task_runs_before_its_scope_returns_on_every_backend() {
     agree(
         "tasks.scope",
         r#"
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let _ = io.println(ctx, "before").ignore();
   let later = tasks.scope(ctx, fn(c, here) => {
@@ -3417,8 +3417,8 @@ fn a_task_spawned_inside_an_arena_keeps_what_it_captured_on_every_backend() {
         "tasks.spawn inside an arena",
         r#"
 from "core/alloc" import * as alloc;
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 
@@ -3436,7 +3436,7 @@ fn churn<C: Allocator>(ctx: C): Int {
   small.length() + large
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc,
     Stdout: host.stdout,
@@ -3492,8 +3492,8 @@ fn the_edges_of_a_scope_agree_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Stepped };
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 from "core/tasks" import { Scope };
@@ -3525,7 +3525,7 @@ fn foreman<C: Allocator + Stdout + Tasks>(): Actor<C, Int, Job, Ran> {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc,
     Stdout: host.stdout,
@@ -3606,13 +3606,13 @@ fn a_spawned_timer_waits_on_the_clock_on_every_backend() {
     agree(
         "tasks.scope timer",
         r#"
-from "core/effect" import { Allocator, Clock, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Clock, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 from "core/time" import * as time;
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout, Tasks: host.tasks,
   };
@@ -3659,8 +3659,8 @@ fn the_monotonic_clock_never_goes_backwards_on_every_backend() {
     agree(
         "time.monotonic",
         r#"
-from "core/effect" import { Allocator, Clock, Stdout };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Clock, Stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/time" import * as time;
@@ -3672,7 +3672,7 @@ fn verdict(ok: Bool): Str {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout,
   };
@@ -3720,8 +3720,8 @@ fn a_spawned_loop_stops_when_its_actor_says_so_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 
@@ -3763,7 +3763,7 @@ fn frames<C: Allocator + Stdout + Tasks>(
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let keeper = actor.start(ctx, gate(3));
   let _ = tasks.scope(ctx, fn(c, here) => {
@@ -3804,8 +3804,8 @@ fn a_waiting_step_runs_under_every_ctx_combinator_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, SendError, Stepped };
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 
@@ -3849,7 +3849,7 @@ fn shown<C: Allocator>(ctx: C, xs: [Int]): Str {
   xs.mapCtx(ctx, fn(c, v) => str.fromInt(c, v)).join(ctx, ",")
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
 
   let mapping = actor.start(ctx, recorder());
@@ -3939,15 +3939,15 @@ fn an_abort_inside_a_task_stops_the_program_the_same_way() {
     abort_agrees(
         "tasks.parallel abort",
         r#"
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/tasks" import * as tasks;
 
 fn ratio(a: Int, b: Int): Int { a / b }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let _ = io.println(ctx, "before").ignore();
   let answers = tasks.parallel(ctx, [4, 2, 0], fn(c, i, n) => ratio(8, n));
@@ -3979,14 +3979,14 @@ fn an_abort_inside_a_spawned_task_stops_the_program_the_same_way() {
     abort_agrees(
         "tasks.spawn abort",
         r#"
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 
 fn ratio(a: Int, b: Int): Int { a / b }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let _ = tasks.scope(ctx, fn(c, here) => {
     let _ = tasks.spawn(c, here, fn(c2) => {
@@ -4039,8 +4039,8 @@ fn an_actor_counts_the_same_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, SendError, Stepped, Stopped };
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 enum CounterMessage {
@@ -4090,7 +4090,7 @@ fn total(r: Result<CounterAnswer, SendError>): Int {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc,
     Stdout: host.stdout,
@@ -4178,8 +4178,8 @@ fn a_step_that_sends_to_its_own_actor_is_refused_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, SendError, Stepped };
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 enum Reentrant<C> {
@@ -4266,7 +4266,7 @@ fn said(answered: Result<Reentered, SendError>): Str {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc,
     Stdout: host.stdout,
@@ -4337,8 +4337,8 @@ fn what_an_actors_messages_carry_agrees_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, SendError, Stepped };
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 
@@ -4573,7 +4573,7 @@ fn totalled(r: Result<Desked, SendError>): Int {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc,
     Stdout: host.stdout,
@@ -4657,8 +4657,8 @@ from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, SendError, Stepped, Stopped };
 from "core/alloc" import * as alloc;
 from "core/alloc" import { Scoped };
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 enum Keep {
@@ -4716,7 +4716,7 @@ fn ended(r: Result<(), Stopped>): Str {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc,
     Stdout: host.stdout,
@@ -4766,8 +4766,8 @@ fn a_large_state_survives_many_messages_on_every_backend() {
         r#"
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, SendError, Stepped };
-from "core/effect" import { Allocator, Stdout, Tasks };
-from "core/host" import * as host;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/orderedmap" import * as orderedmap;
 from "core/orderedmap" import { OrderedMap };
@@ -4851,7 +4851,7 @@ fn reads<C: Allocator>(ctx: C, map: OrderedMap<Int, Str>, k: Int): Str {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc,
     Stdout: host.stdout,
@@ -4920,7 +4920,7 @@ fn a_projection_off_a_generic_calls_result_agrees() {
     agree(
         "projection off a generic call",
         r#"
-from "core/host" import { stdout, alloc };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 enum Leaf { One(Int), Two(Int) }
@@ -4928,20 +4928,20 @@ struct Inner { items: [Leaf] }
 struct Plain { items: [Int] }
 struct Outer { inner: Inner, plain: Plain }
 
-fn outer(): Outer {
+fn outer(host: NativeHost): Outer {
   Outer {
-    inner: Inner { items: [1, 2].map(alloc, fn(n) => Leaf.One(n)) },
-    plain: Plain { items: [1, 2].map(alloc, fn(n) => n + 1) },
+    inner: Inner { items: [1, 2].map(host.alloc, fn(n) => Leaf.One(n)) },
+    plain: Plain { items: [1, 2].map(host.alloc, fn(n) => n + 1) },
   }
 }
 
 fn identity<T>(value: T): T { value }
 
-export fn main(): Result<(), Str> {
-  let a = identity(outer()).inner.items.length();
-  let plain = identity(outer()).plain;
-  let inner = identity(outer()).inner;
-  let _ = io.println(stdout, "${a} ${plain.items.length()} ${inner.items.length()}").ignore();
+export fn main(host: NativeHost): Result<(), Str> {
+  let a = identity(outer(host)).inner.items.length();
+  let plain = identity(outer(host)).plain;
+  let inner = identity(outer(host)).inner;
+  let _ = io.println(host.stdout, "${a} ${plain.items.length()} ${inner.items.length()}").ignore();
   .Ok(())
 }
 "#,
@@ -4969,7 +4969,7 @@ fn a_match_arms_bindings_survive_a_sibling_field_read() {
     agree(
         "match arm bindings",
         r#"
-from "core/host" import { stdout, alloc };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/str" import * as str;
 
@@ -4981,47 +4981,47 @@ enum Outcome {
 struct Manager { held: Int }
 struct Step { manager: Manager, outcome: Outcome }
 
-fn step(): Step {
+fn step(host: NativeHost): Step {
   Step {
     manager: Manager { held: 1 },
     outcome: .Attached {
-      id: "se".repeat(alloc, 2),
+      id: "se".repeat(host.alloc, 2),
       status: 0,
-      reply: Msg { body: "re".repeat(alloc, 2) },
-      flush: [Msg { body: "fl".repeat(alloc, 2) }],
+      reply: Msg { body: "re".repeat(host.alloc, 2) },
+      flush: [Msg { body: "fl".repeat(host.alloc, 2) }],
     },
   }
 }
 
-fn sent(manager: Manager, messages: [Msg]): Str {
-  let bodies = messages.map(alloc, fn(message) => message.body).join(alloc, ",");
-  str.format(alloc, "${bodies}/${manager.held}")
+fn sent(host: NativeHost, manager: Manager, messages: [Msg]): Str {
+  let bodies = messages.map(host.alloc, fn(message) => message.body).join(host.alloc, ",");
+  str.format(host.alloc, "${bodies}/${manager.held}")
 }
 
-fn insideArm(): Str {
-  let s = step();
+fn insideArm(host: NativeHost): Str {
+  let s = step(host);
   match (s.outcome) {
     .Attached { id, reply, flush, .. } => {
-      sent(s.manager, [Msg { body: id }].concat(alloc, [reply].concat(alloc, flush)))
+      sent(host, s.manager, [Msg { body: id }].concat(host.alloc, [reply].concat(host.alloc, flush)))
     },
-    .Refused { reply } => sent(s.manager, [reply]),
+    .Refused { reply } => sent(host, s.manager, [reply]),
   }
 }
 
-fn beforeMatch(): Str {
-  let s = step();
+fn beforeMatch(host: NativeHost): Str {
+  let s = step(host);
   let manager = s.manager;
   match (s.outcome) {
     .Attached { id, reply, flush, .. } => {
-      sent(manager, [Msg { body: id }].concat(alloc, [reply].concat(alloc, flush)))
+      sent(host, manager, [Msg { body: id }].concat(host.alloc, [reply].concat(host.alloc, flush)))
     },
-    .Refused { reply } => sent(manager, [reply]),
+    .Refused { reply } => sent(host, manager, [reply]),
   }
 }
 
-export fn main(): Result<(), Str> {
-  let _ = io.println(stdout, insideArm()).ignore();
-  let _ = io.println(stdout, beforeMatch()).ignore();
+export fn main(host: NativeHost): Result<(), Str> {
+  let _ = io.println(host.stdout, insideArm(host)).ignore();
+  let _ = io.println(host.stdout, beforeMatch(host)).ignore();
   .Ok(())
 }
 "#,
@@ -5050,7 +5050,7 @@ fn mutual_tail_recursion_with_unlike_parameters_agrees() {
     agree(
         "mutual tail recursion",
         r#"
-from "core/host" import { stdout, alloc };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -5058,41 +5058,41 @@ from "core/str" import * as str;
 enum Fault { Incomplete, Corrupt }
 struct Walk { seen: [Int], total: Int }
 
-fn walk(octets: [U8], at: Int): Result<Int, Fault> {
-  let walked = walkFrom(octets, at, Walk { seen: list.empty<Int>(), total: 0 })?;
+fn walk(host: NativeHost, octets: [U8], at: Int): Result<Int, Fault> {
+  let walked = walkFrom(host, octets, at, Walk { seen: list.empty<Int>(), total: 0 })?;
   .Ok(walked.total + walked.seen.length())
 }
 
-fn walkFrom(octets: [U8], at: Int, state: Walk): Result<Walk, Fault> {
+fn walkFrom(host: NativeHost, octets: [U8], at: Int, state: Walk): Result<Walk, Fault> {
   match (octets[at]) {
     .None => .Ok(state),
-    .Some(octet) => walkOne(octets, at, octet, state),
+    .Some(octet) => walkOne(host, octets, at, octet, state),
   }
 }
 
-fn walkOne(octets: [U8], at: Int, octet: U8, state: Walk): Result<Walk, Fault> {
+fn walkOne(host: NativeHost, octets: [U8], at: Int, octet: U8, state: Walk): Result<Walk, Fault> {
   if (octet == 255) {
     .Err(.Corrupt)
   } else {
-    walkFrom(octets, at + 1, Walk {
-      seen: state.seen.push(alloc, octet.toI64()),
+    walkFrom(host, octets, at + 1, Walk {
+      seen: state.seen.push(host.alloc, octet.toI64()),
       total: state.total + octet.toI64(),
     })
   }
 }
 
-fn shown(answer: Result<Int, Fault>): Str {
+fn shown(host: NativeHost, answer: Result<Int, Fault>): Str {
   match (answer) {
-    .Ok(n) => str.format(alloc, "${n}"),
+    .Ok(n) => str.format(host.alloc, "${n}"),
     .Err(.Corrupt) => "corrupt",
     .Err(.Incomplete) => "incomplete",
   }
 }
 
-export fn main(): Result<(), Str> {
-  let _ = io.println(stdout, shown(walk([1, 2, 3], 0))).ignore();
-  let _ = io.println(stdout, shown(walk([1, 255, 3], 0))).ignore();
-  let _ = io.println(stdout, shown(walk(list.empty<U8>(), 0))).ignore();
+export fn main(host: NativeHost): Result<(), Str> {
+  let _ = io.println(host.stdout, shown(host, walk(host, [1, 2, 3], 0))).ignore();
+  let _ = io.println(host.stdout, shown(host, walk(host, [1, 255, 3], 0))).ignore();
+  let _ = io.println(host.stdout, shown(host, walk(host, list.empty<U8>(), 0))).ignore();
   .Ok(())
 }
 "#,
@@ -5130,7 +5130,7 @@ fn an_option_whose_payload_holds_an_array_agrees() {
     agree(
         "option holding an array",
         r#"
-from "core/host" import { stdout, alloc };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
@@ -5150,16 +5150,16 @@ fn wrappedMatch(held: Option<Wrapper>): Int {
   match (held) { .None => 0, .Some(w) => w.octets.length() }
 }
 
-fn built(): [U8] { [1, 2, 3].map(alloc, fn(n) => n.wrapToU8()) }
+fn built(host: NativeHost): [U8] { [1, 2, 3].map(host.alloc, fn(n) => n.wrapToU8()) }
 
-export fn main(): Result<(), Str> {
-  let a = defaulted(.Some(built()));
-  let b = matched(.Some(built()));
-  let c = wrapped(.Some(Wrapper { octets: built() }));
-  let d = wrappedMatch(.Some(Wrapper { octets: built() }));
+export fn main(host: NativeHost): Result<(), Str> {
+  let a = defaulted(.Some(built(host)));
+  let b = matched(.Some(built(host)));
+  let c = wrapped(.Some(Wrapper { octets: built(host) }));
+  let d = wrappedMatch(.Some(Wrapper { octets: built(host) }));
   let e = defaulted(.None);
   let f = wrapped(.None);
-  let _ = io.println(stdout, "${a} ${b} ${c} ${d} ${e} ${f}").ignore();
+  let _ = io.println(host.stdout, "${a} ${b} ${c} ${d} ${e} ${f}").ignore();
   .Ok(())
 }
 "#,
@@ -5193,7 +5193,7 @@ fn sorting_a_list_whose_element_holds_an_enum_agrees() {
     agree(
         "sortBy over a counted element",
         r#"
-from "core/host" import { stdout, alloc };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -5203,31 +5203,31 @@ enum Held { Text(Body), Number(Int) }
 struct Cell { held: Held }
 struct Row { name: Str, cell: Cell, rank: Int }
 
-fn rows(count: Int): [Row] {
-  list.range(alloc, 0, count).map(alloc, fn(n) => Row {
-    name: "r".repeat(alloc, n + 1),
-    cell: Cell { held: Held.Text(Body { text: "v".repeat(alloc, n + 1) }) },
+fn rows(host: NativeHost, count: Int): [Row] {
+  list.range(host.alloc, 0, count).map(host.alloc, fn(n) => Row {
+    name: "r".repeat(host.alloc, n + 1),
+    cell: Cell { held: Held.Text(Body { text: "v".repeat(host.alloc, n + 1) }) },
     rank: count - n,
   })
 }
 
-fn label(row: Row): Str {
+fn label(host: NativeHost, row: Row): Str {
   let inner = match (row.cell.held) {
     .Text(body) => body.text,
-    .Number(n) => str.format(alloc, "${n}"),
+    .Number(n) => str.format(host.alloc, "${n}"),
   };
-  str.format(alloc, "${row.name}=${inner}:${row.rank}")
+  str.format(host.alloc, "${row.name}=${inner}:${row.rank}")
 }
 
-fn shown(xs: [Row]): Str { xs.map(alloc, fn(row) => label(row)).join(alloc, " ") }
+fn shown(host: NativeHost, xs: [Row]): Str { xs.map(host.alloc, fn(row) => label(host, row)).join(host.alloc, " ") }
 
-fn byRank(xs: [Row]): [Row] { xs.sortBy(alloc, fn(a, b) => a.rank.compare(b.rank)) }
+fn byRank(host: NativeHost, xs: [Row]): [Row] { xs.sortBy(host.alloc, fn(a, b) => a.rank.compare(b.rank)) }
 
-export fn main(): Result<(), Str> {
-  let _ = io.println(stdout, shown(byRank(rows(1)))).ignore();
-  let _ = io.println(stdout, shown(byRank(rows(3)))).ignore();
-  let _ = io.println(stdout, shown(byRank(rows(4)))).ignore();
-  let _ = io.println(stdout, shown(rows(3))).ignore();
+export fn main(host: NativeHost): Result<(), Str> {
+  let _ = io.println(host.stdout, shown(host, byRank(host, rows(host, 1)))).ignore();
+  let _ = io.println(host.stdout, shown(host, byRank(host, rows(host, 3)))).ignore();
+  let _ = io.println(host.stdout, shown(host, byRank(host, rows(host, 4)))).ignore();
+  let _ = io.println(host.stdout, shown(host, rows(host, 3))).ignore();
   .Ok(())
 }
 "#,
@@ -5265,10 +5265,10 @@ fn a_websocket_client_refuses_a_scheme_it_cannot_speak_on_every_backend() {
     agree(
         "websocket client refusal",
         r#"
-from "core/effect" import {
+from "platform/effect" import {
   Allocator, ServeError, ServeFailure, Sockets, Stdout, WebSocketClient,
 };
-from "core/host" import * as host;
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/server" import { CloseReason };
 from "core/net/websocket" import * as websocket;
@@ -5304,7 +5304,7 @@ fn cause(r: Result<(CloseReason, Int), ServeError>): ServeFailure {
   }
 }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context {
     Allocator: host.alloc,
     Sockets: host.sockets,
@@ -5350,7 +5350,7 @@ fn a_closure_does_not_spend_what_it_captures_on_every_backend() {
     agree(
         "sharing rules",
         r#"
-from "core/host" import { alloc, stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -5359,62 +5359,62 @@ struct Out { pieces: [Int], at: Int }
 struct Swapped { at: Int, pieces: [Int] }
 struct Held<C> { run: fn(C, Int) => Int }
 
-fn grown(n: Int): [Int] {
-  list.range(alloc, 0, n).foldCtx(alloc, fn(c, acc: [Int], i) => acc.push(c, i), list.empty())
+fn grown(host: NativeHost, n: Int): [Int] {
+  list.range(host.alloc, 0, n).foldCtx(host.alloc, fn(c, acc: [Int], i) => acc.push(c, i), list.empty())
 }
 
 /// One piece written: a push into a list beside a read of an `Int` out of the
 /// same record.
-fn wrote(out: Out, x: Int): Out {
-  Out { ..out, pieces: out.pieces.push(alloc, x), at: out.at + 1 }
+fn wrote(host: NativeHost, out: Out, x: Int): Out {
+  Out { ..out, pieces: out.pieces.push(host.alloc, x), at: out.at + 1 }
 }
 
 /// The same two fields, declared the other way round. Moving them past each
 /// other used to decide whether the push copied.
-fn wroteSwapped(out: Swapped, x: Int): Swapped {
-  Swapped { ..out, at: out.at + 1, pieces: out.pieces.push(alloc, x) }
+fn wroteSwapped(host: NativeHost, out: Swapped, x: Int): Swapped {
+  Swapped { ..out, at: out.at + 1, pieces: out.pieces.push(host.alloc, x) }
 }
 
 /// A walk whose **tail is a projection of a counted value**: the accumulator is
 /// a `(Out, Bool)` and what comes back is its first element.
-fn writing(i: Int, n: Int, acc: (Out, Bool)): Out {
-  if (i >= n) { acc.0 } else { writing(i + 1, n, (wrote(acc.0, i), true)) }
+fn writing(host: NativeHost, i: Int, n: Int, acc: (Out, Bool)): Out {
+  if (i >= n) { acc.0 } else { writing(host, i + 1, n, (wrote(host, acc.0, i), true)) }
 }
 
-fn shown(xs: [Int]): Str { str.format(alloc, "${xs.length()}:${xs.sum()}") }
+fn shown(host: NativeHost, xs: [Int]): Str { str.format(host.alloc, "${xs.length()}:${xs.sum()}") }
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
   // One closure, called four times, over a list the program grew.
-  let xs = grown(3);
-  let sliced = list.range(alloc, 0, 4).mapCtx(alloc, fn(c, i) => xs.slice(c, 0, i).length());
+  let xs = grown(host, 3);
+  let sliced = list.range(host.alloc, 0, 4).mapCtx(host.alloc, fn(c, i) => xs.slice(c, 0, i).length());
   let kept = Held { run: fn(c, i) => xs.drop(c, i).length() };
   let call = kept.run;
-  let _ = io.println(stdout, "captured ${shown(sliced)} ${call(alloc, 1)} ${shown(xs)}").ignore();
+  let _ = io.println(host.stdout, "captured ${shown(host, sliced)} ${call(host.alloc, 1)} ${shown(host, xs)}").ignore();
 
   // A push beside an uncounted field of the same record, both ways round.
-  let base = wrote(Out { pieces: list.empty<Int>(), at: 0 }, 1);
-  let one = wrote(base, 2);
-  let two = wrote(base, 3);
-  let other = wroteSwapped(Swapped { at: 0, pieces: list.empty<Int>() }, 1);
-  let after = wroteSwapped(other, 2);
+  let base = wrote(host, Out { pieces: list.empty<Int>(), at: 0 }, 1);
+  let one = wrote(host, base, 2);
+  let two = wrote(host, base, 3);
+  let other = wroteSwapped(host, Swapped { at: 0, pieces: list.empty<Int>() }, 1);
+  let after = wroteSwapped(host, other, 2);
   let _ = io.println(
-    stdout,
-    "beside ${shown(one.pieces)} ${shown(two.pieces)} ${shown(base.pieces)} ${shown(after.pieces)} ${shown(other.pieces)}",
+    host.stdout,
+    "beside ${shown(host, one.pieces)} ${shown(host, two.pieces)} ${shown(host, base.pieces)} ${shown(host, after.pieces)} ${shown(host, other.pieces)}",
   ).ignore();
 
   // A counted tail projection, a projection out of a nameless temporary, and a
   // fold seed two folds are handed.
-  let walked = writing(0, 4, (Out { pieces: list.empty<Int>(), at: 0 }, false));
+  let walked = writing(host, 0, 4, (Out { pieces: list.empty<Int>(), at: 0 }, false));
   let nameless = list
-    .range(alloc, 0, 3)
-    .foldCtx(alloc, fn(c, acc: (Out, Bool), i) => (wrote(acc.0, i), true), (Out { pieces: list.empty<Int>(), at: 0 }, false))
+    .range(host.alloc, 0, 3)
+    .foldCtx(host.alloc, fn(c, acc: (Out, Bool), i) => (wrote(host, acc.0, i), true), (Out { pieces: list.empty<Int>(), at: 0 }, false))
     .0;
-  let seed = grown(1);
-  let left = list.range(alloc, 0, 2).foldCtx(alloc, fn(c, acc: [Int], i) => acc.push(c, i), seed);
-  let right = list.range(alloc, 0, 3).foldCtx(alloc, fn(c, acc: [Int], i) => acc.push(c, i), seed);
+  let seed = grown(host, 1);
+  let left = list.range(host.alloc, 0, 2).foldCtx(host.alloc, fn(c, acc: [Int], i) => acc.push(c, i), seed);
+  let right = list.range(host.alloc, 0, 3).foldCtx(host.alloc, fn(c, acc: [Int], i) => acc.push(c, i), seed);
   let _ = io.println(
-    stdout,
-    "tails ${shown(walked.pieces)} ${walked.at} ${shown(nameless.pieces)} ${shown(left)} ${shown(right)} ${shown(seed)}",
+    host.stdout,
+    "tails ${shown(host, walked.pieces)} ${walked.at} ${shown(host, nameless.pieces)} ${shown(host, left)} ${shown(host, right)} ${shown(host, seed)}",
   ).ignore();
   .Ok(())
 }
@@ -5446,7 +5446,7 @@ fn a_let_gives_back_every_position_its_pattern_skips_on_every_backend() {
     agree(
         "skipped pattern positions",
         r#"
-from "core/host" import { alloc, stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 
@@ -5455,46 +5455,46 @@ enum Deep { Only(Nest) }
 struct Pair { kept: Int, dropped: Str }
 
 /// Grown rather than interned: a constant is in no block anybody gives back.
-fn grown(word: Str): Str { word.concat(alloc, "!") }
+fn grown(host: NativeHost, word: Str): Str { word.concat(host.alloc, "!") }
 
-fn deep(word: Str): Deep {
-  .Only(Nest { tag: 1, both: (grown(word), list.range(alloc, 0, 2)) })
+fn deep(host: NativeHost, word: Str): Deep {
+  .Only(Nest { tag: 1, both: (grown(host, word), list.range(host.alloc, 0, 2)) })
 }
 
 /// One round of every shape that skips a counted position.
-fn skipping(i: Int, n: Int, acc: Int): Int {
+fn skipping(host: NativeHost, i: Int, n: Int, acc: Int): Int {
   if (i >= n) {
     acc
   } else {
     // Three levels down, under two positions that do bind.
-    let .Only(Nest { tag, both: (_, _) }) = deep("token");
+    let .Only(Nest { tag, both: (_, _) }) = deep(host, "token");
     // A struct field written as `_`.
-    let Pair { kept, dropped: _ } = Pair { kept: 2, dropped: grown("word") };
+    let Pair { kept, dropped: _ } = Pair { kept: 2, dropped: grown(host, "word") };
     // A struct field the pattern never wrote down at all.
-    let Nest { tag: shallow, .. } = Nest { tag: 4, both: (grown("rest"), list.range(alloc, 0, 3)) };
+    let Nest { tag: shallow, .. } = Nest { tag: 4, both: (grown(host, "rest"), list.range(host.alloc, 0, 3)) };
     // A name nobody reads, which is the other half of the rule.
-    let (at, _unread) = (8, grown("named"));
-    skipping(i + 1, n, acc + tag + kept + shallow + at)
+    let (at, _unread) = (8, grown(host, "named"));
+    skipping(host, i + 1, n, acc + tag + kept + shallow + at)
   }
 }
 
 /// A `match` arm's unbound payload, which goes back with the scrutinee.
-fn arm(word: Str): Int {
-  match (deep(word)) {
+fn arm(host: NativeHost, word: Str): Int {
+  match (deep(host, word)) {
     .Only(Nest { tag, both: (_, _) }) => tag,
   }
 }
 
-export fn main(): Result<(), Str> {
-  let _ = io.println(stdout, "skipped ${skipping(0, 8, 0)}").ignore();
-  let _ = io.println(stdout, "arm ${arm("held")}").ignore();
+export fn main(host: NativeHost): Result<(), Str> {
+  let _ = io.println(host.stdout, "skipped ${skipping(host, 0, 8, 0)}").ignore();
+  let _ = io.println(host.stdout, "arm ${arm(host, "held")}").ignore();
   // And not twice: the destructuring is not the last read of `whole`.
-  let whole = deep("kept");
+  let whole = deep(host, "kept");
   let .Only(Nest { tag, both: (_, rest) }) = whole;
   let again = match (whole) {
     .Only(nest) => nest.tag,
   };
-  let _ = io.println(stdout, "twice ${tag} ${rest.length()} ${again}").ignore();
+  let _ = io.println(host.stdout, "twice ${tag} ${rest.length()} ${again}").ignore();
   .Ok(())
 }
 "#,
@@ -5527,7 +5527,7 @@ fn a_recursive_type_round_trips_on_every_backend() {
     agree(
         "boxed fields and payloads",
         r#"
-from "core/host" import { alloc, stdout };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -5545,18 +5545,18 @@ fn total(c: Chain): Int {
   }
 }
 
-fn labels(c: Chain, acc: Str): Str {
+fn labels(host: NativeHost, c: Chain, acc: Str): Str {
   match (c) {
     .End => acc,
-    .Link(cell) => labels(cell.next, acc.concat(alloc, cell.label)),
+    .Link(cell) => labels(host, cell.next, acc.concat(host.alloc, cell.label)),
   }
 }
 
-fn built(i: Int, n: Int, acc: Chain): Chain {
+fn built(host: NativeHost, i: Int, n: Int, acc: Chain): Chain {
   if (i >= n) {
     acc
   } else {
-    built(i + 1, n, .Link(Cell { next: acc, value: i, label: str.fromInt(alloc, i) }))
+    built(host, i + 1, n, .Link(Cell { next: acc, value: i, label: str.fromInt(host.alloc, i) }))
   }
 }
 
@@ -5567,11 +5567,11 @@ fn size(t: Tree): Int {
   }
 }
 
-fn tree(depth: Int): Tree {
+fn tree(host: NativeHost, depth: Int): Tree {
   if (depth <= 0) {
     .Tip
   } else {
-    .Branch(Fork { left: tree(depth - 1), right: tree(depth - 1), mark: list.range(alloc, 0, depth) })
+    .Branch(Fork { left: tree(host, depth - 1), right: tree(host, depth - 1), mark: list.range(host.alloc, 0, depth) })
   }
 }
 
@@ -5582,14 +5582,14 @@ fn held(o: Option<Chain>): Int {
   }
 }
 
-export fn main(): Result<(), Str> {
-  let chain = built(0, 8, .End);
-  let written = labels(chain, "");
-  let _ = io.println(stdout, "chain ${total(chain)} ${written}").ignore();
-  let _ = io.println(stdout, "tree ${size(tree(3))}").ignore();
-  let _ = io.println(stdout, "held ${held(.Some(built(0, 4, .End)))} ${held(.None)}").ignore();
-  let pair = (built(0, 3, .End), 5);
-  let _ = io.println(stdout, "pair ${total(pair.0)} ${total(pair.0)} ${pair.1}").ignore();
+export fn main(host: NativeHost): Result<(), Str> {
+  let chain = built(host, 0, 8, .End);
+  let written = labels(host, chain, "");
+  let _ = io.println(host.stdout, "chain ${total(chain)} ${written}").ignore();
+  let _ = io.println(host.stdout, "tree ${size(tree(host, 3))}").ignore();
+  let _ = io.println(host.stdout, "held ${held(.Some(built(host, 0, 4, .End)))} ${held(.None)}").ignore();
+  let pair = (built(host, 0, 3, .End), 5);
+  let _ = io.println(host.stdout, "pair ${total(pair.0)} ${total(pair.0)} ${pair.1}").ignore();
   .Ok(())
 }
 "#,

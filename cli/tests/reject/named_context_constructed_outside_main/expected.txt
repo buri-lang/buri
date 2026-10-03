@@ -1,3 +1,25 @@
+error: there is nothing named `host` in scope [unresolved-name]
+ --> cmd/named_context_constructed_outside_main/main.buri:7:14
+  |
+7 |   Allocator: host.alloc,
+  |              ^^^^
+  |
+  = fix: declare `host`, or import it — a name is in scope only from this module's own declarations and its imports
+
+    Why
+    ───
+
+    There is no prelude and no ambient scope. A module's available names are the
+    ones it declares plus the ones its own imports name, which is what makes the
+    suggestion trustworthy.
+
+error: there is nothing named `host` in scope [unresolved-name]
+ --> cmd/named_context_constructed_outside_main/main.buri:8:11
+  |
+8 |   Stdout: host.stdout,
+  |           ^^^^
+  |
+  = fix: declare `host`, or import it — a name is in scope only from this module's own declarations and its imports
 error: a context may not be constructed here [context-not-allowed]
   --> cmd/named_context_constructed_outside_main/main.buri:12:15
    |

@@ -1,0 +1,9 @@
+// EXPECT: `main` is the entry of the node platform, and nothing calls it
+//
+// `node`'s `platform.buri` declares `main` without a body: it is the shape a
+// program fills, not a function to call.
+from "node" import { main, NodeHost };
+
+export fn start(host: NodeHost): Result<(), Str> {
+  .Ok(())
+}

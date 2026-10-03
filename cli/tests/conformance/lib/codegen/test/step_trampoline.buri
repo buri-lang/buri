@@ -26,11 +26,11 @@
 // backends *and* JavaScript and compares the bytes; this file is the assertion
 // half, and it runs wherever the corpus runs.
 
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 
 test "a scalar step answers what the open-coded loop answers" {
     let ctx = context {

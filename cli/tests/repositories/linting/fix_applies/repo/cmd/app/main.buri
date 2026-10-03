@@ -1,11 +1,11 @@
 // Two findings with one mechanical answer each: `Stdout` is imported and never
 // used, and //lib/money is used and never declared.
 
-from "core/effect" import { Allocator, Stdout };
-from "core/host" import * as host;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
 from "//lib/money" import { fromCents };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
     // This comment, and the single-line `context` below it, are the test that
     // `--fix` edits rather than reformats. It writes the bytes the findings name
     // and checks the result still parses; running the whole file through the

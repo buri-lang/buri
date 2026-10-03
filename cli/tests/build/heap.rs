@@ -59,20 +59,20 @@ const LIBRARY: &str = "library {\n    test {\n        sources: [\"test/counting.
 
 /// A program that allocates. A program that does not would answer `allocated=0`
 /// and prove nothing: the audit it passed is the audit of an empty heap.
-const COUNTING: &str = r#"from "core/host" import { stdout, alloc };
+const COUNTING: &str = r#"from "native" import { NativeHost };
 from "core/io" import * as io;
 
-export fn main(): Result<(), Str> {
-    let letters = [1, 2, 3].map(alloc, fn(n) => "buri".repeat(alloc, n));
-    let _ = io.println(stdout, "${letters.length()}").ignore();
+export fn main(host: NativeHost): Result<(), Str> {
+    let letters = [1, 2, 3].map(host.alloc, fn(n) => "buri".repeat(host.alloc, n));
+    let _ = io.println(host.stdout, "${letters.length()}").ignore();
     .Ok(())
 }
 "#;
 
 /// The same, as a test block, so that the binary `buri test` spawns has a heap
 /// to be audited.
-const COUNTING_TEST: &str = r#"from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
+const COUNTING_TEST: &str = r#"from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 
 test "a suite that allocates" {

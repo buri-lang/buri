@@ -7,10 +7,10 @@
 // then runs it.
 
 from "core/buri/ast" import * as ast;
-from "core/effect" import { Allocator };
-from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
 
 fn roundTrip<C: Allocator>(ctx: C, source: Str): Str {
     match (ast.parse(ctx, "probe.buri", source)) {
@@ -40,7 +40,7 @@ test "imports" {
         Allocator: alloc(),
     };
     same(ctx, "from \"core/list\" import * as list;\n");
-    same(ctx, "from \"core/effect\" import { Allocator };\n");
+    same(ctx, "from \"platform/effect\" import { Allocator };\n");
     same(ctx, "from \"core/order\" import { Equal, Ordered };\n");
     same(ctx, "from \"core/order\" import { Equal as Equal };\n");
     same(ctx, "from \"//lib/money\" export { Cents };\n");

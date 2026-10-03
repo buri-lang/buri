@@ -2365,7 +2365,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // one, allocating through `buri_rt_alloc` and reading no
                 // capability. Every context built from `core/host` happens to be
                 // empty structs, so the two readings agree until a program
-                // builds one from `core/host/testing`, whose `TestAllocator` is
+                // builds one from `platform/effect/testing`, whose `TestAllocator` is
                 // `struct TestAllocator(I64)` and carries a handle. Then a check on
                 // the leaf count refuses a valid program, and a *spread* on the
                 // leaf count would put one extra word into a C signature that
@@ -2403,7 +2403,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // A context that owns a reference count would need a
                     // retain per element rather than a copy, and none does:
                     // `core/host`'s allocators are empty structs and
-                    // `core/host/testing`'s carry a handle. Refused here,
+                    // `platform/effect/testing`'s carry a handle. Refused here,
                     // where there is a span to hang it on.
                     if ps
                         .iter()
@@ -5205,7 +5205,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// same question only while every `C: Allocator` is instantiated at a `context
     /// { … }` record — and `C` is an ordinary type parameter with an ordinary
     /// bound (SPEC 10.1), so a value that merely *implements* `Allocator` satisfies
-    /// it. `core/host/testing`'s `alloc()` is `struct TestAllocator(I64)` and
+    /// it. `platform/effect/testing`'s `alloc()` is `struct TestAllocator(I64)` and
     /// carries a handle; one of those in this position spread to a leaf and
     /// `pieces` was read off by one from there on.
     const fn concat_ctx(argc: usize) -> Option<usize> {
@@ -5923,7 +5923,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let op = key.split_once('.').map_or("", |(_, o)| o);
                 self.bits(state, dest, op, args)
             }
-            // The two parts of `core/host/testing` that are instructions
+            // The two parts of `platform/effect/testing` that are instructions
             // rather than calls. Every other double is stateful — a captured
             // stdout, an in-memory filesystem — and its state lives on the test
             // runner's side, which is why those are rows in the runtime table.

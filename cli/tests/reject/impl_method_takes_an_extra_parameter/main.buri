@@ -15,7 +15,9 @@ impl Measurable for Bag {
   fn size(self, scale: Int): Int { self.count * scale }
 }
 
-export fn main(): Result<(), Str> {
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
   let bag = Bag { count: 2 };
   let _ = bag.size(3);
   .Ok(())

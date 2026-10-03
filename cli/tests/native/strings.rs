@@ -61,7 +61,7 @@ fn run(name: &str, source: &str) -> Option<Ran> {
 #[test]
 fn slicing_a_long_string_once_per_scalar_reads_it_a_bounded_number_of_times() {
     let source = r#"
-from "core/host" import { stdout, alloc };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 fn scan(text: Str, i: Int, n: Int, seen: Int): Int {
@@ -74,12 +74,12 @@ fn scan(text: Str, i: Int, n: Int, seen: Int): Int {
   }
 }
 
-export fn main(): Result<(), Str> {
-  let text = "é".concat(alloc, "abcdefghij".repeat(alloc, 2000));
+export fn main(host: NativeHost): Result<(), Str> {
+  let text = "é".concat(host.alloc, "abcdefghij".repeat(host.alloc, 2000));
   let n = text.length();
   let seen = scan(text, 0, n, 0);
   let tail = match (text.indexOf("jab")) { .Some(at) => at, .None => -1 };
-  let _ = io.println(stdout, "${n} ${seen} ${tail}").ignore();
+  let _ = io.println(host.stdout, "${n} ${seen} ${tail}").ignore();
   .Ok(())
 }
 "#;
@@ -107,8 +107,8 @@ export fn main(): Result<(), Str> {
 #[test]
 fn a_string_grown_in_place_over_an_indexed_block_reads_its_own_scalars() {
     let source = r#"
-from "core/effect" import { Allocator };
-from "core/host" import { stdout, alloc };
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
 from "core/io" import * as io;
 
 fn longPrefix<C: Allocator>(ctx: C): Str {
@@ -123,11 +123,11 @@ fn code(c: Option<Char>): Int {
   match (c) { .Some(x) => x.toU32().toI64(), .None => -1 }
 }
 
-export fn main(): Result<(), Str> {
-  let grown = longPrefix(alloc).concat(alloc, "abc".repeat(alloc, 100));
+export fn main(host: NativeHost): Result<(), Str> {
+  let grown = longPrefix(host.alloc).concat(host.alloc, "abc".repeat(host.alloc, 100));
   let at = match (grown.indexOf("c")) { .Some(i) => i, .None => -1 };
   let _ = io.println(
-    stdout,
+    host.stdout,
     "${grown.length()} ${code(grown.charAt(9))},${code(grown.charAt(10))},${code(grown.charAt(11))},${code(grown.charAt(310))} ${grown.slice(10, 13)} ${grown.slice(307, 310)} ${at}",
   ).ignore();
   .Ok(())

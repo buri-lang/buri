@@ -6,7 +6,7 @@
 // testable with no document, no renderer and no reactive graph, and the suite
 // in `test/model.buri` builds none of the three.
 
-from "core/effect" import { Allocator };
+from "platform/effect" import { Allocator };
 from "//lib/ledger" import { Entry, entry };
 from "//lib/money" import { fromCents, parse };
 

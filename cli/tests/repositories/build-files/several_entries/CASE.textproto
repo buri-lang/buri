@@ -8,11 +8,9 @@
 #   * **The platform calls a worker.** Its module ends in a default export the
 #     worker runtime invokes; the page's ends in the self-starting epilogue
 #     every other JavaScript platform gets.
-#   * **Each entry is checked against its own platform.** `main` binds
-#     `Ui: host.ui`, which a worker does not grant; `fetch` builds a context of
-#     its own beside it. Neither is refused, because a `core/host` name inside
-#     an entry's body is checked against the outputs that enter through *that*
-#     entry.
+#   * **Each entry takes its own platform's host.** `main` takes `WebHost` and
+#     binds `Ui: host.ui`; the worker's `fetch` binds `core/host`'s values,
+#     which a worker entry still may.
 #   * **Dead code is eliminated per entry.** The worker never reaches the
 #     reactive graph, so `mount` is not in its bytes; the page never reaches
 #     `fetch`, so the worker's bridge is not in its.
@@ -22,17 +20,13 @@
 #     runs its page; `//cmd/worker`, which declares a worker and nothing else,
 #     is refused.
 #
-#   * **Two outputs may share one entry.** `//cmd/both` is a page and a plain
-#     JavaScript program out of one `main`, and gets one artifact each. Its body
-#     is then checked against *both* platforms, which is the per-entry rule read
-#     from the other end.
-#   * **A helper is not an entry.** The same `host.ui` that is fine inside
-#     `main` is refused in a function beside it, naming the worker, because a
-#     `core/host` name outside an entry's body is checked against every output.
-#
-#   * **`entries` fills an entry from another function.** `//cmd/both`'s
-#     JavaScript program enters through `mainForNode`, and its artifact is
-#     named after it.
+#   * **Two outputs take two entries.** `//cmd/both` is a page and a plain
+#     JavaScript program, and `entries` sends the node output to `mainForNode`.
+#     Pointing both outputs at `main` is refused: one function can't take two
+#     hosts.
+#   * **A helper is not an entry.** `core/host`'s `host.ui` is refused in a
+#     function beside the entries, naming the worker, because a `core/host`
+#     name outside an entry's body is checked against every output.
 #
 # Then the refusals, one per way `entries` can be wrong: an entry the platform
 # does not have, a name the binary does not export, a name that is a keyword, a name that is exported and is not a
@@ -310,28 +304,26 @@ edit {
   with: "fn view<C: Ui>(ctx: C, path: Str): Node<C> {"
 }
 
-# **Two outputs, one entry.** Nothing says an entry belongs to one output.
-# `//cmd/both` declares a page and a plain JavaScript program that are the same
-# function, and gets one artifact each.
+# **Two outputs, two entries.** A page and a plain JavaScript program take
+# different hosts, so `//cmd/both`'s JavaScript program enters through
+# `mainForNode`, and its artifact is named after it.
 run {
   args: ["build", "//cmd/both"]
   exit: 0
   golden: "both_built.txt"
 }
 
-# And the body is then checked against *both* platforms, not either. `Ui` is
-# granted on WEB and not on JS, so binding it here is refused naming the output
-# that does not grant it — which is the per-entry rule read from the other end.
-edit {
-  file: "cmd/both/main.buri"
-  replace: "from \"core/io\" import * as io;"
-  with: "from \"core/io\" import * as io;\nfrom \"ui/effect\" import { Ui };"
+file {
+  path: ".buri/out/node/cmd/both/mainForNode.mjs"
+  contains: "mainForNode"
 }
 
+# One function can't be both: `main` takes `WebHost`, and the node output
+# hands its entry a `NodeHost`.
 edit {
-  file: "cmd/both/main.buri"
-  replace: "        Stdout: host.stdout,\n    };"
-  with: "        Stdout: host.stdout,\n        Ui: host.ui,\n    };"
+  file: "cmd/both/BUILD.buri"
+  replace: "{ platform: \"node\", entries { main: \"mainForNode\" } }"
+  with: "{ platform: \"node\" }"
 }
 
 run {
@@ -341,52 +333,9 @@ run {
 }
 
 edit {
-  file: "cmd/both/main.buri"
-  replace: "        Stdout: host.stdout,\n        Ui: host.ui,\n    };"
-  with: "        Stdout: host.stdout,\n    };"
-}
-
-edit {
-  file: "cmd/both/main.buri"
-  replace: "from \"core/io\" import * as io;\nfrom \"ui/effect\" import { Ui };"
-  with: "from \"core/io\" import * as io;"
-}
-
-# **`entries` fills an entry from another function.** The JavaScript program
-# enters through `mainForNode`, and its artifact is named after it.
-edit {
-  file: "cmd/both/main.buri"
-  replace: "export fn main(): Result<(), Str> {"
-  with: "export fn mainForNode(): Result<(), Str> {\n    main()\n}\n\nexport fn main(): Result<(), Str> {"
-}
-
-edit {
   file: "cmd/both/BUILD.buri"
   replace: "{ platform: \"node\" }"
-  with: "{ platform: \"node\", entries: { main: \"mainForNode\" } }"
-}
-
-run {
-  args: ["build", "//cmd/both"]
-  exit: 0
-  golden: "entries_built.txt"
-}
-
-file {
-  path: ".buri/out/node/cmd/both/mainForNode.mjs"
-  contains: "mainForNode"
-}
-
-edit {
-  file: "cmd/both/BUILD.buri"
-  replace: "{ platform: \"node\", entries: { main: \"mainForNode\" } }"
-  with: "{ platform: \"node\" }"
-}
-
-edit {
-  file: "cmd/both/main.buri"
-  replace: "export fn mainForNode(): Result<(), Str> {\n    main()\n}\n\nexport fn main(): Result<(), Str> {"
-  with: "export fn main(): Result<(), Str> {"
+  with: "{ platform: \"node\", entries { main: \"mainForNode\" } }"
 }
 
 # An entry the binary exports, and it is not a function. The entries table holds
@@ -429,8 +378,8 @@ edit {
 # infer them from.
 edit {
   file: "cmd/both/main.buri"
-  replace: "export fn main(): Result<(), Str> {"
-  with: "export fn main<T>(): Result<(), Str> {"
+  replace: "export fn main(host: WebHost): Result<(), Str> {"
+  with: "export fn main<T>(host: WebHost): Result<(), Str> {"
 }
 
 run {
@@ -441,6 +390,6 @@ run {
 
 edit {
   file: "cmd/both/main.buri"
-  replace: "export fn main<T>(): Result<(), Str> {"
-  with: "export fn main(): Result<(), Str> {"
+  replace: "export fn main<T>(host: WebHost): Result<(), Str> {"
+  with: "export fn main(host: WebHost): Result<(), Str> {"
 }

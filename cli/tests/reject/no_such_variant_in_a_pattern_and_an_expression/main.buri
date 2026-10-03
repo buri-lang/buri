@@ -15,7 +15,9 @@ fn describe(colour: Colour): Str {
   }
 }
 
-export fn main(): Result<(), Str> {
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
   let colour: Colour = .Purple;
   let described = describe(colour);
   .Ok(())

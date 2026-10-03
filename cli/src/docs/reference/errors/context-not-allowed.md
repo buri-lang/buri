@@ -29,11 +29,11 @@ builds its own.
 ## A program that provokes it
 
 ```buri fail code=context-not-allowed
-# from "core/effect" import { Allocator, Stdout };
-# from "core/host" import * as host;
 # from "core/io" import * as io;
+# from "native" import { NativeHost };
+# from "platform/effect" import { Allocator, Stdout };
 
-export fn main(): Result<(), Str> {
+export fn main(host: NativeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,

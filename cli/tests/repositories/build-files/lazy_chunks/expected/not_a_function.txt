@@ -1,7 +1,7 @@
 error: `load` takes the name of a function, and this is a function value [lazy-not-a-function]
-  --> cmd/page/main.buri:26:26
+  --> cmd/page/main.buri:28:26
    |
-26 |     let open = lazy.load(fn(c, rows) => editor(c, rows));
+28 |     let open = lazy.load(fn(c, rows) => editor(c, rows));
    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ nothing to move into a chunk
    |
    = fix: name a function: `lazy.load(adminPage)`
@@ -11,9 +11,9 @@ error: `load` takes the name of a function, and this is a function value [lazy-n
 
      Write the function down somewhere and hand load its name.
 
-       from "core/effect" import { Stdout };
        from "core/io" import * as io;
        from "core/lazy" import * as lazy;
+       from "platform/effect" import { Stdout };
 
        fn admin<C: Stdout>(ctx: C): () {
            io.println(ctx, "admin").ignore()

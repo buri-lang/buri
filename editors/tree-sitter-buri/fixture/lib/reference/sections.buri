@@ -3,10 +3,10 @@
 //! `lang/modules.md` 4.1. Every construct here is one `check_highlighting.sh`
 //! asserts a colour for, in both layers — the grammar's and the server's.
 
-from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/math" import { round as rounded };
 from "core/str" import { fromFloat, fromInt };
+from "platform/effect" import { Allocator };
 
 /// How many times a lookup is retried before it gives up.
 let MAX_RETRIES: Int = 3;

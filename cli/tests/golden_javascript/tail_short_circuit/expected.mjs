@@ -1,38 +1,39 @@
-const $k0=[3n,1n,4n,1n,5n];
-const $k1=[0,0];
+const $k0=[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]];
+const $k1=[3n,1n,4n,1n,5n];
+const $k2=[0,0];
 function __cmd_x_main_buri$main(){
-  const ctx_0=[[],[]];
-  const text_3=$str(__cmd_x_main_buri$allBelow($k0,10n,0n))+' '+$str(__cmd_x_main_buri$allBelow($k0,4n,0n));
-  const self_4=$host_HostStdout_println(ctx_0[1],text_3);
+  const ctx_1=[$k0[0],$k0[1]];
+  const text_4=$str(__cmd_x_main_buri$allBelow($k1,10n,0n))+' '+$str(__cmd_x_main_buri$allBelow($k1,4n,0n));
+  const self_5=$host_HostStdout_println(ctx_1[1],text_4);
   let $t1;
-  if(self_4[0]===0){
+  if(self_5[0]===0){
     $t1=0;
-  }else if(self_4[0]===1){
+  }else if(self_5[0]===1){
     $t1=0;
   }else{
     $abort('no arm matched');
   }
-  const text_8=$str(__cmd_x_main_buri$anyAtLeast($k0,5n,0n))+' '+$str(__cmd_x_main_buri$anyAtLeast($k0,9n,0n));
-  const self_9=$host_HostStdout_println(ctx_0[1],text_8);
+  const text_9=$str(__cmd_x_main_buri$anyAtLeast($k1,5n,0n))+' '+$str(__cmd_x_main_buri$anyAtLeast($k1,9n,0n));
+  const self_10=$host_HostStdout_println(ctx_1[1],text_9);
   let $t3;
-  if(self_9[0]===0){
+  if(self_10[0]===0){
     $t3=0;
-  }else if(self_9[0]===1){
+  }else if(self_10[0]===1){
     $t3=0;
   }else{
     $abort('no arm matched');
   }
-  const text_13=$str(__cmd_x_main_buri$bothSmall(1n,2n))+' '+$str(__cmd_x_main_buri$bothSmall(1n,20n));
-  const self_14=$host_HostStdout_println(ctx_0[1],text_13);
+  const text_14=$str(__cmd_x_main_buri$bothSmall(1n,2n))+' '+$str(__cmd_x_main_buri$bothSmall(1n,20n));
+  const self_15=$host_HostStdout_println(ctx_1[1],text_14);
   let $t5;
-  if(self_14[0]===0){
+  if(self_15[0]===0){
     $t5=0;
-  }else if(self_14[0]===1){
+  }else if(self_15[0]===1){
     $t5=0;
   }else{
     $abort('no arm matched');
   }
-  return $k1;
+  return $k2;
 }
 function __cmd_x_main_buri$allBelow(xs_0,limit_1,i_2){
   while(true){
