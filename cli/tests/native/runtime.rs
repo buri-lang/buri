@@ -342,12 +342,13 @@ fn the_memory_contract_holds() {
 // The renderer's closure trampolines (issue #53, phase 1)
 // ---------------------------------------------------------------------------
 //
-// The native renderer will drive three closure shapes it does not invoke yet.
-// These three rows prove the runtime can invoke each of them across the C ABI
-// with the one thunk shape a memo and a step already cross — no new thunk, no
-// new argument the boundary cannot carry, and so no SPEC or type-system change.
-// Each fails first the same way `buri-lang/buri#36`'s missing rows did: the
-// symbol is absent, the driver does not link, and the shape cannot be reached.
+// These rows prove the runtime can invoke the renderer's closure shapes across
+// the C ABI with the one thunk shape a memo and a step already cross — no new
+// thunk, no new argument the boundary cannot carry, and so no SPEC or
+// type-system change. Each fails first the same way `buri-lang/buri#36`'s
+// missing rows did: the symbol is absent, the driver does not link, and the
+// shape cannot be reached. A row and a handler are driven from Buri source by
+// `conformance/lib/ui/test/reactive.buri` on both native backends.
 //
 // The C driver plays the compiler's part, handing the runtime a closure whose
 // body is an ordinary C function of `ComputeEntry`'s shape. That the *language*
@@ -367,105 +368,6 @@ fn a_build_closure_is_driven_under_a_fresh_scope() {
     }
     let out = run(&["ui-build"]);
     assert_eq!(stdout(&out).trim_end(), "tag=111 seen=5", "stderr:\n{}", stderr(&out));
-    assert!(out.status.success());
-}
-
-/// `rowAt: fn(C, Scope, Int) => Node` — a supplied index and a minted scope in,
-/// the right row out.
-///
-/// The context is dropped as a step drops it; the driver supplies index `3` and
-/// the body returns it as the row's `at`, alongside the signal read through the
-/// scope. `tag=222 at=3 seen=5`.
-#[test]
-fn a_row_closure_is_driven_with_an_index_and_a_scope() {
-    if skip() {
-        return;
-    }
-    let out = run(&["ui-row"]);
-    assert_eq!(stdout(&out).trim_end(), "tag=222 at=3 seen=5", "stderr:\n{}", stderr(&out));
-    assert!(out.status.success());
-}
-
-/// `onPress: fn(C, Event) => ()` — a runtime-minted event fires the handler,
-/// and the signal write it makes is observed.
-///
-/// `event=0` is the `Event(0)` the runtime mints, as the JavaScript renderer
-/// passes `[0]`; `field=0` is that event received by the handler; `signal-after=7`
-/// is the side effect, observed after the fire.
-#[test]
-fn a_press_closure_fires_with_a_minted_event() {
-    if skip() {
-        return;
-    }
-    let out = run(&["ui-press"]);
-    assert_eq!(
-        stdout(&out).trim_end(),
-        "event=0 field=0 signal-after=7",
-        "stderr:\n{}",
-        stderr(&out)
-    );
-    assert!(out.status.success());
-}
-
-/// The **kept** handler (issue #53, phase 4): the ABI `registerPress` reaches,
-/// which the three shapes above did not — a `fn(C, Event) => ()` the runtime
-/// holds on a graph node and fires more than once.
-///
-/// The driver registers a handler, fires it, resets the signal, and fires it
-/// again: a closure the graph kept survives the first fire, so both writes land.
-/// `kept=ok` is the node it was given, `after1=7` and `after2=7` the two writes.
-/// This is the new-arity, kept-closure row the design's §1 said the renderer
-/// would add the Phase-1 way — a runtime trampoline over the one thunk shape,
-/// no SPEC change.
-#[test]
-fn a_kept_handler_is_registered_and_fired_more_than_once() {
-    if skip() {
-        return;
-    }
-    let out = run(&["ui-keep-press"]);
-    assert_eq!(
-        stdout(&out).trim_end(),
-        "kept=ok after1=7 after2=7",
-        "stderr:\n{}",
-        stderr(&out)
-    );
-    assert!(out.status.success());
-}
-
-/// The element document (issue #53, phase 2): the builder the `renderInto`
-/// walk drives, and the readers a `Rendered` answers from it.
-///
-/// The driver builds a two-item list with classes and a heading — no
-/// reactivity, every prop already read — and reads it back. What is pinned is
-/// the three things this side owns: the `markup()` is the headerless scene
-/// document `describe` writes (the depth from the nesting, the empty body's
-/// trailing space, the classes verbatim), `text()` is the runs joined by a
-/// space, `count(name)` walks the records of one name, and `identity(name, i)`
-/// is the number stamped at creation — from zero in this fresh process, so the
-/// host is 0, the first item 2 and the second 4, and a read mints nothing.
-#[test]
-fn the_element_document_reads_back() {
-    if skip() {
-        return;
-    }
-    let out = run(&["ui-doc"]);
-    assert_eq!(
-        stdout(&out).trim_end(),
-        concat!(
-            "e 0 class:lay-col\n",
-            "e 1 \n",
-            "t 2 a\n",
-            "e 1 \n",
-            "t 2 b\n",
-            "e 0 class:fs-28 fw-bold\n",
-            "t 1 Prices\n",
-            "::text=a b Prices\n",
-            "::count ul=1 li=2 h2=1 x=0\n",
-            "::id li0=2 li1=4 h2=6 li0again=2"
-        ),
-        "stderr:\n{}",
-        stderr(&out)
-    );
     assert!(out.status.success());
 }
 
@@ -496,8 +398,8 @@ fn a_walk_closure_builds_the_document() {
     assert!(out.status.success());
 }
 
-/// `Str`'s ASCII flag and the scalar count it stands in for
-/// (VALUE-MODEL.md §3.1), and `[T]` construction.
+/// The scalar count `Str`'s ASCII flag stands in for (VALUE-MODEL.md §3.1),
+/// `[T]` construction, and 128-bit division.
 #[test]
 fn the_value_contract_holds() {
     if skip() {
@@ -506,9 +408,8 @@ fn the_value_contract_holds() {
     let out = run(&["values"]);
     assert_eq!(
         stdout(&out).trim_end(),
-        "ascii bytes=5 flag=1 scalars=5 \
-         utf8 bytes=6 flag=0 scalars=5 \
-         empty bytes=0 flag=1 \
+        "ascii scalars=5 \
+         utf8 scalars=5 \
          list len=4 cap=32 \
          divmod 142857 1 -142857 -1 \
          udivmod-high 6148914691236517205 21 1",
@@ -699,10 +600,6 @@ fn the_unpinned_aborts_say_what_they_mean() {
     if skip() {
         return;
     }
-    let out = run(&["abort-bounds"]);
-    assert_eq!(stderr(&out), "index out of bounds: the length is 3 but the index is 7\n");
-    assert_eq!(out.status.code(), Some(1));
-
     let out = run(&["abort-budget"]);
     assert_eq!(
         stderr(&out),

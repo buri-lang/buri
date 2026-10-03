@@ -190,52 +190,6 @@ pub fn list_of_bytes(bytes: &[u8]) -> BuriList {
 // The exported constructors
 // ---------------------------------------------------------------------------
 
-/// Copy `len` bytes into a fresh `Str`, replacing invalid UTF-8.
-///
-/// Lossy rather than fallible because that is what the JavaScript backend does:
-/// `readFileSync(p, "utf8")` substitutes U+FFFD, and a `Str` that could hold
-/// invalid UTF-8 would make every `chars()` on both backends fallible.
-///
-/// # Safety
-/// `bytes` must point at `len` readable bytes, or be null with `len == 0`.
-/// `out` must be writable and aligned for a [`BuriStr`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_str_from_utf8(bytes: *const u8, len: u64, out: *mut BuriStr) {
-    let src = if bytes.is_null() || len == 0 {
-        &[][..]
-    } else {
-        // SAFETY: the caller promises `len` readable bytes.
-        unsafe { std::slice::from_raw_parts(bytes, len as usize) }
-    };
-    let text = String::from_utf8_lossy(src);
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(str_of(&text)) }
-}
-
-/// The empty string, with no allocation.
-///
-/// # Safety
-/// `out` must be writable and aligned for a [`BuriStr`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_str_empty(out: *mut BuriStr) {
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(BuriStr::empty()) }
-}
-
-/// [`BURI_RT_STR_ASCII`] or zero, for generated code that built the bytes
-/// itself and has to stamp the flag.
-///
-/// # Safety
-/// `bytes` must point at `len` readable bytes, or be null with `len == 0`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_str_ascii_flag(bytes: *const u8, len: u64) -> u64 {
-    if bytes.is_null() || len == 0 {
-        return BURI_RT_STR_ASCII;
-    }
-    // SAFETY: the caller promises `len` readable bytes.
-    ascii_flag(unsafe { std::slice::from_raw_parts(bytes, len as usize) })
-}
-
 /// The number of Unicode scalar values in a view — `str.length()`.
 ///
 /// A mask when the ASCII flag is set, and a scan for non-continuation bytes
