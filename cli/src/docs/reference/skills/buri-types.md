@@ -181,8 +181,8 @@ An effect differs from a trait in three ways:
   `ctx.readFile(p)`. The doors are `core/alloc`, `core/io`, `core/fs`,
   `core/net/http`, `core/time`, `core/random`, `core/env`, `core/process`,
   `core/tasks`, `core/net/server` and `ui/signal`. Calling the method on the
-  value is `effect-method-call`, except in `core/*` and in an `impl` supplying
-  an effect, so a wrapper can delegate with `self.0.readFile(path)`. **A print
+  value is `effect-method-call`, except in `core/*` and in an `impl E for T`
+  supplying an effect. An inherent `impl` calls `fs.readText(self.0, p)`. **A print
   returns `Result<(), IoError>`**: drop one with
   `let _ = io.println(ctx, "hi").ignore();`, which `buri lint` reports like any
   other drop.

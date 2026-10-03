@@ -501,6 +501,7 @@ fn run_native(row: &str, native: Native, checked: &Checked, paths: &[String]) ->
         native.name,
         String::from_utf8_lossy(&linked.stderr)
     );
+    crate::sweep::kept::settle(&binary);
     // **Under the heap check.** Every row here is a whole program run to
     // completion, which is exactly the population the runtime's exit audit is
     // a question about — so agreement about what was *printed* now travels
