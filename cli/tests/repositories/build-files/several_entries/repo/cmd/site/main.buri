@@ -1,15 +1,15 @@
 // One binary, two ways in. The page enters at `main` and binds the reactive
-// graph from its host; the worker enters at `fetch` and binds `core/host`'s
-// values, which a worker's entry still does. Each entry builds its own context,
-// and neither is refused on the other's behalf.
+// graph from its host; the worker enters at `fetch` and binds its allocator
+// from the repository platform's host. Each entry builds its own context, and
+// neither is refused on the other's behalf.
 
-from "core/host" import * as host;
 from "core/net/http" import * as http;
 from "platform/effect" import { Allocator, Request, Response, Stdout };
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "web" import { WebHost };
+from "//platform/cloudflare_worker" import { CloudflareHost };
 
 fn view<C: Ui>(ctx: C, path: Str): Node<C> {
     ui.stack({
@@ -28,7 +28,7 @@ export fn main(host: WebHost): Result<(), Str> {
     ui.mount(ctx, view(ctx, "/"), [])
 }
 
-export fn fetch(request: Request): Response {
+export fn fetch(host: CloudflareHost, request: Request): Response {
     let ctx = context {
         Allocator: host.alloc,
     };

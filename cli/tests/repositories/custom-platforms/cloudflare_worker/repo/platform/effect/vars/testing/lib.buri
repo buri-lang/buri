@@ -1,0 +1,20 @@
+from "//platform/effect/vars" import { Vars };
+
+/// The variables a test hands in.
+export struct TestVars {
+    pairs: [(Str, Str)],
+}
+
+impl Vars for TestVars {
+    fn get(self, name: Str): Option<Str> {
+        self.pairs.find(fn(pair) => pair.0 == name).map(fn(pair) => pair.1)
+    }
+
+    fn all(self): [(Str, Str)] {
+        self.pairs
+    }
+}
+
+export fn vars(pairs: [(Str, Str)]): TestVars {
+    TestVars { pairs: pairs }
+}

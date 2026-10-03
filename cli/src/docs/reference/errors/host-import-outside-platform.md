@@ -34,8 +34,7 @@ A test binds test implementations from `platform/effect/testing` instead.
 
 `platform/host` holds the structs a platform lists as its host type's fields.
 Anything that could import them could mint authority, so only a platform's
-`platform.buri` may. `core/host` is the old way in and is kept only for a
-`CLOUDFLARE_WORKER` entry, whose `fetch` takes no host yet.
+`platform.buri` may.
 
 ## A program that provokes it
 

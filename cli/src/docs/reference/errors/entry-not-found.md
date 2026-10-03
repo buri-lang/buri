@@ -7,7 +7,7 @@ reproduction: none
 # An output enters through a function its binary exports
 
 ```text
-error: //cmd/site exports no `fetch` [entry-not-found]
+error: //cmd/site exports no `mainForNode` [entry-not-found]
 ```
 
 ## What to do
@@ -15,15 +15,15 @@ error: //cmd/site exports no `fetch` [entry-not-found]
 Export the function the output names, or name one the binary already exports.
 
 ```buri role=entry
-from "platform/effect" import { Request, Response };
+from "node" import { NodeHost };
 from "web" import { WebHost };
 
 export fn main(host: WebHost): Result<(), Str> {
     .Ok(())
 }
 
-export fn fetch(request: Request): Response {
-    Response { status: 200, headers: [], body: [] }
+export fn mainForNode(host: NodeHost): Result<(), Str> {
+    .Ok(())
 }
 ```
 
@@ -31,7 +31,9 @@ export fn fetch(request: Request): Response {
 binary {
     outputs: [
         { platform: "web" },
-        { platform: CLOUDFLARE_WORKER },
+        { platform: "node", entries: [
+            { name: "main", function: "mainForNode" },
+        ] },
     ]
 }
 ```

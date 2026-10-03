@@ -12,24 +12,13 @@ Stopping `buri run` stops the program it started: `SIGINT`, `SIGTERM` and
 exits with the program's own status — 128 plus the signal where one ended it.
 
 A binary with several outputs runs the host's own platform where this toolchain
-can build for it, and a page or a script otherwise. It never runs a
-`CLOUDFLARE_WORKER` output: a worker is called by its platform, once per
-request, so there is nothing to start. A binary that declares a page and a
-worker serves the page, and one that declares a worker and nothing else is
-refused:
-
-```text
-$ buri run //cmd/worker
-error: //cmd/worker declares no output this toolchain can run
-  = declared: cloudflare-worker
-  = a worker is called by its platform, once per request, so there is nothing to start
-  = fix: build it with `buri build //cmd/worker`, and let the platform call it
-```
+can build for it, and a page or a script otherwise.
 
 A [repository platform](../build/platforms.md)'s entry runs when it starts
 itself: no `js` file, and the program signature, `fn(host: H): Result<(), Str>`.
-An entry with a `js` file is called by whatever loads that file, so `buri run`
-refuses it:
+An entry with a `js` file, like a worker's `fetch`, is called by whatever loads
+that file. A binary that declares a page and a worker serves the page, and one
+that declares a worker and nothing else is refused:
 
 ```text
 $ buri run //cmd/site
@@ -69,10 +58,10 @@ the page that was working where it was. Both flags belong to a page: on a binary
 that runs as a process they are refused, because there is no port and nothing to
 rebuild into.
 
-What it serves is the shell the compiler wrote, not a document a
-`CLOUDFLARE_WORKER` entry renders. **Running the worker in front of the page
-locally is not something this command does**, so a page that calls `web.resume`
-finds markup no `shell` wrote and says so. Mount that page while you work on it,
+What it serves is the shell the compiler wrote, not a document a worker
+renders. **Running the worker in front of the page locally is not something
+this command does**, so a page that calls `web.resume` finds markup no `shell`
+wrote and says so. Mount that page while you work on it,
 or put it behind the real worker.
 
 ## Authority

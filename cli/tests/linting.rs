@@ -339,7 +339,7 @@ const LIBRARY: &str = "library {\n    visibility: [\"//visibility:public\"]\n}\n
 /// A package for a source that exports `main`.
 ///
 /// A binary rather than a library, because a program is where a context may be
-/// built and where `core/host` may be imported — a `main` filed as a library
+/// built and the host taken — a `main` filed as a library
 /// would report three rules the fixture invented rather than the one the
 /// fixture was written for.
 const BINARY: &str = harness::JS_BINARY;

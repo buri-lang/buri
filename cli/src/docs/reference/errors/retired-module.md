@@ -29,6 +29,11 @@ is `core/orderedset`, and `core/proc` is `core/process`. Two modules moved when
 effects left `core/`: `core/effect` is `platform/effect`, and
 `core/host/testing` is `platform/effect/testing`.
 
+`core/host` is retired rather than moved. Its values are an entry's host now:
+the entry takes its platform's host type, such as `NodeHost`, and binds the
+effects it needs from the host's fields. The effects themselves are declared
+in `platform/effect`.
+
 ## Why
 
 The old path is gone rather than kept as a second spelling. An alias would mean

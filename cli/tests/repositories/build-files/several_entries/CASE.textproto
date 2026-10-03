@@ -2,18 +2,18 @@
 # one `main.buri`, and the four claims that makes are all here.
 #
 #   * **Two artifacts, one per output.** The page is `.buri/out/web/`, the
-#     worker is `.buri/out/cloudflare-worker/`, and the worker's file is named
+#     worker is `.buri/out/platform/cloudflare_worker/`, and the worker's file is named
 #     after its entry, `fetch`, because two outputs of one binary otherwise
 #     write one path.
-#   * **The platform calls a worker.** Its module ends in a default export the
-#     worker runtime invokes; the page's ends in the self-starting epilogue
-#     every other JavaScript platform gets.
+#   * **The platform calls a worker.** The worker is `//platform/cloudflare_worker`,
+#     a repository platform whose `fetch.mjs` is the module's default export;
+#     the page's module ends in the self-starting epilogue every other
+#     JavaScript platform gets.
 #   * **Each entry takes its own platform's host.** `main` takes `WebHost` and
-#     binds `Ui: host.ui`; the worker's `fetch` binds `core/host`'s values,
-#     which a worker entry still may.
+#     binds `Ui: host.ui`; the worker's `fetch` takes `CloudflareHost`.
 #   * **Dead code is eliminated per entry.** The worker never reaches the
 #     reactive graph, so `mount` is not in its bytes; the page never reaches
-#     `fetch`, so the worker's bridge is not in its.
+#     `fetch`, so the worker's crossing is not in its.
 #
 #   * **`buri run` runs the page, and never the worker.** A worker is called by
 #     its platform, once per request, so there is nothing to start. `//cmd/site`
@@ -24,15 +24,12 @@
 #     JavaScript program, and `entries` sends the node output to `mainForNode`.
 #     Pointing both outputs at `main` is refused: one function can't take two
 #     hosts.
-#   * **A helper is not an entry.** `core/host`'s `host.ui` is refused in a
-#     function beside the entries, naming the worker, because a `core/host`
-#     name outside an entry's body is checked against every output.
 #
 # Then the refusals, one per way `entries` can be wrong: an entry the platform
 # does not have, a name the binary does not export, a name that is a keyword, a name that is exported and is not a
 # function, a name that is not a name at all and the empty one, an entry with
-# type parameters, and an entry whose parameter or answer is not the one its
-# platform fixes.
+# type parameters, and an entry whose host, parameter or answer is not the one
+# its platform declares.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
@@ -46,7 +43,7 @@ run {
 
 # The worker is called, not started. Its whole surface is the default export.
 file {
-  path: ".buri/out/cloudflare-worker/cmd/site/fetch.mjs"
+  path: ".buri/out/platform/cloudflare_worker/cmd/site/fetch.mjs"
   contains: "export default"
 }
 
@@ -56,17 +53,17 @@ file {
   absent: "export default"
 }
 
-# Dead code elimination, per entry, read off the artifacts. `$fetchEntry` is
-# the worker's bridge and `$mount` is the page's; each artifact has exactly the
-# one its own entry reaches.
+# Dead code elimination, per entry, read off the artifacts. `$crossRequestIn`
+# is the worker's crossing and `$mount` is the page's; each artifact has
+# exactly the one its own entry reaches.
 file {
-  path: ".buri/out/cloudflare-worker/cmd/site/fetch.mjs"
-  contains: "$fetchEntry"
+  path: ".buri/out/platform/cloudflare_worker/cmd/site/fetch.mjs"
+  contains: "$crossRequestIn"
 }
 
 file {
   path: ".buri/out/web/cmd/site/site.mjs"
-  absent: "$fetchEntry"
+  absent: "$crossRequestIn"
 }
 
 # A page is three files, and a worker is one: there is no document to shell and
@@ -90,9 +87,10 @@ run {
 # starts this same shape and reads the shell back off a socket. It used to be a
 # row here, exiting 0 with nothing to show for it.
 #
-# A binary that is only a worker has nothing to start at all. The refusal
-# says why rather than handing a JavaScript runtime a module that would sit
-# there exporting a `fetch` nobody calls.
+# A binary that is only a worker has nothing to start at all: its `fetch.mjs`
+# is called by the worker runtime. The refusal says why rather than handing a
+# JavaScript runtime a module that would sit there exporting a `fetch` nobody
+# calls.
 run {
   args: ["run", "//cmd/worker"]
   exit: 2
@@ -103,8 +101,8 @@ run {
 # lists what it does export, because the mistake is almost always a spelling.
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "{ platform: CLOUDFLARE_WORKER }"
-  with: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"handle\" }] }"
+  replace: "{ platform: \"//platform/cloudflare_worker\" }"
+  with: "{ platform: \"//platform/cloudflare_worker\", entries: [{ name: \"fetch\", function: \"handle\" }] }"
 }
 
 run {
@@ -117,8 +115,8 @@ run {
 # leaving it in a note the reader has to act on themselves.
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"handle\" }] }"
-  with: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"fetsh\" }] }"
+  replace: "{ platform: \"//platform/cloudflare_worker\", entries: [{ name: \"fetch\", function: \"handle\" }] }"
+  with: "{ platform: \"//platform/cloudflare_worker\", entries: [{ name: \"fetch\", function: \"fetsh\" }] }"
 }
 
 run {
@@ -129,48 +127,37 @@ run {
 
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"fetsh\" }] }"
-  with: "{ platform: CLOUDFLARE_WORKER }"
+  replace: "{ platform: \"//platform/cloudflare_worker\", entries: [{ name: \"fetch\", function: \"fetsh\" }] }"
+  with: "{ platform: \"//platform/cloudflare_worker\" }"
 }
 
-# Refusal two: the entry is there and has the wrong shape. A worker's entry
-# takes a request and answers a response, and this one runs itself.
+# Refusal two: the entry is there and has the wrong shape. The platform
+# declares `fetch(host: CloudflareHost, request: Request): Response`, and this
+# one takes no host.
 edit {
   file: "cmd/site/main.buri"
-  replace: "export fn fetch(request: Request): Response {"
-  with: "export fn fetch(): Response {"
-}
-
-edit {
-  file: "cmd/site/main.buri"
-  replace: "    http.text(ctx, request.path())"
-  with: "    http.text(ctx, \"you are nowhere\")"
+  replace: "export fn fetch(host: CloudflareHost, request: Request): Response {\n    let ctx = context {\n        Allocator: host.alloc,\n    };\n    http.text(ctx, request.path())"
+  with: "export fn fetch(request: Request): Response {\n    http.status(404)"
 }
 
 run {
   args: ["build", "//cmd/site"]
   exit: 1
-  golden: "fetch_takes_a_request.txt"
+  golden: "fetch_takes_its_host.txt"
 }
 
 edit {
   file: "cmd/site/main.buri"
-  replace: "export fn fetch(): Response {"
-  with: "export fn fetch(request: Request): Response {"
-}
-
-edit {
-  file: "cmd/site/main.buri"
-  replace: "    http.text(ctx, \"you are nowhere\")"
-  with: "    http.text(ctx, request.path())"
+  replace: "export fn fetch(request: Request): Response {\n    http.status(404)"
+  with: "export fn fetch(host: CloudflareHost, request: Request): Response {\n    let ctx = context {\n        Allocator: host.alloc,\n    };\n    http.text(ctx, request.path())"
 }
 
 # Refusal three: an entry that could not be a function name at all. The
 # compiler has nothing to look up, so the reader refuses it where it is written.
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "{ platform: CLOUDFLARE_WORKER }"
-  with: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"fetch handler\" }] }"
+  replace: "{ platform: \"//platform/cloudflare_worker\" }"
+  with: "{ platform: \"//platform/cloudflare_worker\", entries: [{ name: \"fetch\", function: \"fetch handler\" }] }"
 }
 
 run {
@@ -181,8 +168,8 @@ run {
 
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"fetch handler\" }] }"
-  with: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"\" }] }"
+  replace: "{ platform: \"//platform/cloudflare_worker\", entries: [{ name: \"fetch\", function: \"fetch handler\" }] }"
+  with: "{ platform: \"//platform/cloudflare_worker\", entries: [{ name: \"fetch\", function: \"\" }] }"
 }
 
 run {
@@ -193,16 +180,16 @@ run {
 
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"\" }] }"
-  with: "{ platform: CLOUDFLARE_WORKER }"
+  replace: "{ platform: \"//platform/cloudflare_worker\", entries: [{ name: \"fetch\", function: \"\" }] }"
+  with: "{ platform: \"//platform/cloudflare_worker\" }"
 }
 
 # And a `name` in `entries` the platform does not offer: a worker is entered
 # through `fetch`, never `main`.
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "{ platform: CLOUDFLARE_WORKER }"
-  with: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"main\", function: \"fetch\" }] }"
+  replace: "{ platform: \"//platform/cloudflare_worker\" }"
+  with: "{ platform: \"//platform/cloudflare_worker\", entries: [{ name: \"main\", function: \"fetch\" }] }"
 }
 
 run {
@@ -213,15 +200,15 @@ run {
 
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"main\", function: \"fetch\" }] }"
-  with: "{ platform: CLOUDFLARE_WORKER }"
+  replace: "{ platform: \"//platform/cloudflare_worker\", entries: [{ name: \"main\", function: \"fetch\" }] }"
+  with: "{ platform: \"//platform/cloudflare_worker\" }"
 }
 
 # An entry filled twice: the two items would disagree about its function.
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "{ platform: CLOUDFLARE_WORKER }"
-  with: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"fetch\" }, { name: \"fetch\", function: \"main\" }] }"
+  replace: "{ platform: \"//platform/cloudflare_worker\" }"
+  with: "{ platform: \"//platform/cloudflare_worker\", entries: [{ name: \"fetch\", function: \"fetch\" }, { name: \"fetch\", function: \"main\" }] }"
 }
 
 run {
@@ -232,16 +219,16 @@ run {
 
 edit {
   file: "cmd/site/BUILD.buri"
-  replace: "{ platform: CLOUDFLARE_WORKER, entries: [{ name: \"fetch\", function: \"fetch\" }, { name: \"fetch\", function: \"main\" }] }"
-  with: "{ platform: CLOUDFLARE_WORKER }"
+  replace: "{ platform: \"//platform/cloudflare_worker\", entries: [{ name: \"fetch\", function: \"fetch\" }, { name: \"fetch\", function: \"main\" }] }"
+  with: "{ platform: \"//platform/cloudflare_worker\" }"
 }
 
 # Refusal four: the entry has the right arity and the wrong argument. The
 # platform hands it a `Request`, so nothing else can be the parameter.
 edit {
   file: "cmd/site/main.buri"
-  replace: "export fn fetch(request: Request): Response {"
-  with: "export fn fetch(request: Str): Response {"
+  replace: "export fn fetch(host: CloudflareHost, request: Request): Response {"
+  with: "export fn fetch(host: CloudflareHost, request: Str): Response {"
 }
 
 edit {
@@ -258,8 +245,8 @@ run {
 
 edit {
   file: "cmd/site/main.buri"
-  replace: "export fn fetch(request: Str): Response {"
-  with: "export fn fetch(request: Request): Response {"
+  replace: "export fn fetch(host: CloudflareHost, request: Str): Response {"
+  with: "export fn fetch(host: CloudflareHost, request: Request): Response {"
 }
 
 edit {
@@ -269,11 +256,11 @@ edit {
 }
 
 # And the answer is fixed too: a worker answers a `Response`, because that is
-# what the platform reads off it.
+# what the platform declares.
 edit {
   file: "cmd/site/main.buri"
-  replace: "export fn fetch(request: Request): Response {"
-  with: "export fn fetch(request: Request): Str {"
+  replace: "export fn fetch(host: CloudflareHost, request: Request): Response {"
+  with: "export fn fetch(host: CloudflareHost, request: Request): Str {"
 }
 
 edit {
@@ -290,37 +277,14 @@ run {
 
 edit {
   file: "cmd/site/main.buri"
-  replace: "export fn fetch(request: Request): Str {"
-  with: "export fn fetch(request: Request): Response {"
+  replace: "export fn fetch(host: CloudflareHost, request: Request): Str {"
+  with: "export fn fetch(host: CloudflareHost, request: Request): Response {"
 }
 
 edit {
   file: "cmd/site/main.buri"
   replace: "    request.path()"
   with: "    http.text(ctx, request.path())"
-}
-
-# **A helper is not an entry.** Per-entry checking is exactly the entry's own
-# body: a `core/host` name anywhere else in `main.buri` is checked against every
-# platform the outputs name, because any of them may reach it. So the same
-# `host.ui` that is fine inside `main` is refused inside a function beside it,
-# and the refusal names the worker.
-edit {
-  file: "cmd/site/main.buri"
-  replace: "fn view<C: Ui>(ctx: C, path: Str): Node<C> {"
-  with: "fn theUi(): () {\n    let _ = host.ui;\n    ()\n}\n\nfn view<C: Ui>(ctx: C, path: Str): Node<C> {"
-}
-
-run {
-  args: ["build", "//cmd/site"]
-  exit: 1
-  golden: "a_helper_is_not_an_entry.txt"
-}
-
-edit {
-  file: "cmd/site/main.buri"
-  replace: "fn theUi(): () {\n    let _ = host.ui;\n    ()\n}\n\nfn view<C: Ui>(ctx: C, path: Str): Node<C> {"
-  with: "fn view<C: Ui>(ctx: C, path: Str): Node<C> {"
 }
 
 # **Two outputs, two entries.** A page and a plain JavaScript program take

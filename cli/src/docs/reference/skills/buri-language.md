@@ -112,9 +112,9 @@ exits 1.
 
 A program for two platforms gives each output its own entry,
 `{ platform: "node", entries: [{ name: "main", function: "mainForNode" }] }`,
-and both call one function taking `ctx`. `{ platform: CLOUDFLARE_WORKER }`
-enters at `fn fetch(request: Request): Response`, which binds `core/host`'s
-values because it takes no host yet.
+and both call one function taking `ctx`. A host the toolchain doesn't ship,
+like a Cloudflare Worker, is a repository platform:
+`{ platform: "//platform/cloudflare_worker" }` (`buri docs guides/custom-platforms`).
 
 **Import the effect names.** `context { Allocator: host.alloc }` without
 `from "platform/effect" import { Allocator };` fails with `not-an-effect`.
@@ -148,7 +148,8 @@ from "//lib/money" import { Cents };
 - A `testing` directory segment makes a module test-only. Only a platform's
   `platform.buri` may import `platform/host`.
 - Effects live in `platform/effect`, their test implementations in
-  `platform/effect/testing`. `core/effect` and `core/host/testing` are retired.
+  `platform/effect/testing`. `core/effect`, `core/host` and `core/host/testing`
+  are retired.
 
 ## Declarations
 

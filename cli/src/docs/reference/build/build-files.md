@@ -117,7 +117,7 @@ library {
 | `dependencies` | Labels of libraries this one may use. |
 | `tags` | Labels saying what this code is. `REPO.buri` declares the policy they carry. See [`tags.md`](./tags.md). |
 | `backends` | The backends it can be built with, `NATIVE` or `JS`. Omit unless the code relies on one backend's behaviour; unset means both. |
-| `platforms` | The platforms it can build for, `"native"`, `"node"` or `"web"`. Omit unless the code means something on one platform only; unset means all of them. |
+| `platforms` | The platforms it can build for: `"native"`, `"node"`, `"web"`, or a repository platform's label, `"//platform/cloudflare_worker"`. Omit unless the code means something on one platform only; unset means all of them. |
 | `visibility` | Who may depend on it. Defaults below. |
 | `test` | The test suite for this library. See [`testing.md`](./testing.md). |
 | `testing` | The library's utilities *for other people's tests*, rooted at `testing/lib.buri`. See below. |
@@ -225,48 +225,21 @@ A variant the platform doesn't declare is `no-such-platform-variant`, which
 lists the ones it does. `buri build`, `buri test`, `buri lint` and the language
 server all report both.
 
-`CLOUDFLARE_WORKER`, written bare, is the one older spelling still read; every
-other is `retired-platform-name`.
-
 ### Entries
 
 Each platform offers entries, and `main.buri` fills each with the function of
-the same name. The bundled platforms offer `main`; a worker offers `fetch`:
+the same name. The bundled platforms offer `main`; a
+[repository platform](./platforms.md) names its own, such as a worker's `fetch`.
+`entries` fills an entry from another function. Each item names the entry and
+the function filling it:
 
 ```textproto schema=build
 binary {
     outputs: [
         { platform: "web" },
-        { platform: CLOUDFLARE_WORKER },
-    ]
-}
-```
-
-```buri role=entry
-# from "platform/effect" import { Allocator, Request, Response };
-# from "web" import { WebHost };
-
-export fn main(host: WebHost): Result<(), Str> {
-    let ctx = context {
-        Allocator: host.alloc,
-    };
-    .Ok(())
-}
-
-export fn fetch(request: Request): Response {
-    Response { status: 200, headers: [], body: [] }
-}
-```
-
-That is one binary and two artifacts: `.buri/out/web/cmd/site/site.mjs` and
-`.buri/out/cloudflare-worker/cmd/site/fetch.mjs`. `entries` fills an entry from
-another function. Each item names the entry and the function filling it:
-
-```textproto schema=build
-binary {
-    outputs: [
-        { platform: "web" },
-        { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+        { platform: "node", entries: [
+            { name: "main", function: "mainForNode" },
+        ] },
     ]
 }
 ```
@@ -285,26 +258,16 @@ takes no host, `entry-host-mismatch` for another platform's host, and
 | `native` | `fn <entry>(host: NativeHost): Result<(), Str>` |
 | `node` | `fn <entry>(host: NodeHost): Result<(), Str>` |
 | `web` | `fn <entry>(host: WebHost): Result<(), Str>` |
-| `CLOUDFLARE_WORKER` | `fn <entry>(request: Request): Response` |
+| `//platform/<name>` | whatever its `platform.buri` declares |
 
 One function can't take two hosts, so two platforms mean two entries, and both
 call one function that takes `ctx`.
 
-`Request` and `Response` are `platform/effect`'s, which `core/net/http` re-exports.
-A worker's entry is *called* by its platform, once per request, so its artifact
-is a module with a default export rather than a program that starts itself. That
-is also why `buri run` runs a page and not a worker: there is nothing to start.
-
-**Each entry builds its own context** from its own host. `main` above may bind
-`Ui: host.ui`, which only `WebHost` has. A worker's `fetch` takes no host yet
-and binds `core/host`'s values instead, which only its module may import; there
-a name anywhere outside an entry's body — a helper, a top-level named import —
-is checked against every platform the `outputs` name, because any of them may
-reach it.
+**Each entry builds its own context** from its own host. `main` may bind
+`Ui: host.ui` only where it takes `WebHost`.
 
 **Each entry is its own dead-code root.** The compiler monomorphizes from the
-named entry, so the page carries nothing only `fetch` reaches and the worker
-carries nothing only `main` reaches.
+named entry, so each artifact carries only what its own entry reaches.
 
 A function `main.buri` does not export is `entry-not-found`, and its page lists
 what the module does export. A `name` the platform doesn't offer is
@@ -337,8 +300,6 @@ offers what.
 
 The check does not wait for a build: it is the type checker, so `buri lint`,
 `buri test` and the language server all refuse it before anything is produced.
-A worker's `core/host` names are checked the old way, as
-`effect-not-on-platform`.
 
 `outputs` is a list because one program commonly ships several ways. The compiler
 checks the whole dependency graph against each output separately, so

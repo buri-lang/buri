@@ -3,6 +3,6 @@ binary {
 
     outputs: [
         { platform: "web" },
-        { platform: CLOUDFLARE_WORKER },
+        { platform: "//platform/cloudflare_worker" },
     ]
 }

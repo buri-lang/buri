@@ -96,13 +96,14 @@ message Library {
   repeated string tags = 3;
 
   // The backends this library can be built with. Unset means both. Set it only
-  // for code that relies on one backend's behaviour.
+  // for code that relies on one backend's behaviour. A backend admits every
+  // platform it builds, a repository's own included.
   repeated Backend backends = 10;
 
-  // The platforms this library can be built for: `"native"`, `"node"` or
-  // `"web"`. Unset means all of them. Set it only for code that means
-  // something on one platform. With `backends` too, a platform must satisfy
-  // both.
+  // The platforms this library can be built for: `"native"`, `"node"`,
+  // `"web"`, or a repository platform's label, `"//platform/cloudflare_worker"`.
+  // Unset means all of them. Set it only for code that means something on one
+  // platform. With `backends` too, a platform must satisfy both.
   repeated string platforms = 4;
 
   // Who may depend on this library. See VISIBILITY in BUILD-FILES.md.
@@ -143,7 +144,7 @@ message Binary {
   // Field 6 was `proto_sources`, retired for the reason the library's was.
   // Field 8 was `web`, which named the `<title>` and the `lang` of the `.html`
   // a WEB output writes; a page names its own tab now, with `ui/web`'s `title`
-  // on the page and `Document` on the worker. Neither number is reused.
+  // on the page and `Document` on a server. Neither number is reused.
   reserved 6, 8;
   reserved "proto_sources", "web";
 

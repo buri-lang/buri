@@ -146,7 +146,8 @@ fn a_perturbed_parent_environment_changes_neither_the_bytes_nor_the_verdict() {
 /// not shipped.
 #[test]
 fn a_test_source_cannot_import_a_host_module() {
-    for module in ["platform/host", "core/host"] {
+    let module = "platform/host";
+    {
         let scratch = Scratch::repo("host-import-in-a-test");
         scratch.write("lib/probe/BUILD.buri", "library {\n  test { sources: [\"test/env.buri\"] }\n}\n");
         scratch.write("lib/probe/lib.buri", "export fn identity(n: Int): Int { n }\n");

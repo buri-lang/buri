@@ -1,0 +1,15 @@
+// EXPECT: "core/host" is now "platform/effect"
+//
+// `core/host` held the values an entry bound its context from. An entry takes
+// its platform's host now, so the refusal says so, and names where the effects
+// themselves are declared.
+from "core/host" import { alloc };
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "hi").ignore();
+  .Ok(())
+}

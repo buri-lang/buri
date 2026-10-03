@@ -1,7 +1,7 @@
 ---
 title: A platform is a string, and a suite names a backend
 message: '`{name}` is retired'
-note: an output names a platform as a string, `"native"`, `"node"` or `"web"`, and code that relies on one backend says so in `backends`
+note: an output names a platform as a string, `"native"`, `"node"`, `"web"` or a repository platform's `//platform/` label, and code that relies on one backend says so in `backends`
 fix: '{replacement}'
 reproduction: none
 ---
@@ -11,7 +11,9 @@ reproduction: none
 binary {
     outputs: [
         { platform: "native", variant: "linux-arm64" },
-        { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
+        { platform: "node", entries: [
+            { name: "main", function: "mainForNode" },
+        ] },
         { platform: "web" },
     ]
 
@@ -26,12 +28,19 @@ binary {
 | `platform: LINUX, arch: ARM64`      | `platform: "native", variant: "linux-arm64"`      |
 | `platform: JS`                      | `platform: "node"`                                |
 | `platform: WEB`                     | `platform: "web"`                                 |
+| `platform: CLOUDFLARE_WORKER`       | `platform: "//platform/cloudflare_worker"`, a platform you write |
 | `entry: "run"`                      | `entries: [{ name: "main", function: "run" }]`    |
 | `js { module: ESM }`                | nothing: every JavaScript output is an ES module  |
 | `test { platforms: [JS] }`          | `test { backends: [JS] }`                         |
 | `platforms: [LINUX, MACOS]`         | `backends: [NATIVE]`                              |
 | `platforms: [JS]`                   | `backends: [JS]`                                  |
 | `platforms: [WEB]`                  | `platforms: ["web"]`                              |
+| `platforms: [CLOUDFLARE_WORKER]`    | `platforms: ["//platform/cloudflare_worker"]`     |
 
 A library or a tag's `requires` and `forbids` take both lists, and a platform
 must satisfy every list written.
+
+Cloudflare Workers isn't built into the toolchain. A repository that deploys
+workers writes the platform under `//platform/`, with its host, its `fetch`
+entry and a `fetch.mjs` adapter; `buri docs guides/custom-platforms` walks
+through one.
