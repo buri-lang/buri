@@ -17,7 +17,9 @@ many at once:
 buri test --jobs=2
 ```
 
-The default is one per core, with at most one build per 8 GB of memory. A suite
+The default is one per core. Builds stay at one per 8 GB of memory, but a suite
+that has finished building runs beside the others whatever the memory. Set
+`BURI_TEST_MEMORY_BYTES` to budget against a different amount of memory. A suite
 whose code is unchanged, comments and whitespace aside, reports as cached.
 
 ## Lint findings
