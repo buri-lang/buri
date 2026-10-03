@@ -1310,9 +1310,9 @@ fn the_excluded_packages_are_excluded_for_the_stated_reason() {
     for case in PACKAGES.iter().filter(|c| matches!(c.out, Some(Out::Refused(_)))) {
         let source = read(case);
         match refusal(case.path, &source) {
-            // A front-end error means the corpus is mid-change, which is
-            // not this file's business to fail over.
-            Err(_) => continue,
+            // An excluded file still has to compile: a front-end error would
+            // hide whether the refusal it is excluded for is still there.
+            Err(e) => panic!("`{}`: the front end refused it: {e}", case.path),
             Ok(why) => assert!(
                 !why.is_empty(),
                 "`{}` is listed as excluded ({}), but the backend now \
@@ -1605,8 +1605,8 @@ test "a stdin of octets reads them, and readLine finds nothing there" {
   assert.isTrue(io.readLine(ctx).isNone());
 }
 "##;
-    if refusal("host-testing", SOURCE).is_err() {
-        return;
+    if let Err(e) = refusal("host-testing", SOURCE) {
+        panic!("the front end refused the host-testing fixture: {e}");
     }
     let (status, out, err, blocks) = run("host-testing", SOURCE)
         .unwrap_or_else(|e| panic!("the front end refused the host-testing fixture: {e}"));
@@ -1738,8 +1738,8 @@ fn the_native_set_can_fail() {
     }
     let case = Case { path: "numbers/bits.buri", out: None };
     let source = read(&case);
-    if missing_for("bits-broken", &source).is_err() {
-        return;
+    if let Err(e) = missing_for("bits-broken", &source) {
+        panic!("the front end refused `numbers/bits.buri`: {e}");
     }
     // The value, not a name: renaming a constant and its use together would
     // leave the assertion true. `assert!` on the marker means a corpus that
@@ -1750,9 +1750,9 @@ fn the_native_set_can_fail() {
         "`numbers/bits.buri` no longer contains the assertion this test edits"
     );
     let broken = source.replace(MARKER, "assert.equal(bits.shiftLeft(1, 10), 1025);");
-    let Ok((status, out, err, _)) = run("bits-broken", &broken) else {
-        return;
-    };
+    let (status, out, err, _) = run("bits-broken", &broken).unwrap_or_else(|e| {
+        panic!("the front end refused `numbers/bits.buri` with one assertion edited: {e}")
+    });
     assert_ne!(status, 0, "a broken assertion still passed:\n{out}\n{err}");
     assert!(
         err.contains("assert.equal failed"),
