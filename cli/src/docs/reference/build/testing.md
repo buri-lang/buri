@@ -631,11 +631,6 @@ You write a suite's filesystem in the suite, with `fs().files([...])`. You write
 a golden value in the suite's own source, where an editor rewrites it rather
 than the runner.
 
-There was a `test { data: [...] }` field and a `buri test --accept` that rewrote
-what it named. Both are retired ([`buri docs error
-retired-test-data`](../errors/retired-test-data.md)), and holding a golden no
-longer costs a suite a backend.
-
 ## Running
 
 A suite runs as a native binary for the host unless something sends it to

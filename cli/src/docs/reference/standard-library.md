@@ -136,13 +136,13 @@ unordered, so it answers `.Equal` for a pair it could not order.
   `cli/src/compiler/standard_library/unicode_tables.py`, which is checked in
   beside the sources it writes, so a build needs no network. The tables are Buri
   string literals — 139 thousand characters in `core/str` and 7 thousand in
-  `core/char` — and a program that never calls these carries none of them.
+  `core/character` — and a program that never calls these carries none of them.
   Everything here walks the string and probes a table per scalar; the three that
   take a context unpack each table once per call, and `graphemeCount` is pure
   and cannot, so `graphemes(ctx).length()` is the cheaper count where a context is
   at hand.
 
-- **`core/char`** — one scalar's own questions. `isDigit`, `isAlpha` and
+- **`core/character`** — one scalar's own questions. `isDigit`, `isAlpha` and
   `isSpace` were always here; `isAscii`, `isControl`, `isPunctuation`,
   `isPrintable`, `isNewline` and `utf8Length` are the rest of the set.
   `isPunctuation` is General Category `P`, so a symbol — `+`, `<`, `$` — is not

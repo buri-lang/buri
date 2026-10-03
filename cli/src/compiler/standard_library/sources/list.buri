@@ -184,14 +184,6 @@ impl<A> [A] {
 
     export fn mapCtx<B, C: Allocator>(self, ctx: C, transform: fn(C, A) => B): [B];
 
-    /// `mapCtx`, with the runtime running the step rather than a loop the
-    /// backend writes. The answer is `mapCtx`'s answer, element for element.
-    ///
-    /// Prefer `mapCtx`. This is slower by an indirect call per element, and no
-    /// case makes it the better tool. It exists to exercise the runtime calling
-    /// back into Buri code.
-    export fn mapCtxStep<B, C: Allocator>(self, ctx: C, f: fn(C, A) => B): [B];
-
     /// `map` with a step that can fail: every element mapped, or the first
     /// `.Err` and nothing after it.
     ///

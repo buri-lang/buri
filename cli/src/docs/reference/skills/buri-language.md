@@ -148,8 +148,7 @@ from "//lib/money" import { Cents };
 - A `testing` directory segment makes a module test-only. Only a platform's
   `platform.buri` may import `platform/host`.
 - Effects live in `platform/effect`, their test implementations in
-  `platform/effect/testing`. `core/effect`, `core/host` and `core/host/testing`
-  are retired.
+  `platform/effect/testing`.
 
 ## Declarations
 
