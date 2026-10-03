@@ -1482,7 +1482,28 @@ pub(crate) struct Plan {
     /// A `GetTag` the switch will do itself: `(aggregate value, byte offset,
     /// tag width)`.
     pub tagsw: Option<ir::ValueId>,
+    /// The increment a jump into a loop's test does itself.
+    pub incbr: Option<Incbr>,
 }
+
+/// A back edge that increments a loop's index and takes the loop's test, as
+/// one `incbr/lt`: `into = from + by; if into < bound goto back else out`.
+///
+/// The shape is a block ending `t = add from, by; jump header(t, ..)` where
+/// `t` already shares the parameter's slot, and a header that is nothing but
+/// `branch (param >= bound) unsigned, out, back`. Unsigned and wrapping on
+/// both sides, so the stencil's own `uint64_t` sum and comparison are the
+/// same answer for every input, not only for a list's index.
+#[derive(Clone, Copy)]
+pub(crate) struct Incbr {
+    pub from: ir::ValueId,
+    pub by: u64,
+    pub into: ir::ValueId,
+    pub bound: ir::ValueId,
+    pub back: ir::BlockId,
+    pub out: ir::BlockId,
+}
+
 
 impl<'a> Jit<'a> {
     /// Where every value lives in the frame, and where the scratch begins.
@@ -1519,6 +1540,7 @@ impl<'a> Jit<'a> {
         {
             self.coalesce(code, &mut uf, &mut pin, &width);
         }
+        self.pin_call_values(prog, code, &uf, &mut pin, frame.size);
         // One slot per class: the pinned offset when the class holds a
         // parameter or a return value, a fresh one otherwise.
         let mut at = frame.param_end;
@@ -1680,6 +1702,165 @@ impl<'a> Jit<'a> {
                 }
                 // A class of one, pinned at the return area.
                 put(pin, vi, Some(off));
+            }
+        }
+    }
+
+    /// (i.c) A value that only crosses a direct call lives **in the callee's
+    /// frame**: an argument where the callee reads its parameter, a result
+    /// where the callee left it. That deletes the copy between the value's own
+    /// slot and the callee's, on each side of the call — the load and store a
+    /// list loop otherwise pays per element for the element it hands its step
+    /// and the answer it takes back.
+    ///
+    /// The callee's frame begins at `frame_size`, and nothing below it writes
+    /// there; what does is a call of any kind, which lays its own frame out
+    /// there. So a value is pinned only where every instruction across its
+    /// life is one of [`keeps_callee_frame`]'s, and only where it is a slot
+    /// class of its own, used in its defining block:
+    ///
+    ///  * a **result**, whose every use is in the block after the call;
+    ///  * an **argument**, used once, by that call, and defined by an
+    ///    instruction that writes nothing but its own slot. Its definition must
+    ///    not land inside a pinned result's life, whose slot it could overlap.
+    fn pin_call_values(
+        &mut self,
+        prog: &ir::Program,
+        code: &ir::Code,
+        uf: &[u32],
+        pin: &mut [Option<u32>],
+        frame_size: u32,
+    ) {
+        let n = code.values();
+        let mut members = vec![0u32; n];
+        let mut uses = vec![0u32; n];
+        let mut ops = Vec::new();
+        for v in 0..n {
+            bump(&mut members, find(uf, v as u32) as usize);
+        }
+        for b in &code.blocks {
+            for i in &b.insts {
+                ops.clear();
+                i.operands(&mut ops);
+                for o in &ops {
+                    bump(&mut uses, o.index());
+                }
+            }
+            ops.clear();
+            b.term.operands(&mut ops);
+            for t in b.term.targets() {
+                ops.extend_from_slice(&t.args);
+            }
+            for o in &ops {
+                bump(&mut uses, o.index());
+            }
+        }
+        let alone = |v: ir::ValueId, pin: &[Option<u32>]| {
+            find(uf, v.0) == v.0
+                && ent(&members, v.index(), 0) == 1
+                && ent(pin, v.index(), None).is_none()
+        };
+        let calls_code = |func: &crate::compiler::semantics::types::FuncIdx| {
+            matches!(prog.funcs.get(func.index()).map(|f| &f.body), Some(ir::Body::Code(_)))
+        };
+        for b in &code.blocks {
+            let last = b.insts.len();
+            // Where each value is read in this block: an instruction's index,
+            // or `last` for the terminator.
+            let mut read_at: HashMap<u32, Vec<usize>> = HashMap::new();
+            for (k, i) in b.insts.iter().enumerate() {
+                ops.clear();
+                i.operands(&mut ops);
+                for o in &ops {
+                    read_at.entry(o.0).or_default().push(k);
+                }
+            }
+            ops.clear();
+            b.term.operands(&mut ops);
+            for t in b.term.targets() {
+                ops.extend_from_slice(&t.args);
+            }
+            for o in &ops {
+                read_at.entry(o.0).or_default().push(last);
+            }
+            let pure =
+                |from: usize, to: usize| b.insts.iter().take(to).skip(from).all(keeps_callee_frame);
+            let mut results: Vec<(usize, usize)> = Vec::new();
+            for (j, i) in b.insts.iter().enumerate() {
+                let ir::Inst::Call { dests, func, .. } = i else { continue };
+                if !calls_code(func) {
+                    continue;
+                }
+                let fs = self.frame_sig_of(func.index());
+                let (Some(&d), Some(&off)) = (dests.first(), fs.ret.first()) else { continue };
+                let Some(reads) = read_at.get(&d.0) else { continue };
+                let mut end = reads.iter().copied().max().unwrap_or(0);
+                if !alone(d, pin)
+                    || reads.len() != ent(&uses, d.index(), 0) as usize
+                    || reads.iter().any(|r| *r <= j)
+                {
+                    continue;
+                }
+                // A `Bool` read only to be counted shares the slot it is
+                // counted from: the conversion is a copy of the same word.
+                let mut alias = None;
+                if let [r] = reads.as_slice() {
+                    if let Some(ir::Inst::Unary { op: ir::UnOp::FromBool, dest: z, .. }) =
+                        b.insts.get(*r)
+                    {
+                        if let Some(zr) = read_at.get(&z.0) {
+                            if alone(*z, pin)
+                                && zr.len() == ent(&uses, z.index(), 0) as usize
+                                && zr.iter().all(|x| x > r)
+                            {
+                                end = end.max(zr.iter().copied().max().unwrap_or(0));
+                                alias = Some(*z);
+                            }
+                        }
+                    }
+                }
+                if !pure(j + 1, (end + 1).min(last)) {
+                    continue;
+                }
+                put(pin, d.index(), Some(frame_size + off));
+                if let Some(z) = alias {
+                    put(pin, z.index(), Some(frame_size + off));
+                }
+                results.push((j, end));
+            }
+            for (j, i) in b.insts.iter().enumerate() {
+                let ir::Inst::Call { func, args, .. } = i else { continue };
+                if !calls_code(func) {
+                    continue;
+                }
+                let fs = self.frame_sig_of(func.index());
+                for (a, off) in args.iter().zip(fs.params.iter()) {
+                    let Some(k) = b.insts.iter().take(j).position(|x| x.results().contains(a))
+                    else {
+                        continue;
+                    };
+                    let defines = matches!(
+                        b.insts.get(k),
+                        Some(
+                            ir::Inst::ArrayGet { .. }
+                                | ir::Inst::ArrayLen { .. }
+                                | ir::Inst::Binary { .. }
+                                | ir::Inst::Unary { .. }
+                                | ir::Inst::GetField { .. }
+                                | ir::Inst::GetPayload { .. }
+                                | ir::Inst::GetTag { .. }
+                        )
+                    ) && b.insts.get(k).is_some_and(keeps_callee_frame);
+                    if !defines
+                        || !alone(*a, pin)
+                        || ent(&uses, a.index(), 0) != 1
+                        || !pure(k + 1, j)
+                        || results.iter().any(|(rj, re)| *rj < k && k <= *re)
+                    {
+                        continue;
+                    }
+                    put(pin, a.index(), Some(frame_size + off));
+                }
             }
         }
     }
@@ -1902,7 +2083,9 @@ impl<'a> Jit<'a> {
             for i in &b.insts {
                 ops.clear();
                 i.operands(&mut ops);
-                let ok = inside && matches!(i, ir::Inst::Binary { .. } | ir::Inst::Unary { .. });
+                let ok = inside
+                    && matches!(i, ir::Inst::Binary { .. } | ir::Inst::Unary { .. })
+                    && !matches!(i, ir::Inst::Unary { op: ir::UnOp::FromBool, .. });
                 for o in &ops {
                     bump(&mut uses, o.index());
                     if !ok {
@@ -1995,6 +2178,9 @@ impl<'a> Jit<'a> {
                     if !matches!(
                         b.insts.get(di),
                         Some(ir::Inst::Binary { .. } | ir::Inst::Unary { .. })
+                    ) || matches!(
+                        b.insts.get(di),
+                        Some(ir::Inst::Unary { op: ir::UnOp::FromBool, .. })
                     ) {
                         continue;
                     }
@@ -2151,7 +2337,9 @@ impl<'a> Jit<'a> {
                             && !op.is_comparison();
                         (f, *dest)
                     }
-                    ir::Inst::Unary { dest, prim, .. } if !wide(prim) => (
+                    ir::Inst::Unary { dest, prim, op, .. }
+                        if !wide(prim) && *op != ir::UnOp::FromBool =>
+                    (
                         matches!(prim, crate::compiler::semantics::types::Prim::F32 | crate::compiler::semantics::types::Prim::F64),
                         *dest,
                     ),
@@ -2184,6 +2372,9 @@ impl<'a> Jit<'a> {
                     matches!(
                         block.insts.get(at),
                         Some(ir::Inst::Binary { .. } | ir::Inst::Unary { .. })
+                    ) && !matches!(
+                        block.insts.get(at),
+                        Some(ir::Inst::Unary { op: ir::UnOp::FromBool, .. })
                     )
                 };
                 if !consumes {
@@ -2255,9 +2446,9 @@ impl<'a> Jit<'a> {
     }
 
     /// Fusions the terminator can absorb.
-    fn plan_block(&mut self, code: &ir::Code, st: &Fn2, block: &ir::Block) -> Plan {
+    pub(super) fn plan_block(&mut self, code: &ir::Code, st: &Fn2, block: &ir::Block) -> Plan {
         let n = block.insts.len();
-        let mut p = Plan { skip: vec![false; n], cmpbr: None, tagsw: None };
+        let mut p = Plan { skip: vec![false; n], cmpbr: None, tagsw: None, incbr: None };
         // Every `Const` whose uses are all immediates disappears.
         for (i, skip) in block.insts.iter().zip(p.skip.iter_mut()) {
             if let ir::Inst::Const { dest, .. } = i {
@@ -2301,6 +2492,10 @@ impl<'a> Jit<'a> {
                 }
             }
         }
+        if let Some((k, incbr)) = self.incbr(code, st, block) {
+            put(&mut p.skip, k, true);
+            p.incbr = Some(incbr);
+        }
         // (f) The tag load a switch discriminates on, folded into the first
         // comparison — the paper's `if (a[i] <op> b)` supernode, in the shape
         // this IR's `match` actually takes.
@@ -2317,6 +2512,57 @@ impl<'a> Jit<'a> {
             }
         }
         p
+    }
+}
+
+impl Jit<'_> {
+    /// The [`Incbr`] this block's jump is, and the index of the increment it
+    /// absorbs.
+    fn incbr(&mut self, code: &ir::Code, st: &Fn2, block: &ir::Block) -> Option<(usize, Incbr)> {
+        use crate::compiler::semantics::types::Prim;
+        if !self.has("incbr/lt") {
+            return None;
+        }
+        let ir::Term::Jump(t) = &block.term else { return None };
+        let header = code.get(t.block);
+        let ir::Term::Branch { cond, then, else_ } = &header.term else { return None };
+        if header.insts.len() != 1 || !then.args.is_empty() || !else_.args.is_empty() {
+            return None;
+        }
+        let Some(ir::Inst::Binary { dest, op: ir::BinOp::Ge, prim: Prim::U64, lhs, rhs }) =
+            header.insts.first()
+        else {
+            return None;
+        };
+        if dest != cond {
+            return None;
+        }
+        let k = header.params.iter().position(|p| p == lhs)?;
+        let m = block.insts.len().checked_sub(1)?;
+        let Some(ir::Inst::Binary { dest: sum, op: ir::BinOp::Add, prim, lhs: from, rhs: by }) =
+            block.insts.get(m)
+        else {
+            return None;
+        };
+        let frame = |v: ir::ValueId| matches!(st.home(v), Loc::Frame);
+        if !matches!(prim, Prim::I64 | Prim::U64)
+            || t.args.get(k) != Some(sum)
+            || !ent(&st.folded, by.index(), false)
+            || ent(&st.folded, rhs.index(), false)
+            || !frame(*from)
+            || !frame(*rhs)
+            || uses_after(code, block, *sum, m) != 1
+            || header.params.iter().zip(t.args.iter()).any(|(p, a)| {
+                !frame(*p) || !frame(*a) || st.at(*p) != st.at(*a)
+            })
+        {
+            return None;
+        }
+        let by = st.constants.get(by.index()).copied().flatten()?;
+        Some((
+            m,
+            Incbr { from: *from, by, into: *lhs, bound: *rhs, back: else_.block, out: then.block },
+        ))
     }
 }
 
@@ -2354,6 +2600,33 @@ fn uses_after(code: &ir::Code, block: &ir::Block, v: ir::ValueId, from: usize) -
     n
 }
 
+/// Whether an instruction leaves the area past the frame alone — the callee's
+/// frame, which [`Jit::pin_call_values`] keeps values in. Every call lays its
+/// own frame out there, and so may anything that reaches a helper; what is
+/// listed here writes only frame slots and scratch, or calls only C, which
+/// runs on the machine stack.
+fn keeps_callee_frame(i: &ir::Inst) -> bool {
+    match i {
+        ir::Inst::Binary { prim, .. } => !matches!(
+            prim,
+            crate::compiler::semantics::types::Prim::Str
+                | crate::compiler::semantics::types::Prim::Template
+        ),
+        ir::Inst::Const { .. }
+        | ir::Inst::Unary { .. }
+        | ir::Inst::MakeStruct { .. }
+        | ir::Inst::MakeEnum { .. }
+        | ir::Inst::GetField { .. }
+        | ir::Inst::GetPayload { .. }
+        | ir::Inst::GetTag { .. }
+        | ir::Inst::ArrayLen { .. }
+        | ir::Inst::ArrayGet { .. }
+        | ir::Inst::ArraySet { .. }
+        | ir::Inst::ArrayPrefix { .. } => true,
+        _ => false,
+    }
+}
+
 fn is_barrier(i: &ir::Inst) -> bool {
     match i {
         ir::Inst::CallIntrinsic { key, .. } => key != "testing_assert.report",
@@ -2376,6 +2649,9 @@ fn is_barrier(i: &ir::Inst) -> bool {
         | ir::Inst::MakeArray { .. }
         | ir::Inst::ArrayGet { .. }
         | ir::Inst::ArraySlice { .. }
+        | ir::Inst::ArrayAlloc { .. }
+        | ir::Inst::ArraySet { .. }
+        | ir::Inst::ArrayPrefix { .. }
         | ir::Inst::DecRef { .. } => true,
         _ => false,
     }

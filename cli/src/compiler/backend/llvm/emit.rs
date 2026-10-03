@@ -796,6 +796,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ir::Inst::ArraySlice { dest, array, from } => {
                 self.array_slice(state, code, *dest, *array, *from)
             }
+            ir::Inst::ArrayAlloc { dest, len } => self.array_alloc(state, code, *dest, *len),
+            ir::Inst::ArraySet { array, index, value } => {
+                self.array_set(state, code, *array, *index, *value)
+            }
+            ir::Inst::ArrayPrefix { dest, array, len } => {
+                self.array_prefix(state, code, *dest, *array, *len)
+            }
             ir::Inst::Call { dests, func, args } => self.call(state, code, dests, *func, args, span),
             ir::Inst::CallIndirect { dests, callee, args } => {
                 self.call_indirect(state, code, dests, *callee, args)
@@ -882,6 +889,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             (ir::UnOp::Not | ir::UnOp::BitNot, BasicValueEnum::IntValue(v)) => {
                 b.build_not(v, "not").map(Into::into).unwrap_or(arg)
             }
+            (ir::UnOp::FromBool, BasicValueEnum::IntValue(v)) => b
+                .build_int_z_extend(v, self.ctx.i64_type(), "frombool")
+                .map(Into::into)
+                .unwrap_or(arg),
             _ => {
                 let _ = prim;
                 arg
@@ -1750,6 +1761,100 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let Some(read) = self.element_at(state, code, array, index) else { return };
         let (element_slots, taken) = self.load_element(read.base, read.index, &read.element);
         let value = repr::assemble(self.ctx, &self.builder, &element_slots, &taken);
+        self.set(state, dest, value);
+    }
+
+    /// A block of `len` elements for a loop to fill, whose `cap` header is
+    /// exactly that — which is what makes `cap / stride` the element count the
+    /// drop glue walks (VALUE-MODEL.md §4).
+    fn array_alloc(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dest: ir::ValueId,
+        len: ir::ValueId,
+    ) {
+        let ir_ty = code.ty_of(dest);
+        let Some(element) = self.type_of(ir_ty).and_then(|t| self.reprs.element(&t)) else {
+            return;
+        };
+        let stride = self.reprs.of_ty(&element).layout.stride;
+        let BasicValueEnum::IntValue(n) = self.get(state, len) else { return };
+        let word = self.ctx.i64_type();
+        let bytes = self
+            .builder
+            .build_int_mul(n, word.const_int(u64::from(stride), false), "alloc.bytes")
+            .unwrap_or(n);
+        let block = self.heap(state, bytes, "alloc");
+        let slots = repr::ir_slots(&mut self.reprs, self.program, ir_ty);
+        let value = repr::assemble(self.ctx, &self.builder, &slots, &[block.into(), n.into()]);
+        self.set(state, dest, value);
+    }
+
+    /// One element stored into a block [`Unit::array_alloc`] made: the value
+    /// moves in, so there is nothing to retain.
+    fn array_set(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        array: ir::ValueId,
+        index: ir::ValueId,
+        value: ir::ValueId,
+    ) {
+        let Some(read) = self.element_at(state, code, array, index) else { return };
+        let (stride, slots, align) = {
+            let r = self.reprs.of_ty(&read.element);
+            (r.layout.stride, r.slots.clone(), r.layout.align)
+        };
+        let into = self.elem_at(read.base, read.index, stride, "set.at");
+        let v = self.get(state, value);
+        let pieces = repr::disassemble(&self.builder, &slots, v);
+        self.store_slots(into, &slots, align, &pieces);
+    }
+
+    /// The first `len` elements of a block a loop filled, copied into one exact
+    /// block. The source goes back without its elements being walked: they
+    /// *moved*, and its count is the one the allocation gave it.
+    ///
+    /// A copy rather than the block kept with spare slots, because this
+    /// backend's `alloc` does not zero, and `filter` keeping a few of many
+    /// elements would otherwise hold the whole source's size.
+    fn array_prefix(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dest: ir::ValueId,
+        array: ir::ValueId,
+        len: ir::ValueId,
+    ) {
+        let ir_ty = code.ty_of(dest);
+        let Some(element) = self.type_of(ir_ty).and_then(|t| self.reprs.element(&t)) else {
+            return;
+        };
+        let (stride, align) = {
+            let r = self.reprs.of_ty(&element);
+            (r.layout.stride, r.layout.align.max(1))
+        };
+        let slots = repr::ir_slots(&mut self.reprs, self.program, ir_ty);
+        let source = self.get(state, array);
+        let pieces = repr::disassemble(&self.builder, &slots, source);
+        let Some(BasicValueEnum::PointerValue(scratch)) = pieces.get(layout::LIST_PTR).copied()
+        else {
+            return;
+        };
+        let BasicValueEnum::IntValue(kept) = self.get(state, len) else { return };
+        let word = self.ctx.i64_type();
+        let bytes = self
+            .builder
+            .build_int_mul(kept, word.const_int(u64::from(stride), false), "prefix.bytes")
+            .unwrap_or(kept);
+        let out = self.heap(state, bytes, "prefix");
+        let _ = self.builder.build_memcpy(out, align, scratch, align, bytes);
+        let free = self.rt_free();
+        if let Ok(call) = self.builder.build_call(free, &[scratch.into()], "") {
+            attrs::set_call_convention(call, attrs::C);
+        }
+        let value = repr::assemble(self.ctx, &self.builder, &slots, &[out.into(), kept.into()]);
         self.set(state, dest, value);
     }
 
@@ -9867,7 +9972,10 @@ fn argument_based(code: &ir::Code) -> Vec<bool> {
                     // A block this function allocated, or one a callee handed
                     // back. Both are ordinary program memory the caller cannot
                     // name, which is the *default* location and not `argmem`.
-                    ir::Inst::MakeArray { dest, .. } | ir::Inst::MakeClosure { dest, .. } => {
+                    ir::Inst::MakeArray { dest, .. }
+                    | ir::Inst::MakeClosure { dest, .. }
+                    | ir::Inst::ArrayAlloc { dest, .. }
+                    | ir::Inst::ArrayPrefix { dest, .. } => {
                         set(&mut based, *dest, false, &mut changed);
                     }
                     // A load: see the header.
@@ -9943,7 +10051,16 @@ fn local(code: &ir::Code, profile: Profile) -> Observed {
             match inst {
                 // One allocation, from `buri_rt_alloc` — which is inaccessible
                 // memory (CODEGEN-LLVM.md §3.1's `Allocator`-bounded row).
-                ir::Inst::MakeArray { .. } => o.allocates = true,
+                ir::Inst::MakeArray { .. } | ir::Inst::ArrayAlloc { .. } => o.allocates = true,
+                // A store into a block this function allocated, and a copy out
+                // of one: the default location, as an `incref` of a value it
+                // did not receive is.
+                ir::Inst::ArraySet { .. } => o.writes_far = true,
+                ir::Inst::ArrayPrefix { .. } => {
+                    o.allocates = true;
+                    o.reads_far = true;
+                    o.writes_far = true;
+                }
                 ir::Inst::MakeClosure { env: Some(_), .. } => o.allocates = true,
                 ir::Inst::Abort { .. } => o.aborts = true,
                 // SPEC 6.2: integer division by zero aborts. Float division is

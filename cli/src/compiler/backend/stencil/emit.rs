@@ -484,15 +484,55 @@ impl<'a> Jit<'a> {
                 let Some((stride, w, _)) = self.array_elem(prog, code.ty_of(*array)) else {
                     return self.unsupported("ArrayGet of a non-array".into());
                 };
-                let s0 = st.scratch + 48;
-                self.mv(s0, st.at(*array), 8);
-                let d = st.at(*dest);
-                let i = st.at(*index);
-                self.elem_load(d, s0, i, stride, w);
+                // The pointer is read where it lives, unless the destination
+                // shares its slot: a narrow element clears its destination
+                // first, which would clear the pointer.
+                let (d, a, i) = (st.at(*dest), st.at(*array), st.at(*index));
+                let base = if d < a + 8 && a < d + w.max(8) {
+                    let s0 = st.scratch + 48;
+                    self.mv(s0, a, 8);
+                    s0
+                } else {
+                    a
+                };
+                self.elem_load(d, base, i, stride, w);
             }
             Inst::ArrayLen { dest, array } => {
                 // `[T]` is `{ ptr, len }`, and the length is O(1) by §4.
                 self.mv(st.at(*dest), st.at(*array) + 8, 8)
+            }
+            // The count goes through scratch first, because the destination's
+            // slot may be the one the count dies in.
+            Inst::ArrayAlloc { dest, len } => {
+                let Some(stride) = self.array_stride(prog, code.ty_of(*dest)) else {
+                    return self.unsupported("ArrayAlloc of a non-list".into());
+                };
+                let (d, n) = (st.at(*dest), st.scratch);
+                self.mv(n, st.at(*len), 8);
+                self.emit(
+                    "elemalloc",
+                    &[
+                        ("JIT_D", V::I(u64::from(d))),
+                        ("JIT_A", V::I(u64::from(n))),
+                        ("JIT_P", V::I(stride)),
+                        ("JIT_CONT0", V::Fall),
+                    ],
+                );
+                self.mv(d + 8, n, 8);
+            }
+            Inst::ArraySet { array, index, value } => {
+                let Some((stride, w, _)) = self.array_elem(prog, code.ty_of(*array)) else {
+                    return self.unsupported("ArraySet of a non-array".into());
+                };
+                self.elem_store(st.at(*value), st.at(*array), st.at(*index), stride, w);
+            }
+            // `elemalloc` zeroes the block, so the elements past `len` are the
+            // spare slots the drop glue skips, and the block is kept.
+            Inst::ArrayPrefix { dest, array, len } => {
+                let (d, n) = (st.at(*dest), st.scratch);
+                self.mv(n, st.at(*len), 8);
+                self.mv(d, st.at(*array), 8);
+                self.mv(d + 8, n, 8);
             }
             // `xs[from..]`, for the `..rest` of an array pattern. A **copy**,
             // not a view: VALUE-MODEL.md §4 is explicit that a `[T]` is never
@@ -1181,6 +1221,11 @@ impl<'a> Jit<'a> {
     ) {
         let d = st.at(dest);
         let a = st.at(arg);
+        // A `Bool`'s frame word is already the whole zero-extended integer, so
+        // the conversion is the copy. `Jit::regalloc` leaves both in the frame.
+        if op == UnOp::FromBool {
+            return self.mv(d, a, 8);
+        }
         if op == UnOp::Not {
             // The operand and the result may be in CPS registers, exactly as
             // for any other unary operation. Spelling this `f/f` was a real
@@ -1299,6 +1344,11 @@ impl<'a> Jit<'a> {
         let callee = self.frame_sig_of(func as usize);
         for (i, a) in args.iter().enumerate() {
             let Some(off) = callee.params.get(i) else { continue };
+            // A zero-sized argument — a lifted lambda's empty environment —
+            // has no bytes for the callee to read.
+            if self.width_of(prog, code.ty_of(*a)) == 0 {
+                continue;
+            }
             let n = self.slot_bytes_of(prog, code.ty_of(*a));
             self.mv(base + *off, st.at(*a), n);
         }
@@ -1571,6 +1621,25 @@ impl<'a> Jit<'a> {
         match t {
             Term::Jump(x) => {
                 let fall = x.block.index() == next;
+                if let Some(b) = plan.incbr {
+                    let out = if b.out.index() == next { V::Fall } else { V::Blk(b.out.0) };
+                    let key = self.arm_key("incbr/lt", "JIT_F");
+                    self.emit(
+                        &key,
+                        &[
+                            ("JIT_D", V::I(u64::from(st.at(b.into)))),
+                            ("JIT_A", V::I(u64::from(st.at(b.from)))),
+                            ("JIT_N", V::I(b.by)),
+                            ("JIT_B", V::I(u64::from(st.at(b.bound)))),
+                            ("JIT_T", V::Blk(b.back.0)),
+                            ("JIT_F", out),
+                        ],
+                    );
+                    return;
+                }
+                if !fall && self.jump_into_test(code, st, x) {
+                    return;
+                }
                 if self.jump_fused(prog, code, st, x, fall) {
                     return;
                 }
@@ -1826,6 +1895,38 @@ impl<'a> Jit<'a> {
             }
         }
         (base, 8, false)
+    }
+
+    /// A jump to a block that is nothing but a fused compare-and-branch — a
+    /// loop's header — takes that branch itself, so a back edge costs one
+    /// conditional branch rather than a jump and then the test.
+    ///
+    /// Only where the edge copies nothing, which slot coalescing makes the
+    /// common case for a loop's index, and where nothing the test reads lives
+    /// in a register: the register half of an edge is [`Jit::edge`]'s, and a
+    /// read here is from the jumping block's side of a promotion's region.
+    fn jump_into_test(&mut self, code: &ir::Code, st: &mut Fn2, t: &Target) -> bool {
+        let header = code.get(t.block);
+        let Term::Branch { cond, then, else_ } = &header.term else { return false };
+        if header.insts.len() != 1 || !then.args.is_empty() || !else_.args.is_empty() {
+            return false;
+        }
+        let frame = |v: ir::ValueId| matches!(st.home(v), Loc::Frame);
+        let copies = header.params.iter().zip(t.args.iter()).any(|(p, a)| {
+            !frame(*p) || !frame(*a) || st.at(*p) != st.at(*a)
+        });
+        if copies {
+            return false;
+        }
+        let plan = self.plan_block(code, st, header);
+        let Some((_, _, lhs, rhs)) = plan.cmpbr else { return false };
+        if !frame(lhs) || !frame(rhs) {
+            return false;
+        }
+        // The loop's way back is the `else` arm (`lower/lists.rs`), so the
+        // `then` arm is the one left for the trailing jump.
+        self.cond(st, *cond, &plan, V::Blk(then.block.0), V::Blk(else_.block.0), Some("JIT_T"));
+        true
     }
 
     /// (e) The edge copies and the jump as one stencil. Every loop back edge in
