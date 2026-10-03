@@ -6,15 +6,12 @@ reproduction: none
 ---
 # `proto_sources` holds schemas
 
-**Retired.** No build says this any more. `proto_sources` is gone, and a build
-file that still writes it is
+**Retired.** No build reports this any more. `proto_sources` is gone, and a
+build file that still writes it gets
 [`retired-proto-sources`](./retired-proto-sources.md).
 
-The rule this page carried was that the field held schemas and nothing else. A
-`generators` entry has no such rule: a generator reads whatever it likes, and
-what a file has to be is the tool's question rather than the build's. Hand
-`proto` something that is not a schema and the reader says so, at
-the line it could not read.
+A `generators` entry has no such rule: the tool decides what its files have to
+be. Hand `proto` something that isn't a schema and the reader reports the line
+it couldn't read.
 
-The page is kept because a code that has ever been printed is a code somebody
-can still find in a log.
+The page stays so a code found in an old log still has an explanation.

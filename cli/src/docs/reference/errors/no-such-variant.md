@@ -15,5 +15,5 @@ fn go(): Colour {
 }
 ```
 
-Where the name is a near miss the fix names it; otherwise the enum's own
-declaration is the list, and the diagnostic prints it.
+The fix names a near miss when there is one. Otherwise the diagnostic prints
+the enum's declaration.

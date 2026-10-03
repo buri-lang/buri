@@ -9,8 +9,6 @@ fix: check the path; the standard library's modules are all {roots}
 error: there is no module "core/lists" [no-such-module]
 ```
 
-## A program that provokes it
-
 ```buri fail code=no-such-module
 from "core/lists" import * as lists;
 ```

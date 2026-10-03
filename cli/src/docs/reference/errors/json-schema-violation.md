@@ -12,11 +12,8 @@ error: expected an integer, found a string [json-schema-violation]
  --> lib/deploy/regions.json:3:13
 ```
 
-Each failure is reported at the value that fails, and the note names the
-keyword in the schema that it fails. Change the value, or, if the value is
-right, change the schema.
-
-A file with a failure is not handed to the generator that lists it.
+Change the value, or, if the value is right, change the schema. The generator
+that lists the file doesn't run until it passes.
 
 `"$schema"` is a property like any other: a schema with
 `"additionalProperties": false` lists it in `properties`.
