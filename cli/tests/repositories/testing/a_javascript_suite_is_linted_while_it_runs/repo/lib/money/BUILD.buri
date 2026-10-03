@@ -1,0 +1,8 @@
+library {
+    sources: ["cents.buri"]
+
+    test {
+        sources: ["test/cents.buri"]
+        backends: [JS]
+    }
+}

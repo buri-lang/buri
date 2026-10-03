@@ -1,6 +1,6 @@
 //! `buri version`.
 //!
-//! Prints the toolchain's version, and under `--verbose` the hash of the
+//! Prints the toolchain's version, and under `--verbose` the identity of the
 //! executable printing it — which build of that version this is, for a bug
 //! report that has to name one.
 #![allow(
@@ -11,7 +11,7 @@
               exists to emit them through"
 )]
 
-use crate::build::cache::running_exe_hash;
+use crate::build::cache::running_exe_identity;
 use crate::commands::arguments;
 
 /// Answered entirely from the binary. It opens no repository: the version is a
@@ -22,10 +22,10 @@ use crate::commands::arguments;
 pub fn command_version(args: &arguments::Args) -> i32 {
     println!("buri {}", arguments::VERSION);
     if args.flags.verbose {
-        // The same hash the cache key folds in ([`build::cache`]), which is
-        // what tells two builds of one version apart. `unreadable` where the
-        // binary can't be read, so the report says so rather than a lie.
-        println!("this executable: sha256 {}", running_exe_hash().unwrap_or("unreadable"));
+        // The same identity the cache key folds in ([`build::cache`]), which
+        // is what tells two builds of one version apart. `unreadable` where
+        // the binary can't be read, so the report says so rather than a lie.
+        println!("this executable: {}", running_exe_identity().unwrap_or("unreadable"));
     }
     if args.flags.self_check {
         let mut map = crate::diagnostics::SourceMap::new();

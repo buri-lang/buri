@@ -1,0 +1,20 @@
+# A suite run on JavaScript is linted during `buri test` exactly as
+# `buri lint` lints it: the same findings, in the library and in the test
+# source. `buri test` still exits 0; `buri lint` exits 1 on any finding.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "check_during_build over a JavaScript suite: test reports what lint reports"
+
+run {
+  args: ["test", "//lib/money"]
+  exit: 0
+  golden: "test.txt"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}

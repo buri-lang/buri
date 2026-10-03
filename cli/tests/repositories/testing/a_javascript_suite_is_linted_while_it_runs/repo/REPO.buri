@@ -1,0 +1,5 @@
+# `check_during_build` over a suite run on JavaScript: `buri test` reports
+# the findings `buri lint` does, the one in the test source included.
+lint {
+    check_during_build: true
+}
