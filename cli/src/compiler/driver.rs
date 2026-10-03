@@ -61,15 +61,56 @@ pub fn analyze_all(
     cache: &mut crate::parsing::parser::Cache,
     units: &[Unit],
 ) -> Analysis {
-    analyze_on(ws, map, cache, Opening::Builtin, Bodies::All, |loader| {
+    let loading = load_all(ws, map, cache, units);
+    check(loading, ws, map)
+}
+
+/// The loaded half of an [`analyze_all`], before any checking.
+pub struct Loading {
+    loaded: Loaded,
+    diagnostics: Diagnostics,
+}
+
+/// The first half of [`analyze_all`]: loads the units.
+///
+/// The halves are apart because they need different things. Loading reads
+/// files and mints their ids in `map`, and parses into `cache`, so it runs
+/// where those live; checking needs neither, and runs on any thread. That is
+/// how `buri test` checks its suites side by side while one thread loads them.
+pub fn load_all(
+    ws: Option<&Workspace>,
+    map: &mut SourceMap,
+    cache: &mut crate::parsing::parser::Cache,
+    units: &[Unit],
+) -> Loading {
+    let snapshot = snapshot::of(Opening::Builtin, true);
+    let mut diagnostics = Diagnostics::new();
+    diagnostics.extend(snapshot.diagnostics.items.iter().cloned());
+    let loaded = {
+        let mut loader = Loader::seeded(ws, map, &mut diagnostics, cache, snapshot);
         for unit in units {
             loader.load_unit(unit);
         }
-    })
+        loader.finish()
+    };
+    Loading { loaded, diagnostics }
+}
+
+/// The second half of [`analyze_all`]: checks what [`load_all`] loaded.
+///
+/// `map` only names files, to put the diagnostics in order. A copy taken
+/// after the load does.
+pub fn check(loading: Loading, ws: Option<&Workspace>, map: &SourceMap) -> Analysis {
+    let Loading { loaded, mut diagnostics } = loading;
+    let snapshot = snapshot::of(Opening::Builtin, true);
+    let checked =
+        Checker::resume(&loaded, ws, &mut diagnostics, &snapshot.base).checking(Bodies::All).run();
+    diagnostics.sort(map);
+    Analysis { loaded, checked, diagnostics }
 }
 
 /// Loads with `load` on top of the standard library modules `opening` names,
-/// checked once per thread rather than once per call (`compiler::snapshot`),
+/// checked once per process rather than once per call (`compiler::snapshot`),
 /// and checks the rest with `bodies`.
 ///
 /// `load` has to load the opening's modules first, which every caller does
@@ -92,7 +133,7 @@ fn analyze_on(
     let mut diags = Diagnostics::new();
     diags.extend(snapshot.diagnostics.items.iter().cloned());
     let loaded = {
-        let mut loader = Loader::seeded(ws, map, &mut diags, cache, &snapshot);
+        let mut loader = Loader::seeded(ws, map, &mut diags, cache, snapshot);
         load(&mut loader);
         loader.finish()
     };
@@ -152,7 +193,7 @@ pub fn analyze_program_all(
     let mut diags = Diagnostics::new();
     diags.extend(snapshot.diagnostics.items.iter().cloned());
     let loaded = {
-        let mut loader = Loader::seeded(ws, map, &mut diags, cache, &snapshot);
+        let mut loader = Loader::seeded(ws, map, &mut diags, cache, snapshot);
         for unit in units {
             loader.load_unit(unit);
         }

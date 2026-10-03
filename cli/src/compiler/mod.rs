@@ -14,7 +14,7 @@
 //! The four files here are the parts that are about a compilation rather than
 //! about a stage of one: `modules` decides which files are in it, `driver`
 //! runs the front end over them, `standard_library` supplies the modules every
-//! compilation gets without asking, and `snapshot` checks those once per thread
+//! compilation gets without asking, and `snapshot` checks those once per process
 //! so that the next compilation does not.
 
 pub mod backend;

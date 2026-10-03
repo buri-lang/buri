@@ -29,7 +29,6 @@ use crate::diagnostics::Span;
 use crate::json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex, PoisonError};
 
 /// The `code` of a [`Diagnostic`] whose `message` is already the whole
@@ -238,7 +237,7 @@ pub struct Outcome {
 /// clone of a `Session`, so `buri build`, `buri test`, `buri lint` and the
 /// language server all read one answer.
 ///
-/// Interior mutability, because the workspace is behind an `Rc` by the time
+/// Interior mutability, because the workspace is behind an `Arc` by the time
 /// there is a session to build a tool with. Nothing else about the graph is
 /// writable and nothing here rewrites the graph.
 ///
@@ -637,7 +636,7 @@ fn ensure(
     if !done.insert(target) {
         return;
     }
-    let workspace = Rc::clone(&session.workspace);
+    let workspace = Arc::clone(&session.workspace);
     for tool in tools_of(&workspace, target) {
         if cycle(&workspace, target, tool).is_some() {
             continue;
@@ -729,7 +728,7 @@ fn walk_worked_out_from(
 /// `decode`. The `textproto` tool, and a language of a repository's own, is asked
 /// with `typesOf`, and its one module is filed under the language's name.
 fn run_contracts(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Overlay) {
-    let workspace = Rc::clone(&session.workspace);
+    let workspace = Arc::clone(&session.workspace);
     let package = workspace.package(target.package);
     let Some(rule) = &package.build.tool else { return };
     let languages = &workspace.repo.languages;
@@ -884,7 +883,7 @@ struct Entry {
 }
 
 fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Overlay) {
-    let workspace = Rc::clone(&session.workspace);
+    let workspace = Arc::clone(&session.workspace);
     let mut entries: Vec<Entry> = Vec::new();
     let mut missing: Vec<(Diagnostic, Span)> = Vec::new();
     // The keys, plus a line per input nothing could read and the contents of

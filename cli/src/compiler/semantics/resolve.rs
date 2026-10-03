@@ -253,7 +253,7 @@ pub struct Checker<'a> {
 /// repository's, and a snippet loads the whole library before its own text —
 /// and their text is compiled into this binary. So what the passes below make
 /// of them is the same every time, and `compiler::snapshot` keeps it once per
-/// thread. [`Checker::resume`] then runs each pass over the remaining modules
+/// process. [`Checker::resume`] then runs each pass over the remaining modules
 /// only: their ids continue where these stop, so every type constructor,
 /// trait and module keeps the id a whole run would have given it.
 ///

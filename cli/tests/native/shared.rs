@@ -1282,7 +1282,7 @@ pub fn conformance_repository() -> Option<&'static Workspace> {
         if session.diagnostics.has_errors() {
             return None;
         }
-        std::rc::Rc::try_unwrap(session.workspace).ok()
+        std::sync::Arc::try_unwrap(session.workspace).ok()
     })
     .as_ref()
 }
