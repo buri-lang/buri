@@ -22,8 +22,9 @@ binary {
 }
 ```
 
-The worker is a platform the repository writes, `//platform/cloudflare_worker`.
-Its host holds an allocator and standard output:
+The worker is a platform the repository writes, `//platform/cloudflare_worker`,
+a smaller version of the one [Write your own platform](./custom-platforms.md)
+builds. Its host holds an allocator and standard output:
 
 ```text
 // platform/cloudflare_worker/platform.buri
@@ -37,9 +38,6 @@ export struct CloudflareHost {
 
 export fn fetch(host: CloudflareHost, request: Request): Response;
 ```
-
-[Write your own platform](./custom-platforms.md) has its `BUILD.buri` and
-`fetch.mjs`.
 
 That is two artifacts out of one build: `.buri/out/web/cmd/site/main.mjs` and
 `.buri/out/platform/cloudflare_worker/cmd/site/fetch.mjs`. Each entry is its
@@ -219,7 +217,7 @@ export fn fetch(host: CloudflareHost, request: Request): Response {
 <!doctype html>
 <html lang="en">
 <head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Buri</title></head>
-<body><main><h1>Buri</h1>visitors: 3<button type="button">say thanks</button><button type="button">about</button><article>home</article></main><script id="buri-state" type="application/json" data-path="/">{"title":"Buri","visitors":3}</script></body>
+<body><main><h1>Buri</h1>visitors: 3<button type="button" aria-label="say thanks">say thanks</button><button type="button" aria-label="about">about</button><article>home</article></main><script id="buri-state" type="application/json" data-path="/">{"title":"Buri","visitors":3}</script></body>
 </html>
 ```
 
@@ -438,9 +436,9 @@ for one is refused on the line that asked:
 ```text
 $ buri build //cmd/site
 error: `CloudflareHost` has no field `location` [unknown-field]
-   --> cmd/site/main.buri:159:24
+   --> cmd/site/main.buri:160:24
     |
-159 |         Location: host.location,
+160 |         Location: host.location,
     |                        ^^^^^^^^
 ```
 
@@ -454,16 +452,15 @@ $ buri run //cmd/site
 serving //cmd/site on http://127.0.0.1:4000/
 ```
 
-Files under the artifact directory are answered as themselves and every other
-path is answered with `index.html` — so `/about` arrives with `/about` in the
-address bar, and the match above sees it. `--watch` rebuilds on a save, and
-nothing is cached, so a reload is the new build.
+A path naming a file gets that file, and any other path without an extension
+gets `index.html`, so `/about` arrives with `/about` in the address bar and the
+match above sees it. `--watch` rebuilds on a save, and every response is
+`Cache-Control: no-store`, so a reload shows the new build.
 [`buri run`](../reference/cli/run.md) has the port, the flags and the rest.
 
-What it serves is the `index.html` `web` ships, not the document `fetch`
-renders. A `main` that resumes therefore finds markup no `shell` wrote and says
-so: this is how you look at a page that *mounts*. The resumed page is the
-worker's, and the worker runs on its host's own local runner.
+It serves `web`'s own `index.html`, not the document `fetch` renders, so a
+resuming `main` reports markup no `shell` wrote. To see the resumed page, run
+the worker with its host's own local tooling.
 
 ## Next
 

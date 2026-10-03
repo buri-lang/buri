@@ -59,14 +59,16 @@ The whole file is in [the guide](../../guides/custom-platforms.md#the-platform).
 
 - **The host type** lists what the platform offers, one production struct per
   field. The CLI builds the value and hands it to the entry.
-- **A consumer's entry** has the declaration's name and signature. Another host
-  is `entry-host-mismatch`, and no host is `entry-missing-host`.
+- **The function filling an entry** has the declaration's signature. It's the
+  function of the same name unless the output's `entries` names another.
+  Another host is `entry-host-mismatch`, and no host is `entry-missing-host`.
 - **A field the backend lacks** is `effect-not-on-backend`: `JS` has no `Listen`
   or `Tcp`, and `NATIVE` no `Ui` or `Watch`. Any `JS` platform may offer
   `HostUi` and `HostWatch`.
 - **The platform's own structs** have bodiless methods, which the entry's `js`
   file implements. Only `JS` entries have one, so on `NATIVE` such a field is
-  `custom-effect-outside-js`.
+  `custom-effect-outside-js`, and on a `JS` entry without one it's
+  `host-file-missing-method`.
 - Only `platform.buri` may import `platform/host` or declare a function without
   a body.
 
@@ -87,10 +89,10 @@ export const HostKv = {
 };
 ```
 
-- **An export named after a production struct implements it.** The build reads
-  `export const HostKv = { ... }` and `export function`, and checks every method
-  is there with the same parameter count, `self` included. A gap is
-  `host-file-missing-method`.
+- **An export named after a production struct implements it**, as an object
+  with one function per method: `export const HostKv = { get: (self, ...) => ... }`.
+  The build checks every method is there with the same parameter count, `self`
+  included. A gap is `host-file-missing-method`.
 - **Every other export is the module's own**, such as `default` here.
 - **Every call to a method the file implements is awaited**, so a method may
   return a promise.
@@ -154,9 +156,9 @@ platform/effect/kv/testing/lib.buri   TestKv, the test implementation
 
 - **Declared anywhere else**, an effect is `effect-outside-effect-directory`.
 - **Every effect has a test implementation** in the package's `testing`
-  surface, or it's `effect-missing-test-implementation`. Its state lives in
-  `core/platforms/testing/state`, which only an effect's testing surface may
-  import.
+  surface, or it's `effect-missing-test-implementation`. Its state, when it
+  needs any, lives in `core/platforms/testing/state`, which only an effect's
+  testing surface may import.
 - **Code calls the wrapper functions**, `kv.get(ctx, ...)`. Only the package
   itself calls the effect's methods.
 

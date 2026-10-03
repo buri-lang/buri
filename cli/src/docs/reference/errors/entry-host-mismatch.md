@@ -5,7 +5,7 @@ message: '`{entry}` takes `{taken}`, and the {platform} platform hands its entry
 # An entry takes the host of the platform it is built for
 
 ```text
-error: `main` takes `NodeHost`, and the native platform hands its entry a `NativeHost` [entry-host-mismatch]
+error: `main` takes `NativeHost`, and the node platform hands its entry a `NodeHost` [entry-host-mismatch]
 ```
 
 ## What to do
@@ -13,9 +13,9 @@ error: `main` takes `NodeHost`, and the native platform hands its entry a `Nativ
 Take the host of the platform the output names:
 
 ```buri
-from "native" import { NativeHost };
+from "node" import { NodeHost };
 
-export fn main(host: NativeHost): Result<(), Str> {
+export fn main(host: NodeHost): Result<(), Str> {
     .Ok(())
 }
 ```

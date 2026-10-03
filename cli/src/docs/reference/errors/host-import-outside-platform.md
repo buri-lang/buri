@@ -30,12 +30,6 @@ export fn main(host: NodeHost): Result<(), Str> {
 
 A test binds test implementations from `platform/effect/testing` instead.
 
-## Why
-
-`platform/host` holds the structs a platform lists as its host type's fields.
-Anything that could import them could mint authority, so only a platform's
-`platform.buri` may.
-
 ## A program that provokes it
 
 ```buri fail code=host-import-outside-platform

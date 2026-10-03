@@ -6,4 +6,9 @@ error: //cmd/tool cannot be built for node [platform-violation]
   |
   = //lib/edge declares platforms //platform/cloudflare_worker
   = reached by: //cmd/tool -> //lib/edge
-  = fix: drop the node output, or widen the tag's `requires` in REPO.buri
+  = fix: drop the node output, or widen the list the note names
+
+    Every library a binary reaches, and every tag those libraries carry, must
+    admit the platform each output names. The note says which member rules it
+    out: a library's own backends or platforms, or a tag's requires or forbids.
+

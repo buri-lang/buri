@@ -310,7 +310,9 @@ fn missing_entry(
     let package = session.workspace.package(target.package).label();
     let name = output.entry_name();
     if output.entry.is_none() {
-        return Diagnostic::templated("missing-main", Span::NONE).with_bind("package", package);
+        return Diagnostic::templated("missing-main", Span::NONE)
+            .with_bind("package", package)
+            .with_bind("entry", name);
     }
     let mut exported: Vec<&str> = checked.entries.keys().map(String::as_str).collect();
     exported.sort_unstable();

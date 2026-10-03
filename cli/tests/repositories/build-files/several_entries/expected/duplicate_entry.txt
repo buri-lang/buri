@@ -7,6 +7,8 @@ error: `fetch` is filled twice [duplicate-entry]
   = an entry has one function, so a second item in `entries` naming it would contradict the first
   = fix: delete the second `fetch`
 
+    Name each entry once:
+
       binary {
           outputs: [
               { platform: "node", entries: [

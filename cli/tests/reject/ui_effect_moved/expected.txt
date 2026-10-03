@@ -50,9 +50,9 @@ error: `main` takes `WebHost`, and the node platform hands its entry a `NodeHost
 
     Take the host of the platform the output names:
 
-      from "native" import { NativeHost };
+      from "node" import { NodeHost };
 
-      export fn main(host: NativeHost): Result<(), Str> {
+      export fn main(host: NodeHost): Result<(), Str> {
           .Ok(())
       }
 

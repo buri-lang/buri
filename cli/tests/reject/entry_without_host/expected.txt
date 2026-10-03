@@ -36,7 +36,6 @@ error: `main` takes no host [entry-missing-host]
     Why
     ───
 
-    An entry used to build its context from core/host, now retired, which
-    exported names half the platforms lacked. A host type lists exactly what its
-    platform offers, so the type checker says which effects a program can bind.
+    A host type lists exactly what its platform offers, so the type checker says
+    which effects a program can bind.
 

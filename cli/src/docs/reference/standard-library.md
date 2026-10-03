@@ -1136,8 +1136,8 @@ Only a test source may import
 [`platform/effect/testing`](../../compiler/standard_library/sources/host_testing.buri).
 `assert` is deliberately wide — `equal`,
 `equalWith`, `notEqual`, `isTrue`, `isFalse`, `contains`, `containsText`,
-`startsWith`, `isEmpty`, `notEmpty`, `len`, `unordered`, `gt`,
-`ge`, `lt`, `le`, `approximatelyEqual`, `approximatelyEqualRelative`, and the unwrapping `ok`,
+`startsWith`, `isEmpty`, `notEmpty`, `length`, `unordered`, `greaterThan`,
+`greaterOrEqual`, `lessThan`, `lessOrEqual`, `approximatelyEqual`, `approximatelyEqualRelative`, and the unwrapping `ok`,
 `err`, `some`, `none` —
 because the report is the point. Each one names the two values it compared,
 where `assert.isTrue(xs.contains(x))` can only say "expected true, got false".
@@ -1146,8 +1146,6 @@ where `assert.isTrue(xs.contains(x))` can only say "expected true, got false".
 `equals(ctx, other)` instead, and passing that comparison keeps the report.
 `unordered(ctx, actual, expected)` sorts both lists first and reports the sorted
 pair, which costs O(n log n).
-There is no `assert.fail`: it answered `()` rather than a bottom type, so a
-match arm using it could not produce a value.
 
 [`core/testing/check`](../../compiler/standard_library/sources/check.buri) is
 property testing over the same runner. `forAll(generator, property)` draws a

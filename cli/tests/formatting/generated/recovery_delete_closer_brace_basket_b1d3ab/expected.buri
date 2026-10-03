@@ -4,10 +4,10 @@
 //
 // Compare it with //cmd/server/main.buri and //cmd/web/main.buri. Same
 // language, same libraries, three different effect budgets — and each budget is
-// a fact about the output's platform rather than about the code. `Ui` and
-// `Watch` are exported by `core/host` under `platform: "web"` and by nothing
-// else, so this file does not compile for a native output, and //cmd/server's
-// `host.fs` does not compile for this one. The error lands on the line that
+// a fact about the output's platform rather than about the code. Of the
+// bundled hosts only `WebHost` has `ui` and `watch`, so this file does not
+// compile for a native output, and //cmd/server's `host.fs` does not compile
+// for this one. The error lands on the line that
 // asked, at build time.
 
 from "platform/effect" import { Allocator, Network, Ui, Watch };
@@ -44,7 +44,7 @@ from "//cmd/basket/view.buri" export { page };
 /// request blocked the thread that asked, and a page granted a callback-shaped
 /// `Fetch` in its place; a suspending call blocks nothing now, so this line is
 /// the same one //cmd/web writes.
-export fn main(host: WebHost): Result<(, Str> {
+export fn main(host: WebHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Network: host.net,
@@ -52,7 +52,7 @@ export fn main(host: WebHost): Result<(, Str> {
         Watch: host.watch,
     };
 
-    let state = newState(ctx);
+    let state = newState(ctx;
 
     // One theme per package whose tokens this program uses. //lib/kit's are
     // resolved through this app's own, and this app's are resolved to colours by
