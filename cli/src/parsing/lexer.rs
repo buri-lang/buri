@@ -1104,13 +1104,17 @@ impl<'a> Lexer<'a> {
             // Whitespace and comments go round again; every other arm reads
             // one token, and settles what was above it first.
             let kind = match c {
+                // A run of blanks — an indentation, mostly — is stepped over
+                // in a loop of its own rather than one trip round this
+                // `match` per byte.
                 b' ' | b'\t' | b'\r' => {
-                    self.pos = start.saturating_add(1);
+                    self.pos = start.saturating_add(blanks(self.src, start));
                     continue;
                 }
                 b'\n' => {
                     newlines = newlines.saturating_add(1);
-                    self.pos = start.saturating_add(1);
+                    let next = start.saturating_add(1);
+                    self.pos = next.saturating_add(blanks(self.src, next));
                     continue;
                 }
                 b'/' if self.peek_at(1) == b'/' => {
@@ -1683,6 +1687,12 @@ fn without_underscores(s: &str) -> std::borrow::Cow<'_, str> {
     } else {
         std::borrow::Cow::Borrowed(s)
     }
+}
+
+/// How many spaces, tabs and carriage returns `src` has from `at` on.
+fn blanks(src: &[u8], at: usize) -> usize {
+    let rest = src.get(at..).unwrap_or(&[]);
+    rest.iter().position(|c| !matches!(c, b' ' | b'\t' | b'\r')).unwrap_or(rest.len())
 }
 
 /// Which bytes continue a word: a letter, a digit, or `_`. One load per byte
