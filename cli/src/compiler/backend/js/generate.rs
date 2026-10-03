@@ -18,6 +18,7 @@
 
 use crate::compiler::backend::Profile;
 use crate::compiler::backend::js::crossing::HOSTED_PROGRAM;
+use crate::compiler::backend::js::park::{self, Parking};
 use crate::compiler::backend::js::javascript::{self, BinOp, Expr, Stmt, UnOp, VarKind};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp};
 use crate::compiler::semantics::types::{LocalId, Prim, Tables, Ty, TyDef};
@@ -127,8 +128,11 @@ pub struct Gen<'a> {
     /// `middle::rc` run with `Options::sharing`. Empty for a `Gen` that is only
     /// being asked which intrinsics exist.
     sharing: rc::Plan,
+    /// Which functions and function values can park: the `async` column.
+    /// `None` for a `Gen` that is only being asked which intrinsics exist.
+    parking: Option<Parking>,
     /// The `Program::funcs` slot whose body is being emitted, because
-    /// [`rc::Parking::value_parks`] reads a local and a local means nothing
+    /// [`Parking::value_parks`] reads a local and a local means nothing
     /// without one.
     slot: usize,
 }
@@ -208,6 +212,7 @@ impl<'a> Gen<'a> {
             const_index: HashMap::default(),
             in_context: false,
             sharing: rc::Plan::default(),
+            parking: None,
             slot: 0,
         }
     }
@@ -217,26 +222,26 @@ impl<'a> Gen<'a> {
     ///
     /// "Is this printed `async`" and "is this call awaited" are the same
     /// question asked at the two ends of one call, so both read this — and
-    /// both read `middle::rc`'s `can_park` column rather than a set of this
+    /// both read [`park::parkability`]'s column rather than a set of this
     /// backend's own. Until B2 landed they could not: the column answered
     /// `true` at every indirect call, and printing `async` on a function
     /// because one of its arms calls a function value is what hands JavaScript
-    /// a promise where it expects a value. [`rc::Parking`] is where that
+    /// a promise where it expects a value. [`Parking`] is where that
     /// argument now lives, in full.
     ///
-    /// A slot with no plan row answers `false`, which is what a `Gen` that is
+    /// A `Gen` with no column answers `false`, which is what one that is
     /// only being asked which intrinsics exist wants: nothing is emitted, so
     /// nothing is awaited.
     pub(crate) fn parks(&self, index: usize) -> bool {
-        self.sharing.funcs.get(index).is_some_and(|p| p.can_park)
+        self.parking.as_ref().is_some_and(|p| p.parks(index))
     }
 
     /// Whether a call *through* this function value has to be awaited.
     ///
     /// The same question as [`Gen::parks`] asked where there is no name to ask
-    /// it under, and the reason [`rc::Parking`] tracks function values at all.
+    /// it under, and the reason [`Parking`] tracks function values at all.
     fn value_parks(&self, callee: &typed::Expr) -> bool {
-        self.sharing.parking.value_parks(self.slot, callee)
+        self.parking.as_ref().is_some_and(|p| p.value_parks(self.slot, callee))
     }
 
     /// The marks for one body, from the plan's node numbers and one pre-order
@@ -318,6 +323,7 @@ pub fn generate(
     // The ownership half of `middle::rc`, which this branch of the pipeline
     // runs for its increments alone. MEMORY.md §5.5.
     g.sharing = rc::sharing(program);
+    g.parking = Some(park::parkability(program));
 
     let mut stmts = Vec::new();
     // A program that reaches a node module by name needs `require`, which an
@@ -489,7 +495,7 @@ pub fn generate(
         debug_assert!(
             is_async || !javascript::has_await(&body),
             "{} is not printed `async`, but an `await` landed in its emitted \
-             body — `rc`'s `can_park` column decides both, and the two answers \
+             body — `park`'s column decides both, and the two answers \
              have drifted",
             f.debug_name
         );
@@ -2145,7 +2151,7 @@ impl<'a> Gen<'a> {
             }
             // Awaited when the value this callee position can hold may park.
             // There is no name to look the answer up under, so
-            // [`rc::Parking`] asks the callee's *type* first — a function
+            // [`Parking`] asks the callee's *type* first — a function
             // value that takes no capability cannot wait — and follows the
             // function values themselves where the type leaves it open.
             ExprKind::CallValue { callee, args } => {
@@ -2298,14 +2304,14 @@ impl<'a> Gen<'a> {
             }
             // A lambda is not a `Program::funcs` slot on this branch — it is
             // an arrow printed where it stands — so it has no row in the
-            // `can_park` column, and the emitted body is asked instead:
+            // parkability column, and the emitted body is asked instead:
             // `async` exactly when an `await` landed in it.
             //
             // The function *holding* the lambda is `async` either way:
-            // `rc::Parking`'s walk descends into a lambda body, so a call that
+            // `Parking`'s walk descends into a lambda body, so a call that
             // puts an `await` here has already marked the function the lambda
             // sits in. And an arrow printed `async` is a promise handed to
-            // whoever calls it — see [`rc::Parking`] for why no program in
+            // whoever calls it — see [`Parking`] for why no program in
             // this tree builds one the runtime then calls.
             ExprKind::Lambda { params, body, .. } => {
                 let names: Vec<String> =
@@ -2566,10 +2572,10 @@ impl<'a> Gen<'a> {
                     }
                 };
                 // A host call spelled as an inline node rather than reached
-                // through an intrinsic *function*. `rc::suspends` is the seed
+                // through an intrinsic *function*. `park::suspends` is the seed
                 // list the column itself is built from, so the two spellings
                 // cannot disagree about which of them waits.
-                if rc::suspends(name) { Expr::awaited(e) } else { e }
+                if park::suspends(name) { Expr::awaited(e) } else { e }
             }
             ExprKind::Error => Expr::Num(0.0),
         }

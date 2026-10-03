@@ -10458,7 +10458,6 @@ mod cycles {
                         params: Vec::new(),
                         purity: ir::Purity::Pure,
                         can_abort: false,
-                        can_park: false,
                     },
                     unit: 0,
                     body: ir::Body::Code(code),
