@@ -523,20 +523,6 @@ impl Output {
         }
     }
 
-    /// The backend this output is built by.
-    pub fn backend(&self) -> Backend {
-        self.custom.as_ref().map_or(self.platform().backend(), |c| c.backend)
-    }
-
-    /// `node`, `//platform/cloudflare_worker`: the platform as an output names
-    /// it.
-    pub fn platform_name(&self) -> String {
-        match &self.custom {
-            Some(custom) => custom.label.value.clone(),
-            None => self.platform().proto().to_string(),
-        }
-    }
-
     /// The function this output enters through.
     pub fn entry_name(&self) -> &str {
         self.entry.as_ref().map_or(self.entry_point(), |e| e.value.as_str())
