@@ -1,7 +1,0 @@
-binary {
-    dependencies: ["//lib/greet"]
-
-    outputs: [
-        { platform: "node" },
-    ]
-}

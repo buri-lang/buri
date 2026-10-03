@@ -709,18 +709,6 @@ function $list_mapCtx(xs, c, f) {
   return $own(out);
 }
 
-// `list.mapCtxStep` is `mapCtx` with a runtime-driven step on the native
-// backends, and here it is the same loop as `$list_mapCtx` — deliberately.
-// JavaScript is the reference implementation the two natives are compared
-// against (`cli/tests/native/agreement.rs`), and a reference that shared the
-// mechanism under test would prove nothing about it. This is the same argument
-// `middle/fuse.rs` makes for running the fusion pass on the native branch only.
-function $list_mapCtxStep(xs, c, f) {
-  const out = new Array(xs.length);
-  for (let i = 0; i < xs.length; i++) out[i] = f(c, $share(xs[i]));
-  return $own(out);
-}
-
 function $list_filter(xs, c, p) {
   const out = [];
   for (let i = 0; i < xs.length; i++) if (p($share(xs[i]))) out.push(xs[i]);
@@ -733,7 +721,7 @@ function $list_filterCtx(xs, c, p) {
   return $own(out);
 }
 
-// --- the same five, awaiting their step --------------------------------------
+// --- the same four, awaiting their step --------------------------------------
 //
 // A `*Ctx` combinator hands its step the caller's **whole context**, so the
 // step may do anything the caller may: dial a socket, sleep on a clock, ask an
@@ -741,7 +729,7 @@ function $list_filterCtx(xs, c, p) {
 // arrow, and calling one returns a promise rather than an answer — so
 // `xs.mapCtx(ctx, fn(c, x) => …)` over a body that parks produced a list of
 // promises, `main` returned before any of them settled, and the work the step
-// was written to do silently did not happen. That is the bug these five exist
+// was written to do silently did not happen. That is the bug these four exist
 // to fix, and `$list_mapCtx` above is why the plain loop still exists: a step
 // that never waits must stay synchronous, because an `async` combinator makes
 // its caller `async`, and this compiler hands function values to JavaScript
@@ -773,12 +761,6 @@ async function $list_foldResultCtxAwait(xs, c, f, acc) {
 }
 
 async function $list_mapCtxAwait(xs, c, f) {
-  const out = new Array(xs.length);
-  for (let i = 0; i < xs.length; i++) out[i] = await f(c, $share(xs[i]));
-  return $own(out);
-}
-
-async function $list_mapCtxStepAwait(xs, c, f) {
   const out = new Array(xs.length);
   for (let i = 0; i < xs.length; i++) out[i] = await f(c, $share(xs[i]));
   return $own(out);
@@ -4392,16 +4374,6 @@ function $dom_outside(element, onDown) {
   };
 }
 
-// A press dispatched to every outside-listener the substitute holds, the way a
-// browser's `pointerdown` reaches the document. The copy is taken first because
-// a listener may dismiss its overlay, which disposes the subtree and mutates
-// the list mid-walk.
-function $dom_outside_fire(root, target) {
-  const listeners = root.outside;
-  if (listeners === undefined) return;
-  for (const onDown of listeners.slice()) onDown({ target });
-}
-
 // Where `mount` puts a tree. A program built for a browser and run under `bun`
 // mounts into the substitute rather than failing: what it is being asked is
 // whether the tree builds and reacts, and that question has an answer without
@@ -4461,97 +4433,6 @@ function $dom_markup(node) {
   let inner = "";
   for (const child of node.children) inner += $dom_markup(child);
   return out + ">" + inner + "</" + node.name + ">";
-}
-
-// Every run of text, in order. Separate runs stay separate, because two runs
-// are what a reader is shown as two things.
-function $dom_runs(node, out) {
-  if (node.kind === 1) {
-    if (node.data !== "") out.push(node.data);
-  } else if (node.kind === 0) {
-    for (const child of node.children) $dom_runs(child, out);
-  }
-  return out;
-}
-
-// The text of one element, run together — what a reader would call the name of
-// a button.
-function $dom_label(node) {
-  return $dom_runs(node, []).join("");
-}
-
-function $dom_elements(node, name, out) {
-  if (node.kind === 0) {
-    if (node.name === name) out.push(node);
-    for (const child of node.children) $dom_elements(child, name, out);
-  }
-  return out;
-}
-
-// The first element of any of these kinds, in document order. A field is an
-// `input` or a `textarea` depending on its kind, and the test that fills one
-// should not have to know which.
-function $dom_first(node, names) {
-  if (node.kind === 0) {
-    if (names.indexOf(node.name) >= 0) return node;
-    for (const child of node.children) {
-      const found = $dom_first(child, names);
-      if (found !== null) return found;
-    }
-  }
-  return null;
-}
-
-// Whether a dialog has taken this element out of the page.
-//
-// Two ways, and both are the widget's own doing rather than anything a style
-// says. A `<dialog>` a browser opened with `showModal` is in the top layer and
-// everything outside it is inert — no pointer, no keyboard, no announcement.
-// A shut one is drawn nowhere, so what is inside it is out of reach the other
-// way round.
-function $dom_inert(node) {
-  let root = node;
-  for (let at = node; at !== null && at !== undefined; at = at.parent) {
-    if (at.name === "dialog") return !at.open;
-    root = at;
-  }
-  for (const dialog of $dom_elements(root, "dialog", [])) {
-    if (dialog.open) return true;
-  }
-  return false;
-}
-
-// A disabled control is not dispatched to at all, which is what a browser does
-// with one: the press, the keystroke and the flip never reach it, so a handler
-// behind one cannot run.
-function $dom_fire(node, type) {
-  if (node.disabled) return;
-  const handler = node.listeners[type];
-  if (handler !== undefined) handler({ preventDefault() {}, target: node });
-}
-
-// A click the headless harness can tell apart: a plain left-click, or a
-// modified one — ⌘/Ctrl held, which is what a reader does to open a link in a
-// new tab. The event carries the flags a real `MouseEvent` does and a
-// `preventDefault` that records, so a listener that intercepts the plain click
-// is *seen* to have done so and one that leaves the modified click alone leaves
-// `defaultPrevented` false — which is a route link falling through to the
-// browser.
-function $dom_click(node, modified) {
-  const handler = node.listeners["click"];
-  if (handler === undefined) return;
-  handler({
-    button: 0,
-    metaKey: modified,
-    ctrlKey: false,
-    shiftKey: false,
-    altKey: false,
-    defaultPrevented: false,
-    preventDefault() {
-      this.defaultPrevented = true;
-    },
-    target: node,
-  });
 }
 
 // --- The tree ---------------------------------------------------------------
@@ -7162,7 +7043,7 @@ function $scene_labelled(doc, name, label) {
 }
 
 // The first descendant of `node` (itself included) whose name is one of
-// `names`, or `-1` — the native `first_named` / `$dom_first`.
+// `names`, or `-1` — the native `first_named`.
 function $scene_firstNamed(doc, node, names) {
   const r = doc.records[node];
   if (r.kind === 0 && names.indexOf(r.name) >= 0) return node;

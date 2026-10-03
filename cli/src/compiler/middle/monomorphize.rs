@@ -1879,10 +1879,13 @@ impl Monomorphizer<'_> {
         // A context value: read the implementation out of it, then dispatch on
         // that implementation's own type.
         if let Ty::Ctx(id) = &recv {
-            let Some(impl_ty) = self.tables().ctx_type(*id).get(trait_id).cloned() else {
-                self.diags.push(Diagnostic::templated("unbound-effect", span));
-                return ExprKind::Error;
-            };
+            // Checking already refused every call that could reach a context
+            // without the effect: directly, through a bounded parameter, and
+            // through a conditional `impl` such as `impl<C: Stdout> Stdout
+            // for Scoped<C>`, whose bound `Infer::satisfies` checks too.
+            let impl_ty = self.tables().ctx_type(*id).get(trait_id).cloned().or_ice(
+                "checking proved every effect call's context binds the effect it calls",
+            );
             if let Some(first) = args.first_mut() {
                 let base = std::mem::replace(
                     first,
@@ -2542,8 +2545,8 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // The reactive slot a scope reads, as `host.HostUi.read` does.
     "effect.Scope.read",
     // `Tasks.parallel<C, A, B>` — the closure trampoline's second key, and the
-    // one it was built for. It is on this list for the same reason
-    // `list.mapCtxStep` is, which is A4's rule and not an exception to it: an
+    // one it was built for. It is on this list by A4's rule, and not as an
+    // exception to it: an
     // entry lands alongside the carriers that make it sound, and this one has
     // both of the two a step needs.
     //
@@ -2628,15 +2631,6 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "list.length",
     "list.map",
     "list.mapCtx",
-    // The closure trampoline's pilot (`backend/intrinsic_keys.rs`'s
-    // `step_call`). Its erasure is sound for the same reason every row above it
-    // is, and the carrier is the same one: a **stride**, and a function this
-    // backend generated. `Extra::Step` carries two strides — the source
-    // element's and the result's, because a `map` reads a `[A]` and writes a
-    // `[B]` — and the **entry thunk**, which is generated at the call site
-    // where `A` and `B` are known and is the only thing that ever calls the
-    // step. Nothing about either type reaches `cli/runtime/list.rs`.
-    "list.mapCtxStep",
     "list.push",
     "list.range",
     "list.repeat",
@@ -3171,7 +3165,7 @@ mod tests {
         list.all list.any list.concat list.count list.drop list.empty \
         list.filter list.filterCtx list.find list.findIndex list.flatten \
         list.fold list.foldCtx list.foldResult list.foldResultCtx list.get \
-        list.join list.length list.map list.mapCtx list.mapCtxStep list.push \
+        list.join list.length list.map list.mapCtx list.push \
         list.range \
         list.repeat list.reverse list.slice list.sortBy list.take list.zip \
         number.maxValue number.minValue \

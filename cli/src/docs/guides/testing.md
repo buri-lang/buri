@@ -304,8 +304,8 @@ means.
 
 ## Golden values and fixture files
 
-A golden is a value in the suite's own source, compared with `assert.equal`. There
-is no `--accept`: you rewrite one in your editor, and a diff review approves it.
+A golden is a value in the suite's own source, compared with `assert.equal`. You
+rewrite one in your editor, and a diff review approves it.
 Hand a test a filesystem only when the code under test is what does the reading,
 as in `fs().files([("statement.txt", "coffee")])` — one holding an expected
 string is a golden written the hard way.

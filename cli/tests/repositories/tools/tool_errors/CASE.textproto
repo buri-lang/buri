@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "what a tool name may name and what a tool rule must hold: a binary, nothing, a retired name and a tool without the entry point are refused where the name is written; a block and an export that disagree, a context wider than Allocator, a tool that does not build, and an import of a tool's module are each refused"
+doc: "what a tool name may name and what a tool rule must hold: a binary, nothing and a tool without the entry point are refused where the name is written; a block and an export that disagree, a context wider than Allocator, a tool that does not build, and an import of a tool's module are each refused"
 
 # The shape everything below is one edit away from: a generator that is a tool
 # rule, whose `tool.buri` reads the library beside it.
@@ -38,18 +38,6 @@ run {
 edit {
   file: "lib/app/BUILD.buri"
   replace: "tool: \"//lib/nothing\""
-  with: "tool: \"std/codegen/proto\""
-}
-
-run {
-  args: ["build", "//lib/app"]
-  exit: 2
-  golden: "retired.txt"
-}
-
-edit {
-  file: "lib/app/BUILD.buri"
-  replace: "tool: \"std/codegen/proto\""
   with: "tool: \"//tool/good\""
 }
 

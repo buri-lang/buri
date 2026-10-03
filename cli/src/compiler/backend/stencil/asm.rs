@@ -55,13 +55,12 @@
 //!
 //! # Relocation vocabulary
 //!
-//! [`region::Target`] says *what* an address is; the kind comes from
-//! [`object::RelKind`] rather than [`region::RelocKind`]. The emitter proper
-//! never needs an `adrp`/`add` pair against a symbol — its only page-relative
-//! addressing is at the constant pool, which shares a section with the code and
-//! so needs no relocation at all (`region.rs`'s header) — but this file does,
-//! to name the Buri stack. `object::RelKind` already spells every kind the
-//! object writer accepts, so the shim speaks that and nothing has to translate.
+//! [`region::Target`] says *what* an address is; the kind is
+//! [`object::RelKind`], the one relocation vocabulary the emitter and the
+//! object writers share. The emitter proper never needs an `adrp`/`add` pair
+//! against a symbol — its only page-relative addressing is at the constant
+//! pool, which shares a section with the code and so needs no relocation at all
+//! (`region.rs`'s header) — but this file does, to name the Buri stack.
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -80,20 +79,6 @@ use super::abi::StencilTarget;
 use super::object::RelKind;
 use super::region::Target;
 use crate::compiler::backend::task_thread;
-
-/// Whether a `linux-x86_64` build can be made at all.
-///
-/// **It can.** This file writes a SysV `main` ([`program_entry`],
-/// [`test_entry`]), `jit.rs` patches `rel32` and rip-relative `disp32` fields
-/// where it patches A64 ones, `glue.rs` writes the SysV stub in front of a
-/// generated body, and `region.rs`/`elf.rs` carry the two relocation kinds that
-/// needs. `design/native/CODEGEN-STENCIL.md` §10.3 is the list this was written
-/// against, and its last part is what CI confirms.
-///
-/// It stays a constant rather than becoming nothing, because it is the one
-/// place a target's *entry point* is either present or named as missing, and a
-/// fourth target would be added here the same way.
-pub const AVAILABLE_X86_64: bool = true;
 
 /// The symbol the program's Buri stack is emitted under.
 ///
