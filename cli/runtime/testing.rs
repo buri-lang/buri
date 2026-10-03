@@ -3372,13 +3372,16 @@ const FS_CALL_NAMES: [&str; 16] = [
 // `commands/test.rs`'s header already permits — a suite's result may not depend
 // on the order its blocks run in, nor on how many processes ran them.
 //
-// The protocol is three facts and nothing else:
+// The protocol is four facts and nothing else:
 //
 //   * `BURI_TEST_FROM=<index>` — the block to start at. **Absent means nothing
 //     is driving this process**: it runs every block, writes no record, and a
 //     failure is the message on standard error and the exit status it always
 //     was. A binary run by hand is unchanged by any of this.
 //   * [`buri_rt_test_enter`] — before each block, answering whether to run it.
+//   * one line on standard output when the process reaches its first block
+//     ([`note_started`]), so that a binary that never started is told apart
+//     from one whose first block died.
 //   * one line on standard output when a block aborts, naming its index, the
 //     message, and both rendered values where the assertion had them — and one
 //     when a block *returns*, naming its index and nothing else
@@ -3488,7 +3491,9 @@ pub(crate) fn in_a_test() -> bool {
 /// binary is the same program run by hand that it is under the runner.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_test_enter(index: i64) -> i32 {
-    IN_A_TEST.store(true, std::sync::atomic::Ordering::Release);
+    if !IN_A_TEST.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        note_started();
+    }
     // Where the block's own slots begin. Unconditional, and before the two
     // early answers: a binary nothing is driving checks the post-condition too,
     // because it is the program's rule and not the runner's protocol.
@@ -3647,6 +3652,24 @@ fn stash(actual: &[u8], expected: &[u8]) {
 /// `noted_failure` reads. A block that ran more than once —
 /// `TestTasks.everyOrder` — writes one line per run, and the runner takes the
 /// last index it sees.
+/// The line a process writes when it reaches its first `test` block.
+///
+/// This is what tells a binary that died inside its first block apart from one
+/// that never started. A binary the operating system would not load writes
+/// nothing at all. Without this line the runner blamed the block it had asked
+/// for, started the binary again at the next one, and so turned one loader
+/// failure into one launch and one failure per block.
+fn note_started() {
+    if resume_at().is_none() {
+        return;
+    }
+    use std::io::Write;
+    let stream = std::io::stdout();
+    let mut stream = stream.lock();
+    let _ = stream.write_all(b"{\"started\":1}\n");
+    let _ = stream.flush();
+}
+
 fn note_left(index: i64) {
     if resume_at().is_none() || index < 0 {
         return;
