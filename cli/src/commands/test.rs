@@ -1150,6 +1150,9 @@ fn run_native(
         Ok(Verdicts::Died(how)) => {
             return Err(the_binary_died(&session.workspace.label(target), &how))
         }
+        Ok(Verdicts::NotStarted(how)) => {
+            return Err(the_binary_did_not_start(&session.workspace.label(target), &how))
+        }
         Err(e) => {
             diagnostics.push(
                 Diagnostic::error(Span::NONE, format!("cannot run the test binary: {e}"))
@@ -1236,17 +1239,12 @@ fn snapshot_dirs(session: &Session, targets: &[TargetId]) -> Vec<String> {
 
 /// The intrinsic `platform/effect/testing`'s `snapshot` reaches, which is the whole of what
 /// paints a golden.
-const PAINT_KEY: &str = "host_testing.paint";
-
-/// Whether this program takes a snapshot.
 ///
-/// Asked of the monomorphized program rather than of the sources, for
-/// [`native_gap`]'s reason: what a suite *reaches* is a property of the program
-/// and a list kept here would drift from the runtime table the day the key
-/// moves.
-fn paints(program: &monomorphize::Program) -> bool {
-    program.funcs.iter().filter_map(|f| f.intrinsic_key()).any(|key| key == PAINT_KEY)
-}
+/// Whether a suite takes a snapshot is asked of the monomorphized program
+/// rather than of the sources ([`groups_of`]), for [`native_gap`]'s reason: what
+/// a suite *reaches* is a property of the program and a list kept here would
+/// drift from the runtime table the day the key moves.
+const PAINT_KEY: &str = "host_testing.paint";
 
 /// Writes the artifact's stylesheet beside the binary, and answers its path.
 ///
@@ -1339,6 +1337,12 @@ enum Verdicts {
     /// died anyway — in a static initialiser after the last one, or on the way
     /// out through `exit`. This is how it ended.
     Died(String),
+    /// The binary ended badly **before its first block**: it never wrote the
+    /// line a process writes on reaching one (`cli/runtime/testing.rs`'s
+    /// `note_started`). The operating system refusing to load it is the usual
+    /// cause, and starting it again at the next block would fail the same way,
+    /// once per block. This is how it ended.
+    NotStarted(String),
 }
 
 /// Runs a native test binary until every one of its `count` blocks has a
@@ -1406,6 +1410,13 @@ fn run_blocks(
             break;
         }
         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+        // A process that never reached a block is a verdict on none of them,
+        // and the next process would never reach one either. A failed
+        // assertion is not this: its process started and says which block
+        // ended it, so it is still one process per failing block.
+        if !started(&stdout) {
+            return Ok(Verdicts::NotStarted(how_it_ended(&out.status, &stderr)));
+        }
         // The block the process was in, from the process itself. A run that
         // ended some other way — a signal — wrote no failure line, and the
         // block it was in is then the first one that never wrote a `left` line
@@ -1434,6 +1445,12 @@ fn run_blocks(
         from = at + 1;
     }
     Ok(Verdicts::Blocks(blocks))
+}
+
+/// Whether a process reached its first block, which it says with one line on
+/// standard output (`cli/runtime/testing.rs`'s `note_started`).
+fn started(stdout: &str) -> bool {
+    split_objects(stdout).iter().any(|chunk| field_raw(chunk, "started").is_some())
 }
 
 /// The block a process that said nothing died in: the first one from `from` on
@@ -1568,6 +1585,13 @@ fn record_of(name: &str, module: &str, block: &Block) -> String {
 // an intrinsic the backend has no body for, a failed link: all four are answered
 // per suite below, which is where the diagnostic can name one suite instead of
 // five.
+//
+// # One batch, several binaries
+//
+// A batch that cannot be one binary is divided after monomorphization
+// ([`groups_of`]): by snapshot directory, and by an estimate of its code size.
+// Each group links and runs on its own, and a group that fails sends only its
+// own members back to run alone.
 
 /// The suites this pass ran in shared binaries, and what each one's tests did.
 ///
@@ -1754,7 +1778,8 @@ fn test_modules_of(session: &Session, target: TargetId) -> Vec<String> {
     suite.sources.iter().map(|src| pkg.module_path(&src.value)).collect()
 }
 
-/// One batch: one front end, one link, one binary, one verdict per member.
+/// One batch: one front end, one binary per group ([`groups_of`]), one verdict
+/// per member.
 ///
 /// Every early return abandons the batch and says nothing. That is the whole of
 /// the safety argument: a batch that is not certain is not a batch, and the
@@ -1788,7 +1813,7 @@ fn run_batch(
     let mut diagnostics = Diagnostics::new();
     let mut program = monomorphize::run(
         &analysis.checked,
-        module_paths,
+        module_paths.clone(),
         &mut diagnostics,
         monomorphize::Roots::Tests,
     );
@@ -1802,16 +1827,6 @@ fn run_batch(
     if native_gap(platform, &args.flags, &program, &analysis.checked.tables).is_some() {
         return;
     }
-    // And the snapshot probe, for the same reason and with the same answer. A
-    // golden lives in the *package's* `test/__snapshots__` and one process gets
-    // one directory, so a batch whose members do not share one has nowhere to
-    // put a picture — which is what `buri test` in a repository with two
-    // snapshot suites in it used to be: both suites failed, and the sentence
-    // they failed with named an environment variable.
-    if paints(&program) && snapshot_dirs(session, members).len() > 1 {
-        return;
-    }
-
     // Which suite owns each module that declares tests. Built from the build
     // files rather than from the program, so a module the batch loaded for some
     // other reason cannot be mistaken for a suite's.
@@ -1841,28 +1856,255 @@ fn run_batch(
             tests.retain(|t| t.name.contains(f.as_str()));
         }
     }
-    // Block index -> the suite that owns it. A root whose module belongs to no
-    // member cannot arise — only a member's test sources are loaded with
-    // `Role::TestSource` — and if it ever did, the batch is abandoned rather
-    // than a test attributed to a suite that does not own it.
-    let mut selected: Vec<(usize, String, String)> = Vec::new();
-    for test in program.roots.tests() {
-        let Some(i) = owner_of(&test.module) else { return };
-        selected.push((i, test.name.clone(), test.module.clone()));
+    let Some(selected) = selected_of(&program, &owner_of) else { return };
+    let tables = &analysis.checked.tables;
+    let groups = groups_of(session, &program, members, &selected, batch_limit());
+    if let [group] = groups.as_slice() {
+        run_group(session, members, group, &selected, &skipped, program, tables, platform, args, pre);
+    } else {
+        // Each group is monomorphized again from the batch's one type check,
+        // rooted at its own tests, so each binary holds only its own code.
+        crate::parallel::discard(program);
+        for group in &groups {
+            let modules: Vec<String> = owners
+                .iter()
+                .filter(|(_, i)| group.members.contains(i))
+                .map(|(m, _)| m.clone())
+                .collect();
+            let mut diagnostics = Diagnostics::new();
+            let mut part = monomorphize::run(
+                &analysis.checked,
+                module_paths.clone(),
+                &mut diagnostics,
+                monomorphize::Roots::TestsIn(&modules),
+            );
+            if diagnostics.has_errors() {
+                continue;
+            }
+            if let (Some(f), monomorphize::ProgramRoots::Tests(tests)) =
+                (&args.flags.filter, &mut part.roots)
+            {
+                tests.retain(|t| t.name.contains(f.as_str()));
+            }
+            let Some(mine) = selected_of(&part, &owner_of) else { continue };
+            run_group(session, members, group, &mine, &skipped, part, tables, platform, args, pre);
+        }
     }
 
-    // A `--filter` that matched nothing leaves a program with no roots. Nothing
-    // to link and nothing to run, and the report is the skipped count — which is
-    // exactly what `run_native` answers in the same position.
+    let crate::compiler::driver::Analysis { loaded, checked, diagnostics: analysed } = analysis;
+    drop(loaded);
+    drop(analysed);
+    crate::parallel::discard(checked);
+}
+
+/// Each of a program's tests with the member that owns it, in block order.
+///
+/// `None` when a test belongs to no member. That cannot arise — only a member's
+/// test sources are loaded with `Role::TestSource` — and if it ever did, the
+/// batch is abandoned rather than a test attributed to a suite that does not
+/// own it.
+fn selected_of(
+    program: &monomorphize::Program,
+    owner_of: &impl Fn(&str) -> Option<usize>,
+) -> Option<Vec<Selected>> {
+    program
+        .roots
+        .tests()
+        .iter()
+        .map(|test| {
+            Some(Selected {
+                owner: owner_of(&test.module)?,
+                name: test.name.clone(),
+                module: test.module.clone(),
+                func: test.func.index(),
+            })
+        })
+        .collect()
+}
+
+/// One test block of a batch: the member that owns it, its title and module,
+/// and the function it is.
+struct Selected {
+    owner: usize,
+    name: String,
+    module: String,
+    func: usize,
+}
+
+/// Some of a batch's members, which share one binary.
+struct Group {
+    /// Positions in the batch's member list, in that list's order.
+    members: Vec<usize>,
+    /// The snapshot directory of the members that take snapshots, where any
+    /// do. One process is handed one directory, so a group holds the suites
+    /// that paint into one package's directory at most.
+    paints_into: Option<String>,
+    /// The functions the members' tests reach, one row per slot.
+    reaches: Vec<bool>,
+}
+
+/// The most code one batched test binary may hold, in bytes, by default.
+///
+/// macOS cannot load an executable of about two gigabytes: dyld reports
+/// `Library not loaded: libSystem.B.dylib`, intermittently from 1.96 GB and
+/// always at 2.09 GB, and every test in the binary fails. One gigabyte is half
+/// of that, so the estimate in [`estimated_bytes`] can be low by a factor of
+/// two before a binary is in danger, and it is still a few dozen of the
+/// largest suites that limit was measured on.
+const BATCH_BYTES: u64 = 1024 * 1024 * 1024;
+
+/// The environment variable that replaces [`BATCH_BYTES`].
+const BATCH_BYTES_VARIABLE: &str = "BURI_TEST_BATCH_BYTES";
+
+/// The most code one batched test binary may hold: `BURI_TEST_BATCH_BYTES`
+/// where it is set to a number, and [`BATCH_BYTES`] otherwise.
+fn batch_limit() -> u64 {
+    std::env::var(BATCH_BYTES_VARIABLE).ok().and_then(|v| v.trim().parse().ok()).unwrap_or(BATCH_BYTES)
+}
+
+/// Machine code per node of a function's tree, in bytes.
+///
+/// Measured rather than derived. A debug test binary of 42 suites from the
+/// repository the limit was set against was 2.18 GB, for 11.9 million nodes of
+/// monomorphized tree in the functions its tests reach: 183 bytes a node. This
+/// rounds up.
+const BYTES_PER_NODE: u64 = 192;
+
+/// How much machine code a function is likely to become, in bytes.
+///
+/// An estimate, taken before the middle end and the backend have run, because
+/// it decides which suites share a binary and so has to be known before any of
+/// them is compiled. Inlining moves code between functions without changing
+/// how much there is by much, so a count of the tree's nodes is a fair measure.
+fn estimated_bytes(func: &monomorphize::Func) -> u64 {
+    fn nodes(e: &crate::compiler::semantics::typed::Expr) -> u64 {
+        let mut n = 1u64;
+        crate::compiler::semantics::typed::children(e, &mut |c| n = n.saturating_add(nodes(c)));
+        n
+    }
+    func.body().map_or(0, |b| nodes(b).saturating_mul(BYTES_PER_NODE))
+}
+
+/// Divides a batch's members between binaries.
+///
+/// Two things can stop two suites from sharing a binary once their tags allow
+/// it. One process is handed one snapshot directory, so two suites that paint
+/// into two packages' directories need two processes. And a binary's code has
+/// a size past which it cannot be loaded ([`batch_limit`]). Every other suite
+/// can go anywhere.
+///
+/// First fit, over the batch's own order, so the division is a function of the
+/// repository rather than of anything this run happened to do. A group's size
+/// is the code its members reach between them, each function counted once,
+/// which is what its binary will hold. A suite larger than the limit on its own
+/// is a group of one, which is what it would have been without batching.
+fn groups_of(
+    session: &Session,
+    program: &monomorphize::Program,
+    members: &[TargetId],
+    selected: &[Selected],
+    limit: u64,
+) -> Vec<Group> {
+    let funcs = program.funcs.len();
+    let callees: Vec<Vec<usize>> =
+        crate::parallel::map(funcs, |f| crate::compiler::middle::dce::callees(program, f));
+    let bytes: Vec<u64> = program.funcs.iter().map(estimated_bytes).collect();
+
+    // What each member reaches from its own test blocks.
+    let reach = |member: usize| -> Vec<usize> {
+        let mut seen = vec![false; funcs];
+        let mut work: Vec<usize> =
+            selected.iter().filter(|s| s.owner == member).map(|s| s.func).collect();
+        let mut out = Vec::new();
+        while let Some(f) = work.pop() {
+            match seen.get_mut(f) {
+                Some(s) if !*s => *s = true,
+                _ => continue,
+            }
+            out.push(f);
+            if let Some(next) = callees.get(f) {
+                work.extend(next.iter().copied());
+            }
+        }
+        out
+    };
+
+    let mut groups: Vec<(Group, u64)> = Vec::new();
+    for (member, &target) in members.iter().enumerate() {
+        let reached = reach(member);
+        let paints = reached
+            .iter()
+            .any(|&f| program.funcs.get(f).and_then(|f| f.intrinsic_key()) == Some(PAINT_KEY));
+        let dir = paints.then(|| snapshot_dir(session, target));
+        let added = |held: &[bool]| -> u64 {
+            reached
+                .iter()
+                .filter(|&&f| !held.get(f).copied().unwrap_or(false))
+                .map(|&f| bytes.get(f).copied().unwrap_or(0))
+                .fold(0u64, u64::saturating_add)
+        };
+        let fits = groups.iter().position(|(group, size)| {
+            let dir_ok = match (&dir, &group.paints_into) {
+                (Some(mine), Some(theirs)) => mine == theirs,
+                _ => true,
+            };
+            dir_ok && size.saturating_add(added(&group.reaches)) <= limit
+        });
+        let slot = fits.unwrap_or_else(|| {
+            let empty = Group { members: Vec::new(), paints_into: None, reaches: vec![false; funcs] };
+            groups.push((empty, 0));
+            groups.len() - 1
+        });
+        if let Some((group, size)) = groups.get_mut(slot) {
+            *size = size.saturating_add(added(&group.reaches));
+            for &f in &reached {
+                if let Some(h) = group.reaches.get_mut(f) {
+                    *h = true;
+                }
+            }
+            group.members.push(member);
+            if dir.is_some() {
+                group.paints_into = dir;
+            }
+        }
+    }
+    groups.into_iter().map(|(group, _)| group).collect()
+}
+
+/// One binary for some of a batch's members: one link, one run, one verdict
+/// per member.
+///
+/// Every early return abandons this group, as [`run_batch`]'s do the batch: a
+/// member with no verdict in `pre` is compiled and run on its own below.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the batch, the group, its tests, the skipped counts, its program and \
+              tables, and the pass's platform, arguments and results: none of them \
+              derivable from another"
+)]
+fn run_group(
+    session: &mut Session,
+    members: &[TargetId],
+    group: &Group,
+    selected: &[Selected],
+    skipped: &[usize],
+    mut program: monomorphize::Program,
+    tables: &crate::compiler::semantics::types::Tables,
+    platform: Platform,
+    args: &arguments::Args,
+    pre: &mut Prepass,
+) {
+    let targets: Vec<TargetId> =
+        group.members.iter().filter_map(|&i| members.get(i).copied()).collect();
+    // A `--filter` that matched nothing in this group leaves a program with no
+    // roots. Nothing to link and nothing to run, and the report is the skipped
+    // count — which is exactly what `run_native` answers in the same position.
     if selected.is_empty() {
-        for (i, &target) in members.iter().enumerate() {
-            pre.done.push((
-                target,
-                Outcome {
-                    cases: Vec::new(),
-                    skipped: skipped.get(i).copied().unwrap_or(0),
-                },
-            ));
+        for &i in &group.members {
+            if let Some(&target) = members.get(i) {
+                let skipped = skipped.get(i).copied().unwrap_or(0);
+                pre.done.push((target, Outcome { cases: Vec::new(), skipped }));
+            }
         }
         return;
     }
@@ -1870,25 +2112,26 @@ fn run_batch(
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
     // Taken before the link, for the reason `run_native` gives.
     let sheet = program.stylesheet.clone();
+    let mut diagnostics = Diagnostics::new();
     // Held until this function returns, which is exactly as long as the file it
     // names is the one being executed (`actions::claim_runner`).
-    let binary = match actions::native_test_batch(
+    let Ok(binary) = actions::native_test_batch(
         session,
-        members,
+        &targets,
         &output,
         &args.flags,
         &mut program,
-        &analysis.checked.tables,
+        tables,
         &mut diagnostics,
-    ) {
-        Ok(binary) => binary,
-        Err(_) => return,
+    ) else {
+        return;
     };
 
     // Reported per suite, because the `test` action is per suite: the batch is
     // how the verdicts were produced, not what they are keyed on.
-    let mut seeds: Vec<u128> = Vec::with_capacity(members.len());
-    for &target in members {
+    let mut seeds: Vec<(usize, u128)> = Vec::with_capacity(targets.len());
+    for &i in &group.members {
+        let Some(&target) = members.get(i) else { continue };
         let key = test_key_for(session, target, platform, args, pre);
         crate::build::cache::explain(
             args.flags.explain,
@@ -1898,7 +2141,7 @@ fn run_batch(
             platform.slug(),
             &key,
         );
-        seeds.push(seed_of(&key));
+        seeds.push((i, seed_of(&key)));
     }
     // One seed per *block*, because the blocks of one binary belong to several
     // suites here and a suite's order is its own key's. This is what makes a
@@ -1907,18 +2150,21 @@ fn run_batch(
     // names the wrong seed.
     let per_block: Vec<String> = selected
         .iter()
-        .map(|(i, _, _)| seeds.get(*i).copied().unwrap_or_default().to_string())
+        .map(|s| {
+            seeds.iter().find(|(i, _)| *i == s.owner).map(|(_, seed)| *seed).unwrap_or_default().to_string()
+        })
         .collect();
-    // One environment for the whole binary, so a snapshot directory is only
-    // named when every member of the batch would name the same one. Members
-    // from two packages leave it unset — and the probe above has already sent
-    // any batch that would actually *paint* one back to be run a suite at a
-    // time, so what this guards is a batch that names no directory and asks for
-    // none.
+    // One environment for the whole binary. The snapshot directory is the one
+    // the group's painting members share, which [`groups_of`] makes at most
+    // one; a group that paints nothing names its members' directory where they
+    // share one, and none where they do not.
     let mut snapshots: Vec<(&str, String)> = Vec::new();
-    let dirs = snapshot_dirs(session, members);
-    if let [only] = dirs.as_slice() {
-        snapshots.push((SNAPSHOT_DIR, only.clone()));
+    let dir = group.paints_into.clone().or_else(|| match snapshot_dirs(session, &targets).as_slice() {
+        [only] => Some(only.clone()),
+        _ => None,
+    });
+    if let Some(dir) = dir {
+        snapshots.push((SNAPSHOT_DIR, dir));
         if args.flags.update {
             snapshots.push((SNAPSHOT_UPDATE, "1".to_string()));
         }
@@ -1938,36 +2184,32 @@ fn run_batch(
         Ok(Verdicts::Blocks(blocks)) => blocks,
         // Including a heap-check failure, which is deliberately *not* reported
         // from here: a batch is several suites in one binary, so the audit
-        // cannot say which of them leaked. Abandoning the batch sends every
+        // cannot say which of them leaked. Abandoning the group sends every
         // member back through [`run_native`], where the same binary is built
         // per suite and the leak is reported against the one that has it.
+        // A binary that could not start goes back the same way: each member's
+        // own binary is smaller, and one that cannot start either is then
+        // reported once, against its suite.
         _ => return,
     };
 
-    let mut records: Vec<Vec<String>> = vec![Vec::new(); members.len()];
-    for ((i, name, module), block) in selected.iter().zip(&blocks) {
-        if let Some(slot) = records.get_mut(*i) {
-            slot.push(record_of(name, module, block));
-        }
-    }
     let cache = crate::build::cache::Cache::open(&session.root);
-    for (i, &target) in members.iter().enumerate() {
-        let record = format!("[{}]", records.get(i).map(|r| r.join(",")).unwrap_or_default());
+    for &i in &group.members {
+        let Some(&target) = members.get(i) else { continue };
+        let records: Vec<String> = selected
+            .iter()
+            .zip(&blocks)
+            .filter(|(s, _)| s.owner == i)
+            .map(|(s, block)| record_of(&s.name, &s.module, block))
+            .collect();
+        let record = format!("[{}]", records.join(","));
         let mut cases = parse_results(&record);
         if may_cache_produced(&cases, &args.flags) {
             cache.put(&test_key_for(session, target, platform, args, pre), record.as_bytes());
         }
         locate(session, &program, &mut cases);
-        pre.done.push((
-            target,
-            Outcome { cases, skipped: skipped.get(i).copied().unwrap_or(0) },
-        ));
+        pre.done.push((target, Outcome { cases, skipped: skipped.get(i).copied().unwrap_or(0) }));
     }
-
-    let crate::compiler::driver::Analysis { loaded, checked, diagnostics: analysed } = analysis;
-    drop(loaded);
-    drop(analysed);
-    crate::parallel::discard(checked);
     crate::parallel::discard(program);
 }
 
@@ -2157,6 +2399,27 @@ fn the_binary_died(label: &str, how: &str) -> Diagnostics {
         .with_fix(
             "this is a toolchain bug rather than a bug in the suite: every test in it \
              finished. Please report it with the suite that provoked it",
+        ),
+    );
+    diagnostics
+}
+
+/// The diagnostic a suite gets whose binary ended before its first block.
+///
+/// Against the suite, for [`the_binary_died`]'s reason: no test ran, so no test
+/// is to blame. `how` is what the process said on its way out, which for a
+/// binary the operating system would not load is the loader's own sentence.
+fn the_binary_did_not_start(label: &str, how: &str) -> Diagnostics {
+    let mut diagnostics = Diagnostics::new();
+    diagnostics.push(
+        Diagnostic::error(
+            Span::NONE,
+            format!("the test binary for {label} could not start: {how}"),
+        )
+        .with_fix(
+            "no test in it ran. If the message is the loader's, the binary may be too large \
+             to load; otherwise this is a toolchain bug, so please report it with the suite \
+             that provoked it",
         ),
     );
     diagnostics

@@ -514,7 +514,7 @@ pub fn run(
     checked: &Checked,
     module_paths: Vec<String>,
     diags: &mut Diagnostics,
-    roots: Roots,
+    roots: Roots<'_>,
 ) -> Program {
     let mut m = Monomorphizer {
         checked,
@@ -534,14 +534,20 @@ pub fn run(
 
     let program_roots = match roots {
         Roots::Main(f) => ProgramRoots::Main(FuncIdx(m.entry(f) as u32)),
-        Roots::Tests => {
+        Roots::Tests | Roots::TestsIn(_) => {
             let mut tests = Vec::new();
             for (i, case) in m.checked.tests.iter().enumerate() {
+                let module = m.module_paths.get(case.module.index()).cloned().unwrap_or_default();
+                if let Roots::TestsIn(modules) = roots {
+                    if !modules.contains(&module) {
+                        continue;
+                    }
+                }
                 let idx = m.request(Key::Test(i));
                 tests.push(TestEntry {
                     name: case.name.clone(),
                     func: FuncIdx(idx as u32),
-                    module: m.module_paths.get(case.module.index()).cloned().unwrap_or_default(),
+                    module,
                     span: case.span,
                 });
             }
@@ -720,9 +726,12 @@ fn one_symbol_per_function(funcs: &[Func]) -> Option<SymbolClash<'_>> {
 }
 
 #[derive(Clone, Copy)]
-pub enum Roots {
+pub enum Roots<'a> {
     Main(FnId),
     Tests,
+    /// The tests declared in these modules only. `buri test` monomorphizes each
+    /// binary a batch of suites is divided into from the batch's one type check.
+    TestsIn(&'a [String]),
 }
 
 impl<'a> Monomorphizer<'a> {
