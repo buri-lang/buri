@@ -1,0 +1,37 @@
+//! One module, `said`, with an exported `Str` per input: the greeting this
+//! tool was built with, then the input's text.
+
+from "core/buri/ast" import * as ast;
+from "core/tool" import { Generated, GenerateRequest };
+from "platform/effect" import { Allocator };
+from "//lib/greeting" import { word };
+
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+    let items = request
+        .inputs
+        .mapCtx(ctx, fn(c, input) => {
+            let file = input.path.split(c, "/").last().withDefault(input.path);
+            let said = [word(), input.value].join(c, " ");
+            constant(file.toUpper(c).replace(c, ".", "_"), said)
+        });
+    Generated {
+        modules: [("said", ast.Module { items: items, docs: [] })],
+        diagnostics: [],
+        needs: [],
+    }
+}
+
+/// `export let <name>: Str = "<text>";`
+fn constant(name: Str, text: Str): ast.Item {
+    let str = ast.Name { text: "Str", origin: ast.nowhere() };
+    ast.Item {
+        kind: .Let(ast.LetDecl {
+            name: ast.Name { text: name, origin: ast.nowhere() },
+            ty: ast.Type { kind: .Named(str, []), origin: ast.nowhere() },
+            value: ast.Expr { kind: .Str(text), origin: ast.nowhere() },
+            exported: true,
+            docs: [],
+        }),
+        origin: ast.nowhere(),
+    }
+}
