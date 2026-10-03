@@ -6,6 +6,5 @@ profile = "minimal"
 # `llvm-tools` ships the `libLLVM.dylib` that rustc's bundled `rust-lld` loads
 # for a macOS cross link to Linux.
 components = ["clippy", "rustfmt", "llvm-tools"]
-# Every Linux host builds its runtime against its own musl std, and a macOS
-# host cross-builds x86_64 Linux output (cli/build.rs, build/link.rs).
-targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]
+# No `targets`: a musl std makes `cli/build.rs` build a musl runtime, which needs
+# clang. CI jobs and the flake that have clang add the musl targets themselves.

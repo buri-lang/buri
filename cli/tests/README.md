@@ -400,6 +400,7 @@ docker run --rm -it -v "$PWD":/w -w /w rust:latest bash -c '
   apt-get update &&
   apt-get install -y --no-install-recommends clang lld mold llvm binutils musl-dev musl-tools &&
   rustup toolchain install &&
+  rustup target add "$(uname -m)-unknown-linux-musl" &&
   CC=clang BURI_CI=1 cargo test -p buri'
 ```
 
