@@ -10,9 +10,10 @@
 //!
 //! [`Layered`] is an append-only list, where the base's entries never change.
 //! [`IdMap`] is a map from a dense id, where an analysis may replace one of the
-//! base's entries: style extraction rewrites bodies, and a scoped analysis
-//! checks base bodies the snapshot left unchecked. [`LayeredMap`] is a hash map
-//! whose base entries are read through and copied before they're changed.
+//! base's entries: style extraction rewrites bodies, a scoped analysis checks
+//! base bodies the snapshot left unchecked, and a method can be added to a
+//! base type. [`LayeredMap`] is a hash map whose base entries are read
+//! through.
 
 use crate::diagnostics::Invariant as _;
 use crate::hash::Map as HashMap;
@@ -132,32 +133,47 @@ pub trait DenseId: Copy {
 /// A map from a dense id to a value, for tables most ids have an entry in.
 ///
 /// One slot per id instead of a hash: a lookup is an index, and walking it
-/// goes in id order. An analysis's own slots override the base's, which is how
-/// it replaces a base entry without copying the rest.
+/// goes in id order. The analysis's own slots start after the base's, and a
+/// base entry it replaces is kept beside them, so its memory and the cost of
+/// copying it are its own entries' and not the base's.
 pub struct IdMap<I, T> {
     base: Arc<[Option<T>]>,
+    /// Slots for the ids from `base.len()` on.
     own: Vec<Option<T>>,
+    /// The base entries this map replaced, by index.
+    replaced: HashMap<usize, T>,
     marker: std::marker::PhantomData<I>,
 }
 
 impl<I, T> Default for IdMap<I, T> {
     fn default() -> Self {
-        IdMap { base: Arc::from(Vec::new()), own: Vec::new(), marker: std::marker::PhantomData }
+        IdMap {
+            base: Arc::from(Vec::new()),
+            own: Vec::new(),
+            replaced: HashMap::default(),
+            marker: std::marker::PhantomData,
+        }
     }
 }
 
 impl<I, T: Clone> Clone for IdMap<I, T> {
     fn clone(&self) -> Self {
-        IdMap { base: Arc::clone(&self.base), own: self.own.clone(), marker: std::marker::PhantomData }
+        IdMap {
+            base: Arc::clone(&self.base),
+            own: self.own.clone(),
+            replaced: self.replaced.clone(),
+            marker: std::marker::PhantomData,
+        }
     }
 }
 
 impl<I: DenseId, T> IdMap<I, T> {
     pub fn get(&self, id: &I) -> Option<&T> {
         let i = id.to_index();
-        match self.own.get(i) {
-            Some(Some(value)) => Some(value),
-            _ => self.base.get(i)?.as_ref(),
+        match i.checked_sub(self.base.len()) {
+            Some(own) => self.own.get(own)?.as_ref(),
+            None if self.replaced.is_empty() => self.base.get(i)?.as_ref(),
+            None => self.replaced.get(&i).or_else(|| self.base.get(i)?.as_ref()),
         }
     }
 
@@ -172,28 +188,65 @@ impl<I: DenseId, T> IdMap<I, T> {
         T: Clone,
     {
         let i = id.to_index();
-        if !matches!(self.own.get(i), Some(Some(_))) {
-            let shared = self.base.get(i)?.as_ref()?.clone();
-            self.slot(i).replace(shared);
+        match i.checked_sub(self.base.len()) {
+            Some(own) => self.own.get_mut(own)?.as_mut(),
+            None => {
+                if !self.replaced.contains_key(&i) {
+                    let shared = self.base.get(i)?.as_ref()?.clone();
+                    self.replaced.insert(i, shared);
+                }
+                self.replaced.get_mut(&i)
+            }
         }
-        self.own.get_mut(i)?.as_mut()
+    }
+
+    /// The entry for `id`, made this map's own first, and filled with
+    /// `T::default()` when there was none.
+    pub fn get_or_default(&mut self, id: I) -> &mut T
+    where
+        T: Clone + Default,
+    {
+        let i = id.to_index();
+        match i.checked_sub(self.base.len()) {
+            Some(own) => self.slot(own).get_or_insert_with(T::default),
+            None => {
+                let base = &self.base;
+                self.replaced
+                    .entry(i)
+                    .or_insert_with(|| base.get(i).and_then(Option::as_ref).cloned().unwrap_or_default())
+            }
+        }
     }
 
     pub fn insert(&mut self, id: I, value: T) {
-        self.slot(id.to_index()).replace(value);
+        let i = id.to_index();
+        match i.checked_sub(self.base.len()) {
+            Some(own) => {
+                self.slot(own).replace(value);
+            }
+            None => {
+                self.replaced.insert(i, value);
+            }
+        }
     }
 
-    fn slot(&mut self, i: usize) -> &mut Option<T> {
-        if self.own.len() <= i {
-            self.own.resize_with(i.saturating_add(1), || None);
+    /// The slot for the analysis's own entry at `own`, past the base.
+    fn slot(&mut self, own: usize) -> &mut Option<T> {
+        if self.own.len() <= own {
+            self.own.resize_with(own.saturating_add(1), || None);
         }
-        self.own.get_mut(i).or_ice("the slots were just grown past this one")
+        self.own.get_mut(own).or_ice("the slots were just grown past this one")
     }
 
     /// The entries this map holds itself rather than reads from its base:
-    /// what was written since [`IdMap::layer`], in id order.
+    /// what was written since [`IdMap::layer`]. Unordered.
     pub fn written(&self) -> impl Iterator<Item = (I, &T)> {
-        self.own.iter().enumerate().filter_map(|(i, value)| Some((I::from_index(i), value.as_ref()?)))
+        let from = self.base.len();
+        let replaced = self.replaced.iter().map(|(i, value)| (I::from_index(*i), value));
+        let own = self.own.iter().enumerate().filter_map(move |(i, value)| {
+            Some((I::from_index(from.saturating_add(i)), value.as_ref()?))
+        });
+        replaced.chain(own)
     }
 
     /// Every entry, in id order.
@@ -203,7 +256,7 @@ impl<I: DenseId, T> IdMap<I, T> {
 
     /// Every entry whose id is `start` or later, in id order.
     pub fn iter_from(&self, start: usize) -> impl Iterator<Item = (I, &T)> {
-        let len = self.base.len().max(self.own.len());
+        let len = self.base.len().saturating_add(self.own.len());
         (start..len).filter_map(move |i| {
             let id = I::from_index(i);
             self.get(&id).map(|value| (id, value))
@@ -231,18 +284,24 @@ impl<I: DenseId, T> IdMap<I, T> {
     where
         T: Clone,
     {
-        if self.own.is_empty() {
+        if self.own.is_empty() && self.replaced.is_empty() {
             return;
         }
-        let len = self.base.len().max(self.own.len());
+        let len = self.base.len().saturating_add(self.own.len());
         let all: Vec<Option<T>> = (0..len).map(|i| self.get(&I::from_index(i)).cloned()).collect();
         self.base = Arc::from(all);
         self.own = Vec::new();
+        self.replaced = HashMap::default();
     }
 
     /// A map that shares every entry of this one and has none of its own.
     pub fn layer(&self) -> IdMap<I, T> {
-        IdMap { base: Arc::clone(&self.base), own: Vec::new(), marker: std::marker::PhantomData }
+        IdMap {
+            base: Arc::clone(&self.base),
+            own: Vec::new(),
+            replaced: HashMap::default(),
+            marker: std::marker::PhantomData,
+        }
     }
 }
 
@@ -267,8 +326,7 @@ impl<I: DenseId, T> FromIterator<(I, T)> for IdMap<I, T> {
 /// A hash map whose base entries are shared.
 ///
 /// A key the analysis has written is read from its own map, and every other
-/// key falls through to the base. [`LayeredMap::get_mut`] copies a base entry
-/// into the analysis's map before handing it out.
+/// key falls through to the base.
 pub struct LayeredMap<K, V> {
     base: Arc<HashMap<K, V>>,
     own: HashMap<K, V>,
@@ -303,28 +361,8 @@ impl<K: Eq + Hash, V> LayeredMap<K, V> {
         self.own.contains_key(key) || self.base.contains_key(key)
     }
 
-    /// Whether the base holds `key`, whatever the analysis did since.
-    pub fn in_base<Q>(&self, key: &Q) -> bool
-    where
-        K: std::borrow::Borrow<Q>,
-        Q: Eq + Hash + ?Sized,
-    {
-        self.base.contains_key(key)
-    }
-
     pub fn insert(&mut self, key: K, value: V) {
         self.own.insert(key, value);
-    }
-
-    /// The entry for `key`, made the analysis's own first, and filled with
-    /// `V::default()` when neither half has one.
-    pub fn entry_mut(&mut self, key: K) -> &mut V
-    where
-        K: Clone,
-        V: Clone + Default,
-    {
-        let shared = &self.base;
-        self.own.entry(key.clone()).or_insert_with(|| shared.get(&key).cloned().unwrap_or_default())
     }
 
     /// Every entry, the analysis's own and then the base's it hasn't
@@ -414,19 +452,39 @@ mod tests {
         *layer.get_mut(&Id(0)).unwrap() = "A";
         assert_eq!(layer.iter().collect::<Vec<_>>(), vec![(Id(0), &"A"), (Id(2), &"C"), (Id(4), &"e")]);
         assert_eq!(base.iter().collect::<Vec<_>>(), vec![(Id(0), &"a"), (Id(2), &"c")]);
+        let mut written: Vec<_> = layer.written().collect();
+        written.sort_by_key(|(id, _)| id.0);
+        assert_eq!(written, vec![(Id(0), &"A"), (Id(2), &"C"), (Id(4), &"e")]);
     }
 
     #[test]
-    fn a_layered_map_copies_a_base_entry_before_changing_it() {
-        let mut base: LayeredMap<u32, Vec<u32>> = LayeredMap::default();
-        base.insert(1, vec![1]);
+    fn an_id_map_fills_a_missing_entry_with_its_default() {
+        let mut base: IdMap<Id, Vec<u32>> = IdMap::default();
+        base.insert(Id(1), vec![1]);
         base.freeze();
         let mut layer = base.layer();
-        layer.entry_mut(1).push(2);
-        layer.entry_mut(3).push(3);
-        assert_eq!(layer.get(&1), Some(&vec![1, 2]));
-        assert_eq!(layer.get(&3), Some(&vec![3]));
-        assert_eq!(base.get(&1), Some(&vec![1]));
+        layer.get_or_default(Id(1)).push(2);
+        layer.get_or_default(Id(0)).push(0);
+        layer.get_or_default(Id(3)).push(3);
+        assert_eq!(layer.get(&Id(0)), Some(&vec![0]));
+        assert_eq!(layer.get(&Id(1)), Some(&vec![1, 2]));
+        assert_eq!(layer.get(&Id(2)), None);
+        assert_eq!(layer.get(&Id(3)), Some(&vec![3]));
+        assert_eq!(base.get(&Id(1)), Some(&vec![1]));
+    }
+
+    #[test]
+    fn a_layered_map_reads_through_to_its_base() {
+        let mut base: LayeredMap<u32, &str> = LayeredMap::default();
+        base.insert(1, "a");
+        base.freeze();
+        let mut layer = base.layer();
+        layer.insert(1, "A");
+        layer.insert(3, "c");
+        assert_eq!(layer.get(&1), Some(&"A"));
+        assert_eq!(layer.get(&3), Some(&"c"));
+        assert_eq!(base.get(&1), Some(&"a"));
+        assert!(base.get(&3).is_none());
         assert_eq!(layer.iter().count(), 2);
     }
 }
