@@ -489,14 +489,6 @@ impl<'a> Jit<'a> {
         self.slot_bytes(prog, t)
     }
 
-    /// The bytes a value of this type actually occupies — its real width, not
-    /// its 8-byte-rounded frame slot's. A narrow scalar (`Bool` = 1) answers
-    /// less than [`Jit::slot_bytes_of`], which is what tells the fold loops how
-    /// far a value copy reaches before the rest of the slot is padding to clear.
-    pub(crate) fn value_bytes_of(&mut self, prog: &ir::Program, t: ir::Type) -> u32 {
-        self.width(prog, t)
-    }
-
     /// Bytes a value of this IR type occupies where it is *stored inside an
     /// aggregate* — its real width, not its frame slot's.
     fn width(&mut self, prog: &ir::Program, t: ir::Type) -> u32 {
@@ -664,10 +656,6 @@ pub(crate) struct Fn2 {
     /// Values whose every use is an immediate operand: the `Const` that
     /// defines them is never materialised into a frame slot at all.
     pub folded: Vec<bool>,
-    /// For a value defined by an `Inst::MakeClosure` in *this* function, the
-    /// `FuncIdx` of the lifted lambda. It is what lets a step be called by name
-    /// rather than through its code pointer.
-    pub closure_of: Vec<Option<u32>>,
 }
 
 impl Fn2 {
@@ -784,14 +772,6 @@ impl<'a> Jit<'a> {
                 let taken = self.promote(code, &mut reg, &mut wt, &mut cross, &mut promoted);
                 self.regalloc(code, &mut reg, taken);
                 let (constants, folded) = self.constants(code);
-                let mut closure_of: Vec<Option<u32>> = vec![None; code.values()];
-                for b in &code.blocks {
-                    for i in &b.insts {
-                        if let ir::Inst::MakeClosure { dest, func, .. } = i {
-                            put(&mut closure_of, dest.index(), Some(func.0));
-                        }
-                    }
-                }
                 let mut st = Fn2 {
                     slot,
                     blk: vec![0; code.blocks.len()],
@@ -804,7 +784,6 @@ impl<'a> Jit<'a> {
                     cur: 0,
                     constants,
                     folded,
-                    closure_of,
                 };
                 let base = self.fixups.len();
                 let order = self.layout(code);
@@ -852,7 +831,6 @@ impl<'a> Jit<'a> {
                     cur: 0,
                     constants: Vec::new(),
                     folded: Vec::new(),
-                    closure_of: Vec::new(),
                 };
                 let base = self.fixups.len();
                 self.runtime_body(prog, fi, key.clone(), &mut st);
@@ -1702,6 +1680,87 @@ impl<'a> Jit<'a> {
                 }
                 // A class of one, pinned at the return area.
                 put(pin, vi, Some(off));
+            }
+        }
+        self.coalesce_latches(code, uf, pin, width, &uses, &def_block, &def_idx);
+    }
+
+    /// (i.d) A **latch**: a block whose parameter is only passed on to the
+    /// loop header's parameter. The paths that meet there each pass the
+    /// header's own value or a temporary computed from it, so the latch's
+    /// parameter can take the header parameter's slot and every copy on the
+    /// way round the loop becomes the identity.
+    ///
+    /// The one exception to "never two parameters", and safe for the same
+    /// reason the rest is: the latch reads nothing in the header parameter's
+    /// class, so the only write that moves earlier is an edge copy at the end
+    /// of a predecessor, after which nothing on that path reads the old value
+    /// before the header takes the new one. Every temporary already merged into
+    /// the latch's class is checked again against the header's.
+    #[allow(clippy::too_many_arguments, reason = "the tables `coalesce` already built")]
+    fn coalesce_latches(
+        &mut self,
+        code: &ir::Code,
+        uf: &mut [u32],
+        pin: &[Option<u32>],
+        width: &[u32],
+        uses: &[u32],
+        def_block: &[u32],
+        def_idx: &[u32],
+    ) {
+        let n = code.values();
+        for latch in &code.blocks {
+            let ir::Term::Jump(t) = &latch.term else { continue };
+            let header = code.get(t.block);
+            for p2 in &latch.params {
+                let Some(k) = t.args.iter().position(|a| a == p2) else { continue };
+                let Some(&p1) = header.params.get(k) else { continue };
+                if ent(uses, p2.index(), 0) != 1
+                    || ent(width, p2.index(), 0) != 8
+                    || ent(width, p1.index(), 0) != 8
+                    || ent(pin, p2.index(), None).is_some()
+                {
+                    continue;
+                }
+                let (r1, r2) = (find(uf, p1.0), find(uf, p2.0));
+                if r1 == r2 || (0..n).any(|v| find(uf, v as u32) == r1 && ent(pin, v, None).is_some()) {
+                    continue;
+                }
+                // Nothing in the latch reads the header parameter's class, and
+                // the jump passes it nothing but this one value.
+                let mut ops = Vec::new();
+                for i in &latch.insts {
+                    i.operands(&mut ops);
+                }
+                latch.term.operands(&mut ops);
+                if ops.iter().any(|o| find(uf, o.0) == r1)
+                    || t.args.iter().filter(|a| find(uf, a.0) == r1 || find(uf, a.0) == r2).count() != 1
+                {
+                    continue;
+                }
+                let members: Vec<u32> = (0..n as u32).filter(|v| find(uf, *v) == r2).collect();
+                let safe = members.iter().all(|m| {
+                    if *m == p2.0 {
+                        return true;
+                    }
+                    let b = ent(def_block, *m as usize, u32::MAX);
+                    let Some(block) = code.blocks.get(b as usize) else { return false };
+                    // A parameter of some other block in the class is not a
+                    // shape this reasons about.
+                    if block.params.iter().any(|p| p.0 == *m) {
+                        return false;
+                    }
+                    // Its definition now writes the header parameter's slot,
+                    // so the block must have no way out but to the latch.
+                    if !matches!(&block.term, ir::Term::Jump(j) if std::ptr::eq(code.get(j.block), latch)) {
+                        return false;
+                    }
+                    self.merge_is_safe(code, block, uf, r1, ir::ValueId(*m), ent(def_idx, *m as usize, u32::MAX))
+                });
+                if !safe {
+                    continue;
+                }
+                put(uf, r2 as usize, r1);
             }
         }
     }

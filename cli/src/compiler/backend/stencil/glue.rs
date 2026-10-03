@@ -649,7 +649,6 @@ impl Jit<'_> {
             cur: 0,
             constants: Vec::new(),
             folded: Vec::new(),
-            closure_of: Vec::new(),
         }
     }
 

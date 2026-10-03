@@ -166,28 +166,6 @@ impl<'a> Jit<'a> {
         }
     }
 
-    /// Moves an accumulator value into an 8-byte-aligned slot, zero-extended.
-    ///
-    /// `logical` is the value's real width and `slot` the padded slot's. When
-    /// the value is narrower than its slot — a `Bool` accumulator is one byte in
-    /// an eight-byte slot — the high bytes of `src` are whatever a step left
-    /// there, including a prior wider `Result` payload, so a plain [`Jit::mv`] of
-    /// the whole slot would carry that garbage. The slot is cleared a word at a
-    /// time and only the real bytes copied over its low end, mirroring how
-    /// [`Jit::elem_load`] zero-extends a narrow element (buri-lang/buri#191).
-    pub(crate) fn mv_acc(&mut self, dst: u32, src: u32, slot: u32, logical: u32) {
-        if logical < slot {
-            let mut off = 0;
-            while off < slot {
-                self.imm_to(dst + off, 0);
-                off += 8;
-            }
-            self.mv(dst, src, logical);
-        } else {
-            self.mv(dst, src, slot);
-        }
-    }
-
     pub(crate) fn imm_to(&mut self, dst: u32, v: u64) {
         if v == 0 {
             self.emit("imm/z", &[("JIT_D", V::I(dst as u64)), ("JIT_CONT", V::Fall)]);
@@ -1288,19 +1266,12 @@ impl<'a> Jit<'a> {
         func: u32,
         args: &[ir::ValueId],
     ) {
-        // Every backend's `call` does this first, for the same reason: the same
-        // `list.*` key reaches a backend two ways — as an `Inst::CallIntrinsic`
-        // where the front end spelled it inline, and as an `Inst::Call` to a
-        // `Body::Runtime` function where it was a method — and the loop belongs
-        // at the call site, where the step is a `MakeClosure` this function can
-        // see. `lists.rs` says why. A `false` here falls through to the
-        // ordinary call, whose callee's body `list_loop_rt` open-codes
-        // in turn.
+        // The same `list.*` key reaches a backend two ways — as an
+        // `Inst::CallIntrinsic` where the front end spelled it inline, and as an
+        // `Inst::Call` to a `Body::Runtime` function where it was a method — and
+        // the loop belongs at the call site. `lists.rs` says why.
         if let Some(ir::Body::Runtime(key)) = prog.funcs.get(func as usize).map(|f| &f.body) {
             let key = key.clone();
-            if self.list_loop(prog, code, st, dests, &key, args) {
-                return;
-            }
             if let Some(o) = self.operands(prog, code, st, dests, args) {
                 if self.list_extra(prog, st, &key, &o) {
                     return;
@@ -1548,9 +1519,6 @@ impl<'a> Jit<'a> {
                 }
             }
             _ => {
-                if self.list_loop(prog, code, st, dests, key, args) {
-                    return;
-                }
                 if let Some(o) = self.operands(prog, code, st, dests, args) {
                     if self.list_extra(prog, st, key, &o) {
                         return;
@@ -2420,10 +2388,6 @@ impl<'a> Jit<'a> {
         }
         // The open-coded loop first: the runtime call is the fallback, not the
         // other way round. `lists.rs` says why.
-        if self.list_loop_rt(prog, fi, &key, st) {
-            self.emit("ret", &[]);
-            return;
-        }
         if let Some(o) = self.rt_operands(prog, fi, &fs) {
             if self.list_extra(prog, st, &key, &o) {
                 self.emit("ret", &[]);
