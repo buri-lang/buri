@@ -57,7 +57,7 @@ impl<'a> Gen<'a> {
         // decides it applies: `$list_mapCtx` runs its step and moves on,
         // `$list_mapCtxAwait` awaits it, and a key with no twin has only the
         // one body however it was called. Which of the two this is comes from
-        // `middle::rc`'s `can_park` column — the same column that puts the
+        // `park::parkability`'s column — the same column that puts the
         // `await` at the call site and prints this wrapper `async` — so the
         // two ends of the call cannot disagree.
         let name = format!("${}", key.replace('.', "_"));

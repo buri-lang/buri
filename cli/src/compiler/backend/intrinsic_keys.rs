@@ -475,9 +475,9 @@ pub const STEP_KEYS: &[&str] = &["host.HostTasks.parallel", "host_testing.TestTa
 /// `map` from `mapCtx`: a step handed a context can reach every effect the
 /// caller holds, so it may dial a socket, sleep, or ask an actor, and a step
 /// that cannot be handed one may not. That is the whole of the question
-/// [`crate::compiler::middle::rc::suspends`] cannot answer on its own —
+/// [`crate::compiler::backend::js::park::suspends`] cannot answer on its own —
 /// `suspends` is a list of keys whose wait is the *key's* own, and a
-/// combinator's wait is its caller's — so `middle::rc`'s parkability walk asks
+/// combinator's wait is its caller's — so `js::park`'s parkability walk asks
 /// this one instead and reads the step that actually arrived.
 ///
 /// Asked of both tables because a key belongs to one or the other: `mapCtx` is
@@ -618,7 +618,7 @@ mod tests {
 
     /// Which keys hand their step a context, in both directions.
     ///
-    /// This is the list `middle::rc`'s parkability walk reads to decide that a
+    /// This is the list `js::park`'s parkability walk reads to decide that a
     /// combinator waits when its step does, so it is the one place a `*Ctx`
     /// spelling and a plain one are told apart. Both halves are asserted: a
     /// key missing from it is a step that waits and is not waited for, and a
