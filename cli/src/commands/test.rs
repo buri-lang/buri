@@ -312,7 +312,7 @@ fn one_pass(
     let tally = crate::parallel::pool(
         width,
         builds_of(width),
-        |job, queue| work(job, queue, &shared),
+        |job, held, queue| work(job, held, queue, &shared),
         |queue, done| drive(&mut session, args, &mut pre, &plans, &mut slots, queue, done, &mut out),
     );
     let Tally { passed, failed, skipped, cached, uncompiled, printed, mut hard_error } = tally;
@@ -536,13 +536,21 @@ fn jobs_of(flags: &arguments::Flags) -> usize {
     flags.jobs.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |c| c.get())).max(1)
 }
 
-/// How many of `jobs` may be builds, which hold a whole program each: one per
-/// [`BUILD_MEMORY`] of this machine's memory.
+/// How many of `jobs` may hold a whole program at once: one per
+/// [`BUILD_MEMORY`] of this machine's memory. A suite's run holds no program,
+/// so it never counts against this, and `jobs` runs can always go side by side.
 fn builds_of(jobs: usize) -> usize {
-    let memory = crate::parallel::memory_bytes()
+    let memory = std::env::var(MEMORY_VARIABLE)
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .or_else(crate::parallel::memory_bytes)
         .map_or(jobs, |bytes| usize::try_from(bytes / BUILD_MEMORY).unwrap_or(jobs));
     jobs.min(memory).max(1)
 }
+
+/// The environment variable that replaces this machine's memory, in bytes, in
+/// [`builds_of`].
+const MEMORY_VARIABLE: &str = "BURI_TEST_MEMORY_BYTES";
 
 /// The memory one build is budgeted. Batching an 80-suite repository's suites
 /// peaked at 22 GB with eight builds in flight.
@@ -690,6 +698,9 @@ fn report(session: &Session, plan: &Plan, slots: &mut [Slot], tally: &mut Tally,
 /// The pool's queue, of the jobs below.
 type Queue = crate::parallel::Queue<Job>;
 
+/// A job's claim on the pool's room for programs.
+type Held<'a> = crate::parallel::Held<'a>;
+
 /// What a worker needs that is the same for every job.
 struct Shared {
     root: std::path::PathBuf,
@@ -791,11 +802,13 @@ fn roots_of(program: &monomorphize::Program) -> Vec<Root> {
         .collect()
 }
 
-fn work(job: Job, queue: &Queue, shared: &Shared) -> Done {
+/// Runs one job. A job that builds drops `held` with its program, before it
+/// runs anything, so a run never stands in the way of the next build.
+fn work(job: Job, held: Held, queue: &Queue, shared: &Shared) -> Done {
     match job {
-        Job::Group(job) => build_group(job, queue, shared),
-        Job::Solo(job) => run_solo(job, shared),
-        Job::Js(job) => run_js(job, shared),
+        Job::Group(job) => build_group(job, held, queue, shared),
+        Job::Solo(job) => run_solo(job, held, shared),
+        Job::Js(job) => run_js(job, held, shared),
         Job::Member(job) => run_member(job, queue, shared),
     }
 }
@@ -966,7 +979,7 @@ struct SoloJob {
 /// **A failed assertion is still an abort.** SPEC 6.9 leaves nothing to catch,
 /// so one process reports one failure, and [`run_blocks`] starts another at the
 /// next block. A suite costs one process plus one per failure.
-fn run_solo(job: SoloJob, shared: &Shared) -> Done {
+fn run_solo(job: SoloJob, held: Held, shared: &Shared) -> Done {
     let SoloJob { slot, label, private, output, mut program, tables, key, limit, on_timeout, snapshot_dir, paints, tests, roots, skipped } = job;
     // Taken before the link, which changes the program.
     let sheet = program.stylesheet.clone();
@@ -976,6 +989,7 @@ fn run_solo(job: SoloJob, shared: &Shared) -> Done {
     });
     drop(program);
     drop(tables);
+    drop(held);
     let answer = |answer, notes| Done::Answer { slot, answer, explain: explain.clone(), notes };
     let binary = match built {
         Ok(binary) => binary,
@@ -1062,7 +1076,7 @@ struct JsJob {
     skipped: usize,
 }
 
-fn run_js(job: JsJob, shared: &Shared) -> Done {
+fn run_js(job: JsJob, held: Held, shared: &Shared) -> Done {
     let JsJob { slot, mut program, tables, key, path, limit, on_timeout, skipped } = job;
     let answer = |answer| Done::Answer { slot, answer, explain: String::new(), notes: String::new() };
     let mut diagnostics = Diagnostics::new();
@@ -1074,6 +1088,7 @@ fn run_js(job: JsJob, shared: &Shared) -> Done {
         };
     drop(program);
     drop(tables);
+    drop(held);
     // The order `anyOrder()` schedules with, and the action's clock, spliced in
     // after the runtime is defined and before a test could reach either.
     source.push_str(&format!("\n$t.seed={}n;\n", seed_of(&key)));
@@ -2312,7 +2327,7 @@ struct MemberSpec {
 /// build: those finish work already paid for.
 ///
 /// A link that fails sends every member back to run alone.
-fn build_group(job: GroupJob, queue: &Queue, shared: &Shared) -> Done {
+fn build_group(job: GroupJob, held: Held, queue: &Queue, shared: &Shared) -> Done {
     let GroupJob { label, private, output, mut program, tables, seeds, members } = job;
     let sheet = program.stylesheet.clone();
     let mut diagnostics = Diagnostics::new();
@@ -2321,6 +2336,7 @@ fn build_group(job: GroupJob, queue: &Queue, shared: &Shared) -> Done {
     });
     drop(program);
     drop(tables);
+    drop(held);
     let Ok(binary) = built else {
         return Done::Abandoned { slots: members.iter().map(|m| m.slot).collect(), explain };
     };
