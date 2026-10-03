@@ -1111,6 +1111,7 @@ fn build(name: &str, source: &str, dir: &Path) -> Built {
         "{name}: the link failed:\n{}",
         String::from_utf8_lossy(&built.stderr)
     );
+    crate::sweep::kept::settle(&binary);
     Built::Linked(binary, blocks)
 }
 

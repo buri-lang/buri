@@ -164,7 +164,7 @@ pub struct Definition {
     pub offset: u64,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RelKind {
     /// `ARM64_RELOC_BRANCH26` on a `b`/`bl`: the low 26 bits are a signed word
     /// displacement to the symbol.
