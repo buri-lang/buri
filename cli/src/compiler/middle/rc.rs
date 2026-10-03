@@ -3516,11 +3516,13 @@ impl Scan<'_> {
         let mut k = 1usize;
         for a in arms {
             let edges_before = self.jumps.len();
-            let gid = a.guard.as_ref().map(|_| {
+            let gid = if a.guard.is_some() {
                 let g = self.child(id, k);
                 k += 1;
-                g
-            });
+                Some(g)
+            } else {
+                None
+            };
             let bid = self.child(id, k);
             k += 1;
             let mut bound: Vec<LocalId> = Vec::new();

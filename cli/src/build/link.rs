@@ -1761,6 +1761,11 @@ impl Linker for CDriver {
         // program of several hundred units is several hundred `open`/`read`
         // round trips over eight megabytes.
         let skip: std::collections::HashSet<usize> = unchanged.iter().copied().collect();
+        #[expect(
+            clippy::result_large_err,
+            reason = "every error ends up in `diagnostics` as a `Diagnostic`, and boxing it would \
+                      only be unboxed again below"
+        )]
         let staged: Vec<Result<PathBuf, Diagnostic>> = crate::parallel::map(units.len(), |i| {
             let Some(unit) = units.get(i) else {
                 return Err(Diagnostic::error(
