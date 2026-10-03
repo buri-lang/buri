@@ -349,7 +349,7 @@ impl<'r> Registry<'r> {
 
     fn problem(&mut self, file: usize, span: Range, problem: impl Into<String>, remedy: impl Into<String>) {
         self.problems.push(Finding::new(
-            "json-schema-invalid",
+            "json-invalid-schema",
             &self.path_of(file),
             span,
             vec![("problem", problem.into()), ("remedy", remedy.into())],
@@ -362,7 +362,7 @@ impl<'r> Registry<'r> {
             Unresolved::NotLocal => Finding::new("schema-outside-repository", &path, span, vec![("schema", reference.to_string())]),
             Unresolved::NoFile(missing) => Finding::new("unknown-schema", &path, span, vec![("path", missing)]),
             Unresolved::NoTarget => Finding::new(
-                "json-schema-invalid",
+                "json-invalid-schema",
                 &path,
                 span,
                 vec![

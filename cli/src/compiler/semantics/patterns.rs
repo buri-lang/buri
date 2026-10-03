@@ -10,7 +10,7 @@ use crate::compiler::semantics::inference::{Infer, LitCheck, OrScope};
 use crate::compiler::semantics::resolve::Sym;
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
-use crate::diagnostics::{Invariant as _, Span};
+use crate::diagnostics::{counted, Invariant as _, Span};
 use crate::parsing::flat::{Location, PatId, PatPayloadData, PatView as P};
 
 impl<'a, 'b> Infer<'a, 'b> {
@@ -445,8 +445,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                     let have = ps.len();
                     self.templated("payload-pattern-count", span)
                         .bind("name", what.to_string())
-                        .bind("expected", want.to_string())
-                        .bind("matched", have.to_string())
+                        .bind("expected", counted(want, "value"))
+                        .bind("matched", counted(have, "value"))
                         .mismatch(want.to_string(), have.to_string());
                 }
                 // A payload with more patterns than the declaration has

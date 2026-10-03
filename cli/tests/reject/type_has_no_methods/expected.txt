@@ -1,4 +1,4 @@
-error: `(I64, I64)` has no methods [type-has-no-methods]
+error: `(I64, I64)` has no methods [impl-target-not-declared-type]
  --> cmd/type_has_no_methods/main.buri:2:6
   |
 2 | impl (Int, Int) {

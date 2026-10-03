@@ -275,14 +275,26 @@ out of a batch: a declared `test { backends }`, which is a request served on
 its own; a declared `timeout_seconds`, since one suite's limit would become
 everybody's in a shared process; and `--output=` on the invocation.
 
+A batch is type checked once, but it can still become several binaries:
+
+- Suites that take snapshots into different packages' `test/__snapshots__` get
+  different binaries, because one process gets one snapshot directory.
+- A binary holds about 128 MB of code at most, so the binaries build side by
+  side. Set `BURI_TEST_BATCH_BYTES` to change the limit.
+
+Each suite in a binary runs in processes of its own, a few tests to a process,
+so a batch's suites run side by side too.
+
 Nothing about the result changes. Each suite still has its own cache key, its own
 cached verdict, and its own report. A suite whose verdict is already cached never
 enters the batch. One suite's failure is an abort and takes its process with it,
 but it costs that suite's test and no other suite's report, because the runner
-resumes at the block after the one that aborted. If anything at all makes a batch
-doubtful, from a type error to an intrinsic the backend has no body for, `buri
+resumes at the block after the one that aborted. A suite that fails to type
+check leaves the batch, and the rest are batched without it. If anything else
+makes a batch doubtful, such as an intrinsic the backend has no body for, `buri
 test` abandons the batch and compiles, links and runs every suite in it on its
-own, where a diagnostic can name the one suite it belongs to.
+own, where a diagnostic can name the one suite it belongs to. A suite whose
+process ends without a verdict for every test runs on its own the same way.
 
 ## What tags are not
 

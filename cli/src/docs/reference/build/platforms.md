@@ -68,7 +68,7 @@ The whole file is in [the guide](../../guides/custom-platforms.md#the-platform).
 - **The platform's own structs** have bodiless methods, which the entry's `js`
   file implements. Only `JS` entries have one, so on `NATIVE` such a field is
   `custom-effect-outside-js`, and on a `JS` entry without one it's
-  `host-file-missing-method`.
+  `missing-host-file`.
 - Only `platform.buri` may import `platform/host` or declare a function without
   a body.
 

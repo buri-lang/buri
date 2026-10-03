@@ -24,7 +24,7 @@
     # (`build/link.rs::libc_for`): loud, correct, and a compiler with its
     # native backend switched off by the way it was packaged.
     #
-    # `rust-bin.stable.latest.default.override { targets = [ ... ]; }` is
+    # `rust-bin.fromRustupToolchain`, with the musl targets added, is
     # upstream's own dist tarball, which is exactly where the
     # `self-contained/` directory comes from — measured, not assumed: the
     # override's sysroot holds precisely the eleven files `cli/src/build/musl.rs`
@@ -75,41 +75,28 @@
         # `CC_aarch64_unknown_linux_musl`. Same string, one substitution.
         muslKey = builtins.replaceStrings [ "-" ] [ "_" ] muslTarget;
 
-        # The compiler this package is built by — the overlay's on Linux, and
-        # nixpkgs' own everywhere else.
-        #
-        # **The split is deliberate and it is measured.** The overlay is here
-        # for one thing, a musl `rust-std`, and macOS has no use for one: a
-        # `buri` on Darwin produces Mach-O. Taking the overlay there anyway
-        # would not be free and would not be neutral — it is a *compiler
-        # version bump* smuggled in beside a libc fix, because
-        # `rust-bin.stable.latest` is 1.98.0 where this flake's `nixos-25.11`
-        # pins 1.91.1. What that costs was not guessed: built on aarch64-darwin,
-        # 1.98.0's runtime archive is 9 582 112 bytes against the 9 437 184-byte
-        # Darwin budget in `cli/tests/ci.rs`, so the
-        # bump alone turns `nix build` red on macOS — an artifact-size decision
-        # arriving as a side effect of a Linux packaging one, which is exactly
-        # the shape of change this repository argues against. Linux takes the
-        # newer compiler because there it buys the musl target; Darwin keeps
-        # the one nixpkgs pins, and every input to its derivation is the one
-        # this change found — `src` aside, which every edit to this file moves.
+        # The compiler this package and the dev shell are built by, on every
+        # system: the one `rust-toolchain.toml` pins, which is also the one CI
+        # installs. The flake adds both musl targets, which the toml leaves to
+        # each CI job: the Linux build needs its own, and macOS cross-builds
+        # x86_64 Linux output.
         #
         # `makeRustPlatform`, because `buildRustPackage` takes its `rustc` and
         # `cargo` from a platform rather than from the arguments, and a
         # toolchain wired anywhere else is a toolchain the build does not use.
-        # `rustToolchain` is never forced on Darwin: nix is lazy, and the `if`
-        # below is what keeps the dist tarball from being fetched there.
-        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
-          targets = [ muslTarget ];
+        rustToolchain = pkgs.rust-bin.fromRustupToolchain (
+          (builtins.fromTOML (builtins.readFile ./rust-toolchain.toml)).toolchain
+          // {
+            targets = [
+              "x86_64-unknown-linux-musl"
+              "aarch64-unknown-linux-musl"
+            ];
+          }
+        );
+        rustPlatform = pkgs.makeRustPlatform {
+          cargo = rustToolchain;
+          rustc = rustToolchain;
         };
-        rustPlatform =
-          if pkgs.stdenv.hostPlatform.isLinux then
-            pkgs.makeRustPlatform {
-              cargo = rustToolchain;
-              rustc = rustToolchain;
-            }
-          else
-            pkgs.rustPlatform;
 
         # The version is read rather than written down. `buri version` prints
         # `CARGO_PKG_VERSION`, so a version repeated here is a second place to
@@ -417,7 +404,7 @@
           # --target <musl>` for a `self-contained/` directory, and that
           # directory exists only where the musl `rust-std` is installed beside
           # the compiler. `rustToolchain` above is that compiler: the
-          # `targets = [ muslTarget ]` override is what puts the directory
+          # musl `targets` it adds are what put the directory
           # there, and the `postBuild` assertion above is what says so.
           #
           # This block used to set `BURI_ARCHIVE_LIBC_MAY_BE_GLIBC=1`, the one
@@ -556,7 +543,9 @@
           LLVM_SYS_211_PREFIX = "${llvm.dev}";
 
           packages = [
-              pkgs.cargo
+              # rustc, cargo and clippy at the version `rust-toolchain.toml`
+              # pins, ahead of any `rustup` already on `PATH`.
+              rustToolchain
               # Runs the local full suite with every test binary at once
               # rather than one after another. `.config/nextest.toml` has the
               # limits, and cli/tests/README.md the command.

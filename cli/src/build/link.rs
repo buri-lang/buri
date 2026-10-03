@@ -87,7 +87,7 @@
 //!
 //! 1. **Baked** — `cli/build.rs` copied musl's `libc.a`, `libunwind.a` and the
 //!    nine crt objects out of this rustc's self-contained directory, and
-//!    [`stage_sysroot`] writes them into `<link dir>/musl/lib` for
+//!    [`stage_sysroot`] stages them into `<link dir>/musl/lib` for
 //!    `-B musl/lib -L musl/lib` to find. Needs a driver that
 //!    understands `--target=<musl triple>`, which is [`accepts_target`]'s one
 //!    memoized probe.
@@ -157,7 +157,7 @@
 //! outside.
 
 use crate::build::buildfile::{Arch, Platform};
-use crate::build::cache::hash_bytes;
+use crate::build::cache::{hash_bytes, ActionKey, Cache};
 use crate::build::musl::{self, Libc};
 use crate::build::runtime_cross::{self, Cross};
 use crate::build::spawn;
@@ -538,6 +538,12 @@ pub struct CDriver {
     /// driver and flavour, so the two `--version` spawns happen once (see
     /// [`PROBED`]).
     version: std::sync::Arc<Identity>,
+    /// The cache the objects came from, where there is one. An object or a
+    /// runtime archive that is already an entry there is hard-linked into the
+    /// link directory rather than written into it again (see [`stage_from`]).
+    /// `None` for a link with the cache off, `--check-reproducible`'s, which
+    /// writes every file as it always did.
+    store: Option<Cache>,
 }
 
 /// `<flavour>:<sha256 of the driver's and the linker's `--version`>`, probed on
@@ -736,6 +742,7 @@ pub fn select(target: Target) -> Result<CDriver, Refusal> {
         cross: None,
         lld_dir: None,
         version,
+        store: None,
     })
 }
 
@@ -796,6 +803,7 @@ fn select_cross(target: Target, driver: PathBuf) -> Result<CDriver, Refusal> {
         cross: Some(cross),
         lld_dir,
         version,
+        store: None,
     })
 }
 
@@ -1160,23 +1168,38 @@ fn system_musl(driver: &Path) -> Option<PathBuf> {
 /// given `-B <dir>` looks for `rcrt1.o` and its siblings by exactly those
 /// names.
 ///
-/// The "write only if the size differs" guard is the one [`Linker::link`] uses
-/// for the runtime archive, and it is worth more here: this is eleven files and
-/// about 6.6 MB, written into a directory that a `--watch` loop reuses on every
-/// pass. The *size* rather than the bytes, unlike [`already_holds`], because
-/// these are constants of this binary — a file in the link directory whose
-/// length matches came from this same `include_bytes!` and cannot be a
-/// different sysroot that happens to weigh the same.
-pub fn stage_sysroot(dir: &Path) -> std::io::Result<()> {
+/// This is eleven files and about 6.6 MB, so with a cache each is written there
+/// once and hard-linked into every link directory from there
+/// ([`stage_constant`]), the way the runtime archive is. Without one each is
+/// written in place, skipped when a file of the same length is already there.
+pub fn stage_sysroot(dir: &Path, store: Option<&Cache>) -> std::io::Result<()> {
     let lib = dir.join("musl").join("lib");
     std::fs::create_dir_all(&lib)?;
+    let digest = musl::sysroot_hash();
     for (name, bytes) in musl::FILES {
-        let path = lib.join(name);
-        if std::fs::metadata(&path).map(|m| m.len()).ok() != Some(bytes.len() as u64) {
-            std::fs::write(&path, bytes)?;
-        }
+        stage_constant(store, &format!("musl sysroot {digest} {name}"), bytes, &lib.join(name))?;
     }
     Ok(())
+}
+
+/// Puts `bytes`, a constant of this binary, at `dest`.
+///
+/// With a cache, the bytes are written there once, as an entry keyed on
+/// `name` (which carries their digest), and `dest` is a hard link to that
+/// entry. A link directory staged this way costs the disk nothing the cache
+/// has not already paid for. Without a cache, or if the cache cannot take the
+/// entry, they are written in place ([`stage_bytes`]).
+fn stage_constant(store: Option<&Cache>, name: &str, bytes: &[u8], dest: &Path) -> std::io::Result<()> {
+    let Some(cache) = store else { return stage_bytes(bytes, dest) };
+    let key = ActionKey::of(name.as_bytes());
+    let entry = cache.entry(&key).or_else(|| {
+        cache.put(&key, bytes);
+        cache.entry(&key)
+    });
+    match entry {
+        Some(entry) => stage_from(&entry, dest),
+        None => stage_bytes(bytes, dest),
+    }
 }
 
 /// Writes the **cross** sysroot into `<dir>/musl/lib`, copied from
@@ -1184,9 +1207,10 @@ pub fn stage_sysroot(dir: &Path) -> std::io::Result<()> {
 ///
 /// [`stage_sysroot`]'s shape, over the cache's files rather than the baked
 /// constants: the names are the same eleven, because the linker looks for them
-/// by those names whichever tier staged them. The size guard is the one that
-/// function's header argues, and it is worth as much here — the cross link
-/// directory is reused by a `--watch` loop too.
+/// by those names whichever tier staged them. Each is hard-linked from that
+/// cache where the filesystem allows it ([`stage_file`]), and skipped when a
+/// file of the same length is already there — the cross link directory is
+/// reused by a `--watch` loop too.
 fn stage_cross_sysroot(cross: &Cross, dir: &Path) -> std::io::Result<()> {
     let src = cross.dir().join("musl").join("lib");
     let lib = dir.join("musl").join("lib");
@@ -1206,7 +1230,7 @@ fn stage_cross_sysroot(cross: &Cross, dir: &Path) -> std::io::Result<()> {
 /// and cannot be a different one that happens to weigh the same.
 fn stage_bytes(bytes: &[u8], dest: &Path) -> std::io::Result<()> {
     if std::fs::metadata(dest).map(|m| m.len()).ok() != Some(bytes.len() as u64) {
-        std::fs::write(dest, bytes)?;
+        replace_with(dest, bytes)?;
     }
     Ok(())
 }
@@ -1218,8 +1242,69 @@ fn stage_file(src: &Path, dest: &Path) -> std::io::Result<()> {
     if std::fs::metadata(dest).map(|m| m.len()).ok() == Some(len) {
         return Ok(());
     }
-    std::fs::copy(src, dest)?;
-    Ok(())
+    stage_from(src, dest)
+}
+
+/// Puts the file at `src` at `dest`, hard-linked where the filesystem allows
+/// it and copied where it does not.
+///
+/// `src` is a file nothing writes to once it exists: a cache entry, or the
+/// cross runtime in `~/.buri`. A hard link is the same file under a second
+/// name, so a link directory staged this way costs only its directory entries.
+/// A `dest` that is already `src` is left alone.
+///
+/// **Nothing is ever written through `dest`.** It may be a hard link to a
+/// cache entry from an earlier link, and writing into it would change that
+/// entry. So an old `dest` is removed before the link is made, and a copy is
+/// made beside it and renamed over it ([`replace_with`]'s rule).
+fn stage_from(src: &Path, dest: &Path) -> std::io::Result<()> {
+    if same_file(src, dest) {
+        return Ok(());
+    }
+    let _ = std::fs::remove_file(dest);
+    match std::fs::hard_link(src, dest) {
+        Ok(()) => Ok(()),
+        // A second process linking the same key staged the same file first.
+        Err(_) if same_file(src, dest) => Ok(()),
+        Err(_) => {
+            let fresh = beside(dest);
+            let copied = std::fs::copy(src, &fresh).and_then(|_| std::fs::rename(&fresh, dest));
+            if copied.is_err() {
+                let _ = std::fs::remove_file(&fresh);
+            }
+            copied
+        }
+    }
+}
+
+/// Whether two paths name one file.
+fn same_file(a: &Path, b: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (std::fs::metadata(a), std::fs::metadata(b)) {
+            (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (a, b);
+        false
+    }
+}
+
+/// Writes `bytes` to a new file renamed over `dest`, rather than into `dest`.
+///
+/// `dest` may be a hard link to a cache entry ([`stage_from`]), and truncating
+/// it would rewrite that entry in place.
+fn replace_with(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let fresh = beside(dest);
+    let written = std::fs::write(&fresh, bytes).and_then(|()| std::fs::rename(&fresh, dest));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&fresh);
+    }
+    written
 }
 
 /// The driver a harness should spawn to link the way the product does, and the
@@ -1252,7 +1337,7 @@ pub fn product_link_args(dir: &Path) -> Vec<String> {
     let target = Target { platform, arch: host_arch() };
     let Ok(driver) = select(target) else { return Vec::new() };
     if driver.libc == LibcMode::MuslBaked {
-        let _ = stage_sysroot(dir);
+        let _ = stage_sysroot(dir, None);
     }
     driver.platform_flags()
 }
@@ -1319,6 +1404,12 @@ impl CDriver {
     /// which is only nameable once this linker's version has entered that key.
     pub fn in_dir(mut self, dir: PathBuf) -> CDriver {
         self.dir = dir;
+        self
+    }
+
+    /// The same driver, staging from `cache` where it already holds a file.
+    pub fn from_cache(mut self, cache: Cache) -> CDriver {
+        self.store = Some(cache);
         self
     }
 
@@ -1670,6 +1761,11 @@ impl Linker for CDriver {
         // program of several hundred units is several hundred `open`/`read`
         // round trips over eight megabytes.
         let skip: std::collections::HashSet<usize> = unchanged.iter().copied().collect();
+        #[expect(
+            clippy::result_large_err,
+            reason = "every error ends up in `diagnostics` as a `Diagnostic`, and boxing it would \
+                      only be unboxed again below"
+        )]
         let staged: Vec<Result<PathBuf, Diagnostic>> = crate::parallel::map(units.len(), |i| {
             let Some(unit) = units.get(i) else {
                 return Err(Diagnostic::error(
@@ -1683,6 +1779,25 @@ impl Linker for CDriver {
                     format!("internal error: {:?} is not a codegen unit filename", unit.name),
                 ));
             };
+            // The cache's own file, where it holds these bytes: hard-linked
+            // rather than written, so a link directory costs the disk nothing
+            // the cache has not already paid for. The length is checked
+            // because the entry is named by the unit's key, and the bytes in
+            // hand are what this link is of.
+            let entry = self
+                .store
+                .as_ref()
+                .and_then(|cache| cache.entry(&unit.key))
+                .filter(|e| std::fs::metadata(e).is_ok_and(|m| m.len() == unit.bytes.len() as u64));
+            if let Some(entry) = entry {
+                return match stage_from(&entry, &path) {
+                    Ok(()) => Ok(path),
+                    Err(e) => Err(Diagnostic::error(
+                        Span::NONE,
+                        format!("cannot write {}: {e}", path.display()),
+                    )),
+                };
+            }
             // An unchanged unit's bytes came from the cache, so the file on
             // disk — if there is one — already holds them. Everything else is
             // written unconditionally.
@@ -1691,7 +1806,7 @@ impl Linker for CDriver {
             // checked rather than taken on the caller's word.
             let already = skip.contains(&i) && already_holds(&path, &unit.bytes);
             if !already {
-                if let Err(e) = std::fs::write(&path, &unit.bytes) {
+                if let Err(e) = replace_with(&path, &unit.bytes) {
                     return Err(Diagnostic::error(
                         Span::NONE,
                         format!("cannot write {}: {e}", path.display()),
@@ -1718,7 +1833,7 @@ impl Linker for CDriver {
         // `prelink_args`). The baked bytes come from this binary; the cross bytes
         // come from `runtime_cross`'s `~/.buri` cache.
         let staged_sysroot = match (self.libc, &self.cross) {
-            (LibcMode::MuslBaked, _) => stage_sysroot(&self.dir),
+            (LibcMode::MuslBaked, _) => stage_sysroot(&self.dir, self.store.as_ref()),
             (LibcMode::MuslCross, Some(cross)) => stage_cross_sysroot(cross, &self.dir),
             _ => Ok(()),
         };
@@ -1742,10 +1857,21 @@ impl Linker for CDriver {
             // the size differs" guard is worth most here: the archive is the
             // largest file the link touches and a `--watch` loop reuses the
             // directory on every pass.
+            //
+            // The host archive is a constant of this binary, so with a cache it
+            // is written there once, as an entry keyed on its digest, and
+            // hard-linked into every link directory from there. Sixteen
+            // megabytes per link directory was most of what a cold `buri test`
+            // wrote to disk.
             let archive = self.dir.join(runtime_native::ARCHIVE_NAME);
-            let written = match &self.cross {
-                Some(cross) => stage_file(&cross.archive(), &archive),
-                None => stage_bytes(runtime_native::ARCHIVE, &archive),
+            let written = match (&self.cross, &self.store) {
+                (Some(cross), _) => stage_file(&cross.archive(), &archive),
+                (None, store) => stage_constant(
+                    store.as_ref(),
+                    &format!("runtime archive {}", crate::build::actions::runtime_archive_hash()),
+                    runtime_native::ARCHIVE,
+                    &archive,
+                ),
             };
             if let Err(e) = written {
                 diagnostics.push(Diagnostic::error(
@@ -1980,8 +2106,11 @@ fn same_contents(a: &mut std::fs::File, b: &mut std::fs::File) -> std::io::Resul
 /// test runner. A file whose bytes already match is left alone, so only a
 /// rebuild that changed the binary pays it.
 ///
-/// The output and the cache entry are always separate inodes: a hard link or
-/// clone would let anything that writes the artifact change the cache.
+/// The output and the cache entry are always separate inodes: a hard link would
+/// let anything that writes the artifact change the cache. The new file is a
+/// copy, which on APFS is a clone: a separate inode that shares the source's
+/// blocks until one of them is written, so placing a two-gigabyte test binary
+/// writes almost nothing.
 pub fn place_from(src: &Path, dest: &Path) -> std::io::Result<u64> {
     let mut source = std::fs::File::open(src)?;
     let len = source.metadata()?.len();
@@ -2005,10 +2134,9 @@ pub fn place_from(src: &Path, dest: &Path) -> std::io::Result<u64> {
         }
         return Ok(len);
     }
-    use std::io::Seek;
-    source.rewind()?;
+    drop(source);
     let fresh = beside(dest);
-    let placed = write_fresh(&mut source, &fresh).and_then(|()| std::fs::rename(&fresh, dest));
+    let placed = copy_fresh(src, &fresh).and_then(|()| std::fs::rename(&fresh, dest));
     if placed.is_err() {
         let _ = std::fs::remove_file(&fresh);
     }
@@ -2024,24 +2152,18 @@ fn beside(dest: &Path) -> PathBuf {
     dest.with_file_name(format!(".{name}.{}.{n}.partial", std::process::id()))
 }
 
-/// Copies `source` into a new executable file at `path`, a [`CHUNK`] at a time.
-fn write_fresh(source: &mut std::fs::File, path: &Path) -> std::io::Result<()> {
-    use std::io::{Read, Write};
-    let mut file = std::fs::File::create_new(path)?;
-    let mut chunk = Vec::with_capacity(CHUNK as usize);
-    loop {
-        chunk.clear();
-        // `Read::by_ref` by name: `Write` brings a `by_ref` of its own.
-        Read::by_ref(source).take(CHUNK).read_to_end(&mut chunk)?;
-        if chunk.is_empty() {
-            break;
-        }
-        file.write_all(&chunk)?;
-    }
+/// Copies `src` into a new executable file at `path`.
+///
+/// `std::fs::copy`, which on macOS clones the file where the filesystem can
+/// (`fclonefileat`) and on Linux asks the kernel to copy it
+/// (`copy_file_range`, a reflink where the filesystem has them). Either way
+/// the bytes do not pass through this process.
+fn copy_fresh(src: &Path, path: &Path) -> std::io::Result<()> {
+    std::fs::copy(src, path)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(std::fs::Permissions::from_mode(0o755))?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))?;
     }
     Ok(())
 }
@@ -2409,7 +2531,7 @@ mod tests {
         }
         let dir = std::env::temp_dir().join(format!("buri-sysroot-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        stage_sysroot(&dir).expect("staging the sysroot");
+        stage_sysroot(&dir, None).expect("staging the sysroot");
         for (name, bytes) in musl::FILES {
             let path = dir.join("musl").join("lib").join(name);
             let on_disk = std::fs::read(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -2417,7 +2539,7 @@ mod tests {
         }
         // Twice is the same eleven files: a `--watch` pass must not rewrite
         // 6.6 MB it already wrote.
-        stage_sysroot(&dir).expect("staging the sysroot again");
+        stage_sysroot(&dir, None).expect("staging the sysroot again");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

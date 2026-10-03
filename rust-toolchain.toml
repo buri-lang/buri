@@ -1,0 +1,10 @@
+# The one rustc for `nix develop`, the flake's package and CI. A different
+# compiler inlines differently, and a race once failed on CI alone because of it.
+[toolchain]
+channel = "1.99.0"
+profile = "minimal"
+# `llvm-tools` ships the `libLLVM.dylib` that rustc's bundled `rust-lld` loads
+# for a macOS cross link to Linux.
+components = ["clippy", "rustfmt", "llvm-tools"]
+# No `targets`: a musl std makes `cli/build.rs` build a musl runtime, which needs
+# clang. CI jobs and the flake that have clang add the musl targets themselves.

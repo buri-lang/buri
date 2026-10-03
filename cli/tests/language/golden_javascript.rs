@@ -600,15 +600,11 @@ export fn main(host: WebHost): Result<(), Str> {
 
 /// Two generics instantiated over different contexts get different symbols.
 ///
-/// This is the invariant that decides how `monomorphize::name_of` may name things, and
-/// it was worth a test the moment it nearly went the other way. The symbol's
-/// hash is taken over the `Debug` form of the type arguments, which carries
-/// type-table indices — so it moves if the compiler changes what it loads,
-/// which is untidy. Hashing a *rendering* instead is the obvious repair and is
-/// wrong: `types::show` prints every context type as `a context`, because a
-/// context type is generated and has no name. The two instantiations below
-/// would collide, one body would silently replace the other, and the program
-/// would call the wrong implementation.
+/// This is the invariant that decides how `monomorphize::name_of` may name things.
+/// A context is named by its bindings, so contexts with equal bindings share an
+/// instance. `types::show` prints every context type as `a context`, so hashing
+/// that instead would land the two instantiations below on one symbol, and one
+/// body would silently replace the other.
 ///
 /// The two contexts here bind the same effect to different implementations —
 /// exactly the case a name-based hash cannot tell apart.

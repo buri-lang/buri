@@ -5,7 +5,9 @@ message: this is `{comparator}`, written out
 note: "`core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ordered` impl both take"
 fix: call `{comparator}` with the two operands, and delete the chain
 ---
-```
+```buri lint code=hand-rolled-comparator
+# from "core/order" import { Order };
+
 fn compareInts(left: Int, right: Int): Order {
     if (left < right) { .Less } else if (left > right) { .Greater } else { .Equal }
 }

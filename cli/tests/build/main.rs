@@ -14,6 +14,7 @@
 //! | [`hermeticity`] | scratch | That a spawn is deterministic, that a perturbed environment changes neither bytes nor verdicts, and that concurrent builds leave the cache intact. |
 //! | [`generators`] | scratch | That a generated module reaches the host's native backend and its linker, and that the generator the toolchain ships is compiled once per repository. |
 //! | [`heap`] | scratch | That the heap check every suite here runs under is really on — in a `buri run` artifact and in the binary `buri test` spawns — and that a program which really leaks is really reported. |
+//! | [`scheduling`] | scratch | That suites build and run side by side, report in suite order, and are reused across an edit that cannot change them. |
 //! | [`watch`] | scratch | What `buri watch` declares as its input set, and what it re-runs when one of them moves. |
 //! | [`serving`] | `repositories/serving/` | That `buri run` on a page builds the artifact and serves it — the shell for every route, the files beside it as themselves, and `--watch` rebuilding into the next request. |
 //!
@@ -50,6 +51,8 @@ mod heap;
 mod hermeticity;
 mod incrementality;
 mod init;
+mod instances;
 mod repositories;
+mod scheduling;
 mod serving;
 mod watch;

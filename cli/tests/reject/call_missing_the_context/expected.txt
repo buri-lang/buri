@@ -1,4 +1,4 @@
-error: `render` takes 2 arguments, but 1 were given [argument-count]
+error: `render` takes 2 arguments, but 1 was given [argument-count]
   --> cmd/call_missing_the_context/main.buri:13:3
    |
 13 |   render("home")

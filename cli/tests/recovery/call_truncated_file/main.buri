@@ -1,4 +1,4 @@
-// EXPECT: `add` takes 2 arguments, but 1 were given
+// EXPECT: `add` takes 2 arguments, but 1 was given
 fn add(left: Int, right: Int): Int {
   left + right
 }

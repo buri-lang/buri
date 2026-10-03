@@ -23,7 +23,7 @@ use crate::compiler::modules::{Loaded, Role};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::compiler::standard_library;
-use crate::diagnostics::{Diagnostic, Diagnostics, FileId, Invariant as _, Span, SecondarySpan};
+use crate::diagnostics::{counted, were_given, Diagnostic, Diagnostics, FileId, Invariant as _, Span, SecondarySpan};
 use crate::parsing::flat::{self, TypeId};
 use crate::parsing::tree;
 use crate::hash::{Map as HashMap, Set as HashSet};
@@ -2067,8 +2067,8 @@ impl<'a> Checker<'a> {
                         if !args.is_empty() {
                             self.templated("type-argument-count", span)
                                 .bind("subject", format!("the type parameter `{name}`"))
-                                .bind("expected", "no")
-                                .bind("given", args.len().to_string())
+                                .bind("expected", counted(0, "type argument"))
+                                .bind("given", were_given(args.len()))
                                 .fix("drop the arguments; a type parameter stands for one type already");
                         }
                         return Ty::Param(i as u32);
@@ -2090,8 +2090,8 @@ impl<'a> Checker<'a> {
                         if !elaborated_args.is_empty() {
                             self.templated("type-argument-count", span)
                                 .bind("subject", format!("`{name}`"))
-                                .bind("expected", "no")
-                                .bind("given", elaborated_args.len().to_string())
+                                .bind("expected", counted(0, "type argument"))
+                                .bind("given", were_given(elaborated_args.len()))
                                 .fix("drop them");
                         }
                         return Ty::Con(id, Vec::new());
@@ -2105,8 +2105,8 @@ impl<'a> Checker<'a> {
                             let got = elaborated_args.len();
                             self.templated("type-argument-count", span)
                                 .bind("subject", format!("`{n}`"))
-                                .bind("expected", arity.to_string())
-                                .bind("given", got.to_string())
+                                .bind("expected", counted(arity, "type argument"))
+                                .bind("given", were_given(got))
                                 .mismatch(arity.to_string(), got.to_string());
                             return Ty::Error;
                         }
@@ -2185,8 +2185,8 @@ impl<'a> Checker<'a> {
         if args.len() != generics.len() {
             self.templated("type-argument-count", span)
                 .bind("subject", format!("`{name}`"))
-                .bind("expected", generics.len().to_string())
-                .bind("given", args.len().to_string());
+                .bind("expected", counted(generics.len(), "type argument"))
+                .bind("given", were_given(args.len()));
             return Some(Ty::Error);
         }
         self.expanding.push(key);
@@ -2807,7 +2807,7 @@ impl<'a> Checker<'a> {
             other => {
                 let shown = show(&self.tables, None, generics, other);
                 let at = self.tree(module).type_span(d.self_ty);
-                self.templated("type-has-no-methods", at).bind("type", shown);
+                self.templated("impl-target-not-declared-type", at).bind("type", shown);
                 return;
             }
         };
@@ -2960,8 +2960,8 @@ impl<'a> Checker<'a> {
                     let arity = self.tables.tycon(con).arity();
                     self.templated("type-argument-count", span)
                         .bind("subject", format!("`{n}`"))
-                        .bind("expected", arity.to_string())
-                        .bind("given", args.len().to_string())
+                        .bind("expected", counted(arity, "type argument"))
+                        .bind("given", were_given(args.len()))
                         .fix(format!("a `derive` names the constructor alone: `derive ... for {n};`"));
                 }
                 Some(con)
@@ -3273,7 +3273,7 @@ fn bounds_of(generic: Option<&GenericInfo>) -> Vec<TraitId> {
 }
 
 /// The same, as the set the comparison is about: order carries no meaning in a
-/// bound list, and a repeat is `duplicate-bound`'s business rather than this
+/// bound list, and a repeat is `duplicate-context-binding`'s business rather than this
 /// rule's.
 fn as_a_set(bounds: &[TraitId]) -> BTreeSet<TraitId> {
     bounds.iter().copied().collect()
@@ -3292,16 +3292,6 @@ fn bound_phrase(tables: &Tables, name: &str, bounds: &[TraitId]) -> String {
     }
     let named: Vec<&str> = bounds.iter().map(|t| tables.trait_(*t).name.as_str()).collect();
     format!("`{name}: {}`", named.join(" + "))
-}
-
-/// "no parameters", "1 parameter", "3 parameters" — a count as the noun phrase
-/// a message wants, where zero reads better as a word than as a digit.
-fn counted(n: usize, noun: &str) -> String {
-    match n {
-        0 => format!("no {noun}s"),
-        1 => format!("1 {noun}"),
-        _ => format!("{n} {noun}s"),
-    }
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 ---
 title: A payload pattern matches the values the variant holds
-message: '`{name}` holds {expected} values, but {matched} were matched'
+message: '`{name}` holds {expected}, but the pattern matches {matched}'
 fix: match exactly {expected}, or end the pattern with `..`
 ---
 

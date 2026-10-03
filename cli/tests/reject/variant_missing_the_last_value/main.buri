@@ -1,4 +1,4 @@
-// EXPECT: `Pair` holds 2 values, but 1 were given
+// EXPECT: `Pair` holds 2 values, but 1 was given
 //
 // A variant is a constructor too, and the shape the fix prints is the one the
 // enum declares.
