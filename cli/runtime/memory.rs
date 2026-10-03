@@ -706,7 +706,9 @@ struct Cache {
     /// left, which costs at most the tail of one block per nesting event and
     /// keeps what `scoped` carries between the two calls a single `I64`. The
     /// mapping itself is in the arena's `blocks` list either way, so the
-    /// abandoned tail is still `munmap`ed with the rest.
+    /// abandoned tail is still `munmap`ed with the rest. The one exception is
+    /// `copyAcross`'s step out of every arena and back, which keeps it
+    /// ([`KEPT`]).
     arena_at: usize,
     arena_end: usize,
 }
@@ -2697,7 +2699,12 @@ pub fn set_arena_slot_of_thread(slot: ArenaSlot) {
 /// [`arenas`] does not have and so allocates from the platform instead.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc_arena_enter(handle: i64) -> i64 {
-    let previous = arena_slot_of_thread().biased;
+    let slot = arena_slot_of_thread();
+    let previous = slot.biased;
+    // Leaving every arena keeps the window for the way back: see [`KEPT`].
+    if handle < 0 {
+        let _ = KEPT.try_with(|k| k.set(slot));
+    }
     // The window starts empty, so the first allocation of the new scope takes
     // the mapping path. The window the *outer* scope had is abandoned, which
     // is [`Cache::arena_at`]'s stated cost of nesting.
@@ -2712,8 +2719,26 @@ pub extern "C" fn buri_rt_alloc_arena_enter(handle: i64) -> i64 {
 /// `core/alloc`'s `arenaLeave(previous)` — the inverse, and the whole of it.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc_arena_leave(previous: i64) -> i64 {
-    set_arena_slot_of_thread(ArenaSlot { biased: previous as u64, at: 0, end: 0 });
+    let kept = KEPT.try_with(|k| k.replace(ArenaSlot::NONE)).unwrap_or(ArenaSlot::NONE);
+    if kept.biased != 0 && kept.biased == previous as u64 {
+        set_arena_slot_of_thread(kept);
+    } else {
+        set_arena_slot_of_thread(ArenaSlot { biased: previous as u64, at: 0, end: 0 });
+    }
     previous
+}
+
+thread_local! {
+    /// **The window an `arenaEnter(NO_SCOPE)` stepped out of**, for the
+    /// `arenaLeave` that steps back in.
+    ///
+    /// `core/alloc`'s `copyAcross` is that pair, around every actor crossing.
+    /// Abandoning the window there made each crossing map a fresh 64 KiB block
+    /// (buri-lang/buri#223). Keeping it is sound: only the copy glue runs
+    /// between the two calls, the arena is still live because its scope has
+    /// not ended, and only this thread bumps this window. Any other leave finds
+    /// nothing kept for its arena and starts an empty window, as before.
+    static KEPT: core::cell::Cell<ArenaSlot> = const { core::cell::Cell::new(ArenaSlot::NONE) };
 }
 
 /// A block of `payload` usable bytes out of the arena this thread is inside,
@@ -5147,6 +5172,39 @@ mod tests {
         let (live_after, released_after) = arena_stats();
         assert_eq!(live_after, live_before);
         assert_eq!(released_after - released_before, BURI_RT_ARENA_BLOCK as u64);
+    }
+
+    /// **Stepping out of every arena and back keeps the scope's window.**
+    ///
+    /// `core/alloc`'s `copyAcross` does exactly this around each actor
+    /// crossing. Abandoning the window there made every crossing map a fresh
+    /// 64 KiB block, which put a few microseconds and a quarter of a megabyte
+    /// on each `sendMessage` inside a scope (buri-lang/buri#223).
+    #[test]
+    fn leaving_every_arena_and_coming_back_keeps_the_window() {
+        let _alone = arena_alone();
+        let a = buri_rt_alloc_arena_create();
+        let outer = buri_rt_alloc_arena_enter(a);
+        let first = buri_rt_alloc(64);
+        let (mapped, _) = arena_stats();
+
+        let previous = buri_rt_alloc_arena_enter(-1);
+        let heap = buri_rt_alloc(64);
+        let _ = buri_rt_alloc_arena_leave(previous);
+        let second = buri_rt_alloc(64);
+        // SAFETY: all three are live, just allocated.
+        unsafe {
+            assert!(!is_arena(header(heap)), "a block outside every arena was the scope's");
+            assert!(is_arena(header(second)), "the scope stopped serving its blocks");
+            buri_rt_free(heap);
+            buri_rt_free(second);
+            buri_rt_free(first);
+        }
+        let (after, _) = arena_stats();
+        assert_eq!(after, mapped, "coming back into the scope mapped another block");
+
+        let _ = buri_rt_alloc_arena_leave(outer);
+        let _ = buri_rt_alloc_arena_release(a);
     }
 
     /// **The acceptance property, for a scope that answers a value**: the pages

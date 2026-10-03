@@ -998,6 +998,10 @@ an arena block was never settled, so it is copied in full. Only marked copies
 settle: a marked block is never unique anyway, while an unmarked `scoped`
 answer stays writable in place.
 
+`copyAcross` also keeps the scope's bump window while it steps out of every
+arena (`KEPT` in `memory.rs`). Starting an empty one on the way back mapped a
+fresh 64 KiB block per crossing.
+
 A **closure** costs one word for this. `Ty::Fn` does not record what was
 captured, so the environment block has always carried its own release function
 in the word before the record; it now carries its copy function in the word
