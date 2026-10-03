@@ -21,14 +21,15 @@
 //! # Sealing and signatures
 //!
 //! `seal` and `open` encrypt with ChaCha20-Poly1305, and `Entropy` mints the
-//! nonce rather than the caller. `verifyEs256` and `verifyEd25519` check a
-//! signature somebody else made. These four are the platform's rather than
-//! Buri's: `ring` natively, and the JavaScript runtime's own synchronous code.
+//! nonce rather than the caller. `verifyEs256`, `verifyRs256` and
+//! `verifyEd25519` check a signature somebody else made. These five are the
+//! platform's rather than Buri's: `ring` natively, and the JavaScript runtime's
+//! own synchronous code.
 //!
 //! # What is not here
 //!
 //! - **No signing and no key generation.** Only checking.
-//! - **No RSA.** RS256 JWTs cannot be checked yet.
+//! - **No RSA-PSS and no RSA encryption.** RS256 is the one RSA scheme.
 //! - **No key derivation and no password hashing.**
 //!
 //! **`sha256` is not a password hash.** It is fast, which is the wrong
@@ -1125,4 +1126,222 @@ export fn ed25519PublicKeyFromRaw(raw: [U8]): Result<Ed25519PublicKey, Str> {
 /// signature answers `false`.
 export fn verifyEd25519(key: Ed25519PublicKey, message: [U8], signature: [U8]): Bool {
     ed25519Verify(key.0, message, signature)
+}
+
+/// RSASSA-PKCS1-v1_5 with SHA-256. `n` and `e` are big-endian with no leading
+/// zero octet.
+fn rsaPkcs1Sha256Verify(n: [U8], e: [U8], message: [U8], signature: [U8]): Bool;
+
+/// An RSA public key, for `verifyRs256`. Make one with `rsaPublicKeyFromJwk` or
+/// `rsaPublicKeyFromSpki`.
+///
+/// Both refuse a key outside these bounds:
+///
+/// - the modulus is odd and 2048 to 8192 bits long;
+/// - the exponent is odd, at least 3 and below 2^33.
+///
+/// The keys identity providers publish fit: 2048 to 4096 bits, and 65537.
+export struct RsaPublicKey {
+    n: [U8],
+    e: [U8],
+}
+
+/// An RSA key from a JWK's `n` and `e` members, which are base64url.
+///
+/// ```buri
+/// from "core/crypto" import * as crypto;
+/// from "platform/effect" import { Allocator };
+///
+/// export fn rfcKey<C: Allocator>(ctx: C): Result<crypto.RsaPublicKey, Str> {
+///     // RFC 7515 appendix A.2.
+///     crypto.rsaPublicKeyFromJwk(
+///         ctx,
+///         "ofgWCuLjybRlzo0tZWJjNiuSfb4p4fAkd_wWJcyQoTbji9k0l8W26mPddxHmfHQp-Vaw-4qPCJrcS2mJPMEzP1Pt0Bm4d4QlL-yRT-SFd2lZS-pCgNMsD1W_YpRPEwOWvG6b32690r2jZ47soMZo9wGzjb_7OMg0LOL-bSf63kpaSHSXndS5z5rexMdbBYUsLA9e-KXBdQOS-UTo7WTBEMa2R2CapHg665xsmtdVMTBQY4uDZlxvb3qCo5ZwKh9kG4LT6_I5IhlJH7aGhyxXFvUK-DWNmoudF8NAco9_h9iaGNj8q2ethFkMLs91kzk2PAcDTW9gb54h4FRWyuXpoQ",
+///         "AQAB",
+///     )
+/// }
+/// ```
+///
+/// Check the JWK's `kty` is `"RSA"` before calling this. A leading zero octet,
+/// which some encoders add, is ignored.
+export fn rsaPublicKeyFromJwk<C: Allocator>(
+    ctx: C,
+    n: Str,
+    e: Str,
+): Result<RsaPublicKey, Str> {
+    match ((bytes.fromBase64Url(ctx, n), bytes.fromBase64Url(ctx, e))) {
+        (.Ok(ns), .Ok(es)) => rsaPublicKey(ctx, ns, es),
+        _ => .Err("a JWK modulus or exponent is base64url"),
+    }
+}
+
+/// An RSA key from DER `SubjectPublicKeyInfo` bytes holding an `rsaEncryption`
+/// key, which is what a PEM `PUBLIC KEY` block holds once its base64 is decoded.
+///
+/// The DER must be exact: minimal lengths and integers, the `NULL` parameters,
+/// and nothing after the end.
+export fn rsaPublicKeyFromSpki<C: Allocator>(
+    ctx: C,
+    der: [U8],
+): Result<RsaPublicKey, Str> {
+    match (rsaSpki(ctx, der)) {
+        .Some((n, e)) => rsaPublicKey(ctx, n, e),
+        .None => .Err("not an RSA SubjectPublicKeyInfo"),
+    }
+}
+
+/// Whether `signature` is `key`'s RS256 signature over `message`.
+///
+/// For a JWT, `message` is the ASCII of `header.payload` and `signature` is the
+/// third part, base64url-decoded, as for `verifyEs256`.
+///
+/// A signature must be exactly as long as the modulus, and its padding exactly
+/// PKCS #1 v1.5's. Any other signature answers `false`.
+export fn verifyRs256(key: RsaPublicKey, message: [U8], signature: [U8]): Bool {
+    rsaPkcs1Sha256Verify(key.n, key.e, message, signature)
+}
+
+/// The key, once `n` and `e` are in bounds. Leading zero octets are dropped.
+fn rsaPublicKey<C: Allocator>(
+    ctx: C,
+    modulus: [U8],
+    exponent: [U8],
+): Result<RsaPublicKey, Str> {
+    let n = modulus.slice(ctx, leadingZeros(modulus, 0), modulus.length());
+    let e = exponent.slice(ctx, leadingZeros(exponent, 0), exponent.length());
+    let bits = if (n.length() == 0) {
+        0
+    } else {
+        (n.length() - 1) * 8 + bitLength(octet(n, 0))
+    };
+    let value = if (e.length() > 5) { 0 } else { bigEndian(e, 0, 0) };
+    if (bits < 2048 || bits > 8192) {
+        .Err("an RSA modulus is 2048 to 8192 bits")
+    } else if (octet(n, n.length() - 1) % 2 == 0) {
+        .Err("an RSA modulus is odd")
+    } else if (value < 3 || value >= 8589934592 || value % 2 == 0) {
+        .Err("an RSA exponent is odd, at least 3 and below 2^33")
+    } else {
+        .Ok(RsaPublicKey { n, e })
+    }
+}
+
+fn leadingZeros(octets: [U8], i: Int): Int {
+    if (octet(octets, i) == 0) { leadingZeros(octets, i + 1) } else { i }
+}
+
+fn bitLength(x: Int): Int {
+    if (x <= 0) { 0 } else { 1 + bitLength(x / 2) }
+}
+
+/// Up to seven octets, big-endian, as an `Int`.
+fn bigEndian(octets: [U8], i: Int, acc: Int): Int {
+    if (i >= octets.length()) {
+        acc
+    } else {
+        bigEndian(octets, i + 1, acc * 256 + octet(octets, i))
+    }
+}
+
+/// The octet at `i`, or -1 outside `octets`.
+fn octet(octets: [U8], i: Int): Int {
+    match (octets.get(i)) {
+        .Some(b) => b.toI64(),
+        .None => -1,
+    }
+}
+
+/// DER's `AlgorithmIdentifier` for `rsaEncryption`, with its `NULL` parameters.
+let RSA_ENCRYPTION: [U8] = [
+    0x30,
+    0x0d,
+    0x06,
+    0x09,
+    0x2a,
+    0x86,
+    0x48,
+    0x86,
+    0xf7,
+    0x0d,
+    0x01,
+    0x01,
+    0x01,
+    0x05,
+    0x00,
+];
+
+/// A `SubjectPublicKeyInfo`'s modulus and exponent, from
+/// `SEQUENCE { RSA_ENCRYPTION, BIT STRING { 0x00, SEQUENCE { INTEGER n, INTEGER e } } }`.
+/// Each item must fill its parent exactly.
+fn rsaSpki<C: Allocator>(ctx: C, der: [U8]): Option<([U8], [U8])> {
+    let outer = derItem(der, 0, 0x30).filter(fn(item) => item.1 == der.length());
+    let bits = outer
+        .filter(fn(item) => matchesAt(der, item.0, RSA_ENCRYPTION, 0))
+        .andThen(fn(item) => {
+            derItem(der, item.0 + RSA_ENCRYPTION.length(), 0x03).filter(fn(b) => {
+                b.1 == item.1
+            })
+        })
+        .filter(fn(item) => octet(der, item.0) == 0);
+    let key = bits.andThen(fn(item) => {
+        derItem(der, item.0 + 1, 0x30).filter(fn(k) => k.1 == item.1)
+    });
+    let n = key.andThen(fn(item) => derInteger(der, item.0));
+    let e = n.andThen(fn(item) => derInteger(der, item.1));
+    match ((key, n, e)) {
+        (.Some(k), .Some(ns), .Some(es)) => {
+            if (es.1 == k.1) {
+                .Some((der.slice(ctx, ns.0, ns.1), der.slice(ctx, es.0, es.1)))
+            } else {
+                .None
+            }
+        },
+        _ => .None,
+    }
+}
+
+/// Whether `der` holds `expected` from `at` on.
+fn matchesAt(der: [U8], at: Int, expected: [U8], i: Int): Bool {
+    i >= expected.length()
+        || octet(der, at + i) == octet(expected, i)
+            && matchesAt(der, at, expected, i + 1)
+}
+
+/// The DER item tagged `tag` at `at`: where its contents start and end. The
+/// length must be minimal, and at most two octets.
+fn derItem(der: [U8], at: Int, tag: Int): Option<(Int, Int)> {
+    let first = octet(der, at + 1);
+    let (start, length) = if (octet(der, at) != tag) {
+        (0, -1)
+    } else if (first >= 0 && first < 0x80) {
+        (at + 2, first)
+    } else if (first == 0x81 && octet(der, at + 2) >= 0x80) {
+        (at + 3, octet(der, at + 2))
+    } else if (first == 0x82 && octet(der, at + 2) >= 1 && octet(der, at + 3) >= 0) {
+        (at + 4, octet(der, at + 2) * 256 + octet(der, at + 3))
+    } else {
+        (0, -1)
+    };
+    if (length < 0 || start + length > der.length()) {
+        .None
+    } else {
+        .Some((start, start + length))
+    }
+}
+
+/// A positive DER `INTEGER` at `at`: where its magnitude starts, past the zero
+/// octet that keeps it positive, and where it ends. Zero, a negative number and
+/// a needless zero octet are refused.
+fn derInteger(der: [U8], at: Int): Option<(Int, Int)> {
+    derItem(der, at, 0x02).andThen(fn(item) => {
+        let first = octet(der, item.0);
+        let second = if (item.0 + 1 < item.1) { octet(der, item.0 + 1) } else { -1 };
+        if (item.0 == item.1 || first >= 0x80 || first == 0 && second < 0x80) {
+            .None
+        } else if (first == 0) {
+            .Some((item.0 + 1, item.1))
+        } else {
+            .Some(item)
+        }
+    })
 }

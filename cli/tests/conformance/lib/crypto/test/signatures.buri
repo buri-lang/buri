@@ -1,5 +1,6 @@
-// core/crypto — `verifyEd25519` against RFC 8032's vectors, and `verifyEs256`
-// against RFC 7515's ES256 example, with the keys read every way they arrive.
+// core/crypto — `verifyEd25519` against RFC 8032's vectors, and `verifyEs256` and
+// `verifyRs256` against RFC 7515's ES256 and RS256 examples, with the keys read
+// every way they arrive.
 
 from "core/bytes" import * as bytes;
 from "core/crypto" import * as crypto;
@@ -245,5 +246,254 @@ test "keys in the wrong shape are not keys" {
     assert.equal(
         crypto.p256PublicKeyFromSpki(ctx, hex(SEC1)).map(fn(_k) => ()),
         .Err("not a P-256 SubjectPublicKeyInfo"),
+    );
+}
+
+// --- RS256, RFC 7515 appendix A.2 -------------------------------------------------
+
+let RSA_N: Str =
+    "ofgWCuLjybRlzo0tZWJjNiuSfb4p4fAkd_wWJcyQoTbji9k0l8W26mPddxHmfHQp-Vaw-4qPCJrcS2mJPMEzP1Pt0Bm4d4QlL-yRT-SFd2lZS-pCgNMsD1W_YpRPEwOWvG6b32690r2jZ47soMZo9wGzjb_7OMg0LOL-bSf63kpaSHSXndS5z5rexMdbBYUsLA9e-KXBdQOS-UTo7WTBEMa2R2CapHg665xsmtdVMTBQY4uDZlxvb3qCo5ZwKh9kG4LT6_I5IhlJH7aGhyxXFvUK-DWNmoudF8NAco9_h9iaGNj8q2ethFkMLs91kzk2PAcDTW9gb54h4FRWyuXpoQ";
+
+// The same modulus in hex, to build DER around.
+let RSA_N_HEX: Str =
+    "a1f8160ae2e3c9b465ce8d2d656263362b927dbe29e1f02477fc1625cc90a136e38bd93497c5b6ea63dd7711e67c7429f956b0fb8a8f089adc4b69893cc1333f53edd019b87784252fec914fe4857769594bea4280d32c0f55bf62944f130396bc6e9bdf6ebdd2bda3678eeca0c668f701b38dbffb38c8342ce2fe6d27fade4a5a4874979dd4b9cf9adec4c75b05852c2c0f5ef8a5c1750392f944e8ed64c110c6b647609aa4783aeb9c6c9ad755313050638b83665c6f6f7a82a396702a1f641b82d3ebf2392219491fb686872c5716f50af8358d9a8b9d17c340728f7f87d89a18d8fcab67ad84590c2ecf759339363c07034d6f606f9e21e05456cae5e9a1";
+
+// The key's SubjectPublicKeyInfo as `openssl` writes it, up to the modulus,
+// and the exponent after it.
+let RSA_SPKI_HEAD: Str =
+    "30820122300d06092a864886f70d01010105000382010f003082010a0282010100";
+
+let RSA_SPKI_TAIL: Str = "0203010001";
+
+let RS256_SIGNING_INPUT: Str =
+    "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ";
+
+let RS256_SIGNATURE: Str =
+    "cC4hiUPoj9Eetdgtv3hF80EGrhuB__dzERat0XF9g2VtQgr9PJbu3XOiZj5RZmh7AAuHIm4Bh-0Qc_lF5YKt_O8W2Fp5jujGbds9uJdbF9CUAr7t1dnZcAcQjbKBYNX4BAynRFdiuB--f_nZLgrnbyTyWzO75vRK5h6xBArLIARNPvkSjtQBMHlb1L07Qe7K0GarZRmB_eSN9383LcOLn6_dO--xi12jzDwusC-eOkHWEsqtFZESc6BfI7noOPqvhJ1phCnvWh6IeYI2w9QOYEUipUTI8np6LbgGY9Fs98rqVt5AXLIhWkWywlVmtVrBp0igcN_IoypGlUPQGe77Rw";
+
+fn rsaKey(): crypto.RsaPublicKey {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.ok(crypto.rsaPublicKeyFromJwk(ctx, RSA_N, "AQAB"))
+}
+
+fn rs256Signature(): [U8] {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    bytes.fromBase64Url(ctx, RS256_SIGNATURE).withDefault([])
+}
+
+fn rs256(signature: [U8]): Bool {
+    crypto.verifyRs256(rsaKey(), text(RS256_SIGNING_INPUT), signature)
+}
+
+fn jwk(n: [U8], e: [U8]): Result<(), Str> {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    crypto
+        .rsaPublicKeyFromJwk(ctx, bytes.toBase64Url(ctx, n), bytes.toBase64Url(ctx, e))
+        .map(fn(_k) => ())
+}
+
+fn spki(der: [U8]): Result<(), Str> {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    crypto.rsaPublicKeyFromSpki(ctx, der).map(fn(_k) => ())
+}
+
+test "the RFC's RS256 JWS checks against its JWK" {
+    assert.isTrue(rs256(rs256Signature()));
+}
+
+test "the same RSA key read as SPKI checks too" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let key = assert.ok(
+        crypto.rsaPublicKeyFromSpki(
+            ctx,
+            hex("${RSA_SPKI_HEAD}${RSA_N_HEX}${RSA_SPKI_TAIL}"),
+        ),
+    );
+    assert.isTrue(crypto.verifyRs256(key, text(RS256_SIGNING_INPUT), rs256Signature()));
+}
+
+test "a changed RS256 payload is refused" {
+    assert.isFalse(
+        crypto.verifyRs256(rsaKey(), text("${RS256_SIGNING_INPUT}x"), rs256Signature()),
+    );
+}
+
+test "a changed RS256 signature is refused" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let signature = rs256Signature();
+    let changed = signature
+        .slice(ctx, 0, 100)
+        .push(ctx, (signature.get(100).withDefault(0).toI64() ^ 1).wrapToU8())
+        .concat(ctx, signature.slice(ctx, 101, 256));
+    assert.isFalse(rs256(changed));
+}
+
+test "an RS256 signature as long as the modulus is the only length checked" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let signature = rs256Signature();
+    assert.isFalse(rs256(signature.slice(ctx, 0, 255)));
+    assert.isFalse(rs256(hex("00").concat(ctx, signature)));
+    assert.isFalse(rs256(signature.concat(ctx, hex("00"))));
+    assert.isFalse(rs256([]));
+}
+
+test "another RSA key is refused" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // The RFC's modulus with one bit changed in the middle: still odd and 2048
+    // bits, and not the signer.
+    let n = hex(RSA_N_HEX);
+    let other = n
+        .slice(ctx, 0, 128)
+        .push(ctx, (n.get(128).withDefault(0).toI64() ^ 4).wrapToU8())
+        .concat(ctx, n.slice(ctx, 129, 256));
+    let key = assert.ok(
+        crypto.rsaPublicKeyFromJwk(ctx, bytes.toBase64Url(ctx, other), "AQAB"),
+    );
+    assert.isFalse(
+        crypto.verifyRs256(key, text(RS256_SIGNING_INPUT), rs256Signature()),
+    );
+}
+
+test "a JWK modulus with a leading zero octet is the same key" {
+    assert.equal(jwk(hex("00${RSA_N_HEX}"), hex("010001")), .Ok(()));
+}
+
+test "a modulus outside 2048 to 8192 bits is refused" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let n = hex(RSA_N_HEX);
+    let size = "an RSA modulus is 2048 to 8192 bits";
+    // 1024 bits.
+    assert.equal(
+        jwk(n.slice(ctx, 0, 127).concat(ctx, hex("01")), hex("03")),
+        .Err(size),
+    );
+    // 2047 bits: 256 octets with the top bit clear.
+    assert.equal(
+        jwk(hex("7f").concat(ctx, n.slice(ctx, 1, 256)), hex("03")),
+        .Err(size),
+    );
+    // 8193 bits.
+    assert.equal(
+        jwk(hex("01").concat(ctx, hex("ff".repeat(ctx, 1024))), hex("03")),
+        .Err(size),
+    );
+    assert.equal(jwk([], hex("03")), .Err(size));
+    // 8192 bits is the top of the range.
+    assert.equal(jwk(hex("ff".repeat(ctx, 1024)), hex("03")), .Ok(()));
+}
+
+test "an even modulus is refused" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let n = hex(RSA_N_HEX);
+    assert.equal(
+        jwk(n.slice(ctx, 0, 255).concat(ctx, hex("a0")), hex("010001")),
+        .Err("an RSA modulus is odd"),
+    );
+}
+
+test "an even, tiny or huge exponent is refused" {
+    let n = hex(RSA_N_HEX);
+    let bad = "an RSA exponent is odd, at least 3 and below 2^33";
+    assert.equal(jwk(n, hex("01")), .Err(bad));
+    assert.equal(jwk(n, hex("02")), .Err(bad));
+    assert.equal(jwk(n, hex("010000")), .Err(bad));
+    assert.equal(jwk(n, hex("0200000001")), .Err(bad));
+    assert.equal(jwk(n, hex("010000000001")), .Err(bad));
+    assert.equal(jwk(n, []), .Err(bad));
+    // 3 and 2^33 - 1 are the ends of the range.
+    assert.equal(jwk(n, hex("03")), .Ok(()));
+    assert.equal(jwk(n, hex("01ffffffff")), .Ok(()));
+}
+
+test "an RSA JWK that is not base64url is not a key" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let notBase64 = "a JWK modulus or exponent is base64url";
+    assert.equal(
+        crypto.rsaPublicKeyFromJwk(ctx, "not base64!", "AQAB").map(fn(_k) => ()),
+        .Err(notBase64),
+    );
+    assert.equal(
+        crypto.rsaPublicKeyFromJwk(ctx, RSA_N, "A%AB").map(fn(_k) => ()),
+        .Err(notBase64),
+    );
+}
+
+test "RSA SubjectPublicKeyInfo bytes are read strictly" {
+    let notRsa = "not an RSA SubjectPublicKeyInfo";
+    assert.equal(spki(hex("${RSA_SPKI_HEAD}${RSA_N_HEX}${RSA_SPKI_TAIL}")), .Ok(()));
+    // A P-256 key.
+    assert.equal(
+        spki(hex("3059301306072a8648ce3d020106082a8648ce3d030107034200${SEC1}")),
+        .Err(notRsa),
+    );
+    // Cut short, and with an octet after the end.
+    assert.equal(spki(hex("${RSA_SPKI_HEAD}${RSA_N_HEX}020301")), .Err(notRsa));
+    assert.equal(
+        spki(hex("${RSA_SPKI_HEAD}${RSA_N_HEX}${RSA_SPKI_TAIL}00")),
+        .Err(notRsa),
+    );
+    assert.equal(spki([]), .Err(notRsa));
+    // The outer length in three octets where two will do.
+    assert.equal(
+        spki(
+            hex(
+                "3083000122300d06092a864886f70d01010105000382010f003082010a0282010100${RSA_N_HEX}${RSA_SPKI_TAIL}",
+            ),
+        ),
+        .Err(notRsa),
+    );
+    // The modulus without the zero octet that keeps it positive.
+    assert.equal(
+        spki(
+            hex(
+                "30820121300d06092a864886f70d01010105000382010e003082010902820100${RSA_N_HEX}${RSA_SPKI_TAIL}",
+            ),
+        ),
+        .Err(notRsa),
+    );
+    // The exponent with a zero octet it does not need.
+    assert.equal(
+        spki(
+            hex(
+                "30820123300d06092a864886f70d010101050003820110003082010b0282010100${RSA_N_HEX}020400010001",
+            ),
+        ),
+        .Err(notRsa),
+    );
+    // Bits left unused at the end of the BIT STRING.
+    assert.equal(
+        spki(
+            hex(
+                "30820122300d06092a864886f70d01010105000382010f013082010a0282010100${RSA_N_HEX}${RSA_SPKI_TAIL}",
+            ),
+        ),
+        .Err(notRsa),
+    );
+    // Well-formed, and refused for its size: n = 101, e = 3.
+    assert.equal(
+        spki(hex("301a300d06092a864886f70d01010105000309003006020165020103")),
+        .Err("an RSA modulus is 2048 to 8192 bits"),
     );
 }

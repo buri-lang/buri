@@ -680,8 +680,9 @@ export fn roundTrip<C: Allocator + Entropy>(
 
 ### Signatures
 
-`verifyEs256` and `verifyEd25519` check a signature someone else made, such as
-a JWT from an identity provider or a signed webhook. There is no signing.
+`verifyEs256`, `verifyRs256` and `verifyEd25519` check a signature someone else
+made, such as a JWT from an identity provider or a signed webhook. There is no
+signing.
 
 ```buri
 from "core/bytes" import * as bytes;
@@ -708,15 +709,44 @@ point (`p256PublicKeyFromSec1`) or DER `SubjectPublicKeyInfo`
 it. A `true` answer only says who signed: checking `alg`, `exp`, `aud` and
 `iss` is still yours.
 
+Many providers sign with RS256 only. Their JWKS entries carry `n` and `e`:
+
+```buri
+from "core/bytes" import * as bytes;
+from "core/crypto" import * as crypto;
+from "platform/effect" import { Allocator };
+
+export fn fromRsaProvider<C: Allocator>(
+    ctx: C,
+    n: Str,
+    e: Str,
+    signingInput: Str,
+    signature: [U8],
+): Result<Bool, Str> {
+    let key = crypto.rsaPublicKeyFromJwk(ctx, n, e)?;
+    .Ok(crypto.verifyRs256(key, bytes.toUtf8(ctx, signingInput), signature))
+}
+```
+
+An RSA key comes from a JWK (`rsaPublicKeyFromJwk`) or DER
+`SubjectPublicKeyInfo` (`rsaPublicKeyFromSpki`). Both refuse a key that is too
+weak or malformed rather than letting every check fail later:
+
+- **The modulus is odd and 2048 to 8192 bits.**
+- **The exponent is odd, at least 3 and below 2^33.** Providers use 65537.
+
+An RS256 signature must be exactly as long as the modulus, with exactly PKCS #1
+v1.5's padding. Anything else answers `false`, never an error.
+
 `seal`, `open` and the checks run on the platform: `ring` natively, and the
 JavaScript runtime's own synchronous code, held to the RFC 8439, RFC 8032 and
-RFC 7515 vectors on both. A native toolchain built without its `crypto` feature
-refuses them by name, as it does `randomBytes`.
+RFC 7515 vectors and a Wycheproof subset on both. A native toolchain built
+without its `crypto` feature refuses them by name, as it does `randomBytes`.
 
 Deliberately absent, and not by oversight:
 
 - **No signing and no key generation.**
-- **No RSA,** so an RS256 JWT cannot be checked yet.
+- **No RSA-PSS and no RSA encryption.** RS256 is the one RSA scheme.
 - **No key derivation and no password hashing.**
 
 `sha256` is **not a password hash**. It is fast, which is the wrong property. It

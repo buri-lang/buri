@@ -1,16 +1,20 @@
 //! `core/crypto`'s sealing and signature checks, through `ring`.
 //!
-//! Four private intrinsics sit under `crypto.seal`, `crypto.open`,
-//! `crypto.verifyEs256` and `crypto.verifyEd25519`. The Buri side frames the
-//! sealed value and parses keys; these do the arithmetic. `runtime.js` answers
-//! the same four keys in JavaScript, and the conformance corpus holds both to
-//! the RFC 8439, RFC 8032 and RFC 7515 vectors.
+//! Five private intrinsics sit under `crypto.seal`, `crypto.open`,
+//! `crypto.verifyEs256`, `crypto.verifyRs256` and `crypto.verifyEd25519`. The
+//! Buri side frames the sealed value and parses keys; these do the arithmetic.
+//! `runtime.js` answers the same five keys in JavaScript, and the conformance
+//! corpus holds both to the RFC 8439, RFC 8032 and RFC 7515 vectors and a
+//! Wycheproof subset.
 //!
 //! Behind the `crypto` feature, beside `entropy.rs`. `ring` is already in every
 //! `net` archive as `rustls`'s provider, so this adds no crate.
 
 use ring::aead::{Aad, CHACHA20_POLY1305, LessSafeKey, Nonce, UnboundKey};
-use ring::signature::{ECDSA_P256_SHA256_FIXED, ED25519, UnparsedPublicKey};
+use ring::signature::{
+    ECDSA_P256_SHA256_FIXED, ED25519, RSA_PKCS1_2048_8192_SHA256, RsaPublicKeyComponents,
+    UnparsedPublicKey,
+};
 
 use crate::value::{list_of_bytes, BuriList};
 use crate::BURI_OK;
@@ -180,4 +184,33 @@ pub unsafe extern "C" fn buri_rt_crypto_ed25519_verify(
     };
     let key = UnparsedPublicKey::new(&ED25519, key);
     u8::from(key.verify(message, signature).is_ok())
+}
+
+/// `crypto.rsaPkcs1Sha256Verify(n, e, message, signature) -> Bool` — RS256,
+/// with `n` and `e` big-endian. A key `ring` refuses answers false.
+///
+/// # Safety
+/// As [`buri_rt_crypto_ecdsa_p256_sha256_verify`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_crypto_rsa_pkcs1_sha256_verify(
+    n_ptr: *const u8,
+    n_len: u64,
+    e_ptr: *const u8,
+    e_len: u64,
+    message_ptr: *const u8,
+    message_len: u64,
+    signature_ptr: *const u8,
+    signature_len: u64,
+) -> u8 {
+    // SAFETY: the caller promises every range.
+    let (n, e, message, signature) = unsafe {
+        (
+            octets(n_ptr, n_len),
+            octets(e_ptr, e_len),
+            octets(message_ptr, message_len),
+            octets(signature_ptr, signature_len),
+        )
+    };
+    let key = RsaPublicKeyComponents { n, e };
+    u8::from(key.verify(&RSA_PKCS1_2048_8192_SHA256, message, signature).is_ok())
 }

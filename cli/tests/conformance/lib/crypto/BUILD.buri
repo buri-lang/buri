@@ -7,6 +7,7 @@ library {
             "test/seal.buri",
             "test/sha256.buri",
             "test/sha512.buri",
+            "test/rs256_wycheproof.buri",
             "test/signatures.buri",
         ]
 
