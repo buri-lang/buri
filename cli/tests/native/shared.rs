@@ -303,6 +303,54 @@ pub fn runtime_archive() -> &'static Path {
 /// any one step of the exchange may take.
 pub const SERVER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(20);
 
+/// Start a server binary, and return once macOS has let it run.
+///
+/// macOS holds every never-seen executable inside `exec` until `syspolicyd`
+/// has assessed it. Under load that queue reaches tens of seconds, and a
+/// server deadline that started at `spawn` spent itself before `main` ran.
+/// A child that has spent no user time has run none of its own code, so the
+/// wait ends at the first user time, or when the child exits. It has no
+/// deadline, for the same reason `Command::output` has none: the time belongs
+/// to the operating system and not to the program under test.
+pub fn spawned(binary: &Path) -> std::process::Child {
+    let mut child = Command::new(binary)
+        .env("BURI_RT_HEAP_CHECK", "1")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("cannot start {}: {e}", binary.display()));
+    while !has_run(&child) && matches!(child.try_wait(), Ok(None)) {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    child
+}
+
+#[cfg(target_os = "macos")]
+fn has_run(child: &std::process::Child) -> bool {
+    // `struct rusage_info_v0` from `<sys/resource.h>`; only the user time is read.
+    #[repr(C)]
+    #[derive(Default)]
+    struct Usage {
+        uuid: [u8; 16],
+        user_time: u64,
+        rest: [u64; 9],
+    }
+    unsafe extern "C" {
+        fn proc_pid_rusage(pid: i32, flavor: i32, buffer: *mut Usage) -> i32;
+    }
+    let Ok(pid) = i32::try_from(child.id()) else { return true };
+    let mut usage = Usage::default();
+    // SAFETY: flavor 0 is `RUSAGE_INFO_V0`, which fills exactly a `Usage`.
+    let asked = unsafe { proc_pid_rusage(pid, 0, &mut usage) };
+    // A failed ask is treated as running, so a broken probe never hangs a test.
+    asked != 0 || usage.user_time > 0
+}
+
+#[cfg(not(target_os = "macos"))]
+fn has_run(_child: &std::process::Child) -> bool {
+    true
+}
+
 /// A Buri program that binds one port, publishes it on standard output,
 /// answers one request and stops.
 ///
@@ -436,12 +484,7 @@ export fn main(host: NativeHost): Result<(), Str> {{
 /// and the failure that produced this rule took a CI job with it.
 pub fn served(binary: &Path, target: &str) -> (Ran, String) {
     use std::io::{BufRead, Read, Write};
-    let mut child = Command::new(binary)
-        .env("BURI_RT_HEAP_CHECK", "1")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap_or_else(|e| panic!("cannot start {}: {e}", binary.display()));
+    let mut child = spawned(binary);
     let stdout = child.stdout.take().expect("a piped stdout");
     let (announced, listening) = std::sync::mpsc::channel();
     let reader = std::thread::spawn(move || {
@@ -519,12 +562,7 @@ pub fn served(binary: &Path, target: &str) -> (Ran, String) {
 /// runs until CI kills it.
 pub fn served_many(binary: &Path, requests: usize) -> (Ran, Vec<String>, std::time::Duration) {
     use std::io::{BufRead, Read, Write};
-    let mut child = Command::new(binary)
-        .env("BURI_RT_HEAP_CHECK", "1")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap_or_else(|e| panic!("cannot start {}: {e}", binary.display()));
+    let mut child = spawned(binary);
     let stdout = child.stdout.take().expect("a piped stdout");
     let (announced, listening) = std::sync::mpsc::channel();
     let reader = std::thread::spawn(move || {
@@ -732,12 +770,7 @@ export fn main(host: NativeHost): Result<(), Str> {{
 /// is a failing test with a message rather than a job CI has to kill.
 pub fn signalled(binary: &Path, signal: i32) -> (Ran, String) {
     use std::io::{BufRead, Read, Write};
-    let mut child = Command::new(binary)
-        .env("BURI_RT_HEAP_CHECK", "1")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap_or_else(|e| panic!("cannot start {}: {e}", binary.display()));
+    let mut child = spawned(binary);
     let stdout = child.stdout.take().expect("a piped stdout");
     let (said, saying) = std::sync::mpsc::channel();
     let reader = std::thread::spawn(move || {
@@ -863,12 +896,7 @@ pub fn signalled_twice(binary: &Path, signal: i32) -> Stopped {
     use std::io::{BufRead, Read, Write};
     use std::os::unix::process::ExitStatusExt;
 
-    let mut child = Command::new(binary)
-        .env("BURI_RT_HEAP_CHECK", "1")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap_or_else(|e| panic!("cannot start {}: {e}", binary.display()));
+    let mut child = spawned(binary);
     let stdout = child.stdout.take().expect("a piped stdout");
     let (says, saying) = std::sync::mpsc::channel();
     let reader = std::thread::spawn(move || {
@@ -1484,12 +1512,7 @@ type Announced = (std::process::Child, std::thread::JoinHandle<(String, String)>
 /// sentence rather than hanging.
 pub fn announced(binary: &Path) -> Announced {
     use std::io::{BufRead, Read};
-    let mut child = Command::new(binary)
-        .env("BURI_RT_HEAP_CHECK", "1")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap_or_else(|e| panic!("cannot start {}: {e}", binary.display()));
+    let mut child = spawned(binary);
     let stdout = child.stdout.take().expect("a piped stdout");
     let (says, listening) = std::sync::mpsc::channel();
     let reader = std::thread::spawn(move || {
