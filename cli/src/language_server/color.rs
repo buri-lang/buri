@@ -48,14 +48,14 @@ pub fn document_colors(analyzed: &Analyzed, path: &Path, text: &str) -> Option<V
         }
     };
     for (id, body) in &analyzed.analysis.checked.bodies {
-        if tables.fn_info(*id).span.file == file {
+        if tables.fn_info(id).span.file == file {
             typed::walk(&body.expr, &mut visit);
         }
     }
     // A module-level `let` is a const rather than a body, and a palette is
     // exactly the kind of thing written as one.
     for (id, expr) in &analyzed.analysis.checked.consts {
-        if tables.const_(*id).span.file == file {
+        if tables.const_(id).span.file == file {
             typed::walk(expr, &mut visit);
         }
     }

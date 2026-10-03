@@ -7,6 +7,7 @@
 //! needs a fixpoint (guides/compile-speed.md).
 
 use crate::diagnostics::{Invariant as _, Span};
+use crate::compiler::semantics::layered::{DenseId, Layered, LayeredMap};
 use crate::hash::Map as HashMap;
 use std::fmt::Write as _;
 
@@ -20,6 +21,14 @@ macro_rules! id_type {
         pub struct $name(pub u32);
         impl $name {
             pub fn index(self) -> usize {
+                self.0 as usize
+            }
+        }
+        impl DenseId for $name {
+            fn from_index(i: usize) -> Self {
+                $name(i as u32)
+            }
+            fn to_index(self) -> usize {
                 self.0 as usize
             }
         }
@@ -567,14 +576,14 @@ impl CtxType {
 
 #[derive(Default, Clone)]
 pub struct Tables {
-    pub tycons: Vec<TyCon>,
-    pub fns: Vec<FnInfo>,
-    pub traits: Vec<TraitInfo>,
-    pub consts: Vec<ConstInfo>,
-    pub ctx_types: Vec<CtxType>,
+    pub tycons: Layered<TyCon>,
+    pub fns: Layered<FnInfo>,
+    pub traits: Layered<TraitInfo>,
+    pub consts: Layered<ConstInfo>,
+    pub ctx_types: Layered<CtxType>,
     /// Exactly one candidate per `(trait, type)`. Coherence, orphan rules, and
     /// instance search are not restricted here — they are unrepresentable.
-    pub impls: HashMap<(TraitId, TyConId), ImplInfo>,
+    pub impls: LayeredMap<(TraitId, TyConId), ImplInfo>,
     /// The traits each type implements, ascending.
     ///
     /// The same argument `effect_traits` makes below, for the other question
@@ -585,7 +594,7 @@ pub struct Tables {
     /// library included. `add_impl` is the only way a conformance comes into
     /// existence, so this cannot fall out of step, and the list is kept sorted
     /// where the scan sorted afterwards, so the answer is the same one.
-    traits_by_con: HashMap<TyConId, Vec<TraitId>>,
+    traits_by_con: LayeredMap<TyConId, Vec<TraitId>>,
     /// `defining type -> method name -> function`. Methods supplied by an
     /// `impl` live in the same namespace and are found here too, so an `impl`
     /// introduces no second resolution path.
@@ -594,11 +603,11 @@ pub struct Tables {
     /// borrowed, so every lookup — one per method call in the program — had to
     /// allocate a `String` to ask. The inner map's key is `Borrow<str>`, and
     /// the outer one is `Copy`.
-    methods: HashMap<TyConId, HashMap<String, FnId>>,
+    methods: LayeredMap<TyConId, HashMap<String, FnId>>,
     /// `[T]` has no type constructor of its own; its defining module is
     /// `core/list`.
-    pub array_methods: HashMap<String, FnId>,
-    pub ctx_decls: Vec<ContextDeclInfo>,
+    pub array_methods: LayeredMap<String, FnId>,
+    pub ctx_decls: Layered<ContextDeclInfo>,
     prim_ids: HashMap<Prim, TyConId>,
     /// `member name -> position` for the types whose variant or field list is
     /// long enough that `TyCon::variant_index`'s scan is the cost of checking
@@ -612,7 +621,7 @@ pub struct Tables {
     /// index was never built falls back to the scan rather than answering
     /// wrongly. Sparse: only the types past the threshold have an entry, and
     /// the vector may be shorter than `tycons`.
-    member_index: Vec<Option<Box<HashMap<String, usize>>>>,
+    member_index: Layered<Option<Box<HashMap<String, usize>>>>,
     /// Per type constructor, per type parameter: whether *holding* a value of
     /// that constructor can hand you the argument at that position. See
     /// `compute_variance`.
@@ -621,7 +630,7 @@ pub struct Tables {
     /// anything it has no row for — so a question asked before the fixpoint is
     /// settled gets the conservative answer rather than a wrong one, and a
     /// type constructor minted afterwards is treated as holding everything.
-    variance: Vec<Vec<bool>>,
+    variance: Layered<Vec<bool>>,
     /// Which traits are effects, kept as a list because the effect predicates
     /// below ask "does this type constructor implement *any* effect?" once per
     /// type-constructor node they walk.
@@ -634,6 +643,40 @@ pub struct Tables {
     /// of impls. `add_trait` is the only way a trait comes into existence and
     /// `is_effect` is fixed at that point, so this cannot fall out of step.
     effect_traits: Vec<TraitId>,
+}
+
+/// `compute_variance`'s table while the fixpoint runs: the rows a base
+/// settled, then the ones being computed from `from` on.
+struct Rows<'a> {
+    settled: &'a Layered<Vec<bool>>,
+    from: usize,
+    table: &'a [Vec<bool>],
+}
+
+impl Rows<'_> {
+    /// `provides`, against the partial table.
+    fn provides(&self, con: usize, k: usize) -> bool {
+        let row = match con.checked_sub(self.from) {
+            None => self.settled.get(con),
+            Some(own) => self.table.get(own),
+        };
+        row.and_then(|row| row.get(k)).copied().unwrap_or(true)
+    }
+
+    /// `pos` from `compute_variance`, against the partial table.
+    fn occurs_provided(&self, ty: &Ty, i: usize) -> bool {
+        match ty {
+            Ty::Param(j) => *j as usize == i,
+            Ty::Array(e) => self.occurs_provided(e, i),
+            Ty::Tuple(es) => es.iter().any(|e| self.occurs_provided(e, i)),
+            Ty::Fn(_, r) => self.occurs_provided(r, i),
+            Ty::Con(c, args) => args
+                .iter()
+                .enumerate()
+                .any(|(k, a)| self.provides(c.index(), k) && self.occurs_provided(a, i)),
+            _ => false,
+        }
+    }
 }
 
 impl Tables {
@@ -691,6 +734,44 @@ impl Tables {
         self.ctx_types
             .get(id.index())
             .or_ice("every CtxTypeId was minted by add_ctx_type on this table")
+    }
+
+    /// Shares every entry, so that [`Tables::layer`] can hand them to
+    /// analyses without copying them. What `resolve::Base` keeps.
+    pub fn freeze(&mut self) {
+        self.tycons.freeze();
+        self.fns.freeze();
+        self.traits.freeze();
+        self.consts.freeze();
+        self.ctx_types.freeze();
+        self.impls.freeze();
+        self.traits_by_con.freeze();
+        self.methods.freeze();
+        self.array_methods.freeze();
+        self.ctx_decls.freeze();
+        self.member_index.freeze();
+        self.variance.freeze();
+    }
+
+    /// Tables that read every entry of these and add their own after them:
+    /// where an analysis resuming from a base starts.
+    pub fn layer(&self) -> Tables {
+        Tables {
+            tycons: self.tycons.layer(),
+            fns: self.fns.layer(),
+            traits: self.traits.layer(),
+            consts: self.consts.layer(),
+            ctx_types: self.ctx_types.layer(),
+            impls: self.impls.layer(),
+            traits_by_con: self.traits_by_con.layer(),
+            methods: self.methods.layer(),
+            array_methods: self.array_methods.layer(),
+            ctx_decls: self.ctx_decls.layer(),
+            prim_ids: self.prim_ids.clone(),
+            member_index: self.member_index.layer(),
+            variance: self.variance.layer(),
+            effect_traits: self.effect_traits.clone(),
+        }
     }
 
     /// The same entries, for the phases that fill them in. Ids come from the
@@ -794,7 +875,7 @@ impl Tables {
         if self.impls.contains_key(&key) {
             return false;
         }
-        let list = self.traits_by_con.entry(info.self_con).or_default();
+        let list = self.traits_by_con.entry_mut(info.self_con);
         if let Err(at) = list.binary_search(&info.trait_id) {
             list.insert(at, info.trait_id);
         }
@@ -811,11 +892,10 @@ impl Tables {
     /// Records a method, unless `con` already has one by that name. Returns
     /// whether it was recorded.
     pub fn add_method(&mut self, con: TyConId, name: &str, f: FnId) -> bool {
-        let by_name = self.methods.entry(con).or_default();
-        if by_name.contains_key(name) {
+        if self.method(con, name).is_some() {
             return false;
         }
-        by_name.insert(name.to_owned(), f);
+        self.methods.entry_mut(con).insert(name.to_owned(), f);
         true
     }
 
@@ -937,8 +1017,11 @@ impl Tables {
     /// makes them say "effect-carrying" more often, which is the direction
     /// that rejects programs rather than admitting them.
     pub fn compute_variance(&mut self) {
+        // The rows a base settled stay as they are: its types can't hold one
+        // declared after them, so nothing this run adds can change them.
+        let settled = self.variance.base_len();
         let mut table: Vec<Vec<bool>> =
-            self.tycons.iter().map(|c| vec![false; c.generics.len()]).collect();
+            self.tycons.iter().skip(settled).map(|c| vec![false; c.generics.len()]).collect();
         // Only a generic constructor has a row that can change, and a program
         // declares far more `Int`s than `Option`s. Listing them once keeps the
         // fixpoint off the primitives entirely rather than walking every empty
@@ -947,6 +1030,7 @@ impl Tables {
             .tycons
             .iter()
             .enumerate()
+            .skip(settled)
             .filter(|(_, c)| !c.generics.is_empty())
             .map(|(i, _)| i)
             .collect();
@@ -964,16 +1048,12 @@ impl Tables {
                     .chain(con.variants().iter().flat_map(|v| v.fields.iter()));
                 for field in stored {
                     for i in 0..arity {
-                        let known = table
-                            .get(index)
-                            .and_then(|row| row.get(i))
-                            .copied()
-                            .unwrap_or(true);
-                        if known || !Tables::occurs_provided(&table, &field.ty, i) {
+                        let rows = Rows { settled: &self.variance, from: settled, table: &table };
+                        if rows.provides(index, i) || !rows.occurs_provided(&field.ty, i) {
                             continue;
                         }
-                        if let Some(cell) = table.get_mut(index).and_then(|row| row.get_mut(i)) {
-                            *cell = true;
+                        if let Some(bit) = index.checked_sub(settled).and_then(|own| table.get_mut(own)).and_then(|row| row.get_mut(i)) {
+                            *bit = true;
                             changed = true;
                         }
                     }
@@ -983,22 +1063,7 @@ impl Tables {
                 break;
             }
         }
-        self.variance = table;
-    }
-
-    /// `pos` from `compute_variance`, against a partial table.
-    fn occurs_provided(table: &[Vec<bool>], ty: &Ty, i: usize) -> bool {
-        match ty {
-            Ty::Param(j) => *j as usize == i,
-            Ty::Array(e) => Tables::occurs_provided(table, e, i),
-            Ty::Tuple(es) => es.iter().any(|e| Tables::occurs_provided(table, e, i)),
-            Ty::Fn(_, r) => Tables::occurs_provided(table, r, i),
-            Ty::Con(c, args) => args.iter().enumerate().any(|(k, a)| {
-                table.get(c.index()).and_then(|row| row.get(k)).copied().unwrap_or(true)
-                    && Tables::occurs_provided(table, a, i)
-            }),
-            _ => false,
-        }
+        self.variance.set_own(table);
     }
 
     pub fn add_const(&mut self, c: ConstInfo) -> ConstId {

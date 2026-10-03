@@ -76,7 +76,7 @@ pub fn hover(
     // innermost because a smaller span is always the more specific answer.
     let mut best: Option<(u32, String, crate::diagnostics::Span)> = None;
     for (fid, body) in &analyzed.analysis.checked.bodies {
-        if analyzed.analysis.checked.tables.fn_info(*fid).span.file != file {
+        if analyzed.analysis.checked.tables.fn_info(fid).span.file != file {
             continue;
         }
         crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {

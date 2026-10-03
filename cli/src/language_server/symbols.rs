@@ -1122,7 +1122,7 @@ pub(super) fn test_title(analyzed: &Analyzed, id: FnId) -> Option<(String, Span)
 fn in_a_body(analyzed: &Analyzed, file: FileId, text: &str, offset: u32) -> Option<Found> {
     let checked = &analyzed.analysis.checked;
     for (fid, body) in &checked.bodies {
-        if checked.tables.fn_info(*fid).span.file != file {
+        if checked.tables.fn_info(fid).span.file != file {
             continue;
         }
         if let Some(found) = in_one_body(analyzed, body, file, text, offset) {
@@ -1132,7 +1132,7 @@ fn in_a_body(analyzed: &Analyzed, file: FileId, text: &str, offset: u32) -> Opti
     // A module-level `let`'s value is checked on its own, with no body and so
     // with no locals, around it.
     for (id, expr) in &checked.consts {
-        if checked.tables.const_(*id).span.file != file {
+        if checked.tables.const_(id).span.file != file {
             continue;
         }
         if let Some(found) = narrowest(analyzed, &[], expr, file, text, offset) {
