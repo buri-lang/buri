@@ -278,27 +278,43 @@ fn build_into(
     let _ = std::fs::remove_dir_all(tmp.join("src"));
     let _ = std::fs::remove_dir_all(&target_dir);
 
-    // Publish. A directory already there is another process that won this race;
-    // its bytes are keyed identically, so read it back rather than overwrite.
-    let _ = std::fs::remove_dir_all(dir);
-    match std::fs::rename(&tmp, dir) {
-        Ok(()) => {}
-        Err(_) => {
-            let _ = std::fs::remove_dir_all(&tmp);
-            return read_cache(dir, features).ok_or_else(|| {
-                refuse(
-                    "the cross runtime cache entry could not be published",
-                    "check that `~/.buri` is writable",
-                )
-            });
-        }
+    if let Some(theirs) = publish(&tmp, dir, features)? {
+        return Ok(theirs);
     }
-
     Ok(Cross {
         dir: dir.to_path_buf(),
         archive_hash,
         sysroot_hash,
         features: features.to_vec(),
+    })
+}
+
+/// Renames the finished build at `tmp` to the keyed directory `dir`.
+///
+/// Returns `None` when `tmp` became the entry at the first try, and otherwise
+/// the entry that ended up at `dir`.
+///
+/// **A complete entry already at `dir` is never removed.** It is another
+/// process that won the race, its bytes are keyed identically, and that
+/// process — and any other that read it as a hit — may be staging its sysroot
+/// out of it right now. Removing it to put an identical copy in its place
+/// failed those links with `cannot write the musl sysroot … No such file or
+/// directory`. Only a directory [`read_cache`] does not accept, which no
+/// process can be using, is replaced.
+fn publish(tmp: &Path, dir: &Path, features: &[String]) -> Result<Option<Cross>, link_refusal::Refusal> {
+    if std::fs::rename(tmp, dir).is_ok() {
+        return Ok(None);
+    }
+    if read_cache(dir, features).is_none() {
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::rename(tmp, dir);
+    }
+    let _ = std::fs::remove_dir_all(tmp);
+    read_cache(dir, features).map(Some).ok_or_else(|| {
+        refuse(
+            "the cross runtime cache entry could not be published",
+            "check that `~/.buri` is writable",
+        )
     })
 }
 
@@ -606,5 +622,76 @@ mod tests {
                 assert!(dir.ends_with(".buri"), "{dir:?} should be <home>/.buri");
             }
         }
+    }
+
+    /// A scratch directory of this test's own, emptied.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("buri-cross-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a temporary directory");
+        dir
+    }
+
+    /// Lays out a complete cache entry at `dir`, every file holding `fill`.
+    fn write_entry(dir: &Path, features: &[String], fill: &str) {
+        let lib = dir.join("musl").join("lib");
+        std::fs::create_dir_all(&lib).expect("the sysroot directory");
+        for (name, _) in musl::FILES {
+            std::fs::write(lib.join(name), fill).expect("a sysroot member");
+        }
+        std::fs::write(dir.join("libburi_rt.a"), fill).expect("the archive");
+        std::fs::write(dir.join("features"), features.join("\n")).expect("the features");
+        std::fs::write(dir.join("sysroot.sha256"), fill).expect("the sysroot digest");
+        std::fs::write(dir.join("libburi_rt.a.sha256"), fill).expect("the archive digest");
+    }
+
+    /// Two processes that both missed the cache both build, and the second to
+    /// finish finds the first's entry in place. **It keeps that entry, files
+    /// and all**: the first process, and any that read it as a hit, may be
+    /// staging their sysroot out of it. Removing it to rename an identical copy
+    /// in was CI's `cannot write the musl sysroot … No such file or directory`.
+    #[test]
+    fn a_published_entry_is_never_replaced_under_its_readers() {
+        let root = scratch("race");
+        let features = vec![String::from("paint")];
+        let dir = root.join("key");
+        let tmp = root.join(".build.2");
+        write_entry(&dir, &features, "first");
+        write_entry(&tmp, &features, "second");
+        let member = dir.join("musl").join("lib").join(musl::FILES[0].0);
+        let before = std::fs::metadata(&member).expect("the first entry's member");
+
+        let answer = publish(&tmp, &dir, &features).expect("the race is not a refusal");
+
+        assert!(answer.is_some(), "the loser reads the winner's entry back");
+        let after = std::fs::metadata(&member).expect("the first entry's member is still there");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            assert_eq!(before.ino(), after.ino(), "the winner's file was replaced");
+        }
+        assert_eq!(std::fs::read_to_string(&member).ok().as_deref(), Some("first"));
+        assert!(!tmp.exists(), "the loser's build directory is left behind");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A directory at the key that is not a complete entry is something no
+    /// process can be reading from, so the fresh build replaces it.
+    #[test]
+    fn an_incomplete_entry_is_replaced() {
+        let root = scratch("leftover");
+        let features = vec![String::from("paint")];
+        let dir = root.join("key");
+        let tmp = root.join(".build.2");
+        std::fs::create_dir_all(dir.join("musl")).expect("a leftover directory");
+        std::fs::write(dir.join("libburi_rt.a"), "stale").expect("a leftover archive");
+        write_entry(&tmp, &features, "fresh");
+
+        publish(&tmp, &dir, &features).expect("a leftover is not a refusal");
+
+        let entry = read_cache(&dir, &features).expect("a complete entry at the key");
+        assert_eq!(entry.archive_hash, "fresh");
+        assert!(!tmp.exists(), "the build directory is left behind");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
