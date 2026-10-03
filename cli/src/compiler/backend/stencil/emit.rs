@@ -37,6 +37,7 @@ enum RSrc {
 }
 use super::jit::{Fn2, Jit, Plan, V};
 use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS};
+use super::runtime;
 use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
 use crate::compiler::middle::layout::{EnumRepr, Repr, Scalar};
 use crate::compiler::semantics::types::{Prim, Ty};
@@ -729,7 +730,7 @@ impl<'a> Jit<'a> {
                 // `show_prim`'s `Char` arm, and the block it answers is fresh,
                 // so this arm needs no retain.
                 _ => self.c_call(
-                    "buri_rt_char_to_str",
+                    runtime::CHAR_TO_STR,
                     st,
                     &[Src::Word(a), Src::Addr(d + off)],
                     &[],
@@ -1319,13 +1320,13 @@ impl<'a> Jit<'a> {
             Some(sym) => Src::Sym(sym),
             None => Src::Imm(0),
         };
-        self.c_call("buri_rt_copy_block", st, &[Src::Word(at), g], &[], at, "i")
+        self.c_call(runtime::COPY_BLOCK, st, &[Src::Word(at), g], &[], at, "i")
     }
 
     /// `buri_rt_copy_str(&value)` — the block, and the rebase of the `ptr`
     /// that points into it.
     fn copy_str(&mut self, st: &mut Fn2, at: u32) -> Result<(), String> {
-        self.c_call("buri_rt_copy_str", st, &[Src::Addr(at)], &[], 0, "v")
+        self.c_call(runtime::COPY_STR, st, &[Src::Addr(at)], &[], 0, "v")
     }
 
     fn variant_count(&self, ty: &Ty) -> usize {
@@ -1771,7 +1772,7 @@ impl<'a> Jit<'a> {
                     ],
                 );
                 let (p, l) = self.str_arg(arg(st, 1), scr);
-                if let Err(why) = self.c_call("buri_rt_abort_assert", st, &[p, l], &[], 0, "v") {
+                if let Err(why) = self.c_call(runtime::ABORT_ASSERT, st, &[p, l], &[], 0, "v") {
                     self.unsupported(why);
                 }
                 let here = self.region.code_addr();
@@ -1779,7 +1780,7 @@ impl<'a> Jit<'a> {
             }
             "testing_assert.failWith" => {
                 let (p, l) = self.str_arg(arg(st, 0), scr);
-                if let Err(why) = self.c_call("buri_rt_abort", st, &[p, l], &[], 0, "v") {
+                if let Err(why) = self.c_call(runtime::ABORT, st, &[p, l], &[], 0, "v") {
                     self.unsupported(why);
                 }
             }
@@ -1790,7 +1791,7 @@ impl<'a> Jit<'a> {
                 let (kp, kl) = self.str_arg(arg(st, 0), scr);
                 let (vp, vl) = self.str_arg(arg(st, 1), scr + 8);
                 if let Err(why) =
-                    self.c_call("buri_rt_test_fail_expected", st, &[kp, kl, vp, vl], &[], 0, "v")
+                    self.c_call(runtime::TEST_FAIL_EXPECTED, st, &[kp, kl, vp, vl], &[], 0, "v")
                 {
                     self.unsupported(why);
                 }
@@ -1809,7 +1810,7 @@ impl<'a> Jit<'a> {
             // binds zeros there; a frame slot needs no such thing.
             "testing_assert.failExpected" => {
                 let (kp, kl) = self.str_arg(arg(st, 0), scr);
-                if let Err(why) = self.c_call("buri_rt_abort_assert", st, &[kp, kl], &[], 0, "v") {
+                if let Err(why) = self.c_call(runtime::ABORT_ASSERT, st, &[kp, kl], &[], 0, "v") {
                     self.unsupported(why);
                 }
             }
@@ -1818,7 +1819,7 @@ impl<'a> Jit<'a> {
                 let (ap, al) = self.str_arg(arg(st, 1), scr + 8);
                 let (ep, el) = self.str_arg(arg(st, 2), scr + 16);
                 if let Err(why) = self.c_call(
-                    "buri_rt_test_fail_compared",
+                    runtime::TEST_FAIL_COMPARED,
                     st,
                     &[kp, kl, ap, al, ep, el],
                     &[],
@@ -2440,7 +2441,7 @@ impl<'a> Jit<'a> {
                 &[("JIT_A", V::I(p(0) as u64)), ("JIT_T", V::Blk(ok)), ("JIT_F", V::Fall)],
             );
             let (kp, kl) = self.str_arg(p(1), fs.param_end);
-            if let Err(why) = self.c_call("buri_rt_abort_assert", st, &[kp, kl], &[], 0, "v") {
+            if let Err(why) = self.c_call(runtime::ABORT_ASSERT, st, &[kp, kl], &[], 0, "v") {
                 self.unsupported(why);
             }
             let here = self.region.code_addr();
@@ -2454,7 +2455,7 @@ impl<'a> Jit<'a> {
         // below, which flattens every parameter as a string.
         if key == "testing_assert.failExpected" {
             let (kp, kl) = self.str_arg(p(0), fs.param_end);
-            if let Err(why) = self.c_call("buri_rt_abort_assert", st, &[kp, kl], &[], 0, "v") {
+            if let Err(why) = self.c_call(runtime::ABORT_ASSERT, st, &[kp, kl], &[], 0, "v") {
                 self.unsupported(why);
             }
             self.emit("ret", &[]);
@@ -2468,9 +2469,9 @@ impl<'a> Jit<'a> {
                 args.push(l);
             }
             let symbol = if key == "testing_assert.failWith" {
-                "buri_rt_abort"
+                runtime::ABORT
             } else {
-                "buri_rt_test_fail_expected"
+                runtime::TEST_FAIL_EXPECTED
             };
             if let Err(why) = self.c_call(symbol, st, &args, &[], 0, "v") {
                 self.unsupported(why);
@@ -2483,7 +2484,7 @@ impl<'a> Jit<'a> {
             let (ap, al) = self.str_arg(p(1), fs.param_end + 8);
             let (ep, el) = self.str_arg(p(2), fs.param_end + 16);
             if let Err(why) = self.c_call(
-                "buri_rt_test_fail_compared",
+                runtime::TEST_FAIL_COMPARED,
                 st,
                 &[kp, kl, ap, al, ep, el],
                 &[],
@@ -2569,11 +2570,11 @@ impl<'a> Jit<'a> {
                 // double it widens to.
                 if op == "hash" {
                     let seed = fs.param_end;
-                    self.imm_to(seed, HASH_SEED);
+                    self.imm_to(seed, runtime::HASH_SEED);
                     let (symbol, ints, floats): (&str, Vec<Src>, Vec<Src>) = if prim.is_float() {
-                        ("buri_rt_hash_f64", vec![Src::Word(seed)], vec![Src::Word(p(0))])
+                        (runtime::HASH_F64, vec![Src::Word(seed)], vec![Src::Word(p(0))])
                     } else {
-                        ("buri_rt_mix", vec![Src::Word(seed), Src::Word(p(0))], Vec::new())
+                        (runtime::MIX, vec![Src::Word(seed), Src::Word(p(0))], Vec::new())
                     };
                     if prim == Prim::F32 {
                         self.unsupported(format!("Body::Runtime {key}"));
@@ -2721,7 +2722,7 @@ impl<'a> Jit<'a> {
         // own: the count comes straight back in a register.
         if key == "str.length" {
             let (sp, sl) = self.str_arg(p(0), fs.param_end);
-            match self.c_call("buri_rt_str_scalar_len", st, &[sp, sl], &[], ret0, "i") {
+            match self.c_call(runtime::STR_SCALAR_LEN, st, &[sp, sl], &[], ret0, "i") {
                 Ok(()) => self.emit("ret", &[]),
                 Err(why) => self.unsupported(why),
             }
@@ -3030,9 +3031,9 @@ impl Jit<'_> {
             // mix of its low word.
             "hash" if prim != Prim::Str => {
                 let symbol =
-                    if prim == Prim::Char { "buri_rt_hash_char" } else { "buri_rt_mix" };
+                    if prim == Prim::Char { runtime::HASH_CHAR } else { runtime::MIX };
                 let seed = st.scratch + super::rtcall::SPARE_WORD * 8;
-                self.imm_to(seed, HASH_SEED);
+                self.imm_to(seed, runtime::HASH_SEED);
                 let args = [Src::Word(seed), Src::Word(a)];
                 if let Err(why) = self.c_call(symbol, st, &args, &[], d, "i") {
                     self.unsupported(why);
@@ -3733,7 +3734,7 @@ impl Jit<'_> {
                 let raw = st.scratch + super::rtcall::SPARE_WORD * 8;
                 let _ = raw;
                 self.c_call(
-                    "buri_rt_hash_str",
+                    runtime::HASH_STR,
                     st,
                     &[Src::Word(acc), Src::Word(v), Src::Word(v + 8), Src::Word(v + 16)],
                     &[],
@@ -3742,7 +3743,7 @@ impl Jit<'_> {
                 )
             }
             P::Char => self.c_call(
-                "buri_rt_hash_char",
+                runtime::HASH_CHAR,
                 st,
                 &[Src::Word(acc), Src::Word(v)],
                 &[],
@@ -3765,7 +3766,7 @@ impl Jit<'_> {
                     v
                 };
                 self.c_call(
-                    "buri_rt_hash_f64",
+                    runtime::HASH_F64,
                     st,
                     &[Src::Word(acc)],
                     &[Src::Word(wide)],
@@ -3778,7 +3779,7 @@ impl Jit<'_> {
             // width — so the low word is already what the `u32` parameter
             // reads out of `w1`.
             _ => self.c_call(
-                "buri_rt_mix",
+                runtime::MIX,
                 st,
                 &[Src::Word(acc), Src::Word(v)],
                 &[],
@@ -4094,7 +4095,7 @@ impl Jit<'_> {
                 ("JIT_F", V::Fall),
             ],
         );
-        if let Err(why) = self.c_call("buri_rt_abort_shift", st, &[], &[], 0, "v") {
+        if let Err(why) = self.c_call(runtime::ABORT_SHIFT, st, &[], &[], 0, "v") {
             self.unsupported(why);
         }
         let here = self.region.code_addr();
@@ -4144,9 +4145,6 @@ fn bound_bits(prim: Prim, low: bool) -> Option<u64> {
     Some((pattern as u64) & mask)
 }
 
-/// `core/order`'s FNV-1a offset basis, which `order.buri:34` states and
-/// `llvm/runtime.rs::HASH_SEED` restates.
-const HASH_SEED: u64 = 0x811c_9dc5;
 
 /// Which intrinsic keys this backend has a body for, asked ahead of emission.
 ///

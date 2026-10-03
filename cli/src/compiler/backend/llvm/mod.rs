@@ -25,7 +25,6 @@
 //!   repr.rs       the value model in LLVM types (VALUE-MODEL.md §5.1)
 //!   attrs.rs      the attribute discipline (CODEGEN-LLVM.md §3)
 //!   emit.rs       one module: blocks, phis, instructions (§2)
-//!   runtime.rs    the `buri_rt_*` boundary (`cli/runtime/lib.rs`)
 //!   target.rs     the triple, the machine, `default<O2>` (§4)
 //! ```
 //!
@@ -60,7 +59,6 @@
 pub mod attrs;
 pub mod emit;
 pub mod repr;
-pub mod runtime;
 pub mod target;
 
 use inkwell::context::Context;
@@ -165,7 +163,7 @@ impl Backend for Llvm {
     /// rather than accumulated as a side effect of a failed emission.
     ///
     /// [`emit::implemented`] is the single predicate: a key is answered by a
-    /// [`runtime::ENTRIES`] row, by an inline sequence, or by a generated body,
+    /// [`ENTRIES`](crate::compiler::backend::runtime_table::ENTRIES) row, by an inline sequence, or by a generated body,
     /// and everything else — `json.*`, every `list.*` entry taking a closure,
     /// `checked*` and `saturating*` — is named here rather than discovered as a
     /// link error or, worse, as a wrong answer. So a program that reaches

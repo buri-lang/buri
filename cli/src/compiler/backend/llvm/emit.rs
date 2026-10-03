@@ -97,7 +97,7 @@ use super::repr::{self, Counted, Glue, Reprs, Site, Slot, SlotTy};
 /// Named because [`Unit::tagged_rc`] groups these by variant and the nested
 /// shape is past what a reader should have to parse in a `let`.
 type VariantField = (Ty, u32, bool);
-use super::runtime;
+use crate::compiler::backend::runtime_table as runtime;
 
 /// A heap payload is 16-byte aligned, because the header is 16 bytes and sits
 /// immediately before it (VALUE-MODEL.md §2). This is the number `align` on a

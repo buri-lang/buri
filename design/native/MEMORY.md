@@ -429,7 +429,7 @@ optimizing are the two that build the first two, and both are done:
 
 - **`[T]` append — `cli/runtime/list.rs`'s `append_dest`, behind `list.push`
   and `list.concat`.** Both are runtime calls on both backends
-  (`stencil/runtime.rs`, `llvm/runtime.rs`), so the fast path lives in the
+  (`backend/runtime_table.rs`), so the fast path lives in the
   runtime and is shared. Three paths: *in place* when the block is uniquely
   owned and `cap >= (len + n) * stride`, writing past the end and taking one
   more reference; *grown* when it is unique and out of capacity, allocating
@@ -1104,7 +1104,7 @@ context's own binding and a native backend knows the layout statically.
 The paragraph above reads as "the accounting is nearly free", and it is not.
 
 **A context argument is dropped from every `buri_rt_*` call, whatever it
-weighs** (`stencil/runtime.rs`, `llvm/runtime.rs`). That is not an oversight
+weighs** (`backend/runtime_table.rs`). That is not an oversight
 to undo. The *first* program to bind a non-zero-sized allocator forced it —
 `context { Allocator: alloc() }` from the test platform — which spread one extra
 argument into a C call that has no parameter for it and put every argument
