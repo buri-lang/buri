@@ -3233,6 +3233,9 @@ impl Scan<'_> {
                 before
             }
             ExprKind::Block { stmts, tail } => {
+                // Decided before the scan, because the scan runs backwards and
+                // reaches every use of a binding before its binder.
+                let aliases = self.aliases(stmts, live);
                 let mut live_after = live.clone();
                 let children = stmts.len() + usize::from(tail.is_some());
                 // Backwards: the tail first, then each statement, so a
@@ -3262,6 +3265,14 @@ impl Scan<'_> {
                                 live_after =
                                     self.expr(value, sid, &live_after, Mode::Borrow);
                                 self.drop_temporary(value, sid, sid);
+                                self.flush(sid);
+                                continue;
+                            }
+                            if alias_of(pattern, value).is_some_and(|(y, _)| aliases.contains(&y)) {
+                                for b in &bound {
+                                    live_after.remove(b);
+                                }
+                                live_after = self.expr(value, sid, &live_after, Mode::Borrow);
                                 self.flush(sid);
                                 continue;
                             }
@@ -4010,13 +4021,19 @@ impl Scan<'_> {
             }
         }
         kept.sort_by_key(|l| l.0);
+        let handed = self.handed_over(&kids, id, &modes, live, &kept);
         let mut after = live.clone();
         after.extend(kept.iter().copied());
+        after.extend(handed.iter().map(|(_, l)| *l));
         // Right to left: a child's "live after" is everything the children to
-        // its right go on to use, plus whatever `kept` is holding open.
+        // its right go on to use, plus whatever `kept` is holding open, plus
+        // what `handed` gives the construct once those children are done.
         for (k, kid) in kids.iter().enumerate().rev() {
             let kid_id = self.child(id, k);
             let m = modes.get(k).copied().unwrap_or(Mode::Borrow);
+            if let Some((_, l)) = handed.iter().find(|(at, _)| *at == k) {
+                after.remove(l);
+            }
             // A counted compound child is owned, not borrowed: an arm may
             // answer an alias of a local, and a borrowed scan drops that local
             // inside the arm, before this construct reads the value.
@@ -4035,6 +4052,111 @@ impl Scan<'_> {
         }
         self.flush(id);
         after
+    }
+
+    /// The `let y = x;` statements of a block that bind a second name for a
+    /// local that outlives the block, so `y` can be held the way a borrowed
+    /// parameter is: no count of its
+    /// own, nothing to release where it dies, and a retain wherever something
+    /// takes it.
+    ///
+    /// `middle::inline` writes this shape for every receiver it pastes in —
+    /// `acc.last()` becomes `{ let self = acc; … }` — and taking a count there
+    /// made `acc` look shared while the pasted body ran. On JavaScript that
+    /// mark is sticky, so the push that followed copied the whole list.
+    ///
+    /// Sound for the reason a borrowed parameter is: `x` is live after the
+    /// whole block, so the count it holds is still held at every use of `y`,
+    /// and no use of `x` inside the block can be a last one that gives it
+    /// away. Each one found is taken out of [`Scan::owned`], which is what
+    /// makes every later question about `y` answer as it does for a borrowed
+    /// parameter.
+    fn aliases(&mut self, stmts: &[Stmt], live: &Live) -> Vec<LocalId> {
+        let mut out = Vec::new();
+        for s in stmts {
+            let Stmt::Let { pattern, value, .. } = s else { continue };
+            let Some((y, x)) = alias_of(pattern, value) else { continue };
+            if self.is_counted(x) && self.is_counted(y) && live.contains(&x) {
+                self.owned.remove(&y);
+                out.push(y);
+            }
+        }
+        out
+    }
+
+    /// The owned locals an owning child hands to the construct even though a
+    /// child to its right still reads them, as `(child, local)` pairs.
+    ///
+    /// `f(xs, g(xs))` with `f` owning its first parameter is the shape, and
+    /// `acc.push(c, x + acc.last()...)` is where it costs: scanned right to
+    /// left, the read inside `g` is the last mention of `xs`, so the owning
+    /// child is not a last use and takes a second count — a retain natively, a
+    /// sharing mark on JavaScript, where the push then copies the whole list.
+    /// A fold growing a list that way was quadratic.
+    ///
+    /// But nothing reads `xs` after `f` takes it. The children run left to
+    /// right and are all done before the call, so the reads on the right
+    /// happen while this function still holds its count. Scanning them with
+    /// `xs` live (so none of them drops it, and any of them that takes it
+    /// takes a count of its own) and the owning child as the last use (so it
+    /// hands the function's own count over) is the same program without the
+    /// second count.
+    ///
+    /// The conditions are what make that sound:
+    ///
+    ///  * **The child is the bare local**, owned here and not live after the
+    ///    construct, so its count is this function's to give.
+    ///  * **Every other child that names it is to its right**, so it runs
+    ///    before the call and after the local was read.
+    ///  * **Each of those children's values is uncounted.** A child's value is
+    ///    what the call receives beside the list; an uncounted one holds no
+    ///    reference, so no element read out of the list reaches the call
+    ///    through it. On JavaScript an element read out of a list carries no
+    ///    mark of its own, so this is the condition that keeps it from landing
+    ///    in the list a second time unshared.
+    ///  * **It is not one [`Scan::children`] keeps open**, because that drop
+    ///    belongs to the construct and this count no longer does.
+    fn handed_over(
+        &mut self,
+        kids: &[&Expr],
+        id: NodeId,
+        modes: &[Mode],
+        live: &Live,
+        kept: &[LocalId],
+    ) -> Vec<(usize, LocalId)> {
+        let mut out = Vec::new();
+        for (k, kid) in kids.iter().enumerate() {
+            if modes.get(k).copied() != Some(Mode::Own) {
+                continue;
+            }
+            let ExprKind::Local(l) = kid.kind else { continue };
+            if !self.is_counted(l) || !self.owned.contains(&l) || live.contains(&l) {
+                continue;
+            }
+            if kept.contains(&l) {
+                continue;
+            }
+            let mut read_after = false;
+            let mut sound = true;
+            for (j, other) in kids.iter().enumerate() {
+                if j == k {
+                    continue;
+                }
+                let other_id = self.child(id, j);
+                if !self.names_in(other, other_id).contains(&l) {
+                    continue;
+                }
+                if j < k || self.counted_ty(&other.ty.clone()) {
+                    sound = false;
+                    break;
+                }
+                read_after = true;
+            }
+            if sound && read_after {
+                out.push((k, l));
+            }
+        }
+        out
     }
 
     /// A fresh counted value passed to something that only borrows it has
@@ -4188,6 +4310,15 @@ fn field_root(e: &Expr) -> Option<LocalId> {
     match &e.kind {
         ExprKind::Local(l) => Some(*l),
         ExprKind::Field { base, .. } | ExprKind::TupleIndex { base, .. } => field_root(base),
+        _ => None,
+    }
+}
+
+/// `let y = x;`, as `(y, x)`: one name bound to another local, with no
+/// pattern to test. See [`Scan::aliases`].
+fn alias_of(pattern: &typed::Pattern, value: &Expr) -> Option<(LocalId, LocalId)> {
+    match (&pattern.kind, &value.kind) {
+        (PatKind::Bind { local, sub: None }, ExprKind::Local(x)) => Some((*local, *x)),
         _ => None,
     }
 }
