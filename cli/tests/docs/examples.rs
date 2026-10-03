@@ -219,8 +219,8 @@ fn cli_reference_examples() {
 /// (`documentation::examples::parse_block`), so the reason for every one of
 /// these is written where a reader of the diff can weigh it, in the `.md`.
 ///
-/// 8 since the language reference's examples were compiled.
-const MAX_IGNORED_EXAMPLES: usize = 8;
+/// 7 since the attenuation example in `language/effects.md` was compiled.
+const MAX_IGNORED_EXAMPLES: usize = 7;
 
 /// An untested example is a claim nobody checks, so there is a ceiling on how
 /// many of them there may be and each one says why in the document itself.

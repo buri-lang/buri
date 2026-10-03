@@ -158,18 +158,6 @@ struct StepShape {
     env_w: u32,
 }
 
-/// The ablation switches this file answers to, so that each of its three
-/// axes can be measured on its own the way every other axis in this project
-/// was: `STENCIL_OFF=listloop` puts every `list.*` call back through the
-/// ordinary runtime call, `estride` gives up the stride-baked
-/// load/store twins, `incbr` gives up the fused back edge, `envskip` writes
-/// the environment even when it weighs nothing, and `listget` puts an element
-/// read back through `buri_rt_list_get`.
-fn off(name: &str) -> bool {
-    std::env::var("STENCIL_OFF").unwrap_or_default().split(',').any(|x| x == name)
-}
-
-
 /// One resolved list operation: every operand as a **frame offset**, so that
 /// the loop is written once and serves both the call site — where the operands
 /// are `ValueId` slots — and the `Body::Runtime` body, where they are the
@@ -211,9 +199,6 @@ impl<'a> Jit<'a> {
     /// one `incref`, because what is handed over may be a struct with a
     /// counted field rather than a bare pointer.
     fn retain_value(&mut self, st: &mut Fn2, ty: &Ty, at: u32) {
-        if std::env::var("STENCIL_NOFREE").is_ok_and(|v| v == "1") {
-            return;
-        }
         if let Err(why) = self.walk_rc(st, ty, at, true, 0) {
             self.unsupported(why);
         }
@@ -334,7 +319,7 @@ impl<'a> Jit<'a> {
         // An element narrower than a frame word has to arrive **zero-extended**
         // into a whole one; see `sources.rs`'s `eloadz` family for why.
         if bytes < 8 {
-            let zk = if stride == bytes && !off("estride") {
+            let zk = if stride == bytes {
                 format!("eloadz/{bytes}/s")
             } else {
                 format!("eloadz/{bytes}")
@@ -357,7 +342,7 @@ impl<'a> Jit<'a> {
             self.imm_to(dst, 0);
         }
         let sk = format!("eload/{bytes}/s");
-        let key = if stride == bytes && !off("estride") && self.has(&sk) {
+        let key = if stride == bytes && self.has(&sk) {
             sk
         } else {
             format!("eload/{bytes}")
@@ -391,7 +376,7 @@ impl<'a> Jit<'a> {
     /// `*(base + i * stride) = frame[src]`, `bytes` wide.
     pub(crate) fn elem_store(&mut self, src: u32, base: u32, i: u32, stride: u32, bytes: u32) {
         let sk = format!("estore/{bytes}/s");
-        let key = if stride == bytes && !off("estride") && self.has(&sk) {
+        let key = if stride == bytes && self.has(&sk) {
             sk
         } else {
             format!("estore/{bytes}")
@@ -422,28 +407,14 @@ impl<'a> Jit<'a> {
         );
     }
 
-    /// `frame[d] = frame[a] + k`, through the immediate form where the level
-    /// has one and a materialised constant where it does not.
-    fn add_imm(&mut self, d: u32, a: u32, k: u64, scratch: u32) {
-        if self.has("bin/add/u64/fi/f") {
-            self.emit(
-                "bin/add/u64/fi/f",
-                &[
-                    ("JIT_D", V::I(u64::from(d))),
-                    ("JIT_A", V::I(u64::from(a))),
-                    ("JIT_K", V::I(k)),
-                    ("JIT_CONT", V::Fall),
-                ],
-            );
-            return;
-        }
-        self.imm_to(scratch, k);
+    /// `frame[d] = frame[a] + k`.
+    fn add_imm(&mut self, d: u32, a: u32, k: u64) {
         self.emit(
-            "bin/add/u64/ff/f",
+            "bin/add/u64/fi/f",
             &[
                 ("JIT_D", V::I(u64::from(d))),
                 ("JIT_A", V::I(u64::from(a))),
-                ("JIT_B", V::I(u64::from(scratch))),
+                ("JIT_K", V::I(k)),
                 ("JIT_CONT", V::Fall),
             ],
         );
@@ -456,36 +427,18 @@ impl<'a> Jit<'a> {
     /// dropped rather than patched.
     fn br_lt(&mut self, a: u32, b: u32, tv: V, fv: V, fall: Option<&str>) {
         let base = "brcmp/lt/u64/ff";
-        if self.has(base) {
-            let key = match fall {
-                Some(arm) => self.arm_key(base, arm),
-                None => base.to_string(),
-            };
-            self.emit(
-                &key,
-                &[
-                    ("JIT_A", V::I(u64::from(a))),
-                    ("JIT_B", V::I(u64::from(b))),
-                    ("JIT_T", tv),
-                    ("JIT_F", fv),
-                ],
-            );
-            return;
-        }
-        let s = a; // never taken: every level from L3 up has the fused form.
-        let _ = s;
+        let key = match fall {
+            Some(arm) => self.arm_key(base, arm),
+            None => base.to_string(),
+        };
         self.emit(
-            "bin/lt/u64/ff/f",
+            &key,
             &[
-                ("JIT_D", V::I(u64::from(S_K))),
                 ("JIT_A", V::I(u64::from(a))),
                 ("JIT_B", V::I(u64::from(b))),
-                ("JIT_CONT", V::Fall),
+                ("JIT_T", tv),
+                ("JIT_F", fv),
             ],
-        );
-        self.emit(
-            "br/f",
-            &[("JIT_A", V::I(u64::from(S_K))), ("JIT_T", tv), ("JIT_F", fv)],
         );
     }
 
@@ -506,9 +459,6 @@ impl<'a> Jit<'a> {
         key: &str,
         args: &[ir::ValueId],
     ) -> bool {
-        if off("listloop") {
-            return false;
-        }
         let Some(call) = list_call(key) else { return false };
         let (Some(xs), Some(f)) = (args.first().copied(), args.get(call.func).copied()) else {
             return false;
@@ -579,9 +529,6 @@ impl<'a> Jit<'a> {
         key: &str,
         st: &mut Fn2,
     ) -> bool {
-        if off("listloop") {
-            return false;
-        }
         let Some(call) = list_call(key) else { return false };
         let Some(f) = prog.funcs.get(fi) else { return false };
         let sig_params = f.sig.params.clone();
@@ -768,7 +715,7 @@ impl<'a> Jit<'a> {
         // `middle::closures` then gives it the unit type and the callee has no
         // instruction that reads it. Every lambda in the four kernels is one of
         // those, so this is the common case and not a corner.
-        if shape.env_w > 0 || off("envskip") {
+        if shape.env_w > 0 {
             self.mv(base + shape.env, ops.fslot + 8, 8);
         }
         if let (Some(o), Some((c, w, counted))) = (ctx_off, ops.ctx.clone()) {
@@ -836,7 +783,7 @@ impl<'a> Jit<'a> {
                 if let Some(t) = ops.elem_counted.clone() {
                     self.retain_value(st, &t, base + elem_off);
                 }
-                self.add_imm(s_k, s_k, 1, base + shape.env);
+                self.add_imm(s_k, s_k, 1);
                 st.place(l_skip, self.region.code_addr());
             }
             Step::Fold => self.mv(dslot, answer, ops.acc_w),
@@ -870,23 +817,18 @@ impl<'a> Jit<'a> {
             }
         }
 
-        if self.has("incbr/lt") && !off("incbr") {
-            let key = self.arm_key("incbr/lt", "JIT_F");
-            self.emit(
-                &key,
-                &[
-                    ("JIT_D", V::I(u64::from(s_i))),
-                    ("JIT_A", V::I(u64::from(s_i))),
-                    ("JIT_N", V::I(1)),
-                    ("JIT_B", V::I(u64::from(s_len))),
-                    ("JIT_T", V::Blk(l_body)),
-                    ("JIT_F", V::Fall),
-                ],
-            );
-        } else {
-            self.add_imm(s_i, s_i, 1, base + shape.env);
-            self.br_lt(s_i, s_len, V::Blk(l_body), V::Fall, Some("JIT_F"));
-        }
+        let key = self.arm_key("incbr/lt", "JIT_F");
+        self.emit(
+            &key,
+            &[
+                ("JIT_D", V::I(u64::from(s_i))),
+                ("JIT_A", V::I(u64::from(s_i))),
+                ("JIT_N", V::I(1)),
+                ("JIT_B", V::I(u64::from(s_len))),
+                ("JIT_T", V::Blk(l_body)),
+                ("JIT_F", V::Fall),
+            ],
+        );
 
         if let Some(l_exit) = early {
             // The loop that *finished* keeps the answer it started with, so it
@@ -903,10 +845,6 @@ impl<'a> Jit<'a> {
         if kind == Step::Filter {
             self.mv(dslot, s_dst, 8);
             self.mv(dslot + 8, s_k, 8);
-        }
-        self.stats.list_loops += 1;
-        if shape.direct {
-            self.stats.list_direct += 1;
         }
         true
     }
@@ -1066,13 +1004,6 @@ impl Jit<'_> {
         );
     }
 
-    /// `frame[d] = frame[a] + k`, with a scratch word for the level that has no
-    /// immediate form.
-    fn addk(&mut self, st: &Fn2, d: u32, a: u32, k: u64) {
-        let scratch = st.scratch + t(23);
-        self.add_imm(d, a, k, scratch);
-    }
-
     /// Where one whole element is staged on its way between two blocks, or a
     /// refusal when the element is wider than *this* frame keeps room for.
     ///
@@ -1123,9 +1054,6 @@ impl Jit<'_> {
         key: &str,
         o: &Operands,
     ) -> bool {
-        if off("listloop") {
-            return false;
-        }
         match key {
             "list.get" => self.list_get(prog, st, o),
             "list.find" => self.list_find(prog, st, o, 1, false),
@@ -1159,9 +1087,6 @@ impl Jit<'_> {
     /// test for one either — a null block has length zero, so the same compare
     /// has already answered.
     fn list_get(&mut self, prog: &ir::Program, st: &mut Fn2, o: &Operands) -> bool {
-        if off("listget") {
-            return false;
-        }
         let (Some(&(xs, xt)), Some(&(idx, _))) = (o.args.first(), o.args.get(1)) else {
             return false;
         };
@@ -1255,7 +1180,7 @@ impl Jit<'_> {
         self.store_disc(&l, d, 0);
         self.emit("jump", &[("JIT_T", V::Blk(end))]);
         st.place(cont, self.region.code_addr());
-        self.addk(st, i, i, 1);
+        self.add_imm(i, i, 1);
         self.emit("jump", &[("JIT_T", V::Blk(head))]);
         st.place(done, self.region.code_addr());
         self.store_disc(&l, d, 1);
@@ -1358,7 +1283,7 @@ impl Jit<'_> {
         self.emit("jump", &[("JIT_T", V::Blk(end))]);
         st.place(carry, self.region.code_addr());
         self.mv_acc(acc, res + ok_at, acc_w, acc_lw);
-        self.addk(st, i, i, 1);
+        self.add_imm(i, i, 1);
         self.emit("jump", &[("JIT_T", V::Blk(head))]);
         st.place(done, self.region.code_addr());
         self.mv(res + ok_at, acc, acc_w);
@@ -1424,7 +1349,7 @@ impl Jit<'_> {
             }
         }
         self.elem_store(pair, ptr, i, out_stride, ol.size.max(1));
-        self.addk(st, i, i, 1);
+        self.add_imm(i, i, 1);
         self.emit("jump", &[("JIT_T", V::Blk(head))]);
         st.place(done, self.region.code_addr());
         true
@@ -1468,7 +1393,7 @@ impl Jit<'_> {
                 ("JIT_CONT", V::Fall),
             ],
         );
-        self.addk(st, i, i, 1);
+        self.add_imm(i, i, 1);
         self.emit("jump", &[("JIT_T", V::Blk(count))]);
         st.place(counted, self.region.code_addr());
         self.new_block(ptr, o.dest.0, total, out_stride);
@@ -1502,7 +1427,7 @@ impl Jit<'_> {
             ],
         );
         self.elem_store(staging, ptr, filled, out_stride, out_size);
-        self.addk(st, j, j, 1);
+        self.add_imm(j, j, 1);
         self.emit("jump", &[("JIT_T", V::Blk(ihead))]);
         st.place(idone, self.region.code_addr());
         self.emit(
@@ -1514,7 +1439,7 @@ impl Jit<'_> {
                 ("JIT_CONT", V::Fall),
             ],
         );
-        self.addk(st, i, i, 1);
+        self.add_imm(i, i, 1);
         self.emit("jump", &[("JIT_T", V::Blk(head))]);
         st.place(done, self.region.code_addr());
         true
@@ -1569,7 +1494,7 @@ impl Jit<'_> {
             self.retain_value(st, &e, staging);
         }
         self.elem_store(staging, dst, i, stride, size);
-        self.addk(st, i, i, 1);
+        self.add_imm(i, i, 1);
         self.emit("jump", &[("JIT_T", V::Blk(head))]);
         st.place(filled, self.region.code_addr());
 
@@ -1659,14 +1584,14 @@ impl Jit<'_> {
         );
         st.place(take_left, self.region.code_addr());
         self.elem_load(staging, a, li, stride, size);
-        self.addk(st, li, li, 1);
+        self.add_imm(li, li, 1);
         self.emit("jump", &[("JIT_T", V::Blk(took))]);
         st.place(take_right, self.region.code_addr());
         self.elem_load(staging, a, ri, stride, size);
-        self.addk(st, ri, ri, 1);
+        self.add_imm(ri, ri, 1);
         st.place(took, self.region.code_addr());
         self.elem_store(staging, b, out, stride, size);
-        self.addk(st, out, out, 1);
+        self.add_imm(out, out, 1);
         self.emit("jump", &[("JIT_T", V::Blk(merge))]);
 
         st.place(merged, self.region.code_addr());
@@ -1707,7 +1632,7 @@ impl Jit<'_> {
         self.br_lt(i, n, V::Fall, V::Blk(home), Some("JIT_T"));
         self.elem_load(staging, a, i, stride, size);
         self.elem_store(staging, dst, i, stride, size);
-        self.addk(st, i, i, 1);
+        self.add_imm(i, i, 1);
         self.emit("jump", &[("JIT_T", V::Blk(back))]);
         st.place(home, self.region.code_addr());
         // The elements were *moved* into the result, so the scratch goes back
@@ -1798,7 +1723,7 @@ impl Jit<'_> {
         self.imm_to(d, 0);
         self.emit("jump", &[("JIT_T", V::Blk(end))]);
         st.place(cont, self.region.code_addr());
-        self.addk(st, i, i, 1);
+        self.add_imm(i, i, 1);
         self.emit("jump", &[("JIT_T", V::Blk(head))]);
         st.place(done, self.region.code_addr());
         st.place(end, self.region.code_addr());
@@ -1885,7 +1810,7 @@ impl Jit<'_> {
         );
         self.emit("jump", &[("JIT_T", V::Blk(greater))]);
         st.place(next, self.region.code_addr());
-        self.addk(st, i, i, 1);
+        self.add_imm(i, i, 1);
         self.emit("jump", &[("JIT_T", V::Blk(head))]);
 
         // Every shared element compared `Equal`, so the lengths decide.
@@ -1953,7 +1878,7 @@ impl Jit<'_> {
         }
         self.thunk_call(&c);
         self.elem_store(c.ret, ptr, i, out_stride, out_size);
-        self.addk(st, i, i, 1);
+        self.add_imm(i, i, 1);
         self.emit("jump", &[("JIT_T", V::Blk(head))]);
         st.place(done, self.region.code_addr());
 
@@ -1977,7 +1902,7 @@ impl Jit<'_> {
         if let Err(why) = self.walk_rc(st, &str_ty, staging, false, 0) {
             self.unsupported(why);
         }
-        self.addk(st, i, i, 1);
+        self.add_imm(i, i, 1);
         self.emit("jump", &[("JIT_T", V::Blk(freeing))]);
         st.place(freed, self.region.code_addr());
         self.emit(

@@ -204,10 +204,6 @@ fn contracts(workspace: &Workspace, rule: &buildfile::Tool, out: &mut Vec<Diagno
 }
 
 fn refer(workspace: &Workspace, named: &Spanned<String>, entry: &str, generator: bool, out: &mut Vec<Diagnostic>) {
-    // Reported where the file was read, under the name it has now.
-    if buildfile::RETIRED_TOOL_NAMES.iter().any(|(old, _)| *old == named.value) {
-        return;
-    }
     match resolve(workspace, &named.value) {
         Ok(tool) if tool.provides(workspace, entry) => {}
         Ok(_) => out.push(

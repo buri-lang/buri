@@ -139,13 +139,21 @@ fn utf8Len(c: Char): Int {
     if (v < 128) { 1 } else if (v < 2048) { 2 } else if (v < 65536) { 3 } else { 4 }
 }
 
+/// The byte offset of every character, and of the end. The running offset
+/// rides beside the list, as in `std/codegen/proto/schema`'s `byteOffsets`, so
+/// that no push finds the list held twice and copies it.
 fn offsetsOf<C: Allocator>(ctx: C, cs: [Char]): [Int] {
     let first: [Int] = [0];
-    cs.foldCtx(
+    let (_, offsets) = cs.foldCtx(
         ctx,
-        fn(c, acc: [Int], ch) => acc.push(c, acc.last().withDefault(0) + utf8Len(ch)),
-        first,
-    )
+        fn(c, acc: (Int, [Int]), ch) => {
+            let (at, xs) = acc;
+            let next = at + utf8Len(ch);
+            (next, xs.push(c, next))
+        },
+        (0, first),
+    );
+    offsets
 }
 
 fn isWordStart(c: Char): Bool {
@@ -195,22 +203,13 @@ fn lex<C: Allocator>(ctx: C, l: L): Result<L, Diagnostic> {
             let end = wordEnd(l, l.at);
             lex(ctx, push(ctx, l, .Word, end, []))
         } else if (c.isDigit() || c == '.' && charAt(l, l.at + 1).isDigit()) {
-            lex(
-                ctx,
-                push(
-                    ctx,
-                    l,
-                    .Number,
-                    numberEnd(
-                        l,
-                        l.at + 1,
-                        c == '0'
-                            && (charAt(l, l.at + 1) == 'x'
-                                || charAt(l, l.at + 1) == 'X'),
-                    ),
-                    [],
-                ),
-            )
+            // The end is found before `push` is called, as a word's is: an
+            // argument after `l` that reads `l` again holds it twice, and the
+            // push then copies every token so far.
+            let hex = c == '0'
+                && (charAt(l, l.at + 1) == 'x' || charAt(l, l.at + 1) == 'X');
+            let end = numberEnd(l, l.at + 1, hex);
+            lex(ctx, push(ctx, l, .Number, end, []))
         } else if (c == '"' || c == '\'') {
             let (end, spelled) = quoted(ctx, l, l.at + 1, c, [])?;
             lex(ctx, push(ctx, l, .Text, end, spelled))

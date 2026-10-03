@@ -28,26 +28,12 @@ file {
   golden: "regenerated.buri"
 }
 
-# The field that used to declare it is retired, and says so by name rather than
-# as an unknown field somebody might read as their own typo.
-edit {
-  file: "lib/wire/BUILD.buri"
-  replace: "library {"
-  with: "library {\n    proto_sources: [\"point.proto\"]"
-}
-
-run {
-  args: ["lint", "//lib/wire"]
-  exit: 2
-  golden: "retired.txt"
-}
-
 # So the entry is written by hand, which is the one step of this walkthrough
 # that is a person's.
 edit {
   file: "lib/wire/BUILD.buri"
-  replace: "    proto_sources: [\"point.proto\"]"
-  with: "    generators: [\n        { tool: \"proto\", inputs: [\"point.proto\"] },\n    ]"
+  replace: "library {"
+  with: "library {\n    generators: [\n        { tool: \"proto\", inputs: [\"point.proto\"] },\n    ]"
 }
 
 run {

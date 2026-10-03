@@ -49,6 +49,8 @@
 
 use std::collections::HashMap;
 
+use super::object::RelKind;
+
 /// log2 of the code section's alignment. Instructions are four bytes and
 /// nothing here asks for more.
 pub const CODE_ALIGN: u32 = 2;
@@ -87,26 +89,10 @@ pub enum Target {
 pub struct Reloc {
     /// Byte offset within the section.
     pub at: u64,
-    pub kind: RelocKind,
+    pub kind: RelKind,
     pub target: Target,
     /// Added to the target's address before the field is formed.
     pub addend: i64,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum RelocKind {
-    /// The 26-bit word displacement of a `b`/`bl`.
-    Branch26,
-    /// An eight-byte absolute address in the constant pool.
-    Abs64,
-    /// The page half of an `adrp`.
-    Page21,
-    /// The offset half of the `ldr` behind one.
-    PageOff12,
-    /// x86-64: the `rel32` of a `jmp`, `call` or `jcc`.
-    Rel32,
-    /// x86-64: the `disp32` of a rip-relative operand.
-    Pc32,
 }
 
 /// One part of one unit's emitted bytes.
@@ -247,13 +233,13 @@ impl Region {
         let addend = (slot & !POOL_TAG) as i64;
         self.relocs.push(Reloc {
             at: adrp,
-            kind: RelocKind::Page21,
+            kind: RelKind::Page21,
             target: Target::Pool,
             addend,
         });
         self.relocs.push(Reloc {
             at: ldr,
-            kind: RelocKind::PageOff12,
+            kind: RelKind::PageOff12,
             target: Target::Pool,
             addend,
         });
@@ -268,15 +254,15 @@ impl Region {
     /// those two places — which is per site, never a constant four.
     pub fn pool_ref_pc32(&mut self, field: u64, insn_end: u64, slot: u64) {
         let addend = (slot & !POOL_TAG) as i64 - (insn_end as i64 - field as i64);
-        self.relocs.push(Reloc { at: field, kind: RelocKind::Pc32, target: Target::Pool, addend });
+        self.relocs.push(Reloc { at: field, kind: RelKind::Pc32, target: Target::Pool, addend });
     }
 
-    pub fn reloc(&mut self, at: u64, kind: RelocKind, target: Target) {
+    pub fn reloc(&mut self, at: u64, kind: RelKind, target: Target) {
         self.relocs.push(Reloc { at, kind, target, addend: 0 });
     }
 
     /// [`Region::reloc`] with the addend a pc-relative x86-64 field needs.
-    pub fn reloc_with(&mut self, at: u64, kind: RelocKind, target: Target, addend: i64) {
+    pub fn reloc_with(&mut self, at: u64, kind: RelKind, target: Target, addend: i64) {
         self.relocs.push(Reloc { at, kind, target, addend });
     }
 
@@ -323,7 +309,7 @@ impl Region {
                 Target::Here(off) => (Target::Pool, off as i64),
                 other => (other, 0),
             };
-            self.pool_relocs.push(Reloc { at, kind: RelocKind::Abs64, target, addend });
+            self.pool_relocs.push(Reloc { at, kind: RelKind::Abs64, target, addend });
         }
         Emitted {
             code: self.bytes,
@@ -469,7 +455,7 @@ mod tests {
         second.pool_ref(at, at + 4, slot);
         let here = second.pool_bytes(b"xy");
         second.pool_target(Target::Here(here & !(1 << 40)));
-        second.reloc(at, RelocKind::Branch26, Target::Symbol(String::from("buri_rt_flush")));
+        second.reloc(at, RelKind::Branch26, Target::Symbol(String::from("buri_rt_flush")));
         let second = second.finish();
         let (code_relocs, pool_relocs) = (second.code_relocs.clone(), second.pool_relocs.clone());
         let (second_code, second_pool) = (second.code.clone(), second.pool.clone());
@@ -521,7 +507,7 @@ mod tests {
         r.pool_target(Target::Here(here & !(1 << 40)));
         let out = r.finish();
         assert_eq!(out.pool_relocs.len(), 2);
-        assert_eq!(out.pool_relocs.first().map(|x| x.kind), Some(RelocKind::Abs64));
+        assert_eq!(out.pool_relocs.first().map(|x| x.kind), Some(RelKind::Abs64));
         assert_eq!(out.pool_relocs.first().map(|x| x.addend), Some(0));
         assert_ne!(here & !(1 << 40), 0);
         assert_eq!(out.pool_relocs.get(1).map(|x| x.addend), Some((here & !(1 << 40)) as i64));

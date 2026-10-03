@@ -1,15 +1,12 @@
 # `buri add` is a namespace, and `buri add skills` is the one thing under it.
 #
-# Three claims, and the two refusals are as much of the contract as the run
-# that works:
+# Two claims, and the refusals are as much of the contract as the run that
+# works:
 #
 #   * `buri add` alone lists what it can be asked for and exits 2 — the same
 #     answer `buri` alone gives, one level down;
 #   * `buri add skills` writes the skills, and a second run rewrites them,
-#     which is the upgrade path;
-#   * `buri add-skills`, the spelling before this one, is *gone* — no alias,
-#     no hidden entry — and the error names its replacement, which is what
-#     somebody holding a script from the last release needs to read.
+#     which is the upgrade path.
 #
 # The refusals come first so that the `.agent/skills` check between them and
 # the run that works means something: a refusal that had written the skills
@@ -18,7 +15,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "add is a namespace: skills writes them, and the hyphenated spelling is gone"
+doc: "add is a namespace, and skills writes them"
 
 run {
   args: ["add"]
@@ -32,14 +29,6 @@ run {
   args: ["add", "skils"]
   exit: 2
   golden: "misspelled.txt"
-}
-
-# The old spelling. It fails as any unknown command does — and says what to
-# type instead, which `nearest` cannot: a rename is not a typo.
-run {
-  args: ["add-skills"]
-  exit: 2
-  golden: "old_spelling.txt"
 }
 
 # Nothing above wrote anything. Without this, every step below would pass for
