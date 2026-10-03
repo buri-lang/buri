@@ -23,6 +23,6 @@ filter = '''
   | test(=cross::a_linux_x86_64_artifact_is_a_real_elf_and_runs_in_a_container)
   | test(/^conformance::rejected_programs_are_rejected::/)
   | test(=runtime::the_runtime_crate_answers_its_own_tests)
-  | test(=stencil::the_corpus_files_it_compiles_pass)
+  | test(/^stencil::the_corpus_files_it_compiles_pass::/)
 '''
 priority = 100
