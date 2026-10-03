@@ -1,0 +1,13 @@
+error: //cmd/app cannot be built for //platform/kit [platform-violation]
+ --> cmd/app/BUILD.buri:4:9
+  |
+4 |         { platform: "//platform/kit" },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = //lib/words declares platforms node
+  = fix: drop the //platform/kit output, or widen the list the note names
+
+    Every library a binary reaches, and every tag those libraries carry, must
+    admit the platform each output names. The note says which member rules it
+    out: a library's own backends or platforms, or a tag's requires or forbids.
+

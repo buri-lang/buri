@@ -1,0 +1,21 @@
+error: two artifacts of //cmd/app write `.buri/out/platform/pair/cmd/app/app.mjs` [duplicate-artifact-path]
+ --> cmd/app/BUILD.buri:3:55
+  |
+3 |         { platform: "//platform/pair", artifact_name: "app", entries: [
+  |                                                       ^^^^^
+  |
+  = `//platform/pair` has several entries, and `artifact_name` names each of them `app`
+  = fix: remove `artifact_name`: each entry's artifact is named after the entry
+
+    One web output is enough:
+
+      binary {
+          outputs: [
+              { platform: "web" },
+          ]
+      }
+
+    A platform with several entries names each artifact after its entry, so an
+    output of it takes no artifact_name. Two outputs of one platform with no
+    entries of their own need different artifact_names.
+

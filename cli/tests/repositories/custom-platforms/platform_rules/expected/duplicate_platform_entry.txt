@@ -1,0 +1,22 @@
+error: the platform declares `left` twice [duplicate-platform-entry]
+ --> platform/pair/BUILD.buri:8:15
+  |
+8 |         name: "left"
+  |               ^^^^^^ declared again here
+  |
+  = an output fills each entry by its name, so two entries can't share one
+  = fix: rename one of them, or delete it
+
+      # platform/desktop/BUILD.buri
+      platform {
+          entry {
+              name: "main"
+              backend: NATIVE
+          }
+          entry {
+              name: "window"
+              backend: JS
+              js: "window.mjs"
+          }
+      }
+

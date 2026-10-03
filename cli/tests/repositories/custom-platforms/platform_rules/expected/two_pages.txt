@@ -1,0 +1,21 @@
+error: two artifacts of //cmd/app write `.buri/out/web/cmd/app/main.mjs` [duplicate-artifact-path]
+ --> cmd/app/BUILD.buri:4:9
+  |
+4 |         { platform: "web" },
+  |         ^^^^^^^^^^^^^^^^^^^
+  |
+  = both outputs are `web` pages, and a page's file is named after its entry
+  = fix: drop one of the two `web` outputs
+
+    One web output is enough:
+
+      binary {
+          outputs: [
+              { platform: "web" },
+          ]
+      }
+
+    A platform with several entries names each artifact after its entry, so an
+    output of it takes no artifact_name. Two outputs of one platform with no
+    entries of their own need different artifact_names.
+

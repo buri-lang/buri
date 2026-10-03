@@ -18,7 +18,7 @@ run {
 # Visible now, and tagged `server`, which the `client` binary forbids.
 edit {
   file: "lib/words/BUILD.buri"
-  replace: "library {\n}\n"
+  replace: "library {}\n"
   with: "library {\n    visibility: [\"//platform/kit\"]\n    tags: [\"server\"]\n}\n"
 }
 

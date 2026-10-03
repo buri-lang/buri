@@ -275,7 +275,7 @@ fn the_host_on_node() {
 /// honest.
 #[test]
 fn custom_platforms() {
-    run_corpus(&tests_dir().join("repositories/custom-platforms"), "custom-platforms", 3);
+    run_corpus(&tests_dir().join("repositories/custom-platforms"), "custom-platforms", 5);
 }
 
 /// `buri run` on a page: the flags that belong to the server it starts, and

@@ -1,14 +1,14 @@
 ---
 title: A host's fields are production structs
 message: '`{field}` is `{type}`, which is not a production struct'
-note: 'the CLI builds the host, so each field is a struct with no fields: one from `platform/host`, or the platform''s own'
+note: 'the CLI builds the host, so each field is a struct with no fields: one from `platform/host`, or one the platform declares'
 fix: '{fix}'
 reproduction: none
 ---
 # A host's fields are production structs
 
 ```text
-error: `count` is `Int`, which is not a production struct [host-field-not-production]
+error: `count` is `I64`, which is not a production struct [host-field-not-production]
 ```
 
 ```buri ignore why="a platform's surface, compiled only with its rule"

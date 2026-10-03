@@ -1,0 +1,17 @@
+error: `right` is a `NATIVE` entry with a `js` file [js-outside-js-entry]
+  --> platform/pair/BUILD.buri:10:13
+   |
+10 |         js: "right.mjs"
+   |             ^^^^^^^^^^^ a `js` file here
+   |
+   = a `js` file is how a host calls a `JS` entry, and a `NATIVE` entry starts itself
+   = fix: remove `js`, or build the entry with `backend: JS`
+
+       # platform/lambda/BUILD.buri
+       platform {
+           entry {
+               name: "bootstrap"
+               backend: NATIVE
+           }
+       }
+

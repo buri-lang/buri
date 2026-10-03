@@ -179,6 +179,29 @@ fn a_generators_input_and_the_tool_that_reads_it_are_watched() {
     }
 }
 
+/// **A snapshot's golden is watched, and its diff is not.** A suite's key
+/// holds every `*.png` in its package's `test/__snapshots__`, so editing one
+/// re-runs the suite. The runtime writes `*.diff.png` itself, and watching it
+/// would wake the loop with its own output.
+#[test]
+fn a_snapshot_golden_is_watched_and_its_diff_is_not() {
+    let scratch = two_suites("watch-goldens");
+    scratch.write("lib/a/test/__snapshots__/front.png", "golden");
+    scratch.write("lib/a/test/__snapshots__/front.diff.png", "diff");
+
+    let listed = names(&scratch.root, &declared_set(&scratch.root));
+    assert!(
+        listed.iter().any(|p| p == "lib/a/test/__snapshots__/front.png"),
+        "the declared set does not name the golden:\n{}",
+        indent(&listed.join("\n"))
+    );
+    assert!(
+        !listed.iter().any(|p| p.ends_with(".diff.png")),
+        "the declared set names a diff the runtime writes:\n{}",
+        indent(&listed.join("\n"))
+    );
+}
+
 /// **A repository platform's files are watched**: its `platform.buri`, its
 /// sources, its entries' `js` files, its assets and the libraries it depends
 /// on. Every one is in the key of each output built for it, so an edit to any

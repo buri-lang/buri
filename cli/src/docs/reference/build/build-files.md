@@ -251,7 +251,9 @@ An artifact entered through a function other than `main` is named after it,
 `mainForNode.mjs` here, because two outputs of one binary would otherwise write
 one path. `artifact_name` overrides that. A `web` page and a repository
 platform's entries are named after the platform's entry instead: `main.mjs`,
-`fetch.mjs`.
+`fetch.mjs`. Two artifacts at one path are `duplicate-artifact-path`, and
+`artifact_name` on a platform with assets, such as `web`, is
+`misplaced-artifact-name`, because its `index.html` loads `/main.mjs`.
 
 **The platform fixes the entry's signature**, in its `platform.buri`. The wrong
 shape is a type error at the function: `entry-missing-host` for an entry that
