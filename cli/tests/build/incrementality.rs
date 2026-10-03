@@ -336,9 +336,20 @@ fn a_test_suite_is_cached_and_force_re_runs_it() {
     after.ok();
     assert_eq!(status(&after, "test //lib/money"), "cached");
 
+    // A whitespace edit changes nothing the compiler sees, so the verdict stands.
+    example.edit("lib/money/cents.buri", "fn fromCents", "fn  fromCents");
+    let spaced = example.run(&["test", "//lib/money", "--explain"]);
+    spaced.ok();
+    assert_eq!(
+        status(&spaced, "test //lib/money"),
+        "cached",
+        "a whitespace edit re-ran the suite:\n{}",
+        indent(&spaced.all())
+    );
+
     // And the negative twin, from each of the two directions a suite's key can
     // move: the code under test, and the suite's own source.
-    example.edit("lib/money/cents.buri", "fn fromCents", "fn fromCents ");
+    example.edit("lib/money/cents.buri", "let whole = self.0 / 100;", "let whole = (self.0) / 100;");
     let edited = example.run(&["test", "//lib/money", "--explain"]);
     edited.ok();
     assert_eq!(

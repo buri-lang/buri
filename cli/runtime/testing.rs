@@ -3378,6 +3378,8 @@ const FS_CALL_NAMES: [&str; 16] = [
 //     is driving this process**: it runs every block, writes no record, and a
 //     failure is the message on standard error and the exit status it always
 //     was. A binary run by hand is unchanged by any of this.
+//   * `BURI_TEST_TO=<index>` — the block to stop before, so several processes
+//     can share one binary's blocks. Absent means the last block.
 //   * [`buri_rt_test_enter`] — before each block, answering whether to run it.
 //   * one line on standard output when the process reaches its first block
 //     ([`note_started`]), so that a binary that never started is told apart
@@ -3395,6 +3397,10 @@ const FS_CALL_NAMES: [&str; 16] = [
 /// The environment variable the runner starts a process with, holding the
 /// index of the first block this process is to run.
 const RESUME: &str = "BURI_TEST_FROM";
+
+/// The environment variable holding the index of the block this process stops
+/// before.
+const STOP: &str = "BURI_TEST_TO";
 
 /// The environment variable holding the order `tasks().anyOrder()` schedules
 /// with — one number for every block, or a comma-separated list in the binary's
@@ -3472,6 +3478,12 @@ fn resume_at() -> Option<i64> {
     *ASKED.get_or_init(|| std::env::var(RESUME).ok().and_then(|v| v.parse().ok()))
 }
 
+/// The index [`STOP`] names, or `None` to run to the end. Read once, as [`resume_at`] is.
+fn stop_at() -> Option<i64> {
+    static ASKED: std::sync::OnceLock<Option<i64>> = std::sync::OnceLock::new();
+    *ASKED.get_or_init(|| std::env::var(STOP).ok().and_then(|v| v.parse().ok()))
+}
+
 /// Set by the first `test` block this process enters, and never cleared.
 static IN_A_TEST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -3504,7 +3516,7 @@ pub extern "C" fn buri_rt_test_enter(index: i64) -> i32 {
     // schedules anything leaves it at the one run every block makes.
     *replay() = Replay { pass: 0, total: 1, note: None };
     let Some(from) = resume_at() else { return 1 };
-    if index < from {
+    if index < from || stop_at().is_some_and(|to| index >= to) {
         return 0;
     }
     runner().at = index;

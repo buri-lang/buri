@@ -241,6 +241,23 @@ pub const FLAGS: &[Flag] = &[
         },
     },
     Flag {
+        name: "jobs",
+        value: Value::Required("<n>"),
+        choices: &[],
+        blurb: "build and run this many suites at once; the default fits the cores and memory",
+        global: false,
+        set: |f, v| {
+            let text = v.unwrap_or_default();
+            match text.parse::<usize>() {
+                Ok(n) if n > 0 => {
+                    f.jobs = Some(n);
+                    Ok(())
+                }
+                _ => Err(format!("`--jobs` takes a whole number from 1 up, not `{text}`")),
+            }
+        },
+    },
+    Flag {
         name: "self-check",
         value: Value::None,
         choices: &[],
@@ -378,7 +395,7 @@ pub const COMMANDS: &[Command] = &[
         doc: include_str!("../docs/reference/cli/test.md"),
         flags: &[
             "release", "debug", "output", "filter", "force", "explain", "watch", "dense",
-            "update",
+            "update", "jobs",
         ],
         run: test::command_test,
         subcommands: &[],

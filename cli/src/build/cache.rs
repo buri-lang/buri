@@ -227,7 +227,39 @@ fn line(on: bool, status: Status, action: Action, label: &str, platform: &str, k
     if !on {
         return;
     }
-    println!("{:<6} {} {label} {platform} {}", status.name(), action.name(), key.short());
+    let text = format!("{:<6} {} {label} {platform} {}", status.name(), action.name(), key.short());
+    let held = HELD.with(|held| match held.borrow_mut().as_mut() {
+        Some(buffer) => {
+            buffer.push_str(&text);
+            buffer.push('\n');
+            true
+        }
+        None => false,
+    });
+    if !held {
+        println!("{text}");
+    }
+}
+
+/// An extension no other writer is using: this process's id, and a count so two
+/// threads of one `buri test` storing one key never write the same file.
+fn temporary_extension() -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("tmp{}.{n}", std::process::id())
+}
+
+thread_local! {
+    static HELD: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `f` with this thread's `--explain` lines kept rather than printed, and
+/// hands them back. `buri test` prints them in suite order, whichever thread ran.
+pub fn holding_explain<T>(f: impl FnOnce() -> T) -> (T, String) {
+    let outer = HELD.with(|held| held.borrow_mut().replace(String::new()));
+    let value = f();
+    let lines = HELD.with(|held| std::mem::replace(&mut *held.borrow_mut(), outer));
+    (value, lines.unwrap_or_default())
 }
 
 /// A finished cache key: the hex SHA-256 a [`KeyBuilder`] produced.
@@ -342,7 +374,7 @@ impl Cache {
         // sees half an entry. The temporary is named for this process as well
         // as for the key, so that two writers of one key never share a file
         // even in the window where the lock has been abandoned.
-        let tmp = p.with_extension(format!("tmp{}", std::process::id()));
+        let tmp = p.with_extension(temporary_extension());
         if std::fs::write(&tmp, data).is_ok() {
             let _ = std::fs::rename(&tmp, &p);
         }
@@ -385,7 +417,7 @@ impl Cache {
             LockOutcome::Held(lock) => Some(lock),
             LockOutcome::ProceedUnlocked => None,
         };
-        let tmp = p.with_extension(format!("tmp{}", std::process::id()));
+        let tmp = p.with_extension(temporary_extension());
         let staged = std::fs::rename(src, &tmp).is_ok()
             || (std::fs::copy(src, &tmp).is_ok() && {
                 let _ = std::fs::remove_file(src);

@@ -81,6 +81,9 @@ pub struct Flags {
     /// Record what `snapshot` painted as the golden instead of comparing
     /// against it. `buri test` only.
     pub update: bool,
+    /// How many suites `buri test` builds and runs at once. `None` picks from
+    /// the cores and the memory this machine has.
+    pub jobs: Option<usize>,
 }
 
 /// How `buri docs` prints a page.
