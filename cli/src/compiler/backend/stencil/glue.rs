@@ -15,8 +15,12 @@
 //! | [`Helper::Entry`] | The other direction through the C boundary: a `void(state, index, in, out)` the **runtime** calls to run one Buri step. A closure's `code` has a parameter list that depends on the element type, so the runtime cannot call it; this is generated where that type is known and is the only thing that does. |
 //! | [`Helper::Equal`] | The same direction and the same reason, one shape smaller: a `void(frame, a, b, out)` the reactive graph compares a write through. `==` is structural, so a cell holding a `Str` cannot answer "is this the value already there" from its bytes — and the comparison's parameter list depends on the type, so the runtime cannot make the call either. |
 //!
-//! Every one is a **local** symbol of the unit that needed it, so two units
-//! that both drop a `[Str]` get a copy each and neither collides.
+//! The drop and copy glue ([`Helper::Walk`] through [`Helper::EnvCopy`]) is
+//! named by what it does and by the type's glue key
+//! (`layout::Layouts::glue_key`), and defined weak ([`shared_symbol`]): every
+//! unit that drops a `[Str]` emits the same symbol and the linker keeps one.
+//! The rest name a function of this program, so each is a **local** symbol of
+//! the part that needed it.
 //!
 //! # Two calling conventions, and the bridge between them
 //!
@@ -61,7 +65,7 @@
 use super::asm::{Asm, RAX, RCX, RDI, RDX, RSI, RSP, SP, X86};
 use super::jit::{Fn2, FrameSig, Jit, V};
 use crate::compiler::middle::ir;
-use crate::compiler::middle::layout::{CAP_MASK, CLOSURE_ENV};
+use crate::compiler::middle::layout::{Layouts, CAP_MASK, CLOSURE_ENV};
 use crate::compiler::semantics::types::Ty;
 
 /// One generated function.
@@ -128,7 +132,28 @@ pub enum Helper {
     Equal { ty: Ty, func: u32 },
 }
 
-/// The symbol a helper is emitted under.
+/// The program-wide symbol of a drop or copy glue function, or `None` for a
+/// helper that stays local to its part.
+///
+/// The glue key covers everything the glue's body reads, so two helpers with
+/// one name have one body, whichever unit or program emitted it. That is what
+/// makes it safe to define them weak: on Mach-O a weak private external, which
+/// `ld64` coalesces, and on ELF a COMDAT group per function (`mod.rs`).
+pub fn shared_symbol(h: &Helper, layouts: &mut Layouts<'_>) -> Option<String> {
+    let (what, key) = match h {
+        Helper::Walk { ty, retain: false } => ("release", layouts.glue_key(ty)),
+        Helper::Walk { ty, retain: true } => ("retain", layouts.glue_key(ty)),
+        Helper::Elems { ty } => ("elems", layouts.glue_key(ty)),
+        Helper::Copy { ty } => ("copy", layouts.glue_key(ty)),
+        Helper::CopyElems { ty } => ("copyelems", layouts.glue_key(ty)),
+        Helper::EnvGlue => return Some(String::from("buri$stencil$glue$env")),
+        Helper::EnvCopy => return Some(String::from("buri$stencil$glue$envcopy")),
+        Helper::Thunk { .. } | Helper::Entry { .. } | Helper::Equal { .. } => return None,
+    };
+    Some(format!("buri$stencil$glue${what}${key}"))
+}
+
+/// The symbol a part-local helper is emitted under.
 ///
 /// `$` cannot appear in a Buri path, so no `ir::Func::symbol` can collide with
 /// one — the same guarantee `mod.rs`'s pool anchor rests on. The index is the
@@ -139,10 +164,9 @@ pub enum Helper {
 /// does not know what the parts beside it asked for. `part` is the part's index
 /// within its unit — a function of the member count alone
 /// (`mod.rs::PART_MEMBERS`) — so the pair is unique inside the object however
-/// the work divided, and it is the same pair on every machine. The cost is that
-/// two parts needing the same glue get a copy each; they are local symbols and
-/// `-dead_strip` keeps whichever is reached, which is what a local symbol was
-/// for.
+/// the work divided, and it is the same pair on every machine. Two parts
+/// needing the same thunk get a copy each; they are local symbols and
+/// `-dead_strip` keeps whichever is reached.
 pub fn symbol(part: usize, i: usize) -> String {
     format!("buri$stencil$p{part}h{i}")
 }

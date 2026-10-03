@@ -781,8 +781,8 @@ struct Part {
     emitted: region::Emitted,
     /// Where each of this part's members was laid out, in member order.
     entries: Vec<u64>,
-    /// The glue this part generated, as `(local symbol, offset)`.
-    helpers: Vec<(String, u64)>,
+    /// The helpers this part generated.
+    helpers: Vec<jit::HelperSymbol>,
     /// The IR shapes this part refused, in the order it first met them.
     reasons: Vec<String>,
     /// This part's share of the unit's `codegen` key text.
@@ -855,13 +855,16 @@ fn assemble_unit(
     let mut emitted = region::Emitted::default();
     emitted.reserve_for(parts.iter().map(|p| &p.emitted));
     let mut entries: Vec<u64> = Vec::with_capacity(members.len());
-    let mut helper_symbols: Vec<(String, u64)> = Vec::new();
+    let mut helper_symbols: Vec<jit::HelperSymbol> = Vec::new();
     let mut text = String::new();
     for p in parts {
         let base = emitted.append(p.emitted);
         entries.extend(p.entries.iter().map(|e| e.saturating_add(base)));
-        helper_symbols
-            .extend(p.helpers.into_iter().map(|(s, at)| (s, at.saturating_add(base))));
+        helper_symbols.extend(p.helpers.into_iter().map(|h| jit::HelperSymbol {
+            at: h.at.saturating_add(base),
+            end: h.end.saturating_add(base),
+            ..h
+        }));
         text.push_str(&p.key_text);
     }
     let mut code = emitted.code;
@@ -927,6 +930,7 @@ fn assemble_unit(
             name: String::from(name),
             defined: None,
             global: true,
+            weak: false,
         });
         index.insert(String::from(name), i);
         i
@@ -942,15 +946,26 @@ fn assemble_unit(
         }
     }
 
-    // The functions the unit generated for itself (`glue.rs`), under **local**
-    // names: a unit that drops a `[Str]` has its own glue and no two units
-    // collide, which is what a local symbol is for. One namespace per part
-    // inside the unit, for the same reason and one level in (`glue::symbol`).
-    for (name, at) in helper_symbols {
+    // The functions the unit generated for itself (`glue.rs`). Drop and copy
+    // glue is a weak definition under its program-wide name, so the linker
+    // keeps one copy however many units emit it. A second part of this unit
+    // that emitted the same glue keeps its bytes under a local name nothing
+    // calls, and dead-stripping drops them. The rest are local symbols, one
+    // namespace per part (`glue::symbol`).
+    let mut glue: Vec<(usize, u64, u64)> = Vec::new();
+    for h in helper_symbols {
+        let repeat = h.shared && index.get(&h.name).is_some_and(|i| {
+            symbols.get(*i).is_some_and(|s| s.defined.is_some())
+        });
+        let name = if repeat { format!("{}$again{}", h.name, glue.len()) } else { h.name };
         let ix = want(&mut symbols, &mut index, &name);
         if let Some(s) = symbols.get_mut(ix) {
-            s.defined = Some(object::Definition { section: 0, offset: at });
-            s.global = false;
+            s.defined = Some(object::Definition { section: CODE, offset: h.at });
+            s.global = h.shared && !repeat;
+            s.weak = s.global;
+        }
+        if h.shared {
+            glue.push((ix, h.at, h.end));
         }
     }
 
@@ -1023,6 +1038,7 @@ fn assemble_unit(
             align: region::CODE_ALIGN,
             attributes: object::CODE_ATTRIBUTES,
             zerofill: 0,
+            group: None,
             data: Vec::new(),
         },
         object::Section {
@@ -1035,6 +1051,7 @@ fn assemble_unit(
             },
             attributes: 0,
             zerofill: 0,
+            group: None,
             data: emitted.pool,
         },
     ];
@@ -1071,6 +1088,7 @@ fn assemble_unit(
             align: asm::STACK_ALIGN,
             attributes: 0,
             zerofill: asm::STACK_BYTES,
+            group: None,
             data: Vec::new(),
         });
         let stack = want(&mut symbols, &mut index, asm::STACK_SYMBOL);
@@ -1079,6 +1097,10 @@ fn assemble_unit(
         }
     }
 
+    if target.is_elf() {
+        let first = sections.len();
+        sections.extend(carve(&mut code, &mut symbols, &mut out, &glue, first));
+    }
     if let Some(s) = sections.first_mut() {
         s.data = code;
     }
@@ -1096,6 +1118,72 @@ fn assemble_unit(
     // concatenated in part order, which *is* that text: the parts partition the
     // members and each rendered its own in member order.
     Ok(Emitted { name: format!("{name}.o"), key: ActionKey::of(text.as_bytes()), bytes })
+}
+
+/// Moves each glue function out of the code section into a section of its
+/// own, for ELF. The new sections are numbered from `first`.
+///
+/// ELF has no `.subsections_via_symbols`: the linker discards whole sections,
+/// so one weak definition per COMDAT group is what lets it keep one copy of the
+/// glue per program. A repeat copy (a local symbol) gets a section with no
+/// group, which `--gc-sections` drops because nothing references it.
+///
+/// Nothing branches into a glue body without a relocation, and a body's own
+/// branches stay inside it, so cutting the bytes out moves every offset after
+/// them back by the bytes removed and changes nothing else.
+fn carve(
+    code: &mut Vec<u8>,
+    symbols: &mut [object::Symbol],
+    relocs: &mut [object::Reloc],
+    glue: &[(usize, u64, u64)],
+    first: usize,
+) -> Vec<object::Section> {
+    let mut cuts: Vec<(usize, u64, u64)> = glue.to_vec();
+    cuts.sort_by_key(|c| c.1);
+    // Where an offset in the old code section lands: a carved section and the
+    // offset within it, or the code section and the offset less what was cut
+    // before it.
+    let place = |offset: u64| -> (usize, u64) {
+        let mut removed = 0u64;
+        for (k, (_, at, end)) in cuts.iter().enumerate() {
+            if offset < *at {
+                break;
+            }
+            if offset < *end {
+                return (first.saturating_add(k), offset.saturating_sub(*at));
+            }
+            removed = removed.saturating_add(end.saturating_sub(*at));
+        }
+        (CODE, offset.saturating_sub(removed))
+    };
+    for s in symbols.iter_mut() {
+        if let Some(d) = s.defined.as_mut().filter(|d| d.section == CODE) {
+            (d.section, d.offset) = place(d.offset);
+        }
+    }
+    for r in relocs.iter_mut().filter(|r| r.section == CODE) {
+        (r.section, r.offset) = place(r.offset);
+    }
+    let mut kept = Vec::with_capacity(code.len());
+    let mut sections = Vec::with_capacity(cuts.len());
+    let mut from = 0u64;
+    for (sym, at, end) in &cuts {
+        kept.extend_from_slice(code.get(from as usize..*at as usize).unwrap_or_default());
+        let symbol = symbols.get(*sym);
+        sections.push(object::Section {
+            name: ".text",
+            segment: "",
+            align: region::CODE_ALIGN,
+            attributes: object::CODE_ATTRIBUTES,
+            zerofill: 0,
+            group: symbol.filter(|s| s.weak).map(|s| s.name.clone()),
+            data: code.get(*at as usize..*end as usize).unwrap_or_default().to_vec(),
+        });
+        from = *end;
+    }
+    kept.extend_from_slice(code.get(from as usize..).unwrap_or_default());
+    *code = kept;
+    sections
 }
 
 /// The local symbol every pool offset is measured from.
