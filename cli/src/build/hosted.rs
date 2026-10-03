@@ -53,100 +53,100 @@ fn lex(src: &str) -> Vec<Lexeme> {
         let c = at(i);
         let start = i;
         if c.is_ascii_whitespace() {
-            i += 1;
+            i = i.saturating_add(1);
             continue;
         }
-        if c == b'/' && at(i + 1) == b'/' {
+        if c == b'/' && at(i.saturating_add(1)) == b'/' {
             while i < bytes.len() && at(i) != b'\n' {
-                i += 1;
+                i = i.saturating_add(1);
             }
             continue;
         }
-        if c == b'/' && at(i + 1) == b'*' {
-            i += 2;
-            while i < bytes.len() && !(at(i) == b'*' && at(i + 1) == b'/') {
-                i += 1;
+        if c == b'/' && at(i.saturating_add(1)) == b'*' {
+            i = i.saturating_add(2);
+            while i < bytes.len() && !(at(i) == b'*' && at(i.saturating_add(1)) == b'/') {
+                i = i.saturating_add(1);
             }
-            i = (i + 2).min(bytes.len());
+            i = (i.saturating_add(2)).min(bytes.len());
             continue;
         }
         if c == b'"' || c == b'\'' {
-            i += 1;
+            i = i.saturating_add(1);
             let mut text = Vec::new();
             while i < bytes.len() && at(i) != c && at(i) != b'\n' {
                 if at(i) == b'\\' {
-                    i += 1;
+                    i = i.saturating_add(1);
                 }
                 text.push(at(i));
-                i += 1;
+                i = i.saturating_add(1);
             }
-            i = (i + 1).min(bytes.len());
+            i = (i.saturating_add(1)).min(bytes.len());
             out.push(Lexeme { token: Token::Str(String::from_utf8_lossy(&text).to_string()), start, end: i });
             continue;
         }
         if c == b'`' {
             // A template literal, with its `${ }` holes skipped by depth.
-            i += 1;
+            i = i.saturating_add(1);
             let mut holes = 0usize;
             while i < bytes.len() {
                 match at(i) {
-                    b'\\' => i += 1,
+                    b'\\' => i = i.saturating_add(1),
                     b'`' if holes == 0 => break,
-                    b'$' if at(i + 1) == b'{' => {
-                        holes += 1;
-                        i += 1;
+                    b'$' if at(i.saturating_add(1)) == b'{' => {
+                        holes = holes.saturating_add(1);
+                        i = i.saturating_add(1);
                     }
-                    b'}' if holes > 0 => holes -= 1,
+                    b'}' if holes > 0 => holes = holes.saturating_sub(1),
                     _ => {}
                 }
-                i += 1;
+                i = i.saturating_add(1);
             }
-            i = (i + 1).min(bytes.len());
+            i = (i.saturating_add(1)).min(bytes.len());
             out.push(Lexeme { token: Token::Opaque, start, end: i });
             continue;
         }
         if c == b'/' && regex_may_follow(out.last().map(|l| &l.token)) {
-            i += 1;
+            i = i.saturating_add(1);
             let mut class = false;
             while i < bytes.len() && at(i) != b'\n' {
                 match at(i) {
-                    b'\\' => i += 1,
+                    b'\\' => i = i.saturating_add(1),
                     b'[' => class = true,
                     b']' => class = false,
                     b'/' if !class => break,
                     _ => {}
                 }
-                i += 1;
+                i = i.saturating_add(1);
             }
-            i += 1;
+            i = i.saturating_add(1);
             while at(i).is_ascii_alphabetic() {
-                i += 1;
+                i = i.saturating_add(1);
             }
             out.push(Lexeme { token: Token::Opaque, start, end: i.min(bytes.len()) });
             continue;
         }
         if c.is_ascii_alphabetic() || c == b'_' || c == b'$' || c >= 0x80 {
             while i < bytes.len() && (at(i).is_ascii_alphanumeric() || at(i) == b'_' || at(i) == b'$' || at(i) >= 0x80) {
-                i += 1;
+                i = i.saturating_add(1);
             }
             out.push(Lexeme { token: Token::Ident(src.get(start..i).unwrap_or_default().to_string()), start, end: i });
             continue;
         }
         if c.is_ascii_digit() {
             while i < bytes.len() && (at(i).is_ascii_alphanumeric() || at(i) == b'.' || at(i) == b'_') {
-                i += 1;
+                i = i.saturating_add(1);
             }
             out.push(Lexeme { token: Token::Opaque, start, end: i });
             continue;
         }
-        if c == b'=' && at(i + 1) == b'>' {
-            i += 2;
+        if c == b'=' && at(i.saturating_add(1)) == b'>' {
+            i = i.saturating_add(2);
             out.push(Lexeme { token: Token::Arrow, start, end: i });
             continue;
         }
         // Every other byte is punctuation; a multi-byte operator is a run of
         // these, which nothing below needs whole.
-        i += 1;
+        i = i.saturating_add(1);
         out.push(Lexeme { token: Token::Punct(c as char), start, end: i });
     }
     out
@@ -216,23 +216,23 @@ fn count_params(lexemes: &[Lexeme], open: usize) -> Option<(usize, usize)> {
     loop {
         let l = lexemes.get(i)?;
         match &l.token {
-            Token::Punct('(' | '[' | '{') => depth += 1,
+            Token::Punct('(' | '[' | '{') => depth = depth.saturating_add(1),
             Token::Punct(')' | ']' | '}') => {
                 depth = depth.saturating_sub(1);
                 if depth == 0 {
-                    return Some((if any { commas + 1 } else { 0 }, i + 1));
+                    return Some((if any { commas.saturating_add(1) } else { 0 }, i.saturating_add(1)));
                 }
             }
             Token::Punct(',') if depth == 1 => {
                 // A trailing comma adds no parameter.
-                if !matches!(lexemes.get(i + 1).map(|l| &l.token), Some(Token::Punct(')'))) {
-                    commas += 1;
+                if !matches!(lexemes.get(i.saturating_add(1)).map(|l| &l.token), Some(Token::Punct(')'))) {
+                    commas = commas.saturating_add(1);
                 }
             }
             _ if depth >= 1 => any = true,
             _ => {}
         }
-        i += 1;
+        i = i.saturating_add(1);
     }
 }
 
@@ -240,20 +240,20 @@ fn count_params(lexemes: &[Lexeme], open: usize) -> Option<(usize, usize)> {
 /// `(a, b) => ...`, `a => ...`, `async (a) => ...`, `function (a) {}`.
 fn function_value(lexemes: &[Lexeme], mut i: usize) -> Option<usize> {
     if matches!(lexemes.get(i).map(|l| &l.token), Some(Token::Ident(w)) if w == "async") {
-        i += 1;
+        i = i.saturating_add(1);
     }
     match &lexemes.get(i)?.token {
         Token::Ident(w) if w == "function" => {
-            i += 1;
+            i = i.saturating_add(1);
             if matches!(lexemes.get(i).map(|l| &l.token), Some(Token::Punct('*'))) {
-                i += 1;
+                i = i.saturating_add(1);
             }
             if matches!(lexemes.get(i).map(|l| &l.token), Some(Token::Ident(_))) {
-                i += 1;
+                i = i.saturating_add(1);
             }
             count_params(lexemes, i).map(|(n, _)| n)
         }
-        Token::Ident(_) if lexemes.get(i + 1)?.token == Token::Arrow => Some(1),
+        Token::Ident(_) if lexemes.get(i.saturating_add(1))?.token == Token::Arrow => Some(1),
         Token::Punct('(') => {
             let (n, after) = count_params(lexemes, i)?;
             (lexemes.get(after)?.token == Token::Arrow).then_some(n)
@@ -273,7 +273,7 @@ fn object_keys(lexemes: &[Lexeme], open: usize) -> Vec<(String, Option<usize>)> 
     while let Some(l) = lexemes.get(i) {
         match &l.token {
             Token::Punct('(' | '[' | '{') => {
-                depth += 1;
+                depth = depth.saturating_add(1);
                 if depth == 1 {
                     fresh = true;
                 }
@@ -292,25 +292,25 @@ fn object_keys(lexemes: &[Lexeme], open: usize) -> Vec<(String, Option<usize>)> 
                 // with the word `async`; it is a key only when `:` or `(`
                 // follows it directly.
                 if matches!(&l.token, Token::Ident(w) if w == "async")
-                    && !matches!(lexemes.get(i + 1).map(|l| &l.token), Some(Token::Punct(':' | '(' | ',')))
+                    && !matches!(lexemes.get(i.saturating_add(1)).map(|l| &l.token), Some(Token::Punct(':' | '(' | ',')))
                 {
-                    k += 1;
+                    k = k.saturating_add(1);
                 }
                 let key = match lexemes.get(k).map(|l| &l.token) {
                     Some(Token::Ident(w)) | Some(Token::Str(w)) => w.clone(),
                     _ => continue,
                 };
-                let count = match lexemes.get(k + 1).map(|l| &l.token) {
-                    Some(Token::Punct(':')) => function_value(lexemes, k + 2),
+                let count = match lexemes.get(k.saturating_add(1)).map(|l| &l.token) {
+                    Some(Token::Punct(':')) => function_value(lexemes, k.saturating_add(2)),
                     // A method: `get(self, key) { ... }`.
-                    Some(Token::Punct('(')) => count_params(lexemes, k + 1).map(|(n, _)| n),
+                    Some(Token::Punct('(')) => count_params(lexemes, k.saturating_add(1)).map(|(n, _)| n),
                     _ => None,
                 };
                 out.push((key, count));
             }
             _ => {}
         }
-        i += 1;
+        i = i.saturating_add(1);
     }
     out
 }
@@ -322,7 +322,7 @@ fn statement_end(src: &str, lexemes: &[Lexeme], i: usize) -> usize {
     let mut j = i;
     while let Some(l) = lexemes.get(j) {
         match &l.token {
-            Token::Punct('(' | '[' | '{') => depth += 1,
+            Token::Punct('(' | '[' | '{') => depth = depth.saturating_add(1),
             Token::Punct(')' | ']' | '}') => depth = depth.saturating_sub(1),
             Token::Punct(';') if depth == 0 => return j,
             _ => {}
@@ -330,14 +330,14 @@ fn statement_end(src: &str, lexemes: &[Lexeme], i: usize) -> usize {
         // A statement with no `;` ends at a line break before a token that
         // cannot continue it, which for an import is its source string.
         if depth == 0 && matches!(l.token, Token::Str(_)) {
-            let next = lexemes.get(j + 1);
+            let next = lexemes.get(j.saturating_add(1));
             let breaks = next.is_none_or(|n| src.get(l.end..n.start).is_some_and(|gap| gap.contains('\n')));
             let continues = matches!(next.map(|n| &n.token), Some(Token::Punct(';')));
             if breaks && !continues {
                 return j;
             }
         }
-        j += 1;
+        j = j.saturating_add(1);
     }
     lexemes.len().saturating_sub(1)
 }
@@ -345,24 +345,24 @@ fn statement_end(src: &str, lexemes: &[Lexeme], i: usize) -> usize {
 /// `{ a, b as c }` from `open`: each `(imported, local)` pair.
 fn named_list(lexemes: &[Lexeme], open: usize) -> (Vec<(String, String)>, usize) {
     let mut out = Vec::new();
-    let mut i = open + 1;
+    let mut i = open.saturating_add(1);
     while let Some(l) = lexemes.get(i) {
         match &l.token {
             Token::Punct('}') => return (out, i),
             Token::Ident(first) | Token::Str(first) => {
-                let renamed = matches!(lexemes.get(i + 1).map(|l| &l.token), Some(Token::Ident(w)) if w == "as");
+                let renamed = matches!(lexemes.get(i.saturating_add(1)).map(|l| &l.token), Some(Token::Ident(w)) if w == "as");
                 if renamed {
-                    if let Some(Token::Ident(second) | Token::Str(second)) = lexemes.get(i + 2).map(|l| &l.token) {
+                    if let Some(Token::Ident(second) | Token::Str(second)) = lexemes.get(i.saturating_add(2)).map(|l| &l.token) {
                         out.push((first.clone(), second.clone()));
                     }
-                    i += 3;
+                    i = i.saturating_add(3);
                     continue;
                 }
                 out.push((first.clone(), first.clone()));
             }
             _ => {}
         }
-        i += 1;
+        i = i.saturating_add(1);
     }
     (out, i)
 }
@@ -375,13 +375,13 @@ pub fn read(src: &str) -> Exports {
     let mut i = 0usize;
     while let Some(l) = lexemes.get(i) {
         match &l.token {
-            Token::Punct('(' | '[' | '{') => depth += 1,
+            Token::Punct('(' | '[' | '{') => depth = depth.saturating_add(1),
             Token::Punct(')' | ']' | '}') => depth = depth.saturating_sub(1),
             Token::Ident(w) if depth == 0 && w == "await" => found.waits = true,
             Token::Ident(w) if depth == 0 && w == "import" => {
                 // `import(...)` and `import.meta` are expressions.
-                if matches!(lexemes.get(i + 1).map(|l| &l.token), Some(Token::Punct('(' | '.'))) {
-                    i += 1;
+                if matches!(lexemes.get(i.saturating_add(1)).map(|l| &l.token), Some(Token::Punct('(' | '.'))) {
+                    i = i.saturating_add(1);
                     continue;
                 }
                 let end = statement_end(src, &lexemes, i);
@@ -399,7 +399,7 @@ pub fn read(src: &str) -> Exports {
                     String::new()
                 };
                 found.edits.push(Edit::Replace { start: l.start, end: last, with });
-                i = end + 1;
+                i = end.saturating_add(1);
                 continue;
             }
             Token::Ident(w) if depth == 0 && w == "export" => {
@@ -408,7 +408,7 @@ pub fn read(src: &str) -> Exports {
             }
             _ => {}
         }
-        i += 1;
+        i = i.saturating_add(1);
     }
     found
 }
@@ -417,7 +417,7 @@ pub fn read(src: &str) -> Exports {
 /// that takes the same names out of the artifact's binding.
 fn program_import(lexemes: &[Lexeme], start: usize, end: usize) -> String {
     let program = crate::compiler::backend::js::crossing::HOSTED_PROGRAM;
-    let mut i = start + 1;
+    let mut i = start.saturating_add(1);
     let mut parts: Vec<String> = Vec::new();
     while i <= end {
         match lexemes.get(i).map(|l| &l.token) {
@@ -428,19 +428,19 @@ fn program_import(lexemes: &[Lexeme], start: usize, end: usize) -> String {
                     .map(|(a, b)| if a == b { a.clone() } else { format!("{a}: {b}") })
                     .collect();
                 parts.push(format!("const {{ {} }} = {program};", fields.join(", ")));
-                i = close + 1;
+                i = close.saturating_add(1);
             }
             Some(Token::Punct('*')) => {
-                if let Some(Token::Ident(name)) = lexemes.get(i + 2).map(|l| &l.token) {
+                if let Some(Token::Ident(name)) = lexemes.get(i.saturating_add(2)).map(|l| &l.token) {
                     parts.push(format!("const {name} = {program};"));
                 }
-                i += 3;
+                i = i.saturating_add(3);
             }
             Some(Token::Ident(w)) if w != "from" && w != "as" => {
                 parts.push(format!("const {w} = {program}.default;"));
-                i += 1;
+                i = i.saturating_add(1);
             }
-            _ => i += 1,
+            _ => i = i.saturating_add(1),
         }
     }
     parts.join(" ")
@@ -448,7 +448,7 @@ fn program_import(lexemes: &[Lexeme], start: usize, end: usize) -> String {
 
 /// One `export` statement starting at `i`; answers where reading resumes.
 fn export(src: &str, lexemes: &[Lexeme], i: usize, found: &mut Exports) -> usize {
-    let Some(at) = lexemes.get(i) else { return i + 1 };
+    let Some(at) = lexemes.get(i) else { return i.saturating_add(1) };
     let word = |k: usize| match lexemes.get(k).map(|l| &l.token) {
         Some(Token::Ident(w)) => Some(w.clone()),
         _ => None,
@@ -457,64 +457,64 @@ fn export(src: &str, lexemes: &[Lexeme], i: usize, found: &mut Exports) -> usize
         let end = lexemes.get(upto).map_or(at.end, |l| l.start);
         found.edits.push(Edit::Replace { start: at.start, end, with: with.to_string() });
     };
-    match word(i + 1).as_deref() {
+    match word(i.saturating_add(1)).as_deref() {
         Some("default") => {
-            let shape = match lexemes.get(i + 2).map(|l| &l.token) {
-                Some(Token::Punct('{')) => Shape::Object(object_keys(lexemes, i + 2)),
+            let shape = match lexemes.get(i.saturating_add(2)).map(|l| &l.token) {
+                Some(Token::Punct('{')) => Shape::Object(object_keys(lexemes, i.saturating_add(2))),
                 _ => Shape::Other,
             };
-            strip(found, i + 2, "const $buri$default = ");
+            strip(found, i.saturating_add(2), "const $buri$default = ");
             found.exports.push(Export {
                 name: String::from("default"),
                 local: String::from("$buri$default"),
                 shape,
                 at: at.start,
             });
-            i + 2
+            i.saturating_add(2)
         }
         Some("const" | "let" | "var") => {
-            let Some(name) = word(i + 2) else { return i + 1 };
-            let assigned = lexemes.get(i + 3).map(|l| &l.token) == Some(&Token::Punct('='));
-            let shape = match (assigned, lexemes.get(i + 4).map(|l| &l.token)) {
-                (true, Some(Token::Punct('{'))) => Shape::Object(object_keys(lexemes, i + 4)),
-                (true, _) => function_value(lexemes, i + 4).map_or(Shape::Other, Shape::Function),
+            let Some(name) = word(i.saturating_add(2)) else { return i.saturating_add(1) };
+            let assigned = lexemes.get(i.saturating_add(3)).map(|l| &l.token) == Some(&Token::Punct('='));
+            let shape = match (assigned, lexemes.get(i.saturating_add(4)).map(|l| &l.token)) {
+                (true, Some(Token::Punct('{'))) => Shape::Object(object_keys(lexemes, i.saturating_add(4))),
+                (true, _) => function_value(lexemes, i.saturating_add(4)).map_or(Shape::Other, Shape::Function),
                 _ => Shape::Other,
             };
-            strip(found, i + 1, "");
+            strip(found, i.saturating_add(1), "");
             found.exports.push(Export { name: name.clone(), local: name, shape, at: at.start });
-            i + 2
+            i.saturating_add(2)
         }
         Some("function" | "async" | "class") => {
-            let mut k = i + 1;
+            let mut k = i.saturating_add(1);
             if word(k).as_deref() == Some("async") {
-                k += 1;
+                k = k.saturating_add(1);
             }
             let is_class = word(k).as_deref() == Some("class");
-            k += 1;
+            k = k.saturating_add(1);
             if lexemes.get(k).map(|l| &l.token) == Some(&Token::Punct('*')) {
-                k += 1;
+                k = k.saturating_add(1);
             }
-            let Some(name) = word(k) else { return i + 1 };
+            let Some(name) = word(k) else { return i.saturating_add(1) };
             let shape = if is_class {
                 Shape::Other
             } else {
-                count_params(lexemes, k + 1).map_or(Shape::Other, |(n, _)| Shape::Function(n))
+                count_params(lexemes, k.saturating_add(1)).map_or(Shape::Other, |(n, _)| Shape::Function(n))
             };
-            strip(found, i + 1, "");
+            strip(found, i.saturating_add(1), "");
             found.exports.push(Export { name: name.clone(), local: name, shape, at: at.start });
-            i + 2
+            i.saturating_add(2)
         }
-        _ if lexemes.get(i + 1).map(|l| &l.token) == Some(&Token::Punct('{')) => {
-            let (names, close) = named_list(lexemes, i + 1);
+        _ if lexemes.get(i.saturating_add(1)).map(|l| &l.token) == Some(&Token::Punct('{')) => {
+            let (names, close) = named_list(lexemes, i.saturating_add(1));
             let end = statement_end(src, lexemes, close);
             let last = lexemes.get(end).map_or(src.len(), |l| l.end);
             for (local, name) in names {
                 found.exports.push(Export { name, local, shape: Shape::Other, at: at.start });
             }
             found.edits.push(Edit::Replace { start: at.start, end: last, with: String::new() });
-            end + 1
+            end.saturating_add(1)
         }
-        _ => i + 1,
+        _ => i.saturating_add(1),
     }
 }
 
