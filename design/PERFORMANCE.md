@@ -1789,6 +1789,63 @@ Wall time at this load moves by 2–4× between runs of one binary; CPU time is
 the number to compare. Shared glue takes the server binary another 18% down and
 leaves CPU time inside the noise.
 
+### 6.13 Front ends on the pool, 2026-10-03
+
+`buri test` used to type-check and monomorphize every suite on the main thread,
+because syntax trees, the source map and the parse cache were `Rc`. They are
+`Arc` now. The main thread still loads each suite, so file ids keep a fixed
+order. A worker then checks it, monomorphizes it, and goes straight on to build
+and run it:
+
+```text
+main thread   plan → load suite 1 → load suite 2 → …        → report in label order
+worker        check 1 → monomorphize 1 → link 1 → run 1
+worker                   check 2 → monomorphize 2 → link 2 → run 2
+```
+
+One standard library snapshot serves the whole process instead of one per
+thread. Workers get the source map as one shared copy (`SourceMap::shared`),
+taken again only after the map grows. Analyses the lint never reads are freed
+off the main thread.
+
+A front end and its back end are one heavy job, so the memory cap now covers
+front ends too: at most `builds_of` suites hold a whole analysis or program at
+once. The pool claims that room when a worker takes a heavy job, not when it's
+queued. Queueing never waits, so a batch can queue its groups while it holds
+its own.
+
+The single-threaded cost of `Arc` is inside the noise. Interleaved runs of
+both bench binaries at load average 30–70, best of the rounds:
+
+| row | before | after |
+|---|---:|---:|
+| `mixed/10k` sema | 10.50 ms | 9.64 ms |
+| `mixed/100k` sema | 88.17 ms | 84.01 ms |
+| `mixed/100k` lex+parse | 21.18 ms | 21.02 ms |
+| `struct-heavy/10k` sema, five rounds | 9.03 ms | 8.55 ms |
+| the snapshot, once | 4.3–4.6 ms | 4.2–4.6 ms |
+
+The profiled monorepo's copy (1,768 tests; 12 suites fail to compile in the
+copy itself), release toolchains, two interleaved rounds at load average 20–88:
+
+| `buri test //...` | before | after |
+|---|---:|---:|
+| cold, wall | 17.8–20.8 s | 17.8–20.0 s |
+| cold, CPU (user) | 47.0–47.5 s | 47.1–49.7 s |
+| cold, peak memory | 1,293–1,299 MB | 1,368–1,393 MB |
+| warm, wall | 1.20–1.25 s | 0.72–0.75 s |
+| warm, peak memory | 147 MB | 282–291 MB |
+| a body edit in `//libs/ui/theme`, wall | 5.39–5.68 s | 5.31–5.32 s |
+| a body edit, peak memory | 891 MB | 891 MB |
+
+Output is byte-identical, diagnostics included. A warm pass still re-checks
+the 12 broken suites, since only a clean run is cached; those now check four at
+a time, which is both the speedup and the extra peak memory. A cold pass isn't
+front-end bound on this repository: running its generator tools while the
+session opens, and the test processes themselves, are the long poles. With room
+for ten builds (`BURI_TEST_MEMORY_BYTES`) the edit pass drops to 4.9–5.2 s and
+cold stays where it is.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
