@@ -3,5 +3,11 @@ export effect Kv {
     fn get(self, namespace: Str, key: Str): Option<Str>;
     fn put(self, namespace: Str, key: Str, value: Str): ();
 }
-export fn get<C: Kv>(ctx: C, namespace: Str, key: Str): Option<Str> { ctx.get(namespace, key) }
-export fn put<C: Kv>(ctx: C, namespace: Str, key: Str, value: Str): () { ctx.put(namespace, key, value) }
+
+export fn get<C: Kv>(ctx: C, namespace: Str, key: Str): Option<Str> {
+    ctx.get(namespace, key)
+}
+
+export fn put<C: Kv>(ctx: C, namespace: Str, key: Str, value: Str): () {
+    ctx.put(namespace, key, value)
+}

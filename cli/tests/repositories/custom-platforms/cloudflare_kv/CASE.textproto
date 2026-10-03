@@ -73,7 +73,7 @@ edit {
 # The entry takes the platform's host, and no other.
 edit {
   file: "cmd/site/main.buri"
-  replace: "export fn fetch(host: CloudflareHost, request: Request): Response {\n    handle(context { Allocator: host.alloc, Kv: host.kv }, request)\n}"
+  replace: "export fn fetch(host: CloudflareHost, request: Request): Response {\n    handle(\n        context {\n            Allocator: host.alloc,\n            Kv: host.kv,\n        },\n        request,\n    )\n}"
   with: "export fn fetch(host: NodeHost, request: Request): Response {\n    http.status(500)\n}"
 }
 
@@ -92,7 +92,7 @@ run {
 edit {
   file: "cmd/site/main.buri"
   replace: "export fn fetch(host: NodeHost, request: Request): Response {\n    http.status(500)\n}"
-  with: "export fn fetch(host: CloudflareHost, request: Request): Response {\n    handle(context { Allocator: host.alloc, Kv: host.kv }, request)\n}"
+  with: "export fn fetch(host: CloudflareHost, request: Request): Response {\n    handle(\n        context {\n            Allocator: host.alloc,\n            Kv: host.kv,\n        },\n        request,\n    )\n}"
 }
 
 edit {

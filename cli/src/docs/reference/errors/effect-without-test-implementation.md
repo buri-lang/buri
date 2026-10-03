@@ -16,22 +16,29 @@ an effect without one is an effect nobody can test. Keep its state in
 `core/platforms/testing/state`, which only an effect's testing surface may
 import:
 
-```buri
-from "//platform/effect/kv" import { Kv };
+```buri ignore why="an effect package's testing surface, compiled only in its package"
 from "core/map" import * as map;
 from "core/map" import { Map };
 from "core/platforms/testing/state" import * as state;
+from "//platform/effect/kv" import { Kv };
 
-export struct TestKv { store: state.State<Map<Str, Str>> }
+export struct TestKv {
+    store: state.State<Map<Str, Str>>,
+}
 
 impl Kv for TestKv {
     fn get(self, namespace: Str, key: Str): Option<Str> {
         state.read(self.store).get("${namespace}/${key}")
     }
+
     fn put(self, namespace: Str, key: Str, value: Str): () {
-        state.update(self.store, fn(c, m) => (m.insert(c, "${namespace}/${key}", value), ()))
+        state.update(self.store, fn(c, m) => {
+            (m.insert(c, "${namespace}/${key}", value), ())
+        })
     }
 }
 
-export fn kv(): TestKv { TestKv { store: state.new(map.empty()) } }
+export fn kv(): TestKv {
+    TestKv { store: state.new(map.empty()) }
+}
 ```

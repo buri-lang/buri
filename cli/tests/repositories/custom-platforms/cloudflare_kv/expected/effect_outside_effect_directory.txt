@@ -1,7 +1,7 @@
 error: an effect is declared only in an effect package, under `//platform/effect/` [effect-outside-effect-directory]
- --> lib/sessions/lib.buri:7:1
+ --> lib/sessions/lib.buri:6:1
   |
-7 | export effect Session {
+6 | export effect Session {
   | ^^^^^^^^^^^^^^^^^^^^^^^
   |
   = an effect package holds an effect, its wrapper functions and a `testing` surface, and every platform can share it

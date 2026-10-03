@@ -30,7 +30,7 @@ use crate::hash::{Map as HashMap, Set as HashSet};
 use std::collections::BTreeSet;
 
 mod platforms;
-pub use platforms::is_effect_package_path;
+pub use platforms::{is_effect_package_module, is_effect_package_path};
 
 /// What a name in scope refers to.
 #[derive(Clone, Debug)]
@@ -562,7 +562,7 @@ impl<'a> Checker<'a> {
                 // `//platform/effect/`.
                 if d.is_effect
                     && self.module(module).role != Role::Platform
-                    && !is_effect_package_path(&self.module(module).path)
+                    && !is_effect_package_module(self.ws, self.module(module))
                 {
                     self.templated("effect-outside-effect-directory", d.span);
                 }

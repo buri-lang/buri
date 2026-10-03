@@ -258,7 +258,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("pattern-not-a-tuple", "A tuple pattern matches a tuple of that arity"),
     e!("pattern-not-an-array", "An array pattern matches an array"),
     e!("pattern-type-mismatch", "A pattern matches the shape of the scrutinee"),
-    e!("platform-cannot-run", "`buri run` runs an entry that starts itself", &["cli/run"]),
+    e!("platform-cannot-run", "`buri run` runs an entry that starts itself", &["build/platforms"]),
     e!("platform-not-implemented", "A test runs only on a platform this toolchain can build", &["build/tags"]),
     e!("platform-required-and-forbidden", "A tag never requires and forbids the same platform", &["build/tags"]),
     e!("platform-testing-only-import", "Only an effect's testing surface keeps state", &["build/libraries"]),

@@ -14,7 +14,7 @@ error: `kv` is a `HostKv`, which `//platform/lambda` declares itself, and a `NAT
 A native platform offers the bundled effects only. It ships functions over them
 instead, tested with `platform/effect/testing` like any other code:
 
-```buri
+```buri ignore why="a platform's surface, compiled only with its rule"
 export struct LambdaHost {
     export alloc: HostAllocator,
     export net: HostNetwork,

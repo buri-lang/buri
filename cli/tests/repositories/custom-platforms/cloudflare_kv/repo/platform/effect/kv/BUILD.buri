@@ -1,6 +1,5 @@
 library {
     visibility: ["//visibility:public"]
 
-    testing {
-    }
+    testing {}
 }

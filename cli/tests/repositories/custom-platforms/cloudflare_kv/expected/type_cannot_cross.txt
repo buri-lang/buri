@@ -1,7 +1,7 @@
 error: `Char` cannot cross to JavaScript, as `fetch`'s parameter `initial` [type-cannot-cross]
-  --> platform/cloudflare_worker/platform.buri:14:57
+  --> platform/cloudflare_worker/platform.buri:13:57
    |
-14 | export fn fetch(host: CloudflareHost, request: Request, initial: Char): Response;
+13 | export fn fetch(host: CloudflareHost, request: Request, initial: Char): Response;
    |                                                         ^^^^^^^^^^^^^
    |
    = the JS backend crosses `Str`, `Bool`, `F64`, integers, `[U8]`, lists, tuples, `Option`, `()`, structs, `Request` and `Response`, and `Result<T, Str>` as a whole answer
