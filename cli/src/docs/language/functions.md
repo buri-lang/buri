@@ -13,16 +13,15 @@ fn retry<T, C: Clock>(
 ): Result<T, Str> { ... }
 ```
 
-- The return type annotation is **required** on every top-level `fn`. Local
+- Every top-level `fn` declares its parameter types and return type. Local
   bindings and lambdas are inferred.
-- Parameter types are required.
 - Trailing commas are allowed in parameter and argument lists.
-- Functions are first-class values and may be passed, returned, and stored.
+- Functions are first-class values.
 - There is no overloading and no default arguments.
 
-Type inference is Hindley–Milner, with no row polymorphism: effects are trait
-bounds rather than rows. Top-level signatures are mandatory, so inference stays
-local to a function body and the compiler reports type errors against the
-signature you wrote rather than one it guessed.
+Type inference is Hindley–Milner without row polymorphism: effects are trait
+bounds, not rows. Because top-level signatures are mandatory, inference stays
+inside one function body and type errors are reported against the signature you
+wrote.
 
 ---
