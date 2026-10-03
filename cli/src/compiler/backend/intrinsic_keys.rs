@@ -14,6 +14,7 @@
 //! [`super::stencil::lists::list_call`] for that reason, and each backend's
 //! `open_coded_key` names the keys it in particular turns into instructions.
 
+use crate::compiler::semantics::builtins::conversion_is_exact;
 use crate::compiler::semantics::types::{Prim, Tables, Ty};
 
 /// The `Equal`/`Ordered`/`Hash`/`Show` leaves at `Bool` and `Char`, plus
@@ -164,6 +165,142 @@ pub fn json_variant(tables: &Tables, ty: &Ty, arm: JsonArm) -> Option<usize> {
         JsonArm::Str => "Str",
     };
     tables.tycon(*id).variants().iter().position(|v| v.name == name)
+}
+
+/// The target of a numeric conversion's operation name: `toI64`, `wrapToU8`.
+///
+/// `Char`, `Str`, `Bool` and `Template` are excluded as targets even though
+/// `Prim::all` lists them: `U32.toChar` answers a `Result` because not every
+/// `U32` is a Unicode scalar, and `conversion_is_exact` — which classifies by
+/// `is_integer`/`is_float` — would call it exact by falling into its
+/// integer-to-float arm. Each backend asks for `toChar` by name.
+pub fn conversion_target(op: &str) -> Option<Prim> {
+    let name = op.strip_prefix("wrapTo").or_else(|| op.strip_prefix("to"))?;
+    Prim::all().iter().copied().find(|p| p.name() == name && (p.is_integer() || p.is_float()))
+}
+
+/// The shapes a fallible `toT()` conversion comes in.
+///
+/// SPEC 6.2.1 gives one rule — `x.toT()` answers `Result<T, RangeError>`
+/// wherever not every `x` fits a `T` — and the rule reaches four different
+/// questions, because "does not fit" is not one machine test. Both backends
+/// switch on it to emit the range check, and [`numeric_key`] asks it whether a
+/// key with an inexact target has a body, so a claim never outruns an
+/// implementation.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CheckedKind {
+    /// Both integers: a range at the source's own width.
+    Ints,
+    /// A float into an integer, which can also be fractional, `NaN` or
+    /// infinite. Refused past sixty-four bits, where neither backend has a
+    /// single conversion for it.
+    FloatToInt,
+    /// `U32 -> Char`: not a range but a set, with the surrogate block cut out
+    /// of the middle of it.
+    ToChar,
+    /// `F64 -> F32`, which has no integer range to test at all.
+    ToF32,
+}
+
+/// Which fallible shape a conversion is, or `None` when the pair is exact,
+/// modular, or one no backend has a body for (a float into a 128-bit integer).
+pub fn checked_kind(from: Prim, to: Prim) -> Option<CheckedKind> {
+    if from == to {
+        return None;
+    }
+    if from.is_integer() && to.is_integer() {
+        return (!conversion_is_exact(from, to)).then_some(CheckedKind::Ints);
+    }
+    if from.is_float() && to.is_integer() && to.bits() <= 64 {
+        return Some(CheckedKind::FloatToInt);
+    }
+    // `U32` is the only source the language declares `toChar` on
+    // (`semantics/builtins.rs`), and both backends test the bounds at that
+    // width.
+    if from == Prim::U32 && to == Prim::Char {
+        return Some(CheckedKind::ToChar);
+    }
+    if from == Prim::F64 && to == Prim::F32 {
+        return Some(CheckedKind::ToF32);
+    }
+    None
+}
+
+/// The `number.<T>.<op>` operations both native backends emit a body for,
+/// asked before emission.
+///
+/// `missing_intrinsics` is asked of the *monomorphized* program, before
+/// `middle::lower` runs — so `Bounded` is still two segments there
+/// (`number.minValue`) and three by the time the body is emitted. Both
+/// spellings answer yes, because both describe an operation the backends
+/// compile.
+///
+/// The list is what the backends dispatch on, not `number.*`: claiming a key
+/// with no body would turn a diagnostic that names the operation into one that
+/// names an IR shape. That is why a conversion is claimed only where it is
+/// exact or [`checked_kind`] names its range test — `F64.toI128` has no body
+/// on either backend.
+pub fn numeric_key(key: &str) -> bool {
+    if key == "number.minValue" || key == "number.maxValue" {
+        return true;
+    }
+    let mut parts = key.split('.');
+    let (Some("number"), Some(name), Some(op), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return false;
+    };
+    let Some(prim) = Prim::all().iter().copied().find(|p| p.name() == name) else {
+        return false;
+    };
+    if matches!(
+        op,
+        "add"
+            | "subtract"
+            | "multiply"
+            | "divide"
+            | "remainder"
+            | "negate"
+            | "abs"
+            | "signum"
+            | "equal"
+            | "compare"
+            | "show"
+            | "hash"
+            | "wrappingAdd"
+            | "wrappingSubtract"
+            | "wrappingMultiply"
+            | "minValue"
+            | "maxValue"
+    ) {
+        return true;
+    }
+    // `Checked`, `Wrapping` and `Saturating` are declared on the integer types
+    // only (`semantics/builtins.rs`), so a float spelling of one is a key that
+    // does not exist rather than one a backend declines.
+    if matches!(
+        op,
+        "checkedAdd"
+            | "checkedSubtract"
+            | "checkedMultiply"
+            | "checkedDivide"
+            | "checkedRemainder"
+            | "checkedNegate"
+            | "checkedPower"
+            | "saturatingAdd"
+            | "saturatingSubtract"
+            | "saturatingMultiply"
+    ) {
+        return prim.is_integer();
+    }
+    // `U32.toChar` answers a `Result<Char, RangeError>` and `Char` is not a
+    // numeric target, so [`conversion_target`] does not name it.
+    if op == "toChar" {
+        return checked_kind(prim, Prim::Char).is_some();
+    }
+    conversion_target(op).is_some_and(|to| {
+        op.starts_with("wrapTo") || conversion_is_exact(prim, to) || checked_kind(prim, to).is_some()
+    })
 }
 
 /// Which loop a closure-taking `list.*` key is.

@@ -41,7 +41,7 @@ pub mod task_thread;
 pub mod runtime_native;
 
 /// Which `buri_rt_*` entry a key names, and what shape the call has.
-#[cfg(feature = "backend-stencil")]
+#[cfg(any(feature = "backend-stencil", feature = "backend-llvm"))]
 pub mod runtime_table;
 
 #[cfg(feature = "backend-llvm")]
