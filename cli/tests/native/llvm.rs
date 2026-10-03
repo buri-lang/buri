@@ -293,6 +293,7 @@ pub fn build_at(name: &str, source: &str, probe: Option<&str>, profile: Profile)
         "linking failed:\n{}",
         String::from_utf8_lossy(&linked.stderr)
     );
+    crate::sweep::kept::settle(&binary);
     binary
 }
 
@@ -361,6 +362,7 @@ fn build_tests_as(name: &str, file: &str, source: &str) -> PathBuf {
         "linking failed:\n{}",
         String::from_utf8_lossy(&linked.stderr)
     );
+    crate::sweep::kept::settle(&binary);
     binary
 }
 

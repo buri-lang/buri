@@ -227,6 +227,7 @@ pub fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
+    crate::sweep::kept::settle(&binary);
     binary
 }
 
@@ -2581,6 +2582,7 @@ fn link_and_run(path: &str, units: &[Emitted], sheet: &str) -> Ran {
         "`{path}`: the link failed:\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
+    crate::sweep::kept::settle(&binary);
     let out = Command::new(&binary).output().unwrap();
     Ran {
         status: out.status.code().unwrap_or(-1),
@@ -3784,6 +3786,7 @@ fn build_tests_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     cc.args(shared::product_link_args());
     let out = cc.output().unwrap();
     assert!(out.status.success(), "the link failed:\n{}", String::from_utf8_lossy(&out.stderr));
+    crate::sweep::kept::settle(&binary);
     binary
 }
 
