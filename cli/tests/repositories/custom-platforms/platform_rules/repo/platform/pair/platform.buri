@@ -1,0 +1,9 @@
+// Two entries with the same signature, each with a `js` file of its own.
+from "platform/host" import { HostAllocator };
+
+export struct PairHost {
+    export alloc: HostAllocator,
+}
+
+export fn left(host: PairHost, name: Str): Str;
+export fn right(host: PairHost, name: Str): Str;

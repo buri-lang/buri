@@ -12,8 +12,9 @@
 //! whose spawn has to be made deterministic: `build/spawn.rs` gives it an
 //! explicit environment and a clock frozen at `1970-01-01T00:00:00Z`. That is
 //! about determinism rather than confinement — what keeps a suite from reaching
-//! the machine is that a test source has no name for `core/host` at all, and
-//! that its capabilities are fakes this runner injects.
+//! the machine is that a test source is never handed a host (only an entry
+//! is, and only a `platform.buri` may import `platform/host`), and that its
+//! capabilities are fakes this runner injects.
 #![allow(
     clippy::print_stdout,
     clippy::print_stderr,
@@ -559,9 +560,9 @@ fn run_on(
     );
 
     // `None`, not `platform`: the platform a suite *runs* on and the platform
-    // whose host grant a program is checked against are different questions,
-    // and a test never binds `core/host` — only the entry point a batched
-    // binary happens to drag in does. See `Unit::platform`.
+    // whose host an entry is checked against are different questions, and a
+    // test is never handed a host — only the entry point a batched binary
+    // happens to drag in takes one. See `Unit::platform`.
     let unit = Unit { target: Some(target), platform: None, entry: None, with_tests: true };
     let analysis = crate::compiler::driver::analyze(
         Some(&session.workspace),
@@ -650,7 +651,7 @@ fn run_on(
     // the action key.
     source.push_str(&format!("\n$t.seed={}n;\n", seed_of(&key)));
     // The action's clock, spliced in after the runtime is defined and before a
-    // test could reach one. A test has no name for `core/host` to begin with;
+    // test could reach one. A test is never handed a host to begin with;
     // this is what keeps a suite's *record* the same bytes twice, so that
     // reproducibility is a question worth asking about a suite.
     source.push_str(crate::build::spawn::FIXED_CLOCK_JS);

@@ -619,6 +619,46 @@ fn a_repository_platform_with_an_index_html_is_served() {
     get(server.port, "/main.mjs").ok().holds("the kiosk");
 }
 
+/// A page platform with two entries serves both: `buri run` builds every
+/// entry into the directory before it answers, so the page can load the
+/// second entry's module as well as its own.
+#[test]
+fn a_page_platform_with_two_entries_serves_both() {
+    let scratch = Scratch::copy_of("serving-two-entries", &tests_dir().join("repositories/serving/a_page_is_served/repo"));
+    scratch.write(
+        "platform/kiosk/BUILD.buri",
+        "platform {\n    entry {\n        name: \"main\"\n        backend: JS\n        js: \"main.mjs\"\n    }\n    \
+         entry {\n        name: \"helper\"\n        backend: JS\n        js: \"helper.mjs\"\n    }\n    \
+         assets: [\"index.html\"]\n}\n",
+    );
+    scratch.write(
+        "platform/kiosk/platform.buri",
+        "from \"platform/host\" import { HostAllocator, HostStdout };\n\n\
+         export struct KioskHost {\n    export alloc: HostAllocator,\n    export stdout: HostStdout,\n}\n\n\
+         export fn main(host: KioskHost): Result<(), Str>;\n\
+         export fn helper(host: KioskHost, name: Str): Str;\n",
+    );
+    scratch.write("platform/kiosk/main.mjs", "import { main } from \"buri:program\";\nawait main();\n");
+    scratch.write(
+        "platform/kiosk/helper.mjs",
+        "import { helper } from \"buri:program\";\nexport const called = \"the helper file\";\nexport default helper;\n",
+    );
+    scratch.write("platform/kiosk/index.html", "<!doctype html>\n<title>kiosk</title>\n<script type=\"module\" src=\"/main.mjs\"></script>\n");
+    scratch.write("cmd/kiosk/BUILD.buri", "binary {\n    outputs: [{ platform: \"//platform/kiosk\" }]\n}\n");
+    scratch.write(
+        "cmd/kiosk/main.buri",
+        "from \"core/io\" import * as io;\nfrom \"platform/effect\" import { Stdout };\n\
+         from \"//platform/kiosk\" import { KioskHost };\n\n\
+         export fn main(host: KioskHost): Result<(), Str> {\n    \
+         let _ = io.println(context { Stdout: host.stdout }, \"the kiosk\").ignore();\n    .Ok(())\n}\n\n\
+         export fn helper(host: KioskHost, name: Str): Str {\n    name\n}\n",
+    );
+    let server = serving(&scratch, "//cmd/kiosk", &[]);
+
+    get(server.port, "/main.mjs").ok().holds("the kiosk");
+    get(server.port, "/helper.mjs").ok().holds("the helper file");
+}
+
 /// A port something else is already on is a refusal naming it, rather than a
 /// command that came up somewhere the reader was not told about.
 #[test]

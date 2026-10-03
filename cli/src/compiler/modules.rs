@@ -898,8 +898,8 @@ impl<'a> Loader<'a> {
     /// case that matters is a binary's entry point: `main.buri` is an `Entry`
     /// wherever it is reached from, and the only thing that may reach it is
     /// that binary's own test sources (TESTING.md, "Testing a binary"). Loaded
-    /// as ordinary `Source` it would have its `core/host` import and its
-    /// `context` rejected — the two things an entry point exists to do.
+    /// as ordinary `Source` it would have its `context` rejected — the thing
+    /// an entry point exists to do, besides taking its platform's host.
     ///
     /// In a real build this was latent, because `load_unit` pre-loads the
     /// entry point as `Role::Entry` before anything can import it. A test
