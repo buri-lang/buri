@@ -2554,7 +2554,8 @@ fn read_through_locals(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
     for name in cands.keys() {
         uses.insert(name.clone(), AggregateUse::default());
     }
-    body.iter().for_each(|s| Survey(&mut uses).stmt(s));
+    let mut survey = Survey(&mut uses);
+    body.iter().for_each(|s| survey.stmt(s));
 
     let mut table: HashMap<String, Vec<Expr>> = cands
         .into_iter()
