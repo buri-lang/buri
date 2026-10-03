@@ -106,54 +106,126 @@ impl Keyword {
         }
     }
 
-    /// What an identifier-shaped word is.
-    ///
-    /// One `match` over the keywords *and* the reserved words rather than a
-    /// keyword lookup followed by a scan of [`RESERVED`]: the scan ran for
-    /// every ordinary identifier, which is most words in a file, and rustc
-    /// lowers a single `match` on a `&str` to a switch on the length and a
-    /// short chain of comparisons within it.
-    fn from_str(s: &str) -> Option<Word> {
-        Some(Word::Keyword(match s {
-            "async" | "await" | "break" | "continue" | "do" | "in" | "is" | "loop" | "module"
-            | "mut" | "opaque" | "panic" | "pub" | "return" | "unreachable" | "use" | "when"
-            | "where" | "while" | "with" | "yield" => return Some(Word::Reserved),
-            "as" => Keyword::As,
-            "const" => Keyword::Const,
-            "context" => Keyword::Context,
-            "ctx" => Keyword::Ctx,
-            "derive" => Keyword::Derive,
-            "effect" => Keyword::Effect,
-            "else" => Keyword::Else,
-            "enum" => Keyword::Enum,
-            "export" => Keyword::Export,
-            "false" => Keyword::False,
-            "fn" => Keyword::Fn,
-            "for" => Keyword::For,
-            "from" => Keyword::From,
-            "if" => Keyword::If,
-            "impl" => Keyword::Impl,
-            "import" => Keyword::Import,
-            "let" => Keyword::Let,
-            "match" => Keyword::Match,
-            "self" => Keyword::SelfValue,
-            "Self" => Keyword::SelfType,
-            "struct" => Keyword::Struct,
-            "test" => Keyword::Test,
-            "trait" => Keyword::Trait,
-            "true" => Keyword::True,
-            "type" => Keyword::Type,
-            _ => return None,
-        }))
-    }
 }
 
-/// What [`Keyword::from_str`] found: a keyword, or a word reserved but unused
-/// in v0.3 and rejected by the lexer so that later versions can claim it
-/// without breaking source compatibility.
+/// What an identifier-shaped word is, when it is not an identifier: a token
+/// of its own — a keyword, or `_` — or a word reserved but unused in v0.3 and
+/// rejected by the lexer so that later versions can claim it without breaking
+/// source compatibility.
+#[derive(Clone, Copy)]
 enum Word {
-    Keyword(Keyword),
+    Kind(TokenKind),
     Reserved,
+}
+
+/// The words [`Word::of`] knows, written once.
+///
+/// "unreachable" is the one reserved word longer than the eight bytes a key
+/// holds, so it is not in the table and [`Word::of`] asks for it by name.
+const WORDS: &[(&[u8], Word)] = &[
+    (b"_", Word::Kind(TokenKind::Underscore)),
+    (b"as", Word::Kind(TokenKind::KeywordAs)),
+    (b"const", Word::Kind(TokenKind::KeywordConst)),
+    (b"context", Word::Kind(TokenKind::KeywordContext)),
+    (b"ctx", Word::Kind(TokenKind::KeywordCtx)),
+    (b"derive", Word::Kind(TokenKind::KeywordDerive)),
+    (b"effect", Word::Kind(TokenKind::KeywordEffect)),
+    (b"else", Word::Kind(TokenKind::KeywordElse)),
+    (b"enum", Word::Kind(TokenKind::KeywordEnum)),
+    (b"export", Word::Kind(TokenKind::KeywordExport)),
+    (b"false", Word::Kind(TokenKind::KeywordFalse)),
+    (b"fn", Word::Kind(TokenKind::KeywordFn)),
+    (b"for", Word::Kind(TokenKind::KeywordFor)),
+    (b"from", Word::Kind(TokenKind::KeywordFrom)),
+    (b"if", Word::Kind(TokenKind::KeywordIf)),
+    (b"impl", Word::Kind(TokenKind::KeywordImpl)),
+    (b"import", Word::Kind(TokenKind::KeywordImport)),
+    (b"let", Word::Kind(TokenKind::KeywordLet)),
+    (b"match", Word::Kind(TokenKind::KeywordMatch)),
+    (b"self", Word::Kind(TokenKind::KeywordSelfValue)),
+    (b"Self", Word::Kind(TokenKind::KeywordSelfType)),
+    (b"struct", Word::Kind(TokenKind::KeywordStruct)),
+    (b"test", Word::Kind(TokenKind::KeywordTest)),
+    (b"trait", Word::Kind(TokenKind::KeywordTrait)),
+    (b"true", Word::Kind(TokenKind::KeywordTrue)),
+    (b"type", Word::Kind(TokenKind::KeywordType)),
+    (b"async", Word::Reserved),
+    (b"await", Word::Reserved),
+    (b"break", Word::Reserved),
+    (b"continue", Word::Reserved),
+    (b"do", Word::Reserved),
+    (b"in", Word::Reserved),
+    (b"is", Word::Reserved),
+    (b"loop", Word::Reserved),
+    (b"module", Word::Reserved),
+    (b"mut", Word::Reserved),
+    (b"opaque", Word::Reserved),
+    (b"panic", Word::Reserved),
+    (b"pub", Word::Reserved),
+    (b"return", Word::Reserved),
+    (b"use", Word::Reserved),
+    (b"when", Word::Reserved),
+    (b"where", Word::Reserved),
+    (b"while", Word::Reserved),
+    (b"with", Word::Reserved),
+    (b"yield", Word::Reserved),
+];
+
+/// A word of at most eight bytes as one integer: its bytes little-endian,
+/// zero above the last. An identifier byte is never zero, so two words have
+/// the same key exactly when they are the same word.
+const fn word_key(word: &[u8]) -> u64 {
+    let mut key = 0u64;
+    let mut shift = 0u32;
+    let mut rest = word;
+    while let [b, tail @ ..] = rest {
+        key |= (*b as u64).wrapping_shl(shift);
+        shift = shift.wrapping_add(8);
+        rest = tail;
+    }
+    key
+}
+
+/// The multiplier of the hash that puts every key in [`WORDS`] in a slot of
+/// its own. Found by search; [`WORD_TABLE`] refuses to build, at compile time,
+/// if a new word collides, and then a new multiplier is needed.
+const WORD_HASH: u64 = 0x7e30_9881_fd1e_fd3b;
+const WORD_SLOTS: usize = 128;
+
+const fn word_slot(key: u64) -> usize {
+    key.wrapping_mul(WORD_HASH).wrapping_shr(57) as usize
+}
+
+/// [`WORDS`], addressed by [`word_slot`]. A slot holds its word's key, so a
+/// lookup is one multiply, one load and one comparison, against what used to
+/// be a `match` on a `&str` that rustc lowered to calls to `memcmp`.
+const WORD_TABLE: [(u64, Option<Word>); WORD_SLOTS] = {
+    let mut table = [(0u64, None); WORD_SLOTS];
+    let mut rest = WORDS;
+    while let [(word, kind), tail @ ..] = rest {
+        assert!(word.len() <= 8, "a word longer than a key holds");
+        let key = word_key(word);
+        let slot = word_slot(key);
+        assert!(table[slot].1.is_none(), "two words share a slot: find a new WORD_HASH");
+        table[slot] = (key, Some(*kind));
+        rest = tail;
+    }
+    table
+};
+
+impl Word {
+    /// What an identifier-shaped run of bytes is, or `None` for an ordinary
+    /// identifier.
+    fn of(word: &[u8]) -> Option<Word> {
+        if word.len() > 8 {
+            return (word == b"unreachable").then_some(Word::Reserved);
+        }
+        let key = word_key(word);
+        match WORD_TABLE.get(word_slot(key)) {
+            Some(&(k, found)) if k == key => found,
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1132,19 +1204,15 @@ impl<'a> Lexer<'a> {
     }
 
     fn ident(&mut self, start: usize) {
-        while is_ident_continue(self.peek()) {
-            self.pos = self.pos.saturating_add(1);
-        }
-        let s = self.slice(start, self.pos);
-        if s == "_" {
-            self.push(TokenKind::Underscore, 0, start);
-            return;
-        }
-        match Keyword::from_str(s) {
-            Some(Word::Keyword(keyword)) => self.push(TokenKind::of_keyword(keyword), 0, start),
+        let rest = self.src.get(start..).unwrap_or(&[]);
+        let len = rest.iter().position(|c| !is_ident_continue(*c)).unwrap_or(rest.len());
+        let word = rest.get(..len).unwrap_or(&[]);
+        self.pos = start.saturating_add(len);
+        match Word::of(word) {
+            Some(Word::Kind(kind)) => self.push(kind, 0, start),
             Some(Word::Reserved) => {
                 let span = self.span(start);
-                let word = s.to_string();
+                let word = self.slice(start, self.pos).to_string();
                 self.templated("reserved-word", span).bind("word", word);
                 self.push(TokenKind::Ident, 0, start);
             }
@@ -1540,12 +1608,32 @@ fn without_underscores(s: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
+/// What each byte can be in a word: [`IDENT_START`], [`IDENT_CONTINUE`], or
+/// neither. One load per byte of every identifier in the file, against the
+/// three range tests and an equality the two predicates used to make.
+const BYTE_CLASS: [u8; 256] = {
+    let mut table = [0u8; 256];
+    let mut c = 0usize;
+    while c < 256 {
+        let b = c as u8;
+        if b == b'_' || b.is_ascii_alphabetic() {
+            table[c] = IDENT_START | IDENT_CONTINUE;
+        } else if b.is_ascii_digit() {
+            table[c] = IDENT_CONTINUE;
+        }
+        c = c.wrapping_add(1);
+    }
+    table
+};
+const IDENT_START: u8 = 1;
+const IDENT_CONTINUE: u8 = 2;
+
 fn is_ident_start(c: u8) -> bool {
-    c == b'_' || c.is_ascii_alphabetic()
+    BYTE_CLASS.get(usize::from(c)).is_some_and(|k| k & IDENT_START != 0)
 }
 
 fn is_ident_continue(c: u8) -> bool {
-    c == b'_' || c.is_ascii_alphanumeric()
+    BYTE_CLASS.get(usize::from(c)).is_some_and(|k| k & IDENT_CONTINUE != 0)
 }
 
 #[cfg(test)]
@@ -1563,6 +1651,16 @@ mod keyword_tests {
         assert_eq!(texts.len(), Keyword::ALL.len(), "`ALL` repeats a keyword");
         // `self` and `Self` differ only in case, so the count is the guard.
         assert_eq!(Keyword::ALL.len(), 25, "a keyword was added without updating `ALL`");
+    }
+
+    /// The lexer finds a keyword through its own table, [`super::WORDS`], so
+    /// each keyword has to be in it and lex to its own kind.
+    #[test]
+    fn every_keyword_lexes_as_itself() {
+        for k in Keyword::ALL {
+            let l = super::lex(k.text(), crate::diagnostics::FileId(0));
+            assert_eq!(l.tokens.kind(0), super::TokenKind::of_keyword(*k), "{}", k.text());
+        }
     }
 }
 
