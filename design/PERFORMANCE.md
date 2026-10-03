@@ -15,7 +15,8 @@ something:
 
 They are **goals, not claims**. Semantic analysis and both lowering paths meet
 theirs, the native one since 2026-08-29, its first time. Lex+parse does not, and
-§6 records by how much. `cli/benches/compiler.rs` is what keeps saying so.
+§6 records by how much: 1.34× short on a loaded machine on 2026-10-03, after
+§6.14 took it 1.56× faster. `cli/benches/compiler.rs` is what keeps saying so.
 
 ---
 
@@ -918,6 +919,10 @@ machine from a compiler.
 | lower+js | 100 k | 311 k | 284.1 k | **255.0 k** | **MET** |
 | lower+macos-arm64 | 100 k | 133.3 k | 126.4 k | **135.2 k** | **MET** |
 
+**The lex and lex+parse rows moved on 2026-10-03**: 1.86× and 1.56× the rate
+of the commit before, measured side by side. §6.14 has the readings; this table
+keeps its September figures because nobody re-took the other rows that day.
+
 Two of the three goals are still met, and the third is met on **both** lowering
 backends rather than on the JavaScript one alone. Lex+parse started at 1.45 M
 lines/s and is 4.4× that now; native lowering started at nothing measurable,
@@ -1121,10 +1126,10 @@ one.
   time (§6.1). It stays here because the reason it closed is the finding — the
   gap was in a dependency's design, and no amount of tuning on this side of the
   seam was going to reach it.
-- **Lex+parse's last 1.57×.** The plateau without a design change is
-  ~5.5–6 M lines/s; reaching 10 M additionally needs the C3 rewrite. 11.2% of
-  the phase is provably unavoidable while a standard-library pin stands. Both
-  are product decisions rather than optimizations.
+- **Lex+parse's last 1.34×.** §6.14 broke the old ~6 M plateau without a
+  design change and names what is left: the lexer is half the phase, and the
+  next allocation worth removing is a declaration's `docs: Vec<String>`,
+  which reaches every consumer of the syntax tree.
 
 ### 6.4 Three findings that transfer
 
@@ -1190,6 +1195,9 @@ not**.
   (`design/native/CODEGEN-STENCIL.md` §13).
 - **Erasing generics in the dev profile**, and **moving instantiation
   placement**: both refuted in §6.2.
+- **Scanning comments eight bytes at a time** for their line break, and
+  **skipping the parser's end-of-stream clamp** on `peek`: both 0.0% on
+  lex+parse (§6.14).
 
 ### 6.6 What the multi-threaded fork costs, 2026-08-30
 
@@ -1846,6 +1854,56 @@ the generator tools while the session opens and in the test processes
 themselves. With room
 for ten builds (`BURI_TEST_MEMORY_BYTES`) the edit pass drops to 4.9–5.2 s and
 cold stays where it is.
+
+### 6.14 Lex+parse breaks its plateau, 2026-10-03
+
+`mixed/100k`, `main` at `2bc82d3f` against `perf/lex-parse`, alternated
+A/B/A/B/A/B on one machine at load 21–25. The first `main` leg read ±36.7% and
+went in the bin.
+
+| | `main` | after | Δ in rate |
+|---|---:|---:|---:|
+| lex | 7.93 M lines/s | **14.77 M** | **+86%** |
+| lex+parse | 4.77 M lines/s | **7.44 M** | **+56%** |
+| lex+parse, fastest sample | 21.03 ms | 12.89 ms | |
+| lex peak RSS (`--rss`) | 29.4 MB | 28.0 MB | −4.8% |
+| lex+parse peak RSS | 38.9 MB | 37.7 MB | −3.1% |
+| token buffer | 13 B/token | 12 B/token | |
+
+This machine read 6.36 M lines/s for `main`'s ancestor on a quiet day and
+4.77 M today, so 7.44 M is 1.34× short of the goal here and about at it on the
+quiet day's scale. Somebody should re-take §6.1 on a quiet machine.
+
+**The lexer was the bigger half, and branches were its cost.** A profile put
+`lex` at 54% of the phase, and allocation at 13%. Removing every doc comment's
+`String` saved 3%, so allocation was not the lever. Each change below is
+`cli/benches/corpora/mixed-10k` through `parse`, the fastest of 2 s of
+repetitions, alternated three or four times:
+
+| Change | lex | lex+parse | load |
+|---|---:|---:|---:|
+| Keywords through a perfect hash: one multiply, one load, one compare | −40% | −24% | 65 |
+| The `expect` family, `enter` and `link` inline their right path, and call a cold function to report | | −8.5% | 38 |
+| One `match` per token: trivia, literals, words and punctuators share one dispatch | −5.8% | −4.9% | 35 |
+| A run of blanks stepped over in one loop | −3.7% | −1.5% | ~100 |
+| One 12-byte record per token instead of three columns | −2% | ±0 | 55 |
+| A word's key read in one 8-byte load | −1% | −1.5% | 17 |
+| Operator table keyed on `TokenKind`; `postfix_ops` checks for an operator first | | −1% | 24 |
+| Arenas sized from the token count, at what `mixed` writes per token plus a tenth | | ±0 | 54 |
+
+The keyword change is out of all proportion to the `memcmp` it removed, which
+was 8% of the profile. The old `match` on a `&str` was a length switch and a
+chain of compares, so most of the gain is mispredictions that went with it.
+
+Arena sizing bought no time, and cut reallocations from 231 to 144 per 1,000
+lines. Its first version reserved half again what a file needs and raised the
+lex+parse peak to 41.3 MB; the per-arena figures fixed that.
+
+**What is left.** The lexer is still half the phase. Allocation is 940 per
+1,000 lines, and most of the parser's share is declarations: a `Box` per item,
+a `Vec` per parameter list, and a `String` per doc line. Moving those into the
+tree's arenas changes every consumer of the syntax tree, so it waits for a
+change that can own that.
 
 ## 7. Profiling, on this platform
 
