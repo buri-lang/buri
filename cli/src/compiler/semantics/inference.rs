@@ -894,6 +894,47 @@ impl<'a, 'b> Infer<'a, 'b> {
                             ));
                         }
                     }
+                } else if let Some((imp, (param, arg, missing))) = self
+                    .c
+                    .tables
+                    .impls
+                    .get(&(tr, con))
+                    .and_then(|imp| Some((imp, self.unmet_impl_bound(imp, &ty, &mut Vec::new())?)))
+                {
+                    // The `impl` is there, and asks something of its type
+                    // arguments that this one falls short of.
+                    let head = show(&self.c.tables, None, &imp.generics, &imp.head);
+                    let name = imp.generics.get(param).map_or("_", |g| g.name.as_str());
+                    let lacking = self.c.tables.trait_(missing).name.clone();
+                    let condition =
+                        format!("`{head}` implements `{trait_name}` only when `{name}` satisfies `{lacking}`");
+                    if let Ty::Ctx(id) = arg {
+                        // A context is the one argument whose fix is a
+                        // binding rather than an `impl`.
+                        let bound: Vec<String> = self
+                            .c
+                            .tables
+                            .ctx_type(id)
+                            .bindings
+                            .iter()
+                            .map(|(t, _)| self.c.tables.trait_(*t).name.clone())
+                            .collect();
+                        let binds = if bound.is_empty() {
+                            "no effects".to_string()
+                        } else {
+                            crate::diagnostics::names(&bound)
+                        };
+                        note = Some(format!(
+                            "{condition}, and here `{name}` is a context that binds {binds}"
+                        ));
+                        fix = Some(format!(
+                            "bind `{lacking}` in the `context {{ ... }}` this call is handed"
+                        ));
+                    } else {
+                        let arg = self.show_ty(&arg);
+                        note = Some(format!("{condition}, and here `{name}` is `{arg}`"));
+                        fix = Some(format!("make `{arg}` satisfy `{lacking}`"));
+                    }
                 } else {
                     let has = self.c.traits_of(con);
                     if !has.is_empty() {
@@ -986,12 +1027,43 @@ impl<'a, 'b> Infer<'a, 'b> {
                         seen.pop();
                         return ok;
                     }
-                    return true;
+                    return self.unmet_impl_bound(imp, ty, seen).is_none();
                 }
                 false
             }
             Ty::Fn(..) => false,
         }
+    }
+
+    /// The first of a hand-written `impl`'s own bounds that `ty` fails: the
+    /// parameter's index, the type standing for it, and the trait it lacks.
+    ///
+    /// `impl<C: Stdout> Stdout for Scoped<C>` makes `Scoped<C>` a `Stdout`
+    /// only where `C` is one. Matching the `impl`'s head against `ty` says
+    /// which argument stands for `C`, and that argument is asked the same
+    /// question in turn. Each one is a component of `ty`, so the walk only
+    /// ever descends and needs no guard of its own; `seen` is passed along for
+    /// the derived impls it reaches.
+    ///
+    /// A parameter the match leaves unbound, or binds to a type inference has
+    /// not settled yet, is not counted against `ty`: the first was already
+    /// reported at the `impl`, and the second has nothing yet to fail.
+    fn unmet_impl_bound(
+        &self,
+        imp: &ImplInfo,
+        ty: &Ty,
+        seen: &mut Vec<TyConId>,
+    ) -> Option<(usize, Ty, TraitId)> {
+        if imp.generics.iter().all(|g| g.bounds.is_empty()) {
+            return None;
+        }
+        let mut bound = vec![None; imp.generics.len()];
+        bind_impl_params(&imp.head, ty, &mut bound);
+        imp.generics.iter().zip(bound).enumerate().find_map(|(i, (g, arg))| {
+            let arg = arg?;
+            let missing = g.bounds.iter().find(|b| !self.satisfies_seen(&arg, **b, seen))?;
+            Some((i, arg, *missing))
+        })
     }
 
     /// The first field or payload type of a derived type that does not itself
@@ -1453,5 +1525,32 @@ fn mentions_param(ty: &Ty, i: u32) -> bool {
         Ty::Tuple(es) => es.iter().any(|e| mentions_param(e, i)),
         Ty::Fn(ps, r) => ps.iter().any(|p| mentions_param(p, i)) || mentions_param(r, i),
         _ => false,
+    }
+}
+
+/// Binds an `impl`'s type parameters by matching its head against a type the
+/// head names: `Scoped<C>` against `Scoped<Ctx>` binds `C` to `Ctx`.
+///
+/// A part of `ty` that inference has not settled, or that is already an
+/// error, matches anything and binds nothing, so a parameter it would have
+/// decided stays `None` and is not held against the type. A parameter the
+/// head mentions twice keeps its first binding.
+fn bind_impl_params(head: &Ty, ty: &Ty, bound: &mut [Option<Ty>]) {
+    match (head, ty) {
+        (_, Ty::Var(_) | Ty::Error) => {}
+        (Ty::Param(i), actual) => {
+            if let Some(slot @ None) = bound.get_mut(*i as usize) {
+                *slot = Some(actual.clone());
+            }
+        }
+        (Ty::Con(_, xs), Ty::Con(_, ys)) | (Ty::Tuple(xs), Ty::Tuple(ys)) => {
+            xs.iter().zip(ys).for_each(|(h, t)| bind_impl_params(h, t, bound));
+        }
+        (Ty::Array(h), Ty::Array(t)) => bind_impl_params(h, t, bound),
+        (Ty::Fn(xs, a), Ty::Fn(ys, b)) => {
+            xs.iter().zip(ys).for_each(|(h, t)| bind_impl_params(h, t, bound));
+            bind_impl_params(a, b, bound);
+        }
+        _ => {}
     }
 }
