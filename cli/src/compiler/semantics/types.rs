@@ -1377,9 +1377,12 @@ impl Subst {
             }
             _ => {}
         }
-        let a = self.shallow(a);
-        let b = self.shallow(b);
-        match (&a, &b) {
+        // Copied only where a variable stood for the type: the copy is what
+        // lets the parts be unified while the substitution changes, and a type
+        // the caller passed in is not the substitution's to change.
+        let a = self.followed(a);
+        let b = self.followed(b);
+        match (&*a, &*b) {
             (Ty::Error, _) | (_, Ty::Error) => Ok(()),
             (Ty::Var(x), Ty::Var(y)) if x == y => Ok(()),
             (Ty::Var(x), _) => self.bind(tables, *x, &b),
@@ -1407,7 +1410,16 @@ impl Subst {
                 }
                 self.unify(tables, xr, yr)
             }
-            _ => Err((a, b)),
+            _ => Err((a.into_owned(), b.into_owned())),
+        }
+    }
+
+    /// `ty` with the variables at its head followed, borrowed where nothing
+    /// was followed.
+    fn followed<'t>(&self, ty: &'t Ty) -> std::borrow::Cow<'t, Ty> {
+        match ty {
+            Ty::Var(_) => std::borrow::Cow::Owned(self.shallow(ty)),
+            _ => std::borrow::Cow::Borrowed(ty),
         }
     }
 
@@ -1419,8 +1431,8 @@ impl Subst {
         // to a float type is what makes `let x: F64 = 1` an error rather than
         // a silent promotion.
         if let Some(class) = self.class_of(id) {
-            match self.shallow(ty) {
-                Ty::Var(other) => {
+            match self.shallow_ref(ty) {
+                &Ty::Var(other) => {
                     let slot = self.class_slot(other);
                     match *slot {
                         None => *slot = Some(class),
@@ -1431,7 +1443,7 @@ impl Subst {
                     }
                 }
                 resolved => {
-                    let ok = match tables.as_prim(&resolved) {
+                    let ok = match tables.as_prim(resolved) {
                         Some(p) => match class {
                             NumClass::Int => p.is_integer(),
                             NumClass::Float => p.is_float(),

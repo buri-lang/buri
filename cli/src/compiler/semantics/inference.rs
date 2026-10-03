@@ -313,10 +313,10 @@ fn check_tests(c: &mut Checker) {
 // ---------------------------------------------------------------------------
 
 /// A numeric literal whose type is not known until defaulting has run.
-pub(crate) struct LitCheck {
+pub(crate) struct LitCheck<'b> {
     pub(crate) value: u128,
     pub(crate) negative: bool,
-    pub(crate) raw: String,
+    pub(crate) raw: &'b str,
     pub(crate) ty: Ty,
     pub(crate) span: Span,
 }
@@ -384,7 +384,7 @@ pub struct Infer<'a, 'b> {
     pub(crate) poly_locals: std::collections::HashSet<LocalId>,
     pub(crate) lambda_depth: u32,
     pub(crate) obligations: Vec<(Ty, TraitId, Span)>,
-    pub(crate) lit_checks: Vec<LitCheck>,
+    pub(crate) lit_checks: Vec<LitCheck<'b>>,
     /// Template holes, checked after defaulting so `"${1 + 1}"` is fine.
     pub(crate) hole_checks: Vec<(Ty, Span)>,
     /// Calls to a bodyless declaration — an intrinsic the runtime supplies —
@@ -1098,8 +1098,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn check_literal_ranges(&mut self) {
         let checks = std::mem::take(&mut self.lit_checks);
         for lit in checks {
-            let ty = self.subst.resolve(&lit.ty);
-            let Some(p) = self.c.tables.as_prim(&ty) else { continue };
+            let Some(p) = self.c.tables.as_prim(self.subst.shallow_ref(&lit.ty)) else { continue };
             let Some((lo, hi)) = p.int_range() else { continue };
             let fits = if lit.negative {
                 p.is_signed() && (lit.value <= (lo.unsigned_abs()))
@@ -1108,7 +1107,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             };
             if !fits {
                 let name = p.name();
-                let raw = if lit.negative { format!("-{}", lit.raw) } else { lit.raw.clone() };
+                let raw = if lit.negative { format!("-{}", lit.raw) } else { lit.raw.to_string() };
                 let mut d = Diagnostic::templated("literal-out-of-range", lit.span)
                     .with_bind("literal", raw.clone())
                     .with_bind("type", name);

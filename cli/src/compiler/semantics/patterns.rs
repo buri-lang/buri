@@ -47,7 +47,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.lit_checks.push(LitCheck {
                     value,
                     negative,
-                    raw: raw.to_string(),
+                    raw,
                     ty: lit,
                     span,
                 });
