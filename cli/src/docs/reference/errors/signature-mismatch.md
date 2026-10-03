@@ -11,16 +11,6 @@ fix: give `{method}` the signature `{trait}` declares
 error: `size` does not have the signature `Measurable` declares [signature-mismatch]
 ```
 
-## Why
-
-A caller reaching the method through a bound is typechecked against the
-*trait's* declaration, and the code generator reconstructs the `impl` function's
-type arguments from the trait's. So an `impl` that took one more parameter, or a
-`Str` where the trait said `Int`, would break its promise at some later call
-site, if at all.
-
-## A program that provokes it
-
 ```buri fail code=signature-mismatch
 trait Measurable {
     fn size(self): Int;
@@ -36,3 +26,7 @@ impl Measurable for Bag {
     }
 }
 ```
+
+The code generator also rebuilds the `impl` method's type arguments from the
+trait's. An `impl` with an extra parameter or a different type would break at
+some later call site, if at all.

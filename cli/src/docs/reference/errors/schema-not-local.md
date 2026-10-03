@@ -12,16 +12,15 @@ error: `https://example.com/regions.schema.json` is not a file in this repositor
  --> lib/deploy/regions.json:2:16
 ```
 
-`"$schema"`, and every `$ref` to another file, names a file in this repository:
+`"$schema"` and every `$ref` to another file name a file in this repository:
 
 ```json
 { "$schema": "regions.schema.json" }
 { "$schema": "//schemas/regions.schema.json" }
 ```
 
-A URL, an absolute path, or a relative path that climbs out of the repository
-is refused. Fetching one would put the network in the build, and two machines
-could check one file against two different schemas.
+A URL, an absolute path, or a relative path that climbs out of the repository is
+refused.
 
-The one URL known by name is the JSON Schema 2020-12 meta-schema,
+The one URL allowed is the JSON Schema 2020-12 meta-schema,
 `https://json-schema.org/draft/2020-12/schema`, which marks a file as a schema.

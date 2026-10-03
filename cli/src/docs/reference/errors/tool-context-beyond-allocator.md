@@ -17,5 +17,5 @@ export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {
 ```
 
 The build caches a tool's answer under its inputs. A tool that read anything
-else could give two answers to one question, and the cache would serve the
-wrong one.
+else could answer one question two ways, and the cache would serve the wrong
+answer.

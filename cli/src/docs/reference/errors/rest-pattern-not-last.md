@@ -10,13 +10,6 @@ fix: move `..` to the end, as in `[first, ..rest]`; matching a prefix is what an
 error: a rest pattern must come last [rest-pattern-not-last]
 ```
 
-## What to do
-
-Move `..` to the end. An array pattern matches a prefix and then binds the
-remainder; a rest in the middle would turn matching into a search.
-
-## A program that provokes it
-
 ```buri fail code=rest-pattern-not-last
 fn lastOf(xs: [Int]): Int {
   match (xs) {
@@ -25,3 +18,6 @@ fn lastOf(xs: [Int]): Int {
   }
 }
 ```
+
+An array pattern matches a prefix and binds the remainder. A rest in the middle
+would turn matching into a search.

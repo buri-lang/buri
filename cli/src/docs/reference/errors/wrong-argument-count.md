@@ -5,8 +5,6 @@ fix: 'pass `{function}` the following arguments: {signature}'
 ---
 # A call passes exactly the arguments the function declares
 
-## A program that provokes it
-
 ```buri fail code=wrong-argument-count
 fn add(a: Int, b: Int): Int {
     a + b

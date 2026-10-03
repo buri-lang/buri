@@ -10,19 +10,6 @@ fix: delete this alternative
 error: this alternative is unreachable [unreachable-alternative]
 ```
 
-## What to do
-
-Delete the alternative. The arm keeps the ones that still do something, so
-nothing else about it changes. The usual cause is a pattern in the wrong place,
-and dead text in an arm reads as handled.
-
-An arm with no live alternative at all is one `unreachable-arm` instead. The
-alternatives in question are the arm's own, separated by `|` at the top of its
-pattern; an alternation nested inside a constructor, as in `.Some(true |
-false)`, counts toward coverage but is not reported branch by branch.
-
-## A program that provokes it
-
 ```buri fail code=unreachable-alternative
 enum Hello {
     World,
@@ -36,3 +23,10 @@ fn greeting(h: Hello): Str {
     }
 }
 ```
+
+The usual cause is a pattern in the wrong place, and dead text in an arm reads
+as handled. An arm with no live alternative is an `unreachable-arm` instead.
+
+Only the arm's top-level `|` alternatives are reported. An alternation nested in
+a constructor, as in `.Some(true | false)`, counts toward coverage but isn't
+reported branch by branch.

@@ -15,9 +15,8 @@ library {
 }
 ```
 
-A built-in tool has a bare name: `json`, `proto` or `textproto`. A label
-starting with `//` names a tool of your own, so the two never collide.
+A built-in tool has a bare name: `json`, `proto` or `textproto`. A `//` label
+names your own tool, so the two never collide.
 
-The built-ins used to be `std/json`, `std/proto` and `std/textproto`, and
-before that the proto generator was `std/codegen/proto`, named for what it did.
-Each old name is refused rather than kept as a second spelling.
+The old names `std/json`, `std/proto`, `std/textproto` and `std/codegen/proto`
+are refused, not kept as second spellings.
