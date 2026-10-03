@@ -14,6 +14,7 @@ pub mod crossing;
 pub mod generate;
 pub mod intrinsics;
 pub mod javascript;
+pub mod park;
 
 use crate::compiler::backend::{Backend, Emitted, Options, Profile};
 use crate::compiler::middle::monomorphize::Program;

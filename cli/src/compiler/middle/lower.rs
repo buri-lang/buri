@@ -249,7 +249,6 @@ fn facts(plan: Option<&rc::FuncPlan>, sig: &Signature, dispatch: bool) -> Facts 
         params: vec![Ownership::Own; sig.params.len()],
         purity: Purity::Effectful,
         can_abort: true,
-        can_park: true,
     };
     let Some(plan) = plan else { return conservative };
     let mut params = plan.params.clone();
@@ -259,7 +258,7 @@ fn facts(plan: Option<&rc::FuncPlan>, sig: &Signature, dispatch: bool) -> Facts 
     if params.len() != sig.params.len() {
         return conservative;
     }
-    Facts { params, purity: plan.purity, can_abort: plan.can_abort, can_park: plan.can_park }
+    Facts { params, purity: plan.purity, can_abort: plan.can_abort }
 }
 
 /// What a function returns.
@@ -2593,8 +2592,7 @@ export fn step(n: Int): Int {
             .position(|f| f.debug_name.ends_with(":keep"))
             .expect("the function is in the program");
 
-        let mut plan =
-            rc::Plan { funcs: Vec::new(), crosses_tasks: false, ..Default::default() };
+        let mut plan = rc::Plan { funcs: Vec::new(), crosses_tasks: false };
         for (i, f) in program.funcs.iter().enumerate() {
             let params = vec![Ownership::Own; f.params.len()];
             let sites = if i == target {
@@ -2620,7 +2618,6 @@ export fn step(n: Int): Int {
                 params,
                 purity: ir::Purity::Pure,
                 can_abort: false,
-                can_park: false,
                 sites,
                 reuse: Vec::new(),
                 unclassified: Vec::new(),
