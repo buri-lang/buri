@@ -46,8 +46,9 @@ fn wait_for(condition: &str, why: &str) -> String {
 }
 
 /// The memory of a host with room for one build at a time, so these tests run
-/// the way they would on a small machine whatever this one has.
-const SMALL_HOST: (&str, &str) = ("BURI_TEST_MEMORY_BYTES", "8589934592");
+/// the way they would on a small machine whatever this one has. Every build is
+/// larger than a budget this small, and one larger than the budget runs alone.
+const SMALL_HOST: (&str, &str) = ("BURI_TEST_MEMORY_BYTES", "1");
 
 /// Two suites are in flight at once, even on a host with room for one build.
 ///
