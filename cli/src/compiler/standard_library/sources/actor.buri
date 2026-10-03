@@ -274,7 +274,9 @@ fn carried<T>(value: T): Carried<T> {
 /// another reference to it. Either way a large state that a step leaves alone
 /// does not cost a copy per drive. Sharing is safe across threads: a
 /// program that reaches this module marks every block shared, so each is
-/// counted atomically and never written in place.
+/// counted atomically. A block is written in place only by the holder of its
+/// one reference, and while the runtime holds a reference too nobody is that
+/// holder.
 fn across<T>(value: T): T {
     if (scopesLive()) { alloc.copyAcross(value) } else { value }
 }

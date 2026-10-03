@@ -2039,10 +2039,11 @@ pub fn buri_rt_grown_capacity(needed: u64, old_cap: u64) -> u64 {
 /// [`BURI_RT_CAP_SETTLED`] promises that every pointer in the block is to a
 /// settled block. An append in place writes a new pointer into the block, and
 /// this function is its licence, so it refuses a settled block whatever its
-/// count. Today every settled block is marked too, so this costs nothing. It is
-/// here so that the promise does not depend on marked blocks staying refused.
-/// The release backend's open-coded `Str` concatenation tests the mark alone,
-/// and that is enough: it writes bytes, never a pointer.
+/// count. **Any other licence for an append in place must refuse it too**, or
+/// a step could append an arena block into a state the runtime shares.
+/// `a_push_onto_a_settled_list_copies_it` holds every such licence to that.
+/// The release backend's open-coded `Str` concatenation needs no such test: it
+/// writes bytes, never a pointer.
 ///
 /// # Safety
 /// `p` is null or a live payload pointer from [`buri_rt_alloc`].
@@ -2859,15 +2860,16 @@ fn block_bytes(payload: u64) -> usize {
 // walk, so that inner copy came off the heap too, and its own call settled it.
 // Nothing else can see the copy yet, so a plain store is enough.
 //
-// **Why only marked copies**: a marked block is never unique anyway, so
-// settling it costs nothing. An unmarked copy, such as `scoped`'s answer in a
-// program that never crosses a task boundary, stays writable in place. Every
-// program that reaches `core/actor` or `core/tasks` marks every block.
+// **Why only marked copies**: a settled block is never written in place, so
+// the first append to one copies it. Only a program that reaches `core/actor`
+// or `core/tasks` has crossings to share blocks between, and such a program
+// marks every block. So an unmarked copy, such as `scoped`'s answer in a
+// program with no tasks, stays writable in place.
 //
 // **Why it stays true**: a block's pointers change in two ways only. The glue
 // writes into a fresh block nothing else holds. An append in place writes into
-// a block under [`buri_rt_unique_cap`]'s licence, which refuses a settled
-// block. [`finish`] rewrites a recycled block's header, so the bit never
+// a block under a uniqueness licence, and every such licence refuses a settled
+// block ([`buri_rt_unique_cap`]'s doc). [`finish`] rewrites a recycled block's header, so the bit never
 // survives a free. And a settled block keeps what it points to alive, so none
 // of it is freed and reused underneath.
 //
@@ -5533,6 +5535,36 @@ mod tests {
             assert_eq!(buri_rt_rc(first), 2);
             buri_rt_decref(second, None);
             buri_rt_decref(first, None);
+        }
+        forget_values_may_cross_tasks();
+        // SAFETY: the only reference.
+        unsafe { buri_rt_free(source) };
+    }
+
+    /// **A push onto a settled list copies it**, even when the caller holds its
+    /// only reference.
+    ///
+    /// The push would otherwise write a pointer into a block the runtime may
+    /// share, and the pointer may be to a block in an arena. This holds every
+    /// licence `append_dest` uses to refusing a settled block, including one
+    /// that lets a marked block be written in place.
+    #[test]
+    fn a_push_onto_a_settled_list_copies_it() {
+        let _latch = latch();
+        buri_rt_values_may_cross_tasks();
+        let source = buri_rt_alloc(64);
+        // SAFETY: live, just allocated, and nothing else holds `settled`.
+        unsafe {
+            let settled = buri_rt_copy_block(source, None);
+            assert!(is_settled(header(settled)));
+            assert_eq!(buri_rt_rc(settled), 1);
+            let item = 7i64;
+            let mut out = crate::value::BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            crate::list::buri_rt_list_push(settled, 1, (&raw const item).cast(), 8, None, &raw mut out);
+            assert_ne!(out.ptr, settled, "a push wrote into a settled block");
+            assert_eq!(buri_rt_rc(settled), 1, "the push kept a count on the settled block");
+            buri_rt_decref(out.ptr, None);
+            buri_rt_decref(settled, None);
         }
         forget_values_may_cross_tasks();
         // SAFETY: the only reference.
