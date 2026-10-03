@@ -6,7 +6,7 @@ warning: this is a table of the sixteen hexadecimal digits [hand-rolled-hex-digi
    |
    = `character.fromDigit(n, 16)` is a digit and `character.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
    = fix: delete the table, and reach for `character.fromDigit`, `number.toHex` or `bytes.toHex`
-error: `fromChars` takes 2 arguments, but 1 were given [argument-count]
+error: `fromChars` takes 2 arguments, but 1 was given [argument-count]
   --> lib/recovery_delete_separator_paren_app_9856ad/main.buri:40:5
    |
 40 |     str.fromChars(ctx [nibble(octet, 16), nibble(octet, 1)])

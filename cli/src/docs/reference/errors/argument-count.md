@@ -1,6 +1,6 @@
 ---
 title: A call passes the arguments its callee declares
-message: '{callee} takes {expected} arguments, but {given} were given'
+message: '{callee} takes {expected}, but {given}'
 fix: 'pass {callee} the following arguments: {signature}'
 ---
 # A call passes the arguments its callee declares

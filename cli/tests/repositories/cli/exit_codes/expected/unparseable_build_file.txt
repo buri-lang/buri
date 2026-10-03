@@ -1,10 +1,10 @@
-error: //cmd/ok declares neither a library nor a binary [package-missing-rule]
+error: //cmd/ok declares no rule [package-missing-rule]
  --> cmd/ok/BUILD.buri:1:1
   |
 1 | binary {
   | ^
   |
-  = fix: add a `library { }` or `binary { }` rule, or delete the build file
+  = fix: add a `library`, `binary`, `tool` or `platform` rule, or delete the build file
 error: unterminated message [build-file-syntax]
  --> cmd/ok/BUILD.buri:1:8
   |

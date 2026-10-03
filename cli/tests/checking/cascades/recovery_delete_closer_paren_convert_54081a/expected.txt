@@ -1,4 +1,4 @@
-error: `equal` takes 2 arguments, but 1 were given [argument-count]
+error: `equal` takes 2 arguments, but 1 was given [argument-count]
   --> main.buri:20:5
    |
 20 |     assert.equal(simd.f32x4(-0.5, 0.5, -2.5, 2.5.toInt(), simd.i32x4(0, 0, -2, 2));

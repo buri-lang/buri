@@ -1,4 +1,4 @@
-// EXPECT: `scale` takes 2 arguments, but 1 were given
+// EXPECT: `scale` takes 2 arguments, but 1 was given
 //
 // A method reached through a bound, so the signature the fix prints is the
 // trait's own declaration.

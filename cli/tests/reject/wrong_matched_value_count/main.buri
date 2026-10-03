@@ -1,4 +1,4 @@
-// EXPECT: `Circle` holds 2 values, but 1 were matched
+// EXPECT: `Circle` holds 2 values, but the pattern matches 1 value
 enum Shape {
   Circle(Int, Int),
   Square,

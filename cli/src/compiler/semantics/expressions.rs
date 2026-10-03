@@ -12,7 +12,7 @@ use crate::compiler::semantics::resolve::{Checker, Sym};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::compiler::standard_library;
-use crate::diagnostics::{self, Diagnostic, Invariant as _, Span};
+use crate::diagnostics::{self, counted, were_given, Diagnostic, Invariant as _, Span};
 use crate::parsing::flat::{
     self, ArmData, BlockId, CtxBodyId, ExprId, ExprView as V, InitData, LambdaParamData, PartData,
     PartView, TypeId,
@@ -515,7 +515,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                                 self.templated("unknown-positional-field", index_span)
                                     .bind("type", n)
                                     .bind("index", index.to_string())
-                                    .bind("count", fields.len().to_string());
+                                    .bind("count", counted(fields.len(), "field"));
                                 self.error_expr(span)
                             }
                         }
@@ -707,8 +707,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let got = ts.len();
                 self.templated("type-argument-count", span)
                     .bind("subject", "this function")
-                    .bind("expected", want.to_string())
-                    .bind("given", got.to_string())
+                    .bind("expected", counted(want, "type argument"))
+                    .bind("given", were_given(got))
                     .mismatch(want.to_string(), got.to_string());
                 (0..generics.len()).map(|_| self.fresh(span)).collect()
             }
@@ -1103,8 +1103,8 @@ impl<'a, 'b> Infer<'a, 'b> {
     ) {
         let mut d = Diagnostic::templated("argument-count", span)
             .with_bind("callee", format!("`{name}`"))
-            .with_bind("expected", call.types.len().to_string())
-            .with_bind("given", call.checked.len().to_string())
+            .with_bind("expected", counted(call.types.len(), "argument"))
+            .with_bind("given", were_given(call.checked.len()))
             .with_bind("signature", signature.to_string())
             .with_mismatch(call.types.len().to_string(), call.checked.len().to_string());
         if let Some(at) = self.missing_slot(call) {
@@ -1124,8 +1124,8 @@ impl<'a, 'b> Infer<'a, 'b> {
     ) {
         let mut d = Diagnostic::templated("argument-count", span)
             .with_bind("callee", "this function")
-            .with_bind("expected", call.types.len().to_string())
-            .with_bind("given", call.checked.len().to_string())
+            .with_bind("expected", counted(call.types.len(), "argument"))
+            .with_bind("given", were_given(call.checked.len()))
             .with_bind("signature", shown.to_string())
             .with_mismatch(call.types.len().to_string(), call.checked.len().to_string());
         if let Some(at) = self.missing_slot(call) {
@@ -1146,8 +1146,8 @@ impl<'a, 'b> Infer<'a, 'b> {
     ) {
         let mut d = Diagnostic::templated("payload-count", span)
             .with_bind("name", name.to_string())
-            .with_bind("expected", call.types.len().to_string())
-            .with_bind("given", call.checked.len().to_string())
+            .with_bind("expected", counted(call.types.len(), "value"))
+            .with_bind("given", were_given(call.checked.len()))
             .with_bind("shape", shape.to_string())
             .with_mismatch(call.types.len().to_string(), call.checked.len().to_string());
         if let Some(at) = self.missing_slot(call) {
@@ -1556,8 +1556,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         if explicit.len() != want {
             self.templated("type-argument-count", span)
                 .bind("subject", "this method")
-                .bind("expected", want.to_string())
-                .bind("given", explicit.len().to_string())
+                .bind("expected", counted(want, "type argument"))
+                .bind("given", were_given(explicit.len()))
                 .mismatch(want.to_string(), explicit.len().to_string());
             return None;
         }
@@ -3359,7 +3359,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             // it; two explicit bindings of one effect is an error.
             if explicit.contains(&tid) {
                 let eff = self.c.tables.trait_(tid).name.clone();
-                self.templated("duplicate-bound", binding_span).bind("effect", eff);
+                self.templated("duplicate-context-binding", binding_span).bind("effect", eff);
             }
             explicit.push(tid);
             if let Some(slot) = bindings.iter_mut().find(|(t, _)| *t == tid) {

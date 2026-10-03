@@ -1,4 +1,4 @@
-error: `Pair` takes 2 type arguments, but 1 were given [type-argument-count]
+error: `Pair` takes 2 type arguments, but 1 was given [type-argument-count]
  --> cmd/type_argument_arity/main.buri:7:18
   |
 7 | derive Equal for Pair<Int>;

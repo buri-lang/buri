@@ -1,6 +1,6 @@
 ---
 title: A constructor is given the values it holds
-message: '`{name}` holds {expected} values, but {given} were given'
+message: '`{name}` holds {expected}, but {given}'
 fix: 'pass `{name}` the following values: {shape}'
 ---
 # A constructor is given the values it holds

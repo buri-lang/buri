@@ -167,8 +167,8 @@ message Rules {
   // A `TODO` comment is unfinished work. `buri docs lint todo-comment`.
   bool todo_comment = 19;
 
-  // A function takes few parameters. `buri docs lint too-many-parameters`.
-  bool too_many_parameters = 20;
+  // A function takes few parameters. `buri docs lint parameter-count`.
+  bool parameter_count = 20;
 
   // A target admits at least one platform. `buri docs lint unsatisfiable-target`.
   bool unsatisfiable_target = 21;
