@@ -86,17 +86,18 @@ test "a suite that allocates" {
 ///
 /// The heap check is that runtime's, so a toolchain built without a native
 /// backend, on a host no stencil library is built for, or on a machine with no
-/// C toolchain, runs nothing these rows can ask. That is a *host's* answer and
-/// not a runner's: `ci::skipped` prints it here and panics under `BURI_CI=1`,
-/// where every one of those inputs is asserted before the suite starts.
+/// C toolchain, runs nothing these rows can ask. That is a *host's* answer; on
+/// a host that has all of them, a run that never got there is the program's
+/// failure, and `ci::native_program_failed` panics on it.
 fn asked(run: &Run) -> bool {
     run.all().contains("buri heap check:")
 }
 
 fn no_native_run(what: &str, run: &Run) {
-    ci::skipped(
+    ci::native_program_failed(
         "build::heap",
-        &format!("`{what}` never reached the native runtime, so there was no heap check to read:\n{}", run.all()),
+        &format!("`{what}` never reached the native runtime, so there was no heap check to read"),
+        &run.all(),
     );
 }
 

@@ -825,16 +825,15 @@ fn an_incremental_rebuild_after_a_dependency_struct_changes_shape_is_not_miscomp
     // The cold build, run under the heap report. If it never reaches the native
     // runtime — no backend compiled in, no runtime archive, no linker — there is
     // no binary to miscompile and nothing this test can ask; that is a host's
-    // answer, and `ci::skipped` prints it and panics under `BURI_CI=1`.
+    // answer. On a host that has all three it is the program's failure, and
+    // `ci::native_program_failed` panics on it.
     let cold = scratch.run_with_env(&["run", "//apps/app"], &[("BURI_RT_HEAP_REPORT", "1")]);
     if !cold.all().contains("buri heap check:") {
-        crate::harness::ci::skipped(
+        crate::harness::ci::native_program_failed(
             "build::incrementality",
-            &format!(
-                "`buri run //apps/app` never reached the native runtime, so there was no \
-                 shape-change rebuild to check:\n{}",
-                indent(&cold.all())
-            ),
+            "`buri run //apps/app` never reached the native runtime, so there was no \
+             shape-change rebuild to check",
+            &indent(&cold.all()),
         );
         return;
     }
