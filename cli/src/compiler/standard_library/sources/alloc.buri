@@ -343,6 +343,11 @@ fn arenaLeave(previous: I64): I64;
 /// answer shares nothing with the argument at any depth. A *copy*, not a second
 /// reference: the counts of the original's blocks do not move.
 ///
+/// One exception, in a program whose values cross tasks: a block an earlier
+/// copy already put outside every arena is shared rather than copied again
+/// (`cli/runtime/memory.rs`'s settled blocks). Such a block is never written
+/// in place, so nothing can tell.
+///
 /// Compiled rather than called: each backend generates the walk for the
 /// concrete `T` at the call site (`middle/monomorphize.rs`).
 ///
