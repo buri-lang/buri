@@ -668,10 +668,8 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     fn nearest_value(&self, name: &str) -> Option<String> {
-        let mut candidates: Vec<String> =
-            self.scopes.iter().flat_map(|s| s.keys().cloned()).collect();
-        candidates.extend(self.c.scope(self.module).names.keys().cloned());
-        let refs: Vec<&str> = candidates.iter().map(|s| s.as_str()).collect();
+        let mut refs: Vec<&str> = self.scopes.iter().map(|(_, id)| self.local(*id).name.as_str()).collect();
+        refs.extend(self.c.scope(self.module).names.keys().map(String::as_str));
         nearest(name, &refs).map(|s| s.to_string())
     }
 
@@ -3100,7 +3098,6 @@ impl<'a, 'b> Infer<'a, 'b> {
 
         self.push_scope();
         self.lambda_depth = self.lambda_depth.saturating_add(1);
-        let outer_scopes = self.scopes.len();
         // Locals are numbered in the order they are bound, so everything this
         // lambda introduces — its parameters, its `let`s, the names its match
         // arms bind — is at or past this mark, and everything a capture could
@@ -3204,7 +3201,6 @@ impl<'a, 'b> Infer<'a, 'b> {
                 resolved
             }
         });
-        let _ = outer_scopes;
         self.lambda_depth = self.lambda_depth.saturating_sub(1);
         self.pop_scope();
 

@@ -33,7 +33,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     let bound = name.to_string();
                     self.templated("duplicate-pattern-binding", name_span).bind("name", bound);
                 }
-                self.pattern_names.push(name.to_string());
+                self.pattern_names.push(name);
                 let local = self.shared_local(name, &ty, name_span);
                 self.bind(name, local);
                 self.note_capture_risk(local, &ty);
@@ -127,7 +127,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                             self.templated("duplicate-pattern-binding", dup_span)
                                 .bind("name", bound);
                         }
-                        self.pattern_names.push(dup.to_string());
+                        self.pattern_names.push(dup);
                         let arr = Ty::Array(Box::new(elem_ty.clone()));
                         let l = self.shared_local(dup, &arr, dup_span);
                         self.bind(dup, l);
@@ -209,11 +209,8 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     /// Whether the pattern being checked has already bound this name.
-    ///
-    /// `pattern_names` holds `String`s and the name is now a slice of the
-    /// source, so the comparison is on the text rather than on the container.
     fn bound_already(&self, name: &str) -> bool {
-        self.pattern_names.iter().any(|n| n == name)
+        self.pattern_names.contains(&name)
     }
 
     fn or_alternative_local(&self, name: &str) -> Option<LocalId> {
@@ -488,7 +485,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                                 self.templated("duplicate-pattern-binding", fspan)
                                     .bind("name", bound);
                             }
-                            self.pattern_names.push(fname.to_string());
+                            self.pattern_names.push(fname);
                             let local = self.shared_local(fname, &ty, fspan);
                             self.bind(fname, local);
                             typed::Pattern {
