@@ -1,0 +1,13 @@
+error: `Scoped<a context>` does not implement `Stdout` [missing-impl]
+  --> cmd/scoped_context_missing_effect/main.buri:13:32
+   |
+13 |     alloc.scoped(ctx, fn(c) => io.println(c, "hi"))
+   |                                ^^^^^^^^^^^^^^^^^^^
+   |
+   = `Scoped<C>` implements `Stdout` only when `C` satisfies `Stdout`, and here `C` is a context that binds `Allocator`
+   = fix: bind `Stdout` in the `context { ... }` this call is handed
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+

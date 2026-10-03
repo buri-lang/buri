@@ -839,8 +839,20 @@ fn run_block_in(
         base.role,
         block.platform,
     );
-    let diagnostics: Vec<String> = analysis
-        .diagnostics
+    // Some rules are only checked once the program is compiled for the types
+    // it is actually called with, so a `fail code=` block that checks cleanly
+    // is compiled too. Its annotated lines are blanked in `base`, so a block
+    // with any is held to checking alone.
+    let compiled = match &block.claim {
+        Claim::Fail { code: Some(_), errors, .. }
+            if errors.is_empty() && !analysis.diagnostics.has_errors() =>
+        {
+            driver::compile_snippet_js_as(workspace, package, map, &name, &base.text).err()
+        }
+        _ => None,
+    };
+    let reported = compiled.as_ref().unwrap_or(&analysis.diagnostics);
+    let diagnostics: Vec<String> = reported
         .items
         .iter()
         .filter(|d| d.is_error())
@@ -854,8 +866,7 @@ fn run_block_in(
             // that rule. A page nothing can provoke is a page that describes an
             // error the compiler no longer emits.
             if let Some(want) = code {
-                let got: Vec<String> = analysis
-                    .diagnostics
+                let got: Vec<String> = reported
                     .items
                     .iter()
                     .filter(|d| d.is_error())

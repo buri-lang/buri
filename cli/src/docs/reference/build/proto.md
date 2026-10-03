@@ -23,8 +23,7 @@ library {
 
 You write `generators` by hand; `buri gen` can't know which generator owns a
 file. A schema no entry lists is
-[`unused-source`](../lints/unused-source.md). The old `proto_sources` field is
-[retired](../errors/retired-proto-sources.md).
+[`unused-source`](../lints/unused-source.md).
 
 The generated module belongs to the declaring rule, so library boundaries apply.
 `//lib/wire/point.proto` is internal to `//lib/wire`; other packages reach its

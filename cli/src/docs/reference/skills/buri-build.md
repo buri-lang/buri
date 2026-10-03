@@ -165,8 +165,6 @@ binary {
   `macos-arm64` or `macos-x86_64`.
 - The function named `main` fills each platform's `main` entry;
   `entries: [{ name: "main", function: "other" }]` picks another.
-- `platform: LINUX`, `platforms: [JS]`, and the output fields `arch`, `entry`
-  and `js {}` are `retired-platform`.
 
 An empty rule is enough to start, and `gen` never invents one:
 
