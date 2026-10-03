@@ -178,14 +178,14 @@ pub fn workspace(state: &mut State, params: &Value) -> Value {
     Value::object(vec![("items", Value::Array(items))])
 }
 
-/// One build file's syntax errors, read from the buffer where the editor has
+/// One build file's errors, read from the buffer where the editor has
 /// one and from the disk otherwise. Empty for every other kind of file.
 fn build_file_findings(state: &State, path: &std::path::Path, uri: &str) -> Vec<Value> {
     if !super::build_files::is_build_file(path) {
         return Vec::new();
     }
     let Some(text) = state.text_of(path) else { return Vec::new() };
-    super::build_files::diagnostics(&text)
+    super::build_files::diagnostics(path, &text)
         .iter()
         .map(|d| convert::diagnostic(&text, d, uri))
         .collect()

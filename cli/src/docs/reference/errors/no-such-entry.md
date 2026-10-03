@@ -1,7 +1,7 @@
 ---
 title: An output fills the entries its platform offers
 message: '`{platform}` has no entry `{entry}`'
-note: each key in `entries` is one of the platform's entries, and its value is the function that fills it
+note: each `name` in `entries` is one of the platform's entries, and its `function` fills it
 fix: 'its entries are {entries}'
 reproduction: none
 ---
@@ -10,7 +10,7 @@ reproduction: none
 ```textproto schema=build
 binary {
     outputs: [
-        { platform: "node", entries { main: "mainForNode" } },
+        { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
     ]
 }
 ```

@@ -23,7 +23,7 @@ error: `main` takes `NodeHost`, and the web platform hands its entry a `WebHost`
        binary {
            outputs: [
                { platform: "native", variant: "linux-arm64" },
-               { platform: "node", entries { main: "mainForNode" } },
+               { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
            ]
        }
 

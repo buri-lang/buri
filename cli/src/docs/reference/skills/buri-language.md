@@ -110,7 +110,7 @@ from `"native"`, `NodeHost` from `"node"` (a binary with no `outputs` builds for
 context, from the host's fields. The old `fn main()` is `entry-without-host`, and
 a field the platform lacks is `no-such-field`. `.Ok(())` exits 0. `.Err(msg)`
 prints `msg` on stderr and exits 1. A program for two platforms gives each
-output its own entry, `{ platform: "node", entries: { main: "mainForNode" } }`,
+output its own entry, `{ platform: "node", entries: [{ name: "main", function: "mainForNode" }] }`,
 and both call one function taking `ctx`. `{ platform: CLOUDFLARE_WORKER }`
 enters at `fn fetch(request: Request): Response`, which binds `core/host`'s
 values because it takes no host yet.

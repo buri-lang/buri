@@ -1,7 +1,7 @@
 binary {
   sources: ["main.buri"]
   outputs: [
-    { entries { main: "run" }, platform: "node" },
+    { entries: [{ function: "run", name: "main" }], platform: "node" },
     { variant: "linux-x86_64", platform: "native" },
   ]
 }

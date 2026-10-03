@@ -255,17 +255,19 @@ message Output {
   // Every library in the transitive closure must admit it.
   string platform = 1;
 
-  // Required when the platform declares variants, and one of them. `native`'s
-  // are `linux-arm64`, `linux-x86_64`, `macos-arm64` and `macos-x86_64`.
+  // One of the variants the platform's entries declare. Required when an entry
+  // says `variant_required`. `native`'s are `linux-arm64`, `linux-x86_64`,
+  // `macos-arm64` and `macos-x86_64`.
   string variant = 6;
 
-  // The function filling each of the platform's entries, where it is not the
-  // one named after the entry: `entries: { main: "mainForNode" }`.
+  // The function filling one of the platform's entries, where it is not the
+  // one named after the entry:
+  // `entries: [{ name: "main", function: "mainForNode" }]`.
   //
   // One binary, several ways in. Each entry builds its own context and is the
   // root of its own dead-code elimination, so neither artifact holds what only
   // the other reaches.
-  map<string,string> entries = 7;
+  repeated Entry entries = 7;
 
   // Artifact filename. Defaults to the package's directory name (plus `.mjs`
   // for JavaScript).
@@ -276,6 +278,14 @@ message Output {
   // `entry`, now `entries`. None of the numbers is reused.
   reserved 2, 4, 5;
   reserved "arch", "js", "entry";
+
+  message Entry {
+    // One of the platform's entries, as its `entry { name }` writes it.
+    string name = 1;
+
+    // The function in `main.buri` that fills it.
+    string function = 2;
+  }
 }
 
 // How a program is compiled. Closed: each backend is built into the CLI.
@@ -295,15 +305,15 @@ message Platform {
 
   repeated string dependencies = 2;
 
-  // Names an output picks between with `variant`. A variant changes how an
-  // output is built, never what it may use.
-  repeated string variants = 3;
-
   // The entries outputs of this platform fill.
   repeated Entry entry = 4;
 
   // Files the platform adds to every output.
   repeated string assets = 5;
+
+  // Field 3 was `variants`, now on each `entry`. The number is not reused.
+  reserved 3;
+  reserved "variants";
 
   message Entry {
     // The function an output fills it with, unless its `entries` says
@@ -314,6 +324,13 @@ message Platform {
 
     // JS only: the adapter the host calls.
     string js = 3;
+
+    // Names an output picks between with `variant`. A variant changes how an
+    // output is built, never what it may use.
+    repeated string variants = 4;
+
+    // An output must pick one of `variants`.
+    bool variant_required = 5;
   }
 }
 

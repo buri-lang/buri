@@ -283,7 +283,7 @@ a socket, a retry or a timer on one, so `Tasks` is everywhere.
 The build system decides which platform an entry is checked against, not the
 language: the platform each `outputs` entry names. One function can't take two
 hosts, so a program built for two platforms gives each output an entry of its
-own — `entries: { main: "mainForNode" }` — and both call one function that
+own — `entries: [{ name: "main", function: "mainForNode" }]` — and both call one function that
 takes `ctx`. Nothing about an **effect type** is platform-bound:
 `from "core/fs" import { FileSystemRead }` is legal everywhere, a page
 included, because a bound demands an implementation rather than being one.

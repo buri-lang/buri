@@ -1,15 +1,15 @@
 error: `CLOUDFLARE_WORKER` has no entry `main` [no-such-entry]
- --> cmd/site/BUILD.buri:4:51
+ --> cmd/site/BUILD.buri:4:58
   |
-4 |         { platform: CLOUDFLARE_WORKER, entries: { main: "fetch" } },
-  |                                                   ^^^^
+4 |         { platform: CLOUDFLARE_WORKER, entries: [{ name: "main", function: "fetch" }] },
+  |                                                          ^^^^^^
   |
-  = each key in `entries` is one of the platform's entries, and its value is the function that fills it
+  = each `name` in `entries` is one of the platform's entries, and its `function` fills it
   = fix: its entries are fetch
 
       binary {
           outputs: [
-              { platform: "node", entries { main: "mainForNode" } },
+              { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
           ]
       }
 

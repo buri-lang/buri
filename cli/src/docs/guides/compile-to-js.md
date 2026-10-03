@@ -46,7 +46,7 @@ against the whole graph:
 binary {
     outputs: [
         { platform: "native", variant: "linux-x86_64" },
-        { platform: "node", entries { main: "mainForNode" } },
+        { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
     ]
 }
 ```
@@ -116,7 +116,7 @@ other. Serve the directory. Writing the page is
 
 `platform: CLOUDFLARE_WORKER` is the other JavaScript artifact: a module the
 platform *calls*, once per request, rather than a program that starts itself.
-It enters through `fetch`, or the function `entries: { fetch: "..." }` names.
+It enters through `fetch`, or the function `entries: [{ name: "fetch", function: "..." }]` names.
 
 ```textproto schema=build
 # cmd/site/BUILD.buri

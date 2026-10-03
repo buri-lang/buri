@@ -11,7 +11,7 @@ reproduction: none
 binary {
     outputs: [
         { platform: "native", variant: "linux-arm64" },
-        { platform: "node", entries { main: "mainForNode" } },
+        { platform: "node", entries: [{ name: "main", function: "mainForNode" }] },
         { platform: "web" },
     ]
 
@@ -26,7 +26,7 @@ binary {
 | `platform: LINUX, arch: ARM64`      | `platform: "native", variant: "linux-arm64"`      |
 | `platform: JS`                      | `platform: "node"`                                |
 | `platform: WEB`                     | `platform: "web"`                                 |
-| `entry: "run"`                      | `entries: { main: "run" }`                        |
+| `entry: "run"`                      | `entries: [{ name: "main", function: "run" }]`    |
 | `js { module: ESM }`                | nothing: every JavaScript output is an ES module  |
 | `test { platforms: [JS] }`          | `test { backends: [JS] }`                         |
 | `platforms: [LINUX, MACOS]`         | `backends: [NATIVE]`                              |

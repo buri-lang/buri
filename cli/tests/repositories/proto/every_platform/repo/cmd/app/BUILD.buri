@@ -2,9 +2,15 @@ binary {
     dependencies: ["//lib/wire"]
 
     outputs: [
-        { platform: "node", entries { main: "mainForNode" } },
-        { platform: "web", entries { main: "mainForWeb" } },
-        { platform: CLOUDFLARE_WORKER, entries { fetch: "handle" } },
+        { platform: "node", entries: [
+            { name: "main", function: "mainForNode" },
+        ] },
+        { platform: "web", entries: [
+            { name: "main", function: "mainForWeb" },
+        ] },
+        { platform: CLOUDFLARE_WORKER, entries: [
+            { name: "fetch", function: "handle" },
+        ] },
         { platform: "native", variant: "linux-x86_64" },
         { platform: "native", variant: "macos-arm64" },
     ]

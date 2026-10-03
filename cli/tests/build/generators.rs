@@ -211,7 +211,7 @@ fn the_toolchain_generator_is_compiled_once_per_repository() {
     // this row has to mean the same thing on every machine.
     scratch.write(
         "cmd/twice/BUILD.buri",
-        "binary {\n    dependencies: [\"//lib/proto\"]\n\n    outputs: [\n        { platform: \"node\", entries: { main: \"mainForNode\" } },\n        { platform: \"web\", entries: { main: \"mainForWeb\" } },\n    ]\n}\n",
+        "binary {\n    dependencies: [\"//lib/proto\"]\n\n    outputs: [\n        { platform: \"node\", entries: [{ name: \"main\", function: \"mainForNode\" }] },\n        { platform: \"web\", entries: [{ name: \"main\", function: \"mainForWeb\" }] },\n    ]\n}\n",
     );
     scratch.write("cmd/twice/main.buri", &twice());
 

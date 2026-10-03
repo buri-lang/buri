@@ -202,7 +202,7 @@ fn swept_publishes(state: &mut State, reports: Vec<Published>) -> Vec<Value> {
             published.insert(uri, items);
         }
     }
-    // A build file's own syntax, which no analysis reports and so no sweep
+    // A build file's own errors, which no analysis reports and so no sweep
     // carries. Only for the ones the editor has open: those are the ones a
     // publish is for.
     for path in state.open.keys().cloned().collect::<Vec<_>>() {
@@ -211,7 +211,7 @@ fn swept_publishes(state: &mut State, reports: Vec<Published>) -> Vec<Value> {
         }
         let Some(text) = state.text_of(&path) else { continue };
         let uri = convert::uri_of(&path);
-        let items = build_files::diagnostics(&text)
+        let items = build_files::diagnostics(&path, &text)
             .iter()
             .map(|d| convert::diagnostic(&text, d, &uri))
             .collect::<Vec<_>>();
@@ -2080,7 +2080,7 @@ fn parse_diagnostics(state: &mut State, path: &std::path::Path, text: &str) -> V
     // `BUILD.buri` is textproto, and the Buri lexer refused its every
     // `# comment` — a syntax error on a file that is not in that syntax.
     let errors = if build_files::is_build_file(path) {
-        build_files::diagnostics(text)
+        build_files::diagnostics(path, text)
     } else {
         crate::parsing::parser::parse(text, crate::diagnostics::FileId(0)).errors
     };
@@ -2220,7 +2220,7 @@ fn findings_for(state: &mut State, path: &std::path::Path, published: &mut Publi
     closure_findings(state, path, published);
 }
 
-/// A build file's own syntax. No analysis reports it — `driver::analyze` never
+/// A build file's own errors. No analysis reports them — `driver::analyze` never
 /// opens one — so an unreadable `BUILD.buri` used to be a repository that
 /// quietly stopped answering rather than a file with a squiggle in it.
 fn build_file_findings(state: &mut State, path: &std::path::Path, published: &mut Published) {
@@ -2229,7 +2229,7 @@ fn build_file_findings(state: &mut State, path: &std::path::Path, published: &mu
     }
     if let Some(text) = state.text_of(path) {
         let uri = convert::uri_of(path);
-        let items: Vec<Value> = build_files::diagnostics(&text)
+        let items: Vec<Value> = build_files::diagnostics(path, &text)
             .iter()
             .map(|d| convert::diagnostic(&text, d, &uri))
             .collect();
