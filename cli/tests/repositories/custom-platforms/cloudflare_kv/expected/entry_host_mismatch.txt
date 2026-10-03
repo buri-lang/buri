@@ -1,0 +1,35 @@
+error: `fetch` takes `NodeHost`, and the //platform/cloudflare_worker platform hands its entry a `CloudflareHost` [entry-host-mismatch]
+  --> cmd/site/main.buri:10:17
+   |
+10 | export fn fetch(host: NodeHost, request: Request): Response {
+   |                 ^^^^^^^^^^^^^^
+   |
+   = fix: take `CloudflareHost`, imported with `from "//platform/cloudflare_worker" import { CloudflareHost };`
+
+     What to do
+     ──────────
+
+     Take the host of the platform the output names:
+
+       from "native" import { NativeHost };
+
+       export fn main(host: NativeHost): Result<(), Str> {
+           .Ok(())
+       }
+
+     A program built for two platforms gives each output an entry of its own,
+     and both delegate to one function that takes ctx:
+
+       binary {
+           outputs: [
+               { platform: "native", variant: "linux-arm64" },
+               { platform: "node", entries { main: "mainForNode" } },
+           ]
+       }
+
+     Why
+     ───
+
+     Each platform offers different effects, so each declares its own host type.
+     One entry can't take two.
+

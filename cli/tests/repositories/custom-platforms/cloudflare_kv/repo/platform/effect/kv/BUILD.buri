@@ -1,0 +1,6 @@
+library {
+    visibility: ["//visibility:public"]
+
+    testing {
+    }
+}

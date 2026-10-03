@@ -437,13 +437,53 @@ pub struct Output {
     /// The function filling the platform's entry, where `entries` names one.
     /// `None` is the function named after the entry.
     pub entry: Option<Spanned<String>>,
+    /// The repository platform this output names, `//platform/<name>`, or
+    /// `None` for a bundled one.
+    pub custom: Option<CustomPlatform>,
     pub span: Span,
+}
+
+/// An output of a repository's own platform, a `platform` rule under
+/// `//platform/`.
+///
+/// The reader cannot check one: the rule is in another build file. So it keeps
+/// what was written, and the workspace checks it once every build file is
+/// read, filling in `point` and `backend` and turning one output into one per
+/// entry of the platform ([`crate::build::workspace::Workspace::load`]).
+#[derive(Clone, Debug)]
+pub struct CustomPlatform {
+    /// `//platform/cloudflare_worker`, where it was written.
+    pub label: Spanned<String>,
+    /// The `variant`, as written.
+    pub variant: Option<Spanned<String>>,
+    /// The `entries`, as written: the platform's entry, and the function
+    /// filling it.
+    pub entries: Vec<(Spanned<String>, Spanned<String>)>,
+    /// The platform's entry this output builds: `fetch`.
+    pub point: String,
+    /// The backend that entry is built by.
+    pub backend: Backend,
+    /// The entry's `js` file, package-relative to the platform, where it has
+    /// one.
+    pub js: Option<String>,
+}
+
+impl CustomPlatform {
+    /// `cloudflare_worker`: the platform's directory under `platform/`.
+    pub fn name(&self) -> &str {
+        self.label.value.strip_prefix("//platform/").unwrap_or(&self.label.value)
+    }
+
+    /// `platform/cloudflare_worker`: the platform's package path.
+    pub fn package_path(&self) -> &str {
+        self.label.value.strip_prefix("//").unwrap_or(&self.label.value)
+    }
 }
 
 impl Output {
     /// The default output, `node`.
     pub fn js(span: Span) -> Output {
-        Output { target: OutputTarget::Js, artifact_name: None, entry: None, span }
+        Output { target: OutputTarget::Js, artifact_name: None, entry: None, custom: None, span }
     }
 
     /// An output for a platform chosen at run time, as `buri test` does. A
@@ -460,7 +500,7 @@ impl Output {
             Platform::Web => OutputTarget::Web,
             Platform::CloudflareWorker => OutputTarget::CloudflareWorker,
         };
-        Output { target, artifact_name: None, entry: None, span }
+        Output { target, artifact_name: None, entry: None, custom: None, span }
     }
 
     pub fn platform(&self) -> Platform {
@@ -473,10 +513,27 @@ impl Output {
     }
 
     /// The platform's entry this output fills: `main`, or a worker's `fetch`.
-    pub fn entry_point(&self) -> &'static str {
+    pub fn entry_point(&self) -> &str {
+        if let Some(custom) = &self.custom {
+            return &custom.point;
+        }
         match self.platform() {
             Platform::CloudflareWorker => "fetch",
             _ => "main",
+        }
+    }
+
+    /// The backend this output is built by.
+    pub fn backend(&self) -> Backend {
+        self.custom.as_ref().map_or(self.platform().backend(), |c| c.backend)
+    }
+
+    /// `node`, `//platform/cloudflare_worker`: the platform as an output names
+    /// it.
+    pub fn platform_name(&self) -> String {
+        match &self.custom {
+            Some(custom) => custom.label.value.clone(),
+            None => self.platform().proto().to_string(),
         }
     }
 
@@ -501,7 +558,15 @@ impl Output {
     }
 
     /// `native/linux-arm64`, `node`, `web`: the directory under `.buri/out/`.
+    /// A repository platform's is `platform/<name>`, with its variant below
+    /// that where the output names one.
     pub fn dir(&self) -> String {
+        if let Some(custom) = &self.custom {
+            return match &custom.variant {
+                Some(v) => format!("platform/{}/{}", custom.name(), v.value),
+                None => format!("platform/{}", custom.name()),
+            };
+        }
         match self.variant() {
             Some(v) => format!("native/{v}"),
             None => self.platform().slug().to_string(),
@@ -511,6 +576,9 @@ impl Output {
     /// Whether `--output=<selector>` selects this output: its directory, or
     /// its platform's name for every output of that platform.
     pub fn matches_selector(&self, selector: &str) -> bool {
+        if let Some(custom) = &self.custom {
+            return self.dir() == selector || custom.label.value == selector;
+        }
         self.dir() == selector || self.platform().slug() == selector
     }
 }
@@ -1406,6 +1474,31 @@ impl Reader {
             return None;
         };
         let arch = m.get("arch");
+        // A repository's own platform. Its rule is in another build file, so
+        // what was written is kept and checked once every build file is read.
+        if let Value::Str(label, label_span) = &field.value {
+            if label.starts_with("//") {
+                if let Some(a) = arch {
+                    self.retired(a.name_span, "arch", "name it in `variant`, as `variant: \"linux-arm64\"`");
+                }
+                let entries = self.written_entries(m);
+                let custom = CustomPlatform {
+                    label: Spanned::new(label.clone(), *label_span),
+                    variant,
+                    entries,
+                    point: String::new(),
+                    backend: Backend::Js,
+                    js: None,
+                };
+                return Some(Output {
+                    target: OutputTarget::Js,
+                    artifact_name,
+                    entry: None,
+                    custom: Some(custom),
+                    span,
+                });
+            }
+        }
         let platform = match &field.value {
             Value::Ident(s, sp) if matches!(s.as_str(), "LINUX" | "MACOS" | "JS" | "WEB") => {
                 let replacement = match s.as_str() {
@@ -1486,7 +1579,30 @@ impl Reader {
                 OutputTarget::Native { platform: os, arch }
             }
         };
-        Some(Output { target, artifact_name, entry, span })
+        Some(Output { target, artifact_name, entry, custom: None, span })
+    }
+
+    /// `entries`, as written, for a platform whose entries this reader cannot
+    /// see. Each value still has to look like a function name.
+    fn written_entries(&mut self, m: &Message) -> Vec<(Spanned<String>, Spanned<String>)> {
+        let Some((entries, _)) = self.sub_message(m, "entries") else { return Vec::new() };
+        let mut out = Vec::new();
+        for f in &entries.fields {
+            let Value::Str(s, sp) = &f.value else {
+                let kind = f.value.kind().to_string();
+                self.wrong_kind(f.value.span(), &f.name, "a function name", &kind);
+                continue;
+            };
+            let ok = !s.is_empty()
+                && s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            if !ok {
+                self.templated("entry-not-a-name", *sp).bind("entry", s.clone());
+                continue;
+            }
+            out.push((Spanned::new(f.name.clone(), f.name_span), Spanned::new(s.clone(), *sp)));
+        }
+        out
     }
 
     /// `entries: { main: "mainForNode" }`: the function filling each of the

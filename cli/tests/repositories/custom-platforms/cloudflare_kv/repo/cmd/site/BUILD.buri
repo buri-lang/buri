@@ -1,0 +1,15 @@
+binary {
+    dependencies: [
+        "//lib/sessions",
+        "//platform/effect/kv",
+    ]
+    outputs: [
+        { platform: "//platform/cloudflare_worker" },
+    ]
+
+    test {
+        sources: ["test/handle_test.buri"]
+        dependencies: ["//platform/effect/kv/testing"]
+        backends: [NATIVE, JS]
+    }
+}

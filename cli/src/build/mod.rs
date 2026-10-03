@@ -32,6 +32,9 @@ pub mod cache;
 /// wire it speaks, the action that runs it, and the store the compiler reads
 /// what it produced through.
 pub mod generators;
+// A repository platform's `js` file: its exports, the host-file check, and the
+// module the build bundles it into with the program.
+pub mod hosted;
 pub mod link;
 /// The musl sysroot `cli/build.rs` baked in: the `libc.a`, unwinder and crt
 /// objects that finish a hermetic Linux link, and the `Libc` this toolchain's

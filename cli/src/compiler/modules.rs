@@ -127,6 +127,10 @@ pub struct Loaded {
     /// The rules whose generators this compilation reported on. Their inputs,
     /// and the schemas those were checked against, are files it read.
     pub generated_rules: Vec<TargetId>,
+    /// The repository platform the output being built names, with the entry
+    /// of it this build fills. `None` for a bundled platform and for every
+    /// analysis that is not building one output.
+    pub custom: Option<crate::build::buildfile::CustomPlatform>,
 }
 
 impl Loaded {
@@ -163,6 +167,8 @@ pub struct Loader<'a> {
     /// See [`Loaded::test_platforms`].
     test_platforms: HashMap<crate::build::workspace::PackageId, Vec<Platform>>,
     test_sources: Vec<ModuleId>,
+    /// See [`Loaded::custom`].
+    custom: Option<crate::build::buildfile::CustomPlatform>,
 }
 
 impl<'a> Loader<'a> {
@@ -186,6 +192,7 @@ impl<'a> Loader<'a> {
             platform: None,
             entry: None,
             test_platforms: HashMap::default(),
+            custom: None,
         }
     }
 
@@ -198,6 +205,7 @@ impl<'a> Loader<'a> {
             entry: self.entry,
             test_platforms: self.test_platforms,
             generated_rules: self.generated_rules.into_iter().collect(),
+            custom: self.custom,
         }
     }
 
@@ -278,6 +286,21 @@ impl<'a> Loader<'a> {
                 }
                 self.load_closure_generators(target);
                 let Some(bin) = &pkg.build.binary else { return };
+                // The output being built, when it names a repository platform:
+                // its entry is checked against that platform's declaration.
+                if let (Some(platform), Some(entry), None) = (unit.platform, &unit.entry, &self.custom) {
+                    self.custom = ws
+                        .declared_entries(target)
+                        .into_iter()
+                        .find(|e| e.platform == platform && e.name == *entry && e.custom.is_some())
+                        .and_then(|e| e.custom);
+                }
+                // Every repository platform an output names is part of the
+                // binary, imported or not: its entries are what the binary's
+                // own are checked against.
+                for label in ws.custom_platforms(target) {
+                    self.load_path(&label, Role::Source, Span::NONE);
+                }
                 self.load_path(&pkg.module_path("main.buri"), Role::Entry, Span::NONE);
                 for src in &bin.sources {
                     self.load_package_source(target, &src.value, Role::Source, src.span);
@@ -789,7 +812,10 @@ impl<'a> Loader<'a> {
                 return None;
             }
         };
-        let (ast, errors) = self.cache.parse(self.map.text(file), file, false);
+        // A repository platform's `platform.buri` declares its entries and its
+        // production structs' methods without a body.
+        let bodyless = self.is_platform_surface(path);
+        let (ast, errors) = self.cache.parse(self.map.text(file), file, bodyless);
         self.diags.extend(errors.iter().cloned());
 
         let pkg = self.ws.and_then(|ws| ws.owning_package(&disk));
@@ -895,6 +921,16 @@ impl<'a> Loader<'a> {
         Role::Source
     }
 
+    /// Whether a module path is a repository platform's `platform.buri`.
+    fn is_platform_surface(&self, path: &str) -> bool {
+        let Some(ws) = self.ws else { return false };
+        path.ends_with("/platform.buri")
+            && matches!(
+                ws.resolve_module(path),
+                Ok(ModuleLocation::InPackage(m)) if m.kind == ModuleKind::PlatformSurface
+            )
+    }
+
     /// Whether a package's binary has a `CLOUDFLARE_WORKER` output: the one
     /// kind of entry that still binds `core/host` rather than taking a host.
     fn enters_a_worker(&self, pkg: Option<crate::build::workspace::PackageId>) -> bool {
@@ -932,9 +968,11 @@ impl<'a> Loader<'a> {
         // platform's host as `main`'s parameter, which is where authority
         // enters a program.
         let host_module = match standard_library::canonical(path) {
-            Some(p @ standard_library::HOST_STRUCTS_MODULE) => {
-                Some((p, standard_library::find(importer_path).is_some()))
-            }
+            Some(p @ standard_library::HOST_STRUCTS_MODULE) => Some((
+                p,
+                standard_library::find(importer_path).is_some()
+                    || self.is_platform_surface(importer_path),
+            )),
             Some(p @ standard_library::HOST_MODULE) => Some((
                 p,
                 standard_library::find(importer_path).is_some()
@@ -1029,7 +1067,10 @@ impl<'a> Loader<'a> {
         // importer to add `.buri` would name a file that will never exist.
         let names_itself = matches!(
             loc.kind,
-            ModuleKind::LibrarySurface | ModuleKind::TestingSurface | ModuleKind::Generated
+            ModuleKind::LibrarySurface
+                | ModuleKind::TestingSurface
+                | ModuleKind::Generated
+                | ModuleKind::PlatformSurface
         );
         if Some(loc.package) == importer_pkg
             && !names_itself

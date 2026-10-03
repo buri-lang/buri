@@ -270,6 +270,14 @@ fn the_host_on_node() {
     run_corpus(&tests_dir().join("repositories/platform"), "platform", 1);
 }
 
+/// PLATFORMS.md: a repository's own platforms under `//platform/`, its custom
+/// effects under `//platform/effect/`, and the refusals that keep the two
+/// honest.
+#[test]
+fn custom_platforms() {
+    run_corpus(&tests_dir().join("repositories/custom-platforms"), "custom-platforms", 2);
+}
+
 /// `buri run` on a page: the flags that belong to the server it starts, and
 /// the build failure that means there is no server at all.
 ///

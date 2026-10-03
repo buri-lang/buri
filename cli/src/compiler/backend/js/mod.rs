@@ -10,6 +10,7 @@
 //! feature whose only possible value is "on" is a flag nobody should have to
 //! read (`design/native/BUILD-AND-WATCH.md` §2).
 
+pub mod crossing;
 pub mod generate;
 pub mod intrinsics;
 pub mod javascript;
