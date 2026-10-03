@@ -554,37 +554,42 @@ impl Tree {
     /// exactly before it builds anything. A byte count — what this used to
     /// divide — moves with comments and identifier length, which add bytes and
     /// no nodes, so a dense file outgrew its arenas and paid a copy of
-    /// everything written so far for each doubling. Against the checked-in
-    /// corpora `mixed` writes 0.26 expression nodes per token, 0.08 types and
-    /// 0.05 patterns, and the stress shapes stay under these figures but for
-    /// one growth step on the densest.
+    /// everything written so far for each doubling, while a documented one
+    /// held capacity it never used.
+    ///
+    /// Each figure is what the `mixed` corpus writes per token, rounded up by
+    /// about a tenth: 0.26 expression nodes, 0.09 names, 0.08 types, 0.05
+    /// patterns and so on down. A file denser than that grows an arena once;
+    /// one sparser holds a tenth more than it needs rather than half. The
+    /// arenas that corpus writes less than one entry per hundred tokens into
+    /// start empty, so a file with no `context` pays nothing for one.
     pub fn new(file: FileId, src: &str, tokens: usize) -> Tree {
-        let n = tokens / 8;
+        let per = |n: usize, d: usize| tokens.saturating_mul(n) / d;
         Tree {
             file,
             src: Rc::from(src),
-            nodes: Vec::with_capacity(n.saturating_mul(3)),
-            spans: Vec::with_capacity(n.saturating_mul(3)),
-            pnodes: Vec::with_capacity(n),
-            pspans: Vec::with_capacity(n),
-            kids: Vec::with_capacity(n / 2),
-            pkids: Vec::with_capacity(n / 4),
-            tkids: Vec::with_capacity(n / 4),
-            names: Vec::with_capacity(n),
-            blocks: Vec::with_capacity(n / 4),
-            stmts: Vec::with_capacity(n / 4),
-            arms: Vec::new(),
+            nodes: Vec::with_capacity(per(9, 32)),
+            spans: Vec::with_capacity(per(9, 32)),
+            pnodes: Vec::with_capacity(per(1, 18)),
+            pspans: Vec::with_capacity(per(1, 18)),
+            kids: Vec::with_capacity(per(1, 18)),
+            pkids: Vec::with_capacity(per(1, 40)),
+            tkids: Vec::with_capacity(per(1, 36)),
+            names: Vec::with_capacity(per(1, 10)),
+            blocks: Vec::with_capacity(per(1, 40)),
+            stmts: Vec::with_capacity(per(1, 56)),
+            arms: Vec::with_capacity(per(1, 80)),
             inits: Vec::new(),
             fpats: Vec::new(),
             lparams: Vec::new(),
             parts: Vec::new(),
             ctxb: Vec::new(),
             ctxbind: Vec::new(),
-            ppay: Vec::new(),
-            types: Vec::with_capacity(n),
-            ints: Vec::new(),
+            ppay: Vec::with_capacity(per(1, 96)),
+            types: Vec::with_capacity(per(1, 12)),
+            ints: Vec::with_capacity(per(1, 28)),
             floats: Vec::new(),
-            strs: Vec::new(),
+            strs: Vec::with_capacity(per(1, 90)),
         }
     }
 
