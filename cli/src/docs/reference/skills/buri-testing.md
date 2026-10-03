@@ -5,10 +5,10 @@ description: Use when writing, running, or debugging Buri tests — the test dec
 
 # Buri: writing and running tests
 
-Tests live inside the target they test. Its build rule declares them, and they
-reach only what a dependent could reach. There is no separate test target, and
-no way to test a private function directly. `buri docs build/testing` and `buri
-docs cli test` are the normative pages.
+Tests belong to the target they test and reach only what a dependent could:
+there's no separate test target and no testing private functions. The
+normative pages are
+`buri docs build/testing` and `buri docs cli test`.
 
 ## Declaring a suite
 
@@ -36,9 +36,9 @@ library {
 }
 ```
 
-**A module listed in `test.sources` is a test source**, and nothing else makes
-one. `test` declarations and imports of test-only modules are legal there and
-nowhere else. `buri gen` maintains `test.sources` for you.
+**Only a module listed in `test.sources` is a test source.** `test`
+declarations and imports of test-only modules are legal there and nowhere else.
+`buri gen` maintains `test.sources`.
 
 ## A test
 
@@ -58,12 +58,12 @@ test "addition composes" {
 }
 ```
 
-- `test STRING Block`. A test takes no parameters and returns nothing. It
-  passes unless an assertion in it fails, and a failing assertion ends that
-  test and no other.
-- **Use a title once per file** (`duplicate-test-name`); two files may share
-  one. A pure assertion needs no context at all. `assert` is not a keyword: the
-  name comes from `import * as assert`.
+- A test takes no parameters and returns nothing. It passes unless an assertion
+  fails, and a failing assertion ends only that test.
+- **A title appears once per file** (`duplicate-test-name`); two files may
+  share one.
+- A pure assertion needs no context. `assert` isn't a keyword; the name comes
+  from `import * as assert`.
 
 ### Assertions
 
@@ -77,14 +77,13 @@ test "addition composes" {
 | `assert.err(r)` | fails unless `r` is `.Err`; returns the error |
 | `assert.some(o)` / `none(o)` | fails unless `o` is `.Some` / `.None`; `some` returns the wrapped value |
 
-Reach for the narrowest one that fits: each names both values in its report,
-while `assert.isTrue(xs.contains(x))` says only "expected true, got false".
-There is no `assert.fail`. A test that has to fail on purpose asserts on the
-value it has — `assert.equal(verdict, "settled")` on a rendered `Str`, or
-`assert.none(o)` on the `Option` itself. Only `ok`, `err` and `some` return a
-value, which is how you use up a must-use `Result`; the rest answer `()` and
-stand alone as statements. A test source is the one place the language admits an
-expression statement, and only at type `()`, terminated by `;`.
+- Use the narrowest one. `assert.isTrue(xs.contains(x))` reports only
+  "expected true, got false".
+- There is no `assert.fail`. Assert on the value you have:
+  `assert.equal(verdict, "settled")`, or `assert.none(o)`.
+- `ok`, `err` and `some` return a value, which uses up a must-use `Result`. The
+  rest return `()` and stand alone as statements, which only a test source
+  allows (type `()`, ending in `;`).
 
 ```buri
 test "reads the config it wrote" {
@@ -97,36 +96,39 @@ test "reads the config it wrote" {
 }
 ```
 
-If `assert.equal` reports `unsatisfied-bound`, the type under test needs
-`derive Equal, Show for ThatType;` in **its own** module.
+If `assert.equal` reports `unsatisfied-bound`, add
+`derive Equal, Show for ThatType;` in the type's **own** module.
 
 ## The runner's context
 
-`platform/effect/testing` holds the test implementations, named after the
-host's fields and **called** rather than referred to. Each call hands back a fresh double,
-one per effect, and only a test source may import it.
+`platform/effect/testing` holds the test doubles, named after the host's fields.
+**Call** each one to get a fresh double. Only a test source may import it.
 
 | Member | Effect | In a test |
 |---|---|---|
 | `alloc()` | `Allocator` | real, from a per-test arena the runner reclaims |
 | `stdout()`, `stderr()` | `Stdout`, `Stderr` | captured and never printed; `captured()` reads either back |
-| `stdin()` | `Stdin` | at end of input, so a suite never blocks on a pipe nobody writes to |
+| `stdin()` | `Stdin` | at end of input, so a suite never blocks on a pipe |
 | `fs()` | `FileSystemRead`, `FileSystemWrite` | in-memory and empty; writes discarded after the test. One call is one filesystem answering **both** effects, so a context that reads and writes binds the same value under both names |
 | `net()` | `Network` | refuses every request until `respond` says what to answer |
 | `clock()` | `Clock` | at zero; `sleepMilliseconds` advances it without sleeping |
 | `rand()` | `Random` | seeded at zero, so a failure reproduces |
 | `env()` | `Environment` | no variables and no arguments |
-| `proc()` | `Process` | absorbs the exit instead of taking it, so the test carries on |
+| `proc()` | `Process` | absorbs the exit, so the test carries on |
 | `tasks()` | `Tasks` | runs the tasks one at a time, in program order |
 
-You configure a double with a **method returning a new handle**, which leaves
-the one you called it on alone: `clock().at(n)`, `rand().seed(n)`,
-`env().variables([...]).withArguments([...])`, `stdin().lines(...)` or `.bytes(...)`
-(these replace), `fs().files(...)` and `.filesBytes(...)` (these compose),
-`fs().readOnly()`, `net().respond(fn(Request) => ...)`, `tasks().anyOrder()`.
+Configure a double with a **method that returns a new handle**, leaving the
+original alone:
+
+- `clock().at(n)`, `rand().seed(n)`, `fs().readOnly()`, `tasks().anyOrder()`
+- `env().variables([...]).withArguments([...])`
+- `stdin().lines(...)` or `.bytes(...)`, which replace
+- `fs().files(...)` and `.filesBytes(...)`, which compose
+- `net().respond(fn(Request) => ...)`
+- `faults([...])` says what fails; a fault whose call never happens fails the test
+
 Read back what happened with `captured()`, `fs().read(p)`, `fs().snapshot()` and
-`calls()`, which is what the code under test **asked** for. `faults([...])` says
-what fails, and a fault whose call never happens fails the test.
+`calls()`, which lists what the code under test **asked** for.
 
 ```buri
 context Fixture {
@@ -145,17 +147,15 @@ test "falls back when the variable is unset" {
 }
 ```
 
-**Each call builds a fresh context**, so what one test writes to its filesystem
-or its captured stdout is invisible to the next. One declaration cannot bind
-`FileSystemRead` and `FileSystemWrite` over a single filesystem — two bindings are two `fs()`
-calls, so a block that reads *and* writes names the double first. Bind what the
-function needs and nothing else, and reach a double like the real thing:
-`io.println(ctx, "x")`.
+**Each `Fixture()` call builds a fresh context**, so tests never see each
+other's writes or output. A `context` declaration's two bindings are two `fs()`
+calls, so code that reads *and* writes binds one named double, as in
+"reads the config it wrote". Bind only what the function needs.
 
 ## Fakes
 
-A test double is an ordinary struct with methods, because effects are ordinary
-interfaces. There is no mocking framework and no global to stub.
+Effects are ordinary interfaces, so a fake is an ordinary struct with methods.
+There's no mocking framework and no global to stub.
 
 ```buri
 struct StubNet { export failing: Str }
@@ -176,30 +176,27 @@ test "a timeout reaches the caller as an error" {
 }
 ```
 
-A fake answers from its fields rather than from a counter: it has no mutation
-to hold one. Only the runner keeps state between calls, so "the third write
-fails" is a fault plan (`fs().faults([...])`). A crash *between* two calls is a
-step boundary: split it into a pure `prepare`, one effectful `persist` and a
-pure `publish`, then hand the step you choose an `.Err`. A read-only fake
-implements `FileSystemRead`: four methods, not twelve. A suite that never binds `Network`
-cannot open a socket.
+- A fake has no mutation, so it can't count calls. "The third write fails" is a
+  fault plan: `fs().faults([...])`.
+- To test a crash *between* two calls, split the work into pure `prepare`,
+  effectful `persist` and pure `publish`, and hand the chosen step an `.Err`.
+- A read-only fake implements `FileSystemRead`: four methods, not twelve.
+- A suite that never binds `Network` can't open a socket.
 
-## What a test source may and may not do
+## What a test source may import
 
-May import: the target under test (`//lib/money`, or
-`//cmd/server/main.buri` for a binary), the target's `dependencies`, the suite's
-`test.dependencies`, `core/*` including the test platform, and any test-only path.
+- **May import** the target (`//lib/money`, or `//cmd/server/main.buri` for a
+  binary), its `dependencies`, the suite's `test.dependencies`, `core/*`
+  including the test platform, and any test-only path.
+- **May not import** a library-internal module (`//lib/money/cents.buri` is
+  `test-internal-import`) or another test source, since each compiles
+  independently. It can't be imported and can't `export`.
 
-May **not**: import a library-internal module (`//lib/money/cents.buri` →
-`test-internal-import`); import another test source, since the compiler compiles
-them independently; be imported by anything; `export` anything.
+A test that needs an internal function either wants it in `lib.buri` or is
+testing an implementation detail.
 
-If a test needs an internal function, either it belongs on the surface — say so
-in `lib.buri` — or the test asserts on an implementation detail.
-
-**You cannot test `main` itself.** It takes a host only the CLI can build, so
-you have no fake to hand it. Put the logic in a function taking an ordinary
-bounded `ctx`:
+**You can't test `main` itself.** It takes a host only the CLI can build. Put
+the logic in a function taking an ordinary bounded `ctx`:
 
 ```buri
 export fn run<C: Allocator + Stdout + FileSystemWrite>(ctx: C, at: Path): Result<(), Str> {
@@ -217,16 +214,15 @@ test "run fails cleanly when the log is unwritable" {
 
 ## Shared fixtures
 
-A helper more than one suite needs is not a test source. It is ordinary library
-code behind a path with a `testing` segment, declared by a
-`testing { sources: [...] }` block. It may import the library's internals,
-carries its own `dependencies`, never links into a production artifact, and
-inherits the library's `visibility` and `tags`. A consumer reaches it by label,
-in `test { dependencies }`. A fixture on a public surface is an API.
+A helper several suites share goes in a `testing { sources: [...] }` block, under
+a `testing` path. It may import the library's internals, has its own
+`dependencies`, inherits the library's `visibility` and `tags`, and never links
+into production. Consumers list it in `test { dependencies }`. A public fixture
+is an API.
 
 ## Golden files
 
-Write a suite's filesystem in the suite, with `platform/effect/testing`'s `fs().files`:
+Write the suite's filesystem in the suite with `fs().files`:
 
 ```buri
 from "platform/effect/testing" import { alloc, fs as memory };
@@ -238,11 +234,9 @@ test "renders the statement" {
 }
 ```
 
-A golden you read straight back out is usually shorter as a value in the
-assertion; the filesystem earns its place when the code under test reads.
-
-`test { data: [...] }` and `buri test --accept` are both retired: a golden lives
-as a value in the suite's own source, so every backend can have one.
+If the code under test doesn't read files, put the expected value in the
+assertion instead.
+`test { data: [...] }` and `buri test --accept` are retired.
 
 ## Running
 
@@ -255,8 +249,7 @@ buri test //... --watch              re-run on every change to a declared input
 buri test //... --explain            one line per action: ran, or served by the cache
 ```
 
-`buri test` exits `0` when every test passed and `1` when any did not, so you
-can use it directly as a gate.
+`buri test` exits `0` when every test passed and `1` otherwise.
 
 ```
 FAIL //lib/money  test/cents.buri  "pads the cents place"
@@ -268,24 +261,22 @@ FAIL //lib/money  test/cents.buri  "pads the cents place"
 12 passed, 1 failed, 0 skipped (0.4s, 11 cached)
 ```
 
-A suite that never compiled has no cases, so the report counts it separately.
-Tests are otherwise ordinary build actions: a suite whose sources, target,
-dependencies and toolchain are unchanged does not run again and reports as
-**cached**. The runner shards and reorders freely, and no flag turns that off.
-
-A suite runs natively on the host. Only `test { backends: [JS] }` or
-`--output=js` sends it to JavaScript. A program the backend has no body for, or
-a toolchain that cannot build for this host, is an **error**
-(`native-run-not-available` or `platform-not-implemented`), never a reroute.
-
-Suites naming no backend go into one binary per tag-compatible batch, linked
-once. Verdicts, caching and reports stay per suite. A `test { backends }`,
-`timeout_seconds` or `--output=` keeps a suite out of a batch.
+- A suite that didn't compile is counted separately.
+- An unchanged suite (sources, target, dependencies, toolchain) reports as
+  **cached** without running.
+- The runner always shards and reorders.
+- Suites run natively unless `test { backends: [JS] }` or `--output=js`. A
+  missing backend body or an unbuildable host is an **error**
+  (`native-run-not-available`, `platform-not-implemented`), never a reroute.
+- Suites naming no backend share one binary per tag-compatible batch; results
+  stay per suite. `test { backends }`, `timeout_seconds` or `--output=` opts a
+  suite out.
 
 ## Lint findings about tests
 
-`empty-test-suite` (a `test` block with no `sources`),
-`test-without-assertion` (nothing reachable from the test calls into
-`core/testing/assert` — transitive, so asserting through a helper is fine),
-`test-title-newline`, and at run time `test-timeout`, `platform-not-implemented`
-and `native-run-not-available`.
+- `empty-test-suite`: a `test` block with no `sources`.
+- `test-without-assertion`: nothing reachable from the test calls into
+  `core/testing/assert`. It's transitive, so asserting through a helper is fine.
+- `test-title-newline`.
+- At run time: `test-timeout`, `platform-not-implemented` and
+  `native-run-not-available`.
