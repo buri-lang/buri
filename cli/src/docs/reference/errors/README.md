@@ -138,7 +138,6 @@ joining; the template supplies the backticks.
 |---|---|
 | `{arity}` | The number of elements a tuple or a tuple pattern has. Always the *N* in `{arity}-tuple`. |
 | `{artifact}` | What a non-native platform produces, as the fix's subject: `JavaScript`, `a page`. |
-| `{because}` | The clause saying why a worker withholds a `core/host` grant. |
 | `{block}` | Where an unknown build-file field was written, already described: `` a `binary` rule ``, `` a `tag` block ``, `REPO.buri`. |
 | `{candidates}` | The schemas that could claim an ambiguous proto type name, sorted and joined with `, or `. |
 | `{character}` | The character the lexer could not start a token with, as the source wrote it. |
@@ -200,7 +199,6 @@ joining; the template supplies the backticks.
 | `{path}` | The module path an import wrote, the schema path an `import` line spells, or the labels a generator's tool reaches its own target through, joined with ` -> `. |
 | `{platform}` | The platform as a build file names it: `native`, `node`, `web`. |
 | `{backend}` | A backend as `test.backends` spells it: `NATIVE`, `JS`. |
-| `{platforms}` | The platforms a host effect is *not* allowed on, named inside the sentence — `Platform::sentence_phrase`, which writes the article and the plural (`the web platform`, `the native and node platforms`). |
 | `{position}` | Where `self` may appear, as a phrase: `a function's first parameter`, `the first parameter`. |
 | `{problem}` | The whole message sentence, supplied by the call site. See “When a page binds its whole sentence”. |
 | `{profile}` | The build profile the invocation asked for — `BuildMode::name()`, `debug` or `release`. The two have different requirements, so the sentence about a missing one has to say which was asked for. |

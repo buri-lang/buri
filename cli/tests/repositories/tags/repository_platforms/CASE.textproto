@@ -1,0 +1,93 @@
+# A library's `platforms` and a tag's `requires` and `forbids` name a
+# repository platform by its label. `//lib/edge` lists the worker platform, so
+# it is admitted into the worker's output and no other; `//lib/anyjs` lists the
+# JavaScript backend, which admits every platform that backend builds, the
+# repository's own included. A label that names no platform rule is refused.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a library's platforms and a tag's lists name a //platform label, admitting only that platform's outputs"
+
+run {
+  args: ["query", "platforms(//lib/edge)"]
+  exit: 0
+  golden: "edge.txt"
+}
+
+run {
+  args: ["query", "platforms(//lib/anyjs)"]
+  exit: 0
+  golden: "anyjs.txt"
+}
+
+# Both libraries are admitted into the worker.
+run {
+  args: ["build", "//cmd/worker"]
+  exit: 0
+  golden: "worker_built.txt"
+}
+
+# The worker's library is not admitted into a `node` output.
+edit {
+  file: "cmd/tool/BUILD.buri"
+  replace: "dependencies: [\"//lib/anyjs\"]"
+  with: "dependencies: [\"//lib/anyjs\", \"//lib/edge\"]"
+}
+
+run {
+  args: ["build", "//cmd/tool"]
+  exit: 1
+  golden: "edge_in_node.txt"
+}
+
+edit {
+  file: "cmd/tool/BUILD.buri"
+  replace: "dependencies: [\"//lib/anyjs\", \"//lib/edge\"]"
+  with: "dependencies: [\"//lib/anyjs\"]"
+}
+
+# A tag that forbids the worker platform rules it out of the worker's closure.
+edit {
+  file: "lib/anyjs/BUILD.buri"
+  replace: "backends: [JS]"
+  with: "backends: [JS]\n    tags: [\"no_worker\"]"
+}
+
+run {
+  args: ["build", "//cmd/worker"]
+  exit: 1
+  golden: "forbidden.txt"
+}
+
+# And a tag that requires it narrows a library to the worker.
+edit {
+  file: "lib/anyjs/BUILD.buri"
+  replace: "tags: [\"no_worker\"]"
+  with: "tags: [\"edge\"]"
+}
+
+run {
+  args: ["query", "platforms(//lib/anyjs)"]
+  exit: 0
+  golden: "required.txt"
+}
+
+edit {
+  file: "lib/anyjs/BUILD.buri"
+  replace: "backends: [JS]\n    tags: [\"edge\"]"
+  with: "backends: [JS]"
+}
+
+# A label that names no platform rule is an unknown platform.
+edit {
+  file: "lib/edge/BUILD.buri"
+  replace: "platforms: [\"//platform/cloudflare_worker\"]"
+  with: "platforms: [\"//platform/deno_deploy\"]"
+}
+
+run {
+  args: ["build", "//cmd/worker"]
+  exit: 2
+  golden: "no_such_platform.txt"
+}

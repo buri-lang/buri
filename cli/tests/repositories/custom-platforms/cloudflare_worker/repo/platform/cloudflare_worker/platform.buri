@@ -1,0 +1,28 @@
+from "platform/effect" import { Request, Response };
+from "platform/host" import {
+    HostAllocator, HostClock, HostNetwork, HostSockets, HostStdout, HostWebSocketClient,
+};
+from "//platform/effect/vars" import { Vars };
+
+/// What a worker's `fetch` is handed.
+export struct CloudflareHost {
+    export alloc: HostAllocator,
+    export stdout: HostStdout,
+    export clock: HostClock,
+    export net: HostNetwork,
+    export sockets: HostSockets,
+    export websocketClient: HostWebSocketClient,
+    export vars: HostVars,
+}
+
+/// Called by the worker runtime, once per request.
+export fn fetch(host: CloudflareHost, request: Request): Response;
+
+// fetch.mjs implements both methods, from the `env` the runtime passes.
+struct HostVars {}
+
+impl Vars for HostVars {
+    fn get(self, name: Str): Option<Str>;
+
+    fn all(self): [(Str, Str)];
+}

@@ -133,6 +133,21 @@ platform/effect/kv/testing/lib.buri   TestKv, the test implementation
 - **Code calls the wrapper functions**, `kv.get(ctx, ...)`. Only the package
   itself calls the effect's methods.
 
+## Libraries and tags
+
+A library's `platforms` and a tag's `requires` and `forbids` name a repository
+platform by label:
+
+```textproto schema=build
+library {
+    platforms: ["//platform/cloudflare_worker"]
+}
+```
+
+That library goes only into the worker's outputs. `backends: [JS]` admits every
+platform the `JS` backend builds, a repository's own included. A label that
+names no `platform` rule is `no-such-platform`.
+
 ## Caching and layout
 
 An output's key holds its platform's `BUILD.buri`, `platform.buri`, sources,

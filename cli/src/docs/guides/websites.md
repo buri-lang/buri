@@ -17,17 +17,35 @@ does with one.
 binary {
     outputs: [
         { platform: "web" },
-        { platform: CLOUDFLARE_WORKER },
+        { platform: "//platform/cloudflare_worker" },
     ]
 }
 ```
 
+The worker is a platform the repository writes, `//platform/cloudflare_worker`.
+Its host holds an allocator and standard output:
+
+```text
+// platform/cloudflare_worker/platform.buri
+from "platform/effect" import { Request, Response };
+from "platform/host" import { HostAllocator, HostStdout };
+
+export struct CloudflareHost {
+    export alloc: HostAllocator,
+    export stdout: HostStdout,
+}
+
+export fn fetch(host: CloudflareHost, request: Request): Response;
+```
+
+[Write your own platform](./custom-platforms.md) has its `BUILD.buri` and
+`fetch.mjs`.
+
 That is two artifacts out of one build: `.buri/out/web/cmd/site/site.mjs` and
-`.buri/out/cloudflare-worker/cmd/site/fetch.mjs`. Each entry is its own
-dead-code root, so the page never carries the renderer the worker uses and the
-worker never carries the page's half. `main` takes `WebHost` and binds
-`Ui: host.ui`; `fetch` takes no host yet and binds `core/host`'s values, which
-`main`'s `host` parameter shadows inside `main`.
+`.buri/out/platform/cloudflare_worker/cmd/site/fetch.mjs`. Each entry is its
+own dead-code root, so the page never carries the renderer the worker uses and
+the worker never carries the page's half. `main` takes `WebHost` and binds
+`Ui: host.ui`; `fetch` takes `CloudflareHost` and binds `host.alloc`.
 [Build files](../reference/build/build-files.md) has the rules.
 
 ## The whole program
@@ -35,7 +53,6 @@ worker never carries the page's half. `main` takes `WebHost` and binds
 ```buri repo=cli/tests/repositories/concurrency/website/repo package=//cmd/site role=entry
 // A website: one binary, two entries, one tree.
 
-from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/json" import * as json;
 from "core/json" import { FromJson, ToJson };
@@ -49,6 +66,7 @@ from "ui/prop" import { Prop };
 from "ui/signal" import { signal };
 from "ui/web" import * as web;
 from "web" import { WebHost };
+from "//platform/cloudflare_worker" import { CloudflareHost };
 
 derive FromJson, ToJson for Site;
 /// What the page is rendered from. The worker sends it with the document, and
@@ -165,7 +183,7 @@ export fn main(host: WebHost): Result<(), Str> {
     }
 }
 
-export fn fetch(request: Request): Response {
+export fn fetch(host: CloudflareHost, request: Request): Response {
     let ctx = context {
         Allocator: host.alloc,
     };
@@ -427,24 +445,17 @@ that mounts rather than resumes.
 
 ## Location is the page's alone
 
-| Effect | Granted on |
-|---|---|
-| `Location` | `web` |
-
-A worker has no address bar. It is handed a request and reads the path off that,
-which is `Request.path` and no authority at all. So a `fetch` that asks for one
-is refused on the line that asked:
+A worker has no address bar. It's handed a request and reads the path off
+that, `Request.path`. `CloudflareHost` has no `location`, so a `fetch` that
+asks for one is refused on the line that asked:
 
 ```text
 $ buri build //cmd/site
-error: `location` implements `Location`, which is not allowed on the CLOUDFLARE_WORKER platform [effect-not-on-platform]
-  --> cmd/site/main.buri:103:24
+error: `CloudflareHost` has no field `location` [no-such-field]
+   --> cmd/site/main.buri:159:24
     |
-103 |         Location: host.location,
+159 |         Location: host.location,
     |                        ^^^^^^^^
-   |
-   = a platform is the set of effects its host exports; only a page has an address bar; a worker reads the path off the request it was handed
-   = fix: drop `Location` from the context, or build this target for a platform that grants it: web
 ```
 
 ## Look at it locally
@@ -466,7 +477,7 @@ nothing is cached, so a reload is the new build.
 What it serves is the shell the compiler wrote, not the document `fetch`
 renders. A `main` that resumes therefore finds markup no `shell` wrote and says
 so: this is how you look at a page that *mounts*. The resumed page is the
-worker's, and the worker runs on its platform's own local runner.
+worker's, and the worker runs on its host's own local runner.
 
 ## Next
 

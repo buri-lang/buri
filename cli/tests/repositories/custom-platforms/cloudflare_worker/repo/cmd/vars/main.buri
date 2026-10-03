@@ -1,0 +1,37 @@
+// A worker that reads its vars and secrets from the `env` its runtime passes
+// beside each request, through the repository's own `Vars` effect.
+
+from "core/net/http" import * as http;
+from "platform/effect" import { Allocator, Request, Response };
+from "//platform/cloudflare_worker" import { CloudflareHost };
+from "//platform/effect/vars" import * as vars;
+from "//platform/effect/vars" import { Vars };
+
+export fn fetch(host: CloudflareHost, request: Request): Response {
+    handle(
+        context {
+            Allocator: host.alloc,
+            Vars: host.vars,
+        },
+        request,
+    )
+}
+
+/// `/all` answers every variable's name; any other path answers the variable
+/// it names, or 404.
+export fn handle<C: Allocator + Vars>(ctx: C, request: Request): Response {
+    match (request.path()) {
+        "/all" => http.text(ctx, names(ctx)),
+        other => {
+            match (vars.get(ctx, other.slice(1, other.length()))) {
+                .Some(value) => http.text(ctx, value),
+                .None => http.status(404),
+            }
+        },
+    }
+}
+
+/// Every variable's name, sorted, because `Vars` promises no order.
+fn names<C: Allocator + Vars>(ctx: C): Str {
+    vars.all(ctx).map(ctx, fn(pair) => pair.0).sort(ctx).join(ctx, ",")
+}

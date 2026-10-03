@@ -1,0 +1,11 @@
+from "platform/effect" import { Request, Response };
+from "platform/host" import { HostAllocator, HostStdout };
+
+/// What a worker's `fetch` is handed.
+export struct CloudflareHost {
+    export alloc: HostAllocator,
+    export stdout: HostStdout,
+}
+
+/// Called by the worker runtime, once per request.
+export fn fetch(host: CloudflareHost, request: Request): Response;

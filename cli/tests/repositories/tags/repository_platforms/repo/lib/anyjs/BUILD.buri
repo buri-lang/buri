@@ -1,0 +1,4 @@
+library {
+    backends: [JS]
+    visibility: ["//visibility:public"]
+}

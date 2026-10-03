@@ -1,0 +1,7 @@
+platform {
+    entry {
+        name: "fetch"
+        backend: JS
+        js: "fetch.mjs"
+    }
+}

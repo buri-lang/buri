@@ -463,7 +463,8 @@ fn run_suite(
     // run of a `[LINUX, MACOS]` library is an error, not a skip
     // (TAGS.md, "Tags and tests").
     for p in &checked {
-        actions::check_policy(session, target, *p, &mut diagnostics);
+        let held = session.workspace.suite_output_platform(target, *p);
+        actions::check_policy(session, target, &held, &mut diagnostics);
     }
     if diagnostics.has_errors() {
         return Err(diagnostics);
@@ -1623,7 +1624,8 @@ fn run_batches(
         // first is contribute its closure to a binary the rule exists to
         // prevent.
         let mut diagnostics = Diagnostics::new();
-        actions::check_policy(session, target, platform, &mut diagnostics);
+        let held = session.workspace.suite_output_platform(target, platform);
+        actions::check_policy(session, target, &held, &mut diagnostics);
         if diagnostics.has_errors() {
             continue;
         }

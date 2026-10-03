@@ -1,0 +1,11 @@
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "//lib/anyjs" import { greeting };
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    io.println(ctx, greeting()).mapErr(fn(_e) => "could not write to standard output")
+}

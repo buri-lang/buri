@@ -1,0 +1,40 @@
+from "core/net/http" import * as http;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Request };
+from "platform/effect/testing" import { alloc };
+from "//cmd/vars/main.buri" import { handle };
+from "//platform/effect/vars" import { Vars };
+from "//platform/effect/vars/testing" import { vars };
+
+fn request(url: Str): Request {
+    Request { method: .Get, url: url, headers: [], body: [], timeoutMillis: 0 }
+}
+
+test "a bound variable is answered" {
+    let ctx = context {
+        Allocator: alloc(),
+        Vars: vars([("GREETING", "hello")]),
+    };
+    let answer = handle(ctx, request("https://site.example/GREETING"));
+    assert.equal(answer.status, 200);
+    assert.equal(http.bodyText(ctx, answer.body), .Ok("hello"));
+}
+
+test "an unbound variable is 404" {
+    let ctx = context {
+        Allocator: alloc(),
+        Vars: vars([("GREETING", "hello")]),
+    };
+    assert.equal(handle(ctx, request("https://site.example/MISSING")).status, 404);
+}
+
+test "every name is listed, sorted" {
+    let ctx = context {
+        Allocator: alloc(),
+        Vars: vars([("B", "2"), ("A", "1")]),
+    };
+    assert.equal(
+        http.bodyText(ctx, handle(ctx, request("https://site.example/all")).body),
+        .Ok("A,B"),
+    );
+}

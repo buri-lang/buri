@@ -101,14 +101,12 @@ Contexts (Section 11.3):
 33. Each binding's left side names a declared effect, bound at most once across
     the spread and the explicit bindings; each right side's type must implement
     that effect. The result satisfies exactly the effects bound.
-34. An entry takes its platform's host — `NativeHost`, `NodeHost` or `WebHost`
-    — as its one parameter (`entry-without-host`, `entry-host-mismatch`), and
-    may bind only the fields that host declares (`no-such-field`, with a note
-    naming the platforms that offer the effect). Only a platform's
-    `platform.buri` may import `"platform/host"`
-    (`host-import-outside-platform`). A `CLOUDFLARE_WORKER` entry takes no host
-    yet and imports `"core/host"`, whose names are checked against the worker
-    (`effect-not-on-platform`, Section 10.3).
+34. An entry takes its platform's host — `NativeHost`, `NodeHost`, `WebHost`
+    or a repository platform's — as its first parameter (`entry-without-host`,
+    `entry-host-mismatch`), and may bind only the fields that host declares
+    (`no-such-field`, with a note naming the platforms that offer the effect).
+    Only a platform's `platform.buri` may import `"platform/host"`
+    (`host-import-outside-platform`).
 
 Modules and tests:
 

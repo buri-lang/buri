@@ -288,9 +288,9 @@ takes `ctx`. Nothing about an **effect type** is platform-bound:
 `from "core/fs" import { FileSystemRead }` is legal everywhere, a page
 included, because a bound demands an implementation rather than being one.
 
-A `CLOUDFLARE_WORKER` entry, `fetch(request: Request): Response`, takes no host
-yet. It binds the values `core/host` exports, which only such an entry's module
-may import, and an effect the worker does not grant is `effect-not-on-platform`.
+A repository's own platform, such as a Cloudflare Worker under
+`//platform/cloudflare_worker`, declares its host type and entries the same way
+(`buri docs guides/custom-platforms`).
 
 None of this stops anyone writing a type that satisfies an effect, and Section
 10.9 does. That is not a forgery hole: a fake `Stdout` still cannot write

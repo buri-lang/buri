@@ -1,0 +1,6 @@
+binary {
+    dependencies: ["//lib/anyjs", "//lib/edge"]
+    outputs: [
+        { platform: "//platform/cloudflare_worker" },
+    ]
+}

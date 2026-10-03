@@ -1,0 +1,18 @@
+# `edge` admits the worker platform alone; `no_worker` rules it out.
+tag {
+    name: "edge"
+    doc: "runs at the edge, in the worker runtime"
+
+    requires {
+        platforms: ["//platform/cloudflare_worker"]
+    }
+}
+
+tag {
+    name: "no_worker"
+    doc: "needs more than a worker's runtime has"
+
+    forbids {
+        platforms: ["//platform/cloudflare_worker"]
+    }
+}

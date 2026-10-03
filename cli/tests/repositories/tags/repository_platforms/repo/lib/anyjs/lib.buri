@@ -1,0 +1,4 @@
+/// Any JavaScript platform may hold this, a repository's own included.
+export fn greeting(): Str {
+    "hello"
+}
