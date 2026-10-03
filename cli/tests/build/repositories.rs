@@ -1190,7 +1190,7 @@ impl Editor {
         );
         scratch.write(
             &format!("{WARM_UP}/main.buri"),
-            &format!("{imports}\nexport fn main(): Result<(), Str> {{\n    Ok(())\n}}\n"),
+            &format!("{imports}\nfrom \"node\" import {{ NodeHost }};\n\nexport fn main(host: NodeHost): Result<(), Str> {{\n    Ok(())\n}}\n"),
         );
         scratch.write(&format!("{WARM_UP}/test/warm.buri"), &imports);
         let mut editor = Editor::open(&scratch.root);
