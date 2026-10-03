@@ -162,8 +162,15 @@ opt-level = 1
 # The integration tests are their own crates, so the line above does not reach
 # them: the corpus walkers, the formatter fixed-point check and the reject
 # harness all run in *these* binaries rather than in the library.
+#
+# Line tables rather than full debug information. A backtrace still names
+# every file and line; what goes is the variable and type information only a
+# debugger reads. Measured on a cold `cargo nextest run -p buri --no-run`, it is
+# 175 s and 655 CPU-seconds with full debug information, 146 s and 559 with
+# line tables.
 [profile.test]
 opt-level = 1
+debug = "line-tables-only"
 
 [profile.release]
 opt-level = 3
