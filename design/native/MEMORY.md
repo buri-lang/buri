@@ -286,10 +286,15 @@ fused:
 
 ```
 claim(p):                              unclaim(p):
-  if cap[63]:                            if cap[63]: atomicrmw sub p[-16], 1 release
-    cmpxchg p[-16], 1 -> 2 acquire       else: store p[-16] = rc - 1
+  if cap[61]: fail                       if cap[63]: atomicrmw sub p[-16], 1 release
+  else if cap[63]:                       else: store p[-16] = rc - 1
+    cmpxchg p[-16], 1 -> 2 acquire
   else if rc == 1: store p[-16] = 2
 ```
+
+A settled block (`cap[61]`, below) fails whatever its count, like it does in
+`buri_rt_unique_cap`. Only marked blocks settle, so without that test a
+settled block at a count of `1` would win the compare-and-swap.
 
 `list.rs`'s `append_dest` claims, then checks the headroom and the spare
 slots. If it can write, the claimed reference is the one the result holds.
@@ -313,6 +318,12 @@ Why a claim is sound when a plain `rc == 1` read isn't:
   winner sees the element and the spare-slot test refuses to write over it.
 - **An unclaim never frees.** The caller's own reference, or the one it
   borrows, outlives the call, so the count stays at one or more.
+- **No append lands in a settled block.** A settled block's only holder can
+  be an actor's state at a count of `1`, so the count alone would let a step
+  append to it. The append might write a pointer into an arena, and the next
+  crossing would share that pointer with another thread. The settled test
+  turns this into a copy. Sharing a settled block takes a count, so the
+  premise below still holds.
 
 The argument needs one thing from every crossing: **a reference that outlives
 the call that made it holds a count.** That's §5.3's premise too, and every
@@ -1044,9 +1055,9 @@ settled.* It holds because:
 - The bit goes on only after the glue replaced every pointer in the copy with
   a settled share or a heap copy made by the same call.
 - A block's pointers change only through the glue, which writes into a fresh
-  block, or an append in place, whose uniqueness licence refuses a settled
-  block. Every such licence must, `buri_rt_unique_cap` and any claim on a
-  marked block alike.
+  block, or an append in place, whose licence refuses a settled block. Both
+  licences do: `buri_rt_unique_cap` and `buri_rt_claim_unique`.
+  `memory.rs`'s `a_push_onto_a_settled_list_copies_it` fails if either stops.
 - `finish` rewrites a recycled block's header, and a settled block keeps what
   it points to alive.
 
