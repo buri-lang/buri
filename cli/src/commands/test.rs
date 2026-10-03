@@ -289,59 +289,32 @@ fn one_pass(
 
     let started = Instant::now();
     warm_linker(args);
-    // One test binary per tag-compatible batch of suites, before the loop that
-    // reports them. What comes back is a verdict per suite, and a suite that is
-    // not in it — because it could not batch, or because the batch was
-    // abandoned — is run below exactly as it was before any of this existed.
-    let mut pre = run_batches(&mut session, &targets, args);
-    pre.lints = session.workspace.repo.lint.check_during_build;
-    let mut passed = 0usize;
-    let mut failed = 0usize;
-    let mut skipped = 0usize;
-    let mut cached = 0usize;
-    let mut uncompiled = 0usize;
-    let mut suites = 0usize;
-    let mut printed = false;
-    let mut hard_error = false;
-
+    let mut pre = Prepass {
+        lints: session.workspace.repo.lint.check_during_build,
+        analyses: Vec::new(),
+    };
+    // Every suite's cache lookup first: on an unedited repository that is the
+    // whole pass.
+    let mut slots: Vec<Slot> = Vec::new();
+    let mut plans: Vec<Plan> = Vec::new();
     for &target in &targets {
-        if !has_tests(&session, target) {
-            continue;
-        }
-        suites += 1;
-        match run_suite(&mut session, target, args, &mut pre) {
-            Ok(outcome) => {
-                skipped += outcome.skipped;
-                for c in &outcome.cases {
-                    if c.provenance == Provenance::Cache {
-                        cached += 1;
-                    }
-                    match &c.verdict {
-                        Verdict::Passed => passed += 1,
-                        Verdict::Failed { message, diff, order } => {
-                            failed += 1;
-                            report_failure(
-                                &session,
-                                target,
-                                c,
-                                message,
-                                diff.as_ref(),
-                                order.as_deref(),
-                                &mut out,
-                            );
-                            printed = true;
-                        }
-                    }
-                }
-            }
-            Err(diagnostics) => {
-                // A suite that never compiled produced no cases, so it lands in
-                // no other counter and the summary would say nothing about it.
-                uncompiled += 1;
-                hard_error |= session.print(&diagnostics);
-            }
+        if has_tests(&session, target) {
+            plans.push(plan(&mut session, target, args, &mut slots));
         }
     }
+    let suites = plans.len();
+    let shared = Shared {
+        root: session.root.clone(),
+        flags: args.flags.clone(),
+        painting: std::sync::Mutex::new(Vec::new()),
+    };
+    let width = if slots.iter().all(|s| s.answer.is_some()) { 1 } else { jobs_of(&args.flags) };
+    let tally = crate::parallel::pool(
+        width,
+        |job, queue| work(job, queue, &shared),
+        |queue, done| drive(&mut session, args, &mut pre, &plans, &mut slots, queue, done, &mut out),
+    );
+    let Tally { passed, failed, skipped, cached, uncompiled, printed, mut hard_error } = tally;
 
     // `check_during_build`: the catalogue runs over a test pass too, but only
     // one nothing already stopped — a suite that could not be built has an
@@ -438,24 +411,60 @@ fn suite(session: &Session, target: TargetId) -> Option<crate::build::buildfile:
     session.workspace.package(target.package).test_suite(target.kind).cloned()
 }
 
-/// One suite, once per platform it runs on.
-///
-/// `pre` holds the verdicts a shared test binary already produced
-/// ([`run_batches`]). A suite in it has run — the policy checks below still
-/// happen, because they are checks about the *graph* rather than about the run,
-/// and they are the same pure function either way — and everything from the
-/// platform decision down is skipped, because it has already been made.
-fn run_suite(
-    session: &mut Session,
+// ---------------------------------------------------------------------------
+// Scheduling
+// ---------------------------------------------------------------------------
+//
+// A pass has three stages, and only the first two share the session:
+//
+// - **Plan** ([`plan`]): every suite's policy check, platforms, key and cache
+//   lookup, in target order.
+// - **Front ends** ([`drive`]): this thread type-checks and monomorphizes what
+//   the cache did not answer, a batch at a time and then a suite at a time,
+//   and hands each program to the pool.
+// - **Back ends** ([`work`]): the pool's workers lower, generate, link and run,
+//   at most `--jobs` at once. A batch's binary runs each member in a process
+//   of its own, so its suites run side by side too.
+//
+// The report never depends on which worker finished first. Each run fills its
+// own [`Slot`], `--explain` lines included, and a suite is printed only once
+// every suite before it has been.
+
+/// One run of one suite on one platform: what the report is written in.
+struct Slot {
     target: TargetId,
-    args: &arguments::Args,
-    pre: &mut Prepass,
-) -> Result<Outcome, Diagnostics> {
-    let mut diagnostics = Diagnostics::new();
-    // A suite inherits its target's tags and platform restrictions, so a suite
-    // for a `server` library is checked as server code without saying
-    // anything. A suite that names no platforms runs once on the host, and the
-    // host here is the machine, not the JavaScript the backend emits.
+    platform: Platform,
+    chosen: Chosen,
+    key: crate::build::cache::ActionKey,
+    /// This run's `--explain` lines, printed when the suite is reported.
+    explain: String,
+    /// Lines for standard error, such as a heap check's receipt.
+    notes: String,
+    answer: Option<Result<Outcome, Diagnostics>>,
+    /// Handed to the pool, so nothing else should start it.
+    queued: bool,
+    /// The first member of a batch whose link has not reported yet. Its
+    /// `--explain` lines belong in front of the suite's.
+    awaiting_build: bool,
+}
+
+/// One suite: what refused it before anything ran, and its runs.
+struct Plan {
+    target: TargetId,
+    refused: Diagnostics,
+    slots: Vec<usize>,
+}
+
+/// One suite's policy check, platforms, keys and cache lookups.
+///
+/// A suite inherits its target's tags and platform restrictions, so a suite for
+/// a `server` library is checked as server code without saying anything. A
+/// suite that names no platforms runs once, natively, on the host it is checked
+/// against; `test { backends: [JS] }` and `--output=js` are the two ways to ask
+/// for JavaScript. A platform this toolchain cannot run is refused by name
+/// ([`not_ready`]) rather than routed somewhere nobody chose.
+fn plan(session: &mut Session, target: TargetId, args: &arguments::Args, slots: &mut Vec<Slot>) -> Plan {
+    let mut refused = Diagnostics::new();
     let declared: Vec<Platform> = session.workspace.suite_platforms(target);
     let checked: Vec<Platform> = if declared.is_empty() {
         vec![crate::compiler::driver::host_native_platform()]
@@ -467,114 +476,351 @@ fn run_suite(
     // (TAGS.md, "Tags and tests").
     for p in &checked {
         let held = session.workspace.suite_output_platform(target, *p);
-        actions::check_policy(session, target, &held, &mut diagnostics);
+        actions::check_policy(session, target, &held, &mut refused);
     }
-    if diagnostics.has_errors() {
-        return Err(diagnostics);
+    if refused.has_errors() {
+        return Plan { target, refused, slots: Vec::new() };
     }
-    if let Some(outcome) = pre.take(target) {
-        return Ok(outcome);
-    }
-
-    // One run per declared platform. A native platform is executed natively
-    // where this toolchain has a backend, a runtime archive and a linker for it
-    // — the same three questions `buri build` asks — and refused where it does
-    // not.
-    //
-    // A suite that names none runs **natively**, on the host it is already
-    // checked against, and there is no second answer: no state of this
-    // toolchain and no shape of program sends it to JavaScript instead. The
-    // default was JavaScript for as long as the native runtime surface was too
-    // small to carry an arbitrary program; it is native now because the dev
-    // loop is measurably faster on it (`design/PERFORMANCE.md` §6) and because
-    // the surface that made the old default right is complete
-    // (`design/native/ARCHITECTURE.md` §4).
-    //
-    // The two ways to say JavaScript are both statements somebody made:
-    // `test { platforms: [JS] }` in the build file, and `--output=js` on the
-    // command line. Everything that used to be a third way — a toolchain that
-    // cannot link a native binary, a program the backend has no body for — is
-    // a refusal naming what is missing.
     let runs: Vec<(Platform, Chosen)> = if !declared.is_empty() {
         declared.into_iter().map(|p| (p, Chosen::Asked)).collect()
     } else if let Some(p) = selected_platform(&args.flags) {
         // `--output` names the platform for the suites that have not named
-        // one. A suite that declares `platforms` has made the stronger
-        // statement and the flag does not overrule it.
+        // one, and does not overrule a suite that has.
         vec![(p, Chosen::Asked)]
     } else {
-        // The host, unconditionally: this is the same platform the policy
-        // check above already ran against, so a suite is executed on the
-        // platform it was checked as. No build-file field decides which backend
-        // a suite is allowed to run on. One did — `test { data }`, whose
-        // entries only a runner could hand a suite, so a suite that declared
-        // any was sent back to JavaScript rather than let `data()` answer
-        // differently on the two backends. The field is retired
-        // (`retired-test-data`) and a suite's filesystem is written in the
-        // suite now, where both backends read the same text.
         vec![(crate::compiler::driver::host_native_platform(), Chosen::Default)]
     };
-    let mut outcome = Outcome::default();
+    let mut mine = Vec::new();
     for (platform, chosen) in runs {
         if platform.is_native() && !native_ready(platform, &args.flags) {
             let span = suite(session, target).map(|x| x.span).unwrap_or(Span::NONE);
-            diagnostics.push(not_ready(platform, &args.flags, chosen, span));
+            refused.push(not_ready(platform, &args.flags, chosen, span));
             continue;
         }
-        match run_on(session, target, platform, chosen, args, pre) {
-            Ok(one) => {
+        let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
+        let key = actions::test_key(session, target, &output, &args.flags);
+        let (cached, mut explain) =
+            crate::build::cache::holding_explain(|| served(session, target, platform, &key, args));
+        if cached.is_none() {
+            explain = crate::build::cache::holding_explain(|| {
+                crate::build::cache::explain(
+                    args.flags.explain,
+                    crate::build::cache::Status::Run,
+                    crate::build::cache::Action::Test,
+                    &session.workspace.label(target),
+                    platform.slug(),
+                    &key,
+                );
+            })
+            .1;
+        }
+        mine.push(slots.len());
+        slots.push(Slot {
+            target,
+            platform,
+            chosen,
+            key,
+            explain,
+            notes: String::new(),
+            answer: cached.map(Ok),
+            queued: false,
+            awaiting_build: false,
+        });
+    }
+    Plan { target, refused, slots: mine }
+}
+
+/// How many builds and runs the pool holds at once: `--jobs`, or one per core
+/// with [`JOB_MEMORY`] of this machine's memory each.
+fn jobs_of(flags: &arguments::Flags) -> usize {
+    flags.jobs.unwrap_or_else(|| {
+        let cores = std::thread::available_parallelism().map(|c| c.get()).unwrap_or(1);
+        let memory = crate::parallel::memory_bytes()
+            .map_or(cores, |bytes| usize::try_from(bytes / JOB_MEMORY).unwrap_or(cores));
+        cores.min(memory).max(1)
+    })
+}
+
+/// The memory one job is budgeted. A batch's program is a few gigabytes at the
+/// most, and a cold run of an 80-suite repository peaked at 8 GB serially.
+const JOB_MEMORY: u64 = 4 * 1024 * 1024 * 1024;
+
+/// What the reporting loop counted.
+#[derive(Default)]
+struct Tally {
+    passed: usize,
+    failed: usize,
+    skipped: usize,
+    cached: usize,
+    uncompiled: usize,
+    printed: bool,
+    hard_error: bool,
+}
+
+/// The front ends, on this thread, and then the report, in target order, as the
+/// pool's answers arrive.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the session, the invocation, the lint's analyses, the plans and their \
+              slots, the pool's two ends and where output goes: none derivable from another"
+)]
+fn drive(
+    session: &mut Session,
+    args: &arguments::Args,
+    pre: &mut Prepass,
+    plans: &[Plan],
+    slots: &mut [Slot],
+    queue: &Queue,
+    done: &std::sync::mpsc::Receiver<Option<Done>>,
+    out: &mut Out,
+) -> Tally {
+    batch(session, args, slots, queue);
+    for i in 0..slots.len() {
+        solo(session, args, pre, slots, i, queue);
+    }
+    let mut tally = Tally::default();
+    let mut next = 0;
+    loop {
+        while let Some(plan) = plans.get(next) {
+            let ready = plan.slots.iter().all(|&i| {
+                slots.get(i).is_some_and(|s| s.answer.is_some() && !s.awaiting_build)
+            });
+            if !ready {
+                break;
+            }
+            report(session, plan, slots, &mut tally, out);
+            next += 1;
+        }
+        if next >= plans.len() {
+            return tally;
+        }
+        let answer = match done.recv() {
+            Ok(Some(answer)) => answer,
+            Ok(None) => panic!("a test job panicked"),
+            Err(_) => panic!("no worker is left to build or run the suites"),
+        };
+        match answer {
+            Done::Answer { slot, answer, explain, notes } => {
+                let answer = answer.map(|ran| located(session, ran));
+                if let Some(s) = slots.get_mut(slot) {
+                    s.explain.push_str(&explain);
+                    s.notes.push_str(&notes);
+                    s.answer = Some(answer);
+                }
+            }
+            Done::Built { slot, explain } => {
+                if let Some(s) = slots.get_mut(slot) {
+                    s.explain.push_str(&explain);
+                    s.awaiting_build = false;
+                }
+            }
+            // A batch that could not be trusted, or a member whose process
+            // ended badly: each goes back to run alone, where a diagnostic
+            // can name it.
+            Done::Abandoned { slots: abandoned, explain } => {
+                if let Some(s) = abandoned.first().and_then(|&i| slots.get_mut(i)) {
+                    s.explain.push_str(&explain);
+                }
+                for &i in &abandoned {
+                    if let Some(s) = slots.get_mut(i) {
+                        s.queued = false;
+                        s.awaiting_build = false;
+                    }
+                    solo(session, args, pre, slots, i, queue);
+                }
+            }
+        }
+    }
+}
+
+/// Prints one suite: its `--explain` lines, its notes and its failures.
+fn report(session: &Session, plan: &Plan, slots: &mut [Slot], tally: &mut Tally, out: &mut Out) {
+    let target = plan.target;
+    let mut diagnostics = plan.refused.clone();
+    let mut outcome = Outcome::default();
+    for &i in &plan.slots {
+        let Some(slot) = slots.get_mut(i) else { continue };
+        print!("{}", slot.explain);
+        eprint!("{}", slot.notes);
+        match slot.answer.take() {
+            Some(Ok(one)) => {
                 outcome.cases.extend(one.cases);
                 outcome.skipped += one.skipped;
             }
-            Err(d) => diagnostics.extend(d.items),
+            Some(Err(d)) => diagnostics.extend(d.items),
+            None => {}
         }
     }
     if diagnostics.has_errors() {
-        return Err(diagnostics);
+        // A suite that never compiled produced no cases, so it lands in no
+        // other counter and the summary would say nothing about it.
+        tally.uncompiled += 1;
+        tally.hard_error |= session.print(&diagnostics);
+        return;
     }
-    Ok(outcome)
+    tally.skipped += outcome.skipped;
+    for c in &outcome.cases {
+        if c.provenance == Provenance::Cache {
+            tally.cached += 1;
+        }
+        match &c.verdict {
+            Verdict::Passed => tally.passed += 1,
+            Verdict::Failed { message, diff, order } => {
+                tally.failed += 1;
+                report_failure(session, target, c, message, diff.as_ref(), order.as_deref(), out);
+                tally.printed = true;
+            }
+        }
+    }
 }
 
-fn run_on(
+/// The pool's queue, of the jobs below.
+type Queue = crate::parallel::Queue<Job>;
+
+/// What a worker needs that is the same for every job.
+struct Shared {
+    root: std::path::PathBuf,
+    flags: arguments::Flags,
+    /// One lock per snapshot directory, held while a suite that paints runs,
+    /// so two suites never write one directory's goldens at once.
+    painting: std::sync::Mutex<Vec<(String, std::sync::Arc<std::sync::Mutex<()>>)>>,
+}
+
+impl Shared {
+    fn painting(&self, dir: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
+        let mut locks = self.painting.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some((_, lock)) = locks.iter().find(|(d, _)| d == dir) {
+            return std::sync::Arc::clone(lock);
+        }
+        let lock = std::sync::Arc::new(std::sync::Mutex::new(()));
+        locks.push((dir.to_string(), std::sync::Arc::clone(&lock)));
+        lock
+    }
+}
+
+/// Work for the pool. Each one owns its program, so a worker needs no session.
+enum Job {
+    /// One binary for some of a batch's members, then a [`Job::Member`] each.
+    Group(GroupJob),
+    /// One suite's own native binary, built and run.
+    Solo(SoloJob),
+    /// One suite's JavaScript bundle, written and run.
+    Js(JsJob),
+    /// One member's blocks, in a binary a [`Job::Group`] linked.
+    Member(MemberJob),
+}
+
+/// What a job hands back to [`drive`].
+enum Done {
+    /// A slot's answer. `explain` and `notes` are what the job printed.
+    Answer { slot: usize, answer: Result<Ran, Diagnostics>, explain: String, notes: String },
+    /// A batch's binary is linked and its members are queued. `slot` is the
+    /// first member, whose report carries the link's `--explain` lines.
+    Built { slot: usize, explain: String },
+    /// These slots go back to run alone.
+    Abandoned { slots: Vec<usize>, explain: String },
+}
+
+/// One test of a program, as the report locates it.
+struct Root {
+    name: String,
+    module: String,
+    span: Span,
+}
+
+/// What a run produced, before its cases are located in the source.
+struct Ran {
+    cases: Vec<Case>,
+    skipped: usize,
+    roots: Vec<Root>,
+}
+
+/// Locates each case at the test it names ([`locate`]).
+fn located(session: &Session, ran: Ran) -> Outcome {
+    let Ran { mut cases, skipped, roots } = ran;
+    locate(session, &roots, &mut cases);
+    Outcome { cases, skipped }
+}
+
+/// The roots of a program's tests, for [`locate`].
+fn roots_of(program: &monomorphize::Program) -> Vec<Root> {
+    program
+        .roots
+        .tests()
+        .iter()
+        .map(|t| Root { name: t.name.clone(), module: t.module.clone(), span: t.span })
+        .collect()
+}
+
+fn work(job: Job, queue: &Queue, shared: &Shared) -> Done {
+    match job {
+        Job::Group(job) => build_group(job, queue, shared),
+        Job::Solo(job) => run_solo(job, shared),
+        Job::Js(job) => run_js(job, shared),
+        Job::Member(job) => run_member(job, shared),
+    }
+}
+
+/// Compiles slot `i` on its own and queues what is left of it, unless it is
+/// answered or already queued.
+///
+/// `None`, not the platform, as the unit's platform: a test never binds
+/// `core/host`, so there is no host grant to check it against (`Unit::platform`).
+fn solo(
+    session: &mut Session,
+    args: &arguments::Args,
+    pre: &mut Prepass,
+    slots: &mut [Slot],
+    i: usize,
+    queue: &Queue,
+) {
+    let Some(slot) = slots.get_mut(i) else { return };
+    if slot.answer.is_some() || slot.queued {
+        return;
+    }
+    slot.queued = true;
+    let (target, platform, chosen, key) = (slot.target, slot.platform, slot.chosen, slot.key.clone());
+    match front_end(session, target, platform, chosen, &key, args, pre, i) {
+        Next::Answer(answer) => slot.answer = Some(answer),
+        Next::Job(job) => queue.push(job, true),
+    }
+}
+
+/// What a front end leaves: the answer, when it is already known, or the job
+/// that finds it.
+enum Next {
+    Answer(Result<Outcome, Diagnostics>),
+    Job(Job),
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the session, the suite, its platform and how it was chosen, its key, the \
+              invocation, the lint's analyses and the slot: none derivable from another"
+)]
+fn front_end(
     session: &mut Session,
     target: TargetId,
     platform: Platform,
     chosen: Chosen,
+    key: &crate::build::cache::ActionKey,
     args: &arguments::Args,
     pre: &mut Prepass,
-) -> Result<Outcome, Diagnostics> {
-    let mut diagnostics = Diagnostics::new();
-
-    let key = test_key_for(session, target, platform, args, pre);
-    if let Some(cached) = served(session, target, platform, &key, args) {
-        return Ok(cached);
-    }
-    crate::build::cache::explain(
-        args.flags.explain,
-        crate::build::cache::Status::Run,
-        crate::build::cache::Action::Test,
-        &session.workspace.label(target),
-        platform.slug(),
-        &key,
-    );
-
-    // `None`, not `platform`: the platform a suite *runs* on and the platform
-    // whose host grant a program is checked against are different questions,
-    // and a test never binds `core/host` — only the entry point a batched
-    // binary happens to drag in does. See `Unit::platform`.
+    slot: usize,
+) -> Next {
     let unit = Unit { target: Some(target), platform: None, entry: None, with_tests: true };
-    let analysis = crate::compiler::driver::analyze(
+    let mut analysis = crate::compiler::driver::analyze(
         Some(&session.workspace),
         &mut session.map,
         &mut session.parsed,
         &unit,
     );
     if analysis.diagnostics.has_errors() {
-        return Err(analysis.diagnostics);
+        return Next::Answer(Err(analysis.diagnostics));
     }
-
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let mut diagnostics = Diagnostics::new();
     let mut program = monomorphize::run(
         &analysis.checked,
         module_paths,
@@ -582,132 +828,255 @@ fn run_on(
         monomorphize::Roots::Tests,
     );
     if diagnostics.has_errors() {
-        return Err(diagnostics);
+        return Next::Answer(Err(diagnostics));
     }
     if program.roots.tests().is_empty() {
         pre.keep(target, analysis);
-        return Ok(Outcome::default());
+        return Next::Answer(Ok(Outcome::default()));
     }
-
-    // What a `--filter` leaves out is counted here rather than in the runner:
-    // the names are known before the binary is built, and a count nobody has to
-    // run a process to learn is one the summary can always print.
-    let skipped = match &args.flags.filter {
-        Some(f) => program.roots.tests().iter().filter(|t| !t.name.contains(f.as_str())).count(),
+    // Counted here rather than in the runner: the names are known before the
+    // binary is built, so the summary can always print the count.
+    let filter = args.flags.filter.as_deref();
+    let skipped = match filter {
+        Some(f) => program.roots.tests().iter().filter(|t| !t.name.contains(f)).count(),
         None => 0,
     };
-
-    // The gap, asked before a second is spent on codegen and asked of the
-    // program rather than of the source: `Backend::missing_intrinsics` is the
-    // hook a native build already asks and `native/conformance.rs` already
-    // pins, so a suite is refused here exactly when a native build of it would
-    // be refused there. Nothing is remembered between runs — the answer is a
-    // function of the program and of this backend, and the day the backend
-    // grows the body the suite compiles with no cache to clear.
-    //
-    // Only a *defaulted* platform is asked. A suite that named one is already
-    // past here, on the platform it named.
+    // The gap, asked of the program before a second is spent on codegen, and
+    // only for a platform nobody asked for.
     if platform.is_native() && chosen == Chosen::Default {
-        if let Some(gap) = native_gap(platform, &args.flags, &program, &analysis.checked.tables)
-        {
-            return Err(gap_refusal(&session.workspace.label(target), gap));
+        if let Some(gap) = native_gap(platform, &args.flags, &program, &analysis.checked.tables) {
+            return Next::Answer(Err(gap_refusal(&session.workspace.label(target), gap)));
         }
     }
-
-    if platform.is_native() {
-        let out =
-            run_native(session, target, platform, args, &key, program, &analysis, skipped);
-        pre.keep(target, analysis);
-        // The second half of the same rule, for the gaps `missing_intrinsics`
-        // cannot see: a `deriveArray*` is an intrinsic *expression* inside a
-        // body `middle::derives` generated rather than a function the hook is
-        // asked about, so the backend names it while emitting instead of
-        // before. The refusal is the backend's own; what is added to it is the
-        // sentence saying what to do about it.
-        return match out {
-            Err(diagnostics) if is_backend_gap(&diagnostics) => {
-                let mut out = Diagnostics::new();
-                for (i, d) in diagnostics.items.into_iter().enumerate() {
-                    out.push(if i == 0 { d.with_fix(GAP_FIX) } else { d });
-                }
-                Err(out)
-            }
-            out => out,
-        };
-    }
-
-    let mut source = actions::emit_test_bundle(
-        &mut program,
-        &analysis.checked.tables,
-        &args.flags,
-        &mut diagnostics,
-    )?;
+    let tables = pre.tables_of(target, &mut analysis);
     pre.keep(target, analysis);
+    let label = session.workspace.label(target);
+    let limit = suite(session, target).and_then(|x| x.timeout_seconds);
+    let on_timeout = timed_out(session, target, limit);
+    let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
+    if !platform.is_native() {
+        let dir = session
+            .root
+            .join(".buri/out/node")
+            .join(&session.workspace.package(target.package).path);
+        let path = dir.join(format!("test-{}.mjs", target.kind.name()));
+        return Next::Job(Job::Js(JsJob {
+            slot,
+            program,
+            tables,
+            key: key.clone(),
+            path,
+            limit,
+            on_timeout,
+            skipped,
+        }));
+    }
+    // A filtered native run does not even generate the tests it leaves out.
+    if let (Some(f), monomorphize::ProgramRoots::Tests(tests)) = (filter, &mut program.roots) {
+        tests.retain(|t| t.name.contains(f));
+    }
+    let tests: Vec<(String, String)> =
+        program.roots.tests().iter().map(|t| (t.name.clone(), t.module.clone())).collect();
+    if tests.is_empty() {
+        return Next::Answer(Ok(Outcome { cases: Vec::new(), skipped }));
+    }
+    let paints = program.funcs.iter().any(|f| f.intrinsic_key() == Some(PAINT_KEY));
+    Next::Job(Job::Solo(SoloJob {
+        slot,
+        label,
+        private: actions::private_test_binary(session, target, &output),
+        output,
+        roots: roots_of(&program),
+        program,
+        tables,
+        key: key.clone(),
+        limit,
+        on_timeout,
+        snapshot_dir: snapshot_dir(session, target),
+        paints,
+        tests,
+        skipped,
+    }))
+}
 
-    // The order `anyOrder()` schedules with, spliced rather than set in the
-    // environment: this path writes the artifact, so the seed is a constant of
-    // the program the way the fixed clock below is. [`seed_of`] says why it is
-    // the action key.
+/// One suite's own native binary: link it, then run every block.
+struct SoloJob {
+    slot: usize,
+    label: String,
+    private: std::path::PathBuf,
+    output: crate::build::buildfile::Output,
+    program: monomorphize::Program,
+    tables: std::sync::Arc<crate::compiler::semantics::types::Tables>,
+    key: crate::build::cache::ActionKey,
+    limit: Option<u32>,
+    on_timeout: Diagnostics,
+    snapshot_dir: String,
+    paints: bool,
+    /// Each block's title and module, in block order.
+    tests: Vec<(String, String)>,
+    roots: Vec<Root>,
+    skipped: usize,
+}
+
+/// One suite, executed as a native binary.
+///
+/// The report is the JavaScript one, to the byte, because it is assembled from
+/// the same record: this produces the array `$run` writes, and
+/// [`report_failure`] states the format once for both backends.
+///
+/// **A failed assertion is still an abort.** SPEC 6.9 leaves nothing to catch,
+/// so one process reports one failure, and [`run_blocks`] starts another at the
+/// next block. A suite costs one process plus one per failure.
+fn run_solo(job: SoloJob, shared: &Shared) -> Done {
+    let SoloJob { slot, label, private, output, mut program, tables, key, limit, on_timeout, snapshot_dir, paints, tests, roots, skipped } = job;
+    // Taken before the link, which changes the program.
+    let sheet = program.stylesheet.clone();
+    let mut diagnostics = Diagnostics::new();
+    let (built, explain) = crate::build::cache::holding_explain(|| {
+        actions::link_test_binary(&shared.root, &label, private, &output, &shared.flags, &mut program, &tables, &mut diagnostics)
+    });
+    drop(program);
+    drop(tables);
+    let answer = |answer, notes| Done::Answer { slot, answer, explain: explain.clone(), notes };
+    let binary = match built {
+        Ok(binary) => binary,
+        // The gaps `missing_intrinsics` cannot see are named by the backend
+        // while it emits, so the sentence saying what to do is added here.
+        Err(d) if is_backend_gap(&d) => {
+            let mut out = Diagnostics::new();
+            for (i, d) in d.items.into_iter().enumerate() {
+                out.push(if i == 0 { d.with_fix(GAP_FIX) } else { d });
+            }
+            return answer(Err(out), String::new());
+        }
+        Err(d) => return answer(Err(d), String::new()),
+    };
+    let snapshots = snapshot_env(&snapshot_dir, shared.flags.update, write_stylesheet(binary.path(), &sheet));
+    let lock = paints.then(|| shared.painting(&snapshot_dir));
+    let _painting = lock.as_ref().map(|l| l.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+    let mut notes = String::new();
+    let ran = run_blocks(
+        &binary.path().display().to_string(),
+        limit,
+        (0, tests.len()),
+        &seed_of(&key).to_string(),
+        &snapshots,
+        &mut notes,
+    );
+    let blocks = match ran {
+        Ok(Verdicts::Blocks(blocks)) => blocks,
+        Ok(Verdicts::TimedOut) => return answer(Err(on_timeout), notes),
+        Ok(Verdicts::HeapCheck(line)) => return answer(Err(heap_check_failed(&label, &line)), notes),
+        Ok(Verdicts::Died(how)) => return answer(Err(the_binary_died(&label, &how)), notes),
+        Ok(Verdicts::NotStarted(how)) => {
+            return answer(Err(the_binary_did_not_start(&label, &how)), notes)
+        }
+        Err(e) => {
+            let mut d = Diagnostics::new();
+            d.push(
+                Diagnostic::error(Span::NONE, format!("cannot run the test binary: {e}"))
+                    .with_fix("the link produced it, so this is a toolchain bug"),
+            );
+            return answer(Err(d), notes);
+        }
+    };
+    let objects: Vec<String> = tests
+        .iter()
+        .zip(&blocks)
+        .map(|((name, module), block)| record_of(name, module, block))
+        .collect();
+    // Parsed back out of the record, so a verdict served from the cache and one
+    // just produced are the same value by construction.
+    let record = format!("[{}]", objects.join(","));
+    let cases = parse_results(&record);
+    if may_cache(&cases, &shared.flags) {
+        crate::build::cache::Cache::open(&shared.root).put(&key, record.as_bytes());
+    }
+    answer(Ok(Ran { cases, skipped, roots }), notes)
+}
+
+/// The environment that tells a test binary where its goldens are.
+fn snapshot_env(dir: &str, update: bool, sheet: Option<String>) -> Vec<(&'static str, String)> {
+    let mut env = vec![(SNAPSHOT_DIR, dir.to_string())];
+    if update {
+        env.push((SNAPSHOT_UPDATE, "1".to_string()));
+    }
+    if let Some(path) = sheet {
+        env.push((SNAPSHOT_SHEET, path));
+    }
+    env
+}
+
+/// One suite's JavaScript bundle: emit it, write it, run it.
+struct JsJob {
+    slot: usize,
+    program: monomorphize::Program,
+    tables: std::sync::Arc<crate::compiler::semantics::types::Tables>,
+    key: crate::build::cache::ActionKey,
+    path: std::path::PathBuf,
+    limit: Option<u32>,
+    on_timeout: Diagnostics,
+    skipped: usize,
+}
+
+fn run_js(job: JsJob, shared: &Shared) -> Done {
+    let JsJob { slot, mut program, tables, key, path, limit, on_timeout, skipped } = job;
+    let answer = |answer| Done::Answer { slot, answer, explain: String::new(), notes: String::new() };
+    let mut diagnostics = Diagnostics::new();
+    let roots = roots_of(&program);
+    let mut source =
+        match actions::emit_test_bundle(&mut program, &tables, &shared.flags, &mut diagnostics) {
+            Ok(source) => source,
+            Err(d) => return answer(Err(d)),
+        };
+    drop(program);
+    drop(tables);
+    // The order `anyOrder()` schedules with, and the action's clock, spliced in
+    // after the runtime is defined and before a test could reach either.
     source.push_str(&format!("\n$t.seed={}n;\n", seed_of(&key)));
-    // The action's clock, spliced in after the runtime is defined and before a
-    // test could reach one. A test has no name for `core/host` to begin with;
-    // this is what keeps a suite's *record* the same bytes twice, so that
-    // reproducibility is a question worth asking about a suite.
     source.push_str(crate::build::spawn::FIXED_CLOCK_JS);
-    let filter = args
-        .flags
-        .filter
-        .as_ref()
-        .map(|f| javascript::quote(f))
-        .unwrap_or_else(|| "null".into());
-    // `$run` is an `async` function — a test that waits on the host is
-    // printed `async` and is awaited case by case — so the driver's result is
-    // a promise. This is module top level of an `.mjs` file, where `await` is
-    // available, and the process stays alive until the module settles.
-    source.push_str(&format!(
-        "$write(1,JSON.stringify(await $run({filter})));\n"
-    ));
-
-    let dir =
-        session.root.join(".buri/out/node").join(&session.workspace.package(target.package).path);
-    let _ = std::fs::create_dir_all(&dir);
-    let path = dir.join("test.mjs");
+    let filter = shared.flags.filter.as_ref().map(|f| javascript::quote(f)).unwrap_or_else(|| "null".into());
+    // `$run` is `async`, and this is module top level of an `.mjs` file.
+    source.push_str(&format!("$write(1,JSON.stringify(await $run({filter})));\n"));
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
     if let Err(e) = std::fs::write(&path, &source) {
-        diagnostics.push(
+        let mut d = Diagnostics::new();
+        d.push(
             Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", path.display()))
                 .with_fix("check the directory exists and is writable"),
         );
-        return Err(diagnostics);
+        return answer(Err(d));
     }
-
-    let limit = suite(session, target).and_then(|x| x.timeout_seconds);
     let out = match execute(&js_runtime(), Some(&path), limit, &[]) {
         Ok(Execution::Finished(out)) => out,
-        Ok(Execution::TimedOut) => return Err(timed_out(session, target, limit)),
+        Ok(Execution::TimedOut) => return answer(Err(on_timeout)),
         Err(e) => {
-            diagnostics.push(
+            let mut d = Diagnostics::new();
+            d.push(
                 Diagnostic::error(Span::NONE, format!("cannot run the test binary: {e}"))
                     .with_fix("install bun, or point BURI_JS at a JavaScript runtime"),
             );
-            return Err(diagnostics);
+            return answer(Err(d));
         }
     };
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let mut cases = parse_results(&stdout);
-    if may_cache_produced(&cases, &args.flags) {
-        crate::build::cache::Cache::open(&session.root).put(&key, stdout.as_bytes());
+    let cases = parse_results(&stdout);
+    if may_cache_produced(&cases, &shared.flags) {
+        crate::build::cache::Cache::open(&shared.root).put(&key, stdout.as_bytes());
     }
-    locate(session, &program, &mut cases);
     if cases.is_empty() && !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).to_string();
-        diagnostics.push(
+        let mut d = Diagnostics::new();
+        d.push(
             Diagnostic::error(Span::NONE, "the test binary did not run")
                 .with_fix("read the runtime's own message below; it is what failed")
                 .with_note(err.trim().to_string()),
         );
-        return Err(diagnostics);
+        return answer(Err(d));
     }
-    Ok(Outcome { cases, skipped })
+    answer(Ok(Ran { cases, skipped, roots }))
 }
 
 /// Whether a suite may be *executed* on `platform`.
@@ -974,68 +1343,50 @@ fn is_backend_gap(diagnostics: &Diagnostics) -> bool {
         && diagnostics.items.iter().all(|d| d.message.contains("has no implementation of"))
 }
 
-/// What the batch prepass left for the loop that reports the suites.
+/// The analyses `check_during_build` reuses.
 ///
-/// Two things, and the second is why they are one value: the verdicts a shared
-/// binary produced, and the `test` keys building them cost. A suite's key is a
-/// hash of every source in its closure, and the prepass has to ask for one to
-/// find out whether the suite needs compiling at all — so without the memo a
-/// pass that batched nothing would hash every suite's sources twice, which is
-/// the whole of what a `buri test` on an unchanged repository does.
-#[derive(Default)]
+/// A suite compiled on its own is the same unit the lint asks about, so the
+/// lint reads its analysis rather than analysing it again.
 struct Prepass {
-    done: Vec<(TargetId, Outcome)>,
-    keys: Vec<((TargetId, Platform), crate::build::cache::ActionKey)>,
-    /// Whether `check_during_build` will lint this pass's targets, and so
-    /// whether a suite's analysis is worth keeping for it.
+    /// Whether `check_during_build` will lint this pass's targets.
     lints: bool,
-    /// The analysis of a suite compiled on its own: the same unit the lint
-    /// asks about, so the lint reads it rather than analysing it again.
     analyses: Vec<(TargetId, crate::compiler::driver::Analysis)>,
 }
 
 impl Prepass {
-    /// The verdict a shared binary produced for this suite, once.
-    fn take(&mut self, target: TargetId) -> Option<Outcome> {
-        let i = self.done.iter().position(|(t, _)| *t == target)?;
-        Some(self.done.remove(i).1)
+    /// Whether the lint wants this suite's analysis. A suite run on two
+    /// platforms is one unit, so its first analysis is the one.
+    fn wants(&self, target: TargetId) -> bool {
+        self.lints && !self.analyses.iter().any(|(t, _)| *t == target)
     }
 
-    /// Keeps `analysis` for the lint, or frees it off this thread. A suite
-    /// run on two platforms is one unit, so its first analysis is the one.
+    /// The tables a worker generates code against: moved out when the lint
+    /// will not read the analysis, and copied when it will.
+    fn tables_of(
+        &self,
+        target: TargetId,
+        analysis: &mut crate::compiler::driver::Analysis,
+    ) -> std::sync::Arc<crate::compiler::semantics::types::Tables> {
+        std::sync::Arc::new(if self.wants(target) {
+            analysis.checked.tables.clone()
+        } else {
+            std::mem::take(&mut analysis.checked.tables)
+        })
+    }
+
+    /// Keeps `analysis` for the lint, or frees it off this thread.
     fn keep(&mut self, target: TargetId, analysis: crate::compiler::driver::Analysis) {
-        if self.lints && !self.analyses.iter().any(|(t, _)| *t == target) {
+        if self.wants(target) {
             self.analyses.push((target, analysis));
             return;
         }
-        // The checked program is tens of milliseconds of `free` at a hundred
-        // thousand lines, and by here the verdict already exists. `Loaded`
-        // holds its modules behind `Rc` — shared with the session's parse
-        // cache — so it is not one of the things that can be handed over.
+        // `Loaded` holds its modules behind `Rc`, shared with the session's
+        // parse cache, so it is not one of the things that can be handed over.
         let crate::compiler::driver::Analysis { loaded, checked, diagnostics } = analysis;
         drop(loaded);
         drop(diagnostics);
         crate::parallel::discard(checked);
     }
-}
-
-/// The action key for one suite on one platform.
-///
-/// Memoised for the pass. A key is a pure function of the repository's bytes and
-/// the invocation, and nothing a `buri test` pass does writes a source, so an
-/// answer cannot go stale inside one pass.
-fn test_key_for(
-    session: &Session,
-    target: TargetId,
-    platform: Platform,
-    args: &arguments::Args,
-    pre: &mut Prepass,
-) -> crate::build::cache::ActionKey {
-    if let Some((_, key)) = pre.keys.iter().find(|((t, p), _)| *t == target && *p == platform) {
-        return key.clone();
-    }
-    let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
-    actions::test_key(session, target, &output, &args.flags)
 }
 
 /// The verdicts the cache holds for this key, where it may serve them.
@@ -1076,148 +1427,13 @@ fn served(
     Some(Outcome { cases, skipped: 0 })
 }
 
-/// One suite, executed as a native binary.
-///
-/// The report is the JavaScript one, to the byte, because it is assembled here
-/// from the same record: this function produces the array `$run` writes and
-/// [`report_failure`] states the format once for both backends. What differs is
-/// only how the record is collected.
-///
-/// **A failed assertion is still an abort.** SPEC 6.9 leaves nothing to catch,
-/// so one process can report one failure and no more — and the answer is not to
-/// report less but to use more processes. `BURI_TEST_FROM` names the block a
-/// process is to start at, `buri_rt_test_enter` skips the ones already
-/// reported, and a suite costs one process plus one per failure. That is the
-/// sharding this module's header already permits: a suite's result may not
-/// depend on the order its blocks run in, and there is no mutable global state
-/// for one to leave behind for the next.
-///
-/// So:
-///
-/// - A run that ends cleanly is a verdict for **every** block from the one it
-///   started at, because each of them ran and none aborted.
-/// - A run that aborts names the block it was in — the runtime knows which,
-///   from `enter` — with the message it was going to print anyway and, where
-///   the assertion had them, both values rendered by the `Show`
-///   `middle::derives` generated at their type.
-/// - A run that ends some other way (a signal) says nothing, and the block it
-///   was told to start at is the honest attribution.
-/// - `--filter` is applied to the program's *roots* before anything is
-///   compiled, rather than to a runner that does not exist. That is arguably
-///   the better place for it: a filtered native run does not even codegen the
-///   tests it leaves out.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the front end's output, the selection and the key are each needed \
-              here and none of them is derivable from the others; bundling them \
-              into a struct would name the arguments twice"
-)]
-fn run_native(
-    session: &mut Session,
-    target: TargetId,
-    platform: Platform,
-    args: &arguments::Args,
-    key: &crate::build::cache::ActionKey,
-    mut program: monomorphize::Program,
-    analysis: &crate::compiler::driver::Analysis,
-    skipped: usize,
-) -> Result<Outcome, Diagnostics> {
-    let mut diagnostics = Diagnostics::new();
-    if let Some(filter) = &args.flags.filter {
-        if let monomorphize::ProgramRoots::Tests(tests) = &mut program.roots {
-            tests.retain(|t| t.name.contains(filter.as_str()));
-        }
-    }
-    let selected: Vec<(String, String)> = program
-        .roots
-        .tests()
-        .iter()
-        .map(|t| (t.name.clone(), t.module.clone()))
-        .collect();
-    if selected.is_empty() {
-        return Ok(Outcome { cases: Vec::new(), skipped });
-    }
-
-    let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
-    // Taken before the link, which is the only place it is still a value rather
-    // than a file: a snapshot needs it, and the native runtime has no other way
-    // to be handed it.
-    let sheet = program.stylesheet.clone();
-    // The build names the file as well as writing it: which file a suite runs
-    // from is a claim on a shared one, and `binary` is that claim
-    // (`actions::test_binary_at`). It is held until this function returns,
-    // which is exactly as long as the file it names is the one being executed.
-    let binary = actions::native_test_binary(
-        session,
-        target,
-        &output,
-        &args.flags,
-        &mut program,
-        &analysis.checked.tables,
-        &mut diagnostics,
-    )?;
-
-    let limit = suite(session, target).and_then(|x| x.timeout_seconds);
-    let program_path = binary.path().display().to_string();
-
-    let mut snapshots: Vec<(&str, String)> = vec![(SNAPSHOT_DIR, snapshot_dir(session, target))];
-    if args.flags.update {
-        snapshots.push((SNAPSHOT_UPDATE, "1".to_string()));
-    }
-    if let Some(path) = write_stylesheet(binary.path(), &sheet) {
-        snapshots.push((SNAPSHOT_SHEET, path));
-    }
-
-    let blocks = match run_blocks(
-        &program_path,
-        limit,
-        selected.len(),
-        &seed_of(key).to_string(),
-        &snapshots,
-    ) {
-        Ok(Verdicts::Blocks(blocks)) => blocks,
-        Ok(Verdicts::TimedOut) => return Err(timed_out(session, target, limit)),
-        Ok(Verdicts::HeapCheck(line)) => {
-            return Err(heap_check_failed(&session.workspace.label(target), &line))
-        }
-        Ok(Verdicts::Died(how)) => {
-            return Err(the_binary_died(&session.workspace.label(target), &how))
-        }
-        Ok(Verdicts::NotStarted(how)) => {
-            return Err(the_binary_did_not_start(&session.workspace.label(target), &how))
-        }
-        Err(e) => {
-            diagnostics.push(
-                Diagnostic::error(Span::NONE, format!("cannot run the test binary: {e}"))
-                    .with_fix("the link produced it, so this is a toolchain bug"),
-            );
-            return Err(diagnostics);
-        }
-    };
-    let objects: Vec<String> = selected
-        .iter()
-        .zip(&blocks)
-        .map(|((name, module), block)| record_of(name, module, block))
-        .collect();
-
-    // The record is the same JSON a JavaScript run prints, and the cases are
-    // parsed back out of it, so that a native verdict served from the cache and
-    // a native verdict just produced are the same value by construction rather
-    // than by two functions agreeing — and so that one `report_failure` states
-    // the format for both backends.
-    let record = format!("[{}]", objects.join(","));
-    let mut cases = parse_results(&record);
-    if may_cache(&cases, &args.flags) {
-        crate::build::cache::Cache::open(&session.root).put(key, record.as_bytes());
-    }
-    locate(session, &program, &mut cases);
-    crate::parallel::discard(program);
-    Ok(Outcome { cases, skipped })
-}
-
 /// The environment variable a native test binary reads the block to start at
 /// from. `cli/runtime/testing.rs` is the other half.
 const RESUME: &str = "BURI_TEST_FROM";
+
+/// The environment variable a native test binary reads the block to stop
+/// before from, so several processes can share one binary's blocks.
+const STOP: &str = "BURI_TEST_TO";
 
 /// The environment variable a native test binary reads the seed
 /// `tasks().anyOrder()` schedules with from. `cli/runtime/testing.rs` is the
@@ -1257,17 +1473,6 @@ fn snapshot_dir(session: &Session, target: TargetId) -> String {
         .join("__snapshots__")
         .display()
         .to_string()
-}
-
-/// The distinct snapshot directories a set of suites would name, sorted.
-///
-/// One entry is a batch that can be handed a directory; two or more is a batch
-/// that cannot.
-fn snapshot_dirs(session: &Session, targets: &[TargetId]) -> Vec<String> {
-    let mut dirs: Vec<String> = targets.iter().map(|&t| snapshot_dir(session, t)).collect();
-    dirs.sort();
-    dirs.dedup();
-    dirs
 }
 
 /// The intrinsic `platform/effect/testing`'s `snapshot` reaches, which is the whole of what
@@ -1378,8 +1583,9 @@ enum Verdicts {
     NotStarted(String),
 }
 
-/// Runs a native test binary until every one of its `count` blocks has a
-/// verdict, and says what each did.
+/// Runs a native test binary until every block in `range` has a verdict, and
+/// says what each did. `range` is `(from, to)` in the binary's numbering, `to`
+/// exclusive, so several processes can share one binary.
 ///
 /// One process per failure plus one. A block that aborted ended the process it
 /// was in, so the blocks after it are run by the next: `RESUME` names the one to
@@ -1391,24 +1597,26 @@ enum Verdicts {
 /// happened to reach it, so a suite resumed after a failure is a suite scheduled
 /// the way the run before it was.
 ///
-/// `Ok(None)` is the timeout, which belongs to whoever declared it — a limit is
-/// a suite's, and the diagnostic naming the suite is the caller's to raise.
+/// A heap check's receipt goes to `notes`, for the report to print in order.
 fn run_blocks(
     program: &str,
     limit: Option<u32>,
-    count: usize,
+    range: (usize, usize),
     seeds: &str,
     snapshots: &[(&str, String)],
+    notes: &mut String,
 ) -> std::io::Result<Verdicts> {
-    let mut blocks: Vec<Block> = Vec::with_capacity(count);
-    let mut from = 0usize;
+    let (first, count) = range;
+    let mut blocks: Vec<Block> = Vec::with_capacity(count.saturating_sub(first));
+    let mut from = first;
+    let stop = count.to_string();
     while from < count {
         let start = from.to_string();
         // The snapshot entries are the same for every process this makes, for
         // `seeds`'s reason: where a golden lives is a fact about the package
         // and not about which process reached the block.
         let mut env: Vec<(&str, &str)> =
-            vec![(RESUME, start.as_str()), (SEED, seeds)];
+            vec![(RESUME, start.as_str()), (STOP, stop.as_str()), (SEED, seeds)];
         env.extend(snapshots.iter().map(|(name, value)| (*name, value.as_str())));
         let out = match execute(program, None, limit, &env)? {
             Execution::Finished(out) => out,
@@ -1431,13 +1639,14 @@ fn run_blocks(
             ));
         }
         if let Some(line) = heap_check_said(&stderr) {
-            eprintln!("{line}");
+            notes.push_str(line);
+            notes.push('\n');
         }
         // A run that ended without aborting is a verdict for **every** block
         // from here on, because every one of them ran and none of them stopped
         // the process. Those verdicts are real, not assumed.
         if out.status.success() {
-            while blocks.len() < count {
+            while first + blocks.len() < count {
                 blocks.push(Block::Passed);
             }
             break;
@@ -1467,7 +1676,7 @@ fn run_blocks(
             Some(n) => n.message.clone(),
             None => how_it_ended(&out.status, &stderr),
         };
-        while blocks.len() < at {
+        while first + blocks.len() < at {
             blocks.push(Block::Passed);
         }
         let (diff, order) = match noted {
@@ -1594,6 +1803,10 @@ fn record_of(name: &str, module: &str, block: &Block) -> String {
 // declared in. One suite aborting therefore costs one process and no suite's
 // report, which is exactly the isolation a binary per suite was buying.
 //
+// Each member runs in processes of its own, `BURI_TEST_TO` stopping each at the
+// member's last block, so a batch's suites run side by side and a member whose
+// process ends badly goes back to run alone without its neighbours.
+//
 // # Why no verdict can be served from the wrong place
 //
 // Nothing here is a cache key. `test_key` is unchanged, one per suite, and each
@@ -1623,80 +1836,53 @@ fn record_of(name: &str, module: &str, block: &Block) -> String {
 //
 // A batch that cannot be one binary is divided after monomorphization
 // ([`groups_of`]): by snapshot directory, and by an estimate of its code size.
-// Each group links and runs on its own, and a group that fails sends only its
+// Each group links on its own, and a group that fails to link sends only its
 // own members back to run alone.
 
-/// The suites this pass ran in shared binaries, and what each one's tests did.
+/// Compiles the suites that can share binaries, a batch at a time, and queues a
+/// [`Job::Group`] per binary.
 ///
-/// Empty is the answer that costs nothing and changes nothing: a repository with
-/// one suite, a pass whose suites are all cached, `--output=`, a toolchain with
-/// no native backend. The loop below neither knows nor cares —
-/// a suite that is not in here is compiled, linked and run exactly as it was.
-fn run_batches(
-    session: &mut Session,
-    targets: &[TargetId],
-    args: &arguments::Args,
-) -> Prepass {
-    let mut pre = Prepass::default();
+/// Nothing at all is the answer that costs nothing and changes nothing: a pass
+/// with one uncached suite, `--output=`, a toolchain with no native backend.
+/// A slot this leaves unqueued is compiled on its own by [`solo`].
+fn batch(session: &mut Session, args: &arguments::Args, slots: &mut [Slot], queue: &Queue) {
     // A batch is only ever the *default's* answer: `--output=` is a request,
-    // and a request is served the way requests are, one suite at a time.
+    // and a request is served one suite at a time.
     if args.flags.output.is_some() {
-        return pre;
+        return;
     }
-    // The build file's half of the question, asked first because it is the
-    // cheap half: a repository whose suites could never share a binary is out
-    // before a platform is looked at.
-    let possible: Vec<TargetId> = targets
-        .iter()
-        .copied()
-        .filter(|&t| has_tests(session, t) && may_batch(session, t))
-        .collect();
-    if possible.len() < 2 {
-        return pre;
-    }
-    // The platform every batchable suite runs on, which is the host's — a suite
-    // that named one is not batchable, and `--output=` returned above. A
-    // toolchain that cannot build for the host batches nothing and says nothing
-    // here: `run_suite` refuses each suite by name a moment later
-    // ([`not_ready`]), and a second copy of that sentence per pass would only
-    // arrive before the suites it is about.
     let platform = crate::compiler::driver::host_native_platform();
     if !native_ready(platform, &args.flags) {
-        return pre;
+        return;
     }
-    // Two filters, and the cache goes first: it is the answer for every suite
-    // in a repository nobody has edited, and asking it first is what keeps a
-    // `buri test` with nothing to do from walking five dependency closures to
-    // find that out. The lookup is **silent** — `served` is what reports a hit,
-    // in the loop that reports every other suite, in order.
-    let cache = crate::build::cache::Cache::open(&session.root);
-    let mut fresh: Vec<TargetId> = Vec::new();
-    for target in possible {
-        if already_cached(session, &cache, target, platform, args, &mut pre) {
-            continue;
-        }
-        // The graph's own rules, asked before this suite is compiled into a
-        // shared artifact. A suite that fails one of them is reported by
-        // `run_suite` below, which checks the same three; what it must not do
-        // first is contribute its closure to a binary the rule exists to
-        // prevent.
-        let mut diagnostics = Diagnostics::new();
-        let held = session.workspace.suite_output_platform(target, platform);
-        actions::check_policy(session, target, &held, &mut diagnostics);
-        if diagnostics.has_errors() {
-            continue;
-        }
-        fresh.push(target);
+    // Policy was checked when the slot was planned, so every suite here may be
+    // compiled into a shared artifact as far as its own closure goes.
+    let fresh: Vec<(TargetId, usize)> = slots
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| {
+            s.answer.is_none()
+                && s.chosen == Chosen::Default
+                && s.platform == platform
+                && may_batch(session, s.target)
+        })
+        .map(|(i, s)| (s.target, i))
+        .collect();
+    if fresh.len() < 2 {
+        return;
     }
-    for members in batches_of(session, &fresh) {
-        // A batch of one is the path that already exists, and taking it here
-        // would be a second copy of it.
+    let targets: Vec<TargetId> = fresh.iter().map(|(t, _)| *t).collect();
+    for members in batches_of(session, &targets) {
+        // A batch of one is the path that already exists.
         if members.len() < 2 {
             continue;
         }
-        run_batch(session, &members, platform, args, &mut pre);
+        let member_slots: Vec<usize> = members
+            .iter()
+            .filter_map(|m| fresh.iter().find(|(t, _)| t == m).map(|(_, i)| *i))
+            .collect();
+        batch_front(session, &members, &member_slots, platform, args, slots, queue);
     }
-    pre
 }
 
 /// Whether a suite's *build file* leaves it free to share a binary.
@@ -1709,31 +1895,6 @@ fn may_batch(session: &Session, target: TargetId) -> bool {
     let Some(suite) = suite(session, target) else { return false };
     suite.backends.is_empty() && suite.timeout_seconds.is_none()
 }
-
-/// Whether this suite's verdict is already on disk under its own key.
-///
-/// The same three modes [`served`] refuses to serve, and the same test that its
-/// bytes are a record rather than an empty one — asked without printing
-/// anything, because printing it is the reporting loop's job and doing it twice
-/// would put a suite in the transcript before its neighbours.
-fn already_cached(
-    session: &Session,
-    cache: &crate::build::cache::Cache,
-    target: TargetId,
-    platform: Platform,
-    args: &arguments::Args,
-    pre: &mut Prepass,
-) -> bool {
-    if args.flags.force || args.flags.update || args.flags.filter.is_some() {
-        return false;
-    }
-    // Kept, because the loop below asks for the same key again to report the
-    // suite — and building one reads every source in its closure.
-    let key = test_key_for(session, target, platform, args, pre);
-    pre.keys.push(((target, platform), key.clone()));
-    cache.get(&key).is_some_and(|bytes| !parse_results(&String::from_utf8_lossy(&bytes)).is_empty())
-}
-
 /// Every tag that would be carried by a suite's own test binary: its production
 /// closure's, and its test dependencies' closures' too.
 ///
@@ -1811,20 +1972,21 @@ fn test_modules_of(session: &Session, target: TargetId) -> Vec<String> {
     suite.sources.iter().map(|src| pkg.module_path(&src.value)).collect()
 }
 
-/// One batch: one front end, one binary per group ([`groups_of`]), one verdict
-/// per member.
+/// One batch's front end: one type check, one program per group ([`groups_of`]),
+/// and a [`Job::Group`] for each.
 ///
 /// Every early return abandons the batch and says nothing. That is the whole of
-/// the safety argument: a batch that is not certain is not a batch, and the
-/// suites in it are compiled and run below one at a time, where a diagnostic —
-/// a gap the backend has no body for, most of all — can name the one suite it
-/// belongs to.
-fn run_batch(
+/// the safety argument: a batch that is not certain is not a batch, and its
+/// suites are compiled on their own by [`solo`], where a diagnostic — a gap the
+/// backend has no body for, most of all — can name the one suite it belongs to.
+fn batch_front(
     session: &mut Session,
     members: &[TargetId],
+    member_slots: &[usize],
     platform: Platform,
     args: &arguments::Args,
-    pre: &mut Prepass,
+    slots: &mut [Slot],
+    queue: &Queue,
 ) {
     // One unit per member, in the pass's order, which is the order their test
     // sources load in and therefore the order the binary's blocks come out in.
@@ -1832,7 +1994,7 @@ fn run_batch(
         .iter()
         .map(|&target| Unit { target: Some(target), platform: None, entry: None, with_tests: true })
         .collect();
-    let analysis = crate::compiler::driver::analyze_all(
+    let mut analysis = crate::compiler::driver::analyze_all(
         Some(&session.workspace),
         &mut session.map,
         &mut session.parsed,
@@ -1853,10 +2015,8 @@ fn run_batch(
     if diagnostics.has_errors() || program.roots.tests().is_empty() {
         return;
     }
-    // The gap probe, asked of the batch. It cannot say *which* member reaches
-    // the intrinsic it names, and a notice that named the wrong suite would be
-    // worse than no batch — so a batch with a gap in it is abandoned and each
-    // member asks the same question about itself.
+    // The gap probe cannot say *which* member reaches the intrinsic it names, so
+    // a batch with a gap in it is abandoned and each member asks for itself.
     if native_gap(platform, &args.flags, &program, &analysis.checked.tables).is_some() {
         return;
     }
@@ -1871,17 +2031,14 @@ fn run_batch(
     let owner_of = |module: &str| -> Option<usize> {
         owners.iter().find(|(m, _)| m == module).map(|(_, i)| *i)
     };
-
     // What a `--filter` leaves out, per suite, counted before the roots are
-    // narrowed — the same count `run_on` takes, taken once for the batch.
+    // narrowed.
     let mut skipped = vec![0usize; members.len()];
     if let Some(f) = &args.flags.filter {
         for test in program.roots.tests() {
             if !test.name.contains(f.as_str()) {
-                if let Some(i) = owner_of(&test.module) {
-                    if let Some(n) = skipped.get_mut(i) {
-                        *n += 1;
-                    }
+                if let Some(n) = owner_of(&test.module).and_then(|i| skipped.get_mut(i)) {
+                    *n += 1;
                 }
             }
         }
@@ -1890,14 +2047,16 @@ fn run_batch(
         }
     }
     let Some(selected) = selected_of(&program, &owner_of) else { return };
-    let tables = &analysis.checked.tables;
     let groups = groups_of(session, &program, members, &selected, batch_limit());
+    let batch = Batch { members, member_slots, skipped: &skipped, platform };
     if let [group] = groups.as_slice() {
-        run_group(session, members, group, &selected, &skipped, program, tables, platform, args, pre);
+        let tables = std::sync::Arc::new(std::mem::take(&mut analysis.checked.tables));
+        submit_group(session, &batch, group, &selected, program, tables, slots, queue);
     } else {
         // Each group is monomorphized again from the batch's one type check,
         // rooted at its own tests, so each binary holds only its own code.
         crate::parallel::discard(program);
+        let tables = std::sync::Arc::new(analysis.checked.tables.clone());
         for group in &groups {
             let modules: Vec<String> = owners
                 .iter()
@@ -1920,14 +2079,224 @@ fn run_batch(
                 tests.retain(|t| t.name.contains(f.as_str()));
             }
             let Some(mine) = selected_of(&part, &owner_of) else { continue };
-            run_group(session, members, group, &mine, &skipped, part, tables, platform, args, pre);
+            let tables = std::sync::Arc::clone(&tables);
+            submit_group(session, &batch, group, &mine, part, tables, slots, queue);
         }
     }
-
     let crate::compiler::driver::Analysis { loaded, checked, diagnostics: analysed } = analysis;
     drop(loaded);
     drop(analysed);
     crate::parallel::discard(checked);
+}
+
+/// What every group of one batch shares.
+struct Batch<'a> {
+    members: &'a [TargetId],
+    /// Each member's slot, at the member's position.
+    member_slots: &'a [usize],
+    /// What a `--filter` left out of each member.
+    skipped: &'a [usize],
+    platform: Platform,
+}
+
+/// Queues one group's binary, or answers its members when a `--filter` left
+/// it nothing to run.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the session, the batch, the group, its tests, its program and tables, \
+              the slots and the queue: none derivable from another"
+)]
+fn submit_group(
+    session: &Session,
+    batch: &Batch,
+    group: &Group,
+    selected: &[Selected],
+    program: monomorphize::Program,
+    tables: std::sync::Arc<crate::compiler::semantics::types::Tables>,
+    slots: &mut [Slot],
+    queue: &Queue,
+) {
+    let slot_of = |i: usize| batch.member_slots.get(i).copied().unwrap_or(usize::MAX);
+    let skipped_of = |i: usize| batch.skipped.get(i).copied().unwrap_or(0);
+    if selected.is_empty() {
+        for &i in &group.members {
+            if let Some(s) = slots.get_mut(slot_of(i)) {
+                s.answer = Some(Ok(Outcome { cases: Vec::new(), skipped: skipped_of(i) }));
+            }
+        }
+        return;
+    }
+    let output = crate::build::buildfile::Output::for_platform(batch.platform, Span::NONE);
+    let targets: Vec<TargetId> =
+        group.members.iter().filter_map(|&i| batch.members.get(i).copied()).collect();
+    let Some(&first) = targets.first() else { return };
+    // One seed per *block*, because a suite's order is its own key's: a suite
+    // schedules the same way batched or alone.
+    let seed = |i: usize| slots.get(slot_of(i)).map(|s| seed_of(&s.key)).unwrap_or_default();
+    let seeds: Vec<String> = selected.iter().map(|s| seed(s.owner).to_string()).collect();
+    let tests = program.roots.tests();
+    let members: Vec<MemberSpec> = group
+        .members
+        .iter()
+        .filter_map(|&i| {
+            let target = *batch.members.get(i)?;
+            let slot = slots.get(slot_of(i))?;
+            let mine: Vec<usize> = (0..selected.len()).filter(|&b| selected.get(b).is_some_and(|s| s.owner == i)).collect();
+            Some(MemberSpec {
+                slot: slot_of(i),
+                key: slot.key.clone(),
+                ranges: ranges_of(&mine),
+                tests: mine.iter().filter_map(|&b| selected.get(b)).map(|s| (s.name.clone(), s.module.clone())).collect(),
+                roots: mine
+                    .iter()
+                    .filter_map(|&b| tests.get(b))
+                    .map(|t| Root { name: t.name.clone(), module: t.module.clone(), span: t.span })
+                    .collect(),
+                skipped: skipped_of(i),
+                snapshot_dir: snapshot_dir(session, target),
+                paints: group.painters.contains(&i),
+            })
+        })
+        .collect();
+    for member in &members {
+        if let Some(s) = slots.get_mut(member.slot) {
+            s.queued = true;
+        }
+    }
+    if let Some(s) = members.first().and_then(|m| slots.get_mut(m.slot)) {
+        s.awaiting_build = true;
+    }
+    let label = targets.iter().map(|t| session.workspace.label(*t)).collect::<Vec<_>>().join(",");
+    let job = GroupJob {
+        label,
+        private: actions::private_test_binary(session, first, &output),
+        output,
+        program,
+        tables,
+        seeds: seeds.join(","),
+        members,
+    };
+
+    queue.push(Job::Group(job), true);
+}
+
+/// Consecutive runs of block indices, as `(from, to)` with `to` exclusive.
+fn ranges_of(blocks: &[usize]) -> Vec<(usize, usize)> {
+    let mut out: Vec<(usize, usize)> = Vec::new();
+    for &b in blocks {
+        match out.last_mut() {
+            Some((_, to)) if *to == b => *to = b + 1,
+            _ => out.push((b, b + 1)),
+        }
+    }
+    out
+}
+
+/// One binary for some of a batch's members.
+struct GroupJob {
+    label: String,
+    private: std::path::PathBuf,
+    output: crate::build::buildfile::Output,
+    program: monomorphize::Program,
+    tables: std::sync::Arc<crate::compiler::semantics::types::Tables>,
+    /// `BURI_TEST_SEED`: one per block, in the binary's numbering.
+    seeds: String,
+    members: Vec<MemberSpec>,
+}
+
+/// One member of a group, as its own process will run it.
+struct MemberSpec {
+    slot: usize,
+    key: crate::build::cache::ActionKey,
+    /// The member's blocks, in the binary's numbering.
+    ranges: Vec<(usize, usize)>,
+    /// Each block's title and module, in block order.
+    tests: Vec<(String, String)>,
+    roots: Vec<Root>,
+    skipped: usize,
+    snapshot_dir: String,
+    paints: bool,
+}
+
+/// Links a group's binary and queues a process per member, ahead of any new
+/// build: those finish work already paid for.
+///
+/// A link that fails sends every member back to run alone.
+fn build_group(job: GroupJob, queue: &Queue, shared: &Shared) -> Done {
+    let GroupJob { label, private, output, mut program, tables, seeds, members } = job;
+    let sheet = program.stylesheet.clone();
+    let mut diagnostics = Diagnostics::new();
+    let (built, explain) = crate::build::cache::holding_explain(|| {
+        actions::link_test_binary(&shared.root, &label, private, &output, &shared.flags, &mut program, &tables, &mut diagnostics)
+    });
+    drop(program);
+    drop(tables);
+    let Ok(binary) = built else {
+        return Done::Abandoned { slots: members.iter().map(|m| m.slot).collect(), explain };
+    };
+    let sheet = write_stylesheet(binary.path(), &sheet);
+    let binary = std::sync::Arc::new(binary);
+    let seeds = std::sync::Arc::new(seeds);
+    let first = members.first().map_or(usize::MAX, |m| m.slot);
+    // Reversed, because each goes to the front: the first member runs first.
+    for spec in members.into_iter().rev() {
+        queue.push_first(Job::Member(MemberJob {
+            binary: std::sync::Arc::clone(&binary),
+            seeds: std::sync::Arc::clone(&seeds),
+            sheet: sheet.clone(),
+            spec,
+        }));
+    }
+    Done::Built { slot: first, explain }
+}
+
+/// One member's blocks, in its group's binary. The binary is released when the
+/// last member has finished with it.
+struct MemberJob {
+    binary: std::sync::Arc<actions::TestBinary>,
+    seeds: std::sync::Arc<String>,
+    sheet: Option<String>,
+    spec: MemberSpec,
+}
+
+/// Runs one member's blocks in a process of its own.
+///
+/// A process that ends any way but with a verdict per block — a heap check that
+/// failed, a death after the last block, a binary that did not start — sends
+/// the member back to run alone, where the same binary is built for it and the
+/// problem is reported against it.
+fn run_member(job: MemberJob, shared: &Shared) -> Done {
+    let MemberJob { binary, seeds, sheet, spec } = job;
+    let lock = spec.paints.then(|| shared.painting(&spec.snapshot_dir));
+    let _painting = lock.as_ref().map(|l| l.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+    let snapshots = snapshot_env(&spec.snapshot_dir, shared.flags.update, sheet);
+    let program = binary.path().display().to_string();
+    let mut notes = String::new();
+    let mut blocks = Vec::new();
+    for &range in &spec.ranges {
+        // No limit: a suite that declared one is not in a batch.
+        match run_blocks(&program, None, range, &seeds, &snapshots, &mut notes) {
+            Ok(Verdicts::Blocks(mine)) => blocks.extend(mine),
+            _ => return Done::Abandoned { slots: vec![spec.slot], explain: String::new() },
+        }
+    }
+    let records: Vec<String> = spec
+        .tests
+        .iter()
+        .zip(&blocks)
+        .map(|((name, module), block)| record_of(name, module, block))
+        .collect();
+    let record = format!("[{}]", records.join(","));
+    let cases = parse_results(&record);
+    if may_cache_produced(&cases, &shared.flags) {
+        crate::build::cache::Cache::open(&shared.root).put(&spec.key, record.as_bytes());
+    }
+    Done::Answer {
+        slot: spec.slot,
+        answer: Ok(Ran { cases, skipped: spec.skipped, roots: spec.roots }),
+        explain: String::new(),
+        notes,
+    }
 }
 
 /// Each of a program's tests with the member that owns it, in block order.
@@ -1972,7 +2341,9 @@ struct Group {
     /// do. One process is handed one directory, so a group holds the suites
     /// that paint into one package's directory at most.
     paints_into: Option<String>,
-    /// The functions the members' tests reach, one row per slot.
+    /// The members whose tests take a snapshot.
+    painters: Vec<usize>,
+    /// The functions the members' tests reach, one row per function.
     reaches: Vec<bool>,
 }
 
@@ -2084,7 +2455,12 @@ fn groups_of(
             dir_ok && size.saturating_add(added(&group.reaches)) <= limit
         });
         let slot = fits.unwrap_or_else(|| {
-            let empty = Group { members: Vec::new(), paints_into: None, reaches: vec![false; funcs] };
+            let empty = Group {
+                members: Vec::new(),
+                paints_into: None,
+                painters: Vec::new(),
+                reaches: vec![false; funcs],
+            };
             groups.push((empty, 0));
             groups.len() - 1
         });
@@ -2096,154 +2472,15 @@ fn groups_of(
                 }
             }
             group.members.push(member);
+            if paints {
+                group.painters.push(member);
+            }
             if dir.is_some() {
                 group.paints_into = dir;
             }
         }
     }
     groups.into_iter().map(|(group, _)| group).collect()
-}
-
-/// One binary for some of a batch's members: one link, one run, one verdict
-/// per member.
-///
-/// Every early return abandons this group, as [`run_batch`]'s do the batch: a
-/// member with no verdict in `pre` is compiled and run on its own below.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the batch, the group, its tests, the skipped counts, its program and \
-              tables, and the pass's platform, arguments and results: none of them \
-              derivable from another"
-)]
-fn run_group(
-    session: &mut Session,
-    members: &[TargetId],
-    group: &Group,
-    selected: &[Selected],
-    skipped: &[usize],
-    mut program: monomorphize::Program,
-    tables: &crate::compiler::semantics::types::Tables,
-    platform: Platform,
-    args: &arguments::Args,
-    pre: &mut Prepass,
-) {
-    let targets: Vec<TargetId> =
-        group.members.iter().filter_map(|&i| members.get(i).copied()).collect();
-    // A `--filter` that matched nothing in this group leaves a program with no
-    // roots. Nothing to link and nothing to run, and the report is the skipped
-    // count — which is exactly what `run_native` answers in the same position.
-    if selected.is_empty() {
-        for &i in &group.members {
-            if let Some(&target) = members.get(i) {
-                let skipped = skipped.get(i).copied().unwrap_or(0);
-                pre.done.push((target, Outcome { cases: Vec::new(), skipped }));
-            }
-        }
-        return;
-    }
-
-    let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
-    // Taken before the link, for the reason `run_native` gives.
-    let sheet = program.stylesheet.clone();
-    let mut diagnostics = Diagnostics::new();
-    // Held until this function returns, which is exactly as long as the file it
-    // names is the one being executed (`actions::claim_runner`).
-    let Ok(binary) = actions::native_test_batch(
-        session,
-        &targets,
-        &output,
-        &args.flags,
-        &mut program,
-        tables,
-        &mut diagnostics,
-    ) else {
-        return;
-    };
-
-    // Reported per suite, because the `test` action is per suite: the batch is
-    // how the verdicts were produced, not what they are keyed on.
-    let mut seeds: Vec<(usize, u128)> = Vec::with_capacity(targets.len());
-    for &i in &group.members {
-        let Some(&target) = members.get(i) else { continue };
-        let key = test_key_for(session, target, platform, args, pre);
-        crate::build::cache::explain(
-            args.flags.explain,
-            crate::build::cache::Status::Run,
-            crate::build::cache::Action::Test,
-            &session.workspace.label(target),
-            platform.slug(),
-            &key,
-        );
-        seeds.push((i, seed_of(&key)));
-    }
-    // One seed per *block*, because the blocks of one binary belong to several
-    // suites here and a suite's order is its own key's. This is what makes a
-    // suite schedule the same way whether it was batched or run alone: a report
-    // a reader cannot reproduce with `buri test //that/one` is a report that
-    // names the wrong seed.
-    let per_block: Vec<String> = selected
-        .iter()
-        .map(|s| {
-            seeds.iter().find(|(i, _)| *i == s.owner).map(|(_, seed)| *seed).unwrap_or_default().to_string()
-        })
-        .collect();
-    // One environment for the whole binary. The snapshot directory is the one
-    // the group's painting members share, which [`groups_of`] makes at most
-    // one; a group that paints nothing names its members' directory where they
-    // share one, and none where they do not.
-    let mut snapshots: Vec<(&str, String)> = Vec::new();
-    let dir = group.paints_into.clone().or_else(|| match snapshot_dirs(session, &targets).as_slice() {
-        [only] => Some(only.clone()),
-        _ => None,
-    });
-    if let Some(dir) = dir {
-        snapshots.push((SNAPSHOT_DIR, dir));
-        if args.flags.update {
-            snapshots.push((SNAPSHOT_UPDATE, "1".to_string()));
-        }
-        if let Some(path) = write_stylesheet(binary.path(), &sheet) {
-            snapshots.push((SNAPSHOT_SHEET, path));
-        }
-    }
-    // No limit: a suite that declared one is not in a batch, so there is no
-    // suite here whose `timeout_seconds` a shared process could misrepresent.
-    let blocks = match run_blocks(
-        &binary.path().display().to_string(),
-        None,
-        selected.len(),
-        &per_block.join(","),
-        &snapshots,
-    ) {
-        Ok(Verdicts::Blocks(blocks)) => blocks,
-        // Including a heap-check failure, which is deliberately *not* reported
-        // from here: a batch is several suites in one binary, so the audit
-        // cannot say which of them leaked. Abandoning the group sends every
-        // member back through [`run_native`], where the same binary is built
-        // per suite and the leak is reported against the one that has it.
-        // A binary that could not start goes back the same way: each member's
-        // own binary is smaller, and one that cannot start either is then
-        // reported once, against its suite.
-        _ => return,
-    };
-
-    let cache = crate::build::cache::Cache::open(&session.root);
-    for &i in &group.members {
-        let Some(&target) = members.get(i) else { continue };
-        let records: Vec<String> = selected
-            .iter()
-            .zip(&blocks)
-            .filter(|(s, _)| s.owner == i)
-            .map(|(s, block)| record_of(&s.name, &s.module, block))
-            .collect();
-        let record = format!("[{}]", records.join(","));
-        let mut cases = parse_results(&record);
-        if may_cache_produced(&cases, &args.flags) {
-            cache.put(&test_key_for(session, target, platform, args, pre), record.as_bytes());
-        }
-        locate(session, &program, &mut cases);
-        pre.done.push((target, Outcome { cases, skipped: skipped.get(i).copied().unwrap_or(0) }));
-    }
-    crate::parallel::discard(program);
 }
 
 /// One JSON string literal, escaped as `JSON.stringify` escapes it.
@@ -2362,11 +2599,9 @@ fn noted_failure(stdout: &str) -> Option<Noted> {
 /// title alone gives the second file's failure the first file's location, in
 /// the first file. Two tests sharing a title inside one file cannot arise:
 /// `duplicate-test` refuses them before anything is compiled.
-fn locate(session: &Session, program: &monomorphize::Program, cases: &mut [Case]) {
+fn locate(session: &Session, roots: &[Root], cases: &mut [Case]) {
     for c in cases.iter_mut() {
-        if let Some(t) =
-            program.roots.tests().iter().find(|t| t.name == c.name && t.module == c.module)
-        {
+        if let Some(t) = roots.iter().find(|t| t.name == c.name && t.module == c.module) {
             if !t.span.is_none() {
                 let f = session.map.get(t.span.file);
                 let (line, col) = f.line_col(t.span.start);

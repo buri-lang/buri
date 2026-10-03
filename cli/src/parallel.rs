@@ -29,6 +29,8 @@
 //! Two calls per build, of about a hundred milliseconds each. Starting ten
 //! threads costs tens of microseconds; a pool would cost a dependency and a
 //! piece of global state whose lifetime nothing here has an opinion about.
+//! [`pool`] is the exception: `buri test` hands it jobs that are not a pure
+//! function of an index, and its workers live only as long as one call.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -177,6 +179,145 @@ where
         });
     }
     out
+}
+
+/// How much memory this machine has, in bytes, where it can say.
+pub fn memory_bytes() -> Option<u64> {
+    unsafe extern "C" {
+        fn sysconf(name: i32) -> i64;
+    }
+    #[cfg(target_os = "macos")]
+    const PHYS_PAGES: i32 = 200;
+    #[cfg(target_os = "macos")]
+    const PAGE_SIZE: i32 = 29;
+    #[cfg(not(target_os = "macos"))]
+    const PHYS_PAGES: i32 = 85;
+    #[cfg(not(target_os = "macos"))]
+    const PAGE_SIZE: i32 = 30;
+    // SAFETY: `sysconf` reads a system constant and touches no memory of ours.
+    let (pages, size) = unsafe { (sysconf(PHYS_PAGES), sysconf(PAGE_SIZE)) };
+    let pages = u64::try_from(pages).ok()?;
+    let size = u64::try_from(size).ok()?;
+    pages.checked_mul(size).filter(|&bytes| bytes > 0)
+}
+
+/// A queue of jobs and the workers that take them, for work that is not a pure
+/// function of an index: `buri test` builds and runs its suites on one.
+///
+/// A job may queue more jobs. A *heavy* job holds a whole program in memory, so
+/// [`Queue::push`] waits while as many heavy jobs as there are workers are
+/// already queued or running.
+pub struct Queue<J> {
+    state: std::sync::Mutex<QueueState<J>>,
+    ready: std::sync::Condvar,
+    room: std::sync::Condvar,
+    width: usize,
+}
+
+struct QueueState<J> {
+    jobs: std::collections::VecDeque<(J, bool)>,
+    heavy: usize,
+    closed: bool,
+}
+
+impl<J> Queue<J> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, QueueState<J>> {
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Queues a job behind the others, waiting first for room if it is heavy.
+    pub fn push(&self, job: J, heavy: bool) {
+        let mut state = self.lock();
+        while heavy && state.heavy >= self.width {
+            state = self.room.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        state.heavy = state.heavy.saturating_add(usize::from(heavy));
+        state.jobs.push_back((job, heavy));
+        self.ready.notify_one();
+    }
+
+    /// Queues a light job ahead of the others: it finishes work already started.
+    pub fn push_first(&self, job: J) {
+        self.lock().jobs.push_front((job, false));
+        self.ready.notify_one();
+    }
+
+    fn take(&self) -> Option<(J, bool)> {
+        let mut state = self.lock();
+        loop {
+            if let Some(job) = state.jobs.pop_front() {
+                return Some(job);
+            }
+            if state.closed {
+                return None;
+            }
+            state = self.ready.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+
+    fn finished(&self, heavy: bool) {
+        if heavy {
+            let mut state = self.lock();
+            state.heavy = state.heavy.saturating_sub(1);
+            self.room.notify_all();
+        }
+    }
+
+    fn close(&self) {
+        self.lock().closed = true;
+        self.ready.notify_all();
+    }
+}
+
+/// Starts `width` workers running `work`, and hands `drive` the queue and the
+/// results. Returns once `drive` does and the workers have stopped.
+///
+/// A result is `None` when its job panicked, so `drive` never waits for a result
+/// that will not come.
+pub fn pool<J, R, T>(
+    width: usize,
+    work: impl Fn(J, &Queue<J>) -> R + Sync,
+    drive: impl FnOnce(&Queue<J>, &std::sync::mpsc::Receiver<Option<R>>) -> T,
+) -> T
+where
+    J: Send,
+    R: Send,
+{
+    let queue = Queue {
+        state: std::sync::Mutex::new(QueueState {
+            jobs: std::collections::VecDeque::new(),
+            heavy: 0,
+            closed: false,
+        }),
+        ready: std::sync::Condvar::new(),
+        room: std::sync::Condvar::new(),
+        width: width.max(1),
+    };
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::scope(|scope| {
+        for _ in 0..width.max(1) {
+            let (queue, work, send) = (&queue, &work, send.clone());
+            let started = std::thread::Builder::new()
+                .name("buri-job".into())
+                .stack_size(STACK)
+                .spawn_scoped(scope, move || {
+                    while let Some((job, heavy)) = queue.take() {
+                        let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            work(job, queue)
+                        }));
+                        queue.finished(heavy);
+                        let _ = send.send(done.ok());
+                    }
+                });
+            if started.is_err() {
+                break;
+            }
+        }
+        drop(send);
+        let out = drive(&queue, &receive);
+        queue.close();
+        out
+    })
 }
 
 #[cfg(test)]

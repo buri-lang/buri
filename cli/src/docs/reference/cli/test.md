@@ -10,6 +10,16 @@ methods, bound in a context the way `main` binds the platform's implementations.
 Exit status is `0` when every test passed and `1` when any did not, so you can
 use `buri test` directly as a gate.
 
+Suites build and run side by side, and print in label order. `--jobs` caps how
+many at once:
+
+```sh
+buri test --jobs=2
+```
+
+The default is one per core, and no more than one per 4 GB of memory. A suite
+whose code is unchanged, comments and whitespace aside, reports as cached.
+
 ## Lint findings
 
 A test run reports the lint catalogue too, where `REPO.buri` asks it to.

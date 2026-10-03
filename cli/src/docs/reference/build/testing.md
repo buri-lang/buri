@@ -651,6 +651,13 @@ tag-compatible batch, and links it once
 changes nothing you see: the runner still caches verdicts one suite at a time,
 reports one suite at a time, and runs a suite that cannot batch on its own.
 
+Suites build and run side by side. Each suite in a batch runs in a process of
+its own, and `--jobs=<n>` caps how many builds and runs happen at once. The
+default is one per core, with no more jobs than the machine has 4 GB of memory
+for. The report doesn't change with it: suites print in label order, each one
+whole, whichever finished first. Two suites that take snapshots into one
+package's `test/__snapshots__/` never run at the same time.
+
 Output names the target, the file, and the test:
 
 ```
@@ -684,7 +691,10 @@ binary that dies before its first test, such as one the operating system won't
 load: one failure, quoting what the loader said, from one launch.
 
 Tests are ordinary build actions. A suite whose sources, target, dependencies
-and toolchain are unchanged does not re-run, and reports as cached. Buri has no
+and toolchain are unchanged does not re-run, and reports as cached. "Unchanged"
+means what the compiler reads: editing a `//` comment, indentation or blank
+lines, in a suite or anything it depends on, keeps every verdict. Editing a token, a doc comment, or a line break between two tokens re-runs the
+suites that reach the file. A failing verdict is never cached. Buri has no
 mutable global state, no ambient I/O and no observable ordering, so the runner
 is free to shard across processes and to run a suite's tests in any order. No
 part of a suite's result may depend on that freedom, so there is no flag to turn
