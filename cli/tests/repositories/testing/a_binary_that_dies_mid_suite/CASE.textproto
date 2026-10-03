@@ -23,10 +23,20 @@
 
 doc: "a block that kills the test process is the block the report names, and the blocks around it keep their verdicts"
 
+# The report names the signal, and a stack overflow is a different one on each
+# host: SIGBUS on macOS, SIGSEGV on Linux.
 run {
   args: ["test", "//lib/deep", "--force"]
   exit: 1
   golden: "died.txt"
+  host: MACOS
+}
+
+run {
+  args: ["test", "//lib/deep", "--force"]
+  exit: 1
+  golden: "died-linux.txt"
+  host: LINUX
 }
 
 # The negative twin: a base case, and the same three blocks pass.
