@@ -25,7 +25,7 @@ command.
 | `buri add skills [directory]` | write these agent skills into `.agent/skills` |
 | `buri lsp` | language server, over stdio |
 | `buri clean` | drop the local cache |
-| `buri version` | toolchain version; `--verbose` adds the executable's hash |
+| `buri version` | toolchain version; `--verbose` adds the executable's identity |
 
 Targets are labels or patterns: `//lib/money`, `//lib/...`, `//...`. **With no
 argument, a command works on the whole repository** (`//...`), whatever

@@ -198,7 +198,7 @@ in every repository. [`guides/json.md`](../../guides/json.md) covers that check.
 ## What is not here
 
 - **No toolchain pin.** Nothing fetches a toolchain, so a pin has nothing to
-  do. `buri version --verbose` prints the running executable's hash for bug
+  do. `buri version --verbose` prints the running executable's identity for bug
   reports. A leftover `toolchain` block gets the unknown-field diagnostic.
 - **No `name`.** Labels are `//`-rooted, artifacts take their names from their
   package directory, and a name here would compete with the checkout directory.
