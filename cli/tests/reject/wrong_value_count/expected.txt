@@ -1,4 +1,4 @@
-error: `Pair` holds 2 values, but 1 were given [payload-count]
+error: `Pair` holds 2 values, but 1 was given [payload-count]
  --> cmd/wrong_value_count/main.buri:5:3
   |
 5 |   Pair(1)

@@ -1,4 +1,4 @@
-// EXPECT: `render` takes 2 arguments, but 1 were given
+// EXPECT: `render` takes 2 arguments, but 1 was given
 //
 // The commonest way to get this wrong: the context is an ordinary parameter,
 // and it was left out. Only a value that carries an effect can fill a `ctx`

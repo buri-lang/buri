@@ -64,6 +64,10 @@ pub enum Claim {
     /// one of the three is present, or the block says nothing about how it
     /// fails.
     Fail { code: Option<String>, messages: Vec<String>, errors: Vec<Annotation> },
+    /// Must typecheck, and `buri lint` must report `code` about it. The block
+    /// is the one source of a scratch library, so a lint page's example is
+    /// held to the finding it explains.
+    Lint { code: String },
     /// Not compiled, for the stated reason. The reason is required, and the
     /// count of these is ratcheted, so a new one is a reviewable line rather
     /// than a silent omission.
@@ -77,7 +81,7 @@ impl Claim {
     pub fn errors(&self) -> &[Annotation] {
         match self {
             Claim::Check { errors } | Claim::Fail { errors, .. } => errors,
-            Claim::Sig | Claim::Run { .. } | Claim::Ignore { .. } => &[],
+            Claim::Sig | Claim::Run { .. } | Claim::Lint { .. } | Claim::Ignore { .. } => &[],
         }
     }
 
@@ -406,6 +410,16 @@ fn parse_block(
             }
             Claim::Fail { code, messages, errors }
         }
+        "lint" => {
+            no_annotations(&errors)?;
+            let Some(code) = info.get("code") else {
+                return Err(fail(
+                    "a `lint` block must name the finding it shows".into(),
+                    "add `code=<lint code>`",
+                ));
+            };
+            Claim::Lint { code: code.to_string() }
+        }
         "ignore" => {
             let why = info.get("why").unwrap_or("").trim();
             if why.is_empty() {
@@ -420,17 +434,17 @@ fn parse_block(
         other => {
             return Err(fail(
                 format!("`{other}` is not a mode"),
-                "the modes are check, sig, run, fail, ignore",
+                "the modes are check, sig, run, fail, lint, ignore",
             ))
         }
     };
     // `code=` and `why=` are read by exactly one mode each. Anywhere else they
     // are a claim the harness would never check.
-    for (key, only) in [("code", "fail"), ("why", "ignore")] {
-        if info.get(key).is_some() && mode != only {
+    for (key, only) in [("code", &["fail", "lint"][..]), ("why", &["ignore"][..])] {
+        if info.get(key).is_some() && !only.contains(&mode) {
             return Err(fail(
                 format!("`{key}=` says nothing in a `{mode}` block"),
-                &format!("it is read only by `{only}`"),
+                &format!("it is read only by `{}`", only.join("` and `")),
             ));
         }
     }
@@ -899,6 +913,27 @@ fn run_block_in(
             }
         }
     }
+    if let Claim::Lint { code } = &block.claim {
+        if failures.is_empty() {
+            match lint_codes(&base.text) {
+                Ok(got) if got.contains(code) => {}
+                Ok(got) => failures.push(Failure {
+                    origin: block.origin.clone(),
+                    what: format!("`buri lint` does not report `{code}` about this example"),
+                    detail: if got.is_empty() {
+                        "it reported nothing".into()
+                    } else {
+                        format!("it reported: {}", got.join(", "))
+                    },
+                }),
+                Err(why) => failures.push(Failure {
+                    origin: block.origin.clone(),
+                    what: "this example could not be linted".into(),
+                    detail: why,
+                }),
+            }
+        }
+    }
 
     // Each annotated line, compiled on its own.
     for (index, want) in block.claim.errors() {
@@ -975,6 +1010,44 @@ fn run_block_in(
 
 fn indent(text: &str) -> String {
     text.lines().map(|l| format!("  | {l}")).collect::<Vec<_>>().join("\n")
+}
+
+/// Every code `buri lint` reports about `source`, written as the `lib.buri` of
+/// the one library in a scratch repository.
+fn lint_codes(source: &str) -> Result<Vec<String>, String> {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!("buri-doc-lint-{}-{n}", std::process::id()));
+    let codes = lint_codes_in(&root, source);
+    let _ = std::fs::remove_dir_all(&root);
+    codes
+}
+
+fn lint_codes_in(root: &std::path::Path, source: &str) -> Result<Vec<String>, String> {
+    let package = root.join("lib/example");
+    std::fs::create_dir_all(&package).map_err(|e| e.to_string())?;
+    std::fs::write(root.join("REPO.buri"), "").map_err(|e| e.to_string())?;
+    std::fs::write(package.join("BUILD.buri"), "library {}\n").map_err(|e| e.to_string())?;
+    std::fs::write(package.join("lib.buri"), source).map_err(|e| e.to_string())?;
+    let mut map = SourceMap::new();
+    let mut diagnostics = crate::diagnostics::Diagnostics::new();
+    let workspace = crate::build::workspace::Workspace::load(root, &mut map, &mut diagnostics)
+        .map_err(|e| e.to_string())?;
+    let mut session = crate::build::session::Session {
+        root: root.to_path_buf(),
+        map,
+        parsed: crate::parsing::parser::Cache::new(),
+        diagnostics,
+        workspace: std::rc::Rc::new(workspace),
+        rendering: crate::build::session::Rendering::Human { color: false },
+    };
+    let mut codes = Vec::new();
+    for target in session.resolve_targets(&[])? {
+        let analysis = crate::commands::lint::analysis_of(&mut session, target);
+        let found = crate::commands::lint::findings_for_target(&session, target, &analysis);
+        codes.extend(found.items.iter().filter_map(|d| d.code.clone()));
+    }
+    Ok(codes)
 }
 
 /// One diagnostic, with its location translated back to the document.

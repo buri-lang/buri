@@ -29,6 +29,8 @@
 //! Two calls per build, of about a hundred milliseconds each. Starting ten
 //! threads costs tens of microseconds; a pool would cost a dependency and a
 //! piece of global state whose lifetime nothing here has an opinion about.
+//! [`pool`] is the exception: `buri test` hands it jobs that are not a pure
+//! function of an index, and its workers live only as long as one call.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -177,6 +179,172 @@ where
         });
     }
     out
+}
+
+/// How much memory this machine has, in bytes, where it can say.
+pub fn memory_bytes() -> Option<u64> {
+    unsafe extern "C" {
+        fn sysconf(name: i32) -> i64;
+    }
+    #[cfg(target_os = "macos")]
+    const PHYS_PAGES: i32 = 200;
+    #[cfg(target_os = "macos")]
+    const PAGE_SIZE: i32 = 29;
+    #[cfg(not(target_os = "macos"))]
+    const PHYS_PAGES: i32 = 85;
+    #[cfg(not(target_os = "macos"))]
+    const PAGE_SIZE: i32 = 30;
+    // SAFETY: `sysconf` reads a system constant and touches no memory of ours.
+    let (pages, size) = unsafe { (sysconf(PHYS_PAGES), sysconf(PAGE_SIZE)) };
+    let pages = u64::try_from(pages).ok()?;
+    let size = u64::try_from(size).ok()?;
+    pages.checked_mul(size).filter(|&bytes| bytes > 0)
+}
+
+/// A queue of jobs and the workers that take them, for work that is not a pure
+/// function of an index: `buri test` builds and runs its suites on one.
+///
+/// A job may queue more jobs. A *heavy* job holds a whole program in memory, so
+/// [`Queue::push`] waits while the pool's limit of heavy jobs hold one. A job
+/// holds its program from the moment it is queued until it drops the [`Held`]
+/// its worker hands it, which is usually long before it finishes: a suite
+/// emits or links, lets go of its program, and only then runs.
+pub struct Queue<J> {
+    state: std::sync::Mutex<QueueState<J>>,
+    ready: std::sync::Condvar,
+    room: Room,
+}
+
+struct QueueState<J> {
+    jobs: std::collections::VecDeque<(J, bool)>,
+    closed: bool,
+}
+
+/// How many heavy jobs hold a program, and the limit on that.
+struct Room {
+    held: std::sync::Mutex<usize>,
+    freed: std::sync::Condvar,
+    limit: usize,
+}
+
+/// A heavy job's claim on the pool's room for programs. Dropping it says the
+/// job no longer holds one, and lets the next heavy job be queued. A light
+/// job's claims nothing.
+#[must_use = "dropping it at once lets another program in while this one is still held"]
+pub struct Held<'a> {
+    room: Option<&'a Room>,
+}
+
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        if let Some(room) = self.room {
+            let mut held = room.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            *held = held.saturating_sub(1);
+            room.freed.notify_all();
+        }
+    }
+}
+
+impl<J> Queue<J> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, QueueState<J>> {
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Queues a job behind the others, waiting first for room if it is heavy.
+    pub fn push(&self, job: J, heavy: bool) {
+        if heavy {
+            let room = &self.room;
+            let mut held = room.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            while *held >= room.limit {
+                held = room.freed.wait(held).unwrap_or_else(std::sync::PoisonError::into_inner);
+            }
+            *held = held.saturating_add(1);
+        }
+        self.lock().jobs.push_back((job, heavy));
+        self.ready.notify_one();
+    }
+
+    /// Queues a light job ahead of the others: it finishes work already started.
+    pub fn push_first(&self, job: J) {
+        self.lock().jobs.push_front((job, false));
+        self.ready.notify_one();
+    }
+
+    fn take(&self) -> Option<(J, Held<'_>)> {
+        let mut state = self.lock();
+        loop {
+            if let Some((job, heavy)) = state.jobs.pop_front() {
+                return Some((job, Held { room: heavy.then_some(&self.room) }));
+            }
+            if state.closed {
+                return None;
+            }
+            state = self.ready.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+
+    fn close(&self) {
+        self.lock().closed = true;
+        self.ready.notify_all();
+    }
+}
+
+/// Starts `width` workers running `work`, and hands `drive` the queue and the
+/// results. Returns once `drive` does and the workers have stopped.
+///
+/// At most `heavy_limit` heavy jobs hold a program at once. It limits nothing
+/// else: a job that has dropped its [`Held`] leaves its worker free to run
+/// beside the others, so `width` jobs can always be in flight.
+///
+/// A result is `None` when its job panicked, so `drive` never waits for a result
+/// that will not come.
+pub fn pool<J, R, T>(
+    width: usize,
+    heavy_limit: usize,
+    work: impl Fn(J, Held<'_>, &Queue<J>) -> R + Sync,
+    drive: impl FnOnce(&Queue<J>, &std::sync::mpsc::Receiver<Option<R>>) -> T,
+) -> T
+where
+    J: Send,
+    R: Send,
+{
+    let queue = Queue {
+        state: std::sync::Mutex::new(QueueState {
+            jobs: std::collections::VecDeque::new(),
+            closed: false,
+        }),
+        ready: std::sync::Condvar::new(),
+        room: Room {
+            held: std::sync::Mutex::new(0),
+            freed: std::sync::Condvar::new(),
+            limit: heavy_limit.max(1),
+        },
+    };
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::scope(|scope| {
+        for _ in 0..width.max(1) {
+            let (queue, work, send) = (&queue, &work, send.clone());
+            let started = std::thread::Builder::new()
+                .name("buri-job".into())
+                .stack_size(STACK)
+                .spawn_scoped(scope, move || {
+                    while let Some((job, held)) = queue.take() {
+                        // A job that panics drops its `Held` as it unwinds.
+                        let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            work(job, held, queue)
+                        }));
+                        let _ = send.send(done.ok());
+                    }
+                });
+            if started.is_err() {
+                break;
+            }
+        }
+        drop(send);
+        let out = drive(&queue, &receive);
+        queue.close();
+        out
+    })
 }
 
 #[cfg(test)]

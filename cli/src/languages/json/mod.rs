@@ -322,7 +322,7 @@ mod tests {
     #[test]
     fn a_schema_is_read_as_one() {
         let bad = r##"{ "$schema": "https://json-schema.org/draft/2020-12/schema", "items": [{}], "minimum": "x" }"##;
-        assert_eq!(codes(&run("s.json", bad, &[])), vec!["json-schema-invalid", "json-schema-invalid"]);
+        assert_eq!(codes(&run("s.json", bad, &[])), vec!["json-invalid-schema", "json-invalid-schema"]);
         assert_eq!(run("s.json", SCHEMA, &[]), vec![]);
     }
 

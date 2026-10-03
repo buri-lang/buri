@@ -61,7 +61,7 @@ error: `Watch` is an effect, so `read` is not called on a context [effect-method
      second is what keeps an attenuating wrapper writable — its readFile calls
      self.0.readFile(path), reaching only the inner context it was handed.
 
-error: this method takes 1 type arguments, but 2 were given [type-argument-count]
+error: this method takes 1 type argument, but 2 were given [type-argument-count]
   --> cmd/explicit_type_arguments_on_an_effect_method/main.buri:23:11
    |
 23 |   let _ = ctx.memo<Int, Str>(fn(s) => 1);
@@ -69,7 +69,7 @@ error: this method takes 1 type arguments, but 2 were given [type-argument-count
    |
    = expected: 1
    = actual: 2
-   = fix: supply exactly 1
+   = fix: supply exactly 1 type argument
 error: `Ui` is an effect, so `memo` is not called on a context [effect-method-call]
   --> cmd/explicit_type_arguments_on_an_effect_method/main.buri:23:15
    |

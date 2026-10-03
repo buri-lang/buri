@@ -449,6 +449,8 @@ pub struct Layouts<'a> {
     cycles: Arc<Cycles>,
     depth: u32,
     descriptions: Map<Ty, Rc<str>>,
+    /// See [`Layouts::glue_key`].
+    glue_keys: Map<Ty, Rc<str>>,
 }
 
 impl<'a> Layouts<'a> {
@@ -466,6 +468,7 @@ impl<'a> Layouts<'a> {
             cycles,
             depth: 0,
             descriptions: Map::default(),
+            glue_keys: Map::default(),
         }
     }
 
@@ -873,6 +876,81 @@ impl<'a> Layouts<'a> {
         let text: Rc<str> = Rc::from(self.describe(ty).as_str());
         self.descriptions.insert(ty.clone(), Rc::clone(&text));
         text
+    }
+
+    /// A name for the drop and copy glue of a type: a hash of everything the
+    /// glue reads, and nothing else.
+    ///
+    /// The glue walks a value by its layout, the types of its fields, and which
+    /// fields are boxed. Two types that agree on all three, all the way down,
+    /// get the same glue, so the backends emit it once per program under this
+    /// name rather than once per unit. No `TyConId` goes in: a cached object
+    /// from another program can define the same name, and it has to mean the
+    /// same code there too.
+    ///
+    /// A recursive type reaches itself through a box. The walk back up is
+    /// written as how many levels up it goes, so a subtree that points at
+    /// nothing above it hashes the same wherever it appears, and is memoised.
+    pub fn glue_key(&mut self, ty: &Ty) -> Rc<str> {
+        let mut out = String::new();
+        self.write_glue_shape(ty, &mut Vec::new(), &mut out);
+        match self.glue_keys.get(ty) {
+            Some(key) => Rc::clone(key),
+            // The root has nothing above it to point at, so it is always
+            // memoised; the text itself is the answer that cannot be wrong.
+            None => Rc::from(out.as_str()),
+        }
+    }
+
+    /// Writes `ty`'s glue shape onto `out` and answers the shallowest entry of
+    /// `path` it points back at, or `usize::MAX` if none.
+    fn write_glue_shape(&mut self, ty: &Ty, path: &mut Vec<Ty>, out: &mut String) -> usize {
+        if let Some(k) = path.iter().position(|p| p == ty) {
+            let _ = write!(out, "^{}", path.len().saturating_sub(k));
+            return k;
+        }
+        if let Some(key) = self.glue_keys.get(ty) {
+            out.push('#');
+            out.push_str(key);
+            return usize::MAX;
+        }
+        let depth = path.len();
+        path.push(ty.clone());
+        let layout = self.shared(ty);
+        let mut inner = format!("{:?}", *layout);
+        let lists: Vec<Vec<Ty>> = match (&layout.repr, ty) {
+            (Repr::List, Ty::Array(elem)) => vec![vec![(**elem).clone()]],
+            (Repr::Aggregate, _) => vec![types::field_types(self.tables, ty)],
+            (Repr::Enum { .. }, Ty::Con(id, _)) => (0..self.tables.tycon(*id).variants().len())
+                .map(|v| types::variant_types(self.tables, ty, v))
+                .collect(),
+            _ => Vec::new(),
+        };
+        let mut shallowest = usize::MAX;
+        for list in lists {
+            inner.push('(');
+            for f in list {
+                if self.boxes(ty, &f) {
+                    inner.push('*');
+                }
+                shallowest = shallowest.min(self.write_glue_shape(&f, path, &mut inner));
+                inner.push(',');
+            }
+            inner.push(')');
+        }
+        path.pop();
+        if shallowest >= depth {
+            let digest = crate::build::sha256::hash_bytes(inner.as_bytes());
+            let key: Rc<str> = Rc::from(digest.get(..32).unwrap_or(&digest));
+            out.push('#');
+            out.push_str(&key);
+            self.glue_keys.insert(ty.clone(), key);
+            return usize::MAX;
+        }
+        out.push('{');
+        out.push_str(&inner);
+        out.push('}');
+        shallowest
     }
 
     /// Several types, one block each, newline separated and with no trailing

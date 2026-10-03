@@ -2,8 +2,8 @@ const $k0=[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]];
 const $k1=[0,0];
 function __cmd_x_main_buri$main(){
   const ctx_1=[$k0[0],$k0[1]];
-  const fs_2=__cmd_x_main_buri$adders$u3rqgv(ctx_1,0n,[]);
-  const gs_3=__cmd_x_main_buri$scalers$u3rqgv(ctx_1,7n,0n,[]);
+  const fs_2=__cmd_x_main_buri$adders$9xug0c(ctx_1,0n,[]);
+  const gs_3=__cmd_x_main_buri$scalers$9xug0c(ctx_1,7n,0n,[]);
   const text_10=String($list_length($list_map(fs_2,ctx_1,f_4=>f_4(100n))))+' '+String(__cmd_x_main_buri$sumTo(100n,0n));
   const self_11=$host_HostStdout_println(ctx_1[1],text_10);
   let $t1;
@@ -72,7 +72,7 @@ function __cmd_x_main_buri$main(){
   }
   return $k1;
 }
-function __cmd_x_main_buri$adders$u3rqgv(ctx_0,i_loop_4,acc_2){
+function __cmd_x_main_buri$adders$9xug0c(ctx_0,i_loop_4,acc_2){
   while(true){
     const i_1=i_loop_4;
     if(i_1>=4n){
@@ -84,7 +84,7 @@ function __cmd_x_main_buri$adders$u3rqgv(ctx_0,i_loop_4,acc_2){
     }
   }
 }
-function __cmd_x_main_buri$scalers$u3rqgv(ctx_0,k_1,i_2,acc_3){
+function __cmd_x_main_buri$scalers$9xug0c(ctx_0,k_1,i_2,acc_3){
   while(true){
     if(i_2>=3n){
       return acc_3;

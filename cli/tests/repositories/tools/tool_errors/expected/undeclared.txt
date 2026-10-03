@@ -1,4 +1,4 @@
-error: `check` is exported, and the `tool` rule has no `check` block [tool-entry-point-undeclared]
+error: `check` is exported, and the `tool` rule has no `check` block [tool-missing-block]
  --> tool/good/tool.buri:6:11
   |
 6 | export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {

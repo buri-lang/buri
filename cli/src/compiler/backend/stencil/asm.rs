@@ -1388,17 +1388,7 @@ mod tests {
 
     fn words(a: Asm) -> Vec<u32> {
         let (bytes, _) = a.finish();
-        bytes
-            .chunks_exact(4)
-            .map(|c| {
-                u32::from_le_bytes([
-                    *c.first().unwrap_or(&0),
-                    *c.get(1).unwrap_or(&0),
-                    *c.get(2).unwrap_or(&0),
-                    *c.get(3).unwrap_or(&0),
-                ])
-            })
-            .collect()
+        bytes.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c)).collect()
     }
 
     /// `movz x0, #5`, one instruction: every halfword above the first is zero

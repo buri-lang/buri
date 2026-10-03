@@ -1,4 +1,4 @@
-// EXPECT: this method takes 1 type arguments, but 2 were given
+// EXPECT: this method takes 1 type argument, but 2 were given
 //
 // `Ui.memo<T>` declares one type parameter of its own, and `Ui` — like every
 // effect the standard library ships — declares none. The two lists are stored

@@ -5,14 +5,27 @@ message: this spells the {units} conversion out in integers
 note: "`core/time`'s `Duration` is the length itself — `time.milliseconds(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past"
 fix: build a `Duration` and let the unit live in the type rather than in the name
 ---
-An `I64` of milliseconds carries its unit only in its name, like
-`IDLE_TIMEOUT_MILLIS`, and every conversion is a hand-written multiply that can
-drop, double or overflow the unit unnoticed. Use `core/time` instead:
+An `I64` of milliseconds carries its unit only in its name, and every
+conversion is a hand-written multiply that can drop, double or overflow the
+unit unnoticed:
 
+```buri lint code=time-unit-conversion
+let IDLE_TIMEOUT_MILLIS: I64 = 30_000;
+
+fn deadlineNanos(startedNanos: I64): I64 {
+    startedNanos + IDLE_TIMEOUT_MILLIS * 1_000_000
+}
 ```
-let idle = time.minutes(5);
-let deadline = started.plus(idle);
-if (now.hasPassed(deadline)) { … }
+
+Use `core/time` instead:
+
+```buri
+from "core/time" import * as time;
+from "core/time" import { Instant };
+
+fn expired(started: Instant, now: Instant): Bool {
+    now.hasPassed(started.plus(time.minutes(5)))
+}
 ```
 
 - Constructors: `seconds`, `milliseconds`, `microseconds`, `nanoseconds`,

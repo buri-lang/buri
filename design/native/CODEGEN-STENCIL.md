@@ -605,13 +605,24 @@ pool's, and rewrites no bytes at all.
 **What a part cannot share with the parts beside it.** Three things are
 per-`Jit` and become per-part: the constant pool's deduplication
 (`Region::pool_index`), the map of where a stencil's spilled constants were
-copied (`Jit::spilled`, x86-64 only), and the generated glue (`glue.rs`). The
-glue is the one that needs a decision, because a helper's symbol is minted
-from its index and two parts do not know what the other asked for. So
-`glue::symbol` takes *two* numbers, the part and the index, and two parts that
-both drop a `[Str]` get a copy each under different local names. Measured on a
-synthetic of the §6.9 shape, the whole of that costs about **1%** of the
-object bytes at `PART_MEMBERS = 512`, and about 0.2% more per halving.
+copied (`Jit::spilled`, x86-64 only), and the generated helpers (`glue.rs`).
+
+Drop and copy glue doesn't need the parts to agree. It's named by what it does
+and by the type's glue key (`Layouts::glue_key`, a hash of the layout, field
+types and boxing all the way down, with no `TyConId` in it), and defined weak.
+Every part and every unit that drops a `[Str]` emits
+`buri$stencil$glue$release$<key>`, and the linker keeps one:
+
+- Mach-O: a weak private external (`N_WEAK_DEF | N_PEXT`). `ld64` coalesces
+  them, and `.subsections_via_symbols` lets it drop the losers' bytes.
+- ELF: each copy moves into a `.text` section of its own in a COMDAT group of
+  that name (`mod.rs::carve`). ELF discards whole sections, so the group is
+  what lets the linker drop a copy.
+
+A second part of one unit that emitted the same glue keeps its copy under a
+local name nothing calls, and dead-stripping removes it. Thunks and entry
+thunks name a function of this program, so they stay local, and
+`glue::symbol` still takes *two* numbers, the part and the index.
 
 **What is kept per worker rather than per part**, because it is a memo and not
 an answer: the `Layouts` table and the counted-type classifier, handed between

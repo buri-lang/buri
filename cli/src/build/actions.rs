@@ -452,13 +452,9 @@ fn host_file(
     let Some(js) = js else {
         if let Some(first) = needed.first() {
             diagnostics.push(
-                Diagnostic::templated("host-file-missing-method", output.span)
-                    .with_bind("file", point)
-                    .with_bind("gap", format!("has no `js` file to implement `{}`", first.name))
-                    .with_note(
-                        "a method `platform.buri` declares without a body is the entry's `js` \
-                         file's to implement",
-                    ),
+                Diagnostic::templated("missing-host-file", output.span)
+                    .with_bind("entry", point)
+                    .with_bind("name", first.name.as_str()),
             );
             return Err(std::mem::take(diagnostics));
         }
@@ -546,8 +542,9 @@ pub fn action_key(
     // Every target in the closure contributes its identity and its sources,
     // in a deterministic order.
     let closure = session.workspace.closure(target);
+    let content = if action == Action::Test { Content::Program } else { Content::Bytes };
     for member in &closure {
-        contribute(session, *member, &mut k);
+        contribute_as(session, *member, &mut k, content);
     }
     // Every repository platform the binary's outputs name: its build file, its
     // `platform.buri` and sources, its `js` files and assets, and the
@@ -607,6 +604,36 @@ pub fn platform_inputs(
 /// what makes "editing this file changed this target's key and not that one"
 /// something a test can watch rather than something a comment asserts.
 fn contribute(session: &Session, member: TargetId, k: &mut KeyBuilder) {
+    contribute_as(session, member, k, Content::Bytes);
+}
+
+/// How a key reads a source file.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Content {
+    /// Every byte. An artifact's key, where a comment edit may move a debug location.
+    Bytes,
+    /// What the compiler sees ([`crate::parsing::lexer::program_text`]). A test
+    /// verdict's key, so a comment or whitespace edit reuses the cached pass.
+    Program,
+}
+
+/// A file's contents as `content` reads them, tagged so the two readings never meet.
+pub fn read_as(rel: &str, bytes: Vec<u8>, content: Content) -> Vec<u8> {
+    if content == Content::Program && rel.ends_with(".buri") {
+        if let Some(mut text) =
+            std::str::from_utf8(&bytes).ok().and_then(crate::parsing::lexer::program_text)
+        {
+            text.insert(0, b'p');
+            return text;
+        }
+    }
+    let mut out = Vec::with_capacity(bytes.len().saturating_add(1));
+    out.push(b'b');
+    out.extend_from_slice(&bytes);
+    out
+}
+
+fn contribute_as(session: &Session, member: TargetId, k: &mut KeyBuilder, content: Content) {
     let package = session.workspace.package(member.package);
     let kind = member.kind.name();
     let sources = rule_files(&session.workspace, member);
@@ -627,7 +654,12 @@ fn contribute(session: &Session, member: TargetId, k: &mut KeyBuilder) {
     // for. `parallel::map` returns in index order, so the bytes reach the
     // builder in the order `sources` is in.
     let contents: Vec<Option<Vec<u8>>> = crate::parallel::map(sources.len(), |i| {
-        sources.get(i).and_then(|rel| std::fs::read(package.dir.join(rel)).ok())
+        let rel = sources.get(i)?;
+        let bytes = std::fs::read(package.dir.join(rel)).ok()?;
+        Some(match content {
+            Content::Bytes => bytes,
+            Content::Program => read_as(rel, bytes, content),
+        })
     });
     for (rel, contents) in sources.iter().zip(&contents) {
         k.file(&session.workspace.rel_of(&package.dir.join(rel)), contents.as_deref());
@@ -762,7 +794,7 @@ pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
         if production.contains(&member) {
             continue;
         }
-        contribute(session, member, &mut k);
+        contribute_as(session, member, &mut k, Content::Program);
     }
     let package = session.workspace.package(target.package);
     if let Some(suite) = package.test_suite(target.kind) {
@@ -772,9 +804,11 @@ pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
         k.rule_identity(&package.label(), "test", &files);
         for rel in &files {
             let full = package.dir.join(rel);
-            k.file(rel, std::fs::read(&full).ok().as_deref());
+            let contents = std::fs::read(&full).ok().map(|b| read_as(rel, b, Content::Program));
+            k.file(rel, contents.as_deref());
         }
     }
+    goldens(&package.dir, &mut k);
     // A recording run and a comparing run are two kinds of result and must not
     // share a cache entry. `--update` paints goldens and never compares, so its
     // verdict is always "passed" — it proves a file was written, never that the
@@ -788,6 +822,30 @@ pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
         k.input("update", b"1");
     }
     k.finish()
+}
+
+/// Every golden in the package's `test/__snapshots__`, which a snapshot
+/// compares against (`cli/runtime/snapshot.rs`), so a suite's verdict depends
+/// on them as much as on its sources.
+///
+/// The whole directory rather than the goldens this suite reads: which names a
+/// suite snapshots is known only once it runs. A golden is `<name>.png`. A
+/// `<name>.diff.png` is not one: the runtime writes it beside a changed
+/// snapshot and removes it on a pass, so keying it would move the key under
+/// the run that stores it. Sorted, so the key does not depend on the order the
+/// directory lists in. Its being absent adds nothing, which is what a package
+/// with no goldens has always keyed.
+fn goldens(package_dir: &std::path::Path, k: &mut KeyBuilder) {
+    let dir = package_dir.join("test").join("__snapshots__");
+    let Ok(entries) = std::fs::read_dir(&dir) else { return };
+    let mut names: Vec<String> = entries
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .filter(|n| n.ends_with(".png") && !n.ends_with(".diff.png"))
+        .collect();
+    names.sort();
+    for name in names {
+        k.file(&format!("test/__snapshots__/{name}"), std::fs::read(dir.join(&name)).ok().as_deref());
+    }
 }
 
 /// The middle end and then a backend, over one monomorphized program.
@@ -1033,8 +1091,8 @@ pub fn target_of(output: &Output) -> Target {
 /// `buri build //...` cell does not move. Monomorphization is why — a unit's IR
 /// is a function of the whole program it is in, so two binaries agree on a unit
 /// only where neither instantiated anything the other did not. Reuse *within* a
-/// target is untouched, and so is a batch's: `native_test_batch` gives every
-/// member the same empty prefix. Adding the term does invalidate every existing
+/// target is untouched, and so is a batch's: `link_test_binary` gives every
+/// test binary the same empty prefix. Adding the term does invalidate every existing
 /// `codegen` and therefore every `link` entry, once.
 ///
 /// The native object path is what calls this: it runs the front end and the
@@ -1136,7 +1194,7 @@ pub fn link_key_of(
 /// hashed the same six megabytes five times and spent longer on it than on its
 /// own front end. The term in the key is unchanged; only the number of times it
 /// is computed is.
-fn runtime_archive_hash() -> &'static str {
+pub(crate) fn runtime_archive_hash() -> &'static str {
     static HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     HASH.get_or_init(runtime_native::archive_hash)
 }
@@ -1673,7 +1731,7 @@ pub fn objects_of(
     // ARCHITECTURE.md §7 calls out by name.
     let prefix = session.workspace.package(target.package).path.clone();
     let label = session.workspace.label(target);
-    objects_named(session, &prefix, &label, output, flags, program, tables, diagnostics)
+    objects_named(&session.root, &prefix, &label, output, flags, program, tables, diagnostics)
 }
 
 /// [`objects_of`] with the two things it takes a target for named directly: the
@@ -1690,7 +1748,7 @@ pub fn objects_of(
               neither is derivable from the program, the output or the flags"
 )]
 fn objects_named(
-    session: &mut Session,
+    root: &std::path::Path,
     prefix: &str,
     label: &str,
     output: &Output,
@@ -1805,7 +1863,7 @@ fn objects_named(
     // Moved into the emission below, which is the last reader of it: the keys
     // are computed and `unit_hashes` has already borrowed it.
     let mut lowered_for_backend = Some(lowered);
-    let cache = Cache::open(&session.root);
+    let cache = Cache::open(root);
     let emitted = codegen_units_for(&cache, &keys, flags.force, |wanted| {
         let opts = BackendOptions { profile, target: back_target, unit_prefix: prefix };
         backend.adopt_lowering(lowered_for_backend.take().unwrap_or_else(|| {
@@ -1860,7 +1918,9 @@ fn build_native(
     // is about to run, and the linker has to build that command line.
     let runtime = link::runtime_archive_for(&objects.units);
     let key = link_key(output, flags, &linker, &objects.keys, runtime);
-    let linker = linker.in_dir(link::dir(&session.root, key.as_str()));
+    let linker = linker
+        .in_dir(link::dir(&session.root, key.as_str()))
+        .from_cache(Cache::open(&session.root));
     let label = session.workspace.label(target);
     let explain_link = |status: crate::build::cache::Status| {
         crate::build::cache::explain(flags.explain, status, Action::Link, &label, &output.platform_label(), &key);
@@ -2018,112 +2078,22 @@ fn claim_runner_after(
 }
 
 /// A native **test** binary: the same codegen and the same link, over a program
-/// rooted at the suite's tests rather than at a `main`.
+/// rooted at tests rather than at a `main`. One suite's or a batch's, alike.
 ///
-/// Written to the file [`claim_runner`] names and left there, because unlike
-/// an artifact it is not something the repository asked for — it is the shape a
-/// test run takes on a native platform, and `buri test` executes it and forgets
-/// it.
+/// Written to the file [`claim_runner`] names, or to `private` when another
+/// binary holds that file. The link is cached on the ordered `codegen` keys, so
+/// an edit the front end erases relinks nothing.
 ///
-/// The link **is** cached, and the reason is that the verdict cache in front of
-/// this and the `link` key answer two different questions. `test_key` is over
-/// the suite's *source bytes*, so it misses on every edit a reader can make;
-/// `link_key` is the ordered list of `codegen` keys, and those are over the
-/// lowered IR. Everything the front and middle end erase lies between the two —
-/// a comment, a reformatting, a renamed local, a function nothing calls, a
-/// change in a sibling module the suite does not reach — and for all of it the
-/// suite has to run again while the binary that runs is byte for byte the one
-/// that ran last time. Relinking it is 150 ms of `cc` for an answer already on
-/// disk.
-///
-/// The bytes are the artifact's, so a hit is the same executable rather than an
-/// equivalent one, and `--force` skips the lookup as it does everywhere else.
+/// The unit prefix is always empty. A batch spans packages, and a suite run alone
+/// uses the same prefix so that its `codegen` keys meet a batch's wherever the
+/// two programs agree on a unit.
 #[allow(
     clippy::too_many_arguments,
-    reason = "the session, the target, the output, the flags, the program, its \
-              tables and where to put the diagnostics: seven things none of \
-              which is derivable from the others, and a struct bundling them \
-              would name each of them twice"
+    reason = "where the cache is, the label, the fallback file, the output, the flags, \
+              the program, its tables and the diagnostics: none derivable from another"
 )]
-pub fn native_test_binary(
-    session: &mut Session,
-    target: TargetId,
-    output: &Output,
-    flags: &Flags,
-    program: &mut monomorphize::Program,
-    tables: &Tables,
-    diagnostics: &mut Diagnostics,
-) -> Result<TestBinary, Diagnostics> {
-    let prefix = session.workspace.package(target.package).path.clone();
-    let label = session.workspace.label(target);
-    let dir = session.root.join(".buri/out").join(output.dir());
-    let private = dir.join(&session.workspace.package(target.package).path).join("test");
-    test_binary_named(
-        session, &prefix, &label, private, output, flags, program, tables, diagnostics,
-    )
-}
-
-/// A native test binary for **several** suites at once: one program, one link,
-/// one file.
-///
-/// The suites are already in `program` — `driver::analyze_all` loaded their test
-/// sources into one compilation and `monomorphize::Roots::Tests` rooted it at
-/// every `test` block it found — so nothing here is aware of how many there are.
-/// What it takes instead of a target is the two things a target stood in for:
-///
-/// - **`unit_prefix` is empty.** A batch spans packages, so no package's path is
-///   the program's; the repository root is. It is also the answer that does not
-///   depend on *which* suites are in the batch, and the batch's membership is a
-///   function of which verdicts were already cached — so any prefix taken from a
-///   member would give one batch's objects a different key on every run whose
-///   membership differed, and no two batched runs would reuse each other's.
-///   (The prefix is a term of `codegen_key`, so this is a reuse question rather
-///   than a correctness one; see the note there for why it is a term.)
-/// - **The private path** is the caller's, for the same reason [`claim_runner`]
-///   takes one: the shared runner file is claimed, and a batch that cannot take
-///   the claim needs somewhere of its own to run from.
-///
-/// Everything else is [`native_test_binary`]'s, including the `link` cache: the
-/// key is the ordered list of the batch's `codegen` keys, so two runs whose
-/// batches hold the same suites with the same IR relink nothing, and two runs
-/// whose batches differ are two different keys rather than one wrong one.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "one more than `native_test_binary`, and the one more is the file to \
-              run from — which is what the target used to decide"
-)]
-pub fn native_test_batch(
-    session: &mut Session,
-    targets: &[TargetId],
-    output: &Output,
-    flags: &Flags,
-    program: &mut monomorphize::Program,
-    tables: &Tables,
-    diagnostics: &mut Diagnostics,
-) -> Result<TestBinary, Diagnostics> {
-    let label = targets.iter().map(|t| session.workspace.label(*t)).collect::<Vec<_>>().join(",");
-    // The first member's own path, so that a batch that cannot take the shared
-    // claim runs from a file some previous run has already executed rather than
-    // from a new one. Deterministic: `targets` is in the pass's order.
-    let dir = session.root.join(".buri/out").join(output.dir());
-    let private = match targets.first() {
-        Some(t) => dir.join(&session.workspace.package(t.package).path).join("test"),
-        None => dir.join("test"),
-    };
-    test_binary_named(session, "", &label, private, output, flags, program, tables, diagnostics)
-}
-
-/// The body of both: link this program, cache it, and put it where it can be
-/// run from.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the target is gone and the two things it decided — the debug prefix \
-              and the file to fall back to — are arguments, which is one more \
-              rather than a different shape"
-)]
-fn test_binary_named(
-    session: &mut Session,
-    prefix: &str,
+pub fn link_test_binary(
+    root: &std::path::Path,
     label: &str,
     private: PathBuf,
     output: &Output,
@@ -2132,22 +2102,23 @@ fn test_binary_named(
     tables: &Tables,
     diagnostics: &mut Diagnostics,
 ) -> Result<TestBinary, Diagnostics> {
+    let prefix = "";
     let Some(linker) = linker_for(output, diagnostics) else {
         return Err(std::mem::take(diagnostics));
     };
     let objects =
-        objects_named(session, prefix, label, output, flags, program, tables, diagnostics)?;
+        objects_named(root, prefix, label, output, flags, program, tables, diagnostics)?;
     let runtime = link::runtime_archive_for(&objects.units);
     let key = link_key(output, flags, &linker, &objects.keys, runtime);
-    let linker = linker.in_dir(link::dir(&session.root, key.as_str()));
+    let linker = linker.in_dir(link::dir(root, key.as_str())).from_cache(Cache::open(root));
     let explain_link = |status: crate::build::cache::Status| {
         crate::build::cache::explain(flags.explain, status, Action::Link, label, &output.platform_label(), &key);
     };
     // Claimed after the objects exist and before anything is written, so a run
     // that fails to compile never takes the shared file at all.
-    let binary = claim_runner(&session.root.join(".buri/out").join(output.dir()), private);
+    let binary = claim_runner(&root.join(".buri/out").join(output.dir()), private);
     let path = binary.path().to_path_buf();
-    let cache = Cache::open(&session.root);
+    let cache = Cache::open(root);
     if !flags.force {
         if let Some(entry) = cache.entry(&key) {
             if write_executable(&entry, &path).is_ok() {
@@ -2166,13 +2137,21 @@ fn test_binary_named(
             return Err(std::mem::take(diagnostics));
         }
     };
-    // A batched test binary is the largest artifact this toolchain writes — a
-    // hundred megabytes of debug executable for a repository of any size — and
-    // this is where it stopped being written twice: the file the driver
-    // produced becomes the cache entry, and the copy at `path` is the one the
-    // suite runs from.
+    // The file the driver produced becomes the cache entry, and the copy at
+    // `path` is the one the suite runs from.
     cache.put_file(&key, staged.path());
     Ok(binary)
+}
+
+/// Where a test binary whose first suite is `target` runs from when the shared
+/// file is taken. One per target, so binaries built at the same time never share one.
+pub fn private_test_binary(session: &Session, target: TargetId, output: &Output) -> PathBuf {
+    session
+        .root
+        .join(".buri/out")
+        .join(output.dir())
+        .join(&session.workspace.package(target.package).path)
+        .join(format!("test-{}", target.kind.name()))
 }
 
 /// Writes an executable, and makes it one.

@@ -11,14 +11,18 @@ name: CI
 #   suite fires, and the run is green having checked nothing. On macOS `clang` is
 #   what `cc` already is, so the macOS leg pays nothing for it.
 #
-# * **`rustup target add <arch>-unknown-linux-musl`**, before the first cargo
-#   build on Linux. `cli/build.rs` asks `rustc --print target-libdir` for the musl
+# * **`rustup toolchain install`**, before the first cargo build. It installs
+#   what `rust-toolchain.toml` pins, the same rustc `nix develop` has.
+#
+# * **`rustup target add <arch>-unknown-linux-musl`**, on every Linux job with
+#   `CC: clang`. `cli/build.rs` asks `rustc --print target-libdir` for the musl
 #   `self-contained/` directory, and it exists only when that `rust-std` is
 #   installed. Missing, the runtime archive is built against glibc and the baked
 #   sysroot is empty — so every artifact this compiler links stops running on any
 #   Linux but the runner's, which is a break no test running *here* can observe.
 #   `musl-dev` supplies the C headers that go with it and `musl-tools` the
-#   `musl-gcc` driver `build/link.rs` falls back to.
+#   `musl-gcc` driver `build/link.rs` falls back to. The jobs without clang
+#   don't add it: given a musl std, `ring` needs a C compiler that targets musl.
 #
 # * **`BURI_CI: 1`**, workflow-level, which is the definition of "every job".
 #   `cli/tests/harness/ci.rs` turns every `if !supported() { return; }` into a
@@ -85,21 +89,16 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           # Two architectures must not share a key: the artifacts are the host's.
           shared-key: ${{ matrix.os }}-${{ matrix.arch }}
       - uses: oven-sh/setup-bun@v2
       # A macOS host cross-builds the Linux output in the output-selection and
-      # cross tests (#194), which needs the Linux target's standard library. The
-      # cross link drives rustc's own bundled `ld.lld` (build/link.rs) so the leg
-      # needs no system lld — but that `rust-lld` is dynamically linked against
-      # `libLLVM.dylib`, which only the `llvm-tools` component ships, so add both.
+      # cross tests (#194), which needs the Linux target's standard library.
       - if: runner.os == 'macOS'
-        run: |
-          rustup target add x86_64-unknown-linux-musl
-          rustup component add llvm-tools-preview
+        run: rustup target add x86_64-unknown-linux-musl
       - if: runner.os == 'Linux'
         run: |
           set -euo pipefail
@@ -247,9 +246,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ matrix.os }}-${{ matrix.arch }}-clippy
@@ -279,7 +276,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ matrix.os }}-${{ matrix.arch }}-validate
@@ -304,7 +301,7 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ubuntu-2404-x86_64-release
@@ -350,7 +347,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ubuntu-2404-arm-release
@@ -369,7 +366,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: cargo build -p buri --no-default-features
 
@@ -406,7 +403,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: npm install -g tree-sitter-cli
       - run: cargo build -p buri --example parse_verdicts

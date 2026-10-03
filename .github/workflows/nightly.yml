@@ -164,12 +164,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # --- macOS toolchain (native): rustup is already on the host; dtolnay pins
-      # stable, Homebrew provides LLVM 21, and CC is clang (cli/build.rs honours
-      # CC, and clang is already cc on macOS). None of this runs on the Linux
+      # --- macOS toolchain (native): rustup is already on the host and installs
+      # what rust-toolchain.toml pins, Homebrew provides LLVM 21, and CC is
+      # clang (cli/build.rs honours CC, and clang is already cc on macOS). None of this runs on the Linux
       # legs, whose toolchain lives inside the Alpine container below.
       - if: runner.os == 'macOS'
-        uses: dtolnay/rust-toolchain@stable
+        run: rustup toolchain install
       - if: runner.os == 'macOS'
         uses: Swatinem/rust-cache@v2
         with:
@@ -186,7 +186,6 @@ jobs:
           esac
           echo "LLVM_SYS_211_PREFIX=$prefix" >> "$GITHUB_ENV"
           echo "CC=clang" >> "$GITHUB_ENV"
-          rustup target add "${{ matrix.target }}"
 
       # --- version: cli/Cargo.toml drives CARGO_PKG_VERSION, which is what `buri
       # version` prints, so editing it before the build is what makes the binary
@@ -210,8 +209,8 @@ jobs:
       # --- Linux build INSIDE Alpine via `docker run`. The workspace is
       # bind-mounted so the checked-out source (with the version already bumped on
       # the host) goes in and target/ comes back out. The container installs a
-      # musl-host rustup stable, clang for cli/build.rs's stencil generators (gcc
-      # degrades them to empty), and Alpine's musl-built LLVM 21 with the static
+      # musl-host rustup with the pinned toolchain, clang for cli/build.rs's
+      # stencil generators (gcc degrades them to empty), and Alpine's musl-built LLVM 21 with the static
       # archives its `--system-libs --link-static` set names — `-lrt -ldl -lm -lz
       # -lzstd -lxml2` (rt/dl/m come from musl's libc; z/zstd/xml2 from their
       # `-static` packages) — plus libstdc++ (Alpine's LLVM links libstdc++ and
@@ -242,9 +241,9 @@ jobs:
               esac
               export LLVM_SYS_211_PREFIX="$(llvm21-config --prefix)"
               export CC="$(command -v clang-21 || echo /usr/lib/llvm21/bin/clang)"
-              rustup-init -y --profile minimal --default-toolchain stable --no-modify-path
+              rustup-init -y --profile minimal --default-toolchain none --no-modify-path
               . "$HOME/.cargo/env"
-              rustup target add "$TARGET"
+              rustup toolchain install
               cargo build --release --features backend-llvm -p buri --target "$TARGET"
               chmod -R a+rX "target/$TARGET/release"
             '

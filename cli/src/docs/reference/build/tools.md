@@ -53,7 +53,7 @@ export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generat
 - **Blocks and exports match.** A block without its function is
   [`tool-entry-point-not-exported`](../errors/tool-entry-point-not-exported.md),
   and an exported `check`, `format` or `generate` without its block is
-  [`tool-entry-point-undeclared`](../errors/tool-entry-point-undeclared.md).
+  [`tool-missing-block`](../errors/tool-missing-block.md).
 - **`ctx` has only `Allocator`.** Any other effect is
   [`tool-effect-unavailable`](../errors/tool-effect-unavailable.md),
   so a tool's answer depends only on what it was handed.

@@ -336,9 +336,20 @@ fn a_test_suite_is_cached_and_force_re_runs_it() {
     after.ok();
     assert_eq!(status(&after, "test //lib/money"), "cached");
 
+    // A whitespace edit changes nothing the compiler sees, so the verdict stands.
+    example.edit("lib/money/cents.buri", "fn fromCents", "fn  fromCents");
+    let spaced = example.run(&["test", "//lib/money", "--explain"]);
+    spaced.ok();
+    assert_eq!(
+        status(&spaced, "test //lib/money"),
+        "cached",
+        "a whitespace edit re-ran the suite:\n{}",
+        indent(&spaced.all())
+    );
+
     // And the negative twin, from each of the two directions a suite's key can
     // move: the code under test, and the suite's own source.
-    example.edit("lib/money/cents.buri", "fn fromCents", "fn fromCents ");
+    example.edit("lib/money/cents.buri", "let whole = self.0 / 100;", "let whole = (self.0) / 100;");
     let edited = example.run(&["test", "//lib/money", "--explain"]);
     edited.ok();
     assert_eq!(
@@ -1477,6 +1488,268 @@ fn one_suites_failure_leaves_the_others_reported() {
     );
 }
 
+/// A package whose one suite paints a picture and compares it with the golden
+/// in the package's own `test/__snapshots__`, which `buri test --update`
+/// records.
+fn painting_package(scratch: &Scratch, name: &str) {
+    scratch.write(
+        &format!("lib/{name}/BUILD.buri"),
+        &format!("library {{\n  sources: []\n  test {{ sources: [\"test/{name}.buri\"] }}\n}}\n"),
+    );
+    scratch.write(&format!("lib/{name}/lib.buri"), "// The package is its suite and nothing else.\n");
+    scratch.write(
+        &format!("lib/{name}/test/{name}.buri"),
+        &format!(
+            "from \"platform/effect\" import {{ Allocator, Ui }};\n\
+             from \"platform/effect/testing\" import {{ alloc, headless, snapshot }};\n\
+             from \"ui/node\" import * as ui;\n\
+             \ntest \"the panel\" {{\n  \
+               let ctx = context {{ Allocator: alloc(), Ui: headless() }};\n  \
+               snapshot(\n    ctx,\n    \"panel\",\n    \
+                 ui.text({{ content: .Const(\"{name}\"), headingLevel: .None, styles: .Some([]) }}),\n    \
+                 .Hover,\n    [],\n  );\n}}\n"
+        ),
+    );
+}
+
+/// A suite that takes a snapshot shares a binary with the suites that do not.
+///
+/// One process is handed one snapshot directory, so two suites that paint into
+/// two packages' directories cannot share a binary. Everything else can: a
+/// suite that paints nothing does not care which directory the process was
+/// handed. So four suites, two of them painting into two packages, are two
+/// binaries. They used to be four, because one painting suite in a batch sent
+/// every suite in it back to be compiled, linked and run on its own.
+///
+/// The second run edits one package's picture and checks that only that suite
+/// fails, so that the two directories are still two.
+#[test]
+fn a_suite_that_paints_shares_a_binary_with_those_that_do_not() {
+    let scratch = Scratch::repo("batch-paints");
+    suite_package(&scratch, "a", "");
+    suite_package(&scratch, "b", "");
+    painting_package(&scratch, "one");
+    painting_package(&scratch, "two");
+
+    let recorded = scratch.run(&["test", "//...", "--update"]);
+    if recorded.stderr.contains("native-run-not-available") {
+        recorded.exits(1);
+        return;
+    }
+    recorded.ok();
+    for name in ["one", "two"] {
+        assert!(
+            scratch.path(&format!("lib/{name}/test/__snapshots__/panel.png")).is_file(),
+            "//lib/{name} did not record its golden in its own package:\n{}",
+            indent(&recorded.all())
+        );
+    }
+
+    let run = scratch.run(&["test", "//...", "--explain"]);
+    run.ok();
+    assert_eq!(run.tests_passed(), 4, "a batched run lost a test:\n{}", indent(&run.all()));
+    let links = rows(&run, "link");
+    assert_eq!(
+        links.len(),
+        2,
+        "four suites, two of them painting into two packages, took {} links rather than two:\n{}",
+        links.len(),
+        indent(&run.all())
+    );
+    assert!(
+        !links.iter().any(|l| l.contains("//lib/one") && l.contains("//lib/two")),
+        "two suites that paint into two directories shared a binary:\n{}",
+        indent(&run.all())
+    );
+
+    scratch.edit("lib/two/test/two.buri", ".Const(\"two\")", ".Const(\"three\")");
+    let edited = scratch.run(&["test", "//...", "--explain"]);
+    edited.exits(1);
+    assert!(
+        edited.stdout.contains("FAIL //lib/two") && !edited.stdout.contains("FAIL //lib/one"),
+        "an edit to one package's picture was not reported against that package alone:\n{}",
+        indent(&edited.all())
+    );
+}
+
+/// A batch whose code would not fit in one binary is split into several.
+///
+/// macOS cannot load an executable of about two gigabytes, so a batch that
+/// grew that large failed every test in it. `BURI_TEST_BATCH_BYTES` is the most
+/// code one batched binary may hold, and setting it lower than any one suite
+/// needs leaves every suite a binary of its own. Each still passes, and each
+/// is still its own `test` action.
+#[test]
+fn a_batch_too_large_for_one_binary_is_split() {
+    let scratch = Scratch::repo("batch-split");
+    suite_package(&scratch, "a", "");
+    suite_package(&scratch, "b", "");
+    suite_package(&scratch, "c", "");
+
+    let run = scratch.run_with_env(&["test", "//...", "--explain"], &[("BURI_TEST_BATCH_BYTES", "1")]);
+    if run.stderr.contains("native-run-not-available") {
+        run.exits(1);
+        return;
+    }
+    run.ok();
+    assert_eq!(run.tests_passed(), 3, "a split batch lost a test:\n{}", indent(&run.all()));
+    assert_eq!(rows(&run, "test").len(), 3, "a suite lost its own action:\n{}", indent(&run.all()));
+    let links = rows(&run, "link");
+    assert_eq!(
+        links.len(),
+        3,
+        "three suites each too large to share took {} links rather than three:\n{}",
+        links.len(),
+        indent(&run.all())
+    );
+
+    // And under the default, the same three share one.
+    let shared = Scratch::repo("batch-unsplit");
+    suite_package(&shared, "a", "");
+    suite_package(&shared, "b", "");
+    suite_package(&shared, "c", "");
+    let run = shared.run(&["test", "//...", "--explain"]);
+    run.ok();
+    assert_eq!(rows(&run, "link").len(), 1, "three small suites did not share:\n{}", indent(&run.all()));
+}
+
+/// A test binary that cannot start is one failure, and is started once.
+///
+/// A binary the operating system refuses to load — macOS does this to one of
+/// about two gigabytes, saying `Library not loaded: libSystem.B.dylib` — never
+/// reaches its first test. The runner used to read that as the first test
+/// dying, start the binary again at the second, and so on: a suite of three
+/// tests was three launches and three failures, and a batch of a thousand was
+/// a thousand. The report is now one failure against the suite, quoting what
+/// the loader said, from one launch.
+///
+/// The binary is made unloadable by a C driver that links the real one and then
+/// replaces it with a script that says what the loader says and aborts, and
+/// counts its own launches in a file.
+///
+/// The driver forwards to the `CC` this suite was given, not to `cc`. On Linux
+/// `cc` is often a gcc, which cannot take `--target=`, so the link would fall
+/// back to the machine's `musl-gcc` and fail on a libgcc built for glibc.
+#[cfg(unix)]
+#[test]
+fn a_test_binary_that_cannot_start_is_reported_once() {
+    use std::os::unix::fs::PermissionsExt;
+    let real_cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
+    let scratch = Scratch::repo("binary-cannot-start");
+    scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
+    scratch.write("lib/a/lib.buri", "export fn one(): Int { 1 }\n");
+    scratch.write(
+        "lib/a/test/a.buri",
+        "from \"//lib/a\" import { one };\n\
+         from \"core/testing/assert\" import * as assert;\n\
+         \ntest \"first\" { assert.equal(one(), 1); }\n\
+         test \"second\" { assert.equal(one(), 1); }\n\
+         test \"third\" { assert.equal(one(), 1); }\n",
+    );
+    let launches = scratch.path("launches");
+    let driver = scratch.write(
+        "fake-cc",
+        &format!(
+            "#!/bin/sh\n\
+             '{real_cc}' \"$@\" || exit $?\n\
+             prev=\"\"\n\
+             for a in \"$@\"; do\n  \
+               if [ \"$prev\" = \"-o\" ] && [ \"$a\" = \"artifact\" ]; then\n    \
+                 printf '#!/bin/sh\\necho launched >> {launches}\\n\
+echo \"dyld[1]: Library not loaded: /usr/lib/libSystem.B.dylib\" >&2\\nkill -ABRT $$\\n' > artifact\n    \
+                 chmod +x artifact\n  \
+               fi\n  \
+               prev=\"$a\"\n\
+             done\n",
+            launches = launches.display()
+        ),
+    );
+    std::fs::set_permissions(&driver, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let run = scratch.run_with_env(&["test", "//lib/a"], &[("CC", &driver.display().to_string())]);
+    if run.stderr.contains("native-run-not-available") {
+        run.exits(1);
+        return;
+    }
+    run.exits(1);
+    run.says("could not start").says("Library not loaded");
+    assert_eq!(
+        run.all().matches("Library not loaded").count(),
+        1,
+        "one binary that could not start was reported more than once:\n{}",
+        indent(&run.all())
+    );
+    let launched = std::fs::read_to_string(&launches).unwrap_or_default();
+    assert_eq!(
+        launched.lines().count(),
+        1,
+        "a binary that could not start was started {} times:\n{}",
+        launched.lines().count(),
+        indent(&run.all())
+    );
+}
+
+/// The bytes under `dir` that are in no other file: the size of every file with
+/// one name, so a hard link to a cache entry costs nothing.
+#[cfg(unix)]
+fn unshared_bytes(dir: &std::path::Path) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    let mut total = 0;
+    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let meta = std::fs::symlink_metadata(&path).unwrap();
+        if meta.is_dir() {
+            total += unshared_bytes(&path);
+        } else if meta.nlink() == 1 {
+            total += meta.len();
+        }
+    }
+    total
+}
+
+/// A link directory holds no copy of what the cache already holds, and a
+/// toolchain's link directories go when its cache entries do.
+///
+/// Every link used to write its own copy of the sixteen-megabyte runtime
+/// archive and of every object into `.buri/link/<key>`, and nothing ever
+/// removed one: a cold `buri test` of a repository of 82 suites wrote about
+/// ten gigabytes, and one such repository's `.buri/link` reached 41 GB. The
+/// objects and the archive are hard links to cache entries now, and the cache
+/// drops the link directories with everything else when the toolchain changes.
+#[cfg(unix)]
+#[test]
+fn a_link_directory_costs_no_more_disk_than_the_cache() {
+    let scratch = Scratch::repo("link-directory-disk");
+    suite_package(&scratch, "a", "");
+    suite_package(&scratch, "b", "");
+
+    let run = scratch.run(&["test", "//..."]);
+    if run.stderr.contains("native-run-not-available") {
+        run.exits(1);
+        return;
+    }
+    run.ok();
+    let link = scratch.path(".buri/link");
+    assert!(link.is_dir(), "a native run linked nothing:\n{}", indent(&run.all()));
+    let unshared = unshared_bytes(&link);
+    assert!(
+        unshared < 64 * 1024,
+        "the link directories hold {unshared} bytes the cache does not already hold"
+    );
+
+    // A directory a different toolchain left behind.
+    scratch.write(".buri/link/0000-left-by-another-toolchain/libburi_rt.a", "stale");
+    scratch.write(".buri/cache/.toolchain", "another toolchain");
+    let again = scratch.run(&["test", "//..."]);
+    again.ok();
+    assert_eq!(again.tests_passed(), 2);
+    assert!(
+        !scratch.path(".buri/link/0000-left-by-another-toolchain").exists(),
+        "a link directory outlived the toolchain that made it"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // `buri lint`
 // ---------------------------------------------------------------------------
@@ -1998,6 +2271,92 @@ fn a_comparing_run_is_not_served_an_update_runs_verdict() {
          compared against the goldens on disk:\n{}",
         indent(&compared.all())
     );
+}
+
+/// A suite's verdict depends on the goldens it compares against, so a cached
+/// pass must not outlive an edit to one.
+///
+/// The goldens in a package's `test/__snapshots__` were in no key: editing or
+/// deleting one left the suite's key where it was, and the next plain run was
+/// served the pass from before the edit. Each step below changes only the
+/// golden on disk and checks that the suite runs again, and that its verdict is
+/// the one the golden now gives. A file that is not a golden changes nothing.
+#[test]
+fn a_cached_pass_does_not_outlive_an_edit_to_its_golden() {
+    let scratch = Scratch::repo("golden-in-test-key");
+    painting_package(&scratch, "pic");
+    // Paints a different word, so its golden is a picture `//lib/pic` does
+    // not paint.
+    painting_package(&scratch, "decoy");
+
+    let recorded = scratch.run(&["test", "//...", "--update"]);
+    if recorded.stderr.contains("native-run-not-available") {
+        recorded.exits(1);
+        return;
+    }
+    recorded.ok();
+    let golden = "lib/pic/test/__snapshots__/panel.png";
+    let original = std::fs::read(scratch.path(golden)).expect("the recorded golden");
+
+    scratch.run(&["test", "//lib/pic"]).ok();
+    let warm = scratch.run(&["test", "//lib/pic", "--explain"]);
+    warm.ok();
+    assert_eq!(status(&warm, "test //lib/pic"), "cached", "{}", indent(&warm.all()));
+
+    // Not goldens: a note beside them, and a file elsewhere in the package.
+    scratch.write("lib/pic/test/__snapshots__/NOTES.txt", "not a golden\n");
+    scratch.write("lib/pic/NOTES.txt", "not a golden either\n");
+    let unrelated = scratch.run(&["test", "//lib/pic", "--explain"]);
+    unrelated.ok();
+    assert_eq!(
+        status(&unrelated, "test //lib/pic"),
+        "cached",
+        "a file that is not a golden re-ran the suite:\n{}",
+        indent(&unrelated.all())
+    );
+
+    // Edited: the golden now holds a different picture.
+    std::fs::copy(scratch.path("lib/decoy/test/__snapshots__/panel.png"), scratch.path(golden))
+        .expect("overwriting the golden");
+    let edited = scratch.run(&["test", "//lib/pic", "--explain"]);
+    assert_eq!(
+        status(&edited, "test //lib/pic"),
+        "run",
+        "an edited golden was served a cached verdict:\n{}",
+        indent(&edited.all())
+    );
+    edited.exits(1);
+    assert!(
+        edited.all().contains("the snapshot \"panel\" changed"),
+        "the edited golden did not fail the suite:\n{}",
+        indent(&edited.all())
+    );
+
+    // Restored, so the suite passes and is cached again.
+    std::fs::write(scratch.path(golden), &original).expect("restoring the golden");
+    scratch.run(&["test", "//lib/pic"]).ok();
+
+    // Deleted: there is nothing to compare against.
+    std::fs::remove_file(scratch.path(golden)).expect("deleting the golden");
+    let deleted = scratch.run(&["test", "//lib/pic", "--explain"]);
+    assert_eq!(
+        status(&deleted, "test //lib/pic"),
+        "run",
+        "a deleted golden was served a cached verdict:\n{}",
+        indent(&deleted.all())
+    );
+    deleted.exits(1);
+    assert!(
+        deleted.all().contains("no snapshot for \"panel\""),
+        "the deleted golden did not fail the suite:\n{}",
+        indent(&deleted.all())
+    );
+
+    // Added back: the suite compares against it and passes.
+    std::fs::write(scratch.path(golden), &original).expect("adding the golden");
+    let added = scratch.run(&["test", "//lib/pic"]);
+    added.ok();
+    assert_eq!(added.tests_passed(), 1, "{}", indent(&added.all()));
 }
 
 /// A plain `buri test` must never serve a cached pass over content that

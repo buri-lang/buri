@@ -42,7 +42,7 @@ error: `.code-workspace` already belongs to `jsonc` [duplicate-extension]
   |
   = the extension decides a file's language, so one extension names one language
   = fix: delete one of the two
-error: `json5` is not an extension [language-extension-invalid]
+error: `json5` is not an extension [invalid-extension]
   --> REPO.buri:20:37
    |
 20 |     extensions: [".code-workspace", "json5", ".json"]

@@ -812,6 +812,50 @@ pub struct Lexed<'a> {
     pub module_docs: Vec<(String, Span)>,
 }
 
+/// What a source file says to the compiler: each token's kind and spelling,
+/// whether a line break comes before it, and every doc comment. Ordinary
+/// comments and other whitespace are left out, so editing them leaves this
+/// unchanged. `None` when lexing reports an error, since then the bytes matter.
+pub fn program_text(text: &str) -> Option<Vec<u8>> {
+    let lexed = lex(text, FileId::NONE);
+    if !lexed.errors.is_empty() {
+        return None;
+    }
+    let tokens = &lexed.tokens;
+    let mut out = Vec::with_capacity(text.len());
+    let mut trivia = lexed.trivia.iter().peekable();
+    let mut module_docs = lexed.module_docs.iter().peekable();
+    let mut previous_end = 0usize;
+    for i in 0..tokens.len() {
+        let loc = tokens.loc(i);
+        // A `//!` line is reported when it follows the first item, so where it sits matters.
+        while let Some((line, _)) = module_docs.next_if(|(_, span)| span.start <= loc.start) {
+            out.extend_from_slice(format!("\0//!{i}:{line}\n").as_bytes());
+        }
+        while let Some((_, above)) = trivia.next_if(|(at, _)| *at as usize == i) {
+            for line in &above.docs {
+                out.extend_from_slice(b"\0///");
+                out.extend_from_slice(line.as_bytes());
+                out.push(b'\n');
+            }
+        }
+        // The first token and the end of the file have no token on the line before.
+        let gap = text.get(previous_end..loc.start as usize).unwrap_or("");
+        let edge = i == 0 || tokens.kind(i) == TokenKind::Eof;
+        out.push(if edge || gap.contains('\n') { b'\n' } else { b' ' });
+        out.push(tokens.kind(i) as u8);
+        // Length-prefixed, so two token streams can't spell the same bytes.
+        let spelling = tokens.text(i).as_bytes();
+        out.extend_from_slice(&(spelling.len() as u64).to_le_bytes());
+        out.extend_from_slice(spelling);
+        previous_end = loc.end as usize;
+    }
+    for (line, _) in module_docs {
+        out.extend_from_slice(format!("\0//!end:{line}\n").as_bytes());
+    }
+    Some(out)
+}
+
 pub fn lex(text: &str, file: FileId) -> Lexed<'_> {
     let mut l = Lexer {
         src: text.as_bytes(),

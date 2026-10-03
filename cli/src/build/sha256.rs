@@ -195,12 +195,11 @@ fn accelerated() -> Option<Compress> {
               standard's own indices is what makes this checkable against it"
 )]
 fn compress_portable(state: &mut [u32; 8], blocks: &[u8]) {
-    for block in blocks.chunks_exact(64) {
+    for block in blocks.as_chunks::<64>().0 {
         let mut w = [0u32; 64];
-        // `chunks_exact(4)` over 64 bytes is the first sixteen words, and the
-        // fold spells the big-endian read without a fallible `try_into`.
-        for (word, chunk) in w.iter_mut().zip(block.chunks_exact(4)) {
-            *word = chunk.iter().fold(0u32, |acc, &b| (acc << 8) | u32::from(b));
+        // A block's sixty-four bytes are the first sixteen big-endian words.
+        for (word, chunk) in w.iter_mut().zip(block.as_chunks::<4>().0) {
+            *word = u32::from_be_bytes(*chunk);
         }
         for i in 16..64 {
             let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
@@ -259,7 +258,7 @@ mod arm {
         // sixty-four bytes at offsets up to 48.
         let mut abcd = vld1q_u32(state.as_ptr());
         let mut efgh = vld1q_u32(state.as_ptr().add(4));
-        for block in blocks.chunks_exact(64) {
+        for block in blocks.as_chunks::<64>().0 {
             let (abcd_was, efgh_was) = (abcd, efgh);
             let at = block.as_ptr();
             // The words are big-endian in the block.

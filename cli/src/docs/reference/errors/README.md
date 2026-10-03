@@ -113,6 +113,8 @@ appears once, carries a `code=<code>` reproduction unless it says
 every `see_also` at a real topic. Across the tree, every code a Rust source
 attaches has a page, every reproduction still produces the code its page is
 named after, and every rejected program's JSON diagnostic carries a `fix`.
+A lint page's example is a `buri lint code=<code>` fence: it must compile, and
+`buri lint` must report that code about it.
 
 The golden corpora record rendered output: `cli/tests/reject/*/expected.{txt,json}`,
 and `expected/*.{txt,json}` under `cli/tests/repositories/`, `cli/tests/failing/`
@@ -148,7 +150,7 @@ joining; the template supplies the backticks.
 | `{code_point}` | That character's scalar value, in the lexer's own `{:04X}` form. |
 | `{construct}` | The proto construct the reader refuses, by name (`service`). |
 | `{container}` | `` a `Result` `` or `` an `Option` ``. Used twice in the one sentence. |
-| `{count}` | How many of a thing were declared — a tuple struct's fields, a function's parameters. |
+| `{count}` | How many of a thing were declared, with its noun from `diagnostics::counted` (`1 field`, `3 fields`); a lint binds the bare number. |
 | `{cycle}` | The import stack from the first repeat onwards, already joined with ` -> `. |
 | `{declaration}` | On the language pages, the whole noun phrase for the thing declared or hidden (`` field `a` ``, `` variant `Yes` of `T` ``). On the proto pages, what the file declared, already described (`` `syntax = "proto3"` ``). See the note below the table. |
 | `{dependency}` | The label of the library in question (`//lib/store`). |
@@ -156,7 +158,7 @@ joining; the template supplies the backticks.
 | `{edition}` | `REQUIRED_EDITION` — the one Protobuf edition this reader implements. |
 | `{effect}` | The effect's name. |
 | `{escape}` | The one character after a backslash that is not an escape. |
-| `{expected}` | What the declaration, the grammar or the schema says: a rendered type, a decimal count, or a finished noun phrase (`` `;` ``, `a block`, `platform names`). |
+| `{expected}` | What the declaration, the grammar or the schema says: a rendered type, a count with its noun (`2 arguments`, `no type arguments`), or a finished noun phrase (`` `;` ``, `a block`, `platform names`). |
 | `{expected_plural}` | The plural of what a bare word should have been (`platforms`, `backends`), because the fix names the whole set. |
 | `{exports}` | The names a test's import asked for, quoted and joined (`` `a`, `b` ``), or the phrase `what the test needs`. |
 | `{feature}` | The `features.<name>` a schema wrote. |
@@ -170,7 +172,7 @@ joining; the template supplies the backticks.
 | `{from}` | The error type `?` would propagate. |
 | `{from_target}` | The label of the package that depends. |
 | `{function}` | The called function's name, or the name written to the left of the type arguments. |
-| `{given}` | How many were given, where `{expected}` is how many are taken. |
+| `{given}` | How many were given, as `diagnostics::were_given` phrases it (`1 was given`, `none were given`). |
 | `{how}` | Who makes the edit an undeclared file needs: `buri gen` writes `sources` itself, and leaves `generators` to a person. |
 | `{importer_file}` | The importing module's own file, so the note can say which rule it belongs to. |
 | `{index}` | The tuple element, or the positional field, that was asked for. |
@@ -182,7 +184,7 @@ joining; the template supplies the backticks.
 | `{lines}` | How many lines a function body spans, opening brace to closing brace inclusive. |
 | `{literal}` | The literal exactly as the source wrote it — prefix, underscores and sign included. |
 | `{marker}` | Which marker a comment carries: `TODO`, `FIXME` or `HACK`. |
-| `{matched}` | How many values a pattern matched, where `{expected}` is how many the variant holds. |
+| `{matched}` | How many values a pattern matched, with its noun (`1 value`). |
 | `{message}` | A whole finished sentence somebody else wrote — today, a generator's own. |
 | `{method}` | The method looked up in, or supplied to, a type or a trait. |
 | `{methods}` | The `diagnostics::names` enumeration of the methods an `impl` is missing. |

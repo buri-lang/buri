@@ -1,4 +1,4 @@
-error: `Int` takes no type arguments, but 1 were given [type-argument-count]
+error: `Int` takes no type arguments, but 1 was given [type-argument-count]
  --> cmd/no_type_arguments/main.buri:2:13
   |
 2 | fn width(n: Int<Str>): Int {

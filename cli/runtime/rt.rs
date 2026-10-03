@@ -293,16 +293,7 @@ pub fn park_on<T>(future: impl Future<Output = T>) -> T {
     let mut future = std::pin::pin!(future);
     loop {
         task.state.store(RUNNING, Ordering::Release);
-        // The reactor's context is entered around the **poll and nothing
-        // else**. `EnterGuard` restores a thread-local on drop, and a task
-        // that switched threads between the two would restore it on the
-        // wrong thread; per-poll is a thread-local swap and per-park would be
-        // a bug that only shows up under migration.
-        let polled = {
-            let _in_reactor = handle().enter();
-            future.as_mut().poll(&mut cx)
-        };
-        if let Poll::Ready(answer) = polled {
+        if let Poll::Ready(answer) = poll_in_reactor(future.as_mut(), &mut cx) {
             return answer;
         }
         if task
@@ -318,6 +309,29 @@ pub fn park_on<T>(future: impl Future<Output = T>) -> T {
         task.why.store(WHY_PARK, Ordering::Release);
         leave(task);
     }
+}
+
+/// One poll of a task's future, with the reactor entered around it.
+///
+/// The reactor is entered around the **poll and nothing else**. `EnterGuard`
+/// restores a thread-local when it is dropped, so a task that changed threads
+/// between entering and dropping would restore the wrong thread's.
+///
+/// **`#[inline(never)]` is load-bearing, for the reason given on [`running`].**
+/// tokio keeps the current reactor in a thread-local. Entering it and dropping
+/// the guard both write that thread-local. [`park_on`] is generic, so it is
+/// inlined into its callers, and if this were inlined with it, a caller could
+/// work out the thread-local's address once, before its first poll, and use it
+/// again after [`leave`] had resumed the task on another thread. That is not
+/// hypothetical: built by rustc 1.99 for Linux, `buri_rt_tasks_scope_claim` did
+/// exactly that. A worker that woke on a new thread entered the old thread's
+/// reactor while the old thread was using it, and the program aborted inside
+/// tokio. As a separate function, the address is worked out inside this call,
+/// on the thread doing the poll.
+#[inline(never)]
+fn poll_in_reactor<F: Future>(future: Pin<&mut F>, cx: &mut Context<'_>) -> Poll<F::Output> {
+    let _in_reactor = handle().enter();
+    future.poll(cx)
 }
 
 // ---------------------------------------------------------------------------

@@ -12,7 +12,7 @@ error: a tuple-struct field ends with `,` [missing-comma]
   |                          ^
   |
   = fix: write `,` here
-error: `Cents` holds 2 values, but 1 were given [payload-count]
+error: `Cents` holds 2 values, but 1 was given [payload-count]
  --> lib/recovery_insert_stray_paren_cents_77b0d5/lib.buri:5:5
   |
 5 |     Cents(c)
