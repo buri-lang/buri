@@ -171,18 +171,11 @@ fn check_fn(c: &mut Checker, fid: FnId) {
             inf.note_capture_risk(local, &ty);
         }
     }
-    // What the platform check is asked on behalf of. Set for the whole of this
-    // body and cleared after it, so a helper checked next is checked against
-    // every output again.
-    if inf.in_main {
-        inf.c.entry_being_checked = Some(info.name.clone());
-    }
     let expected = info.ret.clone();
     let body_span = inf.t.block_span(body);
     let expr = inf.check_block(body, Some(&expected));
     inf.unify_at(body_span, &expr.ty.clone(), &expected, "the declared return type");
     let hir_body = inf.finish(expr);
-    c.entry_being_checked = None;
     c.bodies.insert(fid, hir_body);
 }
 

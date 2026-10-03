@@ -511,9 +511,9 @@ fn check_target_platforms(session: &Session, target: TargetId, diagnostics: &mut
     }
     let Some(bin) = &session.workspace.package(target.package).build.binary else { return };
     for output in &bin.outputs {
-        let p = output.platform();
+        let p = output.output_platform();
         if !allowed.contains(&p) {
-            crate::build::actions::check_platform(session, target, p, diagnostics);
+            crate::build::actions::check_platform(session, target, &p, diagnostics);
         }
     }
 }

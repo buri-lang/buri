@@ -282,14 +282,12 @@ pub fn analyze_snippet_as(
     analyze_snippet_on(ws, pkg, map, cache, name, text, role, None)
 }
 
-/// The same, checked against one platform's host grant.
+/// The same, built for one platform.
 ///
-/// A snippet has no output, so by default it is checked with the whole host
-/// granted — a document about `core/fs` must not fail because the harness
-/// picked a platform with no filesystem. A document *about* the grant needs the
-/// opposite, and says so with `platform=` on its fence: that is what lets the
-/// error page for `effect-not-on-platform` carry a program that actually
-/// provokes it.
+/// A snippet has no output, so by default its `main` may take any bundled
+/// platform's host. A document *about* the host says which with `platform=` on
+/// its fence: that is what lets the error page for `entry-host-mismatch` carry
+/// a program that actually provokes it.
 #[allow(
     clippy::too_many_arguments,
     reason = "the eighth is the platform, and the other seven are `analyze_snippet_as`'s \

@@ -10,7 +10,9 @@
 //! 4. Tests live in `test/` and see only the target's surface.
 //! 5. Everything is declared — a file on disk that no rule lists is an error.
 
-use crate::build::buildfile::{self, Backend, BuildFile, Platform, RepoConfig, Spanned};
+use crate::build::buildfile::{
+    self, Backend, BuildFile, OutputPlatform, Platform, PlatformRef, RepoConfig, Spanned,
+};
 use crate::build::textproto::Document;
 use crate::diagnostics::{Diagnostic, Diagnostics, FileId, Invariant as _, Span};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -58,7 +60,7 @@ pub struct PlatformBlocker {
     pub why: String,
     /// The word a tag's `forbids` names it by, rather than a whitelist leaving
     /// it out.
-    pub forbidden: Option<&'static str>,
+    pub forbidden: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -508,6 +510,7 @@ impl Workspace {
         // resolved, so the references are checked here rather than by the
         // reader.
         diagnostics.extend(crate::build::tools::validate(&workspace));
+        diagnostics.extend(check_platform_labels(&workspace));
         Ok(workspace)
     }
 
@@ -1068,88 +1071,36 @@ impl Workspace {
         out
     }
 
-    /// The platforms a rule's **own** build file commits it to, or `None` when
-    /// it commits it to none.
-    ///
-    /// This is deliberately not [`Workspace::platforms`]. That one answers
-    /// "may this be built for X" and treats unset as "all", which is the right
-    /// answer for a policy check and the wrong one for a compile error: a
-    /// library that says nothing about platforms is platform-generic, and a
-    /// diagnostic that read the whole-closure intersection would refuse code
-    /// on behalf of a platform nobody in the tree ever asked for. So a rule
-    /// that declares nothing gets `None` and is never checked
-    /// (`reference/build/build-files.md` §Platforms and effects).
-    ///
-    /// - A **binary** commits to the platforms its `outputs` name. Every one
-    ///   of them has to compile, so the set is a conjunction.
-    /// - A **library** commits to its `platforms` field, narrowed by the
-    ///   `requires.platforms` of the tags it carries — the same two sources
-    ///   [`Workspace::platforms`] reads, asked of this rule alone rather than
-    ///   of its closure. Its tags' `forbids.platforms` then take platforms out
-    ///   of that set, but never create one.
-    pub fn declared_platforms(&self, target: TargetId) -> Option<BTreeSet<Platform>> {
-        let pkg = self.package(target.package);
-        match target.kind {
-            RuleKind::Binary => {
-                let bin = pkg.build.binary.as_ref()?;
-                if bin.outputs.is_empty() {
-                    // A binary with no `outputs` builds for whatever asked
-                    // for it, and `buri build` supplies the default. Nothing
-                    // is declared, so nothing is checked here — the build
-                    // itself still checks the output it is producing.
-                    return None;
-                }
-                Some(bin.outputs.iter().map(|o| o.platform()).collect())
+    /// Every platform an output here can be built for: each bundled one, and
+    /// each repository platform with every backend its entries are built by.
+    pub fn every_platform(&self) -> BTreeSet<OutputPlatform> {
+        let mut out: BTreeSet<OutputPlatform> = Platform::ALL.into_iter().map(OutputPlatform::Bundled).collect();
+        for p in &self.packages {
+            let Some(rule) = p.build.platform.as_ref().filter(|_| is_platform_directory(&p.path)) else {
+                continue;
+            };
+            for entry in &rule.entries {
+                out.insert(OutputPlatform::Repository { label: format!("//{}", p.path), backend: entry.backend.value });
             }
-            RuleKind::Library => {
-                let lib = pkg.build.library.as_ref()?;
-                let mut declared: Option<BTreeSet<Platform>> = None;
-                let mut narrow = |set: BTreeSet<Platform>| {
-                    declared = Some(match declared.take() {
-                        Some(have) => have.intersection(&set).copied().collect(),
-                        None => set,
-                    });
-                };
-                if let Some(set) = lib.admits.set() {
-                    narrow(set);
-                }
-                for tag in &lib.tags {
-                    if let Some(set) = self.repo.tag(&tag.value).and_then(|decl| decl.requires.set()) {
-                        narrow(set);
-                    }
-                }
-                // A forbid list narrows a commitment but never makes one: a
-                // library that only rules JS out has not asked for the rest.
-                if let Some(set) = declared.as_mut() {
-                    for tag in &lib.tags {
-                        if let Some(decl) = self.repo.tag(&tag.value) {
-                            set.retain(|p| !decl.forbids(*p));
-                        }
-                    }
-                }
-                declared
-            }
-            // A tool always runs where the build runs, as JavaScript, and says
-            // nothing about platforms itself.
-            RuleKind::Tool => None,
         }
+        out
     }
 
     /// The platforms a target can be built for: the intersection, over every
-    /// target in its closure, of that target's `platforms` and what every tag
-    /// it carries admits — its `requires.platforms` (unset is "all") minus its
-    /// `forbids.platforms`.
-    pub fn platforms(&self, target: TargetId) -> BTreeSet<Platform> {
-        let mut allowed: BTreeSet<Platform> = Platform::ALL.into_iter().collect();
+    /// target in its closure, of that target's `backends` and `platforms` and
+    /// what every tag it carries admits — its `requires` (unset is "all")
+    /// minus its `forbids`.
+    pub fn platforms(&self, target: TargetId) -> BTreeSet<OutputPlatform> {
+        let mut allowed = self.every_platform();
         for member in self.closure(target) {
             if let Some(lib) = &self.package(member.package).build.library {
                 if member.kind == RuleKind::Library {
-                    allowed.retain(|p| lib.admits.admits(*p));
+                    allowed.retain(|p| lib.admits.admits(p));
                 }
             }
             for tag in self.tags(member) {
                 if let Some(decl) = self.repo.tag(&tag.value) {
-                    allowed.retain(|p| decl.admits(*p));
+                    allowed.retain(|p| decl.admits(p));
                 }
             }
         }
@@ -1157,15 +1108,19 @@ impl Workspace {
     }
 
     /// The platforms a target's suite runs on, one per backend its `test`
-    /// block names: the host for `NATIVE`, and for `JS` the first JavaScript
-    /// platform the target commits to, or else admits. Empty when the block
-    /// names none.
+    /// block names: the host for `NATIVE`, and for `JS` the first bundled
+    /// JavaScript platform the target's outputs name, or else admits. Empty
+    /// when the block names none.
     pub fn suite_platforms(&self, target: TargetId) -> Vec<Platform> {
         let Some(suite) = self.package(target.package).test_suite(target.kind) else {
             return Vec::new();
         };
         let allowed = self.platforms(target);
-        let declared = self.declared_platforms(target).unwrap_or_default();
+        let admits = |p: &Platform| allowed.contains(&OutputPlatform::Bundled(*p));
+        let declared: Vec<Platform> = match (target.kind, &self.package(target.package).build.binary) {
+            (RuleKind::Binary, Some(bin)) => bin.outputs.iter().filter(|o| o.custom.is_none()).map(|o| o.platform()).collect(),
+            _ => Vec::new(),
+        };
         let mut out = Vec::new();
         for backend in &suite.backends {
             let candidates = match backend.value {
@@ -1174,8 +1129,8 @@ impl Workspace {
             };
             let chosen = candidates
                 .iter()
-                .find(|p| declared.contains(p) && allowed.contains(p))
-                .or_else(|| candidates.iter().find(|p| allowed.contains(p)))
+                .find(|p| declared.contains(p) && admits(p))
+                .or_else(|| candidates.iter().find(|p| admits(p)))
                 .or(candidates.first())
                 .copied();
             if let Some(p) = chosen.filter(|p| !out.contains(p)) {
@@ -1185,13 +1140,25 @@ impl Workspace {
         out
     }
 
+    /// What a suite run on `platform` is held to: that platform where the
+    /// target admits it, or else a repository platform the target admits on
+    /// the same backend. A suite is plain Buri, so a library written for one
+    /// repository platform tests on that platform's backend.
+    pub fn suite_output_platform(&self, target: TargetId, platform: Platform) -> OutputPlatform {
+        let bundled = OutputPlatform::Bundled(platform);
+        let allowed = self.platforms(target);
+        if allowed.contains(&bundled) {
+            return bundled;
+        }
+        allowed
+            .into_iter()
+            .find(|p| matches!(p, OutputPlatform::Repository { .. }) && p.backend() == platform.backend())
+            .unwrap_or(bundled)
+    }
+
     /// Explains why `platform` is not available to `target`: the member of the
     /// closure that rules it out, and how it was reached.
-    pub fn platform_blocker(
-        &self,
-        target: TargetId,
-        platform: Platform,
-    ) -> Option<PlatformBlocker> {
+    pub fn platform_blocker(&self, target: TargetId, platform: &OutputPlatform) -> Option<PlatformBlocker> {
         for member in self.closure(target) {
             if let Some(lib) = &self.package(member.package).build.library {
                 if member.kind == RuleKind::Library && !lib.admits.admits(platform) {
@@ -1224,7 +1191,7 @@ impl Workspace {
                                 self.label(member),
                                 tag.value,
                             ),
-                            forbidden: Some(word),
+                            forbidden: Some(word.to_string()),
                         });
                     }
                 }
@@ -1310,19 +1277,8 @@ fn resolve_custom_outputs(
             let path = custom.package_path().to_string();
             let rule = by_path.get(&path).and_then(|_| rules.get(&path));
             let Some(rule) = rule.filter(|_| is_platform_directory(&path)) else {
-                let mut names: Vec<String> =
-                    buildfile::PlatformName::BUNDLED.iter().map(|p| format!("\"{}\"", p.name())).collect();
-                names.extend(rules.keys().filter(|k| is_platform_directory(k)).map(|k| format!("\"//{k}\"")));
-                names.sort();
-                diagnostics.push(
-                    Diagnostic::templated("no-such-platform", custom.label.span)
-                        .with_bind("platform", custom.label.value.as_str())
-                        .with_note(format!(
-                            "a repository's platform is a `platform` rule in a package under \
-                             `//platform/`, and `//{path}` holds none"
-                        ))
-                        .with_fix(format!("name one of {}", names.join(", "))),
-                );
+                let platforms: Vec<&str> = rules.keys().map(String::as_str).collect();
+                diagnostics.push(no_such_platform(&custom.label, &platforms));
                 continue;
             };
             let label = custom.label.value.as_str();
@@ -1375,6 +1331,48 @@ fn resolve_custom_outputs(
         }
         binary.outputs = resolved;
     }
+}
+
+/// `no-such-platform` for a `//` label that names no `platform` rule under
+/// `//platform/`. `rules` are the package paths holding a `platform` rule.
+fn no_such_platform(label: &Spanned<String>, rules: &[&str]) -> Diagnostic {
+    let path = label.value.strip_prefix("//").unwrap_or(&label.value);
+    let mut names: Vec<String> =
+        buildfile::PlatformName::BUNDLED.iter().map(|p| format!("\"{}\"", p.name())).collect();
+    names.extend(rules.iter().filter(|k| is_platform_directory(k)).map(|k| format!("\"//{k}\"")));
+    names.sort();
+    Diagnostic::templated("no-such-platform", label.span)
+        .with_bind("platform", label.value.as_str())
+        .with_note(format!(
+            "a repository's platform is a `platform` rule in a package under `//platform/`, and \
+             `//{path}` holds none"
+        ))
+        .with_fix(format!("name one of {}", names.join(", ")))
+}
+
+/// Every `//` label a library's `platforms` list or a tag's `requires` and
+/// `forbids` name, held to the repository's `platform` rules. The reader
+/// can't see another build file, so this runs once every one is read.
+fn check_platform_labels(workspace: &Workspace) -> Vec<Diagnostic> {
+    let rules: Vec<&str> = workspace
+        .packages
+        .iter()
+        .filter(|p| p.build.platform.is_some() && is_platform_directory(&p.path))
+        .map(|p| p.path.as_str())
+        .collect();
+    let libraries = workspace.packages.iter().filter_map(|p| p.build.library.as_ref()).map(|l| &l.admits);
+    let tags = workspace.repo.tags.iter().flat_map(|t| [&t.requires, &t.forbids]);
+    let mut out = Vec::new();
+    for admitted in libraries.chain(tags) {
+        for written in &admitted.platforms {
+            let PlatformRef::Repository(label) = &written.value else { continue };
+            let path = label.strip_prefix("//").unwrap_or(label);
+            if !rules.contains(&path) {
+                out.push(no_such_platform(&Spanned::new(label.clone(), written.span), &rules));
+            }
+        }
+    }
+    out
 }
 
 /// Walks the tree collecting every directory that holds a `BUILD.buri`.
@@ -1502,69 +1500,6 @@ mod tests {
             assert_eq!(a.kind, kind);
             assert_eq!(b.kind, kind);
         }
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// **A rule that says nothing about platforms commits to none**, and that
-    /// is the whole of what keeps `effect-not-on-platform` off code that is
-    /// merely platform-generic.
-    ///
-    /// The distinction this asserts is the one [`Workspace::platforms`] does
-    /// not make: it answers "may this be built for X" and reads unset as
-    /// "all", which would have every library in a repository committed to
-    /// every platform. Asked as a commitment, unset is `None`.
-    #[test]
-    fn a_rule_that_declares_no_platforms_commits_to_none() {
-        let dir = std::env::temp_dir()
-            .join(format!("buri-declared-platforms-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let _ = std::fs::create_dir_all(dir.join("lib/quiet"));
-        let _ = std::fs::create_dir_all(dir.join("lib/native"));
-        let _ = std::fs::create_dir_all(dir.join("cmd/page"));
-        let _ = std::fs::create_dir_all(dir.join("cmd/anywhere"));
-        let _ = std::fs::write(dir.join("REPO.buri"), "name: \"scratch\"\n");
-        let _ = std::fs::write(dir.join("lib/quiet/BUILD.buri"), "library {\n}\n");
-        let _ = std::fs::write(dir.join("lib/quiet/lib.buri"), "");
-        let _ = std::fs::write(
-            dir.join("lib/native/BUILD.buri"),
-            "library {\n  backends: [NATIVE]\n}\n",
-        );
-        let _ = std::fs::write(dir.join("lib/native/lib.buri"), "");
-        let _ = std::fs::write(
-            dir.join("cmd/page/BUILD.buri"),
-            "binary {\n  outputs: [{ platform: \"web\" }]\n}\n",
-        );
-        let _ = std::fs::write(dir.join("cmd/page/main.buri"), "");
-        let _ = std::fs::write(dir.join("cmd/anywhere/BUILD.buri"), "binary {\n}\n");
-        let _ = std::fs::write(dir.join("cmd/anywhere/main.buri"), "");
-
-        let mut map = crate::diagnostics::SourceMap::default();
-        let mut diags = Diagnostics::default();
-        let ws = Workspace::load(&dir, &mut map, &mut diags).expect("the scratch repository loads");
-        let target = |path: &str, kind: RuleKind| TargetId {
-            package: ws.package_by_path(path).expect("the package is in the workspace"),
-            kind,
-        };
-
-        // Unset, both ways round: a library with no `platforms`, and a binary
-        // with no `outputs`.
-        assert_eq!(ws.declared_platforms(target("lib/quiet", RuleKind::Library)), None);
-        assert_eq!(ws.declared_platforms(target("cmd/anywhere", RuleKind::Binary)), None);
-        // And the same library asked the other question, which is where
-        // "treat unset as all" belongs.
-        assert_eq!(
-            ws.platforms(target("lib/quiet", RuleKind::Library)),
-            Platform::ALL.into_iter().collect::<BTreeSet<Platform>>()
-        );
-
-        assert_eq!(
-            ws.declared_platforms(target("lib/native", RuleKind::Library)),
-            Some([Platform::Linux, Platform::Macos].into_iter().collect())
-        );
-        assert_eq!(
-            ws.declared_platforms(target("cmd/page", RuleKind::Binary)),
-            Some([Platform::Web].into_iter().collect())
-        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

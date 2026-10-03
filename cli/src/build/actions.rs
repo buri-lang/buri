@@ -6,7 +6,7 @@
 //! cache key: a tag decides whether a build is permitted, never what it
 //! produces.
 
-use crate::build::buildfile::{Output, Platform};
+use crate::build::buildfile::{Output, OutputPlatform, Platform};
 use crate::build::cache::{hash_bytes, Action, ActionKey, Cache, KeyBuilder};
 use crate::build::link;
 use crate::build::session::Session;
@@ -85,7 +85,7 @@ fn build_artifact(
     let platform = output.platform();
 
     // Every check the graph can answer before a line is compiled.
-    check_policy(session, target, platform, &mut diagnostics);
+    check_policy(session, target, &output.output_platform(), &mut diagnostics);
     if diagnostics.has_errors() {
         return Err(diagnostics);
     }
@@ -2338,7 +2338,7 @@ fn link_out_symlink(session: &Session, output: &Output) {
 pub fn check_policy(
     session: &Session,
     target: TargetId,
-    platform: Platform,
+    platform: &OutputPlatform,
     diagnostics: &mut Diagnostics,
 ) {
     check_visibility(session, target, diagnostics);
@@ -2460,11 +2460,11 @@ pub fn check_tags(session: &Session, target: TargetId, diagnostics: &mut Diagnos
 pub fn check_platform(
     session: &Session,
     target: TargetId,
-    platform: Platform,
+    platform: &OutputPlatform,
     diagnostics: &mut Diagnostics,
 ) {
     let allowed = session.workspace.platforms(target);
-    if allowed.contains(&platform) {
+    if allowed.contains(platform) {
         return;
     }
     let label = session.workspace.label(target);
@@ -2474,20 +2474,20 @@ pub fn check_platform(
         .build
         .binary
         .as_ref()
-        .and_then(|b| b.outputs.iter().find(|o| o.platform() == platform))
+        .and_then(|b| b.outputs.iter().find(|o| &o.output_platform() == platform))
         .map(|o| o.span)
         .unwrap_or(Span::point(session.workspace.package(target.package).build_file_id, 0));
 
     let mut d = Diagnostic::templated("platform-violation", span)
         .with_bind("target", label.as_str())
-        .with_bind("platform", platform.slug());
+        .with_bind("platform", platform.name());
     if let Some(found) = session.workspace.platform_blocker(target, platform) {
         let blocker = found.member;
         d = d.with_note(found.why);
         if let Some(word) = found.forbidden {
             d = d.with_fix(format!(
                 "drop the {} output, or take {word} out of the tag's `forbids` in REPO.buri",
-                platform.slug()
+                platform.name()
             ));
         }
         if let Some(path) = session.workspace.dep_path(target, blocker) {

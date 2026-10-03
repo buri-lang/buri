@@ -506,8 +506,8 @@ pub fn generate(
             .symbol
             .clone();
         roots.push(sym.clone());
-        // **What an entry *is* is decided by its platform.** A worker is called
-        // by its runtime, once per request; everything else runs itself and
+        // **What an entry *is* is decided by its platform.** An entry with a
+        // `js` file is called by that file; everything else runs itself and
         // reports how it went. The two epilogues are the whole of that
         // difference in the artifact.
         if let Some(name) = &program.hosted.export {
@@ -519,14 +519,6 @@ pub fn generate(
                 .or_ice("the entry point is one of the functions monomorphization emitted");
             stmts.push(g.hosted_export(name, &sym, f));
             roots.push(String::from(HOSTED_PROGRAM));
-        } else if platform == Platform::CloudflareWorker {
-            // A module worker's default export. `$fetchEntry` is the crossing:
-            // the platform's `Request` in, `platform/effect`'s `Response` out.
-            // `env` is the worker's bindings, which `host.env` reads.
-            roots.push("$fetchEntry".into());
-            stmts.push(Stmt::Raw(format!(
-                "export default{{fetch:(request,env)=>$fetchEntry({sym},request,env)}};"
-            )));
         } else {
             // Awaited only when the entry itself parks, so an artifact whose
             // `main` never waits is the same bytes it was before this
@@ -720,11 +712,11 @@ fn split_chunks(
 /// by `process.exit` (buri-lang/buri#37, buri-lang/buri#42).
 ///
 /// So every artifact for a platform that *has* an exit needs it, which is
-/// every platform but `WEB` and `CLOUDFLARE_WORKER`: neither has a
+/// every platform but `WEB` and an entry a `js` file calls: neither has a
 /// `process.exit` to lose a write to, neither has a descriptor to write
 /// synchronously to, and — this is why the answer is not simply `true` — a
-/// bundler would try to resolve `node:module` for a browser, and a worker
-/// deploys with no node under it at all. One that reaches `FileSystem` or `writeBytes`
+/// bundler would try to resolve `node:module` for a browser, and a host such
+/// as a worker runtime deploys with no node under it at all. One that reaches `FileSystem` or `writeBytes`
 /// still gets the prologue, guarded, and `$fs` says out loud that the platform
 /// grants neither.
 ///
@@ -732,7 +724,7 @@ fn split_chunks(
 /// global rather than a module.
 fn needs_require(program: &Program, platform: Platform) -> bool {
     let hosted = program.hosted.export.is_some();
-    if !hosted && !matches!(platform, Platform::Web | Platform::CloudflareWorker) {
+    if !hosted && platform != Platform::Web {
         return true;
     }
     program.funcs.iter().any(|f| {
