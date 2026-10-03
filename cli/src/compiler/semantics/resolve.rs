@@ -2731,6 +2731,7 @@ impl<'a> Checker<'a> {
             trait_id,
             self_con,
             head: self_ty,
+            generics,
             body: ImplBody::Written(supplied),
             span: d.span,
         });
@@ -2965,6 +2966,7 @@ impl<'a> Checker<'a> {
                 trait_id,
                 self_con,
                 head: self.tables.generic_head(self_con),
+                generics: Vec::new(),
                 body: ImplBody::Derived,
                 span: d.span,
             });

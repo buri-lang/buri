@@ -510,24 +510,6 @@ pub struct Monomorphizer<'a> {
     locals: Vec<typed::Local>,
     /// See [`Hosted::js_implemented`].
     js_implemented: std::collections::BTreeSet<String>,
-    /// Per slot, where it was first requested from. See [`Origin`].
-    origins: Vec<Option<Origin>>,
-    /// Per slot, whether its source is the program's rather than the
-    /// toolchain's.
-    in_repo: Vec<bool>,
-    /// The slot being built and the span of the innermost expression being
-    /// rewritten in it, which is what [`Monomorphizer::request`] records.
-    building: Option<usize>,
-    at: Option<Span>,
-}
-
-/// The call that first asked for an instance. A diagnostic raised deep inside
-/// the standard library follows these back to the program's own code, which is
-/// the line its reader can change.
-struct Origin {
-    caller: usize,
-    span: Span,
-    callee: String,
 }
 
 pub fn run(
@@ -551,10 +533,6 @@ pub fn run(
         taken: HashMap::default(),
         locals: Vec::new(),
         js_implemented: std::collections::BTreeSet::new(),
-        origins: Vec::new(),
-        in_repo: Vec::new(),
-        building: None,
-        at: None,
     };
 
     let program_roots = match roots {
@@ -841,8 +819,6 @@ impl<'a> Monomorphizer<'a> {
         let debug_name = entry.debug_name.clone();
         entry.symbol = format!("{symbol}$withHost");
         let slot = self.funcs.len();
-        self.origins.push(None);
-        self.in_repo.push(false);
         self.funcs.push(Func {
             symbol,
             debug_name: format!("{debug_name}, building its host"),
@@ -896,55 +872,9 @@ impl<'a> Monomorphizer<'a> {
             desc: None,
             span,
         });
-        let (module, callee) = match &key {
-            Key::Fn(f, _) => {
-                let info = self.tables().fn_info(*f);
-                (info.module, info.name.clone())
-            }
-            Key::CtxCtor(c) => {
-                let info = self.tables().ctx_decl(*c);
-                (info.module, info.name.clone())
-            }
-            Key::Test(i) => {
-                let case = self
-                    .checked
-                    .tests
-                    .get(*i)
-                    .or_ice("a test key holds the index `run` enumerated `checked.tests` with");
-                (case.module, case.name.clone())
-            }
-        };
-        let in_repo = self
-            .module_paths
-            .get(module.index())
-            .is_some_and(|m| !crate::compiler::standard_library::is_std_path(m));
-        self.in_repo.push(in_repo);
-        let origin = match (self.building, self.at) {
-            (Some(caller), Some(span)) => Some(Origin { caller, span, callee }),
-            _ => None,
-        };
-        self.origins.push(origin);
         self.index.insert(key.clone(), slot);
         self.queue.push((key, slot));
         slot
-    }
-
-    /// Where to report a failure inside the slot being built: `span` when that
-    /// slot is the program's, or else the program's own call that the slot was
-    /// reached from, with the name of the function it called.
-    fn blame(&self, span: Span) -> (Span, Option<String>) {
-        let mut slot = self.building;
-        while let Some(s) = slot {
-            if self.in_repo.get(s).copied().unwrap_or(false) {
-                return (span, None);
-            }
-            let Some(Some(origin)) = self.origins.get(s) else { break };
-            if self.in_repo.get(origin.caller).copied().unwrap_or(false) {
-                return (origin.span, Some(origin.callee.clone()));
-            }
-            slot = Some(origin.caller);
-        }
-        (span, None)
     }
 
     /// `&mut` because minting an instantiation's symbol records it: the
@@ -1127,8 +1057,6 @@ fn instantiation_symbol(taken: &mut HashMap<String, u64>, base: &str, targs: &st
 
 impl Monomorphizer<'_> {
     fn build(&mut self, key: Key, slot: usize) {
-        self.building = Some(slot);
-        self.at = None;
         match key {
             Key::Fn(f, targs) => self.build_fn(f, targs, slot),
             Key::CtxCtor(c) => {
@@ -1689,16 +1617,7 @@ impl Monomorphizer<'_> {
         (out, Some(prelude))
     }
 
-    fn rewrite(&mut self, e: typed::Expr, targs: &[Ty]) -> typed::Expr {
-        // Restored on the way out, so a call's span is current again by the
-        // time its arguments are done and it requests its callee.
-        let outer = self.at.replace(e.span);
-        let e = self.rewrite_expr(e, targs);
-        self.at = outer;
-        e
-    }
-
-    fn rewrite_expr(&mut self, mut e: typed::Expr, targs: &[Ty]) -> typed::Expr {
+    fn rewrite(&mut self, mut e: typed::Expr, targs: &[Ty]) -> typed::Expr {
         e.ty = self.sub(&e.ty, targs);
         e.kind = match e.kind {
             ExprKind::CallFn { func, args } => {
@@ -1945,34 +1864,6 @@ impl Monomorphizer<'_> {
         p
     }
 
-    /// An effect call on a context that does not bind the effect. Checking
-    /// misses this only where a conditional `impl` stands in between, such as
-    /// `impl<C: Stdout> Stdout for Scoped<C>` in `core/alloc`, so the failing
-    /// call is usually in the standard library and the report goes to the
-    /// program's call that led there.
-    fn unbound_effect(&mut self, ctx: CtxTypeId, trait_id: TraitId, method: usize, span: Span) {
-        let tables = self.tables();
-        let effect = tables.trait_(trait_id).name.clone();
-        let bound: Vec<String> = tables
-            .ctx_type(ctx)
-            .bindings
-            .iter()
-            .map(|(t, _)| format!("`{}`", tables.trait_(*t).name))
-            .collect();
-        let bound = if bound.is_empty() { "no effects".to_string() } else { bound.join(", ") };
-        let (span, callee) = self.blame(span);
-        let function = callee.unwrap_or_else(|| {
-            let name = self.tables().trait_(trait_id).methods.get(method).map(|m| m.name.clone());
-            format!("{effect}.{}", name.unwrap_or_default())
-        });
-        self.diags.push(
-            Diagnostic::templated("unbound-effect", span)
-                .with_bind("function", function)
-                .with_bind("effect", effect)
-                .with_bind("bound", bound),
-        );
-    }
-
     /// Turns a trait or effect call into a direct one. This is where the
     /// effect system stops costing anything: a context is a record of
     /// implementations, and by here the record's shape is known.
@@ -1988,10 +1879,13 @@ impl Monomorphizer<'_> {
         // A context value: read the implementation out of it, then dispatch on
         // that implementation's own type.
         if let Ty::Ctx(id) = &recv {
-            let Some(impl_ty) = self.tables().ctx_type(*id).get(trait_id).cloned() else {
-                self.unbound_effect(*id, trait_id, method, span);
-                return ExprKind::Error;
-            };
+            // Checking already refused every call that could reach a context
+            // without the effect: directly, through a bounded parameter, and
+            // through a conditional `impl` such as `impl<C: Stdout> Stdout
+            // for Scoped<C>`, whose bound `Infer::satisfies` checks too.
+            let impl_ty = self.tables().ctx_type(*id).get(trait_id).cloned().or_ice(
+                "checking proved every effect call's context binds the effect it calls",
+            );
             if let Some(first) = args.first_mut() {
                 let base = std::mem::replace(
                     first,
