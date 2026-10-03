@@ -943,12 +943,13 @@ fn analyze(case_path: &str, source: &str, map: &mut SourceMap) -> driver::Analys
 pub(crate) enum Built {
     /// The executable, and how many `test` declarations it holds.
     Linked(PathBuf, usize),
-    /// The **front end** refused it, which is not this file's failure: the
-    /// corpus is shared with `language/conformance.rs` and may be mid-change.
-    FrontEnd,
+    /// The **front end** refused it, with its first errors. A failure for
+    /// every caller: a corpus file the front end refuses is a broken corpus
+    /// file, and [`the_native_set_passes`] and `differential.rs` both say so.
+    FrontEnd(String),
     /// The **backend** refused it, or is missing an intrinsic. A failure for a
-    /// file in the native set, and an ordinary skip for one outside it —
-    /// `differential.rs` takes the second reading and
+    /// file in the native set; for one outside it, the gap [`PACKAGES`]
+    /// excludes it for — `differential.rs` takes the second reading and
     /// [`the_native_set_passes`] the first.
     Unsupported(String),
 }
@@ -958,7 +959,7 @@ impl Built {
     fn written(&self) -> String {
         match self {
             Built::Linked(_, blocks) => format!("linked {blocks}"),
-            Built::FrontEnd => String::from("front end"),
+            Built::FrontEnd(why) => format!("front end {why}"),
             Built::Unsupported(why) => format!("unsupported {why}"),
         }
     }
@@ -971,8 +972,10 @@ impl Built {
         if let Some(why) = said.strip_prefix("unsupported ") {
             return Built::Unsupported(why.to_string());
         }
-        assert_eq!(said, "front end", "{} is not a verdict", dir.display());
-        Built::FrontEnd
+        let why = said
+            .strip_prefix("front end ")
+            .unwrap_or_else(|| panic!("{} is not a verdict", dir.display()));
+        Built::FrontEnd(why.to_string())
     }
 }
 
@@ -1032,12 +1035,10 @@ fn linked_for_the_run(name: &str, source: &str) -> Built {
     built
 }
 
-/// [`linked`], for a caller that treats a refusal as a skip.
-pub(crate) fn linked_if_supported(name: &str, source: &str) -> Option<(PathBuf, usize)> {
-    match linked(name, source) {
-        Built::Linked(path, blocks) => Some((path, blocks)),
-        Built::FrontEnd | Built::Unsupported(_) => None,
-    }
+/// The reason [`PACKAGES`] gives for keeping `path` out of the native set,
+/// or `None` for a file in the set or not in the corpus.
+pub(crate) fn excluded_because(path: &str) -> Option<&'static str> {
+    PACKAGES.iter().find(|c| c.path == path).and_then(|c| c.out.as_ref()).map(Out::why)
 }
 
 /// [`linked`] without the memo, which is where the work is, into `dir`.
@@ -1045,7 +1046,7 @@ fn build(name: &str, source: &str, dir: &Path) -> Built {
     let mut map = SourceMap::new();
     let analysis = analyze(name, source, &mut map);
     if analysis.diagnostics.has_errors() {
-        return Built::FrontEnd;
+        return Built::FrontEnd(front_end_errors(&analysis.diagnostics));
     }
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
     let mut diagnostics = Diagnostics::new();
@@ -1123,14 +1124,14 @@ fn build(name: &str, source: &str, dir: &Path) -> Built {
 /// invariant of the whole corpus rather than of the handful of programs a leak
 /// test was written for. `shared::ran_checked` is the environment, and
 /// `cli/runtime/memory.rs`'s heap-check section is what reads it.
-fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
+fn run(name: &str, source: &str) -> Result<(i32, String, String, usize), String> {
     let (binary, blocks) = match linked(name, source) {
         Built::Linked(binary, blocks) => (binary, blocks),
-        Built::FrontEnd => return None,
+        Built::FrontEnd(why) => return Err(why),
         Built::Unsupported(why) => panic!("{name}: {why}"),
     };
     let ran = crate::shared::ran_checked(&binary);
-    Some((ran.status, ran.stdout, ran.stderr, blocks))
+    Ok((ran.status, ran.stdout, ran.stderr, blocks))
 }
 
 // ---------------------------------------------------------------------------
@@ -1193,14 +1194,7 @@ fn refusal(name: &str, source: &str) -> Result<String, String> {
     let mut map = SourceMap::new();
     let analysis = analyze(name, source, &mut map);
     if analysis.diagnostics.has_errors() {
-        return Err(analysis
-            .diagnostics
-            .items
-            .iter()
-            .take(2)
-            .map(|d| d.message.clone())
-            .collect::<Vec<_>>()
-            .join("; "));
+        return Err(front_end_errors(&analysis.diagnostics));
     }
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
     let mut diagnostics = Diagnostics::new();
@@ -1225,6 +1219,11 @@ fn refusal(name: &str, source: &str) -> Result<String, String> {
     }
 }
 
+/// The first two front-end errors, as one line.
+fn front_end_errors(diagnostics: &Diagnostics) -> String {
+    diagnostics.items.iter().take(2).map(|d| d.message.clone()).collect::<Vec<_>>().join("; ")
+}
+
 /// Whether the native backend can compile a source at all, without linking.
 ///
 /// The hook's half of [`refusal`], for the callers that want the keys rather
@@ -1233,14 +1232,7 @@ fn missing_for(name: &str, source: &str) -> Result<Vec<String>, String> {
     let mut map = SourceMap::new();
     let analysis = analyze(name, source, &mut map);
     if analysis.diagnostics.has_errors() {
-        return Err(analysis
-            .diagnostics
-            .items
-            .iter()
-            .take(2)
-            .map(|d| d.message.clone())
-            .collect::<Vec<_>>()
-            .join("; "));
+        return Err(front_end_errors(&analysis.diagnostics));
     }
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
     let mut diagnostics = Diagnostics::new();
@@ -1318,9 +1310,9 @@ fn the_excluded_packages_are_excluded_for_the_stated_reason() {
     for case in PACKAGES.iter().filter(|c| matches!(c.out, Some(Out::Refused(_)))) {
         let source = read(case);
         match refusal(case.path, &source) {
-            // A front-end error means the corpus is mid-change, which is
-            // not this file's business to fail over.
-            Err(_) => continue,
+            // An excluded file still has to compile: a front-end error would
+            // hide whether the refusal it is excluded for is still there.
+            Err(e) => panic!("`{}`: the front end refused it: {e}", case.path),
             Ok(why) => assert!(
                 !why.is_empty(),
                 "`{}` is listed as excluded ({}), but the backend now \
@@ -1351,16 +1343,15 @@ fn native_set_shard(at: usize, count: usize) {
     let mine = shard::of(&set, at, count);
     let mut total = 0usize;
     let mut ran = 0usize;
-    let mut skipped: Vec<String> = Vec::new();
     let mut leaking: Vec<String> = Vec::new();
     let mut failures: Vec<String> = Vec::new();
     for &&case in &mine {
         let source = read(case);
-        // A file the *front end* refuses is not this file's failure: the
-        // corpus is shared with `language/conformance.rs` and may be mid-change.
+        // A file the *front end* refuses fails like any other: a native-set
+        // file that does not compile is a file this shard did not run.
         match missing_for(case.path, &source) {
             Err(e) => {
-                skipped.push(format!("{} (front end: {e})", case.path));
+                failures.push(format!("`{}`: the front end refused it: {e}", case.path));
                 continue;
             }
             Ok(missing) if !missing.is_empty() => panic!(
@@ -1369,9 +1360,12 @@ fn native_set_shard(at: usize, count: usize) {
             ),
             Ok(_) => {}
         }
-        let Some((status, out, err, blocks)) = run(case.path, &source) else {
-            skipped.push(format!("{} (front end)", case.path));
-            continue;
+        let (status, out, err, blocks) = match run(case.path, &source) {
+            Ok(ran) => ran,
+            Err(e) => {
+                failures.push(format!("`{}`: the front end refused it: {e}", case.path));
+                continue;
+            }
         };
         // The heap invariant, and it is a *different* verdict from the one
         // above: a program that failed an assertion aborts, which is status 1
@@ -1408,9 +1402,6 @@ fn native_set_shard(at: usize, count: usize) {
     // Every failing file, not the first: two platforms failing on two
     // different files is one report here and two runs otherwise.
     assert!(failures.is_empty(), "{} files failed:\n{}", failures.len(), failures.join("\n"));
-    for s in &skipped {
-        eprintln!("native conformance: skipped {s}");
-    }
     for l in &leaking {
         eprintln!("native conformance: known leak {l}");
     }
@@ -1614,12 +1605,11 @@ test "a stdin of octets reads them, and readLine finds nothing there" {
   assert.isTrue(io.readLine(ctx).isNone());
 }
 "##;
-    if refusal("host-testing", SOURCE).is_err() {
-        return;
+    if let Err(e) = refusal("host-testing", SOURCE) {
+        panic!("the front end refused the host-testing fixture: {e}");
     }
-    let Some((status, out, err, blocks)) = run("host-testing", SOURCE) else {
-        panic!("the front end refused the host-testing fixture");
-    };
+    let (status, out, err, blocks) = run("host-testing", SOURCE)
+        .unwrap_or_else(|e| panic!("the front end refused the host-testing fixture: {e}"));
     assert_eq!(status, 0, "stdout:\n{out}\nstderr:\n{err}");
     assert_eq!(blocks, 12, "the fixture lost a `test` block");
 }
@@ -1627,13 +1617,11 @@ test "a stdin of octets reads them, and readLine finds nothing there" {
 /// `Self` through a context, natively, as a test that cannot be skipped.
 ///
 /// The blocks this mirrors live in `semantics/effects.buri` and run in
-/// [`the_native_set_passes`] above — but that harness *skips* a file the front
-/// end refuses, deliberately, because the corpus is shared with
-/// `language/conformance.rs` and may be mid-change. A handler that reads a
-/// field off the implementation it is handed does not typecheck at all when
-/// `Self` is the receiver, so the whole file would have been skipped rather
-/// than failed, and the native half of this fix would have had no guard on this
-/// side at all. This one panics on a refusal.
+/// [`the_native_set_passes`] above, which fails a file the front end refuses.
+/// A handler that reads a field off the implementation it is handed does not
+/// typecheck at all when `Self` is the receiver, so this fixture keeps the case
+/// in one small source of its own, where a refusal panics naming what the fix
+/// was for.
 ///
 /// Both halves are here in one source:
 ///
@@ -1723,7 +1711,7 @@ test "and through a bound the call still lands" {
   assert.equal(runInOrderNamed(ctx, [3, 4]), ["0:3", "1:4"]);
 }
 "#;
-    let Some((status, out, err, blocks)) = run("semantics/self-through-a-context.buri", SOURCE)
+    let Ok((status, out, err, blocks)) = run("semantics/self-through-a-context.buri", SOURCE)
     else {
         panic!(
             "the front end refused the `Self`-through-a-context fixture — which is what it did \
@@ -1750,8 +1738,8 @@ fn the_native_set_can_fail() {
     }
     let case = Case { path: "numbers/bits.buri", out: None };
     let source = read(&case);
-    if missing_for("bits-broken", &source).is_err() {
-        return;
+    if let Err(e) = missing_for("bits-broken", &source) {
+        panic!("the front end refused `numbers/bits.buri`: {e}");
     }
     // The value, not a name: renaming a constant and its use together would
     // leave the assertion true. `assert!` on the marker means a corpus that
@@ -1762,9 +1750,9 @@ fn the_native_set_can_fail() {
         "`numbers/bits.buri` no longer contains the assertion this test edits"
     );
     let broken = source.replace(MARKER, "assert.equal(bits.shiftLeft(1, 10), 1025);");
-    let Some((status, out, err, _)) = run("bits-broken", &broken) else {
-        return;
-    };
+    let (status, out, err, _) = run("bits-broken", &broken).unwrap_or_else(|e| {
+        panic!("the front end refused `numbers/bits.buri` with one assertion edited: {e}")
+    });
     assert_ne!(status, 0, "a broken assertion still passed:\n{out}\n{err}");
     assert!(
         err.contains("assert.equal failed"),
