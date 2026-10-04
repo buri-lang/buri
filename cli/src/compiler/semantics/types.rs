@@ -586,12 +586,15 @@ pub struct Tables {
     pub impls: LayeredMap<(TraitId, TyConId), ImplInfo>,
     /// The traits each type implements, ascending.
     ///
-    /// The same argument `effect_traits` makes below, for the other question
-    /// `impls` was scanned to answer: `resolve_method` asks "which traits does
-    /// this type implement?" on every method call that is not already in the
-    /// method table, and answering it by walking `impls` made resolving one
-    /// method cost as much as the whole compilation declares, the standard
-    /// library included. `add_impl` is the only way a conformance comes into
+    /// `resolve_method` asks "which traits does this type implement?" on every
+    /// method call that is not already in the method table, and answering it
+    /// by walking `impls` made resolving one method cost as much as the whole
+    /// compilation declares, the standard library included. The effect
+    /// predicates ask "does this type implement *any* effect?" once per
+    /// type-constructor node they walk, and read the answer here too: one
+    /// lookup and a scan of a short list, where asking `impls` once per effect
+    /// was two hash probes for each of the standard library's twenty-odd
+    /// effects. `add_impl` is the only way a conformance comes into
     /// existence, so this cannot fall out of step, and the list is kept sorted
     /// where the scan sorted afterwards, so the answer is the same one.
     traits_by_con: IdMap<TyConId, Vec<TraitId>>,
@@ -631,18 +634,6 @@ pub struct Tables {
     /// settled gets the conservative answer rather than a wrong one, and a
     /// type constructor minted afterwards is treated as holding everything.
     variance: Layered<Vec<bool>>,
-    /// Which traits are effects, kept as a list because the effect predicates
-    /// below ask "does this type constructor implement *any* effect?" once per
-    /// type-constructor node they walk.
-    ///
-    /// The question used to be answered by scanning `impls` — every
-    /// conformance in the compilation, standard library included — so the cost
-    /// of checking one function grew with the number of `impl` blocks
-    /// anywhere in the repository. Asking it of the effects instead is a hash
-    /// lookup each, and a program declares a handful of effects and thousands
-    /// of impls. `add_trait` is the only way a trait comes into existence and
-    /// `is_effect` is fixed at that point, so this cannot fall out of step.
-    effect_traits: Vec<TraitId>,
 }
 
 /// `compute_variance`'s table while the fixpoint runs: the rows a base
@@ -770,7 +761,6 @@ impl Tables {
             prim_ids: self.prim_ids.clone(),
             member_index: self.member_index.layer(),
             variance: self.variance.layer(),
-            effect_traits: self.effect_traits.clone(),
         }
     }
 
@@ -918,16 +908,13 @@ impl Tables {
 
     pub fn add_trait(&mut self, t: TraitInfo) -> TraitId {
         let id = TraitId(self.traits.len() as u32);
-        if t.is_effect {
-            self.effect_traits.push(id);
-        }
         self.traits.push(t);
         id
     }
 
     /// Whether this type constructor implements any effect.
     ///
-    /// Answered from `impls`, which is filled in by conformance registration —
+    /// Answered from the conformances, which are filled in by registration —
     /// so every caller must run after it. That is why rule 26 is checked in a
     /// pass of its own (`Checker::check_ctx_rules`) rather than while
     /// signatures are elaborated: asked earlier, this returned `false` for
@@ -941,7 +928,7 @@ impl Tables {
     /// hold a `Program` and no `Tables` — `middle::rc` asks it of a callee's
     /// type, and `middle::native` takes no `Tables`.
     pub fn con_carries_effect(&self, con: TyConId) -> bool {
-        self.effect_traits.iter().any(|t| self.impls.contains_key(&(*t, con)))
+        self.traits_of_con(con).iter().any(|t| self.trait_(*t).is_effect)
     }
 
     /// The first concrete constructor in `ty` that implements an effect,
@@ -955,7 +942,7 @@ impl Tables {
     pub fn effect_implementor(&self, ty: &Ty) -> Option<(TyConId, TraitId)> {
         match ty {
             Ty::Con(id, args) => {
-                let own = self.effect_traits.iter().find(|t| self.impls.contains_key(&(**t, *id)));
+                let own = self.traits_of_con(*id).iter().find(|t| self.trait_(**t).is_effect);
                 if let Some(t) = own {
                     return Some((*id, *t));
                 }
