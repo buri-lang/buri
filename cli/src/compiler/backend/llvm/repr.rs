@@ -392,6 +392,11 @@ impl<'a> Reprs<'a> {
         self.counts.sites(self.tables, &mut self.layouts, ty)
     }
 
+    /// See `Counts::weight`.
+    pub fn rc_weight(&mut self, ty: &Ty) -> u32 {
+        self.counts.weight(self.tables, &mut self.layouts, ty)
+    }
+
     /// `T` of an `Option<T>` that took the niche.
     fn option_payload(&self, ty: &Ty) -> Option<Ty> {
         match ty {
