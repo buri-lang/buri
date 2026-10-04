@@ -1,0 +1,6 @@
+from "//lib/greeting/files" import { HELLO_TXT };
+
+/// The text of hello.txt.
+export fn word(): Str {
+    HELLO_TXT
+}

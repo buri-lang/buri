@@ -1,0 +1,3 @@
+export fn rings(): I64 {
+    1
+}

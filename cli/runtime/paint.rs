@@ -421,13 +421,21 @@ pub fn encode_png(pixmap: &Pixmap) -> Vec<u8> {
 /// diff image where they disagree.
 ///
 /// `None` when the golden decodes to exactly the raster's pixels — the passing
-/// path, which decodes the golden (cheap) but never encodes the fresh one.
-/// `Some` is the PNG of the diff, the same picture [`diff`] paints, and it is
-/// the only path on a comparison that touches the encoder.
+/// path, which inflates the golden but never encodes the fresh one. `Some` is
+/// the PNG of the diff, the same picture [`diff`] paints, and it is the only
+/// path on a comparison that touches the encoder.
 ///
 /// This compares *pixels* rather than the file bytes [`diff`] compares, which
 /// is a truer question and the same answer: [`encode`] is deterministic, so a
 /// golden this painter wrote is byte-equal to a re-encode of the same pixels.
+///
+/// **The passing path does not put the golden's rows back.** A golden this
+/// painter wrote holds eight-bit RGBA rows behind the `Up` filter
+/// ([`filter_rows`]), and filtering is one-to-one, so the fresh raster's rows,
+/// filtered the same way, equal the golden's inflated bytes exactly when the
+/// pixels are equal ([`same_filtered`]). Anything else — another filter,
+/// another colour type, a difference — is decoded in full and compared pixel
+/// by pixel, which is the answer that decides.
 ///
 /// A golden this painter can *write* but not *read* — a picture taller than the
 /// decoder's cap — is compared by the bytes it would write instead, because the
@@ -439,7 +447,14 @@ pub fn encode_png(pixmap: &Pixmap) -> Vec<u8> {
 /// Answers `Err` when the golden is not a PNG this painter can read *and* the
 /// bytes it would write for the fresh raster do not match it.
 pub fn compare(golden: &[u8], pixmap: &Pixmap) -> Result<Option<Vec<u8>>, String> {
-    let recorded = match decode(golden) {
+    let (width, height) = (pixmap.width(), pixmap.height());
+    let inflated = image::inflated(golden);
+    if let Some(rows) = inflated.as_ref().ok().and_then(|found| found.rgba_rows(width, height))
+        && same_filtered(rows, pixmap)
+    {
+        return Ok(None);
+    }
+    let recorded = match inflated.and_then(image::Inflated::decode) {
         Ok(image) => image,
         // The decode cap matches the largest canvas the painter paints, so a
         // golden this painter recorded always decodes and is diffed below. A
@@ -448,13 +463,67 @@ pub fn compare(golden: &[u8], pixmap: &Pixmap) -> Result<Option<Vec<u8>>, String
         // picture always was.
         Err(why) => return if encode_png(pixmap) == golden { Ok(None) } else { Err(why) },
     };
-    let fresh = straight(pixmap);
-    let (width, height) = (pixmap.width(), pixmap.height());
-    if recorded.width == width && recorded.height == height && recorded.rgba == fresh {
+    if recorded.width == width && recorded.height == height && same_pixels(&recorded.rgba, pixmap) {
         return Ok(None);
     }
-    let actual = image::Image { width, height, rgba: fresh };
+    let actual = image::Image { width, height, rgba: straight(pixmap) };
     Ok(Some(diff_image(&recorded, &actual)?))
+}
+
+/// One row of the premultiplied canvas as the straight bytes a PNG holds. An
+/// opaque pixel is the same four bytes either way, so the row is copied and
+/// only a translucent pixel is demultiplied.
+fn straight_row(premultiplied: &[u8], out: &mut [u8]) {
+    out.copy_from_slice(premultiplied);
+    for pixel in out.chunks_exact_mut(4) {
+        if pixel[3] != 255 {
+            let p = PremultipliedColorU8::from_rgba(pixel[0], pixel[1], pixel[2], pixel[3])
+                .map_or(tiny_skia::ColorU8::from_rgba(0, 0, 0, 0), |p| p.demultiply());
+            pixel.copy_from_slice(&[p.red(), p.green(), p.blue(), p.alpha()]);
+        }
+    }
+}
+
+/// Whether straight RGBA bytes are the raster's pixels, a row at a time.
+fn same_pixels(rgba: &[u8], pixmap: &Pixmap) -> bool {
+    let stride = pixmap.width() as usize * BPP;
+    if rgba.len() != pixmap.data().len() || stride == 0 {
+        return false;
+    }
+    let mut row = vec![0_u8; stride];
+    rgba.chunks_exact(stride).zip(pixmap.data().chunks_exact(stride)).all(|(want, line)| {
+        straight_row(line, &mut row);
+        row == want
+    })
+}
+
+/// Whether a golden's inflated rows — a filter byte and the row, each — are
+/// the raster's pixels behind the `Up` filter [`filter_rows`] writes: every
+/// filter byte `2`, and every byte the difference from the byte above it.
+fn same_filtered(rows: &[u8], pixmap: &Pixmap) -> bool {
+    let stride = pixmap.width() as usize * BPP;
+    if rows.len() != (stride + 1) * pixmap.height() as usize || stride == 0 {
+        return false;
+    }
+    let (mut above, mut here) = (vec![0_u8; stride], vec![0_u8; stride]);
+    for (filtered, line) in rows.chunks_exact(stride + 1).zip(pixmap.data().chunks_exact(stride)) {
+        let (kind, filtered) = filtered.split_at(1);
+        if kind != [2] {
+            return false;
+        }
+        straight_row(line, &mut here);
+        // Every byte's disagreement folded into one, so the row is read
+        // without a branch per byte.
+        let differs = filtered
+            .iter()
+            .zip(here.iter().zip(&above))
+            .fold(0_u8, |seen, (&f, (&x, &up))| seen | (f ^ x.wrapping_sub(up)));
+        if differs != 0 {
+            return false;
+        }
+        std::mem::swap(&mut above, &mut here);
+    }
+    true
 }
 
 /// The custom properties a `:root` block declares, each name without its
@@ -2315,17 +2384,104 @@ struct ShadowKey {
     radius: u32,
 }
 
+/// A canvas-sized mask, zeroed, that goes back to [`SPARES`] when it is
+/// dropped rather than to the allocator.
+///
+/// A paint asks for a canvas-sized mask for every clipped box, every border
+/// that is not one stroke and every shadow, and each one written over only
+/// the few rows its box covers. Allocating and freeing one each time is a
+/// fresh run of zeroed pages from the system per box; reusing one is zeroing
+/// the rows the last box wrote. `dirty` is that stretch (device pixels) and
+/// every write to the mask must land inside it — the runtime's own tests check
+/// the whole mask is zero again before it is kept.
+struct Spare {
+    mask: Option<Mask>,
+    dirty: Box2,
+}
+
+impl Spare {
+    fn new(width: u32, height: u32, dirty: Box2) -> Option<Self> {
+        let len = (width as usize).checked_mul(height as usize)?;
+        let kept = SPARES.with_borrow_mut(|spares| {
+            let at = spares.iter().position(|data| data.len() == len)?;
+            Some(spares.swap_remove(at))
+        });
+        let mask = match kept {
+            Some(data) => Mask::from_vec(data, tiny_skia::IntSize::from_wh(width, height)?)?,
+            None => Mask::new(width, height)?,
+        };
+        Some(Self { mask: Some(mask), dirty })
+    }
+}
+
+impl std::ops::Deref for Spare {
+    type Target = Mask;
+    fn deref(&self) -> &Mask {
+        self.mask.as_ref().expect("a spare holds its mask until it is dropped")
+    }
+}
+
+impl std::ops::DerefMut for Spare {
+    fn deref_mut(&mut self) -> &mut Mask {
+        self.mask.as_mut().expect("a spare holds its mask until it is dropped")
+    }
+}
+
+impl Drop for Spare {
+    fn drop(&mut self) {
+        let Some(mask) = self.mask.take() else { return };
+        let (w, h) = (mask.width() as i32, mask.height() as i32);
+        let mut data = mask.take();
+        let dirty = self.dirty;
+        let (l, r) = (dirty.l.clamp(0, w) as usize, dirty.r.clamp(0, w) as usize);
+        let (t, b) = (dirty.t.clamp(0, h) as usize, dirty.b.clamp(0, h) as usize);
+        if l < r {
+            for y in t..b {
+                data[y * w as usize + l..y * w as usize + r].fill(0);
+            }
+        }
+        #[cfg(test)]
+        assert!(data.iter().all(|&b| b == 0), "a spare mask was written outside its dirty stretch");
+        SPARES.with_borrow_mut(|spares| {
+            // Spares of another canvas's size are no use to this one.
+            spares.retain(|kept| kept.len() == data.len());
+            if (spares.len() + 1) * data.len() <= SPARE_BYTES {
+                spares.push(data);
+            }
+        });
+    }
+}
+
+/// The most [`SPARES`] keeps, all told.
+const SPARE_BYTES: usize = 64 << 20;
+
 thread_local! {
-    /// Blurred shadow coverage, cached for the life of a paint ([`paint_with`]
-    /// clears it). A design system draws the same button dozens of times, and
-    /// the blur is the same bytes each time, so it is worth computing once.
+    /// Zeroed canvas-sized masks waiting for a [`Spare`] to take them.
+    static SPARES: std::cell::RefCell<Vec<Vec<u8>>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Blurred shadow coverage by the shape it was blurred from.
+type Shadows = std::collections::HashMap<ShadowKey, std::rc::Rc<[u8]>>;
+
+/// The most blurred-shadow coverage [`SHADOW_CACHE`] holds at once: a few
+/// hundred card-sized shadows, and a small fraction of one full-page canvas.
+const SHADOW_CACHE_BYTES: usize = 16 << 20;
+
+thread_local! {
+    /// Blurred shadow coverage, cached for the life of the thread. A design
+    /// system draws the same button dozens of times in a scene and the same
+    /// card in every scene of a suite, and the blur is the same bytes each
+    /// time, so it is worth computing once — the bytes are a function of the
+    /// key alone, which is what lets an entry outlive the paint that made it.
     ///
     /// The value is the region's coverage bytes, not a canvas-sized mask, so an
-    /// entry is the size of one shadow. The map is never iterated — it is a
-    /// keyed lookup — so it keeps the file's rule that nothing on the output
-    /// path depends on hash order.
-    static SHADOW_CACHE: std::cell::RefCell<std::collections::HashMap<ShadowKey, std::rc::Rc<[u8]>>> =
-        std::cell::RefCell::new(std::collections::HashMap::new());
+    /// entry is the size of one shadow, and the second number is all of them
+    /// together: past [`SHADOW_CACHE_BYTES`] the map starts again rather than
+    /// growing with the suite. The map is never iterated — it is a keyed
+    /// lookup — so it keeps the file's rule that nothing on the output path
+    /// depends on hash order.
+    static SHADOW_CACHE: std::cell::RefCell<(Shadows, usize)> =
+        std::cell::RefCell::new((Shadows::new(), 0));
 
     /// A text run's laid-out extent, cached for the life of a paint.
     ///
@@ -2633,11 +2789,10 @@ fn paint_with(
     ground: Option<Rgba>,
     fonts: &mut Fonts,
 ) -> Result<Pixmap, String> {
-    // The blurred-shadow and measured-extent caches live for one paint: a scene
-    // draws the same button many times and blurs it once, and asks a run its
-    // size many times and shapes it once; the next scene starts clean so
-    // neither map can grow without bound.
-    SHADOW_CACHE.with(|cache| cache.borrow_mut().clear());
+    // The measured-extent cache lives for one paint: a scene asks a run its
+    // size many times and shapes it once, and its key is a node of this scene,
+    // so the next scene starts clean. The blurred-shadow cache is keyed by the
+    // shape alone and is bounded by its own size instead ([`SHADOW_CACHE`]).
     MEASURE_CACHE.with(|cache| cache.borrow_mut().clear());
 
     let mut tree: TaffyTree<usize> = TaffyTree::new();
@@ -3332,17 +3487,20 @@ impl Painter<'_> {
             // else, so the box is knocked out of whatever clip was already in
             // force. A ring around a transparent control is the case that
             // needs it: without the knockout the ring fills the control.
-            let outside = outside_the_box(box_, radii, clip, canvas.width(), canvas.height());
-            let under = outside.as_ref().or(clip);
+            let outside = Outside {
+                clip,
+                hole: hole_of(box_, radii, canvas.width(), canvas.height()),
+                inside: box_.inside(radii),
+            };
             // Back to front: a `box-shadow` list paints the first layer over
             // the ones after it, so the last is laid down first.
             for shadow in style.shadow.iter().rev().copied() {
                 let cast = box_.offset(shadow.x, shadow.y).grow(shadow.spread);
                 let corner = radii.map(|corner| corner.map(|r| r + shadow.spread));
                 if shadow.blur > 0.0 {
-                    cast_blurred(canvas, cast, corner, shadow, style.opacity, under);
-                } else {
-                    fill(canvas, cast, corner, shadow.colour, style.opacity, under);
+                    cast_blurred(canvas, cast, corner, shadow, style.opacity, &outside);
+                } else if let Some(under) = outside.within(canvas, cast.on_device()) {
+                    fill(canvas, cast, corner, shadow.colour, style.opacity, Some(&under));
                 }
             }
         }
@@ -3387,13 +3545,10 @@ impl Painter<'_> {
         // makes an avatar round rather than a round box with a square picture
         // sitting in it.
         let rounds = node.picture.is_some() && radii.iter().flatten().any(|r| *r > 0.0);
-        let mut owned;
+        let owned;
         let inner = if style.clipped[0] || style.clipped[1] || rounds {
-            owned = clip.cloned().or_else(|| full_mask(canvas.width(), canvas.height()));
-            if let Some(mask) = owned.as_mut() {
-                intersect(mask, box_, radii);
-            }
-            owned.as_ref()
+            owned = clipped(clip, box_, radii, canvas.width(), canvas.height());
+            owned.as_deref()
         } else {
             clip
         };
@@ -3799,6 +3954,35 @@ struct Box2 {
 }
 
 impl Box2 {
+    /// A rectangle in device pixels that this box (CSS pixels), with these
+    /// corners, covers whole: the box at [`DEVICE_SCALE`] pulled in by its
+    /// largest corner and a pixel more, so no curve or anti-aliased edge
+    /// reaches it. `None` where nothing is left.
+    fn inside(self, radii: Radii) -> Option<Self> {
+        let corner = radii.iter().flatten().fold(0.0_f32, |most, r| most.max(*r));
+        let pull = (corner * DEVICE_SCALE).ceil() as i32 + 1;
+        let scale = DEVICE_SCALE as i32;
+        let inside = Self {
+            l: self.l.saturating_mul(scale).saturating_add(pull),
+            t: self.t.saturating_mul(scale).saturating_add(pull),
+            r: self.r.saturating_mul(scale).saturating_sub(pull),
+            b: self.b.saturating_mul(scale).saturating_sub(pull),
+        };
+        (inside.l < inside.r && inside.t < inside.b).then_some(inside)
+    }
+
+    /// The device pixels a fill of this box (CSS pixels) can touch: the box at
+    /// [`DEVICE_SCALE`], with a two-pixel guard for the anti-aliased edge.
+    fn on_device(self) -> Self {
+        let scale = DEVICE_SCALE as i32;
+        Self {
+            l: self.l.saturating_mul(scale).saturating_sub(2),
+            t: self.t.saturating_mul(scale).saturating_sub(2),
+            r: self.r.saturating_mul(scale).saturating_add(2),
+            b: self.b.saturating_mul(scale).saturating_add(2),
+        }
+    }
+
     fn offset(self, x: f32, y: f32) -> Self {
         Self {
             l: self.l.saturating_add(px(x)),
@@ -4053,7 +4237,10 @@ fn stroke_edges(
     clip: Option<&Mask>,
 ) {
     let (width, height) = (canvas.width(), canvas.height());
-    let (Some(outer), Some(mut ring)) = (box_.path(radii), Mask::new(width, height)) else {
+    // The ring and the hole are written inside the border box and nowhere
+    // else, which is the stretch each is zeroed over when it is handed back.
+    let reach = box_.on_device();
+    let (Some(outer), Some(mut ring)) = (box_.path(radii), Spare::new(width, height, reach)) else {
         return;
     };
     ring.fill_path(&outer, FillRule::Winding, true, to_device());
@@ -4069,15 +4256,14 @@ fn stroke_edges(
         pull(radii[3], (widths[1] + widths[3]) / 2.0),
     ];
     let inner = rounded(l + widths[0], t + widths[2], r - widths[1], b - widths[3], inner_radii);
-    if let (Some(inner), Some(mut hole)) = (inner, Mask::new(width, height)) {
+    // The ring is zero outside the border box, so cutting the hole and meeting
+    // the clip only need the rows and columns the box reaches.
+    if let (Some(inner), Some(mut hole)) = (inner, Spare::new(width, height, reach)) {
         hole.fill_path(&inner, FillRule::Winding, true, to_device());
-        for coverage in hole.data_mut() {
-            *coverage = 255 - *coverage;
-        }
-        narrow(&mut ring, &hole);
+        cut_within(&mut ring, &hole, reach);
     }
     if let Some(outside) = clip {
-        narrow(&mut ring, outside);
+        narrow_within(&mut ring, outside, reach);
     }
     let paint = Paint {
         anti_alias: true,
@@ -4119,7 +4305,76 @@ fn stroke_edges(
         }
         return;
     }
+    // A square box is a rectangle on whole device pixels, and the ring is zero
+    // inside the inner edge, so only the four bands the edges cover are
+    // filled. A rounded one keeps the one fill of its own shape.
+    if radii.iter().flatten().all(|r| *r <= 0.0) {
+        let hollow = Box2 {
+            l: ((l + widths[0]) * DEVICE_SCALE).ceil() as i32 + 1,
+            t: ((t + widths[2]) * DEVICE_SCALE).ceil() as i32 + 1,
+            r: ((r - widths[1]) * DEVICE_SCALE).floor() as i32 - 1,
+            b: ((b - widths[3]) * DEVICE_SCALE).floor() as i32 - 1,
+        };
+        let scale = DEVICE_SCALE as i32;
+        let device = Box2 { l: box_.l * scale, t: box_.t * scale, r: box_.r * scale, b: box_.b * scale };
+        fill_around(canvas, device, Some(hollow), &ring, &paint);
+        return;
+    }
     canvas.fill_path(&outer, &paint, FillRule::Winding, to_device(), Some(&ring));
+}
+
+/// Fills the rectangle `outer` (device pixels) with `paint` through `mask`,
+/// leaving out `hollow` where the mask is zero there.
+///
+/// A pixel under no coverage is one the fill leaves exactly as it was, so the
+/// four bands around the hollow — top and bottom across the whole rectangle,
+/// left and right between them, none overlapping — land the same pixels as
+/// one fill of the whole rectangle, without running the blend over the middle.
+/// Every band is a rectangle on whole pixels, as `outer` is, so a pixel in one
+/// is covered exactly as it is in `outer`. The mask is read over the hollow
+/// first; where it is not all zero, or there is no hollow, the whole rectangle
+/// is filled.
+fn fill_around(canvas: &mut Pixmap, outer: Box2, hollow: Option<Box2>, mask: &Mask, paint: &Paint) {
+    let (w, h) = (canvas.width() as i32, canvas.height() as i32);
+    let outer = Box2 { l: outer.l.clamp(0, w), t: outer.t.clamp(0, h), r: outer.r.clamp(0, w), b: outer.b.clamp(0, h) };
+    let hollow = hollow
+        .map(|i| Box2 {
+            l: i.l.clamp(outer.l, outer.r),
+            t: i.t.clamp(outer.t, outer.b),
+            r: i.r.clamp(outer.l, outer.r),
+            b: i.b.clamp(outer.t, outer.b),
+        })
+        .filter(|i| i.l < i.r && i.t < i.b && mask.width() as i32 == w && mask.height() as i32 == h)
+        .filter(|i| {
+            let data = mask.data();
+            (i.t..i.b).all(|y| {
+                let row = y as usize * w as usize;
+                data[row + i.l as usize..row + i.r as usize].iter().fold(0, |seen, &b| seen | b) == 0
+            })
+        });
+    let bands = match hollow {
+        Some(i) => [
+            Box2 { l: outer.l, t: outer.t, r: outer.r, b: i.t },
+            Box2 { l: outer.l, t: i.b, r: outer.r, b: outer.b },
+            Box2 { l: outer.l, t: i.t, r: i.l, b: i.b },
+            Box2 { l: i.r, t: i.t, r: outer.r, b: i.b },
+        ],
+        None => [outer, outer, outer, outer],
+    };
+    for (n, band) in bands.iter().enumerate() {
+        if hollow.is_none() && n > 0 {
+            break;
+        }
+        if band.l >= band.r || band.t >= band.b {
+            continue;
+        }
+        let Some(rect) = tiny_skia::Rect::from_ltrb(band.l as f32, band.t as f32, band.r as f32, band.b as f32)
+        else {
+            continue;
+        };
+        let path = PathBuilder::from_rect(rect);
+        canvas.fill_path(&path, paint, FillRule::Winding, Transform::identity(), Some(mask));
+    }
 }
 
 /// The frame around a picture the painter could not read.
@@ -4156,21 +4411,24 @@ fn shade<'a>(colour: Rgba, opacity: f32) -> tiny_skia::Shader<'a> {
     tiny_skia::Shader::SolidColor(solid)
 }
 
-fn full_mask(width: u32, height: u32) -> Option<Mask> {
-    let mut mask = Mask::new(width, height)?;
-    mask.data_mut().fill(255);
-    Some(mask)
-}
-
-/// Narrows `mask` to a box, **rounded corners included**: `overflow: hidden`
+/// Narrows a clip to a box, **rounded corners included**: `overflow: hidden`
 /// on a box with a radius clips to the shape the box paints, so a child does
-/// not square off a corner its parent rounded.
-fn intersect(mask: &mut Mask, box_: Box2, radii: Radii) {
-    if let Some(path) = box_.path(radii) {
-        mask.intersect_path(&path, FillRule::Winding, true, to_device());
-    } else {
-        mask.clear();
+/// not square off a corner its parent rounded. `None` for the clip is the
+/// whole canvas.
+///
+/// This is `tiny_skia`'s `Mask::intersect_path` over a copy of the clip, worked
+/// out only where the box is. The box's coverage is zero outside its own
+/// rectangle, and anything times zero is zero, so the answer there is the
+/// fresh mask's zero; and with no clip the answer is the coverage itself,
+/// because a full clip times a coverage is that coverage.
+fn clipped(clip: Option<&Mask>, box_: Box2, radii: Radii, width: u32, height: u32) -> Option<Spare> {
+    let mut shape = Spare::new(width, height, box_.on_device())?;
+    let Some(path) = box_.path(radii) else { return Some(shape) };
+    shape.fill_path(&path, FillRule::Winding, true, to_device());
+    if let Some(clip) = clip {
+        each_within(&mut shape, clip, box_.on_device(), |coverage, clip| mul255(clip, coverage));
     }
+    Some(shape)
 }
 
 /// Pours a shadow's colour through a blurred coverage mask of its cast shape.
@@ -4185,10 +4443,10 @@ fn cast_blurred(
     radii: Radii,
     shadow: Shadow,
     opacity: f32,
-    clip: Option<&Mask>,
+    outside: &Outside,
 ) {
     let (width, height) = (canvas.width(), canvas.height());
-    let Some(mut mask) = Mask::new(width, height) else { return };
+    let Some(mut mask) = Spare::new(width, height, Box2 { l: 0, t: 0, r: 0, b: 0 }) else { return };
     // **The blurred coverage is computed in a box the size of the cast shape
     // grown by the blur's reach, not over the whole page.** A design system
     // draws one small shadow on a huge canvas, and blurring the whole canvas to
@@ -4198,27 +4456,27 @@ fn cast_blurred(
     // produced, because the blur's support is exactly this region (see
     // [`blurred_region`]) — so the clip and fill below are byte for byte what
     // they were.
-    if !blurred_region(&mut mask, cast, radii, shadow.blur * DEVICE_SCALE) {
+    //
+    // Outside that region the mask is zero, so the clip is met and the colour
+    // poured only inside it: a pixel under no coverage is a pixel the fill
+    // leaves as it was, and a canvas-wide pass would visit every one of them
+    // to leave it alone.
+    let Some(region) = blurred_region(&mut mask, cast, radii, shadow.blur * DEVICE_SCALE) else {
         return;
-    }
-    if let Some(outer) = clip {
-        narrow(&mut mask, outer);
-    }
-    let all = Box2 {
-        l: 0,
-        t: 0,
-        r: i32::try_from(width).unwrap_or(i32::MAX),
-        b: i32::try_from(height).unwrap_or(i32::MAX),
     };
-    let Some(path) = all.path(circular(0.0)) else { return };
+    mask.dirty = region;
+    outside.apply(&mut mask, region, mul255);
     let paint =
         Paint { anti_alias: false, shader: shade(shadow.colour, opacity), ..Paint::default() };
-    canvas.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), Some(&mask));
+    // The box the shadow is cast from is knocked out of the mask, so most of
+    // a large card's region is pixels the fill would visit to leave alone.
+    fill_around(canvas, region, outside.inside, &mask, &paint);
 }
 
 /// Fills `mask` with the blurred coverage of a shape cast at `cast`, blurred by
 /// `radius` **device** pixels, doing the work only in the sub-rectangle the
-/// coverage can be nonzero in. Answers whether anything was written.
+/// coverage can be nonzero in. Answers that sub-rectangle, in device pixels,
+/// or `None` where nothing was written.
 ///
 /// The rectangle is the shape's device bounding box grown by the blur's reach
 /// ([`reach_of_blur`]) plus a two-pixel guard for the fill's own anti-aliased
@@ -4235,7 +4493,7 @@ fn cast_blurred(
 /// size, its corner radii and the blur radius — a placement inside the region
 /// that is always the same integer offset, so two identical shadows (the same
 /// button, drawn a dozen times) blur once.
-fn blurred_region(mask: &mut Mask, cast: Box2, radii: Radii, radius: f32) -> bool {
+fn blurred_region(mask: &mut Mask, cast: Box2, radii: Radii, radius: f32) -> Option<Box2> {
     let (cw, ch) = (mask.width() as i32, mask.height() as i32);
     // The shape's device bounding box, and the reach of the blur around it.
     let scale = DEVICE_SCALE as i32;
@@ -4245,7 +4503,7 @@ fn blurred_region(mask: &mut Mask, cast: Box2, radii: Radii, radius: f32) -> boo
     let x1 = (cast.r * scale + reach).clamp(0, cw);
     let y1 = (cast.b * scale + reach).clamp(0, ch);
     if x1 <= x0 || y1 <= y0 {
-        return false;
+        return None;
     }
     let (rw, rh) = ((x1 - x0) as u32, (y1 - y0) as u32);
 
@@ -4263,7 +4521,7 @@ fn blurred_region(mask: &mut Mask, cast: Box2, radii: Radii, radius: f32) -> boo
         radius: radius.to_bits(),
     };
     let region = SHADOW_CACHE.with(|cache| {
-        if let Some(found) = cache.borrow().get(&key) {
+        if let Some(found) = cache.borrow().0.get(&key) {
             return Some(found.clone());
         }
         let mut region = Mask::new(rw, rh)?;
@@ -4274,10 +4532,17 @@ fn blurred_region(mask: &mut Mask, cast: Box2, radii: Radii, radius: f32) -> boo
         region.fill_path(&path, FillRule::Winding, true, into);
         blur(&mut region, radius);
         let bytes: std::rc::Rc<[u8]> = std::rc::Rc::from(region.data());
-        cache.borrow_mut().insert(key, bytes.clone());
+        let mut cache = cache.borrow_mut();
+        let (map, held) = &mut *cache;
+        if *held + bytes.len() > SHADOW_CACHE_BYTES {
+            map.clear();
+            *held = 0;
+        }
+        *held += bytes.len();
+        map.insert(key, bytes.clone());
         Some(bytes)
     });
-    let Some(region) = region else { return false };
+    let region = region?;
 
     // Scatter the region's rows into the canvas-sized mask at its offset.
     let data = mask.data_mut();
@@ -4290,40 +4555,109 @@ fn blurred_region(mask: &mut Mask, cast: Box2, radii: Radii, radius: f32) -> boo
             dst.copy_from_slice(src);
         }
     }
-    true
+    Some(Box2 { l: x0, t: y0, r: x1, b: y1 })
 }
 
 /// The clip an outer shadow paints under: what the caller was already clipped
 /// to, minus the element's own border box.
 ///
 /// CSS clips an outer `box-shadow` to the region outside the border box, so a
-/// shadow is never under the box that cast it. `None` means nothing could be
-/// allocated, and the caller keeps its own clip.
-fn outside_the_box(
-    box_: Box2,
-    radii: Radii,
-    clip: Option<&Mask>,
-    width: u32,
-    height: u32,
-) -> Option<Mask> {
-    let mut mask = clip.cloned().or_else(|| full_mask(width, height))?;
-    let Some(path) = box_.path(radii) else { return Some(mask) };
-    let mut hole = Mask::new(width, height)?;
-    hole.fill_path(&path, FillRule::Winding, true, to_device());
-    for coverage in hole.data_mut() {
-        *coverage = 255 - *coverage;
-    }
-    narrow(&mut mask, &hole);
-    Some(mask)
+/// shadow is never under the box that cast it.
+///
+/// **Held as its two parts and met only where a shadow can land.** The clip
+/// is the whole canvas, but a shadow covers only its own cast shape, grown by
+/// its blur — so the knocked-out clip is worked out in that rectangle alone
+/// ([`Outside::apply`]) rather than as a copy of the canvas-sized clip with
+/// the box cut out of all of it. A fill or a blurred mask reads nothing
+/// outside its own rectangle, so the pixels it lands are the same.
+struct Outside<'a> {
+    clip: Option<&'a Mask>,
+    /// The border box's own coverage, `None` where the box has no shape.
+    hole: Option<Spare>,
+    /// A rectangle (device pixels) well inside the border box, which a shadow
+    /// lands nowhere in: [`Box2::inside`].
+    inside: Option<Box2>,
 }
 
-/// Multiplies `mask` by `other`, which is mask intersection on coverage.
-fn narrow(mask: &mut Mask, other: &Mask) {
-    if mask.width() != other.width() || mask.height() != other.height() {
+impl Outside<'_> {
+    /// Sets each byte of `mask` inside `region` (device pixels) to `combine` of
+    /// it and the knocked-out clip there: the clip (full where there is none)
+    /// times the complement of the box's coverage.
+    fn apply(&self, mask: &mut Mask, region: Box2, combine: impl Fn(u8, u8) -> u8) {
+        let (w, h) = (mask.width(), mask.height());
+        let fits = |other: &Mask| other.width() == w && other.height() == h;
+        if !self.clip.is_none_or(fits) || !self.hole.as_deref().is_none_or(fits) {
+            return;
+        }
+        let (w, h) = (w as i32, h as i32);
+        let (l, r) = (region.l.clamp(0, w) as usize, region.r.clamp(0, w) as usize);
+        let (t, b) = (region.t.clamp(0, h) as usize, region.b.clamp(0, h) as usize);
+        let w = w as usize;
+        let (clip, hole) = (self.clip.map(Mask::data), self.hole.as_deref().map(Mask::data));
+        let ours = mask.data_mut();
+        for y in t..b {
+            for i in y * w + l..y * w + r.max(l) {
+                let clip = clip.map_or(255, |c| c[i]);
+                let under = mul255(clip, 255 - hole.map_or(0, |c| c[i]));
+                ours[i] = combine(ours[i], under);
+            }
+        }
+    }
+
+    /// The knocked-out clip as a canvas-sized mask that is right inside
+    /// `region` and empty outside it, for a fill that lands nowhere else.
+    fn within(&self, canvas: &Pixmap, region: Box2) -> Option<Spare> {
+        let mut mask = Spare::new(canvas.width(), canvas.height(), region)?;
+        self.apply(&mut mask, region, |_, under| under);
+        Some(mask)
+    }
+}
+
+/// The coverage of a box's own shape, the hole [`Outside`] knocks out of a
+/// clip. Only the box's own rows are ever written.
+fn hole_of(box_: Box2, radii: Radii, width: u32, height: u32) -> Option<Spare> {
+    let path = box_.path(radii)?;
+    let mut hole = Spare::new(width, height, box_.on_device())?;
+    hole.fill_path(&path, FillRule::Winding, true, to_device());
+    Some(hole)
+}
+
+/// Multiplies `mask` by the complement of `hole` over the rows and columns of
+/// `region` (device pixels) alone: [`narrow_within`] by an inverted `hole`,
+/// for a `hole` that is empty outside the region, where the inverse is full
+/// and leaves `mask` as it was.
+fn cut_within(mask: &mut Mask, hole: &Mask, region: Box2) {
+    each_within(mask, hole, region, |a, h| mul255(a, 255 - h));
+}
+
+/// Multiplies `mask` by `other`, which is mask intersection on coverage, over
+/// the rows and columns of `region` (device pixels) alone. Where `mask` is
+/// zero outside the region, or `other` is full there, that is the whole
+/// intersection.
+fn narrow_within(mask: &mut Mask, other: &Mask, region: Box2) {
+    each_within(mask, other, region, mul255);
+}
+
+/// Sets each byte of `mask` inside `region` to `combine` of it and the same
+/// byte of `other`. Nothing at all where the two masks are not the same size.
+fn each_within(mask: &mut Mask, other: &Mask, region: Box2, combine: impl Fn(u8, u8) -> u8) {
+    let (w, h) = (mask.width() as i32, mask.height() as i32);
+    if w != other.width() as i32 || h != other.height() as i32 {
         return;
     }
-    for (a, b) in mask.data_mut().iter_mut().zip(other.data()) {
-        *a = mul255(*a, *b);
+    let (l, r) = (region.l.clamp(0, w) as usize, region.r.clamp(0, w) as usize);
+    let (t, b) = (region.t.clamp(0, h) as usize, region.b.clamp(0, h) as usize);
+    if l >= r {
+        return;
+    }
+    let w = w as usize;
+    let theirs = other.data();
+    let ours = mask.data_mut();
+    for y in t..b {
+        let span = y * w + l..y * w + r;
+        for (mine, &their) in ours[span.clone()].iter_mut().zip(&theirs[span]) {
+            *mine = combine(*mine, their);
+        }
     }
 }
 
@@ -4342,12 +4676,22 @@ fn narrow(mask: &mut Mask, other: &Mask) {
 fn blur(mask: &mut Mask, radius: f32) {
     let Some(passes) = blur_passes(radius) else { return };
     let (w, h) = (mask.width() as usize, mask.height() as usize);
-    let mut scratch = vec![0u8; w.saturating_mul(h)];
+    box_blur(mask.data_mut(), w, h, passes);
+}
+
+/// The three box passes across and then the three down, over one `w` by `h`
+/// plane of bytes. Each pass reads one buffer and writes the other, and six is
+/// an even number, so the answer finishes back in `data` with no copy between.
+fn box_blur(data: &mut [u8], w: usize, h: usize, passes: [(usize, usize); 3]) {
+    let mut scratch = vec![0u8; data.len()];
+    let (mut from, mut to) = (data, scratch.as_mut_slice());
     for (size, lead) in passes {
-        rows(mask.data_mut(), &mut scratch, w, h, size, lead);
+        rows(from, to, w, h, size, lead);
+        std::mem::swap(&mut from, &mut to);
     }
     for (size, lead) in passes {
-        columns(mask.data_mut(), &mut scratch, w, h, size, lead);
+        columns(from, to, w, h, size, lead);
+        std::mem::swap(&mut from, &mut to);
     }
 }
 
@@ -4406,13 +4750,14 @@ fn backdrop_blur(canvas: &mut Pixmap, box_: Box2, radii: Radii, radius: f32, cli
     }
     // The mask the blur lands through: the box's rounded shape, met with the
     // clip already in force, so the blur reaches nowhere the caller excluded.
-    let (Some(mut mask), Some(path)) = (Mask::new(canvas.width(), canvas.height()), box_.path(radii))
+    let (Some(mut mask), Some(path)) =
+        (Spare::new(canvas.width(), canvas.height(), box_.on_device()), box_.path(radii))
     else {
         return;
     };
     mask.fill_path(&path, FillRule::Winding, true, to_device());
     if let Some(outer) = clip {
-        narrow(&mut mask, outer);
+        narrow_within(&mut mask, outer, box_.on_device());
     }
 
     // **Blur only the box's own region, not the whole page.** The blur lands
@@ -4450,20 +4795,14 @@ fn backdrop_blur(canvas: &mut Pixmap, box_: Box2, radii: Radii, radius: f32, cli
             }
         }
     }
-    let mut scratch = vec![0u8; rn];
     for plane in &mut planes {
-        for (size, lead) in passes {
-            rows(plane, &mut scratch, rw, rh, size, lead);
-        }
-        for (size, lead) in passes {
-            columns(plane, &mut scratch, rw, rh, size, lead);
-        }
+        box_blur(plane, rw, rh, passes);
     }
 
     // Lerp the blurred region back where the mask covers. Coverage is nonzero
     // only inside the box, which the region contains, so nothing the whole-page
     // version touched is missed.
-    let coverage = mask.data().to_vec();
+    let coverage = mask.data();
     let dst = canvas.data_mut();
     for ry in 0..rh {
         let canvas_row = (y0 as usize + ry).saturating_mul(w) + x0 as usize;
@@ -4484,66 +4823,176 @@ fn backdrop_blur(canvas: &mut Pixmap, box_: Box2, radii: Radii, radius: f32, cli
     }
 }
 
-/// One horizontal box pass. The window for the pixel at `at` is
-/// `[at - lead, at - lead + size)`, and off the ends the mask reads as zero.
-fn rows(data: &mut [u8], scratch: &mut [u8], w: usize, h: usize, size: usize, lead: usize) {
-    if size == 0 || w == 0 {
+/// A box pass's rounded mean, `(sum + size / 2) / size`, as a multiply and a
+/// shift rather than a divide, which is most of what a pass costs per byte.
+///
+/// The multiplier is `ceil(2^40 / size)`, and the product is exactly the
+/// quotient for every sum a pass can hold. A sum is at most `255 * size` and
+/// the half added to it is under `size`, so the dividend `x` is under
+/// `256 * size`; the multiplier overshoots `2^40 / size` by `e < 1`, which
+/// adds `x * e / 2^40` to the true `x / size`, and that stays under the `1 /
+/// size` that could carry a quotient over while `256 * size * size <= 2^40`
+/// — every box under 65536 wide, whose product also fits in 64 bits. A wider
+/// box, which no blur short of tens of thousands of pixels asks for, divides.
+#[derive(Clone, Copy)]
+struct Average {
+    half: u32,
+    multiplier: u64,
+}
+
+impl Average {
+    /// `None` for a box too wide to multiply for.
+    fn of(size: u32) -> Option<Self> {
+        (1..65536).contains(&size).then(|| Self {
+            half: size / 2,
+            multiplier: (1_u64 << 40).div_ceil(u64::from(size)),
+        })
+    }
+
+    fn of_sum(self, sum: u32) -> u8 {
+        ((u64::from(sum + self.half) * self.multiplier) >> 40) as u8
+    }
+}
+
+/// The rounded mean of a box `size` wide, for every sum it can hold: the
+/// multiply [`Average`] does, or the divide it stands for.
+fn mean_of(size: usize) -> Result<Average, (u32, u32)> {
+    let size = u32::try_from(size).unwrap_or(u32::MAX);
+    Average::of(size).ok_or((size / 2, size))
+}
+
+/// One horizontal box pass, `from` into `to`. The window for the pixel at
+/// `at` is `[at - lead, at - lead + size)`, and off the ends the mask reads as
+/// zero.
+///
+/// Each row is laid into a buffer with those zeroes written out on both
+/// sides, so the running sum adds and drops a byte a step with no test of
+/// where the window is.
+fn rows(from: &[u8], to: &mut [u8], w: usize, h: usize, size: usize, lead: usize) {
+    if w == 0 {
         return;
     }
-    let (half, n) = (size as u32 / 2, size as u32);
-    let (size, lead) = (size as isize, lead as isize);
-    let end = w as isize;
-    for y in 0..h {
-        let row = y.saturating_mul(w);
-        let read = |sum: &mut u32, at: isize, add: bool| {
-            if at < 0 || at >= end {
-                return;
-            }
-            let byte = u32::from(data[row.saturating_add(at as usize)]);
-            *sum = if add { sum.saturating_add(byte) } else { sum.saturating_sub(byte) };
-        };
-        let mut sum: u32 = 0;
-        for j in 0..size {
-            read(&mut sum, j - lead, true);
+    if size == 0 {
+        to.copy_from_slice(from);
+        return;
+    }
+    match mean_of(size) {
+        Ok(average) => box_rows(from, to, w, h, size, lead, |sum| average.of_sum(sum)),
+        Err((half, n)) => box_rows(from, to, w, h, size, lead, |sum| {
+            u8::try_from((sum + half) / n).unwrap_or(255)
+        }),
+    }
+}
+
+/// [`rows`], with the mean handed in.
+fn box_rows(
+    from: &[u8],
+    to: &mut [u8],
+    w: usize,
+    h: usize,
+    size: usize,
+    lead: usize,
+    mean: impl Fn(u32) -> u8,
+) {
+    // Four rows at a time: one row's running sum is a chain of dependent
+    // additions, and four independent chains keep the processor busy where
+    // one leaves it waiting on the last. The rows a four does not divide go
+    // one at a time, the same arithmetic.
+    let span = lead + w + size;
+    let mut padded = vec![0_u8; span * 4];
+    let whole = h / 4 * 4;
+    let (from, to) = (&from[..w * h], &mut to[..w * h]);
+    let (from4, from1) = from.split_at(w * whole);
+    let (to4, to1) = to.split_at_mut(w * whole);
+    for (lines, outs) in from4.chunks_exact(w * 4).zip(to4.chunks_exact_mut(w * 4)) {
+        for (k, line) in lines.chunks_exact(w).enumerate() {
+            padded[k * span + lead..k * span + lead + w].copy_from_slice(line);
         }
-        for at in 0..end {
-            scratch[row.saturating_add(at as usize)] =
-                u8::try_from((sum + half) / n).unwrap_or(255);
-            read(&mut sum, at - lead, false);
-            read(&mut sum, at - lead + size, true);
+        let pad: [&[u8]; 4] = std::array::from_fn(|k| &padded[k * span..(k + 1) * span]);
+        let mut sums: [u32; 4] =
+            std::array::from_fn(|k| pad[k][..size].iter().map(|&b| u32::from(b)).sum());
+        let (o0, rest) = outs.split_at_mut(w);
+        let (o1, rest) = rest.split_at_mut(w);
+        let (o2, o3) = rest.split_at_mut(w);
+        for x in 0..w {
+            o0[x] = mean(sums[0]);
+            o1[x] = mean(sums[1]);
+            o2[x] = mean(sums[2]);
+            o3[x] = mean(sums[3]);
+            for (sum, pad) in sums.iter_mut().zip(&pad) {
+                *sum = *sum - u32::from(pad[x]) + u32::from(pad[x + size]);
+            }
         }
     }
-    data.copy_from_slice(scratch);
+    let padded = &mut padded[..span];
+    for (line, out) in from1.chunks_exact(w).zip(to1.chunks_exact_mut(w)) {
+        padded[lead..lead + w].copy_from_slice(line);
+        let mut sum: u32 = padded[..size].iter().map(|&b| u32::from(b)).sum();
+        for ((slot, &leaving), &arriving) in out.iter_mut().zip(&*padded).zip(&padded[size..]) {
+            *slot = mean(sum);
+            sum = sum - u32::from(leaving) + u32::from(arriving);
+        }
+    }
 }
 
 /// [`rows`], the other way.
-fn columns(data: &mut [u8], scratch: &mut [u8], w: usize, h: usize, size: usize, lead: usize) {
-    if size == 0 || h == 0 {
+///
+/// Walked a row at a time with one running sum per column, rather than a
+/// column at a time: each step then reads and writes whole rows, which sit
+/// next to each other in memory, instead of one byte from each row in turn.
+/// The sums are the same sums in the same order, so the bytes are too.
+fn columns(from: &[u8], to: &mut [u8], w: usize, h: usize, size: usize, lead: usize) {
+    if h == 0 || w == 0 {
         return;
     }
-    let (half, n) = (size as u32 / 2, size as u32);
-    let (size, lead) = (size as isize, lead as isize);
-    let end = h as isize;
-    for x in 0..w {
-        let read = |sum: &mut u32, at: isize, add: bool| {
-            if at < 0 || at >= end {
-                return;
+    if size == 0 {
+        to.copy_from_slice(from);
+        return;
+    }
+    match mean_of(size) {
+        Ok(average) => box_columns(from, to, w, h, size, lead, |sum| average.of_sum(sum)),
+        Err((half, n)) => box_columns(from, to, w, h, size, lead, |sum| {
+            u8::try_from((sum + half) / n).unwrap_or(255)
+        }),
+    }
+}
+
+/// [`columns`], with the mean handed in.
+fn box_columns(
+    from: &[u8],
+    to: &mut [u8],
+    w: usize,
+    h: usize,
+    size: usize,
+    lead: usize,
+    mean: impl Fn(u32) -> u8,
+) {
+    let (size, lead, end) = (size as isize, lead as isize, h as isize);
+    let row = |at: isize| (0..end).contains(&at).then(|| &from[at as usize * w..][..w]);
+    let mut sums = vec![0_u32; w];
+    for j in 0..size {
+        if let Some(line) = row(j - lead) {
+            for (sum, &b) in sums.iter_mut().zip(line) {
+                *sum += u32::from(b);
             }
-            let byte = u32::from(data[(at as usize).saturating_mul(w).saturating_add(x)]);
-            *sum = if add { sum.saturating_add(byte) } else { sum.saturating_sub(byte) };
-        };
-        let mut sum: u32 = 0;
-        for j in 0..size {
-            read(&mut sum, j - lead, true);
-        }
-        for at in 0..end {
-            scratch[(at as usize).saturating_mul(w).saturating_add(x)] =
-                u8::try_from((sum + half) / n).unwrap_or(255);
-            read(&mut sum, at - lead, false);
-            read(&mut sum, at - lead + size, true);
         }
     }
-    data.copy_from_slice(scratch);
+    for (at, out) in to.chunks_exact_mut(w).take(h).enumerate() {
+        let at = at as isize;
+        for (slot, &sum) in out.iter_mut().zip(&sums) {
+            *slot = mean(sum);
+        }
+        if let Some(line) = row(at - lead) {
+            for (sum, &b) in sums.iter_mut().zip(line) {
+                *sum -= u32::from(b);
+            }
+        }
+        if let Some(line) = row(at - lead + size) {
+            for (sum, &b) in sums.iter_mut().zip(line) {
+                *sum += u32::from(b);
+            }
+        }
+    }
 }
 
 /// `(x * y + 127) / 255`, without a divide and without a rounding surprise.
@@ -6631,6 +7080,25 @@ mod tests {
         // And one worked out by hand: over "abc", `a` runs 1, 98, 196, 295 and
         // `b` is 98 + 196 + 295 = 589, so the answer is 589 << 16 | 295.
         assert_eq!(adler32(b"abc"), 0x024d_0127);
+    }
+
+    #[test]
+    fn a_box_mean_multiplies_to_the_quotient_a_divide_gives() {
+        for size in (1..5000_u32).chain([65535]) {
+            let average = Average::of(size).unwrap();
+            let half = size / 2;
+            for q in [0, 1, 2, 127, 128, 254, 255] {
+                for r in [0, 1, size / 2, size - 1] {
+                    let sum = (q * size + r).saturating_sub(half);
+                    if sum > 255 * size {
+                        continue;
+                    }
+                    assert_eq!(u32::from(average.of_sum(sum)), (sum + half) / size, "{size} {sum}");
+                }
+            }
+            assert_eq!(average.of_sum(255 * size), 255, "{size}");
+        }
+        assert!(Average::of(65536).is_none());
     }
 
     #[test]

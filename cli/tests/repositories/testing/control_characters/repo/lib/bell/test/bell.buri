@@ -1,0 +1,6 @@
+from "core/testing/assert" import * as assert;
+from "//lib/bell" import { rings };
+
+test "rings\u{7}twice" {
+    assert.equal(rings(), 2);
+}

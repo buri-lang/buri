@@ -39,6 +39,7 @@ use crate::compiler::backend::js::javascript;
 use crate::compiler::modules::Unit;
 use crate::compiler::middle::monomorphize;
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
+use crate::json::Value;
 use std::io::Write;
 use std::time::{Duration, Instant};
 
@@ -314,7 +315,7 @@ fn one_pass(
     let width = if slots.iter().all(|s| s.answer.is_some()) { 1 } else { jobs_of(&args.flags) };
     let tally = crate::parallel::pool(
         width,
-        builds_of(width),
+        memory_budget(),
         |job, held, queue, tell| work(job, held, queue, tell, &shared),
         |queue, done| drive(&mut session, args, &mut pre, &plans, &mut slots, queue, done, &mut out),
     );
@@ -387,24 +388,13 @@ fn one_pass(
 ///
 /// Only a clean run is worth remembering: a failure is what you are trying to
 /// fix, and re-running it should re-run it. `--filter` is outside the cache in
-/// both directions, because the verdicts of a subset are not the suite's.
+/// both directions, because the verdicts of a subset are not the suite's. An
+/// empty run is a run that produced nothing, and remembering it as "everything
+/// passed" would serve a suite that never ran.
 fn may_cache(cases: &[Case], flags: &arguments::Flags) -> bool {
-    cases.iter().all(|c| matches!(c.verdict, Verdict::Passed)) && flags.filter.is_none()
-}
-
-/// The same, and additionally that there is something to remember.
-///
-/// The runners that parse a *process's* output take this one, because an empty
-/// array from a process is a run that produced nothing, and remembering it as
-/// "everything passed" would serve a suite that never ran. `run_native` builds
-/// its record from the units it compiled rather than from a process, and takes
-/// `may_cache` above.
-///
-/// Two functions rather than one with the guard folded in, so that the
-/// divergence is a choice a reader can see rather than a conjunct missing from
-/// one of three copies.
-fn may_cache_produced(cases: &[Case], flags: &arguments::Flags) -> bool {
-    !cases.is_empty() && may_cache(cases, flags)
+    !cases.is_empty()
+        && cases.iter().all(|c| matches!(c.verdict, Verdict::Passed))
+        && flags.filter.is_none()
 }
 
 fn has_tests(session: &Session, target: TargetId) -> bool {
@@ -437,8 +427,9 @@ fn suite(session: &Session, target: TargetId) -> Option<crate::build::buildfile:
 //   runs the binary. A batch's binary runs each member in a process of its
 //   own, so its suites run side by side too.
 //
-// A front end and its back end are one heavy job, so at most `builds_of` of
-// them hold a whole program at once (`parallel::Queue`).
+// A front end and its back end are one heavy job, queued with the memory its
+// size says it will hold ([`build_bytes`]), and the jobs holding a whole program
+// at once stay within [`memory_budget`] (`parallel::Queue`).
 //
 // The report never depends on which worker finished first. Each run fills its
 // own [`Slot`], `--explain` lines included, and a suite is printed only once
@@ -549,25 +540,42 @@ fn jobs_of(flags: &arguments::Flags) -> usize {
     flags.jobs.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |c| c.get())).max(1)
 }
 
-/// How many of `jobs` may hold a whole program at once: one per
-/// [`BUILD_MEMORY`] of this machine's memory. A suite's run holds no program,
+/// The bytes the builds in flight may be expected to hold between them: half
+/// this machine's memory, leaving the rest to the system, the suites' own
+/// processes and the analyses the lint keeps. A suite's run holds no program,
 /// so it never counts against this, and `jobs` runs can always go side by side.
-fn builds_of(jobs: usize) -> usize {
-    let memory = std::env::var(MEMORY_VARIABLE)
+/// A machine that cannot say how much memory it has is not limited.
+fn memory_budget() -> u64 {
+    std::env::var(MEMORY_VARIABLE)
         .ok()
         .and_then(|v| v.trim().parse().ok())
         .or_else(crate::parallel::memory_bytes)
-        .map_or(jobs, |bytes| usize::try_from(bytes / BUILD_MEMORY).unwrap_or(jobs));
-    jobs.min(memory).max(1)
+        .map_or(u64::MAX, |bytes: u64| bytes / 2)
 }
 
 /// The environment variable that replaces this machine's memory, in bytes, in
-/// [`builds_of`].
+/// [`memory_budget`].
 const MEMORY_VARIABLE: &str = "BURI_TEST_MEMORY_BYTES";
 
-/// The memory one build is budgeted. Batching an 80-suite repository's suites
-/// peaked at 22 GB with eight builds in flight.
-const BUILD_MEMORY: u64 = 8 * 1024 * 1024 * 1024;
+/// The memory a build of `source` bytes of repository code is expected to
+/// hold, from its check to its link.
+///
+/// An upper bound on what was measured, rather than a guess. On an 82-suite
+/// repository, one suite at a time, a build grew the process's peak by 25 MB
+/// for a suite of half a kilobyte, by 40 to 100 MB for most suites, and by at
+/// most 440 MB for one loading 1.8 MB of source. The batch of all 58 suites
+/// that could share a binary loaded 4.7 MB of source, and the whole run peaked
+/// at 1.9 GB. The size of the source predicts a build only loosely, so this
+/// bound is above every one of those, and as much as three times above some.
+fn build_bytes(source: u64) -> u64 {
+    BUILD_BASE.saturating_add(source.saturating_mul(BUILD_PER_SOURCE_BYTE))
+}
+
+/// What a build holds whatever its size.
+const BUILD_BASE: u64 = 64 * 1024 * 1024;
+
+/// What a build holds per byte of repository source it compiles.
+const BUILD_PER_SOURCE_BYTE: u64 = 400;
 
 /// What the reporting loop counted.
 #[derive(Default)]
@@ -894,6 +902,7 @@ fn solo(
         &mut session.parsed,
         std::slice::from_ref(&unit),
     );
+    let bytes = build_bytes(loading.source_bytes(&session.map));
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
     let limit = suite(session, target).and_then(|x| x.timeout_seconds);
     let js = session
@@ -919,7 +928,7 @@ fn solo(
         snapshot_dir: snapshot_dir(session, target),
         filter: args.flags.filter.clone(),
     };
-    queue.push(Job::Front(Box::new(job)), true);
+    queue.push(Job::Front(Box::new(job)), bytes);
 }
 
 /// One suite, loaded, and everything about it a worker would otherwise ask the
@@ -1134,18 +1143,7 @@ fn run_solo(job: SoloJob, held: Held, shared: &Shared) -> Done {
             return answer(Err(d), notes);
         }
     };
-    let objects: Vec<String> = tests
-        .iter()
-        .zip(&blocks)
-        .map(|((name, module), block)| record_of(name, module, block))
-        .collect();
-    // Parsed back out of the record, so a verdict served from the cache and one
-    // just produced are the same value by construction.
-    let record = format!("[{}]", objects.join(","));
-    let cases = parse_results(&record);
-    if may_cache(&cases, &shared.flags) {
-        crate::build::cache::Cache::open(&shared.root).put(&key, record.as_bytes());
-    }
+    let cases = recorded(shared, &key, &tests, blocks.iter());
     answer(Ok(Ran { cases, skipped, roots }), notes)
 }
 
@@ -1218,7 +1216,7 @@ fn run_js(job: JsJob, held: Held, shared: &Shared) -> Done {
     };
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let cases = parse_results(&stdout);
-    if may_cache_produced(&cases, &shared.flags) {
+    if may_cache(&cases, &shared.flags) {
         crate::build::cache::Cache::open(&shared.root).put(&key, stdout.as_bytes());
     }
     if cases.is_empty() && !out.status.success() {
@@ -1827,7 +1825,28 @@ fn run_blocks(
 /// Whether a process reached its first block, which it says with one line on
 /// standard output (`cli/runtime/testing.rs`'s `note_started`).
 fn started(stdout: &str) -> bool {
-    split_objects(stdout).iter().any(|chunk| field_raw(chunk, "started").is_some())
+    lines_of(stdout).any(|line| line.get("started").is_some())
+}
+
+/// Each line a native test binary wrote to standard output, as JSON.
+///
+/// The runtime writes one object per line. A line that is not one — the end of
+/// a process killed mid-write — says nothing, and is skipped.
+fn lines_of(stdout: &str) -> impl DoubleEndedIterator<Item = Value> + '_ {
+    stdout.lines().filter_map(|line| crate::json::parse(line).ok())
+}
+
+/// A field of a record that is a string.
+fn text_of(value: &Value, name: &str) -> Option<String> {
+    value.get(name).and_then(Value::as_str).map(str::to_string)
+}
+
+/// A field of a record that is a block index.
+fn index_of(value: &Value, name: &str) -> Option<usize> {
+    match value.get(name) {
+        Some(Value::Int(n)) => usize::try_from(*n).ok(),
+        _ => None,
+    }
 }
 
 /// The block a process that said nothing died in: the first one from `from` on
@@ -1844,11 +1863,8 @@ fn started(stdout: &str) -> bool {
 /// `the run exited -1` against every test in a file.
 fn died_after(stdout: &str, from: usize, count: usize) -> Option<usize> {
     let mut at = from;
-    for chunk in split_objects(stdout) {
-        if field_raw(&chunk, "left").is_none() {
-            continue;
-        }
-        if let Some(i) = field_raw(&chunk, "i").and_then(|i| i.parse::<usize>().ok()) {
+    for line in lines_of(stdout).filter(|line| line.get("left").is_some()) {
+        if let Some(i) = index_of(&line, "i") {
             at = at.max(i.saturating_add(1));
         }
     }
@@ -1876,13 +1892,52 @@ fn how_it_ended(status: &std::process::ExitStatus, stderr: &str) -> String {
 
 /// One block's verdict as the runner's JSON, which is where a native record and
 /// a JavaScript one become the same value.
-fn record_of(name: &str, module: &str, block: &Block) -> String {
+///
+/// A failure has the shape `$run` writes for a caught throw: the message and,
+/// where the assertion had them, both rendered values. `order` is a sibling of
+/// `error` rather than a field inside it, on both backends, because it is a
+/// fact about the *run* and not about the throw. It is left out where there is
+/// none.
+fn record_of(name: &str, module: &str, block: &Block) -> Value {
+    let mut fields =
+        vec![("name", Value::str(name)), ("module", Value::str(module)), ("ms", Value::number(0))];
     match block {
-        Block::Passed => passing_record(name, module),
+        Block::Passed => fields.push(("ok", Value::Bool(true))),
         Block::Failed { message, diff, order } => {
-            failing_record(name, module, message, diff.as_ref(), order.as_deref())
+            fields.push(("ok", Value::Bool(false)));
+            let mut error = vec![("message", Value::str(message))];
+            if let Some(d) = diff {
+                error.push(("actual", Value::str(&d.actual)));
+                error.push(("expected", Value::str(&d.expected)));
+            }
+            fields.push(("error", Value::object(error)));
+            if let Some(note) = order {
+                fields.push(("order", Value::str(note)));
+            }
         }
     }
+    Value::object(fields)
+}
+
+/// A native run's verdicts: recorded, cached where [`may_cache`] allows, and
+/// read back.
+///
+/// Read back out of the record, so a verdict served from the cache and one just
+/// produced are the same value by construction.
+fn recorded<'b>(
+    shared: &Shared,
+    key: &crate::build::cache::ActionKey,
+    tests: &[(String, String)],
+    blocks: impl Iterator<Item = &'b Block>,
+) -> Vec<Case> {
+    let records =
+        tests.iter().zip(blocks).map(|((name, module), block)| record_of(name, module, block));
+    let record = Value::Array(records.collect()).to_string();
+    let cases = parse_results(&record);
+    if may_cache(&cases, &shared.flags) {
+        crate::build::cache::Cache::open(&shared.root).put(key, record.as_bytes());
+    }
+    cases
 }
 
 // ---------------------------------------------------------------------------
@@ -2187,8 +2242,9 @@ fn queue_batch(
             s.queued = true;
         }
     }
-    let job = BatchJob { info: std::sync::Arc::new(info), loading, map: session.map.shared() };
-    queue.push(Job::Batch(Box::new(job)), true);
+    let bytes = build_bytes(loading.source_bytes(&session.map));
+    let job = BatchJob { info: std::sync::Arc::new(info), loading, map: session.map.shared(), bytes };
+    queue.push(Job::Batch(Box::new(job)), bytes);
 }
 
 /// What every binary of one batch shares, each member's at its position.
@@ -2224,6 +2280,8 @@ struct BatchJob {
     loading: crate::compiler::driver::Loading,
     /// The session's map as the load left it.
     map: std::sync::Arc<crate::diagnostics::SourceMap>,
+    /// What the build is expected to hold ([`build_bytes`]).
+    bytes: u64,
 }
 
 /// One batch's front end: one type check, one program per group ([`groups_of`]),
@@ -2237,7 +2295,7 @@ struct BatchJob {
 /// A type check that fails goes back as [`Done::Broken`], so [`drive`] can try
 /// again without the members whose code failed it ([`broken_members`]).
 fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
-    let BatchJob { info, loading, map } = job;
+    let BatchJob { info, loading, map, bytes } = job;
     let abandoned = || Done::Abandoned { slots: info.member_slots.clone(), explain: String::new() };
     let mut analysis = crate::compiler::driver::check(loading, Some(&shared.workspace), &map);
     drop(map);
@@ -2289,8 +2347,11 @@ fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Sha
     }
     // Each group is monomorphized again from the batch's one check, rooted at
     // its own tests, so each binary holds only its own code. Each is a heavy
-    // job of its own, so the groups build side by side within the limit.
+    // job of its own, so the groups build side by side within the budget. The
+    // batch's bytes are divided between them: together they hold its check,
+    // and a program each.
     drop(program);
+    let share = bytes / u64::try_from(groups.len()).unwrap_or(1).max(1);
     let tables = std::sync::Arc::new(analysis.checked.tables.clone());
     let analysis = std::sync::Arc::new(analysis);
     let skipped = std::sync::Arc::new(skipped);
@@ -2311,7 +2372,7 @@ fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Sha
                 group,
                 modules,
             })),
-            true,
+            share,
         );
     }
     drop(held);
@@ -2591,7 +2652,7 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
         // Another suite is painting there. Back of the queue, rather than a
         // worker held waiting.
         std::thread::sleep(Duration::from_millis(20));
-        queue.push(Job::Member(job), false);
+        queue.push(Job::Member(job), 0);
         return Done::Progress;
     }
     let MemberJob { binary, seeds, sheet, spec, range, gathered } = job;
@@ -2620,17 +2681,7 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
     all.blocks.sort_by_key(|(i, _)| *i);
     all.notes.sort_by_key(|(i, _)| *i);
     let notes: String = all.notes.iter().map(|(_, n)| n.as_str()).collect();
-    let records: Vec<String> = spec
-        .tests
-        .iter()
-        .zip(&all.blocks)
-        .map(|((name, module), (_, block))| record_of(name, module, block))
-        .collect();
-    let record = format!("[{}]", records.join(","));
-    let cases = parse_results(&record);
-    if may_cache_produced(&cases, &shared.flags) {
-        crate::build::cache::Cache::open(&shared.root).put(&spec.key, record.as_bytes());
-    }
+    let cases = recorded(shared, &spec.key, &spec.tests, all.blocks.iter().map(|(_, block)| block));
     let roots =
         spec.roots.iter().map(|r| Root { name: r.name.clone(), module: r.module.clone(), span: r.span }).collect();
     Done::Answer {
@@ -2827,73 +2878,6 @@ fn groups_of(
     groups.into_iter().map(|(group, _)| group).collect()
 }
 
-/// One JSON string literal, escaped as `JSON.stringify` escapes it.
-///
-/// Not `javascript::quote`, which picks whichever quote character needs less
-/// escaping: a single-quoted literal is JavaScript and is not JSON, and
-/// [`parse_results`] — which reads what `$run` wrote — looks for a double one.
-fn json_quote(text: &str) -> String {
-    let mut out = String::with_capacity(text.len() + 2);
-    out.push('"');
-    for c in text.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
-}
-
-/// One test that ran and did not abort, in the runner's JSON.
-fn passing_record(name: &str, module: &str) -> String {
-    format!(
-        "{{\"name\":{},\"module\":{},\"ms\":0,\"ok\":true}}",
-        json_quote(name),
-        json_quote(module)
-    )
-}
-
-/// One test that aborted, in the shape `$run` writes for a caught throw — the
-/// message and, where the assertion had them, both rendered values.
-///
-/// `order` is a sibling of `error` rather than a field inside it, on both
-/// backends, because it is a fact about the *run* and not about the throw: the
-/// same sentence would be worth printing under a failure that carried no
-/// assertion at all. Elided where there is none, so the record of a suite that
-/// schedules nothing is the bytes it always was.
-fn failing_record(
-    name: &str,
-    module: &str,
-    message: &str,
-    diff: Option<&Diff>,
-    order: Option<&str>,
-) -> String {
-    let error = match diff {
-        Some(d) => format!(
-            "{{\"message\":{},\"actual\":{},\"expected\":{}}}",
-            json_quote(message),
-            json_quote(&d.actual),
-            json_quote(&d.expected)
-        ),
-        None => format!("{{\"message\":{}}}", json_quote(message)),
-    };
-    let order = match order {
-        Some(note) => format!(",\"order\":{}", json_quote(note)),
-        None => String::new(),
-    };
-    format!(
-        "{{\"name\":{},\"module\":{},\"ms\":0,\"ok\":false,\"error\":{error}{order}}}",
-        json_quote(name),
-        json_quote(module)
-    )
-}
-
 /// What a native test binary said about the block that ended it.
 struct Noted {
     at: usize,
@@ -2916,24 +2900,19 @@ fn noted_failure(stdout: &str) -> Option<Noted> {
     // per block that returned, and those carry an index and nothing else
     // (`cli/runtime/testing.rs`'s `note_left`). A block that aborted writes its
     // line after them, so the last message is still this process's failure.
-    let mut objects = split_objects(stdout);
-    let chunk = loop {
-        let chunk = objects.pop()?;
-        if field(&chunk, "message").is_some() {
-            break chunk;
-        }
-    };
-    let at = field_raw(&chunk, "i")?.parse().ok()?;
-    let diff = match (field(&chunk, "actual"), field(&chunk, "expected")) {
-        (Some(actual), Some(expected)) => Some(Diff { actual, expected }),
-        _ => None,
-    };
+    let line = lines_of(stdout).rev().find(|line| text_of(line, "message").is_some())?;
     Some(Noted {
-        at,
-        message: field(&chunk, "message").unwrap_or_default(),
-        diff,
-        order: field(&chunk, "order"),
+        at: index_of(&line, "i")?,
+        message: text_of(&line, "message").unwrap_or_default(),
+        diff: diff_of(&line),
+        order: text_of(&line, "order"),
     })
+}
+
+/// Both rendered values of a failed comparison. Half a diff is no diff: one
+/// side alone is not something the other can be printed against.
+fn diff_of(value: &Value) -> Option<Diff> {
+    Some(Diff { actual: text_of(value, "actual")?, expected: text_of(value, "expected")? })
 }
 
 /// Attaches each case to the source location of the test it names.
@@ -3123,102 +3102,40 @@ fn execute(
     }
 }
 
-/// The runner writes one JSON array; this reads it without a JSON library,
-/// because the shape is fixed and known.
+/// The runner's one JSON array of records, as `$run` writes it and as the
+/// cache stores it.
+///
+/// The array is the last line of what the runner wrote, from its first `[`. A
+/// record that is not a whole array is no record, so a run cut off part way
+/// reads as a run that produced nothing rather than as the tests it got to.
 fn parse_results(text: &str) -> Vec<Case> {
-    let json = match text.find('[').and_then(|i| text.get(i..)) {
-        Some(json) => json,
-        None => return Vec::new(),
+    let last = text.trim_end().lines().next_back().unwrap_or_default();
+    let array = last.find('[').and_then(|i| last.get(i..)).unwrap_or_default();
+    let Ok(Value::Array(records)) = crate::json::parse(array) else {
+        return Vec::new();
     };
-    let mut cases = Vec::new();
-    for chunk in split_objects(json) {
-        let name = field(&chunk, "name").unwrap_or_default();
-        let module = field(&chunk, "module").unwrap_or_default();
-        let verdict = if chunk.contains("\"ok\":true") {
-            Verdict::Passed
-        } else {
-            // Half a diff is no diff: one side alone is not something the
-            // other can be printed against.
-            let diff = match (field(&chunk, "actual"), field(&chunk, "expected")) {
-                (Some(actual), Some(expected)) => Some(Diff { actual, expected }),
-                _ => None,
+    records
+        .iter()
+        .map(|record| {
+            let verdict = if record.get("ok") == Some(&Value::Bool(true)) {
+                Verdict::Passed
+            } else {
+                let error = record.get("error");
+                Verdict::Failed {
+                    message: error.and_then(|e| text_of(e, "message")).unwrap_or_default(),
+                    diff: error.and_then(diff_of),
+                    order: text_of(record, "order"),
+                }
             };
-            Verdict::Failed {
-                message: field(&chunk, "message").unwrap_or_default(),
-                diff,
-                order: field(&chunk, "order"),
+            Case {
+                provenance: Provenance::Ran,
+                name: text_of(record, "name").unwrap_or_default(),
+                module: text_of(record, "module").unwrap_or_default(),
+                verdict,
+                location: None,
             }
-        };
-        cases.push(Case {
-            provenance: Provenance::Ran,
-            name,
-            module,
-            verdict,
-            location: None,
-        });
-    }
-    cases
-}
-
-fn split_objects(json: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut depth = 0i32;
-    let mut start = 0usize;
-    let mut in_str = false;
-    let bytes = json.as_bytes();
-    let mut i = 0;
-    while let Some(&b) = bytes.get(i) {
-        match b {
-            b'\\' if in_str => i += 1,
-            b'"' => in_str = !in_str,
-            b'{' if !in_str => {
-                if depth == 0 {
-                    start = i;
-                }
-                depth += 1;
-            }
-            b'}' if !in_str => {
-                depth -= 1;
-                // Both ends are the offsets of an ASCII brace, so the range is
-                // a character boundary whatever text the object holds.
-                if depth == 0 {
-                    if let Some(object) = json.get(start..=i) {
-                        out.push(object.to_string());
-                    }
-                }
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    out
-}
-
-fn field(chunk: &str, name: &str) -> Option<String> {
-    let key = format!("\"{name}\":\"");
-    let rest = chunk.get(chunk.find(&key)? + key.len()..)?;
-    let mut out = String::new();
-    let mut chars = rest.chars();
-    while let Some(c) = chars.next() {
-        match c {
-            '"' => return Some(out),
-            '\\' => match chars.next() {
-                Some('n') => out.push('\n'),
-                Some('t') => out.push('\t'),
-                Some('r') => out.push('\r'),
-                Some(other) => out.push(other),
-                None => break,
-            },
-            c => out.push(c),
-        }
-    }
-    Some(out)
-}
-
-fn field_raw(chunk: &str, name: &str) -> Option<String> {
-    let key = format!("\"{name}\":");
-    let rest = chunk.get(chunk.find(&key)? + key.len()..)?;
-    Some(rest.get(..rest.find([',', '}'])?)?.trim().to_string())
+        })
+        .collect()
 }
 
 /// A test's title, as one quoted line.
@@ -3226,7 +3143,8 @@ fn field_raw(chunk: &str, name: &str) -> Option<String> {
 /// The report is one line per `FAIL`, which is what makes it greppable, and a
 /// title is whatever somebody typed between the quotes. A `"` in one would
 /// close the quoting and a newline would end the line, so both are escaped —
-/// the rendering is the source syntax the title was written in.
+/// the rendering is the source syntax the title was written in. So is any
+/// other control character, which a terminal would act on rather than show.
 fn quote_title(name: &str) -> String {
     let mut out = String::with_capacity(name.len() + 2);
     out.push('"');
@@ -3237,6 +3155,7 @@ fn quote_title(name: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push_str(&format!("\\u{{{:x}}}", u32::from(c))),
             c => out.push(c),
         }
     }
@@ -3344,7 +3263,8 @@ mod tests {
         assert_eq!(quote_title("say \"hi\""), "\"say \\\"hi\\\"\"");
         assert_eq!(quote_title("two\nlines"), "\"two\\nlines\"");
         assert_eq!(quote_title("a\\b\tc"), "\"a\\\\b\\tc\"");
-        for title in ["plain", "say \"hi\"", "two\nlines", "a\\b\tc"] {
+        assert_eq!(quote_title("ring\u{7}\u{1b}"), "\"ring\\u{7}\\u{1b}\"");
+        for title in ["plain", "say \"hi\"", "two\nlines", "a\\b\tc", "ring\u{7}"] {
             assert_eq!(quote_title(title).lines().count(), 1, "{title:?} broke the line");
         }
     }
@@ -3443,12 +3363,17 @@ mod tests {
     fn a_record_this_runner_writes_is_one_it_reads() {
         let diff = Diff { actual: String::from("\"a\\tb\""), expected: String::from("2") };
         let note = "the tasks completed in the order 0, 2, 1 — replay it with `tasks().seed(1)`";
-        let record = format!(
-            "[{},{},{}]",
-            passing_record("a title", "//lib/x/test/x"),
-            failing_record("say \"hi\"", "//lib/x/test/x", "assert.equal failed", Some(&diff), None),
-            failing_record("scheduled", "//lib/x/test/x", "assert.equal failed", None, Some(note))
-        );
+        let failed = |diff, order: Option<&str>| Block::Failed {
+            message: String::from("assert.equal failed"),
+            diff,
+            order: order.map(str::to_string),
+        };
+        let record = Value::Array(vec![
+            record_of("a title", "//lib/x/test/x", &Block::Passed),
+            record_of("say \"hi\"", "//lib/x/test/x", &failed(Some(diff), None)),
+            record_of("scheduled", "//lib/x/test/x", &failed(None, Some(note))),
+        ])
+        .to_string();
         let cases = parse_results(&record);
         assert_eq!(cases.len(), 3);
         assert_eq!(cases[0].name, "a title");
@@ -3520,18 +3445,5 @@ mod tests {
         .unwrap();
         assert!(faulted.diff.is_none());
         assert!(faulted.order.is_some());
-    }
-
-    /// A JSON string literal is JSON: the runner's own parser looks for a
-    /// double quote, and `javascript::quote` prefers whichever quote character
-    /// needs less escaping.
-    #[test]
-    fn a_record_field_is_quoted_as_json_and_not_as_javascript() {
-        assert_eq!(json_quote("it's"), "\"it's\"");
-        assert_eq!(javascript::quote("it's"), "\"it's\"");
-        assert_eq!(json_quote("plain"), "\"plain\"");
-        assert_eq!(javascript::quote("plain"), "'plain'");
-        assert_eq!(json_quote("a\tb\nc\"d\\e"), "\"a\\tb\\nc\\\"d\\\\e\"");
-        assert_eq!(json_quote("\u{1}"), "\"\\u0001\"");
     }
 }
