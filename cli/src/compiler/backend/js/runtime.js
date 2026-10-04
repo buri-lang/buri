@@ -586,15 +586,40 @@ const $sharedFrozen = new WeakSet();
 // A second reference to a value has come into existence. Sticky: nothing ever
 // puts a value back, because the cost of an over-set mark is one copy and the
 // cost of a cleared one is an aliasing bug.
+//
+// The mark is asked about first because most calls find it: an aggregate is
+// marked once and then shared again and again, and a list never carries it, so
+// asking first answers the common case with one property read instead of two.
 function $share(v) {
-  if (v !== null && typeof v === "object") {
-    if (v.$u === true) v.$u = false;
-    else if (v.$u === undefined && v[$shared] !== true) {
+  if (v !== null && typeof v === "object" && v[$shared] !== true) {
+    const u = v.$u;
+    if (u === true) v.$u = false;
+    else if (u === undefined) {
       if (Object.isExtensible(v)) v[$shared] = true;
       else $sharedFrozen.add(v);
     }
   }
   return v;
+}
+
+// Every element of `xs` marked, as the higher-order functions below hand each
+// one to a callback. `$each` on the list records that this was done, so a list
+// that is searched or folded over again and again is walked to mark it once
+// rather than once per search. The elements are marked up front, even the ones
+// a search that stops early never reaches: an over-set mark costs one copy, and
+// the record is what saves the walk.
+//
+// Only adding an element can make the record false, so the two operations that
+// add one in place, `$list_push` and `$list_concat`, clear it. Taking elements
+// away or reordering them leaves every element still marked.
+const $each = Symbol("each");
+
+function $shareEach(xs) {
+  if (xs[$each] !== true) {
+    for (let i = 0; i < xs.length; i++) $share(xs[i]);
+    if (Object.isExtensible(xs)) xs[$each] = true;
+  }
+  return xs;
 }
 
 // A field read out of a parent this expression is the last use of: a second
@@ -662,82 +687,95 @@ function $list_get(xs, i) {
 // walk, and then it is one copy of everything built so far per step of the
 // walk.
 function $list_fold(xs, f, acc) {
-  for (let i = 0; i < xs.length; i++) acc = f(acc, $share(xs[i]));
+  $shareEach(xs);
+  for (let i = 0; i < xs.length; i++) acc = f(acc, xs[i]);
   return acc;
 }
 
 function $list_foldCtx(xs, c, f, acc) {
-  for (let i = 0; i < xs.length; i++) acc = f(c, acc, $share(xs[i]));
+  $shareEach(xs);
+  for (let i = 0; i < xs.length; i++) acc = f(c, acc, xs[i]);
   return acc;
 }
 
 // Stops at the first .Err, which is how a fallible fold is written without an
 // early exit.
 function $list_foldResult(xs, f, acc) {
+  $shareEach(xs);
   let cur = [0, acc];
   for (let i = 0; i < xs.length; i++) {
-    cur = f(cur[1], $share(xs[i]));
+    cur = f(cur[1], xs[i]);
     if (cur[0] !== 0) return cur;
   }
   return cur;
 }
 
 function $list_foldResultCtx(xs, c, f, acc) {
+  $shareEach(xs);
   let cur = [0, acc];
   for (let i = 0; i < xs.length; i++) {
-    cur = f(c, cur[1], $share(xs[i]));
+    cur = f(c, cur[1], xs[i]);
     if (cur[0] !== 0) return cur;
   }
   return cur;
 }
 
 function $list_any(xs, p) {
-  for (let i = 0; i < xs.length; i++) if (p($share(xs[i]))) return true;
+  $shareEach(xs);
+  for (let i = 0; i < xs.length; i++) if (p(xs[i])) return true;
   return false;
 }
 
 function $list_all(xs, p) {
-  for (let i = 0; i < xs.length; i++) if (!p($share(xs[i]))) return false;
+  $shareEach(xs);
+  for (let i = 0; i < xs.length; i++) if (!p(xs[i])) return false;
   return true;
 }
 
 function $list_find(xs, p) {
-  for (let i = 0; i < xs.length; i++) if (p($share(xs[i]))) return $some(xs[i]);
+  $shareEach(xs);
+  for (let i = 0; i < xs.length; i++) if (p(xs[i])) return $some(xs[i]);
   return undefined;
 }
 
 function $list_findIndex(xs, p) {
-  for (let i = 0; i < xs.length; i++) if (p($share(xs[i]))) return $some(BigInt(i));
+  $shareEach(xs);
+  for (let i = 0; i < xs.length; i++) if (p(xs[i])) return $some(BigInt(i));
   return undefined;
 }
 
 function $list_count(xs, p) {
+  $shareEach(xs);
   let n = 0;
-  for (let i = 0; i < xs.length; i++) if (p($share(xs[i]))) n++;
+  for (let i = 0; i < xs.length; i++) if (p(xs[i])) n++;
   return BigInt(n);
 }
 
 function $list_map(xs, c, f) {
+  $shareEach(xs);
   const out = new Array(xs.length);
-  for (let i = 0; i < xs.length; i++) out[i] = f($share(xs[i]));
+  for (let i = 0; i < xs.length; i++) out[i] = f(xs[i]);
   return $own(out);
 }
 
 function $list_mapCtx(xs, c, f) {
+  $shareEach(xs);
   const out = new Array(xs.length);
-  for (let i = 0; i < xs.length; i++) out[i] = f(c, $share(xs[i]));
+  for (let i = 0; i < xs.length; i++) out[i] = f(c, xs[i]);
   return $own(out);
 }
 
 function $list_filter(xs, c, p) {
+  $shareEach(xs);
   const out = [];
-  for (let i = 0; i < xs.length; i++) if (p($share(xs[i]))) out.push(xs[i]);
+  for (let i = 0; i < xs.length; i++) if (p(xs[i])) out.push(xs[i]);
   return $own(out);
 }
 
 function $list_filterCtx(xs, c, p) {
+  $shareEach(xs);
   const out = [];
-  for (let i = 0; i < xs.length; i++) if (p(c, $share(xs[i]))) out.push(xs[i]);
+  for (let i = 0; i < xs.length; i++) if (p(c, xs[i])) out.push(xs[i]);
   return $own(out);
 }
 
@@ -763,32 +801,36 @@ function $list_filterCtx(xs, c, p) {
 // of the convention — `$x` and `$xAwait` — and `js/intrinsics.rs` reads it.
 //
 // Each is its synchronous twin with one `await` in it and nothing else
-// changed, including `$share` on the element and the seed left unmarked, so
+// changed, including `$shareEach` on the list and the seed left unmarked, so
 // the two cannot disagree about ownership.
 
 async function $list_foldCtxAwait(xs, c, f, acc) {
-  for (let i = 0; i < xs.length; i++) acc = await f(c, acc, $share(xs[i]));
+  $shareEach(xs);
+  for (let i = 0; i < xs.length; i++) acc = await f(c, acc, xs[i]);
   return acc;
 }
 
 async function $list_foldResultCtxAwait(xs, c, f, acc) {
+  $shareEach(xs);
   let cur = [0, acc];
   for (let i = 0; i < xs.length; i++) {
-    cur = await f(c, cur[1], $share(xs[i]));
+    cur = await f(c, cur[1], xs[i]);
     if (cur[0] !== 0) return cur;
   }
   return cur;
 }
 
 async function $list_mapCtxAwait(xs, c, f) {
+  $shareEach(xs);
   const out = new Array(xs.length);
-  for (let i = 0; i < xs.length; i++) out[i] = await f(c, $share(xs[i]));
+  for (let i = 0; i < xs.length; i++) out[i] = await f(c, xs[i]);
   return $own(out);
 }
 
 async function $list_filterCtxAwait(xs, c, p) {
+  $shareEach(xs);
   const out = [];
-  for (let i = 0; i < xs.length; i++) if (await p(c, $share(xs[i]))) out.push(xs[i]);
+  for (let i = 0; i < xs.length; i++) if (await p(c, xs[i])) out.push(xs[i]);
   return $own(out);
 }
 
@@ -802,6 +844,7 @@ function $list_concat(xs, c, ys) {
   if (xs.$u === true) {
     // `ys` may be `xs`, so the length is read once before anything is added.
     const n = ys.length;
+    if (n > 0 && xs[$each] === true) xs[$each] = false;
     for (let i = 0; i < n; i++) xs.push(ys[i]);
     return xs;
   }
@@ -810,6 +853,7 @@ function $list_concat(xs, c, ys) {
 
 function $list_push(xs, c, x) {
   if (xs.$u === true) {
+    if (xs[$each] === true) xs[$each] = false;
     xs.push(x);
     return xs;
   }
@@ -1038,10 +1082,11 @@ function $str_indexOf(s, n) {
 }
 
 // Two slices, or .None when the separator does not occur. Pure, because
-// neither half is a copy.
+// neither half is a copy. The pair is its own `Some`: a tuple is never
+// `undefined`, so it needs no `$some`.
 function $str_splitOnce(s, sep) {
   const i = s.indexOf(sep);
-  return i < 0 ? undefined : $some([s.slice(0, i), s.slice(i + sep.length)]);
+  return i < 0 ? undefined : [s.slice(0, i), s.slice(i + sep.length)];
 }
 
 // `Str.compare`, and through `Ordered` every `<`, `sort` and `OrderedMap` key order.
@@ -1055,17 +1100,19 @@ function $str_splitOnce(s, sep) {
 // U+E000..U+FFFF, where the scalar values say the opposite. `"\u{1F600}" <
 // "\u{E000}"` is the case that names it — true in JavaScript, false here.
 //
-// The fast path is every string with no surrogate in it, which is every ASCII
-// string and every BMP one: there `<` already is scalar order, one code unit
-// per scalar. Only a string carrying a surrogate pays for the scan.
+// Only the first code unit the two differ at decides, so that is all this
+// reads: below 0xD800 both units are whole scalars and `<` on them is scalar
+// order. It used to ask first whether either string held a surrogate at all,
+// which read both strings to the end on every call, and keys sorted in a map
+// share long prefixes and differ early.
 function $str_compare(a, b) {
   if (a === b) return 1;
-  if (!$wide(a) && !$wide(b)) return a < b ? 0 : 2;
   const n = a.length < b.length ? a.length : b.length;
   for (let i = 0; i < n; i++) {
     const x = a.charCodeAt(i);
     const y = b.charCodeAt(i);
     if (x === y) continue;
+    if (x < 0xd800 && y < 0xd800) return x < y ? 0 : 2;
     // Re-rank the two differing code units so that they order the way the
     // scalars they encode do. A surrogate stands for something above U+FFFF,
     // so it belongs above the whole 0xE000..0xFFFF block rather than below it;
