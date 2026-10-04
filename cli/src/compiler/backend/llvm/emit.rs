@@ -79,8 +79,8 @@ use crate::compiler::backend::Profile;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::rc::{self, Counted as _};
 use crate::compiler::middle::layout::{
-    self, EnumRepr, Repr as LayoutRepr, Scalar, CAP_MASK, CAP_SHARED_FLAG, HEADER_CAP_OFFSET,
-    HEADER_RC_OFFSET, IMMORTAL, STR_ASCII_FLAG, STR_LEN_MASK,
+    self, EnumRepr, Layouts, Repr as LayoutRepr, Scalar, CAP_MASK, CAP_SHARED_FLAG,
+    HEADER_CAP_OFFSET, HEADER_RC_OFFSET, IMMORTAL, STR_ASCII_FLAG, STR_LEN_MASK,
 };
 use crate::compiler::semantics::builtins::conversion_is_exact;
 use crate::compiler::semantics::types::{self as types, FuncIdx, Prim, Tables, Ty};
@@ -504,7 +504,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             entry,
             divmod: None,
             observed: Observed::clean(),
-            based: argument_based(code),
+            based: argument_based(
+                code,
+                &Boxes::new(self.program, self.tables, self.reprs.layouts()),
+            ),
         };
 
         // The entry block's parameters are the function's parameters
@@ -9658,7 +9661,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 ///
 /// The lattice is three booleans that only ever go from `false` to `true`, so
 /// the loop terminates in at most one pass per call-graph level.
-pub fn observe(program: &ir::Program, profile: Profile) -> Vec<Observed> {
+///
+/// **It has to find everything emission finds.** The definition's attributes
+/// are written from this table joined with what its body emitted, but every
+/// *declaration* is written from this table alone. A bit only emission finds
+/// is a definition and its declarations disagreeing — the first paragraph's
+/// miscompile. `ui/node`'s `empty()` was one: `Node(.Empty)` boxes its
+/// payload, which only emission knew, so every other unit declared it
+/// `memory(none)` and LLVM folded two calls into one block that was then
+/// released twice.
+pub fn observe(program: &ir::Program, boxes: &Boxes<'_>, profile: Profile) -> Vec<Observed> {
     let mut out: Vec<Observed> = program
         .funcs
         .iter()
@@ -9666,7 +9678,7 @@ pub fn observe(program: &ir::Program, profile: Profile) -> Vec<Observed> {
             // A function the backend does not define is a runtime import: the
             // world, as far as this compilation can tell.
             ir::Body::Runtime(_) => Observed::opaque(),
-            ir::Body::Code(code) => local(code, profile),
+            ir::Body::Code(code) => local(code, boxes, profile),
         })
         .collect();
 
@@ -9847,7 +9859,11 @@ fn reaches_a_cycle(program: &ir::Program) -> Vec<bool> {
 /// `middle::tail_calls` rewrites self-recursion into a loop, so a parameter a
 /// leaf function counts arrives at the `incref` as a *loop header's* parameter
 /// whose incoming values are the entry parameter and itself.
-fn argument_based(code: &ir::Code) -> Vec<bool> {
+///
+/// **A boxed field is a load too.** A projection out of a member
+/// `middle::layout` keeps behind a box reads the box (`Unit::get_field`), so
+/// what it yields is no more based on the parameter than an element is.
+fn argument_based(code: &ir::Code, boxes: &Boxes<'_>) -> Vec<bool> {
     let mut based = vec![true; code.values()];
     let set = |based: &mut Vec<bool>, v: ir::ValueId, to: bool, changed: &mut bool| {
         if let Some(slot) = based.get_mut(v.index()) {
@@ -9872,6 +9888,11 @@ fn argument_based(code: &ir::Code) -> Vec<bool> {
                     }
                     // A load: see the header.
                     ir::Inst::ArrayGet { dest, .. } => {
+                        set(&mut based, *dest, false, &mut changed);
+                    }
+                    ir::Inst::GetField { dest, .. } | ir::Inst::GetPayload { dest, .. }
+                        if boxes.unboxes(code, inst) =>
+                    {
                         set(&mut based, *dest, false, &mut changed);
                     }
                     ir::Inst::Structural { dest, .. } => {
@@ -9933,10 +9954,66 @@ fn argument_based(code: &ir::Code) -> Vec<bool> {
     based
 }
 
+/// Which IR instructions go through a box: the members `middle::layout` keeps
+/// behind an indirection (VALUE-MODEL.md §5.2). Building one allocates the box
+/// and reading one loads out of it, and neither is visible in the IR — it is
+/// [`Reprs::boxes`]'s answer, asked here without the slots so that [`observe`]
+/// and the emitter answer it alike.
+pub struct Boxes<'a> {
+    program: &'a ir::Program,
+    tables: &'a Tables,
+    layouts: &'a Layouts<'a>,
+}
+
+impl<'a> Boxes<'a> {
+    pub fn new(program: &'a ir::Program, tables: &'a Tables, layouts: &'a Layouts<'a>) -> Self {
+        Boxes { program, tables, layouts }
+    }
+
+    /// Whether a `MakeStruct` or `MakeEnum` puts a member in a box.
+    fn boxes(&self, code: &ir::Code, inst: &ir::Inst) -> bool {
+        match inst {
+            ir::Inst::MakeStruct { dest, .. } => {
+                let Some(owner) = self.owner(code, *dest) else { return false };
+                types::field_types(self.tables, &owner)
+                    .iter()
+                    .any(|f| self.layouts.boxes(&owner, f))
+            }
+            ir::Inst::MakeEnum { dest, variant, .. } => {
+                let Some(owner) = self.owner(code, *dest) else { return false };
+                types::variant_types(self.tables, &owner, *variant as usize)
+                    .iter()
+                    .any(|f| self.layouts.boxes(&owner, f))
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether a `GetField` or `GetPayload` reads a member out of its box.
+    fn unboxes(&self, code: &ir::Code, inst: &ir::Inst) -> bool {
+        let (agg, variant, index) = match inst {
+            ir::Inst::GetField { agg, index, .. } => (*agg, None, *index),
+            ir::Inst::GetPayload { agg, variant, index, .. } => (*agg, Some(*variant), *index),
+            _ => return false,
+        };
+        let Some(owner) = self.owner(code, agg) else { return false };
+        let fields = match variant {
+            None => types::field_types(self.tables, &owner),
+            Some(v) => types::variant_types(self.tables, &owner, v as usize),
+        };
+        fields.get(index as usize).is_some_and(|f| self.layouts.boxes(&owner, f))
+    }
+
+    fn owner(&self, code: &ir::Code, v: ir::ValueId) -> Option<Ty> {
+        let ir::Type::Agg(id) = code.ty_of(v) else { return None };
+        Some(self.program.type_info(id).ty.clone())
+    }
+}
+
 /// What one body holds, before anything is propagated into it.
-fn local(code: &ir::Code, profile: Profile) -> Observed {
+fn local(code: &ir::Code, boxes: &Boxes<'_>, profile: Profile) -> Observed {
     let mut o = Observed::clean();
-    let based = argument_based(code);
+    let based = argument_based(code, boxes);
     let from_args = |v: &ir::ValueId| based.get(v.index()).copied().unwrap_or(false);
     for block in &code.blocks {
         for inst in &block.insts {
@@ -9945,6 +10022,27 @@ fn local(code: &ir::Code, profile: Profile) -> Observed {
                 // memory (CODEGEN-LLVM.md §3.1's `Allocator`-bounded row).
                 ir::Inst::MakeArray { .. } => o.allocates = true,
                 ir::Inst::MakeClosure { env: Some(_), .. } => o.allocates = true,
+                // A struct or a variant with a member behind a box allocates
+                // the box (`Unit::make_record`, `Unit::make_enum`).
+                ir::Inst::MakeStruct { .. } | ir::Inst::MakeEnum { .. } => {
+                    if boxes.boxes(code, inst) {
+                        o.allocates = true;
+                    }
+                }
+                // Reading a boxed member loads out of the box, which is
+                // argument memory only when the box is a parameter's.
+                ir::Inst::GetField { agg, .. } | ir::Inst::GetPayload { agg, .. } => {
+                    if boxes.unboxes(code, inst) && !from_args(agg) {
+                        o.reads_far = true;
+                    }
+                }
+                // A fresh block, and a retain of every element it copies —
+                // counts reached through loads (`Unit::array_slice`).
+                ir::Inst::ArraySlice { .. } => {
+                    o.allocates = true;
+                    o.reads_far = true;
+                    o.writes_far = true;
+                }
                 ir::Inst::Abort { .. } => o.aborts = true,
                 // SPEC 6.2: integer division by zero aborts. Float division is
                 // an infinity and does not.
@@ -9954,8 +10052,17 @@ fn local(code: &ir::Code, profile: Profile) -> Observed {
                     }
                 }
                 // A host capability, and a `decref` whose free path calls the
-                // allocator, are both the world.
-                ir::Inst::CallIntrinsic { .. } | ir::Inst::CallIndirect { .. } => o.opaque = true,
+                // allocator, are both the world. All of it, as a runtime callee
+                // is in [`observe`]: an intrinsic or a closure may grow a list
+                // it was handed in place, which is a write through the caller's
+                // parameter, and `readonly` reads `writes_args` alone.
+                ir::Inst::CallIntrinsic { .. } | ir::Inst::CallIndirect { .. } => {
+                    o.join(Observed::opaque());
+                }
+                // Both are runtime calls once emitted — `Unit::string_binary`
+                // and `Unit::show_prim` — and are the world for the same reason.
+                ir::Inst::Binary { prim: Prim::Str | Prim::Template, .. }
+                | ir::Inst::Structural { .. } => o.join(Observed::opaque()),
                 // A count is memory, and *which* memory decides the attribute
                 // — see [`argument_based`]. `decref` keeps `opaque` on top of
                 // that for its free path, which goes back to the allocator
