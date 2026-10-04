@@ -1692,8 +1692,10 @@ fn painting_package(scratch: &Scratch, name: &str) {
 /// binaries. They used to be four, because one painting suite in a batch sent
 /// every suite in it back to be compiled, linked and run on its own.
 ///
-/// The second run edits one package's picture and checks that only that suite
-/// fails, so that the two directories are still two.
+/// The recording run is the one that links. The comparing run after it runs
+/// the same binaries, because a golden decides what a run does and not what it
+/// builds. Then an edit to one package's picture fails only that suite, so the
+/// two directories are still two.
 #[test]
 fn a_suite_that_paints_shares_a_binary_with_those_that_do_not() {
     let scratch = Scratch::repo("batch-paints");
@@ -1702,7 +1704,7 @@ fn a_suite_that_paints_shares_a_binary_with_those_that_do_not() {
     painting_package(&scratch, "one");
     painting_package(&scratch, "two");
 
-    let recorded = scratch.run(&["test", "//...", "--update"]);
+    let recorded = scratch.run(&["test", "//...", "--update", "--explain"]);
     if recorded.stderr.contains("native-run-not-available") {
         recorded.exits(1);
         return;
@@ -1716,22 +1718,24 @@ fn a_suite_that_paints_shares_a_binary_with_those_that_do_not() {
         );
     }
 
-    let run = scratch.run(&["test", "//...", "--explain"]);
-    run.ok();
-    assert_eq!(run.tests_passed(), 4, "a batched run lost a test:\n{}", indent(&run.all()));
-    let links = rows(&run, "link");
+    let links = rows(&recorded, "link");
     assert_eq!(
         links.len(),
         2,
         "four suites, two of them painting into two packages, took {} links rather than two:\n{}",
         links.len(),
-        indent(&run.all())
+        indent(&recorded.all())
     );
     assert!(
         !links.iter().any(|l| l.contains("//lib/one") && l.contains("//lib/two")),
         "two suites that paint into two directories shared a binary:\n{}",
-        indent(&run.all())
+        indent(&recorded.all())
     );
+
+    let run = scratch.run(&["test", "//...", "--explain"]);
+    run.ok();
+    assert_eq!(run.tests_passed(), 4, "a batched run lost a test:\n{}", indent(&run.all()));
+    assert!(rows(&run, "link").is_empty(), "the goldens rebuilt a binary:\n{}", indent(&run.all()));
 
     scratch.edit("lib/two/test/two.buri", ".Const(\"two\")", ".Const(\"three\")");
     let edited = scratch.run(&["test", "//...", "--explain"]);
