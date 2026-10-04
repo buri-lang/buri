@@ -547,23 +547,7 @@ pub fn host_platform() -> Platform {
     }
 }
 
-/// The platform a *test suite* is checked against when it names none. A suite
-/// runs once, on the host platform (TAGS.md, "Tags and tests"), and the host
-/// is this machine — code tagged for the machine it was written for is not
-/// being asked to run in a browser just because the backend emits JavaScript.
-///
-/// Unconditional, unlike [`host_platform`], and the difference is the point:
-/// this one answers "which machine is this", which is a fact about the machine,
-/// and the other answers "what can this toolchain produce for it", which is a
-/// fact about the toolchain. A suite tagged `macos` is macOS code on a macOS
-/// host whether or not a native backend is compiled in.
-pub fn host_native_platform() -> Platform {
-    if cfg!(target_os = "macos") {
-        Platform::Macos
-    } else {
-        Platform::Linux
-    }
-}
+pub use crate::build::buildfile::host_native_platform;
 
 #[cfg(test)]
 mod tests {

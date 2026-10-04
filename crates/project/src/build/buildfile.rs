@@ -188,7 +188,7 @@ impl PlatformName {
     /// host's.
     pub fn host_platform(self) -> Platform {
         match self {
-            PlatformName::Native => crate::compiler::driver::host_native_platform(),
+            PlatformName::Native => host_native_platform(),
             PlatformName::Node => Platform::Js,
             PlatformName::Web => Platform::Web,
         }
@@ -221,6 +221,48 @@ impl PlatformName {
     /// The names of the platform's entries.
     pub fn entries(self) -> Vec<&'static str> {
         self.rule().map(|r| r.entries.iter().map(|e| e.name.value.as_str()).collect()).unwrap_or_default()
+    }
+}
+
+/// The architecture this toolchain is running on, or `None` on one no `Arch`
+/// names.
+pub fn host_arch() -> Option<Arch> {
+    if cfg!(target_arch = "x86_64") {
+        Some(Arch::X86_64)
+    } else if cfg!(target_arch = "aarch64") {
+        Some(Arch::Arm64)
+    } else {
+        None
+    }
+}
+
+/// The platform this toolchain is running on, or `None` where there is no
+/// native backend and no runtime archive anyway.
+pub fn host_platform() -> Option<Platform> {
+    if cfg!(target_os = "macos") {
+        Some(Platform::Macos)
+    } else if cfg!(target_os = "linux") {
+        Some(Platform::Linux)
+    } else {
+        None
+    }
+}
+
+/// The platform a *test suite* is checked against when it names none. A suite
+/// runs once, on the host platform (TAGS.md, "Tags and tests"), and the host
+/// is this machine — code tagged for the machine it was written for is not
+/// being asked to run in a browser just because the backend emits JavaScript.
+///
+/// Unconditional, unlike `driver::host_platform`, and the difference is the point:
+/// this one answers "which machine is this", which is a fact about the machine,
+/// and the other answers "what can this toolchain produce for it", which is a
+/// fact about the toolchain. A suite tagged `macos` is macOS code on a macOS
+/// host whether or not a native backend is compiled in.
+pub fn host_native_platform() -> Platform {
+    if cfg!(target_os = "macos") {
+        Platform::Macos
+    } else {
+        Platform::Linux
     }
 }
 
@@ -511,7 +553,7 @@ impl Output {
     /// the output named none.
     pub fn variant(&self) -> Option<String> {
         let os = self.platform().os()?;
-        let arch = self.arch().or_else(crate::build::link::host_arch)?;
+        let arch = self.arch().or_else(host_arch)?;
         Some(format!("{os}-{}", arch.slug()))
     }
 

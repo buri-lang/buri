@@ -549,7 +549,7 @@ mod tests {
     #[test]
     fn every_text_format_file_in_the_tests_formats_to_a_fixed_point_with_its_meaning() {
         let mut files = Vec::new();
-        let mut stack = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests")];
+        let mut stack = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../cli/tests")];
         while let Some(dir) = stack.pop() {
             for entry in std::fs::read_dir(&dir).expect("reads").flatten() {
                 let path = entry.path();

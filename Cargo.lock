@@ -54,6 +54,7 @@ dependencies = [
  "buri-diagnostics",
  "buri-docs",
  "buri-hash",
+ "buri-project",
  "buri-stdlib",
  "buri-syntax",
  "inkwell",
@@ -75,6 +76,16 @@ version = "0.3.19"
 [[package]]
 name = "buri-hash"
 version = "0.3.19"
+
+[[package]]
+name = "buri-project"
+version = "0.3.19"
+dependencies = [
+ "buri-diagnostics",
+ "buri-docs",
+ "buri-stdlib",
+ "buri-syntax",
+]
 
 [[package]]
 name = "buri-rt-tests"

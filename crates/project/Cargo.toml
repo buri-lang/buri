@@ -1,0 +1,17 @@
+[package]
+name = "buri-project"
+version = "0.3.19"
+edition = "2021"
+description = "What a Buri repository declares: build files, platforms, languages and the build graph vocabulary."
+license = "MIT"
+repository = "https://github.com/buri-lang/buri"
+rust-version = "1.89"
+
+[dependencies]
+buri-diagnostics = { path = "../diagnostics", version = "0.3.19" }
+buri-docs = { path = "../docs", version = "0.3.19" }
+buri-stdlib = { path = "../stdlib", version = "0.3.19" }
+buri-syntax = { path = "../syntax", version = "0.3.19" }
+
+[lints]
+workspace = true

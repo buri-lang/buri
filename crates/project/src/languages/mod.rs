@@ -314,7 +314,7 @@ impl Check {
 /// A reader for repository paths under `root`, with `overlay` over the disk.
 pub fn reader<'a>(
     root: &'a Path,
-    overlay: &'a crate::build::sources::Overlay,
+    overlay: &'a std::collections::BTreeMap<std::path::PathBuf, String>,
 ) -> impl Fn(&str) -> Option<String> + 'a {
     move |rel: &str| {
         let full = root.join(rel);

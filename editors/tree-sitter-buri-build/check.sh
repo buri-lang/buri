@@ -11,7 +11,7 @@
 # ERROR or MISSING node.
 #
 # The other direction, the one a corpus of working files cannot see, is the
-# REFUSED list below: a handful of inputs `cli/src/build/textproto.rs` turns
+# REFUSED list below: a handful of inputs `crates/project/src/build/textproto.rs` turns
 # away, which the syntax tree must turn away too. It is what says the grammar
 # has not quietly become more permissive than the reader.
 

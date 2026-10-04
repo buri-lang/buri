@@ -6,7 +6,7 @@ The official [JSON-Schema-Test-Suite](https://github.com/json-schema-org/JSON-Sc
 cargo test -p buri --lib json_schema_test_suite -- --nocapture
 ```
 
-The harness is `cli/src/languages/json/suite.rs`. It prints a tally per file, and holds the list of groups left out, each with the finding it must draw instead.
+The harness is `crates/project/src/languages/json/suite.rs`. It prints a tally per file, and holds the list of groups left out, each with the finding it must draw instead.
 
 ## What was vendored, and from where
 
