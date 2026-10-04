@@ -1488,6 +1488,177 @@ fn one_suites_failure_leaves_the_others_reported() {
     );
 }
 
+/// What a run printed about the code, without the `--explain` rows and the
+/// summary line, whose time moves between two runs of one tree.
+fn report(run: &Run) -> String {
+    run.stdout
+        .lines()
+        .filter(|l| {
+            let f: Vec<&str> = l.split_whitespace().collect();
+            let explained = f.len() == 5 && matches!(f[0], "run" | "cached" | "keyed");
+            !explained && !l.contains(" passed, ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A failing suite runs every time and is built once.
+///
+/// A failure is never served from the cache, so the second run has to run the
+/// suite and report the failure again. What it doesn't have to do is build the
+/// same binary again: `--explain` says the build was cached, and nothing was
+/// generated or linked.
+///
+/// A comment edit above the test is an edit to the build, because it moves the
+/// line the failure is reported at.
+#[test]
+fn a_failing_suite_runs_again_without_being_built_again() {
+    let scratch = Scratch::repo("rerun-failing");
+    suite_package(&scratch, "a", "");
+    scratch.write("lib/a/lib.buri", "export fn one(): Int { 2 }\n");
+
+    let first = scratch.run(&["test", "//lib/a", "--explain"]);
+    if first.stderr.contains("test-run-unavailable") {
+        first.exits(1);
+        return;
+    }
+    first.exits(1);
+    assert_eq!(status(&first, "build //lib/a"), "run", "{}", indent(&first.all()));
+    assert!(report(&first).contains("FAIL //lib/a"), "{}", indent(&first.all()));
+
+    let again = scratch.run(&["test", "//lib/a", "--explain"]);
+    again.exits(1);
+    assert_eq!(
+        (status(&again, "test //lib/a"), status(&again, "build //lib/a")),
+        ("run".to_string(), "cached".to_string()),
+        "a failing suite was not run again from the binary it already had:\n{}",
+        indent(&again.all())
+    );
+    assert!(
+        rows(&again, "link").is_empty() && rows(&again, "codegen").is_empty(),
+        "an unedited failing suite was built again:\n{}",
+        indent(&again.all())
+    );
+    assert_eq!(report(&again), report(&first), "the failure read differently the second time");
+
+    let source = scratch.read("lib/a/test/a.buri");
+    scratch.write("lib/a/test/a.buri", &format!("// The one test.\n{source}"));
+    let commented = scratch.run(&["test", "//lib/a", "--explain"]);
+    commented.exits(1);
+    assert_eq!(status(&commented, "build //lib/a"), "run", "{}", indent(&commented.all()));
+    assert!(
+        report(&commented).contains("--> lib/a/test/a.buri:5:"),
+        "the failure is not reported at the line the test moved to:\n{}",
+        indent(&commented.all())
+    );
+
+    scratch.write("lib/a/lib.buri", "export fn one(): Int { 1 }\n");
+    let fixed = scratch.run(&["test", "//lib/a", "--explain"]);
+    fixed.ok();
+    assert_eq!(fixed.tests_passed(), 1, "{}", indent(&fixed.all()));
+    assert_eq!(status(&fixed, "build //lib/a"), "run", "{}", indent(&fixed.all()));
+
+    // And a passing suite is what it always was: a cached verdict, and no
+    // build to look up at all.
+    let passing = scratch.run(&["test", "//lib/a", "--explain"]);
+    passing.ok();
+    assert_eq!(status(&passing, "test //lib/a"), "cached", "{}", indent(&passing.all()));
+    assert!(rows(&passing, "build").is_empty(), "{}", indent(&passing.all()));
+}
+
+/// A suite that doesn't compile says the same thing the second time, without
+/// being checked again, and an edit checks it again.
+#[test]
+fn a_suite_that_does_not_compile_says_so_again_without_being_checked() {
+    let scratch = Scratch::repo("rerun-uncompiled");
+    suite_package(&scratch, "a", "");
+    scratch.write("lib/a/lib.buri", "export fn one(): Int { missing() }\n");
+
+    let first = scratch.run(&["test", "//lib/a", "--explain"]);
+    first.exits(1);
+    assert_eq!(status(&first, "build //lib/a"), "run", "{}", indent(&first.all()));
+    assert!(first.stderr.contains("missing"), "{}", indent(&first.all()));
+    assert!(first.stdout.contains("1 failed to compile"), "{}", indent(&first.all()));
+
+    let again = scratch.run(&["test", "//lib/a", "--explain"]);
+    again.exits(1);
+    assert_eq!(
+        status(&again, "build //lib/a"),
+        "cached",
+        "a suite that did not compile was checked again:\n{}",
+        indent(&again.all())
+    );
+    assert_eq!(again.stderr, first.stderr, "the errors read differently the second time");
+    assert!(again.stdout.contains("1 failed to compile"), "{}", indent(&again.all()));
+
+    scratch.write("lib/a/lib.buri", "export fn one(): Int { absent() }\n");
+    let edited = scratch.run(&["test", "//lib/a", "--explain"]);
+    edited.exits(1);
+    assert_eq!(status(&edited, "build //lib/a"), "run", "{}", indent(&edited.all()));
+    assert!(
+        edited.stderr.contains("absent") && !edited.stderr.contains("missing"),
+        "the edit was not checked:\n{}",
+        indent(&edited.all())
+    );
+}
+
+/// Failing suites that shared a binary run in it again, and an edit to one of
+/// them builds that one alone.
+///
+/// The passing suite in the batch has a cached verdict, so it is neither run
+/// nor looked up.
+#[test]
+fn failing_suites_that_shared_a_binary_run_in_it_again() {
+    let scratch = Scratch::repo("rerun-batch");
+    for name in ["a", "b", "c"] {
+        suite_package(&scratch, name, "");
+    }
+    scratch.write("lib/a/lib.buri", "export fn one(): Int { 2 }\n");
+    scratch.write("lib/b/lib.buri", "export fn one(): Int { 3 }\n");
+
+    let first = scratch.run(&["test", "//...", "--explain"]);
+    if first.stderr.contains("test-run-unavailable") {
+        first.exits(1);
+        return;
+    }
+    first.exits(1);
+    assert_eq!(rows(&first, "link").len(), 1, "{}", indent(&first.all()));
+
+    let again = scratch.run(&["test", "//...", "--explain"]);
+    again.exits(1);
+    assert_eq!(
+        (status(&again, "build //lib/a"), status(&again, "build //lib/b")),
+        ("cached".to_string(), "cached".to_string()),
+        "{}",
+        indent(&again.all())
+    );
+    assert_eq!(
+        (status(&again, "test //lib/a"), status(&again, "test //lib/b"), status(&again, "test //lib/c")),
+        ("run".to_string(), "run".to_string(), "cached".to_string()),
+        "{}",
+        indent(&again.all())
+    );
+    assert!(rows(&again, "link").is_empty(), "{}", indent(&again.all()));
+    assert_eq!(again.tests_passed(), 1, "{}", indent(&again.all()));
+    assert_eq!(report(&again), report(&first), "the failures read differently the second time");
+
+    scratch.write("lib/a/lib.buri", "export fn one(): Int { 1 }\n");
+    let edited = scratch.run(&["test", "//...", "--explain"]);
+    edited.exits(1);
+    assert_eq!(
+        (status(&edited, "build //lib/a"), status(&edited, "build //lib/b")),
+        ("run".to_string(), "cached".to_string()),
+        "{}",
+        indent(&edited.all())
+    );
+    assert_eq!(edited.tests_passed(), 2, "{}", indent(&edited.all()));
+    assert!(
+        edited.stdout.contains("FAIL //lib/b") && !edited.stdout.contains("FAIL //lib/a"),
+        "{}",
+        indent(&edited.all())
+    );
+}
+
 /// A package whose one suite paints a picture and compares it with the golden
 /// in the package's own `test/__snapshots__`, which `buri test --update`
 /// records.

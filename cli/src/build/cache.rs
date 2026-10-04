@@ -128,6 +128,12 @@ pub enum Action {
     Codegen,
     Link,
     Test,
+    /// What building one test suite left behind: the `link` key of its binary
+    /// and where its tests are in it, or the errors that stopped it. Keyed on
+    /// the suite's closure before anything is checked
+    /// (`actions::test_build_key`), so a suite that failed runs its binary
+    /// again without compiling. Never a verdict: those are [`Action::Test`]'s.
+    Build,
     /// What the lint catalogue found for one target. Keyed on the build graph
     /// and on the bytes of the files the target's analysis read, which is the
     /// whole of what a finding depends on.
@@ -144,6 +150,7 @@ impl Action {
             Action::Codegen => "codegen",
             Action::Link => "link",
             Action::Test => "test",
+            Action::Build => "build",
             Action::Lint => "lint",
         }
     }
@@ -276,6 +283,14 @@ impl ActionKey {
     /// Used where the content *is* the identity.
     pub fn of(bytes: &[u8]) -> ActionKey {
         ActionKey(hash_bytes(bytes))
+    }
+
+    /// A key written down by [`ActionKey::as_str`] and read back, which is
+    /// how one cache entry names another. `None` for anything that isn't 64
+    /// hex digits.
+    pub fn parse(text: &str) -> Option<ActionKey> {
+        (text.len() == 64 && text.bytes().all(|b| b.is_ascii_hexdigit()))
+            .then(|| ActionKey(text.to_string()))
     }
 
     pub fn as_str(&self) -> &str {
