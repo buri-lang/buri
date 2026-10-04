@@ -420,19 +420,19 @@ pub fn run(
 
     // The interpreter reads bodies and constants as they were *before* this
     // pass rewrote any of them: folding a call into an already-extracted style
-    // would produce a value the flattener cannot read back. Cloned rather than
-    // threaded, because the rewrite needs `&mut` on the same two maps — and
-    // paid for only by programs that have a `ui/style` to extract.
-    let original_bodies = bodies.clone();
-    let original_consts = consts.clone();
-
+    // would produce a value the flattener cannot read back. So the maps stay
+    // untouched while the walk reads them, each rewrite is made on a copy of
+    // the one declaration it changes, and the copies go back in at the end.
+    // Copying the maps instead held a second `Arc` to every body, which made
+    // the rewrite deep-copy what it changed anyway, and deep-copied every
+    // constant whether it changed or not.
     let mut ex = Extractor {
         style_con,
         classes_con,
         color_con: ui_style_type(loaded, scopes, "Color"),
         tables,
-        original_bodies: &original_bodies,
-        original_consts: &original_consts,
+        original_bodies: bodies,
+        original_consts: consts,
         rules: Vec::new(),
         recorded: HashSet::default(),
         diags,
@@ -455,9 +455,12 @@ pub fn run(
             styled.push(id);
         }
     }
+    let mut new_consts: Vec<(ConstId, typed::Expr)> = Vec::new();
     for id in styled {
-        if let Some(init) = consts.get_mut(&id) {
-            ex.walk(init, Cond::default());
+        if let Some(init) = consts.get(&id) {
+            let mut init = init.clone();
+            ex.walk(&mut init, Cond::default());
+            new_consts.push((id, init));
         }
     }
     let const_rules = std::mem::take(&mut ex.rules);
@@ -468,12 +471,21 @@ pub fn run(
             styled.push(id);
         }
     }
+    let mut new_bodies: Vec<(FnId, typed::Body)> = Vec::new();
     for id in styled {
-        if let Some(body) = bodies.get_mut(&id) {
-            ex.walk(&mut std::sync::Arc::make_mut(body).expr, Cond::default());
+        if let Some(body) = bodies.get(&id) {
+            let mut body = typed::Body::clone(body);
+            ex.walk(&mut body.expr, Cond::default());
+            new_bodies.push((id, body));
         }
     }
     let styled = Styled { const_rules, body_rules: ex.rules, ..Styled::default() };
+    for (id, init) in new_consts {
+        consts.insert(id, init);
+    }
+    for (id, body) in new_bodies {
+        bodies.insert(id, std::sync::Arc::new(body));
+    }
     (styled, Some(style_con))
 }
 
