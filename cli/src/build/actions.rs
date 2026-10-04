@@ -531,6 +531,19 @@ pub fn action_key(
     flags: &Flags,
     action: Action,
 ) -> ActionKey {
+    let content = if action == Action::Test { Content::Program } else { Content::Bytes };
+    action_key_as(session, target, output, flags, action, content)
+}
+
+/// [`action_key`], with how the closure's sources are read named.
+fn action_key_as(
+    session: &Session,
+    target: TargetId,
+    output: &Output,
+    flags: &Flags,
+    action: Action,
+    content: Content,
+) -> ActionKey {
     let mut k = KeyBuilder::new(action, flags.mode);
     k.output(output);
     // Which backend will produce the bytes, and the identity of everything
@@ -549,7 +562,6 @@ pub fn action_key(
     // Every target in the closure contributes its identity and its sources,
     // in a deterministic order.
     let closure = session.workspace.closure(target);
-    let content = if action == Action::Test { Content::Program } else { Content::Bytes };
     for member in &closure {
         contribute_as(session, *member, &mut k, content);
     }
@@ -780,8 +792,86 @@ fn explain_closure(session: &Session, target: TargetId, output: &Output, flags: 
 /// what compiling it involves — the helper's own `dependencies` are as much part
 /// of the suite as the helper is.
 pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
-    let base = action_key(session, target, output, flags, Action::Test);
-    let mut k = KeyBuilder::new(Action::Test, flags.mode);
+    let mut k = suite_key(session, target, output, flags, Action::Test, Content::Program);
+    goldens(&session.workspace.package(target.package).dir, &mut k);
+    // A recording run and a comparing run are two kinds of result and must not
+    // share a cache entry. `--update` paints goldens and never compares, so its
+    // verdict is always "passed" — it proves a file was written, never that the
+    // golden on disk is what a comparing run would paint now. Folding the flag in
+    // gives the two runs separate keys, so a recording run neither is served a
+    // comparing run's verdict nor writes one a later comparing run is served in
+    // place of actually comparing. The `served` gate already keeps `--update`
+    // from *reading* the cache at all; this is what keeps what it *writes* from
+    // standing in for a comparison (buri-lang/buri#174).
+    if flags.update {
+        k.input("update", b"1");
+    }
+    k.finish()
+}
+
+/// The key a suite's build is filed under: the test binary it linked, the
+/// errors that stopped it, or the fact that it had no test to run.
+///
+/// Known before the front end runs, so a warm run of a failing suite starts its
+/// binary again without checking, monomorphizing or linking anything. It is
+/// [`test_key`]'s closure with three differences, each one a difference between
+/// what a binary depends on and what a verdict does:
+///
+/// - **Every byte, not the program text.** A recorded error and a failing
+///   test's location are a line and a column, and a comment edit moves both.
+/// - **No goldens and no `--update`.** They decide what the run does, and a
+///   failing suite is run every time. The binary is the same either way.
+/// - **The build graph, the `--filter` and the linker.** The graph is every
+///   build file's bytes ([`graph_key`]), so a recorded error can't outlive an
+///   edit to one. A filtered binary holds only the tests the filter selects.
+///   And a binary is what one particular linker produced.
+pub fn test_build_key(
+    session: &Session,
+    target: TargetId,
+    output: &Output,
+    flags: &Flags,
+    graph: &ActionKey,
+) -> ActionKey {
+    let mut k = suite_key(session, target, output, flags, Action::Build, Content::Bytes);
+    k.dependency(graph);
+    if let Some(filter) = &flags.filter {
+        k.input("filter", filter.as_bytes());
+    }
+    if target_of(output).platform.is_native() {
+        if let Ok(linker) = link::select(target_of(output)) {
+            let identity = linker.identity();
+            k.linker(&identity.name, &identity.version);
+            k.input("libc", identity.link.as_bytes());
+        }
+    }
+    k.finish()
+}
+
+/// Every build file's bytes: `REPO.buri`, then each package's `BUILD.buri` in
+/// the graph's order. See [`test_build_key`].
+pub fn graph_key(session: &Session, flags: &Flags) -> ActionKey {
+    let workspace = &session.workspace;
+    let mut k = KeyBuilder::new(Action::Build, flags.mode);
+    k.file("REPO.buri", std::fs::read(workspace.root.join("REPO.buri")).ok().as_deref());
+    for package in &workspace.packages {
+        let file = package.dir.join("BUILD.buri");
+        k.file(&workspace.rel_of(&file), std::fs::read(&file).ok().as_deref());
+    }
+    k.finish()
+}
+
+/// The closure [`test_key`] and [`test_build_key`] share: the target's, each
+/// test dependency's, and the suite's own sources, read as `content` says.
+fn suite_key(
+    session: &Session,
+    target: TargetId,
+    output: &Output,
+    flags: &Flags,
+    action: Action,
+    content: Content,
+) -> KeyBuilder {
+    let base = action_key_as(session, target, output, flags, action, content);
+    let mut k = KeyBuilder::new(action, flags.mode);
     k.dependency(&base);
     // Sorted and deduplicated: `test_dep_edges` yields declaration order, and a
     // key must not depend on the order two `dependencies` entries were written
@@ -801,7 +891,7 @@ pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
         if production.contains(&member) {
             continue;
         }
-        contribute_as(session, member, &mut k, Content::Program);
+        contribute_as(session, member, &mut k, content);
     }
     let package = session.workspace.package(target.package);
     if let Some(suite) = package.test_suite(target.kind) {
@@ -811,24 +901,11 @@ pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
         k.rule_identity(&package.label(), "test", &files);
         for rel in &files {
             let full = package.dir.join(rel);
-            let contents = std::fs::read(&full).ok().map(|b| read_as(rel, b, Content::Program));
+            let contents = std::fs::read(&full).ok().map(|b| read_as(rel, b, content));
             k.file(rel, contents.as_deref());
         }
     }
-    goldens(&package.dir, &mut k);
-    // A recording run and a comparing run are two kinds of result and must not
-    // share a cache entry. `--update` paints goldens and never compares, so its
-    // verdict is always "passed" — it proves a file was written, never that the
-    // golden on disk is what a comparing run would paint now. Folding the flag in
-    // gives the two runs separate keys, so a recording run neither is served a
-    // comparing run's verdict nor writes one a later comparing run is served in
-    // place of actually comparing. The `served` gate already keeps `--update`
-    // from *reading* the cache at all; this is what keeps what it *writes* from
-    // standing in for a comparison (buri-lang/buri#174).
-    if flags.update {
-        k.input("update", b"1");
-    }
-    k.finish()
+    k
 }
 
 /// Every golden in the package's `test/__snapshots__`, which a snapshot
@@ -1926,7 +2003,7 @@ fn build_native(
     let label = session.workspace.label(target);
     let prefix = session.workspace.package(target.package).path.clone();
     let hit = match link_cached(&session.root, &label, output, flags, linker, &objects, &path, &prefix) {
-        Ok(hit) => hit,
+        Ok((_, hit)) => hit,
         Err(errors) => {
             diagnostics.extend(errors.items);
             return Err(diagnostics);
@@ -1947,8 +2024,9 @@ fn build_native(
 }
 
 /// The link step with the cache in front of it: the executable `objects` link
-/// into, at `path`. `Ok(Some(size))` when the cache had it and `Ok(None)` when
-/// the link ran; `Err` holds the linker's errors alone.
+/// into, at `path`, and the `link` key it is filed under. `Some(size)` when the
+/// cache had it and `None` when the link ran; `Err` holds the linker's errors
+/// alone.
 #[allow(
     clippy::too_many_arguments,
     reason = "where the cache is, the label, the output, the flags, the linker, the objects, \
@@ -1963,7 +2041,7 @@ fn link_cached(
     objects: &Objects,
     path: &std::path::Path,
     prefix: &str,
-) -> Result<Option<u64>, Diagnostics> {
+) -> Result<(ActionKey, Option<u64>), Diagnostics> {
     // Asked here and again inside the linker, of the same objects, because it
     // is a pure function of them: the key has to name the command line the link
     // is about to run, and the linker has to build that command line.
@@ -1984,7 +2062,7 @@ fn link_cached(
             }
             if let Ok(size) = write_executable(&entry, path) {
                 explain_link(crate::build::cache::Status::Cached);
-                return Ok(Some(size));
+                return Ok((key, Some(size)));
             }
         }
     }
@@ -1995,7 +2073,7 @@ fn link_cached(
     // of it written from a full read of the artifact just placed. See
     // `Cache::put_file`. The copy at `path` is the one that runs.
     cache.put_file(&key, staged.path());
-    Ok(None)
+    Ok((key, None))
 }
 
 /// Where a native test binary was put, for as long as it is the one to run.
@@ -2100,6 +2178,9 @@ fn claim_runner_after(
 /// The unit prefix is always empty. A batch spans packages, and a suite run alone
 /// uses the same prefix so that its `codegen` keys meet a batch's wherever the
 /// two programs agree on a unit.
+///
+/// The `link` key comes back with the binary, so the next run can start the
+/// same binary again without compiling it ([`place_test_binary`]).
 #[allow(
     clippy::too_many_arguments,
     reason = "where the cache is, the label, the fallback file, the output, the flags, \
@@ -2114,7 +2195,7 @@ pub fn link_test_binary(
     program: &mut monomorphize::Program,
     tables: &Tables,
     diagnostics: &mut Diagnostics,
-) -> Result<TestBinary, Diagnostics> {
+) -> Result<(TestBinary, ActionKey), Diagnostics> {
     let prefix = "";
     let Some(linker) = linker_for(output, diagnostics) else {
         return Err(std::mem::take(diagnostics));
@@ -2124,11 +2205,31 @@ pub fn link_test_binary(
     // Claimed after the objects exist and before anything is written, so a run
     // that fails to compile never takes the shared file at all.
     let binary = claim_runner(&root.join(".buri/out").join(output.dir()), private);
-    if let Err(errors) = link_cached(root, label, output, flags, linker, &objects, binary.path(), prefix) {
-        diagnostics.extend(errors.items);
-        return Err(std::mem::take(diagnostics));
+    match link_cached(root, label, output, flags, linker, &objects, binary.path(), prefix) {
+        Ok((key, _)) => Ok((binary, key)),
+        Err(errors) => {
+            diagnostics.extend(errors.items);
+            Err(std::mem::take(diagnostics))
+        }
     }
-    Ok(binary)
+}
+
+/// The test binary a run before this one linked under `link`, put where it
+/// runs from: the shared runner file where this process can take it, and
+/// `private` where it cannot ([`claim_runner`]).
+///
+/// `None` when the cache no longer holds it, after `buri clean` or a toolchain
+/// change, and the suite is then compiled again.
+pub fn place_test_binary(
+    root: &std::path::Path,
+    output: &Output,
+    private: PathBuf,
+    link: &ActionKey,
+) -> Option<TestBinary> {
+    let entry = Cache::open(root).entry(link)?;
+    let binary = claim_runner(&root.join(".buri/out").join(output.dir()), private);
+    write_executable(&entry, binary.path()).ok()?;
+    Some(binary)
 }
 
 /// Where a test binary whose first suite is `target` runs from when the shared

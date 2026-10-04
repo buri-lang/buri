@@ -212,7 +212,7 @@ impl Store {
 // The encoding
 // ---------------------------------------------------------------------------
 
-fn put_u32(out: &mut Vec<u8>, value: u32) {
+pub(crate) fn put_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
 }
 
@@ -223,7 +223,7 @@ fn put_u64(out: &mut Vec<u8>, value: u64) {
 /// Length-prefixed rather than delimited: a message, a note and a fix are all
 /// prose a diagnostic wrote, and any delimiter one of them may hold is one an
 /// escape rule would then have to be right about.
-fn put_text(out: &mut Vec<u8>, text: &str) {
+pub(crate) fn put_text(out: &mut Vec<u8>, text: &str) {
     put_u32(out, text.len() as u32);
     out.extend_from_slice(text.as_bytes());
 }
@@ -240,13 +240,13 @@ fn put_optional(out: &mut Vec<u8>, text: Option<&String>) {
 
 /// A span, with its file named rather than numbered: a [`FileId`] is an index
 /// into one process's source map and means nothing in the next one.
-fn put_span(out: &mut Vec<u8>, map: &SourceMap, span: Span) {
+pub(crate) fn put_span(out: &mut Vec<u8>, map: &SourceMap, span: Span) {
     put_text(out, if span.is_none() { "" } else { map.name(span.file) });
     put_u32(out, span.start);
     put_u32(out, span.end);
 }
 
-fn put_diagnostic(out: &mut Vec<u8>, map: &SourceMap, d: &Diagnostic) {
+pub(crate) fn put_diagnostic(out: &mut Vec<u8>, map: &SourceMap, d: &Diagnostic) {
     out.push(match d.severity {
         Severity::Error => 0,
         Severity::Warning => 1,
@@ -277,14 +277,21 @@ fn put_diagnostic(out: &mut Vec<u8>, map: &SourceMap, d: &Diagnostic) {
 
 /// A cursor over a record. Every read is fallible and none of them panics: the
 /// bytes came off a disk, and a truncated file has to read as a miss.
-struct Reader<'a> {
+///
+/// `buri test` reads its build records with it too (`commands/test.rs`).
+pub(crate) struct Reader<'a> {
     bytes: &'a [u8],
     at: usize,
 }
 
 impl<'a> Reader<'a> {
     fn new(bytes: &'a [u8]) -> Option<Reader<'a>> {
-        (bytes.get(..FORMAT.len()) == Some(FORMAT)).then_some(Reader { bytes, at: FORMAT.len() })
+        Reader::after(FORMAT, bytes)
+    }
+
+    /// A cursor past `format`, for a record that starts with it.
+    pub(crate) fn after(format: &[u8], bytes: &'a [u8]) -> Option<Reader<'a>> {
+        (bytes.get(..format.len()) == Some(format)).then_some(Reader { bytes, at: format.len() })
     }
 
     fn take(&mut self, count: usize) -> Option<&'a [u8]> {
@@ -294,7 +301,7 @@ impl<'a> Reader<'a> {
         Some(slice)
     }
 
-    fn u32(&mut self) -> Option<u32> {
+    pub(crate) fn u32(&mut self) -> Option<u32> {
         Some(u32::from_le_bytes(self.take(4)?.try_into().ok()?))
     }
 
@@ -302,11 +309,11 @@ impl<'a> Reader<'a> {
         Some(u64::from_le_bytes(self.take(8)?.try_into().ok()?))
     }
 
-    fn byte(&mut self) -> Option<u8> {
+    pub(crate) fn byte(&mut self) -> Option<u8> {
         self.take(1)?.first().copied()
     }
 
-    fn text(&mut self) -> Option<String> {
+    pub(crate) fn text(&mut self) -> Option<String> {
         let length = self.u32()? as usize;
         String::from_utf8(self.take(length)?.to_vec()).ok()
     }
@@ -336,7 +343,7 @@ fn place(map: &mut SourceMap, root: &Path, name: &str) -> Option<FileId> {
     map.load(name, &root.join(name)).ok()
 }
 
-fn read_span(reader: &mut Reader, map: &mut SourceMap, root: &Path) -> Option<Span> {
+pub(crate) fn read_span(reader: &mut Reader, map: &mut SourceMap, root: &Path) -> Option<Span> {
     let name = reader.text()?;
     let file = place(map, root, &name)?;
     let start = reader.u32()?;
@@ -357,7 +364,7 @@ fn read_findings(
     Some(out)
 }
 
-fn read_diagnostic(
+pub(crate) fn read_diagnostic(
     reader: &mut Reader,
     map: &mut SourceMap,
     root: &Path,
