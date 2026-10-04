@@ -1,0 +1,52 @@
+[package]
+name = "buri-llvm"
+version = "0.3.19"
+edition = "2021"
+description = "The Buri LLVM backend, for native release builds."
+license = "MIT"
+repository = "https://github.com/buri-lang/buri"
+rust-version = "1.89"
+
+[dependencies]
+buri-backend = { path = "../backend", version = "0.3.19" }
+buri-diagnostics = { path = "../diagnostics", version = "0.3.19" }
+buri-hash = { path = "../hash", version = "0.3.19" }
+buri-middle = { path = "../middle", version = "0.3.19" }
+buri-project = { path = "../project", version = "0.3.19" }
+buri-semantics = { path = "../semantics", version = "0.3.19" }
+
+# The one third-party dependency the toolchain admits (the bar is in the
+# workspace manifest). `buri` depends on this crate only under `backend-llvm`.
+# It carries its version into `Backend::identity()`'s cache keys, so a bump
+# invalidates every cached release object in every repository — an event to
+# schedule rather than to inherit (design/native/BUILD-AND-WATCH.md §2, §7).
+#
+# LLVM 21.1, inkwell 0.10, `llvm-sys` 211.x, `LLVM_SYS_211_PREFIX`
+# (CODEGEN-LLVM.md §8). 21 rather than the newest inkwell supports because the
+# flake's pinned `nixos-25.05` has no LLVM 22, and pinning one would mean
+# bumping the whole toolchain's nixpkgs in service of a codegen decision.
+#
+# The linking mode is target-gated, which is why this is two entries rather than
+# one. `llvm-sys` defaults to `prefer-static` since 191, and on macOS
+# `llvm-config --system-libs --link-static` mixes Homebrew static archives with
+# shared libraries and its `build.rs` panics ("Shared library should be a .so
+# file", llvm-sys GitLab #80). The mode must be selected *through inkwell* — a
+# bare `llvm-sys` feature makes Cargo try to resolve every LLVM version at once.
+#
+# CODEGEN-LLVM.md §8 also asks for `llvm-sys`'s `strict-versioning`, and it is
+# not here: inkwell's `llvm21-1` expands to `llvm-sys-211` and nothing else, so
+# reaching that flag would mean a *second* direct dependency on `llvm-sys` —
+# which is another entry against the bar above, for a flag. What it would buy is
+# a build failure instead of a silent substitution on a machine carrying LLVM
+# 22; what already stands in for it is `Backend::identity()`, which puts the
+# LLVM version in every release `codegen` key, so two toolchains built against
+# different LLVMs do not share cached objects. BUILD-AND-WATCH.md §3.4 says so
+# where a contributor will read it.
+[target.'cfg(target_os = "macos")'.dependencies]
+inkwell = { version = "0.10", features = ["llvm21-1-prefer-dynamic"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+inkwell = { version = "0.10", features = ["llvm21-1"] }
+
+[lints]
+workspace = true

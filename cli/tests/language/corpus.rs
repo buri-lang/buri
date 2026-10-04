@@ -1120,8 +1120,11 @@ fn dependencies_stay_behind_the_bar() {
         !default.contains("backend-llvm"),
         "the default feature set changed; `cargo install buri` must not require LLVM"
     );
+    // `inkwell` is `buri-llvm`'s, and `buri-llvm` is what the feature turns on.
+    let llvm = std::fs::read_to_string(repo_root().join("crates/llvm/Cargo.toml"))
+        .expect("crates/llvm/Cargo.toml");
     assert!(
-        cli.contains("backend-llvm = [\"dep:inkwell\"]"),
+        cli.contains("backend-llvm = [\"dep:buri-llvm\"]") && llvm.contains("inkwell = "),
         "`backend-llvm` no longer gates inkwell, so a default build may now need LLVM 21"
     );
 
@@ -1354,7 +1357,6 @@ fn the_llvm_feature_is_confined_to_the_files_the_bar_names() {
     const GATED: &[&str] = &[
         // `mod llvm`, and `select`'s release arm.
         "cli/src/compiler/backend/mod.rs",
-        "cli/src/compiler/backend/llvm/",
         // The module declarations; `llvm` is the 59 tests.
         "cli/tests/native/main.rs",
         "cli/tests/native/llvm.rs",
@@ -1377,6 +1379,7 @@ fn the_llvm_feature_is_confined_to_the_files_the_bar_names() {
 
     let mut sources = Vec::new();
     rust_sources(&repo_root().join("cli/src"), &mut sources);
+    rust_sources(&repo_root().join("crates"), &mut sources);
     rust_sources(&repo_root().join("cli/tests"), &mut sources);
     assert!(sources.len() > 50, "found {} Rust sources; the walk is broken", sources.len());
 
@@ -1554,7 +1557,8 @@ fn the_removed_backend_is_not_cross_referenced() {
 
     let mut files = Vec::new();
     text_files(&repo_root().join("cli"), &mut files);
-    assert!(files.len() > 500, "found {} files under cli/; the walk is broken", files.len());
+    text_files(&repo_root().join("crates"), &mut files);
+    assert!(files.len() > 500, "found {} files under cli/ and crates/; the walk is broken", files.len());
 
     let mut hits = 0;
     for path in &files {

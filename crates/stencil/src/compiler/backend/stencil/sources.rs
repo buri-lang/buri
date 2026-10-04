@@ -296,7 +296,7 @@ fn prelude(n: usize, target: StencilTarget) -> String {
 
 const PRELUDE: &str = r#"
 // GENERATED — the stencil generators of stencil.
-// See cli/src/compiler/backend/stencil/sources.rs.
+// See crates/stencil/src/compiler/backend/stencil/sources.rs.
 #include <stdint.h>
 
 #define HID __attribute__((visibility("hidden")))

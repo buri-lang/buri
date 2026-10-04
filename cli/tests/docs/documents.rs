@@ -1245,6 +1245,7 @@ fn every_emitted_code_is_documented() {
     let root = repo_root();
     let mut sources = Vec::new();
     rust_sources(&root.join("cli/src"), &mut sources);
+    rust_sources(&root.join("crates"), &mut sources);
     assert!(sources.len() > 20, "only {} Rust sources found", sources.len());
 
     let mut undocumented: Vec<String> = Vec::new();

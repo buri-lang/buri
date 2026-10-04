@@ -363,7 +363,7 @@ fn a_native_float_renders_as_javascript_renders_it() {
 /// looked for in `backend/js/runtime.js` itself.
 #[test]
 fn the_javascript_side_is_the_runtimes_own() {
-    let js = include_str!("../../src/compiler/backend/js/runtime.js");
+    let js = include_str!("../../../crates/js/src/compiler/backend/js/runtime.js");
     for clause in [
         r#"if (Number.isNaN(n)) return "NaN";"#,
         r#"if (n === Infinity) return "inf";"#,

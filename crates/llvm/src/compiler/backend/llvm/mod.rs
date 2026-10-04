@@ -115,7 +115,7 @@ impl Backend for Llvm {
     /// (`stencil::abi::StencilTarget::triple`), and a rename that had changed
     /// one byte of one shard would have moved every stencil key by itself.
     /// This backend had no such term. `llvm <version> inkwell 0.10` is the
-    /// same string under both spellings, and [`crate::build::actions::codegen_key`]
+    /// same string under both spellings, and `build::actions::codegen_key`
     /// folds in the platform and the arch but not the triple — so a `.buri`
     /// cache written by a gnu-era toolchain would serve its `linux/arm64`
     /// objects to a musl one under a key that never moved.
@@ -168,11 +168,12 @@ impl Backend for Llvm {
     /// outside this backend's surface is told so *before* LLVM is started,
     /// which is the whole reason this hook is on the trait.
     ///
-    /// One key it names that is not about this backend at all: an operation the
-    /// **runtime archive** carries only behind its `net` feature
-    /// ([`super::networking_gap`]). A toolchain built without it would
-    /// otherwise meet networking as an unresolved `buri_rt_*` symbol at `cc`
-    /// time, which is the one failure mode this hook exists to replace.
+    /// The keys the **runtime archive** carries only behind its `net` or
+    /// `crypto` feature are not this backend's to name: `buri`'s
+    /// `backend::WithRuntime` folds them in, because the archive is `buri`'s. A
+    /// toolchain built without one would otherwise meet it as an unresolved
+    /// `buri_rt_*` symbol at `cc` time, which is the one failure mode this hook
+    /// exists to replace.
     ///
     /// Two things it cannot answer, both stated so the absence reads as a
     /// consequence rather than an oversight. `derivePrimShow` and
@@ -191,13 +192,6 @@ impl Backend for Llvm {
             })
             .filter(|key| !emit::implemented(key))
             .collect();
-        // The second source: the keys *no* backend can answer on a toolchain
-        // whose runtime archive was built without `net`, and the keys it cannot
-        // answer without `crypto`. Both empty on an ordinary toolchain, and the
-        // sentences they earn are `super::gap_refusals`'s rather than this
-        // backend's.
-        missing.extend(super::networking_gap(program));
-        missing.extend(super::cryptography_gap(program));
         missing.sort();
         missing.dedup();
         missing

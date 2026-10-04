@@ -346,7 +346,7 @@ impl Stencil {
 /// A twin is the same operation with an offset or a literal folded into an
 /// `imm12` field, so it exists only where the fold is representable; the two
 /// folds are independent, which is why there are three names and not two.
-/// [`Jit::emit`](crate::compiler::backend::stencil::jit::Jit::emit) tries them
+/// [`Jit::emit`](super::jit::Jit::emit) tries them
 /// in this order and takes the first whose fields the operands fit.
 pub const FOLD_SUFFIXES: [&str; FOLD_SUFFIXES_LEN] = ["+ifold+fold", "+fold", "+ifold"];
 pub const FOLD_SUFFIXES_LEN: usize = 3;
