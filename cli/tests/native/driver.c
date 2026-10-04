@@ -12,6 +12,7 @@
  * `argv[1]` selects a mode; `cli/tests/native/runtime.rs` owns the expected
  * output of each one. */
 
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1046,6 +1047,49 @@ static int mode_heap_write_after_free(void) {
   return 0;
 }
 
+/* A shared block grown by `realloc` stays shared. The mark is the top bit of
+ * the header's `cap` word, which is the word right below the payload. Under
+ * the quarantine a growth always moves the block, and the move is the path
+ * that has to carry the mark across. */
+static int mode_heap_realloc_shared(void) {
+  uint8_t *p = buri_rt_alloc(16);
+  ((uint64_t *)p)[-1] |= 1ull << 63;
+  p = buri_rt_realloc(p, 64);
+  printf("shared=%d cap=%llu\n", (int)(((uint64_t *)p)[-1] >> 63),
+         (unsigned long long)buri_rt_cap(p));
+  fflush(stdout);
+  buri_rt_free(p);
+  return 0;
+}
+
+/* Many threads freeing at once, far past what the quarantine holds, so its
+ * ring is full and every free has to make room in it while other threads are
+ * doing the same. */
+#define FREEING_THREADS 8
+#define FREES_PER_THREAD 20000
+static void *free_many(void *arg) {
+  (void)arg;
+  for (int i = 0; i < FREES_PER_THREAD; i++) {
+    uint8_t *p = buri_rt_alloc(32);
+    p[0] = (uint8_t)i;
+    buri_rt_free(p);
+  }
+  return NULL;
+}
+
+static int mode_heap_threads(void) {
+  pthread_t threads[FREEING_THREADS];
+  for (int i = 0; i < FREEING_THREADS; i++) {
+    pthread_create(&threads[i], NULL, free_many, NULL);
+  }
+  for (int i = 0; i < FREEING_THREADS; i++) {
+    pthread_join(threads[i], NULL);
+  }
+  printf("freed %d\n", FREEING_THREADS * FREES_PER_THREAD);
+  fflush(stdout);
+  return 0;
+}
+
 /* Allocation and release in balance: the state a clean program ends in. */
 static int mode_heap_clean(void) {
   for (int i = 0; i < 64; i++) {
@@ -1152,6 +1196,12 @@ int main(int argc, char **argv) {
   }
   if (strcmp(mode, "heap-clean") == 0) {
     return mode_heap_clean();
+  }
+  if (strcmp(mode, "heap-realloc-shared") == 0) {
+    return mode_heap_realloc_shared();
+  }
+  if (strcmp(mode, "heap-threads") == 0) {
+    return mode_heap_threads();
   }
   if (strcmp(mode, "abort-after-print") == 0) {
     buri_rt_host_stdout_println(S("printed before the abort"));

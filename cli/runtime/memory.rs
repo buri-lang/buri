@@ -1143,8 +1143,11 @@ pub unsafe extern "C" fn buri_rt_realloc(p: *mut u8, payload: u64) -> *mut u8 {
         // the two do not overlap, because nothing else holds `fresh`.
         unsafe {
             std::ptr::copy_nonoverlapping(p.cast_const(), fresh, old_cap.min(payload) as usize);
-            // The count travels with the value, as it does on both arms below.
+            // The count travels with the value, as it does on both arms below,
+            // and so does the mark: a shared block that grew under this mode
+            // must not come out counted non-atomically.
             (*header(fresh)).rc = rc;
+            (*header(fresh)).cap |= flags & BURI_RT_CAP_SHARED;
             // `rc` was moved to `fresh`, so this call's own view of the block
             // must be the dead one: `buri_rt_free` reads the header to decide
             // whether the block is immortal, and a live count there would be a
@@ -1804,12 +1807,19 @@ unsafe fn quarantine_push(p: *mut u8, cap: u64) {
         (*header(p)).rc = QUARANTINE_RC;
         std::ptr::write_bytes(p, QUARANTINE_POISON, cap as usize);
     }
-    loop {
-        let Some((addr, held)) = quarantine(|q| q.make_room(cap)) else { break };
-        // SAFETY: the ring only ever holds blocks this function put there.
-        unsafe { quarantine_release(addr, held) };
-    }
-    quarantine(|q| q.put(p as usize, cap));
+    // Making room and taking the slot are **one** critical section. With the
+    // lock dropped between them, two threads could each see one free slot and
+    // both put into it: the ring then counted one more block than it has
+    // slots, the oldest block's slot was written over, and the block written
+    // into it was released twice, the second time through a header the
+    // allocator had already handed to somebody else.
+    quarantine(|q| {
+        while let Some((addr, held)) = q.make_room(cap) {
+            // SAFETY: the ring only ever holds blocks this function put there.
+            unsafe { quarantine_release(addr, held) };
+        }
+        q.put(p as usize, cap);
+    });
 }
 
 /// The distinct message a reference operation on a quarantined block stops
