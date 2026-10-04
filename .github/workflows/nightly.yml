@@ -181,10 +181,13 @@ jobs:
           # The runner image ships taps Homebrew no longer trusts. Removing them is
           # safer than trusting them, and silences the warning. Their formulae go
           # first (nothing here uses them), because untapping a tap with installed
-          # formulae warns in its turn.
+          # formulae warns in its turn. Homebrew hides an untrusted tap's formulae,
+          # even from `list` and `uninstall`, so trust checks are off for this
+          # removal alone and back on for everything after it.
           for tap in aws/tap azure/bicep; do
-            brew list --full-name | grep "^$tap/" | xargs -r brew uninstall --ignore-dependencies || true
-            brew untap "$tap" || true
+            HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew list --full-name | grep "^$tap/" \
+              | xargs -r env HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew uninstall --ignore-dependencies || true
+            HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew untap "$tap" || true
           done
           # The image ships its own LLVM, and installing llvm@21 beside another
           # llvm keg warns that 21 was not linked. Nothing here links: the build
