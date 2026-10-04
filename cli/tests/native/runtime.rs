@@ -96,7 +96,22 @@ fn run(args: &[&str]) -> Output {
 }
 
 fn run_with(args: &[&str], env: &[(&str, &str)], stdin: &str) -> Output {
+    run_command(Command::new(driver()), args, env, stdin)
+}
+
+/// The driver with the heap check off, whatever the suite's own environment
+/// says.
+///
+/// For the rows that pin what an *unchecked* program does: a process that
+/// inherited `BURI_RT_HEAP_CHECK=1` from a person running the whole suite
+/// under it would otherwise answer a different question.
+fn run_unchecked(args: &[&str]) -> Output {
     let mut cmd = Command::new(driver());
+    cmd.env_remove("BURI_RT_HEAP_CHECK").env_remove("BURI_RT_HEAP_REPORT");
+    run_command(cmd, args, &[], "")
+}
+
+fn run_command(mut cmd: Command, args: &[&str], env: &[(&str, &str)], stdin: &str) -> Output {
     cmd.args(args);
     for (k, v) in env {
         cmd.env(k, v);
@@ -266,11 +281,44 @@ fn the_heap_check_is_silent_on_a_balanced_program() {
         return;
     }
     let checked = run_with(&["heap-clean"], CHECKED, "");
-    let plain = run(&["heap-clean"]);
+    let plain = run_unchecked(&["heap-clean"]);
     assert_eq!(checked.status.code(), Some(0), "stderr:\n{}", stderr(&checked));
     assert_eq!(stdout(&checked), stdout(&plain));
     assert_eq!(stderr(&checked), "");
     assert_eq!(stderr(&plain), "");
+}
+
+/// A shared block that grows keeps its mark under the check.
+///
+/// The quarantine never grows a block in place, so a growth there allocates,
+/// copies and frees. That path once copied the count and dropped the mark, so
+/// a shared block came out counted without atomics.
+#[test]
+fn a_shared_block_stays_shared_when_it_grows_under_the_heap_check() {
+    if skip() {
+        return;
+    }
+    let out = run_with(&["heap-realloc-shared"], CHECKED, "");
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{}", stderr(&out));
+    assert_eq!(stdout(&out).trim_end(), "shared=1 cap=64");
+}
+
+/// Threads freeing at the same time do not corrupt the quarantine.
+///
+/// Each free makes room in a full ring and then takes a slot. When those were
+/// two lock acquisitions, two threads could take the same slot, and one block
+/// was released twice. The run reported a reference operation on a freed
+/// block, or crashed, depending on what the allocator had done with the
+/// memory in between.
+#[test]
+fn threads_freeing_at_once_are_clean_under_the_heap_check() {
+    if skip() {
+        return;
+    }
+    let out = run_with(&["heap-threads"], CHECKED, "");
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{}", stderr(&out));
+    assert_eq!(stdout(&out).trim_end(), "freed 160000");
+    assert_eq!(stderr(&out), "");
 }
 
 /// With the variable unset — every shipped artifact — the four defective modes
@@ -289,7 +337,7 @@ fn nothing_is_checked_unless_the_environment_asks() {
     // something a test may pin: the recycled block's header is the allocator's
     // free list, and clobbering it crashes or does not by the day.
     for mode in ["heap-leak", "heap-clean"] {
-        let out = run(&[mode]);
+        let out = run_unchecked(&[mode]);
         assert_eq!(
             out.status.code(),
             Some(0),

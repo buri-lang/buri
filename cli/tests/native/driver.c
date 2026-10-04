@@ -12,6 +12,7 @@
  * `argv[1]` selects a mode; `cli/tests/native/runtime.rs` owns the expected
  * output of each one. */
 
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -283,6 +284,34 @@ static int bytes_of(BuriStr s) { return (int)(s.len & BURI_STR_MASK); }
 
 static const char *chars_of(BuriStr s) { return (const char *)s.ptr; }
 
+/* Giving back what the runtime handed over. §2 rule 2 makes every `Str` and
+ * list written through an out-pointer the caller's, and `native/runtime.rs`
+ * runs this driver under `BURI_RT_HEAP_CHECK`, whose exit audit counts every
+ * block nobody released. A `Str` whose `base` is null is a view of something
+ * that is not on the Buri heap, and `buri_rt_decref` ignores null. */
+static void drop_str(BuriStr *s) {
+  buri_rt_decref(s->base, NULL);
+  s->base = NULL;
+  s->ptr = NULL;
+  s->len = 0;
+}
+
+/* A list of octets, scalars or code points: one block, and nothing in it. An
+ * empty list is a null pointer, which `buri_rt_free` ignores. */
+static void drop_list(BuriList *l) {
+  buri_rt_free(l->ptr);
+  l->ptr = NULL;
+  l->len = 0;
+}
+
+/* A `[Str]`: every element's count, then the list's own block. */
+static void drop_strs(BuriList *l) {
+  for (uint64_t i = 0; i < l->len; i++) {
+    drop_str((BuriStr *)(l->ptr + i * sizeof(BuriStr)));
+  }
+  drop_list(l);
+}
+
 static int drops = 0;
 static void count_drop(uint8_t *p) {
   (void)p;
@@ -367,6 +396,7 @@ static int mode_ui_walk(void) {
   buri_rt_host_testing_rendered_markup(builder, &markup);
   printf("%.*s\n", bytes_of(markup), (const char *)markup.ptr);
   printf("::count h2=%lld\n", (long long)doc_count(builder, "h2"));
+  drop_str(&markup);
   return 0;
 }
 
@@ -472,6 +502,7 @@ static int mode_values(void) {
          (unsigned long long)ascii, (unsigned long long)utf8, (unsigned long long)list.len,
          (unsigned long long)buri_rt_cap(elements), sq, sr, snq, snr, (unsigned long long)uq[0],
          (unsigned long long)uq[1], (unsigned long long)ur[0]);
+  buri_rt_free(elements);
   return 0;
 }
 
@@ -495,9 +526,13 @@ static int mode_fs(const char *dir) {
   snprintf(missing, sizeof missing, "%s/absent.txt", dir);
   snprintf(notdir, sizeof notdir, "%s/f.txt/under-a-file", dir);
 
-  BuriStr err, ok, utf8;
+  /* `err` is written only by a failure that carries a message, so it starts
+   * empty and is given back after every call that could have filled it. */
+  BuriStr err = {0}, ok = {0}, utf8 = {0};
   int32_t wrote = buri_rt_host_file_system_write_file(S(path), S("hello"), &err);
+  drop_str(&err);
   int32_t wrote_utf8 = buri_rt_host_file_system_write_file(S(utf8path), S("h\xc3\xa9llo"), &err);
+  drop_str(&err);
   if (wrote_utf8 != BURI_OK) {
     fprintf(stderr, "writing the UTF-8 fixture failed with %d\n", wrote_utf8);
     return 1;
@@ -505,28 +540,36 @@ static int mode_fs(const char *dir) {
 
   uint8_t exists = buri_rt_host_file_system_file_exists(S(path));
   int32_t read = buri_rt_host_file_system_read_file(S(path), &ok, &err);
+  drop_str(&err);
   int32_t read_utf8 = buri_rt_host_file_system_read_file(S(utf8path), &utf8, &err);
+  drop_str(&err);
   if (read != BURI_OK || read_utf8 != BURI_OK) {
     fprintf(stderr, "reading back failed with %d / %d\n", read, read_utf8);
     return 1;
   }
 
-  BuriList entries;
+  BuriList entries = {0};
   int32_t listed = buri_rt_host_file_system_read_dir(S(dir), &entries, &err);
+  drop_str(&err);
   if (listed != BURI_OK) {
     fprintf(stderr, "readDir failed with %d\n", listed);
     return 1;
   }
 
-  BuriStr ignored;
+  BuriStr ignored = {0};
   int32_t not_found = buri_rt_host_file_system_read_file(S(missing), &ignored, &err);
+  drop_str(&err);
   int32_t not_a_dir = buri_rt_host_file_system_read_file(S(notdir), &ignored, &err);
+  drop_str(&err);
   uint8_t exists_missing = buri_rt_host_file_system_file_exists(S(missing));
 
   printf("write=%s exists=%d read=%.*s utf8=%.*s readdir=%llu missing=%d notdir=%d "
          "exists-missing=%d\n",
          wrote == BURI_OK ? "ok" : "err", exists, bytes_of(ok), chars_of(ok), bytes_of(utf8),
          chars_of(utf8), (unsigned long long)entries.len, not_found, not_a_dir, exists_missing);
+  drop_str(&ok);
+  drop_str(&utf8);
+  drop_strs(&entries);
   return 0;
 }
 
@@ -541,23 +584,30 @@ static int mode_wal(const char *dir) {
   snprintf(tmp, sizeof tmp, "%s/wal/checkpoint.tmp", dir);
   snprintf(checkpoint, sizeof checkpoint, "%s/wal/checkpoint", dir);
 
-  BuriStr err;
+  BuriStr err = {0};
   int32_t made = buri_rt_host_file_system_make_dir(S(root), &err);
+  drop_str(&err);
   /* Twice, because an existing directory is `.Ok` and a WAL opens its own
    * directory on every start. */
   int32_t made_again = buri_rt_host_file_system_make_dir(S(root), &err);
+  drop_str(&err);
 
   /* Two records, each one append, with the commit point stated after each.
    * The first append creates the file. */
   static const uint8_t first[2] = {1, 10};
   static const uint8_t second[2] = {2, 20};
   int32_t one = buri_rt_host_file_system_append_file(S(log), first, 2, &err);
+  drop_str(&err);
   int32_t synced_one = buri_rt_host_file_system_sync_file(S(log), &err);
+  drop_str(&err);
   int32_t two = buri_rt_host_file_system_append_file(S(log), second, 2, &err);
+  drop_str(&err);
   int32_t synced_two = buri_rt_host_file_system_sync_file(S(log), &err);
+  drop_str(&err);
 
-  BuriList replayed;
+  BuriList replayed = {0};
   int32_t read = buri_rt_host_file_system_read_file_bytes(S(log), &replayed, &err);
+  drop_str(&err);
   if (read != BURI_OK) {
     fprintf(stderr, "replaying the log failed with %d\n", read);
     return 1;
@@ -567,19 +617,27 @@ static int mode_wal(const char *dir) {
    * entry made durable so the swap survives too. */
   static const uint8_t body[1] = {30};
   int32_t wrote = buri_rt_host_file_system_write_file_bytes(S(tmp), body, 1, &err);
+  drop_str(&err);
   int32_t synced_tmp = buri_rt_host_file_system_sync_file(S(tmp), &err);
+  drop_str(&err);
   int32_t renamed = buri_rt_host_file_system_rename_file(S(tmp), S(checkpoint), &err);
+  drop_str(&err);
   int32_t synced_dir = buri_rt_host_file_system_sync_file(S(root), &err);
+  drop_str(&err);
   uint8_t tmp_gone = buri_rt_host_file_system_file_exists(S(tmp));
 
-  BuriList kept;
+  BuriList kept = {0};
   int32_t read_checkpoint = buri_rt_host_file_system_read_file_bytes(S(checkpoint), &kept, &err);
+  drop_str(&err);
 
   /* Truncation after the checkpoint, and the same call a second time, which is
    * the one edge `remove` reports rather than swallowing. */
   int32_t removed = buri_rt_host_file_system_remove_file(S(log), &err);
+  drop_str(&err);
   int32_t removed_again = buri_rt_host_file_system_remove_file(S(log), &err);
+  drop_str(&err);
   int32_t sync_missing = buri_rt_host_file_system_sync_file(S(log), &err);
+  drop_str(&err);
 
   /* And the inverse of the `mkdir` this mode opened with, which the effect went
    * without until buri-lang/buri#38: the directory still holds the checkpoint,
@@ -594,7 +652,9 @@ static int mode_wal(const char *dir) {
   why.len = 0;
   int32_t held = buri_rt_host_file_system_remove_dir(S(root), &why);
   int32_t dropped = buri_rt_host_file_system_remove_file(S(checkpoint), &err);
+  drop_str(&err);
   int32_t rmdir = buri_rt_host_file_system_remove_dir(S(root), &err);
+  drop_str(&err);
   uint8_t root_gone = buri_rt_host_file_system_file_exists(S(root));
 
   printf("mkdir=%s,%s append=%s,%s sync=%s,%s log=", made == BURI_OK ? "ok" : "err",
@@ -617,16 +677,19 @@ static int mode_wal(const char *dir) {
   printf(" rmdir-held=%d rmdir-said=%d drop=%s rmdir=%s root-gone=%d\n", held,
          bytes_of(why) > 0, dropped == BURI_OK ? "ok" : "err", rmdir == BURI_OK ? "ok" : "err",
          !root_gone);
+  drop_list(&replayed);
+  drop_list(&kept);
+  drop_str(&why);
   return 0;
 }
 
 static int mode_env(void) {
-  BuriStr value;
+  BuriStr value = {0};
   int32_t present = buri_rt_host_environment_variable(S("BURI_RT_TEST"), &value);
-  BuriStr absent;
+  BuriStr absent = {0};
   int32_t missing = buri_rt_host_environment_variable(S("BURI_RT_DEFINITELY_NOT_SET"), &absent);
 
-  BuriList args;
+  BuriList args = {0};
   buri_rt_host_environment_arguments(&args);
 
   printf("var=%.*s missing=%s args=%llu:", present == BURI_OK ? bytes_of(value) : 0,
@@ -638,6 +701,9 @@ static int mode_env(void) {
     printf("%s%.*s", i == 0 ? "" : ",", bytes_of(arg), chars_of(arg));
   }
   printf("\n");
+  drop_str(&value);
+  drop_str(&absent);
+  drop_strs(&args);
   return 0;
 }
 
@@ -713,22 +779,27 @@ static int mode_entropy(void) {
   printf("empty=%llu len=%llu differ=%d nonzero=%d big=%llu tail=%d\n",
          (unsigned long long)empty.len, (unsigned long long)first.len, differ, nonzero,
          (unsigned long long)big.len, tail_nonzero);
+  drop_list(&empty);
+  drop_list(&first);
+  drop_list(&second);
+  drop_list(&big);
   return 0;
 }
 
 static int mode_stdin_lines(void) {
   for (;;) {
-    BuriStr line;
+    BuriStr line = {0};
     if (buri_rt_host_stdin_read_line(&line) != BURI_OK) {
       printf("end\n");
       return 0;
     }
     printf("line=%.*s ", bytes_of(line), chars_of(line));
+    drop_str(&line);
   }
 }
 
 static int mode_stdin_bytes(void) {
-  BuriList first, second, third;
+  BuriList first = {0}, second = {0}, third = {0};
   int32_t a = buri_rt_host_stdin_read_bytes(4, &first);
   int32_t b = buri_rt_host_stdin_read_bytes(2, &second);
   int32_t c = buri_rt_host_stdin_read_bytes(2, &third);
@@ -737,6 +808,9 @@ static int mode_stdin_bytes(void) {
   printf("then=%llu:%.*s ", b == BURI_OK ? (unsigned long long)second.len : 0,
          b == BURI_OK ? (int)second.len : 0, b == BURI_OK ? (const char *)second.ptr : "");
   printf("then=%s\n", c == BURI_OK ? "some" : "none");
+  drop_list(&first);
+  drop_list(&second);
+  drop_list(&third);
   return 0;
 }
 
@@ -759,8 +833,8 @@ static BuriStr borrowed(const char *cstr) {
  * method is `Method`'s variant index — 0 is `.Get` — because the wire spelling
  * is the runtime's and never the caller's. */
 static int mode_net(const char *url) {
-  BuriResponse answer;
-  BuriStr err;
+  BuriResponse answer = {0};
+  BuriStr err = {0};
   BuriHeader sent[1];
   sent[0].name = borrowed("x-probe");
   sent[0].value = borrowed("buri");
@@ -786,8 +860,16 @@ static int mode_net(const char *url) {
              chars_of(got[i].value));
     }
     printf("\n");
+    BuriHeader *owned = (BuriHeader *)out_headers.ptr;
+    for (uint64_t i = 0; i < out_headers.len; i++) {
+      drop_str(&owned[i].name);
+      drop_str(&owned[i].value);
+    }
+    drop_list(&out_headers);
+    drop_list(&out_body);
   } else {
     printf("err=%d message=%.*s\n", result, bytes_of(err), chars_of(err));
+    drop_str(&err);
   }
   return 0;
 }
@@ -814,29 +896,41 @@ static int mode_render(void) {
   BuriStr s;
   buri_rt_show_f64(0.1, &s);
   printf("f64 %.*s\n", bytes_of(s), chars_of(s));
+  drop_str(&s);
   buri_rt_show_f64(1.0, &s);
   printf("int %.*s\n", bytes_of(s), chars_of(s));
+  drop_str(&s);
   buri_rt_show_f64(-0.0, &s);
   printf("negzero %.*s\n", bytes_of(s), chars_of(s));
+  drop_str(&s);
   buri_rt_show_f64(1e21, &s);
   printf("big %.*s\n", bytes_of(s), chars_of(s));
+  drop_str(&s);
   buri_rt_show_f64(5e-324, &s);
   printf("denormal %.*s\n", bytes_of(s), chars_of(s));
+  drop_str(&s);
   buri_rt_show_f32(0.1f, &s);
   printf("f32 %.*s\n", bytes_of(s), chars_of(s));
+  drop_str(&s);
   /* -1 as a 128-bit value: all ones in both halves. */
   buri_rt_show_i128(~0ull, ~0ull, &s);
   printf("i128 %.*s\n", bytes_of(s), chars_of(s));
+  drop_str(&s);
   buri_rt_show_u128(0, 1, &s);
   printf("u128 %.*s\n", bytes_of(s), chars_of(s));
+  drop_str(&s);
   buri_rt_show_char('a', &s);
   printf("char %.*s\n", bytes_of(s), chars_of(s));
+  drop_str(&s);
   buri_rt_char_to_str('a', &s);
   printf("charstr %.*s\n", bytes_of(s), chars_of(s));
+  drop_str(&s);
   buri_rt_show_str((const uint8_t *)"a\"b\n", 4, &s);
   printf("quoted %.*s\n", bytes_of(s), chars_of(s));
+  drop_str(&s);
   buri_rt_str_from_int(-42, &s);
   printf("fromint %.*s\n", bytes_of(s), chars_of(s));
+  drop_str(&s);
 
   /* `$hash(7)`, `$hash("ab")` and `$hash('a')` under the JavaScript runtime. */
   printf("hash-int %llu\n", (unsigned long long)buri_rt_mix(0x811c9dc5ull, 7));
@@ -860,6 +954,7 @@ static int mode_text(void) {
   /* Scalar 1 of "aé漢" starts at byte 1 and scalar 2 at byte 3. */
   buri_rt_str_slice(NULL, (const uint8_t *)"aé漢", 6, 1, 2, &out);
   printf("slice %.*s\n", bytes_of(out), chars_of(out));
+  drop_str(&out);
 
   printf("charat %d ", buri_rt_str_char_at(S("aé漢"), 2, &c));
   printf("%u\n", c);
@@ -868,6 +963,7 @@ static int mode_text(void) {
   /* U+FEFF is JavaScript whitespace and is not Unicode `White_Space`. */
   buri_rt_str_trim(NULL, (const uint8_t *)"\xef\xbb\xbf x \xef\xbb\xbf", 9, &out);
   printf("trim [%.*s]\n", bytes_of(out), chars_of(out));
+  drop_str(&out);
 
   printf("starts %d ends %d contains %d\n", buri_rt_str_starts_with(S("hello"), S("he")),
          buri_rt_str_ends_with(S("hello"), S("lo")), buri_rt_str_contains(S("hello"), S("ell")));
@@ -881,6 +977,8 @@ static int mode_text(void) {
   BuriStr pair[2];
   printf("splitonce %d [%.*s][%.*s]\n", buri_rt_str_split_once(S(",b"), S(","), pair),
          bytes_of(pair[0]), chars_of(pair[0]), bytes_of(pair[1]), chars_of(pair[1]));
+  drop_str(&pair[0]);
+  drop_str(&pair[1]);
   printf("splitonce-none %d\n", buri_rt_str_split_once(S("ab"), S(","), pair));
 
   /* UTF-16 code-unit order: a surrogate pair sorts below U+FFFD. */
@@ -908,32 +1006,45 @@ static int mode_text(void) {
   printf("\n");
   buri_rt_list_join(parts.ptr, parts.len, S("-"), &out);
   printf("join %.*s\n", bytes_of(out), chars_of(out));
+  drop_str(&out);
+  drop_strs(&parts);
 
   buri_rt_str_lines(S("a\nb\n"), &parts);
   printf("lines %llu\n", (unsigned long long)parts.len);
+  drop_strs(&parts);
   buri_rt_str_split_any(S("a b,c"), S(" ,"), &parts);
   printf("splitany %llu\n", (unsigned long long)parts.len);
+  drop_strs(&parts);
 
   buri_rt_str_replace(S("banana"), S("na"), S("NA"), &out);
   printf("replace %.*s\n", bytes_of(out), chars_of(out));
+  drop_str(&out);
   buri_rt_str_repeat(S("ab"), 3, &out);
   printf("repeat %.*s\n", bytes_of(out), chars_of(out));
+  drop_str(&out);
   buri_rt_str_repeat(S("ab"), -1, &out);
   printf("repeat-none [%.*s]\n", bytes_of(out), chars_of(out));
+  drop_str(&out);
   buri_rt_str_to_upper(S("aé"), &out);
   printf("upper %.*s\n", bytes_of(out), chars_of(out));
+  drop_str(&out);
   buri_rt_str_to_lower(S("AÉ"), &out);
   printf("lower %.*s\n", bytes_of(out), chars_of(out));
+  drop_str(&out);
   buri_rt_str_pad_start(S("7"), 3, '0', &out);
   printf("padstart %.*s\n", bytes_of(out), chars_of(out));
+  drop_str(&out);
   buri_rt_str_pad_end(S("7"), 3, '0', &out);
   printf("padend %.*s\n", bytes_of(out), chars_of(out));
+  drop_str(&out);
 
   buri_rt_str_chars(S("aé"), &parts);
   printf("chars %llu %u %u\n", (unsigned long long)parts.len, *(uint32_t *)parts.ptr,
          *(uint32_t *)(parts.ptr + 4));
   buri_rt_str_from_chars(parts.ptr, parts.len, &out);
   printf("fromchars %.*s\n", bytes_of(out), chars_of(out));
+  drop_str(&out);
+  drop_list(&parts);
   return 0;
 }
 
@@ -1046,6 +1157,49 @@ static int mode_heap_write_after_free(void) {
   return 0;
 }
 
+/* A shared block grown by `realloc` stays shared. The mark is the top bit of
+ * the header's `cap` word, which is the word right below the payload. Under
+ * the quarantine a growth always moves the block, and the move is the path
+ * that has to carry the mark across. */
+static int mode_heap_realloc_shared(void) {
+  uint8_t *p = buri_rt_alloc(16);
+  ((uint64_t *)p)[-1] |= 1ull << 63;
+  p = buri_rt_realloc(p, 64);
+  printf("shared=%d cap=%llu\n", (int)(((uint64_t *)p)[-1] >> 63),
+         (unsigned long long)buri_rt_cap(p));
+  fflush(stdout);
+  buri_rt_free(p);
+  return 0;
+}
+
+/* Many threads freeing at once, far past what the quarantine holds, so its
+ * ring is full and every free has to make room in it while other threads are
+ * doing the same. */
+#define FREEING_THREADS 8
+#define FREES_PER_THREAD 20000
+static void *free_many(void *arg) {
+  (void)arg;
+  for (int i = 0; i < FREES_PER_THREAD; i++) {
+    uint8_t *p = buri_rt_alloc(32);
+    p[0] = (uint8_t)i;
+    buri_rt_free(p);
+  }
+  return NULL;
+}
+
+static int mode_heap_threads(void) {
+  pthread_t threads[FREEING_THREADS];
+  for (int i = 0; i < FREEING_THREADS; i++) {
+    pthread_create(&threads[i], NULL, free_many, NULL);
+  }
+  for (int i = 0; i < FREEING_THREADS; i++) {
+    pthread_join(threads[i], NULL);
+  }
+  printf("freed %d\n", FREEING_THREADS * FREES_PER_THREAD);
+  fflush(stdout);
+  return 0;
+}
+
 /* Allocation and release in balance: the state a clean program ends in. */
 static int mode_heap_clean(void) {
   for (int i = 0; i < 64; i++) {
@@ -1152,6 +1306,12 @@ int main(int argc, char **argv) {
   }
   if (strcmp(mode, "heap-clean") == 0) {
     return mode_heap_clean();
+  }
+  if (strcmp(mode, "heap-realloc-shared") == 0) {
+    return mode_heap_realloc_shared();
+  }
+  if (strcmp(mode, "heap-threads") == 0) {
+    return mode_heap_threads();
   }
   if (strcmp(mode, "abort-after-print") == 0) {
     buri_rt_host_stdout_println(S("printed before the abort"));

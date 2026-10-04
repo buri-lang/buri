@@ -201,6 +201,18 @@ jobs:
           tail -n +1 -- target/units/*.log
           cargo test -p buri --doc
           exit "$status"
+      # The tests that drive the runtime directly, once more under the heap
+      # check: the runtime's unit tests, and the C drivers in `native::runtime`
+      # and `native::float_parity`. Compiled programs are checked in every run
+      # already (`harness::HEAP_CHECK`); these call the runtime themselves, so
+      # nothing checked them until the variable was set here. The binaries are
+      # the ones the step above built, and the run takes about 30 s.
+      - name: The runtime, under the heap check
+        env:
+          BURI_RT_HEAP_CHECK: "1"
+        run: |
+          cargo test -p buri-rt-tests
+          cargo test -p buri --test native -- runtime:: float_parity::
       # The last member of the workspace: `website` depends on `buri` by path,
       # so it links the rlib the step above already built and costs seconds.
       - run: cargo test -p website

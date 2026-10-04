@@ -460,10 +460,16 @@ mod tests {
                 items.iter().map(|s| BuriStr::copy_from(s.as_bytes())).collect();
             let mut out = BuriStr::empty();
             // SAFETY: `strs` is a live block of `BuriStr`s and `out` is a live
-            // local.
+            // local. Every block here is this closure's, and each is given
+            // back once it has been read.
             unsafe {
                 buri_rt_show_list(strs.as_ptr().cast(), strs.len() as u64, &raw mut out);
-                String::from_utf8_lossy(out.bytes()).into_owned()
+                let text = String::from_utf8_lossy(out.bytes()).into_owned();
+                crate::memory::buri_rt_decref(out.base, None);
+                for s in &strs {
+                    crate::memory::buri_rt_decref(s.base, None);
+                }
+                text
             }
         };
         assert_eq!(render(&[]), "[]");
@@ -477,10 +483,13 @@ mod tests {
     #[test]
     fn a_null_block_renders_as_the_empty_list() {
         let mut out = BuriStr::empty();
-        // SAFETY: `count` is zero, so `xs` is never dereferenced.
+        // SAFETY: `count` is zero, so `xs` is never dereferenced, and the
+        // rendering is this test's to give back once it has been read.
         let text = unsafe {
             buri_rt_show_list(std::ptr::null(), 0, &raw mut out);
-            String::from_utf8_lossy(out.bytes()).into_owned()
+            let text = String::from_utf8_lossy(out.bytes()).into_owned();
+            crate::memory::buri_rt_decref(out.base, None);
+            text
         };
         assert_eq!(text, "[]");
     }
