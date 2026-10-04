@@ -1099,6 +1099,30 @@ test "an element handed to a callback is not written through" {
     assert.equal(assert.some(outer.get(0)), [1, 2]);
 }
 
+// The same, one level down: the element is a record, and the callback grows a
+// list it reads out of it. The record is still held by the list, so the field
+// is too.
+test "a list in a record handed to a callback is not written through" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let basket = Basket { label: "kept", items: [1].concat(ctx, [2]) };
+    let baskets = list.empty<Basket>().push(ctx, basket);
+    let grown = baskets.mapCtx(ctx, fn(c, b: Basket) => b.items.push(c, 9));
+    let total = baskets.foldCtx(
+        ctx,
+        fn(c, n: Int, b: Basket) => n + b.items.push(c, 8).length(),
+        0,
+    );
+    let kept = baskets.filterCtx(ctx, fn(c, b: Basket) => {
+        b.items.push(c, 7).length() == 3
+    });
+    assert.equal(grown, [[1, 2, 9]]);
+    assert.equal(total, 3);
+    assert.equal(kept.length(), 1);
+    assert.equal(assert.some(baskets.get(0)).items, [1, 2]);
+}
+
 // A list rebound by a loop is the case the whole optimisation is for: the
 // answer is the same, and the work is not.
 test "an accumulator grown in a loop answers what a copy would" {
