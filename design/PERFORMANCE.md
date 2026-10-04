@@ -340,6 +340,7 @@ can't join the snapshot without changing the ids a program's types get.
 | `afb169cd`, 2026-10-03 | 5.52–5.84 ms | 6.0 ms | |
 | snapshot, 2026-10-03 | 2.65–2.77 ms | 6.0 ms | 4.3–4.5 ms |
 | shared tables (§6.15), 2026-10-03 | 2.01–2.08 ms | | 3.8–3.9 ms |
+| JS emit (§6.16), 2026-10-03 | | 3.85–3.98 ms → 0.49–0.50 ms | |
 
 The 2026-10-03 rows are two alternating `--quick --only=mixed` runs each, on
 a shared machine at load 15–25. The growth since September is the standard
@@ -1991,6 +1992,57 @@ those too.
 Native objects aren't reproducible across two cold runs of one `main` binary
 in this repository: same cache key, different bytes. That is why the native
 half of the output wasn't compared above.
+
+### 6.16 JavaScript emission, 2026-10-03
+
+JS emit was 62% of `lower+js` on `mixed/100k`, all on one thread, and 40% of
+it was `malloc`. On `mixed/1k`, half of it was `collect_idents_raw` rescanning
+the 340 KB runtime four times a build, with a `String` per identifier. Six
+changes, each measured A/B against the one before:
+
+| Change | Commit | What it bought |
+|---|---|---|
+| Each runtime declaration carries its identifiers, scanned once a process; identifier walks borrow names | `b9edfaa00` | `lower` floor 3.9 → 0.5 ms; `mixed/1k` `lower+js` 7.2–7.5 → 4.0–4.1 ms |
+| `distinct` keys switch labels in a hash set | `918e5fa81` | `wide-match/40k` `lower+js` 13.2 G → 2.6 G instructions; now linear |
+| Fold, clean and `switches` per top-level statement on `parallel::map`; mangling too | `c8b37efd4` | `mixed/100k` emit 268–293 → 187 ms |
+| Each function generated on a worker; `merge_identical` keys a tree, not its printed text | `9dfd77111` | `mixed/100k` emit 154 ms |
+| Rewrites and the simplifying constructors keep their boxes; one map of compact records in local cleanup | `f216959a6` | `mixed/100k` 4.68 G → 3.79 G instructions (−19%); emit 124 ms |
+| Programs under 64 functions stay on one thread | `6904f19e9` | floor 1.1 → 0.5 ms again |
+
+Output is byte-identical: every corpus in `--quick --set=full`, plus
+`mixed/100k` and `wide-match/20k`, debug and release, diffed against `main`.
+
+A generated function's constants are numbered on its worker from `$k0`, and
+`Gen::adopt` renames them into the program's table in function order. That's
+the order one generator would have numbered them in, so the names don't move.
+
+| End to end | before | after |
+|---|---:|---:|
+| `mixed/1k` `lower+js`, fastest sample | 7.2–7.5 ms | 3.5–3.7 ms |
+| `mixed/100k` `lower+js`, fastest sample | 409 ms | 246 ms |
+| `mixed/100k` emit, split | 273 ms | 124–129 ms |
+| `mixed/100k` peak RSS after `lower+js` | 307 MB | 305 MB |
+
+Those rows ran at load 10–16. `wide-match` ran at load 50–110, so its
+scaling is read off instructions retired (`/usr/bin/time -l`, a `lower+js`
+child minus a `sema` child), which don't move with load:
+
+| `wide-match` lines | before | after | peak RSS before / after |
+|---:|---:|---:|---:|
+| 2.5k | 284 M | 165 M | 30 / 28 MB |
+| 5k | 570 M | 272 M | 44 / 43 MB |
+| 10k | 1,385 M | 489 M | 73 / 70 MB |
+| 20k | 4,013 M | 915 M | 135 / 117 MB |
+| 40k | 13,245 M | 1,791 M | 245 / 231 MB |
+
+Each doubling now costs 1.7–1.9×, where it cost 2.4–3.3×.
+
+**What's left.** On `mixed/100k` the serial part of emission is
+`rc::sharing` and the final `print`. Printing in parallel needs `emit_with`
+to ask for it, since `print` also runs on case bodies inside the workers.
+`Expr` is 56 bytes because `ArrowBlock` holds two `Vec`s inline, and
+`Stmt::If` is about 104; boxing those payloads shrinks every node, but
+`crossing.rs` builds them too.
 
 ## 7. Profiling, on this platform
 
