@@ -24,7 +24,7 @@
 
 use super::abi::Loc;
 use crate::compiler::backend::intrinsic_keys::{
-    self, bits_op, checked_kind, conversion_target, json_arm, json_variant, numeric_key,
+    bits_op, checked_kind, conversion_target, json_arm, json_variant, numeric_key,
     prim_trait_op, CheckedKind, JsonArm,
 };
 use crate::compiler::semantics::types::{field_types, variant_types};
@@ -41,6 +41,7 @@ use super::glue::Helper;
 use super::runtime;
 use crate::compiler::backend::counts::{Field, Glue, Op, Site};
 use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
+use crate::compiler::middle::lower;
 use crate::compiler::middle::layout::{EnumRepr, Repr};
 use crate::compiler::semantics::types::{Prim, Ty};
 
@@ -163,28 +164,6 @@ impl<'a> Jit<'a> {
             d += n;
             s += n;
             left -= n;
-        }
-    }
-
-    /// Moves an accumulator value into an 8-byte-aligned slot, zero-extended.
-    ///
-    /// `logical` is the value's real width and `slot` the padded slot's. When
-    /// the value is narrower than its slot — a `Bool` accumulator is one byte in
-    /// an eight-byte slot — the high bytes of `src` are whatever a step left
-    /// there, including a prior wider `Result` payload, so a plain [`Jit::mv`] of
-    /// the whole slot would carry that garbage. The slot is cleared a word at a
-    /// time and only the real bytes copied over its low end, mirroring how
-    /// [`Jit::elem_load`] zero-extends a narrow element (buri-lang/buri#191).
-    pub(crate) fn mv_acc(&mut self, dst: u32, src: u32, slot: u32, logical: u32) {
-        if logical < slot {
-            let mut off = 0;
-            while off < slot {
-                self.imm_to(dst + off, 0);
-                off += 8;
-            }
-            self.mv(dst, src, logical);
-        } else {
-            self.mv(dst, src, slot);
         }
     }
 
@@ -484,15 +463,55 @@ impl<'a> Jit<'a> {
                 let Some((stride, w, _)) = self.array_elem(prog, code.ty_of(*array)) else {
                     return self.unsupported("ArrayGet of a non-array".into());
                 };
-                let s0 = st.scratch + 48;
-                self.mv(s0, st.at(*array), 8);
-                let d = st.at(*dest);
-                let i = st.at(*index);
-                self.elem_load(d, s0, i, stride, w);
+                // The pointer is read where it lives, unless the destination
+                // shares its slot: a narrow element clears its destination
+                // first, which would clear the pointer.
+                let (d, a, i) = (st.at(*dest), st.at(*array), st.at(*index));
+                let base = if d < a + 8 && a < d + w.max(8) {
+                    let s0 = st.scratch + 48;
+                    self.mv(s0, a, 8);
+                    s0
+                } else {
+                    a
+                };
+                self.elem_load(d, base, i, stride, w);
             }
             Inst::ArrayLen { dest, array } => {
                 // `[T]` is `{ ptr, len }`, and the length is O(1) by §4.
                 self.mv(st.at(*dest), st.at(*array) + 8, 8)
+            }
+            // The count goes through scratch first, because the destination's
+            // slot may be the one the count dies in.
+            Inst::ArrayAlloc { dest, len } => {
+                let Some(stride) = self.array_stride(prog, code.ty_of(*dest)) else {
+                    return self.unsupported("ArrayAlloc of a non-list".into());
+                };
+                let (d, n) = (st.at(*dest), st.scratch);
+                self.mv(n, st.at(*len), 8);
+                self.emit(
+                    "elemalloc",
+                    &[
+                        ("JIT_D", V::I(u64::from(d))),
+                        ("JIT_A", V::I(u64::from(n))),
+                        ("JIT_P", V::I(stride)),
+                        ("JIT_CONT0", V::Fall),
+                    ],
+                );
+                self.mv(d + 8, n, 8);
+            }
+            Inst::ArraySet { array, index, value } => {
+                let Some((stride, w, _)) = self.array_elem(prog, code.ty_of(*array)) else {
+                    return self.unsupported("ArraySet of a non-array".into());
+                };
+                self.elem_store(st.at(*value), st.at(*array), st.at(*index), stride, w);
+            }
+            // `elemalloc` zeroes the block, so the elements past `len` are the
+            // spare slots the drop glue skips, and the block is kept.
+            Inst::ArrayPrefix { dest, array, len } => {
+                let (d, n) = (st.at(*dest), st.scratch);
+                self.mv(n, st.at(*len), 8);
+                self.mv(d, st.at(*array), 8);
+                self.mv(d + 8, n, 8);
             }
             // `xs[from..]`, for the `..rest` of an array pattern. A **copy**,
             // not a view: VALUE-MODEL.md §4 is explicit that a `[T]` is never
@@ -671,8 +690,9 @@ impl<'a> Jit<'a> {
     /// that a runtime intrinsic **borrows** its arguments and returns a fresh
     /// count (`rc.rs`'s header), and this one's result *keeps* the argument's
     /// block — so the retain is the difference between that contract and a
-    /// double free, and it is the whole walk rather than one `incref` for the
-    /// same reason `lists.rs::retain_value` is.
+    /// double free, and it is the whole walk rather than one `incref` because
+    /// what is retained may be a struct with a counted field rather than a bare
+    /// pointer.
     fn json_prim(
         &mut self,
         prog: &ir::Program,
@@ -1181,6 +1201,11 @@ impl<'a> Jit<'a> {
     ) {
         let d = st.at(dest);
         let a = st.at(arg);
+        // A `Bool`'s frame word is already the whole zero-extended integer, so
+        // the conversion is the copy. `Jit::regalloc` leaves both in the frame.
+        if op == UnOp::FromBool {
+            return self.mv(d, a, 8);
+        }
         if op == UnOp::Not {
             // The operand and the result may be in CPS registers, exactly as
             // for any other unary operation. Spelling this `f/f` was a real
@@ -1243,24 +1268,8 @@ impl<'a> Jit<'a> {
         func: u32,
         args: &[ir::ValueId],
     ) {
-        // Every backend's `call` does this first, for the same reason: the same
-        // `list.*` key reaches a backend two ways — as an `Inst::CallIntrinsic`
-        // where the front end spelled it inline, and as an `Inst::Call` to a
-        // `Body::Runtime` function where it was a method — and the loop belongs
-        // at the call site, where the step is a `MakeClosure` this function can
-        // see. `lists.rs` says why. A `false` here falls through to the
-        // ordinary call, whose callee's body `list_loop_rt` open-codes
-        // in turn.
         if let Some(ir::Body::Runtime(key)) = prog.funcs.get(func as usize).map(|f| &f.body) {
             let key = key.clone();
-            if self.list_loop(prog, code, st, dests, &key, args) {
-                return;
-            }
-            if let Some(o) = self.operands(prog, code, st, dests, args) {
-                if self.list_extra(prog, st, &key, &o) {
-                    return;
-                }
-            }
             // The archive boundary, **emitted here rather than called**, which
             // is every backend's first act at a `Body::Runtime` call.
             //
@@ -1299,6 +1308,11 @@ impl<'a> Jit<'a> {
         let callee = self.frame_sig_of(func as usize);
         for (i, a) in args.iter().enumerate() {
             let Some(off) = callee.params.get(i) else { continue };
+            // A zero-sized argument — a lifted lambda's empty environment —
+            // has no bytes for the callee to read.
+            if self.width_of(prog, code.ty_of(*a)) == 0 {
+                continue;
+            }
             let n = self.slot_bytes_of(prog, code.ty_of(*a));
             self.mv(base + *off, st.at(*a), n);
         }
@@ -1498,14 +1512,6 @@ impl<'a> Jit<'a> {
                 }
             }
             _ => {
-                if self.list_loop(prog, code, st, dests, key, args) {
-                    return;
-                }
-                if let Some(o) = self.operands(prog, code, st, dests, args) {
-                    if self.list_extra(prog, st, key, &o) {
-                        return;
-                    }
-                }
                 if self.prim_trait(prog, code, st, dests, key, args) {
                     return;
                 }
@@ -1571,6 +1577,25 @@ impl<'a> Jit<'a> {
         match t {
             Term::Jump(x) => {
                 let fall = x.block.index() == next;
+                if let Some(b) = plan.incbr {
+                    let out = if b.out.index() == next { V::Fall } else { V::Blk(b.out.0) };
+                    let key = self.arm_key("incbr/lt", "JIT_F");
+                    self.emit(
+                        &key,
+                        &[
+                            ("JIT_D", V::I(u64::from(st.at(b.into)))),
+                            ("JIT_A", V::I(u64::from(st.at(b.from)))),
+                            ("JIT_N", V::I(b.by)),
+                            ("JIT_B", V::I(u64::from(st.at(b.bound)))),
+                            ("JIT_T", V::Blk(b.back.0)),
+                            ("JIT_F", out),
+                        ],
+                    );
+                    return;
+                }
+                if !fall && self.jump_into_test(code, st, x) {
+                    return;
+                }
                 if self.jump_fused(prog, code, st, x, fall) {
                     return;
                 }
@@ -1769,7 +1794,7 @@ impl<'a> Jit<'a> {
     }
 
     fn cond(&mut self, st: &Fn2, cond: ir::ValueId, plan: &Plan, tv: V, fv: V, fall: Option<&str>) {
-        // `rtcall.rs` and `lists.rs` name `br/f` without asking. A library without
+        // `rtcall.rs` names `br/f` without asking. A library without
         // a branch stencil is broken, so this stops here rather than emitting
         // a fall-through that would run the wrong arm.
         let Some(key) = self.cond_key(st, cond, plan) else {
@@ -1826,6 +1851,38 @@ impl<'a> Jit<'a> {
             }
         }
         (base, 8, false)
+    }
+
+    /// A jump to a block that is nothing but a fused compare-and-branch — a
+    /// loop's header — takes that branch itself, so a back edge costs one
+    /// conditional branch rather than a jump and then the test.
+    ///
+    /// Only where the edge copies nothing, which slot coalescing makes the
+    /// common case for a loop's index, and where nothing the test reads lives
+    /// in a register: the register half of an edge is [`Jit::edge`]'s, and a
+    /// read here is from the jumping block's side of a promotion's region.
+    fn jump_into_test(&mut self, code: &ir::Code, st: &mut Fn2, t: &Target) -> bool {
+        let header = code.get(t.block);
+        let Term::Branch { cond, then, else_ } = &header.term else { return false };
+        if header.insts.len() != 1 || !then.args.is_empty() || !else_.args.is_empty() {
+            return false;
+        }
+        let frame = |v: ir::ValueId| matches!(st.home(v), Loc::Frame);
+        let copies = header.params.iter().zip(t.args.iter()).any(|(p, a)| {
+            !frame(*p) || !frame(*a) || st.at(*p) != st.at(*a)
+        });
+        if copies {
+            return false;
+        }
+        let plan = self.plan_block(code, st, header);
+        let Some((_, _, lhs, rhs)) = plan.cmpbr else { return false };
+        if !frame(lhs) || !frame(rhs) {
+            return false;
+        }
+        // The loop's way back is the `else` arm (`lower/lists.rs`), so the
+        // `then` arm is the one left for the trailing jump.
+        self.cond(st, *cond, &plan, V::Blk(then.block.0), V::Blk(else_.block.0), Some("JIT_T"));
+        true
     }
 
     /// (e) The edge copies and the jump as one stencil. Every loop back edge in
@@ -2317,18 +2374,6 @@ impl<'a> Jit<'a> {
                 }
             }
         }
-        // The open-coded loop first: the runtime call is the fallback, not the
-        // other way round. `lists.rs` says why.
-        if self.list_loop_rt(prog, fi, &key, st) {
-            self.emit("ret", &[]);
-            return;
-        }
-        if let Some(o) = self.rt_operands(prog, fi, &fs) {
-            if self.list_extra(prog, st, &key, &o) {
-                self.emit("ret", &[]);
-                return;
-            }
-        }
         if self.runtime_intrinsic(prog, fi, &key, &fs, st) {
             self.emit("ret", &[]);
             return;
@@ -2469,45 +2514,6 @@ impl<'a> Jit<'a> {
                 true
             }
         }
-    }
-
-    /// One instruction's operands as `lists.rs` wants them: a frame offset and
-    /// an IR type apiece, so that the loops are written once and serve both a
-    /// call site and a `Body::Runtime` body.
-    fn operands(
-        &mut self,
-        prog: &ir::Program,
-        code: &ir::Code,
-        st: &Fn2,
-        dests: &[ir::ValueId],
-        args: &[ir::ValueId],
-    ) -> Option<super::lists::Operands> {
-        let dest = dests.first()?;
-        let _ = prog;
-        Some(super::lists::Operands {
-            args: args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect(),
-            dest: (st.at(*dest), code.ty_of(*dest)),
-        })
-    }
-
-    /// The same, for a `Body::Runtime` function whose operands are its own
-    /// parameters.
-    fn rt_operands(
-        &mut self,
-        prog: &ir::Program,
-        fi: usize,
-        fs: &super::jit::FrameSig,
-    ) -> Option<super::lists::Operands> {
-        let f = prog.funcs.get(fi)?;
-        let dest = (fs.ret.first().copied()?, f.sig.rets.first().copied()?);
-        let args = f
-            .sig
-            .params
-            .iter()
-            .enumerate()
-            .map(|(i, t)| (fs.params.get(i).copied().unwrap_or(0), *t))
-            .collect();
-        Some(super::lists::Operands { args, dest })
     }
 
     /// The stride of `[T]`'s element, for an IR type that is a `[T]`.
@@ -3783,7 +3789,7 @@ fn bound_bits(prim: Prim, low: bool) -> Option<u64> {
 pub fn implemented(key: &str) -> bool {
     super::runtime::entry(key).is_some()
         || open_coded_key(key)
-        || list_closure_key(key)
+        || lower::lowers(key)
         || bits_op(key)
         || prim_trait_op(key)
         || key.strip_prefix("derivePrimShow.").is_some_and(|t| prim_of_name(t).is_some())
@@ -3818,35 +3824,13 @@ fn open_coded_key(key: &str) -> bool {
     )
 }
 
-/// `core/list`'s closure surface, which `lists.rs` open-codes as a loop
-/// because the step's signature is the element type flattened
-/// (`cli/runtime/list.rs`'s header) — plus the two that build a block without
-/// taking a function at all: what keeps them out of `cli/runtime/list.rs` is a
-/// second *layout* rather than a closure, and that file's header says which
-/// one each needs.
-fn list_closure_key(key: &str) -> bool {
-    intrinsic_keys::list_closure_key(key) || matches!(key, "list.zip" | "list.flatten")
-}
-
 /// Whether a call to a `Body::Runtime` function is **emitted into its caller**
-/// instead of being made.
+/// instead of being made: a key `runtime.rs`'s table has a row for.
 ///
-/// The rule is one line — a key `runtime.rs`'s table has a row for — and the
-/// two exclusions are not exceptions to it but the same fallback the loops have
-/// always had:
-///
-/// * [`list_closure_key`] and the two `deriveArray*` derives are open-coded as
-///   a **loop** whose step this function has to be able to see as a
-///   `MakeClosure` (`lists.rs`). Where it cannot, the designed answer is a call
-///   to the `Body::Runtime` function, whose body reaches the same loop through
-///   the closure's thunk — so inlining those would replace a working fallback
-///   with a refusal.
-/// * A key with no row is `str.length`, `number.<T>.<op>` and the rest, whose bodies
-///   `runtime_body` generates from the signature; those keys reach a backend
-///   only as a method, never as an `Inst::CallIntrinsic`, so there is no
-///   call-site emitter for them to be inlined by.
+/// A key with no row is `str.length`, `number.<T>.<op>` and the rest, whose
+/// bodies `runtime_body` generates from the signature; those keys reach a
+/// backend only as a method, never as an `Inst::CallIntrinsic`, so there is no
+/// call-site emitter for them to be inlined by.
 fn inline_runtime_key(key: &str) -> bool {
     super::runtime::entry(key).is_some()
-        && !list_closure_key(key)
-        && !matches!(key, "deriveArrayEq" | "deriveArrayShow")
 }

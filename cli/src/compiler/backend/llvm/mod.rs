@@ -320,8 +320,8 @@ fn owns(program: &ir::Program, root: &Root, unit: u32) -> bool {
 
 /// The classifier `middle::rc` decided its own operations with, rebuilt over the
 /// same program it ran on so that the reference operations this backend adds
-/// around the calls it *invents* — the loops of `emit::Unit::list_closure` —
-/// are the ones rc would have added (`emit::Unit::rc_counted`).
+/// around the calls it *invents* — a runtime-driven step, a thunk — are the
+/// ones rc would have added (`emit::Unit::rc_counted`).
 ///
 /// One for the whole emission rather than one per unit: it memoises, and
 /// building it is a walk of every body.

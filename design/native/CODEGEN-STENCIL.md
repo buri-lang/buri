@@ -688,19 +688,9 @@ destination types. `rtcall.rs` is one implementation of `cli/runtime/lib.rs`
 §2's rule, so a shape refused at one site is refused at the other with the
 same sentence.
 
-Two keys are deliberately still called: `core/list`'s closure surface and the
-two `deriveArray*` derives, which `lists.rs` open-codes as a **loop** whose
-step this function has to be able to see as a `MakeClosure`. Where it cannot,
-calling the `Body::Runtime` function is the designed fallback — its body
-reaches the same loop through the closure's thunk — so inlining those would
-replace a working answer with a refusal.
-
-**That exclusion is now the largest single gap this backend has on the run
-side.** With §5.1's slots family landed, three of the four kernels are within
-1.1×–1.2× of Cranelift, and the fourth — the `core/list` closure pipeline — is
-**2.9×**, unmoved by everything this boundary has been given because it never
-went through it. Whatever is next for run time is in `lists.rs` and the thunk,
-not in `rtcall.rs`.
+`core/list`'s closure surface and the `deriveArray*` derives never reach this
+boundary: `middle::lower` builds them as IR loops (`middle/lower/lists.rs`),
+and this backend compiles them as it compiles any loop.
 
 ### 5.0.1 `str.concat`, the one call with no table row
 
@@ -1094,10 +1084,6 @@ answer.
   can go — §10.1 says why. CI runs the programs on both (§10.2, §10.3).
 * **Debug information** — neither DWARF nor `.buri_symbols`; §11 is what
   closing it would start from.
-* **An element wider than the staging room a frame keeps**
-  (`lists.rs::STAGE`). A `zip`, a `flatten` and a `sortBy` move whole elements
-  between two blocks through the frame, and the frame's scratch is a constant;
-  past it the shape is refused with the two numbers in it.
 * **A `Float` hashed or shown at `F32`** through the runtime boundary: a `crt`
   stencil declares every float parameter `double`, and an `F32` sits in its
   slot as its own thirty-two bits, so the shape `buri_rt_show_f32` wants is

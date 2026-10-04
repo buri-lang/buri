@@ -542,8 +542,8 @@ xs.foldCtx(ctx, step, (out, false))                 // the fold takes the seed o
   own count.
 - **A fold takes its seed over.** Lent, both backends retained the seed before
   the first step, and the seed's owner and that step both held it. `rc::is_fold`
-  makes the seed an owned parameter, and the fold kernels in
-  `stencil/lists.rs` and `llvm/emit.rs` no longer retain it.
+  makes the seed an owned parameter, and the fold loop
+  `middle/lower/lists.rs` builds doesn't retain it.
 
 Each one only removes a count that was a duplicate. A list that is really
 shared — kept by the caller, held by two fields, captured by a closure — is

@@ -9,10 +9,10 @@
 //! rather than one per code generator. A second copy of such a table is a
 //! second chance for two backends to disagree about what a program means.
 //!
-//! What is **not** here is anything a backend decides for itself. The stencil
-//! backend open-codes a strict subset of `core/list` and keeps its own
-//! [`super::stencil::lists::list_call`] for that reason, and each backend's
-//! `open_coded_key` names the keys it in particular turns into instructions.
+//! What is **not** here is anything a backend decides for itself: each
+//! backend's `open_coded_key` names the keys it in particular turns into
+//! instructions. `core/list`'s closure keys are no backend's at all —
+//! `middle::lower` builds them as loops (`lower/lists.rs`).
 
 use crate::compiler::semantics::builtins::conversion_is_exact;
 use crate::compiler::semantics::types::{Prim, Tables, Ty};
@@ -359,17 +359,11 @@ pub fn list_call(key: &str) -> Option<ListCall> {
     }
 }
 
-/// The keys a backend with a general closure call emits a loop for, asked
-/// ahead of emission.
-pub fn list_closure_key(key: &str) -> bool {
-    list_call(key).is_some()
-}
-
 // -- the closure trampoline --------------------------------------------------
 //
 // A *runtime-driven* closure key is the other half of `list_call`: an entry the
 // archive has a body for, which reaches its step back through a generated
-// C-ABI **entry thunk** rather than through a loop the backend open-codes.
+// C-ABI **entry thunk** rather than through a loop in the IR.
 //
 // `cli/runtime/list.rs`'s header says why the archive has none of the loops
 // above — "a Buri closure's `code` is a thunk at the *flattened* signature of
@@ -382,9 +376,9 @@ pub fn list_closure_key(key: &str) -> bool {
 // backend's own state, which item this is, one element in, one element out — at
 // every element type there is.
 //
-// Nothing here replaces `list_call`. An open-coded loop is faster than any
-// call per element could be (`stencil/lists.rs`'s header measures it), so a key
-// that can be a loop stays one; this table is for the operations whose *body*
+// Nothing here replaces `list_call`. A loop the code generator sees is faster
+// than any call per element could be, so a key that can be a loop stays one
+// (`middle/lower/lists.rs`); this table is for the operations whose *body*
 // is the runtime's — a scheduler, a socket, a task pool — and which happen to
 // take a closure.
 
@@ -607,7 +601,6 @@ mod tests {
         for key in STEP_KEYS {
             assert!(step_call(key).is_some(), "{key}");
             assert!(list_call(key).is_none(), "{key}");
-            assert!(!list_closure_key(key), "{key}");
         }
         for key in ["list.map", "list.mapCtx", "list.filterCtx", "list.sortBy"] {
             assert!(list_call(key).is_some(), "{key}");
