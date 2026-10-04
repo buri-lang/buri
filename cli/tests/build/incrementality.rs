@@ -1625,7 +1625,8 @@ fn a_batch_too_large_for_one_binary_is_split() {
 ///
 /// The binary is made unloadable by a C driver that links the real one and then
 /// replaces it with a script that says what the loader says and aborts, and
-/// counts its own launches in a file.
+/// counts its own launches in a file. It refuses `-###`, so the link runs
+/// through it instead of calling the linker directly.
 ///
 /// The driver forwards to the `CC` this suite was given, not to `cc`. On Linux
 /// `cc` is often a gcc, which cannot take `--target=`, so the link would fall
@@ -1651,6 +1652,7 @@ fn a_test_binary_that_cannot_start_is_reported_once() {
         "fake-cc",
         &format!(
             "#!/bin/sh\n\
+             case \"$1\" in -###) exit 1 ;; esac\n\
              '{real_cc}' \"$@\" || exit $?\n\
              prev=\"\"\n\
              for a in \"$@\"; do\n  \
