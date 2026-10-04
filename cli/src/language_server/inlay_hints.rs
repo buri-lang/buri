@@ -445,7 +445,7 @@ mod tests {
     fn parameter(name: &str) -> ParamInfo {
         ParamInfo {
             name: name.to_string(),
-            ty: Ty::Unit,
+            ty: Ty::UNIT,
             role: ParamRole::Normal,
             span: Span::NONE,
         }
@@ -453,7 +453,7 @@ mod tests {
 
     fn argument(text: &str, kind: ExprKind) -> typed::Expr {
         let span = Span { file: FileId(0), start: 0, end: text.len() as u32 };
-        typed::Expr::new(kind, Ty::Unit, span)
+        typed::Expr::new(kind, Ty::UNIT, span)
     }
 
     /// The rule that keeps an operator out of the parameter hints. `a + b` is a

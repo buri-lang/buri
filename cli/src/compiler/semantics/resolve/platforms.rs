@@ -90,7 +90,7 @@ impl<'a> Checker<'a> {
     /// The host type a signature takes first, when that is a struct its
     /// platform's `platform.buri` declares.
     fn declared_host(&self, platform: ModuleId, params: &[ParamInfo]) -> Option<TyConId> {
-        let Ty::Con(con, args) = &params.first()?.ty else { return None };
+        let TyKind::Con(con, args) = (params.first()?.ty).kind() else { return None };
         let tycon = self.tables.tycon(*con);
         (args.is_empty() && tycon.module == platform && matches!(tycon.def, TyDef::Struct { .. }))
             .then_some(*con)
@@ -149,7 +149,7 @@ impl<'a> Checker<'a> {
                 return;
             }
             (Some(param), Some(host)) => {
-                let host_ty = Ty::Con(host, Vec::new());
+                let host_ty = Ty::con(host, []);
                 if param.ty != host_ty && !param.ty.is_error() {
                     let host_name = self.tables.tycon(host).name.clone();
                     let taken = self.shown(&param.ty);
@@ -209,10 +209,10 @@ impl<'a> Checker<'a> {
     /// `Result<(), Str>` answer.
     fn starts_itself(&mut self, want: &FnInfo, has_host: bool) -> bool {
         let str_ty = self.tables.prim(Prim::Str);
-        let answers = match &want.ret {
-            Ty::Con(id, args) => {
+        let answers = match want.ret.kind() {
+            TyKind::Con(id, args) => {
                 self.result_con.as_ref() == Some(id)
-                    && matches!(args.as_slice(), [ok, err] if *ok == Ty::Unit && *err == str_ty)
+                    && matches!(args, [ok, err] if *ok == Ty::UNIT && *err == str_ty)
             }
             _ => false,
         };
@@ -229,8 +229,8 @@ impl<'a> Checker<'a> {
             if field.ty.is_error() {
                 continue;
             }
-            let production = match &field.ty {
-                Ty::Con(con, args) => {
+            let production = match field.ty.kind() {
+                TyKind::Con(con, args) => {
                     let tycon = self.tables.tycon(*con);
                     let home = self.loaded.modules.get(tycon.module.index()).map(|m| m.path.as_str());
                     let a_struct = args.is_empty()
@@ -259,7 +259,7 @@ impl<'a> Checker<'a> {
                 }
                 continue;
             }
-            let Ty::Con(con, _) = &field.ty else { continue };
+            let TyKind::Con(con, _) = field.ty.kind() else { continue };
             let tycon = self.tables.tycon(*con);
             let Some(module) = self.loaded.modules.get(tycon.module.index()) else { continue };
             let struct_name = tycon.name.clone();
@@ -345,7 +345,7 @@ impl<'a> Checker<'a> {
     fn check_js_methods(&mut self, platform: ModuleId, host: TyConId) {
         let fields = self.tables.tycon(host).fields().to_vec();
         for field in fields {
-            let Ty::Con(con, _) = &field.ty else { continue };
+            let TyKind::Con(con, _) = field.ty.kind() else { continue };
             if self.tables.tycon(*con).module != platform {
                 continue;
             }

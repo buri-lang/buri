@@ -24,7 +24,7 @@
 //! reads the same answer to write the conversion, so the two cannot disagree
 //! about what crosses.
 
-use crate::compiler::semantics::types::{substitute, Prim, Tables, Ty, TyConId, TyDef};
+use crate::compiler::semantics::types::{substitute, Prim, Tables, Ty, TyKind, TyConId, TyDef};
 
 /// How one value crosses.
 #[derive(Clone, Debug, PartialEq)]
@@ -101,22 +101,22 @@ fn classify_in(
     answer: bool,
     open: &mut Vec<TyConId>,
 ) -> Result<Crossing, Ty> {
-    match ty {
-        Ty::Unit => Ok(Crossing::Unit),
+    match ty.kind() {
+        TyKind::Unit => Ok(Crossing::Unit),
         // Already reported where it was written.
-        Ty::Error => Ok(Crossing::Same),
-        Ty::Tuple(items) => items
+        TyKind::Error => Ok(Crossing::Same),
+        TyKind::Tuple(items) => items
             .iter()
             .map(|t| classify_in(tables, known, t, false, open))
             .collect::<Result<Vec<_>, _>>()
             .map(Crossing::Tuple),
-        Ty::Array(elem) => {
+        TyKind::Array(elem) => {
             if tables.as_prim(elem) == Some(Prim::U8) {
                 return Ok(Crossing::Bytes);
             }
             Ok(Crossing::List(Box::new(classify_in(tables, known, elem, false, open)?)))
         }
-        Ty::Con(id, args) => {
+        TyKind::Con(id, args) => {
             let con = *id;
             if Some(con) == known.request && args.is_empty() {
                 return Ok(Crossing::Request);
@@ -142,7 +142,7 @@ fn classify_in(
             }
             if let Some(payload) = tables.option_payload(ty) {
                 // `Some(None)` would be `undefined` too, and so would `Some(())`.
-                if tables.is_option_ty(payload) || *payload == Ty::Unit {
+                if tables.is_option_ty(payload) || *payload == Ty::UNIT {
                     return Err(ty.clone());
                 }
                 let inner = classify_in(tables, known, payload, false, open)?;
@@ -150,7 +150,7 @@ fn classify_in(
             }
             if is_result(tables, con) {
                 let str_ty = tables.prim(Prim::Str);
-                return match args.as_slice() {
+                return match args {
                     [ok, err] if answer && *err == str_ty => Ok(Crossing::Result(Box::new(
                         classify_in(tables, known, ok, false, open)?,
                     ))),
@@ -182,7 +182,7 @@ fn classify_in(
                 _ => Err(ty.clone()),
             }
         }
-        Ty::Var(_) | Ty::Param(_) | Ty::Fn(..) | Ty::Ctx(_) | Ty::SelfTy => Err(ty.clone()),
+        TyKind::Var(_) | TyKind::Param(_) | TyKind::Fn(..) | TyKind::Ctx(_) | TyKind::SelfTy => Err(ty.clone()),
     }
 }
 

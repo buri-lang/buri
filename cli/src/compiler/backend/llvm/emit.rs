@@ -83,7 +83,7 @@ use crate::compiler::middle::layout::{
     HEADER_CAP_OFFSET, HEADER_RC_OFFSET, IMMORTAL, STR_ASCII_FLAG, STR_LEN_MASK,
 };
 use crate::compiler::semantics::builtins::conversion_is_exact;
-use crate::compiler::semantics::types::{self as types, FuncIdx, Prim, Tables, Ty};
+use crate::compiler::semantics::types::{self as types, FuncIdx, Prim, Tables, Ty, TyKind};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use crate::hash::Map;
 
@@ -2435,7 +2435,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // writes another, and `element` is only the first.
                 runtime::Arg::Step => {
                     let step = self.type_of(ir_ty);
-                    let Some(Ty::Fn(ps, r)) = step else {
+                    let Some(TyKind::Fn(ps, r)) = step.map(Ty::kind) else {
                         self.error(
                             span,
                             format!("internal error: `{key}`'s step is not a function"),
@@ -2534,7 +2534,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // argument at this call.
                 runtime::Arg::Compute => {
                     let body = self.type_of(ir_ty);
-                    let Some(Ty::Fn(ps, r)) = body.clone() else {
+                    let Some(TyKind::Fn(ps, r)) = body.map(Ty::kind) else {
                         self.error(
                             span,
                             format!("internal error: `{key}`'s body is not a function"),
@@ -2586,7 +2586,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 }
                 runtime::Arg::Walk => {
                     let body = self.type_of(ir_ty);
-                    let Some(Ty::Fn(ps, r)) = body.clone() else {
+                    let Some(TyKind::Fn(ps, r)) = body.map(Ty::kind) else {
                         self.error(
                             span,
                             format!("internal error: `{key}`'s walk is not a function"),
@@ -2624,7 +2624,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 }
                 runtime::Arg::Press => {
                     let body = self.type_of(ir_ty);
-                    let Some(Ty::Fn(ps, r)) = body.clone() else {
+                    let Some(TyKind::Fn(ps, r)) = body.map(Ty::kind) else {
                         self.error(
                             span,
                             format!("internal error: `{key}`'s handler is not a function"),
@@ -4932,7 +4932,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) -> Option<(usize, usize, u32, Ty)> {
         let source = self.type_of(code.ty_of(dest))?;
         let (ok, err, err_ty) = types::result_shape(self.tables, &source)?;
-        let Ty::Con(_, args) = &source else { return None };
+        let TyKind::Con(_, args) = source.kind() else { return None };
         let ok_bytes = self.reprs.of_ty(args.get(ok)?).layout.size;
         Some((ok, err, ok_bytes, err_ty))
     }

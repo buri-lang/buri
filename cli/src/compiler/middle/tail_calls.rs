@@ -626,7 +626,7 @@ mod tests {
     use crate::hash::Map as HashMap;
 
     fn e(kind: ExprKind) -> Expr {
-        Expr::new(kind, Ty::Unit, Span::default())
+        Expr::new(kind, Ty::UNIT, Span::default())
     }
 
     fn call(to: u32, args: Vec<Expr>) -> Expr {
@@ -634,7 +634,7 @@ mod tests {
     }
 
     fn local(name: &str) -> Local {
-        Local { name: name.to_string(), ty: Ty::Unit, span: Span::default() }
+        Local { name: name.to_string(), ty: Ty::UNIT, span: Span::default() }
     }
 
     fn typed(name: &str, ty: Ty) -> Local {
@@ -644,11 +644,11 @@ mod tests {
     /// Two types that are not `Ty::Unit` and not each other, which is all the
     /// slot allocation asks of them.
     fn a_ty() -> Ty {
-        Ty::Array(Box::new(Ty::Unit))
+        Ty::array(Ty::UNIT)
     }
 
     fn b_ty() -> Ty {
-        Ty::Tuple(vec![Ty::Unit])
+        Ty::tuple([Ty::UNIT])
     }
 
     /// The types of a function's parameters, in order.
@@ -674,7 +674,7 @@ mod tests {
             params: params.into_iter().map(LocalId).collect(),
             locals,
             kind: FuncKind::Body(body),
-            ret: Ty::Unit,
+            ret: Ty::UNIT,
             desc: None,
             span: Span::default(),
         }

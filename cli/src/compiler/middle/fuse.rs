@@ -80,7 +80,7 @@ use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::semantics::typed::{
     self, Callee, Expr, ExprKind, PatKind, Pattern, Stmt,
 };
-use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
+use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty, TyKind};
 use crate::diagnostics::Span;
 
 /// Fuses every combinator chain in the program.
@@ -302,13 +302,13 @@ impl Fuse<'_> {
             return None;
         }
         let producer_source = producer_args.first()?;
-        let Ty::Array(elem_ty) = &producer_source.ty else { return None };
+        let TyKind::Array(elem_ty) = producer_source.ty.kind() else { return None };
         Some(Plan {
             consumer,
             consumer_idx,
             producer,
             elem,
-            elem_ty: (**elem_ty).clone(),
+            elem_ty: *elem_ty,
             // A `filter` answers the list it was given, and so does a `map` from
             // a type to itself; either way the instance in hand is already over
             // the right element type and no new one is needed.
@@ -361,7 +361,7 @@ impl Fuse<'_> {
         let ret_ty = body.ty.clone();
         let fused = Expr::new(
             ExprKind::Lambda { params, body: Box::new(body), captures },
-            Ty::Fn(param_tys, Box::new(ret_ty)),
+            Ty::func(param_tys, ret_ty),
             span,
         );
 
@@ -499,7 +499,7 @@ fn binding(local: LocalId, ty: Ty, value: Expr, span: Span) -> Stmt {
 }
 
 fn unit() -> Expr {
-    Expr::new(ExprKind::Unit, Ty::Unit, Span::default())
+    Expr::new(ExprKind::Unit, Ty::UNIT, Span::default())
 }
 
 fn call_args(e: &Expr) -> Option<&Vec<Expr>> {
@@ -562,7 +562,7 @@ mod tests {
     use crate::hash::Map as HashMap;
 
     fn list() -> Ty {
-        Ty::Array(Box::new(Ty::Unit))
+        Ty::array(Ty::UNIT)
     }
 
     fn e(kind: ExprKind, ty: Ty) -> Expr {
@@ -570,7 +570,7 @@ mod tests {
     }
 
     fn lambda(params: Vec<u32>, body: Expr) -> Expr {
-        let ty = Ty::Fn(params.iter().map(|_| Ty::Unit).collect(), Box::new(body.ty.clone()));
+        let ty = Ty::func(params.iter().map(|_| Ty::UNIT), body.ty.clone());
         e(
             ExprKind::Lambda {
                 params: params.into_iter().map(LocalId).collect(),
@@ -592,7 +592,7 @@ mod tests {
             params: Vec::new(),
             locals: Vec::new(),
             kind: FuncKind::Intrinsic(key.to_string()),
-            ret: Ty::Unit,
+            ret: Ty::UNIT,
             desc: None,
             span: Span::default(),
         }
@@ -607,12 +607,12 @@ mod tests {
             locals: (0..8)
                 .map(|i| Local {
                     name: format!("l{i}"),
-                    ty: Ty::Unit,
+                    ty: Ty::UNIT,
                     span: Span::default(),
                 })
                 .collect(),
             kind: FuncKind::Body(body),
-            ret: Ty::Unit,
+            ret: Ty::UNIT,
             desc: None,
             span: Span::default(),
         }];
@@ -644,8 +644,8 @@ mod tests {
             1,
             vec![
                 e(ExprKind::Local(LocalId(0)), list()),
-                e(ExprKind::Local(LocalId(1)), Ty::Unit),
-                lambda(vec![2], e(ExprKind::Local(LocalId(2)), Ty::Unit)),
+                e(ExprKind::Local(LocalId(1)), Ty::UNIT),
+                lambda(vec![2], e(ExprKind::Local(LocalId(2)), Ty::UNIT)),
             ],
             list(),
         );
@@ -653,10 +653,10 @@ mod tests {
             2,
             vec![
                 map,
-                lambda(vec![3, 4], e(ExprKind::Local(LocalId(4)), Ty::Unit)),
-                e(ExprKind::Unit, Ty::Unit),
+                lambda(vec![3, 4], e(ExprKind::Local(LocalId(4)), Ty::UNIT)),
+                e(ExprKind::Unit, Ty::UNIT),
             ],
-            Ty::Unit,
+            Ty::UNIT,
         );
         let mut p = program(&["list.map", "list.fold"], fold);
         run(&mut p);
@@ -682,8 +682,8 @@ mod tests {
             1,
             vec![
                 e(ExprKind::Local(LocalId(0)), list()),
-                e(ExprKind::Local(LocalId(1)), Ty::Unit),
-                lambda(vec![2], e(ExprKind::Bool(true), Ty::Unit)),
+                e(ExprKind::Local(LocalId(1)), Ty::UNIT),
+                lambda(vec![2], e(ExprKind::Bool(true), Ty::UNIT)),
             ],
             list(),
         );
@@ -691,10 +691,10 @@ mod tests {
             2,
             vec![
                 filter,
-                lambda(vec![3, 4], e(ExprKind::Local(LocalId(3)), Ty::Unit)),
-                e(ExprKind::Unit, Ty::Unit),
+                lambda(vec![3, 4], e(ExprKind::Local(LocalId(3)), Ty::UNIT)),
+                e(ExprKind::Unit, Ty::UNIT),
             ],
-            Ty::Unit,
+            Ty::UNIT,
         );
         let mut p = program(&["list.filter", "list.fold"], fold);
         run(&mut p);
@@ -718,8 +718,8 @@ mod tests {
             1,
             vec![
                 e(ExprKind::Local(LocalId(0)), list()),
-                e(ExprKind::Local(LocalId(1)), Ty::Unit),
-                lambda(vec![2], e(ExprKind::Local(LocalId(2)), Ty::Unit)),
+                e(ExprKind::Local(LocalId(1)), Ty::UNIT),
+                lambda(vec![2], e(ExprKind::Local(LocalId(2)), Ty::UNIT)),
             ],
             list(),
         );
@@ -727,11 +727,11 @@ mod tests {
             2,
             vec![
                 map,
-                e(ExprKind::Local(LocalId(1)), Ty::Unit),
-                lambda(vec![3, 4], e(ExprKind::Local(LocalId(4)), Ty::Unit)),
-                e(ExprKind::Unit, Ty::Unit),
+                e(ExprKind::Local(LocalId(1)), Ty::UNIT),
+                lambda(vec![3, 4], e(ExprKind::Local(LocalId(4)), Ty::UNIT)),
+                e(ExprKind::Unit, Ty::UNIT),
             ],
-            Ty::Unit,
+            Ty::UNIT,
         );
         let mut p = program(&["list.mapCtx", "list.foldCtx"], fold);
         run(&mut p);
@@ -749,8 +749,8 @@ mod tests {
             1,
             vec![
                 e(ExprKind::Local(LocalId(0)), list()),
-                e(ExprKind::Local(LocalId(1)), Ty::Unit),
-                e(ExprKind::Local(LocalId(5)), Ty::Unit),
+                e(ExprKind::Local(LocalId(1)), Ty::UNIT),
+                e(ExprKind::Local(LocalId(5)), Ty::UNIT),
             ],
             list(),
         );
@@ -758,10 +758,10 @@ mod tests {
             2,
             vec![
                 map,
-                lambda(vec![3, 4], e(ExprKind::Local(LocalId(4)), Ty::Unit)),
-                e(ExprKind::Unit, Ty::Unit),
+                lambda(vec![3, 4], e(ExprKind::Local(LocalId(4)), Ty::UNIT)),
+                e(ExprKind::Unit, Ty::UNIT),
             ],
-            Ty::Unit,
+            Ty::UNIT,
         );
         let mut p = program(&["list.map", "list.fold"], fold);
         run(&mut p);
@@ -779,12 +779,12 @@ mod tests {
             1,
             vec![
                 e(ExprKind::Local(LocalId(0)), list()),
-                e(ExprKind::Local(LocalId(1)), Ty::Unit),
-                lambda(vec![2], e(ExprKind::Bool(true), Ty::Unit)),
+                e(ExprKind::Local(LocalId(1)), Ty::UNIT),
+                lambda(vec![2], e(ExprKind::Bool(true), Ty::UNIT)),
             ],
             list(),
         );
-        let len = call(2, vec![filter], Ty::Unit);
+        let len = call(2, vec![filter], Ty::UNIT);
         let mut p = program(&["list.filter", "list.length"], len);
         let before = p.funcs.len();
         run(&mut p);
@@ -807,24 +807,24 @@ mod tests {
             1,
             vec![
                 e(ExprKind::Local(LocalId(0)), list()),
-                e(ExprKind::Local(LocalId(1)), Ty::Unit),
-                lambda(vec![2], e(ExprKind::Local(LocalId(2)), Ty::Unit)),
+                e(ExprKind::Local(LocalId(1)), Ty::UNIT),
+                lambda(vec![2], e(ExprKind::Local(LocalId(2)), Ty::UNIT)),
             ],
             list(),
         );
         let filter = call(
             2,
-            vec![map, e(ExprKind::Local(LocalId(1)), Ty::Unit), lambda(vec![3], e(ExprKind::Bool(true), Ty::Unit))],
+            vec![map, e(ExprKind::Local(LocalId(1)), Ty::UNIT), lambda(vec![3], e(ExprKind::Bool(true), Ty::UNIT))],
             list(),
         );
         let fold = call(
             3,
             vec![
                 filter,
-                lambda(vec![4, 5], e(ExprKind::Local(LocalId(5)), Ty::Unit)),
-                e(ExprKind::Unit, Ty::Unit),
+                lambda(vec![4, 5], e(ExprKind::Local(LocalId(5)), Ty::UNIT)),
+                e(ExprKind::Unit, Ty::UNIT),
             ],
-            Ty::Unit,
+            Ty::UNIT,
         );
         let mut p = program(&["list.map", "list.filter", "list.fold"], fold);
         run(&mut p);

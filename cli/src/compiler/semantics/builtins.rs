@@ -55,14 +55,14 @@ impl<'a> Checker<'a> {
             return;
         }
         let Some(&json) = self.known_types.get("Json") else { return };
-        let json_ty = Ty::Con(json, Vec::new());
+        let json_ty = Ty::con(json, []);
         let decoded = |me: &Self, p: Prim| -> Ty {
             let (Some(&result), Some(&err)) =
                 (me.known_types.get("Result"), me.known_types.get("DecodeError"))
             else {
-                return Ty::Error;
+                return Ty::ERROR;
             };
-            Ty::Con(result, vec![me.tables.prim(p), Ty::Con(err, Vec::new())])
+            Ty::con(result, [me.tables.prim(p), Ty::con(err, [])])
         };
 
         let mut prims: Vec<Prim> = Prim::all()
@@ -107,13 +107,13 @@ impl<'a> Checker<'a> {
             params: vec![
                 ParamInfo {
                     name: "self".into(),
-                    ty: Ty::Con(con, Vec::new()),
+                    ty: Ty::con(con, []),
                     role: ParamRole::SelfParam,
                     span: Span::NONE,
                 },
                 ParamInfo {
                     name: "ctx".into(),
-                    ty: Ty::Param(0),
+                    ty: Ty::param(0),
                     role: ParamRole::Ctx,
                     span: Span::NONE,
                 },
@@ -208,7 +208,7 @@ impl<'a> Checker<'a> {
         let module = self.prim_module_of(on);
         let mut infos = vec![ParamInfo {
             name: "self".into(),
-            ty: Ty::Con(con, Vec::new()),
+            ty: Ty::con(con, []),
             role: ParamRole::SelfParam,
             span: Span::NONE,
         }];
@@ -243,8 +243,8 @@ impl<'a> Checker<'a> {
         let range_error = self
             .known_types
             .get("RangeError")
-            .map(|c| Ty::Con(*c, Vec::new()))
-            .unwrap_or(Ty::Error);
+            .map(|c| Ty::con(*c, []))
+            .unwrap_or(Ty::ERROR);
         let result = self.known_types.get("Result").copied();
 
         for &to in all {
@@ -255,8 +255,8 @@ impl<'a> Checker<'a> {
                 target.clone()
             } else {
                 match result {
-                    Some(r) => Ty::Con(r, vec![target.clone(), range_error.clone()]),
-                    None => Ty::Error,
+                    Some(r) => Ty::con(r, [target.clone(), range_error.clone()]),
+                    None => Ty::ERROR,
                 }
             };
             self.method(from, &name, Vec::new(), ret);
@@ -274,7 +274,7 @@ impl<'a> Checker<'a> {
         let bool_ty = self.tables.prim(Prim::Bool);
         let str_ty = self.tables.prim(Prim::Str);
         let u64_ty = self.tables.prim(Prim::U64);
-        let order = self.known_types.get("Order").map(|c| Ty::Con(*c, Vec::new()));
+        let order = self.known_types.get("Order").map(|c| Ty::con(*c, []));
         let option = self.known_types.get("Option").copied();
 
         if p.is_signed() || p.is_float() {
@@ -307,7 +307,7 @@ impl<'a> Checker<'a> {
         let mut saturating = Vec::new();
         if p.is_integer() {
             if let Some(opt) = option {
-                let opt_self = Ty::Con(opt, vec![self_ty.clone()]);
+                let opt_self = Ty::con(opt, [self_ty.clone()]);
                 for name in
                     ["checkedAdd", "checkedSubtract", "checkedMultiply", "checkedDivide", "checkedRemainder"]
                 {
@@ -383,13 +383,13 @@ impl<'a> Checker<'a> {
             params: vec![
                 ParamInfo {
                     name: "self".into(),
-                    ty: Ty::Con(con, Vec::new()),
+                    ty: Ty::con(con, []),
                     role: ParamRole::SelfParam,
                     span: Span::NONE,
                 },
                 ParamInfo {
                     name: "ctx".into(),
-                    ty: Ty::Param(0),
+                    ty: Ty::param(0),
                     role: ParamRole::Ctx,
                     span: Span::NONE,
                 },
@@ -434,10 +434,10 @@ impl<'a> Checker<'a> {
         let range_error = self
             .known_types
             .get("RangeError")
-            .map(|c| Ty::Con(*c, Vec::new()))
-            .unwrap_or(Ty::Error);
+            .map(|c| Ty::con(*c, []))
+            .unwrap_or(Ty::ERROR);
         if let Some(result) = self.known_types.get("Result").copied() {
-            let ret = Ty::Con(result, vec![char_ty, range_error]);
+            let ret = Ty::con(result, [char_ty, range_error]);
             self.method(Prim::U32, "toChar", Vec::new(), ret);
         }
 
@@ -445,7 +445,7 @@ impl<'a> Checker<'a> {
         let bool_ty = self.tables.prim(Prim::Bool);
         let str_ty = self.tables.prim(Prim::Str);
         let u64_ty = self.tables.prim(Prim::U64);
-        let order = self.known_types.get("Order").map(|c| Ty::Con(*c, Vec::new()));
+        let order = self.known_types.get("Order").map(|c| Ty::con(*c, []));
 
         let eq =
             self.method(Prim::Char, "equal", vec![self_of(self, Prim::Char)], bool_ty.clone());

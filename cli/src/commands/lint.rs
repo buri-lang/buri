@@ -2098,19 +2098,19 @@ fn cons_in(
     ty: &crate::compiler::semantics::types::Ty,
     out: &mut Vec<crate::compiler::semantics::types::TyConId>,
 ) {
-    use crate::compiler::semantics::types::Ty;
-    match ty {
-        Ty::Con(id, args) => {
+    use crate::compiler::semantics::types::TyKind;
+    match ty.kind() {
+        TyKind::Con(id, args) => {
             out.push(*id);
             args.iter().for_each(|a| cons_in(a, out));
         }
-        Ty::Array(elem) => cons_in(elem, out),
-        Ty::Tuple(elems) => elems.iter().for_each(|t| cons_in(t, out)),
-        Ty::Fn(params, ret) => {
+        TyKind::Array(elem) => cons_in(elem, out),
+        TyKind::Tuple(elems) => elems.iter().for_each(|t| cons_in(t, out)),
+        TyKind::Fn(params, ret) => {
             params.iter().for_each(|t| cons_in(t, out));
             cons_in(ret, out);
         }
-        Ty::Var(_) | Ty::Param(_) | Ty::Unit | Ty::Ctx(_) | Ty::SelfTy | Ty::Error => {}
+        TyKind::Var(_) | TyKind::Param(_) | TyKind::Unit | TyKind::Ctx(_) | TyKind::SelfTy | TyKind::Error => {}
     }
 }
 
@@ -2731,7 +2731,7 @@ fn check_unused_context_bounds(
     unchecked: &Unchecked,
     diagnostics: &mut Diagnostics,
 ) {
-    use crate::compiler::semantics::types::{ParamRole, Ty};
+    use crate::compiler::semantics::types::{ParamRole, TyKind};
     let tables = &analysis.checked.tables;
     let mine = editable_modules_of(analysis, target.package);
     let mut found: Vec<(Span, String, String, Vec<crate::diagnostics::Edit>)> = Vec::new();
@@ -2743,7 +2743,7 @@ fn check_unused_context_bounds(
         let Some(index) = info.params.iter().position(|p| p.role == ParamRole::Ctx) else {
             continue;
         };
-        let Some(Ty::Param(gi)) = info.params.get(index).map(|p| &p.ty) else { continue };
+        let Some(TyKind::Param(gi)) = info.params.get(index).map(|p| p.ty.kind()) else { continue };
         let Some(generic) = info.generics.get(*gi as usize) else { continue };
         if !generic.bounds.iter().any(|b| tables.trait_(*b).is_effect) {
             continue;
@@ -2820,13 +2820,13 @@ fn bounds_used(
     gi: u32,
     bounds: &[crate::compiler::semantics::types::TraitId],
 ) -> BTreeSet<crate::compiler::semantics::types::TraitId> {
-    use crate::compiler::semantics::types::Ty;
+    use crate::compiler::semantics::types::TyKind;
     let tables = &analysis.checked.tables;
     let mut used = BTreeSet::new();
     typed::walk(&body.expr, &mut |e| match &e.kind {
         // A method the bound declares, called on the context.
         typed::ExprKind::CallTrait { trait_id, method, recv, targs, .. } => {
-            if matches!(recv, Ty::Param(i) if *i == gi) {
+            if matches!(recv.kind(), TyKind::Param(i) if *i == gi) {
                 used.insert(*trait_id);
             }
             if let Some(m) = tables.trait_(*trait_id).methods.get(*method) {
@@ -2842,7 +2842,7 @@ fn bounds_used(
         }
         // A function-typed parameter, which uses every bound.
         typed::ExprKind::CallValue { args, .. } => {
-            if args.iter().any(|a| matches!(&a.ty, Ty::Param(i) if *i == gi)) {
+            if args.iter().any(|a| matches!(a.ty.kind(), TyKind::Param(i) if *i == gi)) {
                 used.extend(bounds.iter().copied());
             }
         }
@@ -2877,12 +2877,12 @@ fn note_targs(
 }
 
 fn mentions_param(t: &crate::compiler::semantics::types::Ty, gi: u32) -> bool {
-    use crate::compiler::semantics::types::Ty;
-    match t {
-        Ty::Param(i) => *i == gi,
-        Ty::Con(_, args) | Ty::Tuple(args) => args.iter().any(|a| mentions_param(a, gi)),
-        Ty::Array(e) => mentions_param(e, gi),
-        Ty::Fn(params, ret) => {
+    use crate::compiler::semantics::types::TyKind;
+    match t.kind() {
+        TyKind::Param(i) => *i == gi,
+        TyKind::Con(_, args) | TyKind::Tuple(args) => args.iter().any(|a| mentions_param(a, gi)),
+        TyKind::Array(e) => mentions_param(e, gi),
+        TyKind::Fn(params, ret) => {
             params.iter().any(|p| mentions_param(p, gi)) || mentions_param(ret, gi)
         }
         _ => false,
@@ -3053,7 +3053,7 @@ fn declared_by(
     module: &str,
     name: &str,
 ) -> bool {
-    let crate::compiler::semantics::types::Ty::Con(id, _) = ty else { return false };
+    let crate::compiler::semantics::types::TyKind::Con(id, _) = ty.kind() else { return false };
     let con = analysis.checked.tables.tycon(*id);
     con.name == name
         && analysis.loaded.modules.get(con.module.index()).is_some_and(|m| m.path == module)

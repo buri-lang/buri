@@ -187,45 +187,9 @@ impl Prim {
 // Types
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub enum Ty {
-    /// An inference variable. Local to one function body — no inference
-    /// crosses a function boundary (guides/compile-speed.md).
-    Var(TyVarId),
-    /// A rigid generic parameter, by index into the item's generic list. A
-    /// generic body is checked once, polymorphically (guides/compile-speed.md).
-    Param(u32),
-    /// A nominal type: a primitive, a struct, or an enum.
-    Con(TyConId, Vec<Ty>),
-    Array(Box<Ty>),
-    Tuple(Vec<Ty>),
-    Fn(Vec<Ty>, Box<Ty>),
-    Unit,
-    /// The generated type of a `context { ... }` value. It has no name and is
-    /// never written down (SPEC 11.3).
-    Ctx(CtxTypeId),
-    /// `Self` inside a trait or impl body.
-    SelfTy,
-    /// Poison, so one type error does not produce ten. There is deliberately
-    /// no bottom type: every branch produces a real value, which is what makes
-    /// "all cases are handled" mean what it says.
-    Error,
-}
-
-impl Ty {
-    pub fn is_error(&self) -> bool {
-        matches!(self, Ty::Error)
-    }
-
-    /// The head type constructor, which is all method resolution needs
-    /// (guides/compile-speed.md).
-    pub fn head(&self) -> Option<TyConId> {
-        match self {
-            Ty::Con(id, _) => Some(*id),
-            _ => None,
-        }
-    }
-}
+// A type is interned: `Ty` is a reference into one process-wide table, and
+// `TyKind` is what one is. `semantics::intern` says why.
+pub use crate::compiler::semantics::intern::{Ty, TyKind, TyKindIn};
 
 /// What a numeric literal is constrained to before anything pins it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -611,7 +575,7 @@ pub struct Tables {
     /// `core/list`.
     pub array_methods: LayeredMap<String, FnId>,
     pub ctx_decls: Layered<ContextDeclInfo>,
-    prim_ids: HashMap<Prim, TyConId>,
+    prim_ids: HashMap<Prim, (TyConId, Ty)>,
     /// `member name -> position` for the types whose variant or field list is
     /// long enough that `TyCon::variant_index`'s scan is the cost of checking
     /// them. One `match` arm per variant means one scan per arm, so an enum
@@ -656,12 +620,15 @@ impl Rows<'_> {
 
     /// `pos` from `compute_variance`, against the partial table.
     fn occurs_provided(&self, ty: &Ty, i: usize) -> bool {
-        match ty {
-            Ty::Param(j) => *j as usize == i,
-            Ty::Array(e) => self.occurs_provided(e, i),
-            Ty::Tuple(es) => es.iter().any(|e| self.occurs_provided(e, i)),
-            Ty::Fn(_, r) => self.occurs_provided(r, i),
-            Ty::Con(c, args) => args
+        if !ty.has_params() {
+            return false;
+        }
+        match ty.kind() {
+            TyKind::Param(j) => *j as usize == i,
+            TyKind::Array(e) => self.occurs_provided(e, i),
+            TyKind::Tuple(es) => es.iter().any(|e| self.occurs_provided(e, i)),
+            TyKind::Fn(_, r) => self.occurs_provided(r, i),
+            TyKind::Con(c, args) => args
                 .iter()
                 .enumerate()
                 .any(|(k, a)| self.provides(c.index(), k) && self.occurs_provided(a, i)),
@@ -695,9 +662,9 @@ impl Tables {
     }
 
     /// `T`, when `ty` is `Option<T>`.
-    pub fn option_payload<'a>(&self, ty: &'a Ty) -> Option<&'a Ty> {
-        match ty {
-            Ty::Con(id, args) if self.is_option(*id) => args.first(),
+    pub fn option_payload(&self, ty: &Ty) -> Option<&'static Ty> {
+        match ty.kind() {
+            TyKind::Con(id, args) if self.is_option(*id) => args.first(),
             _ => None,
         }
     }
@@ -706,7 +673,7 @@ impl Tables {
     /// told apart from one by being `undefined`. Only these need the boxed
     /// form (`$some`/`$val`).
     pub fn is_option_ty(&self, ty: &Ty) -> bool {
-        matches!(ty, Ty::Con(id, _) if self.is_option(*id))
+        matches!(ty.kind(), TyKind::Con(id, _) if self.is_option(*id))
     }
 
     pub fn fn_info(&self, id: FnId) -> &FnInfo {
@@ -854,7 +821,7 @@ impl Tables {
     /// registered against a primitive that takes no arguments at all.
     pub fn generic_head(&self, con: TyConId) -> Ty {
         let arity = self.tycon(con).generics.len();
-        Ty::Con(con, (0..arity).map(|i| Ty::Param(i as u32)).collect())
+        Ty::con(con, (0..arity).map(|i| Ty::param(i as u32)))
     }
 
     /// Records a conformance, unless there is one already. Returns whether it
@@ -940,8 +907,8 @@ impl Tables {
     /// predicate does, so it never names a constructor the predicate did not
     /// count.
     pub fn effect_implementor(&self, ty: &Ty) -> Option<(TyConId, TraitId)> {
-        match ty {
-            Ty::Con(id, args) => {
+        match ty.kind() {
+            TyKind::Con(id, args) => {
                 let own = self.traits_of_con(*id).iter().find(|t| self.trait_(**t).is_effect);
                 if let Some(t) = own {
                     return Some((*id, *t));
@@ -950,9 +917,9 @@ impl Tables {
                     if self.provides(*id, k) { self.effect_implementor(a) } else { None }
                 })
             }
-            Ty::Array(e) => self.effect_implementor(e),
-            Ty::Tuple(es) => es.iter().find_map(|e| self.effect_implementor(e)),
-            Ty::Fn(_, r) => self.effect_implementor(r),
+            TyKind::Array(e) => self.effect_implementor(e),
+            TyKind::Tuple(es) => es.iter().find_map(|e| self.effect_implementor(e)),
+            TyKind::Fn(_, r) => self.effect_implementor(r),
             _ => None,
         }
     }
@@ -1078,23 +1045,27 @@ impl Tables {
     }
 
     pub fn register_prim(&mut self, p: Prim, id: TyConId) {
-        self.prim_ids.insert(p, id);
+        self.prim_ids.insert(p, (id, Ty::con(id, [])));
     }
 
-    pub fn prim_id(&self, p: Prim) -> TyConId {
+    fn prim_entry(&self, p: Prim) -> (TyConId, Ty) {
         *self
             .prim_ids
             .get(&p)
             .or_ice("register_primitives records every Prim::all() before anything asks for one")
     }
 
+    pub fn prim_id(&self, p: Prim) -> TyConId {
+        self.prim_entry(p).0
+    }
+
     pub fn prim(&self, p: Prim) -> Ty {
-        Ty::Con(self.prim_id(p), Vec::new())
+        self.prim_entry(p).1
     }
 
     pub fn as_prim(&self, ty: &Ty) -> Option<Prim> {
-        match ty {
-            Ty::Con(id, _) => match self.tycon(*id).def {
+        match ty.kind() {
+            TyKind::Con(id, _) => match self.tycon(*id).def {
                 TyDef::Prim(p) => Some(p),
                 _ => None,
             },
@@ -1111,24 +1082,24 @@ impl Tables {
     /// only as a handler's parameter, is data even when `C: Ui`, for the same
     /// reason `fn(C, A) => B` is.
     pub fn is_effect_carrying(&self, ty: &Ty, generics: &[GenericInfo]) -> bool {
-        match ty {
-            Ty::Param(i) => generics
+        match ty.kind() {
+            TyKind::Param(i) => generics
                 .get(*i as usize)
                 .is_some_and(|g| g.bounds.iter().any(|b| self.trait_(*b).is_effect)),
-            Ty::Ctx(_) => true,
-            Ty::Con(id, args) => {
+            TyKind::Ctx(_) => true,
+            TyKind::Con(id, args) => {
                 self.con_carries_effect(*id)
                     || args.iter().enumerate().any(|(k, a)| {
                         self.provides(*id, k) && self.is_effect_carrying(a, generics)
                     })
             }
-            Ty::Array(e) => self.is_effect_carrying(e, generics),
-            Ty::Tuple(es) => es.iter().any(|e| self.is_effect_carrying(e, generics)),
+            TyKind::Array(e) => self.is_effect_carrying(e, generics),
+            TyKind::Tuple(es) => es.iter().any(|e| self.is_effect_carrying(e, generics)),
             // Only the result counts. A function that *accepts* a context is
             // not one that *carries* one — `fn(C, A) => B` is exactly the
             // shape `list.mapCtx` takes, and SPEC 10.6 mandates it. A
             // function that *returns* a context does carry it.
-            Ty::Fn(_, r) => self.is_effect_carrying(r, generics),
+            TyKind::Fn(_, r) => self.is_effect_carrying(r, generics),
             _ => false,
         }
     }
@@ -1180,23 +1151,23 @@ impl Tables {
     ///
     /// Everything else is the shape of `is_effect_carrying`.
     pub fn may_carry_effect(&self, ty: &Ty, generics: &[GenericInfo]) -> bool {
-        match ty {
-            Ty::Param(i) => match generics.get(*i as usize) {
+        match ty.kind() {
+            TyKind::Param(i) => match generics.get(*i as usize) {
                 Some(g) => !g.bounds.iter().any(|b| !self.trait_(*b).is_effect),
                 None => true,
             },
-            Ty::Ctx(_) => true,
-            Ty::Con(id, args) => {
+            TyKind::Ctx(_) => true,
+            TyKind::Con(id, args) => {
                 self.con_carries_effect(*id)
                     || args.iter().enumerate().any(|(k, a)| {
                         self.provides(*id, k) && self.may_carry_effect(a, generics)
                     })
             }
-            Ty::Array(e) => self.may_carry_effect(e, generics),
-            Ty::Tuple(es) => es.iter().any(|e| self.may_carry_effect(e, generics)),
+            TyKind::Array(e) => self.may_carry_effect(e, generics),
+            TyKind::Tuple(es) => es.iter().any(|e| self.may_carry_effect(e, generics)),
             // Spelled out rather than folded into the catch-all, because this
             // is the one place the two predicates deliberately disagree.
-            Ty::Fn(..) => false,
+            TyKind::Fn(..) => false,
             _ => false,
         }
     }
@@ -1225,7 +1196,7 @@ impl Subst {
         self.slots.push(None);
         self.classes.push(None);
         self.spans.push(span);
-        Ty::Var(id)
+        Ty::var(id)
     }
 
     /// A numeric literal gets a fresh variable constrained to the integer
@@ -1233,14 +1204,14 @@ impl Subst {
     /// (SPEC 5.1.1).
     pub fn fresh_num(&mut self, class: NumClass, span: Span) -> Ty {
         let ty = self.fresh(span);
-        if let Ty::Var(id) = ty {
-            *self.class_slot(id) = Some(class);
+        if let TyKind::Var(id) = ty.kind() {
+            *self.class_slot(*id) = Some(class);
         }
         ty
     }
 
-    /// The class cell for a variable. Every [`TyVarId`] comes from `fresh`,
-    /// which pushes one cell per table in step, so the id is always in range.
+    /// The class slot for a variable. Every [`TyVarId`] comes from `fresh`,
+    /// which pushes one slot per table in step, so the id is always in range.
     fn class_slot(&mut self, id: TyVarId) -> &mut Option<NumClass> {
         self.classes.get_mut(id.index()).or_ice("every TyVarId was minted by Subst::fresh")
     }
@@ -1253,8 +1224,8 @@ impl Subst {
         *self.spans.get(id.index()).or_ice("every TyVarId was minted by Subst::fresh")
     }
 
-    pub fn get(&self, id: TyVarId) -> Option<&Ty> {
-        self.slots.get(id.index()).or_ice("every TyVarId was minted by Subst::fresh").as_ref()
+    pub fn get(&self, id: TyVarId) -> Option<Ty> {
+        *self.slots.get(id.index()).or_ice("every TyVarId was minted by Subst::fresh")
     }
 
     fn set(&mut self, id: TyVarId, ty: Ty) {
@@ -1262,36 +1233,19 @@ impl Subst {
             Some(ty);
     }
 
-    /// Follows bound variables one level at a time.
+    /// Follows bound variables until the head is not one.
     pub fn shallow(&self, ty: &Ty) -> Ty {
-        self.shallow_ref(ty).clone()
-    }
-
-    /// The same, without copying.
-    ///
-    /// Following a variable to what it stands for reads a type; it does not
-    /// need to own one. `shallow` copied the type before looking at it, so
-    /// every step of `unify`, `resolve` and `occurs` began by deep-copying the
-    /// type it was about to take apart — and a type is a tree, so
-    /// `Result<[Str], Error>` was copied whole at every node, twice per
-    /// unification step.
-    ///
-    /// Callers that must hand an owned type onwards still use `shallow`; the
-    /// ones that only look use this.
-    pub fn shallow_ref<'t>(&'t self, ty: &'t Ty) -> &'t Ty {
-        /// Returned when the chain does not terminate. A `static` rather than
-        /// a promoted `&Ty::Error`, which `Ty` is not eligible for.
-        static NON_TERMINATING: Ty = Ty::Error;
-        let mut cur = ty;
+        let mut cur = *ty;
         let mut guard: u32 = 0;
-        while let Ty::Var(id) = cur {
+        while let TyKind::Var(id) = cur.kind() {
             match self.get(*id) {
                 Some(next) => cur = next,
                 None => break,
             }
             guard = guard.saturating_add(1);
             if guard > 1000 {
-                return &NON_TERMINATING;
+                // The chain does not terminate.
+                return Ty::ERROR;
             }
         }
         cur
@@ -1299,49 +1253,41 @@ impl Subst {
 
     /// Applies the substitution everywhere.
     ///
-    /// `shallow_ref` rather than `shallow`: this rebuilds the type from its
-    /// parts, so the copy `shallow` made at every level of the recursion was
-    /// dropped again immediately, and this runs over every type of every node
-    /// of every checked body.
+    /// A type with no variable in it is its own answer, and the interner
+    /// knows that without walking it, so this costs nothing on the types
+    /// most nodes have.
     pub fn resolve(&self, ty: &Ty) -> Ty {
-        match self.shallow_ref(ty) {
-            Ty::Con(id, args) => {
-                Ty::Con(*id, args.iter().map(|a| self.resolve(a)).collect())
-            }
-            Ty::Array(e) => Ty::Array(Box::new(self.resolve(e))),
-            Ty::Tuple(es) => Ty::Tuple(es.iter().map(|e| self.resolve(e)).collect()),
-            Ty::Fn(ps, r) => {
-                Ty::Fn(ps.iter().map(|p| self.resolve(p)).collect(), Box::new(self.resolve(r)))
-            }
-            other => other.clone(),
+        if !ty.has_vars() {
+            return *ty;
+        }
+        let ty = self.shallow(ty);
+        if !ty.has_vars() {
+            return ty;
+        }
+        match ty.kind() {
+            TyKind::Con(id, args) => Ty::con(*id, args.iter().map(|a| self.resolve(a))),
+            TyKind::Array(e) => Ty::array(self.resolve(e)),
+            TyKind::Tuple(es) => Ty::tuple(es.iter().map(|e| self.resolve(e))),
+            TyKind::Fn(ps, r) => Ty::func(ps.iter().map(|p| self.resolve(p)), self.resolve(r)),
+            _ => ty,
         }
     }
 
-    /// [`Subst::resolve`], rewriting `ty` where it stands rather than building
-    /// a copy: a type with no variable in it is left exactly as it was, and
-    /// nothing is allocated for it.
+    /// [`Subst::resolve`], where `ty` stands.
     pub fn resolve_in_place(&self, ty: &mut Ty) {
-        if let Ty::Var(_) = ty {
-            *ty = self.shallow_ref(ty).clone();
-        }
-        match ty {
-            Ty::Con(_, args) | Ty::Tuple(args) => args.iter_mut().for_each(|a| self.resolve_in_place(a)),
-            Ty::Array(e) => self.resolve_in_place(e),
-            Ty::Fn(ps, r) => {
-                ps.iter_mut().for_each(|p| self.resolve_in_place(p));
-                self.resolve_in_place(r);
-            }
-            _ => {}
-        }
+        *ty = self.resolve(ty);
     }
 
     fn occurs(&self, id: TyVarId, ty: &Ty) -> bool {
-        match self.shallow_ref(ty) {
-            Ty::Var(v) => *v == id,
-            Ty::Con(_, args) => args.iter().any(|a| self.occurs(id, a)),
-            Ty::Array(e) => self.occurs(id, e),
-            Ty::Tuple(es) => es.iter().any(|e| self.occurs(id, e)),
-            Ty::Fn(ps, r) => ps.iter().any(|p| self.occurs(id, p)) || self.occurs(id, r),
+        if !ty.has_vars() {
+            return false;
+        }
+        match self.shallow(ty).kind() {
+            TyKind::Var(v) => *v == id,
+            TyKind::Con(_, args) => args.iter().any(|a| self.occurs(id, a)),
+            TyKind::Array(e) => self.occurs(id, e),
+            TyKind::Tuple(es) => es.iter().any(|e| self.occurs(id, e)),
+            TyKind::Fn(ps, r) => ps.iter().any(|p| self.occurs(id, p)) || self.occurs(id, r),
             _ => false,
         }
     }
@@ -1349,88 +1295,64 @@ impl Subst {
     /// Structural unification. `Error` unifies with anything, so one mistake
     /// does not cascade into ten.
     pub fn unify(&mut self, tables: &Tables, a: &Ty, b: &Ty) -> Result<(), (Ty, Ty)> {
-        // The cases that are decided by looking, and so need no copy. Most
-        // unification in a real program is two primitives or a variable
-        // against itself, and taking those here is what keeps the copy below
-        // to the cases that genuinely take a type apart.
-        match (self.shallow_ref(a), self.shallow_ref(b)) {
-            (Ty::Error, _) | (_, Ty::Error) => return Ok(()),
-            (Ty::Var(x), Ty::Var(y)) if x == y => return Ok(()),
-            (Ty::Unit, Ty::Unit) | (Ty::SelfTy, Ty::SelfTy) => return Ok(()),
-            (Ty::Param(x), Ty::Param(y)) if x == y => return Ok(()),
-            (Ty::Ctx(x), Ty::Ctx(y)) if x == y => return Ok(()),
-            (Ty::Con(x, xs), Ty::Con(y, ys)) if x == y && xs.is_empty() && ys.is_empty() => {
-                return Ok(())
-            }
-            _ => {}
+        let a = self.shallow(a);
+        let b = self.shallow(b);
+        // One shape is one interned type, so two equal types are decided by
+        // looking: whatever is inside them unifies with itself and binds
+        // nothing. Most unification in a real program is two primitives or a
+        // variable against itself.
+        if a == b {
+            return Ok(());
         }
-        // Copied only where a variable stood for the type: the copy is what
-        // lets the parts be unified while the substitution changes, and a type
-        // the caller passed in is not the substitution's to change.
-        let a = self.followed(a);
-        let b = self.followed(b);
-        match (&*a, &*b) {
-            (Ty::Error, _) | (_, Ty::Error) => Ok(()),
-            (Ty::Var(x), Ty::Var(y)) if x == y => Ok(()),
-            (Ty::Var(x), _) => self.bind(tables, *x, &b),
-            (_, Ty::Var(y)) => self.bind(tables, *y, &a),
-            (Ty::Unit, Ty::Unit) => Ok(()),
-            (Ty::SelfTy, Ty::SelfTy) => Ok(()),
-            (Ty::Param(x), Ty::Param(y)) if x == y => Ok(()),
-            (Ty::Ctx(x), Ty::Ctx(y)) if x == y => Ok(()),
-            (Ty::Con(x, xs), Ty::Con(y, ys)) if x == y && xs.len() == ys.len() => {
-                for (p, q) in xs.iter().zip(ys) {
+        match (a.kind(), b.kind()) {
+            (TyKind::Error, _) | (_, TyKind::Error) => Ok(()),
+            (TyKind::Var(x), _) => self.bind(tables, *x, &b),
+            (_, TyKind::Var(y)) => self.bind(tables, *y, &a),
+            (TyKind::Con(x, xs), TyKind::Con(y, ys)) if x == y && xs.len() == ys.len() => {
+                for (p, q) in xs.iter().zip(ys.iter()) {
                     self.unify(tables, p, q)?;
                 }
                 Ok(())
             }
-            (Ty::Array(x), Ty::Array(y)) => self.unify(tables, x, y),
-            (Ty::Tuple(xs), Ty::Tuple(ys)) if xs.len() == ys.len() => {
-                for (p, q) in xs.iter().zip(ys) {
+            (TyKind::Array(x), TyKind::Array(y)) => self.unify(tables, x, y),
+            (TyKind::Tuple(xs), TyKind::Tuple(ys)) if xs.len() == ys.len() => {
+                for (p, q) in xs.iter().zip(ys.iter()) {
                     self.unify(tables, p, q)?;
                 }
                 Ok(())
             }
-            (Ty::Fn(xs, xr), Ty::Fn(ys, yr)) if xs.len() == ys.len() => {
-                for (p, q) in xs.iter().zip(ys) {
+            (TyKind::Fn(xs, xr), TyKind::Fn(ys, yr)) if xs.len() == ys.len() => {
+                for (p, q) in xs.iter().zip(ys.iter()) {
                     self.unify(tables, p, q)?;
                 }
                 self.unify(tables, xr, yr)
             }
-            _ => Err((a.into_owned(), b.into_owned())),
-        }
-    }
-
-    /// `ty` with the variables at its head followed, borrowed where nothing
-    /// was followed.
-    fn followed<'t>(&self, ty: &'t Ty) -> std::borrow::Cow<'t, Ty> {
-        match ty {
-            Ty::Var(_) => std::borrow::Cow::Owned(self.shallow(ty)),
-            _ => std::borrow::Cow::Borrowed(ty),
+            _ => Err((a, b)),
         }
     }
 
     fn bind(&mut self, tables: &Tables, id: TyVarId, ty: &Ty) -> Result<(), (Ty, Ty)> {
         if self.occurs(id, ty) {
-            return Err((Ty::Var(id), ty.clone()));
+            return Err((Ty::var(id), *ty));
         }
         // A literal's class travels with it: binding an integer-class variable
         // to a float type is what makes `let x: F64 = 1` an error rather than
         // a silent promotion.
         if let Some(class) = self.class_of(id) {
-            match self.shallow_ref(ty) {
-                &Ty::Var(other) => {
+            let resolved = self.shallow(ty);
+            match resolved.kind() {
+                &TyKind::Var(other) => {
                     let slot = self.class_slot(other);
                     match *slot {
                         None => *slot = Some(class),
                         Some(existing) if existing != class => {
-                            return Err((Ty::Var(id), ty.clone()))
+                            return Err((Ty::var(id), *ty))
                         }
                         Some(_) => {}
                     }
                 }
-                resolved => {
-                    let ok = match tables.as_prim(resolved) {
+                _ => {
+                    let ok = match tables.as_prim(&resolved) {
                         Some(p) => match class {
                             NumClass::Int => p.is_integer(),
                             NumClass::Float => p.is_float(),
@@ -1438,12 +1360,12 @@ impl Subst {
                         None => false,
                     };
                     if !ok {
-                        return Err((Ty::Var(id), ty.clone()));
+                        return Err((Ty::var(id), *ty));
                     }
                 }
             }
         }
-        self.set(id, ty.clone());
+        self.set(id, *ty);
         Ok(())
     }
 
@@ -1487,7 +1409,7 @@ impl Subst {
     pub fn default_unconstrained(&mut self) {
         for slot in &mut self.slots {
             if slot.is_none() {
-                *slot = Some(Ty::Unit);
+                *slot = Some(Ty::UNIT);
             }
         }
     }
@@ -1508,10 +1430,10 @@ impl Subst {
 /// tables: three backends asking the same question of the same table is one
 /// question.
 pub fn field_types(tables: &Tables, ty: &Ty) -> Vec<Ty> {
-    match ty {
-        Ty::Tuple(elements) => elements.clone(),
-        Ty::Ctx(id) => tables.ctx_type(*id).bindings.iter().map(|(_, t)| t.clone()).collect(),
-        Ty::Con(id, args) => match &tables.tycon(*id).def {
+    match ty.kind() {
+        TyKind::Tuple(elements) => elements.to_vec(),
+        TyKind::Ctx(id) => tables.ctx_type(*id).bindings.iter().map(|(_, t)| *t).collect(),
+        TyKind::Con(id, args) => match &tables.tycon(*id).def {
             TyDef::Struct { fields, .. } => {
                 fields.iter().map(|f| substitute(&f.ty, args, None)).collect()
             }
@@ -1523,7 +1445,7 @@ pub fn field_types(tables: &Tables, ty: &Ty) -> Vec<Ty> {
 
 /// One variant's fields, as types, in declaration order.
 pub fn variant_types(tables: &Tables, ty: &Ty, variant: usize) -> Vec<Ty> {
-    let Ty::Con(id, args) = ty else { return Vec::new() };
+    let TyKind::Con(id, args) = ty.kind() else { return Vec::new() };
     match &tables.tycon(*id).def {
         TyDef::Enum { .. } => match tables.tycon(*id).variants().get(variant) {
             Some(v) => v.fields.iter().map(|f| substitute(&f.ty, args, None)).collect(),
@@ -1556,11 +1478,11 @@ pub fn traits_of(tables: &Tables, con: TyConId) -> std::collections::BTreeSet<St
 /// out of a table that records it, and the two would have to be kept in step
 /// by hand. `None` for anything that is not a two-armed `Result`.
 pub fn result_shape(tables: &Tables, ty: &Ty) -> Option<(usize, usize, Ty)> {
-    let Ty::Con(id, args) = ty else { return None };
+    let TyKind::Con(id, args) = ty.kind() else { return None };
     let variants = tables.tycon(*id).variants();
     let ok = variants.iter().position(|v| v.name == "Ok")?;
     let err = variants.iter().position(|v| v.name == "Err")?;
-    Some((ok, err, args.get(err)?.clone()))
+    Some((ok, err, *args.get(err)?))
 }
 
 // ---------------------------------------------------------------------------
@@ -1568,20 +1490,24 @@ pub fn result_shape(tables: &Tables, ty: &Ty) -> Option<(usize, usize, Ty)> {
 // ---------------------------------------------------------------------------
 
 /// Replaces `Param(i)` with `args[i]`, and `Self` with `self_ty`.
+///
+/// A type with neither in it is returned as it is, which the interner
+/// answers without walking it.
 pub fn substitute(ty: &Ty, args: &[Ty], self_ty: Option<&Ty>) -> Ty {
-    match ty {
-        Ty::Param(i) => args.get(*i as usize).cloned().unwrap_or(Ty::Error),
-        Ty::SelfTy => self_ty.cloned().unwrap_or(Ty::SelfTy),
-        Ty::Con(id, xs) => {
-            Ty::Con(*id, xs.iter().map(|x| substitute(x, args, self_ty)).collect())
-        }
-        Ty::Array(e) => Ty::Array(Box::new(substitute(e, args, self_ty))),
-        Ty::Tuple(es) => Ty::Tuple(es.iter().map(|e| substitute(e, args, self_ty)).collect()),
-        Ty::Fn(ps, r) => Ty::Fn(
-            ps.iter().map(|p| substitute(p, args, self_ty)).collect(),
-            Box::new(substitute(r, args, self_ty)),
+    if !ty.has_params() {
+        return *ty;
+    }
+    match ty.kind() {
+        TyKind::Param(i) => args.get(*i as usize).copied().unwrap_or(Ty::ERROR),
+        TyKind::SelfTy => self_ty.copied().unwrap_or(Ty::SELF),
+        TyKind::Con(id, xs) => Ty::con(*id, xs.iter().map(|x| substitute(x, args, self_ty))),
+        TyKind::Array(e) => Ty::array(substitute(e, args, self_ty)),
+        TyKind::Tuple(es) => Ty::tuple(es.iter().map(|e| substitute(e, args, self_ty))),
+        TyKind::Fn(ps, r) => Ty::func(
+            ps.iter().map(|p| substitute(p, args, self_ty)),
+            substitute(r, args, self_ty),
         ),
-        other => other.clone(),
+        _ => *ty,
     }
 }
 
@@ -1594,7 +1520,7 @@ pub fn substitute(ty: &Ty, args: &[Ty], self_ty: Option<&Ty>) -> Ty {
 pub fn show(tables: &Tables, subst: Option<&Subst>, generics: &[GenericInfo], ty: &Ty) -> String {
     let resolved = match subst {
         Some(s) => s.resolve(ty),
-        None => ty.clone(),
+        None => *ty,
     };
     let mut out = String::new();
     write_ty(&mut out, tables, subst, generics, &resolved);
@@ -1721,8 +1647,8 @@ pub fn show_in_diagnostic(
     generics: &[GenericInfo],
     ty: &Ty,
 ) -> Spelling {
-    if let Ty::Var(id) = subst.shallow(ty) {
-        return match subst.class_of(id) {
+    if let TyKind::Var(id) = subst.shallow(ty).kind() {
+        return match subst.class_of(*id) {
             Some(class) => Spelling::Literal(class),
             None => Spelling::Unconstrained,
         };
@@ -1737,8 +1663,8 @@ fn write_ty(
     generics: &[GenericInfo],
     ty: &Ty,
 ) {
-    match ty {
-        Ty::Var(id) => {
+    match ty.kind() {
+        TyKind::Var(id) => {
             // Nothing has pinned this literal yet, so the name to print is the
             // one it would default to — a spelling a program can write.
             match subst.and_then(|s| s.class_of(*id)) {
@@ -1748,13 +1674,13 @@ fn write_ty(
                 }
             }
         }
-        Ty::Param(i) => match generics.get(*i as usize) {
+        TyKind::Param(i) => match generics.get(*i as usize) {
             Some(g) => out.push_str(&g.name),
             None => {
                 let _ = write!(out, "?{i}");
             }
         },
-        Ty::Con(id, args) => {
+        TyKind::Con(id, args) => {
             out.push_str(&tables.tycon(*id).name);
             if !args.is_empty() {
                 out.push('<');
@@ -1767,12 +1693,12 @@ fn write_ty(
                 out.push('>');
             }
         }
-        Ty::Array(e) => {
+        TyKind::Array(e) => {
             out.push('[');
             write_ty(out, tables, subst, generics, e);
             out.push(']');
         }
-        Ty::Tuple(es) => {
+        TyKind::Tuple(es) => {
             out.push('(');
             for (i, e) in es.iter().enumerate() {
                 if i > 0 {
@@ -1782,7 +1708,7 @@ fn write_ty(
             }
             out.push(')');
         }
-        Ty::Fn(ps, r) => {
+        TyKind::Fn(ps, r) => {
             out.push_str("fn(");
             for (i, p) in ps.iter().enumerate() {
                 if i > 0 {
@@ -1793,10 +1719,10 @@ fn write_ty(
             out.push_str(") => ");
             write_ty(out, tables, subst, generics, r);
         }
-        Ty::Unit => out.push_str("()"),
-        Ty::Ctx(_) => out.push_str("a context"),
-        Ty::SelfTy => out.push_str("Self"),
-        Ty::Error => out.push_str("<error>"),
+        TyKind::Unit => out.push_str("()"),
+        TyKind::Ctx(_) => out.push_str("a context"),
+        TyKind::SelfTy => out.push_str("Self"),
+        TyKind::Error => out.push_str("<error>"),
     }
 }
 
@@ -1848,8 +1774,8 @@ mod tests {
         assert_eq!(show_in_diagnostic(&t, &s, &[], &float).quoted(), "`Float`");
         // Nested inside a larger type it is the same name, so one literal is
         // never given two spellings.
-        assert_eq!(show(&t, Some(&s), &[], &Ty::Array(Box::new(int))), "[Int]");
-        assert_eq!(show(&t, Some(&s), &[], &Ty::Array(Box::new(float))), "[Float]");
+        assert_eq!(show(&t, Some(&s), &[], &Ty::array(int)), "[Int]");
+        assert_eq!(show(&t, Some(&s), &[], &Ty::array(float)), "[Float]");
     }
 
     #[test]
@@ -1874,11 +1800,11 @@ mod tests {
         let free = s.fresh(Span::NONE);
         let bound = s.fresh(Span::NONE);
         assert!(s.unify(&t, &bound, &t.prim(Prim::Str)).is_ok());
-        let inside = Ty::Tuple(vec![free.clone(), bound.clone()]);
+        let inside = Ty::tuple([free, bound]);
         s.default_unconstrained();
-        assert_eq!(s.resolve(&free), Ty::Unit);
+        assert_eq!(s.resolve(&free), Ty::UNIT);
         assert_eq!(s.resolve(&bound), t.prim(Prim::Str));
-        assert_eq!(s.resolve(&inside), Ty::Tuple(vec![Ty::Unit, t.prim(Prim::Str)]));
+        assert_eq!(s.resolve(&inside), Ty::tuple([Ty::UNIT, t.prim(Prim::Str)]));
     }
 
     #[test]
@@ -1886,7 +1812,7 @@ mod tests {
         let t = tables_with_prims();
         let mut s = Subst::default();
         let v = s.fresh(Span::NONE);
-        let arr = Ty::Array(Box::new(v.clone()));
+        let arr = Ty::array(v);
         assert!(s.unify(&t, &v, &arr).is_err());
     }
 
@@ -1894,8 +1820,8 @@ mod tests {
     fn the_error_type_unifies_with_anything() {
         let t = tables_with_prims();
         let mut s = Subst::default();
-        assert!(s.unify(&t, &Ty::Error, &t.prim(Prim::Str)).is_ok());
-        assert!(s.unify(&t, &t.prim(Prim::Bool), &Ty::Error).is_ok());
+        assert!(s.unify(&t, &Ty::ERROR, &t.prim(Prim::Str)).is_ok());
+        assert!(s.unify(&t, &t.prim(Prim::Bool), &Ty::ERROR).is_ok());
     }
 
     #[test]

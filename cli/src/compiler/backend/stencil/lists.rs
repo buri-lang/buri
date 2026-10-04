@@ -15,13 +15,13 @@
 use super::jit::{Jit, V};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
-use crate::compiler::semantics::types::Ty;
+use crate::compiler::semantics::types::{Ty, TyKind};
 
 impl Jit<'_> {
     /// A `[T]`'s stride, element width and whether the element is counted.
     pub(crate) fn array_elem(&mut self, prog: &ir::Program, t: ir::Type) -> Option<(u32, u32, bool)> {
         let ir::Type::Agg(id) = t else { return None };
-        let Ty::Array(elem) = prog.type_info(id).ty.clone() else { return None };
+        let TyKind::Array(elem) = prog.type_info(id).ty.clone().kind() else { return None };
         let l = self.layouts_of((*elem).clone());
         let counted = self.rc_counted(&elem);
         Some((l.stride.max(1), l.size.max(1), counted))
@@ -30,8 +30,8 @@ impl Jit<'_> {
     /// The element type of a value whose IR type is a `[T]`.
     pub(crate) fn element_of(&mut self, prog: &ir::Program, t: ir::Type) -> Option<Ty> {
         let ir::Type::Agg(id) = t else { return None };
-        match prog.type_info(id).ty.clone() {
-            Ty::Array(elem) => Some(*elem),
+        match prog.type_info(id).ty.clone().kind() {
+            TyKind::Array(elem) => Some(*elem),
             _ => None,
         }
     }

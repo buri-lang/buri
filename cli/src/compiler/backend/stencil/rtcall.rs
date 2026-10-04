@@ -55,7 +55,7 @@ use crate::compiler::backend::counts::Op;
 use crate::compiler::backend::intrinsic_keys::step_call;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
-use crate::compiler::semantics::types::{self as types, Ty};
+use crate::compiler::semantics::types::{self as types, Ty, TyKind};
 
 /// Where the C argument area starts inside the scratch words `jit::frame_sigs`
 /// reserves.
@@ -101,8 +101,8 @@ fn round8(n: u32) -> u32 {
 /// anything else.
 fn array_elem(prog: &ir::Program, t: ir::Type) -> Option<Ty> {
     let ir::Type::Agg(id) = t else { return None };
-    match prog.type_info(id).ty.clone() {
-        Ty::Array(e) => Some(*e),
+    match prog.type_info(id).ty.clone().kind() {
+        TyKind::Array(e) => Some(*e),
         _ => None,
     }
 }
@@ -182,7 +182,7 @@ impl Jit<'_> {
             // this call being unusual, and every context in the corpus reaches
             // here — so a missing annotation is a refusal at build time rather
             // than a shifted argument list at run time.
-            if matches!(source_ty(prog, t), Some(Ty::Ctx(_))) {
+            if matches!(source_ty(prog, t).map(Ty::kind), Some(TyKind::Ctx(_))) {
                 return Err(format!(
                     "{}: a context at argument {i} that the runtime table does not name",
                     entry.key
@@ -565,7 +565,7 @@ impl Jit<'_> {
     /// enum: a variant records *where* a field is and never how big it is, and
     /// `Result<(), E>` has a field of no size.
     fn ok_payload_bytes(&mut self, prog: &ir::Program, dty: ir::Type, ok: usize) -> u32 {
-        let Some(Ty::Con(_, args)) = source_ty(prog, dty) else { return 0 };
+        let Some(TyKind::Con(_, args)) = source_ty(prog, dty).map(Ty::kind) else { return 0 };
         let Some(payload) = args.get(ok).cloned() else { return 0 };
         self.layouts_of(payload).size
     }
@@ -859,7 +859,7 @@ impl Jit<'_> {
         let Some((fslot, fty)) = args.get(call.func).copied() else {
             return Err(format!("{}: no step argument", entry.key));
         };
-        let Some(Ty::Fn(params, ret)) = source_ty(prog, fty) else {
+        let Some(TyKind::Fn(params, ret)) = source_ty(prog, fty).map(Ty::kind) else {
             return Err(format!("{}: a step argument that is not a function", entry.key));
         };
         let Some(source) = args.iter().find_map(|(_, t)| array_elem(prog, *t)) else {
@@ -922,7 +922,7 @@ impl Jit<'_> {
             ],
         );
         let thunk =
-            self.helper(super::glue::Helper::Entry { params, ret: *ret, index: call.index });
+            self.helper(super::glue::Helper::Entry { params: params.to_vec(), ret: *ret, index: call.index });
         ints.push(Src::Sym(thunk));
         ints.push(Src::Addr(state));
         ints.push(Src::Imm(u64::from(in_stride)));
@@ -986,7 +986,7 @@ impl Jit<'_> {
         let Some(ty) = source_ty(prog, fty) else {
             return Err(format!("{}: a body with no type", entry.key));
         };
-        let Ty::Fn(params, ret) = ty.clone() else {
+        let TyKind::Fn(params, ret) = ty.clone().kind() else {
             return Err(format!("{}: a body that is not a function", entry.key));
         };
         if params.len() != 1 {
@@ -1007,7 +1007,7 @@ impl Jit<'_> {
         let stride = u64::from(self.layouts_of((*ret).clone()).stride);
         let release = self.value_release((*ret).clone());
         let thunk =
-            self.helper(super::glue::Helper::Entry { params, ret: *ret, index: None });
+            self.helper(super::glue::Helper::Entry { params: params.to_vec(), ret: *ret, index: None });
         ints.push(Src::Sym(thunk));
         ints.push(Src::Addr(state));
         ints.push(Src::Imm(u64::from(bytes)));
@@ -1053,7 +1053,7 @@ impl Jit<'_> {
         let Some(ty) = source_ty(prog, fty) else {
             return Err(format!("{}: a walk with no type", entry.key));
         };
-        let Ty::Fn(params, ret) = ty else {
+        let TyKind::Fn(params, ret) = ty.kind() else {
             return Err(format!("{}: a walk that is not a function", entry.key));
         };
         if params.len() != 3 {
@@ -1065,7 +1065,7 @@ impl Jit<'_> {
         let state = st.frame.size;
         self.mv(state, fslot, 16);
         let thunk = self.helper(super::glue::Helper::Entry {
-            params,
+            params: params.to_vec(),
             ret: *ret,
             index: Some(1),
         });
@@ -1100,7 +1100,7 @@ impl Jit<'_> {
         let Some(ty) = source_ty(prog, fty) else {
             return Err(format!("{}: a handler with no type", entry.key));
         };
-        let Ty::Fn(params, ret) = ty.clone() else {
+        let TyKind::Fn(params, ret) = ty.clone().kind() else {
             return Err(format!("{}: a handler that is not a function", entry.key));
         };
         if params.len() != 2 {
@@ -1117,7 +1117,7 @@ impl Jit<'_> {
             self.walk_rc(st, &ty, state, Op::Retain, 0)?;
         }
         let thunk =
-            self.helper(super::glue::Helper::Entry { params, ret: *ret, index: None });
+            self.helper(super::glue::Helper::Entry { params: params.to_vec(), ret: *ret, index: None });
         ints.push(Src::Sym(thunk));
         ints.push(Src::Addr(state));
         ints.push(Src::Imm(u64::from(bytes)));
@@ -1145,8 +1145,8 @@ impl Jit<'_> {
     ) -> Option<Ty> {
         let of = |t: ir::Type| -> Option<Ty> {
             let ir::Type::Agg(id) = t else { return None };
-            match prog.type_info(id).ty.clone() {
-                Ty::Array(e) => Some(*e),
+            match prog.type_info(id).ty.clone().kind() {
+                TyKind::Array(e) => Some(*e),
                 _ => None,
             }
         };
