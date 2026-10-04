@@ -94,6 +94,13 @@ use crate::hash::Map as HashMap;
 
 mod lists;
 
+/// Whether lowering builds `key`'s body itself, as IR, so that no backend
+/// meets it as a call: `core/list`'s closure operations and the loops the
+/// derives use (`lower/lists.rs`).
+pub fn lowers(key: &str) -> bool {
+    lists::handles(key)
+}
+
 /// Lowers every function in the program.
 ///
 /// Takes the program by reference and builds a new one rather than consuming
@@ -2736,11 +2743,13 @@ export fn sum(xs: [Int]): Int { xs.fold(fn(a, b) => a + b, 0) }
   let _s = \"${pt.x}-${pt.y}\";
   let _n = sum([1, 2, 3]);
   let _o = [1, 2, 3].get(1);
+  let _l = [1, 2, 3].length();
 ",
         ));
         assert!(ir::verify(&p).is_empty());
         // Both kinds of body reach the backend: generated code, and a
-        // runtime symbol.
+        // runtime symbol. `fold` and `get` are code now (`lower/lists.rs`);
+        // `length` is the runtime symbol.
         assert!(p.funcs.iter().any(|f| f.code().is_some()));
         assert!(p.funcs.iter().any(|f| f.intrinsic_key().is_some()));
     }

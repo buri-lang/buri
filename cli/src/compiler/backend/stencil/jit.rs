@@ -50,7 +50,7 @@ use super::library::{Hole, HoleKind, Library, Stencil};
 use super::runtime;
 use crate::compiler::backend::counts::{Counts, Site};
 use crate::compiler::middle::ir;
-use crate::compiler::middle::layout::{Layout, Layouts};
+use crate::compiler::middle::layout::{EnumRepr, Layout, Layouts, Repr};
 use crate::compiler::semantics::types::{Tables, Ty};
 use std::collections::HashMap;
 
@@ -548,17 +548,14 @@ pub(crate) fn frame_sigs(prog: &ir::Program, tables: &Tables) -> Vec<FrameSig> {
     for f in &prog.funcs {
         let mut fs = FrameSig::default();
         let mut at = 0u32;
-        let mut stage = 0u32;
         for t in &f.sig.rets {
             fs.ret.push(at);
             at += round8(width(&mut layouts, *t)).max(8);
-            staged(&mut layouts, prog, *t, &mut stage);
         }
         fs.ret_size = at;
         for t in &f.sig.params {
             fs.params.push(at);
             at += round8(width(&mut layouts, *t)).max(8);
-            staged(&mut layouts, prog, *t, &mut stage);
         }
         fs.param_end = at;
         if let ir::Body::Code(code) = &f.body {
@@ -566,7 +563,6 @@ pub(crate) fn frame_sigs(prog: &ir::Program, tables: &Tables) -> Vec<FrameSig> {
                 code.get(ir::BlockId(0)).params.iter().map(|v| v.0).collect();
             for v in 0..code.values() {
                 let t = code.ty_of(ir::ValueId(v as u32));
-                staged(&mut layouts, prog, t, &mut stage);
                 if entry_params.contains(&(v as u32)) {
                     continue;
                 }
@@ -574,55 +570,21 @@ pub(crate) fn frame_sigs(prog: &ir::Program, tables: &Tables) -> Vec<FrameSig> {
             }
         }
         at += SCRATCH_WORDS as u32 * 8;
-        // What the open-coded list loops stage, past the room every frame has
-        // for nothing. Zero for almost every function in a program.
-        at += stage.saturating_sub(super::lists::BASE_STAGE_ROOM);
         fs.size = (at + 15) & !15;
         out.push(fs);
     }
     out
 }
 
-/// The widest thing `lists.rs`'s loops could stage while compiling a function
-/// that names this type, folded into `need`.
-///
-/// Everything those loops put in the staging area is either a value of the
-/// function's own — a `fold`'s accumulator — or the element of a `[T]` it
-/// holds, one level in for `flatten`, which is why this walks down through
-/// nested arrays. Measuring it is what lets a wide element through: an
-/// `ast.Item` is 448 bytes, and a fixed reserve that held one would have cost
-/// every frame in the program those bytes (buri-lang/buri#48).
-///
-/// It is an over-estimate rather than an exact answer — a `[T]` a function
-/// merely holds buys the room whether or not a loop over it is open-coded — and
-/// that is the safe direction. The exact direction is `lists.rs::stage`, which
-/// still measures the frame it was given and refuses what does not fit.
-/// Only aggregates are asked. Every register shape is sixteen bytes or fewer,
-/// which is inside the room a frame has for nothing.
-fn staged(layouts: &mut Layouts, prog: &ir::Program, t: ir::Type, need: &mut u32) {
-    let ir::Type::Agg(id) = t else { return };
-    let mut ty = prog.type_info(id).ty.clone();
-    *need = (*need).max(round8(layouts.of(ty.clone()).size));
-    while let Ty::Array(elem) = ty {
-        ty = *elem;
-        *need = (*need).max(layouts.of(ty.clone()).size);
-    }
-}
-
 /// Words of scratch past the last local, inside every frame.
 ///
-/// Sixteen for the emitter's own temporaries and the open-coded list loops'
-/// (`lists.rs` §"the scratch words"), eighteen more for the C argument area a
-/// runtime call marshals into and the four words past it that the widening and
+/// Sixteen for the emitter's own temporaries, then the C argument area a
+/// runtime call marshals into and the words past it that the widening and
 /// out-of-line-walk sequences take (`rtcall::CARG_WORD` through
-/// `rtcall::RESERVED_WORDS`), twenty-four for the loops whose state does not fit
-/// two words — the merge sort's seven indices, `flatten`'s two passes
-/// (`lists.rs::LOOP_SCRATCH`) — and forty for the widest element those loops
-/// stage (`lists.rs::STAGE_ROOM`, which asserts the arithmetic). The C argument
-/// area is not optional: a `crt` stencil's arguments have to live **inside**
-/// this frame, and the first byte past it is where a Buri callee's frame
-/// starts — which `lists.rs` writes into before it calls the step.
-pub(crate) const SCRATCH_WORDS: usize = 98;
+/// `rtcall::RESERVED_WORDS`). The C argument area is not optional: a `crt`
+/// stencil's arguments have to live **inside** this frame, because the first
+/// byte past it is where a Buri callee's frame starts.
+pub(crate) const SCRATCH_WORDS: usize = super::rtcall::RESERVED_WORDS as usize;
 
 // ---------------------------------------------------------------------------
 // Emission
@@ -813,11 +775,11 @@ impl<'a> Jit<'a> {
                 }
                 self.resolve_blocks(base, &st.blk);
             }
-            // A runtime-supplied body has no IR to walk, but it may still emit
-            // a **loop** (`lists.rs`), which needs labels and the same
-            // function-local branch resolution a real body gets. So it is given
-            // an empty `Fn2` whose frame is its own signature's and whose
-            // scratch is the area `Jit::plan` reserved past the parameters.
+            // A runtime-supplied body has no IR to walk, but its sequence may
+            // still branch, which needs labels and the same function-local
+            // branch resolution a real body gets. So it is given an empty
+            // `Fn2` whose frame is its own signature's and whose scratch is the
+            // area `Jit::plan` reserved past the parameters.
             ir::Body::Runtime(key) => {
                 let mut st = Fn2 {
                     slot: Vec::new(),
@@ -1559,7 +1521,157 @@ impl<'a> Jit<'a> {
             };
             *s = off;
         }
+        self.alias_parts(prog, code, &uf, &pin, &mut slot);
         (slot, at)
+    }
+
+    /// (i.e) A value that is **part of another** lives there. A list's length
+    /// is the second word of the list, and a field built into a struct or an
+    /// enum is the bytes of that field: the load that defines it writes them in
+    /// place, and the move that would have copied it becomes the identity.
+    ///
+    /// Only where both sides keep still for as long as the part is read:
+    ///
+    ///  * a **length**, of a list that is a slot class of its own and never a
+    ///    loop's parameter, so nothing writes its slot again — an instruction's
+    ///    result, or one of the function's own parameters;
+    ///  * a **field**, defined in the block that builds the aggregate and read
+    ///    only there, by a load that writes nothing else and does not read the
+    ///    aggregate's class, with nothing in between touching that class. The
+    ///    field is whole frame words wide, because a slot write is a whole
+    ///    word, and not behind a pointer.
+    fn alias_parts(
+        &mut self,
+        prog: &ir::Program,
+        code: &ir::Code,
+        uf: &[u32],
+        pin: &[Option<u32>],
+        slot: &mut [u32],
+    ) {
+        let n = code.values();
+        let mut members = vec![0u32; n];
+        let mut uses = vec![0u32; n];
+        let mut param = vec![false; n];
+        let mut ops = Vec::new();
+        for v in 0..n {
+            bump(&mut members, find(uf, v as u32) as usize);
+        }
+        for (bi, b) in code.blocks.iter().enumerate() {
+            if bi != 0 {
+                for p in &b.params {
+                    put(&mut param, p.index(), true);
+                }
+            }
+            for i in &b.insts {
+                ops.clear();
+                i.operands(&mut ops);
+                for o in &ops {
+                    bump(&mut uses, o.index());
+                }
+            }
+            ops.clear();
+            b.term.operands(&mut ops);
+            for t in b.term.targets() {
+                ops.extend_from_slice(&t.args);
+            }
+            for o in &ops {
+                bump(&mut uses, o.index());
+            }
+        }
+        let alone = |v: ir::ValueId| {
+            find(uf, v.0) == v.0
+                && ent(&members, v.index(), 0) == 1
+                && ent(pin, v.index(), None).is_none()
+        };
+        // The entry's parameters keep the slots the caller left them in.
+        let entry: Vec<ir::ValueId> = code.get(ir::BlockId(0)).params.clone();
+        let still = |v: ir::ValueId| {
+            find(uf, v.0) == v.0
+                && ent(&members, v.index(), 0) == 1
+                && !ent(&param, v.index(), true)
+                && (ent(pin, v.index(), None).is_none() || entry.contains(&v))
+        };
+        let mut aliased = vec![false; n];
+        for b in &code.blocks {
+            for (j, i) in b.insts.iter().enumerate() {
+                if let ir::Inst::ArrayLen { dest, array } = i {
+                    if alone(*dest) && still(*array) {
+                        put(slot, dest.index(), ent(slot, array.index(), 0) + 8);
+                        put(&mut aliased, dest.index(), true);
+                    }
+                    continue;
+                }
+                let (dest, fields, offs, owner, ftys) = match i {
+                    ir::Inst::MakeStruct { dest, fields } => {
+                        let ir::Type::Agg(id) = code.ty_of(*dest) else { continue };
+                        let owner = prog.type_info(id).ty.clone();
+                        let l = self.layout_of(prog, id);
+                        let ftys = crate::compiler::semantics::types::field_types(self.tables, &owner);
+                        (*dest, fields, l.fields.clone(), owner, ftys)
+                    }
+                    ir::Inst::MakeEnum { dest, variant, fields } => {
+                        let ir::Type::Agg(id) = code.ty_of(*dest) else { continue };
+                        let owner = prog.type_info(id).ty.clone();
+                        let l = self.layout_of(prog, id);
+                        if matches!(&l.repr, Repr::Enum { repr: EnumRepr::Bare { .. }, .. }) {
+                            continue;
+                        }
+                        let ftys = crate::compiler::semantics::types::variant_types(
+                            self.tables,
+                            &owner,
+                            *variant as usize,
+                        );
+                        (*dest, fields, l.variant(*variant as usize).to_vec(), owner, ftys)
+                    }
+                    _ => continue,
+                };
+                if ent(pin, dest.index(), None).is_some() {
+                    continue;
+                }
+                let root = find(uf, dest.0);
+                let in_class = |v: &ir::ValueId| find(uf, v.0) == root;
+                for (fi, f) in fields.iter().enumerate() {
+                    let Some(&off) = offs.get(fi) else { continue };
+                    let w = self.width(prog, code.ty_of(*f));
+                    if w == 0
+                        || w % 8 != 0
+                        || ftys.get(fi).is_some_and(|t| self.boxes(&owner, t))
+                        || !alone(*f)
+                        || ent(&aliased, f.index(), true)
+                        || ent(&uses, f.index(), 0) != 1
+                    {
+                        continue;
+                    }
+                    let Some(k) = b.insts.iter().take(j).position(|x| x.results().contains(f)) else {
+                        continue;
+                    };
+                    let def = b.insts.get(k);
+                    let loads = matches!(
+                        def,
+                        Some(
+                            ir::Inst::ArrayGet { .. }
+                                | ir::Inst::GetField { .. }
+                                | ir::Inst::GetPayload { .. }
+                                | ir::Inst::Binary { .. }
+                                | ir::Inst::Unary { .. }
+                        )
+                    ) && def.is_some_and(keeps_callee_frame);
+                    if !loads {
+                        continue;
+                    }
+                    let touches = |x: &ir::Inst| {
+                        let mut ops = Vec::new();
+                        x.operands(&mut ops);
+                        ops.iter().any(&in_class) || x.results().iter().any(&in_class)
+                    };
+                    if def.is_some_and(touches) || b.insts.iter().take(j).skip(k + 1).any(touches) {
+                        continue;
+                    }
+                    put(slot, f.index(), ent(slot, dest.index(), 0) + off);
+                    put(&mut aliased, f.index(), true);
+                }
+            }
+        }
     }
 
     /// The merges themselves. See [`Jit::slots`].
@@ -1632,7 +1744,7 @@ impl<'a> Jit<'a> {
             // merge rather than making one on a guess.
             for (p, a) in pairs {
                 let (pi, ai) = (p.index(), a.index());
-                if ent(width, ai, 0) != 8 || ent(width, pi, 0) != 8 {
+                if ent(width, ai, 0) != ent(width, pi, 0) {
                     continue;
                 }
                 // Only a temporary defined in this block, used exactly once,

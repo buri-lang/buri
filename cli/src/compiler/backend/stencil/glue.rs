@@ -700,7 +700,7 @@ impl Jit<'_> {
         let base = self.fixups_len();
 
         // The step's own frame, `[ret][env: 8][params...]`, laid out exactly as
-        // `lists.rs::step_shape_ty` lays it out: what a `calli` enters is the
+        // `Jit::call_indirect` lays it out: what a `calli` enters is the
         // thunk, and this is the thunk's frame.
         let mut at = frame + ret_slot + 8;
         let mut param_at: Vec<u32> = Vec::new();
@@ -742,8 +742,8 @@ impl Jit<'_> {
             self.elem_load(E_ELEM, E_ARG, E_ZERO, 8, elem_size);
             // `middle/rc.rs`: a call through a function value owns its
             // arguments. The runtime lends the element and keeps its own count,
-            // so the step's is taken here — the same retain `lists.rs` emits
-            // before its own `calli`, and for the same sentence.
+            // so the step's is taken here — the same retain `middle::lower`'s
+            // list loops place before a call through a closure.
             if self.rc_counted(&elem) {
                 if let Err(why) = self.walk_rc(&mut st, &elem, E_ELEM, Op::Retain, 0) {
                     self.unsupported(why);
@@ -929,8 +929,7 @@ impl Jit<'_> {
     /// `code(fp)` for a closure over `func`.
     ///
     /// The caller laid the frame out as `[rets][env: 8][args...]` — which is
-    /// what `Lower::call_indirect` writes and what `lists.rs::step_shape_ty`
-    /// reconstructs from the closure's type — and the callee wants the
+    /// what `Lower::call_indirect` writes — and the callee wants the
     /// environment *record* flat in its own frame. So the body is: copy the
     /// record out of the block, copy the arguments across, call, copy the
     /// results back.

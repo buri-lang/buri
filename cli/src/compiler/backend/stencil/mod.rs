@@ -41,7 +41,7 @@
 //!   emit.rs     middle::ir into stencil keys
 //!   glue.rs     the functions a unit generates for itself: thunks, drop glue
 //!   jit.rs      copy, patch, and the three analyses a stencil key needs
-//!   lists.rs    `core/list`'s closure surface, open-coded
+//!   lists.rs    a `[T]`'s elements in place, and an enum's payload and tag
 //!   elf.rs      an ELF64 relocatable writer, for the two Linux targets
 //!   object.rs   a Mach-O relocatable writer
 //!   region.rs   the buffer a unit is copied into, and what leaves it

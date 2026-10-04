@@ -1237,10 +1237,9 @@ const TAKEN_BY: &[(&str, usize)] = &[
 /// Whether an intrinsic key is one of [`TAKEN_BY`]'s four folds, whose seed is
 /// handed over on the native branch too.
 ///
-/// **A contract with both native backends**: `stencil/lists.rs`'s
-/// `emit_list_loop` and `list_fold_result`, and `llvm/emit.rs`'s `list_fold`
-/// and `list_fold_result`, take the seed's count from the caller and give it
-/// to the first step. Lent instead, they had to retain it, and the seed's
+/// **A contract with `middle::lower`'s list loops** (`lower/lists.rs`): `fold`
+/// and `foldResult` take the seed's count from the caller and give it to the
+/// first step. Lent instead, they had to retain it, and the seed's
 /// owner and the first step then each held the accumulator: the step's first
 /// push into it copied the whole list, once per fold. `core/buri/ast`'s
 /// printer folds over every block, pattern and annotation it prints, with
