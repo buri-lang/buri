@@ -323,10 +323,32 @@ fn owns(program: &ir::Program, root: &Root, unit: u32) -> bool {
 /// around the calls it *invents* — the loops of `emit::Unit::list_closure` —
 /// are the ones rc would have added (`emit::Unit::rc_counted`).
 ///
-/// One for the whole emission rather than one per unit: it memoises, and
-/// building it is a walk of every body.
-fn classifier(program: &monomorphize::Program) -> Rc<RefCell<rc::Syntactic>> {
-    Rc::new(RefCell::new(rc::Syntactic::new(program)))
+/// Built once for the whole emission, because building it is a walk of every
+/// body, and copied into each thread that emits units, because it memoises.
+fn classifier(program: &monomorphize::Program) -> rc::Syntactic {
+    rc::Syntactic::new(program)
+}
+
+/// What one thread emitting units keeps between them: the machine, which
+/// LLVM does not share between threads, and the thread's own copy of the
+/// classifier.
+struct Worker {
+    machine: inkwell::targets::TargetMachine,
+    data_layout: inkwell::data_layout::DataLayout,
+    counted: Rc<RefCell<rc::Syntactic>>,
+}
+
+/// What every unit's emission reads and none of them changes.
+struct Shared<'p> {
+    program: &'p ir::Program,
+    tables: &'p Tables,
+    opts: &'p Options<'p>,
+    root: Option<Root>,
+    triple: String,
+    identity: String,
+    by_unit: Vec<Vec<usize>>,
+    cycles: std::sync::Arc<layout::Cycles>,
+    observed: Vec<attrs::Observed>,
 }
 
 /// One object per codegen unit, for a chosen subset of the units, from an
@@ -344,7 +366,14 @@ fn classifier(program: &monomorphize::Program) -> Rc<RefCell<rc::Syntactic>> {
 /// The objects it returns are the ones asked for, in unit order, and each is
 /// byte-identical to the one a whole-program emission would have produced for
 /// it: a unit's module is built from the program and from that unit's members,
-/// and nothing in the loop carries state from one iteration to the next.
+/// and nothing carries state from one unit to the next.
+///
+/// **The units are emitted side by side**, one per core, because they are
+/// independent: each has its own LLVM context, and every thread has its own
+/// machine. A test batch's program is hundreds of units, and one at a time it
+/// was one core running for many minutes while the rest of the machine waited.
+/// The largest units start first, so that the last one to finish is a small
+/// one; the order the objects are returned in does not change.
 ///
 /// `render` turns each optimized module into the bytes returned for it: an
 /// object file for the build, the IR text for [`Llvm::emit_ir_text`].
@@ -354,151 +383,222 @@ fn emit_selected(
     opts: &Options<'_>,
     root: Option<Root>,
     units: Units<'_>,
-    counted: &Rc<RefCell<rc::Syntactic>>,
+    counted: &rc::Syntactic,
     render: impl Fn(
-        &inkwell::module::Module<'_>,
-        &inkwell::targets::TargetMachine,
-    ) -> Result<Vec<u8>, String>,
+            &inkwell::module::Module<'_>,
+            &inkwell::targets::TargetMachine,
+        ) -> Result<Vec<u8>, String>
+        + Sync,
 ) -> Result<Vec<Emitted>, Diagnostics> {
-    let mut diags = Diagnostics::new();
     let triple = match target::triple(opts.target) {
         Ok(t) => t,
         Err(message) => {
+            let mut diags = Diagnostics::new();
             diags.push(Diagnostic::error(Span::NONE, message));
             return Err(diags);
         }
     };
-    let machine = match target::machine(&triple, opts.profile) {
-        Ok(m) => m,
-        Err(message) => {
-            diags.push(Diagnostic::error(Span::NONE, message).with_fix(
-                "install LLVM 21 and rebuild the toolchain, or build with `--output=js`",
-            ));
-            return Err(diags);
-        }
-    };
-    let data_layout = machine.get_target_data().get_data_layout();
+    // Asked once here, so that a toolchain whose LLVM cannot make a machine
+    // gets one diagnostic rather than one per thread. Each thread then makes
+    // its own.
+    machine_for(&triple, opts)?;
 
-    let identity = Llvm::default().identity();
-    // Both of these are functions of the whole program and of nothing the loop
-    // varies, so they are taken once. Computing them per unit is what
+    // These are functions of the whole program and of nothing a unit varies,
+    // so they are taken once. Computing them per unit is what
     // `design/PERFORMANCE.md` §6.4's first finding measured on the native side:
     // work proportional to units × program, in a program that grows by adding
     // units.
-    let by_unit = program.funcs_by_unit();
     let cycles = std::sync::Arc::new(layout::Cycles::new(tables));
     let observed = {
         let layouts = layout::Layouts::with_cycles(tables, cycles.clone());
         emit::observe(program, &emit::Boxes::new(program, tables, &layouts), opts.profile)
     };
-    let no_members: Vec<usize> = Vec::new();
+    let shared = Shared {
+        program,
+        tables,
+        opts,
+        root,
+        triple,
+        identity: Llvm::default().identity(),
+        by_unit: program.funcs_by_unit(),
+        cycles,
+        observed,
+    };
 
-    let mut out = Vec::with_capacity(program.units.len());
-    for (index, unit_name) in program.units.iter().enumerate() {
-        let unit = index as u32;
-        if !units.wants(unit) {
-            continue;
-        }
-        // This unit's functions, ascending — the same list, in the same order,
-        // that a filter over the whole program yielded.
-        let all = by_unit.get(index).unwrap_or(&no_members);
-        let members: Vec<usize> = all
-            .iter()
-            .copied()
-            .filter(|i| program.funcs.get(*i).is_some_and(|f| f.code().is_some()))
-            .collect();
-        // The entry point goes in the unit that owns `main`, so a program is
-        // one `_start`-adjacent symbol and the other units are libraries. A test
-        // binary has no `main` to own it, so it goes in the unit that owns the
-        // *first* test — the same rule, applied to the root that exists.
-        let owns_entry = root.as_ref().is_some_and(|r| owns(program, r, unit));
-        // One object per selected unit, including a unit with nothing in it:
-        // `actions::objects_of` pairs this vector with `unit_hashes`, which has
-        // a row per unit unconditionally, and a unit that was asked for and not
-        // returned is reported there as "the backend emitted no object for unit
-        // `x`". The debug backend's loop is over the same list for the same
-        // reason.
-        let ctx = Context::create();
-        let module_name = format!("{}{unit_name}", opts.unit_prefix);
-        let mut emitter = emit::Unit::new(
-            &ctx,
-            program,
-            tables,
-            &module_name,
-            opts.profile,
-            &observed,
-            std::sync::Arc::clone(&cycles),
-            Rc::clone(counted),
-        );
-        emitter.module.set_triple(&inkwell::targets::TargetTriple::create(&triple));
-        emitter.module.set_data_layout(&data_layout);
-        for member in &members {
-            emitter.define(FuncIdx(*member as u32));
-        }
-        if owns_entry {
-            match &root {
-                Some(Root::Main(e)) => {
-                    emitter.entry_point(*e);
-                    // The thread door rides with `main`, in the same unit and
-                    // for the same reason the stencil backend puts it there:
-                    // they are the two ways into this program's Buri code and
-                    // they name the same root.
-                    emitter.thread_door(*e, task_thread::MAIN_ENTRY);
+    let mut wanted: Vec<usize> =
+        (0..program.units.len()).filter(|i| units.wants(*i as u32)).collect();
+    // Largest first, by member count, with the unit index breaking ties so that
+    // the order is a function of the program alone.
+    let size = |i: usize| shared.by_unit.get(i).map_or(0, Vec::len);
+    wanted.sort_by_key(|i| (std::cmp::Reverse(size(*i)), *i));
+    let emitted = crate::parallel::map_with(
+        wanted.len(),
+        || None,
+        |worker: &mut Option<Worker>, k| {
+            let index = wanted.get(k).copied().unwrap_or(0);
+            let worker = match worker {
+                Some(w) => w,
+                None => {
+                    let machine = machine_for(&shared.triple, opts)?;
+                    let data_layout = machine.get_target_data().get_data_layout();
+                    let counted = Rc::new(RefCell::new(counted.clone()));
+                    worker.insert(Worker { machine, data_layout, counted })
                 }
-                Some(Root::Tests(tests)) => {
-                    emitter.test_entry_point(tests);
-                    for (i, t) in tests.iter().enumerate() {
-                        emitter.thread_door(*t, &task_thread::test_entry(i));
-                    }
+            };
+            emit_unit(&shared, worker, index, &render)
+        },
+    );
+
+    let mut out: Vec<(usize, Emitted)> = Vec::with_capacity(emitted.len());
+    let mut failed: Option<(usize, Diagnostics)> = None;
+    for (index, result) in wanted.iter().copied().zip(emitted) {
+        match result {
+            Ok(e) => out.push((index, e)),
+            // The first failing unit in unit order, which is the one a loop
+            // over the units would have stopped at.
+            Err(d) => {
+                if failed.as_ref().is_none_or(|(at, _)| index < *at) {
+                    failed = Some((index, d));
                 }
-                None => {}
             }
         }
-        // The generated helpers — a closure's thunk, the per-type drop glue —
-        // are asked for from inside a function body and built here, after every
-        // body is complete: there is one builder, and a declared function with
-        // no body is a link error rather than a wrong answer.
-        emitter.finish();
-        if emitter.diags.has_errors() {
-            diags.extend(emitter.diags.items);
+    }
+    if let Some((_, d)) = failed {
+        return Err(d);
+    }
+    out.sort_by_key(|(index, _)| *index);
+    Ok(out.into_iter().map(|(_, e)| e).collect())
+}
+
+/// The machine to optimize and emit against, or the diagnostic for a toolchain
+/// whose LLVM cannot make one.
+fn machine_for(
+    triple: &str,
+    opts: &Options<'_>,
+) -> Result<inkwell::targets::TargetMachine, Diagnostics> {
+    target::machine(triple, opts.profile).map_err(|message| {
+        let mut diags = Diagnostics::new();
+        diags.push(Diagnostic::error(Span::NONE, message).with_fix(
+            "install LLVM 21 and rebuild the toolchain, or build with `--output=js`",
+        ));
+        diags
+    })
+}
+
+/// One unit's object: its module emitted, verified, optimized and rendered.
+fn emit_unit(
+    shared: &Shared<'_>,
+    worker: &Worker,
+    index: usize,
+    render: &impl Fn(
+        &inkwell::module::Module<'_>,
+        &inkwell::targets::TargetMachine,
+    ) -> Result<Vec<u8>, String>,
+) -> Result<Emitted, Diagnostics> {
+    let program = shared.program;
+    let opts = shared.opts;
+    let mut diags = Diagnostics::new();
+    let unit = index as u32;
+    let unit_name = program.units.get(index).map_or("", String::as_str);
+    // This unit's functions, ascending — the same list, in the same order,
+    // that a filter over the whole program yielded.
+    let all: &[usize] = shared.by_unit.get(index).map_or(&[], Vec::as_slice);
+    let members: Vec<usize> = all
+        .iter()
+        .copied()
+        .filter(|i| program.funcs.get(*i).is_some_and(|f| f.code().is_some()))
+        .collect();
+    // The entry point goes in the unit that owns `main`, so a program is
+    // one `_start`-adjacent symbol and the other units are libraries. A test
+    // binary has no `main` to own it, so it goes in the unit that owns the
+    // *first* test — the same rule, applied to the root that exists.
+    let root = shared.root.as_ref();
+    let owns_entry = root.is_some_and(|r| owns(program, r, unit));
+    // One object per selected unit, including a unit with nothing in it:
+    // `actions::objects_of` pairs the objects with `unit_hashes`, which has
+    // a row per unit unconditionally, and a unit that was asked for and not
+    // returned is reported there as "the backend emitted no object for unit
+    // `x`". The debug backend's loop is over the same list for the same
+    // reason.
+    let ctx = Context::create();
+    let module_name = format!("{}{unit_name}", opts.unit_prefix);
+    let mut emitter = emit::Unit::new(
+        &ctx,
+        program,
+        shared.tables,
+        &module_name,
+        opts.profile,
+        &shared.observed,
+        std::sync::Arc::clone(&shared.cycles),
+        Rc::clone(&worker.counted),
+    );
+    emitter.module.set_triple(&inkwell::targets::TargetTriple::create(&shared.triple));
+    emitter.module.set_data_layout(&worker.data_layout);
+    for member in &members {
+        emitter.define(FuncIdx(*member as u32));
+    }
+    if owns_entry {
+        match root {
+            Some(Root::Main(e)) => {
+                emitter.entry_point(*e);
+                // The thread door rides with `main`, in the same unit and
+                // for the same reason the stencil backend puts it there:
+                // they are the two ways into this program's Buri code and
+                // they name the same root.
+                emitter.thread_door(*e, task_thread::MAIN_ENTRY);
+            }
+            Some(Root::Tests(tests)) => {
+                emitter.test_entry_point(tests);
+                for (i, t) in tests.iter().enumerate() {
+                    emitter.thread_door(*t, &task_thread::test_entry(i));
+                }
+            }
+            None => {}
+        }
+    }
+    // The generated helpers — a closure's thunk, the per-type drop glue —
+    // are asked for from inside a function body and built here, after every
+    // body is complete: there is one builder, and a declared function with
+    // no body is a link error rather than a wrong answer.
+    emitter.finish();
+    if emitter.diags.has_errors() {
+        diags.extend(emitter.diags.items);
+        return Err(diags);
+    }
+    // The verifier checks *our* IR rather than LLVM's, under this
+    // repository's rule for a verifier: a developer build pays for the check
+    // and a user's build does not.
+    if cfg!(debug_assertions) {
+        if let Err(message) = emitter.module.verify() {
+            diags.push(
+                Diagnostic::error(
+                    Span::NONE,
+                    format!(
+                        "internal error: the LLVM backend emitted invalid IR for unit \
+                         `{unit_name}`: {message}"
+                    ),
+                )
+                .with_fix("this is a toolchain bug; report it"),
+            );
             return Err(diags);
         }
-        // The verifier checks *our* IR rather than LLVM's, under this
-        // repository's rule for a verifier: a developer build pays for the check
-        // and a user's build does not.
-        if cfg!(debug_assertions) {
-            if let Err(message) = emitter.module.verify() {
-                diags.push(
-                    Diagnostic::error(
-                        Span::NONE,
-                        format!(
-                            "internal error: the LLVM backend emitted invalid IR for unit \
-                             `{unit_name}`: {message}"
-                        ),
-                    )
-                    .with_fix("this is a toolchain bug; report it"),
-                );
-                return Err(diags);
-            }
-        }
-        if let Err(message) = target::optimize(&emitter.module, &machine, opts.profile) {
+    }
+    if let Err(message) = target::optimize(&emitter.module, &worker.machine, opts.profile) {
+        diags.push(Diagnostic::error(Span::NONE, message));
+        return Err(diags);
+    }
+    let bytes = match render(&emitter.module, &worker.machine) {
+        Ok(b) => b,
+        Err(message) => {
             diags.push(Diagnostic::error(Span::NONE, message));
             return Err(diags);
         }
-        let bytes = match render(&emitter.module, &machine) {
-            Ok(b) => b,
-            Err(message) => {
-                diags.push(Diagnostic::error(Span::NONE, message));
-                return Err(diags);
-            }
-        };
-        out.push(Emitted {
-            name: format!("{unit_name}.o"),
-            key: codegen_key(program, all, &identity, &triple, opts),
-            bytes,
-        });
-    }
-    Ok(out)
+    };
+    Ok(Emitted {
+        name: format!("{unit_name}.o"),
+        key: codegen_key(program, all, &shared.identity, &shared.triple, opts),
+        bytes,
+    })
 }
 
 /// `codegen_key(unit) = H(backend, identity, triple, profile, prefix, the unit's IR)`.
