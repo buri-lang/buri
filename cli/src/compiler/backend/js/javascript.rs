@@ -52,7 +52,42 @@ pub enum Stmt {
     /// elimination can drop it. This is how the hand-written runtime is
     /// tree-shaken: a program that never allocates a string never carries
     /// `$str_split`.
-    RawDecl { name: String, src: String },
+    RawDecl(&'static RuntimeDecl),
+}
+
+/// One top-level declaration of the hand-written runtime.
+///
+/// Built once per process and shared by every build. The identifiers its
+/// source mentions are scanned here, once, rather than by each minifier pass
+/// that needs them: the runtime is 340 KB of text, and four passes per build
+/// used to rescan all of it.
+#[derive(Debug)]
+pub struct RuntimeDecl {
+    pub name: String,
+    pub src: String,
+    /// Each distinct identifier-shaped run in `src`, as a byte range, in the
+    /// order it first appears.
+    idents: Box<[(u32, u32)]>,
+}
+
+impl RuntimeDecl {
+    pub fn new(name: String, src: String) -> RuntimeDecl {
+        let mut seen: HashSet<&str> = HashSet::default();
+        let mut idents = Vec::new();
+        for (start, end) in raw_ident_ranges(&src) {
+            let Some(ident) = src.get(start..end) else { continue };
+            if seen.insert(ident) {
+                // The runtime is a few hundred kilobytes, far inside `u32`.
+                idents.push((start as u32, end as u32));
+            }
+        }
+        RuntimeDecl { name, src, idents: idents.into_boxed_slice() }
+    }
+
+    /// Every distinct identifier the source mentions.
+    fn idents(&self) -> impl Iterator<Item = &str> {
+        self.idents.iter().filter_map(|&(start, end)| self.src.get(start as usize..end as usize))
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -398,7 +433,7 @@ impl Expr {
     }
 
     /// Passes each direct child to `v`, in evaluation order.
-    fn visit_children<V: Visit + ?Sized>(&self, v: &mut V) {
+    fn visit_children<'a, V: Visit<'a> + ?Sized>(&'a self, v: &mut V) {
         match self {
             Expr::Array(xs) | Expr::Seq(xs) => xs.iter().for_each(|x| v.expr(x)),
             Expr::Object(fs) => fs.iter().for_each(|(_, x)| v.expr(x)),
@@ -467,7 +502,7 @@ impl Stmt {
     }
 
     /// Passes each direct child to `v`, in evaluation order.
-    fn visit_children<V: Visit + ?Sized>(&self, v: &mut V) {
+    fn visit_children<'a, V: Visit<'a> + ?Sized>(&'a self, v: &mut V) {
         match self {
             Stmt::Var { init: e, .. } | Stmt::Return(e) => {
                 if let Some(e) = e {
@@ -514,11 +549,11 @@ trait Rewrite {
 
 /// A read-only walk of the tree. Each method's default visits the node's
 /// children, so a pass overrides only the nodes it looks at.
-trait Visit {
-    fn expr(&mut self, e: &Expr) {
+trait Visit<'a> {
+    fn expr(&mut self, e: &'a Expr) {
         e.visit_children(self);
     }
-    fn stmt(&mut self, s: &Stmt) {
+    fn stmt(&mut self, s: &'a Stmt) {
         s.visit_children(self);
     }
 }
@@ -981,9 +1016,9 @@ impl Printer {
                 self.nl();
                 self.out.push_str(s);
             }
-            Stmt::RawDecl { src, .. } => {
+            Stmt::RawDecl(decl) => {
                 self.nl();
-                self.out.push_str(src);
+                self.out.push_str(&decl.src);
             }
         }
     }
@@ -1867,8 +1902,8 @@ impl LocalFacts {
     }
 }
 
-impl Visit for LocalFacts {
-    fn expr(&mut self, e: &Expr) {
+impl<'a> Visit<'a> for LocalFacts {
+    fn expr(&mut self, e: &'a Expr) {
         match e {
             Expr::Ident(name) => self.read(name),
             // The target of a plain assignment is written, not read.
@@ -1890,7 +1925,7 @@ impl Visit for LocalFacts {
         }
     }
 
-    fn stmt(&mut self, s: &Stmt) {
+    fn stmt(&mut self, s: &'a Stmt) {
         match s {
             Stmt::Var { name, .. } => self.declare(name),
             Stmt::Func { name, params, .. } => {
@@ -2026,8 +2061,8 @@ struct Cleanup<'a> {
     dead: &'a mut HashSet<String>,
 }
 
-impl Visit for Cleanup<'_> {
-    fn stmt(&mut self, s: &Stmt) {
+impl<'a> Visit<'a> for Cleanup<'_> {
+    fn stmt(&mut self, s: &'a Stmt) {
         if let Stmt::Var { name, init, .. } = s {
             let facts = self.facts;
             // A name declared twice, or ever assigned, is not one binding
@@ -2645,8 +2680,8 @@ fn collect_aggregates(
 
 struct Survey<'a>(&'a mut HashMap<String, AggregateUse>);
 
-impl Visit for Survey<'_> {
-    fn expr(&mut self, e: &Expr) {
+impl<'a> Visit<'a> for Survey<'_> {
+    fn expr(&mut self, e: &'a Expr) {
         // `t[k]`, the only shape that does not need the array itself.
         if let Expr::Index { obj, index } = e {
             if let (Expr::Ident(name), Expr::Num(i)) = (&**obj, &**index) {
@@ -2748,14 +2783,8 @@ fn clean_locals(stmts: Vec<Stmt>, table: &HashMap<String, Vec<Expr>>) -> Vec<Stm
 /// lose: a root or a name mentioned in verbatim source (the entry epilogue
 /// names its function as text) is neither dropped nor rewritten.
 fn merge_identical(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
-    let mut pinned: HashSet<String> = roots.iter().cloned().collect();
-    for s in &stmts {
-        match s {
-            Stmt::Raw(src) => collect_idents_raw(src, &mut pinned),
-            Stmt::RawDecl { src, .. } => collect_idents_raw(src, &mut pinned),
-            _ => {}
-        }
-    }
+    let mut pinned: HashSet<&str> = roots.iter().map(String::as_str).collect();
+    raw_idents(&stmts, &mut pinned);
 
     // First by emission order wins, so the result does not depend on hash
     // order — build output is compared byte for byte.
@@ -2763,7 +2792,7 @@ fn merge_identical(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     let mut alias: HashMap<String, Expr> = HashMap::default();
     for s in &stmts {
         let Stmt::Func { name, params, body, is_async } = s else { continue };
-        if pinned.contains(name) {
+        if pinned.contains(name.as_str()) {
             continue;
         }
         let key = print(
@@ -2798,72 +2827,85 @@ fn merge_identical(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
 /// the backend emits one top-level function per reachable instance, this is
 /// what removes the parts of `core/*` a program does not use.
 fn eliminate_dead(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
-    let mut deps: HashMap<String, HashSet<String>> = HashMap::default();
-    let mut declared: HashMap<String, usize> = HashMap::default();
+    let keep = reachable(&stmts, roots);
+    stmts.into_iter().zip(keep).filter_map(|(s, keep)| keep.then_some(s)).collect()
+}
+
+/// What one declaration names: a run of the names [`reachable`] collected
+/// from the tree, or a runtime declaration's own list, which was scanned once
+/// for the process.
+enum Deps {
+    Tree(std::ops::Range<usize>),
+    Runtime(&'static RuntimeDecl),
+}
+
+/// Which statements [`eliminate_dead`] keeps, by position. A declaration is
+/// kept when something reachable names it, and only the last one of a name.
+fn reachable(stmts: &[Stmt], roots: &[String]) -> Vec<bool> {
+    let mut names: Vec<&str> = Vec::new();
+    let mut deps: HashMap<&str, Deps> = HashMap::default();
+    let mut declared: HashMap<&str, usize> = HashMap::default();
+    let mut used: HashSet<&str> = HashSet::default();
     for (i, s) in stmts.iter().enumerate() {
-        match s {
+        let (name, dep) = match s {
             Stmt::Func { name, body, params, .. } => {
-                let mut used = HashSet::default();
-                for st in body {
-                    Idents(&mut used).stmt(st);
-                }
+                used.clear();
+                let mut idents = Idents(&mut used);
+                body.iter().for_each(|st| idents.stmt(st));
                 for p in params {
-                    used.remove(p);
+                    used.remove(p.as_str());
                 }
-                declared.insert(name.clone(), i);
-                deps.insert(name.clone(), used);
+                let start = names.len();
+                names.extend(used.iter().copied());
+                (name, Deps::Tree(start..names.len()))
             }
             Stmt::Var { name, init, .. } => {
-                let mut used = HashSet::default();
+                used.clear();
                 if let Some(e) = init {
                     Idents(&mut used).expr(e);
                 }
-                declared.insert(name.clone(), i);
-                deps.insert(name.clone(), used);
+                let start = names.len();
+                names.extend(used.iter().copied());
+                (name, Deps::Tree(start..names.len()))
             }
-            Stmt::RawDecl { name, src } => {
-                let mut used = HashSet::default();
-                collect_idents_raw(src, &mut used);
-                used.remove(name);
-                declared.insert(name.clone(), i);
-                deps.insert(name.clone(), used);
-            }
-            _ => {}
-        }
+            Stmt::RawDecl(decl) => (&decl.name, Deps::Runtime(decl)),
+            _ => continue,
+        };
+        declared.insert(name, i);
+        deps.insert(name, dep);
     }
 
-    let mut live: HashSet<String> = HashSet::default();
-    let mut stack: Vec<String> = roots.to_vec();
+    let mut live: HashSet<&str> = HashSet::default();
+    let mut stack: Vec<&str> = roots.iter().map(String::as_str).collect();
     // Anything a non-declaration statement mentions is a root too: those run
     // for their effect and are never dropped.
-    for s in &stmts {
+    for s in stmts {
         if !is_declaration(s) {
-            let mut used = HashSet::default();
+            used.clear();
             Idents(&mut used).stmt(s);
-            stack.extend(used);
+            stack.extend(used.iter().copied());
         }
     }
     while let Some(name) = stack.pop() {
-        if !live.insert(name.clone()) {
+        if !live.insert(name) {
             continue;
         }
-        if let Some(used) = deps.get(&name) {
-            stack.extend(used.iter().cloned());
+        match deps.get(name) {
+            Some(Deps::Tree(run)) => stack.extend(names.get(run.clone()).unwrap_or_default()),
+            Some(Deps::Runtime(decl)) => stack.extend(decl.idents()),
+            None => {}
         }
     }
 
     stmts
-        .into_iter()
+        .iter()
         .enumerate()
-        .filter(|(i, s)| match s {
-            Stmt::Func { name, .. }
-            | Stmt::Var { name, .. }
-            | Stmt::RawDecl { name, .. } => {
-                live.contains(name) && declared.get(name) == Some(i)
+        .map(|(i, s)| match s {
+            Stmt::Func { name, .. } | Stmt::Var { name, .. } | Stmt::RawDecl(RuntimeDecl { name, .. }) => {
+                live.contains(name.as_str()) && declared.get(name.as_str()) == Some(&i)
             }
             _ => true,
         })
-        .map(|(_, s)| s)
         .collect()
 }
 
@@ -2873,51 +2915,75 @@ fn eliminate_dead(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
 /// uses and the artifact declares — which is exactly the set the two files have
 /// to agree on. It is the same walk [`eliminate_dead`] does, exported rather
 /// than copied, so a node this misses is a node that suite would miss too.
-pub fn collect_idents_in(s: &Stmt, out: &mut HashSet<String>) {
+pub fn collect_idents_in<'a>(s: &'a Stmt, out: &mut HashSet<&'a str>) {
     Idents(out).stmt(s);
 }
 
-struct Idents<'a>(&'a mut HashSet<String>);
+/// Borrows each name from the tree rather than copying it, so a set of them
+/// costs the table and nothing else.
+struct Idents<'s, 'a>(&'s mut HashSet<&'a str>);
 
-impl Visit for Idents<'_> {
-    fn expr(&mut self, e: &Expr) {
+impl<'a> Visit<'a> for Idents<'_, 'a> {
+    fn expr(&mut self, e: &'a Expr) {
         match e {
             Expr::Ident(name) => {
-                self.0.insert(name.clone());
+                self.0.insert(name);
             }
             _ => e.visit_children(self),
         }
     }
 
-    fn stmt(&mut self, s: &Stmt) {
+    fn stmt(&mut self, s: &'a Stmt) {
         match s {
-            Stmt::Raw(src) | Stmt::RawDecl { src, .. } => collect_idents_raw(src, self.0),
+            Stmt::Raw(src) => collect_idents_raw(src, self.0),
+            Stmt::RawDecl(decl) => self.0.extend(decl.idents()),
             _ => s.visit_children(self),
         }
     }
 }
 
-/// The runtime arrives as `Raw`, so its cross-references are found by scanning
-/// for identifier-shaped runs rather than by parsing.
-fn collect_idents_raw(src: &str, out: &mut HashSet<String>) {
+/// Verbatim source is text, not a tree, so its cross-references are found by
+/// scanning for identifier-shaped runs rather than by parsing.
+fn collect_idents_raw<'a>(src: &'a str, out: &mut HashSet<&'a str>) {
+    for (start, end) in raw_ident_ranges(src) {
+        if let Some(name) = src.get(start..end) {
+            out.insert(name);
+        }
+    }
+}
+
+/// Every identifier-shaped run in `src`, as a byte range. A run of identifier
+/// bytes is ASCII throughout, so both ends are character boundaries however the
+/// rest of the source is encoded.
+fn raw_ident_ranges(src: &str) -> impl Iterator<Item = (usize, usize)> + '_ {
     let bytes = src.as_bytes();
     let mut i = 0;
-    while let Some(c) = bytes.get(i) {
-        if c.is_ascii_alphabetic() || *c == b'_' || *c == b'$' {
-            let start = i;
-            while bytes
-                .get(i)
-                .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'$')
-            {
-                i += 1;
+    std::iter::from_fn(move || {
+        while let Some(c) = bytes.get(i) {
+            if c.is_ascii_alphabetic() || *c == b'_' || *c == b'$' {
+                let start = i;
+                while bytes
+                    .get(i)
+                    .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'$')
+                {
+                    i += 1;
+                }
+                return Some((start, i));
             }
-            // A run of identifier bytes is ASCII throughout, so both ends are
-            // character boundaries however the rest of the source is encoded.
-            if let Some(name) = src.get(start..i) {
-                out.insert(name.to_string());
-            }
-        } else {
             i += 1;
+        }
+        None
+    })
+}
+
+/// The identifiers every piece of verbatim source in `stmts` mentions — the
+/// names out of reach of any pass that rewrites the tree.
+fn raw_idents<'a>(stmts: &'a [Stmt], out: &mut HashSet<&'a str>) {
+    for s in stmts {
+        match s {
+            Stmt::Raw(src) => collect_idents_raw(src, out),
+            Stmt::RawDecl(decl) => out.extend(decl.idents()),
+            _ => {}
         }
     }
 }
@@ -2956,39 +3022,27 @@ const RESERVED: &[&str] = &[
 fn mangle_program(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     // Names the runtime reaches by string, plus anything the host needs to
     // see, must not be renamed.
-    let keep: HashSet<String> = roots.iter().cloned().collect();
-
-    let mut globals: Vec<String> = Vec::new();
-    for s in &stmts {
-        match s {
-            Stmt::Func { name, .. } | Stmt::Var { name, .. } => globals.push(name.clone()),
-            _ => {}
-        }
-    }
+    let mut untouchable: HashSet<&str> = roots.iter().map(String::as_str).collect();
     // Anything verbatim source mentions is out of reach of the renamer: the
     // runtime is text, not a tree, so its own names stay as they are.
-    let mut untouchable: HashSet<String> = keep;
+    raw_idents(&stmts, &mut untouchable);
     for s in &stmts {
-        match s {
-            Stmt::Raw(src) => collect_idents_raw(src, &mut untouchable),
-            Stmt::RawDecl { name, src } => {
-                untouchable.insert(name.clone());
-                collect_idents_raw(src, &mut untouchable);
-            }
-            _ => {}
+        if let Stmt::RawDecl(decl) = s {
+            untouchable.insert(&decl.name);
         }
     }
 
     let mut map: HashMap<String, String> = HashMap::default();
     let mut counter = 0usize;
-    for g in &globals {
-        if untouchable.contains(g) {
+    for s in &stmts {
+        let (Stmt::Func { name: g, .. } | Stmt::Var { name: g, .. }) = s else { continue };
+        if untouchable.contains(g.as_str()) {
             continue;
         }
         loop {
             let candidate = short_name(counter);
             counter += 1;
-            if RESERVED.contains(&candidate.as_str()) || untouchable.contains(&candidate) {
+            if RESERVED.contains(&candidate.as_str()) || untouchable.contains(candidate.as_str()) {
                 continue;
             }
             map.insert(g.clone(), candidate);
@@ -3382,8 +3436,8 @@ pub fn split_declarations(src: &str) -> Vec<(String, String)> {
 /// the one function this backend emits that `middle::rc` has no row for.
 pub fn has_await(stmts: &[Stmt]) -> bool {
     struct Finds(bool);
-    impl Visit for Finds {
-        fn expr(&mut self, e: &Expr) {
+    impl<'a> Visit<'a> for Finds {
+        fn expr(&mut self, e: &'a Expr) {
             match e {
                 _ if self.0 => {}
                 Expr::Await(_) => self.0 = true,
@@ -3392,7 +3446,7 @@ pub fn has_await(stmts: &[Stmt]) -> bool {
                 _ => e.visit_children(self),
             }
         }
-        fn stmt(&mut self, s: &Stmt) {
+        fn stmt(&mut self, s: &'a Stmt) {
             match s {
                 // Same reason as the arrow above.
                 _ if self.0 => {}
