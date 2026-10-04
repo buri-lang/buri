@@ -181,7 +181,7 @@ fn build_artifact(
 
     let compiled = compile_artifact(session, target, output, flags, &mut diagnostics)?;
     let parts = [&compiled.module, &compiled.stylesheet].into_iter().chain(&compiled.chunks);
-    cache.put(&key, &encode_parts(parts));
+    cache.put(&key, &encode_parts(parts.map(String::as_str)));
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -810,10 +810,12 @@ pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
 }
 
 /// The key a suite's build is filed under: the test binary it linked, the
-/// errors that stopped it, or the fact that it had no test to run.
+/// JavaScript bundle it emitted, the errors that stopped it, or the fact that
+/// it had no test to run.
 ///
 /// Known before the front end runs, so a warm run of a failing suite starts its
-/// binary again without checking, monomorphizing or linking anything. It is
+/// binary or bundle again without checking, monomorphizing, emitting or
+/// linking anything. It is
 /// [`test_key`]'s closure with three differences, each one a difference between
 /// what a binary depends on and what a verdict does:
 ///
@@ -2328,14 +2330,36 @@ pub fn chunk_paths(module: &Path, chunks: &[String]) -> Vec<(PathBuf, String)> {
 /// A count, then each part's byte length and its bytes. Length-prefixed rather
 /// than joined by a separator, because a part is generated JavaScript or CSS and
 /// there is no byte sequence it cannot contain.
-fn encode_parts<'a>(parts: impl Iterator<Item = &'a String>) -> Vec<u8> {
-    let parts: Vec<&String> = parts.collect();
+fn encode_parts<'a>(parts: impl Iterator<Item = &'a str>) -> Vec<u8> {
+    let parts: Vec<&str> = parts.collect();
     let mut out = format!("{}\n", parts.len()).into_bytes();
     for part in parts {
         out.extend_from_slice(format!("{}\n", part.len()).as_bytes());
         out.extend_from_slice(part.as_bytes());
     }
     out
+}
+
+/// Stores a test suite's JavaScript bundle ([`emit_test_bundle`]) in the cache,
+/// and answers the key it is under, which is the hash of the record.
+///
+/// For a suite that is to run again without being built: its build record
+/// names this key (`commands/test.rs`). The record is the artifact's own
+/// shape with one part, because a test bundle is never split into chunks.
+pub fn put_test_bundle(root: &Path, module: &str) -> ActionKey {
+    let bytes = encode_parts(std::iter::once(module));
+    let key = ActionKey::of(&bytes);
+    Cache::open(root).put(&key, &bytes);
+    key
+}
+
+/// The bundle [`put_test_bundle`] stored under `key`, if the cache still
+/// holds it.
+pub fn get_test_bundle(root: &Path, key: &ActionKey) -> Option<String> {
+    match decode_parts(&Cache::open(root).get(key)?)?.as_mut_slice() {
+        [module] => Some(std::mem::take(module)),
+        _ => None,
+    }
 }
 
 /// The inverse. `None` for a blob this toolchain did not write, which a caller
