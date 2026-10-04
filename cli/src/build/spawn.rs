@@ -41,9 +41,14 @@
 //!   reproducibility check meaningful for a suite: two runs of one suite
 //!   produce the same record rather than two records differing in a timing
 //!   field.
+//!
+//! Every process `buri` starts goes through [`start`], so that a child never
+//! inherits an executable still open for writing ([`FORKS`] says why).
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::{PoisonError, RwLock};
+use std::time::Duration;
 
 /// JavaScript spliced into an action's script, after the runtime is defined and
 /// before the action runs.
@@ -120,6 +125,67 @@ pub fn resolve(program: &str) -> Option<PathBuf> {
     }
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path).map(|d| d.join(program)).find(|p| p.is_file())
+}
+
+/// Held shared while an executable is open for writing, and alone while a
+/// process starts.
+///
+/// On Linux, `exec` fails with `ETXTBSY` while any process holds the file open
+/// for writing. Close-on-exec closes a descriptor at the child's `exec`, not
+/// at its `fork`. So if one thread is writing a test binary when another forks
+/// a linker, the child holds the binary open until it execs, and running the
+/// binary in that window fails with `Text file busy`. `buri test` writes and
+/// runs suites on a pool of threads, so the window is open all the time.
+///
+/// [`start`] holds the lock alone across `Command::spawn`, which returns only
+/// once the child has exec'd. Writes take it shared, so they never wait for
+/// each other. Go guards its forks the same way.
+///
+/// Skipped on macOS: it has no such rule, and its `exec` of a fresh binary
+/// waits for a signature check, which would hold up every other start.
+static FORKS: RwLock<()> = RwLock::new(());
+
+const GUARDS_FORKS: bool = !cfg!(target_os = "macos");
+
+/// Runs `write` with no process starting until it returns.
+///
+/// Open, write and close the executable inside `write`. Renaming it or setting
+/// its mode can happen outside, since neither holds it open.
+pub fn writing_executable<T>(write: impl FnOnce() -> T) -> T {
+    let _shared = GUARDS_FORKS.then(|| FORKS.read().unwrap_or_else(PoisonError::into_inner));
+    write()
+}
+
+/// How many times [`start`] tries again after `ETXTBSY`.
+///
+/// A backstop for descriptors [`FORKS`] can't see, such as another process's.
+/// The waits double from 1 ms, about half a second in all.
+const BUSY_RETRIES: u32 = 9;
+
+/// Starts `command` under [`FORKS`], retrying `ETXTBSY` [`BUSY_RETRIES`] times.
+pub fn start(command: &mut Command) -> std::io::Result<Child> {
+    let mut wait = Duration::from_millis(1);
+    let mut retries = BUSY_RETRIES;
+    loop {
+        let started = {
+            let _alone = GUARDS_FORKS.then(|| FORKS.write().unwrap_or_else(PoisonError::into_inner));
+            command.spawn()
+        };
+        match started {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy && retries > 0 => {
+                std::thread::sleep(wait);
+                wait = wait.saturating_mul(2);
+                retries = retries.saturating_sub(1);
+            }
+            started => return started,
+        }
+    }
+}
+
+/// `Command::output` through [`start`]: empty stdin, both outputs captured.
+pub fn output(command: &mut Command) -> std::io::Result<Output> {
+    command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    start(command)?.wait_with_output()
 }
 
 #[cfg(test)]
