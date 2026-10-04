@@ -2883,6 +2883,132 @@ fn a_functional_update_releases_the_field_it_replaced() {
     assert_eq!(stdout, vec!["1 1", "6000 2"], "stderr:\n{stderr}");
 }
 
+/// A state record with many counted fields, threaded through a `match` the way
+/// an event loop folds events into its state.
+///
+/// `Names` holds ten strings and `State` holds two of them beside a list and an
+/// enum, so every retain and release of a `State` reaches dozens of counts.
+/// The list of states is released element by element, which reaches the same
+/// counts through the list's glue. Every payload is built at run time, for
+/// [`replaced_fields`]'s reason.
+fn wide_state() -> String {
+    String::from(
+        r#"
+from "platform/effect" import { Allocator, Stdout };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+struct Names {
+    export a: Str,
+    export b: Str,
+    export c: Str,
+    export d: Str,
+    export e: Str,
+    export f: Str,
+    export g: Str,
+    export h: Str,
+    export i: Str,
+    export j: Str,
+}
+
+enum Mood {
+    Calm,
+    Noted(Str),
+}
+
+struct State {
+    export first: Names,
+    export second: Names,
+    export log: [Str],
+    export mood: Mood,
+}
+
+enum Event {
+    Rename(Str),
+    Swap,
+    Note(Str),
+    Nothing,
+}
+
+fn names<C: Allocator>(ctx: C, letter: Str, size: Int): Names {
+    Names {
+        a: letter.repeat(ctx, size),
+        b: letter.repeat(ctx, size + 1),
+        c: letter.repeat(ctx, size + 2),
+        d: letter.repeat(ctx, size + 3),
+        e: letter.repeat(ctx, size + 4),
+        f: letter.repeat(ctx, size + 5),
+        g: letter.repeat(ctx, size + 6),
+        h: letter.repeat(ctx, size + 7),
+        i: letter.repeat(ctx, size + 8),
+        j: letter.repeat(ctx, size + 9),
+    }
+}
+
+fn apply(state: State, event: Event): State {
+    match (event) {
+        .Rename(name) => State { ..state, first: Names { ..state.first, a: name } },
+        .Swap => State { ..state, first: state.second, second: state.first },
+        .Note(text) => State { ..state, mood: .Noted(text) },
+        .Nothing => state,
+    }
+}
+
+fn applyAll(state: State, events: [Event]): State {
+    match (events) {
+        [] => state,
+        [event, ..rest] => applyAll(apply(state, event), rest),
+    }
+}
+
+fn describe(state: State): Template {
+    let mood = match (state.mood) {
+        .Calm => 0,
+        .Noted(text) => text.length(),
+    };
+    "${state.first.a.length()} ${state.second.j.length()} ${state.log.length()} ${mood}"
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let start = State {
+        first: names(ctx, "f", 100),
+        second: names(ctx, "s", 200),
+        log: ["l".repeat(ctx, 50)],
+        mood: .Calm,
+    };
+    let events: [Event] = [
+        .Rename("r".repeat(ctx, 7)),
+        .Swap,
+        .Note("n".repeat(ctx, 11)),
+        .Nothing,
+        .Rename("q".repeat(ctx, 3)),
+    ];
+    let end = applyAll(start, events);
+    let both = [start, end];
+    let _ = io.println(ctx, describe(start)).ignore();
+    let _ = io.println(ctx, describe(end)).ignore();
+    let _ = io.println(ctx, "${both.length()}").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// **A state record with many counted fields gives every block back.**
+///
+/// The functions that move such a record do as many count operations as it has
+/// counted fields, at every retain and release of it.
+#[test]
+fn a_wide_state_record_folded_through_a_match_leaks_nothing() {
+    unless_ready!();
+    let (stdout, stderr) = heap_checked("e2e-wide-state", &wide_state());
+    assert_eq!(stdout, vec!["100 209 1 0", "3 109 1 11", "2"], "stderr:\n{stderr}");
+}
+
 /// A `?` whose operand fails while the function still owns something.
 ///
 /// `step` owns its parameter — the tail hands it on into the answer — and reads

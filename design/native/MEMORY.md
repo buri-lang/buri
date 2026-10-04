@@ -191,6 +191,12 @@ native backends emit these as a handful of instructions with no spills: two
 stencils in the debug one (CODEGEN-STENCIL.md §6), inlined IR in LLVM. The
 `drop_T` in the cold path *is* a call, to a generated per-type function.
 
+One exception, in LLVM: a value with more than eight counts in it goes through
+its type's glue in one call. Each count is still open-coded inside the glue.
+Open-coding a hundred-count state record at every retain and release made
+functions of twenty thousand blocks, and LLVM spent minutes on each
+(`emit.rs`, `OPEN_CODED_RC`).
+
 Null checks are eliminated wherever the layout says the pointer is non-null,
 which is everywhere except a niche-encoded `Option` (VALUE-MODEL.md §6). LLVM
 gets this for free from `nonnull` (CODEGEN-LLVM.md §3).
