@@ -21,7 +21,7 @@
 
 use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::layered::Layered;
-use crate::compiler::semantics::resolve::{BodyMap, ModuleScope, Sym, Walked};
+use crate::compiler::semantics::resolve::{own_fn, BodyMap, ModuleScope, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{FnId, Tables};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
@@ -45,14 +45,14 @@ pub fn run(
     walked: &Walked,
     waiting: &HashSet<FnId>,
 ) -> HashSet<FnId> {
-    let Some(load) = fn_of(loaded, scopes, "core/lazy", "load") else { return HashSet::default() };
+    let Some(load) = own_fn(loaded, scopes, "core/lazy", "load") else { return HashSet::default() };
     let builders: Vec<(FnId, &'static str)> = [
         ("computed", "computed"),
         ("each", "each"),
         ("rebuild", "rebuild"),
     ]
     .iter()
-    .filter_map(|(name, label)| fn_of(loaded, scopes, "ui/node", name).map(|id| (id, *label)))
+    .filter_map(|(name, label)| own_fn(loaded, scopes, "ui/node", name).map(|id| (id, *label)))
     .collect();
     if builders.is_empty() {
         return HashSet::default();
@@ -67,15 +67,6 @@ pub fn run(
         walk(&body.expr, &builders, load, &waiting, diags);
     }
     waiting
-}
-
-/// A named member of a module in the loaded set, when this compilation has it.
-fn fn_of(loaded: &Loaded, scopes: &Layered<ModuleScope>, path: &str, name: &str) -> Option<FnId> {
-    let index = loaded.modules.iter().position(|m| m.path == path)?;
-    match scopes.get(index)?.own.get(name)? {
-        Sym::Fn(id) => Some(*id),
-        _ => None,
-    }
 }
 
 /// The fixpoint: a function waits if its synchronous body reaches `load`, or

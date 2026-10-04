@@ -668,7 +668,7 @@ mod tests {
                 params: Vec::new(),
                 locals: Vec::new(),
                 kind: FuncKind::Intrinsic(key.to_string()),
-                ret: Ty::Unit,
+                ret: Ty::UNIT,
                 desc: None,
                 span: Span::default(),
             })

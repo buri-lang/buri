@@ -15,7 +15,7 @@
 //! `middle::lower` builds them as loops (`lower/lists.rs`).
 
 use crate::compiler::semantics::builtins::conversion_is_exact;
-use crate::compiler::semantics::types::{Prim, Tables, Ty};
+use crate::compiler::semantics::types::{Prim, Tables, Ty, TyKind};
 
 /// The `Equal`/`Ordered`/`Hash`/`Show` leaves at `Bool` and `Char`, plus
 /// `Char::toU32`, and `Str`'s `show`.
@@ -158,7 +158,7 @@ pub fn json_arm(prim: Prim) -> JsonArm {
 /// `derive ToJson` whose result is not `core/json`'s `Json`, which is refused
 /// rather than guessed at.
 pub fn json_variant(tables: &Tables, ty: &Ty, arm: JsonArm) -> Option<usize> {
-    let Ty::Con(id, _) = ty else { return None };
+    let TyKind::Con(id, _) = ty.kind() else { return None };
     let name = match arm {
         JsonArm::Bool => "Bool",
         JsonArm::Num => "Num",

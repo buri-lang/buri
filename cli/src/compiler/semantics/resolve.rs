@@ -31,7 +31,7 @@ use crate::hash::{Map as HashMap, Set as HashSet};
 use std::collections::BTreeSet;
 
 mod platforms;
-pub use platforms::{is_effect_package_module, is_effect_package_path};
+pub use platforms::{declared_host, is_effect_package_module, is_effect_package_path, js_structs};
 
 /// What a name in scope refers to.
 #[derive(Clone, Debug)]
@@ -56,6 +56,30 @@ pub enum Sym {
     /// name it is declared under. Both are needed because the alias expands in
     /// its declaring module, wherever an import or a rename carried it to.
     Alias(ModuleId, String),
+}
+
+/// One module's own type, by name, when this compilation loaded the module.
+///
+/// `None` for every compilation that did not, which is every program that is
+/// not a user interface.
+pub fn own_type(loaded: &Loaded, scopes: &Layered<ModuleScope>, module: &str, name: &str) -> Option<TyConId> {
+    match own_sym(loaded, scopes, module, name)? {
+        Sym::Ty(id) => Some(*id),
+        _ => None,
+    }
+}
+
+/// One module's own function, by name, when this compilation loaded the
+/// module.
+pub fn own_fn(loaded: &Loaded, scopes: &Layered<ModuleScope>, module: &str, name: &str) -> Option<FnId> {
+    match own_sym(loaded, scopes, module, name)? {
+        Sym::Fn(id) => Some(*id),
+        _ => None,
+    }
+}
+
+fn own_sym<'s>(loaded: &Loaded, scopes: &'s Layered<ModuleScope>, module: &str, name: &str) -> Option<&'s Sym> {
+    scopes.get(loaded.find(module)?.index())?.own.get(name)
 }
 
 #[derive(Default, Clone)]
@@ -132,6 +156,9 @@ pub struct Checked {
     /// role as a parameter, so a list is named by a literal at the call site
     /// rather than by a `NodeKind` one inside the constructor.
     pub role_con: Option<TyConId>,
+    /// Types by well-known name, `platform/effect`'s `Request` and `Response`
+    /// among them.
+    pub known_types: HashMap<String, TyConId>,
     /// Per package, the set of names its `lib.buri` puts on the surface. The
     /// checker needs it to filter method resolution; `dead-code` needs it to
     /// ask the opposite question — what is exported and reaches nobody.
@@ -567,12 +594,12 @@ impl<'a> Checker<'a> {
         // up `Style`: by module path in the loaded set, then by name in that
         // module's own scope. `None` for every compilation that did not load
         // the module, which is every program that is not a user interface.
-        let theme_con = self.own_type("ui/theme", "Theme");
+        let theme_con = own_type(self.loaded, &self.scopes, "ui/theme", "Theme");
         // `ui/node`'s private tree enum, looked up the same way. Private is no
         // obstacle: this is the module's own scope, which is what a name is
         // declared into before anything is exported.
-        let node_con = self.own_type("ui/node", "NodeKind");
-        let role_con = self.own_type("ui/node", "Role");
+        let node_con = own_type(self.loaded, &self.scopes, "ui/node", "NodeKind");
+        let role_con = own_type(self.loaded, &self.scopes, "ui/node", "Role");
         Checked {
             tables: self.tables,
             scopes: self.scopes,
@@ -586,6 +613,7 @@ impl<'a> Checker<'a> {
             theme_con,
             node_con,
             role_con,
+            known_types: self.known_types,
             surfaces: self.surfaces,
             ctx_rebindings: self.ctx_rebindings,
         }
@@ -660,18 +688,6 @@ impl<'a> Checker<'a> {
         self.compute_surfaces();
         self.check_module_rules();
         self.check_bodies();
-    }
-
-    /// One module's own type, by name, when this compilation loaded the module.
-    ///
-    /// `None` for every compilation that did not, which is every program that
-    /// is not a user interface.
-    fn own_type(&self, module: &str, name: &str) -> Option<TyConId> {
-        let index = self.loaded.modules.iter().position(|m| m.path == module)?;
-        match self.scopes.get(index)?.own.get(name)? {
-            Sym::Ty(id) => Some(*id),
-            _ => None,
-        }
     }
 
     /// A diagnostic whose wording lives on its page. What follows is
@@ -843,7 +859,7 @@ impl<'a> Checker<'a> {
                     module,
                     generics,
                     params: Vec::new(),
-                    ret: Ty::Error,
+                    ret: Ty::ERROR,
                     exported: d.exported,
                     span: d.name.span,
                     self_ty: None,
@@ -857,7 +873,7 @@ impl<'a> Checker<'a> {
                 let id = self.tables.add_const(ConstInfo {
                     name: t.name(d.name).to_string(),
                     module,
-                    ty: Ty::Error,
+                    ty: Ty::ERROR,
                     exported: d.exported,
                     span: d.name.span,
                     ast: ast_ref,
@@ -1332,7 +1348,7 @@ impl<'a> Checker<'a> {
                         self.tables.trait_mut(tid).generics = generics.clone();
                         // A trait's `Self` is whatever type implements it,
                         // which is not known here and so stays abstract.
-                        let methods = self.enter_self_scope(Ty::SelfTy, |s| {
+                        let methods = self.enter_self_scope(Ty::SELF, |s| {
                             t.list(d.methods)
                                 .iter()
                                 .map(|sig| {
@@ -1566,7 +1582,7 @@ impl<'a> Checker<'a> {
                     continue;
                 }
                 // `native` is two platforms here, Linux and macOS, and one host.
-                let same = |p: &Option<Platform>| p.map(Platform::proto) == Some(entry.platform.proto());
+                let same = |p: &Option<Platform>| p.map(Platform::slug) == Some(entry.platform.slug());
                 if entry.name == name && !declared.iter().any(same) {
                     declared.push(Some(entry.platform));
                 }
@@ -1791,7 +1807,13 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// One entry, against the signature its platform fixes.
+    /// One entry against `fn <entry>(host: H): Result<(), Str>`, the signature
+    /// its platform fixes — the program runs itself, handed the host its
+    /// platform declares.
+    ///
+    /// `platform` is `None` where the analysis builds no particular output — a
+    /// snippet, or an entry another output's build is passing by — and then
+    /// any bundled platform's host is the host.
     fn check_entry_signature(
         &mut self,
         fid: FnId,
@@ -1800,31 +1822,7 @@ impl<'a> Checker<'a> {
         platform: Option<Platform>,
     ) {
         let info = self.tables.fn_info(fid).clone();
-        if !info.generics.is_empty() {
-            self.templated("entry-signature-mismatch", d.span)
-                .bind("entry", name.to_string())
-                .bind("requirement", "declare no generic parameters")
-                .fix(format!(
-                    "drop them: `{name}` is called by the platform, so there is nothing to infer \
-                     them from"
-                ));
-        }
-        self.check_program_entry(&info, d, name, platform);
-    }
-
-    /// `fn <entry>(host: H): Result<(), Str>` — the program runs itself, handed
-    /// the host its platform declares.
-    ///
-    /// `platform` is `None` where the analysis builds no particular output — a
-    /// snippet, or an entry another output's build is passing by — and then
-    /// any bundled platform's host is the host.
-    fn check_program_entry(
-        &mut self,
-        info: &FnInfo,
-        d: &tree::FnDecl,
-        name: &str,
-        platform: Option<Platform>,
-    ) {
+        self.refuse_entry_generics(&info, d, name);
         let expected = platform.and_then(standard_library::host_type);
         // The host type the fix spells: the platform's, or `node`'s — what a
         // binary that names no output builds for.
@@ -1851,7 +1849,7 @@ impl<'a> Checker<'a> {
                     // Unresolved already, and reported where it was written.
                     _ if param.ty.is_error() => {}
                     (Some(taken), Some((_, wanted))) if taken.1 != wanted => {
-                        let platform = platform.map_or("this", Platform::proto);
+                        let platform = platform.map_or("this", Platform::slug);
                         self.templated("entry-host-mismatch", param.span)
                             .bind("entry", name.to_string())
                             .bind("taken", taken.1)
@@ -1886,16 +1884,7 @@ impl<'a> Checker<'a> {
                 }
             }
         }
-        let unit = Ty::Unit;
-        let str_ty = self.tables.prim(Prim::Str);
-        let ok = match &info.ret {
-            Ty::Con(id, args) => {
-                self.result_con.as_ref() == Some(id)
-                    && matches!(args.as_slice(), [ok, err] if *ok == unit && *err == str_ty)
-            }
-            _ => false,
-        };
-        if !ok && !info.ret.is_error() {
+        if !self.is_program_answer(&info.ret) && !info.ret.is_error() {
             let at = self.tree(info.module).type_span(d.ret);
             self.templated("entry-signature-mismatch", at)
                 .bind("entry", name.to_string())
@@ -1909,17 +1898,14 @@ impl<'a> Checker<'a> {
     /// The bundled platform and host type `ty` is, when it is one of the three
     /// hosts the bundled platforms declare.
     fn bundled_host(&self, ty: &Ty) -> Option<(&'static str, &'static str)> {
-        let Ty::Con(con, args) = ty else { return None };
+        let TyKind::Con(con, args) = ty.kind() else { return None };
         if !args.is_empty() {
             return None;
         }
         let tycon = self.tables.tycon(*con);
         // A built-in type has no module, and is no host.
         let module = self.loaded.modules.get(tycon.module.index())?.path.as_str();
-        standard_library::PLATFORMS
-            .iter()
-            .filter_map(|p| standard_library::host_type_of(p))
-            .find(|(owner, host)| *owner == module && *host == tycon.name)
+        standard_library::host_type_of(module).filter(|(_, host)| *host == tycon.name)
     }
 
     fn record_intrinsic(&mut self, fid: FnId, module: ModuleId, d: &tree::FnDecl) {
@@ -2024,14 +2010,14 @@ impl<'a> Checker<'a> {
         params: &[tree::Param],
     ) -> Vec<ParamInfo> {
         let t = self.tree(module);
-        let receiver = self.self_scope.clone();
+        let receiver = self.self_scope;
         params
             .iter()
             .map(|p| ParamInfo {
                 name: t.name(p.name).to_string(),
                 ty: match p.written_type() {
                     Some(ty) => self.elaborate(module, generics, ty),
-                    None => receiver.clone().unwrap_or(Ty::Error),
+                    None => receiver.unwrap_or(Ty::ERROR),
                 },
                 role: match p.kind {
                     tree::ParamKind::SelfParam => ParamRole::SelfParam,
@@ -2048,29 +2034,27 @@ impl<'a> Checker<'a> {
     pub fn elaborate(&mut self, module: ModuleId, generics: &[GenericInfo], id: TypeId) -> Ty {
         let t = self.tree(module);
         match t.ty(id) {
-            flat::TypeView::Unit { .. } => Ty::Unit,
+            flat::TypeView::Unit { .. } => Ty::UNIT,
             flat::TypeView::SelfType { span } => {
                 // `Self` stands for the implementing type and is legal only
                 // inside a trait or an `impl` body. Inside an `impl` that type
                 // is known, and `Self` *is* it from here on: nothing between
                 // this point and `middle::layout` substitutes a `Ty::SelfTy`
                 // that reached an `impl` method's signature.
-                let Some(ty) = self.self_scope.clone() else {
+                let Some(ty) = self.self_scope else {
                     self.templated("self-type-outside-impl", span);
-                    return Ty::Error;
+                    return Ty::ERROR;
                 };
                 ty
             }
             flat::TypeView::Array { elem, .. } => {
-                Ty::Array(Box::new(self.elaborate(module, generics, elem)))
+                Ty::array(self.elaborate(module, generics, elem))
             }
-            flat::TypeView::Tuple { elems, .. } => Ty::Tuple(
-                elems.iter().map(|e| self.elaborate(module, generics, *e)).collect(),
-            ),
-            flat::TypeView::Fn { params, ret, .. } => Ty::Fn(
-                params.iter().map(|p| self.elaborate(module, generics, *p)).collect(),
-                Box::new(self.elaborate(module, generics, ret)),
-            ),
+            flat::TypeView::Tuple { elems, .. } => Ty::tuple(elems.iter().map(|e| self.elaborate(module, generics, *e))),
+            flat::TypeView::Fn { params, ret, .. } => {
+                let ps: Vec<Ty> = params.iter().map(|p| self.elaborate(module, generics, *p)).collect();
+                Ty::func(ps, self.elaborate(module, generics, ret))
+            }
             flat::TypeView::Named { path, args, span } => {
                 let name = t.text(
                     *path
@@ -2087,7 +2071,7 @@ impl<'a> Checker<'a> {
                                 .bind("given", were_given(args.len()))
                                 .fix("drop the arguments; a type parameter stands for one type already");
                         }
-                        return Ty::Param(i as u32);
+                        return Ty::param(i as u32);
                     }
                 }
                 let elaborated_args: Vec<Ty> =
@@ -2099,7 +2083,7 @@ impl<'a> Checker<'a> {
                 if let Some(Sym::Alias(owner, declared)) = self.resolve_path(module, path) {
                     return self
                         .expand_alias(owner, &declared, &elaborated_args, span)
-                        .unwrap_or(Ty::Error);
+                        .unwrap_or(Ty::ERROR);
                 }
                 if path.len() == 1 {
                     if let Some(id) = self.builtin_type(name) {
@@ -2110,7 +2094,7 @@ impl<'a> Checker<'a> {
                                 .bind("given", were_given(elaborated_args.len()))
                                 .fix("drop them");
                         }
-                        return Ty::Con(id, Vec::new());
+                        return Ty::con(id, []);
                     }
                 }
                 match self.resolve_path(module, path) {
@@ -2124,14 +2108,14 @@ impl<'a> Checker<'a> {
                                 .bind("expected", counted(arity, "type argument"))
                                 .bind("given", were_given(got))
                                 .mismatch(arity.to_string(), got.to_string());
-                            return Ty::Error;
+                            return Ty::ERROR;
                         }
-                        Ty::Con(id, elaborated_args)
+                        Ty::con(id, elaborated_args)
                     }
                     Some(Sym::Trait(_)) => {
                         let shown = name.to_string();
                         self.templated("trait-not-type", span).bind("name", shown);
-                        Ty::Error
+                        Ty::ERROR
                     }
                     _ => {
                         // `ns.Name`, where the import is right and the member
@@ -2139,7 +2123,7 @@ impl<'a> Checker<'a> {
                         // `nearest_type_name` below draws from *this* module's
                         // types, which are the wrong set to offer.
                         if self.namespace_member_missing(module, path, span) {
-                            return Ty::Error;
+                            return Ty::ERROR;
                         }
                         let shown = t.path_text(path);
                         let near = self.nearest_type_name(module, name);
@@ -2149,7 +2133,7 @@ impl<'a> Checker<'a> {
                             d.fix(crate::diagnostics::candidate_fix(&n, scope));
                             d.notes.push(format!("did you mean `{n}`?"));
                         }
-                        Ty::Error
+                        Ty::ERROR
                     }
                 }
             }
@@ -2178,13 +2162,13 @@ impl<'a> Checker<'a> {
         let key = (module, name.to_string());
         if let Some(at) = self.expanding.iter().position(|k| *k == key) {
             self.report_alias_cycle(at, alias.name.span);
-            return Some(Ty::Error);
+            return Some(Ty::ERROR);
         }
         // Every alias of a cycle already reported is answered with the error
         // type in silence. One cycle is one mistake, however many signatures
         // and fields name it.
         if self.cyclic_aliases.contains(&key) {
-            return Some(Ty::Error);
+            return Some(Ty::ERROR);
         }
         let generics: Vec<GenericInfo> = t
             .list(alias.generics)
@@ -2196,7 +2180,7 @@ impl<'a> Checker<'a> {
                 .bind("subject", format!("`{name}`"))
                 .bind("expected", counted(generics.len(), "type argument"))
                 .bind("given", were_given(args.len()));
-            return Some(Ty::Error);
+            return Some(Ty::ERROR);
         }
         self.expanding.push(key);
         let body = self.elaborate(module, &generics, alias.ty);
@@ -2390,11 +2374,11 @@ impl<'a> Checker<'a> {
     }
 
     fn mentions_directly(&self, ty: &Ty, con: TyConId) -> bool {
-        match ty {
-            Ty::Con(id, args) => {
+        match ty.kind() {
+            TyKind::Con(id, args) => {
                 *id == con || args.iter().any(|a| self.mentions_directly(a, con))
             }
-            Ty::Tuple(es) => es.iter().any(|e| self.mentions_directly(e, con)),
+            TyKind::Tuple(es) => es.iter().any(|e| self.mentions_directly(e, con)),
             // An array can be empty, so it is a base case.
             _ => false,
         }
@@ -2512,7 +2496,7 @@ impl<'a> Checker<'a> {
         // own type is known; `register_impl_body` narrows it to that type the
         // moment it has one, and this call is what puts the outer scope back
         // however the whole declaration returns.
-        self.enter_self_scope(Ty::SelfTy, |s| s.register_impl_body(module, index, d));
+        self.enter_self_scope(Ty::SELF, |s| s.register_impl_body(module, index, d));
     }
 
     /// Runs `f` with `Self` in scope standing for `ty`, restoring the previous
@@ -2554,7 +2538,7 @@ impl<'a> Checker<'a> {
         // From here down `Self` is the type the head named. `register_impl`
         // restores the outer scope however this returns, so the early exits
         // below need no unwinding of their own.
-        self.self_scope = Some(self_ty.clone());
+        self.self_scope = Some(self_ty);
         let Some(self_con) = self_ty.head() else {
             if !self_ty.is_error() {
                 let at = self.tree(module).type_span(d.self_ty);
@@ -2811,13 +2795,13 @@ impl<'a> Checker<'a> {
         let self_ty = self.elaborate(module, generics, d.self_ty);
         // As in `register_trait_impl`: `Self` is the head's type for the rest
         // of this declaration, and `register_impl` puts the outer scope back.
-        self.self_scope = Some(self_ty.clone());
-        let target = match &self_ty {
-            Ty::Con(con, _) => Some(*con),
-            Ty::Array(_) => None,
-            Ty::Error => return,
-            other => {
-                let shown = show(&self.tables, None, generics, other);
+        self.self_scope = Some(self_ty);
+        let target = match self_ty.kind() {
+            TyKind::Con(con, _) => Some(*con),
+            TyKind::Array(_) => None,
+            TyKind::Error => return,
+            _ => {
+                let shown = show(&self.tables, None, generics, &self_ty);
                 let at = self.tree(module).type_span(d.self_ty);
                 self.templated("impl-target-not-declared-type", at).bind("type", shown);
                 return;
@@ -3008,12 +2992,12 @@ impl<'a> Checker<'a> {
             // times, and each walk copied every variant and every field.
             let components: Vec<(String, Ty)> = match &self.tables.tycon(con).def {
                 TyDef::Struct { fields, .. } => {
-                    fields.iter().map(|f| (f.name.clone(), f.ty.clone())).collect()
+                    fields.iter().map(|f| (f.name.clone(), f.ty)).collect()
                 }
                 TyDef::Enum { variants } => variants
                     .iter()
                     .flat_map(|v| {
-                        v.fields.iter().map(move |f| (format!("{}.{}", v.name, f.name), f.ty.clone()))
+                        v.fields.iter().map(move |f| (format!("{}.{}", v.name, f.name), f.ty))
                     })
                     .collect(),
                 TyDef::Prim(_) => Vec::new(),
@@ -3048,15 +3032,15 @@ impl<'a> Checker<'a> {
     /// Whether a component could satisfy the trait for some instantiation. A
     /// type parameter is decided at the use site; a function type never can.
     fn component_can_satisfy(&self, ty: &Ty, tr: TraitId, owner: TyConId) -> bool {
-        match ty {
+        match ty.kind() {
             // Undecidable here, and checked where the arguments are known.
-            Ty::Param(_) | Ty::Var(_) | Ty::SelfTy | Ty::Error => true,
-            Ty::Fn(..) => false,
-            Ty::Ctx(_) => false,
-            Ty::Unit => true,
-            Ty::Array(e) => self.component_can_satisfy(e, tr, owner),
-            Ty::Tuple(es) => es.iter().all(|e| self.component_can_satisfy(e, tr, owner)),
-            Ty::Con(id, args) => {
+            TyKind::Param(_) | TyKind::Var(_) | TyKind::SelfTy | TyKind::Error => true,
+            TyKind::Fn(..) => false,
+            TyKind::Ctx(_) => false,
+            TyKind::Unit => true,
+            TyKind::Array(e) => self.component_can_satisfy(e, tr, owner),
+            TyKind::Tuple(es) => es.iter().all(|e| self.component_can_satisfy(e, tr, owner)),
+            TyKind::Con(id, args) => {
                 if *id == owner {
                     return true;
                 }
@@ -3233,7 +3217,7 @@ fn signature_mismatches(
     // The trait's `Param(i)` is the method's own `i`th, which the `impl`
     // numbers after its head's.
     let args: Vec<Ty> =
-        (0..declared_own).map(|i| Ty::Param(impl_generics.saturating_add(i) as u32)).collect();
+        (0..declared_own).map(|i| Ty::param(impl_generics.saturating_add(i) as u32)).collect();
     let mut out = Vec::new();
     // A bound is half of what a type parameter is. An `impl` that asks for
     // one the trait does not declare is asking for something its callers were
@@ -3253,13 +3237,13 @@ fn signature_mismatches(
             out.push(SignatureMismatch::Parameter {
                 index,
                 expected,
-                found: s.ty.clone(),
+                found: s.ty,
             });
         }
     }
     let expected = substitute(&declared.ret, &args, Some(self_ty));
     if !agrees(&expected, supplied.ret) {
-        out.push(SignatureMismatch::Return { expected, found: supplied.ret.clone() });
+        out.push(SignatureMismatch::Return { expected, found: *supplied.ret });
     }
     out
 }
@@ -3363,12 +3347,12 @@ fn main(): () {}
     fn a_written_self_in_an_impl_method_parameter_is_the_impl_heads_type() {
         let tables = tables_of(RELAY);
         let f = method(&tables, "Wrap", "relay");
-        let Ty::Fn(params, _) = &f.params[1].ty else {
+        let TyKind::Fn(params, _) = f.params[1].ty.kind() else {
             panic!("the parameter is a function type: {:?}", f.params[1].ty)
         };
         let wrap = tables.tycons.iter().position(|c| c.name == "Wrap").unwrap_or_default();
         assert!(
-            matches!(&params[0], Ty::Con(id, args) if id.index() == wrap && args.is_empty()),
+            matches!(params[0].kind(), TyKind::Con(id, args) if id.index() == wrap && args.is_empty()),
             "`Self` stayed unresolved in an `impl` method's parameter: {:?}",
             params[0],
         );
@@ -3380,7 +3364,7 @@ fn main(): () {}
     fn the_self_parameter_and_a_written_self_agree() {
         let tables = tables_of(RELAY);
         let f = method(&tables, "Wrap", "relay");
-        let Ty::Fn(params, _) = &f.params[1].ty else { panic!("a function type") };
+        let TyKind::Fn(params, _) = f.params[1].ty.kind() else { panic!("a function type") };
         assert_eq!(f.params[0].ty, params[0]);
         assert_eq!(f.params[0].role, ParamRole::SelfParam);
     }
@@ -3392,9 +3376,9 @@ fn main(): () {}
         let tables = tables_of(RELAY);
         let tr = tables.traits.iter().find(|t| t.name == "Relay").expect("the trait");
         let m = tr.methods.first().expect("the method");
-        assert_eq!(m.params[0].ty, Ty::SelfTy);
-        let Ty::Fn(params, _) = &m.params[1].ty else { panic!("a function type") };
-        assert_eq!(params[0], Ty::SelfTy);
+        assert_eq!(m.params[0].ty, Ty::SELF);
+        let TyKind::Fn(params, _) = m.params[1].ty.kind() else { panic!("a function type") };
+        assert_eq!(params[0], Ty::SELF);
     }
 
     /// The head's own type parameters are in scope in what `Self` expands to,
@@ -3420,7 +3404,7 @@ fn main(): () {}
 "#,
         );
         let f = method(&tables, "Crate", "copy");
-        let head = |ty: &Ty| matches!(ty, Ty::Con(_, args) if args.as_slice() == [Ty::Param(0)]);
+        let head = |ty: &Ty| matches!(ty.kind(), TyKind::Con(_, args) if **args == [Ty::param(0)]);
         assert!(head(&f.params[1].ty), "a written `Self` parameter: {:?}", f.params[1].ty);
         assert!(head(&f.ret), "a written `Self` return: {:?}", f.ret);
     }
@@ -3446,7 +3430,7 @@ fn main(): () {}
         let f = method(&tables, "Knob", "pick");
         assert_eq!(f.params[1].ty, f.params[0].ty);
         assert_eq!(f.ret, f.params[0].ty);
-        assert!(!matches!(f.params[1].ty, Ty::SelfTy));
+        assert!(!matches!(f.params[1].ty.kind(), TyKind::SelfTy));
     }
 
     // -----------------------------------------------------------------------
@@ -3640,7 +3624,7 @@ fn main(): () {}
     fn receiver() -> ParamInfo {
         ParamInfo {
             name: "self".to_string(),
-            ty: Ty::SelfTy,
+            ty: Ty::SELF,
             role: ParamRole::SelfParam,
             span: Span::NONE,
         }
@@ -3666,11 +3650,11 @@ fn main(): () {}
     }
 
     fn bag() -> Ty {
-        Ty::Con(BAG, Vec::new())
+        Ty::con(BAG, [])
     }
 
     fn crate_ty() -> Ty {
-        Ty::Con(CRATE, Vec::new())
+        Ty::con(CRATE, [])
     }
 
     /// The everyday shape: no generics anywhere, `self` on both sides. The
@@ -3678,8 +3662,8 @@ fn main(): () {}
     /// for, and the substitution is what makes them the same type.
     #[test]
     fn a_signature_that_agrees_reports_nothing() {
-        let declared = trait_method(vec![], vec![receiver(), param(Ty::Unit)], bag());
-        let params = [param(bag()), param(Ty::Unit)];
+        let declared = trait_method(vec![], vec![receiver(), param(Ty::UNIT)], bag());
+        let params = [param(bag()), param(Ty::UNIT)];
         let ret = bag();
         let found = supplied(&[], &params, &ret);
         assert_eq!(signature_mismatches(&declared, 0, &found, 0, &bag()), vec![]);
@@ -3694,12 +3678,12 @@ fn main(): () {}
     /// method of every generic `impl` in the tree.
     #[test]
     fn an_impl_heads_generics_are_not_the_methods_own() {
-        let head = Ty::Array(Box::new(Ty::Param(0)));
+        let head = Ty::array(Ty::param(0));
         let declared =
-            trait_method(vec![generic("C", &[])], vec![receiver(), param(Ty::Param(0))], Ty::Unit);
+            trait_method(vec![generic("C", &[])], vec![receiver(), param(Ty::param(0))], Ty::UNIT);
         let generics = [generic("T", &[]), generic("C", &[])];
-        let params = [param(head.clone()), param(Ty::Param(1))];
-        let ret = Ty::Unit;
+        let params = [param(head), param(Ty::param(1))];
+        let ret = Ty::UNIT;
         let found = supplied(&generics, &params, &ret);
         assert_eq!(signature_mismatches(&declared, 0, &found, 1, &head), vec![]);
     }
@@ -3711,9 +3695,9 @@ fn main(): () {}
     #[test]
     fn a_generic_count_is_the_whole_answer() {
         let declared =
-            trait_method(vec![generic("T", &[])], vec![receiver(), param(Ty::Param(0))], Ty::Unit);
+            trait_method(vec![generic("T", &[])], vec![receiver(), param(Ty::param(0))], Ty::UNIT);
         let params = [param(bag()), param(crate_ty())];
-        let ret = Ty::Unit;
+        let ret = Ty::UNIT;
         let found = supplied(&[], &params, &ret);
         assert_eq!(
             signature_mismatches(&declared, 0, &found, 0, &bag()),
@@ -3725,7 +3709,7 @@ fn main(): () {}
     /// parameter after the extra one would be compared against its neighbour.
     #[test]
     fn an_arity_is_the_whole_answer() {
-        let declared = trait_method(vec![], vec![receiver()], Ty::Unit);
+        let declared = trait_method(vec![], vec![receiver()], Ty::UNIT);
         let params = [param(bag()), param(crate_ty())];
         let ret = crate_ty();
         let found = supplied(&[], &params, &ret);
@@ -3739,14 +3723,14 @@ fn main(): () {}
     /// they are written in two places and each is reported at its own.
     #[test]
     fn a_parameter_and_a_return_type_are_reported_separately() {
-        let declared = trait_method(vec![], vec![receiver(), param(Ty::Unit)], bag());
+        let declared = trait_method(vec![], vec![receiver(), param(Ty::UNIT)], bag());
         let params = [param(bag()), param(crate_ty())];
         let ret = crate_ty();
         let found = supplied(&[], &params, &ret);
         assert_eq!(
             signature_mismatches(&declared, 0, &found, 0, &bag()),
             vec![
-                SignatureMismatch::Parameter { index: 1, expected: Ty::Unit, found: crate_ty() },
+                SignatureMismatch::Parameter { index: 1, expected: Ty::UNIT, found: crate_ty() },
                 SignatureMismatch::Return { expected: bag(), found: crate_ty() },
             ],
         );
@@ -3757,9 +3741,9 @@ fn main(): () {}
     /// substituted.
     #[test]
     fn a_receiver_is_compared_after_self_is_substituted() {
-        let declared = trait_method(vec![], vec![receiver()], Ty::Unit);
+        let declared = trait_method(vec![], vec![receiver()], Ty::UNIT);
         let params = [param(crate_ty())];
-        let ret = Ty::Unit;
+        let ret = Ty::UNIT;
         let found = supplied(&[], &params, &ret);
         assert_eq!(
             signature_mismatches(&declared, 0, &found, 0, &bag()),
@@ -3776,9 +3760,9 @@ fn main(): () {}
     /// is the cascade `Ty::Error` exists to prevent.
     #[test]
     fn an_error_type_reports_nothing_on_either_side() {
-        let declared = trait_method(vec![], vec![receiver(), param(Ty::Error)], Ty::Unit);
+        let declared = trait_method(vec![], vec![receiver(), param(Ty::ERROR)], Ty::UNIT);
         let params = [param(bag()), param(crate_ty())];
-        let ret = Ty::Error;
+        let ret = Ty::ERROR;
         let found = supplied(&[], &params, &ret);
         assert_eq!(signature_mismatches(&declared, 0, &found, 0, &bag()), vec![]);
     }
@@ -3789,12 +3773,12 @@ fn main(): () {}
     fn bounds_in_another_order_agree() {
         let declared = trait_method(
             vec![generic("C", &[SHOWN, ALLOCS])],
-            vec![receiver(), param(Ty::Param(0))],
-            Ty::Unit,
+            vec![receiver(), param(Ty::param(0))],
+            Ty::UNIT,
         );
         let generics = [generic("C", &[ALLOCS, SHOWN])];
-        let params = [param(bag()), param(Ty::Param(0))];
-        let ret = Ty::Unit;
+        let params = [param(bag()), param(Ty::param(0))];
+        let ret = Ty::UNIT;
         let found = supplied(&generics, &params, &ret);
         assert_eq!(signature_mismatches(&declared, 0, &found, 0, &bag()), vec![]);
     }
@@ -3804,10 +3788,10 @@ fn main(): () {}
     /// side wrote it so the message can echo the source.
     #[test]
     fn a_bound_the_trait_does_not_declare_is_refused() {
-        let declared = trait_method(vec![generic("C", &[SHOWN])], vec![receiver()], Ty::Unit);
+        let declared = trait_method(vec![generic("C", &[SHOWN])], vec![receiver()], Ty::UNIT);
         let generics = [generic("C", &[SHOWN, ALLOCS])];
         let params = [param(bag())];
-        let ret = Ty::Unit;
+        let ret = Ty::UNIT;
         let found = supplied(&generics, &params, &ret);
         assert_eq!(
             signature_mismatches(&declared, 0, &found, 0, &bag()),
@@ -3826,11 +3810,11 @@ fn main(): () {}
     fn a_generic_trait_is_left_to_its_own_refusal() {
         let declared = trait_method(
             vec![generic("T", &[]), generic("C", &[])],
-            vec![receiver(), param(Ty::Param(0))],
-            Ty::Param(1),
+            vec![receiver(), param(Ty::param(0))],
+            Ty::param(1),
         );
         let params = [param(crate_ty())];
-        let ret = Ty::Unit;
+        let ret = Ty::UNIT;
         let found = supplied(&[], &params, &ret);
         assert_eq!(signature_mismatches(&declared, 1, &found, 0, &bag()), vec![]);
     }

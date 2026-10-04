@@ -391,9 +391,9 @@ impl Effects {
     /// generic has been substituted away, and an unexpected one answers
     /// `true` rather than guessing.
     pub fn carries(&self, ty: &Ty) -> bool {
-        match ty {
-            Ty::Ctx(_) => true,
-            Ty::Con(id, args) => match self.cons.get(id.index()) {
+        match ty.kind() {
+            TyKind::Ctx(_) => true,
+            TyKind::Con(id, args) => match self.cons.get(id.index()) {
                 Some(row) => {
                     row.implements
                         || args.iter().enumerate().any(|(k, a)| {
@@ -402,16 +402,16 @@ impl Effects {
                 }
                 None => true,
             },
-            Ty::Array(e) => self.carries(e),
-            Ty::Tuple(es) => es.iter().any(|e| self.carries(e)),
+            TyKind::Array(e) => self.carries(e),
+            TyKind::Tuple(es) => es.iter().any(|e| self.carries(e)),
             // Only the result counts. A function that *accepts* a context is
             // not one that carries one — `fn(C, A) => B` is exactly the shape
             // `list.mapCtx` takes, and SPEC 10.6 mandates it.
-            Ty::Fn(_, r) => self.carries(r),
-            Ty::Unit => false,
+            TyKind::Fn(_, r) => self.carries(r),
+            TyKind::Unit => false,
             // Nothing monomorphization emits, so the answer that cannot be
             // wrong.
-            Ty::Var(_) | Ty::Param(_) | Ty::SelfTy | Ty::Error => true,
+            TyKind::Var(_) | TyKind::Param(_) | TyKind::SelfTy | TyKind::Error => true,
         }
     }
 
@@ -422,8 +422,8 @@ impl Effects {
     /// whose callee is not typed as a function is a program the checker did
     /// not produce.
     pub fn fn_takes_effect(&self, ty: &Ty) -> bool {
-        match ty {
-            Ty::Fn(params, _) => params.iter().any(|p| self.carries(p)),
+        match ty.kind() {
+            TyKind::Fn(params, _) => params.iter().any(|p| self.carries(p)),
             _ => true,
         }
     }
@@ -440,17 +440,17 @@ fn shapes_of(tables: &Tables) -> Shapes {
         .map(|c| match &c.def {
             TyDef::Prim(p) => ConShape::Prim(*p),
             TyDef::Struct { fields, .. } => {
-                ConShape::Fields(fields.iter().map(|f| f.ty.clone()).collect())
+                ConShape::Fields(fields.iter().map(|f| f.ty).collect())
             }
             TyDef::Enum { variants } => ConShape::Fields(
-                variants.iter().flat_map(|v| v.fields.iter().map(|f| f.ty.clone())).collect(),
+                variants.iter().flat_map(|v| v.fields.iter().map(|f| f.ty)).collect(),
             ),
         })
         .collect();
     let ctxs = tables
         .ctx_types
         .iter()
-        .map(|c| c.bindings.iter().map(|(_, t)| t.clone()).collect())
+        .map(|c| c.bindings.iter().map(|(_, t)| *t).collect())
         .collect();
     let effects = Effects {
         cons: tables
@@ -571,39 +571,22 @@ pub fn run(
     // are about what the *artifact* can reach, which is what dead-code
     // elimination is about.
     //
-    // One walk for both style questions, a second for themes and a third for
-    // the tree, because the three are different type constructors and a
-    // compilation that loaded one may not have loaded the others. All three
-    // cost nothing for a program that is not a user interface: no constructor
-    // exists, so no walk starts.
+    // One walk answers every question, and costs nothing for a program that
+    // is not a user interface: no constructor exists, so nothing matches.
+    // Which elements a browser paints something on is asked here for the
+    // same reason: a library's unused button must not put a rule in a sheet.
+    let ui = crate::compiler::semantics::styles::UiTypes {
+        style: checked.style_con,
+        theme: checked.theme_con,
+        node: checked.node_con,
+        role: checked.role_con,
+    };
     let mut reached = crate::compiler::semantics::styles::Reached::default();
-    let mut themes = false;
-    let mut icons = false;
-    let mut reset = crate::compiler::semantics::styles::Reset::default();
-    for f in &mut m.funcs {
-        let FuncKind::Body(body) = &mut f.kind else { continue };
-        if let Some(style_con) = checked.style_con {
-            crate::compiler::semantics::styles::collect(body, style_con, &mut reached);
-        }
-        if let Some(theme_con) = checked.theme_con {
-            themes = themes
-                || crate::compiler::semantics::styles::builds_a_theme(body, theme_con);
-        }
-        if let Some(node_con) = checked.node_con {
-            icons = icons
-                || crate::compiler::semantics::icons::builds_an_icon(body, node_con);
-        }
-        // Which elements a browser paints something on the artifact can build,
-        // which is which reset rules the sheet opens with. Asked here for the
-        // reason the two above are: a library's unused button must not put a
-        // rule in a sheet.
-        if let Some(node_con) = checked.node_con {
-            crate::compiler::semantics::styles::reset_in(
-                body,
-                node_con,
-                checked.role_con,
-                &mut reset,
-            );
+    if ui.style.is_some() || ui.theme.is_some() || ui.node.is_some() {
+        for f in &mut m.funcs {
+            if let FuncKind::Body(body) = &mut f.kind {
+                crate::compiler::semantics::styles::survey(body, ui, &mut reached);
+            }
         }
     }
 
@@ -645,31 +628,23 @@ pub fn run(
         stylesheet: crate::compiler::semantics::styles::stylesheet(
             &checked.styles,
             &reached.classes,
-            reset,
+            reached.reset,
         ),
         inline_styles: reached.inline,
-        themes,
-        icons,
+        themes: reached.themes,
+        icons: reached.icons,
         // `middle::chunks` is the only thing that fills this, and it runs after
         // inlining and dead-code elimination have settled which functions
         // there still are.
         chunks: Vec::new(),
         hosted: Hosted {
-            request: fetch_type(&checked.tables, &m.module_paths, "Request"),
-            response: fetch_type(&checked.tables, &m.module_paths, "Response"),
+            request: checked.known_types.get("Request").copied(),
+            response: checked.known_types.get("Response").copied(),
             js_implemented: m.js_implemented,
             export: None,
             ui: false,
         },
     }
-}
-
-/// `platform/effect`'s `Request` or `Response`, when the program loaded it.
-fn fetch_type(tables: &Tables, module_paths: &[String], name: &str) -> Option<TyConId> {
-    tables.tycons.iter().enumerate().find_map(|(i, t)| {
-        let module = module_paths.get(t.module.index())?;
-        (t.name == name && module == "platform/effect").then_some(TyConId(i as u32))
-    })
 }
 
 /// Two functions that came out of this pass wearing one symbol.
@@ -779,39 +754,39 @@ impl<'a> Monomorphizer<'a> {
             .params
             .iter()
             .skip(1)
-            .map(|p| typed::Local { name: p.name.clone(), ty: p.ty.clone(), span: p.span })
+            .map(|p| typed::Local { name: p.name.clone(), ty: p.ty, span: p.span })
             .collect();
         let forwarded: Vec<typed::Expr> = rest
             .iter()
             .enumerate()
-            .map(|(i, l)| typed::Expr::new(ExprKind::Local(LocalId(i as u32)), l.ty.clone(), span))
+            .map(|(i, l)| typed::Expr::new(ExprKind::Local(LocalId(i as u32)), l.ty, span))
             .collect();
         let fields: Vec<typed::Expr> = self
             .tables()
             .tycon(host)
             .fields()
             .iter()
-            .map(|field| match &field.ty {
-                Ty::Con(con, _) => typed::Expr::new(
+            .map(|field| match field.ty.kind() {
+                TyKind::Con(con, _) => typed::Expr::new(
                     ExprKind::StructLit { con: *con, targs: Vec::new(), fields: Vec::new() },
-                    field.ty.clone(),
+                    field.ty,
                     span,
                 ),
                 // `host_parameter` admits only a type whose every field is a
                 // production struct, so there is nothing else to build.
-                _ => typed::Expr::new(ExprKind::Error, field.ty.clone(), span),
+                _ => typed::Expr::new(ExprKind::Error, field.ty, span),
             })
             .collect();
         let value = typed::Expr::new(
             ExprKind::StructLit { con: host, targs: Vec::new(), fields },
-            Ty::Con(host, Vec::new()),
+            Ty::con(host, []),
             span,
         );
         let mut args = vec![value];
         args.extend(forwarded);
         let call = typed::Expr::new(
             ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(inner as u32)), args },
-            info.ret.clone(),
+            info.ret,
             span,
         );
         let entry = self.func_mut(inner);
@@ -839,7 +814,7 @@ impl<'a> Monomorphizer<'a> {
     fn host_parameter(&self, f: FnId) -> Option<TyConId> {
         let info = self.tables().fn_info(f);
         let param = info.params.first()?;
-        let Ty::Con(con, args) = &param.ty else { return None };
+        let TyKind::Con(con, args) = param.ty.kind() else { return None };
         if !args.is_empty() {
             return None;
         }
@@ -849,8 +824,8 @@ impl<'a> Monomorphizer<'a> {
         if !crate::compiler::standard_library::is_bundled_platform(module) && !repository {
             return None;
         }
-        let production = tycon.fields().iter().all(|field| match &field.ty {
-            Ty::Con(c, a) => a.is_empty() && self.tables().tycon(*c).fields().is_empty(),
+        let production = tycon.fields().iter().all(|field| match field.ty.kind() {
+            TyKind::Con(c, a) => a.is_empty() && self.tables().tycon(*c).fields().is_empty(),
             _ => false,
         });
         production.then_some(*con)
@@ -868,7 +843,7 @@ impl<'a> Monomorphizer<'a> {
             params: Vec::new(),
             locals: Vec::new(),
             kind: FuncKind::Unbuilt,
-            ret: Ty::Unit,
+            ret: Ty::UNIT,
             desc: None,
             span,
         });
@@ -1117,7 +1092,7 @@ impl Monomorphizer<'_> {
     /// consequence of stopping early rather than a second complaint.
     fn leaving(&self, index: usize, slot: usize, body: typed::Expr) -> typed::Expr {
         let span = body.span;
-        let leave = self.hook("test.leave", index, Ty::Unit, span);
+        let leave = self.hook("test.leave", index, Ty::UNIT, span);
         // And then: is there another order to try? `TestTasks.everyOrder` runs
         // the body once per completion order, and this is where a rerun
         // happens — the block calls **itself**, in tail position, so a rerun is
@@ -1139,7 +1114,7 @@ impl Monomorphizer<'_> {
         // that kept it goes round again.
         let again = typed::Expr::new(
             ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(slot as u32)), args: Vec::new() },
-            Ty::Unit,
+            Ty::UNIT,
             span,
         );
         let replay = typed::Expr::new(
@@ -1151,9 +1126,9 @@ impl Monomorphizer<'_> {
                     span,
                 )),
                 then: Box::new(again),
-                else_: Box::new(typed::Expr::new(ExprKind::Unit, Ty::Unit, span)),
+                else_: Box::new(typed::Expr::new(ExprKind::Unit, Ty::UNIT, span)),
             },
-            Ty::Unit,
+            Ty::UNIT,
             span,
         );
         typed::Expr::new(
@@ -1161,7 +1136,7 @@ impl Monomorphizer<'_> {
                 stmts: vec![typed::Stmt::Expr(body), typed::Stmt::Expr(leave)],
                 tail: Some(Box::new(replay)),
             },
-            Ty::Unit,
+            Ty::UNIT,
             span,
         )
     }
@@ -1486,10 +1461,10 @@ impl Monomorphizer<'_> {
         args: Vec<typed::Expr>,
         targs: &[Ty],
     ) -> (Vec<typed::Expr>, Option<typed::Stmt>) {
-        let implementation = match (recv, recv_at) {
+        let implementation = match (recv.kind(), recv_at.kind()) {
             // The front end had the row in hand and used it.
-            (Ty::Ctx(_), _) => None,
-            (_, Ty::Ctx(id)) => self
+            (TyKind::Ctx(_), _) => None,
+            (_, TyKind::Ctx(id)) => self
                 .tables()
                 .ctx_type(*id)
                 .get(trait_id)
@@ -1522,16 +1497,16 @@ impl Monomorphizer<'_> {
         // The receiver is bound once: the call reads it, and so does every
         // adapter, and a lambda captures locals rather than expressions.
         let Some(receiver) = out.first() else { return (out, None) };
-        let recv_ty = receiver.ty.clone();
+        let recv_ty = receiver.ty;
         let span = receiver.span;
-        let bound = self.new_local("__recv", recv_ty.clone(), span);
-        let stands_for = typed::Expr::new(ExprKind::Local(bound), recv_ty.clone(), span);
+        let bound = self.new_local("__recv", recv_ty, span);
+        let stands_for = typed::Expr::new(ExprKind::Local(bound), recv_ty, span);
         let Some(slot) = out.first_mut() else { return (out, None) };
         let receiver = std::mem::replace(slot, stands_for);
         let prelude = typed::Stmt::Let {
             pattern: typed::Pattern {
                 kind: PatKind::Bind { local: bound, sub: None },
-                ty: recv_ty.clone(),
+                ty: recv_ty,
                 span,
             },
             value: receiver,
@@ -1540,49 +1515,46 @@ impl Monomorphizer<'_> {
 
         for (i, at) in adapt {
             let Some(argument) = out.get(i) else { continue };
-            let callback_ty = argument.ty.clone();
+            let callback_ty = argument.ty;
             let span = argument.span;
-            let Ty::Fn(params, ret) = callback_ty.clone() else { continue };
-            let held = self.new_local("__handler", callback_ty.clone(), span);
+            let TyKind::Fn(params, ret) = callback_ty.kind() else { continue };
+            let held = self.new_local("__handler", callback_ty, span);
             // The adapter's own parameters: the implementation's type where the
             // declaration spelled `Self`, the declared type everywhere else.
             let mut binders = Vec::with_capacity(params.len());
             let mut forwarded = Vec::with_capacity(params.len());
             for (k, p) in params.iter().enumerate() {
                 let is_self = at.contains(&k);
-                let ty = if is_self { implementation.clone() } else { p.clone() };
-                let id = self.new_local(&format!("__a{k}"), ty.clone(), span);
+                let ty = if is_self { implementation } else { *p };
+                let id = self.new_local(&format!("__a{k}"), ty, span);
                 binders.push(id);
                 forwarded.push(if is_self {
-                    typed::Expr::new(ExprKind::Local(bound), recv_ty.clone(), span)
+                    typed::Expr::new(ExprKind::Local(bound), recv_ty, span)
                 } else {
                     typed::Expr::new(ExprKind::Local(id), ty, span)
                 });
             }
-            let adapter_ty = Ty::Fn(
-                params
+            let adapter_ty = Ty::func(params
                     .iter()
                     .enumerate()
                     .map(|(k, p)| {
                         if at.contains(&k) {
-                            implementation.clone()
+                            implementation
                         } else {
-                            p.clone()
+                            *p
                         }
                     })
-                    .collect(),
-                ret.clone(),
-            );
+                    , *ret);
             let body = typed::Expr::new(
                 ExprKind::CallValue {
                     callee: Box::new(typed::Expr::new(
                         ExprKind::Local(held),
-                        callback_ty.clone(),
+                        callback_ty,
                         span,
                     )),
                     args: forwarded,
                 },
-                (*ret).clone(),
+                *ret,
                 span,
             );
             let adapter = typed::Expr::new(
@@ -1591,12 +1563,12 @@ impl Monomorphizer<'_> {
                     body: Box::new(body),
                     captures: vec![bound, held],
                 },
-                adapter_ty.clone(),
+                adapter_ty,
                 span,
             );
             let Some(slot) = out.get_mut(i) else { continue };
             let callback =
-                std::mem::replace(slot, typed::Expr::new(ExprKind::Error, Ty::Error, span));
+                std::mem::replace(slot, typed::Expr::new(ExprKind::Error, Ty::ERROR, span));
             *slot = typed::Expr::new(
                 ExprKind::Block {
                     stmts: vec![typed::Stmt::Let {
@@ -1644,7 +1616,7 @@ impl Monomorphizer<'_> {
                     None => call,
                     Some(stmt) => ExprKind::Block {
                         stmts: vec![stmt],
-                        tail: Some(Box::new(typed::Expr::new(call, e.ty.clone(), e.span))),
+                        tail: Some(Box::new(typed::Expr::new(call, e.ty, e.span))),
                     },
                 }
             }
@@ -1675,7 +1647,7 @@ impl Monomorphizer<'_> {
                 }
             }
             ExprKind::CtxLit { bindings } => {
-                if let Ty::Ctx(id) = &e.ty {
+                if let TyKind::Ctx(id) = e.ty.kind() {
                     let layout: Vec<TraitId> = bindings.iter().map(|(t, _)| *t).collect();
                     self.ctx_layouts.insert(*id, layout);
                 }
@@ -1785,7 +1757,7 @@ impl Monomorphizer<'_> {
                 // descriptor is where the shape is written down. Nothing else
                 // asks for one at this type, so ask here.
                 if let Some(a) = args.first() {
-                    let t = a.ty.clone();
+                    let t = a.ty;
                     self.descriptor(&t);
                 }
                 ExprKind::StructuralEq { negate, args }
@@ -1878,7 +1850,7 @@ impl Monomorphizer<'_> {
     ) -> ExprKind {
         // A context value: read the implementation out of it, then dispatch on
         // that implementation's own type.
-        if let Ty::Ctx(id) = &recv {
+        if let TyKind::Ctx(id) = recv.kind() {
             // Checking already refused every call that could reach a context
             // without the effect: directly, through a bounded parameter, and
             // through a conditional `impl` such as `impl<C: Stdout> Stdout
@@ -1889,11 +1861,11 @@ impl Monomorphizer<'_> {
             if let Some(first) = args.first_mut() {
                 let base = std::mem::replace(
                     first,
-                    typed::Expr::new(ExprKind::Error, Ty::Error, span),
+                    typed::Expr::new(ExprKind::Error, Ty::ERROR, span),
                 );
                 *first = typed::Expr::new(
                     ExprKind::CtxGet { base: Box::new(base), trait_id },
-                    impl_ty.clone(),
+                    impl_ty,
                     span,
                 );
             }
@@ -1902,7 +1874,7 @@ impl Monomorphizer<'_> {
 
         // The structural traits are defined on `[T]`, tuples and unit by
         // their components (SPEC 5.11), with no `impl` to find.
-        if matches!(recv, Ty::Array(_) | Ty::Tuple(_) | Ty::Unit) {
+        if matches!(recv.kind(), TyKind::Array(_) | TyKind::Tuple(_) | TyKind::Unit) {
             return self.structural_call(trait_id, method, &recv, args, span);
         }
 
@@ -1981,7 +1953,7 @@ impl Monomorphizer<'_> {
         let span = h.span;
         let desc = self.descriptor(&h.ty);
         let str_ty = self.tables().prim(Prim::Str);
-        let desc_arg = typed::Expr::new(ExprKind::Int(desc as u128, false), Ty::Error, span);
+        let desc_arg = typed::Expr::new(ExprKind::Int(desc as u128, false), Ty::ERROR, span);
         typed::Expr::new(
             ExprKind::Intrinsic {
                 name: "structuralShow".into(),
@@ -2008,7 +1980,7 @@ impl Monomorphizer<'_> {
         let name = self.tables().trait_(trait_id).name.clone();
         let desc = self.descriptor(recv);
         let desc_arg =
-            typed::Expr::new(ExprKind::Int(desc as u128, false), Ty::Error, span);
+            typed::Expr::new(ExprKind::Int(desc as u128, false), Ty::ERROR, span);
         let mut all = args;
         all.push(desc_arg);
         match (name.as_str(), method) {
@@ -2069,8 +2041,8 @@ impl Monomorphizer<'_> {
             );
             return ExprKind::Error;
         };
-        let targs = match recv {
-            Ty::Con(_, a) => a.clone(),
+        let targs = match recv.kind() {
+            TyKind::Con(_, a) => a.to_vec(),
             _ => Vec::new(),
         };
         let inner = substitute(&field.ty, &targs, None);
@@ -2102,7 +2074,7 @@ impl Monomorphizer<'_> {
             .map(|a| {
                 typed::Expr::new(
                     ExprKind::Field { base: Box::new(a), index: 0 },
-                    inner.clone(),
+                    inner,
                     span,
                 )
             })
@@ -2137,15 +2109,15 @@ impl Monomorphizer<'_> {
         let slot = self.descriptors.len();
         self.descriptors.push(Desc::Reserved);
         self.desc_modules.push(self.declaring_module(ty));
-        self.desc_index.insert(ty.clone(), slot);
+        self.desc_index.insert(*ty, slot);
 
-        let desc = match ty {
-            Ty::Unit => Desc::Unit,
-            Ty::Array(e) => Desc::Array(self.descriptor(e)),
-            Ty::Tuple(es) => {
+        let desc = match ty.kind() {
+            TyKind::Unit => Desc::Unit,
+            TyKind::Array(e) => Desc::Array(self.descriptor(e)),
+            TyKind::Tuple(es) => {
                 Desc::Tuple(es.iter().map(|e| self.descriptor(e)).collect::<Vec<_>>())
             }
-            Ty::Con(con, args) => {
+            TyKind::Con(con, args) => {
                 let tycon = self.tables().tycon(*con).clone();
                 match &tycon.def {
                     TyDef::Prim(p) => Desc::Prim(*p),
@@ -2168,7 +2140,7 @@ impl Monomorphizer<'_> {
                     // payload is.
                     TyDef::Enum { .. } if self.tables().is_option(*con) => {
                         let payload = substitute(
-                            args.first().unwrap_or(&Ty::Error),
+                            args.first().unwrap_or(&Ty::ERROR),
                             args,
                             None,
                         );
@@ -2232,11 +2204,11 @@ impl Monomorphizer<'_> {
 /// `onRequest: fn(Self, Request) => Response` is the standard library's only
 /// `Self`-spelled parameter.
 fn self_positions(ty: &Ty) -> Vec<usize> {
-    let Ty::Fn(params, _) = ty else { return Vec::new() };
+    let TyKind::Fn(params, _) = ty.kind() else { return Vec::new() };
     params
         .iter()
         .enumerate()
-        .filter(|(_, p)| matches!(p, Ty::SelfTy))
+        .filter(|(_, p)| matches!(p.kind(), TyKind::SelfTy))
         .map(|(i, _)| i)
         .collect()
 }
@@ -2388,26 +2360,26 @@ fn instance_targs(
 /// bound to the same type both times, which is why a bound slot is compared
 /// rather than overwritten.
 fn match_head(head: &Ty, recv: &Ty, bound: &mut [Option<Ty>]) -> bool {
-    match (head, recv) {
-        (Ty::Param(i), actual) => match bound.get_mut(*i as usize) {
+    match (head.kind(), recv.kind()) {
+        (TyKind::Param(i), _) => match bound.get_mut(*i as usize) {
             Some(slot @ None) => {
-                *slot = Some(actual.clone());
+                *slot = Some(*recv);
                 true
             }
-            Some(Some(already)) => already == actual,
+            Some(Some(already)) => *already == *recv,
             // A parameter index past the impl's own generics: the head was
             // elaborated in a scope this call does not know about.
             None => false,
         },
-        (Ty::Con(a, xs), Ty::Con(b, ys)) => {
+        (TyKind::Con(a, xs), TyKind::Con(b, ys)) => {
             a == b && xs.len() == ys.len() && zip_match(xs, ys, bound)
         }
-        (Ty::Array(a), Ty::Array(b)) => match_head(a, b, bound),
-        (Ty::Tuple(xs), Ty::Tuple(ys)) => xs.len() == ys.len() && zip_match(xs, ys, bound),
-        (Ty::Fn(xs, a), Ty::Fn(ys, b)) => {
+        (TyKind::Array(a), TyKind::Array(b)) => match_head(a, b, bound),
+        (TyKind::Tuple(xs), TyKind::Tuple(ys)) => xs.len() == ys.len() && zip_match(xs, ys, bound),
+        (TyKind::Fn(xs, a), TyKind::Fn(ys, b)) => {
             xs.len() == ys.len() && zip_match(xs, ys, bound) && match_head(a, b, bound)
         }
-        (Ty::Unit, Ty::Unit) => true,
+        (TyKind::Unit, TyKind::Unit) => true,
         // `Ty::Error` matches nothing on purpose: a poisoned receiver has
         // already been reported, and `imp.method` returning `None` is the arm
         // that catches it before this is reached.
@@ -2838,27 +2810,24 @@ fn canonical_contexts(tables: &Tables) -> Vec<CtxTypeId> {
 
 /// `ty` with every context type replaced by its canonical one.
 fn canonical_ty(canon: &[CtxTypeId], ty: &Ty) -> Ty {
-    match ty {
-        Ty::Ctx(id) => Ty::Ctx(canon.get(id.index()).copied().unwrap_or(*id)),
-        Ty::Con(id, xs) => Ty::Con(*id, xs.iter().map(|x| canonical_ty(canon, x)).collect()),
-        Ty::Array(e) => Ty::Array(Box::new(canonical_ty(canon, e))),
-        Ty::Tuple(es) => Ty::Tuple(es.iter().map(|e| canonical_ty(canon, e)).collect()),
-        Ty::Fn(ps, r) => Ty::Fn(
-            ps.iter().map(|p| canonical_ty(canon, p)).collect(),
-            Box::new(canonical_ty(canon, r)),
-        ),
-        Ty::Var(_) | Ty::Param(_) | Ty::Unit | Ty::SelfTy | Ty::Error => ty.clone(),
+    match ty.kind() {
+        TyKind::Ctx(id) => Ty::ctx(canon.get(id.index()).copied().unwrap_or(*id)),
+        TyKind::Con(id, xs) => Ty::con(*id, xs.iter().map(|x| canonical_ty(canon, x))),
+        TyKind::Array(e) => Ty::array(canonical_ty(canon, e)),
+        TyKind::Tuple(es) => Ty::tuple(es.iter().map(|e| canonical_ty(canon, e))),
+        TyKind::Fn(ps, r) => Ty::func(ps.iter().map(|p| canonical_ty(canon, p)), canonical_ty(canon, r)),
+        TyKind::Var(_) | TyKind::Param(_) | TyKind::Unit | TyKind::SelfTy | TyKind::Error => *ty,
     }
 }
 
 /// Whether `ty` names no inference variable, generic parameter or `Self`.
 fn closed(ty: &Ty) -> bool {
-    match ty {
-        Ty::Var(_) | Ty::Param(_) | Ty::SelfTy => false,
-        Ty::Con(_, xs) | Ty::Tuple(xs) => xs.iter().all(closed),
-        Ty::Array(e) => closed(e),
-        Ty::Fn(ps, r) => ps.iter().all(closed) && closed(r),
-        Ty::Ctx(_) | Ty::Unit | Ty::Error => true,
+    match ty.kind() {
+        TyKind::Var(_) | TyKind::Param(_) | TyKind::SelfTy => false,
+        TyKind::Con(_, xs) | TyKind::Tuple(xs) => xs.iter().all(closed),
+        TyKind::Array(e) => closed(e),
+        TyKind::Fn(ps, r) => ps.iter().all(closed) && closed(r),
+        TyKind::Ctx(_) | TyKind::Unit | TyKind::Error => true,
     }
 }
 
@@ -2877,8 +2846,8 @@ impl<'a> std::fmt::Debug for Mangled<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let tables = self.1;
         let each = |xs: &'a [Ty]| -> Vec<Mangled<'a>> { xs.iter().map(|x| Mangled(x, tables)).collect() };
-        match self.0 {
-            Ty::Ctx(id) => {
+        match self.0.kind() {
+            TyKind::Ctx(id) => {
                 let bindings: Vec<(TraitId, Mangled)> = tables
                     .ctx_type(*id)
                     .bindings
@@ -2889,10 +2858,10 @@ impl<'a> std::fmt::Debug for Mangled<'a> {
             }
             // The rest is `#[derive(Debug)]`'s output, so a symbol whose type
             // arguments hold no context is the symbol it always was.
-            Ty::Con(id, xs) => f.debug_tuple("Con").field(id).field(&each(xs)).finish(),
-            Ty::Array(e) => f.debug_tuple("Array").field(&Mangled(e, tables)).finish(),
-            Ty::Tuple(es) => f.debug_tuple("Tuple").field(&each(es)).finish(),
-            Ty::Fn(ps, r) => f.debug_tuple("Fn").field(&each(ps)).field(&Mangled(r, tables)).finish(),
+            TyKind::Con(id, xs) => f.debug_tuple("Con").field(id).field(&each(xs)).finish(),
+            TyKind::Array(e) => f.debug_tuple("Array").field(&Mangled(e, tables)).finish(),
+            TyKind::Tuple(es) => f.debug_tuple("Tuple").field(&each(es)).finish(),
+            TyKind::Fn(ps, r) => f.debug_tuple("Fn").field(&each(ps)).field(&Mangled(r, tables)).finish(),
             other => other.fmt(f),
         }
     }
@@ -2977,12 +2946,16 @@ mod tests {
     // include ones no program in the tree spells, which is the reason the old
     // arithmetic survived as long as it did.
 
-    const P0: Ty = Ty::Param(0);
-    const P1: Ty = Ty::Param(1);
+    fn p0() -> Ty {
+        Ty::param(0)
+    }
+    fn p1() -> Ty {
+        Ty::param(1)
+    }
 
     /// A type constructor id, named for what a test means by it.
     fn con(id: u32, args: Vec<Ty>) -> Ty {
-        Ty::Con(TyConId(id), args)
+        Ty::con(TyConId(id), args)
     }
 
     fn int() -> Ty {
@@ -3026,8 +2999,8 @@ mod tests {
     #[test]
     fn an_impl_generic_is_read_off_the_receiver() {
         let host_fs = con(10, vec![]);
-        let head = con(12, vec![P0]);
-        let recv = con(12, vec![host_fs.clone()]);
+        let head = con(12, vec![p0()]);
+        let recv = con(12, vec![host_fs]);
         let got = instance_targs(&head, &recv, counts(1, 0), &[]);
         assert_eq!(got, Ok(vec![host_fs]));
     }
@@ -3037,7 +3010,7 @@ mod tests {
     /// in.
     #[test]
     fn an_impl_generic_and_a_method_generic_split_at_the_declared_count() {
-        let head = con(12, vec![P0]);
+        let head = con(12, vec![p0()]);
         let recv = con(12, vec![int()]);
         let got = instance_targs(&head, &recv, counts(2, 0), &[string()]);
         assert_eq!(got, Ok(vec![int(), string()]));
@@ -3048,8 +3021,8 @@ mod tests {
     /// the tree writes one of these yet, and the language admits them.
     #[test]
     fn a_head_that_reorders_or_nests_its_parameters_still_matches() {
-        let head = con(13, vec![Ty::Array(Box::new(P1)), P0]);
-        let recv = con(13, vec![Ty::Array(Box::new(string())), int()]);
+        let head = con(13, vec![Ty::array(p1()), p0()]);
+        let recv = con(13, vec![Ty::array(string()), int()]);
         let got = instance_targs(&head, &recv, counts(2, 0), &[]);
         assert_eq!(got, Ok(vec![int(), string()]));
     }
@@ -3058,7 +3031,7 @@ mod tests {
     /// `impl Show for Pair<Int, T>` — binds one parameter, not two.
     #[test]
     fn a_partly_concrete_head_binds_only_what_it_abstracts_over() {
-        let head = con(13, vec![int(), P0]);
+        let head = con(13, vec![int(), p0()]);
         let recv = con(13, vec![int(), string()]);
         assert_eq!(instance_targs(&head, &recv, counts(1, 0), &[]), Ok(vec![string()]));
 
@@ -3069,7 +3042,7 @@ mod tests {
     /// One parameter used twice has to be bound to one type.
     #[test]
     fn a_parameter_the_head_repeats_is_bound_once() {
-        let head = con(13, vec![P0, P0]);
+        let head = con(13, vec![p0(), p0()]);
         let same = con(13, vec![int(), int()]);
         assert_eq!(instance_targs(&head, &same, counts(1, 0), &[]), Ok(vec![int()]));
 
@@ -3099,7 +3072,7 @@ mod tests {
     /// key's guarantee checkable rather than assumed.
     #[test]
     fn a_receiver_of_another_type_does_not_match() {
-        let head = con(12, vec![P0]);
+        let head = con(12, vec![p0()]);
         let recv = con(13, vec![int()]);
         assert_eq!(instance_targs(&head, &recv, counts(1, 0), &[]), Err(TargError::HeadMismatch));
     }
@@ -3284,11 +3257,11 @@ mod tests {
     fn a_callback_parameter_spelled_self_is_in_scope() {
         // `Listen.listen`'s handler, and the same shape with generics beside
         // it.
-        assert_eq!(self_positions(&Ty::Fn(vec![Ty::SelfTy, int()], Box::new(string()))), vec![0]);
-        assert_eq!(self_positions(&Ty::Fn(vec![Ty::SelfTy, int(), P0], Box::new(P1))), vec![0]);
+        assert_eq!(self_positions(&Ty::func([Ty::SELF, int()], string())), vec![0]);
+        assert_eq!(self_positions(&Ty::func([Ty::SELF, int(), p0()], p1())), vec![0]);
         // Every position, not only the first.
         assert_eq!(
-            self_positions(&Ty::Fn(vec![int(), Ty::SelfTy, Ty::SelfTy], Box::new(Ty::Unit))),
+            self_positions(&Ty::func([int(), Ty::SELF, Ty::SELF], Ty::UNIT)),
             vec![1, 2]
         );
     }
@@ -3302,19 +3275,19 @@ mod tests {
     /// declaration would hand every step the scheduler instead.
     #[test]
     fn everything_else_is_out_of_scope() {
-        assert!(self_positions(&Ty::Fn(vec![P0, int()], Box::new(P1))).is_empty());
+        assert!(self_positions(&Ty::func([p0(), int()], p1())).is_empty());
         // The receiver itself: argument 0, which the caller skips anyway.
-        assert!(self_positions(&Ty::SelfTy).is_empty());
+        assert!(self_positions(&Ty::SELF).is_empty());
         // A `Self` the adapter cannot supply one value for.
-        assert!(self_positions(&con(3, vec![Ty::SelfTy])).is_empty());
-        assert!(self_positions(&Ty::Array(Box::new(Ty::SelfTy))).is_empty());
-        assert!(self_positions(&Ty::Tuple(vec![int(), Ty::SelfTy])).is_empty());
+        assert!(self_positions(&con(3, vec![Ty::SELF])).is_empty());
+        assert!(self_positions(&Ty::array(Ty::SELF)).is_empty());
+        assert!(self_positions(&Ty::tuple([int(), Ty::SELF])).is_empty());
         // A `Self` in a callback's *result*, which no effect declares.
-        assert!(self_positions(&Ty::Fn(vec![int()], Box::new(Ty::SelfTy))).is_empty());
+        assert!(self_positions(&Ty::func([int()], Ty::SELF)).is_empty());
         // And types with no `Self` in them at all.
         assert!(self_positions(&int()).is_empty());
-        assert!(self_positions(&Ty::Unit).is_empty());
-        assert!(self_positions(&Ty::Ctx(CtxTypeId(0))).is_empty());
+        assert!(self_positions(&Ty::UNIT).is_empty());
+        assert!(self_positions(&Ty::ctx(CtxTypeId(0))).is_empty());
     }
 
     /// Every rejection says something specific enough to act on.
@@ -3349,7 +3322,7 @@ mod tests {
             params: Vec::new(),
             locals: Vec::new(),
             kind,
-            ret: Ty::Unit,
+            ret: Ty::UNIT,
             desc: None,
             span: Span::NONE,
         }

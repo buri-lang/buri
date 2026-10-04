@@ -1,0 +1,9 @@
+library {
+    generators: [
+        { tool: "//tool/gen", inputs: ["size.txt"] },
+    ]
+
+    test {
+        sources: ["test/wire.buri"]
+    }
+}

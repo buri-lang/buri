@@ -83,7 +83,7 @@ use crate::compiler::middle::layout::{
     HEADER_CAP_OFFSET, HEADER_RC_OFFSET, IMMORTAL, STR_ASCII_FLAG, STR_LEN_MASK,
 };
 use crate::compiler::semantics::builtins::conversion_is_exact;
-use crate::compiler::semantics::types::{self as types, FuncIdx, Prim, Tables, Ty};
+use crate::compiler::semantics::types::{self as types, FuncIdx, Prim, Tables, Ty, TyKind};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use crate::hash::Map;
 
@@ -1203,7 +1203,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// has no fields at all.
     fn boxed_fields(&mut self, ty: ir::Type) -> Vec<bool> {
         let ir::Type::Agg(id) = ty else { return Vec::new() };
-        let owner = self.program.type_info(id).ty.clone();
+        let owner = self.program.type_info(id).ty;
         let fields = crate::compiler::semantics::types::field_types(self.tables, &owner);
         fields.iter().map(|f| self.reprs.boxes(&owner, f)).collect()
     }
@@ -1216,7 +1216,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// indirection, so the variant's slot in the blob is one pointer and not
     /// the payload's own words.
     fn boxed_payload(&mut self, id: ir::TypeId, variant: usize) -> Vec<(bool, u32, u32)> {
-        let owner = self.program.type_info(id).ty.clone();
+        let owner = self.program.type_info(id).ty;
         let fields = crate::compiler::semantics::types::variant_types(self.tables, &owner, variant);
         fields
             .iter()
@@ -1643,7 +1643,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         let (list_slots, element) = {
             let r = self.reprs.of(self.program, id);
-            (r.slots.clone(), self.reprs.of(self.program, id).ty.clone())
+            (r.slots.clone(), self.reprs.of(self.program, id).ty)
         };
         let Some(element) = self.reprs.element(&element) else { return };
         let (stride, element_slots, element_align) = {
@@ -1871,7 +1871,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let ir::Type::Agg(id) = code.ty_of(array) else { return None };
         let (list_ty, list_slots) = {
             let r = self.reprs.of(self.program, id);
-            (r.ty.clone(), r.slots.clone())
+            (r.ty, r.slots.clone())
         };
         let element = self.reprs.element(&list_ty)?;
         let list = self.get(state, array);
@@ -1983,7 +1983,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         };
         let captured = self.type_of(code.ty_of(env));
         let glue = captured
-            .clone()
             .and_then(|t| self.glue(Op::Release, &t))
             .map(function_pointer)
             .unwrap_or_else(|| self.ptr_ty().const_null());
@@ -2268,7 +2267,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ir::Type::I64 | ir::Type::Ptr | ir::Type::F64 => (8, None),
             ir::Type::I128 => (16, None),
             ir::Type::Agg(id) => {
-                let ty = self.program.type_info(id).ty.clone();
+                let ty = self.program.type_info(id).ty;
                 (self.reprs.of_ty(&ty).layout.stride, Some(ty))
             }
         })
@@ -2306,7 +2305,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         elements: Elements,
         span: Span,
     ) -> Option<Vec<BasicMetadataValueEnum<'ctx>>> {
-        let element = elements.source.clone();
+        let element = elements.source;
         let key = entry.key;
         let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = Vec::new();
         let mut cursor = 0usize;
@@ -2315,7 +2314,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // A bare `T` with no `Ty` behind it answers the stride and
                 // nothing else: it is a scalar, and a scalar holds no counted
                 // pointer, so the retain beside it is null.
-                let bare = if element.is_none() { elements.bare.clone() } else { None };
+                let bare = if element.is_none() { elements.bare } else { None };
                 if let Some((stride, glue_ty)) = bare {
                     match mode {
                         runtime::Arg::Stride => argv
@@ -2344,7 +2343,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     }
                     continue;
                 }
-                let Some(elem) = element.clone() else {
+                let Some(elem) = element else {
                     self.error(
                         span,
                         format!(
@@ -2435,7 +2434,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // writes another, and `element` is only the first.
                 runtime::Arg::Step => {
                     let step = self.type_of(ir_ty);
-                    let Some(Ty::Fn(ps, r)) = step else {
+                    let Some(TyKind::Fn(ps, r)) = step.map(Ty::kind) else {
                         self.error(
                             span,
                             format!("internal error: `{key}`'s step is not a function"),
@@ -2462,14 +2461,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         );
                         return None;
                     }
-                    let bytes = self.step_state_bytes(&ps, step_index);
+                    let bytes = self.step_state_bytes(ps, step_index);
                     let record = self.scratch(state, bytes, 8);
                     self.store_slots(record, &slots, 8, &pieces);
                     // The contexts, beside the closure. They are Buri arguments
                     // this row `Arg::Dropped`s out of the C signature, and this
                     // is where they go instead — read back by the entry thunk,
                     // which is the only thing that wants them.
-                    let ctx_at = self.step_ctx_offsets(&ps, step_index);
+                    let ctx_at = self.step_ctx_offsets(ps, step_index);
                     let from: Vec<ir::ValueId> = step_call(key)
                         .and_then(|c| c.ctx)
                         .into_iter()
@@ -2508,8 +2507,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         );
                         self.store_slots(into, &cslots, align, &cpieces);
                     }
-                    let thunk = self.entry_thunk(&ps, &r, step_index);
-                    let (Some(inn), Some(outn)) = (element.clone(), elements.answer.clone())
+                    let thunk = self.entry_thunk(ps, r, step_index);
+                    let (Some(inn), Some(outn)) = (element, elements.answer)
                     else {
                         self.error(
                             span,
@@ -2534,7 +2533,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // argument at this call.
                 runtime::Arg::Compute => {
                     let body = self.type_of(ir_ty);
-                    let Some(Ty::Fn(ps, r)) = body.clone() else {
+                    let Some(TyKind::Fn(ps, r)) = body.map(Ty::kind) else {
                         self.error(
                             span,
                             format!("internal error: `{key}`'s body is not a function"),
@@ -2553,16 +2552,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         );
                         return None;
                     }
-                    let bytes = self.step_state_bytes(&ps, None);
+                    let bytes = self.step_state_bytes(ps, None);
                     let record = self.scratch(state, bytes, 8);
                     self.store_slots(record, &slots, 8, &pieces);
                     if let Some(glue) = body.as_ref().and_then(|ty| self.glue(Op::Retain, ty)) {
                         let _ = self.builder.build_call(glue, &[record.into()], "");
                     }
-                    let thunk = self.entry_thunk(&ps, &r, None);
-                    let stride = self.reprs.stride_of(&r);
+                    let thunk = self.entry_thunk(ps, r, None);
+                    let stride = self.reprs.stride_of(r);
                     let release = self
-                        .glue(Op::Release, &r)
+                        .glue(Op::Release, r)
                         .map(function_pointer)
                         .unwrap_or_else(|| self.ptr_ty().const_null());
                     let word = self.ctx.i64_type();
@@ -2586,7 +2585,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 }
                 runtime::Arg::Walk => {
                     let body = self.type_of(ir_ty);
-                    let Some(Ty::Fn(ps, r)) = body.clone() else {
+                    let Some(TyKind::Fn(ps, r)) = body.map(Ty::kind) else {
                         self.error(
                             span,
                             format!("internal error: `{key}`'s walk is not a function"),
@@ -2608,13 +2607,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // The context is dropped, the builder handle is the index the
                     // runtime supplies, and the node is the element, so
                     // `index = Some(1)`.
-                    let bytes = self.step_state_bytes(&ps, Some(1));
+                    let bytes = self.step_state_bytes(ps, Some(1));
                     let record = self.scratch(state, bytes, 8);
                     self.store_slots(record, &slots, 8, &pieces);
                     // No retain: the walk is invoked once, during this call, and
                     // released by `middle::rc` at its last use here — the
                     // runtime keeps nothing.
-                    let thunk = self.entry_thunk(&ps, &r, Some(1));
+                    let thunk = self.entry_thunk(ps, r, Some(1));
                     let word = self.ctx.i64_type();
                     argv.push(function_pointer(thunk).into());
                     argv.push(record.into());
@@ -2624,7 +2623,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 }
                 runtime::Arg::Press => {
                     let body = self.type_of(ir_ty);
-                    let Some(Ty::Fn(ps, r)) = body.clone() else {
+                    let Some(TyKind::Fn(ps, r)) = body.map(Ty::kind) else {
                         self.error(
                             span,
                             format!("internal error: `{key}`'s handler is not a function"),
@@ -2645,7 +2644,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     }
                     // The context is dropped and the event is the element, so
                     // there is no index the runtime supplies: `index = None`.
-                    let bytes = self.step_state_bytes(&ps, None);
+                    let bytes = self.step_state_bytes(ps, None);
                     let record = self.scratch(state, bytes, 8);
                     self.store_slots(record, &slots, 8, &pieces);
                     // The runtime keeps the handler, so the graph owes its
@@ -2653,7 +2652,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     if let Some(glue) = body.as_ref().and_then(|ty| self.glue(Op::Retain, ty)) {
                         let _ = self.builder.build_call(glue, &[record.into()], "");
                     }
-                    let thunk = self.entry_thunk(&ps, &r, None);
+                    let thunk = self.entry_thunk(ps, r, None);
                     let word = self.ctx.i64_type();
                     argv.push(function_pointer(thunk).into());
                     argv.push(record.into());
@@ -3679,11 +3678,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         let key = self.reprs.glue_key(ty);
         let (f, fresh) = self.glue_function(what, &key);
-        if let Some(entry) = self.glues.entry(ty.clone()).or_default().get_mut(slot) {
+        if let Some(entry) = self.glues.entry(*ty).or_default().get_mut(slot) {
             *entry = Some(f);
         }
         if fresh {
-            self.pending.push(Job::Glue { value: f, op, elems, ty: ty.clone() });
+            self.pending.push(Job::Glue { value: f, op, elems, ty: *ty });
         }
         Some(f)
     }
@@ -3708,8 +3707,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // `ccc`: the runtime holds this as a plain C function pointer, exactly
         // as it holds the retain and the release beside it.
         attrs::set_convention(f, attrs::C);
-        self.equals.insert(ty.clone(), f);
-        self.pending.push(Job::Equal { value: f, func, ty: ty.clone() });
+        self.equals.insert(*ty, f);
+        self.pending.push(Job::Equal { value: f, func, ty: *ty });
         Some(f)
     }
 
@@ -3792,7 +3791,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         ret: &Ty,
         index: Option<usize>,
     ) -> FunctionValue<'ctx> {
-        let key = (params.to_vec(), ret.clone(), index);
+        let key = (params.to_vec(), *ret, index);
         if let Some(f) = self.entries.get(&key) {
             return *f;
         }
@@ -3810,7 +3809,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.pending.push(Job::Entry {
             value: f,
             params: params.to_vec(),
-            ret: ret.clone(),
+            ret: *ret,
             index,
         });
         f
@@ -4932,7 +4931,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) -> Option<(usize, usize, u32, Ty)> {
         let source = self.type_of(code.ty_of(dest))?;
         let (ok, err, err_ty) = types::result_shape(self.tables, &source)?;
-        let Ty::Con(_, args) = &source else { return None };
+        let TyKind::Con(_, args) = source.kind() else { return None };
         let ok_bytes = self.reprs.of_ty(args.get(ok)?).layout.size;
         Some((ok, err, ok_bytes, err_ty))
     }
@@ -5051,7 +5050,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// arms, and the sentence is here so the refusal reads as a consequence.
     fn type_of(&self, ty: ir::Type) -> Option<Ty> {
         match ty {
-            ir::Type::Agg(id) => Some(self.program.type_info(id).ty.clone()),
+            ir::Type::Agg(id) => Some(self.program.type_info(id).ty),
             _ => None,
         }
     }
@@ -5181,7 +5180,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let (dest, op, ty) = (*dest, *op, *ty);
         let (source, name) = {
             let info = self.program.type_info(ty);
-            (info.ty.clone(), info.name.clone())
+            (info.ty, info.name.clone())
         };
         if !matches!(op, ir::StructuralOp::Show) {
             self.error(
@@ -5469,7 +5468,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         arg: ir::ValueId,
     ) -> bool {
         let ir::Type::Agg(id) = code.ty_of(dest) else { return false };
-        let owner = self.program.type_info(id).ty.clone();
+        let owner = self.program.type_info(id).ty;
         let arm = json_arm(prim);
         let Some(variant) = json_variant(self.tables, &owner, arm) else { return false };
         let Some(field) = types::variant_types(self.tables, &owner, variant).first().cloned()
@@ -7174,7 +7173,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) -> bool {
         let ir::Type::Agg(id) = code.ty_of(dest) else { return false };
         let Some(kind) = checked_kind(from, to) else { return false };
-        let owner = self.program.type_info(id).ty.clone();
+        let owner = self.program.type_info(id).ty;
         let Some(ok_ty) = types::variant_types(self.tables, &owner, 0).into_iter().next() else {
             return false;
         };
@@ -7183,7 +7182,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         };
         let err_fields = types::field_types(self.tables, &err_ty);
         let [value_ty, target_ty] = err_fields.as_slice() else { return false };
-        let (value_ty, target_ty) = (value_ty.clone(), target_ty.clone());
+        let (value_ty, target_ty) = (*value_ty, *target_ty);
         let ok_slots = self.reprs.of_ty(&ok_ty).slots.clone();
         let Some(ok_slot) = ok_slots.first().copied() else { return false };
         let want = repr::slot_type(self.ctx, ok_slot.ty);
@@ -8433,7 +8432,7 @@ impl<'a> Boxes<'a> {
 
     fn owner(&self, code: &ir::Code, v: ir::ValueId) -> Option<Ty> {
         let ir::Type::Agg(id) = code.ty_of(v) else { return None };
-        Some(self.program.type_info(id).ty.clone())
+        Some(self.program.type_info(id).ty)
     }
 }
 

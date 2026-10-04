@@ -1,0 +1,8 @@
+# No `platforms`: both suites run natively, so they share one test binary.
+library {
+    sources: ["deep.buri"]
+
+    test {
+        sources: ["test/deep.buri"]
+    }
+}

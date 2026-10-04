@@ -988,7 +988,7 @@ fn std_source_file(root: &std::path::Path, text: &str) -> Option<String> {
             return Some(format!("sources/{}", path.file_name()?.to_string_lossy()));
         }
     }
-    for platform in buri::compiler::standard_library::PLATFORMS {
+    for platform in buri::build::buildfile::PlatformName::BUNDLED.map(|p| p.name()) {
         let path = root.join(format!("cli/src/platforms/{platform}/platform.buri"));
         if std::fs::read_to_string(&path).is_ok_and(|t| t == text) {
             return Some(format!("platforms/{platform}/platform.buri"));

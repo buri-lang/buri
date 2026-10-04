@@ -1181,7 +1181,7 @@ fn in_one_body(
         return Some(Found {
             symbol: Symbol::Local {
                 name: local.name.clone(),
-                ty: local.ty.clone(),
+                ty: local.ty,
                 span: local.span,
             },
             span: local.span,
@@ -1356,7 +1356,7 @@ fn expression_symbols(
             if let Some(l) = locals.get(id.index()) {
                 out(
                     l.name.clone(),
-                    Symbol::Local { name: l.name.clone(), ty: l.ty.clone(), span: l.span },
+                    Symbol::Local { name: l.name.clone(), ty: l.ty, span: l.span },
                 );
             }
         }

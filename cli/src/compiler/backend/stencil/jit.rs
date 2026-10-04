@@ -477,7 +477,7 @@ impl<'a> Jit<'a> {
     }
 
     pub(crate) fn layout_of(&mut self, prog: &ir::Program, id: ir::TypeId) -> Layout {
-        let ty: Ty = prog.type_info(id).ty.clone();
+        let ty: Ty = prog.type_info(id).ty;
         self.layouts.of(ty)
     }
 
@@ -547,7 +547,7 @@ pub(crate) fn frame_sigs(prog: &ir::Program, tables: &Tables) -> Vec<FrameSig> {
             ir::Type::I64 | ir::Type::F64 | ir::Type::Ptr => 8,
             ir::Type::I128 => 16,
             ir::Type::Unit => 0,
-            ir::Type::Agg(id) => l.of(prog.type_info(id).ty.clone()).size,
+            ir::Type::Agg(id) => l.of(prog.type_info(id).ty).size,
         }
     };
     let mut out = Vec::with_capacity(prog.funcs.len());
@@ -1625,14 +1625,14 @@ impl<'a> Jit<'a> {
                 let (dest, fields, offs, owner, ftys) = match i {
                     ir::Inst::MakeStruct { dest, fields } => {
                         let ir::Type::Agg(id) = code.ty_of(*dest) else { continue };
-                        let owner = prog.type_info(id).ty.clone();
+                        let owner = prog.type_info(id).ty;
                         let l = self.layout_of(prog, id);
                         let ftys = crate::compiler::semantics::types::field_types(self.tables, &owner);
                         (*dest, fields, l.fields.clone(), owner, ftys)
                     }
                     ir::Inst::MakeEnum { dest, variant, fields } => {
                         let ir::Type::Agg(id) = code.ty_of(*dest) else { continue };
-                        let owner = prog.type_info(id).ty.clone();
+                        let owner = prog.type_info(id).ty;
                         let l = self.layout_of(prog, id);
                         if matches!(&l.repr, Repr::Enum { repr: EnumRepr::Bare { .. }, .. }) {
                             continue;

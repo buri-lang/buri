@@ -646,9 +646,11 @@ tag-compatible batch, and links it once
 changes nothing you see: the runner still caches verdicts one suite at a time,
 reports one suite at a time, and runs a suite that cannot batch on its own.
 
-Suites build and run side by side. Each suite in a batch runs in processes of
-its own, a few tests each, and `--jobs=<n>` caps how many builds and runs happen
-at once. The default is one per core, and builds stay at one per 8 GB of memory.
+Suites build and run side by side. Each suite in a batch runs in a process of
+its own, and a long suite spreads over more when workers are free. Every binary
+is linked before any suite runs on a worker a build could use. `--jobs=<n>` caps
+how many builds and runs happen at once. The default is one per core, and builds
+stay at one per 8 GB of memory.
 The report doesn't change with it: suites print in label order, each one whole,
 whichever finished first. Two suites that take snapshots into one package's
 `test/__snapshots__/` never run at the same time.

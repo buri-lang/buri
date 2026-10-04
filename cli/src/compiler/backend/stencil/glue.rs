@@ -294,15 +294,15 @@ impl Jit<'_> {
         let at = self.region.code_addr();
         match h {
             Helper::Thunk { func, args, boxed } => self.thunk(prog, *func, *args, *boxed),
-            Helper::Walk { ty, op } => self.walk_glue(ty.clone(), *op),
-            Helper::Elems { ty, op } => self.elems_glue(ty.clone(), *op),
+            Helper::Walk { ty, op } => self.walk_glue(*ty, *op),
+            Helper::Elems { ty, op } => self.elems_glue(*ty, *op),
             Helper::Env { op } => {
                 self.env_glue(if *op == Op::Copy { ENV_COPY_WORD } else { 0 })
             }
             Helper::Entry { params, ret, index } => {
-                self.entry_thunk(params.clone(), ret.clone(), *index)
+                self.entry_thunk(params.clone(), *ret, *index)
             }
-            Helper::Equal { ty, func } => self.equal_thunk(prog, ty.clone(), *func),
+            Helper::Equal { ty, func } => self.equal_thunk(prog, *ty, *func),
         }
         at
     }
@@ -336,7 +336,7 @@ impl Jit<'_> {
             ],
         );
         let counted = source_ty(prog, ty).filter(|t| self.rc_counted(t));
-        let glue = counted.clone().map(|t| self.helper(Helper::Walk { ty: t, op: Op::Release }));
+        let glue = counted.map(|t| self.helper(Helper::Walk { ty: t, op: Op::Release }));
         let copy = counted.map(|t| self.helper(Helper::Walk { ty: t, op: Op::Copy }));
         for (name, at) in [(glue, 0u32), (copy, ENV_COPY_WORD)] {
             match name {
@@ -401,7 +401,7 @@ impl Jit<'_> {
     /// retain `cli/runtime/list.rs` takes, or the copy glue. A copy is all
     /// replacement, so the value goes back through the pointer it came in on.
     fn walk_glue(&mut self, ty: Ty, op: Op) {
-        let size = self.layouts_of(ty.clone()).size.max(8);
+        let size = self.layouts_of(ty).size.max(8);
         let frame = round16(G_VALUE + round8(size) + SCRATCH_BYTES);
         if !self.glue_stub(frame) {
             return;
@@ -436,7 +436,7 @@ impl Jit<'_> {
     ///
     /// A copy stores each element back once it is replaced.
     fn elems_glue(&mut self, ty: Ty, op: Op) {
-        let l = self.layouts_of(ty.clone());
+        let l = self.layouts_of(ty);
         let (size, stride) = (l.size.max(1), l.stride.max(1));
         // The frame holds a whole *stride*, padding and all, because
         // [`Jit::unless_spare`] reads every byte of the slot.
@@ -686,11 +686,11 @@ impl Jit<'_> {
             return;
         };
         let widths: Vec<u32> =
-            params.iter().map(|t| self.layouts_of(t.clone()).size).collect();
+            params.iter().map(|t| self.layouts_of(*t).size).collect();
         let (ctx_at, _) = state_shape(&widths, index);
-        let elem_l = self.layouts_of(elem.clone());
+        let elem_l = self.layouts_of(elem);
         let (elem_size, elem_slot) = (elem_l.size, round8(elem_l.size).max(8));
-        let ret_l = self.layouts_of(ret.clone());
+        let ret_l = self.layouts_of(ret);
         let (ret_size, ret_slot) = (ret_l.size, round8(ret_l.size).max(8));
 
         let scratch = E_ELEM + elem_slot;
@@ -706,7 +706,7 @@ impl Jit<'_> {
         let mut param_at: Vec<u32> = Vec::new();
         for t in &params {
             param_at.push(at);
-            at += round8(self.layouts_of(t.clone()).size).max(8);
+            at += round8(self.layouts_of(*t).size).max(8);
         }
 
         self.imm_to(E_ZERO, 0);
@@ -844,7 +844,7 @@ impl Jit<'_> {
         let ret_ty = f.sig.rets.first().copied();
         let callee = self.frame_sig_of(func as usize);
 
-        let size = self.layouts_of(ty.clone()).size;
+        let size = self.layouts_of(ty).size;
         let slot = round8(size).max(8);
         let ret_size = ret_ty.map(|t| self.width_of(prog, t)).unwrap_or(0);
         let scratch = Q_VALUE + slot * 2;

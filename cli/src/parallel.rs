@@ -228,6 +228,9 @@ pub struct Queue<J> {
 struct QueueState<J> {
     /// Each job with the bytes it holds, `0` for a light one.
     jobs: std::collections::VecDeque<(J, u64)>,
+    /// Light jobs that run what is already built, taken only when no job in
+    /// `jobs` can be ([`Queue::push_later`]).
+    later: std::collections::VecDeque<J>,
     /// The bytes the heavy jobs holding a program are expected to hold.
     held: u64,
     closed: bool,
@@ -274,14 +277,25 @@ impl<J> Queue<J> {
         self.ready.notify_one();
     }
 
-    /// Queues a light job ahead of the others: it finishes work already started.
-    pub fn push_first(&self, job: J) {
-        self.lock().jobs.push_front((job, 0));
+    /// Queues a light job that runs something already built, such as a test
+    /// binary. It is taken only when no job [`Queue::push`] queued can be, so
+    /// everything waiting to be built is built — and linked — first, and the
+    /// runs fill the workers the builds leave idle. `first` puts it ahead of
+    /// the other runs: it finishes work already started.
+    pub fn push_later(&self, job: J, first: bool) {
+        let mut state = self.lock();
+        if first {
+            state.later.push_front(job);
+        } else {
+            state.later.push_back(job);
+        }
+        drop(state);
         self.ready.notify_one();
     }
 
     /// The first job a worker may start: the first light one, or the first
-    /// heavy one the budget has room for, whichever is queued first.
+    /// heavy one the budget has room for, whichever is queued first; and only
+    /// when there is neither, the first run.
     fn take(&self) -> Option<(J, Held<'_>)> {
         let mut state = self.lock();
         loop {
@@ -293,6 +307,9 @@ impl<J> Queue<J> {
                     let room: &dyn Release = self;
                     return Some((job, Held { room: (bytes > 0).then_some((room, bytes)) }));
                 }
+            }
+            if let Some(job) = state.later.pop_front() {
+                return Some((job, Held { room: None }));
             }
             if state.closed {
                 return None;
@@ -331,6 +348,7 @@ where
     let queue = Queue {
         state: std::sync::Mutex::new(QueueState {
             jobs: std::collections::VecDeque::new(),
+            later: std::collections::VecDeque::new(),
             held: 0,
             closed: false,
         }),

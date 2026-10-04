@@ -8,7 +8,7 @@
 use std::rc::Rc;
 
 use crate::compiler::middle::layout::{self, EnumRepr, Layouts, Repr, Scalar};
-use crate::compiler::semantics::types::{field_types, variant_types, Tables, Ty};
+use crate::compiler::semantics::types::{field_types, variant_types, Tables, Ty, TyKind};
 use crate::hash::Map;
 
 /// What a walk does at each count it reaches.
@@ -93,7 +93,7 @@ impl Counts {
         // Recorded before the descent so a type graph is walked once per
         // distinct type. A recursive type reaches itself only through a box,
         // which answers `true` before descending.
-        self.counted.insert(ty.clone(), false);
+        self.counted.insert(*ty, false);
         let l = layouts.shared(ty);
         let answer = match &l.repr {
             Repr::Str | Repr::List | Repr::Closure => true,
@@ -102,7 +102,7 @@ impl Counts {
                 .any(|v| self.any(tables, layouts, ty, &variant_types(tables, ty, v))),
             Repr::Zero | Repr::Scalar(_) => false,
         };
-        self.counted.insert(ty.clone(), answer);
+        self.counted.insert(*ty, answer);
         answer
     }
 
@@ -116,7 +116,7 @@ impl Counts {
             return known.clone();
         }
         let sites: Rc<[Site]> = self.build(tables, layouts, ty).into();
-        self.sites.insert(ty.clone(), sites.clone());
+        self.sites.insert(*ty, sites.clone());
         sites
     }
 
@@ -146,7 +146,7 @@ impl Counts {
             };
             total = total.saturating_add(here);
         }
-        self.weights.insert(ty.clone(), total);
+        self.weights.insert(*ty, total);
         total
     }
 
@@ -163,10 +163,10 @@ impl Counts {
         match &l.repr {
             Repr::Zero | Repr::Scalar(_) => Vec::new(),
             Repr::Str => vec![Site::Block { offset: l.field(layout::STR_BASE), glue: Glue::Str }],
-            Repr::List => match ty {
-                Ty::Array(elem) => vec![Site::Block {
+            Repr::List => match ty.kind() {
+                TyKind::Array(elem) => vec![Site::Block {
                     offset: l.field(layout::LIST_PTR),
-                    glue: Glue::Elems((**elem).clone()),
+                    glue: Glue::Elems(*elem),
                 }],
                 _ => Vec::new(),
             },
@@ -181,10 +181,10 @@ impl Counts {
             Repr::Enum { repr, variants } => match *repr {
                 EnumRepr::Bare { .. } => Vec::new(),
                 EnumRepr::Niche { null_at } => {
-                    let Ty::Con(_, args) = ty else { return Vec::new() };
+                    let TyKind::Con(_, args) = ty.kind() else { return Vec::new() };
                     match args.first() {
                         Some(payload) if self.counted(tables, layouts, payload) => {
-                            vec![Site::Guarded { null_at, ty: payload.clone() }]
+                            vec![Site::Guarded { null_at, ty: *payload }]
                         }
                         _ => Vec::new(),
                     }
@@ -226,7 +226,7 @@ impl Counts {
             let boxed = layouts.boxes(owner, f);
             if boxed || self.counted(tables, layouts, f) {
                 let offset = offsets.get(i).copied().unwrap_or(0);
-                out.push(Field { offset, boxed, ty: f.clone() });
+                out.push(Field { offset, boxed, ty: *f });
             }
         }
         out

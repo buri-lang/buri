@@ -316,7 +316,7 @@ fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &
     let PatKind::Variant { con, variant, .. } = &first.pattern.kind else { return None };
     let (con, variant) = (*con, *variant);
     let (head_ty, head_span, arm_span) =
-        (first.pattern.ty.clone(), first.pattern.span, first.span);
+        (first.pattern.ty, first.pattern.span, first.span);
 
     // Each row's pattern on the column, moved out of it. A row that does not
     // name the column matches anything there.
@@ -329,9 +329,9 @@ fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &
         match found {
             Some(f) => std::mem::replace(
                 &mut f.pattern,
-                Pattern { kind: PatKind::Wild, ty: Ty::Unit, span },
+                Pattern { kind: PatKind::Wild, ty: Ty::UNIT, span },
             ),
-            None => Pattern { kind: PatKind::Wild, ty: head_ty.clone(), span },
+            None => Pattern { kind: PatKind::Wild, ty: head_ty, span },
         }
     };
     let mut arms: Vec<Arm> = Vec::with_capacity(rows.len());
@@ -342,16 +342,16 @@ fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &
     // The fresh local takes its type from the pattern that was matching it,
     // which is the one place a type is available without the type tables.
     let bound = &arms.first()?.pattern;
-    let (bound_ty, bound_span) = (bound.ty.clone(), bound.span);
+    let (bound_ty, bound_span) = (bound.ty, bound.span);
     let held = LocalId(locals.len() as u32);
-    locals.push(typed::Local { name: "col".to_string(), ty: bound_ty.clone(), span: bound_span });
+    locals.push(typed::Local { name: "col".to_string(), ty: bound_ty, span: bound_span });
 
     let mut body = Expr::new(
         ExprKind::Match {
-            scrutinee: Box::new(Expr::new(ExprKind::Local(held), bound_ty.clone(), bound_span)),
+            scrutinee: Box::new(Expr::new(ExprKind::Local(held), bound_ty, bound_span)),
             arms,
         },
-        ty.clone(),
+        *ty,
         arm_span,
     );
     // The match just built is a match like any other, and the column below it
@@ -395,11 +395,11 @@ mod tests {
     const CON: TyConId = TyConId(7);
 
     fn e(kind: ExprKind) -> Expr {
-        Expr::new(kind, Ty::Unit, Span::default())
+        Expr::new(kind, Ty::UNIT, Span::default())
     }
 
     fn pat(kind: PatKind) -> Pattern {
-        Pattern { kind, ty: Ty::Unit, span: Span::default() }
+        Pattern { kind, ty: Ty::UNIT, span: Span::default() }
     }
 
     /// `.V(sub)`, the one-field variant every case here is written over.
@@ -428,11 +428,11 @@ mod tests {
                 params: vec![LocalId(0)],
                 locals: vec![Local {
                     name: "s".to_string(),
-                    ty: Ty::Unit,
+                    ty: Ty::UNIT,
                     span: Span::default(),
                 }],
                 kind: FuncKind::Body(body),
-                ret: Ty::Unit,
+                ret: Ty::UNIT,
                 desc: None,
                 span: Span::default(),
             }],

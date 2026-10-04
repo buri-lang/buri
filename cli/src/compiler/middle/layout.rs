@@ -68,7 +68,7 @@
 //! Design: `design/native/VALUE-MODEL.md`, and the `Allocator` cost model in
 //! `MEMORY.md` §7.1.
 
-use crate::compiler::semantics::types::{self, Prim, Tables, Ty, TyConId, TyDef};
+use crate::compiler::semantics::types::{self, Prim, Tables, Ty, TyKind, TyConId, TyDef};
 use crate::diagnostics::Invariant as _;
 use crate::hash::{Map, Set};
 use std::fmt::Write as _;
@@ -579,34 +579,34 @@ impl<'a> Layouts<'a> {
         self.depth = self.depth.saturating_sub(1);
         let id = self.table.len();
         self.table.push(Rc::new(layout));
-        self.memo.insert(ty.clone(), id);
+        self.memo.insert(*ty, id);
         id
     }
 
     fn build(&mut self, ty: &Ty) -> Layout {
         let tables = self.tables;
-        match ty {
+        match ty.kind() {
             // `[T]` and a closure are the two places the element type is not
             // consulted, which is exactly why they are where recursion stops.
-            Ty::Array(_) => Layout::words(2, vec![0, POINTER], Repr::List),
-            Ty::Fn(_, _) => Layout::words(2, vec![0, POINTER], Repr::Closure),
-            Ty::Tuple(elements) => {
-                let elements = elements.clone();
-                let (size, align, fields) = self.record(None, &elements);
+            TyKind::Array(_) => Layout::words(2, vec![0, POINTER], Repr::List),
+            TyKind::Fn(_, _) => Layout::words(2, vec![0, POINTER], Repr::Closure),
+            TyKind::Tuple(elements) => {
+                let elements: &[Ty] = elements;
+                let (size, align, fields) = self.record(None, elements);
                 // A tuple of nothing but zero-sized members is itself nothing,
                 // and says so the same way an empty struct does — one
                 // predicate drops both from a signature.
                 let repr = if size == 0 { Repr::Zero } else { Repr::Aggregate };
                 Layout { size, align, stride: size, fields, repr }
             }
-            Ty::Ctx(id) => {
+            TyKind::Ctx(id) => {
                 let bindings: Vec<Ty> =
-                    tables.ctx_type(*id).bindings.iter().map(|(_, t)| t.clone()).collect();
+                    tables.ctx_type(*id).bindings.iter().map(|(_, t)| *t).collect();
                 let (size, align, fields) = self.record(None, &bindings);
                 let repr = if size == 0 { Repr::Zero } else { Repr::Aggregate };
                 Layout { size, align, stride: size, fields, repr }
             }
-            Ty::Con(id, args) => match &tables.tycon(*id).def {
+            TyKind::Con(id, args) => match &tables.tycon(*id).def {
                 TyDef::Prim(p) => match scalar_of(*p) {
                     Some(s) => Layout::scalar(s),
                     // `Str`, and `Template`, which is `Str` (§3.3).
@@ -628,7 +628,7 @@ impl<'a> Layouts<'a> {
             // the answer here once, and it made a written `Self` in an `impl`
             // method's parameter a silently zero-sized value rather than a
             // reported mistake — the failure this arm exists to make loud.
-            Ty::SelfTy => crate::diagnostics::ice(
+            TyKind::SelfTy => crate::diagnostics::ice(
                 "`Self` reached middle::layout: a signature left an `impl` with its receiver \
                  type unresolved",
             ),
@@ -638,7 +638,7 @@ impl<'a> Layouts<'a> {
             // produced an `Error` stopped before it — but a defined empty
             // layout rather than an internal error is what keeps `of` total for
             // a caller asking about a half-checked program.
-            Ty::Unit | Ty::Var(_) | Ty::Param(_) | Ty::Error => Layout::zero(),
+            TyKind::Unit | TyKind::Var(_) | TyKind::Param(_) | TyKind::Error => Layout::zero(),
         }
     }
 
@@ -680,7 +680,7 @@ impl<'a> Layouts<'a> {
         // this is where that is decided.
         if tables.is_option(con) {
             if let Some(payload) = args.first().filter(|p| !tables.is_option_ty(p)) {
-                let payload = payload.clone();
+                let payload = *payload;
                 if let Some(null_at) = self.niche(&payload) {
                     let id = self.compute(&payload);
                     let inner = self.at(id);
@@ -783,19 +783,19 @@ impl<'a> Layouts<'a> {
     /// is deferred (§6).
     fn niche(&mut self, ty: &Ty) -> Option<u32> {
         let tables = self.tables;
-        match ty {
-            Ty::Array(_) => None,
-            Ty::Fn(_, _) => Some(offset_of(CLOSURE_CODE)),
-            Ty::Tuple(elements) => {
-                let elements = elements.clone();
-                self.niche_in(ty, &elements)
+        match ty.kind() {
+            TyKind::Array(_) => None,
+            TyKind::Fn(_, _) => Some(offset_of(CLOSURE_CODE)),
+            TyKind::Tuple(elements) => {
+                let elements: &[Ty] = elements;
+                self.niche_in(ty, elements)
             }
-            Ty::Ctx(id) => {
+            TyKind::Ctx(id) => {
                 let bindings: Vec<Ty> =
-                    tables.ctx_type(*id).bindings.iter().map(|(_, t)| t.clone()).collect();
+                    tables.ctx_type(*id).bindings.iter().map(|(_, t)| *t).collect();
                 self.niche_in(ty, &bindings)
             }
-            Ty::Con(id, args) => match &tables.tycon(*id).def {
+            TyKind::Con(id, args) => match &tables.tycon(*id).def {
                 TyDef::Prim(Prim::Str | Prim::Template) => Some(offset_of(STR_PTR)),
                 TyDef::Prim(_) | TyDef::Enum { .. } => None,
                 TyDef::Struct { fields, .. } => {
@@ -804,7 +804,7 @@ impl<'a> Layouts<'a> {
                     self.niche_in(ty, &tys)
                 }
             },
-            Ty::Unit | Ty::Var(_) | Ty::Param(_) | Ty::SelfTy | Ty::Error => None,
+            TyKind::Unit | TyKind::Var(_) | TyKind::Param(_) | TyKind::SelfTy | TyKind::Error => None,
         }
     }
 
@@ -882,7 +882,7 @@ impl<'a> Layouts<'a> {
             return Rc::clone(known);
         }
         let text: Rc<str> = Rc::from(self.describe(ty).as_str());
-        self.descriptions.insert(ty.clone(), Rc::clone(&text));
+        self.descriptions.insert(*ty, Rc::clone(&text));
         text
     }
 
@@ -938,13 +938,13 @@ impl<'a> Layouts<'a> {
             }
         }
         let depth = path.len();
-        path.push(ty.clone());
+        path.push(*ty);
         let layout = self.shared(ty);
         let mut inner = format!("{:?}", *layout);
-        let lists: Vec<Vec<Ty>> = match (&layout.repr, ty) {
-            (Repr::List, Ty::Array(elem)) => vec![vec![(**elem).clone()]],
+        let lists: Vec<Vec<Ty>> = match (&layout.repr, ty.kind()) {
+            (Repr::List, TyKind::Array(elem)) => vec![vec![*elem]],
             (Repr::Aggregate, _) => vec![types::field_types(self.tables, ty)],
-            (Repr::Enum { .. }, Ty::Con(id, _)) => (0..self.tables.tycon(*id).variants().len())
+            (Repr::Enum { .. }, TyKind::Con(id, _)) => (0..self.tables.tycon(*id).variants().len())
                 .map(|v| types::variant_types(self.tables, ty, v))
                 .collect(),
             _ => Vec::new(),
@@ -967,7 +967,7 @@ impl<'a> Layouts<'a> {
         }
         path.pop();
         if cyclic {
-            mine.insert(ty.clone());
+            mine.insert(*ty);
         }
         if shallowest >= depth {
             let digest = crate::build::sha256::hash_bytes(inner.as_bytes());
@@ -978,7 +978,7 @@ impl<'a> Layouts<'a> {
             if let Some(seen) = &seen {
                 reach.extend(seen.iter().cloned());
             }
-            self.glue_keys.insert(ty.clone(), GlueKey { key, reach: seen });
+            self.glue_keys.insert(*ty, GlueKey { key, reach: seen });
             return (usize::MAX, cyclic);
         }
         reach.extend(mine);
@@ -1003,7 +1003,7 @@ impl<'a> Layouts<'a> {
     }
 
     fn write_description(&mut self, out: &mut String, ty: &Ty) {
-        let layout = self.of(ty.clone());
+        let layout = self.of(*ty);
         let name = self.name(ty);
         // Writing to a `String` cannot fail; the result is discarded rather
         // than unwrapped so that no path here can panic.
@@ -1079,8 +1079,8 @@ impl<'a> Layouts<'a> {
     /// never written down (SPEC 11.3) — so it is named by what it binds, which
     /// is what a reader of a layout diff needs anyway.
     fn name(&self, ty: &Ty) -> String {
-        match ty {
-            Ty::Ctx(id) => {
+        match ty.kind() {
+            TyKind::Ctx(id) => {
                 let names: Vec<&str> = self
                     .tables
                     .ctx_type(*id)
@@ -1096,17 +1096,17 @@ impl<'a> Layouts<'a> {
 
     fn field_names(&self, ty: &Ty) -> Vec<String> {
         let tables = self.tables;
-        match ty {
-            Ty::Array(_) => vec!["ptr".into(), "len".into()],
-            Ty::Fn(_, _) => vec!["code".into(), "env".into()],
-            Ty::Tuple(elements) => (0..elements.len()).map(|i| i.to_string()).collect(),
-            Ty::Ctx(id) => tables
+        match ty.kind() {
+            TyKind::Array(_) => vec!["ptr".into(), "len".into()],
+            TyKind::Fn(_, _) => vec!["code".into(), "env".into()],
+            TyKind::Tuple(elements) => (0..elements.len()).map(|i| i.to_string()).collect(),
+            TyKind::Ctx(id) => tables
                 .ctx_type(*id)
                 .bindings
                 .iter()
                 .map(|(t, _)| tables.trait_(*t).name.clone())
                 .collect(),
-            Ty::Con(id, _) => match &tables.tycon(*id).def {
+            TyKind::Con(id, _) => match &tables.tycon(*id).def {
                 TyDef::Prim(Prim::Str | Prim::Template) => {
                     vec!["base".into(), "ptr".into(), "len".into()]
                 }
@@ -1124,8 +1124,8 @@ impl<'a> Layouts<'a> {
     /// Which of a value's own fields are behind a pointer.
     fn slots(&self, ty: &Ty) -> Vec<bool> {
         let tables = self.tables;
-        match ty {
-            Ty::Con(id, args) => match &tables.tycon(*id).def {
+        match ty.kind() {
+            TyKind::Con(id, args) => match &tables.tycon(*id).def {
                 TyDef::Struct { fields, .. } => fields
                     .iter()
                     .map(|f| self.boxes(ty, &types::substitute(&f.ty, args, None)))
@@ -1144,7 +1144,7 @@ impl<'a> Layouts<'a> {
     }
 
     fn variant_slots(&self, ty: &Ty) -> Vec<Vec<bool>> {
-        let Ty::Con(id, args) = ty else { return Vec::new() };
+        let TyKind::Con(id, args) = ty.kind() else { return Vec::new() };
         self.tables
             .tycon(*id)
             .variants()
@@ -1233,20 +1233,20 @@ fn scalar_of(p: Prim) -> Option<Scalar> {
 /// layout — which is exactly why they are the two places a recursive type
 /// terminates without a box.
 fn inline_cons(ty: &Ty, out: &mut Vec<TyConId>) {
-    match ty {
-        Ty::Con(id, args) => {
+    match ty.kind() {
+        TyKind::Con(id, args) => {
             out.push(*id);
-            for arg in args {
+            for arg in args.iter() {
                 inline_cons(arg, out);
             }
         }
-        Ty::Tuple(elements) => {
-            for element in elements {
+        TyKind::Tuple(elements) => {
+            for element in elements.iter() {
                 inline_cons(element, out);
             }
         }
-        Ty::Array(_) | Ty::Fn(_, _) => {}
-        Ty::Unit | Ty::Var(_) | Ty::Param(_) | Ty::Ctx(_) | Ty::SelfTy | Ty::Error => {}
+        TyKind::Array(_) | TyKind::Fn(_, _) => {}
+        TyKind::Unit | TyKind::Var(_) | TyKind::Param(_) | TyKind::Ctx(_) | TyKind::SelfTy | TyKind::Error => {}
     }
 }
 
@@ -1294,7 +1294,7 @@ mod tests {
     /// the two in step.
     fn p(prim: Prim) -> Ty {
         let index = Prim::all().iter().position(|x| *x == prim).unwrap_or(0);
-        Ty::Con(TyConId(index as u32), Vec::new())
+        Ty::con(TyConId(index as u32), [])
     }
 
     fn generics(names: &[&str]) -> Vec<GenericInfo> {
@@ -1305,7 +1305,7 @@ mod tests {
     }
 
     fn field(name: &str, ty: &Ty) -> FieldInfo {
-        FieldInfo { name: name.into(), ty: ty.clone(), exported: true, span: Span::NONE }
+        FieldInfo { name: name.into(), ty: *ty, exported: true, span: Span::NONE }
     }
 
     fn fields(named: &[(&str, Ty)]) -> Vec<FieldInfo> {
@@ -1368,15 +1368,15 @@ mod tests {
 
     /// `Option<T>`, in exactly the shape `Tables::is_option` recognises.
     fn add_option(t: &mut Tables) -> TyConId {
-        add_enum(t, "Option", &["T"], vec![variant("Some", &[Ty::Param(0)]), variant("None", &[])])
+        add_enum(t, "Option", &["T"], vec![variant("Some", &[Ty::param(0)]), variant("None", &[])])
     }
 
     fn con(id: TyConId) -> Ty {
-        Ty::Con(id, Vec::new())
+        Ty::con(id, [])
     }
 
     fn at(id: TyConId, args: &[Ty]) -> Ty {
-        Ty::Con(id, args.to_vec())
+        Ty::con(id, args.to_vec())
     }
 
     fn add_trait(t: &mut Tables, name: &str) -> TraitId {
@@ -1458,7 +1458,7 @@ mod tests {
     fn unit_is_nothing() {
         let t = tables();
         let mut l = Layouts::new(&t);
-        let layout = l.of(Ty::Unit);
+        let layout = l.of(Ty::UNIT);
         assert!(layout.is_zero_sized());
         assert_eq!(layout.align, 1);
         assert_eq!(layout.repr, Repr::Zero);
@@ -1532,8 +1532,8 @@ mod tests {
     fn a_list_is_a_pointer_and_a_length_whatever_it_holds() {
         let t = tables();
         let mut l = Layouts::new(&t);
-        for element in [Ty::Unit, p(Prim::I8), p(Prim::Str), p(Prim::I128)] {
-            let layout = l.of(Ty::Array(Box::new(element)));
+        for element in [Ty::UNIT, p(Prim::I8), p(Prim::Str), p(Prim::I128)] {
+            let layout = l.of(Ty::array(element));
             assert_eq!(layout.size, 16);
             assert_eq!(layout.align, 8);
             assert_eq!(layout.fields, vec![0, 8]);
@@ -1623,7 +1623,7 @@ mod tests {
     fn a_tuple_is_a_struct_without_a_name() {
         let t = tables();
         let mut l = Layouts::new(&t);
-        let layout = l.of(Ty::Tuple(vec![p(Prim::Str), p(Prim::Bool)]));
+        let layout = l.of(Ty::tuple([p(Prim::Str), p(Prim::Bool)]));
         assert_eq!(layout.fields, vec![0, 24]);
         assert_eq!((layout.size, layout.align), (32, 8));
     }
@@ -1635,8 +1635,8 @@ mod tests {
         let mut t = tables();
         let empty = add_struct(&mut t, "Empty", &[], &[]);
         let mut l = Layouts::new(&t);
-        for ty in [Ty::Unit, Ty::Tuple(Vec::new()), Ty::Tuple(vec![Ty::Unit]), con(empty)] {
-            let layout = l.of(ty.clone());
+        for ty in [Ty::UNIT, Ty::tuple([]), Ty::tuple([Ty::UNIT]), con(empty)] {
+            let layout = l.of(ty);
             assert!(layout.is_zero_sized(), "{ty:?}");
             assert_eq!(layout.repr, Repr::Zero, "{ty:?}");
             assert_eq!(layout.align, 1, "{ty:?}");
@@ -1647,7 +1647,7 @@ mod tests {
     #[test]
     fn a_generic_struct_is_laid_out_after_substitution() {
         let mut t = tables();
-        let pair = add_struct(&mut t, "Pair", &["T"], &[("a", Ty::Param(0)), ("b", Ty::Param(0))]);
+        let pair = add_struct(&mut t, "Pair", &["T"], &[("a", Ty::param(0)), ("b", Ty::param(0))]);
         let mut l = Layouts::new(&t);
         assert_eq!(l.of(at(pair, &[p(Prim::I8)])).size, 2);
         assert_eq!(l.of(at(pair, &[p(Prim::I64)])).size, 16);
@@ -1791,7 +1791,7 @@ mod tests {
         let mut t = tables();
         let option = add_option(&mut t);
         let mut l = Layouts::new(&t);
-        let layout = l.of(at(option, &[Ty::Array(Box::new(p(Prim::I64)))]));
+        let layout = l.of(at(option, &[Ty::array(p(Prim::I64))]));
         assert!(matches!(layout.repr, Repr::Enum { repr: EnumRepr::Tagged { .. }, .. }));
     }
 
@@ -1803,7 +1803,7 @@ mod tests {
         let mut t = tables();
         let option = add_option(&mut t);
         let mut l = Layouts::new(&t);
-        let pair = Ty::Tuple(vec![Ty::Array(Box::new(p(Prim::I64))), p(Prim::Str)]);
+        let pair = Ty::tuple([Ty::array(p(Prim::I64)), p(Prim::Str)]);
         let layout = l.of(at(option, &[pair]));
         match layout.repr {
             Repr::Enum { repr: EnumRepr::Niche { null_at }, .. } => {
@@ -1819,7 +1819,7 @@ mod tests {
         let mut t = tables();
         let option = add_option(&mut t);
         let mut l = Layouts::new(&t);
-        let f = Ty::Fn(vec![p(Prim::I64)], Box::new(p(Prim::Bool)));
+        let f = Ty::func([p(Prim::I64)], p(Prim::Bool));
         let layout = l.of(at(option, &[f]));
         assert_eq!(layout.size, 16);
         // `env` is null when nothing was captured, so it cannot be the niche.
@@ -1863,7 +1863,7 @@ mod tests {
         let mut t = tables();
         let option = add_option(&mut t);
         let mut l = Layouts::new(&t);
-        let layout = l.of(at(option, &[Ty::Unit]));
+        let layout = l.of(at(option, &[Ty::UNIT]));
         assert_eq!(layout.size, 1);
         assert!(matches!(layout.repr, Repr::Enum { repr: EnumRepr::Bare { .. }, .. }));
         // The field is still a field, at an offset that costs nothing.
@@ -1901,10 +1901,10 @@ mod tests {
             &mut t,
             "Result",
             &["T", "E"],
-            vec![variant("Ok", &[Ty::Param(0)]), variant("Err", &[Ty::Param(1)])],
+            vec![variant("Ok", &[Ty::param(0)]), variant("Err", &[Ty::param(1)])],
         );
         let mut l = Layouts::new(&t);
-        let layout = l.of(at(result, &[Ty::Unit, p(Prim::Str)]));
+        let layout = l.of(at(result, &[Ty::UNIT, p(Prim::Str)]));
         assert_eq!((layout.size, layout.align), (32, 8));
         assert!(matches!(
             layout.repr,
@@ -1920,7 +1920,7 @@ mod tests {
     fn a_closure_is_a_code_pointer_and_an_environment() {
         let t = tables();
         let mut l = Layouts::new(&t);
-        let layout = l.of(Ty::Fn(vec![p(Prim::I64)], Box::new(p(Prim::Str))));
+        let layout = l.of(Ty::func([p(Prim::I64)], p(Prim::Str)));
         assert_eq!((layout.size, layout.align), (16, 8));
         assert_eq!(layout.fields, vec![0, 8]);
         assert_eq!(layout.field(CLOSURE_CODE), 0);
@@ -1934,8 +1934,8 @@ mod tests {
     fn a_closure_does_not_consult_its_signature_for_a_layout() {
         let t = tables();
         let mut l = Layouts::new(&t);
-        let a = l.of(Ty::Fn(Vec::new(), Box::new(Ty::Unit)));
-        let b = l.of(Ty::Fn(vec![p(Prim::I128); 8], Box::new(p(Prim::Str))));
+        let a = l.of(Ty::func([], Ty::UNIT));
+        let b = l.of(Ty::func(vec![p(Prim::I128); 8], p(Prim::Str)));
         assert_eq!(a, b);
     }
 
@@ -1945,7 +1945,7 @@ mod tests {
     fn a_closure_environment_is_an_ordinary_record() {
         let t = tables();
         let mut l = Layouts::new(&t);
-        let env = Ty::Tuple(vec![p(Prim::Bool), p(Prim::Str)]);
+        let env = Ty::tuple([p(Prim::Bool), p(Prim::Str)]);
         let layout = l.of(env);
         assert_eq!(layout.fields, vec![0, 8]);
         assert_eq!(layout.size, 32);
@@ -1964,11 +1964,11 @@ mod tests {
         let host_stdout = add_struct(&mut t, "HostStdout", &[], &[]);
         let ctx = add_ctx(&mut t, vec![(alloc, con(host_alloc)), (stdout, con(host_stdout))]);
         let mut l = Layouts::new(&t);
-        let layout = l.of(Ty::Ctx(ctx));
+        let layout = l.of(Ty::ctx(ctx));
         assert!(layout.is_zero_sized());
         assert_eq!(layout.repr, Repr::Zero);
         // Which is what drops `ctx` from every signature in the program.
-        assert!(l.zero_sized(&Ty::Ctx(ctx)));
+        assert!(l.zero_sized(&Ty::ctx(ctx)));
     }
 
     #[test]
@@ -1987,12 +1987,12 @@ mod tests {
         let host_stdout = add_struct(&mut t, "HostStdout", &[], &[]);
         let ctx = add_ctx(&mut t, vec![(alloc, con(buffer)), (stdout, con(host_stdout))]);
         let mut l = Layouts::new(&t);
-        let layout = l.of(Ty::Ctx(ctx));
+        let layout = l.of(Ty::ctx(ctx));
         assert_eq!((layout.size, layout.align), (16, 8));
         // One offset per binding, in binding order, including the one that
         // occupies nothing.
         assert_eq!(layout.fields, vec![0, 16]);
-        assert!(!l.zero_sized(&Ty::Ctx(ctx)));
+        assert!(!l.zero_sized(&Ty::ctx(ctx)));
     }
 
     // -----------------------------------------------------------------------
@@ -2005,18 +2005,18 @@ mod tests {
     fn a_recursive_enum_is_cut_by_a_pointer() {
         let mut t = tables();
         let tree = declare(&mut t, "Tree", &["T"]);
-        let self_ty = at(tree, &[Ty::Param(0)]);
+        let self_ty = at(tree, &[Ty::param(0)]);
         define_enum(
             &mut t,
             tree,
             vec![
                 variant("Leaf", &[]),
-                variant("Node", &[self_ty.clone(), Ty::Param(0), self_ty]),
+                variant("Node", &[self_ty, Ty::param(0), self_ty]),
             ],
         );
         let mut l = Layouts::new(&t);
         let ty = at(tree, &[p(Prim::I64)]);
-        let layout = l.of(ty.clone());
+        let layout = l.of(ty);
         // tag @0, then a pointer, the payload, and a pointer.
         assert_eq!((layout.size, layout.align), (32, 8));
         assert_eq!(layout.variant(1), &[8, 16, 24]);
@@ -2059,11 +2059,11 @@ mod tests {
             doc,
             vec![
                 variant("Null", &[]),
-                variant("Arr", &[Ty::Array(Box::new(con(doc)))]),
-                variant("Obj", &[Ty::Array(Box::new(con(entry)))]),
+                variant("Arr", &[Ty::array(con(doc))]),
+                variant("Obj", &[Ty::array(con(entry))]),
             ],
         );
-        let entries = Ty::Array(Box::new(con(entry)));
+        let entries = Ty::array(con(entry));
         let tys = [con(doc), con(entry), entries];
         let fresh: Vec<Rc<str>> =
             tys.iter().map(|ty| Layouts::new(&t).glue_key(ty)).collect();
@@ -2092,10 +2092,10 @@ mod tests {
                 variant("Bool", &[p(Prim::Bool)]),
                 variant("Num", &[p(Prim::F64)]),
                 variant("Str", &[p(Prim::Str)]),
-                variant("Array", &[Ty::Array(Box::new(self_ty.clone()))]),
+                variant("Array", &[Ty::array(self_ty)]),
                 variant(
                     "Object",
-                    &[Ty::Array(Box::new(Ty::Tuple(vec![p(Prim::Str), self_ty.clone()])))],
+                    &[Ty::array(Ty::tuple([p(Prim::Str), self_ty]))],
                 ),
             ],
         );
@@ -2103,10 +2103,10 @@ mod tests {
         let layout = l.of(con(json));
         // The widest payload is the 24-byte `Str`, at 8.
         assert_eq!((layout.size, layout.align), (32, 8));
-        assert!(!l.boxes(&con(json), &Ty::Array(Box::new(con(json)))));
+        assert!(!l.boxes(&con(json), &Ty::array(con(json))));
         // And the element of that list is an ordinary `Json`, inline inside
         // the array's one allocation.
-        assert_eq!(l.of(Ty::Tuple(vec![p(Prim::Str), con(json)])).fields, vec![0, 24]);
+        assert_eq!(l.of(Ty::tuple([p(Prim::Str), con(json)])).fields, vec![0, 24]);
     }
 
     #[test]
@@ -2133,7 +2133,7 @@ mod tests {
     #[test]
     fn recursion_through_a_generic_wrapper_terminates() {
         let mut t = tables();
-        let pair = add_struct(&mut t, "Pair", &["T"], &[("a", Ty::Param(0)), ("b", Ty::Param(0))]);
+        let pair = add_struct(&mut t, "Pair", &["T"], &[("a", Ty::param(0)), ("b", Ty::param(0))]);
         let node = declare(&mut t, "Node", &[]);
         define_enum(
             &mut t,
@@ -2158,14 +2158,14 @@ mod tests {
         define_enum(
             &mut t,
             e,
-            vec![variant("Stop", &[]), variant("Go", &[Ty::Tuple(vec![p(Prim::I64), con(e)])])],
+            vec![variant("Stop", &[]), variant("Go", &[Ty::tuple([p(Prim::I64), con(e)])])],
         );
         let mut l = Layouts::new(&t);
         let layout = l.of(con(e));
         assert_eq!((layout.size, layout.align), (16, 8));
-        assert!(l.boxes(&con(e), &Ty::Tuple(vec![p(Prim::I64), con(e)])));
+        assert!(l.boxes(&con(e), &Ty::tuple([p(Prim::I64), con(e)])));
         // The tuple behind that pointer holds the `E` inline.
-        assert_eq!(l.of(Ty::Tuple(vec![p(Prim::I64), con(e)])).fields, vec![0, 8]);
+        assert_eq!(l.of(Ty::tuple([p(Prim::I64), con(e)])).fields, vec![0, 8]);
     }
 
     /// One constructor inside itself at smaller arguments is not a cycle, and
@@ -2173,7 +2173,7 @@ mod tests {
     #[test]
     fn a_nested_instantiation_of_one_constructor_is_not_a_cycle() {
         let mut t = tables();
-        let pair = add_struct(&mut t, "Pair", &["T"], &[("a", Ty::Param(0)), ("b", Ty::Param(0))]);
+        let pair = add_struct(&mut t, "Pair", &["T"], &[("a", Ty::param(0)), ("b", Ty::param(0))]);
         let mut l = Layouts::new(&t);
         let inner = at(pair, &[p(Prim::I64)]);
         let outer = at(pair, std::slice::from_ref(&inner));
@@ -2236,8 +2236,8 @@ mod tests {
             &[],
             vec![variant("Empty", &[]), variant("Circle", &[p(Prim::F64)])],
         );
-        let mut out = vec![Ty::Unit, Ty::Array(Box::new(p(Prim::I64)))];
-        out.push(Ty::Fn(vec![p(Prim::I64)], Box::new(Ty::Unit)));
+        let mut out = vec![Ty::UNIT, Ty::array(p(Prim::I64))];
+        out.push(Ty::func([p(Prim::I64)], Ty::UNIT));
         for prim in Prim::all() {
             out.push(p(*prim));
         }
@@ -2248,7 +2248,7 @@ mod tests {
         out.push(at(option, &[p(Prim::Str)]));
         out.push(at(option, &[p(Prim::I64)]));
         out.push(at(option, &[at(option, &[p(Prim::Str)])]));
-        out.push(Ty::Tuple(vec![p(Prim::Bool), con(mixed)]));
+        out.push(Ty::tuple([p(Prim::Bool), con(mixed)]));
         out
     }
 
@@ -2268,15 +2268,15 @@ mod tests {
         for _ in 0..2000 {
             let count = (next(&mut seed) % 6) as usize;
             let chosen: Vec<Ty> = (0..count)
-                .map(|_| members[(next(&mut seed) as usize) % members.len()].clone())
+                .map(|_| members[(next(&mut seed) as usize) % members.len()])
                 .collect();
-            let layout = l.of(Ty::Tuple(chosen.clone()));
+            let layout = l.of(Ty::tuple(chosen.clone()));
             assert!(layout.align.is_power_of_two(), "{layout:?}");
             assert_eq!(layout.size % layout.align, 0, "size is not rounded up: {layout:?}");
             assert_eq!(layout.stride, layout.size);
             let mut sum = 0u32;
             for (member, offset) in chosen.iter().zip(&layout.fields) {
-                let m = l.of(member.clone());
+                let m = l.of(*member);
                 assert_eq!(offset % m.align, 0, "{member:?} at {offset} is misaligned");
                 assert!(offset + m.size <= layout.size, "{member:?} runs past the end");
                 assert!(m.align <= layout.align, "a member out-aligns its container");
@@ -2292,12 +2292,12 @@ mod tests {
         let members = pool(&mut t);
         let mut l = Layouts::new(&t);
         for ty in &members {
-            let layout = l.of(ty.clone());
+            let layout = l.of(*ty);
             assert!(layout.align.is_power_of_two(), "{ty:?}");
             assert_eq!(layout.stride, align_up(layout.size, layout.align), "{ty:?}");
             assert_eq!(layout.size % layout.align, 0, "{ty:?}");
             // A list of it is a pointer and a length, whatever it is.
-            assert_eq!(l.of(Ty::Array(Box::new(ty.clone()))).size, 16);
+            assert_eq!(l.of(Ty::array(*ty)).size, 16);
         }
     }
 
@@ -2309,7 +2309,7 @@ mod tests {
         let mut l = Layouts::new(&t);
         let mut ty = p(Prim::I64);
         for _ in 0..300 {
-            ty = Ty::Tuple(vec![ty]);
+            ty = Ty::tuple([ty]);
         }
         let layout = l.of(ty);
         assert_eq!((layout.size, layout.align), (8, 8));
@@ -2336,9 +2336,9 @@ mod tests {
         assert_eq!(l.charge_list(&p(Prim::I64), 10), 16 + 80);
         assert_eq!(l.charge_list(&p(Prim::Str), 3), 16 + 72);
         // `[(A, B)]` from `list.zip` is one block, at the pair's stride.
-        let pairs = Ty::Tuple(vec![p(Prim::I64), p(Prim::Bool)]);
+        let pairs = Ty::tuple([p(Prim::I64), p(Prim::Bool)]);
         assert_eq!(l.charge_list(&pairs, 4), 16 + 64);
-        assert_eq!(l.charge_list(&Ty::Unit, 1000), 16);
+        assert_eq!(l.charge_list(&Ty::UNIT, 1000), 16);
     }
 
     #[test]
@@ -2401,15 +2401,15 @@ mod tests {
         );
 
         let types = vec![
-            Ty::Unit,
+            Ty::UNIT,
             p(Prim::Bool),
             p(Prim::I64),
             p(Prim::Char),
             p(Prim::I128),
             p(Prim::Str),
-            Ty::Array(Box::new(p(Prim::I64))),
-            Ty::Fn(vec![p(Prim::I64)], Box::new(p(Prim::Bool))),
-            Ty::Tuple(vec![p(Prim::Str), p(Prim::Bool)]),
+            Ty::array(p(Prim::I64)),
+            Ty::func([p(Prim::I64)], p(Prim::Bool)),
+            Ty::tuple([p(Prim::Str), p(Prim::Bool)]),
             con(point),
             con(padded),
             con(order),
@@ -2418,7 +2418,7 @@ mod tests {
             at(option, &[p(Prim::I64)]),
             at(option, &[at(option, &[p(Prim::Str)])]),
             con(host),
-            Ty::Ctx(free),
+            Ty::ctx(free),
             con(chain),
         ];
         let mut l = Layouts::new(&t);

@@ -88,7 +88,7 @@ use crate::compiler::semantics::typed::{
     self, Arm, ArrayRest, Expr, ExprKind, FieldPat, OptionOrResult, PatKind, Pattern, PrimOp,
     Stmt, TemplatePart,
 };
-use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Tables, Ty};
+use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Tables, Ty, TyKind};
 use crate::diagnostics::Invariant as _;
 use crate::hash::Map as HashMap;
 
@@ -188,7 +188,7 @@ fn lower_one(
         sig.params.push(Type::I32);
     }
     for p in &f.params {
-        let ty = f.locals.get(p.index()).map(|l| l.ty.clone()).unwrap_or(Ty::Unit);
+        let ty = f.locals.get(p.index()).map(|l| l.ty).unwrap_or(Ty::UNIT);
         let t = types.of(tables, &ty);
         sig.params.push(t);
     }
@@ -209,7 +209,7 @@ fn lower_one(
                 types,
                 entries,
                 locals: &f.locals,
-                ret: ret.clone(),
+                ret,
                 code: Code::new(),
                 cur: BlockId(0),
                 env: vec![None; f.locals.len()],
@@ -293,12 +293,12 @@ fn facts(plan: Option<&rc::FuncPlan>, sig: &Signature, dispatch: bool) -> Facts 
 /// that is a `Loop` it is the type of an entry: the loop expression carries
 /// the same unfilled `ret` its function does.
 fn returns(f: &crate::compiler::middle::monomorphize::Func) -> Ty {
-    let Some(body) = f.body() else { return f.ret.clone() };
+    let Some(body) = f.body() else { return f.ret };
     match &body.kind {
         ExprKind::Loop { entries } => {
-            entries.first().map(|e| e.ty.clone()).unwrap_or_else(|| body.ty.clone())
+            entries.first().map(|e| e.ty).unwrap_or_else(|| body.ty)
         }
-        _ => body.ty.clone(),
+        _ => body.ty,
     }
 }
 
@@ -385,9 +385,9 @@ impl Types {
         let id = TypeId(self.list.len() as u32);
         self.list.push(TypeInfo {
             name: crate::compiler::semantics::types::show(tables, None, &[], ty),
-            ty: ty.clone(),
+            ty: *ty,
         });
-        self.index.insert(ty.clone(), id);
+        self.index.insert(*ty, id);
         id
     }
 
@@ -401,7 +401,7 @@ impl Types {
             return *id;
         }
         let id = TypeId(self.list.len() as u32);
-        self.list.push(TypeInfo { name, ty: ty.clone() });
+        self.list.push(TypeInfo { name, ty });
         self.index.insert(ty, id);
         id
     }
@@ -434,14 +434,14 @@ impl Types {
         if matches!(tables.as_prim(ty), Some(Prim::Template)) {
             return tables.prim(Prim::Str);
         }
-        ty.clone()
+        *ty
     }
 
     /// The machine shape of a source type. Total: a type with no register
     /// shape is an aggregate, and that includes `Str`, a list, a closure, a
     /// context and — where a tree reached lowering with one — `Ty::Error`.
     fn of(&mut self, tables: &Tables, ty: &Ty) -> Type {
-        if matches!(ty, Ty::Unit) {
+        if matches!(ty.kind(), TyKind::Unit) {
             return Type::Unit;
         }
         match tables.as_prim(ty).and_then(Type::of_prim) {
@@ -591,7 +591,7 @@ impl FnLower<'_> {
         let ExprKind::Loop { entries } = &e.kind else {
             return self.expr(e);
         };
-        let ret = self.ret.clone();
+        let ret = self.ret;
         let result = self.type_of(&ret);
         let var_types: Vec<Type> = params.iter().map(|p| self.local_type(*p)).collect();
 
@@ -673,7 +673,7 @@ impl FnLower<'_> {
     }
 
     fn local_type(&mut self, l: LocalId) -> Type {
-        let ty = self.locals.get(l.index()).map(|x| x.ty.clone()).unwrap_or(Ty::Unit);
+        let ty = self.locals.get(l.index()).map(|x| x.ty).unwrap_or(Ty::UNIT);
         self.type_of(&ty)
     }
 
@@ -731,7 +731,7 @@ impl FnLower<'_> {
     fn abort(&mut self, message: &str) -> ValueId {
         self.push(Inst::Abort { message: message.into() });
         self.set_term(Term::Unreachable);
-        let ret = self.ret.clone();
+        let ret = self.ret;
         let ty = self.type_of(&ret);
         self.dead(ty)
     }
@@ -1142,8 +1142,8 @@ impl FnLower<'_> {
             }
             ExprKind::CtxGet { base, trait_id } => {
                 let b = self.expr(base);
-                let slot = match &base.ty {
-                    Ty::Ctx(id) => self
+                let slot = match base.ty.kind() {
+                    TyKind::Ctx(id) => self
                         .program
                         .ctx_layouts
                         .get(id)
@@ -1162,7 +1162,7 @@ impl FnLower<'_> {
             // type it is built at is the tuple of their types rather than a
             // synthesized declaration the type tables would have to carry.
             ExprKind::Closure { func, env } => {
-                let env_ty = Ty::Tuple(env.iter().map(|e| e.ty.clone()).collect());
+                let env_ty = Ty::tuple(env.iter().map(|e| e.ty));
                 let fields = self.exprs(env);
                 let func = *func;
                 if fields.is_empty() {
@@ -1282,7 +1282,7 @@ impl FnLower<'_> {
         // The cold arm: `.None` and `.Err(e)` both leave the function
         // (CODEGEN-LLVM.md §6 marks this block cold).
         self.cur = fail_b;
-        let ret = self.ret.clone();
+        let ret = self.ret;
         let ret_ty = self.type_of(&ret);
         let out = match kind {
             OptionOrResult::Option => {
@@ -1349,7 +1349,7 @@ impl FnLower<'_> {
     }
 
     fn structural(&mut self, ty: Type, op: StructuralOp, args: &[Expr]) -> ValueId {
-        let at = args.first().map(|a| a.ty.clone()).unwrap_or(Ty::Unit);
+        let at = args.first().map(|a| a.ty).unwrap_or(Ty::UNIT);
         let at = self.type_id(&at);
         let args = self.exprs(args);
         self.emit(ty, |dest| Inst::Structural { dest, op, ty: at, args })
@@ -1527,7 +1527,7 @@ impl FnLower<'_> {
         let slots: Vec<Ty> = callee
             .params
             .iter()
-            .map(|p| callee.locals.get(p.index()).map(|l| l.ty.clone()).unwrap_or(Ty::Unit))
+            .map(|p| callee.locals.get(p.index()).map(|l| l.ty).unwrap_or(Ty::UNIT))
             .collect();
         slots
             .iter()
@@ -1948,8 +1948,8 @@ impl FnLower<'_> {
     fn field_type(&mut self, ty: &Ty, index: usize) -> Type {
         let field = ty
             .head()
-            .and_then(|c| self.tables.tycon(c).fields().get(index).map(|f| f.ty.clone()))
-            .unwrap_or(Ty::Unit);
+            .and_then(|c| self.tables.tycon(c).fields().get(index).map(|f| f.ty))
+            .unwrap_or(Ty::UNIT);
         let field = self.substituted(ty, field);
         self.type_of(&field)
     }
@@ -1958,16 +1958,16 @@ impl FnLower<'_> {
         let field = ty
             .head()
             .and_then(|c| self.tables.tycon(c).variants().get(variant as usize))
-            .and_then(|v| v.fields.get(index).map(|f| f.ty.clone()))
-            .unwrap_or(Ty::Unit);
+            .and_then(|v| v.fields.get(index).map(|f| f.ty))
+            .unwrap_or(Ty::UNIT);
         let field = self.substituted(ty, field);
         self.type_of(&field)
     }
 
     /// A declared field type, with the owning type's arguments substituted in.
     fn substituted(&self, owner: &Ty, field: Ty) -> Ty {
-        match owner {
-            Ty::Con(_, args) if !args.is_empty() => {
+        match owner.kind() {
+            TyKind::Con(_, args) if !args.is_empty() => {
                 crate::compiler::semantics::types::substitute(&field, args, None)
             }
             _ => field,
