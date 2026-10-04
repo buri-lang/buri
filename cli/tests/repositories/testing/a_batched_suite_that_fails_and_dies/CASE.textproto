@@ -1,0 +1,45 @@
+# Two native suites share one test binary, and one of them has a block that
+# fails an assertion and a block that a signal kills.
+#
+# A failed assertion and a death each end the process running them, and the
+# blocks of a suite share processes. **Every other block still runs and keeps
+# its own verdict**: the blocks around the two that end a process pass and are
+# reported as passing, the two are named, and the suite beside them is not
+# touched. The report is the one each suite would get alone.
+#
+# The negative twin is the base case: with it the recursion returns, and only
+# the assertion fails.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a block that fails or kills its process in a shared test binary is the block the report names, and every other block keeps its verdict"
+
+# The report names the signal, and a stack overflow is a different one on each
+# host: SIGBUS on macOS, SIGSEGV on Linux.
+run {
+  args: ["test", "//lib/...", "--force"]
+  exit: 1
+  golden: "died.txt"
+  host: MACOS
+}
+
+run {
+  args: ["test", "//lib/...", "--force"]
+  exit: 1
+  golden: "died-linux.txt"
+  host: LINUX
+}
+
+# The negative twin: a base case, and only the assertion fails.
+edit {
+  file: "lib/deep/deep.buri"
+  replace: "if (n == 0) { 0 } else { deep(n + 1) + 1 }"
+  with: "if (n == 0) { 0 } else { deep(n - 1) + 1 }"
+}
+
+run {
+  args: ["test", "//lib/...", "--force"]
+  exit: 1
+  golden: "failed.txt"
+}

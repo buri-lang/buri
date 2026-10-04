@@ -1,0 +1,26 @@
+from "core/testing/assert" import * as assert;
+from "//lib/deep" import { deep };
+
+test "the first block" {
+    assert.isTrue(true);
+}
+
+test "the block that fails" {
+    assert.equal(deep(0), 1);
+}
+
+test "the block between" {
+    assert.isTrue(true);
+}
+
+test "the block that ends the process" {
+    assert.equal(deep(1), 1);
+}
+
+test "the block after" {
+    assert.isTrue(true);
+}
+
+test "the last block" {
+    assert.equal(deep(0), 0);
+}

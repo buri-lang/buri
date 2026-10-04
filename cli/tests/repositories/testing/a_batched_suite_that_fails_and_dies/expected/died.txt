@@ -1,0 +1,10 @@
+FAIL //lib/deep  test/deep.buri  "the block that fails"
+  assert.equal failed
+    actual:   0
+    expected: 1
+  --> lib/deep/test/deep.buri:8:1
+FAIL //lib/deep  test/deep.buri  "the block that ends the process"
+  the run was killed by signal 10
+  --> lib/deep/test/deep.buri:16:1
+
+6 passed, 2 failed, 0 skipped (0.0s)
