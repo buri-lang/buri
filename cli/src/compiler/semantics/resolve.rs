@@ -1399,19 +1399,20 @@ impl<'a> Checker<'a> {
         d: &tree::FnDecl,
     ) {
         let generics = self.elaborate_generics(module, self.tree(module).list(d.generics));
-        self.tables.fn_info_mut(fid).generics = generics.clone();
         let params = self.elaborate_params(module, &generics, self.tree(module).list(d.params));
         let ret = self.elaborate(module, &generics, d.ret);
-        self.tables.fn_info_mut(fid).params = params.clone();
-        self.tables.fn_info_mut(fid).ret = ret;
-
         // A method is declared inside an `impl` block for its type, so a
         // `self` parameter at the top level has no receiver type to attach to.
-        if let Some(first) = params.first() {
-            if first.role == ParamRole::SelfParam {
-                let n = self.name_text(module, d.name).to_string();
-                self.templated("method-outside-impl", first.span).bind("name", n);
-            }
+        let stray_self =
+            params.first().filter(|p| p.role == ParamRole::SelfParam).map(|p| p.span);
+        let info = self.tables.fn_info_mut(fid);
+        info.generics = generics;
+        info.params = params;
+        info.ret = ret;
+
+        if let Some(span) = stray_self {
+            let n = self.name_text(module, d.name).to_string();
+            self.templated("method-outside-impl", span).bind("name", n);
         }
 
         self.pending_ctx_rules.push(PendingCtxRule::Free(fid, module, item));

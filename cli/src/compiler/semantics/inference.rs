@@ -484,13 +484,15 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// parameter, a `let`, a pattern binding, and a lambda's own parameters are
     /// all bindings an inner lambda could close over.
     pub(crate) fn note_capture_risk(&mut self, local: LocalId, ty: &Ty) {
-        // `generics` and `c` are different fields, so neither predicate needs
-        // a copy of the list — and this runs for every parameter, every `let`
-        // and every pattern binding.
-        let resolved = self.resolve(ty);
-        if self.c.tables.is_effect_carrying(&resolved, &self.generics) {
+        // `subst`, `generics` and `c` are different fields, so neither the
+        // type nor the list is copied — and this runs for every parameter,
+        // every `let` and every pattern binding.
+        let resolved = self.subst.shallow_ref(ty);
+        let carries = self.c.tables.is_effect_carrying(resolved, &self.generics);
+        let may = !carries && self.c.tables.may_carry_effect(resolved, &self.generics);
+        if carries {
             self.effect_locals.insert(local);
-        } else if self.c.tables.may_carry_effect(&resolved, &self.generics) {
+        } else if may {
             self.poly_locals.insert(local);
         }
     }
