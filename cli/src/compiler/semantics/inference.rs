@@ -182,7 +182,7 @@ fn check_fn(c: &mut Checker, fid: FnId) {
     }
     let body_span = inf.t.block_span(body);
     let expr = inf.check_block(body, Some(&expected));
-    inf.unify_at(body_span, &expr.ty.clone(), &expected, "the declared return type");
+    inf.unify_at(body_span, &expr.ty, &expected, "the declared return type");
     let hir_body = inf.finish(expr);
     c.bodies.insert(fid, std::sync::Arc::new(hir_body));
 }
@@ -198,7 +198,7 @@ fn check_const(c: &mut Checker, cid: ConstId) {
     let ty = info.ty.clone();
     let value_span = inf.t.span(decl.value);
     let value = inf.check_expr(decl.value, Some(&ty));
-    inf.unify_at(value_span, &value.ty.clone(), &ty, "the declared type");
+    inf.unify_at(value_span, &value.ty, &ty, "the declared type");
     let body = inf.finish(value);
     c.const_values.insert(cid, body.expr);
 }
