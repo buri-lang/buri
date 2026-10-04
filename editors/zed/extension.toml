@@ -41,8 +41,8 @@ path = "editors/tree-sitter-buri-build"
 # Pinned to the commit that lands the grammar. Zed fetches it from GitHub, so
 # the extension builds only once that commit is pushed, and it moves with the
 # grammar for the reason spelled out above.
-commit = "536e85f90ca2f599897216817d411d201268f46d"
-# grammar-sha256 = "b4d42bd5d355db89a8b6dd52b1f2156d68a4a0297e0f914335d18b828d1041ea"
+commit = "aa8e4284abe768cf2d90dc9113a76ae060f27857"
+# grammar-sha256 = "c1f1aeddae43d925619e5a79d877d40dc269beb7eafad11cd5407d9b7f97958b"
 
 [language_servers.buri]
 name = "Buri"

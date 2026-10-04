@@ -104,8 +104,19 @@ pub fn cross_home(key: &str) -> (PathBuf, File) {
                 let _ = std::fs::remove_dir_all(&fresh);
             }
         }
-        let Ok(lock) = File::options().append(true).open(entry.join("lock")) else { continue };
-        if lock.lock_shared().is_err() || !entry.join("home").is_dir() {
+        // An entry without its lock or its home is a partial one (a restored
+        // cache can leave just the directory), and nothing can ever complete it,
+        // so it is cleared for the next try to build afresh.
+        let Ok(lock) = File::options().append(true).open(entry.join("lock")) else {
+            let _ = std::fs::remove_dir_all(&entry);
+            continue;
+        };
+        if lock.lock_shared().is_err() {
+            continue;
+        }
+        if !entry.join("home").is_dir() {
+            drop(lock);
+            let _ = std::fs::remove_dir_all(&entry);
             continue;
         }
         touch(&entry);
