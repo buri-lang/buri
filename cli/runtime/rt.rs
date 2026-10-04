@@ -3638,7 +3638,15 @@ mod tests {
     /// The red-proof of the machine-stack half, and it is written so that the
     /// migration is *observed* rather than hoped for: every task records the
     /// thread it parked on and the thread it woke on, and the case fails if no
-    /// task ever moved. What it then checks is that four kilobytes of frame,
+    /// task ever moved.
+    ///
+    /// **The move is forced, not left to the scheduler.** Tasks that start one
+    /// after another can all park on one thread, and that thread then wakes
+    /// them all again. So before the gate opens, every thread in the pool is
+    /// given a task that holds it without parking. A woken task then has no
+    /// thread it ran on to go back to, and the pool starts a new one for it.
+    ///
+    /// What it then checks is that four kilobytes of frame,
     /// written before the park and read after it, came back byte for byte, and
     /// that the frame was at the same address both times — a task whose stack
     /// had been the thread's would find somebody else's bytes there.
@@ -3701,16 +3709,52 @@ mod tests {
             })
             .collect();
 
-        // Every task is parked before any of them is let go, so the threads
-        // that pick them back up are whichever the queue hands them to.
+        // Every task is parked before any of them is let go.
         let deadline = Instant::now() + Duration::from_secs(30);
         while arrived.load(Ordering::SeqCst) < TASKS {
             assert!(Instant::now() < deadline, "only {} of {TASKS} tasks parked", arrived.load(Ordering::SeqCst));
             thread::sleep(Duration::from_millis(2));
         }
+
+        // Then every thread in the pool is held. With every task parked, each
+        // thread is idle, so one holder per thread lands on a thread apiece:
+        // the pool only starts a thread when the queue is longer than the
+        // idle count.
+        let holders = threads();
+        let holding = std::sync::Arc::new(AtomicUsize::new(0));
+        let (release, released) = channel::<()>();
+        let released = std::sync::Arc::new(Mutex::new(released));
+        let held: Vec<i64> = (0..holders)
+            .map(|_| {
+                let holding = std::sync::Arc::clone(&holding);
+                let released = std::sync::Arc::clone(&released);
+                task_start(move || {
+                    holding.fetch_add(1, Ordering::SeqCst);
+                    // A blocking wait, not a park: the thread stays taken.
+                    let rx = match released.lock() {
+                        Ok(rx) => rx,
+                        Err(poisoned) => poisoned.into_inner(),
+                    };
+                    let _ = rx.recv();
+                })
+            })
+            .collect();
+        while holding.load(Ordering::SeqCst) < holders {
+            assert!(
+                Instant::now() < deadline,
+                "only {} of {holders} holders started",
+                holding.load(Ordering::SeqCst)
+            );
+            thread::sleep(Duration::from_millis(2));
+        }
+
         gate.add_permits(TASKS);
         for h in handles {
             assert!(task_join(h), "a task did not finish");
+        }
+        drop(release);
+        for h in held {
+            assert!(task_join(h), "a holder did not finish");
         }
 
         let seen = match seen.lock() {
@@ -4318,6 +4362,17 @@ mod tests {
         assert_eq!(ok, crate::BURI_OK);
         assert_eq!(depth, 1);
         waiter.join().expect("the posting thread panicked");
+
+        // The second message, and then the state, so the actor holds nothing
+        // when the test ends.
+        let mut out = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_mailbox_pop(actor, &raw mut out) }, crate::BURI_OK);
+        drop_ref(&out);
+        let mut out = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) }, crate::BURI_OK);
+        drop_ref(&out);
     }
 
     /// How long a bounded wait may take before the bound is what failed.

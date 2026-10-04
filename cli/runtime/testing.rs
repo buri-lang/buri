@@ -4548,6 +4548,17 @@ mod tests {
         let mut c = BuriStr::empty();
         // SAFETY: the destination is live and aligned.
         assert_eq!(unsafe { buri_rt_host_testing_test_stdin_read_line(handle, &raw mut c) }, 0);
+        // SAFETY: the two lines read and the list this test built are its
+        // own, and nothing reads them after this.
+        unsafe {
+            crate::memory::buri_rt_decref(a.base, None);
+            crate::memory::buri_rt_decref(b.base, None);
+            for i in 0..lines.len as usize {
+                let line = &*lines.ptr.add(i * size_of::<BuriStr>()).cast::<BuriStr>();
+                crate::memory::buri_rt_decref(line.base, None);
+            }
+            crate::memory::buri_rt_free(lines.ptr);
+        }
     }
 
     #[test]
@@ -5122,6 +5133,15 @@ mod tests {
         // SAFETY: written by the call above.
         assert_eq!(unsafe { second.text.as_str() }, "");
         assert_eq!(first.data.len, 0);
+        // SAFETY: the log is this test's: every field of both records, and
+        // then the block that holds them. Empty fields are null and ignored.
+        unsafe {
+            for sent in [first, second] {
+                crate::memory::buri_rt_decref(sent.text.base, None);
+                crate::memory::buri_rt_free(sent.data.ptr);
+            }
+            crate::memory::buri_rt_free(out.ptr);
+        }
     }
 
     /// Eight threads, each taking and putting one state a thousand times,
