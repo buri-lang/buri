@@ -17,7 +17,7 @@
 //! as a page with no styles rather than as a 404 anybody can read.
 //!
 //! `website/src/serve.rs` is the same shape for the documentation site, and the
-//! two are not shared: `website` is the site generator, it reads `cli/src/docs`,
+//! two are not shared: `website` is the site generator, it reads `crates/docs/src/docs`,
 //! and the toolchain does not depend on it. What is duplicated is sixty lines
 //! of `std::net`; what would be shared is a dependency edge the wrong way round.
 #![allow(

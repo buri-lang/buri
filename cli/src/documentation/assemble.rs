@@ -1,6 +1,6 @@
 //! Regenerating the documents a reader meets on GitHub.
 //!
-//! `cli/src/docs/SPEC.md` is not edited. It is assembled from the topics in
+//! `crates/docs/src/docs/SPEC.md` is not edited. It is assembled from the topics in
 //! `doc_topics`, so there is exactly one copy of every sentence: the one
 //! `buri docs` serves. `buri docs assemble --check` fails when the checked-in
 //! file has drifted from what the topics produce, which is the same shape as
@@ -61,7 +61,7 @@ pub struct Document {
 
 pub const DOCUMENTS: &[Document] = &[
     Document {
-        path: "cli/src/docs/SPEC.md",
+        path: "crates/docs/src/docs/SPEC.md",
         front: topics::LANG_FRONT,
         sections: &[
             sec("1", "language/introduction"),
@@ -85,7 +85,7 @@ pub const DOCUMENTS: &[Document] = &[
 fn generated_notice(document: &Document) -> String {
     let mut directories: Vec<String> = Vec::new();
     for section in document.sections {
-        let directory = format!("cli/src/docs/{}/", section.topic().kind.directory());
+        let directory = format!("crates/docs/src/docs/{}/", section.topic().kind.directory());
         if !directories.contains(&directory) {
             directories.push(directory);
         }
@@ -201,7 +201,7 @@ mod tests {
     ///
     /// The other kinds are pages rather than sections, so none of them is ever
     /// assembled: a guide is read through `buri docs` or in
-    /// `cli/src/docs/guides/`, and the reference's pages are the files
+    /// `crates/docs/src/docs/guides/`, and the reference's pages are the files
     /// themselves. That makes this an if and only if.
     #[test]
     fn only_language_topics_are_specification_sections() {

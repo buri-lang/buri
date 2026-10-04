@@ -2,7 +2,7 @@
 
 **This has shipped.** What a user needs lives where the suites can check it: the
 `ui/*` modules' own documentation (`buri docs ui/node` and its neighbours), the
-guide's "User interfaces" section, and — for the `web` output — `cli/src/docs/build/`.
+guide's "User interfaces" section, and — for the `web` output — `crates/docs/src/docs/build/`.
 What stays here is the **argument**: why the shape is this shape, what was
 refused, and, in "As built" below, every place compiling it overruled the
 argument. The fragments illustrate the reasoning; they are not the signatures of

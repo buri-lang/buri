@@ -1,24 +1,14 @@
 //! The platforms bundled with the toolchain: `native`, `node` and `web`.
 //!
-//! Each is an ordinary `platform` rule, embedded as source and read by the
-//! same reader a repository's build files go through.
+//! Each is an ordinary `platform` rule, embedded as source by `buri-stdlib`
+//! and read by the same reader a repository's build files go through.
 
 use crate::build::buildfile::{read_build_file, PlatformRule};
 use crate::diagnostics::FileId;
 
-/// Every bundled platform's name and `BUILD.buri`.
-pub const BUNDLED: &[(&str, &str)] = &[
-    ("native", include_str!("../platforms/native/BUILD.buri")),
-    ("node", include_str!("../platforms/node/BUILD.buri")),
-    ("web", include_str!("../platforms/web/BUILD.buri")),
-];
-
-/// Every other file a bundled platform's rule names, an entry's `js` file or
-/// an asset: `(platform, path, text)`.
-pub const FILES: &[(&str, &str, &str)] = &[
-    ("web", "main.mjs", include_str!("../platforms/web/main.mjs")),
-    ("web", "index.html", include_str!("../platforms/web/index.html")),
-];
+/// Every bundled platform's name and `BUILD.buri`, and every other file a
+/// bundled platform's rule names: `(platform, path, text)`.
+pub use buri_stdlib::platforms::{BUNDLED, FILES};
 
 /// The file at `path` in the bundled platform called `platform`.
 pub fn file(platform: &str, path: &str) -> Option<&'static str> {

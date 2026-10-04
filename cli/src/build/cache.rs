@@ -38,22 +38,21 @@ use crate::build::buildfile::{self, Platform};
 // SHA-256
 // ---------------------------------------------------------------------------
 
-/// The hash every key here is built from lives in [`super::sha256`], and is
+/// The hash every key here is built from lives in `buri-hash`, and is
 /// re-exported so that it is still spelled `build::cache::{Sha256, hash_bytes}`
 /// wherever it was.
 ///
-/// It is a separate file for one reason: **`cli/build.rs` compiles it too**.
-/// The build script writes the two blobs the toolchain embeds — the runtime
-/// archive and the copy-and-patch stencil library — and each of them enters a
-/// cache key as its own digest, so the digest is taken where the bytes are
-/// written rather than in every process that later reads them. A build script
-/// cannot use the crate it builds, so the *source* is shared, exactly as it
-/// already is for the halves of `backend/stencil` the script compiles.
+/// It is a crate of its own for one reason: **the build scripts hash with it
+/// too**. `cli/build.rs` and `crates/stencil/build.rs` write the blobs the
+/// toolchain embeds, and each of them enters a cache key as its own digest, so
+/// the digest is taken where the bytes are written rather than in every process
+/// that later reads them.
 ///
 /// Nothing about the hash changed, and nothing may: `super::sha256`'s vectors
 /// and `runtime_native::the_hash_is_of_the_bytes` between them say that the
 /// digest baked at build time is the digest [`hash_bytes`] computes.
 pub use super::sha256::{hash_bytes, Sha256};
+pub use buri_hash::build::action_key::ActionKey;
 
 // ---------------------------------------------------------------------------
 // The toolchain's identity
@@ -268,46 +267,6 @@ pub fn holding_explain<T>(f: impl FnOnce() -> T) -> (T, String) {
     let value = f();
     let lines = HELD.with(|held| std::mem::replace(&mut *held.borrow_mut(), outer));
     (value, lines.unwrap_or_default())
-}
-
-/// A finished cache key: the hex SHA-256 a [`KeyBuilder`] produced.
-///
-/// A newtype rather than a `String` because `Cache::path` splits it at byte two
-/// and every caller so far happened to hand it something 64 bytes long. There is
-/// now no way to hand it anything else — the only two constructors both hash,
-/// and a hash is always 64 hex digits.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct ActionKey(String);
-
-impl ActionKey {
-    /// The key for some bytes directly, with no action or toolchain folded in.
-    /// Used where the content *is* the identity.
-    pub fn of(bytes: &[u8]) -> ActionKey {
-        ActionKey(hash_bytes(bytes))
-    }
-
-    /// A key written down by [`ActionKey::as_str`] and read back, which is
-    /// how one cache entry names another. `None` for anything that isn't 64
-    /// hex digits.
-    pub fn parse(text: &str) -> Option<ActionKey> {
-        (text.len() == 64 && text.bytes().all(|b| b.is_ascii_hexdigit()))
-            .then(|| ActionKey(text.to_string()))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    /// The first twelve hex digits, which is what `--explain` prints.
-    fn short(&self) -> &str {
-        self.0.get(..12).unwrap_or(&self.0)
-    }
-
-    /// The key split the way [`Cache::path`] wants it: two hex digits of
-    /// directory and the rest of the name.
-    fn split(&self) -> (&str, &str) {
-        self.0.split_at_checked(2).unwrap_or((&self.0, ""))
-    }
 }
 
 #[derive(Clone)]
@@ -682,7 +641,7 @@ impl KeyBuilder {
     }
 
     pub fn finish(self) -> ActionKey {
-        ActionKey(self.hasher.finish())
+        ActionKey::of_hasher(self.hasher)
     }
 }
 
@@ -690,9 +649,6 @@ impl KeyBuilder {
 mod tests {
     use super::*;
     use crate::commands::arguments::BuildMode;
-
-
-
 
     #[test]
     fn tags_are_not_in_the_key() {
@@ -741,7 +697,7 @@ mod tests {
         expected.text(toolchain_identity());
         assert_eq!(
             KeyBuilder::new(Action::Compile, BuildMode::Debug).finish(),
-            ActionKey(expected.finish()),
+            ActionKey::of_hasher(expected),
             "the key a build starts from is no longer the action, the mode and the toolchain identity"
         );
 
@@ -754,7 +710,7 @@ mod tests {
         other.text("0.0.0-some-other-toolchain");
         assert_ne!(
             KeyBuilder::new(Action::Compile, BuildMode::Debug).finish(),
-            ActionKey(other.finish())
+            ActionKey::of_hasher(other)
         );
     }
 

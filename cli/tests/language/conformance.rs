@@ -599,7 +599,7 @@ fn no_conformance_context_asks_for_a_bound_it_does_not_use() {
 #[test]
 fn every_ast_node_kind_the_printer_can_meet_has_a_test() {
     let source =
-        repo_root().join("cli/src/compiler/standard_library/sources/buri_ast.buri");
+        repo_root().join("crates/stdlib/src/compiler/standard_library/sources/buri_ast.buri");
     let text = std::fs::read_to_string(&source).expect("core/buri/ast");
     let corpus = read_corpus(&tests_dir().join("conformance/lib/buri_ast"));
 

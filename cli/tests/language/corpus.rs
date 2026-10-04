@@ -86,7 +86,7 @@ fn corpus(root: &Path) -> Vec<PathBuf> {
     buri_sources(&root.join("cli/tests/golden_javascript"), &mut files);
     // The documentation's shared preambles are real source and are held to the
     // same standard: they parse, and `buri format` leaves them alone.
-    buri_sources(&root.join("cli/src/docs/harness"), &mut files);
+    buri_sources(&root.join("crates/docs/src/docs/harness"), &mut files);
     files
 }
 
@@ -298,7 +298,7 @@ fn is_golden(rel: &str) -> bool {
 /// body — a syntax error anywhere else, and the reason this test knows a fact
 /// about a path that the command does not need to.
 fn canonical(rel: &str, name: &str, text: &str) -> Option<String> {
-    if rel.starts_with("cli/src/compiler/standard_library/sources/") {
+    if rel.starts_with("crates/stdlib/src/compiler/standard_library/sources/") {
         return buri::formatting::std_source(text);
     }
     buri::commands::format::file(name, text)
@@ -845,19 +845,55 @@ fn dependencies_stay_behind_the_bar() {
         found
     }
 
+    // The toolchain is `cli/` and the crates under `crates/` (design/CRATES.md).
+    // A dependency on one of those is this repository's own code, declared by
+    // `path`; everything else is held to the bar. A third-party dependency must
+    // be optional itself, or sit in a crate `buri` itself depends on optionally,
+    // which is how `inkwell` is behind `backend-llvm` from inside `buri-llvm`.
     let cli = std::fs::read_to_string(repo_root().join("cli/Cargo.toml")).expect("cli/Cargo.toml");
+    let optional_crates: Vec<String> = declared(&cli)
+        .into_iter()
+        .filter(|(_, line)| line.contains("path = \"../crates/") && line.contains("optional = true"))
+        .map(|(name, _)| name)
+        .collect();
+    let mut manifests = vec![("buri".to_string(), cli.clone())];
+    let mut crates: Vec<PathBuf> = std::fs::read_dir(repo_root().join("crates"))
+        .expect("crates/")
+        .map(|e| e.unwrap().path().join("Cargo.toml"))
+        .collect();
+    crates.sort();
+    for path in crates {
+        let text = std::fs::read_to_string(&path).unwrap();
+        let name = text
+            .lines()
+            .find_map(|l| l.strip_prefix("name = \""))
+            .and_then(|l| l.strip_suffix('"'))
+            .unwrap_or_else(|| panic!("{} names no package", path.display()))
+            .to_string();
+        manifests.push((name, text));
+    }
     let mut seen = 0;
-    for (name, line) in declared(&cli) {
-        assert!(
-            ADMITTED.iter().any(|a| name.starts_with(a)),
-            "cli/Cargo.toml declares `{name}`, which is not in the admitted set {ADMITTED:?}.\n{BAR}"
-        );
-        assert!(
-            line.contains("optional = true"),
-            "the dependency `{name}` is not optional, so the default build cannot turn it \
-             off.\n{BAR}"
-        );
-        seen += 1;
+    for (package, manifest) in &manifests {
+        for (name, line) in declared(manifest) {
+            if line.contains("path = \"../") {
+                assert!(
+                    name.starts_with("buri-"),
+                    "{package} declares `{name}` by path, and only the toolchain's own crates are \
+                     declared that way"
+                );
+                continue;
+            }
+            assert!(
+                ADMITTED.iter().any(|a| name.starts_with(a)),
+                "{package} declares `{name}`, which is not in the admitted set {ADMITTED:?}.\n{BAR}"
+            );
+            assert!(
+                line.contains("optional = true") || optional_crates.contains(package),
+                "the dependency `{name}` of {package} is not optional, so the default build cannot \
+                 turn it off.\n{BAR}"
+            );
+            seen += 1;
+        }
     }
     assert!(seen > 0, "the admitted dependencies vanished; this test is now asserting nothing");
 
@@ -1395,7 +1431,7 @@ fn the_llvm_feature_is_confined_to_the_files_the_bar_names() {
 fn the_tree_sitter_grammar_is_generated_from_the_ebnf() {
     let path = repo_root().join("editors/tree-sitter-buri/grammar.js");
     let generated = buri::documentation::grammar::generate(buri::documentation::topics::GRAMMAR)
-        .unwrap_or_else(|e| panic!("cli/src/docs/grammar.ebnf does not generate:\n{e}"));
+        .unwrap_or_else(|e| panic!("crates/docs/src/docs/grammar.ebnf does not generate:\n{e}"));
 
     if std::env::var_os("BURI_BLESS").is_some() {
         std::fs::write(&path, &generated).unwrap();
@@ -1408,7 +1444,7 @@ fn the_tree_sitter_grammar_is_generated_from_the_ebnf() {
     }
     panic!(
         "editors/tree-sitter-buri/grammar.js is not what the EBNF generates.\n{}\n\
-         Edit `cli/src/docs/grammar.ebnf`, never this file. Then record it and run\n\
+         Edit `crates/docs/src/docs/grammar.ebnf`, never this file. Then record it and run\n\
          editors/tree-sitter-buri/check.sh:\n  \
          BURI_BLESS=1 cargo test -p buri --test language corpus::the_tree_sitter_grammar",
         first_differences(&recorded, &generated)
@@ -1449,9 +1485,9 @@ fn first_differences(recorded: &str, generated: &str) -> String {
 #[test]
 fn every_reference_in_the_ebnf_resolves() {
     let ebnf = buri::documentation::grammar::parse(buri::documentation::topics::GRAMMAR)
-        .unwrap_or_else(|e| panic!("cli/src/docs/grammar.ebnf does not parse:\n{e}"));
+        .unwrap_or_else(|e| panic!("crates/docs/src/docs/grammar.ebnf does not parse:\n{e}"));
     let dangling = buri::documentation::grammar::dangling_references(&ebnf);
-    assert!(dangling.is_empty(), "cli/src/docs/grammar.ebnf:\n  {}", dangling.join("\n  "));
+    assert!(dangling.is_empty(), "crates/docs/src/docs/grammar.ebnf:\n  {}", dangling.join("\n  "));
     assert!(
         ebnf.productions.len() > 80,
         "only {} productions were read; the file is not being parsed",

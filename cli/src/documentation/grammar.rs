@@ -1580,7 +1580,7 @@ fn write_rule(out: &mut String, name: &str, body: &Js) {
 }
 
 const HEADER: &str = "\
-// GENERATED from cli/src/docs/grammar.ebnf — do not edit.
+// GENERATED from crates/docs/src/docs/grammar.ebnf — do not edit.
 //
 // The EBNF is the normative grammar and the only place this language's syntax
 // is written down. It carries what tree-sitter needs beyond a context-free

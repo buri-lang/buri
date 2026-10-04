@@ -69,7 +69,7 @@ defaults that changed after 2023 are `enforce_naming_style` and
 
 `test_messages_proto3.proto` is built out of every construct the format has,
 including three Buri's schema reader
-[refuses](../../src/docs/reference/build/proto.md):
+[refuses](../../../crates/docs/src/docs/reference/build/proto.md):
 
 - **`import "google/protobuf/..."`** — nine imports of the well-known types. No
   bundled copy of those schemas exists here, and each one also has a JSON

@@ -3,13 +3,13 @@
 **Working notes, roadmaps and design documents. Written for somebody changing
 the toolchain, not somebody using it.**
 
-User documentation lives under [`cli/src/docs/`](../cli/src/docs/), and `buri
+User documentation lives under [`crates/docs/src/docs/`](../crates/docs/src/docs/), and `buri
 docs` serves it. Nothing here goes into the binary and nothing here is served,
 so notes here may be provisional and may go stale the moment the code lands.
 
 The one rule: **when a decision made here becomes true of the toolchain, it
 moves.** A shipped design document is a second copy of the reference, and it
-drifts. Say it once, under `cli/src/docs/`, and leave the argument here.
+drifts. Say it once, under `crates/docs/src/docs/`, and leave the argument here.
 
 | File | What it is |
 |---|---|

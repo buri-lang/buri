@@ -57,7 +57,7 @@
 
 ; --- What a word's shape says ------------------------------------------------
 ; A grammar cannot tell a type name from a value name, so these two are the
-; naming conventions of `cli/src/docs/lang/lexical.md` read as colour. They
+; naming conventions of `crates/docs/src/docs/lang/lexical.md` read as colour. They
 ; carry the identifiers no pattern below reaches — a generic argument, a
 ; qualified path in a pattern, a constant used in an expression — and every
 ; identifier a pattern below does reach is recoloured by it.

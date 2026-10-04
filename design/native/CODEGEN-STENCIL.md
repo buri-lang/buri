@@ -232,7 +232,7 @@ Three properties, each a decision:
 
   The baked digest matches what the run-time hash produced, structurally: the
   script and `build::cache::hash_bytes` are one source file
-  (`cli/src/build/sha256.rs`, which the script `#[path]`-includes), so there
+  (`crates/hash/src/build/sha256.rs`, which the script `#[path]`-includes), so there
   is one implementation of SHA-256 and not two that could drift. It was also
   checked directly — `buri test //... --explain` prints byte-identical action
   keys either way, and every action stays cached.

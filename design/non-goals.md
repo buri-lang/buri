@@ -85,7 +85,7 @@ value, so a handler takes an `Arguments` and asks it by name instead.
    extending a foreign type. Neither gap has a fix that keeps resolution
    import-free and collision-free.
 6. *Whether the compilation invariants survive contact with real features.*
-   `cli/src/docs/guides/compile-speed.md` writes them down, and every one is the
+   `crates/docs/src/docs/guides/compile-speed.md` writes them down, and every one is the
    kind of property a reasonable-looking addition erodes. Interleaving name
    resolution with type inference is the fragile one.
 7. *Holding the line on 5.12.5.* Restricted traits are cheap precisely because
@@ -100,4 +100,4 @@ value, so a handler takes an `Arguments` and asks it by name instead.
 
 An answered question leaves this list; `resolved-questions.md` keeps the ones
 that did. A bare "Section N.M" above points at a section of the language
-reference, under [`cli/src/docs/language/`](../cli/src/docs/language/).
+reference, under [`crates/docs/src/docs/language/`](../crates/docs/src/docs/language/).

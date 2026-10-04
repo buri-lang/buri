@@ -7,7 +7,7 @@
 //! a page `buri docs` is missing too, which is the only way the two can be held
 //! together without a second list to keep in step.
 //!
-//! The *text* is read from `cli/src/docs/**` on disk rather than from the
+//! The *text* is read from `crates/docs/src/docs/**` on disk rather than from the
 //! copies compiled into `buri`, so that editing a page and re-running the
 //! generator shows the edit — and so that `--watch` has something to watch.
 
@@ -37,28 +37,28 @@ pub const SECTIONS: &[Section] = &[
         title: "Getting started",
         blurb: "Why the language is shaped the way it is, how to install it, and the \
                 first program — read in that order, once.",
-        directory: "cli/src/docs/getting-started",
+        directory: "crates/docs/src/docs/getting-started",
     },
     Section {
         slug: "guides",
         title: "Guides",
         blurb: "How to do one thing, and the ideas you have to hold to do it: the build \
                 system, testing, effects, numbers, the browser.",
-        directory: "cli/src/docs/guides",
+        directory: "crates/docs/src/docs/guides",
     },
     Section {
         slug: "language",
         title: "The language",
         blurb: "The reference, section by section: what the language is, exactly, and what \
                 a conforming implementation has to do.",
-        directory: "cli/src/docs/language",
+        directory: "crates/docs/src/docs/language",
     },
     Section {
         slug: "reference",
         title: "Reference",
         blurb: "Lookup, not reading: the standard library, the build files, the CLI, every \
                 diagnostic and lint code, and the normative grammar and schemas.",
-        directory: "cli/src/docs/reference",
+        directory: "crates/docs/src/docs/reference",
     },
 ];
 
@@ -118,7 +118,7 @@ pub const GROUPS: &[Group] = &[
         index: Some(Catalogue {
             route: "reference/errors",
             title: "Every error code",
-            directory: "cli/src/docs/reference/errors",
+            directory: "crates/docs/src/docs/reference/errors",
         }),
     },
     Group {
@@ -127,7 +127,7 @@ pub const GROUPS: &[Group] = &[
         index: Some(Catalogue {
             route: "reference/lints",
             title: "Every lint code",
-            directory: "cli/src/docs/reference/lints",
+            directory: "crates/docs/src/docs/reference/lints",
         }),
     },
     Group {
@@ -160,12 +160,12 @@ const CLI_TOPIC: &str = "reference/cli";
 
 /// Where the CLI page's prose is edited. One page, a directory of sources —
 /// the intro beside it and one file per command.
-const CLI_DIRECTORY: &str = "cli/src/docs/reference/cli";
+const CLI_DIRECTORY: &str = "crates/docs/src/docs/reference/cli";
 
 /// Where the standard library is written. Its pages are generated from the
 /// API the compiler reads out of these files, and this is where a reader who
 /// wants to change one goes.
-const STD_SOURCES: &str = "cli/src/compiler/standard_library/sources";
+const STD_SOURCES: &str = "crates/stdlib/src/compiler/standard_library/sources";
 
 /// The page that lists every standard library module.
 ///
@@ -323,7 +323,7 @@ impl Page {
 pub fn find_root(start: &Path) -> Option<PathBuf> {
     let mut here = Some(start);
     while let Some(directory) = here {
-        if directory.join("cli/src/docs").is_dir() && directory.join("README.md").is_file() {
+        if directory.join("crates/docs/src/docs").is_dir() && directory.join("README.md").is_file() {
             return Some(directory.to_path_buf());
         }
         here = directory.parent();
@@ -778,7 +778,7 @@ fn read_catalog(root: &Path, pages: &mut Vec<Page>) -> Result<(), String> {
         .iter()
         .map(|l| (LINTS, "lints", l.code, l.listed_title, l.see_also));
     for (group, directory, code, listed_title, see_also) in errors.chain(lints) {
-        let path = format!("cli/src/docs/reference/{directory}/{code}.md");
+        let path = format!("crates/docs/src/docs/reference/{directory}/{code}.md");
         let text = slurp(root, &path)?;
         let parsed = frontmatter::parse(&text).map_err(|why| format!("{path}: {why}"))?;
         let (title, facts, adapted_from, body) = match parsed {
@@ -826,7 +826,7 @@ fn read_catalog(root: &Path, pages: &mut Vec<Page>) -> Result<(), String> {
 
 fn read_skills(root: &Path, pages: &mut Vec<Page>) -> Result<(), String> {
     for skill in SKILLS {
-        let path = format!("cli/src/docs/reference/skills/{}.md", skill.name);
+        let path = format!("crates/docs/src/docs/reference/skills/{}.md", skill.name);
         let text = slurp(root, &path)?;
         let (front, body) = split_front_block(&text);
         let description = front.and_then(|block| field(block, "description"));
@@ -859,17 +859,17 @@ fn read_skills(root: &Path, pages: &mut Vec<Page>) -> Result<(), String> {
 /// verbatim in one block, exactly as `buri docs grammar` shows them.
 fn read_normative(root: &Path, pages: &mut Vec<Page>) -> Result<(), String> {
     const NORMATIVE: &[(&str, &str, &str, &str)] = &[
-        ("reference/grammar", "The normative grammar", "cli/src/docs/grammar.ebnf", "ebnf"),
+        ("reference/grammar", "The normative grammar", "crates/docs/src/docs/grammar.ebnf", "ebnf"),
         (
             "reference/build-schema",
             "The BUILD.buri schema",
-            "cli/src/docs/reference/schema/build.proto",
+            "crates/docs/src/docs/reference/schema/build.proto",
             "proto",
         ),
         (
             "reference/repo-schema",
             "The REPO.buri schema",
-            "cli/src/docs/reference/schema/repo.proto",
+            "crates/docs/src/docs/reference/schema/repo.proto",
             "proto",
         ),
     ];

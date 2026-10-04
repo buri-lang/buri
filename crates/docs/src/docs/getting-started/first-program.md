@@ -1,0 +1,131 @@
+# Your first program
+
+You are going to create a Buri repository, run its tests, change its one
+library, and watch that change come out on the terminal. It takes about ten
+minutes.
+
+You need `buri` on your `PATH` — [installing](./installing.md) has the three
+ways to get it.
+
+## Create the repository
+
+```text
+$ buri init hello-buri
+wrote REPO.buri
+wrote .gitignore
+wrote libs/greeting/BUILD.buri
+wrote libs/greeting/lib.buri
+wrote libs/greeting/greeting.buri
+wrote libs/greeting/test/greeting.buri
+wrote apps/hello/BUILD.buri
+wrote apps/hello/main.buri
+wrote .agent/skills/buri-language/SKILL.md
+wrote .agent/skills/buri-types/SKILL.md
+wrote .agent/skills/buri-build/SKILL.md
+wrote .agent/skills/buri-testing/SKILL.md
+wrote .agent/skills/buri-cli/SKILL.md
+```
+
+Move into it:
+
+```text
+$ cd hello-buri
+```
+
+The five files under `.agent/skills` are this toolchain's agent skills, for a
+coding agent working here.
+
+## Look at what it wrote
+
+`REPO.buri` marks the repository root: `//` in every label and every module path
+resolves against the directory holding it. `libs/greeting/BUILD.buri` declares
+one library, listing its sources and its tests one path at a time.
+`libs/greeting/greeting.buri` holds that library's one function, `greeting`.
+
+`apps/hello/main.buri` is the program. `main` takes the host of the platform it
+runs on — `node`, since the binary names no output — and the `context` it
+builds from the host's fields is the whole effect budget: this program can
+allocate and print, and nothing else.
+
+```buri repo=crates/docs/src/docs/init package=//apps/hello role=entry
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+from "//libs/greeting" import { greeting };
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+
+    match (io.println(ctx, greeting())) {
+        .Ok(_) => .Ok(()),
+        .Err(_) => .Err("could not write to standard output"),
+    }
+}
+```
+
+## Test it and run it
+
+```text
+$ buri test
+1 passed, 0 failed, 0 skipped (0.4s)
+$ buri run //apps/hello
+hello world
+```
+
+(Timings vary, here and below.)
+
+## Make the greeting ours
+
+Open `libs/greeting/greeting.buri` and change the string it answers:
+
+```buri
+/// The greeting this repository was born with.
+export fn greeting(): Str {
+    "hello, Buri"
+}
+```
+
+Run the tests again:
+
+```text
+$ buri test
+FAIL //libs/greeting  test/greeting.buri  "the greeting"
+  assert.equal failed
+    actual:   "hello, Buri"
+    expected: "hello world"
+  --> libs/greeting/test/greeting.buri:7:1
+
+0 passed, 1 failed, 0 skipped (0.3s)
+```
+
+The suite is right: you changed what the library answers without changing what
+you claim it answers.
+
+## Make the test agree
+
+Open `libs/greeting/test/greeting.buri` and change the expected string in its
+one assertion to `"hello, Buri"`, so the line reads:
+
+```text
+    assert.equal(greeting(), "hello, Buri");
+```
+
+Run them once more, and run the program:
+
+```text
+$ buri test
+1 passed, 0 failed, 0 skipped (0.5s)
+$ buri run //apps/hello
+hello, Buri
+```
+
+That is the whole loop: change the code, run the suite, run the program.
+
+## Next
+
+[Tutorial: a small program, end to end](./tutorial.md) builds a command line
+program from an empty directory: two libraries, a binary, and the tests that
+hold them up.

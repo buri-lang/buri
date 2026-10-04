@@ -577,7 +577,7 @@ mod tests {
             label: "getting-started/installing".to_string(),
             summary: "How to install.".to_string(),
             source: Source {
-                path: "cli/src/docs/getting-started/installing.md".to_string(),
+                path: "crates/docs/src/docs/getting-started/installing.md".to_string(),
                 directory: false,
             },
             section: None,

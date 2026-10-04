@@ -281,13 +281,11 @@ mod sources;
 #[path = "src/compiler/backend/stencil/library.rs"]
 mod library;
 // The toolchain's table hasher, which `library.rs` indexes the stencils with.
-#[allow(dead_code, reason = "the script uses the map and not the set")]
-#[path = "src/hash.rs"]
-mod hash;
+use buri_hash::hash;
 
-// The toolchain's one hash, shared the same way and for a reason of the same
-// shape. Both blobs written below enter a cache key **as their own digest** —
-// the archive through `link_key`'s runtime term, the stencil library through
+// The toolchain's one hash, a build dependency for a reason of the same shape.
+// Both blobs written below enter a cache key **as their own digest** — the
+// archive through `link_key`'s runtime term, the stencil library through
 // `Backend::identity` — and a digest of bytes that cannot change after this
 // script has written them has no business being recomputed by every process
 // that later reads them. Ten megabytes of SHA-256 is about fifty-five
@@ -297,18 +295,12 @@ mod hash;
 //
 // Shared rather than restated: `hash_bytes` here and `hash_bytes` in the
 // toolchain must produce the same string, and the only way to be sure of that
-// is for there to be one of them. `src/build/sha256.rs`'s header is the whole
+// is for there to be one of them. `buri-hash`'s `sha256.rs` header is the whole
 // argument; `runtime_native::the_hash_is_of_the_bytes` is the assertion.
-#[allow(dead_code, reason = "the streaming half of this file is the toolchain's")]
-#[path = "src/build/sha256.rs"]
-mod sha256;
+use buri_hash::build::sha256;
 
 fn main() {
     let manifest = PathBuf::from(env("CARGO_MANIFEST_DIR"));
-    // Not in the rerun set by default: this script names its inputs, so
-    // without this line an edit to the hash would leave a digest baked by the
-    // old one beside bytes the new one reads differently.
-    println!("cargo:rerun-if-changed={}", manifest.join("src/build/sha256.rs").display());
     // The toolchain names itself by the id its linker writes into the header
     // (`src/build/exe_identity.rs`). ld64 always writes an `LC_UUID`; on Linux
     // not every linker writes a build id unless asked, the static-PIE musl
@@ -1063,9 +1055,11 @@ fn stamp_of(
     h.text(STAMP);
     // This script's own logic, and the hash it shares with the toolchain. A
     // change to either can change what the nested build is asked to do without
-    // changing a single one of the terms below.
+    // changing a single one of the terms below. The hash is a build dependency
+    // now, so it is named by what it computes: a changed hash changes this
+    // digest.
     h.field(&std::fs::read(manifest.join("build.rs")).ok()?);
-    h.field(&std::fs::read(manifest.join("src/build/sha256.rs")).ok()?);
+    h.text(&sha256::hash_bytes(STAMP.as_bytes()));
     // The sources, twice over: `cli/runtime/` because that is what a
     // contributor edits, and the assembled package because that is what the
     // nested cargo actually compiles. They are not the same set — `assemble`

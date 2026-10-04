@@ -1,6 +1,6 @@
 //! Compiling every example in every document.
 //!
-//! The examples are checked in the *topic* files under `cli/src/docs/`, not in
+//! The examples are checked in the *topic* files under `crates/docs/src/docs/`, not in
 //! the assembled `SPEC.md`, because the topic is the file somebody edits — a
 //! failure that points at a generated file points at the wrong place. Assembly
 //! is concatenation, so checking the topics checks the assembled document
@@ -93,7 +93,7 @@ pub fn document(root: &Path, rel: &str, compiled_in: &str) -> String {
 /// nothing. This asks the only thing that cannot be wrong — the bytes.
 fn source_path(root: &Path, text: &str) -> Option<String> {
     // The standard library's sources, and the bundled platforms' `platform.buri`.
-    const DIRS: [&str; 2] = ["cli/src/compiler/standard_library/sources", "cli/src/platforms"];
+    const DIRS: [&str; 2] = ["crates/stdlib/src/compiler/standard_library/sources", "crates/stdlib/src/platforms"];
     let mut found = None;
     let mut stack: Vec<_> = DIRS.iter().map(|d| root.join(d)).collect();
     while let Some(dir) = stack.pop() {
@@ -199,7 +199,7 @@ fn cli_reference_examples() {
     let root = repo_root();
     let mut failures = Vec::new();
     for c in buri::commands::COMMANDS {
-        let path = format!("cli/src/docs/reference/cli/{}.md", c.name);
+        let path = format!("crates/docs/src/docs/reference/cli/{}.md", c.name);
         let text = document(&root, &path, c.doc);
         failures.extend(examples::run_file_at(&root, &path, &text));
     }
@@ -408,17 +408,17 @@ fn every_example_is_laid_out_the_way_the_formatter_writes_source() {
         census(&topic_path(t), &document(&root, &topic_path(t), t.text));
     }
     for c in buri::commands::COMMANDS {
-        let rel = format!("cli/src/docs/reference/cli/{}.md", c.name);
+        let rel = format!("crates/docs/src/docs/reference/cli/{}.md", c.name);
         census(&rel, &document(&root, &rel, c.doc));
     }
     // The catalogs. Their pages are markdown like any other, and the program on
     // an error page is the one a reader copies to reproduce the error.
     for e in buri::documentation::errors::ERRORS {
-        let rel = format!("cli/src/docs/reference/errors/{}.md", e.code);
+        let rel = format!("crates/docs/src/docs/reference/errors/{}.md", e.code);
         census(&rel, &document(&root, &rel, e.text));
     }
     for l in buri::documentation::lints::LINTS {
-        let rel = format!("cli/src/docs/reference/lints/{}.md", l.code);
+        let rel = format!("crates/docs/src/docs/reference/lints/{}.md", l.code);
         census(&rel, &document(&root, &rel, l.text));
     }
     census("README.md", &document(&root, "README.md", ""));
