@@ -341,7 +341,10 @@ mod tests {
                 &raw mut message,
             )
         };
-        (tag, handle, unsafe { message.as_str() }.into_owned())
+        let text = unsafe { message.as_str() }.into_owned();
+        // SAFETY: a failed dial hands its message over, and it has been read.
+        unsafe { crate::memory::buri_rt_decref(message.base, None) };
+        (tag, handle, text)
     }
 
     #[test]
@@ -364,6 +367,8 @@ mod tests {
         // SAFETY: the entry answered a live `[U8]`.
         let answer = unsafe { std::slice::from_raw_parts(got.ptr, got.len as usize) };
         assert_eq!(answer, body);
+        // SAFETY: the octets are this test's, and they have been read.
+        unsafe { crate::memory::buri_rt_free(got.ptr) };
 
         buri_rt_host_tcp_close(handle);
         thread.join().expect("the peer thread");
@@ -432,8 +437,15 @@ mod tests {
     fn a_limit_of_zero_answers_the_empty_list() {
         let mut error = str_of("");
         let mut got = list_of_bytes(&[1]);
+        let seeded = got.ptr;
         let read = unsafe { buri_rt_host_tcp_read(0, 0, &raw mut got, &raw mut error) };
         assert_eq!(read, BURI_OK);
         assert_eq!(got.len, 0);
+        // SAFETY: the seed was this test's own block, and the read wrote over
+        // the list that named it rather than taking it.
+        unsafe {
+            crate::memory::buri_rt_free(seeded);
+            crate::memory::buri_rt_free(got.ptr);
+        }
     }
 }

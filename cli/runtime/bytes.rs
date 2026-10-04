@@ -272,7 +272,10 @@ mod tests {
         };
         if disc == BURI_OK {
             // SAFETY: the entry wrote a live `Str`.
-            Ok(unsafe { out.as_str() }.into_owned())
+            let text = unsafe { out.as_str() }.into_owned();
+            // SAFETY: that `Str` is this caller's, and it has been read.
+            unsafe { crate::memory::buri_rt_decref(out.base, None) };
+            Ok(text)
         } else {
             Err(err)
         }
@@ -330,6 +333,8 @@ mod tests {
         assert_eq!(unsafe { buri_rt_bytes_f64_from_bytes(bytes.as_ptr(), 8, 1, &raw mut back) }, 0);
         // SAFETY: as above.
         assert_eq!(unsafe { buri_rt_bytes_f64_from_bytes(bytes.as_ptr(), 8, -1, &raw mut back) }, 0);
+        // SAFETY: the block the entry wrote, held by nothing else.
+        unsafe { crate::memory::buri_rt_free(list.ptr) };
     }
 
     #[test]
@@ -347,6 +352,8 @@ mod tests {
         };
         assert_eq!(disc, BURI_OK);
         assert!((back + 2.5).abs() < f64::EPSILON);
+        // SAFETY: the block the entry wrote, held by nothing else.
+        unsafe { crate::memory::buri_rt_free(list.ptr) };
     }
 
     /// The payload and the sign are dropped on the way in, so the round trip
@@ -372,6 +379,8 @@ mod tests {
             // SAFETY: the entry wrote a live block of eight octets.
             let bytes = unsafe { std::slice::from_raw_parts(list.ptr, list.len as usize) };
             assert_eq!(bytes, &[0, 0, 0, 0, 0, 0, 0xF8, 0x7F]);
+            // SAFETY: the block the entry wrote, held by nothing else.
+            unsafe { crate::memory::buri_rt_free(list.ptr) };
         }
     }
 
@@ -392,5 +401,7 @@ mod tests {
         // SAFETY: the entry wrote a live block of four octets.
         let bytes = unsafe { std::slice::from_raw_parts(list.ptr, list.len as usize) };
         assert_eq!(bytes, &[0, 0, 0xC0, 0x7F]);
+        // SAFETY: the block the entry wrote, held by nothing else.
+        unsafe { crate::memory::buri_rt_free(list.ptr) };
     }
 }

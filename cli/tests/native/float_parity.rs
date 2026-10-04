@@ -59,6 +59,7 @@ void buri_rt_show_f64(double x, BuriStr *out);
 void buri_rt_show_f32(float x, BuriStr *out);
 void buri_rt_argv_init(int argc, char **argv);
 void buri_rt_flush(void);
+void buri_rt_decref(unsigned char *p, void (*drop_glue)(unsigned char *));
 
 /* Files rather than pipes, in both directions. A four-million-line corpus does
  * not fit in a pipe buffer, and a parent that writes the whole of it before
@@ -81,6 +82,10 @@ int main(int argc, char **argv) {
         fprintf(out, "%016llx ", (unsigned long long)bits);
         fwrite(s.ptr, 1, (size_t)(s.len & STR_LEN_MASK), out);
         fputc('\n', out);
+        /* The rendering is this driver's to give back (§2 rule 2), and the
+         * suite may run it under `BURI_RT_HEAP_CHECK`, which counts every
+         * block nobody released. */
+        buri_rt_decref(s.base, 0);
     }
     fclose(in);
     fclose(out);
