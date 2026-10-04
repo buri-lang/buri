@@ -23,6 +23,10 @@ A file in a language of your own is checked by its tool's `check` the same way
 
 `buri build` on a `tool` rule checks it, the way it checks a library.
 
+`buri build`, `buri run` and `buri test` run only the generators of the targets
+they build, their dependencies and test dependencies, and the tools those
+generators run. `buri build //...` runs every one.
+
 ## Lint findings
 
 A build reports the lint catalogue too, where `REPO.buri` asks it to. Set

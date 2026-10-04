@@ -118,6 +118,9 @@ pub fn findings_reusing(
     flags: &arguments::Flags,
     mut analyses: Vec<(TargetId, crate::compiler::driver::Analysis)>,
 ) -> Diagnostics {
+    if !crate::build::generators::all_prepared(&session.workspace) && needs_every_generator(session, targets) {
+        crate::build::generators::prepare(session, flags, &crate::build::sources::Overlay::new());
+    }
     let mut diagnostics = Diagnostics::new();
     let mut seen_packages = BTreeSet::new();
     let mut store = super::lint_cache::Store::open(&session.root, flags);
@@ -563,6 +566,23 @@ fn check_test_suites(session: &Session, package: PackageId, diagnostics: &mut Di
 /// must appear in exactly one rule. A file that appears in none belongs to no
 /// library and no binary, so nothing ever builds it.
 fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &mut Diagnostics) {
+    let declared = declared_sources(session, package);
+    for (i, (first_name, first_span)) in declared.iter().enumerate() {
+        for (name, span) in declared.iter().skip(i + 1) {
+            if first_name == name {
+                diagnostics.push(
+                    Diagnostic::templated("duplicate-source", *span)
+                        .with_bind("source", name.as_str())
+                        .with_secondary_span(*first_span, "first listed here"),
+                );
+            }
+        }
+    }
+    report_unlisted(session, package, &declared, diagnostics);
+}
+
+/// Every file a rule of the package lists, with where it is listed.
+fn declared_sources(session: &Session, package: PackageId) -> Vec<(String, Span)> {
     let p = session.workspace.package(package);
     let mut declared: Vec<(String, Span)> = Vec::new();
     let push = |list: &[crate::build::buildfile::Spanned<String>], out: &mut Vec<(String, Span)>| {
@@ -599,19 +619,14 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
             push(&t.sources, &mut declared);
         }
     }
+    declared
+}
 
-    for (i, (first_name, first_span)) in declared.iter().enumerate() {
-        for (name, span) in declared.iter().skip(i + 1) {
-            if first_name == name {
-                diagnostics.push(
-                    Diagnostic::templated("duplicate-source", *span)
-                        .with_bind("source", name.as_str())
-                        .with_secondary_span(*first_span, "first listed here"),
-                );
-            }
-        }
-    }
-
+/// The files of a package no rule lists, which `unused-source` reports: a
+/// `.buri` file, or a file wearing an extension one of the package's
+/// generators reads that is neither an input nor a schema a check read.
+fn unlisted_files(session: &Session, package: PackageId, declared: &[(String, Span)]) -> Vec<String> {
+    let p = session.workspace.package(package);
     // The entry points are named by the rule kind rather than listed.
     let mut known: BTreeSet<String> = declared.iter().map(|(n, _)| n.clone()).collect();
     known.insert("lib.buri".into());
@@ -647,10 +662,32 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
 
     let mut on_disk = Vec::new();
     collect_package_sources(&p.dir, &p.dir, &extensions, &mut on_disk);
-    for rel in on_disk {
-        if known.contains(&rel) || schemas.contains(&session.workspace.rel_of(&p.dir.join(&rel))) {
-            continue;
-        }
+    on_disk.retain(|rel| {
+        !known.contains(rel) && !schemas.contains(&session.workspace.rel_of(&p.dir.join(rel)))
+    });
+    on_disk
+}
+
+/// Whether [`unlisted_files`] over these targets' packages has to know what
+/// every generator in the repository reads.
+///
+/// A file a generator's check reads is listed by the rule that read it, and
+/// `buri build` and `buri test` run only the generators of what they build
+/// (`generators::prepare_for`), so a package's schema read by a rule outside
+/// that set would look unlisted. Only a file that is not a `.buri` can be one,
+/// so a package with none of those unlisted needs nothing more.
+pub fn needs_every_generator(session: &Session, targets: &[TargetId]) -> bool {
+    targets.iter().any(|t| {
+        unlisted_files(session, t.package, &declared_sources(session, t.package))
+            .iter()
+            .any(|rel| !rel.ends_with(".buri"))
+    })
+}
+
+/// `unused-source` for each file [`unlisted_files`] names.
+fn report_unlisted(session: &Session, package: PackageId, declared: &[(String, Span)], diagnostics: &mut Diagnostics) {
+    let p = session.workspace.package(package);
+    for rel in unlisted_files(session, package, declared) {
         // Which field a file belongs in follows from what it is, and the fix
         // has to say which — the rule is the same rule ("everything is
         // declared"), so the code is the same code. Anything that is not a

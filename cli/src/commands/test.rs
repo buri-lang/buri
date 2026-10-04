@@ -248,14 +248,20 @@ fn one_pass(
     let mut out =
         if matches!(asked, Asked::Once) { Out::Direct } else { Out::Held(String::new()) };
     let mut sources = sources;
+    // A repository kept across passes has run every generator. One opened for
+    // this pass alone runs only the generators its suites read, once they are
+    // resolved below.
+    let prepared = sources.is_some();
     let opened = match sources.as_deref_mut() {
         Some(sources) => {
             sources.begin_round();
             sources.session(&crate::build::sources::Overlay::new())
         }
         None => match asked {
-            Asked::Served { root } => session::open_at(root, &args.flags),
-            Asked::Once | Asked::Watching => session::open(&args.flags),
+            Asked::Served { root } => session::open_graph_at(root, &args.flags),
+            Asked::Once | Asked::Watching => {
+                session::root_of_cwd().and_then(|root| session::open_graph_at(&root, &args.flags))
+            }
         },
     };
     let mut session = match opened {
@@ -287,6 +293,9 @@ fn one_pass(
     let inputs = if watching { watch::inputs(&session, &targets) } else { Vec::new() };
     if broken {
         return watch::Pass { code: 2, inputs, output: out.take(), quiet: false };
+    }
+    if !prepared {
+        crate::build::generators::prepare_for(&mut session, &args.flags, &targets);
     }
 
     let started = Instant::now();
