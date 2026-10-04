@@ -322,7 +322,10 @@ sources, triple, features and toolchain. So the build runs from cold whenever
 any of them changes, and is reused otherwise.
 
 The cold build happens in the test process, before any step runs
-(`kept::warm_cross_runtime`, called by `run_corpus` and `native::cross`).
+(`kept::warm_cross_runtime`, called by `native::cross` and by `run_corpus` for
+a corpus whose manifests or repositories name a Linux variant). Every other
+test that wants it waits for it, so a corpus that never links for Linux skips
+the wait.
 Inside a step, sccache would run it in its server, outside `buri`'s process
 tree, and the hang cap would see a `buri` doing nothing and kill it.
 
