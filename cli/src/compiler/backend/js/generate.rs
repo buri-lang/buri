@@ -445,12 +445,16 @@ pub fn generate(
     // Each function on a worker, with a generator of its own; see
     // [`Gen::function`] for what it hands back and [`Gen::adopt`] for how the
     // constants it shared join the program's.
-    let functions = program.funcs.len();
-    let emitted: Vec<Emitted> = if javascript::worth_workers(functions) {
-        crate::parallel::map_with(functions, || g.worker(), |w, fi| w.function(fi))
+    let defined = defined_functions(program);
+    let emitted: Vec<Emitted> = if javascript::worth_workers(defined.len()) {
+        crate::parallel::map_with(
+            defined.len(),
+            || g.worker(),
+            |w, n| w.function(defined.get(n).copied().or_ice("`n` is below the count it was asked for")),
+        )
     } else {
         let mut w = g.worker();
-        (0..functions).map(|fi| w.function(fi)).collect()
+        defined.iter().map(|&fi| w.function(fi)).collect()
     };
     for e in emitted {
         stmts.push(g.adopt(e));
@@ -531,6 +535,25 @@ pub fn generate(
 
     let (stmts, roots, chunks) = split_chunks(program, stmts, roots);
     Output { stmts, roots, missing_intrinsics: g.missing, chunks }
+}
+
+/// The slots of the functions the artifact declares: every one, except an
+/// intrinsic whose symbol an earlier intrinsic already took.
+///
+/// Two intrinsics may share a symbol (`middle::monomorphize`'s
+/// `one_symbol_per_function` says why): they are two names for one runtime
+/// entry. `Str`'s `compare` is one, reached directly and through `Ordered`.
+/// Each would print as a function of that name, and a module that declares one
+/// name twice is a `SyntaxError` under node. One declaration answers both.
+fn defined_functions(program: &Program) -> Vec<usize> {
+    let mut intrinsics: HashSet<&str> = HashSet::default();
+    program
+        .funcs
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| !matches!(f.kind, FuncKind::Intrinsic(_)) || intrinsics.insert(&f.symbol))
+        .map(|(fi, _)| fi)
+        .collect()
 }
 
 /// The ownership half of `middle::rc`, which this branch of the pipeline runs
