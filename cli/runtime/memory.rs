@@ -4205,50 +4205,54 @@ mod tests {
     /// release glue of a `[T]` walks `cap / stride` slots.
     #[test]
     fn the_cache_returns_a_block_of_exactly_the_capacity_asked_for() {
-        for payload in [0u64, 1, 24, 64, CACHE_MAX_PAYLOAD] {
-            let first = buri_rt_alloc(payload);
-            // SAFETY: `first` is this test's only reference to a live block.
-            unsafe {
-                assert_eq!(buri_rt_cap(first), payload);
-                buri_rt_free(first);
+        without_the_heap_check("the_cache_returns_a_block_of_exactly_the_capacity_asked_for", || {
+            for payload in [0u64, 1, 24, 64, CACHE_MAX_PAYLOAD] {
+                let first = buri_rt_alloc(payload);
+                // SAFETY: `first` is this test's only reference to a live block.
+                unsafe {
+                    assert_eq!(buri_rt_cap(first), payload);
+                    buri_rt_free(first);
+                }
+                let second = buri_rt_alloc(payload);
+                // SAFETY: as above.
+                unsafe {
+                    assert_eq!(second, first, "the cache did not hand the block back");
+                    assert_eq!(buri_rt_cap(second), payload, "the cache changed the capacity");
+                    assert_eq!(buri_rt_rc(second), 1, "a recycled block did not start at one");
+                    buri_rt_free(second);
+                }
             }
-            let second = buri_rt_alloc(payload);
-            // SAFETY: as above.
-            unsafe {
-                assert_eq!(second, first, "the cache did not hand the block back");
-                assert_eq!(buri_rt_cap(second), payload, "the cache changed the capacity");
-                assert_eq!(buri_rt_rc(second), 1, "a recycled block did not start at one");
-                buri_rt_free(second);
-            }
-        }
+        });
     }
 
     /// A block above the ceiling is returned to the allocator rather than
     /// cached, and a `alloc_zeroed` over a cached block is still zeroed.
     #[test]
     fn the_cache_has_a_ceiling_and_still_zeroes() {
-        let big = buri_rt_alloc(CACHE_MAX_PAYLOAD + 1);
-        // SAFETY: `big` is this test's only reference to a live block.
-        unsafe {
-            buri_rt_free(big);
-        }
-
-        let dirty = buri_rt_alloc(32);
-        // SAFETY: `dirty` is this test's only reference to a live block, with
-        // 32 usable bytes.
-        unsafe {
-            std::ptr::write_bytes(dirty, 0xAB, 32);
-            buri_rt_free(dirty);
-        }
-        let clean = buri_rt_alloc_zeroed(32);
-        // SAFETY: as above.
-        unsafe {
-            assert_eq!(clean, dirty, "the cache did not hand the block back to `alloc_zeroed`");
-            for i in 0..32 {
-                assert_eq!(*clean.add(i), 0, "byte {i} of a recycled block was not zeroed");
+        without_the_heap_check("the_cache_has_a_ceiling_and_still_zeroes", || {
+            let big = buri_rt_alloc(CACHE_MAX_PAYLOAD + 1);
+            // SAFETY: `big` is this test's only reference to a live block.
+            unsafe {
+                buri_rt_free(big);
             }
-            buri_rt_free(clean);
-        }
+
+            let dirty = buri_rt_alloc(32);
+            // SAFETY: `dirty` is this test's only reference to a live block, with
+            // 32 usable bytes.
+            unsafe {
+                std::ptr::write_bytes(dirty, 0xAB, 32);
+                buri_rt_free(dirty);
+            }
+            let clean = buri_rt_alloc_zeroed(32);
+            // SAFETY: as above.
+            unsafe {
+                assert_eq!(clean, dirty, "the cache did not hand the block back to `alloc_zeroed`");
+                for i in 0..32 {
+                    assert_eq!(*clean.add(i), 0, "byte {i} of a recycled block was not zeroed");
+                }
+                buri_rt_free(clean);
+            }
+        });
     }
 
     /// A thread's share of the cache is the process budget divided by the
@@ -4296,6 +4300,39 @@ mod tests {
     fn cache_held() -> u64 {
         // SAFETY: this thread's own cell, and the reference does not escape.
         CACHE.with(|c| unsafe { (*c.get()).held })
+    }
+
+    /// Run a test of the per-thread cache with the heap check off.
+    ///
+    /// **The heap check does not apply to these tests.** Under the quarantine
+    /// a freed block goes to the quarantine and never to the cache, so the
+    /// cache is never armed and a test of it has nothing to measure. The mode
+    /// is read once per process, so it cannot be switched off from inside one.
+    /// Where it is on, this runs the one test again in a child process with
+    /// the variable removed and asserts that the child passed. Where it is
+    /// off, it runs the test here.
+    fn without_the_heap_check(test: &str, body: impl FnOnce()) {
+        if heap_check() == HeapCheck::Off {
+            body();
+            return;
+        }
+        // The harness names a test without the crate: `memory::tests::…`.
+        let module = module_path!().split_once("::").map_or(module_path!(), |(_, rest)| rest);
+        let name = format!("{module}::{test}");
+        let out = std::process::Command::new(std::env::current_exe().expect("this test binary"))
+            .args(["--exact", &name, "--test-threads=1"])
+            .env_remove("BURI_RT_HEAP_CHECK")
+            .env_remove("BURI_RT_HEAP_REPORT")
+            .output()
+            .expect("the test binary runs");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            out.status.success(),
+            "`{name}` failed with the heap check off:\n{stdout}\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        // A name that matched nothing would pass with zero tests run.
+        assert!(stdout.contains("1 passed"), "`{name}` did not run:\n{stdout}");
     }
 
     /// This process's resident set in kibibytes, or `None` where `ps` is not
@@ -4355,62 +4392,64 @@ mod tests {
     /// allocator is invisible to every number `cli/tests/native` reads.
     #[test]
     fn a_drained_cache_gives_its_blocks_back() {
-        const PAYLOAD: u64 = 64;
-        const N: usize = 20_000;
+        without_the_heap_check("a_drained_cache_gives_its_blocks_back", || {
+            const PAYLOAD: u64 = 64;
+            const N: usize = 20_000;
 
-        let mut before = BuriHeapStats {
-            live_blocks: 0,
-            live_bytes: 0,
-            total_blocks: 0,
-            total_bytes: 0,
-            retained_bytes: 0,
-            decommitted_bytes: 0,
-            arena_bytes: 0,
-            arena_released_bytes: 0,
-        };
-        // SAFETY: a writable, aligned destination.
-        unsafe { buri_rt_heap_stats(&raw mut before) };
+            let mut before = BuriHeapStats {
+                live_blocks: 0,
+                live_bytes: 0,
+                total_blocks: 0,
+                total_bytes: 0,
+                retained_bytes: 0,
+                decommitted_bytes: 0,
+                arena_bytes: 0,
+                arena_released_bytes: 0,
+            };
+            // SAFETY: a writable, aligned destination.
+            unsafe { buri_rt_heap_stats(&raw mut before) };
 
-        let mut held = Vec::with_capacity(N);
-        for _ in 0..N {
-            held.push(buri_rt_alloc(PAYLOAD));
-        }
-        for p in held {
-            // SAFETY: each pointer is a live block this test holds alone.
-            unsafe { buri_rt_free(p) };
-        }
+            let mut held = Vec::with_capacity(N);
+            for _ in 0..N {
+                held.push(buri_rt_alloc(PAYLOAD));
+            }
+            for p in held {
+                // SAFETY: each pointer is a live block this test holds alone.
+                unsafe { buri_rt_free(p) };
+            }
 
-        let bound = 2 * u64::from(CACHE_SWEEP_OPS) * slot_bytes(PAYLOAD);
-        let residue = cache_held();
-        assert!(
-            residue <= bound,
-            "a drained cache kept {residue} bytes; the sweep bounds it at {bound}"
-        );
+            let bound = 2 * u64::from(CACHE_SWEEP_OPS) * slot_bytes(PAYLOAD);
+            let residue = cache_held();
+            assert!(
+                residue <= bound,
+                "a drained cache kept {residue} bytes; the sweep bounds it at {bound}"
+            );
 
-        let mut after = BuriHeapStats {
-            live_blocks: 0,
-            live_bytes: 0,
-            total_blocks: 0,
-            total_bytes: 0,
-            retained_bytes: 0,
-            decommitted_bytes: 0,
-            arena_bytes: 0,
-            arena_released_bytes: 0,
-        };
-        // SAFETY: as above.
-        unsafe { buri_rt_heap_stats(&raw mut after) };
-        // Every counter here is *process*-wide and the harness is running
-        // other tests on other threads, so what can be asserted about them is
-        // what is true regardless of what else is allocating: this burst was
-        // counted. The equality — that a cache hit is indistinguishable from a
-        // `malloc` in these four numbers — is G2's property and is asserted
-        // end-to-end by `cli/tests/native`'s allocation counts, where the
-        // program under measurement is the only thing running.
-        assert!(
-            after.total_blocks >= before.total_blocks + N as u64,
-            "a cache hit must still count as an allocation the program asked for"
-        );
-        assert!(after.total_bytes >= before.total_bytes + N as u64 * PAYLOAD);
+            let mut after = BuriHeapStats {
+                live_blocks: 0,
+                live_bytes: 0,
+                total_blocks: 0,
+                total_bytes: 0,
+                retained_bytes: 0,
+                decommitted_bytes: 0,
+                arena_bytes: 0,
+                arena_released_bytes: 0,
+            };
+            // SAFETY: as above.
+            unsafe { buri_rt_heap_stats(&raw mut after) };
+            // Every counter here is *process*-wide and the harness is running
+            // other tests on other threads, so what can be asserted about them is
+            // what is true regardless of what else is allocating: this burst was
+            // counted. The equality — that a cache hit is indistinguishable from a
+            // `malloc` in these four numbers — is G2's property and is asserted
+            // end-to-end by `cli/tests/native`'s allocation counts, where the
+            // program under measurement is the only thing running.
+            assert!(
+                after.total_blocks >= before.total_blocks + N as u64,
+                "a cache hit must still count as an allocation the program asked for"
+            );
+            assert!(after.total_bytes >= before.total_bytes + N as u64 * PAYLOAD);
+        });
     }
 
     /// **A thread that ends gives its whole cache back**, asserted through
@@ -4425,68 +4464,70 @@ mod tests {
     /// assertable here at all.
     #[test]
     fn a_thread_that_ends_gives_its_cache_back() {
-        const THREADS: usize = 16;
-        // Under one sweep period each, so the *exit* rule is what is being
-        // measured rather than the decay rule.
-        const PER_THREAD: usize = 1_000;
-        const PAYLOAD: u64 = 248;
+        without_the_heap_check("a_thread_that_ends_gives_its_cache_back", || {
+            const THREADS: usize = 16;
+            // Under one sweep period each, so the *exit* rule is what is being
+            // measured rather than the decay rule.
+            const PER_THREAD: usize = 1_000;
+            const PAYLOAD: u64 = 248;
 
-        let mut base = BuriHeapStats {
-            live_blocks: 0,
-            live_bytes: 0,
-            total_blocks: 0,
-            total_bytes: 0,
-            retained_bytes: 0,
-            decommitted_bytes: 0,
-            arena_bytes: 0,
-            arena_released_bytes: 0,
-        };
-        // SAFETY: a writable, aligned destination.
-        unsafe { buri_rt_heap_stats(&raw mut base) };
+            let mut base = BuriHeapStats {
+                live_blocks: 0,
+                live_bytes: 0,
+                total_blocks: 0,
+                total_bytes: 0,
+                retained_bytes: 0,
+                decommitted_bytes: 0,
+                arena_bytes: 0,
+                arena_released_bytes: 0,
+            };
+            // SAFETY: a writable, aligned destination.
+            unsafe { buri_rt_heap_stats(&raw mut base) };
 
-        let threads: Vec<_> = (0..THREADS)
-            .map(|_| {
-                std::thread::spawn(|| {
-                    let mut blocks = Vec::with_capacity(PER_THREAD);
-                    for _ in 0..PER_THREAD {
-                        blocks.push(buri_rt_alloc(PAYLOAD));
-                    }
-                    for p in blocks {
-                        // SAFETY: a live block this thread holds alone.
-                        unsafe { buri_rt_free(p) };
-                    }
-                    cache_held()
+            let threads: Vec<_> = (0..THREADS)
+                .map(|_| {
+                    std::thread::spawn(|| {
+                        let mut blocks = Vec::with_capacity(PER_THREAD);
+                        for _ in 0..PER_THREAD {
+                            blocks.push(buri_rt_alloc(PAYLOAD));
+                        }
+                        for p in blocks {
+                            // SAFETY: a live block this thread holds alone.
+                            unsafe { buri_rt_free(p) };
+                        }
+                        cache_held()
+                    })
                 })
-            })
-            .collect();
-        let filled: u64 = threads.into_iter().map(|t| t.join().expect("a thread panicked")).sum();
+                .collect();
+            let filled: u64 = threads.into_iter().map(|t| t.join().expect("a thread panicked")).sum();
 
-        // Each thread was holding at least its floor share, so the signal is
-        // megabytes; if it were not, the assertion below would prove nothing.
-        assert!(
-            filled > 4 * CACHE_BYTES_FLOOR,
-            "the threads only cached {filled} bytes between them; nothing was measured"
-        );
+            // Each thread was holding at least its floor share, so the signal is
+            // megabytes; if it were not, the assertion below would prove nothing.
+            assert!(
+                filled > 4 * CACHE_BYTES_FLOOR,
+                "the threads only cached {filled} bytes between them; nothing was measured"
+            );
 
-        let mut after = BuriHeapStats {
-            live_blocks: 0,
-            live_bytes: 0,
-            total_blocks: 0,
-            total_bytes: 0,
-            retained_bytes: 0,
-            decommitted_bytes: 0,
-            arena_bytes: 0,
-            arena_released_bytes: 0,
-        };
-        // SAFETY: as above.
-        unsafe { buri_rt_heap_stats(&raw mut after) };
-        assert!(
-            after.retained_bytes <= base.retained_bytes + CACHE_BYTES_FLOOR,
-            "sixteen ended threads left {} bytes cached, up from {}; \
-             their lists were {filled} bytes",
-            after.retained_bytes,
-            base.retained_bytes
-        );
+            let mut after = BuriHeapStats {
+                live_blocks: 0,
+                live_bytes: 0,
+                total_blocks: 0,
+                total_bytes: 0,
+                retained_bytes: 0,
+                decommitted_bytes: 0,
+                arena_bytes: 0,
+                arena_released_bytes: 0,
+            };
+            // SAFETY: as above.
+            unsafe { buri_rt_heap_stats(&raw mut after) };
+            assert!(
+                after.retained_bytes <= base.retained_bytes + CACHE_BYTES_FLOOR,
+                "sixteen ended threads left {} bytes cached, up from {}; \
+                 their lists were {filled} bytes",
+                after.retained_bytes,
+                base.retained_bytes
+            );
+        });
     }
 
     /// **A ping-pong workload pays nothing for the decay.**
@@ -4498,20 +4539,22 @@ mod tests {
     /// sweep periods the loop runs through.
     #[test]
     fn a_ping_pong_workload_keeps_its_block_through_every_sweep() {
-        const PAYLOAD: u64 = 32;
-        let first = buri_rt_alloc(PAYLOAD);
-        // SAFETY: a live block this test holds alone.
-        unsafe { buri_rt_free(first) };
-        for i in 0..(4 * CACHE_SWEEP_OPS) {
-            let p = buri_rt_alloc(PAYLOAD);
-            assert_eq!(p, first, "the cache gave up its block on iteration {i}");
-            // SAFETY: as above.
-            unsafe { buri_rt_free(p) };
-        }
-        assert_eq!(cache_held(), slot_bytes(PAYLOAD), "the cache is not holding exactly the one block");
-        // SAFETY: drain it so the block does not outlive the test's thread on
-        // a list nothing else will look at.
-        unsafe { buri_rt_free(buri_rt_alloc(PAYLOAD)) };
+        without_the_heap_check("a_ping_pong_workload_keeps_its_block_through_every_sweep", || {
+            const PAYLOAD: u64 = 32;
+            let first = buri_rt_alloc(PAYLOAD);
+            // SAFETY: a live block this test holds alone.
+            unsafe { buri_rt_free(first) };
+            for i in 0..(4 * CACHE_SWEEP_OPS) {
+                let p = buri_rt_alloc(PAYLOAD);
+                assert_eq!(p, first, "the cache gave up its block on iteration {i}");
+                // SAFETY: as above.
+                unsafe { buri_rt_free(p) };
+            }
+            assert_eq!(cache_held(), slot_bytes(PAYLOAD), "the cache is not holding exactly the one block");
+            // SAFETY: drain it so the block does not outlive the test's thread on
+            // a list nothing else will look at.
+            unsafe { buri_rt_free(buri_rt_alloc(PAYLOAD)) };
+        });
     }
 
     /// **An idle thread stack gives its pages back, and the resident set says
