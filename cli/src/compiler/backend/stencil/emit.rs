@@ -58,6 +58,13 @@ const RC_DEPTH: u32 = 8;
 /// [`Jit::walk_field`].
 const RC_INLINE: u32 = 2;
 
+/// The heaviest field, by `Counts::weight`, that stays inline past
+/// [`RC_INLINE`]. Its whole walk is at most this many tests and pointer
+/// operations, so inlining it cannot multiply the way a deep record can, and
+/// the call it replaces — a frame, a copy of the value into it and back out —
+/// cost more than the walk.
+const RC_LIGHT: u32 = 4;
+
 pub fn prim_tag(p: Prim) -> Option<(&'static str, u32, bool)> {
     Some(match p {
         Prim::Bool => ("u64", 64, false),
@@ -896,26 +903,54 @@ impl<'a> Jit<'a> {
                 Site::Field(f) => self.walk_field(st, f, at, op, depth)?,
                 // One arm per variant that owns something, dispatched on the
                 // tag the same way a `match` is.
+                //
+                // The tag is read in place by the fused `tagbr` test a `match`
+                // uses, where its width has one: loading it into a scratch slot
+                // and comparing that was a load, a store and a reload per arm,
+                // and an enum's walk runs on every retain and release of it.
                 Site::Tagged { tag, arms } => {
                     let done = st.label();
-                    for arm in arms.iter() {
+                    let fused = match tag.size() {
+                        1 => Some("tagbr/eq8"),
+                        4 => Some("tagbr/eq32"),
+                        8 => Some("tagbr/eq"),
+                        _ => None,
+                    }
+                    .filter(|k| self.has(k));
+                    for (i, arm) in arms.iter().enumerate() {
                         let next = st.label();
-                        let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
-                        self.load_w(scr, at, tag.size());
-                        let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
-                        self.emit(
-                            &key,
-                            &[
-                                ("JIT_A", V::I(u64::from(scr))),
-                                ("JIT_K", V::I(u64::from(arm.variant))),
-                                ("JIT_T", V::Fall),
-                                ("JIT_F", V::Blk(next)),
-                            ],
-                        );
+                        if let Some(base) = fused {
+                            let key = self.arm_key(base, "JIT_T");
+                            self.emit(
+                                &key,
+                                &[
+                                    ("JIT_A", V::I(u64::from(at))),
+                                    ("JIT_N", V::I(u64::from(arm.variant))),
+                                    ("JIT_T", V::Fall),
+                                    ("JIT_F", V::Blk(next)),
+                                ],
+                            );
+                        } else {
+                            let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
+                            self.load_w(scr, at, tag.size());
+                            let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
+                            self.emit(
+                                &key,
+                                &[
+                                    ("JIT_A", V::I(u64::from(scr))),
+                                    ("JIT_K", V::I(u64::from(arm.variant))),
+                                    ("JIT_T", V::Fall),
+                                    ("JIT_F", V::Blk(next)),
+                                ],
+                            );
+                        }
                         for f in arm.fields.iter() {
                             self.walk_field(st, f, at, op, depth)?;
                         }
-                        self.emit("jump", &[("JIT_T", V::Blk(done))]);
+                        // The last arm's `next` is `done`, so it falls there.
+                        if i + 1 < arms.len() {
+                            self.emit("jump", &[("JIT_T", V::Blk(done))]);
+                        }
                         let here = self.region.code_addr();
                         st.place(next, here);
                     }
@@ -976,7 +1011,10 @@ impl<'a> Jit<'a> {
         }
         let compound =
             matches!(self.layout_shared(&f.ty).repr, Repr::Aggregate | Repr::Enum { .. });
-        if compound && depth >= RC_INLINE {
+        // A light field stays inline however deep, until the walk nears
+        // [`RC_DEPTH`]; the glue starts its own count from zero.
+        let light = depth + 2 < RC_DEPTH && self.rc_weight(&f.ty) <= RC_LIGHT;
+        if compound && depth >= RC_INLINE && !light {
             let sym = self.helper(Helper::Walk { ty: f.ty, op });
             let addr = st.scratch + (super::rtcall::RAW_WORD + 3) * 8;
             self.emit(
