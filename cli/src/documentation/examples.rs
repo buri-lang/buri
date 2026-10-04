@@ -1581,7 +1581,10 @@ mod tests {
 
     /// Runs a synthetic document and returns its failures, rendered.
     fn check(doc: &str) -> String {
-        report(&run_file_at(std::path::Path::new("."), "test.md", doc))
+        // The repository root, as the docs' own `repo=` paths are written, and
+        // not the working directory, which depends on how the test is run.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        report(&run_file_at(&root, "test.md", doc))
     }
 
     #[test]
@@ -1740,7 +1743,7 @@ mod tests {
     /// its code; one that builds is caught.
     #[test]
     fn a_failing_file_must_fail_with_its_code() {
-        let broken = "```textproto fail code=textproto-syntax repo=tests/docs/repositories/deploy \
+        let broken = "```textproto fail code=textproto-syntax repo=cli/tests/docs/repositories/deploy \
                       file=lib/deploy/server.txtpb\n\
                       # proto-file: server.proto\n# proto-message: Server\nports: [80 443]\n```\n";
         assert_eq!(check(broken), "");

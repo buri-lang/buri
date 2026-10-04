@@ -326,14 +326,15 @@ impl Ran {
 /// otherwise share it, and the second overwrites the binary the first is
 /// executing — which on macOS is a child that never returns rather than an
 /// error. The counter is because one row runs one source through two
-/// pipelines or more.
+/// pipelines or more. A row's name keeps only its letters, digits and `_`,
+/// since CI's artifact upload refuses a path with `*` or `:` in it.
 fn workspace(name: &str) -> PathBuf {
     crate::sweep::once();
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("backend-agreement-{}", std::process::id()))
-        .join(format!("{}-{n}", name.replace([' ', '(', ')', '.'], "-")));
+        .join(format!("{}-{n}", name.replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "-")));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
