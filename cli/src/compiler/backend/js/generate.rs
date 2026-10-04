@@ -445,11 +445,13 @@ pub fn generate(
     // Each function on a worker, with a generator of its own; see
     // [`Gen::function`] for what it hands back and [`Gen::adopt`] for how the
     // constants it shared join the program's.
-    let emitted = crate::parallel::map_with(
-        program.funcs.len(),
-        || g.worker(),
-        |w, fi| w.function(fi),
-    );
+    let functions = program.funcs.len();
+    let emitted: Vec<Emitted> = if javascript::worth_workers(functions) {
+        crate::parallel::map_with(functions, || g.worker(), |w, fi| w.function(fi))
+    } else {
+        let mut w = g.worker();
+        (0..functions).map(|fi| w.function(fi)).collect()
+    };
     for e in emitted {
         stmts.push(g.adopt(e));
     }
@@ -537,6 +539,9 @@ pub fn generate(
 /// Neither reads the other, so the column is worked out on a thread of its own
 /// beside the plan.
 fn analyses(program: &Program) -> (rc::Plan, Parking) {
+    if !javascript::worth_workers(program.funcs.len()) {
+        return (rc::sharing(program), park::parkability(program));
+    }
     std::thread::scope(|scope| {
         let parking = std::thread::Builder::new()
             .name("buri-worker".into())

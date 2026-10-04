@@ -1334,6 +1334,16 @@ pub fn minify(stmts: Vec<Stmt>, roots: &[String], mangle: bool) -> Vec<Stmt> {
     stmts
 }
 
+/// Whether a program with this many functions is worth the crate's workers.
+///
+/// Starting them costs a few hundred microseconds a call. The hundreds of
+/// runtime declarations a program carries are no work at all, so it is the
+/// functions that are counted, and a program the size of the prelude floor
+/// stays on one thread.
+pub(crate) fn worth_workers(functions: usize) -> bool {
+    functions >= 64
+}
+
 /// `f` over each statement, on the crate's workers, with the results in the
 /// order the statements came in.
 fn each_statement<F>(stmts: Vec<Stmt>, f: F) -> Vec<Stmt>
@@ -1350,6 +1360,10 @@ where
     I: Fn() -> S + Sync,
     F: Fn(&mut S, Stmt) -> Stmt + Sync,
 {
+    if !worth_workers(stmts.iter().filter(|s| matches!(s, Stmt::Func { .. })).count()) {
+        let mut state = init();
+        return stmts.into_iter().map(|s| f(&mut state, s)).collect();
+    }
     // A lock per statement rather than one around the list: each is taken
     // exactly once, so no two workers ever wait on the same one.
     let slots: Vec<std::sync::Mutex<Option<Stmt>>> =
@@ -2913,12 +2927,20 @@ fn merge_identical(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     // Part of the key: two bodies that are the same are the same function only
     // if they suspend the same way. Making a key hashes the whole body, so the
     // keys are made on the workers.
-    let keys: Vec<Option<FuncKey<'_>>> = crate::parallel::map(stmts.len(), |i| match stmts.get(i) {
-        Some(Stmt::Func { name, params, body, is_async }) if !pinned.contains(name.as_str()) => {
-            Some(FuncKey::new(params, body, *is_async))
+    fn key<'a>(s: &'a Stmt, pinned: &HashSet<&str>) -> Option<FuncKey<'a>> {
+        match s {
+            Stmt::Func { name, params, body, is_async } if !pinned.contains(name.as_str()) => {
+                Some(FuncKey::new(params, body, *is_async))
+            }
+            _ => None,
         }
-        _ => None,
-    });
+    }
+    let functions = stmts.iter().filter(|s| matches!(s, Stmt::Func { .. })).count();
+    let keys: Vec<Option<FuncKey<'_>>> = if worth_workers(functions) {
+        crate::parallel::map(stmts.len(), |i| stmts.get(i).and_then(|s| key(s, &pinned)))
+    } else {
+        stmts.iter().map(|s| key(s, &pinned)).collect()
+    };
 
     // First by emission order wins, so the result does not depend on hash
     // order — build output is compared byte for byte.
