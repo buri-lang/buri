@@ -568,16 +568,36 @@ fn signal_name(signal: i32) -> Option<&'static str> {
 /// is what says why it stopped, and a runtime's stack trace buries its first
 /// line under a hundred frames.
 ///
-/// The frames inside the tool's own compiled module go: they name lines of
-/// JavaScript nobody wrote, under a file named for a cache key, and what the
-/// runtime said above them is the part a person can act on.
+/// **The runtime's stack trace goes, and the note is what the tool said.** A
+/// tool that stops prints its message on a line of its own and then the
+/// error's stack (`$failed` in the JavaScript runtime). The stack's frames name
+/// lines of JavaScript nobody wrote, under a file named for a cache key, or
+/// the runtime's own internals. Nor is the stack the same text from one run
+/// to the next: under load, bun has rendered the frames of one crash as
+/// `Error: division by zero` with `(native:7:39)` and as a bare `Error` with
+/// `(unknown:7:39)`. So every frame goes, and so does the line that heads
+/// them when it only restates the message above it.
 fn said(sentence: &str, stderr: &str) -> String {
-    let kept: Vec<&str> = stderr
-        .lines()
-        .filter(|l| {
-            !(l.trim_start().starts_with("at ") && (l.contains(".mjs:") || l.contains("(native:") || l.contains("(node:")))
-        })
-        .collect();
+    let mut kept: Vec<&str> = Vec::new();
+    let mut in_frames = false;
+    for line in stderr.lines() {
+        if is_frame(line) {
+            if !in_frames {
+                let restated = match kept.as_slice() {
+                    [.., said, header] => restates(header, Some(said)),
+                    [header] => restates(header, None),
+                    [] => false,
+                };
+                if restated {
+                    kept.pop();
+                }
+            }
+            in_frames = true;
+            continue;
+        }
+        in_frames = false;
+        kept.push(line);
+    }
     let kept = kept.join("\n");
     let text = kept.trim();
     if text.is_empty() {
@@ -592,6 +612,30 @@ fn said(sentence: &str, stderr: &str) -> String {
     let cut = (skip..=text.len()).find(|&i| text.is_char_boundary(i)).unwrap_or(text.len());
     let tail = text.get(cut..).unwrap_or_default();
     format!("{sentence}\n(the first {cut} bytes of standard error are not shown)\n{tail}")
+}
+
+/// A JavaScript stack frame: indented, `at`, and a `file:line:column` at the
+/// end, bare or in parentheses.
+fn is_frame(line: &str) -> bool {
+    if !line.starts_with(char::is_whitespace) || !line.trim_start().starts_with("at ") {
+        return false;
+    }
+    let place = line.trim_end().trim_end_matches(')');
+    let mut parts = place.rsplitn(3, ':');
+    let digits = |p: Option<&str>| p.is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
+    digits(parts.next()) && digits(parts.next()) && parts.next().is_some()
+}
+
+/// Whether the line that heads a stack says nothing the line above it did not:
+/// an error's bare name, `Error`, or its name and the message above it,
+/// `Error: division by zero`.
+fn restates(header: &str, above: Option<&str>) -> bool {
+    let (name, message) = match header.split_once(": ") {
+        Some((name, message)) => (name, Some(message)),
+        None => (header, None),
+    };
+    let named = name.ends_with("Error") && name.bytes().all(|b| b.is_ascii_alphanumeric());
+    named && (message.is_none() || message == above)
 }
 
 // ---------------------------------------------------------------------------
@@ -1659,6 +1703,31 @@ mod tests {
 
         let refused = std::process::ExitStatus::from_raw(1 << 8);
         assert_eq!(how_it_ended(&refused), "exited with 1");
+    }
+
+    /// The two ways bun has printed one tool's division by zero, both seen in
+    /// the suite: the frames and the line heading them differ, and the note
+    /// does not.
+    #[test]
+    fn a_crash_says_the_same_whichever_way_the_runtime_renders_its_stack() {
+        let tool = "/tmp/x/.buri/out/tools/7677ca.mjs";
+        let first = format!(
+            "division by zero\nError: division by zero\n    at $abort ({tool}:4:17)\n    at async main ({tool}:711:16)\n    at processTicksAndRejections (native:7:39)\n"
+        );
+        let second = format!(
+            "division by zero\nError\n    at $abort ({tool}:4:17)\n    at processTicksAndRejections (unknown:7:39)\n"
+        );
+        let expected = "the tool exited with 1\ndivision by zero";
+        assert_eq!(said("the tool exited with 1", &first), expected);
+        assert_eq!(said("the tool exited with 1", &second), expected);
+
+        // A heading that says more than the line above it stays, and so does
+        // a line that only reads like a frame.
+        let other = "the schema is wrong\nTypeError: undefined is not an object\n    at f (x.mjs:1:2)\n  at line 3\n";
+        assert_eq!(
+            said("the tool exited with 1", other),
+            "the tool exited with 1\nthe schema is wrong\nTypeError: undefined is not an object\n  at line 3"
+        );
     }
 
     /// A tool that fills its pipe may not fill the page. The **tail** is kept,
