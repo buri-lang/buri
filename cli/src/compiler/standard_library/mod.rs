@@ -47,6 +47,7 @@
 //! that then failed to load, and a name in `PRELUDE` whose module was not
 //! loaded eagerly was silently not in scope.
 
+use crate::build::buildfile::PlatformName;
 use crate::compiler::semantics::types::Prim;
 
 /// One module of the embedded standard library.
@@ -325,10 +326,6 @@ pub const MODULES: &[StdModule] = &[
 /// with user code.
 pub const ROOTS: &[&str] = &["core/", "ui/", "std/", "platform/"];
 
-/// The bundled platforms, whose `platform.buri` a program imports by the
-/// platform's bare name.
-pub const PLATFORMS: &[&str] = &["native", "node", "web"];
-
 /// The module `platform/host`: the backends' production structs, which only a
 /// platform's `platform.buri` may import.
 pub const HOST_STRUCTS_MODULE: &str = "platform/host";
@@ -347,25 +344,19 @@ pub fn is_std_path(path: &str) -> bool {
 /// A bundled platform's name and the host type its `platform.buri` declares:
 /// `("native", "NativeHost")`.
 pub fn host_type_of(platform: &str) -> Option<(&'static str, &'static str)> {
-    match platform {
-        "native" => Some(("native", "NativeHost")),
-        "node" => Some(("node", "NodeHost")),
-        "web" => Some(("web", "WebHost")),
-        _ => None,
-    }
+    PlatformName::bundled(platform).map(|p| (p.name(), p.host()))
 }
 
 /// Whether `name` is one of the entries a bundled platform's `platform.buri`
 /// declares without a body, for a program to fill.
 pub fn is_entry_declaration(module: &str, name: &str) -> bool {
     let canonical = module.strip_suffix("/lib.buri").unwrap_or(module);
-    crate::build::buildfile::PlatformName::bundled(canonical)
-        .is_some_and(|p| p.entries().contains(&name))
+    PlatformName::bundled(canonical).is_some_and(|p| p.entries().contains(&name))
 }
 
 /// The same, for what gets built.
 pub fn host_type(platform: crate::build::buildfile::Platform) -> Option<(&'static str, &'static str)> {
-    host_type_of(platform.proto())
+    host_type_of(platform.slug())
 }
 
 /// The type of the field called `field` on a bundled platform's host, read
@@ -392,7 +383,7 @@ pub fn effects_of_host_struct(name: &str) -> Vec<&'static str> {
 /// spelling.
 pub fn is_bundled_platform(path: &str) -> bool {
     let canonical = path.strip_suffix("/lib.buri").unwrap_or(path);
-    PLATFORMS.contains(&canonical)
+    PlatformName::bundled(canonical).is_some()
 }
 
 /// The roots as they read in a diagnostic: `` `core/...` or `ui/...` ``.

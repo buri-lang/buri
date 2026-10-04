@@ -379,7 +379,7 @@ fn starts_itself(output: &crate::build::buildfile::Output) -> bool {
     if let Some(custom) = &output.custom {
         return custom.js.is_none();
     }
-    crate::build::platforms::bundled(output.platform().proto())
+    crate::build::platforms::bundled(output.platform().slug())
         .and_then(|rule| rule.entries.iter().find(|e| e.name.value == output.entry_point()))
         .is_none_or(|entry| entry.js.is_none())
 }

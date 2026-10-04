@@ -31,7 +31,7 @@ use crate::hash::{Map as HashMap, Set as HashSet};
 use std::collections::BTreeSet;
 
 mod platforms;
-pub use platforms::{is_effect_package_module, is_effect_package_path};
+pub use platforms::{declared_host, is_effect_package_module, is_effect_package_path, js_structs};
 
 /// What a name in scope refers to.
 #[derive(Clone, Debug)]
@@ -56,6 +56,30 @@ pub enum Sym {
     /// name it is declared under. Both are needed because the alias expands in
     /// its declaring module, wherever an import or a rename carried it to.
     Alias(ModuleId, String),
+}
+
+/// One module's own type, by name, when this compilation loaded the module.
+///
+/// `None` for every compilation that did not, which is every program that is
+/// not a user interface.
+pub fn own_type(loaded: &Loaded, scopes: &Layered<ModuleScope>, module: &str, name: &str) -> Option<TyConId> {
+    match own_sym(loaded, scopes, module, name)? {
+        Sym::Ty(id) => Some(*id),
+        _ => None,
+    }
+}
+
+/// One module's own function, by name, when this compilation loaded the
+/// module.
+pub fn own_fn(loaded: &Loaded, scopes: &Layered<ModuleScope>, module: &str, name: &str) -> Option<FnId> {
+    match own_sym(loaded, scopes, module, name)? {
+        Sym::Fn(id) => Some(*id),
+        _ => None,
+    }
+}
+
+fn own_sym<'s>(loaded: &Loaded, scopes: &'s Layered<ModuleScope>, module: &str, name: &str) -> Option<&'s Sym> {
+    scopes.get(loaded.find(module)?.index())?.own.get(name)
 }
 
 #[derive(Default, Clone)]
@@ -132,6 +156,9 @@ pub struct Checked {
     /// role as a parameter, so a list is named by a literal at the call site
     /// rather than by a `NodeKind` one inside the constructor.
     pub role_con: Option<TyConId>,
+    /// Types by well-known name, `platform/effect`'s `Request` and `Response`
+    /// among them.
+    pub known_types: HashMap<String, TyConId>,
     /// Per package, the set of names its `lib.buri` puts on the surface. The
     /// checker needs it to filter method resolution; `dead-code` needs it to
     /// ask the opposite question — what is exported and reaches nobody.
@@ -567,12 +594,12 @@ impl<'a> Checker<'a> {
         // up `Style`: by module path in the loaded set, then by name in that
         // module's own scope. `None` for every compilation that did not load
         // the module, which is every program that is not a user interface.
-        let theme_con = self.own_type("ui/theme", "Theme");
+        let theme_con = own_type(self.loaded, &self.scopes, "ui/theme", "Theme");
         // `ui/node`'s private tree enum, looked up the same way. Private is no
         // obstacle: this is the module's own scope, which is what a name is
         // declared into before anything is exported.
-        let node_con = self.own_type("ui/node", "NodeKind");
-        let role_con = self.own_type("ui/node", "Role");
+        let node_con = own_type(self.loaded, &self.scopes, "ui/node", "NodeKind");
+        let role_con = own_type(self.loaded, &self.scopes, "ui/node", "Role");
         Checked {
             tables: self.tables,
             scopes: self.scopes,
@@ -586,6 +613,7 @@ impl<'a> Checker<'a> {
             theme_con,
             node_con,
             role_con,
+            known_types: self.known_types,
             surfaces: self.surfaces,
             ctx_rebindings: self.ctx_rebindings,
         }
@@ -660,18 +688,6 @@ impl<'a> Checker<'a> {
         self.compute_surfaces();
         self.check_module_rules();
         self.check_bodies();
-    }
-
-    /// One module's own type, by name, when this compilation loaded the module.
-    ///
-    /// `None` for every compilation that did not, which is every program that
-    /// is not a user interface.
-    fn own_type(&self, module: &str, name: &str) -> Option<TyConId> {
-        let index = self.loaded.modules.iter().position(|m| m.path == module)?;
-        match self.scopes.get(index)?.own.get(name)? {
-            Sym::Ty(id) => Some(*id),
-            _ => None,
-        }
     }
 
     /// A diagnostic whose wording lives on its page. What follows is
@@ -1566,7 +1582,7 @@ impl<'a> Checker<'a> {
                     continue;
                 }
                 // `native` is two platforms here, Linux and macOS, and one host.
-                let same = |p: &Option<Platform>| p.map(Platform::proto) == Some(entry.platform.proto());
+                let same = |p: &Option<Platform>| p.map(Platform::slug) == Some(entry.platform.slug());
                 if entry.name == name && !declared.iter().any(same) {
                     declared.push(Some(entry.platform));
                 }
@@ -1791,7 +1807,13 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// One entry, against the signature its platform fixes.
+    /// One entry against `fn <entry>(host: H): Result<(), Str>`, the signature
+    /// its platform fixes — the program runs itself, handed the host its
+    /// platform declares.
+    ///
+    /// `platform` is `None` where the analysis builds no particular output — a
+    /// snippet, or an entry another output's build is passing by — and then
+    /// any bundled platform's host is the host.
     fn check_entry_signature(
         &mut self,
         fid: FnId,
@@ -1800,31 +1822,7 @@ impl<'a> Checker<'a> {
         platform: Option<Platform>,
     ) {
         let info = self.tables.fn_info(fid).clone();
-        if !info.generics.is_empty() {
-            self.templated("entry-signature-mismatch", d.span)
-                .bind("entry", name.to_string())
-                .bind("requirement", "declare no generic parameters")
-                .fix(format!(
-                    "drop them: `{name}` is called by the platform, so there is nothing to infer \
-                     them from"
-                ));
-        }
-        self.check_program_entry(&info, d, name, platform);
-    }
-
-    /// `fn <entry>(host: H): Result<(), Str>` — the program runs itself, handed
-    /// the host its platform declares.
-    ///
-    /// `platform` is `None` where the analysis builds no particular output — a
-    /// snippet, or an entry another output's build is passing by — and then
-    /// any bundled platform's host is the host.
-    fn check_program_entry(
-        &mut self,
-        info: &FnInfo,
-        d: &tree::FnDecl,
-        name: &str,
-        platform: Option<Platform>,
-    ) {
+        self.refuse_entry_generics(&info, d, name);
         let expected = platform.and_then(standard_library::host_type);
         // The host type the fix spells: the platform's, or `node`'s — what a
         // binary that names no output builds for.
@@ -1851,7 +1849,7 @@ impl<'a> Checker<'a> {
                     // Unresolved already, and reported where it was written.
                     _ if param.ty.is_error() => {}
                     (Some(taken), Some((_, wanted))) if taken.1 != wanted => {
-                        let platform = platform.map_or("this", Platform::proto);
+                        let platform = platform.map_or("this", Platform::slug);
                         self.templated("entry-host-mismatch", param.span)
                             .bind("entry", name.to_string())
                             .bind("taken", taken.1)
@@ -1886,16 +1884,7 @@ impl<'a> Checker<'a> {
                 }
             }
         }
-        let unit = Ty::UNIT;
-        let str_ty = self.tables.prim(Prim::Str);
-        let ok = match info.ret.kind() {
-            TyKind::Con(id, args) => {
-                self.result_con.as_ref() == Some(id)
-                    && matches!(args, [ok, err] if *ok == unit && *err == str_ty)
-            }
-            _ => false,
-        };
-        if !ok && !info.ret.is_error() {
+        if !self.is_program_answer(&info.ret) && !info.ret.is_error() {
             let at = self.tree(info.module).type_span(d.ret);
             self.templated("entry-signature-mismatch", at)
                 .bind("entry", name.to_string())
@@ -1916,10 +1905,7 @@ impl<'a> Checker<'a> {
         let tycon = self.tables.tycon(*con);
         // A built-in type has no module, and is no host.
         let module = self.loaded.modules.get(tycon.module.index())?.path.as_str();
-        standard_library::PLATFORMS
-            .iter()
-            .filter_map(|p| standard_library::host_type_of(p))
-            .find(|(owner, host)| *owner == module && *host == tycon.name)
+        standard_library::host_type_of(module).filter(|(_, host)| *host == tycon.name)
     }
 
     fn record_intrinsic(&mut self, fid: FnId, module: ModuleId, d: &tree::FnDecl) {

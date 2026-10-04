@@ -1434,7 +1434,7 @@ fn check_artifact_paths(root: &Path, packages: &[Package], diagnostics: &mut Dia
 fn ships_assets(packages: &[Package], output: &buildfile::Output) -> bool {
     let rule = match &output.custom {
         Some(custom) => packages.iter().find(|p| p.path == custom.package_path()).and_then(|p| p.build.platform.as_ref()),
-        None => crate::build::platforms::bundled(output.platform().proto()),
+        None => crate::build::platforms::bundled(output.platform().slug()),
     };
     rule.is_some_and(|r| !r.assets.is_empty())
 }

@@ -63,17 +63,9 @@ pub enum Platform {
 }
 
 impl Platform {
-    /// The spelling used in `--output=`, in artifact paths and in messages.
+    /// The spelling used in `--output=`, in artifact paths, in messages, and
+    /// in a build file.
     pub fn slug(self) -> &'static str {
-        match self {
-            Platform::Linux | Platform::Macos => "native",
-            Platform::Js => "node",
-            Platform::Web => "web",
-        }
-    }
-
-    /// The spelling a build file writes.
-    pub fn proto(self) -> &'static str {
         match self {
             Platform::Linux | Platform::Macos => "native",
             Platform::Js => "node",
@@ -180,6 +172,15 @@ impl PlatformName {
             PlatformName::Native => "native",
             PlatformName::Node => "node",
             PlatformName::Web => "web",
+        }
+    }
+
+    /// The host type the platform's `platform.buri` declares.
+    pub fn host(self) -> &'static str {
+        match self {
+            PlatformName::Native => "NativeHost",
+            PlatformName::Node => "NodeHost",
+            PlatformName::Web => "WebHost",
         }
     }
 
@@ -2006,7 +2007,7 @@ library {
     fn the_platform_enum_is_total() {
         for p in Platform::ALL {
             assert!(!p.slug().is_empty());
-            assert_ne!(p.is_javascript(), p.is_native(), "`{}`", p.proto());
+            assert_ne!(p.is_javascript(), p.is_native(), "`{}`", p.slug());
         }
         assert!(Platform::Web.is_javascript());
         assert_eq!(Platform::names_phrase(), "native, node, web");
