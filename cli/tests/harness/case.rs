@@ -896,6 +896,9 @@ pub fn run_case(case: &Case, g: &mut Golden) {
 /// run prints is what a one-case-at-a-time run printed, and the only thing the
 /// threads decide is when each case runs.
 pub fn run_corpus(dir: &Path, what: &str, floor: usize) {
+    // A case may link for Linux from a mac, which needs the cross runtime. It
+    // is built here, outside the hang cap, rather than inside a step.
+    super::sweep::kept::warm_cross_runtime();
     let mut g = Golden::new();
     let cases = super::case_dirs(dir, "CASE.textproto", floor);
     for found in super::pool::map(&cases, |dir| {

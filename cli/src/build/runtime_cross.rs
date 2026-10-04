@@ -167,6 +167,17 @@ fn refuse(message: impl Into<String>, fix: impl Into<String>) -> link_refusal::R
 
 /// [`resolve`] without the memo.
 fn resolve_uncached(target: Target) -> Result<Cross, link_refusal::Refusal> {
+    resolve_in(&buri_home()?, target)
+}
+
+/// The cross runtime for `target`, from the cache under `home` or freshly
+/// built into it, without the memo.
+///
+/// [`resolve`] reads `home` from `BURI_HOME`. This takes it as an argument for
+/// the test harness, which builds the runtime once, before any test step runs,
+/// into the home that every `buri` it starts is given. Nothing is built if the
+/// entry is already there.
+pub fn resolve_in(home: &Path, target: Target) -> Result<Cross, link_refusal::Refusal> {
     if !runtime_src::AVAILABLE {
         return Err(refuse(
             "this toolchain carries no runtime sources to cross-build from",
@@ -191,7 +202,7 @@ fn resolve_uncached(target: Target) -> Result<Cross, link_refusal::Refusal> {
     let features = cross_features();
 
     let key = cache_key(&triple, &features, &rustc, &cargo);
-    let root = buri_home()?.join("cross");
+    let root = home.join("cross");
     let dir = root.join(&key);
 
     // A cache hit is an archive and a sysroot already in the keyed directory:
