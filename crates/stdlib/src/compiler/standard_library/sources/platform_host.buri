@@ -8,13 +8,20 @@
 //! `host-import-outside-platform`. A program takes the host its platform
 //! declares instead, and binds its fields in a `context`:
 //!
-//! ```buri ignore why="an entry takes its platform's host, and this page is not one"
+//! ```buri platform=native
+//! # from "native" import { NativeHost };
+//! # from "platform/effect" import { Allocator, Stdout };
+//! #
 //! export fn main(host: NativeHost): Result<(), Str> {
 //!     run(context {
 //!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     })
 //! }
+//! #
+//! # fn run<C: Allocator + Stdout>(ctx: C): Result<(), Str> {
+//! #     .Ok(())
+//! # }
 //! ```
 
 // The filesystem's two effects are declared in `core/fs` rather than

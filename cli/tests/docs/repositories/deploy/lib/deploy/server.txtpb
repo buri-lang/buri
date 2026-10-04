@@ -1,0 +1,3 @@
+# proto-file: server.proto
+# proto-message: Server
+name: "api"

@@ -14,10 +14,23 @@ error: `fetch.mjs` exports `HostKv` without `put`, which `Kv` declares with 4 pa
 Each method a platform's `platform.buri` declares without a body is the entry's
 `js` file's to implement, under the struct's name, with the same parameter count:
 
-```buri ignore why="a platform's surface, compiled only with its rule"
+```buri repo=cli/tests/repositories/custom-platforms/cloudflare_kv/repo file=platform/cloudflare_worker/platform.buri
+# from "platform/effect" import { Request, Response };
+# from "platform/host" import { HostAllocator };
+# from "//platform/effect/kv" import { Kv };
+#
+# export struct CloudflareHost {
+#     export alloc: HostAllocator,
+#     export kv: HostKv,
+# }
+#
+# export fn fetch(host: CloudflareHost, request: Request): Response;
+#
 struct HostKv {}
+
 impl Kv for HostKv {
     fn get(self, namespace: Str, key: Str): Option<Str>;
+
     fn put(self, namespace: Str, key: Str, value: Str): ();
 }
 ```

@@ -5,8 +5,9 @@
 //! `context` and passes that down, so a function's bound says what it can do
 //! and nothing reaches an effect its entry did not bind.
 //!
-//! ```buri ignore why="an entry is checked against its platform, and this page is the platform"
+//! ```buri platform=native
 //! from "native" import { NativeHost };
+//! # from "platform/effect" import { Allocator, Stdout };
 //!
 //! export fn main(host: NativeHost): Result<(), Str> {
 //!     run(context {
@@ -14,6 +15,10 @@
 //!         Stdout: host.stdout,
 //!     })
 //! }
+//! #
+//! # fn run<C: Allocator + Stdout>(ctx: C): Result<(), Str> {
+//! #     .Ok(())
+//! # }
 //! ```
 
 from "platform/host" import {

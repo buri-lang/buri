@@ -42,7 +42,7 @@ A binary that declares no `outputs` at all builds `node`, which is why
 `outputs` is a list, and each entry is a separate artifact checked separately
 against the whole graph:
 
-```textproto schema=build
+```textproto schema=build file=cmd/app/BUILD.buri
 binary {
     outputs: [
         { platform: "native", variant: "linux-x86_64" },
@@ -56,7 +56,7 @@ binary {
 Each platform hands its entry its own host, so each output enters through a
 function of its own, and both call one function that takes `ctx`:
 
-```buri ignore why="`mainForNode` is an entry only where a build file names it, and a fence has no build file"
+```buri file=cmd/app/main.buri
 # from "core/io" import * as io;
 from "native" import { NativeHost };
 from "node" import { NodeHost };

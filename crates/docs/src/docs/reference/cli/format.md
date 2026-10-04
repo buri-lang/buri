@@ -87,7 +87,9 @@ A scalar takes `:`, a message takes `{ }`, `< >` becomes `{ }`, and a trailing
 `;` or `,` goes. A list, or a message inside one, stays on one line when it
 fits. Values keep their spelling and every comment survives.
 
-```textproto ignore why="a data file, not a build file"
+```textproto repo=cli/tests/docs/repositories/deploy file=lib/deploy/server.txtpb
+# proto-file: server.proto
+# proto-message: Server
 name: "api"
 ports: [80, 443]
 limits {

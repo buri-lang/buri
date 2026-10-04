@@ -7,7 +7,7 @@ reproduction: none
 ---
 # A text format file names its message
 
-```textproto ignore why="a data file, not a build file"
+```textproto repo=cli/tests/docs/repositories/deploy file=lib/deploy/server.txtpb
 # proto-file: server.proto
 # proto-message: Server
 name: "api"

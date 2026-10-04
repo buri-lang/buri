@@ -292,7 +292,7 @@ fn monomorphized_entry(
 /// with no `main` has not written its entry point yet; an output naming an
 /// `entry` that `main.buri` does not export has written the name twice and
 /// spelled it differently once, so its page offers what the module does export.
-fn missing_entry(
+pub fn missing_entry(
     session: &Session,
     target: TargetId,
     output: &Output,

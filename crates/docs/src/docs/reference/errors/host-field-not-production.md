@@ -11,13 +11,18 @@ reproduction: none
 error: `count` is `I64`, which is not a production struct [host-field-not-production]
 ```
 
-```buri ignore why="a platform's surface, compiled only with its rule"
+```buri repo=cli/tests/docs/repositories/worker file=platform/cloudflare_worker/platform.buri
+# from "platform/effect" import { Request, Response };
+# from "platform/host" import { HostAllocator };
+#
 export struct CloudflareHost {
     export alloc: HostAllocator,
     export kv: HostKv,
 }
 
 struct HostKv {}
+#
+# export fn fetch(host: CloudflareHost, request: Request): Response;
 ```
 
 A value the entry needs from its host, such as a request, is a parameter of

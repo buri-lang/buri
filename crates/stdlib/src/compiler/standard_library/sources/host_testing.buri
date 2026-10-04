@@ -39,9 +39,19 @@
 //! where the read cannot see it. A block that does both therefore names its
 //! double first:
 //!
-//! ```buri ignore why="a test source is the one place a `test` block is legal, and this file is not one"
-//! let disk = fs().files([("config.toml", "port=8080")]);
-//! let ctx = context { Allocator: alloc(), FileSystemRead: disk, FileSystemWrite: disk };
+//! ```buri role=test
+//! # from "core/fs" import { FileSystemRead, FileSystemWrite };
+//! # from "platform/effect" import { Allocator };
+//! # from "platform/effect/testing" import { alloc, fs };
+//!
+//! # test "one filesystem, read and written" {
+//!     let disk = fs().files([("config.toml", "port=8080")]);
+//!     let ctx = context {
+//!         Allocator: alloc(),
+//!         FileSystemRead: disk,
+//!         FileSystemWrite: disk,
+//!     };
+//! # }
 //! ```
 //!
 //! A *named* `context` declaration cannot do that at all — its bindings are two
@@ -1307,7 +1317,7 @@ fn socketsIsOpen(handle: I64, socket: Int): Bool;
 /// `TestSockets` carries an effect, so it may be passed only as `ctx` or as
 /// `self` (`effect-parameter-not-ctx`).
 ///
-/// ```buri ignore why="a test source is the one place a `test` block is legal, and this file is not one"
+/// ```buri role=test
 /// from "core/net/websocket" import * as websocket;
 /// from "core/testing/assert" import * as assert;
 /// from "platform/effect" import { Sockets, WebSocketClient };
@@ -1500,7 +1510,7 @@ export fn fetch(request: Request): NetCall {
 /// A connection with nothing behind it: reads come off a script a test wrote,
 /// writes are recorded, and no socket is opened anywhere.
 ///
-/// ```buri ignore why="a test source is the one place `platform/effect/testing` may be imported, and this file is not one"
+/// ```buri role=testing
 /// from "core/net/tcp" import * as stream;
 /// from "platform/effect" import { Allocator, Tcp };
 /// from "platform/effect/testing" import { alloc, tcp };

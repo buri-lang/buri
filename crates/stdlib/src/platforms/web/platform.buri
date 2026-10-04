@@ -10,7 +10,8 @@
 //! document that loads it, with `main.css` beside them when the page uses
 //! styles.
 //!
-//! ```buri ignore why="an entry is checked against its platform, and this page is the platform"
+//! ```buri platform=web
+//! # from "platform/effect" import { Allocator, Ui };
 //! from "web" import { WebHost };
 //!
 //! export fn main(host: WebHost): Result<(), Str> {
@@ -19,6 +20,10 @@
 //!         Ui: host.ui,
 //!     })
 //! }
+//! #
+//! # fn run<C: Allocator + Ui>(ctx: C): Result<(), Str> {
+//! #     .Ok(())
+//! # }
 //! ```
 
 from "platform/effect" import { Location };

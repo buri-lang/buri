@@ -1,0 +1,5 @@
+library {
+    generators: [
+        { tool: "textproto", inputs: ["server.txtpb"] },
+    ]
+}

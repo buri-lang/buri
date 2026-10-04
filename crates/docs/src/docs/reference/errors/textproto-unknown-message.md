@@ -6,7 +6,7 @@ reproduction: none
 ---
 # A text format file names a message its schema declares
 
-```textproto ignore why="a data file, not a build file"
+```textproto fail code=textproto-unknown-message repo=cli/tests/docs/repositories/deploy file=lib/deploy/server.txtpb
 # proto-file: server.proto
 # proto-message: Sever
 ```

@@ -16,6 +16,8 @@ error: `port` is of type `int32`, and this is not a whole number [textproto-inva
   |
   = fix: write a whole number
 
+      # proto-file: server.proto
+      # proto-message: Server
       port: "80"
 
       # an `int32` takes a whole number

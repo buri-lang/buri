@@ -7,7 +7,7 @@
 //!
 //! The hard part is that a document shows fragments. `let a = 5;` is not a
 //! module, `fn total(xs: [N]): N { ... }` is not a body, and a section about
-//! errors deliberately shows code that must not compile. Four mechanisms
+//! errors deliberately shows code that must not compile. Five mechanisms
 //! absorb that, in the order you should reach for them:
 //!
 //!   * `wrap=body` puts a statement fragment inside a synthetic `main`, with a
@@ -20,6 +20,17 @@
 //!   * a line ending `// ERROR: <substring>` is compiled *separately* and must
 //!     produce that diagnostic. That is how a block can show the wrong thing
 //!     beside the right thing and have both checked.
+//!   * `file=<path>` says the fence *is* one file of a repository: the one
+//!     `repo=` names, copied, or one the page's own `file=` fences make from an
+//!     empty `REPO.buri`. Every such fence is written into it and the result is
+//!     built the way `buri build` builds it, so a platform's `platform.buri`, a
+//!     data file a generator reads, and a program importing what it generates
+//!     are each checked where they can mean something. A ```textproto fence
+//!     tagged `fail code=` is written in on its own and must fail the build
+//!     with that code.
+//!
+//! There is no way to leave a fence out: a textproto fence is a build file, a
+//! `REPO.buri`, or a file of a repository.
 //!
 //! What is deliberately absent is any rewriting of the block's text before it
 //! is shown. Whatever a reader copies is what was compiled, character for
@@ -44,10 +55,10 @@ pub type Annotation = (usize, String);
 /// Each mode's required payload lives *in* its variant, so the four rules that
 /// used to be enforced only by `parse_block` are now enforced by the compiler:
 /// a `run` block cannot exist without pinned output (it used to fall back to
-/// `unwrap_or_default()`, so a `run` block that pinned nothing *passed*), an
-/// `ignore` block cannot exist without a reason, a `fail` block cannot carry a
-/// stdout transcript nothing would ever compare, and `run` and `sig` cannot
-/// carry `// ERROR:` annotations they would silently not honour.
+/// `unwrap_or_default()`, so a `run` block that pinned nothing *passed*), a
+/// `fail` block cannot carry a stdout transcript nothing would ever compare,
+/// and `run` and `sig` cannot carry `// ERROR:` annotations they would
+/// silently not honour.
 #[derive(Clone, Debug)]
 pub enum Claim {
     /// Must typecheck. The default, and what most blocks are.
@@ -68,25 +79,17 @@ pub enum Claim {
     /// is the one source of a scratch library, so a lint page's example is
     /// held to the finding it explains.
     Lint { code: String },
-    /// Not compiled, for the stated reason. The reason is required, and the
-    /// count of these is ratcheted, so a new one is a reviewable line rather
-    /// than a silent omission.
-    Ignore { why: String },
 }
 
 impl Claim {
     /// The `// ERROR:` annotations this claim honours, each compiled on its
-    /// own. `sig` and `run` do not take them and `ignore` compiles nothing, so
-    /// for those there are none to have.
+    /// own. `sig`, `run` and `lint` do not take them, so for those there are
+    /// none to have.
     pub fn errors(&self) -> &[Annotation] {
         match self {
             Claim::Check { errors } | Claim::Fail { errors, .. } => errors,
-            Claim::Sig | Claim::Run { .. } | Claim::Lint { .. } | Claim::Ignore { .. } => &[],
+            Claim::Sig | Claim::Run { .. } | Claim::Lint { .. } => &[],
         }
-    }
-
-    pub fn is_ignored(&self) -> bool {
-        matches!(self, Claim::Ignore { .. })
     }
 }
 
@@ -141,6 +144,10 @@ pub struct Block {
     /// document showing an `effect` declaration is showing a platform module,
     /// and one showing a `test` is showing a test source.
     pub role: Option<Role>,
+    /// The path of the repository file this fence is, when it is one. It is
+    /// then built with the rest of that repository rather than compiled on
+    /// its own.
+    pub file: Option<String>,
     /// The output's platform this block is built for, when the block is
     /// *about* a platform's host.
     ///
@@ -177,6 +184,21 @@ pub struct ProtoBlock {
     pub origin: Origin,
 }
 
+/// A fence that is one file of a repository the page builds.
+#[derive(Clone, Debug)]
+pub struct RepoFile {
+    /// The repository it is written into, relative to the documentation root,
+    /// or `None` for the one the page's own `file=` fences make.
+    pub repo: Option<String>,
+    /// Where in that repository.
+    pub path: String,
+    /// The file's text: what the fence shows, with hidden lines put back.
+    pub text: String,
+    /// The code the build must fail with, for a fence showing a mistake.
+    pub fails_with: Option<String>,
+    pub origin: Origin,
+}
+
 #[derive(Clone, Debug)]
 pub struct Failure {
     pub origin: Origin,
@@ -203,7 +225,9 @@ impl std::fmt::Display for Failure {
 pub struct Extracted {
     pub blocks: Vec<Block>,
     pub protos: Vec<ProtoBlock>,
-    /// Malformed fence info strings and missing `why=` reasons.
+    /// The fences that are files of a repository, Buri and textproto alike.
+    pub files: Vec<RepoFile>,
+    /// Malformed fence info strings, and fences that do not say what they are.
     pub failures: Vec<Failure>,
 }
 
@@ -215,7 +239,7 @@ pub struct Extracted {
 pub fn extract(file: &str, text: &str) -> Extracted {
     let fences = markdown::fences(text);
     let mut out =
-        Extracted { blocks: Vec::new(), protos: Vec::new(), failures: Vec::new() };
+        Extracted { blocks: Vec::new(), protos: Vec::new(), files: Vec::new(), failures: Vec::new() };
 
     for (i, fence) in fences.iter().enumerate() {
         let origin = Origin { file: file.to_string(), line: fence.body_line };
@@ -235,37 +259,24 @@ pub fn extract(file: &str, text: &str) -> Extracted {
         };
         match fence.lang {
             "buri" => match parse_block(fence, info, &origin, fences.get(i.saturating_add(1))) {
-                Ok(b) => out.blocks.push(b),
+                Ok(b) => {
+                    if let Some(path) = &b.file {
+                        out.files.push(RepoFile {
+                            repo: b.repo.clone(),
+                            path: path.clone(),
+                            text: b.source.clone(),
+                            fails_with: None,
+                            origin: origin.clone(),
+                        });
+                    }
+                    out.blocks.push(b);
+                }
                 Err(f) => out.failures.push(f),
             },
             "textproto" => {
-                // A fragment of a build file is not a build file; it says so
-                // the same way a Buri fragment does.
-                if info.mode.as_deref() == Some("ignore") {
-                    if info.get("why").is_none() {
-                        out.failures.push(Failure {
-                            origin,
-                            what: "an `ignore` block must say why".into(),
-                            detail: "add `why=\"...\"`".into(),
-                        });
-                    }
-                    continue;
+                if let Err(f) = textproto_fence(fence, info, origin, &mut out) {
+                    out.failures.push(f);
                 }
-                let Some(schema) = schema_of(info) else {
-                    out.failures.push(Failure {
-                        origin,
-                        what: "this textproto block does not say which schema it is".into(),
-                        detail: "tag it `textproto schema=build` or `textproto schema=repo`, \
-                                 or `textproto ignore why=\"...\"` if it is a fragment"
-                            .into(),
-                    });
-                    continue;
-                };
-                out.protos.push(ProtoBlock {
-                    schema,
-                    source: fence.body.clone(),
-                    origin,
-                });
             }
             // Expected-output fences belong to the block above them.
             "stdout" | "error" => {}
@@ -275,12 +286,69 @@ pub fn extract(file: &str, text: &str) -> Extracted {
     out
 }
 
-fn schema_of(info: &Info) -> Option<Schema> {
-    match info.get("schema") {
+/// Reads one ```textproto fence into what it claims to be.
+///
+/// It is a build file or a `REPO.buri` (`schema=`), a file of a repository
+/// (`file=`, which may name a schema too), or a file of a repository whose
+/// build must fail with a code (`fail code=… file=…`). A fence that says none
+/// of these is an error, so no fence goes unchecked by omission.
+fn textproto_fence(fence: &Fence, info: &Info, origin: Origin, out: &mut Extracted) -> Result<(), Failure> {
+    let fail = |what: String, detail: &str| Failure { origin: origin.clone(), what, detail: detail.to_string() };
+    let schema = match info.get("schema") {
+        None => None,
         Some("build") => Some(Schema::Build),
         Some("repo") => Some(Schema::Repo),
-        _ => None,
+        Some(other) => {
+            return Err(fail(format!("`schema={other}` is not a schema"), "the schemas are build and repo"))
+        }
+    };
+    let file = info.get("file").map(String::from);
+    if info.get("repo").is_some() && file.is_none() {
+        return Err(fail("`repo=` says nothing without `file=`".into(), "name the file this fence is"));
     }
+    let mode = info.mode.as_deref();
+    if info.get("code").is_some() && mode != Some("fail") {
+        return Err(fail("`code=` says nothing outside `fail`".into(), "tag the fence `fail`"));
+    }
+    let fails_with = match mode {
+        None if schema.is_none() && file.is_none() => {
+            return Err(fail(
+                "this textproto block does not say what it is".into(),
+                "tag it `schema=build` or `schema=repo`, or `file=<path>` (and `repo=`) for \
+                 a file of a repository, such as a data file a generator reads",
+            ))
+        }
+        None => None,
+        Some("fail") => {
+            let (Some(code), Some(_)) = (info.get("code"), &file) else {
+                return Err(fail(
+                    "a textproto `fail` block names its code and its file".into(),
+                    "add `code=<diagnostic code>` and `file=<path>`, and `repo=` for the \
+                     repository that gives it a schema",
+                ));
+            };
+            if schema.is_some() {
+                return Err(fail("a `fail` fence takes no `schema=`".into(), "its build is what fails it"));
+            }
+            Some(code.to_string())
+        }
+        Some(other) => {
+            return Err(fail(format!("`{other}` is not a mode"), "the one textproto mode is fail"))
+        }
+    };
+    if let Some(schema) = schema {
+        out.protos.push(ProtoBlock { schema, source: fence.body.clone(), origin: origin.clone() });
+    }
+    if let Some(path) = file {
+        out.files.push(RepoFile {
+            repo: info.get("repo").map(String::from),
+            path,
+            text: fence.body.clone(),
+            fails_with,
+            origin,
+        });
+    }
+    Ok(())
 }
 
 fn parse_block(
@@ -364,8 +432,7 @@ fn parse_block(
         }
     }
     // In `run` and `sig` an annotation would be silently unhonoured, which is
-    // worse than rejecting it. In `ignore` nothing is honoured by definition,
-    // and the ratchet already records that.
+    // worse than rejecting it.
     let no_annotations = |errors: &[Annotation]| {
         if errors.is_empty() {
             return Ok(());
@@ -420,32 +487,40 @@ fn parse_block(
             };
             Claim::Lint { code: code.to_string() }
         }
-        "ignore" => {
-            let why = info.get("why").unwrap_or("").trim();
-            if why.is_empty() {
-                return Err(fail(
-                    "an `ignore` block must say why".into(),
-                    "add `why=\"...\"`. An untested example is a claim nobody checks, so the \
-                     reason belongs in the document where a reader of the diff can weigh it.",
-                ));
-            }
-            Claim::Ignore { why: why.to_string() }
-        }
         other => {
             return Err(fail(
                 format!("`{other}` is not a mode"),
-                "the modes are check, sig, run, fail, lint, ignore",
+                "the modes are check, sig, run, fail, lint. Every example is compiled: one \
+                 that needs a repository names a file of one with `file=`",
             ))
         }
     };
-    // `code=` and `why=` are read by exactly one mode each. Anywhere else they
-    // are a claim the harness would never check.
-    for (key, only) in [("code", &["fail", "lint"][..]), ("why", &["ignore"][..])] {
-        if info.get(key).is_some() && !only.contains(&mode) {
+    // `code=` is read by two modes. Anywhere else it is a claim the harness
+    // would never check.
+    if info.get("code").is_some() && !matches!(mode, "fail" | "lint") {
+        return Err(fail(
+            format!("`code=` says nothing in a `{mode}` block"),
+            "it is read only by `fail` and `lint`",
+        ));
+    }
+    // A repository's file is built with the rest of the repository, which is
+    // the whole of what it claims. Everything that shapes a snippet's own
+    // compilation would be a claim nothing checks.
+    let file = info.get("file").map(String::from);
+    if file.is_some() {
+        if mode != "check" || !claim.errors().is_empty() {
             return Err(fail(
-                format!("`{key}=` says nothing in a `{mode}` block"),
-                &format!("it is read only by `{}`", only.join("` and `")),
+                "a `file=` fence is built, not compiled on its own".into(),
+                "drop the mode and any `// ERROR:` annotations: it must build cleanly",
             ));
+        }
+        for key in ["wrap", "use", "name", "ctx", "package", "role", "platform"] {
+            if info.get(key).is_some() {
+                return Err(fail(
+                    format!("`{key}=` says nothing in a `file=` fence"),
+                    "the repository and the file's path say how it is compiled",
+                ));
+            }
         }
     }
     // `platform=` names one of the closed enum's values. An unknown one is a
@@ -467,13 +542,6 @@ fn parse_block(
             }
         },
     };
-    if platform.is_some() && mode == "ignore" {
-        return Err(fail(
-            "`platform=` says nothing in an `ignore` block".into(),
-            "nothing is compiled there, so nothing is checked against a platform",
-        ));
-    }
-
     Ok(Block {
         claim,
         wrap,
@@ -485,6 +553,7 @@ fn parse_block(
         repo,
         package,
         role,
+        file,
         platform,
         source,
         original,
@@ -816,9 +885,6 @@ fn run_block_in(
         }
         (None, _) => None,
     };
-    if block.claim.is_ignored() {
-        return Vec::new();
-    }
     let mut failures = Vec::new();
 
     // The block with every annotated line blanked must be clean, whatever the
@@ -1144,6 +1210,12 @@ fn run_file_with(
         HashMap::new();
 
     for block in &extracted.blocks {
+        // A repository's file is built with its repository below, so it
+        // loads nothing here. Its layout is still a fence somebody copies.
+        if block.file.is_some() {
+            failures.extend(crate::documentation::layout::check(block));
+            continue;
+        }
         let named = match (&block.repo, default_to_root) {
             (Some(rel), _) => Some(rel.clone()),
             (None, true) => Some(String::new()),
@@ -1178,9 +1250,6 @@ fn run_file_with(
                 }
             }
         };
-        // Two questions per block, and the layout one is asked of every block
-        // including the ones nothing compiles: an `ignore` fence is still a
-        // fence somebody copies out of the page.
         failures.extend(crate::documentation::layout::check(block));
         failures.extend(run_block_in(workspace, block, &registry, &mut map, &mut cache));
         registry.record(block);
@@ -1188,6 +1257,7 @@ fn run_file_with(
     for proto in &extracted.protos {
         failures.extend(run_proto(proto));
     }
+    failures.extend(run_repositories(root, &extracted.files));
     failures
 }
 
@@ -1218,6 +1288,252 @@ fn run_proto(proto: &ProtoBlock) -> Vec<Failure> {
         what: "this build file does not satisfy the schema".into(),
         detail: errors.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n"),
     }]
+}
+
+// -----------------------------------------------------------------------------
+// Repositories a page builds
+// -----------------------------------------------------------------------------
+
+/// Builds every repository a page's `file=` fences are files of.
+///
+/// One build per repository holds every fence that should build cleanly, so
+/// they are checked together, as the files of one repository are. Each
+/// `fail` fence is then written over that and built on its own, because a
+/// mistake shown on one fence must not be what another fence's build trips
+/// on. The clean build comes first even for a page whose only fence fails:
+/// it is what says the code came from the fence and not the repository.
+fn run_repositories(root: &std::path::Path, files: &[RepoFile]) -> Vec<Failure> {
+    let mut repos: Vec<Option<&str>> = Vec::new();
+    for f in files {
+        if !repos.contains(&f.repo.as_deref()) {
+            repos.push(f.repo.as_deref());
+        }
+    }
+    let mut failures = Vec::new();
+    for repo in repos {
+        let mine: Vec<&RepoFile> = files.iter().filter(|f| f.repo.as_deref() == repo).collect();
+        let mut seen: Vec<&str> = Vec::new();
+        for f in &mine {
+            if seen.contains(&f.path.as_str()) {
+                failures.push(Failure {
+                    origin: f.origin.clone(),
+                    what: format!("`{}` is already a fence on this page", f.path),
+                    detail: "a repository has one file at a path, so only one fence may be it".into(),
+                });
+            }
+            seen.push(&f.path);
+        }
+        let clean: Vec<&RepoFile> = mine.iter().copied().filter(|f| f.fails_with.is_none()).collect();
+        let Some(first) = mine.first() else { continue };
+        match build_with(root, repo, &clean) {
+            Err(why) => {
+                failures.push(Failure {
+                    origin: first.origin.clone(),
+                    what: "the repository these fences are files of could not be built".into(),
+                    detail: why,
+                });
+                continue;
+            }
+            Ok(found) => {
+                for e in found {
+                    // Laid at the fence that is the file, where there is one.
+                    let at = clean.iter().find(|f| e.file == f.path);
+                    let (origin, detail) = match at {
+                        Some(f) => (
+                            Origin {
+                                file: f.origin.file.clone(),
+                                line: f.origin.line.saturating_add(e.line).saturating_sub(1),
+                            },
+                            e.message.clone(),
+                        ),
+                        None => (first.origin.clone(), e.to_string()),
+                    };
+                    failures.push(Failure { origin, what: "this repository does not build".into(), detail });
+                }
+            }
+        }
+        for f in mine.iter().filter(|f| f.fails_with.is_some()) {
+            let want = f.fails_with.as_deref().unwrap_or_default();
+            let mut with = clean.clone();
+            with.push(f);
+            let found = match build_with(root, repo, &with) {
+                Ok(found) => found,
+                Err(why) => {
+                    failures.push(Failure {
+                        origin: f.origin.clone(),
+                        what: "the repository this fence is a file of could not be built".into(),
+                        detail: why,
+                    });
+                    continue;
+                }
+            };
+            if found.iter().any(|e| e.code.as_deref() == Some(want)) {
+                continue;
+            }
+            failures.push(Failure {
+                origin: f.origin.clone(),
+                what: format!("this file does not fail the build with `{want}`"),
+                detail: if found.is_empty() {
+                    "the repository built cleanly".into()
+                } else {
+                    found.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n")
+                },
+            });
+        }
+    }
+    failures
+}
+
+/// One error a repository's build reported, located in the repository.
+struct BuildError {
+    /// The repository-relative path of the file it is in, or `""`.
+    file: String,
+    line: usize,
+    col: usize,
+    message: String,
+    code: Option<String>,
+}
+
+impl std::fmt::Display for BuildError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if !self.file.is_empty() {
+            write!(f, "{}:{}:{}: ", self.file, self.line, self.col)?;
+        }
+        write!(f, "{}", self.message)?;
+        if let Some(code) = &self.code {
+            write!(f, " [{code}]")?;
+        }
+        Ok(())
+    }
+}
+
+/// Copies `repo` (or starts from nothing), writes `files` into it, builds it,
+/// and throws it away.
+fn build_with(
+    root: &std::path::Path,
+    repo: Option<&str>,
+    files: &[&RepoFile],
+) -> Result<Vec<BuildError>, String> {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let scratch = std::env::temp_dir().join(format!("buri-doc-repo-{}-{n}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    let built = write_and_build(root, repo, files, &scratch);
+    let _ = std::fs::remove_dir_all(&scratch);
+    built
+}
+
+fn write_and_build(
+    root: &std::path::Path,
+    repo: Option<&str>,
+    files: &[&RepoFile],
+    scratch: &std::path::Path,
+) -> Result<Vec<BuildError>, String> {
+    match repo {
+        Some(rel) => {
+            copy_tree(&root.join(rel), scratch).map_err(|e| format!("`repo={rel}` cannot be copied: {e}"))?
+        }
+        None => std::fs::create_dir_all(scratch).map_err(|e| e.to_string())?,
+    }
+    if !scratch.join("REPO.buri").exists() {
+        std::fs::write(scratch.join("REPO.buri"), "").map_err(|e| e.to_string())?;
+    }
+    for f in files {
+        let path = scratch.join(&f.path);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&path, &f.text).map_err(|e| e.to_string())?;
+    }
+    build_repository(scratch)
+}
+
+/// A directory, copied, without the build's own output.
+fn copy_tree(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        if entry.file_name() == ".buri" {
+            continue;
+        }
+        let (src, dst) = (entry.path(), to.join(entry.file_name()));
+        if entry.file_type()?.is_dir() {
+            copy_tree(&src, &dst)?;
+        } else {
+            std::fs::copy(&src, &dst)?;
+        }
+    }
+    Ok(())
+}
+
+/// Every error `buri build` reports over a whole repository.
+///
+/// The same steps the command takes, target by target: a library or a tool is
+/// checked, and a binary is built for each of its outputs. A native output is
+/// checked for that output and not linked, so the answer does not hang on
+/// whether this host can link one.
+fn build_repository(root: &std::path::Path) -> Result<Vec<BuildError>, String> {
+    use crate::build::actions;
+    use crate::build::workspace::RuleKind;
+    use crate::compiler::modules::Unit;
+    let flags = crate::commands::arguments::Flags::default();
+    let mut session = crate::build::session::open_at(root, &flags)?;
+    let mut reported = std::mem::take(&mut session.diagnostics);
+    for target in session.resolve_targets(&[])? {
+        if target.kind != RuleKind::Binary {
+            let mut diagnostics = crate::diagnostics::Diagnostics::new();
+            actions::check_visibility(&session, target, &mut diagnostics);
+            actions::check_tags(&session, target, &mut diagnostics);
+            if !diagnostics.has_errors() {
+                let unit = Unit { target: Some(target), platform: None, entry: None, with_tests: false };
+                let analysis =
+                    driver::analyze(Some(&session.workspace), &mut session.map, &mut session.parsed, &unit);
+                diagnostics.extend(analysis.diagnostics.items);
+            }
+            reported.extend(diagnostics.items);
+            continue;
+        }
+        for output in actions::selected_outputs(&session, target, &flags) {
+            if !output.platform().is_native() {
+                if let Err(d) = actions::build_target(&mut session, target, &output, &flags) {
+                    reported.extend(d.items);
+                }
+                continue;
+            }
+            let mut diagnostics = crate::diagnostics::Diagnostics::new();
+            actions::check_policy(&session, target, &output.output_platform(), &mut diagnostics);
+            if !diagnostics.has_errors() {
+                let unit = Unit {
+                    target: Some(target),
+                    platform: Some(output.platform()),
+                    entry: Some(output.entry_name().to_string()),
+                    with_tests: false,
+                };
+                let analysis =
+                    driver::analyze(Some(&session.workspace), &mut session.map, &mut session.parsed, &unit);
+                if !analysis.diagnostics.has_errors() && !analysis.checked.entries.contains_key(output.entry_name()) {
+                    diagnostics.push(actions::missing_entry(&session, target, &output, &analysis.checked));
+                }
+                diagnostics.extend(analysis.diagnostics.items);
+            }
+            reported.extend(diagnostics.items);
+        }
+    }
+    Ok(reported
+        .items
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| {
+            let (file, line, col) = if d.span.is_none() {
+                (String::new(), 0, 0)
+            } else {
+                let source = session.map.get(d.span.file);
+                let (line, col) = source.line_col(d.span.start);
+                (source.name.clone(), line, col)
+            };
+            BuildError { file, line, col, message: d.message.clone(), code: d.code.clone() }
+        })
+        .collect())
 }
 
 
@@ -1393,12 +1709,45 @@ mod tests {
         assert_eq!(check(doc), "");
     }
 
+    /// Every example is compiled, so there is no mode that leaves one out.
     #[test]
-    fn an_ignore_block_needs_a_reason() {
+    fn there_is_no_way_to_leave_an_example_out() {
         let doc = "```buri ignore\nwhatever\n```\n";
-        assert!(check(doc).contains("must say why"));
-        let doc = "```buri ignore why=\"a precedence table, not a program\"\nwhatever\n```\n";
-        assert_eq!(check(doc), "");
+        assert!(check(doc).contains("`ignore` is not a mode"), "{}", check(doc));
+        let doc = "```textproto ignore\nname: \"api\"\n```\n";
+        assert!(check(doc).contains("`ignore` is not a mode"), "{}", check(doc));
+        let doc = "```textproto\nname: \"api\"\n```\n";
+        assert!(check(doc).contains("does not say what it is"), "{}", check(doc));
+    }
+
+    /// The fences labelled as files make one repository, and it is built: a
+    /// build file naming an entry is what makes that function an entry.
+    #[test]
+    fn a_page_s_files_are_built_as_one_repository() {
+        let build = "```textproto schema=build file=cmd/hello/BUILD.buri\n\
+                     binary {\n    outputs: [\n        { platform: \"node\", entries: [{ name: \"main\", function: \"start\" }] },\n    ]\n}\n```\n";
+        let main = "```buri file=cmd/hello/main.buri\n\
+                    from \"node\" import { NodeHost };\n\n\
+                    export fn start(host: NodeHost): Result<(), Str> {\n    .Ok(())\n}\n```\n";
+        assert_eq!(check(&format!("{build}\n{main}")), "");
+
+        let wrong = main.replace("export fn start", "export fn begin");
+        let out = check(&format!("{build}\n{wrong}"));
+        assert!(out.contains("this repository does not build"), "{out}");
+    }
+
+    /// A `fail` fence is written in on its own and must fail the build with
+    /// its code; one that builds is caught.
+    #[test]
+    fn a_failing_file_must_fail_with_its_code() {
+        let broken = "```textproto fail code=textproto-syntax repo=tests/docs/repositories/deploy \
+                      file=lib/deploy/server.txtpb\n\
+                      # proto-file: server.proto\n# proto-message: Server\nports: [80 443]\n```\n";
+        assert_eq!(check(broken), "");
+
+        let fine = broken.replace("[80 443]", "[80, 443]");
+        let out = check(&fine);
+        assert!(out.contains("does not fail the build with `textproto-syntax`"), "{out}");
     }
 
     /// A fence whose info string does not parse used to be silently downgraded
@@ -1407,7 +1756,7 @@ mod tests {
     /// be.
     #[test]
     fn a_malformed_info_string_is_reported_rather_than_swallowed() {
-        let doc = "```buri ignore why=\"unterminated\nwhatever\n```\n";
+        let doc = "```buri file=\"unterminated\nwhatever\n```\n";
         assert!(check(doc).contains("unterminated"), "{}", check(doc));
 
         // Not only for `buri`: nothing else can be trusted to notice.
