@@ -172,7 +172,8 @@ jobs:
       # set `cargo test -p buri` would have run, so a domain added under
       # `cli/tests/` tomorrow runs on the day it is added.
       # `cli/tests/ci.rs::the_suite_is_asked_for_as_a_whole` holds that, and
-      # holds this to being a derivation rather than a list.
+      # holds this to being a derivation rather than a list. `buri-rt-tests` is
+      # the runtime's unit tests (`runtime-tests`).
       #
       # Every unit runs whatever happens — this is `--no-fail-fast` by
       # construction, since `xargs` starts what is queued regardless — and each
@@ -184,7 +185,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p target/units
-          cargo test -p buri --no-run --message-format=json-render-diagnostics \
+          cargo test -p buri-rt-tests -p buri --no-run --message-format=json-render-diagnostics \
             | jq -r 'select(.profile.test == true) | .executable | select(. != null)' > target/units.txt
           test -s target/units.txt
           slowest="$(grep -E '/language-[0-9a-f]+$' target/units.txt)"
@@ -200,7 +201,7 @@ jobs:
           tail -n +1 -- target/units/*.log
           cargo test -p buri --doc
           exit "$status"
-      # The other member of the workspace: `website` depends on `buri` by path,
+      # The last member of the workspace: `website` depends on `buri` by path,
       # so it links the rlib the step above already built and costs seconds.
       - run: cargo test -p website
       # The runtime's other feature, on one job of the whole workflow. `net-h3`

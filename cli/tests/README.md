@@ -271,7 +271,7 @@ backends.
 ## Running them
 
 ```
-cargo nextest run -p buri && cargo test -p buri --doc # everything
+cargo nextest run -p buri -p buri-rt-tests && cargo test -p buri --doc # everything
 cargo test -p buri --test language                    # one domain
 cargo test -p buri --test language conformance::      # one suite in it
 cargo test -p buri --test native -- --skip float_parity
@@ -341,7 +341,7 @@ The `release` job runs `cargo test -p buri`. The
 inline shell in `.github/workflows/ci.yml`:
 
 ```
-cargo test -p buri --no-run --message-format=json-render-diagnostics \
+cargo test -p buri-rt-tests -p buri --no-run --message-format=json-render-diagnostics \
   | jq -r 'select(.profile.test == true) | .executable | select(. != null)' > units.txt
 xargs -P "$(( $(getconf _NPROCESSORS_ONLN) * 2 ))" -n 1 \
   sh -c 'exec "$0" --test-threads=2' < units.txt
@@ -468,15 +468,20 @@ through `ci::deferred_to`, and
 name to a job that exists — a deferral whose job has been renamed is a plain
 skip.
 
-### The runtime crate's tests are run by a test
+### The runtime crate's tests are their own package
 
-`cargo test -p buri` cannot reach the `cli/runtime` cargo package, so
-`native::runtime::the_runtime_crate_answers_its_own_tests` runs its three
-hundred assertions instead. It shells a nested `cargo test` against the package
-`cli/build.rs` assembles in `$OUT_DIR`, with the same features the archive
-beside this binary was built with. That cold-compiles tokio and rustls the first
-time — about ten seconds here, a minute on a cold runner — into a target
-directory under `CARGO_TARGET_TMPDIR`, and once per checkout after that.
+`cli/runtime` can't hold a `Cargo.toml`, so `runtime-tests` compiles the
+same `lib.rs` as an rlib and its tests run as `-p buri-rt-tests`, one nextest
+process per test. It uses the runtime's default features. Test the others with:
+
+```
+cargo nextest run -p buri-rt-tests --no-default-features --features paint   # BURI_RUNTIME_NET=0
+cargo nextest run -p buri-rt-tests --features net-h3                        # BURI_RUNTIME_NET_H3=1
+```
+
+`language::corpus::the_runtime_tests_build_the_shipped_runtime` keeps its
+dependencies, features and locked versions equal to `cli/runtime/manifest.toml`
+and `manifest.lock`.
 
 ### The five-minute budget
 
@@ -490,7 +495,7 @@ reports the bar's wall time against the budget in its verification section.
 The bar is this sequence:
 
 ```
-cargo nextest run -p buri && cargo test -p buri --doc
+cargo nextest run -p buri -p buri-rt-tests && cargo test -p buri --doc
 cargo test -p buri --features backend-llvm --lib compiler::backend::llvm::
 cargo test -p buri --features backend-llvm --test native -- llvm:: agreement:: e2e::
 cargo test -p buri --features backend-llvm --test fuzz
