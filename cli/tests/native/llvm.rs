@@ -4912,3 +4912,81 @@ test "two states are independent, and one updates inside the other" {
     let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
     assert_eq!(ran.status, 0, "a state on the release backend:\n{}", ran.stderr);
 }
+
+/// **A function that only builds a box is still an allocation, in every unit
+/// that calls it.**
+///
+/// `grow` reads nothing but an `Int`, and every tree it builds puts its node
+/// behind a box, because `Kind` names `Tree` back. Only emission knew about the
+/// box, so the unit that defines `grow` said it allocates and every unit that
+/// only *declares* it said `memory(none)`. Across that boundary LLVM may fold
+/// two calls with one argument into one, and did: the suite held one tree
+/// twice and released it twice. This is a real `buri test --release` over a
+/// library and its suite, because a unit is a module and the defect lives
+/// between two of them.
+#[test]
+fn a_function_that_builds_a_box_allocates_in_every_unit_that_calls_it() {
+    skip_unless_executable!();
+    let repo = workspace().join("boxed-across-units");
+    let _ = std::fs::remove_dir_all(&repo);
+    let package = repo.join("libs").join("trees");
+    std::fs::create_dir_all(package.join("test")).unwrap();
+    std::fs::write(repo.join("REPO.buri"), "").unwrap();
+    std::fs::write(
+        package.join("BUILD.buri"),
+        "library {\n    sources: [\"trees.buri\"]\n\n    test {\n        \
+         sources: [\"test/trees.buri\"]\n    }\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        package.join("lib.buri"),
+        "from \"//libs/trees/trees.buri\" export { grow, size, Tree };\n",
+    )
+    .unwrap();
+    std::fs::write(
+        package.join("trees.buri"),
+        r#"export struct Tree(Kind);
+
+enum Kind {
+    Leaf,
+    Pair(Tree, Tree),
+}
+
+export fn grow(depth: Int): Tree {
+    if (depth <= 0) { Tree(.Leaf) } else { Tree(.Pair(grow(depth - 1), grow(depth - 1))) }
+}
+
+export fn size(t: Tree): Int {
+    match (t.0) {
+        .Leaf => 1,
+        .Pair(l, r) => size(l) + size(r),
+    }
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        package.join("test").join("trees.buri"),
+        r#"from "core/testing/assert" import * as assert;
+from "//libs/trees" import { grow, size };
+
+test "two trees grown alike are two trees" {
+    let a = grow(2);
+    let b = grow(2);
+    assert.equal(size(a), 4);
+    assert.equal(size(b), 4);
+}
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
+    cmd.current_dir(&repo).args(["test", "--release", "//libs/trees"]);
+    let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
+    assert!(
+        ran.status == 0 && ran.stdout.contains("1 passed, 0 failed"),
+        "a tree grown in another unit, under --release:\n{}\n{}",
+        ran.stdout,
+        ran.stderr
+    );
+}

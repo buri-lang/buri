@@ -1,7 +1,0 @@
-error: a match arm ends with `,` [missing-comma]
-  --> main.buri:83:53
-   |
-83 |         _ if !holdsText(Value.Text(heap)) => "empty"
-   |                                                     ^
-   |
-   = fix: write `,` here
