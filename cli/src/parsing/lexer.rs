@@ -12,7 +12,7 @@
 //!   resumes template text by which of the two is on top.
 
 use crate::diagnostics::{Diagnostic, FileId, Invariant as _, Span};
-use crate::parsing::flat::Location;
+use crate::parsing::flat::{Docs, Location};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Keyword {
@@ -613,8 +613,9 @@ pub struct Comment {
 /// `docs_blank` says nothing when there is no documentation.
 #[derive(Clone, Debug, Default)]
 pub struct Trivia {
-    /// Doc comment lines (`///`) immediately preceding this token.
-    pub docs: Vec<String>,
+    /// Doc comment lines (`///`) immediately preceding this token, as a run
+    /// of [`Lexed::docs`].
+    pub docs: Docs,
     /// Whether a blank line sat above the doc-comment run. It matters only
     /// when ordinary comments came first: a section heading, a blank line, and
     /// then the declaration's own documentation are three things, not one.
@@ -893,17 +894,20 @@ pub struct Lexer<'a> {
     /// Whether anything is waiting to be attached to the next token: a
     /// documentation line, a comment, or a blank line above it.
     ///
-    /// It is exactly `!pending_docs.is_empty() || !pending_comments.is_empty()
+    /// It is exactly `docs.len() > pending_docs || !pending_comments.is_empty()
     /// || blank_before`, kept as one byte so that the test [`Lexer::push`]
     /// makes for every token in the file is one load rather than three. Every
     /// site that can make it true goes through [`Lexer::hold_blank`] or pushes
     /// onto a pending list beside a `self.has_trivia = true;`, and
     /// [`Lexer::attach_trivia`] is the only place that clears it.
     has_trivia: bool,
-    pending_docs: Vec<String>,
+    /// Every `///` line so far, as the location of its text. The ones from
+    /// `pending_docs` on are waiting for the next token.
+    docs: Vec<Location>,
+    pending_docs: u32,
     pending_docs_blank: bool,
     pending_comments: Vec<Comment>,
-    module_docs: Vec<(String, Span)>,
+    module_docs: Vec<(Location, Span)>,
     blank_before: bool,
     detached: bool,
 }
@@ -915,9 +919,28 @@ pub struct Lexed<'a> {
     /// them appear.
     pub trivia: Vec<(u32, Trivia)>,
     pub errors: Vec<Diagnostic>,
-    /// `//!` lines, with the span of each, in source order. The parser keeps
-    /// the ones before the first item and reports the rest.
-    pub module_docs: Vec<(String, Span)>,
+    /// Every `///` line, as the location of its text — see [`doc_at`]. A
+    /// token's [`Trivia::docs`] is a run of these, and the parser hands the
+    /// whole list to the tree rather than copying a line out of it.
+    pub docs: Vec<Location>,
+    /// `//!` lines, as the location of each line's text and the span of the
+    /// whole comment, in source order. The parser keeps the ones before the
+    /// first item and reports the rest.
+    pub module_docs: Vec<(Location, Span)>,
+}
+
+impl<'a> Lexed<'a> {
+    /// The text of a doc line.
+    pub fn doc(&self, at: Location) -> &'a str {
+        self.tokens.src.get(at.start as usize..at.end as usize).unwrap_or("")
+    }
+
+    /// The text of a token's doc lines.
+    pub fn doc_lines(&self, d: Docs) -> impl Iterator<Item = &'a str> + '_ {
+        let a = d.start as usize;
+        let lines = self.docs.get(a..a.saturating_add(d.len as usize)).unwrap_or(&[]);
+        lines.iter().map(|at| self.doc(*at))
+    }
 }
 
 /// What a source file says to the compiler: each token's kind and spelling,
@@ -937,11 +960,11 @@ pub fn program_text(text: &str) -> Option<Vec<u8>> {
     for i in 0..tokens.len() {
         let loc = tokens.loc(i);
         // A `//!` line is reported when it follows the first item, so where it sits matters.
-        while let Some((line, _)) = module_docs.next_if(|(_, span)| span.start <= loc.start) {
-            out.extend_from_slice(format!("\0//!{i}:{line}\n").as_bytes());
+        while let Some((at, _)) = module_docs.next_if(|(_, span)| span.start <= loc.start) {
+            out.extend_from_slice(format!("\0//!{i}:{}\n", lexed.doc(*at)).as_bytes());
         }
         while let Some((_, above)) = trivia.next_if(|(at, _)| *at as usize == i) {
-            for line in &above.docs {
+            for line in lexed.doc_lines(above.docs) {
                 out.extend_from_slice(b"\0///");
                 out.extend_from_slice(line.as_bytes());
                 out.push(b'\n');
@@ -958,8 +981,8 @@ pub fn program_text(text: &str) -> Option<Vec<u8>> {
         out.extend_from_slice(spelling);
         previous_end = loc.end as usize;
     }
-    for (line, _) in module_docs {
-        out.extend_from_slice(format!("\0//!end:{line}\n").as_bytes());
+    for (at, _) in module_docs {
+        out.extend_from_slice(format!("\0//!end:{}\n", lexed.doc(*at)).as_bytes());
     }
     Some(out)
 }
@@ -977,7 +1000,8 @@ pub fn lex(text: &str, file: FileId) -> Lexed<'_> {
         errors: Vec::new(),
         holes: Vec::new(),
         has_trivia: false,
-        pending_docs: Vec::new(),
+        docs: Vec::new(),
+        pending_docs: 0,
         pending_docs_blank: false,
         pending_comments: Vec::new(),
         module_docs: Vec::new(),
@@ -989,6 +1013,7 @@ pub fn lex(text: &str, file: FileId) -> Lexed<'_> {
         tokens: l.tokens,
         trivia: l.trivia,
         errors: l.errors,
+        docs: l.docs,
         module_docs: l.module_docs,
     }
 }
@@ -1059,13 +1084,17 @@ impl<'a> Lexer<'a> {
         self.trivia.push((
             at,
             Trivia {
-                docs: std::mem::take(&mut self.pending_docs),
+                docs: Docs {
+                    start: self.pending_docs,
+                    len: (self.docs.len() as u32).saturating_sub(self.pending_docs),
+                },
                 docs_blank: self.pending_docs_blank,
                 comments: std::mem::take(&mut self.pending_comments),
                 blank_before: self.blank_before,
                 detached: self.detached,
             },
         ));
+        self.pending_docs = self.docs.len() as u32;
         self.pending_docs_blank = false;
         self.blank_before = false;
         self.detached = false;
@@ -1314,10 +1343,15 @@ impl<'a> Lexer<'a> {
         self.slice(line, at).chars().count() as u32
     }
 
+    /// Whether a `///` line is waiting for the next token.
+    fn docs_pending(&self) -> bool {
+        self.docs.len() as u32 > self.pending_docs
+    }
+
     /// Whether nothing of this token's trivia has been read yet, so a blank
     /// line here is the one above the whole run rather than one inside it.
     fn run_empty(&self) -> bool {
-        self.pending_comments.is_empty() && self.pending_docs.is_empty()
+        self.pending_comments.is_empty() && !self.docs_pending()
     }
 
     /// A `//` comment from `start` to the end of its line. `blank` is whether
@@ -1336,15 +1370,15 @@ impl<'a> Lexer<'a> {
         let raw = self.slice(start, self.pos);
         if is_module_doc {
             let span = self.span(start);
-            self.module_docs.push((doc_body(raw.get(3..).unwrap_or("")), span));
+            self.module_docs.push((doc_at(start, raw), span));
         } else if is_doc {
             if self.run_empty() {
                 self.hold_blank(blank);
             }
-            if self.pending_docs.is_empty() {
+            if !self.docs_pending() {
                 self.pending_docs_blank = blank;
             }
-            self.pending_docs.push(doc_body(raw.get(3..).unwrap_or("")));
+            self.docs.push(doc_at(start, raw));
             self.has_trivia = true;
         } else {
             if self.run_empty() {
@@ -1936,6 +1970,16 @@ mod tests {
             ]
         );
     }
+}
+
+/// Where a doc line's text is: what [`doc_body`] keeps of the comment `raw`,
+/// written at `start`, as a location rather than a copy.
+fn doc_at(start: usize, raw: &str) -> Location {
+    let after = raw.get(3..).unwrap_or("");
+    let body = after.strip_prefix(' ').unwrap_or(after);
+    let from = start.saturating_add(raw.len().saturating_sub(body.len()));
+    let to = from.saturating_add(body.trim_end().len());
+    Location { start: from as u32, end: to as u32 }
 }
 
 /// The text of a `///` or `//!` line, after the marker.

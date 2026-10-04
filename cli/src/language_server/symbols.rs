@@ -220,14 +220,14 @@ pub fn declaration_name(analyzed: &Analyzed, symbol: &Symbol) -> Span {
         Symbol::Variant { con, index } => {
             let info = tables.tycon(*con);
             match declaration_syntax(analyzed, info.module, info.span) {
-                Some((_, Item::Enum(d))) => d.variants.get(*index).map(|v| v.name.span),
+                Some((t, Item::Enum(d))) => t.list(d.variants).get(*index).map(|v| v.name.span),
                 _ => None,
             }
         }
         Symbol::TraitMethod { trait_id, method } => {
             let info = tables.trait_(*trait_id);
             match declaration_syntax(analyzed, info.module, info.span) {
-                Some((_, Item::Trait(d))) => d.methods.get(*method).map(|m| m.name.span),
+                Some((t, Item::Trait(d))) => t.list(d.methods).get(*method).map(|m| m.name.span),
                 _ => None,
             }
         }
@@ -325,7 +325,7 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
     let tables = &analyzed.analysis.checked.tables;
     match symbol {
         Symbol::Function(id) => match function_syntax(analyzed, *id) {
-            Some((t, d)) => (formatting::signature(t, d), d.docs.clone()),
+            Some((t, d)) => (formatting::signature(t, d), t.docs(d.docs)),
             // The primitives' methods are supplied by the runtime and have no
             // syntax anywhere, so the table entry is the whole of what is known.
             None => (function_from_table(tables, *id), Vec::new()),
@@ -334,16 +334,16 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
             let con = tables.tycon(*id);
             match declaration_syntax(analyzed, con.module, con.span) {
                 Some((t, Item::Struct(d))) => (
-                    format!("struct {}{}", t.name(d.name), formatting::generics(t, &d.generics)),
-                    d.docs.clone(),
+                    format!("struct {}{}", t.name(d.name), formatting::generics(t, t.list(d.generics))),
+                    t.docs(d.docs),
                 ),
                 Some((t, Item::Enum(d))) => (
-                    format!("enum {}{}", t.name(d.name), formatting::generics(t, &d.generics)),
-                    d.docs.clone(),
+                    format!("enum {}{}", t.name(d.name), formatting::generics(t, t.list(d.generics))),
+                    t.docs(d.docs),
                 ),
                 Some((t, Item::TypeAlias(d))) => (
                     format!("type {} = {}", t.name(d.name), formatting::type_text(t, d.ty)),
-                    d.docs.clone(),
+                    t.docs(d.docs),
                 ),
                 _ => (con.name.clone(), Vec::new()),
             }
@@ -356,9 +356,9 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
                         "{} {}{}",
                         if d.is_effect { "effect" } else { "trait" },
                         t.name(d.name),
-                        formatting::generics(t, &d.generics)
+                        formatting::generics(t, t.list(d.generics))
                     ),
-                    d.docs.clone(),
+                    t.docs(d.docs),
                 ),
                 _ => (
                     format!("{} {}", if info.is_effect { "effect" } else { "trait" }, info.name),
@@ -369,11 +369,11 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
         Symbol::TraitMethod { trait_id, method } => {
             let info = tables.trait_(*trait_id);
             let declared = match declaration_syntax(analyzed, info.module, info.span) {
-                Some((t, Item::Trait(d))) => d.methods.get(*method).map(|m| (t, m)),
+                Some((t, Item::Trait(d))) => t.list(d.methods).get(*method).map(|m| (t, m)),
                 _ => None,
             };
             match declared {
-                Some((t, m)) => (formatting::signature(t, m), m.docs.clone()),
+                Some((t, m)) => (formatting::signature(t, m), t.docs(m.docs)),
                 None => match info.methods.get(*method) {
                     Some(m) => (
                         format!(
@@ -392,7 +392,7 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
             match item_syntax(analyzed, info.ast) {
                 Some((t, Item::Let(d))) => (
                     format!("let {}: {}", t.name(d.name), formatting::type_text(t, d.ty)),
-                    d.docs.clone(),
+                    t.docs(d.docs),
                 ),
                 _ => (
                     format!(
@@ -410,7 +410,7 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
             };
             match item_syntax(analyzed, info.ast) {
                 Some((t, Item::Context(d))) => {
-                    (format!("context {}", t.name(d.name)), d.docs.clone())
+                    (format!("context {}", t.name(d.name)), t.docs(d.docs))
                 }
                 _ => (format!("context {}", info.name), Vec::new()),
             }
@@ -425,18 +425,18 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
                 None => String::new(),
             };
             match field_syntax(analyzed, *con, *variant, *index) {
-                Some((t, d)) => (formatting::field_decl(t, d), d.docs.clone()),
+                Some((t, d)) => (formatting::field_decl(t, d), t.docs(d.docs)),
                 None => (fallback, Vec::new()),
             }
         }
         Symbol::Variant { con, index } => {
             let info = tables.tycon(*con);
             let declared = match declaration_syntax(analyzed, info.module, info.span) {
-                Some((t, Item::Enum(d))) => d.variants.get(*index).map(|v| (t, v)),
+                Some((t, Item::Enum(d))) => t.list(d.variants).get(*index).map(|v| (t, v)),
                 _ => None,
             };
             match declared {
-                Some((t, v)) => (formatting::variant(t, v), v.docs.clone()),
+                Some((t, v)) => (formatting::variant(t, v), t.docs(v.docs)),
                 None => (
                     info.variants().get(*index).map_or(String::new(), |v| v.name.clone()),
                     Vec::new(),
@@ -445,7 +445,7 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
         }
         Symbol::Module(id) => match analyzed.analysis.loaded.modules.get(id.index()) {
             // The `//!` lines, under the spelling an import would use.
-            Some(m) => (format!("from \"{}\"", m.path), m.ast.docs.clone()),
+            Some(m) => (format!("from \"{}\"", m.path), m.ast.tree.docs(m.ast.docs)),
             None => (String::new(), Vec::new()),
         },
         Symbol::Local { name, ty, .. } => (
@@ -482,10 +482,10 @@ pub fn signature(analyzed: &Analyzed, symbol: &Symbol) -> Option<Signature> {
         let mut label = format!(
             "fn {}{}(",
             tree.name(declared.name),
-            formatting::generics(tree, &declared.generics)
+            formatting::generics(tree, tree.list(declared.generics))
         );
         let mut parameters = Vec::new();
-        for p in declared.params.iter().filter(|p| !matches!(p.kind, tree::ParamKind::SelfParam)) {
+        for p in tree.list(declared.params).iter().filter(|p| !matches!(p.kind, tree::ParamKind::SelfParam)) {
             if !parameters.is_empty() {
                 label.push_str(", ");
             }
@@ -501,7 +501,7 @@ pub fn signature(analyzed: &Analyzed, symbol: &Symbol) -> Option<Signature> {
             parameters.push((start, utf16_len(&label)));
         }
         label.push_str(&format!("): {}", formatting::type_text(tree, declared.ret)));
-        return Some(Signature { label, parameters, docs: declared.docs.clone() });
+        return Some(Signature { label, parameters, docs: tree.docs(declared.docs) });
     }
 
     let (generics, params, ret, written) = match symbol {
@@ -539,7 +539,7 @@ fn callable_syntax<'a>(
         Symbol::TraitMethod { trait_id, method } => {
             let info = analyzed.analysis.checked.tables.trait_(*trait_id);
             match declaration_syntax(analyzed, info.module, info.span) {
-                Some((t, Item::Trait(d))) => d.methods.get(*method).map(|m| (t, m)),
+                Some((t, Item::Trait(d))) => t.list(d.methods).get(*method).map(|m| (t, m)),
                 _ => None,
             }
         }
@@ -807,20 +807,20 @@ fn generic_params(module: &ModuleData) -> Vec<GenericParam> {
     };
     for item in &module.ast.items {
         match item {
-            Item::Fn(d) => take(d.span, &d.generics),
-            Item::Struct(d) => take(d.span, &d.generics),
-            Item::Enum(d) => take(d.span, &d.generics),
-            Item::TypeAlias(d) => take(d.span, &d.generics),
+            Item::Fn(d) => take(d.span, tree.list(d.generics)),
+            Item::Struct(d) => take(d.span, tree.list(d.generics)),
+            Item::Enum(d) => take(d.span, tree.list(d.generics)),
+            Item::TypeAlias(d) => take(d.span, tree.list(d.generics)),
             Item::Trait(d) => {
-                take(d.span, &d.generics);
-                for m in &d.methods {
-                    take(m.span, &m.generics);
+                take(d.span, tree.list(d.generics));
+                for m in tree.list(d.methods) {
+                    take(m.span, tree.list(m.generics));
                 }
             }
             Item::Impl(d) => {
-                take(d.span, &d.generics);
-                for m in &d.methods {
-                    take(m.span, &m.generics);
+                take(d.span, tree.list(d.generics));
+                for m in tree.list(d.methods) {
+                    take(m.span, tree.list(m.generics));
                 }
             }
             _ => {}
@@ -849,10 +849,10 @@ fn import_names(analyzed: &Analyzed, module: &ModuleData, out: &mut impl FnMut(S
     for item in &module.ast.items {
         let (path, path_span, specs, namespace) = match item {
             Item::Import(i) => match &i.clause {
-                ImportClause::Named(specs) => (&i.path, i.path_span, specs.as_slice(), None),
+                ImportClause::Named(specs) => (&i.path, i.path_span, tree.list(*specs), None),
                 ImportClause::Namespace(n) => (&i.path, i.path_span, &[][..], Some(*n)),
             },
-            Item::ReExport(r) => (&r.path, r.path_span, r.specs.as_slice(), None),
+            Item::ReExport(r) => (&r.path, r.path_span, tree.list(r.specs), None),
             _ => continue,
         };
         let Some(id) = analyzed.analysis.loaded.find(path) else { continue };
@@ -1522,10 +1522,10 @@ fn function_syntax(analyzed: &Analyzed, id: FnId) -> Option<(&flat::Tree, &tree:
     match (ast, item) {
         (AstRef::Item { .. }, Item::Fn(d)) => Some((tree, d)),
         (AstRef::Method { sub, .. }, Item::Impl(d)) => {
-            d.methods.get(sub as usize).map(|m| (tree, m))
+            tree.list(d.methods).get(sub as usize).map(|m| (tree, m))
         }
         (AstRef::Method { sub, .. }, Item::Trait(d)) => {
-            d.methods.get(sub as usize).map(|m| (tree, m))
+            tree.list(d.methods).get(sub as usize).map(|m| (tree, m))
         }
         _ => None,
     }
@@ -1566,11 +1566,11 @@ fn field_syntax(
     let (tree, item) = declaration_syntax(analyzed, info.module, info.span)?;
     match (variant, item) {
         (None, Item::Struct(d)) => match &d.body {
-            tree::StructBody::Record(fields) => fields.get(index).map(|f| (tree, f)),
+            tree::StructBody::Record(fields) => tree.list(*fields).get(index).map(|f| (tree, f)),
             tree::StructBody::Tuple(_) => None,
         },
-        (Some(v), Item::Enum(d)) => match &d.variants.get(v)?.payload {
-            tree::VariantPayload::Record(fields) => fields.get(index).map(|f| (tree, f)),
+        (Some(v), Item::Enum(d)) => match &tree.list(d.variants).get(v)?.payload {
+            tree::VariantPayload::Record(fields) => tree.list(*fields).get(index).map(|f| (tree, f)),
             _ => None,
         },
         _ => None,

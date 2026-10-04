@@ -773,7 +773,7 @@ impl<'a> Checker<'a> {
         let t = self.tree(module);
         match item {
             tree::Item::Struct(d) => {
-                let generics = self.generic_shells(module, &d.generics);
+                let generics = self.generic_shells(module, t.list(d.generics));
                 let id = self.tables.add_tycon(TyCon {
                     name: t.name(d.name).to_string(),
                     module,
@@ -785,7 +785,7 @@ impl<'a> Checker<'a> {
                 self.declare(module, d.name, Sym::Ty(id), d.exported);
             }
             tree::Item::Enum(d) => {
-                let generics = self.generic_shells(module, &d.generics);
+                let generics = self.generic_shells(module, t.list(d.generics));
                 let id = self.tables.add_tycon(TyCon {
                     name: t.name(d.name).to_string(),
                     module,
@@ -819,7 +819,7 @@ impl<'a> Checker<'a> {
                 // A *method's* own generics are supported and shipping —
                 // `Show.show<C: Allocator>`, `Ui.memo<T>` — and are what a trait
                 // parameter would have been used for.
-                let generics = self.generic_shells(module, &d.generics);
+                let generics = self.generic_shells(module, t.list(d.generics));
                 if let Some(first) = generics.first() {
                     let at = generics.iter().fold(first.span, |acc, g| acc.to(g.span));
                     let name = t.name(d.name).to_string();
@@ -837,7 +837,7 @@ impl<'a> Checker<'a> {
                 self.declare(module, d.name, Sym::Trait(id), d.exported);
             }
             tree::Item::Fn(d) => {
-                let generics = self.generic_shells(module, &d.generics);
+                let generics = self.generic_shells(module, t.list(d.generics));
                 let id = self.tables.add_fn(FnInfo {
                     name: t.name(d.name).to_string(),
                     module,
@@ -892,7 +892,7 @@ impl<'a> Checker<'a> {
             tree::Item::Impl(d) if d.trait_ty.is_none() => {
                 let owner = t.type_head(d.self_ty).unwrap_or("?").to_string();
                 let scope = self.scope_mut(module);
-                for method in &d.methods {
+                for method in t.list(d.methods) {
                     let sym = Sym::Method(owner.clone());
                     scope.own.entry(t.name(method.name).to_string()).or_insert(sym.clone());
                     if method.exported {
@@ -1024,7 +1024,7 @@ impl<'a> Checker<'a> {
             }
             tree::ImportClause::Named(specs) => {
                 let platform = self.loaded.module(from).path.clone();
-                for spec in specs {
+                for spec in t.list(*specs) {
                     // A platform's entry is a declaration for the program to
                     // fill, with no body of its own: the program exports one of
                     // the same name, and nothing calls the declaration.
@@ -1097,7 +1097,7 @@ impl<'a> Checker<'a> {
     fn apply_reexport(&mut self, module: ModuleId, re: &tree::ReExport) {
         let Some(from) = self.loaded.find(&re.path) else { return };
         let t = self.tree(module);
-        for spec in &re.specs {
+        for spec in t.list(re.specs) {
             let Some(sym) = self.lookup_export(from, t.name(spec.name)) else {
                 let path = re.path.clone();
                 let name = t.name(spec.name).to_string();
@@ -1152,7 +1152,7 @@ impl<'a> Checker<'a> {
         let mut found = None;
         for item in items {
             if let tree::Item::ReExport(re) = item {
-                let Some(spec) = re.specs.iter().find(|s| t.name(s.local()) == name) else {
+                let Some(spec) = t.list(re.specs).iter().find(|s| t.name(s.local()) == name) else {
                     continue;
                 };
                 if let Some(from) = self.loaded.find(&re.path) {
@@ -1236,11 +1236,11 @@ impl<'a> Checker<'a> {
                         else {
                             continue;
                         };
-                        let generics = self.elaborate_generics(id, &d.generics);
+                        let generics = self.elaborate_generics(id, t.list(d.generics));
                         self.tables.tycon_mut(con).generics = generics.clone();
                         let def = match &d.body {
                             tree::StructBody::Record(fields) => TyDef::Struct {
-                                fields: fields
+                                fields: t.list(*fields)
                                     .iter()
                                     .map(|f| FieldInfo {
                                         name: t.name(f.name).to_string(),
@@ -1252,7 +1252,7 @@ impl<'a> Checker<'a> {
                                 record: true,
                             },
                             tree::StructBody::Tuple(fields) => TyDef::Struct {
-                                fields: fields
+                                fields: t.list(*fields)
                                     .iter()
                                     .enumerate()
                                     .map(|(i, f)| FieldInfo {
@@ -1274,10 +1274,10 @@ impl<'a> Checker<'a> {
                         else {
                             continue;
                         };
-                        let generics = self.elaborate_generics(id, &d.generics);
+                        let generics = self.elaborate_generics(id, t.list(d.generics));
                         self.tables.tycon_mut(con).generics = generics.clone();
-                        let variants = d
-                            .variants
+                        let variants = t
+                            .list(d.variants)
                             .iter()
                             .map(|v| {
                                 let (fields, record) = match &v.payload {
@@ -1298,7 +1298,7 @@ impl<'a> Checker<'a> {
                                     // A payload field has no `export` of its
                                     // own; the enum's is the whole answer.
                                     tree::VariantPayload::Record(fs) => (
-                                        fs.iter()
+                                        t.list(*fs).iter()
                                             .map(|f| FieldInfo {
                                                 name: t.name(f.name).to_string(),
                                                 ty: self.elaborate(id, &generics, f.ty),
@@ -1328,20 +1328,20 @@ impl<'a> Checker<'a> {
                         else {
                             continue;
                         };
-                        let generics = self.elaborate_generics(id, &d.generics);
+                        let generics = self.elaborate_generics(id, t.list(d.generics));
                         self.tables.trait_mut(tid).generics = generics.clone();
                         // A trait's `Self` is whatever type implements it,
                         // which is not known here and so stays abstract.
                         let methods = self.enter_self_scope(Ty::SelfTy, |s| {
-                            d.methods
+                            t.list(d.methods)
                                 .iter()
                                 .map(|sig| {
                                     let mut g = generics.clone();
-                                    g.extend(s.elaborate_generics(id, &sig.generics));
+                                    g.extend(s.elaborate_generics(id, t.list(sig.generics)));
                                     TraitMethod {
                                         name: t.name(sig.name).to_string(),
                                         generics: g.clone(),
-                                        params: s.elaborate_params(id, &g, &sig.params),
+                                        params: s.elaborate_params(id, &g, t.list(sig.params)),
                                         ret: s.elaborate(id, &g, sig.ret),
                                         span: sig.span,
                                     }
@@ -1398,9 +1398,9 @@ impl<'a> Checker<'a> {
         fid: FnId,
         d: &tree::FnDecl,
     ) {
-        let generics = self.elaborate_generics(module, &d.generics);
+        let generics = self.elaborate_generics(module, self.tree(module).list(d.generics));
         self.tables.fn_info_mut(fid).generics = generics.clone();
-        let params = self.elaborate_params(module, &generics, &d.params);
+        let params = self.elaborate_params(module, &generics, self.tree(module).list(d.params));
         let ret = self.elaborate(module, &generics, d.ret);
         self.tables.fn_info_mut(fid).params = params.clone();
         self.tables.fn_info_mut(fid).ret = ret;
@@ -2185,8 +2185,8 @@ impl<'a> Checker<'a> {
         if self.cyclic_aliases.contains(&key) {
             return Some(Ty::Error);
         }
-        let generics: Vec<GenericInfo> = alias
-            .generics
+        let generics: Vec<GenericInfo> = t
+            .list(alias.generics)
             .iter()
             .map(|g| GenericInfo { name: t.name(g.name).to_string(), bounds: Vec::new(), span: g.span })
             .collect();
@@ -2527,7 +2527,7 @@ impl<'a> Checker<'a> {
     }
 
     fn register_impl_body(&mut self, module: ModuleId, index: u32, d: &tree::ImplDecl) {
-        let generics = self.elaborate_generics(module, &d.generics);
+        let generics = self.elaborate_generics(module, self.tree(module).list(d.generics));
         // No `for` clause: this declares the type's own methods rather than
         // conformance to anything.
         let Some(trait_ref) = d.trait_ty else {
@@ -2636,7 +2636,7 @@ impl<'a> Checker<'a> {
         // Register the methods, checked against the trait's signatures.
         let trait_methods = self.tables.trait_(trait_id).methods.clone();
         let mut supplied = vec![None; trait_methods.len()];
-        for (sub, method) in d.methods.iter().enumerate() {
+        for (sub, method) in self.tree(module).list(d.methods).iter().enumerate() {
             let mname = self.name_text(module, method.name);
             let Some(slot) = trait_methods.iter().position(|m| m.name == mname) else {
                 let t = self.tables.trait_(trait_id).name.clone();
@@ -2648,8 +2648,8 @@ impl<'a> Checker<'a> {
                 continue;
             };
             let mut g = generics.clone();
-            g.extend(self.elaborate_generics(module, &method.generics));
-            let params = self.elaborate_params(module, &g, &method.params);
+            g.extend(self.elaborate_generics(module, self.tree(module).list(method.generics)));
+            let params = self.elaborate_params(module, &g, self.tree(module).list(method.params));
             let ret = self.elaborate(module, &g, method.ret);
             // The name is what found the slot; whether the signature is the
             // one the slot declares is a second question, and one nothing
@@ -2851,11 +2851,11 @@ impl<'a> Checker<'a> {
             }
         }
 
-        for (sub, method) in d.methods.iter().enumerate() {
+        for (sub, method) in self.tree(module).list(d.methods).iter().enumerate() {
             let mname = self.name_text(module, method.name);
             let mut g = generics.to_vec();
-            g.extend(self.elaborate_generics(module, &method.generics));
-            let params = self.elaborate_params(module, &g, &method.params);
+            g.extend(self.elaborate_generics(module, self.tree(module).list(method.generics)));
+            let params = self.elaborate_params(module, &g, self.tree(module).list(method.params));
             let ret = self.elaborate(module, &g, method.ret);
 
             // A method is a function whose first parameter is `self`, and an

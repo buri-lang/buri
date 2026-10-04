@@ -366,8 +366,8 @@ fn names_with_no_written_type(module: &ModuleData) -> BTreeSet<(u32, u32)> {
     for item in &module.ast.items {
         match item {
             Item::Fn(d) => blocks.extend(d.body),
-            Item::Impl(d) => blocks.extend(d.methods.iter().filter_map(|m| m.body)),
-            Item::Trait(d) => blocks.extend(d.methods.iter().filter_map(|m| m.body)),
+            Item::Impl(d) => blocks.extend(tree.list(d.methods).iter().filter_map(|m| m.body)),
+            Item::Trait(d) => blocks.extend(tree.list(d.methods).iter().filter_map(|m| m.body)),
             Item::Test(d) => blocks.push(d.body),
             _ => {}
         }
