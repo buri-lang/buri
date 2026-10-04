@@ -96,7 +96,22 @@ fn run(args: &[&str]) -> Output {
 }
 
 fn run_with(args: &[&str], env: &[(&str, &str)], stdin: &str) -> Output {
+    run_command(Command::new(driver()), args, env, stdin)
+}
+
+/// The driver with the heap check off, whatever the suite's own environment
+/// says.
+///
+/// For the rows that pin what an *unchecked* program does: a process that
+/// inherited `BURI_RT_HEAP_CHECK=1` from a person running the whole suite
+/// under it would otherwise answer a different question.
+fn run_unchecked(args: &[&str]) -> Output {
     let mut cmd = Command::new(driver());
+    cmd.env_remove("BURI_RT_HEAP_CHECK").env_remove("BURI_RT_HEAP_REPORT");
+    run_command(cmd, args, &[], "")
+}
+
+fn run_command(mut cmd: Command, args: &[&str], env: &[(&str, &str)], stdin: &str) -> Output {
     cmd.args(args);
     for (k, v) in env {
         cmd.env(k, v);
@@ -266,7 +281,7 @@ fn the_heap_check_is_silent_on_a_balanced_program() {
         return;
     }
     let checked = run_with(&["heap-clean"], CHECKED, "");
-    let plain = run(&["heap-clean"]);
+    let plain = run_unchecked(&["heap-clean"]);
     assert_eq!(checked.status.code(), Some(0), "stderr:\n{}", stderr(&checked));
     assert_eq!(stdout(&checked), stdout(&plain));
     assert_eq!(stderr(&checked), "");
@@ -322,7 +337,7 @@ fn nothing_is_checked_unless_the_environment_asks() {
     // something a test may pin: the recycled block's header is the allocator's
     // free list, and clobbering it crashes or does not by the day.
     for mode in ["heap-leak", "heap-clean"] {
-        let out = run(&[mode]);
+        let out = run_unchecked(&[mode]);
         assert_eq!(
             out.status.code(),
             Some(0),
