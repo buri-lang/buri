@@ -2928,8 +2928,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(v));
         let value = self.get(state, v);
         let pieces = repr::disassemble(&self.builder, &slots, value);
-        let place = Place::Registers { slots, pieces };
-        self.walk_rc(state, &ty, &place, 0, op, 0);
+        if self.reprs.rc_weight(&ty) > OPEN_CODED_RC {
+            // Too large to write out here: the value goes through its type's
+            // glue instead, from a stack copy, as `Unit::copy_out` hands it.
+            let (size, align) = self.spill_shape(code.ty_of(v));
+            let buf = self.scratch(state, size, align);
+            self.store_slots(buf, &slots, align, &pieces);
+            self.call_glue(op, &ty, buf);
+        } else {
+            let place = Place::Registers { slots, pieces };
+            self.walk_rc(state, &ty, &place, 0, op, 0);
+        }
         // The same split `observe::local` makes from the IR, made again here
         // through the same function so that the two cannot answer it
         // differently: a count in a parameter's block is `argmem`, and a count
@@ -3058,6 +3067,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) {
         let at = base.saturating_add(f.offset);
         if !f.boxed {
+            // A large field of a value in memory is its type's glue's, so a
+            // glue body stays one level of its type deep.
+            if self.reprs.rc_weight(&f.ty) > OPEN_CODED_RC {
+                if let Some(p) = Self::place_address(self.ctx, &self.builder, place, at) {
+                    self.call_glue(op, &f.ty, p);
+                    return;
+                }
+            }
             self.walk_rc(state, &f.ty, place, at, op, depth);
             return;
         }
@@ -3078,6 +3095,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     let g = self.glue(op, &f.ty).map(function_pointer);
                     self.replace_with_copy(p, g);
                 }
+            }
+        }
+    }
+
+    /// Runs `op` over the value of type `ty` at `p` through the type's glue.
+    fn call_glue(&mut self, op: Op, ty: &Ty, p: PointerValue<'ctx>) {
+        if let Some(f) = self.glue(op, ty) {
+            if let Ok(call) = self.builder.build_call(f, &[p.into()], "") {
+                attrs::set_call_convention(call, attrs::C);
             }
         }
     }
@@ -3488,6 +3514,16 @@ enum Place<'ctx> {
     /// A heap block or a stack aggregate, at the alignment its layout claims.
     Memory { base: PointerValue<'ctx>, align: u32 },
 }
+
+/// The largest walk, by `Counts::weight`, that a reference operation writes
+/// out in place. A heavier value is handed to its type's glue.
+///
+/// Every pointer in an open-coded walk is about six blocks, so a state record
+/// with a hundred counted fields made each of its retains and releases several
+/// hundred blocks. A function that moved such a record through a wide `match`
+/// was over twenty thousand blocks before optimization, and LLVM's jump
+/// threading spent minutes on each one.
+const OPEN_CODED_RC: u32 = 8;
 
 /// One `Checked` or `Saturating` operation, bundled.
 ///

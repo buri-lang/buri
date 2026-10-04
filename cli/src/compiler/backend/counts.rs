@@ -80,6 +80,7 @@ pub enum Site {
 pub struct Counts {
     counted: Map<Ty, bool>,
     sites: Map<Ty, Rc<[Site]>>,
+    weights: Map<Ty, u32>,
 }
 
 impl Counts {
@@ -117,6 +118,44 @@ impl Counts {
         let sites: Rc<[Site]> = self.build(tables, layouts, ty).into();
         self.sites.insert(ty.clone(), sites.clone());
         sites
+    }
+
+    /// How many tests and pointer operations a walk of one value of this type
+    /// writes out, counting every arm of every enum inside it.
+    ///
+    /// A walk is open-coded, so this is the size of the code one reference
+    /// operation on the value becomes. A pointer is one, a tag or a niche test
+    /// is one, and a field inside the value adds its own walk.
+    pub fn weight(&mut self, tables: &Tables, layouts: &mut Layouts<'_>, ty: &Ty) -> u32 {
+        if let Some(known) = self.weights.get(ty) {
+            return *known;
+        }
+        // A type reaches itself only through a box, which weighs one without
+        // descending, so the descent below terminates.
+        let mut total = 0u32;
+        for site in self.sites(tables, layouts, ty).iter() {
+            let here = match site {
+                Site::Block { .. } => 1,
+                Site::Field(f) => self.field_weight(tables, layouts, f),
+                Site::Tagged { arms, .. } => arms
+                    .iter()
+                    .flat_map(|arm| arm.fields.iter())
+                    .map(|f| self.field_weight(tables, layouts, f))
+                    .fold(1u32, u32::saturating_add),
+                Site::Guarded { ty, .. } => self.weight(tables, layouts, ty).saturating_add(1),
+            };
+            total = total.saturating_add(here);
+        }
+        self.weights.insert(ty.clone(), total);
+        total
+    }
+
+    fn field_weight(&mut self, tables: &Tables, layouts: &mut Layouts<'_>, f: &Field) -> u32 {
+        if f.boxed {
+            1
+        } else {
+            self.weight(tables, layouts, &f.ty)
+        }
     }
 
     fn build(&mut self, tables: &Tables, layouts: &mut Layouts<'_>, ty: &Ty) -> Vec<Site> {
