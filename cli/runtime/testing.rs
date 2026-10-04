@@ -253,6 +253,7 @@ struct FsLog {
 /// `method` is the variant's index, which is what crosses in either direction:
 /// `host_testing.buri`'s `methodCode` sends it and [`BuriNetCall`] writes it
 /// back.
+#[derive(Clone)]
 struct NetLog {
     method: i8,
     url: String,
@@ -267,6 +268,7 @@ struct NetLog {
 /// easier to read as one shape than as four: the fields an operation does not
 /// use are empty, and the constructors in `host_testing.buri` are what a test
 /// actually writes.
+#[derive(Clone)]
 struct TcpLog {
     name: &'static str,
     host: String,
@@ -2131,6 +2133,10 @@ fn dialable(url: &str) -> bool {
 ///
 /// # Safety
 /// The URL must be a live `Str` view; both out-pointers writable and aligned.
+#[expect(
+    private_interfaces,
+    reason = "the out-pointers' shapes are file-private transcriptions; C sees no Rust visibility"
+)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_socket(
     handle: i64,
@@ -2191,6 +2197,10 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_soc
 ///
 /// # Safety
 /// Both out-pointers writable and aligned.
+#[expect(
+    private_interfaces,
+    reason = "the out-pointers' shapes are file-private transcriptions; C sees no Rust visibility"
+)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_receive(
     handle: i64,
@@ -2456,7 +2466,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_metadata(
     let clean = fs_clean(&path).to_string();
     let directory = clean.is_empty()
         || with(store, false, |slot| match slot {
-            Slot::Files { dirs, .. } => dirs.iter().any(|d| *d == clean),
+            Slot::Files { dirs, .. } => dirs.contains(&clean),
             _ => false,
         });
     if !directory {
@@ -2529,7 +2539,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_real_path(
     let there = fs_read(store, &path).is_some()
         || clean.is_empty()
         || with(store, false, |slot| match slot {
-            Slot::Files { dirs, .. } => dirs.iter().any(|d| *d == clean),
+            Slot::Files { dirs, .. } => dirs.contains(&clean),
             _ => false,
         });
     if !there {
@@ -2979,32 +2989,18 @@ pub extern "C" fn buri_rt_host_testing_record_tcp_close(handle: i64, stream: i64
 /// `out` must be writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_testing_tcp_calls(handle: i64, out: *mut BuriList) {
-    let calls: Vec<(&'static str, String, i64, i64, i64, Vec<u8>)> =
-        with(handle, Vec::new(), |slot| match slot {
-            Slot::Tcp { calls, .. } => calls
-                .iter()
-                .map(|c| (c.name, c.host.clone(), c.port, c.stream, c.limit, c.body.clone()))
-                .collect(),
-            _ => Vec::new(),
-        });
-    let value = list_of(
-        &calls,
-        |(name, host, port, stream, limit, body): &(
-            &'static str,
-            String,
-            i64,
-            i64,
-            i64,
-            Vec<u8>,
-        )| BuriTcpCall {
-            name: str_of(name),
-            host: str_of(host),
-            port: *port,
-            stream: *stream,
-            limit: *limit,
-            body: list_of_bytes(body),
-        },
-    );
+    let calls = with(handle, Vec::new(), |slot| match slot {
+        Slot::Tcp { calls, .. } => calls.clone(),
+        _ => Vec::new(),
+    });
+    let value = list_of(&calls, |call: &TcpLog| BuriTcpCall {
+        name: str_of(call.name),
+        host: str_of(&call.host),
+        port: call.port,
+        stream: call.stream,
+        limit: call.limit,
+        body: list_of_bytes(&call.body),
+    });
     // SAFETY: the caller promises a writable destination.
     unsafe { out.write(value) };
 }
@@ -3047,32 +3043,16 @@ unsafe fn header_pairs(ptr: *const u8, len: u64) -> Vec<(String, String)> {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_testing_net_calls(handle: i64, out: *mut BuriList) {
     let calls = with(handle, Vec::new(), |slot| match slot {
-        Slot::Net { calls, .. } => calls
-            .iter()
-            .map(|c| {
-                (c.method, c.url.clone(), c.headers.clone(), c.body.clone(), c.timeout_millis)
-            })
-            .collect(),
+        Slot::Net { calls, .. } => calls.clone(),
         _ => Vec::new(),
     });
-    let value = list_of(
-        &calls,
-        |(method, url, headers, body, timeout): &(
-            i8,
-            String,
-            Vec<(String, String)>,
-            Vec<u8>,
-            i64,
-        )| {
-            BuriNetCall {
-                method: *method,
-                url: str_of(url),
-                headers: crate::value::list_of_headers(headers),
-                body: list_of_bytes(body),
-                timeout_millis: *timeout,
-            }
-        },
-    );
+    let value = list_of(&calls, |call: &NetLog| BuriNetCall {
+        method: call.method,
+        url: str_of(&call.url),
+        headers: crate::value::list_of_headers(&call.headers),
+        body: list_of_bytes(&call.body),
+        timeout_millis: call.timeout_millis,
+    });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) }
 }

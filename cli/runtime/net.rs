@@ -4260,6 +4260,10 @@ pub struct BuriRequest {
 }
 
 /// `Response` — `{ status: Int, headers: [Header], body: [U8] }`.
+///
+/// Never built: `listenRespond` takes the three fields flattened. It is here so
+/// that the layout tests can hold the transcription against the value model.
+#[cfg(test)]
 #[repr(C)]
 pub struct BuriResponse {
     status: i64,

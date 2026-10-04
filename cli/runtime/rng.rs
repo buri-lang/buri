@@ -37,10 +37,10 @@ fn split_mix(x: &mut u64) -> u64 {
 fn os_seed() -> u64 {
     use std::io::Read;
     let mut buf = [0_u8; 8];
-    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-        if f.read_exact(&mut buf).is_ok() {
-            return u64::from_le_bytes(buf);
-        }
+    if let Ok(mut f) = std::fs::File::open("/dev/urandom")
+        && f.read_exact(&mut buf).is_ok()
+    {
+        return u64::from_le_bytes(buf);
     }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

@@ -181,7 +181,16 @@ jobs:
       # interleaved. The doctests are the one unit cargo cannot hand over as an
       # executable; there are none today, and that line is what stops the first
       # one written from being silently dropped.
+      #
+      # **A hung unit fails the step, and its log is still printed.** The logs
+      # are only tailed once every unit has exited, so a unit that never exits
+      # used to leave nothing but the job's 40-minute cancel (run 37188532971,
+      # a runtime test deadlocked in `buri_rt`). The step's own bound stops it
+      # first, and the step after it prints the logs the tail never reached.
+      # libtest writes "has been running for over 60 seconds" into the hung
+      # unit's log, which names the test.
       - name: The suite, with its binaries overlapped
+        timeout-minutes: 25
         run: |
           set -euo pipefail
           mkdir -p target/units
@@ -199,15 +208,21 @@ jobs:
             || status=$?
           wait "$first" || status=$?
           tail -n +1 -- target/units/*.log
+          touch target/units.printed
           cargo test -p buri --doc
           exit "$status"
+      - if: failure()
+        name: The units' logs, when the suite was stopped
+        run: test -e target/units.printed || tail -n +1 -- target/units/*.log
       # The tests that drive the runtime directly, once more under the heap
       # check: the runtime's unit tests, and the C drivers in `native::runtime`
       # and `native::float_parity`. Compiled programs are checked in every run
       # already (`harness::HEAP_CHECK`); these call the runtime themselves, so
       # nothing checked them until the variable was set here. The binaries are
-      # the ones the step above built, and the run takes about 30 s.
+      # the ones the step above built, and the run takes about 30 s, so a hang
+      # here is stopped at 10 minutes rather than at the job's 40.
       - name: The runtime, under the heap check
+        timeout-minutes: 10
         env:
           BURI_RT_HEAP_CHECK: "1"
         run: |
@@ -268,7 +283,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends clang musl-dev musl-tools
           rustup target add "$(uname -m)-unknown-linux-musl"
-      - run: cargo clippy -p buri -p website --all-targets
+      - run: cargo clippy -p buri -p website -p buri-rt-tests --all-targets
 
   # The validation gate: compile every corpus and measure nothing. `--profile
   # validate` is the point of the job — the root `Cargo.toml` declares it, and it

@@ -1983,7 +1983,7 @@ fn radius_length(value: &Value) -> Option<(String, String)> {
 fn border_width_length(value: &Value) -> Option<(String, String)> {
     match value.as_variant()?.0 {
         // Px, Rem, Em — the absolute lengths a border width is measured in.
-        0 | 1 | 2 => length(value),
+        0..=2 => length(value),
         // Percent, Auto, Full — not a width; the whole border is dropped.
         _ => None,
     }
