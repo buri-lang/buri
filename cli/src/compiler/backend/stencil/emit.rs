@@ -24,7 +24,7 @@
 
 use super::abi::Loc;
 use crate::compiler::backend::intrinsic_keys::{
-    self, bits_op, checked_kind, conversion_target, json_arm, json_variant, numeric_key,
+    bits_op, checked_kind, conversion_target, json_arm, json_variant, numeric_key,
     prim_trait_op, CheckedKind, JsonArm,
 };
 use crate::compiler::semantics::types::{field_types, variant_types};
@@ -41,6 +41,7 @@ use super::glue::Helper;
 use super::runtime;
 use crate::compiler::backend::counts::{Field, Glue, Op, Site};
 use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
+use crate::compiler::middle::lower;
 use crate::compiler::middle::layout::{EnumRepr, Repr};
 use crate::compiler::semantics::types::{Prim, Ty};
 
@@ -689,8 +690,9 @@ impl<'a> Jit<'a> {
     /// that a runtime intrinsic **borrows** its arguments and returns a fresh
     /// count (`rc.rs`'s header), and this one's result *keeps* the argument's
     /// block — so the retain is the difference between that contract and a
-    /// double free, and it is the whole walk rather than one `incref` for the
-    /// same reason `lists.rs::retain_value` is.
+    /// double free, and it is the whole walk rather than one `incref` because
+    /// what is retained may be a struct with a counted field rather than a bare
+    /// pointer.
     fn json_prim(
         &mut self,
         prog: &ir::Program,
@@ -1266,17 +1268,8 @@ impl<'a> Jit<'a> {
         func: u32,
         args: &[ir::ValueId],
     ) {
-        // The same `list.*` key reaches a backend two ways — as an
-        // `Inst::CallIntrinsic` where the front end spelled it inline, and as an
-        // `Inst::Call` to a `Body::Runtime` function where it was a method — and
-        // the loop belongs at the call site. `lists.rs` says why.
         if let Some(ir::Body::Runtime(key)) = prog.funcs.get(func as usize).map(|f| &f.body) {
             let key = key.clone();
-            if let Some(o) = self.operands(prog, code, st, dests, args) {
-                if self.list_extra(prog, st, &key, &o) {
-                    return;
-                }
-            }
             // The archive boundary, **emitted here rather than called**, which
             // is every backend's first act at a `Body::Runtime` call.
             //
@@ -1519,11 +1512,6 @@ impl<'a> Jit<'a> {
                 }
             }
             _ => {
-                if let Some(o) = self.operands(prog, code, st, dests, args) {
-                    if self.list_extra(prog, st, key, &o) {
-                        return;
-                    }
-                }
                 if self.prim_trait(prog, code, st, dests, key, args) {
                     return;
                 }
@@ -1806,7 +1794,7 @@ impl<'a> Jit<'a> {
     }
 
     fn cond(&mut self, st: &Fn2, cond: ir::ValueId, plan: &Plan, tv: V, fv: V, fall: Option<&str>) {
-        // `rtcall.rs` and `lists.rs` name `br/f` without asking. A library without
+        // `rtcall.rs` names `br/f` without asking. A library without
         // a branch stencil is broken, so this stops here rather than emitting
         // a fall-through that would run the wrong arm.
         let Some(key) = self.cond_key(st, cond, plan) else {
@@ -2386,14 +2374,6 @@ impl<'a> Jit<'a> {
                 }
             }
         }
-        // The open-coded loop first: the runtime call is the fallback, not the
-        // other way round. `lists.rs` says why.
-        if let Some(o) = self.rt_operands(prog, fi, &fs) {
-            if self.list_extra(prog, st, &key, &o) {
-                self.emit("ret", &[]);
-                return;
-            }
-        }
         if self.runtime_intrinsic(prog, fi, &key, &fs, st) {
             self.emit("ret", &[]);
             return;
@@ -2534,45 +2514,6 @@ impl<'a> Jit<'a> {
                 true
             }
         }
-    }
-
-    /// One instruction's operands as `lists.rs` wants them: a frame offset and
-    /// an IR type apiece, so that the loops are written once and serve both a
-    /// call site and a `Body::Runtime` body.
-    fn operands(
-        &mut self,
-        prog: &ir::Program,
-        code: &ir::Code,
-        st: &Fn2,
-        dests: &[ir::ValueId],
-        args: &[ir::ValueId],
-    ) -> Option<super::lists::Operands> {
-        let dest = dests.first()?;
-        let _ = prog;
-        Some(super::lists::Operands {
-            args: args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect(),
-            dest: (st.at(*dest), code.ty_of(*dest)),
-        })
-    }
-
-    /// The same, for a `Body::Runtime` function whose operands are its own
-    /// parameters.
-    fn rt_operands(
-        &mut self,
-        prog: &ir::Program,
-        fi: usize,
-        fs: &super::jit::FrameSig,
-    ) -> Option<super::lists::Operands> {
-        let f = prog.funcs.get(fi)?;
-        let dest = (fs.ret.first().copied()?, f.sig.rets.first().copied()?);
-        let args = f
-            .sig
-            .params
-            .iter()
-            .enumerate()
-            .map(|(i, t)| (fs.params.get(i).copied().unwrap_or(0), *t))
-            .collect();
-        Some(super::lists::Operands { args, dest })
     }
 
     /// The stride of `[T]`'s element, for an IR type that is a `[T]`.
@@ -3848,7 +3789,7 @@ fn bound_bits(prim: Prim, low: bool) -> Option<u64> {
 pub fn implemented(key: &str) -> bool {
     super::runtime::entry(key).is_some()
         || open_coded_key(key)
-        || list_closure_key(key)
+        || lower::lowers(key)
         || bits_op(key)
         || prim_trait_op(key)
         || key.strip_prefix("derivePrimShow.").is_some_and(|t| prim_of_name(t).is_some())
@@ -3883,35 +3824,13 @@ fn open_coded_key(key: &str) -> bool {
     )
 }
 
-/// `core/list`'s closure surface, which `lists.rs` open-codes as a loop
-/// because the step's signature is the element type flattened
-/// (`cli/runtime/list.rs`'s header) — plus the two that build a block without
-/// taking a function at all: what keeps them out of `cli/runtime/list.rs` is a
-/// second *layout* rather than a closure, and that file's header says which
-/// one each needs.
-fn list_closure_key(key: &str) -> bool {
-    intrinsic_keys::list_closure_key(key) || matches!(key, "list.zip" | "list.flatten")
-}
-
 /// Whether a call to a `Body::Runtime` function is **emitted into its caller**
-/// instead of being made.
+/// instead of being made: a key `runtime.rs`'s table has a row for.
 ///
-/// The rule is one line — a key `runtime.rs`'s table has a row for — and the
-/// two exclusions are not exceptions to it but the same fallback the loops have
-/// always had:
-///
-/// * [`list_closure_key`] and the two `deriveArray*` derives are open-coded as
-///   a **loop** whose step this function has to be able to see as a
-///   `MakeClosure` (`lists.rs`). Where it cannot, the designed answer is a call
-///   to the `Body::Runtime` function, whose body reaches the same loop through
-///   the closure's thunk — so inlining those would replace a working fallback
-///   with a refusal.
-/// * A key with no row is `str.length`, `number.<T>.<op>` and the rest, whose bodies
-///   `runtime_body` generates from the signature; those keys reach a backend
-///   only as a method, never as an `Inst::CallIntrinsic`, so there is no
-///   call-site emitter for them to be inlined by.
+/// A key with no row is `str.length`, `number.<T>.<op>` and the rest, whose
+/// bodies `runtime_body` generates from the signature; those keys reach a
+/// backend only as a method, never as an `Inst::CallIntrinsic`, so there is no
+/// call-site emitter for them to be inlined by.
 fn inline_runtime_key(key: &str) -> bool {
     super::runtime::entry(key).is_some()
-        && !list_closure_key(key)
-        && !matches!(key, "deriveArrayEq" | "deriveArrayShow")
 }

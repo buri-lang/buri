@@ -1,4 +1,5 @@
-//! `core/list`'s closure operations, lowered to loops in the IR.
+//! `core/list`'s closure operations, `get`, `zip`, `flatten` and the three
+//! `deriveArray*` derives, lowered to loops in the IR.
 //!
 //! `cli/runtime/list.rs`'s header says why the archive has no
 //! `buri_rt_list_map`: a closure's `code` takes the *flattened* parameters of
@@ -42,12 +43,12 @@
 //!
 //! # The blocks a loop builds
 //!
-//! `map`, `filter`, `zip` and `flatten` build their answer in a fresh block:
-//! [`Inst::ArrayAlloc`], then one [`Inst::ArraySet`] per element, which moves
-//! the element's counts in. `filter` ends with [`Inst::ArrayPrefix`], because
-//! it fills only the elements it keeps. A loop stores only into a block it
-//! allocated, which nothing else holds yet, so no other list can see the
-//! writes (MEMORY.md §5.3).
+//! `map`, `filter`, `zip`, `flatten`, `sortBy` and `deriveArrayShow` build
+//! into a fresh block: [`Inst::ArrayAlloc`], then one [`Inst::ArraySet`] per
+//! element, which moves the element's counts in. `filter` ends with
+//! [`Inst::ArrayPrefix`], because it fills only the elements it keeps. A loop
+//! stores only into a block it allocated, which nothing else holds yet, so no
+//! other list can see the writes (MEMORY.md §5.3).
 
 use std::sync::{Mutex, OnceLock};
 
@@ -63,7 +64,25 @@ use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty};
 
 /// Whether `key` is lowered here.
 pub(super) fn handles(key: &str) -> bool {
-    key == "list.get" || intrinsic_keys::list_call(key).is_some_and(|c| c.kind != Step::Sort)
+    matches!(
+        key,
+        "list.get"
+            | "list.zip"
+            | "list.flatten"
+            | "deriveArrayEq"
+            | "deriveArrayCompare"
+            | "deriveArrayShow"
+    ) || intrinsic_keys::list_call(key).is_some()
+}
+
+/// Where `key`'s step is among its operands. `middle::derives` builds the
+/// `deriveArray*` calls as `(xs, ys, step)` and `(xs, step)`.
+fn step_at(key: &str) -> Option<usize> {
+    match key {
+        "deriveArrayEq" | "deriveArrayCompare" => Some(2),
+        "deriveArrayShow" => Some(1),
+        _ => intrinsic_keys::list_call(key).map(|c| c.func),
+    }
 }
 
 /// `middle::rc`'s classifier, built the first time a loop asks.
@@ -130,8 +149,8 @@ impl FnLower<'_> {
         let tys: Vec<Ty> = args.iter().map(|a| a.ty.clone()).collect();
         // The step a call site names: a lambda `middle::closures` lifted, or a
         // function passed by name.
-        let step = intrinsic_keys::list_call(key)
-            .and_then(|c| args.get(c.func))
+        let step = step_at(key)
+            .and_then(|at| args.get(at))
             .and_then(|a| match &a.kind {
                 ExprKind::FnRef(Callee::Func(f)) => Some(*f),
                 _ => None,
@@ -173,8 +192,15 @@ impl FnLower<'_> {
         step: Option<FuncIdx>,
         ret: &Ty,
     ) -> Option<ValueId> {
-        if key == "list.get" {
-            return self.list_get(vals, tys, ret);
+        match key {
+            "list.get" => return self.list_get(vals, tys, ret),
+            "list.zip" => return self.list_zip(vals, tys, ret),
+            "list.flatten" => return self.list_flatten(vals, tys, ret),
+            "deriveArrayEq" | "deriveArrayCompare" => {
+                return self.derive_array(key == "deriveArrayEq", vals, tys, step, ret)
+            }
+            "deriveArrayShow" => return self.derive_show(vals, tys, step, ret),
+            _ => {}
         }
         let call = intrinsic_keys::list_call(key)?;
         let xs = *vals.first()?;
@@ -401,7 +427,409 @@ impl FnLower<'_> {
                 self.cur = exit;
                 *self.code.get(exit).params.first()?
             }
-            Step::Sort => return None,
+            Step::Sort => self.list_sort(xs, &elem, n, &callee, ret_t, &step_ret)?,
+        })
+    }
+
+    /// `zip(xs, ctx, ys)`: one block of pairs, as long as the shorter list.
+    /// Both halves of every pair are a second owner of what they hold.
+    fn list_zip(&mut self, vals: &[ValueId], tys: &[Ty], ret: &Ty) -> Option<ValueId> {
+        let (&xs, &ys) = (vals.first()?, vals.get(2)?);
+        let (Ty::Array(a), Ty::Array(b)) = (tys.first()?, tys.get(2)?) else { return None };
+        let (a, b) = ((**a).clone(), (**b).clone());
+        let Ty::Array(pair) = ret else { return None };
+        let (a_t, b_t, pair_t, ret_t) =
+            (self.type_of(&a), self.type_of(&b), self.type_of(pair), self.type_of(ret));
+        let la = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
+        let lb = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: ys });
+        let n = self.shorter(la, lb);
+        let out = self.emit(ret_t, |dest| Inst::ArrayAlloc { dest, len: n });
+        let w = self.walk(n, &[]);
+        let x = self.emit(a_t, |dest| Inst::ArrayGet { dest, array: xs, index: w.i });
+        let y = self.emit(b_t, |dest| Inst::ArrayGet { dest, array: ys, index: w.i });
+        for (v, t) in [(x, &a), (y, &b)] {
+            if self.counts.counted(t) {
+                self.push(Inst::IncRef { value: v });
+            }
+        }
+        let p = self.emit(pair_t, |dest| Inst::MakeStruct { dest, fields: vec![x, y] });
+        self.push(Inst::ArraySet { array: out, index: w.i, value: p });
+        self.again(&w, Vec::new());
+        self.end(&w);
+        Some(out)
+    }
+
+    /// `flatten(xs, ctx)`: one block holding every element of every inner
+    /// list, sized by a first pass over the inner lengths. Each element copied
+    /// out is a second owner; the inner lists themselves are only read.
+    fn list_flatten(&mut self, vals: &[ValueId], tys: &[Ty], ret: &Ty) -> Option<ValueId> {
+        let xs = *vals.first()?;
+        let Ty::Array(inner) = tys.first()? else { return None };
+        let Ty::Array(elem) = &**inner else { return None };
+        let (inner, elem) = ((**inner).clone(), (**elem).clone());
+        let (inner_t, elem_t, ret_t) =
+            (self.type_of(&inner), self.type_of(&elem), self.type_of(ret));
+        let counted = self.counts.counted(&elem);
+        let n = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
+        let zero = self.int(Type::I64, 0);
+        let sizing = self.walk(n, &[zero]);
+        let total = *sizing.vars.first()?;
+        let ys = self.emit(inner_t, |dest| Inst::ArrayGet { dest, array: xs, index: sizing.i });
+        let l = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: ys });
+        let grown = self.add(total, l);
+        self.again(&sizing, vec![grown]);
+        self.end(&sizing);
+
+        let out = self.emit(ret_t, |dest| Inst::ArrayAlloc { dest, len: total });
+        let zero = self.int(Type::I64, 0);
+        let outer = self.walk(n, &[zero]);
+        let k = *outer.vars.first()?;
+        let ys = self.emit(inner_t, |dest| Inst::ArrayGet { dest, array: xs, index: outer.i });
+        let l = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: ys });
+        let one = self.walk(l, &[]);
+        let e = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: ys, index: one.i });
+        if counted {
+            self.push(Inst::IncRef { value: e });
+        }
+        let at = self.add(k, one.i);
+        self.push(Inst::ArraySet { array: out, index: at, value: e });
+        self.again(&one, Vec::new());
+        self.end(&one);
+        let after = self.add(k, l);
+        self.again(&outer, vec![after]);
+        self.end(&outer);
+        Some(out)
+    }
+
+    /// `deriveArrayEq` and `deriveArrayCompare`: the derived `Equal` and
+    /// `Ordered` of a `[T]` field, through the element's own generated
+    /// function (`middle::derives`). Equality refuses two lengths first;
+    /// order is lexicographic over the shorter length, and where every shared
+    /// element is `Equal` the lengths decide.
+    fn derive_array(
+        &mut self,
+        equal: bool,
+        vals: &[ValueId],
+        tys: &[Ty],
+        step: Option<FuncIdx>,
+        ret: &Ty,
+    ) -> Option<ValueId> {
+        let (&xs, &ys, &f) = (vals.first()?, vals.get(1)?, vals.get(2)?);
+        let Ty::Array(elem) = tys.first()? else { return None };
+        let elem = (**elem).clone();
+        let elem_t = self.type_of(&elem);
+        let ret_t = self.type_of(ret);
+        let callee = self.callee(f, step, 2);
+        let la = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
+        let lb = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: ys });
+        let exit = self.block(&[ret_t]);
+        let pair = |l: &mut Self, i: ValueId| {
+            let x = l.emit(elem_t, |dest| Inst::ArrayGet { dest, array: xs, index: i });
+            let y = l.emit(elem_t, |dest| Inst::ArrayGet { dest, array: ys, index: i });
+            vec![
+                Arg { value: x, ty: elem.clone(), owned: false },
+                Arg { value: y, ty: elem.clone(), owned: false },
+            ]
+        };
+        if equal {
+            let no = self.constant(Type::I1, Const::Bool(false));
+            let yes = self.constant(Type::I1, Const::Bool(true));
+            let differ = self.emit(Type::I1, |dest| Inst::Binary {
+                dest,
+                op: BinOp::Ne,
+                prim: Prim::I64,
+                lhs: la,
+                rhs: lb,
+            });
+            let paired = self.block(&[]);
+            self.set_term(Term::Branch {
+                cond: differ,
+                then: Target::new(exit, vec![no]),
+                else_: Target::to(paired),
+            });
+            self.cur = paired;
+            let w = self.walk(la, &[]);
+            let args = pair(self, w.i);
+            let same = self.step(&callee, args, Type::I1);
+            let unequal = self.emit(Type::I1, |dest| Inst::Binary {
+                dest,
+                op: BinOp::Eq,
+                prim: Prim::Bool,
+                lhs: same,
+                rhs: no,
+            });
+            let more = self.block(&[]);
+            self.set_term(Term::Branch {
+                cond: unequal,
+                then: Target::new(exit, vec![no]),
+                else_: Target::to(more),
+            });
+            self.cur = more;
+            self.again(&w, Vec::new());
+            self.end(&w);
+            self.set_term(Term::Jump(Target::new(exit, vec![yes])));
+        } else {
+            let less = self.variant_of(ret, "Less", 0);
+            let same = self.variant_of(ret, "Equal", 1);
+            let greater = self.variant_of(ret, "Greater", 2);
+            let same_tag = self.int(Type::I32, same as usize);
+            let n = self.shorter(la, lb);
+            let w = self.walk(n, &[]);
+            let args = pair(self, w.i);
+            let order = self.step(&callee, args, ret_t);
+            let tag = self.emit(Type::I32, |dest| Inst::GetTag { dest, agg: order });
+            let decided = self.emit(Type::I1, |dest| Inst::Binary {
+                dest,
+                op: BinOp::Ne,
+                prim: Prim::I32,
+                lhs: tag,
+                rhs: same_tag,
+            });
+            let more = self.block(&[]);
+            self.set_term(Term::Branch {
+                cond: decided,
+                then: Target::new(exit, vec![order]),
+                else_: Target::to(more),
+            });
+            self.cur = more;
+            self.again(&w, Vec::new());
+            self.end(&w);
+            // Every shared element was `Equal`, so the shorter list is `Less`.
+            for (op, v) in [(BinOp::Lt, less), (BinOp::Gt, greater)] {
+                let c = self.emit(Type::I1, |dest| Inst::Binary {
+                    dest,
+                    op,
+                    prim: Prim::I64,
+                    lhs: la,
+                    rhs: lb,
+                });
+                let (decides, next) = self.fork(c);
+                self.cur = decides;
+                let o = self
+                    .emit(ret_t, |dest| Inst::MakeEnum { dest, variant: v, fields: Vec::new() });
+                self.set_term(Term::Jump(Target::new(exit, vec![o])));
+                self.cur = next;
+            }
+            let o =
+                self.emit(ret_t, |dest| Inst::MakeEnum { dest, variant: same, fields: Vec::new() });
+            self.set_term(Term::Jump(Target::new(exit, vec![o])));
+        }
+        self.cur = exit;
+        self.code.get(exit).params.first().copied()
+    }
+
+    /// `deriveArrayShow`: `[a, b]`, from the element's own generated `show`.
+    /// Each element is rendered into a `[Str]` built here, the runtime joins
+    /// them (`buri_rt_show_list`), and the `[Str]` goes, every rendering with
+    /// it.
+    fn derive_show(
+        &mut self,
+        vals: &[ValueId],
+        tys: &[Ty],
+        step: Option<FuncIdx>,
+        ret: &Ty,
+    ) -> Option<ValueId> {
+        let (&xs, &f) = (vals.first()?, vals.get(1)?);
+        let Ty::Array(elem) = tys.first()? else { return None };
+        let elem = (**elem).clone();
+        let shown = Ty::Array(Box::new(ret.clone()));
+        let (elem_t, ret_t, shown_t) =
+            (self.type_of(&elem), self.type_of(ret), self.type_of(&shown));
+        let callee = self.callee(f, step, 1);
+        let n = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
+        let strs = self.emit(shown_t, |dest| Inst::ArrayAlloc { dest, len: n });
+        let w = self.walk(n, &[]);
+        let e = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: xs, index: w.i });
+        let s = self.step(&callee, vec![Arg { value: e, ty: elem, owned: false }], ret_t);
+        self.push(Inst::ArraySet { array: strs, index: w.i, value: s });
+        self.again(&w, Vec::new());
+        self.end(&w);
+        let joined = self.emit(ret_t, |dest| Inst::CallIntrinsic {
+            dests: vec![dest],
+            key: "show.list".into(),
+            args: vec![strs],
+        });
+        self.push(Inst::DecRef { value: strs, drop: None });
+        Some(joined)
+    }
+
+    /// `sortBy`: a **stable bottom-up merge** over two blocks, which take turns
+    /// being read and written. The merge takes the left run's element unless
+    /// the comparator answers `Greater`, which is what makes it stable.
+    ///
+    /// Both blocks start as a copy of the source, each a second owner of every
+    /// element, and a pass *moves* elements between them; so each holds every
+    /// element exactly once after every pass, the block read last is the answer,
+    /// and the other goes back with its own release of each. An empty or
+    /// one-element list makes no pass at all, and the two copies are why the
+    /// block that goes back is never one nothing wrote.
+    fn list_sort(
+        &mut self,
+        xs: ValueId,
+        elem: &Ty,
+        n: ValueId,
+        callee: &Via,
+        list_t: Type,
+        order_ty: &Ty,
+    ) -> Option<ValueId> {
+        let elem_t = self.type_of(elem);
+        let order_t = self.type_of(order_ty);
+        let counted = self.counts.counted(elem);
+        let a0 = self.emit(list_t, |dest| Inst::ArrayAlloc { dest, len: n });
+        let b0 = self.emit(list_t, |dest| Inst::ArrayAlloc { dest, len: n });
+        let copy = self.walk(n, &[]);
+        let e = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: xs, index: copy.i });
+        if counted {
+            self.push(Inst::IncRef { value: e });
+            self.push(Inst::IncRef { value: e });
+        }
+        self.push(Inst::ArraySet { array: a0, index: copy.i, value: e });
+        self.push(Inst::ArraySet { array: b0, index: copy.i, value: e });
+        self.again(&copy, Vec::new());
+        self.end(&copy);
+
+        // `w = 1, 2, 4, ...`, reading `a` and writing `b`.
+        let one = self.int(Type::I64, 1);
+        let widths = self.block(&[Type::I64, list_t, list_t]);
+        self.set_term(Term::Jump(Target::new(widths, vec![one, a0, b0])));
+        self.cur = widths;
+        let [w, a, b] = self.code.get(widths).params.as_slice() else { return None };
+        let (w, a, b) = (*w, *a, *b);
+        let sorted = self.emit(Type::I1, |dest| Inst::Binary {
+            dest,
+            op: BinOp::Ge,
+            prim: Prim::U64,
+            lhs: w,
+            rhs: n,
+        });
+        let exit = self.block(&[]);
+        let pass = self.block(&[]);
+        self.set_term(Term::Branch { cond: sorted, then: Target::to(exit), else_: Target::to(pass) });
+        self.cur = pass;
+        let span = self.add(w, w);
+        let zero = self.int(Type::I64, 0);
+
+        // One pass: `lo = 0, 2w, 4w, ...`.
+        let runs = self.block(&[Type::I64]);
+        self.set_term(Term::Jump(Target::new(runs, vec![zero])));
+        self.cur = runs;
+        let lo = *self.code.get(runs).params.first()?;
+        let passed = self.emit(Type::I1, |dest| Inst::Binary {
+            dest,
+            op: BinOp::Ge,
+            prim: Prim::U64,
+            lhs: lo,
+            rhs: n,
+        });
+        let swap = self.block(&[]);
+        let run = self.block(&[]);
+        self.set_term(Term::Branch { cond: passed, then: Target::to(swap), else_: Target::to(run) });
+        self.cur = swap;
+        self.set_term(Term::Jump(Target::new(widths, vec![span, b, a])));
+        self.cur = run;
+        let lo_w = self.add(lo, w);
+        let mid = self.shorter(lo_w, n);
+        let lo_span = self.add(lo, span);
+        let hi = self.shorter(lo_span, n);
+
+        // One merge: `a[lo..mid)` and `a[mid..hi)` into `b[lo..hi)`.
+        let merge = self.block(&[Type::I64, Type::I64, Type::I64]);
+        self.set_term(Term::Jump(Target::new(merge, vec![lo, mid, lo])));
+        self.cur = merge;
+        let [li, ri, out] = self.code.get(merge).params.as_slice() else { return None };
+        let (li, ri, out) = (*li, *ri, *out);
+        let ge = |l: &mut Self, x: ValueId, y: ValueId| {
+            l.emit(Type::I1, |dest| Inst::Binary { dest, op: BinOp::Ge, prim: Prim::U64, lhs: x, rhs: y })
+        };
+        let merged = ge(self, out, hi);
+        let next_run = self.block(&[]);
+        let pick = self.block(&[]);
+        self.set_term(Term::Branch { cond: merged, then: Target::to(next_run), else_: Target::to(pick) });
+        self.cur = next_run;
+        self.set_term(Term::Jump(Target::new(runs, vec![lo_span])));
+        self.cur = pick;
+        let take_left = self.block(&[]);
+        let take_right = self.block(&[]);
+        let left_done = ge(self, li, mid);
+        let both = self.block(&[]);
+        self.set_term(Term::Branch {
+            cond: left_done,
+            then: Target::to(take_right),
+            else_: Target::to(both),
+        });
+        self.cur = both;
+        let right_done = ge(self, ri, hi);
+        let compare = self.block(&[]);
+        self.set_term(Term::Branch {
+            cond: right_done,
+            then: Target::to(take_left),
+            else_: Target::to(compare),
+        });
+        self.cur = compare;
+        let x = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: a, index: li });
+        let y = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: a, index: ri });
+        let args = vec![
+            Arg { value: x, ty: elem.clone(), owned: false },
+            Arg { value: y, ty: elem.clone(), owned: false },
+        ];
+        let o = self.step(callee, args, order_t);
+        let greater = self.variant_of(order_ty, "Greater", 2);
+        let greater_tag = self.int(Type::I32, greater as usize);
+        let tag = self.emit(Type::I32, |dest| Inst::GetTag { dest, agg: o });
+        let right_first = self.emit(Type::I1, |dest| Inst::Binary {
+            dest,
+            op: BinOp::Eq,
+            prim: Prim::I32,
+            lhs: tag,
+            rhs: greater_tag,
+        });
+        self.set_term(Term::Branch {
+            cond: right_first,
+            then: Target::to(take_right),
+            else_: Target::to(take_left),
+        });
+        let out1 = |l: &mut Self| l.add_one(out);
+        for (side, from) in [(take_left, li), (take_right, ri)] {
+            self.cur = side;
+            let e = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: a, index: from });
+            self.push(Inst::ArraySet { array: b, index: out, value: e });
+            let from1 = self.add_one(from);
+            let o1 = out1(self);
+            let args = if side == take_left { vec![from1, ri, o1] } else { vec![li, from1, o1] };
+            self.set_term(Term::Jump(Target::new(merge, args)));
+        }
+
+        self.cur = exit;
+        self.push(Inst::DecRef { value: b, drop: None });
+        Some(a)
+    }
+
+    /// The shorter of two lengths, as a join.
+    fn shorter(&mut self, a: ValueId, b: ValueId) -> ValueId {
+        let first = self.emit(Type::I1, |dest| Inst::Binary {
+            dest,
+            op: BinOp::Lt,
+            prim: Prim::I64,
+            lhs: a,
+            rhs: b,
+        });
+        let join = self.block(&[Type::I64]);
+        let (left, right) = self.fork(first);
+        self.cur = left;
+        self.set_term(Term::Jump(Target::new(join, vec![a])));
+        self.cur = right;
+        self.set_term(Term::Jump(Target::new(join, vec![b])));
+        self.cur = join;
+        self.code.get(join).params.first().copied().unwrap_or(a)
+    }
+
+    fn add(&mut self, a: ValueId, b: ValueId) -> ValueId {
+        self.emit(Type::I64, |dest| Inst::Binary {
+            dest,
+            op: BinOp::Add,
+            prim: Prim::I64,
+            lhs: a,
+            rhs: b,
         })
     }
 

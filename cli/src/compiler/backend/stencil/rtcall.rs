@@ -60,9 +60,7 @@ use crate::compiler::semantics::types::{self as types, Ty};
 /// Where the C argument area starts inside the scratch words `jit::frame_sigs`
 /// reserves.
 ///
-/// Past the sixteen the emitter and the open-coded list loops already use for
-/// their own temporaries (`lists.rs` §"the scratch words"), so that a runtime
-/// call in the middle of a loop does not tread on the loop's index.
+/// Past the sixteen the emitter uses for its own temporaries.
 pub const CARG_WORD: u32 = 16;
 
 /// The scratch word a fallible entry's discriminant lands in.
@@ -91,19 +89,8 @@ pub(crate) const RAW_WORD: u32 = SPARE_WORD + 1;
 ///
 /// Everything above — the C argument area, the discriminant word, the spare,
 /// and `RAW_WORD`'s own run of four — is written by sequences that can appear
-/// **anywhere**, including inside an open-coded list loop. So a loop that keeps
-/// state in scratch has to keep it past this line, and `lists.rs::LOOP_SCRATCH`
-/// is derived from it rather than written as a number beside it.
-///
-/// It was written as a number, and the number was two words short.
-/// `list.sortBy` kept its destination block's pointer at `LOOP_SCRATCH + 8`,
-/// which was `RAW_WORD + 3` — the word `walk_field` writes the address of a
-/// value whose reference walk went out of line into. Sorting a list whose
-/// element is a struct holding an enum therefore retained the first element and
-/// then stored it *through the address of itself*, leaving the result block
-/// exactly as `elemalloc` left it: zeros. Issue #41, where a storage
-/// simulation's model answered a row of empty strings and then reached a match
-/// arm for a tag that was zero because nothing had written one.
+/// **anywhere**, and it is where a frame's scratch ends
+/// (`jit::SCRATCH_WORDS`).
 pub(crate) const RESERVED_WORDS: u32 = RAW_WORD + 4;
 
 fn round8(n: u32) -> u32 {
@@ -850,8 +837,7 @@ impl Jit<'_> {
     /// The record's shape is `glue.rs`'s [`super::glue::E_FRAME`] — the
     /// closure's two words, the frame the entry thunk is to work in, and the
     /// step's contexts. It is built **past this function's own frame**, which is
-    /// where a Buri callee's frame begins and what `lists.rs` writes into
-    /// before it calls a step, and the entry thunk's frame is put past the
+    /// where a Buri callee's frame begins, and the entry thunk's frame is put past the
     /// record in turn. Nothing else is live up there while a call is in
     /// flight, and putting the record in a scratch word instead would have
     /// bounded the contexts it can carry by a constant.

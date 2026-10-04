@@ -2188,6 +2188,55 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// Every `core/list` loop over heap strings agrees, with no block left over.
+///
+/// The loops are IR that `middle::lower` builds, and a step written at the
+/// call is a direct call that follows its own ownership: one that only reads
+/// its element takes no count, one that keeps it takes one. The heap check is
+/// what says each count went back.
+#[test]
+fn the_list_loops_over_counted_elements_agree() {
+    rows_or_skip!();
+    agree(
+        "list loops over strings",
+        r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/order" import * as order;
+from "core/str" import * as str;
+
+derive Equal, Ordered, Show for Bag;
+struct Bag { words: [Str] }
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let a = host.alloc;
+  let xs = ["c".repeat(a, 2), "a".repeat(a, 3), "b".repeat(a, 1)];
+  let lens = xs.map(a, fn(s) => s.length());
+  let kept = xs.map(a, fn(s) => s);
+  let long = xs.filter(a, fn(s) => s.length() > 1);
+  let joined = xs.foldCtx(a, fn(c, acc: Str, s) => acc.concat(c, s), "");
+  let total = xs.foldResult(fn(n, s) => if (s.length() > 2) { .Err(s) } else { .Ok(n + s.length()) }, 0);
+  let found = match (xs.find(fn(s) => s.length() == 1)) { .Some(s) => s, .None => "-" };
+  let at = match (xs.findIndex(fn(s) => s.length() == 3)) { .Some(i) => i, .None => -1 };
+  let second = match (xs.get(1)) { .Some(s) => s, .None => "-" };
+  let pairs = xs.zip(a, lens);
+  let flat = [xs, long].flatten(a);
+  let sorted = xs.sortBy(a, fn(p, q) => order.str(p, q));
+  let both = Bag { words: xs } == Bag { words: kept };
+  let rank = Bag { words: long }.compare(Bag { words: xs });
+  let shown = Bag { words: sorted }.show(a);
+  let tags = xs.mapCtx(a, fn(c, s) => str.fromInt(c, s.length()));
+  let _ = io.println(host.stdout, "${lens.length()} ${kept.length()} ${long.length()} ${joined}").ignore();
+  let _ = io.println(host.stdout, "${match (total) { .Ok(n) => str.fromInt(a, n), .Err(s) => s }} ${found} ${at} ${second}").ignore();
+  let _ = io.println(host.stdout, "${pairs.length()} ${flat.length()} ${both} ${rank == .Less} ${shown}").ignore();
+  let _ = io.println(host.stdout, "${xs.any(fn(s) => s.length() > 2)} ${xs.all(fn(s) => s.length() > 0)} ${xs.count(fn(s) => s.length() < 3)} ${tags.length()}").ignore();
+  .Ok(())
+}
+"#,
+        "3 3 2 ccaaab\naaa b 1 aaa\n3 5 true true Bag { words: [\"aaa\", \"b\", \"cc\"] }\ntrue true 2 3\n",
+    );
+}
+
 /// A `let` gives back the positions its pattern **skips**, on both natives.
 ///
 /// `middle::rc` releases a value through a name — a local, or the node that
