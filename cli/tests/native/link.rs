@@ -137,7 +137,7 @@ fn emit(dir: &Path, unit: &str, source: &str) -> Emitted {
     );
     Emitted {
         name: actions::object_name(unit),
-        key: ActionKey::of(source.as_bytes()),
+        key: Some(ActionKey::of(source.as_bytes())),
         bytes: std::fs::read(&obj).unwrap(),
     }
 }
@@ -159,7 +159,7 @@ fn rows(units: &[Emitted], cached: &[bool]) -> Vec<Row> {
         .zip(cached)
         .map(|(u, c)| Row {
             unit: u.name.trim_end_matches(".o").to_string(),
-            key: u.key.as_str().to_string(),
+            key: u.key.as_ref().map(|k| k.as_str().to_string()).unwrap_or_default(),
             cached: *c,
         })
         .collect()
@@ -472,8 +472,8 @@ fn every_unit_cached_never_reaches_the_backend() {
 
     let first = ok(actions::codegen_units(&cache, &keys, false, || {
         Ok(vec![
-            Emitted { name: "lib_answer.o".into(), key: keys[0].1.clone(), bytes: b"AAAA".to_vec() },
-            Emitted { name: "main.o".into(), key: keys[1].1.clone(), bytes: b"MMMM".to_vec() },
+            Emitted { name: "lib_answer.o".into(), key: Some(keys[0].1.clone()), bytes: b"AAAA".to_vec() },
+            Emitted { name: "main.o".into(), key: Some(keys[1].1.clone()), bytes: b"MMMM".to_vec() },
         ])
     }));
     assert_eq!(first.iter().filter(|(_, cached)| *cached).count(), 0, "a first build hit");
@@ -497,8 +497,8 @@ fn editing_one_unit_re_emits_exactly_that_unit() {
     let objects = |bytes: &'static [u8]| {
         move || {
             Ok(vec![
-                Emitted { name: "lib_answer.o".into(), key: ActionKey::of(b""), bytes: bytes.to_vec() },
-                Emitted { name: "main.o".into(), key: ActionKey::of(b""), bytes: b"MMMM".to_vec() },
+                Emitted { name: "lib_answer.o".into(), key: Some(ActionKey::of(b"")), bytes: bytes.to_vec() },
+                Emitted { name: "main.o".into(), key: Some(ActionKey::of(b"")), bytes: b"MMMM".to_vec() },
             ])
         }
     };
@@ -530,7 +530,7 @@ fn force_re_emits_every_unit() {
     let emit = || {
         Ok(vec![Emitted {
             name: "main.o".into(),
-            key: ActionKey::of(b""),
+            key: Some(ActionKey::of(b"")),
             bytes: b"MMMM".to_vec(),
         }])
     };
@@ -550,7 +550,7 @@ fn a_missing_object_is_reported_against_its_unit() {
     let cache = Cache::open(&root);
     let keys = keys(&[("lib_answer", "a"), ("main", "b")]);
     let err = failed(actions::codegen_units(&cache, &keys, false, || {
-        Ok(vec![Emitted { name: "main.o".into(), key: ActionKey::of(b""), bytes: b"M".to_vec() }])
+        Ok(vec![Emitted { name: "main.o".into(), key: Some(ActionKey::of(b"")), bytes: b"M".to_vec() }])
     }));
     let text = format!("{:?}", err.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>());
     assert!(text.contains("lib_answer"), "the diagnostic does not name the unit: {text}");

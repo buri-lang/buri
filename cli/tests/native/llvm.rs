@@ -2137,7 +2137,7 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert_eq!(once.len(), twice.len());
     for (a, b) in once.iter().zip(twice.iter()) {
         assert_eq!(a.name, b.name);
-        assert_eq!(a.key.as_str(), b.key.as_str(), "the codegen key moved between two runs");
+        assert_eq!(a.key, b.key, "the codegen key moved between two runs");
         assert_eq!(a.bytes, b.bytes, "unit `{}` is not byte-identical", a.name);
     }
 }
@@ -2186,7 +2186,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         lower(source)
             .emit(Profile::Release)
             .into_iter()
-            .map(|u| u.key.as_str().to_string())
+            .map(|u| u.key.map(|k| k.as_str().to_string()))
             .collect::<Vec<_>>()
     };
     assert_eq!(keys(&one), keys(&same), "reformatting must not move a codegen key");

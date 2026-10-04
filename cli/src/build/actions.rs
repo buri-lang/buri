@@ -1666,8 +1666,8 @@ fn collect_types(func: &ir::Func, out: &mut Vec<usize>) {
 ///   return fewer: a unit that missed and has no object is the internal error
 ///   below.
 ///
-/// The `Emitted::key` a backend attaches is *replaced* by the one the build
-/// system computed. That is not a slight: the cache is the build system's, and
+/// The `Emitted::key` a backend attaches, if it attaches one, is *replaced* by
+/// the one the build system computed. That is not a slight: the cache is the build system's, and
 /// an entry is only useful if its key can be computed **before** the work that
 /// would fill it — which a key the emitter produces cannot be, because
 /// producing it is the work. The backend's own key stays what its doc comment
@@ -1689,7 +1689,7 @@ where
         let mut out = Vec::with_capacity(keys.len());
         for ((name, key), bytes) in keys.iter().zip(hits) {
             let bytes = bytes.unwrap_or_default();
-            out.push((Emitted { name: object_name(name), key: key.clone(), bytes }, true));
+            out.push((Emitted { name: object_name(name), key: Some(key.clone()), bytes }, true));
         }
         return Ok(out);
     }
@@ -1706,7 +1706,7 @@ where
     let mut out = Vec::with_capacity(keys.len());
     for ((name, key), hit) in keys.iter().zip(hits) {
         if let Some(bytes) = hit {
-            out.push((Emitted { name: object_name(name), key: key.clone(), bytes }, true));
+            out.push((Emitted { name: object_name(name), key: Some(key.clone()), bytes }, true));
             continue;
         }
         let wanted = object_name(name);
@@ -1720,7 +1720,7 @@ where
         };
         cache.put(key, &unit.bytes);
         out.push((
-            Emitted { name: wanted, key: key.clone(), bytes: unit.bytes.clone() },
+            Emitted { name: wanted, key: Some(key.clone()), bytes: unit.bytes.clone() },
             false,
         ));
     }
