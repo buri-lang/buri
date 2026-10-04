@@ -88,6 +88,19 @@ pub fn load_all(
     })
 }
 
+impl Loading {
+    /// The bytes of repository source this load holds, which is what checking
+    /// it grows with. The standard library is left out: every load has it.
+    pub fn source_bytes(&self, map: &SourceMap) -> u64 {
+        self.loaded
+            .modules
+            .iter()
+            .filter(|m| m.pkg.is_some())
+            .map(|m| u64::try_from(map.get(m.file).text.len()).unwrap_or(u64::MAX))
+            .fold(0, u64::saturating_add)
+    }
+}
+
 /// The second half of [`analyze_all`]: checks what [`load_all`] loaded.
 ///
 /// `map` only names files, to put the diagnostics in order. A copy taken

@@ -1,0 +1,7 @@
+binary {
+    dependencies: ["//lib/loud"]
+
+    outputs: [
+        { platform: "node" },
+    ]
+}

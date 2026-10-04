@@ -1,0 +1,27 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a tool built from another rule's generated code runs once that code is generated, and an edit to that code's input rebuilds the tool and moves what it generates"
+
+# `//lib/loud`'s tool imports `//lib/greeting`, whose module is generated. The
+# generators run side by side, so this is the order that has to hold anyway:
+# `//lib/greeting` generates before `//tool/shout` is built.
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "hello.txt"
+}
+
+# The tool's own sources did not move, but code it is built from did: the tool
+# is built again, and what it generates says so.
+edit {
+  file: "lib/greeting/hello.txt"
+  replace: "hello"
+  with: "goodbye"
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "goodbye.txt"
+}
