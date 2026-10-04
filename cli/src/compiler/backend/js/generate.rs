@@ -19,7 +19,7 @@
 use crate::compiler::backend::Profile;
 use crate::compiler::backend::js::crossing::HOSTED_PROGRAM;
 use crate::compiler::backend::js::park::{self, Parking};
-use crate::compiler::backend::js::javascript::{self, BinOp, Expr, Stmt, UnOp, VarKind};
+use crate::compiler::backend::js::javascript::{self, BinOp, Expr, RuntimeDecl, Stmt, UnOp, VarKind};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp};
 use crate::compiler::semantics::types::{LocalId, Prim, Tables, Ty, TyDef};
 use crate::compiler::middle::monomorphize::{self, Desc, FuncKind, Program, ProgramRoots};
@@ -144,19 +144,27 @@ fn runtime_names() -> &'static HashSet<String> {
     NAMES.get_or_init(scan_runtime_names)
 }
 
-/// The runtime's top-level declarations, as written or stripped. Split and
-/// stripped once per process.
-fn runtime_declarations(pretty: bool) -> &'static [(String, String)] {
-    static WRITTEN: OnceLock<Vec<(String, String)>> = OnceLock::new();
-    static STRIPPED: OnceLock<Vec<(String, String)>> = OnceLock::new();
-    let written = WRITTEN.get_or_init(|| {
-        javascript::split_declarations(crate::compiler::backend::js::runtime_source())
-    });
+/// The runtime's top-level declarations, as written or stripped. Split,
+/// stripped and scanned for identifiers once per process.
+fn runtime_declarations(pretty: bool) -> &'static [RuntimeDecl] {
+    static SPLIT: OnceLock<Vec<(String, String)>> = OnceLock::new();
+    static WRITTEN: OnceLock<Vec<RuntimeDecl>> = OnceLock::new();
+    static STRIPPED: OnceLock<Vec<RuntimeDecl>> = OnceLock::new();
+    let split = || {
+        SPLIT.get_or_init(|| {
+            javascript::split_declarations(crate::compiler::backend::js::runtime_source())
+        })
+    };
     if pretty {
-        return written;
+        return WRITTEN.get_or_init(|| {
+            split().iter().map(|(name, src)| RuntimeDecl::new(name.clone(), src.clone())).collect()
+        });
     }
     STRIPPED.get_or_init(|| {
-        written.iter().map(|(name, src)| (name.clone(), javascript::strip(src))).collect()
+        split()
+            .iter()
+            .map(|(name, src)| RuntimeDecl::new(name.clone(), javascript::strip(src)))
+            .collect()
     })
 }
 
@@ -348,8 +356,8 @@ pub fn generate(
     // drop what a program does not reach. It is hand-written JavaScript, so it
     // is compacted by the tokenizer in `javascript::strip` rather than by the AST
     // printer.
-    for (name, src) in runtime_declarations(profile.pretty()) {
-        stmts.push(Stmt::RawDecl { name: name.clone(), src: src.clone() });
+    for decl in runtime_declarations(profile.pretty()) {
+        stmts.push(Stmt::RawDecl(decl));
     }
     // Where the shared constants go, once the bodies below have said which
     // ones they need.
@@ -649,9 +657,9 @@ fn split_chunks(
     let declared: HashSet<String> = kept
         .iter()
         .filter_map(|s| match s {
-            Stmt::Func { name, .. } | Stmt::Var { name, .. } | Stmt::RawDecl { name, .. } => {
-                Some(name.clone())
-            }
+            Stmt::Func { name, .. }
+            | Stmt::Var { name, .. }
+            | Stmt::RawDecl(RuntimeDecl { name, .. }) => Some(name.clone()),
             _ => None,
         })
         .collect();
@@ -666,14 +674,17 @@ fn split_chunks(
                 _ => None,
             })
             .collect();
-        let mut used = HashSet::default();
+        let mut used: HashSet<&str> = HashSet::default();
         for s in &body {
             javascript::collect_idents_in(s, &mut used);
         }
         // Sorted, because a `HashSet` is not an order and two builds of one
         // tree write identical bytes.
-        let mut borrowed: Vec<String> =
-            used.into_iter().filter(|u| !own.contains(u) && declared.contains(u)).collect();
+        let mut borrowed: Vec<String> = used
+            .into_iter()
+            .filter(|u| !own.contains(*u) && declared.contains(*u))
+            .map(str::to_owned)
+            .collect();
         borrowed.sort();
 
         let entry = program
