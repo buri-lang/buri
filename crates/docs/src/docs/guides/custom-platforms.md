@@ -92,7 +92,7 @@ Its `platform.buri` declares the host type, one field per thing a worker may
 do, and the entry without a body. `HostKv` is the platform's own production
 struct, and its methods have no body either:
 
-```buri ignore why="a platform's surface, compiled only with its rule"
+```buri repo=cli/tests/repositories/custom-platforms/cloudflare_kv/repo file=platform/cloudflare_worker/platform.buri
 from "platform/effect" import { Request, Response };
 from "platform/host" import { HostAllocator, HostClock, HostNetwork, HostStdout };
 from "//platform/effect/kv" import { Kv };

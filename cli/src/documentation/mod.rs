@@ -1347,12 +1347,11 @@ fn doctest_command(paths: &[&str], presentation: &Presentation) -> i32 {
             continue;
         }
         let text = if source { crate::documentation::examples::doc_comments(&raw) } else { raw };
-        let found = crate::documentation::examples::extract(&rel, &text)
-            .blocks
-            .iter()
-            .filter(|b| !b.claim.is_ignored())
-            .count();
-        if source && found == 0 {
+        let extracted = crate::documentation::examples::extract(&rel, &text);
+        let found = extracted.blocks.len();
+        // A fence that does not extract is a failure to report, not a file
+        // with nothing in it.
+        if source && found == 0 && extracted.failures.is_empty() {
             continue;
         }
         checked += 1;

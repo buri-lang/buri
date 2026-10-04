@@ -22,7 +22,7 @@ library {
 
 What that *costs* you is declared once, in `REPO.buri`:
 
-```textproto ignore why="a fragment of a build file, not a whole one"
+```textproto schema=repo
 tag {
     name: "server"
     doc: "runs on infrastructure we operate"
@@ -132,7 +132,7 @@ someone adds it.
 The opposite polarity: code carrying the tag may not be built, or tested, for
 these platforms, and every other platform stays open.
 
-```textproto ignore why="a fragment of a build file, not a whole one"
+```textproto schema=repo
 tag {
     name: "legacy"
     doc: "wraps the old storage driver, which has no JavaScript port"

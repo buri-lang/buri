@@ -11,7 +11,7 @@ reproduction: none
 { "$schema": "orders.schema.json", "tables": [] }
 ```
 
-```textproto ignore why="a data file, not a build file"
+```textproto fail code=schema-mismatch repo=cli/tests/docs/repositories/textproto-contract file=lib/routes/routes.txtpb
 # proto-file: other.proto
 # proto-message: Route
 ```

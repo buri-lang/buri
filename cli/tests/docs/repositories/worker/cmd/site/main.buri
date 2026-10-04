@@ -1,0 +1,7 @@
+from "core/net/http" import * as http;
+from "platform/effect" import { Request, Response };
+from "//platform/cloudflare_worker" import { CloudflareHost };
+
+export fn fetch(host: CloudflareHost, request: Request): Response {
+    http.status(204)
+}

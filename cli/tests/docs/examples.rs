@@ -12,11 +12,9 @@
 //! `topics::TOPICS`, so a new topic is subject to all of this the moment it
 //! is registered.
 //!
-//! When a block legitimately cannot be compiled, tag it `ignore why="..."`.
-//! The reason is required — a fence without one does not extract — and
-//! `untested_examples_say_why_and_do_not_multiply` puts a ceiling on how many
-//! there may be, so an untested example is a reviewable line in a diff rather
-//! than a silence.
+//! There is no way to leave a block out. One that needs more than a single
+//! file to mean anything is a `file=` of a repository, and that repository is
+//! built (`documentation::examples`).
 use buri::documentation::{examples, layout, topics};
 use crate::shard;
 use std::path::{Path, PathBuf};
@@ -182,11 +180,7 @@ fn readme_examples() {
     let text = document(&root, "README.md", "");
     // A README whose every fence stopped extracting would pass the assertion
     // below over nothing at all.
-    let compiled = examples::extract("README.md", &text)
-        .blocks
-        .iter()
-        .filter(|b| !b.claim.is_ignored())
-        .count();
+    let compiled = examples::extract("README.md", &text).blocks.len();
     assert!(compiled > 0, "no example extracts from README.md; this test has gone vacuous");
     let failures = examples::run_file_at(&root, "README.md", &text);
     assert!(failures.is_empty(), "\n{}", examples::report(&failures));
@@ -206,81 +200,19 @@ fn cli_reference_examples() {
     assert!(failures.is_empty(), "\n{}", examples::report(&failures));
 }
 
-/// How many examples may go untested. It may be lowered and not raised.
-///
-/// This used to be a checked-in list of every ignored fence by file and line,
-/// which was a readout of what the suite had just found rather than anything
-/// to compare against — it said nothing the documents do not already say, and
-/// it went stale on every edit. What it was really buying was the ratchet, and
-/// a ratchet is one number.
-///
-/// The other half of what it bought is already a property of the documents:
-/// `ignore` without `why=` is an extraction failure
-/// (`documentation::examples::parse_block`), so the reason for every one of
-/// these is written where a reader of the diff can weigh it, in the `.md`.
-///
-/// 7 since the attenuation example in `language/effects.md` was compiled.
-const MAX_IGNORED_EXAMPLES: usize = 7;
-
-/// An untested example is a claim nobody checks, so there is a ceiling on how
-/// many of them there may be and each one says why in the document itself.
-///
-/// Converting one is a smaller number here. Adding one is a bigger number
-/// here, in the same diff as the fence — which is the point: it should be
-/// visible, not forbidden.
-#[test]
-fn untested_examples_say_why_and_do_not_multiply() {
-    let mut ignored = Vec::new();
-    let mut silent = Vec::new();
-    for t in topics::TOPICS {
-        for block in examples::extract(&topic_path(t), t.text).blocks {
-            let examples::Claim::Ignore { why } = &block.claim else {
-                continue;
-            };
-            let at = format!("{}:{}", block.origin.file, block.origin.line);
-            // Belt and braces: `Claim::Ignore` is only ever built from a
-            // non-empty reason, and it is cheap to say so here too rather than
-            // to trust that the suite above is the only reader of these fences.
-            if why.trim().is_empty() {
-                silent.push(at);
-            } else {
-                ignored.push(at);
-            }
-        }
-    }
-    assert!(
-        silent.is_empty(),
-        "an `ignore` block must say why, and these do not:\n  {}",
-        silent.join("\n  ")
-    );
-    assert!(
-        ignored.len() <= MAX_IGNORED_EXAMPLES,
-        "{} examples are untested, and the ceiling is {MAX_IGNORED_EXAMPLES}.\n\
-         Compile the new one, or raise `MAX_IGNORED_EXAMPLES` in the same diff \
-         as the fence so that the addition is what gets reviewed:\n  {}",
-        ignored.len(),
-        ignored.join("\n  ")
-    );
-    eprintln!("{} untested example(s), ceiling {MAX_IGNORED_EXAMPLES}", ignored.len());
-}
-
 /// A census, so that a harness regression shows up as a changed count rather
 /// than as every suite passing vacuously over zero blocks.
 #[test]
-fn most_examples_are_actually_compiled() {
-    let mut compiled = 0;
-    let mut ignored = 0;
+fn the_examples_are_actually_extracted() {
+    let (mut compiled, mut files) = (0, 0);
     for t in topics::TOPICS {
-        for block in examples::extract(&topic_path(t), t.text).blocks {
-            if block.claim.is_ignored() {
-                ignored += 1;
-            } else {
-                compiled += 1;
-            }
-        }
+        let found = examples::extract(&topic_path(t), t.text);
+        compiled += found.blocks.len();
+        files += found.files.len();
     }
-    eprintln!("{compiled} compiled, {ignored} ignored");
+    eprintln!("{compiled} Buri example(s), {files} of them or of textproto files of a repository");
     assert!(compiled > 40, "only {compiled} examples are compiled; is the harness running?");
+    assert!(files > 3, "only {files} fences are files of a repository; is the harness running?");
 }
 
 /// Every example written in a `///` or `//!` comment in the standard library.
@@ -345,12 +277,11 @@ fn documented_modules(root: &Path) -> Vec<(String, String, usize)> {
             continue;
         };
         let text = examples::doc_comments(&source_text(root, &rel, compiled_in));
-        let found = examples::extract(&rel, &text)
-            .blocks
-            .iter()
-            .filter(|b| !b.claim.is_ignored())
-            .count();
-        if found == 0 {
+        let extracted = examples::extract(&rel, &text);
+        let found = extracted.blocks.len();
+        // A fence that does not extract is a failure to report, not a module
+        // with nothing in it.
+        if found == 0 && extracted.failures.is_empty() {
             continue;
         }
         out.push((rel, text, found));
@@ -366,9 +297,9 @@ fn documented_module_count() -> usize {
 ///
 /// A page about a syntax error shows the syntax error, and the formatter
 /// refuses text it could not read whole — so a silence is expected and a
-/// *growing* number of them is not. The ceiling is one number for the same
-/// reason `MAX_IGNORED_EXAMPLES` is: it may be lowered and not raised, and
-/// raising it is a line in the same diff as the fence that needed it.
+/// *growing* number of them is not. The ceiling is one number: it may be
+/// lowered and not raised, and raising it is a line in the same diff as the
+/// fence that needed it.
 const MAX_UNCHECKED_LAYOUTS: usize = 90;
 
 /// **Every example is laid out the way `buri format` lays out source**, and the

@@ -71,10 +71,12 @@ library, `//cmd/server` is the binary, and diagnostics print exactly that. One
 thing does need a filename: the artifact a binary produces. That defaults to the
 package's directory name, and you override it on the output that wants it:
 
-```textproto ignore why="a fragment of a build file, not a whole one"
-outputs: [
-    { platform: "native", variant: "linux-x86_64", artifact_name: "report-cli" },
-]
+```textproto schema=build
+binary {
+    outputs: [
+        { platform: "native", variant: "linux-x86_64", artifact_name: "report-cli" },
+    ]
+}
 ```
 
 Patterns, accepted by the CLI and never in a build file:

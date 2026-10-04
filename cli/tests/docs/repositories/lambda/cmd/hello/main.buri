@@ -1,0 +1,12 @@
+from "platform/effect" import { Allocator, Environment, Network };
+from "//platform/lambda" import * as lambda;
+from "//platform/lambda" import { LambdaHost };
+
+export fn bootstrap(host: LambdaHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Network: host.net,
+        Environment: host.env,
+    };
+    lambda.next(ctx).map(fn(_event) => ())
+}

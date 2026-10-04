@@ -1,7 +1,7 @@
 //! core/platforms/testing/state — a value that outlives one call, for an
 //! effect's test implementation.
 //!
-//! ```buri ignore why="only a module under platform/effect/**/testing may import this, and an example here is not one"
+//! ```buri repo=cli/tests/repositories/custom-platforms/cloudflare_kv/repo package=//platform/effect/kv role=testing
 //! from "core/map" import * as map;
 //! from "core/map" import { Map };
 //! from "core/platforms/testing/state" import * as state;

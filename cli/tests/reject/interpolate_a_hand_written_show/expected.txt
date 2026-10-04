@@ -15,5 +15,7 @@ error: `Suit` cannot be interpolated [not-interpolatable]
      render from the type's shape. A hand-written impl Show needs a context the
      hole can't reach, so call it yourself:
 
-       str.format(ctx, "the suit is ${suit.show(ctx)}")
+       fn describe<C: Allocator>(ctx: C, suit: Suit): Str {
+           str.format(ctx, "the suit is ${suit.show(ctx)}")
+       }
 
