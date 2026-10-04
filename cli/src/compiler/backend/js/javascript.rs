@@ -22,7 +22,7 @@ use crate::hash::{Map as HashMap, Set as HashSet};
 // The tree
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum VarKind {
     Const,
     Let,
@@ -52,10 +52,45 @@ pub enum Stmt {
     /// elimination can drop it. This is how the hand-written runtime is
     /// tree-shaken: a program that never allocates a string never carries
     /// `$str_split`.
-    RawDecl { name: String, src: String },
+    RawDecl(&'static RuntimeDecl),
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// One top-level declaration of the hand-written runtime.
+///
+/// Built once per process and shared by every build. The identifiers its
+/// source mentions are scanned here, once, rather than by each minifier pass
+/// that needs them: the runtime is 340 KB of text, and four passes per build
+/// used to rescan all of it.
+#[derive(Debug)]
+pub struct RuntimeDecl {
+    pub name: String,
+    pub src: String,
+    /// Each distinct identifier-shaped run in `src`, as a byte range, in the
+    /// order it first appears.
+    idents: Box<[(u32, u32)]>,
+}
+
+impl RuntimeDecl {
+    pub fn new(name: String, src: String) -> RuntimeDecl {
+        let mut seen: HashSet<&str> = HashSet::default();
+        let mut idents = Vec::new();
+        for (start, end) in raw_ident_ranges(&src) {
+            let Some(ident) = src.get(start..end) else { continue };
+            if seen.insert(ident) {
+                // The runtime is a few hundred kilobytes, far inside `u32`.
+                idents.push((start as u32, end as u32));
+            }
+        }
+        RuntimeDecl { name, src, idents: idents.into_boxed_slice() }
+    }
+
+    /// Every distinct identifier the source mentions.
+    fn idents(&self) -> impl Iterator<Item = &str> {
+        self.idents.iter().filter_map(|&(start, end)| self.src.get(start as usize..end as usize))
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum BinOp {
     Add,
     Sub,
@@ -122,7 +157,7 @@ impl BinOp {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum UnOp {
     Neg,
     Not,
@@ -199,15 +234,15 @@ impl Expr {
     /// Simplifies as it builds, so the backend gets the peepholes without
     /// asking and the folder has one place to call. See `simplify_bin`.
     pub fn bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
-        simplify_bin(op, lhs, rhs)
+        simplify_bin(op, Box::new(lhs), Box::new(rhs))
     }
 
     pub fn un(op: UnOp, operand: Expr) -> Expr {
-        simplify_un(op, operand)
+        simplify_un(op, Box::new(operand))
     }
 
     pub fn cond(test: Expr, cons: Expr, alt: Expr) -> Expr {
-        simplify_cond(test, cons, alt)
+        simplify_cond(Box::new(test), Box::new(cons), Box::new(alt))
     }
 
     pub fn ident(name: impl Into<String>) -> Expr {
@@ -355,7 +390,7 @@ impl Expr {
     /// Rebuilds this node with each direct child passed through `r`, using
     /// the raw constructors. Children are visited in evaluation order.
     fn map_children<R: Rewrite + ?Sized>(self, r: &mut R) -> Expr {
-        let mut go = |x: Box<Expr>| Box::new(r.expr(*x));
+        let mut go = |x: Box<Expr>| rewrite_boxed(x, |e| r.expr(e));
         match self {
             Expr::Array(xs) => Expr::Array(xs.into_iter().map(|x| r.expr(x)).collect()),
             Expr::Seq(xs) => Expr::Seq(xs.into_iter().map(|x| r.expr(x)).collect()),
@@ -366,11 +401,11 @@ impl Expr {
                 Expr::Index { obj, index: go(index) }
             }
             Expr::Call { callee, args } => {
-                let callee = Box::new(r.expr(*callee));
+                let callee = rewrite_boxed(callee, |e| r.expr(e));
                 Expr::Call { callee, args: args.into_iter().map(|a| r.expr(a)).collect() }
             }
             Expr::New { callee, args } => {
-                let callee = Box::new(r.expr(*callee));
+                let callee = rewrite_boxed(callee, |e| r.expr(e));
                 Expr::New { callee, args: args.into_iter().map(|a| r.expr(a)).collect() }
             }
             Expr::Unary { op, operand } => Expr::Unary { op, operand: go(operand) },
@@ -398,7 +433,7 @@ impl Expr {
     }
 
     /// Passes each direct child to `v`, in evaluation order.
-    fn visit_children<V: Visit + ?Sized>(&self, v: &mut V) {
+    fn visit_children<'a, V: Visit<'a> + ?Sized>(&'a self, v: &mut V) {
         match self {
             Expr::Array(xs) | Expr::Seq(xs) => xs.iter().for_each(|x| v.expr(x)),
             Expr::Object(fs) => fs.iter().for_each(|(_, x)| v.expr(x)),
@@ -467,7 +502,7 @@ impl Stmt {
     }
 
     /// Passes each direct child to `v`, in evaluation order.
-    fn visit_children<V: Visit + ?Sized>(&self, v: &mut V) {
+    fn visit_children<'a, V: Visit<'a> + ?Sized>(&'a self, v: &mut V) {
         match self {
             Stmt::Var { init: e, .. } | Stmt::Return(e) => {
                 if let Some(e) = e {
@@ -498,6 +533,15 @@ impl Stmt {
     }
 }
 
+/// `f` applied to the expression in a box, keeping the box. A rewrite moves
+/// every node it passes through, and moving one out of its box and into a new
+/// one was an allocation and a free per node per pass.
+fn rewrite_boxed(mut b: Box<Expr>, f: impl FnOnce(Expr) -> Expr) -> Box<Expr> {
+    let e = std::mem::replace(&mut *b, Expr::Null);
+    *b = f(e);
+    b
+}
+
 /// A rewrite of the tree. Each method's default rebuilds the node from its
 /// rewritten children, so a pass overrides only the nodes it acts on.
 trait Rewrite {
@@ -514,22 +558,23 @@ trait Rewrite {
 
 /// A read-only walk of the tree. Each method's default visits the node's
 /// children, so a pass overrides only the nodes it looks at.
-trait Visit {
-    fn expr(&mut self, e: &Expr) {
+trait Visit<'a> {
+    fn expr(&mut self, e: &'a Expr) {
         e.visit_children(self);
     }
-    fn stmt(&mut self, s: &Stmt) {
+    fn stmt(&mut self, s: &'a Stmt) {
         s.visit_children(self);
     }
 }
 
 /// Reapplies the simplifying constructors to a node whose children were just
-/// rebuilt, for the passes that fold as they go.
+/// rebuilt, for the passes that fold as they go. The node's own boxes are
+/// handed back to it whenever nothing simplifies, which is nearly always.
 fn simplified(e: Expr) -> Expr {
     match e {
-        Expr::Unary { op, operand } => Expr::un(op, *operand),
-        Expr::Binary { op, lhs, rhs } => Expr::bin(op, *lhs, *rhs),
-        Expr::Cond { test, cons, alt } => Expr::cond(*test, *cons, *alt),
+        Expr::Unary { op, operand } => simplify_un(op, operand),
+        Expr::Binary { op, lhs, rhs } => simplify_bin(op, lhs, rhs),
+        Expr::Cond { test, cons, alt } => simplify_cond(test, cons, alt),
         Expr::Await(x) => Expr::awaited(*x),
         other => other,
     }
@@ -559,8 +604,8 @@ fn concise(e: Expr) -> Expr {
 // JavaScript or guarded by `is_boolean` / `is_pure`; nothing here relies on
 // what the Buri type checker knows, because this layer cannot see it.
 
-fn simplify_un(op: UnOp, operand: Expr) -> Expr {
-    match (op, &operand) {
+fn simplify_un(op: UnOp, operand: Box<Expr>) -> Expr {
+    match (op, &*operand) {
         (UnOp::Not, Expr::Bool(b)) => return Expr::Bool(!b),
         (UnOp::Neg, Expr::Num(n)) => return Expr::Num(-n),
         // Folded rather than printed: `-` in front of `-5n` is `--5n`, which
@@ -589,12 +634,12 @@ fn simplify_un(op: UnOp, operand: Expr) -> Expr {
         }
         _ => {}
     }
-    Expr::Unary { op, operand: Box::new(operand) }
+    Expr::Unary { op, operand }
 }
 
-fn simplify_bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
+fn simplify_bin(op: BinOp, lhs: Box<Expr>, rhs: Box<Expr>) -> Expr {
     // Both operands known.
-    if let (Expr::Num(a), Expr::Num(b)) = (&lhs, &rhs) {
+    if let (Expr::Num(a), Expr::Num(b)) = (&*lhs, &*rhs) {
         let (a, b) = (*a, *b);
         match op {
             BinOp::Add => return Expr::Num(a + b),
@@ -618,7 +663,7 @@ fn simplify_bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
     // rounded — so a fold that overflows the `i128` doing it is declined
     // instead of being wrong. `U128`'s upper half never parses, which is the
     // same refusal by another route.
-    if let (Expr::BigInt(a), Expr::BigInt(b)) = (&lhs, &rhs) {
+    if let (Expr::BigInt(a), Expr::BigInt(b)) = (&*lhs, &*rhs) {
         if let (Ok(a), Ok(b)) = (a.parse::<i128>(), b.parse::<i128>()) {
             let folded = match op {
                 BinOp::Add => a.checked_add(b),
@@ -640,7 +685,7 @@ fn simplify_bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
             }
         }
     }
-    if let (Expr::Str(a), Expr::Str(b)) = (&lhs, &rhs) {
+    if let (Expr::Str(a), Expr::Str(b)) = (&*lhs, &*rhs) {
         match op {
             BinOp::Add => return Expr::Str(format!("{a}{b}")),
             BinOp::StrictEq => return Expr::Bool(a == b),
@@ -648,7 +693,7 @@ fn simplify_bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
             _ => {}
         }
     }
-    if let (Expr::Bool(a), Expr::Bool(b)) = (&lhs, &rhs) {
+    if let (Expr::Bool(a), Expr::Bool(b)) = (&*lhs, &*rhs) {
         match op {
             BinOp::StrictEq => return Expr::Bool(a == b),
             BinOp::StrictNe => return Expr::Bool(a != b),
@@ -661,29 +706,29 @@ fn simplify_bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
         // negation. This is what a pattern test on `true`/`false` produces.
         BinOp::StrictEq | BinOp::StrictNe => {
             let eq = op == BinOp::StrictEq;
-            if let Expr::Bool(b) = rhs {
+            if let Expr::Bool(b) = *rhs {
                 if lhs.is_boolean() {
-                    return if b == eq { lhs } else { Expr::un(UnOp::Not, lhs) };
+                    return if b == eq { *lhs } else { simplify_un(UnOp::Not, lhs) };
                 }
             }
-            if let Expr::Bool(b) = lhs {
+            if let Expr::Bool(b) = *lhs {
                 if rhs.is_boolean() {
-                    return if b == eq { rhs } else { Expr::un(UnOp::Not, rhs) };
+                    return if b == eq { *rhs } else { simplify_un(UnOp::Not, rhs) };
                 }
             }
         }
         BinOp::And => {
-            match (&lhs, &rhs) {
-                (Expr::Bool(true), _) => return rhs,
+            match (&*lhs, &*rhs) {
+                (Expr::Bool(true), _) => return *rhs,
                 (Expr::Bool(false), _) => return Expr::Bool(false),
                 // `e && true` is `e` only for a boolean `e`: `1 && true` is
                 // `true`, not `1`.
-                (_, Expr::Bool(true)) if lhs.is_boolean() => return lhs,
+                (_, Expr::Bool(true)) if lhs.is_boolean() => return *lhs,
                 (_, Expr::Bool(false)) if lhs.is_pure() => return Expr::Bool(false),
                 _ => {}
             }
             if lhs.same_as(&rhs) && lhs.is_pure() {
-                return lhs;
+                return *lhs;
             }
             // A tag test cannot hold two different values at once. This is what
             // an or-pattern's alternatives collapse to once each has been
@@ -693,21 +738,21 @@ fn simplify_bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
             }
         }
         BinOp::Or => {
-            match (&lhs, &rhs) {
+            match (&*lhs, &*rhs) {
                 (Expr::Bool(true), _) => return Expr::Bool(true),
-                (Expr::Bool(false), _) => return rhs,
-                (_, Expr::Bool(false)) if lhs.is_boolean() => return lhs,
+                (Expr::Bool(false), _) => return *rhs,
+                (_, Expr::Bool(false)) if lhs.is_boolean() => return *lhs,
                 (_, Expr::Bool(true)) if lhs.is_pure() => return Expr::Bool(true),
                 _ => {}
             }
             if lhs.same_as(&rhs) && lhs.is_pure() {
-                return lhs;
+                return *lhs;
             }
         }
         _ => {}
     }
 
-    Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
+    Expr::Binary { op, lhs, rhs }
 }
 
 /// For `x === a` and `x === b` over the same pure `x` and two distinct
@@ -733,69 +778,72 @@ fn both_equalities_agree(lhs: &Expr, rhs: &Expr, conjunction: bool) -> Option<bo
     }
 }
 
-fn simplify_cond(test: Expr, cons: Expr, alt: Expr) -> Expr {
-    match &test {
-        Expr::Bool(true) => return cons,
-        Expr::Bool(false) => return alt,
+fn simplify_cond(test: Box<Expr>, cons: Box<Expr>, alt: Box<Expr>) -> Expr {
+    match &*test {
+        Expr::Bool(true) => return *cons,
+        Expr::Bool(false) => return *alt,
         _ => {}
     }
     // `c ? true : false` is `c`, and `c ? false : true` is `!c`.
-    if let (Expr::Bool(a), Expr::Bool(b)) = (&cons, &alt) {
+    if let (Expr::Bool(a), Expr::Bool(b)) = (&*cons, &*alt) {
         if *a && !*b && test.is_boolean() {
-            return test;
+            return *test;
         }
         if !*a && *b {
-            return Expr::un(UnOp::Not, test);
+            return simplify_un(UnOp::Not, test);
         }
     }
     // Both branches the same value, and nothing observable in choosing.
     if cons.same_as(&alt) && test.is_pure() {
-        return cons;
+        return *cons;
     }
     // A branch that yields a constant boolean is a short-circuit. Sound only
     // for a boolean test: `5 ? true : x` is `true`, where `5 || x` is `5`.
     if test.is_boolean() {
-        match (&cons, &alt) {
-            (Expr::Bool(true), _) => return Expr::bin(BinOp::Or, test, alt),
+        match (&*cons, &*alt) {
+            (Expr::Bool(true), _) => return simplify_bin(BinOp::Or, test, alt),
             (Expr::Bool(false), _) => {
-                return Expr::bin(BinOp::And, Expr::un(UnOp::Not, test), alt)
+                return simplify_bin(BinOp::And, Box::new(simplify_un(UnOp::Not, test)), alt)
             }
             (_, Expr::Bool(true)) => {
-                return Expr::bin(BinOp::Or, Expr::un(UnOp::Not, test), cons)
+                return simplify_bin(BinOp::Or, Box::new(simplify_un(UnOp::Not, test)), cons)
             }
-            (_, Expr::Bool(false)) => return Expr::bin(BinOp::And, test, cons),
+            (_, Expr::Bool(false)) => return simplify_bin(BinOp::And, test, cons),
             _ => {}
         }
     }
     // `!c ? a : b` is `c ? b : a`, which is one character shorter and reads
     // in the order the source did.
-    if let Expr::Unary { op: UnOp::Not, operand } = &test {
+    if let Expr::Unary { op: UnOp::Not, operand } = &*test {
         if operand.is_boolean() {
-            return simplify_cond((**operand).clone(), alt, cons);
+            let Expr::Unary { operand, .. } = *test else {
+                crate::ice!("the test was matched as a negation a line above")
+            };
+            return simplify_cond(operand, alt, cons);
         }
     }
     // A ternary whose branches share an arm folds into a single test.
     // `c ? (p ? x : y) : y`  ->  `c && p ? x : y`
-    if let Expr::Cond { test: p, cons: x, alt: y } = &cons {
+    if let Expr::Cond { test: p, cons: x, alt: y } = &*cons {
         if y.same_as(&alt) && p.is_pure() {
             return simplify_cond(
-                Expr::bin(BinOp::And, test, (**p).clone()),
-                (**x).clone(),
+                Box::new(Expr::bin(BinOp::And, *test, (**p).clone())),
+                x.clone(),
                 alt,
             );
         }
     }
     // `c ? x : (p ? x : y)`  ->  `c || p ? x : y`
-    if let Expr::Cond { test: p, cons: x, alt: y } = &alt {
+    if let Expr::Cond { test: p, cons: x, alt: y } = &*alt {
         if x.same_as(&cons) && p.is_pure() {
             return simplify_cond(
-                Expr::bin(BinOp::Or, test, (**p).clone()),
+                Box::new(Expr::bin(BinOp::Or, *test, (**p).clone())),
                 cons,
-                (**y).clone(),
+                y.clone(),
             );
         }
     }
-    Expr::Cond { test: Box::new(test), cons: Box::new(cons), alt: Box::new(alt) }
+    Expr::Cond { test, cons, alt }
 }
 
 // ---------------------------------------------------------------------------
@@ -981,9 +1029,9 @@ impl Printer {
                 self.nl();
                 self.out.push_str(s);
             }
-            Stmt::RawDecl { src, .. } => {
+            Stmt::RawDecl(decl) => {
                 self.nl();
-                self.out.push_str(src);
+                self.out.push_str(&decl.src);
             }
         }
     }
@@ -1253,14 +1301,28 @@ pub fn minify(stmts: Vec<Stmt>, roots: &[String], mangle: bool) -> Vec<Stmt> {
         // the folder see through the declaration; whichever declarations
         // nothing needs afterwards are dropped below.
         let table = constant_table(&stmts);
-        stmts = fold_block(stmts);
         // Folding turns branches into expressions, which leaves temporaries
         // nothing reads; cleanup removes them, which exposes more folding —
         // and cleanup is also what turns `const x = $k0; x[0]` into `$k0[0]`,
         // so reading through has to happen inside that loop rather than
         // before it. The three run together, per body, until none of them has
         // anything left to do.
-        stmts = clean_locals(stmts, &table);
+        //
+        // Each top-level statement is its own job: nothing here looks across
+        // two of them, so they run on the crate's workers and come back in
+        // order.
+        let folded = each_statement(stmts, |s| match Fold.stmt(s) {
+            Stmt::Func { name, params, body, is_async } => {
+                clean_function(name, params, body, is_async, &table)
+            }
+            other => other,
+        });
+        stmts = Vec::with_capacity(folded.len());
+        for s in folded {
+            if Fold::push(&mut stmts, s) {
+                break;
+            }
+        }
         // Last, so that two instances which only became the same through
         // folding and inlining are still seen as the same.
         stmts = merge_identical(stmts, roots);
@@ -1270,6 +1332,46 @@ pub fn minify(stmts: Vec<Stmt>, roots: &[String], mangle: bool) -> Vec<Stmt> {
         stmts = mangle_program(stmts, roots);
     }
     stmts
+}
+
+/// Whether a program with this many functions is worth the crate's workers.
+///
+/// Starting them costs a few hundred microseconds a call. The hundreds of
+/// runtime declarations a program carries are no work at all, so it is the
+/// functions that are counted, and a program the size of the prelude floor
+/// stays on one thread.
+pub(crate) fn worth_workers(functions: usize) -> bool {
+    functions >= 64
+}
+
+/// `f` over each statement, on the crate's workers, with the results in the
+/// order the statements came in.
+fn each_statement<F>(stmts: Vec<Stmt>, f: F) -> Vec<Stmt>
+where
+    F: Fn(Stmt) -> Stmt + Sync,
+{
+    each_statement_with(stmts, || (), |(), s| f(s))
+}
+
+/// The same, where each worker keeps a scratch table of its own — under the
+/// contract `parallel::map_with` states.
+fn each_statement_with<S, I, F>(stmts: Vec<Stmt>, init: I, f: F) -> Vec<Stmt>
+where
+    I: Fn() -> S + Sync,
+    F: Fn(&mut S, Stmt) -> Stmt + Sync,
+{
+    if !worth_workers(stmts.iter().filter(|s| matches!(s, Stmt::Func { .. })).count()) {
+        let mut state = init();
+        return stmts.into_iter().map(|s| f(&mut state, s)).collect();
+    }
+    // A lock per statement rather than one around the list: each is taken
+    // exactly once, so no two workers ever wait on the same one.
+    let slots: Vec<std::sync::Mutex<Option<Stmt>>> =
+        stmts.into_iter().map(|s| std::sync::Mutex::new(Some(s))).collect();
+    crate::parallel::map_with(slots.len(), init, |state, i| {
+        let taken = slots.get(i).and_then(|slot| slot.lock().ok()?.take());
+        f(state, taken.or_ice("`parallel::map_with` asks for each index once"))
+    })
 }
 
 // -- constant folding --------------------------------------------------------
@@ -1321,6 +1423,21 @@ fn always_exits(body: &[Stmt]) -> bool {
 }
 
 struct Fold;
+
+impl Fold {
+    /// Appends one folded statement to a block. Answers `true` when nothing
+    /// after it can run, so the caller stops.
+    fn push(out: &mut Vec<Stmt>, s: Stmt) -> bool {
+        // Flatten the empty and singleton blocks folding produces.
+        match s {
+            Stmt::Block(inner) if inner.is_empty() => return false,
+            Stmt::Block(inner) if !inner.iter().any(is_declaration) => out.extend(inner),
+            other => out.push(other),
+        }
+        // Nothing after `return`, `throw`, `break` or `continue` runs.
+        matches!(out.last(), Some(Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break | Stmt::Continue))
+    }
+}
 
 impl Rewrite for Fold {
     fn stmt(&mut self, s: Stmt) -> Stmt {
@@ -1383,17 +1500,7 @@ impl Rewrite for Fold {
         let mut out = Vec::new();
         for s in body {
             let s = self.stmt(s);
-            // Flatten the empty and singleton blocks folding produces.
-            match s {
-                Stmt::Block(inner) if inner.is_empty() => continue,
-                Stmt::Block(inner) if !inner.iter().any(is_declaration) => out.extend(inner),
-                other => out.push(other),
-            }
-            // Nothing after `return`, `throw`, `break` or `continue` runs.
-            if matches!(
-                out.last(),
-                Some(Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break | Stmt::Continue)
-            ) {
+            if Fold::push(&mut out, s) {
                 break;
             }
         }
@@ -1616,17 +1723,59 @@ fn cond_chain_to_switch(s: Stmt) -> Stmt {
 
 /// Whether no literal appears in two arms. A repeated `case` is a syntax
 /// error, not a fallthrough.
+///
+/// One table lookup per label: a match over a few thousand variants used to
+/// compare every label against every one before it.
 fn distinct<T>(arms: &[(Vec<&Expr>, T)]) -> bool {
-    let mut seen: Vec<&Expr> = Vec::new();
+    let mut seen: HashSet<LiteralKey<'_>> = HashSet::default();
     for (labels, _) in arms {
         for l in labels {
-            if seen.iter().any(|s| s.same_as(l)) {
-                return false;
+            match LiteralKey::of(l) {
+                // `NaN` is not the same as anything, itself included, so it
+                // never repeats.
+                Some(LiteralKey::NaN) => {}
+                Some(key) => {
+                    if !seen.insert(key) {
+                        return false;
+                    }
+                }
+                // `equality_test` lets only literals through, so this is not
+                // reached; answering "not distinct" keeps the chain as it was.
+                None => return false,
             }
-            seen.push(l);
         }
     }
     true
+}
+
+/// A literal, as [`Expr::same_as`] compares it: two labels are the same case
+/// exactly when their keys are equal.
+#[derive(PartialEq, Eq, Hash)]
+enum LiteralKey<'a> {
+    /// The bits of a number, with `-0` folded into `0` because `-0 === 0`.
+    Num(u64),
+    NaN,
+    BigInt(&'a str),
+    Str(&'a str),
+    Bool(bool),
+    Null,
+    Undefined,
+}
+
+impl LiteralKey<'_> {
+    fn of(e: &Expr) -> Option<LiteralKey<'_>> {
+        Some(match e {
+            Expr::Num(n) if n.is_nan() => LiteralKey::NaN,
+            Expr::Num(n) if *n == 0.0 => LiteralKey::Num(0f64.to_bits()),
+            Expr::Num(n) => LiteralKey::Num(n.to_bits()),
+            Expr::BigInt(s) => LiteralKey::BigInt(s),
+            Expr::Str(s) => LiteralKey::Str(s),
+            Expr::Bool(b) => LiteralKey::Bool(*b),
+            Expr::Null => LiteralKey::Null,
+            Expr::Undefined => LiteralKey::Undefined,
+            _ => return None,
+        })
+    }
 }
 
 /// Rewrites an `if`/`else if` chain over one discriminant into a `switch`.
@@ -1770,105 +1919,133 @@ fn switches(body: Vec<Stmt>) -> Vec<Stmt> {
 
 #[derive(Default)]
 struct LocalFacts {
-    /// How many times each name is *declared*. Anything but once disqualifies
-    /// it: the pass reasons about one binding, not a name.
-    declared: HashMap<String, usize>,
-    /// How many times each name is assigned. Assigned exactly once, a
-    /// declaration and its assignment are one binding written apart; assigned
-    /// at all, a name is neither an alias nor removable and its declaration
-    /// has to stay even when nothing reads it.
-    ///
-    /// There used to be a `HashSet` of assigned names beside this map, holding
-    /// exactly its keys. The two gated different decisions — the set gated
-    /// `depends_on_assigned`, which is the soundness condition for moving a
-    /// value across a reassignment, and the map gated `merge_declarations` —
-    /// so a name in one and not the other was the tail-call-loop miscompile
-    /// this pass exists to avoid.
-    assigns: HashMap<String, usize>,
-    /// How many times each name is *read*.
-    uses: HashMap<String, usize>,
+    /// What is known about each name the body mentions, in one entry per name.
+    /// There used to be five maps, each keyed by its own copy of the name.
+    names: HashMap<String, NameFacts>,
     /// How many loops and closures enclose the point being walked.
-    depth: usize,
-    /// The depth each name was declared at, and the deepest any read of it
-    /// sits. A value read deeper than it was bound would, if moved to its use,
-    /// be computed once per iteration or once per call instead of once.
-    decl_depth: HashMap<String, usize>,
-    use_depth: HashMap<String, usize>,
+    depth: u32,
     /// Set when something in the body cannot be reasoned about, in which case
     /// the body is left exactly as it was.
     opaque: bool,
 }
 
+/// What [`LocalFacts`] knows about one name. A count of zero is a name that
+/// was never declared, assigned or read.
+#[derive(Default, Clone, Copy)]
+struct NameFacts {
+    /// How many times the name is *declared*. Anything but once disqualifies
+    /// it: the pass reasons about one binding, not a name.
+    declared: u32,
+    /// How many times the name is assigned. Assigned exactly once, a
+    /// declaration and its assignment are one binding written apart; assigned
+    /// at all, a name is neither an alias nor removable and its declaration
+    /// has to stay even when nothing reads it.
+    ///
+    /// There used to be a `HashSet` of assigned names beside the counts,
+    /// holding exactly the names counted here. The two gated different
+    /// decisions — the set gated `depends_on_assigned`, which is the soundness
+    /// condition for moving a value across a reassignment, and the counts
+    /// gated `merge_declarations` — so a name in one and not the other was the
+    /// tail-call-loop miscompile this pass exists to avoid.
+    assigns: u32,
+    /// How many times the name is *read*.
+    uses: u32,
+    /// The depth the name was last declared at, and the deepest any read of
+    /// it sits. A value read deeper than it was bound would, if moved to its
+    /// use, be computed once per iteration or once per call instead of once.
+    decl_depth: u32,
+    use_depth: u32,
+}
+
 impl LocalFacts {
-    // `get_mut` before `insert` rather than `entry`, in all three of these: the
-    // entry API needs an owned key whether or not the name is already there,
-    // and these run over every identifier of every body, four times a body.
-    // A name is spelled once here however often it occurs.
+    /// The entry for `name`, made on first sight. `get_mut` before `insert`
+    /// rather than `entry`: the entry API needs an owned key whether or not
+    /// the name is already there, and this runs over every identifier of every
+    /// body, four times a body. A name is spelled once here however often it
+    /// occurs.
+    fn entry(&mut self, name: &str) -> &mut NameFacts {
+        if !self.names.contains_key(name) {
+            self.names.insert(name.to_string(), NameFacts::default());
+        }
+        self.names.get_mut(name).or_ice("the entry was inserted a line above")
+    }
+
     fn read(&mut self, name: &str) {
         let d = self.depth;
-        match self.uses.get_mut(name) {
-            Some(n) => *n += 1,
-            None => {
-                self.uses.insert(name.to_string(), 1);
-            }
-        }
-        match self.use_depth.get_mut(name) {
-            Some(x) => *x = (*x).max(d),
-            None => {
-                self.use_depth.insert(name.to_string(), d);
-            }
-        }
+        let n = self.entry(name);
+        n.uses += 1;
+        n.use_depth = n.use_depth.max(d);
     }
 
     fn declare(&mut self, name: &str) {
         let d = self.depth;
-        match self.declared.get_mut(name) {
-            Some(n) => *n += 1,
-            None => {
-                self.declared.insert(name.to_string(), 1);
-            }
-        }
-        match self.decl_depth.get_mut(name) {
-            Some(x) => *x = d,
-            None => {
-                self.decl_depth.insert(name.to_string(), d);
-            }
-        }
+        let n = self.entry(name);
+        n.declared += 1;
+        n.decl_depth = d;
     }
 
     fn assign(&mut self, name: &str) {
-        match self.assigns.get_mut(name) {
-            Some(n) => *n += 1,
-            None => {
-                self.assigns.insert(name.to_string(), 1);
-            }
-        }
+        self.entry(name).assigns += 1;
+    }
+
+    fn get(&self, name: &str) -> NameFacts {
+        self.names.get(name).copied().unwrap_or_default()
+    }
+
+    /// How many times `name` is declared.
+    fn declared(&self, name: &str) -> u32 {
+        self.get(name).declared
+    }
+
+    /// How many times `name` is assigned.
+    fn assigns(&self, name: &str) -> u32 {
+        self.get(name).assigns
+    }
+
+    /// How many times `name` is read.
+    fn uses(&self, name: &str) -> u32 {
+        self.get(name).uses
     }
 
     /// Whether every read of `name` sits no deeper than its binding.
     fn read_where_bound(&self, name: &str) -> bool {
-        let decl = self.decl_depth.get(name).copied().unwrap_or(0);
-        self.use_depth.get(name).copied().unwrap_or(0) <= decl
+        let n = self.get(name);
+        n.use_depth <= n.decl_depth
     }
-}
 
-/// The identifiers an expression reads. Used to check that nothing it depends
-/// on is reassigned between where it is bound and where it would be moved to.
-fn reads_of(e: &Expr, out: &mut HashSet<String>) {
-    let mut f = LocalFacts::default();
-    f.expr(e);
-    out.extend(f.uses.into_keys());
-}
-
-impl LocalFacts {
     /// Whether a name is ever the target of an assignment.
     fn is_assigned(&self, name: &str) -> bool {
-        self.assigns.contains_key(name)
+        self.assigns(name) > 0
     }
 }
 
-impl Visit for LocalFacts {
-    fn expr(&mut self, e: &Expr) {
+/// The identifiers an expression reads: every name in it but the target of a
+/// plain assignment, which is written rather than read. Used to check that
+/// nothing it depends on is reassigned between where it is bound and where it
+/// would be moved to.
+fn reads_of<'a>(e: &'a Expr, out: &mut HashSet<&'a str>) {
+    Reads(out).expr(e);
+}
+
+/// The walk behind [`reads_of`]: the reads [`LocalFacts`] counts, borrowed.
+struct Reads<'s, 'a>(&'s mut HashSet<&'a str>);
+
+impl<'a> Visit<'a> for Reads<'_, 'a> {
+    fn expr(&mut self, e: &'a Expr) {
+        match e {
+            Expr::Ident(name) => {
+                self.0.insert(name);
+            }
+            Expr::Assign { target, value } if matches!(&**target, Expr::Ident(_)) => {
+                self.expr(value);
+            }
+            _ => e.visit_children(self),
+        }
+    }
+}
+
+impl<'a> Visit<'a> for LocalFacts {
+    fn expr(&mut self, e: &'a Expr) {
         match e {
             Expr::Ident(name) => self.read(name),
             // The target of a plain assignment is written, not read.
@@ -1890,7 +2067,7 @@ impl Visit for LocalFacts {
         }
     }
 
-    fn stmt(&mut self, s: &Stmt) {
+    fn stmt(&mut self, s: &'a Stmt) {
         match s {
             Stmt::Var { name, .. } => self.declare(name),
             Stmt::Func { name, params, .. } => {
@@ -1955,7 +2132,7 @@ impl Rewrite for Subst<'_> {
             // The target names a storage location, not a value, so it is never
             // rewritten — only what is assigned to it.
             Expr::Assign { target, value } if matches!(&*target, Expr::Ident(_)) => {
-                Expr::Assign { target, value: Box::new(self.expr(*value)) }
+                Expr::Assign { target, value: rewrite_boxed(value, |e| self.expr(e)) }
             }
             // Rebuilding may leave an arrow body that is one `return`, which is
             // the concise form.
@@ -1993,7 +2170,7 @@ impl Rewrite for DropBindings<'_> {
     fn expr(&mut self, e: Expr) -> Expr {
         match e {
             Expr::Assign { target, value } => {
-                Expr::Assign { target, value: Box::new(self.expr(*value)) }
+                Expr::Assign { target, value: rewrite_boxed(value, |e| self.expr(e)) }
             }
             // Rebuilding may leave a body that is one `return`, which is the
             // concise form — the same collapse `Subst` makes.
@@ -2026,16 +2203,16 @@ struct Cleanup<'a> {
     dead: &'a mut HashSet<String>,
 }
 
-impl Visit for Cleanup<'_> {
-    fn stmt(&mut self, s: &Stmt) {
+impl<'a> Visit<'a> for Cleanup<'_> {
+    fn stmt(&mut self, s: &'a Stmt) {
         if let Stmt::Var { name, init, .. } = s {
             let facts = self.facts;
             // A name declared twice, or ever assigned, is not one binding
             // and nothing here applies to it.
-            if facts.declared.get(name).copied() != Some(1) || facts.is_assigned(name) {
+            if facts.declared(name) != 1 || facts.is_assigned(name) {
                 return;
             }
-            let uses = facts.uses.get(name).copied().unwrap_or(0);
+            let uses = facts.uses(name);
             match init {
                 // Never read: the binding goes, and the value with it when
                 // it has nothing to do.
@@ -2048,7 +2225,7 @@ impl Visit for Cleanup<'_> {
                 // before every match.
                 Some(Expr::Ident(src))
                     if !facts.is_assigned(src)
-                        && facts.declared.get(src).copied().unwrap_or(1) == 1 =>
+                        && matches!(facts.declared(src), 0 | 1) =>
                 {
                     self.map.insert(name.clone(), Expr::Ident(src.clone()));
                     self.dead.insert(name.clone());
@@ -2118,29 +2295,26 @@ fn depends_on_assigned(e: &Expr, facts: &LocalFacts) -> bool {
 /// out of `done` rather than clone, and they are the ones absent from the map
 /// it leaves behind. That absence is what the caller wants: substituting them
 /// back into the body would paste into declarations the same round removes.
-fn movable_values(
-    map: &HashMap<String, Expr>,
-    uses: &HashMap<String, usize>,
-) -> HashSet<String> {
+fn movable_values(map: &HashMap<String, Expr>, facts: &LocalFacts) -> HashSet<String> {
     let mut refs: HashMap<&str, usize> = HashMap::default();
     for value in map.values() {
         let mut reads = HashSet::default();
         reads_of(value, &mut reads);
         for r in reads {
-            if let Some((name, _)) = map.get_key_value(&r) {
+            if let Some((name, _)) = map.get_key_value(r) {
                 *refs.entry(name.as_str()).or_insert(0) += 1;
             }
         }
     }
     refs.into_iter()
-        .filter(|&(name, n)| n == 1 && uses.get(name).copied() == Some(1))
+        .filter(|&(name, n)| n == 1 && facts.uses(name) == 1)
         .map(|(name, _)| name.to_string())
         .collect()
 }
 
-fn resolve_map(map: &mut HashMap<String, Expr>, uses: &HashMap<String, usize>) {
+fn resolve_map(map: &mut HashMap<String, Expr>, facts: &LocalFacts) {
     let names: Vec<String> = map.keys().cloned().collect();
-    let movable = movable_values(map, uses);
+    let movable = movable_values(map, facts);
     let mut done: HashMap<String, Expr> = HashMap::default();
     let mut taken: HashSet<String> = HashSet::default();
     let mut visiting: HashSet<String> = HashSet::default();
@@ -2175,7 +2349,8 @@ fn resolve_one(
     let mut reads = HashSet::default();
     reads_of(&raw, &mut reads);
     // Sorted, so the order values are resolved in cannot depend on hash order.
-    let mut reads: Vec<String> = reads.into_iter().filter(|r| map.contains_key(r)).collect();
+    let mut reads: Vec<String> =
+        reads.into_iter().filter(|r| map.contains_key(*r)).map(str::to_owned).collect();
     reads.sort();
     for r in &reads {
         resolve_one(r, map, movable, done, taken, visiting);
@@ -2237,7 +2412,7 @@ fn merge_declarations(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
         };
         // Assigned anywhere else and the slot is genuinely a slot.
         if !matches!(&**target, Expr::Ident(t) if t == name)
-            || facts.assigns.get(name).copied() != Some(1)
+            || facts.assigns(name) != 1
         {
             i = next;
             continue;
@@ -2328,8 +2503,7 @@ fn coalesce_copies(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
         };
         // Read exactly once, and written at least once, or there is nothing to
         // move.
-        if facts.uses.get(from).copied() != Some(1)
-            || facts.assigns.get(from).copied().unwrap_or(0) == 0
+        if facts.uses(from) != 1 || facts.assigns(from) == 0
         {
             continue;
         }
@@ -2367,12 +2541,12 @@ fn coalesce_copies(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
         for s in body.get(i..j).unwrap_or_default() {
             region.stmt(s);
         }
-        if region.uses.contains_key(&to) || region.is_assigned(&to) {
+        if region.uses(&to) > 0 || region.is_assigned(&to) {
             continue;
         }
         // A copy that declares its destination must be the only declaration of
         // it, since the renamed `let` takes that role.
-        if declares && facts.declared.get(&to).copied() != Some(1) {
+        if declares && facts.declared(&to) != 1 {
             continue;
         }
         let from = from.clone();
@@ -2431,12 +2605,12 @@ fn clean_body(body: &mut Vec<Stmt>) -> bool {
     // so it terminates.
     loop {
         let mut resolved = map.clone();
-        resolve_map(&mut resolved, &facts.uses);
+        resolve_map(&mut resolved, &facts);
         let overshot: Vec<String> = resolved
             .iter()
             .filter(|(name, value)| {
                 !value.is_pure_literal()
-                    && facts.uses.get(*name).copied().unwrap_or(0) > 1
+                    && facts.uses(name) > 1
             })
             .map(|(name, _)| name.clone())
             .collect();
@@ -2567,7 +2741,7 @@ fn read_through_locals(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
             // Every read accounted for: `uses` counts bare reads of the name,
             // and each of ours is one, so a mismatch means something else read
             // it in a shape the survey did not recognise.
-            if facts.uses.get(name).copied().unwrap_or(0) != reads.values().sum::<usize>() {
+            if facts.uses(name) as usize != reads.values().sum::<usize>() {
                 return false;
             }
             reads
@@ -2617,7 +2791,7 @@ fn collect_aggregates(
 ) {
     for s in body {
         if let Stmt::Var { kind: VarKind::Const, name, init: Some(Expr::Array(items)) } = s {
-            let single = facts.declared.get(name).copied() == Some(1)
+            let single = facts.declared(name) == 1
                 && !facts.is_assigned(name)
                 && facts.read_where_bound(name);
             // Everything the array holds has to be free to move to a use, and
@@ -2645,8 +2819,8 @@ fn collect_aggregates(
 
 struct Survey<'a>(&'a mut HashMap<String, AggregateUse>);
 
-impl Visit for Survey<'_> {
-    fn expr(&mut self, e: &Expr) {
+impl<'a> Visit<'a> for Survey<'_> {
+    fn expr(&mut self, e: &'a Expr) {
         // `t[k]`, the only shape that does not need the array itself.
         if let Expr::Index { obj, index } = e {
             if let (Expr::Ident(name), Expr::Num(i)) = (&**obj, &**index) {
@@ -2694,7 +2868,7 @@ impl Rewrite for Extract<'_> {
         }
         match e {
             Expr::Assign { target, value } => {
-                Expr::Assign { target, value: Box::new(self.expr(*value)) }
+                Expr::Assign { target, value: rewrite_boxed(value, |e| self.expr(e)) }
             }
             other => simplified(other.map_children(self)),
         }
@@ -2708,28 +2882,27 @@ impl Rewrite for Extract<'_> {
 /// rather than of anything that varies between runs.
 const CLEANUP_ROUNDS: usize = 4;
 
-/// Runs folding and local cleanup over every function body, to a fixed point.
-fn clean_locals(stmts: Vec<Stmt>, table: &HashMap<String, Vec<Expr>>) -> Vec<Stmt> {
-    stmts
-        .into_iter()
-        .map(|s| match s {
-            Stmt::Func { name, params, mut body, is_async } => {
-                for _ in 0..CLEANUP_ROUNDS {
-                    if !table.is_empty() {
-                        body = ReadThrough(table).block(body);
-                    }
-                    body = fold_block(body);
-                    if !clean_body(&mut body) {
-                        break;
-                    }
-                }
-                // Last, so the chains it looks for have already been folded
-                // and their discriminants have already settled.
-                Stmt::Func { name, params, body: switches(body), is_async }
-            }
-            other => other,
-        })
-        .collect()
+/// Runs folding and local cleanup over one top-level function's body, to a
+/// fixed point.
+fn clean_function(
+    name: String,
+    params: Vec<String>,
+    mut body: Vec<Stmt>,
+    is_async: bool,
+    table: &HashMap<String, Vec<Expr>>,
+) -> Stmt {
+    for _ in 0..CLEANUP_ROUNDS {
+        if !table.is_empty() {
+            body = ReadThrough(table).block(body);
+        }
+        body = fold_block(body);
+        if !clean_body(&mut body) {
+            break;
+        }
+    }
+    // Last, so the chains it looks for have already been folded and their
+    // discriminants have already settled.
+    Stmt::Func { name, params, body: switches(body), is_async }
 }
 
 // -- merging functions that came out the same ---------------------------------
@@ -2748,48 +2921,320 @@ fn clean_locals(stmts: Vec<Stmt>, table: &HashMap<String, Vec<Expr>>) -> Vec<Stm
 /// lose: a root or a name mentioned in verbatim source (the entry epilogue
 /// names its function as text) is neither dropped nor rewritten.
 fn merge_identical(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
-    let mut pinned: HashSet<String> = roots.iter().cloned().collect();
-    for s in &stmts {
+    let mut pinned: HashSet<&str> = roots.iter().map(String::as_str).collect();
+    raw_idents(&stmts, &mut pinned);
+
+    // Part of the key: two bodies that are the same are the same function only
+    // if they suspend the same way. Making a key hashes the whole body, so the
+    // keys are made on the workers.
+    fn key<'a>(s: &'a Stmt, pinned: &HashSet<&str>) -> Option<FuncKey<'a>> {
         match s {
-            Stmt::Raw(src) => collect_idents_raw(src, &mut pinned),
-            Stmt::RawDecl { src, .. } => collect_idents_raw(src, &mut pinned),
-            _ => {}
+            Stmt::Func { name, params, body, is_async } if !pinned.contains(name.as_str()) => {
+                Some(FuncKey::new(params, body, *is_async))
+            }
+            _ => None,
         }
     }
+    let functions = stmts.iter().filter(|s| matches!(s, Stmt::Func { .. })).count();
+    let keys: Vec<Option<FuncKey<'_>>> = if worth_workers(functions) {
+        crate::parallel::map(stmts.len(), |i| stmts.get(i).and_then(|s| key(s, &pinned)))
+    } else {
+        stmts.iter().map(|s| key(s, &pinned)).collect()
+    };
 
     // First by emission order wins, so the result does not depend on hash
     // order — build output is compared byte for byte.
-    let mut first: HashMap<String, String> = HashMap::default();
+    let mut first: HashMap<FuncKey<'_>, &String> = HashMap::default();
     let mut alias: HashMap<String, Expr> = HashMap::default();
-    for s in &stmts {
-        let Stmt::Func { name, params, body, is_async } = s else { continue };
-        if pinned.contains(name) {
-            continue;
-        }
-        let key = print(
-            &[Stmt::Func {
-                name: String::new(),
-                params: params.clone(),
-                body: body.clone(),
-                // Part of the key: two bodies that print the same are the same
-                // function only if they suspend the same way.
-                is_async: *is_async,
-            }],
-            false,
-        );
+    for (s, key) in stmts.iter().zip(keys) {
+        let (Stmt::Func { name, .. }, Some(key)) = (s, key) else { continue };
         match first.get(&key) {
             Some(winner) => {
-                alias.insert(name.clone(), Expr::ident(winner.clone()));
+                alias.insert(name.clone(), Expr::ident((*winner).clone()));
             }
             None => {
-                first.insert(key, name.clone());
+                first.insert(key, name);
             }
         }
     }
+    drop(first);
     if alias.is_empty() {
         return stmts;
     }
-    stmts.into_iter().map(|s| subst_stmt(s, &alias)).collect()
+    each_statement(stmts, |s| subst_stmt(s, &alias))
+}
+
+/// A function, minus its name, as a table key.
+///
+/// The key used to be the function printed, which cloned the body to print it
+/// and allocated the text. Two functions are the same here when their trees
+/// are, which implies they print the same: every number is compared by its
+/// bits, so `0` and `-0` stay apart, and every `NaN` is one value, as it is
+/// once printed.
+///
+/// The hash is taken once, when the key is made, because it walks the whole
+/// body.
+struct FuncKey<'a> {
+    hash: u64,
+    params: &'a [String],
+    body: &'a [Stmt],
+    is_async: bool,
+}
+
+impl<'a> FuncKey<'a> {
+    fn new(params: &'a [String], body: &'a [Stmt], is_async: bool) -> FuncKey<'a> {
+        use std::hash::{Hash as _, Hasher as _};
+        let mut h = crate::hash::FxHasher::default();
+        params.hash(&mut h);
+        is_async.hash(&mut h);
+        hash_stmts(body, &mut h);
+        FuncKey { hash: h.finish(), params, body, is_async }
+    }
+}
+
+impl std::hash::Hash for FuncKey<'_> {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        h.write_u64(self.hash);
+    }
+}
+
+impl PartialEq for FuncKey<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.params == other.params
+            && self.is_async == other.is_async
+            && same_stmts(self.body, other.body)
+    }
+}
+
+impl Eq for FuncKey<'_> {}
+
+/// A number's bits, with every `NaN` the same one.
+fn num_bits(n: f64) -> u64 {
+    if n.is_nan() { f64::NAN.to_bits() } else { n.to_bits() }
+}
+
+fn hash_stmts<H: std::hash::Hasher>(body: &[Stmt], h: &mut H) {
+    use std::hash::Hash as _;
+    body.len().hash(h);
+    for s in body {
+        hash_stmt(s, h);
+    }
+}
+
+fn hash_stmt<H: std::hash::Hasher>(s: &Stmt, h: &mut H) {
+    use std::hash::Hash as _;
+    std::mem::discriminant(s).hash(h);
+    match s {
+        Stmt::Var { kind, name, init } => {
+            kind.hash(h);
+            name.hash(h);
+            hash_opt(init.as_ref(), h);
+        }
+        Stmt::Func { name, params, body, is_async } => {
+            name.hash(h);
+            params.hash(h);
+            is_async.hash(h);
+            hash_stmts(body, h);
+        }
+        Stmt::Return(e) => hash_opt(e.as_ref(), h),
+        Stmt::If { cond, then, else_ } => {
+            hash_expr(cond, h);
+            hash_stmts(then, h);
+            hash_stmts(else_, h);
+        }
+        Stmt::While { cond, body } => {
+            hash_expr(cond, h);
+            hash_stmts(body, h);
+        }
+        Stmt::Switch { disc, cases } => {
+            hash_expr(disc, h);
+            cases.len().hash(h);
+            for (label, body) in cases {
+                hash_opt(label.as_ref(), h);
+                hash_stmts(body, h);
+            }
+        }
+        Stmt::Expr(e) | Stmt::Throw(e) | Stmt::ExportDefault(e) => hash_expr(e, h),
+        Stmt::Block(body) => hash_stmts(body, h),
+        Stmt::Raw(src) => src.hash(h),
+        Stmt::RawDecl(decl) => decl.name.hash(h),
+        Stmt::Break | Stmt::Continue => {}
+    }
+}
+
+fn hash_opt<H: std::hash::Hasher>(e: Option<&Expr>, h: &mut H) {
+    use std::hash::Hash as _;
+    e.is_some().hash(h);
+    if let Some(e) = e {
+        hash_expr(e, h);
+    }
+}
+
+fn hash_exprs<H: std::hash::Hasher>(xs: &[Expr], h: &mut H) {
+    use std::hash::Hash as _;
+    xs.len().hash(h);
+    for x in xs {
+        hash_expr(x, h);
+    }
+}
+
+fn hash_expr<H: std::hash::Hasher>(e: &Expr, h: &mut H) {
+    use std::hash::Hash as _;
+    std::mem::discriminant(e).hash(h);
+    match e {
+        Expr::Num(n) => num_bits(*n).hash(h),
+        Expr::BigInt(s) | Expr::Str(s) | Expr::Ident(s) => s.hash(h),
+        Expr::Bool(b) => b.hash(h),
+        Expr::Null | Expr::Undefined => {}
+        Expr::Array(xs) | Expr::Seq(xs) => hash_exprs(xs, h),
+        Expr::Object(fields) => {
+            fields.len().hash(h);
+            for (k, v) in fields {
+                k.hash(h);
+                hash_expr(v, h);
+            }
+        }
+        Expr::Member { obj, prop } => {
+            hash_expr(obj, h);
+            prop.hash(h);
+        }
+        Expr::Index { obj: a, index: b }
+        | Expr::Assign { target: a, value: b } => {
+            hash_expr(a, h);
+            hash_expr(b, h);
+        }
+        Expr::Call { callee, args } | Expr::New { callee, args } => {
+            hash_expr(callee, h);
+            hash_exprs(args, h);
+        }
+        Expr::Unary { op, operand } => {
+            op.hash(h);
+            hash_expr(operand, h);
+        }
+        Expr::Binary { op, lhs, rhs } => {
+            op.hash(h);
+            hash_expr(lhs, h);
+            hash_expr(rhs, h);
+        }
+        Expr::Cond { test, cons, alt } => {
+            hash_expr(test, h);
+            hash_expr(cons, h);
+            hash_expr(alt, h);
+        }
+        Expr::Arrow { params, body, is_async } => {
+            params.hash(h);
+            is_async.hash(h);
+            hash_expr(body, h);
+        }
+        Expr::ArrowBlock { params, body, is_async } => {
+            params.hash(h);
+            is_async.hash(h);
+            hash_stmts(body, h);
+        }
+        Expr::Await(x) | Expr::Spread(x) => hash_expr(x, h),
+    }
+}
+
+fn same_stmts(a: &[Stmt], b: &[Stmt]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| same_stmt(x, y))
+}
+
+fn same_opt(a: Option<&Expr>, b: Option<&Expr>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => same_expr(a, b),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn same_stmt(a: &Stmt, b: &Stmt) -> bool {
+    match (a, b) {
+        (
+            Stmt::Var { kind: k1, name: n1, init: i1 },
+            Stmt::Var { kind: k2, name: n2, init: i2 },
+        ) => k1 == k2 && n1 == n2 && same_opt(i1.as_ref(), i2.as_ref()),
+        (
+            Stmt::Func { name: n1, params: p1, body: b1, is_async: a1 },
+            Stmt::Func { name: n2, params: p2, body: b2, is_async: a2 },
+        ) => n1 == n2 && p1 == p2 && a1 == a2 && same_stmts(b1, b2),
+        (Stmt::Return(x), Stmt::Return(y)) => same_opt(x.as_ref(), y.as_ref()),
+        (
+            Stmt::If { cond: c1, then: t1, else_: e1 },
+            Stmt::If { cond: c2, then: t2, else_: e2 },
+        ) => same_expr(c1, c2) && same_stmts(t1, t2) && same_stmts(e1, e2),
+        (Stmt::While { cond: c1, body: b1 }, Stmt::While { cond: c2, body: b2 }) => {
+            same_expr(c1, c2) && same_stmts(b1, b2)
+        }
+        (Stmt::Switch { disc: d1, cases: c1 }, Stmt::Switch { disc: d2, cases: c2 }) => {
+            same_expr(d1, d2)
+                && c1.len() == c2.len()
+                && c1.iter().zip(c2).all(|((l1, b1), (l2, b2))| {
+                    same_opt(l1.as_ref(), l2.as_ref()) && same_stmts(b1, b2)
+                })
+        }
+        (Stmt::Expr(x), Stmt::Expr(y))
+        | (Stmt::Throw(x), Stmt::Throw(y))
+        | (Stmt::ExportDefault(x), Stmt::ExportDefault(y)) => same_expr(x, y),
+        (Stmt::Block(x), Stmt::Block(y)) => same_stmts(x, y),
+        (Stmt::Raw(x), Stmt::Raw(y)) => x == y,
+        (Stmt::RawDecl(x), Stmt::RawDecl(y)) => x.name == y.name && x.src == y.src,
+        (Stmt::Break, Stmt::Break) | (Stmt::Continue, Stmt::Continue) => true,
+        _ => false,
+    }
+}
+
+fn same_exprs(a: &[Expr], b: &[Expr]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| same_expr(x, y))
+}
+
+fn same_expr(a: &Expr, b: &Expr) -> bool {
+    match (a, b) {
+        (Expr::Num(x), Expr::Num(y)) => num_bits(*x) == num_bits(*y),
+        (Expr::BigInt(x), Expr::BigInt(y))
+        | (Expr::Str(x), Expr::Str(y))
+        | (Expr::Ident(x), Expr::Ident(y)) => x == y,
+        (Expr::Bool(x), Expr::Bool(y)) => x == y,
+        (Expr::Null, Expr::Null) | (Expr::Undefined, Expr::Undefined) => true,
+        (Expr::Array(x), Expr::Array(y)) | (Expr::Seq(x), Expr::Seq(y)) => same_exprs(x, y),
+        (Expr::Object(x), Expr::Object(y)) => {
+            x.len() == y.len()
+                && x.iter().zip(y).all(|((k1, v1), (k2, v2))| k1 == k2 && same_expr(v1, v2))
+        }
+        (Expr::Member { obj: o1, prop: p1 }, Expr::Member { obj: o2, prop: p2 }) => {
+            p1 == p2 && same_expr(o1, o2)
+        }
+        (Expr::Index { obj: a1, index: b1 }, Expr::Index { obj: a2, index: b2 })
+        | (Expr::Assign { target: a1, value: b1 }, Expr::Assign { target: a2, value: b2 }) => {
+            same_expr(a1, a2) && same_expr(b1, b2)
+        }
+        (Expr::Call { callee: c1, args: x }, Expr::Call { callee: c2, args: y })
+        | (Expr::New { callee: c1, args: x }, Expr::New { callee: c2, args: y }) => {
+            same_expr(c1, c2) && same_exprs(x, y)
+        }
+        (Expr::Unary { op: o1, operand: x }, Expr::Unary { op: o2, operand: y }) => {
+            o1 == o2 && same_expr(x, y)
+        }
+        (
+            Expr::Binary { op: o1, lhs: l1, rhs: r1 },
+            Expr::Binary { op: o2, lhs: l2, rhs: r2 },
+        ) => o1 == o2 && same_expr(l1, l2) && same_expr(r1, r2),
+        (
+            Expr::Cond { test: t1, cons: c1, alt: a1 },
+            Expr::Cond { test: t2, cons: c2, alt: a2 },
+        ) => same_expr(t1, t2) && same_expr(c1, c2) && same_expr(a1, a2),
+        (
+            Expr::Arrow { params: p1, body: b1, is_async: a1 },
+            Expr::Arrow { params: p2, body: b2, is_async: a2 },
+        ) => p1 == p2 && a1 == a2 && same_expr(b1, b2),
+        (
+            Expr::ArrowBlock { params: p1, body: b1, is_async: a1 },
+            Expr::ArrowBlock { params: p2, body: b2, is_async: a2 },
+        ) => p1 == p2 && a1 == a2 && same_stmts(b1, b2),
+        (Expr::Await(x), Expr::Await(y)) | (Expr::Spread(x), Expr::Spread(y)) => {
+            same_expr(x, y)
+        }
+        _ => false,
+    }
 }
 
 // -- dead code elimination ---------------------------------------------------
@@ -2798,72 +3243,85 @@ fn merge_identical(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
 /// the backend emits one top-level function per reachable instance, this is
 /// what removes the parts of `core/*` a program does not use.
 fn eliminate_dead(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
-    let mut deps: HashMap<String, HashSet<String>> = HashMap::default();
-    let mut declared: HashMap<String, usize> = HashMap::default();
+    let keep = reachable(&stmts, roots);
+    stmts.into_iter().zip(keep).filter_map(|(s, keep)| keep.then_some(s)).collect()
+}
+
+/// What one declaration names: a run of the names [`reachable`] collected
+/// from the tree, or a runtime declaration's own list, which was scanned once
+/// for the process.
+enum Deps {
+    Tree(std::ops::Range<usize>),
+    Runtime(&'static RuntimeDecl),
+}
+
+/// Which statements [`eliminate_dead`] keeps, by position. A declaration is
+/// kept when something reachable names it, and only the last one of a name.
+fn reachable(stmts: &[Stmt], roots: &[String]) -> Vec<bool> {
+    let mut names: Vec<&str> = Vec::new();
+    let mut deps: HashMap<&str, Deps> = HashMap::default();
+    let mut declared: HashMap<&str, usize> = HashMap::default();
+    let mut used: HashSet<&str> = HashSet::default();
     for (i, s) in stmts.iter().enumerate() {
-        match s {
+        let (name, dep) = match s {
             Stmt::Func { name, body, params, .. } => {
-                let mut used = HashSet::default();
-                for st in body {
-                    Idents(&mut used).stmt(st);
-                }
+                used.clear();
+                let mut idents = Idents(&mut used);
+                body.iter().for_each(|st| idents.stmt(st));
                 for p in params {
-                    used.remove(p);
+                    used.remove(p.as_str());
                 }
-                declared.insert(name.clone(), i);
-                deps.insert(name.clone(), used);
+                let start = names.len();
+                names.extend(used.iter().copied());
+                (name, Deps::Tree(start..names.len()))
             }
             Stmt::Var { name, init, .. } => {
-                let mut used = HashSet::default();
+                used.clear();
                 if let Some(e) = init {
                     Idents(&mut used).expr(e);
                 }
-                declared.insert(name.clone(), i);
-                deps.insert(name.clone(), used);
+                let start = names.len();
+                names.extend(used.iter().copied());
+                (name, Deps::Tree(start..names.len()))
             }
-            Stmt::RawDecl { name, src } => {
-                let mut used = HashSet::default();
-                collect_idents_raw(src, &mut used);
-                used.remove(name);
-                declared.insert(name.clone(), i);
-                deps.insert(name.clone(), used);
-            }
-            _ => {}
-        }
+            Stmt::RawDecl(decl) => (&decl.name, Deps::Runtime(decl)),
+            _ => continue,
+        };
+        declared.insert(name, i);
+        deps.insert(name, dep);
     }
 
-    let mut live: HashSet<String> = HashSet::default();
-    let mut stack: Vec<String> = roots.to_vec();
+    let mut live: HashSet<&str> = HashSet::default();
+    let mut stack: Vec<&str> = roots.iter().map(String::as_str).collect();
     // Anything a non-declaration statement mentions is a root too: those run
     // for their effect and are never dropped.
-    for s in &stmts {
+    for s in stmts {
         if !is_declaration(s) {
-            let mut used = HashSet::default();
+            used.clear();
             Idents(&mut used).stmt(s);
-            stack.extend(used);
+            stack.extend(used.iter().copied());
         }
     }
     while let Some(name) = stack.pop() {
-        if !live.insert(name.clone()) {
+        if !live.insert(name) {
             continue;
         }
-        if let Some(used) = deps.get(&name) {
-            stack.extend(used.iter().cloned());
+        match deps.get(name) {
+            Some(Deps::Tree(run)) => stack.extend(names.get(run.clone()).unwrap_or_default()),
+            Some(Deps::Runtime(decl)) => stack.extend(decl.idents()),
+            None => {}
         }
     }
 
     stmts
-        .into_iter()
+        .iter()
         .enumerate()
-        .filter(|(i, s)| match s {
-            Stmt::Func { name, .. }
-            | Stmt::Var { name, .. }
-            | Stmt::RawDecl { name, .. } => {
-                live.contains(name) && declared.get(name) == Some(i)
+        .map(|(i, s)| match s {
+            Stmt::Func { name, .. } | Stmt::Var { name, .. } | Stmt::RawDecl(RuntimeDecl { name, .. }) => {
+                live.contains(name.as_str()) && declared.get(name.as_str()) == Some(&i)
             }
             _ => true,
         })
-        .map(|(_, s)| s)
         .collect()
 }
 
@@ -2873,51 +3331,147 @@ fn eliminate_dead(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
 /// uses and the artifact declares — which is exactly the set the two files have
 /// to agree on. It is the same walk [`eliminate_dead`] does, exported rather
 /// than copied, so a node this misses is a node that suite would miss too.
-pub fn collect_idents_in(s: &Stmt, out: &mut HashSet<String>) {
+pub fn collect_idents_in<'a>(s: &'a Stmt, out: &mut HashSet<&'a str>) {
     Idents(out).stmt(s);
 }
 
-struct Idents<'a>(&'a mut HashSet<String>);
+/// Passes every identifier these statements read to `f`, which may respell
+/// it. The tree is changed where it stands: nothing is rebuilt, and nothing
+/// else about it is touched.
+pub(crate) fn rename_idents(stmts: &mut [Stmt], f: &mut dyn FnMut(&mut String)) {
+    for s in stmts {
+        match s {
+            Stmt::Var { init: e, .. } | Stmt::Return(e) => {
+                if let Some(e) = e {
+                    rename_idents_in_expr(e, f);
+                }
+            }
+            Stmt::Func { body, .. } | Stmt::Block(body) => rename_idents(body, f),
+            Stmt::If { cond, then, else_ } => {
+                rename_idents_in_expr(cond, f);
+                rename_idents(then, f);
+                rename_idents(else_, f);
+            }
+            Stmt::While { cond, body } => {
+                rename_idents_in_expr(cond, f);
+                rename_idents(body, f);
+            }
+            Stmt::Switch { disc, cases } => {
+                rename_idents_in_expr(disc, f);
+                for (label, body) in cases {
+                    if let Some(label) = label {
+                        rename_idents_in_expr(label, f);
+                    }
+                    rename_idents(body, f);
+                }
+            }
+            Stmt::Expr(e) | Stmt::Throw(e) | Stmt::ExportDefault(e) => rename_idents_in_expr(e, f),
+            Stmt::Break | Stmt::Continue | Stmt::Raw(_) | Stmt::RawDecl(_) => {}
+        }
+    }
+}
 
-impl Visit for Idents<'_> {
-    fn expr(&mut self, e: &Expr) {
+/// [`rename_idents`], for one expression.
+pub(crate) fn rename_idents_in_expr(e: &mut Expr, f: &mut dyn FnMut(&mut String)) {
+    match e {
+        Expr::Ident(name) => f(name),
+        Expr::Array(xs) | Expr::Seq(xs) => xs.iter_mut().for_each(|x| rename_idents_in_expr(x, f)),
+        Expr::Object(fields) => fields.iter_mut().for_each(|(_, x)| rename_idents_in_expr(x, f)),
+        Expr::Member { obj: x, .. }
+        | Expr::Unary { operand: x, .. }
+        | Expr::Arrow { body: x, .. }
+        | Expr::Await(x)
+        | Expr::Spread(x) => rename_idents_in_expr(x, f),
+        Expr::Index { obj: a, index: b }
+        | Expr::Binary { lhs: a, rhs: b, .. }
+        | Expr::Assign { target: a, value: b } => {
+            rename_idents_in_expr(a, f);
+            rename_idents_in_expr(b, f);
+        }
+        Expr::Call { callee, args } | Expr::New { callee, args } => {
+            rename_idents_in_expr(callee, f);
+            args.iter_mut().for_each(|a| rename_idents_in_expr(a, f));
+        }
+        Expr::Cond { test, cons, alt } => {
+            rename_idents_in_expr(test, f);
+            rename_idents_in_expr(cons, f);
+            rename_idents_in_expr(alt, f);
+        }
+        Expr::ArrowBlock { body, .. } => rename_idents(body, f),
+        Expr::Num(_)
+        | Expr::BigInt(_)
+        | Expr::Str(_)
+        | Expr::Bool(_)
+        | Expr::Null
+        | Expr::Undefined => {}
+    }
+}
+
+/// Borrows each name from the tree rather than copying it, so a set of them
+/// costs the table and nothing else.
+struct Idents<'s, 'a>(&'s mut HashSet<&'a str>);
+
+impl<'a> Visit<'a> for Idents<'_, 'a> {
+    fn expr(&mut self, e: &'a Expr) {
         match e {
             Expr::Ident(name) => {
-                self.0.insert(name.clone());
+                self.0.insert(name);
             }
             _ => e.visit_children(self),
         }
     }
 
-    fn stmt(&mut self, s: &Stmt) {
+    fn stmt(&mut self, s: &'a Stmt) {
         match s {
-            Stmt::Raw(src) | Stmt::RawDecl { src, .. } => collect_idents_raw(src, self.0),
+            Stmt::Raw(src) => collect_idents_raw(src, self.0),
+            Stmt::RawDecl(decl) => self.0.extend(decl.idents()),
             _ => s.visit_children(self),
         }
     }
 }
 
-/// The runtime arrives as `Raw`, so its cross-references are found by scanning
-/// for identifier-shaped runs rather than by parsing.
-fn collect_idents_raw(src: &str, out: &mut HashSet<String>) {
+/// Verbatim source is text, not a tree, so its cross-references are found by
+/// scanning for identifier-shaped runs rather than by parsing.
+fn collect_idents_raw<'a>(src: &'a str, out: &mut HashSet<&'a str>) {
+    for (start, end) in raw_ident_ranges(src) {
+        if let Some(name) = src.get(start..end) {
+            out.insert(name);
+        }
+    }
+}
+
+/// Every identifier-shaped run in `src`, as a byte range. A run of identifier
+/// bytes is ASCII throughout, so both ends are character boundaries however the
+/// rest of the source is encoded.
+fn raw_ident_ranges(src: &str) -> impl Iterator<Item = (usize, usize)> + '_ {
     let bytes = src.as_bytes();
     let mut i = 0;
-    while let Some(c) = bytes.get(i) {
-        if c.is_ascii_alphabetic() || *c == b'_' || *c == b'$' {
-            let start = i;
-            while bytes
-                .get(i)
-                .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'$')
-            {
-                i += 1;
+    std::iter::from_fn(move || {
+        while let Some(c) = bytes.get(i) {
+            if c.is_ascii_alphabetic() || *c == b'_' || *c == b'$' {
+                let start = i;
+                while bytes
+                    .get(i)
+                    .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'$')
+                {
+                    i += 1;
+                }
+                return Some((start, i));
             }
-            // A run of identifier bytes is ASCII throughout, so both ends are
-            // character boundaries however the rest of the source is encoded.
-            if let Some(name) = src.get(start..i) {
-                out.insert(name.to_string());
-            }
-        } else {
             i += 1;
+        }
+        None
+    })
+}
+
+/// The identifiers every piece of verbatim source in `stmts` mentions — the
+/// names out of reach of any pass that rewrites the tree.
+fn raw_idents<'a>(stmts: &'a [Stmt], out: &mut HashSet<&'a str>) {
+    for s in stmts {
+        match s {
+            Stmt::Raw(src) => collect_idents_raw(src, out),
+            Stmt::RawDecl(decl) => out.extend(decl.idents()),
+            _ => {}
         }
     }
 }
@@ -2956,39 +3510,27 @@ const RESERVED: &[&str] = &[
 fn mangle_program(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     // Names the runtime reaches by string, plus anything the host needs to
     // see, must not be renamed.
-    let keep: HashSet<String> = roots.iter().cloned().collect();
-
-    let mut globals: Vec<String> = Vec::new();
-    for s in &stmts {
-        match s {
-            Stmt::Func { name, .. } | Stmt::Var { name, .. } => globals.push(name.clone()),
-            _ => {}
-        }
-    }
+    let mut untouchable: HashSet<&str> = roots.iter().map(String::as_str).collect();
     // Anything verbatim source mentions is out of reach of the renamer: the
     // runtime is text, not a tree, so its own names stay as they are.
-    let mut untouchable: HashSet<String> = keep;
+    raw_idents(&stmts, &mut untouchable);
     for s in &stmts {
-        match s {
-            Stmt::Raw(src) => collect_idents_raw(src, &mut untouchable),
-            Stmt::RawDecl { name, src } => {
-                untouchable.insert(name.clone());
-                collect_idents_raw(src, &mut untouchable);
-            }
-            _ => {}
+        if let Stmt::RawDecl(decl) = s {
+            untouchable.insert(&decl.name);
         }
     }
 
     let mut map: HashMap<String, String> = HashMap::default();
     let mut counter = 0usize;
-    for g in &globals {
-        if untouchable.contains(g) {
+    for s in &stmts {
+        let (Stmt::Func { name: g, .. } | Stmt::Var { name: g, .. }) = s else { continue };
+        if untouchable.contains(g.as_str()) {
             continue;
         }
         loop {
             let candidate = short_name(counter);
             counter += 1;
-            if RESERVED.contains(&candidate.as_str()) || untouchable.contains(&candidate) {
+            if RESERVED.contains(&candidate.as_str()) || untouchable.contains(candidate.as_str()) {
                 continue;
             }
             map.insert(g.clone(), candidate);
@@ -3003,8 +3545,9 @@ fn mangle_program(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     let by_short: HashMap<String, String> =
         map.iter().map(|(k, v)| (v.clone(), k.clone())).collect();
     let scope = Scope::global(&map, &by_short);
-    let mut pool = Pool::default();
-    Rename { scope: &scope, pool: &mut pool }.block(stmts)
+    // A pool per worker: what one holds is a function of the globals alone,
+    // so which statements a worker happened to rename first changes nothing.
+    each_statement_with(stmts, Pool::default, |pool, s| Rename { scope: &scope, pool }.stmt(s))
 }
 
 /// The names in scope while one body is renamed.
@@ -3382,8 +3925,8 @@ pub fn split_declarations(src: &str) -> Vec<(String, String)> {
 /// the one function this backend emits that `middle::rc` has no row for.
 pub fn has_await(stmts: &[Stmt]) -> bool {
     struct Finds(bool);
-    impl Visit for Finds {
-        fn expr(&mut self, e: &Expr) {
+    impl<'a> Visit<'a> for Finds {
+        fn expr(&mut self, e: &'a Expr) {
             match e {
                 _ if self.0 => {}
                 Expr::Await(_) => self.0 = true,
@@ -3392,7 +3935,7 @@ pub fn has_await(stmts: &[Stmt]) -> bool {
                 _ => e.visit_children(self),
             }
         }
-        fn stmt(&mut self, s: &Stmt) {
+        fn stmt(&mut self, s: &'a Stmt) {
             match s {
                 // Same reason as the arrow above.
                 _ if self.0 => {}
