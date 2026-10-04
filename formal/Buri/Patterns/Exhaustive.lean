@@ -3,7 +3,7 @@ import Buri.Patterns.Expand
 /-!
 # The exhaustiveness theorems
 
-The three statements `cli/src/compiler/semantics/exhaustiveness.rs` makes about
+The three statements `crates/semantics/src/compiler/semantics/exhaustiveness.rs` makes about
 a `match`:
 
 * **`exhaustive_correct`** -- if the checker accepts a `match` as exhaustive,

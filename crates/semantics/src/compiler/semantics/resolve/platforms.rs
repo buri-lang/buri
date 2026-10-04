@@ -22,7 +22,7 @@ pub fn is_effect_package_path(path: &str) -> bool {
 /// module standing in a package without a file of its own (a documented
 /// example), by its package's.
 pub fn is_effect_package_module(
-    ws: Option<&crate::build::workspace::Workspace>,
+    ws: Option<&dyn crate::build::workspace::Packages>,
     m: &crate::compiler::modules::ModuleData,
 ) -> bool {
     if m.role == Role::TestOnly || is_test_only_path(&m.path) {

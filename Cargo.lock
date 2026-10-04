@@ -55,6 +55,7 @@ dependencies = [
  "buri-docs",
  "buri-hash",
  "buri-project",
+ "buri-semantics",
  "buri-stdlib",
  "buri-syntax",
  "inkwell",
@@ -101,6 +102,18 @@ dependencies = [
  "tiny-skia",
  "tokio",
  "tungstenite",
+]
+
+[[package]]
+name = "buri-semantics"
+version = "0.3.19"
+dependencies = [
+ "buri-diagnostics",
+ "buri-docs",
+ "buri-hash",
+ "buri-project",
+ "buri-stdlib",
+ "buri-syntax",
 ]
 
 [[package]]
