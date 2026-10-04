@@ -6,7 +6,9 @@ reproduction: none
 ---
 # A single-value field is set once
 
-```textproto ignore why="a data file, not a build file"
+```textproto fail code=textproto-duplicate-field repo=cli/tests/docs/repositories/deploy file=lib/deploy/server.txtpb
+# proto-file: server.proto
+# proto-message: Server
 name: "api"
 name: "web"
 

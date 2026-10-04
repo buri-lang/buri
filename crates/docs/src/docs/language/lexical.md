@@ -76,10 +76,10 @@ A float literal must begin with a digit. `.5` is not a literal; write `0.5`
 
 Escapes:
 
-```buri ignore why="a table of spellings rather than a program: every line is a bare literal, which no body may hold as a statement"
-"\n"  "\r"  "\t"  "\0"  "\\"  "\""  "\$"   // the ones with names
-'\n'  '\r'  '\t'  '\0'  '\\'  '\''         // the same, in a character literal
-"\u{1F600}"   '\u{41}'                     // any scalar value, by code point
+```buri wrap=body
+let named = ["\n", "\r", "\t", "\0", "\\", "\""];
+let inCharacters = ['\n', '\r', '\t', '\0', '\\', '\''];
+let byCodePoint = ("\u{1b}", '\u{7f}'); // any scalar value
 ```
 
 `buri format` writes every C0 control and `DEL` as an escape (by name where it

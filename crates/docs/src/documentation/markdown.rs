@@ -103,7 +103,7 @@ impl Info {
 }
 
 /// Splits an info string into words, keeping a double-quoted value in one
-/// piece so `why="the grammar, not a program"` survives.
+/// piece so `file="lib/a b/server.txtpb"` survives.
 fn info_words(raw: &str) -> Result<Vec<String>, String> {
     let mut words = Vec::new();
     let mut cur = String::new();
@@ -991,15 +991,15 @@ mod tests {
 
     #[test]
     fn info_strings_parse() {
-        let i = parse_info("buri ignore why=\"the precedence table, not a program\"").unwrap();
-        assert_eq!(i.mode.as_deref(), Some("ignore"));
-        assert_eq!(i.get("why"), Some("the precedence table, not a program"));
+        let i = parse_info("textproto fail code=textproto-syntax file=\"lib/a b/server.txtpb\"").unwrap();
+        assert_eq!(i.mode.as_deref(), Some("fail"));
+        assert_eq!(i.get("file"), Some("lib/a b/server.txtpb"));
 
         let i = parse_info("buri check ctx=alloc,stdout").unwrap();
         assert_eq!(i.list("ctx"), vec!["alloc", "stdout"]);
 
         assert!(parse_info("buri run check").is_err(), "two modes is an error");
-        assert!(parse_info("buri why=\"unclosed").is_err());
+        assert!(parse_info("buri file=\"unclosed").is_err());
     }
 
     #[test]

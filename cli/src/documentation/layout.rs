@@ -220,6 +220,10 @@ pub fn format_document(file: &str, text: &str) -> Option<String> {
         if fence.lang != "textproto" {
             continue;
         }
+        // A `fail` fence shows the mistake, and laying it out could fix it.
+        if fence.info.as_ref().is_ok_and(|i| i.mode.as_deref() == Some("fail")) {
+            continue;
+        }
         let Some(canonical) = textproto_canonical(&fence.body) else {
             continue;
         };
@@ -578,7 +582,7 @@ mod tests {
     /// printer does not vouch for what the parser refuses.
     #[test]
     fn a_textproto_fence_the_parser_refuses_is_left_alone() {
-        let doc = "```textproto ignore why=\"a fragment\"\nlibrary {\n  sources: [\n```\n";
+        let doc = "```textproto schema=build\nlibrary {\n  sources: [\n```\n";
         assert!(format_document("test.md", doc).is_none());
     }
 

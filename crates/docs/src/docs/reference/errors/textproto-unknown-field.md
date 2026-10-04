@@ -6,7 +6,7 @@ reproduction: none
 ---
 # A field is one its message declares
 
-```textproto ignore why="a data file, not a build file"
+```textproto fail code=textproto-unknown-field repo=cli/tests/docs/repositories/deploy file=lib/deploy/server.txtpb
 # proto-file: server.proto
 # proto-message: Server
 name: "api"

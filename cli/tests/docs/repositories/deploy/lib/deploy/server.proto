@@ -1,0 +1,25 @@
+edition = "2026";
+
+package deploy.v1;
+
+enum Tier {
+    TIER_UNSPECIFIED = 0;
+    GOLD = 1;
+}
+
+message Server {
+    string name = 1;
+    repeated int32 ports = 2;
+    int32 port = 3;
+    Limits limits = 4;
+    Tier tier = 5;
+    oneof where {
+        string region = 6;
+        string zone = 7;
+    }
+    repeated Limits history = 8;
+
+    message Limits {
+        float cpu = 1;
+    }
+}

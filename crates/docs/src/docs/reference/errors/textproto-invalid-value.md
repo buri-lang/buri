@@ -6,7 +6,9 @@ reproduction: none
 ---
 # A value is one its field holds
 
-```textproto ignore why="a data file, not a build file"
+```textproto fail code=textproto-invalid-value repo=cli/tests/docs/repositories/deploy file=lib/deploy/server.txtpb
+# proto-file: server.proto
+# proto-message: Server
 port: "80"
 
 # an `int32` takes a whole number

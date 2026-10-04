@@ -21,19 +21,15 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 ```
 
-Moved into a test-only module, it's imported like anything else:
+In a test-only module, such as `lib/ledger/testing/fixtures.buri`, it compiles,
+and any test may import it:
 
-```buri ignore why="the fixture lives in a second module, and a doctest block is one file"
-from "core/io" import * as io;
-from "native" import { NativeHost };
+```buri repo=cli/tests/example package=//lib/ledger role=testing
 from "platform/effect" import { Allocator, Stdout };
+from "platform/effect/testing" import { alloc, stdout };
 
-// test-only, because it sits under a `testonly` directory
-from "//libs/testonly" import { Fixture };
-
-export fn main(host: NativeHost): Result<(), Str> {
-    let ctx = Fixture();
-    let _ = io.println(ctx, "hi").ignore();
-    .Ok(())
+export context Fixture {
+    Allocator: alloc(),
+    Stdout: stdout(),
 }
 ```
