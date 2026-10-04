@@ -983,7 +983,7 @@ fn resolves(cargo: &str, rustc: &str, pkg: &Path, target: &str) -> Option<bool> 
 /// would still parse — a term removed, a term's encoding changed. Adding a term
 /// needs no bump: a stamp written before it existed hashes differently and is a
 /// miss, which is the answer that rebuilds.
-const STAMP: &str = "buri-runtime-stamp 1";
+const STAMP: &str = "buri-runtime-stamp 2";
 
 /// Why the stamp exists, in one place, because everything below is in service
 /// of it.
@@ -1057,6 +1057,7 @@ fn stamp_of(
     rustc: &str,
     cc: &str,
     command: &Command,
+    out_dir: &Path,
 ) -> Option<String> {
     let mut h = sha256::Sha256::new();
     h.text(STAMP);
@@ -1094,16 +1095,36 @@ fn stamp_of(
     // The command line, minus the two flags added after this point:
     // `--locked` (which is `relock`, already a term) and `--offline` (which is
     // not about the bytes, see the header).
+    //
+    // `OUT_DIR` is written as a placeholder, here and in the environment, so
+    // that every `OUT_DIR` shares one key ([`SharedArchive`]).
     h.field(command.get_program().as_encoded_bytes());
     for arg in command.get_args() {
-        h.field(arg.as_encoded_bytes());
+        h.field(&portable(arg, out_dir));
     }
     h.text("trailing");
     for arg in RUNTIME_RUSTC_ARGS {
         h.text(arg);
     }
-    hash_environment(&mut h, command);
+    hash_environment(&mut h, command, out_dir);
     Some(h.finish())
+}
+
+/// `value` with every occurrence of `out_dir` replaced by `$OUT_DIR`.
+fn portable(value: &std::ffi::OsStr, out_dir: &Path) -> Vec<u8> {
+    let (value, out_dir) = (value.as_encoded_bytes(), out_dir.as_os_str().as_encoded_bytes());
+    let mut portable = Vec::with_capacity(value.len());
+    let mut at = 0;
+    while at < value.len() {
+        if !out_dir.is_empty() && value[at..].starts_with(out_dir) {
+            portable.extend_from_slice(b"$OUT_DIR");
+            at += out_dir.len();
+        } else {
+            portable.push(value[at]);
+            at += 1;
+        }
+    }
+    portable
 }
 
 /// Hashes every file under `dir`, name and bytes, in sorted order.
@@ -1159,7 +1180,7 @@ fn tool_version(program: &str, args: &[&str]) -> Option<String> {
 ///
 /// [`SHELL_BOOKKEEPING`] is the one concession, and it is a short list for a
 /// reason.
-fn hash_environment(h: &mut sha256::Sha256, command: &Command) {
+fn hash_environment(h: &mut sha256::Sha256, command: &Command, out_dir: &Path) {
     use std::collections::BTreeMap;
     use std::ffi::OsString;
     let mut env: BTreeMap<OsString, Option<OsString>> =
@@ -1170,13 +1191,25 @@ fn hash_environment(h: &mut sha256::Sha256, command: &Command) {
     h.text("env");
     for (key, value) in env {
         let Some(value) = value else { continue };
-        if SHELL_BOOKKEEPING.iter().any(|name| key == *name) {
+        let skip = SHELL_BOOKKEEPING.iter().chain(SET_FOR_EVERY_SCRIPT).chain(SCRATCH);
+        if skip.into_iter().any(|name| key == *name) {
             continue;
         }
         h.field(key.as_encoded_bytes());
-        h.field(value.as_encoded_bytes());
+        h.field(&portable(&value, out_dir));
     }
 }
+
+/// What Cargo sets for every build script it runs. The nested cargo sets its
+/// own for each script it runs and reads none of these itself, so they reach
+/// nothing. Leaving them out lets a test build and a dev build share a key.
+const SET_FOR_EVERY_SCRIPT: &[&str] =
+    &["OUT_DIR", "TARGET", "HOST", "NUM_JOBS", "OPT_LEVEL", "DEBUG", "PROFILE"];
+
+/// Scratch directories. `nix develop` names a fresh one on every invocation,
+/// so hashing them made every rerun of this script a nested build. Compilers
+/// write temporary files there and nothing from it reaches the archive.
+const SCRATCH: &[&str] = &["TMPDIR", "TMP", "TEMP", "TEMPDIR", "NIX_BUILD_TOP"];
 
 /// The variables [`hash_environment`] leaves out, and the whole of the
 /// judgement in this file that is not "hash it".
@@ -1480,7 +1513,7 @@ fn runtime_archive(manifest: &Path) {
     // a miss however well the inputs match.
     let stamp = stamp_of(
         manifest, &runtime, &pkg, &target, product.libc, &sysroot, &features, relock, &cargo,
-        &rustc, &cc, &command,
+        &rustc, &cc, &command, &out_dir,
     );
     if let (Some(fresh), Some((inputs, archive))) = (&stamp, read_stamp(&out)) {
         let current = std::fs::read(&out).map(|bytes| sha256::hash_bytes(&bytes));
@@ -1491,6 +1524,20 @@ fn runtime_archive(manifest: &Path) {
             write_digest_beside(&out, &archive);
             features_beside(&out, &features);
             libc_beside(&out, product.libc);
+            return;
+        }
+    }
+    // Another `OUT_DIR` may have built this archive already. Held until the
+    // end, so a second script with the same key waits rather than building.
+    let shared =
+        stamp.as_deref().filter(|_| !relock).and_then(|key| SharedArchive::open(&out_dir, key));
+    if let (Some(shared), Some(fresh)) = (&shared, &stamp) {
+        if let Some((bytes, digest)) = shared.get() {
+            write_if_different(&out, &bytes);
+            write_digest_beside(&out, &digest);
+            features_beside(&out, &features);
+            libc_beside(&out, product.libc);
+            write_stamp(&out, fresh, &digest);
             return;
         }
     }
@@ -1594,6 +1641,68 @@ fn runtime_archive(manifest: &Path) {
     match &stamp {
         Some(fresh) => write_stamp(&out, fresh, &digest),
         None => clear_stamp(&out),
+    }
+    if let Some(shared) = &shared {
+        shared.put(&bytes, &digest);
+    }
+}
+
+/// Archives kept by stamp under `<target-dir>/buri-runtime/`, shared by every
+/// `OUT_DIR` in the target directory.
+///
+/// Each profile and feature set gets its own `OUT_DIR`, so without this a
+/// test build, a dev build, a clippy run and a `backend-llvm` build each pay
+/// for a nested build of the same runtime. The stamp is path-independent, so
+/// it serves as the key.
+struct SharedArchive {
+    entry: PathBuf,
+    _lock: std::fs::File,
+}
+
+impl SharedArchive {
+    /// Opens and locks the entry for `key`. `None` when there is no target
+    /// directory to find or the lock can't be taken, which means building.
+    fn open(out_dir: &Path, key: &str) -> Option<Self> {
+        // Cargo writes `.rustc_info.json` at the root of the target directory.
+        let target = out_dir.ancestors().find(|dir| dir.join(".rustc_info.json").is_file())?;
+        let root = target.join("buri-runtime");
+        std::fs::create_dir_all(&root).ok()?;
+        prune(&root);
+        let lock = std::fs::File::create(root.join(format!("{key}.lock"))).ok()?;
+        lock.lock().ok()?;
+        Some(SharedArchive { entry: root.join(key), _lock: lock })
+    }
+
+    /// The kept archive and its digest, when its bytes still match it.
+    fn get(&self) -> Option<(Vec<u8>, String)> {
+        let digest = std::fs::read_to_string(self.entry.join("sha256")).ok()?;
+        let bytes = std::fs::read(self.entry.join("libburi_rt.a")).ok()?;
+        (sha256::hash_bytes(&bytes) == digest).then_some(())?;
+        // Kept fresh for `prune`.
+        let _ = std::fs::write(self.entry.join("used"), b"");
+        Some((bytes, digest))
+    }
+
+    /// Best effort: a failed write leaves no entry, which is a build next time.
+    fn put(&self, bytes: &[u8], digest: &str) {
+        let _ = std::fs::create_dir_all(&self.entry);
+        let _ = std::fs::write(self.entry.join("libburi_rt.a"), bytes)
+            .and_then(|()| std::fs::write(self.entry.join("used"), b""))
+            .and_then(|()| std::fs::write(self.entry.join("sha256"), digest));
+    }
+}
+
+/// Removes entries nothing has used for a week. A runtime edit leaves its old
+/// archive behind, and each one is about 16 MB.
+fn prune(root: &Path) {
+    const WEEK: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 60 * 60);
+    let Ok(entries) = std::fs::read_dir(root) else { return };
+    for entry in entries.flatten().filter(|e| e.path().is_dir()) {
+        let used = std::fs::metadata(entry.path().join("used")).and_then(|m| m.modified());
+        if used.is_ok_and(|t| t.elapsed().is_ok_and(|age| age > WEEK)) {
+            let _ = std::fs::remove_dir_all(entry.path());
+            let _ = std::fs::remove_file(entry.path().with_extension("lock"));
+        }
     }
 }
 
