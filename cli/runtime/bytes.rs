@@ -164,10 +164,9 @@ pub unsafe extern "C" fn buri_rt_bytes_from_utf8(
 /// every NaN `==` every other, regardless of sign or payload — and the only way
 /// to construct one is to decode it out of bytes, which is where this stands.
 ///
-/// Without it the two backends disagree on a pure byte-level round trip: a
-/// `Float` on JavaScript is a `number`, and moving a NaN through one is what
-/// canonicalizes it, so the payload cannot survive there whatever the decoder
-/// does. Native is the side that moves. VALUE-MODEL.md §12 row 16.
+/// Without it the backends disagree on a pure byte-level round trip.
+/// JavaScript's decoders canonicalize too (`$canonicalNan`), because whether a
+/// `number` keeps a payload depends on the engine. VALUE-MODEL.md §12 row 16.
 fn canonical(x: f64) -> f64 {
     if x.is_nan() {
         f64::NAN
