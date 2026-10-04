@@ -555,20 +555,25 @@ function $json_decode(j, d) {
 // rather than for the absence of a mark, because absence is the answer for
 // everything this backend did not make. design/native/MEMORY.md §5.5.
 //
-// An aggregate — a struct, a tuple, an enum, all of them arrays here — carries
-// no bit, because nothing writes into one: a functional update spells its
-// fields out or copies. What it needs is the *other* half of the question, so
-// that a field read out of it can pass the sharing on, and that is `$shared`.
+// An aggregate — a struct, a tuple, an enum, all of them arrays here — is
+// never written into: a functional update spells its fields out or copies.
+// What it needs is the *other* half of the question, so that a field read out
+// of it can pass the sharing on, and an array keeps that in the same `$u`, as
+// `false`. Every array is marked the same way, then, and `$share` answers the
+// common case — a value marked long ago — with one property read. A host array
+// marked `false` reads as ours and shared, which every operation below treats
+// exactly as it treats one with no `$u`: copied, never written to. An array
+// shows a host nothing by its named properties that it would read anyway:
+// `JSON.stringify`, spread and `Array.from` all walk only the indices.
 //
-// `$shared` is a symbol-keyed property rather than a `$u`, so the mark is
-// invisible to everything a host reads by name: `JSON.stringify`, `Object.keys`,
-// `for…in` and spread all skip a symbol key. A host array marked here still
-// carries no `$u`, so it still reads as not ours. It is a property rather than
-// a `WeakSet` entry because every element handed to a `fold` or a `map` is
+// Any other object is marked by `$shared`, a symbol-keyed property, which
+// `JSON.stringify`, `Object.keys`, `for…in` and spread all skip — an object's
+// named properties are what a host reads. Both marks are properties rather than
+// `WeakSet` entries because every element handed to a `fold` or a `map` is
 // marked, and a property store is several times cheaper than a `WeakSet.add`
 // in both bun and node.
 //
-// A frozen or sealed object cannot take the property, and writing one would
+// A frozen or sealed object cannot take either property, and writing one would
 // throw, so its mark goes into `$sharedFrozen` instead. `$fromShared` reads that
 // set only for an object that cannot be extended, so a program that never
 // meets one never looks there.
@@ -586,18 +591,14 @@ const $sharedFrozen = new WeakSet();
 // A second reference to a value has come into existence. Sticky: nothing ever
 // puts a value back, because the cost of an over-set mark is one copy and the
 // cost of a cleared one is an aliasing bug.
-//
-// The mark is asked about first because most calls find it: an aggregate is
-// marked once and then shared again and again, and a list never carries it, so
-// asking first answers the common case with one property read instead of two.
 function $share(v) {
-  if (v !== null && typeof v === "object" && v[$shared] !== true) {
+  if (v !== null && typeof v === "object") {
     const u = v.$u;
+    if (u === false) return v;
     if (u === true) v.$u = false;
-    else if (u === undefined) {
-      if (Object.isExtensible(v)) v[$shared] = true;
-      else $sharedFrozen.add(v);
-    }
+    else if (!Object.isExtensible(v)) $sharedFrozen.add(v);
+    else if (Array.isArray(v)) v.$u = false;
+    else v[$shared] = true;
   }
   return v;
 }
