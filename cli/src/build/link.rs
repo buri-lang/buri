@@ -1808,7 +1808,8 @@ impl CDriver {
             let entry = self
                 .store
                 .as_ref()
-                .and_then(|cache| cache.entry(&unit.key))
+                .zip(unit.key.as_ref())
+                .and_then(|(cache, key)| cache.entry(key))
                 .filter(|e| std::fs::metadata(e).is_ok_and(|m| m.len() == unit.bytes.len() as u64));
             if let Some(entry) = entry {
                 return match stage_from(&entry, &path) {
@@ -2631,7 +2632,7 @@ mod tests {
     fn the_decision_is_whether_an_object_names_a_runtime_symbol() {
         let unit = |bytes: &[u8]| Emitted {
             name: String::from("main.o"),
-            key: crate::build::cache::ActionKey::of(b""),
+            key: None,
             bytes: bytes.to_vec(),
         };
         assert_eq!(runtime_archive_for(&[]), RuntimeArchive::Omitted);
@@ -2937,7 +2938,7 @@ mod tests {
         assert!(compiled, "compiling main.c");
         let unit = Emitted {
             name: String::from("main.o"),
-            key: ActionKey::of(b"a replayed link"),
+            key: Some(ActionKey::of(b"a replayed link")),
             bytes: std::fs::read(&object).expect("main.o"),
         };
 

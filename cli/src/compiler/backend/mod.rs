@@ -195,14 +195,17 @@ impl Units<'_> {
 
 /// One codegen unit's output.
 ///
-/// `key` is the cache key the unit was produced under, and it is computed by
-/// the backend rather than by the build system: only the backend knows which of
-/// its own inputs — target triple, LLVM version, pass pipeline — the bytes
-/// depend on.
+/// `key` is the cache key the unit was stored under. **It belongs to the
+/// build system**: `build::actions::codegen_units_for` computes every unit's
+/// key before it asks for any emission, and replaces whatever the backend put
+/// here with it. A backend's statement about which of its own inputs the bytes
+/// depend on — target triple, LLVM version — is `Backend::identity`, which is in
+/// every key. So a backend may leave this `None`, and the stencil backend does:
+/// rendering a unit's IR a second time to hash it was a fifth of its emission.
 pub struct Emitted {
     /// Stable, deterministic, and a filename: `lib_money.o`, `main.mjs`.
     pub name: String,
-    pub key: ActionKey,
+    pub key: Option<ActionKey>,
     pub bytes: Vec<u8>,
 }
 
@@ -245,6 +248,9 @@ pub trait Backend {
     /// `&mut self` because an LLVM `Context` is not `Sync` and owns everything
     /// built inside it; a `&self` signature would force interior mutability on
     /// the one backend that most wants a plain owned object.
+    ///
+    /// The objects' cache keys are the caller's, not this method's: see
+    /// [`Emitted`].
     fn emit(
         &mut self,
         program: &Program,

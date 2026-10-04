@@ -132,14 +132,14 @@ impl Js {
         let bytes = render(stmts, &roots);
         emitted.push(Emitted {
             name: String::from("main.mjs"),
-            key: crate::build::cache::ActionKey::of(&bytes),
+            key: Some(crate::build::cache::ActionKey::of(&bytes)),
             bytes,
         });
         for (n, chunk) in chunks.into_iter().enumerate() {
             let bytes = render(chunk.stmts, &chunk.roots);
             emitted.push(Emitted {
                 name: format!("chunk.{n}.mjs"),
-                key: crate::build::cache::ActionKey::of(&bytes),
+                key: Some(crate::build::cache::ActionKey::of(&bytes)),
                 bytes,
             });
         }

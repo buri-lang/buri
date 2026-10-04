@@ -69,7 +69,7 @@ use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::semantics::typed::{
     self, Arm, Expr, ExprKind, FieldPat, PatKind, Pattern,
 };
-use crate::compiler::semantics::types::{LocalId, TyConId};
+use crate::compiler::semantics::types::{LocalId, Ty, TyConId};
 use crate::hash::Map;
 
 /// Rewrites every `Match` whose arms discriminate on a scrutinee into a tree
@@ -84,14 +84,17 @@ pub fn run(program: &mut Program) {
 
 /// Depth first, so an arm's body is already a tree by the time the match
 /// holding it becomes one — and so the nested matches this pass *creates* are
-/// visited by the explicit call in [`group`] rather than being missed.
+/// visited by the explicit call in [`collapse`] rather than being missed.
+///
+/// Nothing here clones an arm that it keeps: a match is decided from borrowed
+/// patterns first, and its arms are moved into the tree only once every group
+/// is known to succeed. Cloning every node's type and every kept arm was most
+/// of this pass's time, on a pass whose output is the size of its input.
 fn rewrite(locals: &mut Vec<typed::Local>, e: &mut Expr) {
     typed::children_mut(e, &mut |child| rewrite(locals, child));
-    let ty = e.ty.clone();
-    if let ExprKind::Match { arms, .. } = &mut e.kind {
-        if let Some(grouped) = group(locals, arms, &ty) {
-            *arms = grouped;
-        }
+    let Expr { kind, ty, .. } = e;
+    if let ExprKind::Match { arms, .. } = kind {
+        group(locals, arms, ty);
     }
 }
 
@@ -101,11 +104,11 @@ fn rewrite(locals: &mut Vec<typed::Local>, e: &mut Expr) {
 /// they were written; two arms with different constructor heads are two arms no
 /// value can both reach.
 #[derive(Clone, PartialEq, Eq, Hash)]
-enum Head {
+enum Head<'a> {
     /// A variant of an enum, by its index and the type it belongs to.
     Tag(TyConId, usize),
     Int(u128, bool),
-    Str(String),
+    Str(&'a str),
     Char(char),
     Bool(bool),
     /// Matches whatever it is given: a wildcard, or a plain binding.
@@ -113,7 +116,7 @@ enum Head {
 }
 
 /// The head of a pattern, or `None` for a shape this pass does not rewrite.
-fn head(p: &Pattern) -> Option<Head> {
+fn head(p: &Pattern) -> Option<Head<'_>> {
     match &p.kind {
         PatKind::Wild | PatKind::Unit => Some(Head::Any),
         // A binding *with* a sub-pattern tests through the binding, and
@@ -122,7 +125,7 @@ fn head(p: &Pattern) -> Option<Head> {
         PatKind::Bind { sub: None, .. } => Some(Head::Any),
         PatKind::Variant { con, variant, .. } => Some(Head::Tag(*con, *variant)),
         PatKind::Int(v, neg) => Some(Head::Int(*v, *neg)),
-        PatKind::Str(s) => Some(Head::Str(s.clone())),
+        PatKind::Str(s) => Some(Head::Str(s)),
         PatKind::Char(c) => Some(Head::Char(*c)),
         PatKind::Bool(b) => Some(Head::Bool(*b)),
         _ => None,
@@ -145,17 +148,26 @@ fn always_matches(p: &Pattern) -> bool {
     }
 }
 
-/// The arms of one match, grouped by head — or `None` where grouping would
-/// have to guess.
-fn group(
-    locals: &mut Vec<typed::Local>,
-    arms: &[Arm],
-    ty: &crate::compiler::semantics::types::Ty,
-) -> Option<Vec<Arm>> {
+/// What becomes of one group of arms.
+enum Fate {
+    /// One arm, total: it is already the group, and moves as it is.
+    Keep,
+    /// Several arms, collapsed on this field.
+    Collapse(usize),
+    /// A group the rewrite cannot build, so the whole match stays a chain.
+    Decline,
+}
+
+/// The arms of one match, grouped by head — or left as they are where
+/// grouping would have to guess.
+fn group(locals: &mut Vec<typed::Local>, arms: &mut Vec<Arm>, ty: &Ty) {
     if arms.len() < 2 {
-        return None;
+        return;
     }
-    let heads: Vec<Head> = arms.iter().map(|a| head(&a.pattern)).collect::<Option<_>>()?;
+    let Some(heads) = arms.iter().map(|a| head(&a.pattern)).collect::<Option<Vec<Head>>>()
+    else {
+        return;
+    };
 
     // An arm that matches anything ends the match: nothing after it is
     // reachable. Anywhere but last it is a shape this pass declines rather
@@ -163,11 +175,11 @@ fn group(
     let default = match heads.split_last() {
         Some((Head::Any, rest)) if !rest.contains(&Head::Any) => true,
         Some((_, rest)) if !rest.contains(&Head::Any) => false,
-        _ => return None,
+        _ => return,
     };
     // A guard on the default arm makes it not a default.
     if default && arms.last().is_some_and(|a| a.guard.is_some()) {
-        return None;
+        return;
     }
 
     // First-appearance order, so the emitted tests are in the order they were
@@ -178,45 +190,70 @@ fn group(
     // for. A scan per head is quadratic in the arm count, and a match is as
     // wide as its enum: `wide-match/20k` is one 10,000-arm match, and this was
     // 100 M head comparisons in a pass whose output is linear.
-    let tested = heads.len().checked_sub(usize::from(default))?;
-    let mut order: Vec<usize> = Vec::new();
+    let count = heads.len();
+    let Some(tested) = count.checked_sub(usize::from(default)) else { return };
     let mut group_of: Map<&Head, usize> = Map::default();
-    let mut groups: Vec<Vec<&Arm>> = Vec::new();
-    for (arm, h) in arms.iter().zip(&heads).take(tested) {
-        let slot = match group_of.get(h) {
-            Some(slot) => *slot,
-            None => {
-                let slot = groups.len();
-                group_of.insert(h, slot);
-                groups.push(Vec::new());
-                order.push(slot);
-                slot
-            }
-        };
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for (i, h) in heads.iter().enumerate().take(tested) {
+        let slot = *group_of.entry(h).or_insert_with(|| {
+            groups.push(Vec::new());
+            groups.len().saturating_sub(1)
+        });
         if let Some(rows) = groups.get_mut(slot) {
-            rows.push(arm);
+            rows.push(i);
         }
     }
     // Nothing to hoist: one test is one test however it is emitted.
-    if order.len() < 2 {
-        return None;
+    if groups.len() < 2 {
+        return;
     }
 
-    let mut out: Vec<Arm> = Vec::new();
-    for rows in &groups {
-        out.push(match rows.as_slice() {
+    let fates: Vec<Fate> = groups
+        .iter()
+        .map(|rows| match rows.as_slice() {
             // One arm tests this constructor, so it is already the group.
             // Whether it can fail still matters: a value that reaches it and
             // fails has nowhere left to go.
-            [only] if total(only) => (*only).clone(),
-            [] | [_] => return None,
-            many => collapse(locals, many, ty)?,
-        });
+            [only] if arms.get(*only).is_some_and(total) => Fate::Keep,
+            [] | [_] => Fate::Decline,
+            many => {
+                let rows: Vec<&Arm> = many.iter().filter_map(|i| arms.get(*i)).collect();
+                column(&rows).map_or(Fate::Decline, Fate::Collapse)
+            }
+        })
+        .collect();
+
+    if let Some(declined) = fates.iter().position(|f| matches!(f, Fate::Decline)) {
+        // The groups ahead of the one that declined are built anyway, from
+        // copies, and thrown away: each takes fresh locals, and a local's
+        // index is its name, so taking them is what keeps every later one
+        // where it was.
+        for (rows, fate) in groups.iter().zip(&fates).take(declined) {
+            if let Fate::Collapse(c) = fate {
+                let rows: Vec<Arm> = rows.iter().filter_map(|i| arms.get(*i)).cloned().collect();
+                drop(collapse(locals, rows, *c, ty));
+            }
+        }
+        return;
+    }
+
+    let mut owned: Vec<Option<Arm>> = std::mem::take(arms).into_iter().map(Some).collect();
+    let mut take = |i: usize| owned.get_mut(i).and_then(Option::take);
+    let mut out: Vec<Arm> = Vec::with_capacity(groups.len().saturating_add(usize::from(default)));
+    for (rows, fate) in groups.iter().zip(&fates) {
+        match fate {
+            Fate::Keep => out.extend(rows.first().and_then(|i| take(*i))),
+            Fate::Collapse(c) => {
+                let rows: Vec<Arm> = rows.iter().filter_map(|i| take(*i)).collect();
+                out.extend(collapse(locals, rows, *c, ty));
+            }
+            Fate::Decline => {}
+        }
     }
     if default {
-        out.push(arms.last()?.clone());
+        out.extend(take(count.saturating_sub(1)));
     }
-    Some(out)
+    *arms = out;
 }
 
 /// Whether an arm, having matched its head, cannot then fail.
@@ -231,24 +268,15 @@ fn fields_of(p: &Pattern) -> &[FieldPat] {
     }
 }
 
-/// Several arms testing one constructor, collapsed into one arm that tests it
-/// and one `Match` on the field they disagree about.
+/// The field that several arms testing one constructor can be collapsed on,
+/// or `None` where they cannot be.
 ///
-/// The field is bound to a fresh local rather than re-projected per arm, which
-/// is what "shared tests hoisted" means here: the head is tested once, the
-/// projection happens once, and what is left is a smaller match the same rules
-/// apply to.
-fn collapse(
-    locals: &mut Vec<typed::Local>,
-    rows: &[&Arm],
-    ty: &crate::compiler::semantics::types::Ty,
-) -> Option<Arm> {
+/// One column. Two arms disagreeing about two fields of one constructor would
+/// need a scrutinee that is both, and building a tuple to be one is an
+/// allocation this pass would be adding rather than removing.
+fn column(rows: &[&Arm]) -> Option<usize> {
     let first = rows.first()?;
-    let PatKind::Variant { con, variant, .. } = &first.pattern.kind else { return None };
-
-    // One column. Two arms disagreeing about two fields of one constructor
-    // would need a scrutinee that is both, and building a tuple to be one is
-    // an allocation this pass would be adding rather than removing.
+    let PatKind::Variant { .. } = &first.pattern.kind else { return None };
     let mut tested: Option<usize> = None;
     for row in rows {
         for f in fields_of(&row.pattern) {
@@ -273,48 +301,58 @@ fn collapse(
     if !total(rows.last()?) {
         return None;
     }
+    Some(column)
+}
 
+/// Several arms testing one constructor, collapsed into one arm that tests it
+/// and one `Match` on the field [`column`] chose.
+///
+/// The field is bound to a fresh local rather than re-projected per arm, which
+/// is what "shared tests hoisted" means here: the head is tested once, the
+/// projection happens once, and what is left is a smaller match the same rules
+/// apply to.
+fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &Ty) -> Option<Arm> {
+    let first = rows.first()?;
+    let PatKind::Variant { con, variant, .. } = &first.pattern.kind else { return None };
+    let (con, variant) = (*con, *variant);
+    let (head_ty, head_span, arm_span) =
+        (first.pattern.ty.clone(), first.pattern.span, first.span);
+
+    // Each row's pattern on the column, moved out of it. A row that does not
+    // name the column matches anything there.
+    let sub = |row: &mut Arm| -> Pattern {
+        let span = row.pattern.span;
+        let found = match &mut row.pattern.kind {
+            PatKind::Variant { fields, .. } => fields.iter_mut().find(|f| f.index == column),
+            _ => None,
+        };
+        match found {
+            Some(f) => std::mem::replace(
+                &mut f.pattern,
+                Pattern { kind: PatKind::Wild, ty: Ty::Unit, span },
+            ),
+            None => Pattern { kind: PatKind::Wild, ty: head_ty.clone(), span },
+        }
+    };
+    let mut arms: Vec<Arm> = Vec::with_capacity(rows.len());
+    for mut row in rows {
+        let pattern = sub(&mut row);
+        arms.push(Arm { pattern, guard: row.guard, body: row.body, span: row.span });
+    }
     // The fresh local takes its type from the pattern that was matching it,
     // which is the one place a type is available without the type tables.
-    let sub = |row: &Arm| -> Pattern {
-        fields_of(&row.pattern)
-            .iter()
-            .find(|f| f.index == column)
-            .map(|f| f.pattern.clone())
-            .unwrap_or(Pattern {
-                kind: PatKind::Wild,
-                ty: first.pattern.ty.clone(),
-                span: row.pattern.span,
-            })
-    };
-    let bound = sub(first);
+    let bound = &arms.first()?.pattern;
+    let (bound_ty, bound_span) = (bound.ty.clone(), bound.span);
     let held = LocalId(locals.len() as u32);
-    locals.push(typed::Local {
-        name: "col".to_string(),
-        ty: bound.ty.clone(),
-        span: bound.span,
-    });
+    locals.push(typed::Local { name: "col".to_string(), ty: bound_ty.clone(), span: bound_span });
 
-    let arms: Vec<Arm> = rows
-        .iter()
-        .map(|row| Arm {
-            pattern: sub(row),
-            guard: row.guard.clone(),
-            body: row.body.clone(),
-            span: row.span,
-        })
-        .collect();
     let mut body = Expr::new(
         ExprKind::Match {
-            scrutinee: Box::new(Expr::new(
-                ExprKind::Local(held),
-                bound.ty.clone(),
-                bound.span,
-            )),
+            scrutinee: Box::new(Expr::new(ExprKind::Local(held), bound_ty.clone(), bound_span)),
             arms,
         },
         ty.clone(),
-        first.span,
+        arm_span,
     );
     // The match just built is a match like any other, and the column below it
     // may be a tree too.
@@ -323,23 +361,23 @@ fn collapse(
     Some(Arm {
         pattern: Pattern {
             kind: PatKind::Variant {
-                con: *con,
-                variant: *variant,
+                con,
+                variant,
                 fields: vec![FieldPat {
                     index: column,
                     pattern: Pattern {
                         kind: PatKind::Bind { local: held, sub: None },
-                        ty: bound.ty,
-                        span: bound.span,
+                        ty: bound_ty,
+                        span: bound_span,
                     },
                 }],
             },
-            ty: first.pattern.ty.clone(),
-            span: first.pattern.span,
+            ty: head_ty,
+            span: head_span,
         },
         guard: None,
         body,
-        span: first.span,
+        span: arm_span,
     })
 }
 

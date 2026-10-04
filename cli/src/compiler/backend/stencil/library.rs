@@ -11,7 +11,7 @@
 //! The one place this deviates from the paper is *what a hole is patched with*,
 //! and it is an ISA fact rather than a design choice — see [`HoleKind`].
 
-use std::collections::HashMap;
+use crate::hash::Map as HashMap;
 
 /// How a hole's value reaches the instruction stream.
 ///
@@ -357,6 +357,14 @@ pub const FOLD_PLAIN: usize = 1;
 /// The slot of [`Library::fold_twins`] that names no stencil.
 const NO_TWIN: u32 = u32::MAX;
 
+/// The suffix of a two-target stencil's twin whose arms are laid out the other
+/// way round (`extract::swap_arms`).
+const SWAP_SUFFIX: &str = "+swap";
+
+/// A row of [`Library::twins`]: the [`FOLD_SUFFIXES`] twins, then the
+/// [`SWAP_SUFFIX`] one.
+const TWINS: usize = FOLD_SUFFIXES_LEN + 1;
+
 #[derive(Default)]
 pub struct Library {
     pub stencils: Vec<Stencil>,
@@ -364,8 +372,8 @@ pub struct Library {
     /// Wall time clang spent, milliseconds, when this library was built.
     pub build_ms: f64,
     pub config: String,
-    /// Each stencil's [`FOLD_SUFFIXES`] twins, by index into `stencils`,
-    /// resolved on first use and never again.
+    /// Each stencil's [`FOLD_SUFFIXES`] twins and its [`SWAP_SUFFIX`] one, by
+    /// index into `stencils`, resolved on first use and never again.
     ///
     /// The emitter asks for all three on **every stencil it copies**, and it
     /// used to ask by building three `String`s with `format!` and hashing each
@@ -379,7 +387,7 @@ pub struct Library {
     /// is then shared by every codegen thread: a value that is derived rather
     /// than stored cannot be forgotten by a caller that builds a `Library` some
     /// other way.
-    pub twins: std::sync::OnceLock<Vec<[u32; FOLD_SUFFIXES_LEN]>>,
+    pub twins: std::sync::OnceLock<Vec<[u32; TWINS]>>,
 }
 
 impl Library {
@@ -396,19 +404,32 @@ impl Library {
     /// The `k`th [`FOLD_SUFFIXES`] twin of the stencil at `i`, if the library
     /// has one.
     pub fn fold_twin(&self, i: usize, k: usize) -> Option<&Stencil> {
+        if k >= FOLD_SUFFIXES_LEN {
+            return None;
+        }
+        self.twin(i, k).map(|(_, s)| s)
+    }
+
+    /// The [`SWAP_SUFFIX`] twin of the stencil at `i`, and its index, if the
+    /// library has one.
+    pub fn swap_twin(&self, i: usize) -> Option<(usize, &Stencil)> {
+        self.twin(i, FOLD_SUFFIXES_LEN)
+    }
+
+    fn twin(&self, i: usize, k: usize) -> Option<(usize, &Stencil)> {
         let j = *self.fold_twins().get(i)?.get(k)?;
         if j == NO_TWIN {
             return None;
         }
-        self.stencils.get(j as usize)
+        Some((j as usize, self.stencils.get(j as usize)?))
     }
 
-    fn fold_twins(&self) -> &[[u32; FOLD_SUFFIXES_LEN]] {
+    fn fold_twins(&self) -> &[[u32; TWINS]] {
         self.twins.get_or_init(|| {
-            let mut out = vec![[NO_TWIN; FOLD_SUFFIXES_LEN]; self.stencils.len()];
+            let mut out = vec![[NO_TWIN; TWINS]; self.stencils.len()];
             let mut name = String::new();
             for (i, s) in self.stencils.iter().enumerate() {
-                for (k, suffix) in FOLD_SUFFIXES.iter().enumerate() {
+                for (k, suffix) in FOLD_SUFFIXES.iter().chain([&SWAP_SUFFIX]).enumerate() {
                     name.clear();
                     name.push_str(&s.name);
                     name.push_str(suffix);
@@ -584,7 +605,7 @@ impl Library {
         }
         let config = c.str()?;
         let n = c.usize()?;
-        let mut index: HashMap<String, u32> = HashMap::with_capacity(n);
+        let mut index: HashMap<String, u32> = HashMap::with_capacity_and_hasher(n, Default::default());
         for i in 0..n {
             index.insert(c.str()?, i as u32);
         }
@@ -662,7 +683,7 @@ mod tests {
             const_refs: vec![ConstRef { field: 2, insn_end: 6, at: 0 }],
             tail: Some(0),
         };
-        let mut index = HashMap::new();
+        let mut index = HashMap::default();
         index.insert(s.name.clone(), 0);
         Library {
             stencils: vec![s],
