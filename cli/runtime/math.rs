@@ -85,7 +85,7 @@ pub extern "C" fn buri_rt_math_round(x: f64) -> f64 {
     if x > 0.0 && x < 0.5 {
         return 0.0;
     }
-    if x < 0.0 && x >= -0.5 {
+    if (-0.5..0.0).contains(&x) {
         return -0.0;
     }
     (x + 0.5).floor()

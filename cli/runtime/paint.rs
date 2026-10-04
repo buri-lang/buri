@@ -259,7 +259,9 @@ use tiny_skia::{
 #[path = "image.rs"]
 mod image;
 
-use image::{Picture, decode, pixel_bytes};
+#[cfg(test)]
+use image::decode;
+use image::{Picture, pixel_bytes};
 
 // ---------------------------------------------------------------------------
 // The bundled family
@@ -383,6 +385,7 @@ pub struct Request<'a> {
 /// # Errors
 /// Answers `Err` with one sentence for any scene, stylesheet or state it
 /// cannot read.
+#[cfg(test)]
 pub fn render(request: &Request) -> Result<Vec<u8>, String> {
     Ok(encode_png(&raster(request)?))
 }
@@ -475,7 +478,7 @@ pub fn compare(golden: &[u8], pixmap: &Pixmap) -> Result<Option<Vec<u8>>, String
 /// only a translucent pixel is demultiplied.
 fn straight_row(premultiplied: &[u8], out: &mut [u8]) {
     out.copy_from_slice(premultiplied);
-    for pixel in out.chunks_exact_mut(4) {
+    for pixel in out.as_chunks_mut::<4>().0 {
         if pixel[3] != 255 {
             let p = PremultipliedColorU8::from_rgba(pixel[0], pixel[1], pixel[2], pixel[3])
                 .map_or(tiny_skia::ColorU8::from_rgba(0, 0, 0, 0), |p| p.demultiply());
@@ -681,6 +684,7 @@ fn substitute_once<'a>(value: &'a str, variables: &[(String, String)]) -> Cow<'a
 ///
 /// # Errors
 /// Answers `Err` when either input is not a PNG this painter wrote.
+#[cfg(test)]
 pub fn diff(golden: &[u8], actual: &[u8]) -> Result<Option<Vec<u8>>, String> {
     if golden == actual {
         return Ok(None);
@@ -1456,10 +1460,10 @@ impl Computed {
         let mut out = [0.0; 4];
         for (i, slot) in out.iter_mut().enumerate() {
             let present = self.border_style.get(i).copied().unwrap_or(Border::None);
-            if present != Border::None {
-                if let Some(Len::Px(n)) = self.border_width.get(i).copied() {
-                    *slot = n.max(0.0);
-                }
+            if present != Border::None
+                && let Some(Len::Px(n)) = self.border_width.get(i).copied()
+            {
+                *slot = n.max(0.0);
             }
         }
         out
@@ -2347,24 +2351,24 @@ impl Fonts {
     }
 }
 
-/// The shaper and the glyph rasterizer, kept for the life of the thread.
-///
-/// **Reuse, not state.** Both are caches over an immutable font database — a
-/// shaped run keyed by its text and attributes, a glyph image keyed by its
-/// cache key — so the second render of a scene reads what the first computed
-/// and answers the same bytes. What it saves is real: parsing the three faces
-/// and warming the caches is most of the cost of painting one small tree, and a
-/// suite paints one per `test` block.
-///
-/// A thread local rather than a static, because `SwashCache` is not `Sync` and
-/// nothing here wants a lock on the paint path. A suite paints on the thread
-/// that ran the block, so the cache is warm exactly where the work is.
-///
-/// `the_same_scene_renders_to_the_same_bytes_twice` is the assertion that
-/// reuse is invisible, and every golden in `cli/tests/repositories/ui/` is the
-/// same assertion at fourteen scenes at once: a cache that changed an answer
-/// would move a picture.
 thread_local! {
+    /// The shaper and the glyph rasterizer, kept for the life of the thread.
+    ///
+    /// **Reuse, not state.** Both are caches over an immutable font database — a
+    /// shaped run keyed by its text and attributes, a glyph image keyed by its
+    /// cache key — so the second render of a scene reads what the first computed
+    /// and answers the same bytes. What it saves is real: parsing the three faces
+    /// and warming the caches is most of the cost of painting one small tree, and a
+    /// suite paints one per `test` block.
+    ///
+    /// A thread local rather than a static, because `SwashCache` is not `Sync` and
+    /// nothing here wants a lock on the paint path. A suite paints on the thread
+    /// that ran the block, so the cache is warm exactly where the work is.
+    ///
+    /// `the_same_scene_renders_to_the_same_bytes_twice` is the assertion that
+    /// reuse is invisible, and every golden in `cli/tests/repositories/ui/` is the
+    /// same assertion at fourteen scenes at once: a cache that changed an answer
+    /// would move a picture.
     static FACES: std::cell::RefCell<Fonts> = std::cell::RefCell::new(Fonts::new());
 }
 
@@ -2463,6 +2467,10 @@ thread_local! {
 /// Blurred shadow coverage by the shape it was blurred from.
 type Shadows = std::collections::HashMap<ShadowKey, std::rc::Rc<[u8]>>;
 
+/// A text run's `(width, height)` by its node, the width it was asked at and
+/// its wrap mode.
+type Measures = std::collections::HashMap<(usize, u64, u8), (f32, f32)>;
+
 /// The most blurred-shadow coverage [`SHADOW_CACHE`] holds at once: a few
 /// hundred card-sized shadows, and a small fraction of one full-page canvas.
 const SHADOW_CACHE_BYTES: usize = 16 << 20;
@@ -2492,8 +2500,7 @@ thread_local! {
     /// height)` back, so that is what is cached, keyed by the node, the width
     /// it was asked at and the wrap mode. The style and text a node carries do
     /// not change inside a paint, so the node index names them.
-    static MEASURE_CACHE: std::cell::RefCell<std::collections::HashMap<(usize, u64, u8), (f32, f32)>> =
-        std::cell::RefCell::new(std::collections::HashMap::new());
+    static MEASURE_CACHE: std::cell::RefCell<Measures> = std::cell::RefCell::new(Measures::new());
 }
 
 /// The characters a run is shaped from: the hint where there is nothing to
@@ -3004,87 +3011,91 @@ fn reach_of(
     fixed: &[usize],
 ) -> Box2 {
     let mut out = Box2 { l: 0, t: 0, r: 0, b: 0 };
-    let mut lifted = |index: usize| styles.get(index).is_some_and(|style| style.fixed);
+    let lifted = |index: usize| styles.get(index).is_some_and(|style| style.fixed);
+    let walk = Reach { scene, styles, tree, ids };
     for &index in &scene.roots {
         if lifted(index) {
             continue;
         }
-        reach(scene, styles, tree, ids, index, 0.0, 0.0, None, &mut out);
+        walk.reach(index, 0.0, 0.0, None, &mut out);
     }
     for &index in fixed {
-        reach(scene, styles, tree, ids, index, 0.0, 0.0, None, &mut out);
+        walk.reach(index, 0.0, 0.0, None, &mut out);
     }
     out
 }
 
-/// One node's own paint, and everything under it, into `out`.
-///
-/// **It mirrors [`Painter::draw`] and has to keep mirroring it**: the same
-/// translate, the same shadow, the same early stops, and the same clip. A box
-/// this walk does not know about is a box the picture cuts off; a box it
-/// counts that `draw` does not is white space at the edge of every golden.
-fn reach(
-    scene: &Scene,
-    styles: &[Computed],
-    tree: &TaffyTree<usize>,
-    ids: &[Option<NodeId>],
-    index: usize,
-    x: f32,
-    y: f32,
-    clip: Option<Box2>,
-    out: &mut Box2,
-) {
-    let (Some(node), Some(style), Some(&Some(id))) =
-        (scene.node(index), styles.get(index), ids.get(index))
-    else {
-        return;
-    };
-    let Ok(layout) = tree.layout(id) else { return };
-    let (across, down) = shift(style, layout.size);
-    let left = x + layout.location.x + across;
-    let top = y + layout.location.y + down;
-    let box_ = Box2 {
-        l: px(left),
-        t: px(top),
-        r: px(left + layout.size.width),
-        b: px(top + layout.size.height),
-    };
+/// What [`Reach::reach`] reads and never changes: the scene, its styles and
+/// its layout.
+struct Reach<'a> {
+    scene: &'a Scene,
+    styles: &'a [Computed],
+    tree: &'a TaffyTree<usize>,
+    ids: &'a [Option<NodeId>],
+}
 
-    // An outer shadow paints outside the box that cast it, offset, spread and
-    // blurred. A `fit` page grows downward to hold what a box casts below it,
-    // so the shadow's own extent counts there — but **a shadow never widens the
-    // page**. A browser clips a `box-shadow` at the viewport's edge and never
-    // lets it affect layout or scroll overflow, so a blur that runs past the
-    // page sideways is cut at the page's width rather than made into canvas no
-    // phone has (#169). The box that cast it still widens the canvas where its
-    // own geometry runs past the edge — a wide dock, a bleed, a translate — so
-    // only the shadow is held to the page's inline size.
-    let mut painted = box_;
-    let edge = px(scene.width as f32);
-    for shadow in &style.shadow {
-        let cast =
-            box_.offset(shadow.x, shadow.y).grow(shadow.spread + reach_of_blur(shadow.blur));
-        painted = painted.union(Box2 { l: cast.l.max(0), r: cast.r.min(edge), ..cast });
-    }
-    out.absorb(painted.met_by(clip));
+impl Reach<'_> {
+    /// One node's own paint, and everything under it, into `out`.
+    ///
+    /// **It mirrors [`Painter::draw`] and has to keep mirroring it**: the same
+    /// translate, the same shadow, the same early stops, and the same clip. A box
+    /// this walk does not know about is a box the picture cuts off; a box it
+    /// counts that `draw` does not is white space at the edge of every golden.
+    fn reach(&self, index: usize, x: f32, y: f32, clip: Option<Box2>, out: &mut Box2) {
+        let Reach { scene, styles, tree, ids } = *self;
+        let (Some(node), Some(style), Some(&Some(id))) =
+            (scene.node(index), styles.get(index), ids.get(index))
+        else {
+            return;
+        };
+        let Ok(layout) = tree.layout(id) else { return };
+        let (across, down) = shift(style, layout.size);
+        let left = x + layout.location.x + across;
+        let top = y + layout.location.y + down;
+        let box_ = Box2 {
+            l: px(left),
+            t: px(top),
+            r: px(left + layout.size.width),
+            b: px(top + layout.size.height),
+        };
 
-    // A picture, a slider and a mark are what their box holds, and none of the
-    // three has children — the same three places `draw` stops at.
-    if node.picture.is_some() || style.range.is_some() || style.mark != Mark::None {
-        return;
-    }
-    // Any `overflow` but `visible` — the `clip` a `Clip` writes and the `auto`
-    // a `Scroll` writes alike — cuts what is under it to this box, so a scroll
-    // container is measured at its own box and never at what it scrolls.
-    let inner = if style.clipped[0] || style.clipped[1] { Some(box_.met_by(clip)) } else { clip };
-    let from = children_origin(style, tree, id, (x + across, y + down), (left, top));
-    for &child in &node.children {
-        // A fixed child hangs off the page rather than off this box, so it is
-        // neither placed here nor clipped by anything here.
-        if styles.get(child).is_some_and(|s| s.fixed) {
-            continue;
+        // An outer shadow paints outside the box that cast it, offset, spread and
+        // blurred. A `fit` page grows downward to hold what a box casts below it,
+        // so the shadow's own extent counts there — but **a shadow never widens the
+        // page**. A browser clips a `box-shadow` at the viewport's edge and never
+        // lets it affect layout or scroll overflow, so a blur that runs past the
+        // page sideways is cut at the page's width rather than made into canvas no
+        // phone has (#169). The box that cast it still widens the canvas where its
+        // own geometry runs past the edge — a wide dock, a bleed, a translate — so
+        // only the shadow is held to the page's inline size.
+        let mut painted = box_;
+        let edge = px(scene.width as f32);
+        for shadow in &style.shadow {
+            let cast =
+                box_.offset(shadow.x, shadow.y).grow(shadow.spread + reach_of_blur(shadow.blur));
+            painted = painted.union(Box2 { l: cast.l.max(0), r: cast.r.min(edge), ..cast });
         }
-        reach(scene, styles, tree, ids, child, from.0, from.1, inner, out);
+        out.absorb(painted.met_by(clip));
+
+        // A picture, a slider and a mark are what their box holds, and none of the
+        // three has children — the same three places `draw` stops at.
+        if node.picture.is_some() || style.range.is_some() || style.mark != Mark::None {
+            return;
+        }
+        // Any `overflow` but `visible` — the `clip` a `Clip` writes and the `auto`
+        // a `Scroll` writes alike — cuts what is under it to this box, so a scroll
+        // container is measured at its own box and never at what it scrolls.
+        let inner =
+            if style.clipped[0] || style.clipped[1] { Some(box_.met_by(clip)) } else { clip };
+        let from = children_origin(style, tree, id, (x + across, y + down), (left, top));
+        for &child in &node.children {
+            // A fixed child hangs off the page rather than off this box, so it is
+            // neither placed here nor clipped by anything here.
+            if styles.get(child).is_some_and(|s| s.fixed) {
+                continue;
+            }
+            self.reach(child, from.0, from.1, inner, out);
+        }
     }
 }
 
@@ -3599,7 +3610,7 @@ impl Painter<'_> {
                 && self.scene.node(child).is_some_and(|c| c.text.is_none())
             {
                 item = item.saturating_add(1);
-                self.marker(canvas, style.marker, item, child, from.0, from.1, inner);
+                self.marker(canvas, style.marker, item, child, from, inner);
             }
             self.draw(canvas, child, from.0, from.1, inner);
         }
@@ -3772,8 +3783,7 @@ impl Painter<'_> {
         kind: Marker,
         item: u32,
         index: usize,
-        x: f32,
-        y: f32,
+        (x, y): (f32, f32),
         clip: Option<&Mask>,
     ) {
         let (Some(style), Some(&Some(id))) = (self.styles.get(index), self.ids.get(index))
@@ -4813,10 +4823,10 @@ fn backdrop_blur(canvas: &mut Pixmap, box_: Box2, radii: Radii, radius: f32, cli
             if cov == 0 {
                 continue;
             }
-            for c in 0..4 {
+            for (c, plane) in planes.iter().enumerate() {
                 if let Some(byte) = dst.get_mut(i * 4 + c) {
                     *byte = mul255(*byte, 255 - cov)
-                        .saturating_add(mul255(planes[c][region_row + rx], cov));
+                        .saturating_add(mul255(plane[region_row + rx], cov));
                 }
             }
         }
@@ -5867,7 +5877,7 @@ mod tests {
                      background-color:rgb(0,0,255)\n";
         let image = render_ok(scene, "", "rest");
         assert_eq!(at(&image, 0, 0), [0, 0, 255, 255]);
-        assert_eq!(at(&image, 3 * S, 1 * S), [0, 0, 255, 255]);
+        assert_eq!(at(&image, 3 * S, S), [0, 0, 255, 255]);
         assert_eq!(at(&image, 4 * S, 0), [255, 255, 255, 255]);
         assert_eq!(at(&image, 0, 2 * S), [255, 255, 255, 255]);
     }
@@ -5895,8 +5905,8 @@ mod tests {
         // The middle is the fill, and the ellipse meets each edge at that
         // edge's own middle: the top at x=100, the left at y=20.
         assert_eq!(at(&image, 100 * S, 20 * S), [0, 0, 0, 255]);
-        assert_eq!(at(&image, 100 * S, 1 * S), [0, 0, 0, 255]);
-        assert_eq!(at(&image, 1 * S, 20 * S), [0, 0, 0, 255]);
+        assert_eq!(at(&image, 100 * S, S), [0, 0, 0, 255]);
+        assert_eq!(at(&image, S, 20 * S), [0, 0, 0, 255]);
         assert_eq!(at(&image, 0, 0), [255, 255, 255, 255]);
         // Fourteen in and four down is inside a twenty-pixel circle and
         // outside the ellipse, which is the whole of the difference.
@@ -5917,7 +5927,7 @@ mod tests {
         assert_eq!(at(&image, 199 * S, 0), [0, 0, 0, 255]);
         // The bite is a hundred wide and twenty deep, so it is still eating the
         // top edge at x=45 and has finished with the left edge by y=15.
-        assert_eq!(at(&image, 45 * S, 1 * S), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 45 * S, S), [255, 255, 255, 255]);
         assert_eq!(at(&image, 5 * S, 15 * S), [0, 0, 0, 255]);
     }
 
@@ -6146,7 +6156,7 @@ mod tests {
         let run = |family: &str, ch: char| {
             let scene = format!(
                 "buri-scene 1\nviewport 400 40\ne 0 font-size:16px{family}\nt 1 {}\n",
-                std::iter::repeat(ch).take(10).collect::<String>()
+                std::iter::repeat_n(ch, 10).collect::<String>()
             );
             last_inked_column(&render_ok(&scene, "", "rest")).unwrap()
         };
@@ -6627,8 +6637,8 @@ mod tests {
         let image = render_ok(&scene, "", "rest");
         // Its own size, since nothing declared one.
         assert_eq!(at(&image, 0, 0), red);
-        assert_eq!(at(&image, 1 * S, 0), blue);
-        assert_eq!(at(&image, 0, 1 * S), [255, 255, 255, 255]);
+        assert_eq!(at(&image, S, 0), blue);
+        assert_eq!(at(&image, 0, S), [255, 255, 255, 255]);
     }
 
     /// The box wins over the pixels: a source that was read is scaled into
@@ -6642,8 +6652,8 @@ mod tests {
         let scene =
             format!("buri-scene 1\nviewport 8 8\ne 0 width:8px;height:2px;image:{source}\n");
         let image = render_ok(&scene, "", "rest");
-        assert_eq!(at(&image, 0, 1 * S), [255, 0, 0, 255]);
-        assert_eq!(at(&image, 7 * S, 1 * S), [0, 0, 255, 255]);
+        assert_eq!(at(&image, 0, S), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 7 * S, S), [0, 0, 255, 255]);
     }
 
     /// A data URI is full of semicolons, and a semicolon separates two
@@ -6938,7 +6948,7 @@ mod tests {
         // The line sits in the middle: the room above its ink and the room
         // below it are within a line of each other, where a top-hugging line
         // leaves tens of pixels between the two.
-        let line = px(14.0 * 1.4285714285714286 * DEVICE_SCALE) as u32;
+        let line = px(14.0 * 1.428_571_5 * DEVICE_SCALE) as u32;
         assert!(
             above.abs_diff(below) < line,
             "the field's value is not centred: {above} above the ink, {below} below"
@@ -7368,7 +7378,7 @@ mod tests {
     /// The brightest and the darkest red channel anywhere in the image — enough
     /// to tell a near-white ink on a near-black ground from the reverse.
     fn brightness_span(image: &Image) -> (u8, u8) {
-        let reds = image.rgba.chunks_exact(4).map(|p| p[0]);
+        let reds = image.rgba.as_chunks::<4>().0.iter().map(|p| p[0]);
         (reds.clone().max().unwrap_or(0), reds.min().unwrap_or(255))
     }
 
@@ -7447,7 +7457,9 @@ mod tests {
         // red and weakly blue.
         let reddest = image
             .rgba
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|p| p[0] > 150 && p[1] < 80 && p[2] < 80);
         assert!(reddest, "the element's own colour did not win over the page ink");
     }
@@ -7531,7 +7543,7 @@ mod tests {
 
         let after_a_fixed_track = render_ok(&three_cells("80px 1fr 2fr"), "", "rest");
         assert_eq!(
-            bands(&after_a_fixed_track, 1 * S),
+            bands(&after_a_fixed_track, S),
             [(0, RED), (80 * S, GREEN), (320 * S, BLUE)]
         );
 
@@ -7539,14 +7551,14 @@ mod tests {
         // thirds of the whole page. The third cell wraps onto a row of its own
         // and is nothing to do with the row read here.
         let whole_page = render_ok(&three_cells("1fr 2fr"), "", "rest");
-        assert_eq!(bands(&whole_page, 1 * S), [(0, RED), (267 * S, GREEN)]);
+        assert_eq!(bands(&whole_page, S), [(0, RED), (267 * S, GREEN)]);
 
         // The `auto` twin of the line above: the same two cells, sized by what
         // is in them rather than by a share, which puts the edge in the middle
         // instead. A painter that read every `fr` as an `auto` painted these
         // two byte for byte.
         let content_sized = render_ok(&three_cells("auto auto"), "", "rest");
-        assert_eq!(bands(&content_sized, 1 * S), [(0, RED), (400 * S, GREEN)]);
+        assert_eq!(bands(&content_sized, S), [(0, RED), (400 * S, GREEN)]);
     }
 
     /// A table narrower than its content grows each column from its
@@ -7571,7 +7583,7 @@ mod tests {
         );
         let image = render_ok(&scene, "", "rest");
         assert_eq!(
-            bands(&image, 1 * S),
+            bands(&image, S),
             [(0, RED), (150 * S, GREEN), (225 * S, [255, 255, 255, 255])]
         );
     }

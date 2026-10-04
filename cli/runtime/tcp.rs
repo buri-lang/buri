@@ -152,10 +152,10 @@ fn with_stream<T>(handle: i64, f: impl FnOnce(&mut TcpStream) -> T) -> Option<T>
         table.as_mut()?.remove(&handle)?
     };
     let answer = f(&mut taken);
-    if let Ok(mut table) = STREAMS.lock() {
-        if let Some(map) = table.as_mut() {
-            map.insert(handle, taken);
-        }
+    if let Ok(mut table) = STREAMS.lock()
+        && let Some(map) = table.as_mut()
+    {
+        map.insert(handle, taken);
     }
     Some(answer)
 }

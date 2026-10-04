@@ -2467,7 +2467,7 @@ mod tests {
 
         let plain = crate::memory::buri_rt_alloc(48);
         // SAFETY: live, just allocated.
-        assert_eq!(unsafe { crate::memory::count_and_mark(plain) }.1, false);
+        assert!(!unsafe { crate::memory::count_and_mark(plain) }.1);
 
         crate::memory::buri_rt_values_may_cross_tasks();
         assert!(crate::memory::values_may_cross_tasks());
@@ -3183,7 +3183,7 @@ mod tests {
             }
         }
         let r = Rendezvous { arrived: AtomicUsize::new(0), gave_up: AtomicUsize::new(0) };
-        let src = vec![0i64; STEPS];
+        let src = [0i64; STEPS];
         // SAFETY: `STEPS` `i64`s in and out, and `r` outlives the call.
         let got = unsafe {
             steps_of(
@@ -3445,7 +3445,7 @@ mod tests {
             len: 4 | BURI_RT_STR_ASCII,
         };
 
-        let src = vec![0i64; STEPS];
+        let src = [0i64; STEPS];
         let stride = std::mem::size_of::<BuriStr>();
         // SAFETY: `STEPS` `i64`s in, `STEPS` `BuriStr`s out, and `state` and
         // the block both outlive the call.
@@ -3970,7 +3970,7 @@ mod tests {
         let rc = unsafe {
             task_info(mach_task_self_, FLAVOR, (&raw mut info).cast::<u32>(), &raw mut count)
         };
-        (rc == 0).then(|| info.resident_size / 1024)
+        (rc == 0).then_some(info.resident_size / 1024)
     }
 
     #[cfg(not(target_os = "macos"))]

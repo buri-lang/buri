@@ -334,7 +334,7 @@ pub(super) fn inflated(png: &[u8]) -> Result<Inflated, String> {
         let data = png.get(start..end).ok_or_else(|| bad("names a chunk longer than itself"))?;
         match kind.as_slice() {
             b"IHDR" => header = Some(Header::parse(data)?),
-            b"PLTE" => palette = data.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect(),
+            b"PLTE" => palette = data.as_chunks::<3>().0.to_vec(),
             b"tRNS" => transparency = data.to_vec(),
             b"IDAT" => zlib.extend_from_slice(data),
             b"IEND" => break,
@@ -796,6 +796,7 @@ fn fixed_trees() -> Option<(Huffman, Huffman)> {
 
 /// A zlib stream, unwrapped. All of RFC 1951: stored, fixed-Huffman and
 /// dynamic-Huffman blocks, in any order and any number.
+#[cfg(test)]
 pub(super) fn inflate(zlib: &[u8]) -> Result<Vec<u8>, String> {
     inflate_capped(zlib, usize::MAX)
 }
@@ -892,15 +893,11 @@ fn dynamic_trees(reader: &mut BitReader) -> Result<(Huffman, Huffman), String> {
             }
             17 => {
                 let more = reader.bits(3).ok_or_else(|| bad("ends mid-header"))? + 3;
-                for _ in 0..more {
-                    lengths.push(0);
-                }
+                lengths.extend(std::iter::repeat_n(0, more as usize));
             }
             18 => {
                 let more = reader.bits(7).ok_or_else(|| bad("ends mid-header"))? + 11;
-                for _ in 0..more {
-                    lengths.push(0);
-                }
+                lengths.extend(std::iter::repeat_n(0, more as usize));
             }
             _ => return Err(bad("names a code-length symbol that does not exist")),
         }
@@ -1098,7 +1095,7 @@ impl Svg {
                         depth = depth.saturating_add(1);
                     }
                 }
-                Tag::Close { .. } => {
+                Tag::Close => {
                     depth = depth.saturating_sub(1);
                     if stack.len() > 1 {
                         stack.pop();
@@ -1334,7 +1331,7 @@ fn shape(
 /// draws one with.
 fn rounded(builder: &mut PathBuilder, x: f32, y: f32, w: f32, h: f32, rx: f32, ry: f32) {
     // The distance along the tangent that makes a cubic a quarter ellipse.
-    const K: f32 = 0.552_284_75;
+    const K: f32 = 0.552_284_8;
     let (kx, ky) = (rx * K, ry * K);
     let (r, b) = (x + w, y + h);
     builder.move_to(x + rx, y);
@@ -1733,7 +1730,7 @@ impl<'a> Numbers<'a> {
 /// One element boundary. Text between tags is not a picture, so it is skipped.
 enum Tag {
     Open { name: String, attributes: Vec<(String, String)>, empty: bool },
-    Close { name: String },
+    Close,
 }
 
 /// The tags of a document, in order. Comments, processing instructions,
@@ -1770,8 +1767,8 @@ impl<'a> Tags<'a> {
             let end = body.find('>')?;
             let inside = body.get(..end)?;
             self.at = after.saturating_add(end).saturating_add(1);
-            if let Some(name) = inside.strip_prefix('/') {
-                return Some(Tag::Close { name: name.trim().to_string() });
+            if inside.starts_with('/') {
+                return Some(Tag::Close);
             }
             let empty = inside.ends_with('/');
             let inside = inside.strip_suffix('/').unwrap_or(inside);

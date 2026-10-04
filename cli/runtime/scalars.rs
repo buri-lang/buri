@@ -154,7 +154,7 @@ impl Index {
         let mut marks = Vec::with_capacity(bytes.len() / STRIDE + 1);
         let mut seen = 0u32;
         marks.push(0);
-        for run in bytes.chunks_exact(STRIDE) {
+        for run in bytes.as_chunks::<STRIDE>().0 {
             // At most `STRIDE` per run, and the caller refused a view whose
             // byte count does not fit a `u32`.
             seen = seen.wrapping_add(count_starts(run) as u32);
@@ -386,14 +386,14 @@ mod tests {
 
     /// A block of `text`'s bytes the tests can index, freed through the
     /// runtime so [`forget`] runs.
-    struct Block(*mut u8, usize);
+    struct Block(*mut u8);
 
     impl Block {
         fn of(text: &str) -> Block {
             let p = crate::memory::buri_rt_alloc(text.len() as u64);
             // SAFETY: a fresh block of `text.len()` bytes.
             unsafe { std::ptr::copy_nonoverlapping(text.as_ptr(), p, text.len()) };
-            Block(p, text.len())
+            Block(p)
         }
 
         fn bytes(&self, from: usize, to: usize) -> &[u8] {

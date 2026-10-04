@@ -558,15 +558,15 @@ unsafe fn read_into(id: i64, stride: usize, out: *mut u8) {
     let mut g = lock();
     let reader = g.tracking;
     if reader >= 0 && reader != id {
-        if let Some(n) = g.get_mut(id) {
-            if !n.subs.contains(&reader) {
-                n.subs.push(reader);
-            }
+        if let Some(n) = g.get_mut(id)
+            && !n.subs.contains(&reader)
+        {
+            n.subs.push(reader);
         }
-        if let Some(r) = g.get_mut(reader) {
-            if !r.deps.contains(&id) {
-                r.deps.push(id);
-            }
+        if let Some(r) = g.get_mut(reader)
+            && !r.deps.contains(&id)
+        {
+            r.deps.push(id);
         }
     }
     let Some(n) = g.get(id) else { return };
