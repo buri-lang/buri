@@ -273,6 +273,39 @@ fn the_heap_check_is_silent_on_a_balanced_program() {
     assert_eq!(stderr(&plain), "");
 }
 
+/// A shared block that grows keeps its mark under the check.
+///
+/// The quarantine never grows a block in place, so a growth there allocates,
+/// copies and frees. That path once copied the count and dropped the mark, so
+/// a shared block came out counted without atomics.
+#[test]
+fn a_shared_block_stays_shared_when_it_grows_under_the_heap_check() {
+    if skip() {
+        return;
+    }
+    let out = run_with(&["heap-realloc-shared"], CHECKED, "");
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{}", stderr(&out));
+    assert_eq!(stdout(&out).trim_end(), "shared=1 cap=64");
+}
+
+/// Threads freeing at the same time do not corrupt the quarantine.
+///
+/// Each free makes room in a full ring and then takes a slot. When those were
+/// two lock acquisitions, two threads could take the same slot, and one block
+/// was released twice. The run reported a reference operation on a freed
+/// block, or crashed, depending on what the allocator had done with the
+/// memory in between.
+#[test]
+fn threads_freeing_at_once_are_clean_under_the_heap_check() {
+    if skip() {
+        return;
+    }
+    let out = run_with(&["heap-threads"], CHECKED, "");
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{}", stderr(&out));
+    assert_eq!(stdout(&out).trim_end(), "freed 160000");
+    assert_eq!(stderr(&out), "");
+}
+
 /// With the variable unset — every shipped artifact — the four defective modes
 /// run to the end and say nothing.
 ///
