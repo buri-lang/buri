@@ -192,7 +192,7 @@ fn two_objects_link_into_a_program_that_runs() {
     let out = dir.join("app");
     ok(link::run(&units, &rows(&units, &[false, false]), &linker, &out, &options(target)));
 
-    let ran = Command::new(&out).output().unwrap();
+    let ran = crate::shared::run_artifact(&out);
     assert!(ran.status.success(), "the linked program exited {:?}", ran.status.code());
     assert_eq!(String::from_utf8_lossy(&ran.stdout), "answer=42\n");
 
@@ -328,7 +328,7 @@ fn an_unchanged_object_is_left_where_it_was() {
     let units = vec![moved, emit(&dir, "main", MAIN)];
     ok(link::run(&units, &rows(&units, &[true, true]), &linker, &out, &options(target)));
     assert_eq!(std::fs::read(&staged).unwrap(), units[0].bytes);
-    let ran = Command::new(&out).output().unwrap();
+    let ran = crate::shared::run_artifact(&out);
     assert_eq!(String::from_utf8_lossy(&ran.stdout), "answer=4\n");
 }
 
@@ -406,7 +406,7 @@ fn the_archive_is_staged_and_linked_only_when_the_objects_name_it() {
             "the staged archive does not match the decision in the `{round}` round"
         );
 
-        let ran = Command::new(&out).output().unwrap();
+        let ran = crate::shared::run_artifact(&out);
         assert!(ran.status.success(), "the `{round}` program exited {:?}", ran.status.code());
         assert_eq!(String::from_utf8_lossy(&ran.stdout), "answer=42\n");
         sizes.push(std::fs::metadata(&out).unwrap().len());
