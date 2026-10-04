@@ -130,7 +130,7 @@ fn body_ast<'a>(c: &Checker<'a>, r: AstRef) -> Option<&'a tree::FnDecl> {
         },
         AstRef::Method { module, item, sub } => {
             match c.module(module).ast.items.get(item as usize)? {
-                tree::Item::Impl(d) => d.methods.get(sub as usize),
+                tree::Item::Impl(d) => c.module(module).ast.tree.list(d.methods).get(sub as usize),
                 _ => None,
             }
         }

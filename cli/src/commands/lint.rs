@@ -1044,7 +1044,7 @@ fn check_function_shapes(session: &Session, m: &ModuleData, diagnostics: &mut Di
         let name = m.ast.tree.name(d.name);
         // `self` is the receiver and `ctx` is the effect budget. Neither is
         // data a caller assembled, so neither is counted.
-        let parameters = d.params.iter().filter(|p| p.kind == ParamKind::Normal).count();
+        let parameters = m.ast.tree.list(d.params).iter().filter(|p| p.kind == ParamKind::Normal).count();
         if parameters > MAXIMUM_PARAMETERS {
             diagnostics.push(
                 Diagnostic::templated("parameter-count", d.name.span)
@@ -1074,8 +1074,8 @@ fn check_function_shapes(session: &Session, m: &ModuleData, diagnostics: &mut Di
     for item in &m.ast.items {
         match item {
             Item::Fn(d) => check(d),
-            Item::Impl(d) => d.methods.iter().for_each(&mut check),
-            Item::Trait(d) => d.methods.iter().for_each(&mut check),
+            Item::Impl(d) => m.ast.tree.list(d.methods).iter().for_each(&mut check),
+            Item::Trait(d) => m.ast.tree.list(d.methods).iter().for_each(&mut check),
             _ => {}
         }
     }
@@ -1600,7 +1600,7 @@ fn check_dead_code(
             if loc.in_package().map(|m| m.package) != Some(own) {
                 continue;
             }
-            for sp in specs {
+            for sp in m.ast.tree.list(*specs) {
                 wanted.insert(m.ast.tree.name(sp.name));
             }
         }
@@ -1904,7 +1904,7 @@ impl Names {
             // and the runs of source the parser skipped.
             let mut unreadable: Vec<Span> = broken.get(&m.file).cloned().unwrap_or_default();
             unreadable.extend(m.ast.items.iter().filter_map(|i| match i {
-                Item::Error(at) => Some(**at),
+                Item::Error(at) => Some(*at),
                 _ => None,
             }));
             let mut owned: Vec<(&str, Span)> = Vec::new();
@@ -2183,7 +2183,7 @@ fn check_unused_imports(session: &Session, m: &ModuleData, diagnostics: &mut Dia
         let crate::parsing::tree::Item::Import(i) = item else { continue };
         let specs: Vec<(&str, Span)> = match &i.clause {
             crate::parsing::tree::ImportClause::Named(specs) => {
-                specs.iter().map(|sp| (m.ast.tree.name(sp.local()), sp.span)).collect()
+                m.ast.tree.list(*specs).iter().map(|sp| (m.ast.tree.name(sp.local()), sp.span)).collect()
             }
             crate::parsing::tree::ImportClause::Namespace(n) => {
                 vec![(m.ast.tree.name(*n), n.span)]
@@ -2194,7 +2194,7 @@ fn check_unused_imports(session: &Session, m: &ModuleData, diagnostics: &mut Dia
         // applier refuses on overlap rather than guessing. Rewriting the whole
         // clause has one answer whatever the pattern of unused names is.
         let survivors: Vec<String> = match &i.clause {
-            crate::parsing::tree::ImportClause::Named(specs) => specs
+            crate::parsing::tree::ImportClause::Named(specs) => m.ast.tree.list(*specs)
                 .iter()
                 .filter(|sp| used.contains(m.ast.tree.name(sp.local())))
                 .map(|sp| match sp.alias {
@@ -2596,7 +2596,7 @@ fn testing_surface(
         // and the ones it declares and exports itself.
         match item {
             crate::parsing::tree::Item::ReExport(r) => {
-                out.extend(r.specs.iter().map(|sp| m.ast.tree.name(sp.name).to_string()));
+                out.extend(m.ast.tree.list(r.specs).iter().map(|sp| m.ast.tree.name(sp.name).to_string()));
             }
             other => {
                 if let Some((name, _)) = exported_name(&m.ast.tree, other) {
@@ -2906,7 +2906,7 @@ fn bound_spans(
     let crate::parsing::tree::Item::Fn(decl) = m.ast.items.get(item as usize)? else {
         return None;
     };
-    let g = decl.generics.get(gi)?;
+    let g = m.ast.tree.list(decl.generics).get(gi)?;
     let t = &m.ast.tree;
     Some(t.type_list(g.bounds).iter().map(|b| t.type_span(*b)).collect())
 }
