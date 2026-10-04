@@ -1114,14 +1114,17 @@ fn stamp_of(
 fn portable(value: &std::ffi::OsStr, out_dir: &Path) -> Vec<u8> {
     let (value, out_dir) = (value.as_encoded_bytes(), out_dir.as_os_str().as_encoded_bytes());
     let mut portable = Vec::with_capacity(value.len());
-    let mut at = 0;
-    while at < value.len() {
-        if !out_dir.is_empty() && value[at..].starts_with(out_dir) {
-            portable.extend_from_slice(b"$OUT_DIR");
-            at += out_dir.len();
-        } else {
-            portable.push(value[at]);
-            at += 1;
+    let mut rest = value;
+    while let Some((&first, tail)) = rest.split_first() {
+        match rest.strip_prefix(out_dir) {
+            Some(after) if !out_dir.is_empty() => {
+                portable.extend_from_slice(b"$OUT_DIR");
+                rest = after;
+            }
+            _ => {
+                portable.push(first);
+                rest = tail;
+            }
         }
     }
     portable
