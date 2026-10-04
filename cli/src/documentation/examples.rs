@@ -678,7 +678,7 @@ pub fn assemble(
                 origin: block.origin.clone(),
                 what: format!("there is no preamble named `{name}`"),
                 detail: "name an earlier block with `name=...`, or add a file to \
-                         `cli/src/docs/harness/` and register it in `documentation/harness.rs`"
+                         `crates/docs/src/docs/harness/` and register it in `documentation/harness.rs`"
                     .into(),
             });
         };
@@ -1310,7 +1310,7 @@ mod tests {
     /// A block documenting a method on a *built-in* cannot be compiled where
     /// it is written: a type's operations may only be declared in its defining
     /// module (SPEC 6.7.3). Those blocks belong in the generated standard
-    /// library reference, which renders them from `cli/src/compiler/standard_library/sources/*.buri`; until
+    /// library reference, which renders them from `crates/stdlib/src/compiler/standard_library/sources/*.buri`; until
     /// a document is converted, they carry `ignore` and a reason. This test
     /// pins the rule so the reason stays true.
     #[test]

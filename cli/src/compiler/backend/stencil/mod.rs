@@ -175,7 +175,7 @@ const LINUX_X86_64_BYTES: &[u8] =
 ///
 /// The same sixty-four hex digits `build::cache::hash_bytes` would produce from
 /// the bytes, because the script and that function are the same source file
-/// (`cli/src/build/sha256.rs`, which the script `#[path]`-includes). One
+/// (`crates/hash/src/build/sha256.rs`, which the script `#[path]`-includes). One
 /// implementation is the only way to be sure the two agree, and they must:
 /// [`Stencil::identity`] is a **cache key**, so a digest that differed from the
 /// one an earlier toolchain computed would invalidate every cached object

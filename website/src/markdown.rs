@@ -1,6 +1,6 @@
 //! Markdown to HTML.
 //!
-//! Not a general renderer. The corpus it serves is `cli/src/docs/**` and the
+//! Not a general renderer. The corpus it serves is `crates/docs/src/docs/**` and the
 //! README, and `cli/tests/docs` already holds that corpus to a small dialect:
 //! ATX headings, fenced blocks, lists, tables, block quotes, and inline
 //! `code`, `**strong**`, `*emphasis*` and `[links](targets)`. Reference links,
@@ -690,8 +690,8 @@ mod tests {
         Site {
             root: PathBuf::from("/nowhere"),
             pages: vec![
-                page("reference/build/tags", "cli/src/docs/reference/build/tags.md"),
-                page("reference/build/testing", "cli/src/docs/reference/build/testing.md"),
+                page("reference/build/tags", "crates/docs/src/docs/reference/build/tags.md"),
+                page("reference/build/testing", "crates/docs/src/docs/reference/build/testing.md"),
             ],
         }
     }
@@ -722,7 +722,7 @@ mod tests {
 
     #[test]
     fn a_doc_link_to_something_the_site_does_not_publish_goes_to_github() {
-        let out = rendered("See [the design notes](../../../../../design/).\n");
+        let out = rendered("See [the design notes](../../../../../../design/).\n");
         assert!(
             out.html.contains("https://github.com/buri-lang/buri/tree/main/design"),
             "{}",

@@ -1,6 +1,6 @@
 ---
 name: documentation
-description: Documentation style guide and considerations for cli/src/docs and other markdown files
+description: Documentation style guide and considerations for crates/docs/src/docs and other markdown files
 ---
 
 - Lead with code snippets, explain in text only what cannot be described in code.

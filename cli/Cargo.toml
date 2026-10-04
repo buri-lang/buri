@@ -38,6 +38,13 @@ autobenches = false
 # invalidates every cached release object in every repository — an event to
 # schedule rather than to inherit (design/native/BUILD-AND-WATCH.md §2, §7).
 [dependencies]
+# The toolchain's own crates, under `crates/` (design/CRATES.md). They are
+# this repository's code, not dependencies in the bar's sense: the `version`
+# beside each `path` is what lets a registry release publish them in order.
+buri-diagnostics = { path = "../crates/diagnostics", version = "0.3.19" }
+buri-docs = { path = "../crates/docs", version = "0.3.19" }
+buri-hash = { path = "../crates/hash", version = "0.3.19" }
+buri-stdlib = { path = "../crates/stdlib", version = "0.3.19" }
 
 # -- backend-llvm -------------------------------------------------------------
 #
@@ -67,6 +74,10 @@ inkwell = { version = "0.10", optional = true, features = ["llvm21-1-prefer-dyna
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 inkwell = { version = "0.10", optional = true, features = ["llvm21-1"] }
+
+# `cli/build.rs` digests the runtime archive with the toolchain's own SHA-256.
+[build-dependencies]
+buri-hash = { path = "../crates/hash", version = "0.3.19" }
 
 [features]
 default = ["backend-stencil"]

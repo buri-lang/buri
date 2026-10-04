@@ -3,7 +3,7 @@
 The Buri grammar for tree-sitter.
 
 `grammar.js` is **generated** from
-[`cli/src/docs/grammar.ebnf`](../../cli/src/docs/grammar.ebnf), which is the
+[`crates/docs/src/docs/grammar.ebnf`](../../crates/docs/src/docs/grammar.ebnf), which is the
 normative grammar and the only place Buri's syntax is written down. Do not edit
 it: edit the EBNF and run
 

@@ -1,6 +1,6 @@
 # The getting-started tutorial's repository
 
-Every fence on `cli/src/docs/getting-started/tutorial.md` names this directory —
+Every fence on `crates/docs/src/docs/getting-started/tutorial.md` names this directory —
 `repo=cli/tests/tutorial`, plus the `package=` the file belongs to — so the docs
 suite compiles the page against a repository that really exists.
 

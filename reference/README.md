@@ -25,7 +25,7 @@ rot instead.
 | *Efficient Compilation of Tail Calls and Continuations to JavaScript* | Eric Thivierge, Marc Feeley | 2012 | [schemeworkshop.org](https://www.schemeworkshop.org/2012/papers/thivierge-feeley-paper-sfp12.pdf) | The measured comparison of trampoline strategies — VM+trampoline, CPS, Cheney-on-the-MTA. It argued for the merged dispatch loop in `cli/src/compiler/middle/tail_calls.rs` over a thunk-allocating trampoline, and for a counter-limited bounce as the escape hatch. |
 | *From bytecode to JavaScript: the Js_of_ocaml compiler* | Jérôme Vouillon, Vincent Balat | 2014 | [irif.fr, via the Internet Archive](https://web.archive.org/web/2id_/https://www.irif.fr/~vouillon/publi/js_of_ocaml.pdf) | The third of the three tail-call designs Buri was choosing between — scratch temporaries only on a proven move cycle, plus the `tc_depth` counter trampoline for mutual recursion. Compared side by side against ReScript's and Elm's in the tail-call research. |
 | *Ryū: Fast Float-to-String Conversion* | Ulf Adams | 2018 | [ACM PLDI'18 open access](https://dl.acm.org/doi/10.1145/3192366.3192369) | The shortest-round-trip digit generation `design/native/VALUE-MODEL.md` §11.4/§12 row 8 asks of the native runtime. `cli/runtime/fmt.rs` says why v1 leans on `core::fmt` (Grisu3 with a Dragon4 fallback) rather than hand-rolling this, and where a Ryū fast path would drop in. |
-| *Computationally Easy, Spectrally Good Multipliers for Congruential Pseudorandom Number Generators* | Guy L. Steele Jr., Sebastiano Vigna | 2020 | [arXiv:2001.05304](https://arxiv.org/abs/2001.05304) | The 64-bit multiplier `K` in `cli/src/hash.rs`, taken along with rustc's `FxHasher` and cited there by name. |
+| *Computationally Easy, Spectrally Good Multipliers for Congruential Pseudorandom Number Generators* | Guy L. Steele Jr., Sebastiano Vigna | 2020 | [arXiv:2001.05304](https://arxiv.org/abs/2001.05304) | The 64-bit multiplier `K` in `crates/hash/src/hash.rs`, taken along with rustc's `FxHasher` and cited there by name. |
 | *Copy-and-Patch Compilation* | Haoran Xu, Fredrik Kjolstad | 2021 | [arXiv:2011.13127](https://arxiv.org/abs/2011.13127) | The technique the debug backend is built on (`design/native/CODEGEN-STENCIL.md`), and the source of the circulating "Cranelift is slow" numbers. Reading it showed those numbers came from Wasmtime 0.26 and said nothing about the version this repository pinned. Backs the debug/release split in `design/native/ARCHITECTURE.md` §4. |
 | *TPDE: A Fast Adaptable Compiler Back-End Framework* | Tobias Schwarz, Tobias Kamm, Alexis Engelke | 2025 | [arXiv:2505.22610](https://arxiv.org/abs/2505.22610) | The third-party frame of reference for a retargetable code generator's compile-time/code-quality position against LLVM `-O0`; the other half of the §4 backend-selection argument, and half of what the 2026-08-29 reversal was weighed against (`design/native/CODEGEN-STENCIL.md` §13). |
 | *Tail Modulo Cons* | Frédéric Bour, Basile Clément, Gabriel Scherer | 2021 | [arXiv:2102.09823](https://arxiv.org/abs/2102.09823) | Research input, not implemented. An *explicit* TRMC annotation (OCaml's `[@tail_mod_cons]`) as the answer to the stack-safety-by-build-configuration trap. Recorded as a considered extension to `cli/src/compiler/middle/tail_calls.rs`. |
@@ -43,7 +43,7 @@ weight in a decision. Links only.
 - Unicode 6.0.0 ch. 3, conformance — scalar counting for `str.length`:
   <http://www.unicode.org/versions/Unicode6.0.0/ch03.pdf>
 - Protocol Buffers language guide and conformance suite — the proto3/editions
-  presence rules `cli/src/docs/build/proto.md` covers:
+  presence rules `crates/docs/src/docs/build/proto.md` covers:
   <https://protobuf.dev/programming-guides/proto3/>
 - LLVM Language Reference (`musttail`, calling conventions, `nonnull`,
   attributes): <https://llvm.org/docs/LangRef.html>
@@ -60,7 +60,7 @@ weight in a decision. Links only.
   <https://cfallin.org/pubs/egraphs2023_aegraphs_slides.pdf>
 - rustc dev guide (MIR, monomorphization, incremental compilation, interning):
   <https://rustc-dev-guide.rust-lang.org/>
-- `rustc-hash` — the `FxHasher` this repo's `cli/src/hash.rs` follows:
+- `rustc-hash` — the `FxHasher` this repo's `crates/hash/src/hash.rs` follows:
   <https://github.com/rust-lang/rustc-hash>
 - ReScript compiler `compiler/core/` and `docs/optimized-pattern-matching.md` —
   the optimization catalogue and the pattern-match lineage:

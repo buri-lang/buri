@@ -2,7 +2,7 @@
 # The agreement test: the tree-sitter grammar and the compiler's own parser
 # say the same thing about every Buri source in the repository.
 #
-# `grammar.js` is GENERATED from `cli/src/docs/grammar.ebnf`, and a cargo test
+# `grammar.js` is GENERATED from `crates/docs/src/docs/grammar.ebnf`, and a cargo test
 # holds the two together byte for byte. That leaves one thing a cargo test
 # cannot check, because it needs the tree-sitter CLI and the toolchain may not
 # depend on an external tool: whether the generated grammar actually parses
@@ -130,8 +130,8 @@ sources() {
     | sort
 }
 
-STDLIB_DIR=cli/src/compiler/standard_library/sources
-CORPUS_DIRS="cli/src/docs/harness
+STDLIB_DIR=crates/stdlib/src/compiler/standard_library/sources
+CORPUS_DIRS="crates/docs/src/docs/harness
 cli/tests/example
 cli/tests/conformance
 cli/tests/crash

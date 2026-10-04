@@ -9,8 +9,8 @@
 # colour does each token actually come out?
 #
 # The subject is `fixture/lib/reference/sections.buri` — the struct section of
-# `cli/src/docs/lang/types.md` 5.6 and the import forms of
-# `cli/src/docs/lang/modules.md` 4.1, written so they compile. It is a real
+# `crates/docs/src/docs/lang/types.md` 5.6 and the import forms of
+# `crates/docs/src/docs/lang/modules.md` 4.1, written so they compile. It is a real
 # repository, so `buri lsp` can analyse it and answer about it too.
 #
 # Three assertions, all by name rather than by count:

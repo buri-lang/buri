@@ -57,11 +57,9 @@ pub mod session;
 /// The loaded state of one repository, kept between the questions asked of
 /// it: the graph, the files read so far, and the parses of them.
 pub mod sources;
-/// SHA-256. Its own file, and not a private one, because `cli/build.rs`
-/// `#[path]`-includes it: the digests of the blobs the build script embeds are
-/// taken where the bytes are written, and a build script cannot use the crate
-/// it builds. `cache` re-exports it, so nothing else spells this path.
-pub mod sha256;
+/// SHA-256, from `buri-hash` so the build scripts can hash with it too.
+/// `cache` re-exports it, so nothing else spells this path.
+pub use buri_hash::build::sha256;
 pub mod spawn;
 pub mod textproto;
 /// `tool` rules: resolving a tool name, the `main` the build writes for one,

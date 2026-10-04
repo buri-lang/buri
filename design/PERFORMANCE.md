@@ -737,7 +737,7 @@ And the Buri-language side, which the compiler has to get through:
 |---|---:|---:|---:|---:|---:|---:|
 | standard library (`core/*`, `ui/*`) | 44 | 5,526 | 5,646 | 1,202 | 12,374 | 6,552 |
 | test corpus (`cli/tests/**/*.buri`) | 5,315 | 63,602 | 15,935 | 10,745 | 90,282 | 25,654 |
-| shipped documentation (`cli/src/docs/**/*.md`) | 299 | — | — | — | 19,226 | 12,000 |
+| shipped documentation (`crates/docs/src/docs/**/*.md`) | 299 | — | — | — | 19,226 | 12,000 |
 
 The test corpus is the row to read twice: **5,315 files against 1,021**, and
 2,000 of the new ones are `cli/tests/formatting/generated`, a fixture directory

@@ -117,7 +117,7 @@ jobs:
       - uses: useblacksmith/cache@v5
         with:
           path: target/debug/build
-          key: buildscript-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('cli/build.rs', 'cli/runtime/**', 'cli/src/build/sha256.rs', 'cli/src/compiler/backend/stencil/*.rs') }}
+          key: buildscript-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'cli/src/compiler/backend/stencil/*.rs') }}
           restore-keys: buildscript-${{ matrix.os }}-${{ matrix.arch }}-
       # **The suite, with its binaries overlapped**, because `cargo test` runs
       # them ONE AT A TIME and on a four-core runner that is the whole of this
@@ -194,7 +194,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p target/units
-          cargo test -p buri-rt-tests -p buri --no-run --message-format=json-render-diagnostics \
+          cargo test -p buri-rt-tests -p buri -p buri-hash -p buri-stdlib -p buri-docs -p buri-diagnostics --no-run --message-format=json-render-diagnostics \
             | jq -r 'select(.profile.test == true) | .executable | select(. != null)' > target/units.txt
           test -s target/units.txt
           slowest="$(grep -E '/language-[0-9a-f]+$' target/units.txt)"
@@ -283,7 +283,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends clang musl-dev musl-tools
           rustup target add "$(uname -m)-unknown-linux-musl"
-      - run: cargo clippy -p buri -p website -p buri-rt-tests --all-targets
+      - run: cargo clippy --workspace --all-targets
 
   # The validation gate: compile every corpus and measure nothing. `--profile
   # validate` is the point of the job — the root `Cargo.toml` declares it, and it

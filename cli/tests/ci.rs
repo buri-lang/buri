@@ -926,12 +926,28 @@ fn workspace_members() -> BTreeMap<String, String> {
         panic!("the root Cargo.toml has no `members = [` — the workspace has been restructured")
     });
     let list = after.split(']').next().unwrap_or("");
-    let mut out = BTreeMap::new();
+    // A member is a directory or, for `crates/*`, every directory under one.
+    let mut dirs = Vec::new();
     for dir in list.split(',') {
         let dir = dir.trim().trim_matches('"');
-        if dir.is_empty() {
-            continue;
+        match dir.strip_suffix("/*") {
+            Some(parent) => {
+                let mut under: Vec<String> = std::fs::read_dir(root.join(parent))
+                    .unwrap_or_else(|e| panic!("{parent}/ cannot be read: {e}"))
+                    .flatten()
+                    .filter(|e| e.path().join("Cargo.toml").is_file())
+                    .map(|e| format!("{parent}/{}", e.file_name().to_string_lossy()))
+                    .collect();
+                under.sort();
+                dirs.extend(under);
+            }
+            None if dir.is_empty() => {}
+            None => dirs.push(dir.to_string()),
         }
+    }
+    let mut out = BTreeMap::new();
+    for dir in &dirs {
+        let dir = dir.as_str();
         let path = root.join(dir).join("Cargo.toml");
         let text = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("{} cannot be read: {e}", path.display()));
@@ -980,10 +996,11 @@ fn every_workspace_member_is_tested_by_a_job() {
         // a `-p websites`, and a package whose name is another's prefix is the
         // day a substring test would report a member as covered by the job that
         // covers its neighbour.
-        let asked = format!("cargo test -p {package}");
-        let covered = text.match_indices(&asked).any(|(at, _)| {
-            let after = text[at + asked.len()..].chars().next();
-            !after.is_some_and(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        //
+        // Any `-p` of a `cargo test` command counts, because one command asks
+        // for every crate of the toolchain at once.
+        let covered = text.lines().filter(|line| line.contains("cargo test ")).any(|line| {
+            line.split_whitespace().collect::<Vec<_>>().windows(2).any(|w| w == ["-p", package.as_str()])
         });
         if !covered {
             untested.push(format!("{dir}/ (package `{package}`)"));

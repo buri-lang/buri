@@ -61,15 +61,15 @@ points short: 12
 
 `buri docs` serves all four parts of the documentation from the binary.
 
-- **[Getting started](cli/src/docs/getting-started/)** is the reading order for
+- **[Getting started](crates/docs/src/docs/getting-started/)** is the reading order for
   somebody new: why the language is shaped this way, how to install it, and one
   small program built end to end.
-- **[Guides](cli/src/docs/guides/)** answer "how do I do X": set up an editor,
+- **[Guides](crates/docs/src/docs/guides/)** answer "how do I do X": set up an editor,
   write a test, compile to JavaScript. They also carry the few concepts you have
   to understand first, effects above all.
-- **[The language](cli/src/docs/language/)** is the specification. Go there when
+- **[The language](crates/docs/src/docs/language/)** is the specification. Go there when
   you need the letter of the rule.
-- **[Reference](cli/src/docs/reference/)** is lookup: the standard library, the
+- **[Reference](crates/docs/src/docs/reference/)** is lookup: the standard library, the
   build system, every CLI command, every error and lint code. You land on a page
   because something sent you there.
 

@@ -2,7 +2,7 @@
 //!
 //! `docs/examples.rs` compiles what the documents *show*. This file
 //! checks what the documents *are*: that every fence is scannable and tagged,
-//! that every link resolves, and that the checked-in `cli/src/docs/SPEC.md`
+//! that every link resolves, and that the checked-in `crates/docs/src/docs/SPEC.md`
 //! still matches what `buri docs assemble` produces.
 use buri::documentation::{assemble, markdown, topics};
 use std::path::{Path, PathBuf};
@@ -66,7 +66,7 @@ fn heap_ok(what: &str, out: &std::process::Output) {
 /// assembled document would otherwise be checked by nothing.
 const STANDALONE: &[&str] = &[
     "README.md",
-    "cli/src/docs/SPEC.md",
+    "crates/docs/src/docs/SPEC.md",
     "design/README.md",
     "design/non-goals.md",
     "cli/tests/README.md",
@@ -78,7 +78,7 @@ const STANDALONE: &[&str] = &[
 /// byte-for-byte their concatenation.
 ///
 /// The command pages are here because they are markdown a reader browses in
-/// `cli/src/docs/reference/cli/` like any other, and nothing else was checking
+/// `crates/docs/src/docs/reference/cli/` like any other, and nothing else was checking
 /// that their links still resolve — one of them had rotted.
 fn documents() -> Vec<String> {
     let mut out: Vec<String> = STANDALONE.iter().map(|s| (*s).to_string()).collect();
@@ -88,18 +88,18 @@ fn documents() -> Vec<String> {
         }
     }
     for c in buri::commands::COMMANDS {
-        out.push(format!("cli/src/docs/reference/cli/{}.md", c.name));
+        out.push(format!("crates/docs/src/docs/reference/cli/{}.md", c.name));
     }
     out
 }
 
 /// The one document whose links are still written from the repository root:
-/// `cli/src/docs/SPEC.md` and the `language/` topics it is assembled from say
-/// `./cli/src/docs/…` throughout. Resolving those where the file actually sits
+/// `crates/docs/src/docs/SPEC.md` and the `language/` topics it is assembled from say
+/// `./crates/docs/src/docs/…` throughout. Resolving those where the file actually sits
 /// would report every one of them as broken, which is a change to the language
 /// reference rather than to this test. Everything else is checked where a
 /// reader meets it.
-const ROOT_RELATIVE: &[&str] = &["cli/src/docs/SPEC.md"];
+const ROOT_RELATIVE: &[&str] = &["crates/docs/src/docs/SPEC.md"];
 
 /// The assembled document a topic file is a section of, if it is one: a topic
 /// met inside another file has its links written relative to *that* file,
@@ -171,7 +171,7 @@ fn every_link_resolves() {
         // A link resolves from wherever a reader meets the text. A topic
         // assembled into another file is met there, so its links are written
         // relative to that document's directory. Every other topic is a page
-        // in its own right, read in `cli/src/docs/` on GitHub, so its links
+        // in its own right, read in `crates/docs/src/docs/` on GitHub, so its links
         // are relative to the directory the file sits in. One property, two
         // resolutions, and both of them the one the reader needs.
         let dir = if ROOT_RELATIVE.contains(&doc.as_str()) {
@@ -234,7 +234,7 @@ fn the_assembled_documents_are_not_stale() {
     assert!(
         drifted.is_empty(),
         "{} is stale.\n  Run `buri docs assemble` and commit the result.\n  \
-         Edit the topics under cli/src/docs, never the assembled file.",
+         Edit the topics under crates/docs/src/docs, never the assembled file.",
         names.join(", ")
     );
 }
@@ -247,7 +247,7 @@ fn the_assembled_documents_are_not_stale() {
 /// other half of the invariant `cli/tests/tutorial/README.md` states.
 #[test]
 fn the_tutorial_page_and_its_repository_are_the_same_bytes() {
-    let text = read("cli/src/docs/getting-started/tutorial.md");
+    let text = read("crates/docs/src/docs/getting-started/tutorial.md");
     let bodies: Vec<String> = markdown::fences(&text).into_iter().map(|f| f.body).collect();
     let mut walk = vec![repo_root().join("cli/tests/tutorial")];
     let mut checked = 0usize;
@@ -530,7 +530,7 @@ fn no_document_invents_a_flag() {
 
 /// The pages an agent reads before it writes a suite: the shipped skills and
 /// the testing guide.
-const AGENT_TESTING_PAGES: &[&str] = &["cli/src/docs/guides/testing.md"];
+const AGENT_TESTING_PAGES: &[&str] = &["crates/docs/src/docs/guides/testing.md"];
 
 /// The two testing modules whose names those pages spell out, as
 /// `<prefix>.<name>` — the prefix being what every one of them writes for
@@ -907,7 +907,7 @@ fn a_builder_page_prints_its_config_struct() {
 /// `reference/std/core/list` are both rendered from the source the compiler
 /// checked, so no hand-written listing of items can drift from it. What is
 /// still written by hand is
-/// `cli/src/docs/reference/standard-library.md`: the map over the top, which
+/// `crates/docs/src/docs/reference/standard-library.md`: the map over the top, which
 /// says which modules there are and what each costs. That half *can* drift, in
 /// exactly one way — a module lands and nothing on the map mentions it — and
 /// this is the assertion that stops it. The check runs in both directions,
@@ -916,7 +916,7 @@ fn a_builder_page_prints_its_config_struct() {
 #[test]
 fn the_prose_map_names_every_module_and_no_others() {
     let root = repo_root();
-    let page = read("cli/src/docs/reference/standard-library.md");
+    let page = read("crates/docs/src/docs/reference/standard-library.md");
 
     let mut missing = Vec::new();
     let mut unlinked = Vec::new();
@@ -937,7 +937,7 @@ fn the_prose_map_names_every_module_and_no_others() {
     assert!(
         missing.is_empty(),
         "these modules exist and the standard library map never names them: {missing:?}.\n  \
-         Add each to `cli/src/docs/reference/standard-library.md` under the heading it \
+         Add each to `crates/docs/src/docs/reference/standard-library.md` under the heading it \
          belongs to, with what it costs."
     );
     assert!(
@@ -979,7 +979,7 @@ fn the_prose_map_names_every_module_and_no_others() {
 /// two do not follow one another — `core/net/http` is `sources/http.buri`. The
 /// bytes are the only thing that cannot be wrong.
 fn std_source_file(root: &std::path::Path, text: &str) -> Option<String> {
-    let sources = root.join("cli/src/compiler/standard_library/sources");
+    let sources = root.join("crates/stdlib/src/compiler/standard_library/sources");
     for entry in std::fs::read_dir(&sources).ok()?.flatten() {
         let path = entry.path();
         if path.extension().is_some_and(|x| x == "buri")
@@ -989,7 +989,7 @@ fn std_source_file(root: &std::path::Path, text: &str) -> Option<String> {
         }
     }
     for platform in buri::build::buildfile::PlatformName::BUNDLED.map(|p| p.name()) {
-        let path = root.join(format!("cli/src/platforms/{platform}/platform.buri"));
+        let path = root.join(format!("crates/stdlib/src/platforms/{platform}/platform.buri"));
         if std::fs::read_to_string(&path).is_ok_and(|t| t == text) {
             return Some(format!("platforms/{platform}/platform.buri"));
         }
@@ -1071,7 +1071,7 @@ fn a_module_doc_comment_must_come_first() {
 fn every_error_page_is_provoked_by_its_own_example() {
     let mut failures = Vec::new();
     for e in buri::documentation::errors::ERRORS {
-        let doc = format!("cli/src/docs/reference/errors/{}.md", e.code);
+        let doc = format!("crates/docs/src/docs/reference/errors/{}.md", e.code);
         let text = crate::examples::document(&repo_root(), &doc, e.text);
         failures.extend(buri::documentation::examples::run_file_at(&repo_root(), &doc, &text));
     }
@@ -1089,7 +1089,7 @@ fn every_error_page_is_provoked_by_its_own_example() {
 fn every_lint_page_example_is_reported() {
     let mut failures = Vec::new();
     for l in buri::documentation::lints::LINTS {
-        let doc = format!("cli/src/docs/reference/lints/{}.md", l.code);
+        let doc = format!("crates/docs/src/docs/reference/lints/{}.md", l.code);
         let text = crate::examples::document(&repo_root(), &doc, l.text);
         failures.extend(buri::documentation::examples::run_file_at(&repo_root(), &doc, &text));
     }
@@ -1270,8 +1270,8 @@ fn every_emitted_code_is_documented() {
     assert!(
         undocumented.is_empty(),
         "{} code(s) are emitted and documented nowhere:\n  {}\n\nAdd a page under \
-         cli/src/docs/reference/errors/ (and register it in documentation/errors.rs) for a \
-         diagnostic one program can provoke, or one under cli/src/docs/reference/lints/ \
+         crates/docs/src/docs/reference/errors/ (and register it in documentation/errors.rs) for a \
+         diagnostic one program can provoke, or one under crates/docs/src/docs/reference/lints/ \
          (registered in documentation/lints.rs) for a `buri lint` finding.",
         undocumented.len(),
         undocumented.join("\n  ")

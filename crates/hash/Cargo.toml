@@ -1,0 +1,13 @@
+[package]
+name = "buri-hash"
+version = "0.3.19"
+edition = "2021"
+description = "Hashing for the Buri toolchain: the table hasher, SHA-256 and cache keys."
+license = "MIT"
+repository = "https://github.com/buri-lang/buri"
+rust-version = "1.89"
+
+[dependencies]
+
+[lints]
+workspace = true

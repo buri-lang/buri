@@ -425,7 +425,7 @@
           # outcome this whole arrangement exists to prevent, and a package
           # manager is the last place to make it the default.
 
-          # `cargo test` compiles and *runs* the examples under `cli/src/docs/`,
+          # `cargo test` compiles and *runs* the examples under `crates/docs/src/docs/`,
           # which means spawning a JavaScript runtime -- a package
           # build must not depend on that, so the suite stays in `nix develop`.
           doCheck = false;

@@ -1,0 +1,16 @@
+[package]
+name = "buri-diagnostics"
+version = "0.3.19"
+edition = "2021"
+description = "Diagnostics and the source map for the Buri toolchain."
+license = "MIT"
+repository = "https://github.com/buri-lang/buri"
+rust-version = "1.89"
+
+[dependencies]
+buri-docs = { path = "../docs", version = "0.3.19" }
+buri-hash = { path = "../hash", version = "0.3.19" }
+buri-stdlib = { path = "../stdlib", version = "0.3.19" }
+
+[lints]
+workspace = true

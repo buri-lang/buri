@@ -1,6 +1,6 @@
 //! The documentation site.
 //!
-//! `cli/src/docs/**` and the repository README, rendered to static HTML with
+//! `crates/docs/src/docs/**` and the repository README, rendered to static HTML with
 //! no dependency, no build step, and no highlighter in the browser. One
 //! command builds it and one flag checks it:
 //!
@@ -86,7 +86,7 @@ fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 fn root_of(options: &Options) -> Result<PathBuf, String> {
     if let Some(root) = &options.root {
         return pages::find_root(root).ok_or_else(|| {
-            format!("{} does not hold `cli/src/docs` and a README", root.display())
+            format!("{} does not hold `crates/docs/src/docs` and a README", root.display())
         });
     }
     let here = std::env::current_dir().map_err(|why| format!("the working directory: {why}"))?;

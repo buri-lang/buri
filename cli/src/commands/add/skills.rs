@@ -41,11 +41,11 @@ const OFFICIAL: &str = "buri-";
 const SKILLS_DIRECTORY: &str = ".agent/skills";
 
 pub const SKILLS: &[Skill] = &[
-    Skill { name: "buri-language", text: include_str!("../../docs/reference/skills/buri-language.md") },
-    Skill { name: "buri-types", text: include_str!("../../docs/reference/skills/buri-types.md") },
-    Skill { name: "buri-build", text: include_str!("../../docs/reference/skills/buri-build.md") },
-    Skill { name: "buri-testing", text: include_str!("../../docs/reference/skills/buri-testing.md") },
-    Skill { name: "buri-cli", text: include_str!("../../docs/reference/skills/buri-cli.md") },
+    Skill { name: "buri-language", text: crate::documentation::embedded::skills::BURI_LANGUAGE },
+    Skill { name: "buri-types", text: crate::documentation::embedded::skills::BURI_TYPES },
+    Skill { name: "buri-build", text: crate::documentation::embedded::skills::BURI_BUILD },
+    Skill { name: "buri-testing", text: crate::documentation::embedded::skills::BURI_TESTING },
+    Skill { name: "buri-cli", text: crate::documentation::embedded::skills::BURI_CLI },
 ];
 
 /// What happened to one path, in the word the command prints for it.

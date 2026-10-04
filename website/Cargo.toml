@@ -2,7 +2,7 @@
 name = "website"
 version = "0.3.0"
 edition = "2021"
-description = "The documentation site: cli/src/docs and the README, rendered to static HTML."
+description = "The documentation site: crates/docs/src/docs and the README, rendered to static HTML."
 license = "MIT"
 repository = "https://github.com/buri-lang/buri"
 rust-version = "1.87"

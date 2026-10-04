@@ -51,8 +51,29 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 name = "buri"
 version = "0.3.19"
 dependencies = [
+ "buri-diagnostics",
+ "buri-docs",
+ "buri-hash",
+ "buri-stdlib",
  "inkwell",
 ]
+
+[[package]]
+name = "buri-diagnostics"
+version = "0.3.19"
+dependencies = [
+ "buri-docs",
+ "buri-hash",
+ "buri-stdlib",
+]
+
+[[package]]
+name = "buri-docs"
+version = "0.3.19"
+
+[[package]]
+name = "buri-hash"
+version = "0.3.19"
 
 [[package]]
 name = "buri-rt-tests"
@@ -69,6 +90,10 @@ dependencies = [
  "tokio",
  "tungstenite",
 ]
+
+[[package]]
+name = "buri-stdlib"
+version = "0.3.19"
 
 [[package]]
 name = "bytemuck"

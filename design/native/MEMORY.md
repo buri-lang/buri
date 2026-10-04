@@ -953,7 +953,7 @@ Three spellings of one definition is two too many to change silently.
 ### 7.2 The three allocator types
 
 `GeneralPurpose`, `Arena` and `FixedBuffer`
-(`cli/src/docs/reference/standard-library.md` "Allocators") are budgets and
+(`crates/docs/src/docs/reference/standard-library.md` "Allocators") are budgets and
 accounting policies over the one real allocator. They are not three
 allocators.
 

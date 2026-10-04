@@ -67,31 +67,31 @@ const IGNORE_FILE: &str = ".gitignore";
 /// escaped constant. The ignore file is stored without its leading dot because
 /// a `.gitignore` inside the toolchain's own tree would be read by git as one.
 pub const SCAFFOLD: &[ScaffoldFile] = &[
-    ScaffoldFile { path: "REPO.buri", text: include_str!("../docs/init/REPO.buri") },
-    ScaffoldFile { path: ".gitignore", text: include_str!("../docs/init/gitignore") },
+    ScaffoldFile { path: "REPO.buri", text: crate::documentation::embedded::init::REPO },
+    ScaffoldFile { path: ".gitignore", text: crate::documentation::embedded::init::GITIGNORE },
     ScaffoldFile {
         path: "libs/greeting/BUILD.buri",
-        text: include_str!("../docs/init/libs/greeting/BUILD.buri"),
+        text: crate::documentation::embedded::init::GREETING_BUILD,
     },
     ScaffoldFile {
         path: "libs/greeting/lib.buri",
-        text: include_str!("../docs/init/libs/greeting/lib.buri"),
+        text: crate::documentation::embedded::init::GREETING_LIB,
     },
     ScaffoldFile {
         path: "libs/greeting/greeting.buri",
-        text: include_str!("../docs/init/libs/greeting/greeting.buri"),
+        text: crate::documentation::embedded::init::GREETING,
     },
     ScaffoldFile {
         path: "libs/greeting/test/greeting.buri",
-        text: include_str!("../docs/init/libs/greeting/test/greeting.buri"),
+        text: crate::documentation::embedded::init::GREETING_TEST,
     },
     ScaffoldFile {
         path: "apps/hello/BUILD.buri",
-        text: include_str!("../docs/init/apps/hello/BUILD.buri"),
+        text: crate::documentation::embedded::init::HELLO_BUILD,
     },
     ScaffoldFile {
         path: "apps/hello/main.buri",
-        text: include_str!("../docs/init/apps/hello/main.buri"),
+        text: crate::documentation::embedded::init::HELLO_MAIN,
     },
 ];
 

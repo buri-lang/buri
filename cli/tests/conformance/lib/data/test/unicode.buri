@@ -2,7 +2,7 @@
 // and full case folding.
 //
 // The tables these read are generated at **Unicode 16.0** by
-// `cli/src/compiler/standard_library/unicode_tables.py`, so the two sets of
+// `crates/stdlib/src/compiler/standard_library/unicode_tables.py`, so the two sets of
 // cases below are the two things worth asserting: the rules, named one at a
 // time, and the UCD's own vectors, sliced.
 

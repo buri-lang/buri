@@ -93,7 +93,7 @@ impl<'a> Resolver<'a> {
 /// The file a page's links are written relative to.
 ///
 /// The `language/` topics write theirs from the repository root, because they
-/// are read as sections of the assembled `cli/src/docs/SPEC.md`; everything
+/// are read as sections of the assembled `crates/docs/src/docs/SPEC.md`; everything
 /// else writes them from where the file sits. That is not this crate's rule —
 /// it is the corpus's, stated as `ROOT_RELATIVE` in
 /// `cli/tests/docs/documents.rs`, and read here from the other side so that the
@@ -111,7 +111,7 @@ fn base_of(page: &Page) -> String {
 }
 
 fn is_root_relative(source: &str) -> bool {
-    source.starts_with("cli/src/docs/language/")
+    source.starts_with("crates/docs/src/docs/language/")
 }
 
 /// The `href` a target is written as, from a page at `route`.
@@ -212,16 +212,16 @@ mod tests {
     #[test]
     fn a_relative_path_resolves_against_the_file_it_was_written_in() {
         assert_eq!(
-            resolve("cli/src/docs/reference/build/tags.md", "./testing.md"),
-            "cli/src/docs/reference/build/testing.md"
+            resolve("crates/docs/src/docs/reference/build/tags.md", "./testing.md"),
+            "crates/docs/src/docs/reference/build/testing.md"
         );
         assert_eq!(
-            resolve("cli/src/docs/language/types.md", "../grammar.ebnf"),
-            "cli/src/docs/grammar.ebnf"
+            resolve("crates/docs/src/docs/language/types.md", "../grammar.ebnf"),
+            "crates/docs/src/docs/grammar.ebnf"
         );
-        assert_eq!(resolve("README.md", "./cli/src/docs/grammar.ebnf"), "cli/src/docs/grammar.ebnf");
+        assert_eq!(resolve("README.md", "./crates/docs/src/docs/grammar.ebnf"), "crates/docs/src/docs/grammar.ebnf");
         assert_eq!(
-            resolve("cli/src/docs/reference/build/tags.md", "../../../../tests/example/"),
+            resolve("crates/docs/src/docs/reference/build/tags.md", "../../../../../../cli/tests/example/"),
             "cli/tests/example"
         );
     }
