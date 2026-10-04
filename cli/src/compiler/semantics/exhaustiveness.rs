@@ -454,20 +454,23 @@ impl<'p> Matrix<'p> {
         collect_head_ctors(head, &mut ix.heads);
     }
 
-    /// Every constructor the first column mentions.
-    fn head_ctors(&self) -> Cow<'_, HashSet<Ctor>> {
+    /// Whether the first column mentions `c`. Below the index threshold a scan
+    /// of the heads beats building the set the index holds.
+    fn mentions(&self, c: &Ctor) -> bool {
         match self.index.as_ref() {
-            Some(ix) => Cow::Borrowed(&ix.heads),
-            None => {
-                let mut out = HashSet::default();
-                for row in &self.rows {
-                    if let Some(&head) = row.first() {
-                        collect_head_ctors(head, &mut out);
-                    }
-                }
-                Cow::Owned(out)
-            }
+            Some(ix) => ix.heads.contains(c),
+            None => self.rows.iter().any(|row| row.first().is_some_and(|&head| head_mentions(head, c))),
         }
+    }
+}
+
+/// Whether a row's head can start with `c`, by the rule of
+/// [`collect_head_ctors`].
+fn head_mentions(p: &Pat, c: &Ctor) -> bool {
+    match p {
+        Pat::Wild => false,
+        Pat::Ctor(d, _) => d == c,
+        Pat::Or(alts) => alts.iter().any(|a| head_mentions(a, c)),
     }
 }
 
@@ -647,12 +650,11 @@ impl<'a> Ctx<'a> {
                     .map(|w| self.wrap(c, head_ty, arity, w))
             }
             Pat::Wild => {
-                let used = matrix.head_ctors();
                 // Once, not once per branch: it allocates one `Ctor` per
                 // variant, and both branches below want the same list.
                 let all_ctors = self.all_ctors(head_ty);
                 let complete = match &all_ctors {
-                    Some(all) => all.iter().all(|c| used.contains(c)),
+                    Some(all) => all.iter().all(|c| matrix.mentions(c)),
                     None => false,
                 };
                 if complete {
@@ -678,7 +680,7 @@ impl<'a> Ctx<'a> {
                         // Name a constructor the match does not mention, when
                         // there is one to name.
                         let missing = all_ctors
-                            .and_then(|all| all.into_iter().find(|c| !used.contains(c)))
+                            .and_then(|all| all.into_iter().find(|c| !matrix.mentions(c)))
                             .map(|c| {
                                 let arity = c.arity(self.tables, head_ty);
                                 Witness::Ctor(
