@@ -6,7 +6,8 @@
 //!
 //!  * **Provenance.** A JavaScript array this backend did not allocate carries
 //!    no bit, and absence reads as *shared*, so it is copied and never written
-//!    to — and no mark is ever written onto it either. The `core/list` surface
+//!    to — and no mark a host can read by name is ever written onto it either.
+//!    A frozen or sealed one is marked without throwing. The `core/list` surface
 //!    is asked this directly, because the host boundary is a property of the
 //!    runtime rather than of any program.
 //!  * **Aliasing.** Every case where two names reach one list is in the
@@ -57,12 +58,45 @@ check("a host array was marked", !Object.prototype.hasOwnProperty.call(host, "$u
 const again = $list_push(grown, null, 5);
 check("the copy of a host array was copied again", again === grown);
 
-// Marking a host array must write nothing at all onto it.
+// Marking a host array must write nothing a host can read by name onto it.
 const before = Object.getOwnPropertyNames(host).join(",");
+const json = JSON.stringify(host);
 $share(host);
 check("$share wrote onto a host array", Object.getOwnPropertyNames(host).join(",") === before);
+check("$share changed a host array's JSON", JSON.stringify(host) === json);
 check("a marked host array became writable", $list_push(host, null, 9) !== host);
 check("a marked host array was written through", host.length === 3);
+
+// A host object, the same.
+const object = { a: 1 };
+$share(object);
+check("$share wrote onto a host object", Object.keys(object).join(",") === "a");
+check("$share changed a host object's JSON", JSON.stringify(object) === '{"a":1}');
+
+// An aggregate passes its mark to a field read out of it, and only then.
+const unmarkedParent = [0, $list_push($list_empty(), null, 1)];
+check(
+  "a field of an unmarked aggregate was marked",
+  $fromShared(unmarkedParent, unmarkedParent[1]).$u === true,
+);
+const markedParent = $share([0, $list_push($list_empty(), null, 1)]);
+check(
+  "a field of a marked aggregate was not marked",
+  $fromShared(markedParent, markedParent[1]).$u === false,
+);
+
+// A frozen or sealed host value cannot take a property, and marking one must
+// neither throw nor lose the mark.
+for (const [name, seal] of [["frozen", Object.freeze], ["sealed", Object.seal]]) {
+  const plain = seal([0, $list_push($list_empty(), null, 1)]);
+  check(name + ": a field of an unmarked aggregate was marked", $fromShared(plain, plain[1]).$u === true);
+  const kept = seal([0, $list_push($list_empty(), null, 1)]);
+  check(name + ": $share answers its argument", $share(kept) === kept);
+  check(name + ": a field of a marked aggregate was not marked", $fromShared(kept, kept[1]).$u === false);
+  const frozenHost = seal([1, 2, 3]);
+  $share(frozenHost);
+  check(name + ": a marked host array became writable", $list_push(frozenHost, null, 4) !== frozenHost);
+}
 
 // Two names for one of ours: the mark is what separates them.
 const ours = $list_empty();
@@ -98,7 +132,7 @@ for (const [name, call] of [
 console.log("ok");
 "#;
 
-/// A host array is copied, never written to, and never marked.
+/// A host array is copied, never written to, and never marked by name.
 #[test]
 fn a_host_array_is_never_written_through() {
     let scratch = Scratch::empty("js-sharing-host-array");
