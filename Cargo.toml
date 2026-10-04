@@ -1,7 +1,7 @@
 [workspace]
 # `website` is the documentation site generator. It is not part of the CLI and
 # ships with nothing: it reads `cli/src/docs/**` and the README and writes HTML.
-members = ["cli", "website"]
+members = ["cli", "website", "runtime-tests"]
 # One package deliberately outside the workspace: `editors/zed` is a Zed
 # extension, and a Zed extension must depend on `zed_extension_api` and compile
 # to WASM, neither of which `cargo test -p buri` has any business resolving.
@@ -18,6 +18,10 @@ members = ["cli", "website"]
 # `[profile.release]` — the archive's LTO, `panic = "abort"` and single codegen
 # unit — because the assembled package carries an empty `[workspace]` table of
 # its own.
+#
+# `runtime-tests` compiles the same sources as an ordinary rlib, so the
+# runtime's unit tests are a test binary like any other:
+# `cargo nextest run -p buri -p buri-rt-tests`.
 exclude = ["editors/zed"]
 resolver = "2"
 

@@ -1098,6 +1098,66 @@ fn dependencies_stay_behind_the_bar() {
     );
 }
 
+/// `-p buri-rt-tests` tests the runtime that ships: the same dependencies, the
+/// same features and the same locked versions as the archive `cli/build.rs`
+/// builds.
+#[test]
+fn the_runtime_tests_build_the_shipped_runtime() {
+    let read = |path: &str| {
+        std::fs::read_to_string(repo_root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
+    };
+    // The non-comment lines of the `[dependencies]` and `[features]` tables.
+    fn tables(manifest: &str) -> Vec<&str> {
+        let mut inside = false;
+        let mut lines = Vec::new();
+        for line in manifest.lines().map(str::trim) {
+            if line.starts_with('[') {
+                inside = line == "[dependencies]" || line == "[features]";
+            } else if inside && !line.is_empty() && !line.starts_with('#') {
+                lines.push(line);
+            }
+        }
+        lines
+    }
+    let shipped = read("cli/runtime/manifest.toml");
+    let tested = read("runtime-tests/Cargo.toml");
+    assert!(!tables(&shipped).is_empty(), "manifest.toml has no dependencies to compare");
+    assert_eq!(
+        tables(&tested),
+        tables(&shipped),
+        "runtime-tests/Cargo.toml's [dependencies] or [features] drifted from \
+         cli/runtime/manifest.toml's; copy them across"
+    );
+
+    // Every `name`/`version` pair `manifest.lock` pins, `Cargo.lock` pins too.
+    fn pins(lock: &str) -> Vec<(&str, &str)> {
+        let mut pins = Vec::new();
+        let mut name = None;
+        for line in lock.lines() {
+            if let Some(n) = line.strip_prefix("name = ") {
+                name = Some(n);
+            } else if let (Some(v), Some(n)) = (line.strip_prefix("version = "), name.take()) {
+                pins.push((n, v));
+            }
+        }
+        pins
+    }
+    let workspace = read("Cargo.lock");
+    let workspace = pins(&workspace);
+    let runtime = read("cli/runtime/manifest.lock");
+    let missing: Vec<_> = pins(&runtime)
+        .into_iter()
+        .filter(|(name, _)| *name != "\"buri-rt\"")
+        .filter(|pin| !workspace.contains(pin))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "Cargo.lock doesn't pin these runtime crates at manifest.lock's versions, so \
+         -p buri-rt-tests would test different code than ships: {missing:?}. Run \
+         `cargo update -p <name> --precise <version>` for each"
+    );
+}
+
 /// The editor integration is one directory, and its pieces refer to each other
 /// by path. A rename that misses one presents as an extension that installs and
 /// then does nothing, which is the hardest kind of breakage to notice.
