@@ -5,7 +5,7 @@ import Buri.Core.Subst
 # The algorithmic checker
 
 `Expr.infer` is the executable counterpart of `Infer::check_expr`
-(`cli/src/compiler/semantics/expressions.rs`): it walks the expression once,
+(`crates/semantics/src/compiler/semantics/expressions.rs`): it walks the expression once,
 syntax-directed, and returns the type or `none`.
 
 ## What is modelled, and what is not

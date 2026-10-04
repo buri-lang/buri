@@ -2,7 +2,7 @@
 
 use crate::build::actions;
 use crate::build::buildfile::Platform;
-use crate::build::workspace::Workspace;
+use crate::build::workspace::{Packages, Workspace};
 use crate::compiler::modules::{Loaded, Loader, Unit};
 use crate::compiler::semantics::resolve::{Bodies, Checked, Checker};
 use crate::compiler::snapshot::{self, Opening, Snapshot};
@@ -180,7 +180,7 @@ fn check_on(
 ) -> Analysis {
     let Loading { loaded, mut diagnostics } = loading;
     let checked =
-        Checker::resume(&loaded, ws, &mut diagnostics, &snapshot.base).checking(bodies).run();
+        Checker::resume(&loaded, ws.map(|w| w as &dyn Packages), &mut diagnostics, &snapshot.base).checking(bodies).run();
     diagnostics.sort(map);
     Analysis { loaded, checked, diagnostics }
 }

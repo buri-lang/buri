@@ -3,7 +3,7 @@ import Buri.Syntax.Ty
 /-!
 # Pattern constructors
 
-`Constructor` from `cli/src/compiler/semantics/exhaustiveness.rs` -- the head
+`Constructor` from `crates/semantics/src/compiler/semantics/exhaustiveness.rs` -- the head
 constructor of a lowered pattern.
 
 It lives in its own module because both `Value` and `Pattern` need it: a value's

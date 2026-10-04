@@ -891,7 +891,7 @@ impl Tables {
     /// *is* a capability.
     ///
     /// Public because `middle::monomorphize` records the answer on
-    /// [`crate::compiler::middle::monomorphize::Shapes`] for the passes that
+    /// `middle::monomorphize::Shapes` for the passes that
     /// hold a `Program` and no `Tables` — `middle::rc` asks it of a callee's
     /// type, and `middle::native` takes no `Tables`.
     pub fn con_carries_effect(&self, con: TyConId) -> bool {
