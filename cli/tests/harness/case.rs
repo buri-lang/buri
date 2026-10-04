@@ -896,11 +896,14 @@ pub fn run_case(case: &Case, g: &mut Golden) {
 /// run prints is what a one-case-at-a-time run printed, and the only thing the
 /// threads decide is when each case runs.
 pub fn run_corpus(dir: &Path, what: &str, floor: usize) {
-    // A case may link for Linux from a mac, which needs the cross runtime. It
-    // is built here, outside the hang cap, rather than inside a step.
-    super::sweep::kept::warm_cross_runtime();
     let mut g = Golden::new();
     let cases = super::case_dirs(dir, "CASE.textproto", floor);
+    // A case may link for Linux from a mac, which needs the cross runtime. It
+    // is built here, outside the hang cap, rather than inside a step. From
+    // cold that's minutes, so a corpus that names no Linux variant skips it.
+    if cases.iter().any(|case| names_a_linux_variant(case)) {
+        super::sweep::kept::warm_cross_runtime();
+    }
     for found in super::pool::map(&cases, |dir| {
         let mut one = Golden::new();
         run_case(&load_case(dir), &mut one);
@@ -912,6 +915,42 @@ pub fn run_corpus(dir: &Path, what: &str, floor: usize) {
     // Last, and on the bytes the run above has just written: see
     // `no_golden_has_collapsed`.
     no_golden_has_collapsed(dir, what);
+}
+
+/// Whether anything a case runs on, its manifest or its repository, names a
+/// Linux variant. Goldens don't count: a diagnostic lists every variant.
+///
+/// A miss is safe. The step then builds the cross runtime itself, without a
+/// rustc wrapper, so the hang cap sees it working (`buri_command`).
+fn names_a_linux_variant(case: &Path) -> bool {
+    fn walk(path: &Path) -> bool {
+        if path.is_dir() {
+            let Ok(entries) = std::fs::read_dir(path) else { return true };
+            return entries.flatten().any(|e| e.file_name() != "expected" && walk(&e.path()));
+        }
+        let text = std::fs::read(path).unwrap_or_default();
+        let text = String::from_utf8_lossy(&text);
+        ["{{CROSS_", "linux-x86_64", "linux-arm64"].iter().any(|word| text.contains(word))
+    }
+    walk(case)
+}
+
+#[cfg(test)]
+mod cross_runtime_tests {
+    use super::super::{case_dirs, tests_dir};
+    use super::names_a_linux_variant;
+
+    #[test]
+    fn only_a_corpus_that_names_a_linux_variant_warms_the_cross_runtime() {
+        let warms = |name: &str| {
+            case_dirs(&tests_dir().join(name), "CASE.textproto", 1)
+                .iter()
+                .any(|case| names_a_linux_variant(case))
+        };
+        assert!(warms("repositories/cli"));
+        assert!(!warms("repositories/query"));
+        assert!(!warms("repositories/hermeticity"));
+    }
 }
 
 // ---------------------------------------------------------------------------
