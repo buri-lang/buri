@@ -1,7 +1,0 @@
-error: a call argument ends with `,` [missing-comma]
-  --> main.buri:69:22
-   |
-69 |     assert.equal(heap "2026-03-01");
-   |                      ^
-   |
-   = fix: write `,` here
