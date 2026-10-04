@@ -22,7 +22,7 @@ use crate::hash::{Map as HashMap, Set as HashSet};
 // The tree
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum VarKind {
     Const,
     Let,
@@ -90,7 +90,7 @@ impl RuntimeDecl {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum BinOp {
     Add,
     Sub,
@@ -157,7 +157,7 @@ impl BinOp {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum UnOp {
     Neg,
     Not,
@@ -1288,14 +1288,28 @@ pub fn minify(stmts: Vec<Stmt>, roots: &[String], mangle: bool) -> Vec<Stmt> {
         // the folder see through the declaration; whichever declarations
         // nothing needs afterwards are dropped below.
         let table = constant_table(&stmts);
-        stmts = fold_block(stmts);
         // Folding turns branches into expressions, which leaves temporaries
         // nothing reads; cleanup removes them, which exposes more folding —
         // and cleanup is also what turns `const x = $k0; x[0]` into `$k0[0]`,
         // so reading through has to happen inside that loop rather than
         // before it. The three run together, per body, until none of them has
         // anything left to do.
-        stmts = clean_locals(stmts, &table);
+        //
+        // Each top-level statement is its own job: nothing here looks across
+        // two of them, so they run on the crate's workers and come back in
+        // order.
+        let folded = each_statement(stmts, |s| match Fold.stmt(s) {
+            Stmt::Func { name, params, body, is_async } => {
+                clean_function(name, params, body, is_async, &table)
+            }
+            other => other,
+        });
+        stmts = Vec::with_capacity(folded.len());
+        for s in folded {
+            if Fold::push(&mut stmts, s) {
+                break;
+            }
+        }
         // Last, so that two instances which only became the same through
         // folding and inlining are still seen as the same.
         stmts = merge_identical(stmts, roots);
@@ -1305,6 +1319,30 @@ pub fn minify(stmts: Vec<Stmt>, roots: &[String], mangle: bool) -> Vec<Stmt> {
         stmts = mangle_program(stmts, roots);
     }
     stmts
+}
+
+/// `f` over each statement, on the crate's workers, with the results in the
+/// order the statements came in.
+fn each_statement<F>(stmts: Vec<Stmt>, f: F) -> Vec<Stmt>
+where
+    F: Fn(Stmt) -> Stmt + Sync,
+{
+    each_statement_with(stmts, || (), |(), s| f(s))
+}
+
+/// The same, where each worker keeps a scratch table of its own — under the
+/// contract `parallel::map_with` states.
+fn each_statement_with<S, I, F>(stmts: Vec<Stmt>, init: I, f: F) -> Vec<Stmt>
+where
+    I: Fn() -> S + Sync,
+    F: Fn(&mut S, Stmt) -> Stmt + Sync,
+{
+    let len = stmts.len();
+    let slots = std::sync::Mutex::new(stmts.into_iter().map(Some).collect::<Vec<_>>());
+    crate::parallel::map_with(len, init, |state, i| {
+        let taken = slots.lock().ok().and_then(|mut slots| slots.get_mut(i).and_then(Option::take));
+        f(state, taken.or_ice("`parallel::map_with` asks for each index once"))
+    })
 }
 
 // -- constant folding --------------------------------------------------------
@@ -1356,6 +1394,21 @@ fn always_exits(body: &[Stmt]) -> bool {
 }
 
 struct Fold;
+
+impl Fold {
+    /// Appends one folded statement to a block. Answers `true` when nothing
+    /// after it can run, so the caller stops.
+    fn push(out: &mut Vec<Stmt>, s: Stmt) -> bool {
+        // Flatten the empty and singleton blocks folding produces.
+        match s {
+            Stmt::Block(inner) if inner.is_empty() => return false,
+            Stmt::Block(inner) if !inner.iter().any(is_declaration) => out.extend(inner),
+            other => out.push(other),
+        }
+        // Nothing after `return`, `throw`, `break` or `continue` runs.
+        matches!(out.last(), Some(Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break | Stmt::Continue))
+    }
+}
 
 impl Rewrite for Fold {
     fn stmt(&mut self, s: Stmt) -> Stmt {
@@ -1418,17 +1471,7 @@ impl Rewrite for Fold {
         let mut out = Vec::new();
         for s in body {
             let s = self.stmt(s);
-            // Flatten the empty and singleton blocks folding produces.
-            match s {
-                Stmt::Block(inner) if inner.is_empty() => continue,
-                Stmt::Block(inner) if !inner.iter().any(is_declaration) => out.extend(inner),
-                other => out.push(other),
-            }
-            // Nothing after `return`, `throw`, `break` or `continue` runs.
-            if matches!(
-                out.last(),
-                Some(Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break | Stmt::Continue)
-            ) {
+            if Fold::push(&mut out, s) {
                 break;
             }
         }
@@ -2785,28 +2828,27 @@ impl Rewrite for Extract<'_> {
 /// rather than of anything that varies between runs.
 const CLEANUP_ROUNDS: usize = 4;
 
-/// Runs folding and local cleanup over every function body, to a fixed point.
-fn clean_locals(stmts: Vec<Stmt>, table: &HashMap<String, Vec<Expr>>) -> Vec<Stmt> {
-    stmts
-        .into_iter()
-        .map(|s| match s {
-            Stmt::Func { name, params, mut body, is_async } => {
-                for _ in 0..CLEANUP_ROUNDS {
-                    if !table.is_empty() {
-                        body = ReadThrough(table).block(body);
-                    }
-                    body = fold_block(body);
-                    if !clean_body(&mut body) {
-                        break;
-                    }
-                }
-                // Last, so the chains it looks for have already been folded
-                // and their discriminants have already settled.
-                Stmt::Func { name, params, body: switches(body), is_async }
-            }
-            other => other,
-        })
-        .collect()
+/// Runs folding and local cleanup over one top-level function's body, to a
+/// fixed point.
+fn clean_function(
+    name: String,
+    params: Vec<String>,
+    mut body: Vec<Stmt>,
+    is_async: bool,
+    table: &HashMap<String, Vec<Expr>>,
+) -> Stmt {
+    for _ in 0..CLEANUP_ROUNDS {
+        if !table.is_empty() {
+            body = ReadThrough(table).block(body);
+        }
+        body = fold_block(body);
+        if !clean_body(&mut body) {
+            break;
+        }
+    }
+    // Last, so the chains it looks for have already been folded and their
+    // discriminants have already settled.
+    Stmt::Func { name, params, body: switches(body), is_async }
 }
 
 // -- merging functions that came out the same ---------------------------------
@@ -2830,37 +2872,290 @@ fn merge_identical(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
 
     // First by emission order wins, so the result does not depend on hash
     // order — build output is compared byte for byte.
-    let mut first: HashMap<String, String> = HashMap::default();
+    let mut first: HashMap<FuncKey<'_>, &String> = HashMap::default();
     let mut alias: HashMap<String, Expr> = HashMap::default();
     for s in &stmts {
         let Stmt::Func { name, params, body, is_async } = s else { continue };
         if pinned.contains(name.as_str()) {
             continue;
         }
-        let key = print(
-            &[Stmt::Func {
-                name: String::new(),
-                params: params.clone(),
-                body: body.clone(),
-                // Part of the key: two bodies that print the same are the same
-                // function only if they suspend the same way.
-                is_async: *is_async,
-            }],
-            false,
-        );
+        // Part of the key: two bodies that are the same are the same function
+        // only if they suspend the same way.
+        let key = FuncKey { params, body, is_async: *is_async };
         match first.get(&key) {
             Some(winner) => {
-                alias.insert(name.clone(), Expr::ident(winner.clone()));
+                alias.insert(name.clone(), Expr::ident((*winner).clone()));
             }
             None => {
-                first.insert(key, name.clone());
+                first.insert(key, name);
             }
         }
     }
+    drop(first);
     if alias.is_empty() {
         return stmts;
     }
     stmts.into_iter().map(|s| subst_stmt(s, &alias)).collect()
+}
+
+/// A function, minus its name, as a table key.
+///
+/// The key used to be the function printed, which cloned the body to print it
+/// and allocated the text. Two functions are the same here when their trees
+/// are, which implies they print the same: every number is compared by its
+/// bits, so `0` and `-0` stay apart, and every `NaN` is one value, as it is
+/// once printed.
+struct FuncKey<'a> {
+    params: &'a [String],
+    body: &'a [Stmt],
+    is_async: bool,
+}
+
+impl std::hash::Hash for FuncKey<'_> {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        self.params.hash(h);
+        self.is_async.hash(h);
+        hash_stmts(self.body, h);
+    }
+}
+
+impl PartialEq for FuncKey<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.params == other.params
+            && self.is_async == other.is_async
+            && same_stmts(self.body, other.body)
+    }
+}
+
+impl Eq for FuncKey<'_> {}
+
+/// A number's bits, with every `NaN` the same one.
+fn num_bits(n: f64) -> u64 {
+    if n.is_nan() { f64::NAN.to_bits() } else { n.to_bits() }
+}
+
+fn hash_stmts<H: std::hash::Hasher>(body: &[Stmt], h: &mut H) {
+    use std::hash::Hash as _;
+    body.len().hash(h);
+    for s in body {
+        hash_stmt(s, h);
+    }
+}
+
+fn hash_stmt<H: std::hash::Hasher>(s: &Stmt, h: &mut H) {
+    use std::hash::Hash as _;
+    std::mem::discriminant(s).hash(h);
+    match s {
+        Stmt::Var { kind, name, init } => {
+            kind.hash(h);
+            name.hash(h);
+            hash_opt(init.as_ref(), h);
+        }
+        Stmt::Func { name, params, body, is_async } => {
+            name.hash(h);
+            params.hash(h);
+            is_async.hash(h);
+            hash_stmts(body, h);
+        }
+        Stmt::Return(e) => hash_opt(e.as_ref(), h),
+        Stmt::If { cond, then, else_ } => {
+            hash_expr(cond, h);
+            hash_stmts(then, h);
+            hash_stmts(else_, h);
+        }
+        Stmt::While { cond, body } => {
+            hash_expr(cond, h);
+            hash_stmts(body, h);
+        }
+        Stmt::Switch { disc, cases } => {
+            hash_expr(disc, h);
+            cases.len().hash(h);
+            for (label, body) in cases {
+                hash_opt(label.as_ref(), h);
+                hash_stmts(body, h);
+            }
+        }
+        Stmt::Expr(e) | Stmt::Throw(e) | Stmt::ExportDefault(e) => hash_expr(e, h),
+        Stmt::Block(body) => hash_stmts(body, h),
+        Stmt::Raw(src) => src.hash(h),
+        Stmt::RawDecl(decl) => decl.name.hash(h),
+        Stmt::Break | Stmt::Continue => {}
+    }
+}
+
+fn hash_opt<H: std::hash::Hasher>(e: Option<&Expr>, h: &mut H) {
+    use std::hash::Hash as _;
+    e.is_some().hash(h);
+    if let Some(e) = e {
+        hash_expr(e, h);
+    }
+}
+
+fn hash_exprs<H: std::hash::Hasher>(xs: &[Expr], h: &mut H) {
+    use std::hash::Hash as _;
+    xs.len().hash(h);
+    for x in xs {
+        hash_expr(x, h);
+    }
+}
+
+fn hash_expr<H: std::hash::Hasher>(e: &Expr, h: &mut H) {
+    use std::hash::Hash as _;
+    std::mem::discriminant(e).hash(h);
+    match e {
+        Expr::Num(n) => num_bits(*n).hash(h),
+        Expr::BigInt(s) | Expr::Str(s) | Expr::Ident(s) => s.hash(h),
+        Expr::Bool(b) => b.hash(h),
+        Expr::Null | Expr::Undefined => {}
+        Expr::Array(xs) | Expr::Seq(xs) => hash_exprs(xs, h),
+        Expr::Object(fields) => {
+            fields.len().hash(h);
+            for (k, v) in fields {
+                k.hash(h);
+                hash_expr(v, h);
+            }
+        }
+        Expr::Member { obj, prop } => {
+            hash_expr(obj, h);
+            prop.hash(h);
+        }
+        Expr::Index { obj: a, index: b }
+        | Expr::Assign { target: a, value: b } => {
+            hash_expr(a, h);
+            hash_expr(b, h);
+        }
+        Expr::Call { callee, args } | Expr::New { callee, args } => {
+            hash_expr(callee, h);
+            hash_exprs(args, h);
+        }
+        Expr::Unary { op, operand } => {
+            op.hash(h);
+            hash_expr(operand, h);
+        }
+        Expr::Binary { op, lhs, rhs } => {
+            op.hash(h);
+            hash_expr(lhs, h);
+            hash_expr(rhs, h);
+        }
+        Expr::Cond { test, cons, alt } => {
+            hash_expr(test, h);
+            hash_expr(cons, h);
+            hash_expr(alt, h);
+        }
+        Expr::Arrow { params, body, is_async } => {
+            params.hash(h);
+            is_async.hash(h);
+            hash_expr(body, h);
+        }
+        Expr::ArrowBlock { params, body, is_async } => {
+            params.hash(h);
+            is_async.hash(h);
+            hash_stmts(body, h);
+        }
+        Expr::Await(x) | Expr::Spread(x) => hash_expr(x, h),
+    }
+}
+
+fn same_stmts(a: &[Stmt], b: &[Stmt]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| same_stmt(x, y))
+}
+
+fn same_opt(a: Option<&Expr>, b: Option<&Expr>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => same_expr(a, b),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn same_stmt(a: &Stmt, b: &Stmt) -> bool {
+    match (a, b) {
+        (
+            Stmt::Var { kind: k1, name: n1, init: i1 },
+            Stmt::Var { kind: k2, name: n2, init: i2 },
+        ) => k1 == k2 && n1 == n2 && same_opt(i1.as_ref(), i2.as_ref()),
+        (
+            Stmt::Func { name: n1, params: p1, body: b1, is_async: a1 },
+            Stmt::Func { name: n2, params: p2, body: b2, is_async: a2 },
+        ) => n1 == n2 && p1 == p2 && a1 == a2 && same_stmts(b1, b2),
+        (Stmt::Return(x), Stmt::Return(y)) => same_opt(x.as_ref(), y.as_ref()),
+        (
+            Stmt::If { cond: c1, then: t1, else_: e1 },
+            Stmt::If { cond: c2, then: t2, else_: e2 },
+        ) => same_expr(c1, c2) && same_stmts(t1, t2) && same_stmts(e1, e2),
+        (Stmt::While { cond: c1, body: b1 }, Stmt::While { cond: c2, body: b2 }) => {
+            same_expr(c1, c2) && same_stmts(b1, b2)
+        }
+        (Stmt::Switch { disc: d1, cases: c1 }, Stmt::Switch { disc: d2, cases: c2 }) => {
+            same_expr(d1, d2)
+                && c1.len() == c2.len()
+                && c1.iter().zip(c2).all(|((l1, b1), (l2, b2))| {
+                    same_opt(l1.as_ref(), l2.as_ref()) && same_stmts(b1, b2)
+                })
+        }
+        (Stmt::Expr(x), Stmt::Expr(y))
+        | (Stmt::Throw(x), Stmt::Throw(y))
+        | (Stmt::ExportDefault(x), Stmt::ExportDefault(y)) => same_expr(x, y),
+        (Stmt::Block(x), Stmt::Block(y)) => same_stmts(x, y),
+        (Stmt::Raw(x), Stmt::Raw(y)) => x == y,
+        (Stmt::RawDecl(x), Stmt::RawDecl(y)) => x.name == y.name && x.src == y.src,
+        (Stmt::Break, Stmt::Break) | (Stmt::Continue, Stmt::Continue) => true,
+        _ => false,
+    }
+}
+
+fn same_exprs(a: &[Expr], b: &[Expr]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| same_expr(x, y))
+}
+
+fn same_expr(a: &Expr, b: &Expr) -> bool {
+    match (a, b) {
+        (Expr::Num(x), Expr::Num(y)) => num_bits(*x) == num_bits(*y),
+        (Expr::BigInt(x), Expr::BigInt(y))
+        | (Expr::Str(x), Expr::Str(y))
+        | (Expr::Ident(x), Expr::Ident(y)) => x == y,
+        (Expr::Bool(x), Expr::Bool(y)) => x == y,
+        (Expr::Null, Expr::Null) | (Expr::Undefined, Expr::Undefined) => true,
+        (Expr::Array(x), Expr::Array(y)) | (Expr::Seq(x), Expr::Seq(y)) => same_exprs(x, y),
+        (Expr::Object(x), Expr::Object(y)) => {
+            x.len() == y.len()
+                && x.iter().zip(y).all(|((k1, v1), (k2, v2))| k1 == k2 && same_expr(v1, v2))
+        }
+        (Expr::Member { obj: o1, prop: p1 }, Expr::Member { obj: o2, prop: p2 }) => {
+            p1 == p2 && same_expr(o1, o2)
+        }
+        (Expr::Index { obj: a1, index: b1 }, Expr::Index { obj: a2, index: b2 })
+        | (Expr::Assign { target: a1, value: b1 }, Expr::Assign { target: a2, value: b2 }) => {
+            same_expr(a1, a2) && same_expr(b1, b2)
+        }
+        (Expr::Call { callee: c1, args: x }, Expr::Call { callee: c2, args: y })
+        | (Expr::New { callee: c1, args: x }, Expr::New { callee: c2, args: y }) => {
+            same_expr(c1, c2) && same_exprs(x, y)
+        }
+        (Expr::Unary { op: o1, operand: x }, Expr::Unary { op: o2, operand: y }) => {
+            o1 == o2 && same_expr(x, y)
+        }
+        (
+            Expr::Binary { op: o1, lhs: l1, rhs: r1 },
+            Expr::Binary { op: o2, lhs: l2, rhs: r2 },
+        ) => o1 == o2 && same_expr(l1, l2) && same_expr(r1, r2),
+        (
+            Expr::Cond { test: t1, cons: c1, alt: a1 },
+            Expr::Cond { test: t2, cons: c2, alt: a2 },
+        ) => same_expr(t1, t2) && same_expr(c1, c2) && same_expr(a1, a2),
+        (
+            Expr::Arrow { params: p1, body: b1, is_async: a1 },
+            Expr::Arrow { params: p2, body: b2, is_async: a2 },
+        ) => p1 == p2 && a1 == a2 && same_expr(b1, b2),
+        (
+            Expr::ArrowBlock { params: p1, body: b1, is_async: a1 },
+            Expr::ArrowBlock { params: p2, body: b2, is_async: a2 },
+        ) => p1 == p2 && a1 == a2 && same_stmts(b1, b2),
+        (Expr::Await(x), Expr::Await(y)) | (Expr::Spread(x), Expr::Spread(y)) => {
+            same_expr(x, y)
+        }
+        _ => false,
+    }
 }
 
 // -- dead code elimination ---------------------------------------------------
@@ -3099,8 +3394,9 @@ fn mangle_program(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     let by_short: HashMap<String, String> =
         map.iter().map(|(k, v)| (v.clone(), k.clone())).collect();
     let scope = Scope::global(&map, &by_short);
-    let mut pool = Pool::default();
-    Rename { scope: &scope, pool: &mut pool }.block(stmts)
+    // A pool per worker: what one holds is a function of the globals alone,
+    // so which statements a worker happened to rename first changes nothing.
+    each_statement_with(stmts, Pool::default, |pool, s| Rename { scope: &scope, pool }.stmt(s))
 }
 
 /// The names in scope while one body is renamed.
