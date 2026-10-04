@@ -642,20 +642,68 @@ fn restates(header: &str, above: Option<&str>) -> bool {
 /// Runs every generator this repository declares, and records what each one
 /// produced on the workspace's [`Store`].
 ///
-/// Called from [`crate::build::sources::Sources::session`] — the one door every
-/// command opens a repository through — so `buri build`, `buri test`,
-/// `buri lint` and the language server all read one answer, produced once.
+/// Called from [`crate::build::sources::Sources::session`], the door `buri lint`,
+/// a watch loop and the language server open a repository through, so they all
+/// read one answer, produced once. `buri build`, `buri run` and `buri test` run
+/// only what their targets read instead ([`prepare_for`]).
 ///
 /// A rule whose recorded answer is already under the keys its inputs and its
 /// tool produce now is left alone, so a second session costs the keys rather
 /// than a second run of the tool.
 pub fn prepare(session: &mut Session, flags: &Flags, overlay: &Overlay) {
-    let targets: Vec<TargetId> = session
-        .workspace
-        .targets()
-        .into_iter()
-        .filter(|t| !declared(&session.workspace, *t).is_empty() || has_contracts(&session.workspace, *t))
-        .collect();
+    let targets: Vec<TargetId> =
+        session.workspace.targets().into_iter().filter(|t| generates(&session.workspace, *t)).collect();
+    prepare_rules(session, flags, overlay, targets);
+}
+
+/// Runs the generators that building or testing `targets` reads the output
+/// of, and no others.
+///
+/// That is every rule in their closures and their test dependencies' — a
+/// test, and a lint, reads a target's test sources too — and, because a tool
+/// is built from code as well, every rule in the closure of a tool any of
+/// those rules runs, again until nothing new is reached. `//...` reaches every
+/// rule, so it runs what [`prepare`] runs.
+///
+/// `buri build`, `buri run` and `buri test` open the repository through here
+/// rather than through [`prepare`]: the generators of the rest of a
+/// repository are tool processes whose output nothing in the command reads.
+pub fn prepare_for(session: &mut Session, flags: &Flags, targets: &[TargetId]) {
+    let workspace = Arc::clone(&session.workspace);
+    let mut reached: Vec<TargetId> = Vec::new();
+    for &target in targets {
+        reached.extend(workspace.closure(target));
+        for (dep, _) in workspace.test_dep_edges(target) {
+            reached.extend(workspace.closure(dep));
+        }
+    }
+    let mut seen: BTreeSet<TargetId> = BTreeSet::new();
+    while let Some(target) = reached.pop() {
+        if !seen.insert(target) {
+            continue;
+        }
+        for tool in tools_of(&workspace, target) {
+            reached.extend(workspace.closure(tool));
+        }
+    }
+    let rules = seen.into_iter().filter(|t| generates(&workspace, *t)).collect();
+    prepare_rules(session, flags, &Overlay::new(), rules);
+}
+
+/// Whether every rule with generators has an answer recorded: false after a
+/// [`prepare_for`] that left some out.
+pub fn all_prepared(workspace: &Workspace) -> bool {
+    workspace.targets().into_iter().filter(|t| generates(workspace, *t)).all(|t| workspace.generated.key_of(t).is_some())
+}
+
+/// Whether a rule has anything for [`prepare`] to run: generators, or a tool's
+/// contracts.
+fn generates(workspace: &Workspace, target: TargetId) -> bool {
+    !declared(workspace, target).is_empty() || has_contracts(workspace, target)
+}
+
+/// [`prepare`], over these rules.
+fn prepare_rules(session: &mut Session, flags: &Flags, overlay: &Overlay, targets: Vec<TargetId>) {
     let session: &Session = session;
     // In rounds: every rule whose tools' code is generated already runs beside
     // the others, each recording its own answer, once the tools the round runs

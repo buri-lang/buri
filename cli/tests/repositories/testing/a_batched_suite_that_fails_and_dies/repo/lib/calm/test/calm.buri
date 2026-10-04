@@ -1,0 +1,10 @@
+from "core/testing/assert" import * as assert;
+from "//lib/calm" import { two };
+
+test "two is two" {
+    assert.equal(two(), 2);
+}
+
+test "two and two" {
+    assert.equal(two() + two(), 4);
+}

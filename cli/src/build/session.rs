@@ -63,6 +63,25 @@ pub fn root_of_cwd() -> Result<PathBuf, String> {
 /// repositories open at once, so it keeps the roots the client named and asks
 /// for the one that owns the file each request is about.
 pub fn open_at(root: &std::path::Path, flags: &Flags) -> Result<Session, String> {
+    let mut session = open_graph_at(root, flags)?;
+    // A `generators` entry names a program, and running it needs a session to
+    // build the tool with — so it cannot happen while the graph is loading, and
+    // it has to happen before anything analyses a module a generator produced.
+    // Here, because this is where a repository becomes something to ask
+    // questions of. `build::sources` runs them again with the editor's unsaved
+    // text, and a rule whose inputs have not moved since is a lookup.
+    crate::build::generators::prepare(
+        &mut session,
+        flags,
+        &crate::build::sources::Overlay::new(),
+    );
+    Ok(session)
+}
+
+/// The graph alone: [`open_at`] without running any generator. The caller
+/// runs the ones it needs before analysing anything
+/// ([`crate::build::generators::prepare_for`]).
+pub fn open_graph_at(root: &std::path::Path, flags: &Flags) -> Result<Session, String> {
     let root = root.to_path_buf();
     let mut map = SourceMap::new();
     let mut diagnostics = Diagnostics::new();
@@ -76,26 +95,14 @@ pub fn open_at(root: &std::path::Path, flags: &Flags) -> Result<Session, String>
     // `--dense` means the same thing here as it does for `buri docs`: the
     // headings and the code, none of the prose.
     crate::diagnostics::print_bodies(!flags.dense);
-    let mut session = Session {
+    Ok(Session {
         root,
         map,
         parsed: crate::parsing::parser::Cache::new(),
         diagnostics,
         workspace: std::sync::Arc::new(workspace),
         rendering,
-    };
-    // A `generators` entry names a program, and running it needs a session to
-    // build the tool with — so it cannot happen while the graph is loading, and
-    // it has to happen before anything analyses a module a generator produced.
-    // Here, because this is where a repository becomes something to ask
-    // questions of. `build::sources` runs them again with the editor's unsaved
-    // text, and a rule whose inputs have not moved since is a lookup.
-    crate::build::generators::prepare(
-        &mut session,
-        flags,
-        &crate::build::sources::Overlay::new(),
-    );
-    Ok(session)
+    })
 }
 
 impl Session {
@@ -212,6 +219,24 @@ pub fn resume_or_exit(sources: &mut crate::build::sources::Sources) -> Result<Se
 /// invocation rather than with the code.
 pub fn open_and_resolve(flags: &Flags, args: &[String]) -> Result<(Session, Vec<TargetId>), u8> {
     resolve_in(open_or_exit(flags)?, args)
+}
+
+/// [`open_and_resolve`], running only the generators the targets read
+/// ([`crate::build::generators::prepare_for`]). For `buri build` and
+/// `buri run`, which read nothing else.
+#[expect(clippy::print_stderr, reason = "the same argument as `open_or_exit` above")]
+pub fn open_and_resolve_to_build(flags: &Flags, args: &[String]) -> Result<(Session, Vec<TargetId>), u8> {
+    let opened = root_of_cwd().and_then(|root| open_graph_at(&root, flags));
+    let session = match opened {
+        Ok(session) => session,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return Err(2);
+        }
+    };
+    let (mut session, targets) = resolve_in(session, args)?;
+    crate::build::generators::prepare_for(&mut session, flags, &targets);
+    Ok((session, targets))
 }
 
 /// The two steps above, over a session that is already open.

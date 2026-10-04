@@ -26,7 +26,7 @@ pub fn command_build(args: &arguments::Args) -> i32 {
     if args.flags.check_reproducible {
         return check_reproducible(args);
     }
-    let (mut session, targets) = match session::open_and_resolve(&args.flags, &args.targets) {
+    let (mut session, targets) = match session::open_and_resolve_to_build(&args.flags, &args.targets) {
         Ok(both) => both,
         Err(c) => return c as i32,
     };
