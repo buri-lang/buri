@@ -341,11 +341,22 @@ fn walk(bytes: &[u8], index: usize) -> usize {
 
 /// Drop every index of the block at `p`, because its bytes are about to change
 /// or the block is about to go back. The module header lists the callers.
+///
+/// Inline, because `buri_rt_free` calls it on every block: the test is four
+/// loads, and the call around them cost as much again.
+#[inline]
 pub(crate) fn forget(p: *mut u8) {
     let key = p as usize;
     if key == 0 || KEYS.iter().all(|k| k.load(Ordering::Relaxed) != key) {
         return;
     }
+    forget_slow(key);
+}
+
+/// [`forget`]'s rare half: some index is about this block.
+#[cold]
+#[inline(never)]
+fn forget_slow(key: usize) {
     let mut kept = kept();
     for (slot, k) in kept.slots.iter_mut().zip(&KEYS) {
         if slot.as_ref().is_some_and(|ix| ix.base == key) {

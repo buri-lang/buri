@@ -847,13 +847,9 @@ fn assemble_unit(
     let mut shims: Vec<(String, asm::Shim)> = Vec::new();
     // G3: `middle::rc::crosses_tasks`'s whole-program answer, which is the one
     // fact an entry point states that no `Func` in it carries. `asm::Marking`
-    // is where the argument for making the call from a backend that cannot fan
-    // out is written down.
-    let marking = if program.crosses_tasks {
-        asm::Marking::ValuesMayCrossTasks
-    } else {
-        asm::Marking::None
-    };
+    // is where the argument for *not* making the call from a backend that
+    // cannot fan out is written down.
+    let marking = asm::Marking::of(program.crosses_tasks);
     match root {
         Root::Main(idx) if members.contains(idx) => {
             let sym = jit::symbol_of(program, u32::try_from(*idx).unwrap_or(0));

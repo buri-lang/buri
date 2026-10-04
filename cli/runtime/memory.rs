@@ -71,7 +71,8 @@ pub const BURI_RT_CAP_ARENA: u64 = 1 << 62;
 /// Bit 61 of `cap`: the block is **settled**. It is in no arena, and every
 /// block it points to is settled too, for as long as it lives.
 ///
-/// [`buri_rt_copy_block`] sets it on a marked heap copy and shares a settled
+/// [`buri_rt_copy_block`] sets it on a heap copy in a program with crossings
+/// (a marked one, or one that has crossed) and shares a settled
 /// source rather than copying it. So `core/alloc`'s `copyAcross` copies only
 /// what has not crossed already, and a step that hands back the state it was
 /// given costs a few blocks per crossing rather than a copy of the state
@@ -1673,9 +1674,43 @@ unsafe extern "C" {
 /// either half of this section to say. `atexit` is registered here for the
 /// same reason — the first allocation is the earliest moment this file is
 /// certainly running.
+///
+/// The answer is cached in one byte as well, because this is asked on every
+/// allocation and every free: a relaxed byte load and a compare, with the
+/// `OnceLock` behind it only until the mode is known.
+#[inline]
 fn heap_check() -> HeapCheck {
+    match HEAP_MODE.load(Ordering::Relaxed) {
+        1 => HeapCheck::Off,
+        2 => HeapCheck::Leak,
+        3 => HeapCheck::Full,
+        4 => HeapCheck::Trace,
+        _ => heap_check_decided(),
+    }
+}
+
+/// [`heap_check`]'s cached answer: `0` until it is decided, then one more than
+/// the variant's position.
+static HEAP_MODE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Decides the mode, once, and fills [`HEAP_MODE`].
+#[cold]
+#[inline(never)]
+fn heap_check_decided() -> HeapCheck {
     static MODE: OnceLock<HeapCheck> = OnceLock::new();
-    *MODE.get_or_init(|| {
+    let mode = heap_check_once(&MODE);
+    let byte = match mode {
+        HeapCheck::Off => 1,
+        HeapCheck::Leak => 2,
+        HeapCheck::Full => 3,
+        HeapCheck::Trace => 4,
+    };
+    HEAP_MODE.store(byte, Ordering::Relaxed);
+    mode
+}
+
+fn heap_check_once(cell: &OnceLock<HeapCheck>) -> HeapCheck {
+    *cell.get_or_init(|| {
         let mode = match std::env::var("BURI_RT_HEAP_CHECK").as_deref() {
             Ok("leak") => HeapCheck::Leak,
             Ok("1" | "full" | "quarantine") => HeapCheck::Full,
@@ -1875,18 +1910,36 @@ fn traced<T>(f: impl FnOnce(&mut std::collections::BTreeMap<usize, u64>) -> T) -
 /// gives and for a second one: a released arena's pages go back to the pool
 /// and the next scope is handed the same addresses, so a register keyed by
 /// address would report the newest block under the oldest one's entry.
+///
+/// The register is out of line and cold, so that the allocation path it sits
+/// on does not save every callee-saved register for a `BTreeMap` it never
+/// touches.
+#[inline]
 fn trace_alloc(p: *mut u8, cap: u64, flags: u64) {
     if heap_check() == HeapCheck::Trace && flags & BURI_RT_CAP_ARENA == 0 {
-        traced(|t| t.insert(p as usize, cap));
+        trace_insert(p, cap);
     }
+}
+
+#[cold]
+#[inline(never)]
+fn trace_insert(p: *mut u8, cap: u64) {
+    traced(|t| t.insert(p as usize, cap));
 }
 
 /// Forget one. Called wherever `LIVE_BLOCKS` falls, so the register and the
 /// counter are the same claim written twice.
+#[inline]
 fn trace_free(p: *mut u8) {
     if heap_check() == HeapCheck::Trace {
-        traced(|t| t.remove(&(p as usize)));
+        trace_remove(p);
     }
+}
+
+#[cold]
+#[inline(never)]
+fn trace_remove(p: *mut u8) {
+    traced(|t| t.remove(&(p as usize)));
 }
 
 /// What a leaked block looks like: its size, its count, and the first bytes of
@@ -2095,9 +2148,9 @@ pub unsafe fn buri_rt_unique_cap(p: *const u8) -> Option<u64> {
 ///
 /// A settled block fails before either test, whatever its count: a claim is a
 /// licence to append in place, and [`buri_rt_unique_cap`]'s "A settled block is
-/// never unique either" says why no such licence may cover one. Only a marked
-/// block is ever settled, so without that check a settled block would reach
-/// the compare-and-swap and win it at a count of one.
+/// never unique either" says why no such licence may cover one. Without that
+/// check a settled block would reach the compare-and-swap, or the plain test
+/// for an unmarked one, and win it at a count of one.
 ///
 /// An unmarked block takes the plain `rc == 1` test and a store. `IMMORTAL`
 /// fails by construction. Give a claim back with [`buri_rt_unclaim`] when the
@@ -2792,6 +2845,7 @@ pub extern "C" fn buri_rt_alloc_arena_enter(handle: i64) -> i64 {
     // Leaving every arena keeps the window for the way back: see [`KEPT`].
     if handle < 0 {
         let _ = KEPT.try_with(|k| k.set(slot));
+        CROSSED.store(true, Ordering::Relaxed);
     }
     // The window starts empty, so the first allocation of the new scope takes
     // the mapping path. The window the *outer* scope had is abandoned, which
@@ -2941,17 +2995,19 @@ fn block_bytes(payload: u64) -> usize {
 // block is in an arena, and no scope will unmap any of it.
 //
 // **Where the bit goes on**: only below, on a copy, after the glue has run on
-// it, and only when the copy is marked and not an arena block. After the glue,
+// it, and only when the copy is marked or the process has crossed ([`CROSSED`]),
+// and is not an arena block. After the glue,
 // each pointer in the copy is either a share of a settled block or a copy this
 // call made on this thread. The thread's arena does not change during the
 // walk, so that inner copy came off the heap too, and its own call settled it.
 // Nothing else can see the copy yet, so a plain store is enough.
 //
-// **Why only marked copies**: a settled block is never written in place, so
+// **Why only those copies**: a settled block is never written in place, so
 // the first append to one copies it. Only a program that reaches `core/actor`
-// or `core/tasks` has crossings to share blocks between, and such a program
-// marks every block. So an unmarked copy, such as `scoped`'s answer in a
-// program with no tasks, stays writable in place.
+// or `core/tasks` has crossings to share blocks between. Such a program marks
+// every block where its backend can fan out, and sets [`CROSSED`] at its first
+// crossing where it cannot. So a copy in any other program, such as `scoped`'s
+// answer in a program with no tasks, stays writable in place.
 //
 // **Why it stays true**: a block's pointers change in two ways only. The glue
 // writes into a fresh block nothing else holds. An append in place writes into
@@ -3012,11 +3068,36 @@ pub unsafe extern "C" fn buri_rt_copy_block(
     // SAFETY: `fresh` is live and nothing else holds it yet.
     unsafe {
         let h = header(fresh);
-        if is_shared(h) && !is_arena(h) {
+        if (is_shared(h) || CROSSED.load(Ordering::Relaxed)) && !is_arena(h) {
             (*h).cap |= BURI_RT_CAP_SETTLED;
         }
     }
     fresh
+}
+
+/// Whether this process has stepped out of every arena to copy a value across
+/// to the runtime's own tables — `copyAcross`'s `arenaEnter(NO_SCOPE)`, which is
+/// an actor crossing inside a scope.
+///
+/// The other half of §"Settled blocks"'s "only marked copies". A program that
+/// reaches `core/actor` is marked on a backend that can fan out, and the mark
+/// was the whole test; the development backend cannot fan out and does not
+/// mark (`stencil/asm.rs`'s `Marking`), but its crossings want the same
+/// sharing. A process that has made one has crossings to share blocks between,
+/// so its copies settle from then on. One that never makes one, such as a
+/// program whose only copy is `scoped`'s answer, still gets writable copies.
+static CROSSED: AtomicBool = AtomicBool::new(false);
+
+/// Puts [`CROSSED`] back when dropped, for a test that has just crossed —
+/// on the way out of a failing assertion too.
+#[cfg(test)]
+pub(crate) struct Uncrossed;
+
+#[cfg(test)]
+impl Drop for Uncrossed {
+    fn drop(&mut self) {
+        CROSSED.store(false, Ordering::Relaxed);
+    }
 }
 
 /// The same for a `Str`, whose value is `{ base, ptr, len }` and whose `ptr`
@@ -3243,17 +3324,31 @@ thread_local! {
 /// in play is [`stack_list`]'s answer. Public to the crate because `rt::Task`
 /// owns one.
 pub(crate) struct Blocks {
+    /// The idle blocks. The **last** is the one the next entry is handed, and
+    /// the only one that may be the retained block; the ones under it were
+    /// decommitted when they came back.
     idle: Vec<*mut u8>,
     since_decommit: u32,
+    /// Whether the last idle block is the retained one: true from the release
+    /// that put it there until the acquire that takes it.
+    ///
+    /// **This, and not "the list is not empty", is what makes a block a nested
+    /// entry's.** Once a thread has nested it holds two blocks for good, and an
+    /// emptiness test then read every later *unnested* entry's block as the
+    /// second one, because the other block was idle underneath it. Every entry
+    /// paid a decommit: in a batch of UI tests whose graph enters Buri code
+    /// once per computation, 1.2 % of the binary's CPU was in `mmap`.
+    retained: bool,
 }
 
 impl Blocks {
     pub(crate) const fn new() -> Self {
-        Blocks { idle: Vec::new(), since_decommit: 0 }
+        Blocks { idle: Vec::new(), since_decommit: 0, retained: false }
     }
 
     /// A block nothing on this list is inside.
     fn acquire(&mut self) -> *mut u8 {
+        self.retained = false;
         match self.idle.pop() {
             Some(p) => p,
             None => map_stack(),
@@ -3270,17 +3365,23 @@ impl Blocks {
         // SAFETY: the caller promises a live block nothing is inside.
         let deep = !unsafe { watermark_intact(base) };
         self.since_decommit += 1;
-        // Three clauses, and the middle one is the retained set: the *first*
-        // idle block a list has is the one its next entry will be handed, and
-        // every block after it is a nested entry's, which is rare by
-        // construction and not worth keeping warm.
-        let go =
-            deep || !self.idle.is_empty() || self.since_decommit >= STACK_DECOMMIT_EVERY;
+        // Three clauses, and the middle one is the retained set: the block the
+        // next entry will be handed is kept warm, and a block that comes back
+        // while that one is already idle is a nested entry's, which is rare by
+        // construction and not worth keeping warm. It goes *under* the
+        // retained block, so the next entry is still handed the warm one.
+        let nested = self.retained;
+        let go = deep || nested || self.since_decommit >= STACK_DECOMMIT_EVERY;
         if go {
             self.since_decommit = 0;
         }
         if !go || decommit_stack(base) {
-            self.idle.push(base);
+            if nested {
+                self.idle.insert(0, base);
+            } else {
+                self.idle.push(base);
+                self.retained = true;
+            }
         }
     }
 }
@@ -4799,6 +4900,38 @@ mod tests {
         unsafe { buri_rt_stack_release(a) };
     }
 
+    /// **A thread that nested once keeps its next entries warm.** After the
+    /// nested pair comes back the list holds two blocks, and an unnested entry
+    /// is then handed the retained one and gives it back without a decommit:
+    /// what it wrote above the retained prefix is still there when the next
+    /// entry is handed the same block.
+    #[test]
+    fn an_entry_after_a_nested_one_is_not_decommitted() {
+        let outer = buri_rt_stack_acquire();
+        let inner = buri_rt_stack_acquire();
+        // SAFETY: blocks this test acquired on this thread and is not inside.
+        unsafe {
+            buri_rt_stack_release(inner);
+            buri_rt_stack_release(outer);
+        }
+        for round in 0..3 {
+            let p = buri_rt_stack_acquire();
+            // SAFETY: `p` names `BURI_RT_STACK_USABLE` writable bytes; the
+            // write is above the retained prefix and leaves the watermark.
+            unsafe {
+                if round > 0 {
+                    assert_eq!(
+                        p.add(BURI_RT_STACK_WARM + 4096).read(),
+                        0x55,
+                        "an unnested entry's block was decommitted"
+                    );
+                }
+                p.add(BURI_RT_STACK_WARM + 4096).write(0x55);
+                buri_rt_stack_release(p);
+            }
+        }
+    }
+
     // === G6 end ============================================================
 
     // === G4 begin: the scoped arena ========================================
@@ -5314,7 +5447,13 @@ mod tests {
     /// on each `sendMessage` inside a scope (buri-lang/buri#223).
     #[test]
     fn leaving_every_arena_and_coming_back_keeps_the_window() {
+        // Stepping out of every arena is a crossing, which settles every copy
+        // the process makes after it ([`CROSSED`]); the cases that assert a
+        // copy is writable hold the marking latch, so this one does too and
+        // puts the latch back. The latch first, as every case taking both does.
+        let _latch = latch();
         let _alone = arena_alone();
+        let _back = Uncrossed;
         let a = buri_rt_alloc_arena_create();
         let outer = buri_rt_alloc_arena_enter(a);
         let first = buri_rt_alloc(64);
