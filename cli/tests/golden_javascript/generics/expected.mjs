@@ -14,7 +14,7 @@ function __cmd_x_main_buri$main(){
     $abort('no arm matched');
   }
   let $t3;
-  const $t4=$list_get($k1,0n);
+  const $t4=$list_getFlat($k1,0n);
   if($t4!==void 0){
     $t3=$t4;
   }else if($t4===void 0){
@@ -23,7 +23,7 @@ function __cmd_x_main_buri$main(){
     $abort('no arm matched');
   }
   let $t5;
-  const $t6=$list_get([],0n);
+  const $t6=$list_getFlat([],0n);
   if($t6!==void 0){
     $t5=$t6;
   }else if($t6===void 0){

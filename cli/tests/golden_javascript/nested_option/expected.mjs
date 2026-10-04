@@ -261,7 +261,7 @@ function __cmd_x_main_buri$main$withHost(host_0){
     $abort('no arm matched');
   }
   const sorted_9=$list_sortBy([$k1,$k2,$k3],ctx_1,(a_75,b_76)=>$cmp(a_75,b_76));
-  const self_78=$list_get(sorted_9,0n);
+  const self_78=$list_getFlat(sorted_9,0n);
   let $t47;
   if(self_78!==void 0){
     $t47=self_78;
