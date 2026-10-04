@@ -1771,3 +1771,43 @@ pub fn upgrade_request(target: &str) -> String {
          sec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
     )
 }
+
+/// Runs a freshly linked artifact, waiting out an `ETXTBSY` that is not this
+/// thread's to close.
+///
+/// `execve` refuses a file while *any* process on the machine holds a
+/// descriptor on it open for writing, and "any process" reaches wider than this
+/// file's structure can. The artifact is written by `link::place` through a
+/// truncating `File`, and a child forked by another `#[test]` running
+/// concurrently in this same binary inherits every descriptor that is open at
+/// the instant it forks — that one included, until the child reaches its own
+/// `execve` and `O_CLOEXEC` takes it away. Nothing on this side of the fork
+/// closes that window. What this side can do is never widen it — which is what
+/// the scoped handle in `stencil.rs`'s `debug_stripped_size` is for, and why nothing
+/// here strips an artifact in place — and then wait it out.
+///
+/// Bounded and short, because the condition is: the descriptor is gone the
+/// moment that child execs, so a tenth of a second is far past every instance
+/// of this race, and a refusal that outlives it is a different problem and is
+/// reported as one rather than waited on.
+pub fn run_artifact(path: &Path) -> std::process::Output {
+    const TRIES: u32 = 20;
+    const PAUSE: std::time::Duration = std::time::Duration::from_millis(5);
+
+    let mut last = String::new();
+    for _ in 0..TRIES {
+        match Command::new(path).output() {
+            Ok(out) => return out,
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                last = e.to_string();
+                std::thread::sleep(PAUSE);
+            }
+            Err(e) => panic!("cannot run {}: {e}", path.display()),
+        }
+    }
+    panic!(
+        "{} was still open for writing somewhere after {TRIES} attempts over {} ms: {last}",
+        path.display(),
+        u128::from(TRIES) * PAUSE.as_millis()
+    )
+}
