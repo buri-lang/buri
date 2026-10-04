@@ -760,11 +760,14 @@ shared and is copied. A new way for a foreign array to arrive is therefore
 safe on the day it lands, because the only way to become writable is to have
 been allocated here.
 
-The mirror of that rule is that marking must not write on a foreign object
-either. A list this backend made is marked by clearing its own `$u`; anything
-else goes into a `WeakSet`, so `$share` hands a host array back exactly as it
-received it. The set also holds the mark for a **struct, tuple or enum**, none
-of which carry a bit: nothing writes into an aggregate — a functional update
+The mirror of that rule is that marking must not make a foreign object look
+ours. A list this backend made is marked by clearing its own `$u`. Anything
+else gets a symbol-keyed property, which never sets `$u`, so a host array
+still reads as not ours. A host reading by name never sees the mark, because
+`JSON.stringify`, `Object.keys`, `for…in` and spread all skip symbol keys. A
+frozen or sealed object cannot take a property, so its mark goes into a
+`WeakSet` instead. The same mark covers a **struct, tuple or enum**, none of
+which carry a bit: nothing writes into an aggregate — a functional update
 spells its fields out or copies the array — so the only thing an aggregate's
 sharing decides is what a field read out of it inherits.
 

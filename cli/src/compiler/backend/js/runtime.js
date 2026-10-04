@@ -559,9 +559,19 @@ function $json_decode(j, d) {
 // no bit, because nothing writes into one: a functional update spells its
 // fields out or copies. What it needs is the *other* half of the question, so
 // that a field read out of it can pass the sharing on, and that is `$shared`.
-// A set rather than a property so that marking a value writes nothing on it:
-// a host array handed to `$share` comes back exactly as it went in, and an
-// aggregate this backend allocated does not change shape when it is marked.
+//
+// `$shared` is a symbol-keyed property rather than a `$u`, so the mark is
+// invisible to everything a host reads by name: `JSON.stringify`, `Object.keys`,
+// `for…in` and spread all skip a symbol key. A host array marked here still
+// carries no `$u`, so it still reads as not ours. It is a property rather than
+// a `WeakSet` entry because every element handed to a `fold` or a `map` is
+// marked, and a property store is several times cheaper than a `WeakSet.add`
+// in both bun and node.
+//
+// A frozen or sealed object cannot take the property, and writing one would
+// throw, so its mark goes into `$sharedFrozen` instead. `$fromShared` reads that
+// set only for an object that cannot be extended, so a program that never
+// meets one never looks there.
 
 // A fresh list this runtime allocated. Called on the way out of everything in
 // `core/list` that builds one.
@@ -570,7 +580,8 @@ function $own(a) {
   return a;
 }
 
-const $shared = new WeakSet();
+const $shared = Symbol("shared");
+const $sharedFrozen = new WeakSet();
 
 // A second reference to a value has come into existence. Sticky: nothing ever
 // puts a value back, because the cost of an over-set mark is one copy and the
@@ -578,7 +589,10 @@ const $shared = new WeakSet();
 function $share(v) {
   if (v !== null && typeof v === "object") {
     if (v.$u === true) v.$u = false;
-    else if (v.$u === undefined) $shared.add(v);
+    else if (v.$u === undefined && v[$shared] !== true) {
+      if (Object.isExtensible(v)) v[$shared] = true;
+      else $sharedFrozen.add(v);
+    }
   }
   return v;
 }
@@ -588,7 +602,13 @@ function $share(v) {
 // answer left until run time, because a garbage collector hides the count that
 // would have decided it statically.
 function $fromShared(p, v) {
-  if (p !== null && typeof p === "object" && (p.$u === false || $shared.has(p))) {
+  if (
+    p !== null &&
+    typeof p === "object" &&
+    (p.$u === false ||
+      p[$shared] === true ||
+      (!Object.isExtensible(p) && $sharedFrozen.has(p)))
+  ) {
     return $share(v);
   }
   return v;
