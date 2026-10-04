@@ -2137,13 +2137,16 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert_eq!(once.len(), twice.len());
     for (a, b) in once.iter().zip(twice.iter()) {
         assert_eq!(a.name, b.name);
-        assert_eq!(a.key, b.key, "the codegen key moved between two runs");
         assert_eq!(a.bytes, b.bytes, "unit `{}` is not byte-identical", a.name);
     }
 }
 
 /// The codegen key is content-addressed on the IR: a program whose IR differs
-/// gets a different key, and one whose IR does not does not.
+/// re-emits, and one whose IR does not is served from the cache.
+///
+/// Asked of `buri build --release --explain`, which prints every unit's
+/// `codegen` status: the key is the build system's, and the backend leaves
+/// `Emitted::key` empty.
 #[test]
 fn the_codegen_key_follows_the_ir() {
     skip_unless_executable!();
@@ -2182,15 +2185,66 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#,
     );
-    let keys = |source: &str| {
-        lower(source)
-            .emit(Profile::Release)
-            .into_iter()
-            .map(|u| u.key.map(|k| k.as_str().to_string()))
-            .collect::<Vec<_>>()
+    let repo = workspace().join("codegen-key-follows-the-ir");
+    let _ = std::fs::remove_dir_all(&repo);
+    let pkg = repo.join("cmd").join("app");
+    std::fs::create_dir_all(&pkg).unwrap();
+    std::fs::write(repo.join("REPO.buri"), "").unwrap();
+    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
+    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let variant = format!("{os}-{arch}");
+    std::fs::write(
+        pkg.join("BUILD.buri"),
+        format!(
+            "binary {{\n    outputs: [{{ platform: \"native\", variant: \"{variant}\" }}]\n}}\n"
+        ),
+    )
+    .unwrap();
+    let artifact = repo.join(".buri/out/native").join(&variant).join("cmd/app/app");
+
+    // Builds `source`, runs it to be sure it is the program, and answers each
+    // unit's `codegen` status as `--explain` printed it: `run` or `cached`.
+    let build = |source: &str, says: &str| -> Vec<(String, String)> {
+        std::fs::write(pkg.join("main.buri"), source).unwrap();
+        let out = Command::new(env!("CARGO_BIN_EXE_buri"))
+            .current_dir(&repo)
+            .args(["build", "--release", "--explain"])
+            .output()
+            .expect("run buri build");
+        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+        assert!(
+            out.status.success(),
+            "the build failed:\n{stdout}\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let ran = Command::new(&artifact).output().expect("run the artifact");
+        assert_eq!(String::from_utf8_lossy(&ran.stdout), format!("{says}\n"));
+        let units: Vec<(String, String)> = stdout
+            .lines()
+            .filter_map(|line| match line.split_whitespace().collect::<Vec<_>>().as_slice() {
+                [status, "codegen", unit, ..] => Some(((*unit).to_string(), (*status).to_string())),
+                _ => None,
+            })
+            .collect();
+        assert!(!units.is_empty(), "`--explain` named no codegen unit:\n{stdout}");
+        units
     };
-    assert_eq!(keys(&one), keys(&same), "reformatting must not move a codegen key");
-    assert_ne!(keys(&one), keys(&other), "a changed literal must move a codegen key");
+
+    let cold = build(&one, "a");
+    assert!(cold.iter().all(|(_, s)| s == "run"), "a cold build hit the cache: {cold:?}");
+    let reformatted = build(&same, "a");
+    assert!(
+        reformatted.iter().all(|(_, s)| s == "cached"),
+        "reformatting must not move a codegen key: {reformatted:?}"
+    );
+    let changed = build(&other, "b");
+    let moved: Vec<&str> =
+        changed.iter().filter(|(_, s)| s == "run").map(|(u, _)| u.as_str()).collect();
+    assert!(
+        moved.len() == 1 && moved[0].ends_with("main_buri"),
+        "a changed literal in `main` must move `main`'s codegen key and no other: {changed:?}"
+    );
+    let _ = std::fs::remove_dir_all(&repo);
 }
 
 // ---------------------------------------------------------------------------

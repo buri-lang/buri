@@ -8523,10 +8523,8 @@ fn local(code: &ir::Code, boxes: &Boxes<'_>, profile: Profile) -> Observed {
                 // out of one a callee returned, reads the default location.
                 // Out of a parameter's block it is `argmem`, which
                 // `memory(argmem: read)` already covers.
-                ir::Inst::ArrayGet { array, .. } => {
-                    if !from_args(array) {
-                        o.reads_far = true;
-                    }
+                ir::Inst::ArrayGet { array, .. } if !from_args(array) => {
+                    o.reads_far = true;
                 }
                 _ => {}
             }

@@ -268,7 +268,7 @@ fn the_tutorial_page_and_its_repository_are_the_same_bytes() {
                 let want = std::fs::read_to_string(&path)
                     .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
                 assert!(
-                    bodies.iter().any(|b| *b == want),
+                    bodies.contains(&want),
                     "{} is not a fence body of tutorial.md.\n  The page and the repository \
                      have drifted; make them byte-for-byte again, whichever way is true.",
                     path.display()

@@ -2467,7 +2467,7 @@ mod tests {
 
         let plain = crate::memory::buri_rt_alloc(48);
         // SAFETY: live, just allocated.
-        assert_eq!(unsafe { crate::memory::count_and_mark(plain) }.1, false);
+        assert!(!unsafe { crate::memory::count_and_mark(plain) }.1);
 
         crate::memory::buri_rt_values_may_cross_tasks();
         assert!(crate::memory::values_may_cross_tasks());
@@ -3183,7 +3183,7 @@ mod tests {
             }
         }
         let r = Rendezvous { arrived: AtomicUsize::new(0), gave_up: AtomicUsize::new(0) };
-        let src = vec![0i64; STEPS];
+        let src = [0i64; STEPS];
         // SAFETY: `STEPS` `i64`s in and out, and `r` outlives the call.
         let got = unsafe {
             steps_of(
@@ -3445,7 +3445,7 @@ mod tests {
             len: 4 | BURI_RT_STR_ASCII,
         };
 
-        let src = vec![0i64; STEPS];
+        let src = [0i64; STEPS];
         let stride = std::mem::size_of::<BuriStr>();
         // SAFETY: `STEPS` `i64`s in, `STEPS` `BuriStr`s out, and `state` and
         // the block both outlive the call.
@@ -3643,8 +3643,16 @@ mod tests {
     /// **The move is forced, not left to the scheduler.** Tasks that start one
     /// after another can all park on one thread, and that thread then wakes
     /// them all again. So before the gate opens, every thread in the pool is
-    /// given a task that holds it without parking. A woken task then has no
-    /// thread it ran on to go back to, and the pool starts a new one for it.
+    /// given a task that holds it without parking, and then the one holder on
+    /// a thread no task parked on is let go. A woken task then has no thread
+    /// it ran on to go back to: it runs on that freed thread, or on a new one.
+    ///
+    /// **The freed thread is what makes this work at the pool's ceiling.**
+    /// Threads are never retired, so the cases before this one in the same
+    /// process can leave [`MAX_THREADS`] behind them. Holding all of them and
+    /// counting on the pool to start another left every woken task queued
+    /// behind the holders, which were only let go after the joins: a deadlock,
+    /// and the 40-minute CI hang of run 37188532971.
     ///
     /// What it then checks is that four kilobytes of frame,
     /// written before the park and read after it, came back byte for byte, and
@@ -3674,12 +3682,15 @@ mod tests {
 
         let gate = std::sync::Arc::new(tokio::sync::Semaphore::new(0));
         let arrived = std::sync::Arc::new(AtomicUsize::new(0));
+        let parked_threads: std::sync::Arc<Mutex<Vec<ThreadId>>> =
+            std::sync::Arc::new(Mutex::new(Vec::new()));
         let seen: std::sync::Arc<Mutex<Vec<Seen>>> = std::sync::Arc::new(Mutex::new(Vec::new()));
 
         let handles: Vec<i64> = (0..TASKS)
             .map(|i| {
                 let gate = std::sync::Arc::clone(&gate);
                 let arrived = std::sync::Arc::clone(&arrived);
+                let parked_threads = std::sync::Arc::clone(&parked_threads);
                 let seen = std::sync::Arc::clone(&seen);
                 task_start(move || {
                     let mut frame = [0u64; WORDS];
@@ -3688,6 +3699,10 @@ mod tests {
                     }
                     let where_before = frame.as_ptr() as usize;
                     let parked_on = thread::current().id();
+                    match parked_threads.lock() {
+                        Ok(mut p) => p.push(parked_on),
+                        Err(poisoned) => poisoned.into_inner().push(parked_on),
+                    }
                     arrived.fetch_add(1, Ordering::SeqCst);
 
                     let _ = park_on(gate.acquire());
@@ -3719,40 +3734,72 @@ mod tests {
         // Then every thread in the pool is held. With every task parked, each
         // thread is idle, so one holder per thread lands on a thread apiece:
         // the pool only starts a thread when the queue is longer than the
-        // idle count.
+        // idle count. Each holder says which thread it holds, and waits on a
+        // channel of its own so it can be let go alone.
         let holders = threads();
-        let holding = std::sync::Arc::new(AtomicUsize::new(0));
-        let (release, released) = channel::<()>();
-        let released = std::sync::Arc::new(Mutex::new(released));
+        let holding: std::sync::Arc<Mutex<Vec<(usize, ThreadId)>>> =
+            std::sync::Arc::new(Mutex::new(Vec::new()));
+        let mut releases = Vec::with_capacity(holders);
         let held: Vec<i64> = (0..holders)
-            .map(|_| {
+            .map(|k| {
                 let holding = std::sync::Arc::clone(&holding);
-                let released = std::sync::Arc::clone(&released);
+                let (release, released) = channel::<()>();
+                releases.push(Some(release));
                 task_start(move || {
-                    holding.fetch_add(1, Ordering::SeqCst);
+                    match holding.lock() {
+                        Ok(mut h) => h.push((k, thread::current().id())),
+                        Err(poisoned) => poisoned.into_inner().push((k, thread::current().id())),
+                    }
                     // A blocking wait, not a park: the thread stays taken.
-                    let rx = match released.lock() {
-                        Ok(rx) => rx,
-                        Err(poisoned) => poisoned.into_inner(),
-                    };
-                    let _ = rx.recv();
+                    let _ = released.recv();
                 })
             })
             .collect();
-        while holding.load(Ordering::SeqCst) < holders {
-            assert!(
-                Instant::now() < deadline,
-                "only {} of {holders} holders started",
-                holding.load(Ordering::SeqCst)
-            );
+        let holding = loop {
+            let now = match holding.lock() {
+                Ok(h) => h.clone(),
+                Err(poisoned) => poisoned.into_inner().clone(),
+            };
+            if now.len() == holders {
+                break now;
+            }
+            assert!(Instant::now() < deadline, "only {} of {holders} holders started", now.len());
             thread::sleep(Duration::from_millis(2));
+        };
+
+        // Let go of one holder whose thread no task parked on, so a woken task
+        // always has a thread to run on, whether or not the pool may start
+        // another. There is none only when every thread had a task park on
+        // it, which is at most `TASKS` threads, far below the ceiling, so the
+        // pool starts a new thread for the woken tasks instead.
+        let parked_threads = match parked_threads.lock() {
+            Ok(p) => p.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        };
+        if let Some((k, _)) = holding.iter().find(|(_, id)| !parked_threads.contains(id)) {
+            releases[*k] = None;
+        } else {
+            assert!(threads() < MAX_THREADS, "every thread is held and the pool cannot start another");
         }
 
+        // Bounded: a woken task that never runs is a failure, not a hang.
         gate.add_permits(TASKS);
+        let woken = Instant::now() + Duration::from_secs(30);
+        loop {
+            let done = match seen.lock() {
+                Ok(s) => s.len(),
+                Err(poisoned) => poisoned.into_inner().len(),
+            };
+            if done == TASKS {
+                break;
+            }
+            assert!(Instant::now() < woken, "only {done} of {TASKS} woken tasks ran");
+            thread::sleep(Duration::from_millis(2));
+        }
         for h in handles {
             assert!(task_join(h), "a task did not finish");
         }
-        drop(release);
+        drop(releases);
         for h in held {
             assert!(task_join(h), "a holder did not finish");
         }
@@ -3970,7 +4017,7 @@ mod tests {
         let rc = unsafe {
             task_info(mach_task_self_, FLAVOR, (&raw mut info).cast::<u32>(), &raw mut count)
         };
-        (rc == 0).then(|| info.resident_size / 1024)
+        (rc == 0).then_some(info.resident_size / 1024)
     }
 
     #[cfg(not(target_os = "macos"))]
