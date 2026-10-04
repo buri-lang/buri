@@ -50,6 +50,9 @@ use buri::compiler::middle::monomorphize::{self, FuncKind, Program};
 use buri::compiler::modules::Unit;
 use buri::diagnostics::Diagnostics;
 
+use crate::harness::{indent, Scratch};
+use std::process::Command;
+
 use std::path::{Path, PathBuf};
 
 fn tests_dir() -> PathBuf {
@@ -147,6 +150,123 @@ fn a_context_constructor_is_named_by_the_module_that_declares_it() {
     let missing: Vec<&str> =
         expected.iter().copied().filter(|w| !ctors.iter().any(|s| s == w)).collect();
     assert!(missing.is_empty(), "the constructors {missing:?} are not in {ctors:?}");
+}
+
+/// Every module the JavaScript backend writes loads under node.
+///
+/// Two intrinsics under one symbol are allowed, as [`unique_symbols`] says:
+/// they are two names for one runtime entry. `Str`'s `compare` is the live
+/// example, reached directly and through `Ordered`. But a JavaScript artifact
+/// defines a function for each intrinsic it calls, and it once defined one for
+/// each of the two names. bun accepts a module that declares one function
+/// twice. Node refuses to load it, with a `SyntaxError`, so a suite run with
+/// `BURI_JS=node` failed to compile.
+///
+/// The suite runs under node, at both profiles. Every artifact a build writes
+/// is checked too: the node binary runs and the page's module parses, debug
+/// and release.
+#[test]
+fn every_javascript_module_loads_under_node() {
+    if Command::new("node").arg("--version").output().is_err()
+        && crate::harness::ci::skipped("language::symbols", "node is not on PATH")
+    {
+        return;
+    }
+    let scratch = Scratch::repo("node-loads");
+    scratch.write(
+        "lib/rank/BUILD.buri",
+        "library {\n    sources: []\n\n    test {\n        sources: [\"test/rank.buri\"]\n        backends: [JS]\n    }\n}\n",
+    );
+    scratch.write(
+        "lib/rank/lib.buri",
+        r#"from "core/order" import { Order };
+
+export fn direct(a: Str, b: Str): Order {
+    a.compare(b)
+}
+
+export fn throughOrdered(a: [Str], b: [Str]): Order {
+    a.compare(b)
+}
+"#,
+    );
+    scratch.write(
+        "lib/rank/test/rank.buri",
+        r#"from "//lib/rank" import * as rank;
+from "core/order" import { Order };
+from "core/testing/assert" import * as assert;
+
+test "Str's compare, directly and through Ordered" {
+    assert.equal(rank.direct("a", "b"), Order.Less);
+    assert.equal(rank.throughOrdered(["a"], ["b"]), Order.Less);
+}
+"#,
+    );
+    scratch.binary_package(
+        "cmd/rank",
+        r#"from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Stdout };
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context { Stdout: host.stdout };
+    let direct = "a".compare("b");
+    let listed = ["a"].compare(["b"]);
+    let _ = io.println(ctx, "${direct == listed}").ignore();
+    .Ok(())
+}
+"#,
+    );
+    scratch.binary_package(
+        "cmd/page",
+        r#"from "core/io" import * as io;
+from "platform/effect" import { Stdout };
+// PLATFORM: WEB
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context { Stdout: host.stdout };
+    let direct = "a".compare("b");
+    let listed = ["a"].compare(["b"]);
+    let _ = io.println(ctx, "${direct == listed}").ignore();
+    .Ok(())
+}
+"#,
+    );
+
+    for mode in ["--debug", "--release"] {
+        let suite = scratch.run_with_env(
+            &["test", "//lib/rank", "--output=js", mode, "--force"],
+            &[("BURI_JS", "node")],
+        );
+        assert!(
+            suite.code == 0 && suite.tests_passed() == 1,
+            "the {mode} suite did not pass under node:\n{}",
+            indent(&suite.all())
+        );
+
+        scratch.run(&["build", "//cmd/rank", "//cmd/page", mode, "--force"]).ok();
+        let binary = Command::new("node")
+            .arg(scratch.artifact("cmd/rank"))
+            .output()
+            .expect("node runs");
+        assert!(
+            binary.status.success(),
+            "the {mode} binary did not run under node:\n{}",
+            String::from_utf8_lossy(&binary.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&binary.stdout), "true\n", "the {mode} binary");
+        let page = Command::new("node")
+            .arg("--check")
+            .arg(scratch.artifact_in("web", "cmd/page"))
+            .output()
+            .expect("node runs");
+        assert!(
+            page.status.success(),
+            "the {mode} page's module does not parse under node:\n{}",
+            String::from_utf8_lossy(&page.stderr)
+        );
+    }
 }
 
 /// The monomorphized program for one set of units, or `None` where the
