@@ -845,7 +845,7 @@ impl<'a> Loader<'a> {
                 tree::Item::Import(i) => {
                     let names = match &i.clause {
                         tree::ImportClause::Named(specs) => {
-                            specs.iter().map(|s| t.name(s.name).to_string()).collect()
+                            t.list(*specs).iter().map(|s| t.name(s.name).to_string()).collect()
                         }
                         tree::ImportClause::Namespace(_) => Vec::new(),
                     };
@@ -854,7 +854,7 @@ impl<'a> Loader<'a> {
                 tree::Item::ReExport(r) => Some((
                     r.path.clone(),
                     r.path_span,
-                    r.specs.iter().map(|s| t.name(s.name).to_string()).collect(),
+                    t.list(r.specs).iter().map(|s| t.name(s.name).to_string()).collect(),
                 )),
                 _ => None,
             })

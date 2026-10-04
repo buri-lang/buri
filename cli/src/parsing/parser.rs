@@ -21,8 +21,8 @@
 
 use crate::diagnostics::{Diagnostic, FileId, Span};
 use crate::parsing::flat::{
-    ArmData, BlockData, BlockId, CtxBindData, CtxBodyData, CtxBodyId, ExprId, FieldPatData,
-    InitData, Kind, LambdaParamData, Location, PartData, PatId, PatPayloadData, PatternKind,
+    ArmData, BlockData, BlockId, CtxBindData, CtxBodyData, CtxBodyId, Docs, ExprId,
+    FieldPatData, InitData, Kind, List, LambdaParamData, Location, PartData, PatId, PatPayloadData, PatternKind,
     StmtData,
     StmtKind, TypeKind, Tree, TypeId, TypeList, NONE,
 };
@@ -113,7 +113,11 @@ fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
     let first_item = lexed.tokens.span(0).start;
     let mut p = Parser {
         src: text,
-        tree: Tree::new(file, text, lexed.tokens.len()),
+        tree: {
+            let mut tree = Tree::new(file, text, lexed.tokens.len());
+            tree.adopt_docs(lexed.docs);
+            tree
+        },
         scratch: Scratch::default(),
         last: lexed.tokens.len().saturating_sub(1),
         tokens: lexed.tokens,
@@ -134,12 +138,12 @@ fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
     // appears later is almost always a mistyped `///`, and silently attaching
     // it to the module would publish a comment somebody wrote about a
     // declaration.
-    for (line, span) in lexed.module_docs {
-        if span.start <= first_item {
-            module.docs.push(line);
-        } else {
-            p.errors.push(Diagnostic::templated("module-doc-not-first", span));
-        }
+    let kept = lexed.module_docs.iter().take_while(|(_, span)| span.start <= first_item).count();
+    let (kept, late) = lexed.module_docs.split_at(kept);
+    let lines: Vec<Location> = kept.iter().map(|(at, _)| *at).collect();
+    module.docs = module.tree.push_docs(&lines);
+    for (_, span) in late {
+        p.errors.push(Diagnostic::templated("module-doc-not-first", *span));
     }
     Parsed { module, errors: p.errors }
 }
@@ -622,10 +626,11 @@ impl<'a> Parser<'a> {
         self.tokens.span(self.at(self.pos.saturating_sub(1)))
     }
 
-    /// The doc lines attached to the token about to be read, moved out of the
-    /// trivia table.
+    /// The doc lines attached to the token about to be read, taken out of the
+    /// trivia table. The run indexes the lexer's doc lines, which the tree
+    /// adopted whole, so nothing is copied.
     ///
-    /// Moving rather than copying is safe because a token's documentation is
+    /// Taking rather than copying is safe because a token's documentation is
     /// read once: the production that reads it is the one that owns the
     /// declaration, and a speculative parse — see [`Parser::type_args_in_expr`]
     /// — never reaches a declaration.
@@ -633,14 +638,14 @@ impl<'a> Parser<'a> {
     /// A binary search rather than an index because the table holds only the
     /// tokens that have something above them, which is a small fraction of the
     /// file — and this is called once per declaration, not once per token.
-    fn docs(&mut self) -> Vec<String> {
+    fn docs(&mut self) -> Docs {
         let at = self.pos as u32;
         let Ok(i) = self.trivia.binary_search_by_key(&at, |(a, _)| *a) else {
-            return Vec::new();
+            return Docs::default();
         };
         match self.trivia.get_mut(i) {
             Some((_, t)) => std::mem::take(&mut t.docs),
-            None => Vec::new(),
+            None => Docs::default(),
         }
     }
 
@@ -1617,9 +1622,11 @@ impl<'a> Parser<'a> {
     // -- module -------------------------------------------------------------
 
     fn module(&mut self) -> Module {
-        // A declaration is about forty tokens in every corpus measured, so this
-        // is one allocation for the list rather than a doubling per power of two.
-        let mut items = Vec::with_capacity(self.last / 64);
+        // A declaration is about forty tokens in every corpus measured — 41 in
+        // `mixed` — so this is one allocation for the list, a tenth over,
+        // rather than a doubling per power of two. An item is a whole
+        // declaration now, not a pointer to one, so a doubling copies it.
+        let mut items = Vec::with_capacity(self.last / 37);
         while !self.at_eof() {
             let before = self.pos;
             let save = self.save();
@@ -1631,7 +1638,7 @@ impl<'a> Parser<'a> {
                     let depth = self.open_braces_since(save.pos);
                     self.restore(save);
                     self.sync_item(depth);
-                    items.push(Item::Error(Box::new(from.to(self.prev_span()))));
+                    items.push(Item::Error(from.to(self.prev_span())));
                 }
             }
             // Guarantee progress even if a sub-parser consumed nothing.
@@ -1642,7 +1649,7 @@ impl<'a> Parser<'a> {
             // the declaration it was written in and to nothing after it.
             self.early = None;
         }
-        Module { items, docs: Vec::new(), tree: std::mem::take(&mut self.tree) }
+        Module { items, docs: Docs::default(), tree: std::mem::take(&mut self.tree) }
     }
 
     fn item(&mut self) -> PResult<Option<Item>> {
@@ -1654,47 +1661,47 @@ impl<'a> Parser<'a> {
             return Ok(Some(self.import_or_reexport()?));
         }
         if self.is_keyword(Keyword::Impl) {
-            return Ok(Some(Item::Impl(Box::new(self.impl_decl(docs)?))));
+            return Ok(Some(Item::Impl(self.impl_decl(docs)?)));
         }
         if self.is_keyword(Keyword::Derive) {
-            return Ok(Some(Item::Derive(Box::new(self.derive_decl()?))));
+            return Ok(Some(Item::Derive(self.derive_decl()?)));
         }
         if self.is_keyword(Keyword::Test) {
-            return Ok(Some(Item::Test(Box::new(self.test_decl(docs)?))));
+            return Ok(Some(Item::Test(self.test_decl(docs)?)));
         }
 
         let exported = self.eat_keyword(Keyword::Export) || self.export_after_the_keyword();
         // `SEED let: Int = 7;` — the binding keyword and its name, exchanged.
         // The declaration is read as what it says, so it declares `SEED`.
         if self.exchanged_binding() {
-            return Ok(Some(Item::Let(Box::new(self.let_decl(exported, docs, start)?))));
+            return Ok(Some(Item::Let(self.let_decl(exported, docs, start)?)));
         }
         let keyword = self.peek().as_keyword();
         let item = match keyword {
-            Some(Keyword::Fn) => Item::Fn(Box::new(self.fn_decl(exported, docs, start)?)),
+            Some(Keyword::Fn) => Item::Fn(self.fn_decl(exported, docs, start)?),
             Some(Keyword::Struct) => {
-                Item::Struct(Box::new(self.struct_decl(exported, docs, start)?))
+                Item::Struct(self.struct_decl(exported, docs, start)?)
             }
-            Some(Keyword::Enum) => Item::Enum(Box::new(self.enum_decl(exported, docs, start)?)),
+            Some(Keyword::Enum) => Item::Enum(self.enum_decl(exported, docs, start)?),
             Some(Keyword::Type) => {
-                Item::TypeAlias(Box::new(self.type_alias(exported, docs, start)?))
+                Item::TypeAlias(self.type_alias(exported, docs, start)?)
             }
-            Some(Keyword::Let) => Item::Let(Box::new(self.let_decl(exported, docs, start)?)),
+            Some(Keyword::Let) => Item::Let(self.let_decl(exported, docs, start)?),
             // The old spelling: reported at the keyword with the edit that
             // replaces it, then read on, so one error names the whole mistake.
             Some(Keyword::Const) => {
                 let keyword = self.bump();
                 self.templated("const-declaration", keyword).map(|d| d.edit(keyword, "let"));
-                Item::Let(Box::new(self.let_decl_tail(exported, docs, start)?))
+                Item::Let(self.let_decl_tail(exported, docs, start)?)
             }
             Some(Keyword::Trait) => {
-                Item::Trait(Box::new(self.trait_decl(exported, docs, start, false)?))
+                Item::Trait(self.trait_decl(exported, docs, start, false)?)
             }
             Some(Keyword::Effect) => {
-                Item::Trait(Box::new(self.trait_decl(exported, docs, start, true)?))
+                Item::Trait(self.trait_decl(exported, docs, start, true)?)
             }
             Some(Keyword::Context) => {
-                Item::Context(Box::new(self.context_decl(exported, docs, start)?))
+                Item::Context(self.context_decl(exported, docs, start)?)
             }
             // `from "..." export { ... }` after a stray `export`.
             Some(Keyword::From) if exported => {
@@ -1806,7 +1813,7 @@ impl<'a> Parser<'a> {
             let specs = self.import_specs(Punctuation::RBrace)?;
             self.expect_close(Punctuation::RBrace, "re-export list", open)?;
             let end = self.expect_terminator("a re-export declaration")?;
-            return Ok(Item::ReExport(Box::new(ReExport { path, path_span, specs, span: start.to(end) })));
+            return Ok(Item::ReExport(ReExport { path, path_span, specs, span: start.to(end) }));
         }
 
         self.expect_keyword(Keyword::Import)?;
@@ -1827,32 +1834,32 @@ impl<'a> Parser<'a> {
             ImportClause::Named(specs)
         };
         let end = self.expect_terminator("an import declaration")?;
-        Ok(Item::Import(Box::new(Import { path, path_span, clause, span: start.to(end) })))
+        Ok(Item::Import(Import { path, path_span, clause, span: start.to(end) }))
     }
 
-    fn import_specs(&mut self, close: Punctuation) -> PResult<Vec<ImportSpec>> {
-        let mut specs = Vec::new();
+    fn import_specs(&mut self, close: Punctuation) -> PResult<List<ImportSpec>> {
+        let start = self.tree.len_of::<ImportSpec>();
         while !self.list_ended(close) {
             let name = self.expect_ident()?;
             let alias =
                 if self.eat_keyword(Keyword::As) { Some(self.expect_ident()?) } else { None };
             let span = name.span.to(alias.as_ref().map(|a| a.span).unwrap_or(name.span));
-            specs.push(ImportSpec { name, alias, span });
+            self.tree.add(ImportSpec { name, alias, span });
             if !self.more_elements(close, "an import name", starts_name) {
                 break;
             }
         }
-        Ok(specs)
+        Ok(self.tree.since(start))
     }
 
     // -- declarations -------------------------------------------------------
 
-    fn generic_params(&mut self) -> PResult<Vec<GenericParam>> {
+    fn generic_params(&mut self) -> PResult<List<GenericParam>> {
         if !self.is(Punctuation::Lt) {
-            return Ok(Vec::new());
+            return Ok(List::default());
         }
         let open = self.bump();
-        let mut params = Vec::new();
+        let start = self.tree.len_of::<GenericParam>();
         while !self.list_ended(Punctuation::Gt) {
             let name = self.expect_ident()?;
             let base = self.scratch.tys.len();
@@ -1868,17 +1875,17 @@ impl<'a> Parser<'a> {
             let bounds = self.tree.push_tkids(since(&self.scratch.tys, base));
             self.scratch.tys.truncate(base);
             let span = name.span.to(self.prev_span());
-            params.push(GenericParam { name, bounds, span });
+            self.tree.add(GenericParam { name, bounds, span });
             if !self.more_elements(Punctuation::Gt, "a generic parameter", starts_name) {
                 break;
             }
         }
         self.expect_close(Punctuation::Gt, "generic parameter list", open)?;
-        Ok(params)
+        Ok(self.tree.since(start))
     }
 
-    fn params(&mut self) -> PResult<Vec<Param>> {
-        let mut params = Vec::new();
+    fn params(&mut self) -> PResult<List<Param>> {
+        let at = self.tree.len_of::<Param>();
         let mut first = true;
         while !self.list_ended(Punctuation::RParen) {
             let start = self.span();
@@ -1904,13 +1911,13 @@ impl<'a> Parser<'a> {
                 let ty = self.ty()?;
                 (ty.0, start.to(self.tree.type_span(ty)))
             };
-            params.push(Param { kind, name, ty, span });
+            self.tree.add(Param { kind, name, ty, span });
             first = false;
             if !self.more_elements(Punctuation::RParen, "a function parameter", starts_param) {
                 break;
             }
         }
-        Ok(params)
+        Ok(self.tree.since(at))
     }
 
     /// The old `self: Type` form. It is read and discarded, so that one error
@@ -1956,7 +1963,7 @@ impl<'a> Parser<'a> {
         self.templated("variant-export", keyword).map(|d| d.edit(through_the_gap, ""));
     }
 
-    fn fn_decl(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<FnDecl> {
+    fn fn_decl(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<FnDecl> {
         self.expect_keyword(Keyword::Fn)?;
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
@@ -2013,7 +2020,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn struct_decl(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<StructDecl> {
+    fn struct_decl(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<StructDecl> {
         self.expect_keyword(Keyword::Struct)?;
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
@@ -2021,12 +2028,12 @@ impl<'a> Parser<'a> {
         let body = if self.is(Punctuation::LParen) {
             let open = self.bump();
             // Tuple struct. Fields carry the same `export` marker.
-            let mut fields = Vec::new();
+            let at = self.tree.len_of::<TupleField>();
             while !self.list_ended(Punctuation::RParen) {
                 let fstart = self.span();
                 let fexported = self.eat_keyword(Keyword::Export);
                 let ty = self.ty()?;
-                fields.push(TupleField { exported: fexported, ty, span: fstart.to(self.prev_span()) });
+                self.tree.add(TupleField { exported: fexported, ty, span: fstart.to(self.prev_span()) });
                 if !self.more_elements(Punctuation::RParen, "a tuple-struct field", starts_tuple_field) {
                     break;
                 }
@@ -2035,7 +2042,7 @@ impl<'a> Parser<'a> {
             // Tuple-struct declarations are terminated with `;`; record-struct
             // declarations are not.
             self.expect_terminator("a `struct` declaration")?;
-            StructBody::Tuple(fields)
+            StructBody::Tuple(self.tree.since(at))
         } else {
             let open = self.expect(Punctuation::LBrace)?;
             let fields = self.field_decls(Punctuation::RBrace, true)?;
@@ -2052,8 +2059,8 @@ impl<'a> Parser<'a> {
         &mut self,
         close: Punctuation,
         per_field_export: bool,
-    ) -> PResult<Vec<FieldDecl>> {
-        let mut fields = Vec::new();
+    ) -> PResult<List<FieldDecl>> {
+        let at = self.tree.len_of::<FieldDecl>();
         while !self.list_ended(close) {
             let docs = self.docs();
             let start = self.span();
@@ -2069,26 +2076,26 @@ impl<'a> Parser<'a> {
             };
             self.expect(Punctuation::Colon)?;
             let ty = self.ty()?;
-            fields.push(FieldDecl { exported, name, ty, span: start.to(self.prev_span()), docs });
+            self.tree.add(FieldDecl { exported, name, ty, span: start.to(self.prev_span()), docs });
             if !self.more_elements(close, if per_field_export { "a record field" } else { "a variant payload field" }, starts_field) {
                 break;
             }
         }
-        Ok(fields)
+        Ok(self.tree.since(at))
     }
 
-    fn enum_decl(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<EnumDecl> {
+    fn enum_decl(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<EnumDecl> {
         self.expect_keyword(Keyword::Enum)?;
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
         let open = self.expect(Punctuation::LBrace)?;
-        let mut variants = Vec::new();
+        let at = self.tree.len_of::<Variant>();
         let mut recovered = false;
         while !self.list_ended(Punctuation::RBrace) {
             let before = self.pos;
             let save = self.save();
             match self.variant() {
-                Ok(v) => variants.push(v),
+                Ok(v) => self.tree.add(v),
                 // A variant that did not read is skipped to the next one, and
                 // the `enum` still declares its name and the variants around
                 // it. Abandoning the declaration at its first mistake lost the
@@ -2119,6 +2126,7 @@ impl<'a> Parser<'a> {
             self.expect_close(Punctuation::RBrace, "`enum`", open)?;
         }
         let span = start.to(self.prev_span());
+        let variants = self.tree.since(at);
         Ok(EnumDecl { name, generics, variants, exported, span, docs })
     }
 
@@ -2157,7 +2165,7 @@ impl<'a> Parser<'a> {
         Ok(Variant { name: vname, payload, span: vstart.to(self.prev_span()), docs: vdocs })
     }
 
-    fn type_alias(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<TypeAliasDecl> {
+    fn type_alias(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<TypeAliasDecl> {
         self.expect_keyword(Keyword::Type)?;
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
@@ -2167,14 +2175,14 @@ impl<'a> Parser<'a> {
         Ok(TypeAliasDecl { name, generics, ty, exported, span: start.to(end), docs })
     }
 
-    fn let_decl(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<LetDecl> {
+    fn let_decl(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<LetDecl> {
         self.expect_keyword(Keyword::Let)?;
         self.let_decl_tail(exported, docs, start)
     }
 
     /// Everything after the binding keyword, so that the `const` spelling can
     /// be reported and then read as what it means.
-    fn let_decl_tail(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<LetDecl> {
+    fn let_decl_tail(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<LetDecl> {
         let name = self.expect_ident()?;
         self.expect(Punctuation::Colon)?;
         let ty = self.ty()?;
@@ -2187,7 +2195,7 @@ impl<'a> Parser<'a> {
     fn trait_decl(
         &mut self,
         exported: bool,
-        docs: Vec<String>,
+        docs: Docs,
         start: Span,
         is_effect: bool,
     ) -> PResult<TraitDecl> {
@@ -2195,12 +2203,12 @@ impl<'a> Parser<'a> {
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
         let open = self.expect(Punctuation::LBrace)?;
-        let mut methods = Vec::new();
+        let at = self.tree.len_of::<FnDecl>();
         while !self.is(Punctuation::RBrace) && !self.at_eof() {
             let before = self.pos;
             let save = self.save();
             match self.method_sig() {
-                Ok(m) => methods.push(m),
+                Ok(m) => self.tree.add(m),
                 Err(Bail) => {
                     let depth = self.open_delimiters_since(save.pos);
                     self.restore(save);
@@ -2214,10 +2222,11 @@ impl<'a> Parser<'a> {
         let what = if is_effect { "`effect` body" } else { "`trait` body" };
         self.expect_close(Punctuation::RBrace, what, open)?;
         let span = start.to(self.prev_span());
+        let methods = self.tree.since(at);
         Ok(TraitDecl { name, generics, methods, is_effect, exported, span, docs })
     }
 
-    fn impl_decl(&mut self, docs: Vec<String>) -> PResult<ImplDecl> {
+    fn impl_decl(&mut self, docs: Docs) -> PResult<ImplDecl> {
         // The token written before the keyword is where this declaration
         // starts: an item's span has to cover the mistake reported inside it.
         let early = self.early_span();
@@ -2236,7 +2245,7 @@ impl<'a> Parser<'a> {
             (None, first)
         };
         let open = self.expect(Punctuation::LBrace)?;
-        let mut methods = Vec::new();
+        let at = self.tree.len_of::<FnDecl>();
         let mut escaped = false;
         while !self.is(Punctuation::RBrace) && !self.at_eof() {
             let before = self.pos;
@@ -2257,7 +2266,7 @@ impl<'a> Parser<'a> {
                 false
             };
             match self.fn_decl(exported, docs, mstart) {
-                Ok(f) => methods.push(f),
+                Ok(f) => self.tree.add(f),
                 Err(Bail) => {
                     // `sync_stmt`, not `sync_item`: it stops *at* the closing
                     // brace without consuming it, which keeps recovery inside
@@ -2290,6 +2299,7 @@ impl<'a> Parser<'a> {
         } else {
             self.expect_close(Punctuation::RBrace, "`impl` body", open)?;
         }
+        let methods = self.tree.since(at);
         Ok(ImplDecl { docs, generics, trait_ty, self_ty, methods, span: start.to(self.prev_span()) })
     }
 
@@ -2330,7 +2340,7 @@ impl<'a> Parser<'a> {
         Ok(DeriveDecl { traits, self_ty, span: start.to(end) })
     }
 
-    fn context_decl(&mut self, exported: bool, docs: Vec<String>, start: Span) -> PResult<ContextDecl> {
+    fn context_decl(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<ContextDecl> {
         self.expect_keyword(Keyword::Context)?;
         let name = self.expect_ident()?;
         let body = self.context_body()?;
@@ -2371,7 +2381,7 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn test_decl(&mut self, docs: Vec<String>) -> PResult<TestDecl> {
+    fn test_decl(&mut self, docs: Docs) -> PResult<TestDecl> {
         // The token written before the keyword is where this declaration
         // starts: an item's span has to cover the mistake reported inside it.
         let early = self.early_span();

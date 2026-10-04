@@ -3405,9 +3405,9 @@ fn signature_of_fn(c: &Checker, id: FnId) -> String {
     let info = c.tables.fn_info(id);
     if let Some((module, item)) = info.ast.item() {
         let declared = match (info.ast, c.module(module).ast.items.get(item as usize)) {
-            (AstRef::Item { .. }, Some(tree::Item::Fn(d))) => Some(&**d),
-            (AstRef::Method { sub, .. }, Some(tree::Item::Impl(d))) => d.methods.get(sub as usize),
-            (AstRef::Method { sub, .. }, Some(tree::Item::Trait(d))) => d.methods.get(sub as usize),
+            (AstRef::Item { .. }, Some(tree::Item::Fn(d))) => Some(d),
+            (AstRef::Method { sub, .. }, Some(tree::Item::Impl(d))) => c.tree(module).list(d.methods).get(sub as usize),
+            (AstRef::Method { sub, .. }, Some(tree::Item::Trait(d))) => c.tree(module).list(d.methods).get(sub as usize),
             _ => None,
         };
         if let Some(d) = declared {
@@ -3440,8 +3440,8 @@ fn shape_of_struct(c: &Checker, con: TyConId) -> String {
 fn shape_of_variant(c: &Checker, con: TyConId, index: usize) -> String {
     let info = c.tables.tycon(con);
     let declared = c.module(info.module).ast.items.iter().find_map(|item| match item {
-        tree::Item::Enum(d) if d.name.span == info.span => d
-            .variants
+        tree::Item::Enum(d) if d.name.span == info.span => c
+            .tree(info.module).list(d.variants)
             .get(index)
             .map(|v| crate::formatting::variant(c.tree(info.module), v)),
         _ => None,
@@ -3460,7 +3460,7 @@ fn shape_of_variant(c: &Checker, con: TyConId, index: usize) -> String {
 fn signature_of_trait_method(c: &Checker, tid: TraitId, index: usize) -> String {
     let info = c.tables.trait_(tid);
     let declared = c.module(info.module).ast.items.iter().find_map(|item| match item {
-        tree::Item::Trait(d) if d.name.span == info.span => d.methods.get(index),
+        tree::Item::Trait(d) if d.name.span == info.span => c.tree(info.module).list(d.methods).get(index),
         _ => None,
     });
     match (declared, info.methods.get(index)) {
