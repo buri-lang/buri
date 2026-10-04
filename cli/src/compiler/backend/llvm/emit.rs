@@ -8512,7 +8512,7 @@ fn local(code: &ir::Code, boxes: &Boxes<'_>, profile: Profile) -> Observed {
     let successors: Vec<Vec<usize>> = code
         .blocks
         .iter()
-        .map(|b| b.term.targets().iter().map(|t| t.block.index()).collect())
+        .map(|b| b.term.targets().map(|t| t.block.index()).collect())
         .collect();
     if reaches_a_cycle_in(&successors).iter().any(|c| *c) {
         o.may_diverge = true;
@@ -8540,8 +8540,7 @@ fn reverse_postorder(code: &ir::Code) -> Vec<usize> {
     }
     while let Some((b, taken)) = work.pop() {
         let Some(block) = code.blocks.get(b) else { continue };
-        let targets = block.term.targets();
-        match targets.get(taken) {
+        match block.term.target(taken) {
             Some(t) => {
                 work.push((b, taken.saturating_add(1)));
                 let next = t.block.index();

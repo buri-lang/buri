@@ -546,14 +546,40 @@ pub enum Term {
 }
 
 impl Term {
-    pub fn targets(&self) -> Vec<&Target> {
+    /// Every edge out of the block, in order: a branch's `then` before its
+    /// `else`, a switch's cases before its default.
+    ///
+    /// An iterator rather than a `Vec`, because every pass over a CFG asks
+    /// this of every block, and a `Vec` per question was an allocation per
+    /// block per pass.
+    pub fn targets(&self) -> impl Iterator<Item = &Target> + Clone {
+        // Up to two plain edges, then a switch's cases and its default.
+        type Edges<'t> = ([Option<&'t Target>; 2], &'t [(u64, Target)], Option<&'t Target>);
+        let (pair, cases, default): Edges<'_> =
+            match self {
+                Term::Jump(t) => ([Some(t), None], &[], None),
+                Term::Branch { then, else_, .. } => ([Some(then), Some(else_)], &[], None),
+                Term::Switch { cases, default, .. } => ([None, None], cases, default.as_ref()),
+                Term::Return(_) | Term::Unreachable => ([None, None], &[], None),
+            };
+        pair.into_iter().flatten().chain(cases.iter().map(|(_, t)| t)).chain(default)
+    }
+
+    /// The `k`th of [`Term::targets`], without walking the ones before it.
+    pub fn target(&self, k: usize) -> Option<&Target> {
         match self {
-            Term::Jump(t) => vec![t],
-            Term::Branch { then, else_, .. } => vec![then, else_],
-            Term::Switch { cases, default, .. } => {
-                cases.iter().map(|(_, t)| t).chain(default.iter()).collect()
-            }
-            Term::Return(_) | Term::Unreachable => Vec::new(),
+            Term::Jump(t) => (k == 0).then_some(t),
+            Term::Branch { then, else_, .. } => match k {
+                0 => Some(then),
+                1 => Some(else_),
+                _ => None,
+            },
+            Term::Switch { cases, default, .. } => match cases.get(k) {
+                Some((_, t)) => Some(t),
+                None if k == cases.len() => default.as_ref(),
+                None => None,
+            },
+            Term::Return(_) | Term::Unreachable => None,
         }
     }
 

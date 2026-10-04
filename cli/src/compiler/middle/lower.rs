@@ -1593,6 +1593,9 @@ impl FnLower<'_> {
             return false;
         }
         let mut cases: Vec<(u32, &[FieldPat], &Expr)> = Vec::new();
+        // The variants already given an arm, looked up rather than scanned
+        // for: a scan per arm was quadratic in the width of the match.
+        let mut seen: crate::hash::Set<u32> = crate::hash::Set::default();
         let mut default: Option<&Arm> = None;
         for (i, arm) in arms.iter().enumerate() {
             if arm.guard.is_some() || default.is_some() {
@@ -1603,7 +1606,7 @@ impl FnLower<'_> {
                     if fields.iter().all(|f| f.pattern.is_irrefutable(self.tables)) =>
                 {
                     let v = *variant as u32;
-                    if cases.iter().any(|(seen, _, _)| *seen == v) {
+                    if !seen.insert(v) {
                         return false;
                     }
                     cases.push((v, fields, &arm.body));
@@ -2371,7 +2374,6 @@ mod tests {
                             .get(*p)
                             .term
                             .targets()
-                            .into_iter()
                             .find(|t| t.block.index() == i)
                             .expect("a predecessor names the block");
                         assert_eq!(t.args.len(), b.params.len());
