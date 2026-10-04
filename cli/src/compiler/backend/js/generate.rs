@@ -21,7 +21,7 @@ use crate::compiler::backend::js::crossing::HOSTED_PROGRAM;
 use crate::compiler::backend::js::park::{self, Parking};
 use crate::compiler::backend::js::javascript::{self, BinOp, Expr, RuntimeDecl, Stmt, UnOp, VarKind};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp};
-use crate::compiler::semantics::types::{LocalId, Prim, Tables, Ty, TyDef};
+use crate::compiler::semantics::types::{LocalId, Prim, Tables, Ty, TyKind, TyDef};
 use crate::compiler::middle::monomorphize::{self, Desc, FuncKind, Program, ProgramRoots};
 use crate::compiler::middle::rc;
 use crate::diagnostics::Invariant as _;
@@ -2620,8 +2620,8 @@ impl<'a> Gen<'a> {
             }
             ExprKind::CtxGet { base, trait_id } => {
                 let b = self.expr(base, out);
-                let slot = match &base.ty {
-                    Ty::Ctx(id) => self
+                let slot = match base.ty.kind() {
+                    TyKind::Ctx(id) => self
                         .program
                         .ctx_layouts
                         .get(id)

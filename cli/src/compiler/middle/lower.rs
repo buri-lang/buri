@@ -88,7 +88,7 @@ use crate::compiler::semantics::typed::{
     self, Arm, ArrayRest, Expr, ExprKind, FieldPat, OptionOrResult, PatKind, Pattern, PrimOp,
     Stmt, TemplatePart,
 };
-use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Tables, Ty};
+use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Tables, Ty, TyKind};
 use crate::diagnostics::Invariant as _;
 use crate::hash::Map as HashMap;
 
@@ -188,7 +188,7 @@ fn lower_one(
         sig.params.push(Type::I32);
     }
     for p in &f.params {
-        let ty = f.locals.get(p.index()).map(|l| l.ty.clone()).unwrap_or(Ty::Unit);
+        let ty = f.locals.get(p.index()).map(|l| l.ty.clone()).unwrap_or(Ty::UNIT);
         let t = types.of(tables, &ty);
         sig.params.push(t);
     }
@@ -441,7 +441,7 @@ impl Types {
     /// shape is an aggregate, and that includes `Str`, a list, a closure, a
     /// context and — where a tree reached lowering with one — `Ty::Error`.
     fn of(&mut self, tables: &Tables, ty: &Ty) -> Type {
-        if matches!(ty, Ty::Unit) {
+        if matches!(ty.kind(), TyKind::Unit) {
             return Type::Unit;
         }
         match tables.as_prim(ty).and_then(Type::of_prim) {
@@ -673,7 +673,7 @@ impl FnLower<'_> {
     }
 
     fn local_type(&mut self, l: LocalId) -> Type {
-        let ty = self.locals.get(l.index()).map(|x| x.ty.clone()).unwrap_or(Ty::Unit);
+        let ty = self.locals.get(l.index()).map(|x| x.ty.clone()).unwrap_or(Ty::UNIT);
         self.type_of(&ty)
     }
 
@@ -1142,8 +1142,8 @@ impl FnLower<'_> {
             }
             ExprKind::CtxGet { base, trait_id } => {
                 let b = self.expr(base);
-                let slot = match &base.ty {
-                    Ty::Ctx(id) => self
+                let slot = match base.ty.kind() {
+                    TyKind::Ctx(id) => self
                         .program
                         .ctx_layouts
                         .get(id)
@@ -1162,7 +1162,7 @@ impl FnLower<'_> {
             // type it is built at is the tuple of their types rather than a
             // synthesized declaration the type tables would have to carry.
             ExprKind::Closure { func, env } => {
-                let env_ty = Ty::Tuple(env.iter().map(|e| e.ty.clone()).collect());
+                let env_ty = Ty::tuple(env.iter().map(|e| e.ty.clone()));
                 let fields = self.exprs(env);
                 let func = *func;
                 if fields.is_empty() {
@@ -1349,7 +1349,7 @@ impl FnLower<'_> {
     }
 
     fn structural(&mut self, ty: Type, op: StructuralOp, args: &[Expr]) -> ValueId {
-        let at = args.first().map(|a| a.ty.clone()).unwrap_or(Ty::Unit);
+        let at = args.first().map(|a| a.ty.clone()).unwrap_or(Ty::UNIT);
         let at = self.type_id(&at);
         let args = self.exprs(args);
         self.emit(ty, |dest| Inst::Structural { dest, op, ty: at, args })
@@ -1527,7 +1527,7 @@ impl FnLower<'_> {
         let slots: Vec<Ty> = callee
             .params
             .iter()
-            .map(|p| callee.locals.get(p.index()).map(|l| l.ty.clone()).unwrap_or(Ty::Unit))
+            .map(|p| callee.locals.get(p.index()).map(|l| l.ty.clone()).unwrap_or(Ty::UNIT))
             .collect();
         slots
             .iter()
@@ -1949,7 +1949,7 @@ impl FnLower<'_> {
         let field = ty
             .head()
             .and_then(|c| self.tables.tycon(c).fields().get(index).map(|f| f.ty.clone()))
-            .unwrap_or(Ty::Unit);
+            .unwrap_or(Ty::UNIT);
         let field = self.substituted(ty, field);
         self.type_of(&field)
     }
@@ -1959,15 +1959,15 @@ impl FnLower<'_> {
             .head()
             .and_then(|c| self.tables.tycon(c).variants().get(variant as usize))
             .and_then(|v| v.fields.get(index).map(|f| f.ty.clone()))
-            .unwrap_or(Ty::Unit);
+            .unwrap_or(Ty::UNIT);
         let field = self.substituted(ty, field);
         self.type_of(&field)
     }
 
     /// A declared field type, with the owning type's arguments substituted in.
     fn substituted(&self, owner: &Ty, field: Ty) -> Ty {
-        match owner {
-            Ty::Con(_, args) if !args.is_empty() => {
+        match owner.kind() {
+            TyKind::Con(_, args) if !args.is_empty() => {
                 crate::compiler::semantics::types::substitute(&field, args, None)
             }
             _ => field,

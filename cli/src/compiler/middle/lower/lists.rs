@@ -60,7 +60,7 @@ use crate::compiler::middle::ir::{
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::rc;
 use crate::compiler::semantics::typed::{Callee, Expr, ExprKind};
-use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty};
+use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty, TyKind};
 
 /// Whether `key` is lowered here.
 pub(super) fn handles(key: &str) -> bool {
@@ -168,7 +168,7 @@ impl FnLower<'_> {
         let vals = self.code.get(entry).params.clone();
         let tys: Vec<Ty> = params
             .iter()
-            .map(|p| self.locals.get(p.index()).map(|l| l.ty.clone()).unwrap_or(Ty::Unit))
+            .map(|p| self.locals.get(p.index()).map(|l| l.ty.clone()).unwrap_or(Ty::UNIT))
             .collect();
         let ret = self.ret.clone();
         let v = match self.list_loop(key, &vals, &tys, None, &ret) {
@@ -204,13 +204,13 @@ impl FnLower<'_> {
         }
         let call = intrinsic_keys::list_call(key)?;
         let xs = *vals.first()?;
-        let elem = match tys.first()? {
-            Ty::Array(e) => (**e).clone(),
+        let elem = match (tys.first()?).kind() {
+            TyKind::Array(e) => *e,
             _ => return None,
         };
         let f = *vals.get(call.func)?;
-        let Ty::Fn(params, step_ret) = tys.get(call.func)? else { return None };
-        let step_ret = (**step_ret).clone();
+        let TyKind::Fn(params, step_ret) = (tys.get(call.func)?).kind() else { return None };
+        let step_ret = *step_ret;
         let callee = self.callee(f, step, params.len());
         let ctx = match call.ctx {
             Some(c) => Some(Arg { value: *vals.get(c)?, ty: tys.get(c)?.clone(), owned: false }),
@@ -435,9 +435,9 @@ impl FnLower<'_> {
     /// Both halves of every pair are a second owner of what they hold.
     fn list_zip(&mut self, vals: &[ValueId], tys: &[Ty], ret: &Ty) -> Option<ValueId> {
         let (&xs, &ys) = (vals.first()?, vals.get(2)?);
-        let (Ty::Array(a), Ty::Array(b)) = (tys.first()?, tys.get(2)?) else { return None };
-        let (a, b) = ((**a).clone(), (**b).clone());
-        let Ty::Array(pair) = ret else { return None };
+        let (TyKind::Array(a), TyKind::Array(b)) = (tys.first()?.kind(), tys.get(2)?.kind()) else { return None };
+        let (a, b) = (*a, *b);
+        let TyKind::Array(pair) = ret.kind() else { return None };
         let (a_t, b_t, pair_t, ret_t) =
             (self.type_of(&a), self.type_of(&b), self.type_of(pair), self.type_of(ret));
         let la = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
@@ -464,9 +464,9 @@ impl FnLower<'_> {
     /// out is a second owner; the inner lists themselves are only read.
     fn list_flatten(&mut self, vals: &[ValueId], tys: &[Ty], ret: &Ty) -> Option<ValueId> {
         let xs = *vals.first()?;
-        let Ty::Array(inner) = tys.first()? else { return None };
-        let Ty::Array(elem) = &**inner else { return None };
-        let (inner, elem) = ((**inner).clone(), (**elem).clone());
+        let TyKind::Array(inner) = (tys.first()?).kind() else { return None };
+        let TyKind::Array(elem) = inner.kind() else { return None };
+        let (inner, elem) = (*inner, *elem);
         let (inner_t, elem_t, ret_t) =
             (self.type_of(&inner), self.type_of(&elem), self.type_of(ret));
         let counted = self.counts.counted(&elem);
@@ -515,8 +515,8 @@ impl FnLower<'_> {
         ret: &Ty,
     ) -> Option<ValueId> {
         let (&xs, &ys, &f) = (vals.first()?, vals.get(1)?, vals.get(2)?);
-        let Ty::Array(elem) = tys.first()? else { return None };
-        let elem = (**elem).clone();
+        let TyKind::Array(elem) = (tys.first()?).kind() else { return None };
+        let elem = *elem;
         let elem_t = self.type_of(&elem);
         let ret_t = self.type_of(ret);
         let callee = self.callee(f, step, 2);
@@ -630,9 +630,9 @@ impl FnLower<'_> {
         ret: &Ty,
     ) -> Option<ValueId> {
         let (&xs, &f) = (vals.first()?, vals.get(1)?);
-        let Ty::Array(elem) = tys.first()? else { return None };
-        let elem = (**elem).clone();
-        let shown = Ty::Array(Box::new(ret.clone()));
+        let TyKind::Array(elem) = (tys.first()?).kind() else { return None };
+        let elem = *elem;
+        let shown = Ty::array(ret.clone());
         let (elem_t, ret_t, shown_t) =
             (self.type_of(&elem), self.type_of(ret), self.type_of(&shown));
         let callee = self.callee(f, step, 1);
@@ -844,8 +844,8 @@ impl FnLower<'_> {
     /// reason.
     fn list_get(&mut self, vals: &[ValueId], tys: &[Ty], ret: &Ty) -> Option<ValueId> {
         let (&xs, &i) = (vals.first()?, vals.get(1)?);
-        let Ty::Array(elem) = tys.first()? else { return None };
-        let elem = (**elem).clone();
+        let TyKind::Array(elem) = (tys.first()?).kind() else { return None };
+        let elem = *elem;
         let (elem_t, ret_t) = (self.type_of(&elem), self.type_of(ret));
         let some = self.variant_of(ret, "Some", 0);
         let none = self.variant_of(ret, "None", 1);
@@ -891,7 +891,7 @@ impl FnLower<'_> {
             n if Some(n) == want.checked_add(1) => {
                 let ty = g.params.first().and_then(|p| g.locals.get(p.index())).map(|l| l.ty.clone());
                 match ty {
-                    Some(t) if t == Ty::Tuple(Vec::new()) => {
+                    Some(t) if t == Ty::tuple([]) => {
                         let env_t = self.type_of(&t);
                         Some(self.emit(env_t, |dest| Inst::MakeStruct { dest, fields: Vec::new() }))
                     }

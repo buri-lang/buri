@@ -159,7 +159,7 @@ use crate::compiler::middle::monomorphize::{
 use crate::compiler::semantics::typed::{
     self, Arm, Callee, Expr, ExprKind, FieldPat, PatKind, Pattern, PrimOp, TemplatePart,
 };
-use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty, TyConId};
+use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty, TyKind, TyConId};
 use crate::diagnostics::Span;
 use crate::hash::Map as HashMap;
 
@@ -493,8 +493,8 @@ impl Env {
             }
             let is_json = result
                 .get(&Op::ToJson)
-                .and_then(Ty::head)
-                .zip(ty_of.get(i).and_then(|t| t.as_ref()).and_then(Ty::head))
+                .and_then(|t| t.head())
+                .zip(ty_of.get(i).and_then(|t| t.as_ref()).and_then(|t| t.head()))
                 .is_some_and(|(a, b)| a == b);
             if is_json {
                 json_variants = variants.iter().map(|v| v.name.clone()).collect();
@@ -522,7 +522,7 @@ impl Env {
             if let ConShape::Prim(p) = shape {
                 prim_of
                     .entry(*p)
-                    .or_insert_with(|| Ty::Con(TyConId(i as u32), Vec::new()));
+                    .or_insert_with(|| Ty::con(TyConId(i as u32), []));
             }
         }
         // `Equal` answers a `Bool`, and a program can hold a signal without
@@ -749,7 +749,7 @@ impl Generator {
         // The slot is reserved *before* the body is built, so a recursive type
         // finds itself rather than recursing forever.
         let idx = FuncIdx(u32::try_from(self.base + self.funcs.len()).unwrap_or(u32::MAX));
-        let ret = self.env.result(op).cloned().unwrap_or(Ty::Error);
+        let ret = self.env.result(op).cloned().unwrap_or(Ty::ERROR);
         let name = self.symbol(op, desc, &shape);
         // Qualified with the module that declares the type, so that
         // `lower::unit_name` puts the function in that module's codegen unit.
@@ -925,15 +925,15 @@ impl Generator {
     // -- small builders -----------------------------------------------------
 
     fn ty_of(&self, desc: usize) -> Ty {
-        self.env.ty(desc).cloned().unwrap_or(Ty::Error)
+        self.env.ty(desc).cloned().unwrap_or(Ty::ERROR)
     }
 
     fn result_ty(&self, op: Op) -> Ty {
-        self.env.result(op).cloned().unwrap_or(Ty::Error)
+        self.env.result(op).cloned().unwrap_or(Ty::ERROR)
     }
 
     fn str_ty(&self) -> Ty {
-        self.env.prim_of.get(&Prim::Str).cloned().unwrap_or(Ty::Error)
+        self.env.prim_of.get(&Prim::Str).cloned().unwrap_or(Ty::ERROR)
     }
 
     /// `Bool`, which a generated `compare` needs for its `if` even in a
@@ -953,7 +953,7 @@ impl Generator {
             .result(Op::Eq)
             .or_else(|| self.env.prim_of.get(&Prim::Bool))
             .cloned()
-            .unwrap_or(Ty::Error)
+            .unwrap_or(Ty::ERROR)
     }
 
     fn local_expr(&self, id: LocalId, ty: &Ty) -> Expr {
@@ -980,7 +980,7 @@ impl Generator {
     fn fn_ref(&self, f: FuncIdx, params: Vec<Ty>, ret: Ty) -> Expr {
         Expr::new(
             ExprKind::FnRef(Callee::Func(f)),
-            Ty::Fn(params, Box::new(ret)),
+            Ty::func(params, ret),
             Span::NONE,
         )
     }
@@ -1039,8 +1039,8 @@ impl Generator {
 
     fn enum_lit(&self, ty: &Ty, variant: usize, args: Vec<Expr>) -> Option<Expr> {
         let con: TyConId = ty.head()?;
-        let targs = match ty {
-            Ty::Con(_, a) => a.clone(),
+        let targs = match ty.kind() {
+            TyKind::Con(_, a) => a.to_vec(),
             _ => Vec::new(),
         };
         Some(Expr::new(
@@ -1737,7 +1737,7 @@ impl Generator {
     }
 
     fn json_array_ty(&self) -> Ty {
-        Ty::Array(Box::new(self.result_ty(Op::ToJson)))
+        Ty::array(self.result_ty(Op::ToJson))
     }
 
     fn json_array(&self, items: Vec<Expr>) -> Expr {
@@ -1746,11 +1746,11 @@ impl Generator {
 
     /// `[(Str, Json)]`, which is what `.Object` carries.
     fn json_object_ty(&self) -> Ty {
-        Ty::Array(Box::new(Ty::Tuple(vec![self.str_ty(), self.result_ty(Op::ToJson)])))
+        Ty::array(Ty::tuple([self.str_ty(), self.result_ty(Op::ToJson)]))
     }
 
     fn json_members(&self, members: Vec<(String, Expr)>) -> Expr {
-        let pair_ty = Ty::Tuple(vec![self.str_ty(), self.result_ty(Op::ToJson)]);
+        let pair_ty = Ty::tuple([self.str_ty(), self.result_ty(Op::ToJson)]);
         let items: Vec<Expr> = members
             .into_iter()
             .map(|(k, v)| {

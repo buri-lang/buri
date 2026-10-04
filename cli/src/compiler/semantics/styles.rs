@@ -46,7 +46,7 @@ use crate::compiler::semantics::consteval::{Env, Folder, Value};
 use crate::compiler::semantics::layered::Layered;
 use crate::compiler::semantics::resolve::{BodyMap, ConstMap, ModuleScope, Sym, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind};
-use crate::compiler::semantics::types::{ConstId, FnId, Tables, Ty, TyConId};
+use crate::compiler::semantics::types::{ConstId, FnId, Tables, Ty, TyKind, TyConId};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use crate::hash::Set as HashSet;
 
@@ -524,11 +524,11 @@ impl<'a> Extractor<'a> {
     }
 
     fn is_style(&self, ty: &Ty) -> bool {
-        matches!(ty, Ty::Con(id, args) if *id == self.style_con && args.is_empty())
+        matches!(ty.kind(), TyKind::Con(id, args) if *id == self.style_con && args.is_empty())
     }
 
     fn is_style_list(&self, ty: &Ty) -> bool {
-        matches!(ty, Ty::Array(elem) if self.is_style(elem))
+        matches!(ty.kind(), TyKind::Array(elem) if self.is_style(elem))
     }
 
     /// Refuses a style that has to be static and is not.
@@ -571,7 +571,7 @@ impl<'a> Extractor<'a> {
     }
 
     fn is_color(&self, ty: &Ty) -> bool {
-        matches!(ty, Ty::Con(id, args) if Some(*id) == self.color_con && args.is_empty())
+        matches!(ty.kind(), TyKind::Con(id, args) if Some(*id) == self.color_con && args.is_empty())
     }
 
     /// Whether anything under `e` is a style or a list of them: the only
@@ -776,7 +776,7 @@ impl<'a> Extractor<'a> {
     fn extracted(&self, atoms: Vec<Atom>, span: Span) -> typed::Expr {
         let int = self.tables.prim(crate::compiler::semantics::types::Prim::I64);
         let text = self.tables.prim(crate::compiler::semantics::types::Prim::Str);
-        let pair = Ty::Tuple(vec![int.clone(), text.clone()]);
+        let pair = Ty::tuple([int.clone(), text.clone()]);
         let items: Vec<typed::Expr> = atoms
             .into_iter()
             .map(|a| {
@@ -796,7 +796,7 @@ impl<'a> Extractor<'a> {
             .collect();
         let list = typed::Expr::new(
             ExprKind::Array(items),
-            Ty::Array(Box::new(pair)),
+            Ty::array(pair),
             span,
         );
         // The payload is a `Classes`, whose one field is private to
@@ -807,7 +807,7 @@ impl<'a> Extractor<'a> {
                 targs: Vec::new(),
                 fields: vec![list],
             },
-            Ty::Con(self.classes_con, Vec::new()),
+            Ty::con(self.classes_con, []),
             span,
         );
         typed::Expr::new(
@@ -817,7 +817,7 @@ impl<'a> Extractor<'a> {
                 variant: STYLE_EXTRACTED,
                 args: vec![classes],
             },
-            Ty::Con(self.style_con, Vec::new()),
+            Ty::con(self.style_con, []),
             span,
         )
     }

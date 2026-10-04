@@ -271,7 +271,7 @@
 use crate::compiler::middle::ir;
 use crate::compiler::middle::monomorphize::{self, Desc, Func, FuncKind, Program};
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Pattern, Stmt};
-use crate::compiler::semantics::types::{self, FuncIdx, LocalId, Prim, Ty};
+use crate::compiler::semantics::types::{self, FuncIdx, LocalId, Prim, Ty, TyKind};
 use crate::diagnostics::Invariant as _;
 use crate::hash::{Map as HashMap, Set as HashSet};
 
@@ -740,11 +740,11 @@ impl Syntactic {
                 Leaves::Lists => Answer::Unknown,
             };
         }
-        match ty {
-            Ty::Array(_) => Answer::Yes,
-            Ty::Fn(..) => self.opaque_leaf(),
-            Ty::Unit => Answer::No,
-            Ty::Tuple(ts) => {
+        match ty.kind() {
+            TyKind::Array(_) => Answer::Yes,
+            TyKind::Fn(..) => self.opaque_leaf(),
+            TyKind::Unit => Answer::No,
+            TyKind::Tuple(ts) => {
                 let parts: Vec<Answer> = ts.iter().map(|t| self.answer(t, depth - 1)).collect();
                 join(&parts)
             }
@@ -753,11 +753,11 @@ impl Syntactic {
             // zero-sized marker. Nothing writes a `Ty::Ctx` down, so no
             // literal in any body names one and the scans below never see it:
             // without the shapes every context in the program was `Unknown`.
-            Ty::Ctx(id) => match self.shapes.ctxs.get(id.index()) {
+            TyKind::Ctx(id) => match self.shapes.ctxs.get(id.index()) {
                 Some(bindings) => self.join_of(&bindings.clone(), depth),
                 None => Answer::Unknown,
             },
-            Ty::Con(con, args) => match self.shapes.cons.get(con.index()) {
+            TyKind::Con(con, args) => match self.shapes.cons.get(con.index()) {
                 Some(monomorphize::ConShape::Prim(p)) => {
                     if matches!(p, Prim::Str | Prim::Template) {
                         self.opaque_leaf()
@@ -1262,7 +1262,7 @@ fn infer_ownership(
             f.params
                 .iter()
                 .map(|p| {
-                    let ty = f.locals.get(p.index()).map(|l| l.ty.clone()).unwrap_or(Ty::Error);
+                    let ty = f.locals.get(p.index()).map(|l| l.ty.clone()).unwrap_or(Ty::ERROR);
                     // A value with no count to take is `Own` by convention and
                     // costs nothing either way; saying `Borrow` would make a
                     // backend's signature depend on the classifier's uncertainty.
@@ -5865,7 +5865,7 @@ export fn main(host: NodeHost): Result<(), Str> {
         let f = program.funcs.get(find(&program, "showFirst").index()).expect("a function");
         let ctx_ty = f.locals.first().map(|l| l.ty.clone()).expect("the context parameter");
         let opt_ty = f.locals.get(1).map(|l| l.ty.clone()).expect("the `Option<Str>` parameter");
-        assert!(matches!(ctx_ty, Ty::Ctx(_)), "the first parameter is the context");
+        assert!(matches!(ctx_ty.kind(), TyKind::Ctx(_)), "the first parameter is the context");
         // `host.alloc` and `host.stdout` are zero-sized markers, so the answer
         // here is `No` — which is the point: the defect was `Unknown`, which
         // means "no operations at all" for a type that may well hold a

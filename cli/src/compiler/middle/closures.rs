@@ -93,17 +93,15 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
     let captures = std::mem::take(captures);
     let body = std::mem::replace(
         body,
-        Box::new(Expr::new(ExprKind::Unit, Ty::Unit, e.span)),
+        Box::new(Expr::new(ExprKind::Unit, Ty::UNIT, e.span)),
     );
 
     let mut locals = parent.locals.clone();
     let env = LocalId(locals.len() as u32);
-    let env_ty = Ty::Tuple(
-        captures
+    let env_ty = Ty::tuple(captures
             .iter()
             .filter_map(|c| locals.get(c.index()).map(|l| l.ty.clone()))
-            .collect(),
-    );
+            );
     locals.push(typed::Local { name: "env".to_string(), ty: env_ty.clone(), span: e.span });
 
     // Each capture is bound back to the id it had, out of the environment, so
@@ -185,11 +183,11 @@ mod tests {
     use crate::hash::Map as HashMap;
 
     fn local(name: &str) -> Local {
-        Local { name: name.to_string(), ty: Ty::Unit, span: Span::default() }
+        Local { name: name.to_string(), ty: Ty::UNIT, span: Span::default() }
     }
 
     fn e(kind: ExprKind) -> Expr {
-        Expr::new(kind, Ty::Unit, Span::default())
+        Expr::new(kind, Ty::UNIT, Span::default())
     }
 
     fn program(locals: Vec<Local>, params: Vec<u32>, body: Expr) -> Program {
@@ -200,7 +198,7 @@ mod tests {
                 params: params.into_iter().map(LocalId).collect(),
                 locals,
                 kind: FuncKind::Body(body),
-                ret: Ty::Unit,
+                ret: Ty::UNIT,
                 desc: None,
                 span: Span::default(),
             }],

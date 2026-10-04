@@ -44,7 +44,7 @@ use crate::compiler::backend::counts::{Field, Glue, Op, Site};
 use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
 use crate::compiler::middle::lower;
 use crate::compiler::middle::layout::{EnumRepr, Repr};
-use crate::compiler::semantics::types::{Prim, Ty};
+use crate::compiler::semantics::types::{Prim, Ty, TyKind};
 
 /// How deep the reference-count walk goes before it refuses.
 ///
@@ -367,8 +367,8 @@ impl<'a> Jit<'a> {
                 // capture-free lambda still has a leading parameter, of the
                 // unit type, and a plain `FnRef` has none at all.
                 let want = match code.ty_of(*dest) {
-                    ir::Type::Agg(id) => match &prog.type_info(id).ty {
-                        Ty::Fn(ps, _) => Some(ps.len()),
+                    ir::Type::Agg(id) => match prog.type_info(id).ty.kind() {
+                        TyKind::Fn(ps, _) => Some(ps.len()),
                         _ => None,
                     },
                     _ => None,
@@ -2535,7 +2535,7 @@ impl<'a> Jit<'a> {
     pub(crate) fn array_stride(&mut self, prog: &ir::Program, t: ir::Type) -> Option<u64> {
         let ir::Type::Agg(id) = t else { return None };
         let ty = prog.type_info(id).ty.clone();
-        let crate::compiler::semantics::types::Ty::Array(elem) = ty else { return None };
+        let crate::compiler::semantics::types::TyKind::Array(elem) = ty.kind() else { return None };
         Some(u64::from(self.layouts_of(*elem).stride.max(1)))
     }
 }
@@ -2844,7 +2844,7 @@ impl Jit<'_> {
             return Err(refuse());
         };
         let ty = prog.type_info(id).ty.clone();
-        let Ty::Con(_, arguments) = &ty else { return Err(refuse()) };
+        let TyKind::Con(_, arguments) = ty.kind() else { return Err(refuse()) };
         let Some(error_ty) = arguments.get(1).cloned() else { return Err(refuse()) };
         let result = self.layout_of_type(ty.clone());
         // A niche layout puts both payloads at the same offset, and this writes

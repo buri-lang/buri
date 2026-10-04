@@ -599,7 +599,7 @@ mod tests {
     }
 
     fn e(kind: ExprKind) -> Expr {
-        Expr::new(kind, Ty::Error, span())
+        Expr::new(kind, Ty::ERROR, span())
     }
 
     fn local(i: u32) -> Expr {
@@ -614,7 +614,7 @@ mod tests {
             locals: (0..local_count)
                 .map(|i| typed::Local {
                     name: format!("l{i}"),
-                    ty: Ty::Error,
+                    ty: Ty::ERROR,
                     span: span(),
                 })
                 .collect(),
@@ -622,7 +622,7 @@ mod tests {
                 Some(e) => crate::compiler::middle::monomorphize::FuncKind::Body(e),
                 None => crate::compiler::middle::monomorphize::FuncKind::Unbuilt,
             },
-            ret: Ty::Error,
+            ret: Ty::ERROR,
             desc: None,
             span: span(),
         }

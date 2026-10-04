@@ -373,7 +373,7 @@ fn needed_structs(
     point: &str,
 ) -> Vec<crate::build::hosted::Needed> {
     use crate::compiler::semantics::resolve::Sym;
-    use crate::compiler::semantics::types::Ty;
+    use crate::compiler::semantics::types::TyKind;
     let tables = &analysis.checked.tables;
     let Some(platform) = analysis.loaded.find(module) else {
         return Vec::new();
@@ -383,7 +383,7 @@ fn needed_structs(
     else {
         return Vec::new();
     };
-    let Some(Ty::Con(host, _)) = tables.fn_info(decl).params.first().map(|p| p.ty.clone()) else {
+    let Some(&TyKind::Con(host, _)) = tables.fn_info(decl).params.first().map(|p| p.ty.kind()) else {
         return Vec::new();
     };
     if tables.tycon(host).module != platform {
@@ -391,7 +391,7 @@ fn needed_structs(
     }
     let mut out = Vec::new();
     for field in tables.tycon(host).fields() {
-        let Ty::Con(con, _) = &field.ty else { continue };
+        let TyKind::Con(con, _) = field.ty.kind() else { continue };
         if tables.tycon(*con).module != platform {
             continue;
         }
@@ -1531,7 +1531,7 @@ fn layout_closure_signature(
     tables: &Tables,
     seeds: impl Iterator<Item = crate::compiler::semantics::types::Ty>,
 ) -> String {
-    use crate::compiler::semantics::types::{self, Ty};
+    use crate::compiler::semantics::types::{self, Ty, TyKind};
 
     let mut seen: std::collections::HashSet<Ty> = std::collections::HashSet::new();
     let mut stack: Vec<Ty> = seeds.collect();
@@ -1540,7 +1540,7 @@ fn layout_closure_signature(
         // Only the shaped types have a layout worth folding in; a bare
         // parameter or an inference variable has none and cannot be reached in
         // a monomorphized program anyway.
-        if matches!(ty, Ty::Var(_) | Ty::Param(_) | Ty::SelfTy | Ty::Error) {
+        if matches!(ty.kind(), TyKind::Var(_) | TyKind::Param(_) | TyKind::SelfTy | TyKind::Error) {
             continue;
         }
         if !seen.insert(ty.clone()) {
@@ -1550,8 +1550,8 @@ fn layout_closure_signature(
         // The types this one reaches: its arguments and its constituent parts,
         // then — for a nominal type — the types of its fields or its variants'
         // fields, which is where a shape reached only across a pointer lives.
-        match &ty {
-            Ty::Con(id, args) => {
+        match ty.kind() {
+            TyKind::Con(id, args) => {
                 stack.extend(args.iter().cloned());
                 stack.extend(types::field_types(tables, &ty));
                 let variants = tables.tycon(*id).variants().len();
@@ -1559,13 +1559,13 @@ fn layout_closure_signature(
                     stack.extend(types::variant_types(tables, &ty, v));
                 }
             }
-            Ty::Array(el) => stack.push((**el).clone()),
-            Ty::Tuple(els) => stack.extend(els.iter().cloned()),
-            Ty::Fn(ps, r) => {
+            TyKind::Array(el) => stack.push(*el),
+            TyKind::Tuple(els) => stack.extend(els.iter().cloned()),
+            TyKind::Fn(ps, r) => {
                 stack.extend(ps.iter().cloned());
-                stack.push((**r).clone());
+                stack.push(*r);
             }
-            Ty::Ctx(_) => stack.extend(types::field_types(tables, &ty)),
+            TyKind::Ctx(_) => stack.extend(types::field_types(tables, &ty)),
             _ => {}
         }
     }
