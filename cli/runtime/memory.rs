@@ -1176,8 +1176,10 @@ pub unsafe extern "C" fn buri_rt_realloc(p: *mut u8, payload: u64) -> *mut u8 {
         // nothing else holds.
         unsafe {
             std::ptr::copy_nonoverlapping(p.cast_const(), fresh, old_cap.min(payload) as usize);
-            // The count travels with the value, exactly as it does below.
+            // The count travels with the value, exactly as it does below, and
+            // so does the mark.
             (*header(fresh)).rc = rc;
+            (*header(fresh)).cap |= flags & BURI_RT_CAP_SHARED;
             // Not a `dealloc`: this only takes the old block out of `LIVE_*`,
             // because its pages belong to the scope.
             buri_rt_free(p);
@@ -5483,6 +5485,37 @@ mod tests {
                 assert_eq!(grown.add(i as usize).read(), (i % 251) as u8);
             }
             buri_rt_decref(grown, None);
+            buri_rt_decref(grown, None);
+        }
+        let _ = buri_rt_alloc_arena_leave(outer);
+        let _ = buri_rt_alloc_arena_release(a);
+    }
+
+    /// A shared arena block that grows stays shared, as a heap block does
+    /// (`realloc_preserves_the_reserved_bit`). The grow allocates and copies,
+    /// and that path once carried the count across and dropped the mark.
+    #[test]
+    fn growing_a_shared_scope_block_keeps_it_shared() {
+        // Both locks, and that is a real interaction: with the marking latch
+        // set, every new block is marked, and this case would pass whether or
+        // not the grow carried the mark across. The latch first, as in
+        // `the_arena_bit_and_the_mark_are_independent`: the other order
+        // deadlocks against it when the tests share a process.
+        let _latch = latch();
+        let _alone = arena_alone();
+        let a = buri_rt_alloc_arena_create();
+        let outer = buri_rt_alloc_arena_enter(a);
+        let p = buri_rt_alloc(16);
+        // SAFETY: live, just allocated, and the only reference.
+        let grown = unsafe {
+            (*header(p)).cap |= BURI_RT_CAP_SHARED;
+            buri_rt_realloc(p, 64)
+        };
+        // SAFETY: live.
+        unsafe {
+            assert!(is_arena(header(grown)), "a grown arena block left the arena");
+            assert_eq!((*header(grown)).cap & BURI_RT_CAP_SHARED, BURI_RT_CAP_SHARED);
+            assert_eq!(buri_rt_cap(grown), 64);
             buri_rt_decref(grown, None);
         }
         let _ = buri_rt_alloc_arena_leave(outer);
