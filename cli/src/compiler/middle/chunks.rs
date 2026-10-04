@@ -192,11 +192,11 @@ fn unwrap_load(e: &mut Expr, loads: &[usize]) {
 fn take_arg(e: &mut Expr) -> Expr {
     let args = match &mut e.kind {
         ExprKind::CallFn { args, .. } | ExprKind::Intrinsic { args, .. } => args,
-        _ => return Expr::new(ExprKind::Unit, e.ty.clone(), e.span),
+        _ => return Expr::new(ExprKind::Unit, e.ty, e.span),
     };
     match args.drain(..).next() {
         Some(a) => a,
-        None => Expr::new(ExprKind::Unit, e.ty.clone(), e.span),
+        None => Expr::new(ExprKind::Unit, e.ty, e.span),
     }
 }
 

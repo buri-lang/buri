@@ -1161,7 +1161,7 @@ fn main_result(program: &ir::Program, tables: &Tables, idx: usize) -> Option<asm
     let f = program.funcs.get(idx)?;
     let ir::Type::Agg(id) = f.sig.rets.first().copied()? else { return None };
     let mut layouts = Layouts::new(tables);
-    let l = layouts.of(program.type_info(id).ty.clone());
+    let l = layouts.of(program.type_info(id).ty);
     if l.size == 0 {
         return None;
     }

@@ -209,7 +209,7 @@ fn fold_expr(e: &mut Expr) -> usize {
             }
             Some(Expr::new(
                 ExprKind::StructLit { con, targs, fields },
-                e.ty.clone(),
+                e.ty,
                 e.span,
             ))
         }
@@ -498,7 +498,7 @@ fn inline_expr(
             Stmt::Let {
                 pattern: typed::Pattern {
                     kind: PatKind::Bind { local, sub: None },
-                    ty: arg.ty.clone(),
+                    ty: arg.ty,
                     span,
                 },
                 value: arg,

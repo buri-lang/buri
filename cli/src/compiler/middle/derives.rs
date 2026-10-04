@@ -310,7 +310,7 @@ fn route_cells(program: &mut Program, routed: &HashMap<(Op, usize), FuncIdx>) {
     for desc in wanted {
         let Some(func) = routed.get(&(Op::Eq, desc)).copied() else { continue };
         if let Some((ty, _)) = program.desc_index.iter().find(|(_, i)| **i == desc) {
-            rows.push((ty.clone(), func));
+            rows.push((*ty, func));
         }
     }
     for (ty, func) in rows {
@@ -427,13 +427,13 @@ impl Env {
         let mut ty_of: Vec<Option<Ty>> = vec![None; program.descriptors.len()];
         for (ty, i) in &program.desc_index {
             if let Some(slot) = ty_of.get_mut(*i) {
-                *slot = Some(ty.clone());
+                *slot = Some(*ty);
             }
         }
         let mut prim_of: HashMap<Prim, Ty> = HashMap::default();
         for (i, d) in program.descriptors.iter().enumerate() {
             if let (Desc::Prim(p), Some(Some(ty))) = (d, ty_of.get(i)) {
-                prim_of.entry(*p).or_insert_with(|| ty.clone());
+                prim_of.entry(*p).or_insert_with(|| *ty);
             }
         }
         let mut result: HashMap<Op, Ty> = HashMap::default();
@@ -446,25 +446,25 @@ impl Env {
                     // type, and the three that name their own primitive
                     // unambiguously are the three a generated body writes.
                     ExprKind::Str(_) => {
-                        prim_of.entry(Prim::Str).or_insert_with(|| e.ty.clone());
+                        prim_of.entry(Prim::Str).or_insert_with(|| e.ty);
                     }
                     ExprKind::Bool(_) => {
-                        prim_of.entry(Prim::Bool).or_insert_with(|| e.ty.clone());
+                        prim_of.entry(Prim::Bool).or_insert_with(|| e.ty);
                     }
                     ExprKind::Char(_) => {
-                        prim_of.entry(Prim::Char).or_insert_with(|| e.ty.clone());
+                        prim_of.entry(Prim::Char).or_insert_with(|| e.ty);
                     }
                     ExprKind::Prim { prim, args, .. } => {
                         if let Some(a) = args.first() {
-                            prim_of.entry(*prim).or_insert_with(|| a.ty.clone());
+                            prim_of.entry(*prim).or_insert_with(|| a.ty);
                         }
                     }
                     ExprKind::StructuralEq { .. } => {
-                        result.entry(Op::Eq).or_insert_with(|| e.ty.clone());
+                        result.entry(Op::Eq).or_insert_with(|| e.ty);
                     }
                     ExprKind::Intrinsic { name, .. } => {
                         if let Some(op) = Op::all().into_iter().find(|o| o.intrinsic() == name) {
-                            result.entry(op).or_insert_with(|| e.ty.clone());
+                            result.entry(op).or_insert_with(|| e.ty);
                         }
                     }
                     _ => {}
@@ -632,7 +632,7 @@ impl Frame {
 
     fn local(&mut self, name: &str, ty: &Ty) -> LocalId {
         let id = LocalId(u32::try_from(self.locals.len()).unwrap_or(u32::MAX));
-        self.locals.push(typed::Local { name: name.to_string(), ty: ty.clone(), span: Span::NONE });
+        self.locals.push(typed::Local { name: name.to_string(), ty: *ty, span: Span::NONE });
         id
     }
 
@@ -957,7 +957,7 @@ impl Generator {
     }
 
     fn local_expr(&self, id: LocalId, ty: &Ty) -> Expr {
-        Expr::new(ExprKind::Local(id), ty.clone(), Span::NONE)
+        Expr::new(ExprKind::Local(id), *ty, Span::NONE)
     }
 
     fn str_lit(&self, s: &str) -> Expr {
@@ -1009,20 +1009,20 @@ impl Generator {
                 index: *i,
                 pattern: Pattern {
                     kind: PatKind::Bind { local: *l, sub: None },
-                    ty: t.clone(),
+                    ty: *t,
                     span: Span::NONE,
                 },
             })
             .collect();
         Some(Pattern {
             kind: PatKind::Variant { con, variant, fields },
-            ty: ty.clone(),
+            ty: *ty,
             span: Span::NONE,
         })
     }
 
     fn wild(&self, ty: &Ty) -> Pattern {
-        Pattern { kind: PatKind::Wild, ty: ty.clone(), span: Span::NONE }
+        Pattern { kind: PatKind::Wild, ty: *ty, span: Span::NONE }
     }
 
     fn arm(&self, pattern: Pattern, body: Expr) -> Arm {
@@ -1045,7 +1045,7 @@ impl Generator {
         };
         Some(Expr::new(
             ExprKind::EnumLit { con, targs, variant, args },
-            ty.clone(),
+            *ty,
             Span::NONE,
         ))
     }
@@ -1132,7 +1132,7 @@ impl Generator {
             Desc::Array(elem) => {
                 let elem_ty = self.ty_of(elem);
                 let f = self.request(Op::Eq, elem)?;
-                let ptr = self.fn_ref(f, vec![elem_ty.clone(), elem_ty.clone()], bool_ty.clone());
+                let ptr = self.fn_ref(f, vec![elem_ty, elem_ty], bool_ty);
                 Some(self.intrinsic("deriveArrayEq", vec![elem_ty], vec![a, b, ptr], bool_ty))
             }
             Desc::Option(inner) => self.eq_option(desc, inner, a, b, frame),
@@ -1154,14 +1154,14 @@ impl Generator {
         let mut acc: Option<Expr> = None;
         for (i, d) in fields.iter().rev() {
             let fty = self.ty_of(*d);
-            let ae = self.project(a.clone(), *i, tuple, fty.clone());
+            let ae = self.project(a.clone(), *i, tuple, fty);
             let be = self.project(b.clone(), *i, tuple, fty);
             let one = self.at(Op::Eq, *d, vec![ae, be])?;
             acc = Some(match acc {
                 None => one,
                 Some(rest) => Expr::new(
                     ExprKind::And { lhs: Box::new(one), rhs: Box::new(rest) },
-                    bool_ty.clone(),
+                    bool_ty,
                     Span::NONE,
                 ),
             });
@@ -1181,25 +1181,25 @@ impl Generator {
         let inner_ty = self.ty_of(inner);
         let bool_ty = self.bool_ty();
         let (x, y) = (frame.local("x", &inner_ty), frame.local("y", &inner_ty));
-        let some_x = self.variant_pattern(&ty, OPTION_SOME, &[(0, x, inner_ty.clone())])?;
-        let some_y = self.variant_pattern(&ty, OPTION_SOME, &[(0, y, inner_ty.clone())])?;
+        let some_x = self.variant_pattern(&ty, OPTION_SOME, &[(0, x, inner_ty)])?;
+        let some_y = self.variant_pattern(&ty, OPTION_SOME, &[(0, y, inner_ty)])?;
         let none = self.variant_pattern(&ty, OPTION_NONE, &[])?;
         let inner_eq = self.at(
             Op::Eq,
             inner,
             vec![self.local_expr(x, &inner_ty), self.local_expr(y, &inner_ty)],
         )?;
-        let false_ = Expr::new(ExprKind::Bool(false), bool_ty.clone(), Span::NONE);
-        let true_ = Expr::new(ExprKind::Bool(true), bool_ty.clone(), Span::NONE);
+        let false_ = Expr::new(ExprKind::Bool(false), bool_ty, Span::NONE);
+        let true_ = Expr::new(ExprKind::Bool(true), bool_ty, Span::NONE);
         let some_arm = self.match_(
             b.clone(),
             vec![self.arm(some_y, inner_eq), self.arm(self.wild(&ty), false_.clone())],
-            bool_ty.clone(),
+            bool_ty,
         );
         let none_arm = self.match_(
             b,
             vec![self.arm(none, true_), self.arm(self.wild(&ty), false_)],
-            bool_ty.clone(),
+            bool_ty,
         );
         Some(self.match_(
             a,
@@ -1224,7 +1224,7 @@ impl Generator {
             let mut ys: Vec<(usize, LocalId, Ty)> = Vec::new();
             for (fi, f) in v.fields.iter().enumerate() {
                 let fty = self.ty_of(f.ty);
-                xs.push((fi, frame.local("x", &fty), fty.clone()));
+                xs.push((fi, frame.local("x", &fty), fty));
                 ys.push((fi, frame.local("y", &fty), fty));
             }
             let px = self.variant_pattern(&ty, vi, &xs)?;
@@ -1242,13 +1242,13 @@ impl Generator {
                     None => one,
                     Some(rest) => Expr::new(
                         ExprKind::And { lhs: Box::new(one), rhs: Box::new(rest) },
-                        bool_ty.clone(),
+                        bool_ty,
                         Span::NONE,
                     ),
                 });
             }
             let same = acc.unwrap_or_else(|| {
-                Expr::new(ExprKind::Bool(true), bool_ty.clone(), Span::NONE)
+                Expr::new(ExprKind::Bool(true), bool_ty, Span::NONE)
             });
             let inner = self.match_(
                 b.clone(),
@@ -1256,10 +1256,10 @@ impl Generator {
                     self.arm(py, same),
                     self.arm(
                         self.wild(&ty),
-                        Expr::new(ExprKind::Bool(false), bool_ty.clone(), Span::NONE),
+                        Expr::new(ExprKind::Bool(false), bool_ty, Span::NONE),
                     ),
                 ],
-                bool_ty.clone(),
+                bool_ty,
             );
             arms.push(self.arm(px, inner));
         }
@@ -1280,7 +1280,7 @@ impl Generator {
                 let bool_ty = self.bool_ty();
                 let lt = Expr::new(
                     ExprKind::Prim { op: PrimOp::Lt, prim: p, args: vec![a.clone(), b.clone()] },
-                    bool_ty.clone(),
+                    bool_ty,
                     Span::NONE,
                 );
                 let gt = Expr::new(
@@ -1294,7 +1294,7 @@ impl Generator {
                         then: Box::new(self.order_lit(ORDER_GREATER)?),
                         else_: Box::new(self.order_lit(ORDER_EQUAL)?),
                     },
-                    order.clone(),
+                    order,
                     Span::NONE,
                 );
                 Some(Expr::new(
@@ -1321,7 +1321,7 @@ impl Generator {
             Desc::Array(elem) => {
                 let elem_ty = self.ty_of(elem);
                 let f = self.request(Op::Compare, elem)?;
-                let ptr = self.fn_ref(f, vec![elem_ty.clone(), elem_ty.clone()], order.clone());
+                let ptr = self.fn_ref(f, vec![elem_ty, elem_ty], order);
                 Some(self.intrinsic(
                     "deriveArrayCompare",
                     vec![elem_ty],
@@ -1349,7 +1349,7 @@ impl Generator {
         let mut acc: Option<Expr> = None;
         for (i, d) in fields.iter().rev() {
             let fty = self.ty_of(*d);
-            let ae = self.project(a.clone(), *i, tuple, fty.clone());
+            let ae = self.project(a.clone(), *i, tuple, fty);
             let be = self.project(b.clone(), *i, tuple, fty);
             let one = self.at(Op::Compare, *d, vec![ae, be])?;
             acc = Some(match acc {
@@ -1359,7 +1359,7 @@ impl Generator {
                     let equal = self.variant_pattern(&order, ORDER_EQUAL, &[])?;
                     let bind = Pattern {
                         kind: PatKind::Bind { local: c, sub: None },
-                        ty: order.clone(),
+                        ty: order,
                         span: Span::NONE,
                     };
                     self.match_(
@@ -1368,7 +1368,7 @@ impl Generator {
                             self.arm(equal, rest),
                             self.arm(bind, self.local_expr(c, &order)),
                         ],
-                        order.clone(),
+                        order,
                     )
                 }
             });
@@ -1393,8 +1393,8 @@ impl Generator {
         let inner_ty = self.ty_of(inner);
         let order = self.result_ty(Op::Compare);
         let (x, y) = (frame.local("x", &inner_ty), frame.local("y", &inner_ty));
-        let some_x = self.variant_pattern(&ty, OPTION_SOME, &[(0, x, inner_ty.clone())])?;
-        let some_y = self.variant_pattern(&ty, OPTION_SOME, &[(0, y, inner_ty.clone())])?;
+        let some_x = self.variant_pattern(&ty, OPTION_SOME, &[(0, x, inner_ty)])?;
+        let some_y = self.variant_pattern(&ty, OPTION_SOME, &[(0, y, inner_ty)])?;
         let none = self.variant_pattern(&ty, OPTION_NONE, &[])?;
         let inner_cmp = self.at(
             Op::Compare,
@@ -1407,7 +1407,7 @@ impl Generator {
                 self.arm(some_y, inner_cmp),
                 self.arm(self.wild(&ty), self.order_lit(ORDER_GREATER)?),
             ],
-            order.clone(),
+            order,
         );
         let none_arm = self.match_(
             b,
@@ -1415,7 +1415,7 @@ impl Generator {
                 self.arm(none, self.order_lit(ORDER_EQUAL)?),
                 self.arm(self.wild(&ty), self.order_lit(ORDER_LESS)?),
             ],
-            order.clone(),
+            order,
         );
         Some(self.match_(
             a,
@@ -1443,7 +1443,7 @@ impl Generator {
             let mut ys: Vec<(usize, LocalId, Ty)> = Vec::new();
             for (fi, f) in v.fields.iter().enumerate() {
                 let fty = self.ty_of(f.ty);
-                xs.push((fi, frame.local("x", &fty), fty.clone()));
+                xs.push((fi, frame.local("x", &fty), fty));
                 ys.push((fi, frame.local("y", &fty), fty));
             }
             let px = self.variant_pattern(&ty, vi, &xs)?;
@@ -1465,7 +1465,7 @@ impl Generator {
                         let equal = self.variant_pattern(&order, ORDER_EQUAL, &[])?;
                         let bind = Pattern {
                             kind: PatKind::Bind { local: c, sub: None },
-                            ty: order.clone(),
+                            ty: order,
                             span: Span::NONE,
                         };
                         self.match_(
@@ -1474,7 +1474,7 @@ impl Generator {
                                 self.arm(equal, rest),
                                 self.arm(bind, self.local_expr(c, &order)),
                             ],
-                            order.clone(),
+                            order,
                         )
                     }
                 });
@@ -1495,7 +1495,7 @@ impl Generator {
                     if wi < vi { self.order_lit(ORDER_GREATER)? } else { self.order_lit(ORDER_LESS)? };
                 inner.push(self.arm(pat, which));
             }
-            arms.push(self.arm(px, self.match_(b.clone(), inner, order.clone())));
+            arms.push(self.arm(px, self.match_(b.clone(), inner, order)));
         }
         Some(self.match_(a, arms, order))
     }
@@ -1507,7 +1507,7 @@ impl Generator {
         let con = ty.head()?;
         Some(Pattern {
             kind: PatKind::Variant { con, variant, fields: Vec::new() },
-            ty: ty.clone(),
+            ty: *ty,
             span: Span::NONE,
         })
     }
@@ -1546,14 +1546,14 @@ impl Generator {
             Desc::Array(elem) => {
                 let elem_ty = self.ty_of(elem);
                 let f = self.request(Op::Show, elem)?;
-                let ptr = self.fn_ref(f, vec![elem_ty.clone()], str_ty.clone());
+                let ptr = self.fn_ref(f, vec![elem_ty], str_ty);
                 Some(self.intrinsic("deriveArrayShow", vec![elem_ty], vec![x, ptr], str_ty))
             }
             Desc::Option(inner) => {
                 let ty = self.ty_of(desc);
                 let inner_ty = self.ty_of(inner);
                 let v = frame.local("v", &inner_ty);
-                let some = self.variant_pattern(&ty, OPTION_SOME, &[(0, v, inner_ty.clone())])?;
+                let some = self.variant_pattern(&ty, OPTION_SOME, &[(0, v, inner_ty)])?;
                 let shown = self.at(Op::Show, inner, vec![self.local_expr(v, &inner_ty)])?;
                 let body = self.joined(vec![
                     TemplatePart::Text(".Some(".into()),
@@ -1671,7 +1671,7 @@ impl Generator {
             let p = frame.param(&format!("p{i}"), &str_ty);
             parts.push(TemplatePart::Hole(self.local_expr(p, &str_ty)));
         }
-        let body = Expr::new(ExprKind::Template { parts }, str_ty.clone(), Span::NONE);
+        let body = Expr::new(ExprKind::Template { parts }, str_ty, Span::NONE);
         self.funcs.push(Func {
             symbol: format!("derive$join${n}"),
             debug_name: format!("derive$join${n}"),
@@ -1756,7 +1756,7 @@ impl Generator {
             .map(|(k, v)| {
                 Expr::new(
                     ExprKind::Tuple(vec![self.str_lit(&k), v]),
-                    pair_ty.clone(),
+                    pair_ty,
                     Span::NONE,
                 )
             })
@@ -1806,7 +1806,7 @@ impl Generator {
             Desc::Array(elem) => {
                 let elem_ty = self.ty_of(elem);
                 let f = self.request(Op::ToJson, elem)?;
-                let ptr = self.fn_ref(f, vec![elem_ty.clone()], json);
+                let ptr = self.fn_ref(f, vec![elem_ty], json);
                 let mapped = self.intrinsic(
                     "deriveArrayJson",
                     vec![elem_ty],
@@ -1819,7 +1819,7 @@ impl Generator {
                 let ty = self.ty_of(desc);
                 let inner_ty = self.ty_of(inner);
                 let v = frame.local("v", &inner_ty);
-                let some = self.variant_pattern(&ty, OPTION_SOME, &[(0, v, inner_ty.clone())])?;
+                let some = self.variant_pattern(&ty, OPTION_SOME, &[(0, v, inner_ty)])?;
                 let body = self.at(Op::ToJson, inner, vec![self.local_expr(v, &inner_ty)])?;
                 let null = self.json_lit("Null", Vec::new())?;
                 Some(self.match_(
@@ -1889,7 +1889,7 @@ impl Generator {
     /// accumulator's own type.
     fn mix(&self, h: Expr, n: u128) -> Expr {
         let ty = self.hash_ty();
-        self.intrinsic("derivePrimHash", vec![ty.clone()], vec![h, self.hash_int(n)], ty)
+        self.intrinsic("derivePrimHash", vec![ty], vec![h, self.hash_int(n)], ty)
     }
 
     fn hash(&mut self, desc: usize, h: Expr, x: Expr, frame: &mut Frame) -> Option<Expr> {
@@ -1915,14 +1915,14 @@ impl Generator {
             Desc::Array(elem) => {
                 let elem_ty = self.ty_of(elem);
                 let f = self.request(Op::Hash, elem)?;
-                let ptr = self.fn_ref(f, vec![acc.clone(), elem_ty.clone()], acc.clone());
+                let ptr = self.fn_ref(f, vec![acc, elem_ty], acc);
                 Some(self.intrinsic("deriveArrayHash", vec![elem_ty], vec![h, x, ptr], acc))
             }
             Desc::Option(inner) => {
                 let ty = self.ty_of(desc);
                 let inner_ty = self.ty_of(inner);
                 let v = frame.local("v", &inner_ty);
-                let some = self.variant_pattern(&ty, OPTION_SOME, &[(0, v, inner_ty.clone())])?;
+                let some = self.variant_pattern(&ty, OPTION_SOME, &[(0, v, inner_ty)])?;
                 let body =
                     self.at_hash(inner, h.clone(), self.local_expr(v, &inner_ty))?;
                 Some(self.match_(
@@ -2104,7 +2104,7 @@ fn rewrite(
 /// avoid.
 fn reporter_body(f: &mut Func, key: &str, show: FuncIdx) {
     let ty_of = |f: &Func, p: usize| {
-        f.params.get(p).and_then(|l| f.locals.get(l.0 as usize)).map(|l| l.ty.clone())
+        f.params.get(p).and_then(|l| f.locals.get(l.0 as usize)).map(|l| l.ty)
     };
     let local = |f: &Func, p: usize| {
         Some(Expr::new(ExprKind::Local(*f.params.get(p)?), ty_of(f, p)?, Span::NONE))
@@ -2114,7 +2114,7 @@ fn reporter_body(f: &mut Func, key: &str, show: FuncIdx) {
     let shown = |f: &Func, p: usize, str_ty: &Ty| {
         Some(Expr::new(
             ExprKind::CallFn { func: Callee::Func(show), args: vec![local(f, p)?] },
-            str_ty.clone(),
+            *str_ty,
             Span::NONE,
         ))
     };
@@ -2128,16 +2128,16 @@ fn reporter_body(f: &mut Func, key: &str, show: FuncIdx) {
                     targs: Vec::new(),
                     args: vec![local(f, 1)?, shown(f, 2, &str_ty)?, shown(f, 3, &str_ty)?],
                 },
-                f.ret.clone(),
+                f.ret,
                 Span::NONE,
             );
             Some(Expr::new(
                 ExprKind::If {
                     cond: Box::new(local(f, 0)?),
-                    then: Box::new(Expr::new(ExprKind::Unit, f.ret.clone(), Span::NONE)),
+                    then: Box::new(Expr::new(ExprKind::Unit, f.ret, Span::NONE)),
                     else_: Box::new(fail),
                 },
-                f.ret.clone(),
+                f.ret,
                 Span::NONE,
             ))
         })(),
@@ -2152,7 +2152,7 @@ fn reporter_body(f: &mut Func, key: &str, show: FuncIdx) {
                     targs: Vec::new(),
                     args: vec![local(f, 0)?, shown(f, 1, &str_ty)?],
                 },
-                f.ret.clone(),
+                f.ret,
                 Span::NONE,
             ))
         })(),
@@ -2191,7 +2191,7 @@ fn rewrite_expr(
                     if op == Op::Hash {
                         values.insert(
                             0,
-                            Expr::new(ExprKind::Int(HASH_SEED, false), hash_ty.clone(), Span::NONE),
+                            Expr::new(ExprKind::Int(HASH_SEED, false), *hash_ty, Span::NONE),
                         );
                     }
                     ExprKind::CallFn { func: Callee::Func(*f), args: values }
@@ -2210,7 +2210,7 @@ fn rewrite_expr(
                         Some(ExprKind::Prim {
                             op: PrimOp::Not,
                             prim: Prim::Bool,
-                            args: vec![Expr::new(call, e.ty.clone(), e.span)],
+                            args: vec![Expr::new(call, e.ty, e.span)],
                         })
                     } else {
                         Some(call)

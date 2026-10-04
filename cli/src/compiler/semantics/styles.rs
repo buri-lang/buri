@@ -615,7 +615,7 @@ impl<'a> Extractor<'a> {
             } else {
                 vec![self.extracted(atoms, span)]
             };
-            *e = typed::Expr::new(ExprKind::Array(items), e.ty.clone(), span);
+            *e = typed::Expr::new(ExprKind::Array(items), e.ty, span);
             return;
         }
         if let ExprKind::Array(items) = &mut e.kind {
@@ -776,7 +776,7 @@ impl<'a> Extractor<'a> {
     fn extracted(&self, atoms: Vec<Atom>, span: Span) -> typed::Expr {
         let int = self.tables.prim(crate::compiler::semantics::types::Prim::I64);
         let text = self.tables.prim(crate::compiler::semantics::types::Prim::Str);
-        let pair = Ty::tuple([int.clone(), text.clone()]);
+        let pair = Ty::tuple([int, text]);
         let items: Vec<typed::Expr> = atoms
             .into_iter()
             .map(|a| {
@@ -784,12 +784,12 @@ impl<'a> Extractor<'a> {
                     ExprKind::Tuple(vec![
                         typed::Expr::new(
                             ExprKind::Int(u128::from(a.slot), false),
-                            int.clone(),
+                            int,
                             span,
                         ),
-                        typed::Expr::new(ExprKind::Str(a.class), text.clone(), span),
+                        typed::Expr::new(ExprKind::Str(a.class), text, span),
                     ]),
-                    pair.clone(),
+                    pair,
                     span,
                 )
             })

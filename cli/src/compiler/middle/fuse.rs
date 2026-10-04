@@ -245,11 +245,11 @@ impl Fuse<'_> {
         if !readonly(ctx) {
             return false;
         }
-        let node_ty = e.ty.clone();
+        let node_ty = e.ty;
         let Some(mut inner) = take_arg(e, 0) else { return false };
         let Some(keep) = take_arg(&mut inner, Combinator::Filter.step_at()) else { return false };
         let Some(source) = take_arg(&mut inner, 0) else { return false };
-        let tys = vec![source.ty.clone(), keep.ty.clone()];
+        let tys = vec![source.ty, keep.ty];
         let func = self.mint(Combinator::Count, from, tys, node_ty);
         if let ExprKind::CallFn { func: callee, args } = &mut e.kind {
             *callee = Callee::Func(func);
@@ -317,7 +317,7 @@ impl Fuse<'_> {
     }
 
     fn rewrite(&mut self, e: &mut Expr, plan: Plan) -> bool {
-        let node_ty = e.ty.clone();
+        let node_ty = e.ty;
         let Some(mut producer) = take_arg(e, 0) else { return false };
         let Some(producer_step) = take_arg(&mut producer, plan.producer.step_at()) else {
             return false;
@@ -339,7 +339,7 @@ impl Fuse<'_> {
             return false;
         };
 
-        let acc_ty = consumer_body.ty.clone();
+        let acc_ty = consumer_body.ty;
         let Some(body) =
             compose(&plan, *producer_body, &consumer_params, *consumer_body, span)
         else {
@@ -353,12 +353,12 @@ impl Fuse<'_> {
         }
         let (params, param_tys) = match (plan.consumer, consumer_params.first()) {
             (Combinator::Fold, Some(acc)) => {
-                (vec![*acc, plan.elem], vec![acc_ty, plan.elem_ty.clone()])
+                (vec![*acc, plan.elem], vec![acc_ty, plan.elem_ty])
             }
             (Combinator::Fold, None) => return false,
-            _ => (vec![plan.elem], vec![plan.elem_ty.clone()]),
+            _ => (vec![plan.elem], vec![plan.elem_ty]),
         };
-        let ret_ty = body.ty.clone();
+        let ret_ty = body.ty;
         let fused = Expr::new(
             ExprKind::Lambda { params, body: Box::new(body), captures },
             Ty::func(param_tys, ret_ty),
@@ -374,7 +374,7 @@ impl Fuse<'_> {
             *a = fused;
         }
         if !plan.same_elements {
-            let arg_tys: Vec<Ty> = args.iter().map(|a| a.ty.clone()).collect();
+            let arg_tys: Vec<Ty> = args.iter().map(|a| a.ty).collect();
             let func = self.mint(plan.consumer, plan.consumer_idx, arg_tys, node_ty);
             if let ExprKind::CallFn { func: callee, .. } = &mut e.kind {
                 *callee = Callee::Func(func);
@@ -440,12 +440,12 @@ fn compose(
     span: Span,
 ) -> Option<Expr> {
     let bound = *consumer_params.last()?;
-    let ty = consumer_body.ty.clone();
+    let ty = consumer_body.ty;
     match plan.producer {
         // `g(a, f(x))`: the consumer step's element parameter is bound to the
         // producer step's body, which reads the fused step's own parameter.
         Combinator::Map => {
-            let value_ty = producer_body.ty.clone();
+            let value_ty = producer_body.ty;
             Some(Expr::new(
                 ExprKind::Block {
                     stmts: vec![binding(bound, value_ty, producer_body, span)],
@@ -459,22 +459,22 @@ fn compose(
         // step answers when the guard fails is the whole of the difference
         // between the four consumers that admit one.
         Combinator::Filter => {
-            let elem = Expr::new(ExprKind::Local(plan.elem), plan.elem_ty.clone(), span);
+            let elem = Expr::new(ExprKind::Local(plan.elem), plan.elem_ty, span);
             let kept = Expr::new(
                 ExprKind::Block {
-                    stmts: vec![binding(bound, plan.elem_ty.clone(), elem, span)],
+                    stmts: vec![binding(bound, plan.elem_ty, elem, span)],
                     tail: Some(Box::new(consumer_body)),
                 },
-                ty.clone(),
+                ty,
                 span,
             );
             let dropped = match (plan.consumer, consumer_params.first()) {
                 // An element the filter drops leaves the accumulator alone.
-                (Combinator::Fold, Some(acc)) => Expr::new(ExprKind::Local(*acc), ty.clone(), span),
+                (Combinator::Fold, Some(acc)) => Expr::new(ExprKind::Local(*acc), ty, span),
                 (Combinator::Fold, None) => return None,
                 // `all` over the kept elements is `!keep(x) || pred(x)`.
-                (Combinator::All, _) => Expr::new(ExprKind::Bool(true), ty.clone(), span),
-                _ => Expr::new(ExprKind::Bool(false), ty.clone(), span),
+                (Combinator::All, _) => Expr::new(ExprKind::Bool(true), ty, span),
+                _ => Expr::new(ExprKind::Bool(false), ty, span),
             };
             Some(Expr::new(
                 ExprKind::If {
@@ -570,7 +570,7 @@ mod tests {
     }
 
     fn lambda(params: Vec<u32>, body: Expr) -> Expr {
-        let ty = Ty::func(params.iter().map(|_| Ty::UNIT), body.ty.clone());
+        let ty = Ty::func(params.iter().map(|_| Ty::UNIT), body.ty);
         e(
             ExprKind::Lambda {
                 params: params.into_iter().map(LocalId).collect(),

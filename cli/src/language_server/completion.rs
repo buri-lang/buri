@@ -332,7 +332,7 @@ fn locals_at(analyzed: &Analyzed, path: &Path, cursor: u32) -> Vec<(String, Symb
             }
             let symbol = Symbol::Local {
                 name: local.name.clone(),
-                ty: local.ty.clone(),
+                ty: local.ty,
                 span: local.span,
             };
             out.push((local.name.clone(), symbol));

@@ -590,7 +590,7 @@ impl<'a> Jit<'a> {
             return self.unsupported(format!("Structural::{op:?} on `{name}`"));
         }
         let Some(arg) = args.first().copied() else { return };
-        let source = prog.type_info(ty).ty.clone();
+        let source = prog.type_info(ty).ty;
         let Some(prim) = self.tables.as_prim(&source) else {
             let name = prog.type_info(ty).name.clone();
             return self.unsupported(format!("Structural::Show of a non-primitive `{name}`"));
@@ -706,7 +706,7 @@ impl<'a> Jit<'a> {
         let ir::Type::Agg(id) = code.ty_of(dest) else {
             return Err(String::from("a `derive ToJson` whose result is not an aggregate"));
         };
-        let owner = prog.type_info(id).ty.clone();
+        let owner = prog.type_info(id).ty;
         let arm = json_arm(prim);
         let Some(variant) = json_variant(self.tables, &owner, arm) else {
             return Err(format!(
@@ -971,13 +971,13 @@ impl<'a> Jit<'a> {
         let at = at + f.offset;
         if f.boxed {
             let glue = (op != Op::Retain && self.rc_counted(&f.ty))
-                .then(|| self.helper(Helper::Walk { ty: f.ty.clone(), op }));
+                .then(|| self.helper(Helper::Walk { ty: f.ty, op }));
             return self.count_block(st, at, op, glue);
         }
         let compound =
             matches!(self.layout_shared(&f.ty).repr, Repr::Aggregate | Repr::Enum { .. });
         if compound && depth >= RC_INLINE {
-            let sym = self.helper(Helper::Walk { ty: f.ty.clone(), op });
+            let sym = self.helper(Helper::Walk { ty: f.ty, op });
             let addr = st.scratch + (super::rtcall::RAW_WORD + 3) * 8;
             self.emit(
                 "lea",
@@ -1006,7 +1006,7 @@ impl<'a> Jit<'a> {
             // does not record what was captured.
             Glue::Env => (op != Op::Retain).then(|| self.helper(Helper::Env { op })),
             Glue::Elems(elem) => (op != Op::Retain && self.rc_counted(elem))
-                .then(|| self.helper(Helper::Elems { ty: elem.clone(), op })),
+                .then(|| self.helper(Helper::Elems { ty: *elem, op })),
         };
         self.count_block(st, at, op, glue)
     }
@@ -2109,7 +2109,7 @@ impl<'a> Jit<'a> {
                 .and_then(|t| source_ty(prog, t));
             match arg {
                 Some(ty) => {
-                    let size = self.layouts_of(ty.clone()).size;
+                    let size = self.layouts_of(ty).size;
                     self.mv(ret0, p(0), size);
                     if self.rc_counted(&ty) {
                         if let Err(why) = self.walk_rc(st, &ty, ret0, Op::Copy, 0) {
@@ -2534,7 +2534,7 @@ impl<'a> Jit<'a> {
     /// The stride of `[T]`'s element, for an IR type that is a `[T]`.
     pub(crate) fn array_stride(&mut self, prog: &ir::Program, t: ir::Type) -> Option<u64> {
         let ir::Type::Agg(id) = t else { return None };
-        let ty = prog.type_info(id).ty.clone();
+        let ty = prog.type_info(id).ty;
         let crate::compiler::semantics::types::TyKind::Array(elem) = ty.kind() else { return None };
         Some(u64::from(self.layouts_of(*elem).stride.max(1)))
     }
@@ -2843,10 +2843,10 @@ impl Jit<'_> {
         else {
             return Err(refuse());
         };
-        let ty = prog.type_info(id).ty.clone();
+        let ty = prog.type_info(id).ty;
         let TyKind::Con(_, arguments) = ty.kind() else { return Err(refuse()) };
         let Some(error_ty) = arguments.get(1).cloned() else { return Err(refuse()) };
-        let result = self.layout_of_type(ty.clone());
+        let result = self.layout_of_type(ty);
         // A niche layout puts both payloads at the same offset, and this writes
         // one of two payloads — so it is refused rather than guessed at.
         if !matches!(

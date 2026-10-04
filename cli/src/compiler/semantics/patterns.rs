@@ -128,7 +128,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                                 .bind("name", bound);
                         }
                         self.pattern_names.push(dup);
-                        let arr = Ty::array(elem_ty.clone());
+                        let arr = Ty::array(elem_ty);
                         let l = self.shared_local(dup, &arr, dup_span);
                         self.bind(dup, l);
                         typed::ArrayRest::Bound(l)
@@ -240,7 +240,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 existing
             }
             None => {
-                let local = self.new_local(name, ty.clone(), span);
+                let local = self.new_local(name, *ty, span);
                 self.record_or_binding(name, local);
                 local
             }
@@ -307,7 +307,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     TyKind::Error => vec![Ty::ERROR; self.c.tables.tycon(con).arity()],
                     _ => {
                         let want = self.c.tables.tycon(con).name.clone();
-                        let shown = self.show_ty(&ty);
+                        let shown = self.show_ty(ty);
                         self.templated("pattern-type-mismatch", span)
                             .bind("expected", shown.clone())
                             .bind("found", want.clone())

@@ -316,7 +316,7 @@ fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &
     let PatKind::Variant { con, variant, .. } = &first.pattern.kind else { return None };
     let (con, variant) = (*con, *variant);
     let (head_ty, head_span, arm_span) =
-        (first.pattern.ty.clone(), first.pattern.span, first.span);
+        (first.pattern.ty, first.pattern.span, first.span);
 
     // Each row's pattern on the column, moved out of it. A row that does not
     // name the column matches anything there.
@@ -331,7 +331,7 @@ fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &
                 &mut f.pattern,
                 Pattern { kind: PatKind::Wild, ty: Ty::UNIT, span },
             ),
-            None => Pattern { kind: PatKind::Wild, ty: head_ty.clone(), span },
+            None => Pattern { kind: PatKind::Wild, ty: head_ty, span },
         }
     };
     let mut arms: Vec<Arm> = Vec::with_capacity(rows.len());
@@ -342,16 +342,16 @@ fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &
     // The fresh local takes its type from the pattern that was matching it,
     // which is the one place a type is available without the type tables.
     let bound = &arms.first()?.pattern;
-    let (bound_ty, bound_span) = (bound.ty.clone(), bound.span);
+    let (bound_ty, bound_span) = (bound.ty, bound.span);
     let held = LocalId(locals.len() as u32);
-    locals.push(typed::Local { name: "col".to_string(), ty: bound_ty.clone(), span: bound_span });
+    locals.push(typed::Local { name: "col".to_string(), ty: bound_ty, span: bound_span });
 
     let mut body = Expr::new(
         ExprKind::Match {
-            scrutinee: Box::new(Expr::new(ExprKind::Local(held), bound_ty.clone(), bound_span)),
+            scrutinee: Box::new(Expr::new(ExprKind::Local(held), bound_ty, bound_span)),
             arms,
         },
-        ty.clone(),
+        *ty,
         arm_span,
     );
     // The match just built is a match like any other, and the column below it
