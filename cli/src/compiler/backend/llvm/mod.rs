@@ -21,7 +21,7 @@
 //!
 //! ```text
 //! llvm/
-//!   mod.rs        this file: the `Backend` impl, the unit loop, the keys
+//!   mod.rs        this file: the `Backend` impl, the unit loop
 //!   repr.rs       the value model in LLVM types (VALUE-MODEL.md §5.1)
 //!   attrs.rs      the attribute discipline (CODEGEN-LLVM.md §3)
 //!   emit.rs       one module: blocks, phis, instructions (§2)
@@ -66,7 +66,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::build::buildfile::{Arch, Platform};
-use crate::build::cache::{hash_bytes, ActionKey};
 use crate::compiler::backend::task_thread;
 use crate::compiler::backend::{triple_text, Backend, Emitted, Options, Target, Units};
 use crate::compiler::middle::{ir, layout, lower, monomorphize, rc};
@@ -137,10 +136,9 @@ impl Backend for Llvm {
     /// another triple.
     ///
     /// **It lands once.** `actions::codegen_key` folds this string in and
-    /// states the platform and the arch beside it; this backend's own
-    /// `codegen_key` folds it in beside *the* triple, which is what tells its
-    /// per-unit keys for two targets apart. Neither key grows a second copy of
-    /// the rendering.
+    /// states the platform and the arch beside it, and those two pick *the*
+    /// triple out of the rendering. This backend computes no key of its own:
+    /// `Emitted::key` belongs to the build system.
     fn identity(&self) -> String {
         let (major, minor, patch) = inkwell::support::get_llvm_version();
         let mut id = format!("llvm {major}.{minor}.{patch} inkwell 0.10");
@@ -345,7 +343,6 @@ struct Shared<'p> {
     opts: &'p Options<'p>,
     root: Option<Root>,
     triple: String,
-    identity: String,
     by_unit: Vec<Vec<usize>>,
     cycles: std::sync::Arc<layout::Cycles>,
     observed: Vec<attrs::Observed>,
@@ -419,7 +416,6 @@ fn emit_selected(
         opts,
         root,
         triple,
-        identity: Llvm::default().identity(),
         by_unit: program.funcs_by_unit(),
         cycles,
         observed,
@@ -502,8 +498,10 @@ fn emit_unit(
     let unit_name = program.units.get(index).map_or("", String::as_str);
     // This unit's functions, ascending — the same list, in the same order,
     // that a filter over the whole program yielded.
-    let all: &[usize] = shared.by_unit.get(index).map_or(&[], Vec::as_slice);
-    let members: Vec<usize> = all
+    let members: Vec<usize> = shared
+        .by_unit
+        .get(index)
+        .map_or(&[][..], Vec::as_slice)
         .iter()
         .copied()
         .filter(|i| program.funcs.get(*i).is_some_and(|f| f.code().is_some()))
@@ -596,56 +594,9 @@ fn emit_unit(
     };
     Ok(Emitted {
         name: format!("{unit_name}.o"),
-        key: Some(codegen_key(program, all, &shared.identity, &shared.triple, opts)),
+        key: None,
         bytes,
     })
-}
-
-/// `codegen_key(unit) = H(backend, identity, triple, profile, prefix, the unit's IR)`.
-///
-/// Content-addressed **on the IR**, which is the convention `actions::codegen_key`
-/// states and the decision the whole incremental story rests on: keying a unit
-/// on the sources of the module it came from is unsound, because a
-/// monomorphized unit contains instantiations requested by other modules.
-///
-/// `ir::Program`'s `Display` is a faithful, total and deterministic function of
-/// the IR — no hash order anywhere, every name derived from the program — which
-/// is what makes hashing its bytes per unit a correct way to compute this and
-/// the one that can be inspected when a key changes and nobody knows why
-/// (`ir.rs`, "Printing").
-///
-/// The build system's own `actions::codegen_key` wraps this with the toolchain
-/// hash and the platform; both must move when either input does, which is why
-/// the backend's identity is in *this* half rather than only in that one.
-/// `members` is the unit's function indices in ascending order, which is the
-/// order the whole-program filter this used to run yielded them in.
-///
-/// `unit_prefix` is in it because this backend puts it in the module name, and
-/// on every ELF target LLVM emits the module's source-file name as a `.file`
-/// directive — an `STT_FILE` symbol in the object. The measurement and the
-/// consequence are in `actions::codegen_key`'s note; the term is here so that
-/// neither half of the key can be sound while the other is not.
-fn codegen_key(
-    program: &ir::Program,
-    members: &[usize],
-    identity: &str,
-    triple: &str,
-    opts: &Options<'_>,
-) -> ActionKey {
-    let mut text = String::new();
-    text.push_str("llvm\n");
-    text.push_str(identity);
-    text.push('\n');
-    text.push_str(triple);
-    text.push('\n');
-    text.push_str(opts.profile.name());
-    text.push('\n');
-    text.push_str(opts.unit_prefix);
-    text.push('\n');
-    for f in members.iter().filter_map(|i| program.funcs.get(*i)) {
-        text.push_str(&program.render_func(f));
-    }
-    ActionKey::of(hash_bytes(text.as_bytes()).as_bytes())
 }
 
 #[cfg(test)]
