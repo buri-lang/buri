@@ -95,14 +95,6 @@ fn is_linux_x86_64_pie(bytes: &[u8]) -> bool {
     magic && elf64 && et_dyn && x86_64
 }
 
-/// The code that builds a cross runtime and its sysroot. `include_str!`, so a
-/// change to any of it is a new key for the kept home and a build from cold.
-const BUILDER: [&str; 3] = [
-    include_str!("../../src/build/runtime_cross.rs"),
-    include_str!("../../src/build/runtime_src.rs"),
-    include_str!("../../src/build/musl.rs"),
-];
-
 #[test]
 fn a_linux_x86_64_artifact_is_a_real_elf_and_runs_in_a_container() {
     if !cross_ready() {
@@ -115,15 +107,13 @@ fn a_linux_x86_64_artifact_is_a_real_elf_and_runs_in_a_container() {
     let _ = std::fs::remove_dir_all(&scratch);
     let repo = scratch.join("repo");
     write_repo(&repo);
-    // The home is kept from run to run, so the release build of the runtime
-    // for the target is paid once rather than every run. The key is the code
-    // that builds it, which Buri's own cache key leaves out (`kept.rs`).
-    crate::sweep::once();
-    let builder = BUILDER.concat();
-    let key = buri::build::sha256::hash_bytes(builder.as_bytes());
-    let (home, _held) = crate::sweep::kept::cross_home(key.get(..16).unwrap_or(&key));
+    // The home is kept from run to run and shared with every other test that
+    // links for Linux, so the release build of the runtime for the target is
+    // paid once rather than every run (`kept.rs`).
+    let home = crate::sweep::kept::shared_cross_home();
+    crate::sweep::kept::warm_cross_runtime();
 
-    let out = buri(&repo, &home)
+    let out = buri(&repo, home)
         .args(["build", "//cmd/hello", "--output=native/linux-x86_64"])
         .output()
         .expect("run buri build");
