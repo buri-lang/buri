@@ -3586,10 +3586,7 @@ fn execute(
             cmd.env(name, value);
         }
     }
-    let mut child = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+    let mut child = crate::build::spawn::start(cmd.stdout(Stdio::piped()).stderr(Stdio::piped()))?;
     let Some(limit) = limit else {
         return Ok(Execution::Finished(child.wait_with_output()?));
     };
