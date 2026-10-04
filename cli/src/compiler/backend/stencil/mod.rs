@@ -140,7 +140,6 @@ pub mod rtcall;
 pub mod runtime;
 
 use crate::build::buildfile::{Arch, Platform};
-use crate::build::cache::ActionKey;
 use crate::compiler::backend::task_thread;
 use crate::compiler::backend::{Backend, Emitted, Options, Target, Units};
 use crate::compiler::middle::layout::{EnumRepr, Layouts, Repr};
@@ -505,7 +504,7 @@ impl Backend for Stencil {
         held.reverse();
 
         // One unit per core, as it was: everything from here is the unit's own
-        // object — its symbol table, its relocations, its `codegen` key — and
+        // object — its symbol table and its relocations — and
         // none of it is another unit's. `parallel::map` returns results in
         // input order, so the objects a build hands the linker are the same
         // bytes in the same order however many cores the machine has.
@@ -764,14 +763,6 @@ struct Part {
     helpers: Vec<jit::HelperSymbol>,
     /// The IR shapes this part refused, in the order it first met them.
     reasons: Vec<String>,
-    /// This part's share of the unit's `codegen` key text.
-    ///
-    /// Rendered here rather than in [`assemble_unit`] because it is a pure
-    /// function of the part's members and it was a sixth of the largest unit's
-    /// emission, and because concatenating the parts' texts in part order is
-    /// the same string, byte for byte, that one pass over the unit's members
-    /// produces. The digest of it stays where it was: a hash is one stream.
-    key_text: String,
 }
 
 /// One part of one codegen unit, from IR to a movable region.
@@ -796,11 +787,7 @@ fn emit_part<'a>(
     let entries: Vec<u64> = members.iter().map(|i| j.entry_of(*i)).collect();
     let helpers = j.helper_symbols();
     let emitted = std::mem::take(&mut j.region).finish();
-    let mut key_text = String::new();
-    for f in members.iter().filter_map(|i| program.funcs.get(*i)) {
-        program.render_func_into(f, &mut key_text);
-    }
-    (Part { emitted, entries, helpers, reasons, key_text }, j.into_scratch())
+    (Part { emitted, entries, helpers, reasons }, j.into_scratch())
 }
 
 fn assemble_unit(
@@ -835,7 +822,6 @@ fn assemble_unit(
     emitted.reserve_for(parts.iter().map(|p| &p.emitted));
     let mut entries: Vec<u64> = Vec::with_capacity(members.len());
     let mut helper_symbols: Vec<jit::HelperSymbol> = Vec::new();
-    let mut text = String::new();
     for p in parts {
         let base = emitted.append(p.emitted);
         entries.extend(p.entries.iter().map(|e| e.saturating_add(base)));
@@ -844,7 +830,6 @@ fn assemble_unit(
             end: h.end.saturating_add(base),
             ..h
         }));
-        text.push_str(&p.key_text);
     }
     let mut code = emitted.code;
 
@@ -1083,13 +1068,9 @@ fn assemble_unit(
     }
     .map_err(|e| vec![e])?;
 
-    // The `codegen` key is `H(the unit's lowered IR)` (ARCHITECTURE.md §6.2),
-    // and `ir::Program`'s `Display` is a faithful, total and deterministic
-    // function of the IR with no hash order in it — the same key every backend
-    // computes, from the same text. `text` is the parts' renderings
-    // concatenated in part order, which *is* that text: the parts partition the
-    // members and each rendered its own in member order.
-    Ok(Emitted { name: format!("{name}.o"), key: ActionKey::of(text.as_bytes()), bytes })
+    // No key: the `codegen` key is the build system's (`Backend::emit`), and
+    // `build::actions::unit_hashes` computed it before this unit was asked for.
+    Ok(Emitted { name: format!("{name}.o"), key: None, bytes })
 }
 
 /// Moves each glue function out of the code section into a section of its

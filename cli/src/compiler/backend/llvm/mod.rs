@@ -494,7 +494,7 @@ fn emit_selected(
         };
         out.push(Emitted {
             name: format!("{unit_name}.o"),
-            key: codegen_key(program, all, &identity, &triple, opts),
+            key: Some(codegen_key(program, all, &identity, &triple, opts)),
             bytes,
         });
     }
