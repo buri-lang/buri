@@ -1797,7 +1797,7 @@ fn bench<F: FnMut()>(cfg: &Config, mut f: F) -> (Duration, f64, Duration, usize)
     let median = samples[samples.len() / 2];
     let mut devs: Vec<Duration> = samples
         .iter()
-        .map(|s| if *s > median { *s - median } else { median - *s })
+        .map(|s| s.abs_diff(median))
         .collect();
     devs.sort_unstable();
     let mad = devs[devs.len() / 2];

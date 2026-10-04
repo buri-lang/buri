@@ -82,11 +82,13 @@ pub fn discard<T: Send + 'static>(value: T) {
     if let Some(previous) = slot.take() {
         let _ = previous.join();
     }
-    match std::thread::Builder::new().name("buri-discard".into()).spawn(move || drop(value)) {
-        Ok(handle) => *slot = Some(handle),
-        // No thread to be had: the value was moved into the closure that could
-        // not be started, so it has already been dropped where it stood.
-        Err(_) => {}
+    // With no thread to be had, the value was moved into the closure that could
+    // not be started, so it has already been dropped where it stood.
+    if let Ok(handle) = std::thread::Builder::new()
+        .name("buri-discard".into())
+        .spawn(move || drop(value))
+    {
+        *slot = Some(handle);
     }
 }
 
