@@ -2410,7 +2410,10 @@ impl<'a> Gen<'a> {
             ExprKind::Index { base, index, .. } => {
                 let b = self.expr(base, out);
                 let i = self.expr(index, out);
-                Expr::call(Expr::ident("$list_get"), vec![b, i])
+                // `xs[i]` is an `Option<T>`; `$list_getFlat` when `T` is
+                // not an `Option` too, as `list.get` is.
+                let get = if self.option_nesting(&e.ty) == Some(false) { "$list_getFlat" } else { "$list_get" };
+                Expr::call(Expr::ident(get), vec![b, i])
             }
             ExprKind::Block { stmts, tail } => {
                 for s in stmts {

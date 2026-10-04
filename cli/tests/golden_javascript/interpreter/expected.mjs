@@ -248,7 +248,7 @@ function __cmd_x_main_buri$parseSumFrom(left_0,c_1){
   }
 }
 function __cmd_x_main_buri$peek(c_0){
-  const $t1=$list_get(c_0[0],c_0[1]);
+  const $t1=$list_getFlat(c_0[0],c_0[1]);
   if($t1!==void 0){
     return $t1;
   }else if($t1===void 0){

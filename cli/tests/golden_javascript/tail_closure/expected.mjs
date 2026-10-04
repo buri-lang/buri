@@ -14,7 +14,7 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const self_14=core_option$Option_map$g9y0aa($list_get(fs_2,0n),f_5=>f_5(100n));
+  const self_14=core_option$Option_map$g9y0aa($list_getFlat(fs_2,0n),f_5=>f_5(100n));
   let $t3;
   if(self_14!==void 0){
     $t3=self_14;
@@ -23,7 +23,7 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const self_17=core_option$Option_map$g9y0aa($list_get(fs_2,3n),f_6=>f_6(100n));
+  const self_17=core_option$Option_map$g9y0aa($list_getFlat(fs_2,3n),f_6=>f_6(100n));
   let $t5;
   if(self_17!==void 0){
     $t5=self_17;
@@ -42,7 +42,7 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const self_25=core_option$Option_map$g9y0aa($list_get(gs_3,0n),g_7=>g_7(2n));
+  const self_25=core_option$Option_map$g9y0aa($list_getFlat(gs_3,0n),g_7=>g_7(2n));
   let $t9;
   if(self_25!==void 0){
     $t9=self_25;
@@ -51,7 +51,7 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const self_28=core_option$Option_map$g9y0aa($list_get(gs_3,2n),g_8=>g_8(2n));
+  const self_28=core_option$Option_map$g9y0aa($list_getFlat(gs_3,2n),g_8=>g_8(2n));
   let $t11;
   if(self_28!==void 0){
     $t11=self_28;

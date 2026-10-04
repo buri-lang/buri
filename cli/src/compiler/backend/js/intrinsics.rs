@@ -63,6 +63,17 @@ impl<'a> Gen<'a> {
         let name = format!("${}", key.replace('.', "_"));
         let awaiting = format!("{name}Await");
         let name = if self.parks(slot) && self.runtime_has(&awaiting) { awaiting } else { name };
+        // An answer `Option<T>` whose `T` is not an `Option` too needs no
+        // `$some` around it, and a runtime function that would otherwise check
+        // every element has a `Flat` twin that does not.
+        let flat = format!("{name}Flat");
+        let name = if self.runtime_has(&flat)
+            && self.tables.option_payload(&f.ret).is_some_and(|t| !self.tables.is_option_ty(t))
+        {
+            flat
+        } else {
+            name
+        };
         if self.runtime_has(&name) {
             let mut all = args.to_vec();
             if let Some(d) = f.desc {

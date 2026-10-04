@@ -83,7 +83,7 @@ function __cmd_x_main_buri$main(){
   return $k4;
 }
 function __cmd_x_main_buri$lookup(pairs_0,key_1){
-  const $t1=$list_find(pairs_0,p_2=>p_2[0]===key_1);
+  const $t1=$list_findFlat(pairs_0,p_2=>p_2[0]===key_1);
   if($t1!==void 0){
     return $t1[1];
   }else if($t1===void 0){

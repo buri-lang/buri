@@ -8,27 +8,27 @@ destructuring: 2933 bytes artifact, 1892 generated
 enum_match: 2813 bytes artifact, 1572 generated
 enum_payloadless: 2675 bytes artifact, 1111 generated
 enum_single_variant: 2458 bytes artifact, 348 generated
-generics: 2956 bytes artifact, 1168 generated
+generics: 2813 bytes artifact, 1176 generated
 guards: 2581 bytes artifact, 628 generated
 int_match: 2723 bytes artifact, 873 generated
 interpolation: 2714 bytes artifact, 1083 generated
-interpreter: 6132 bytes artifact, 7432 generated
-json_derive: 11573 bytes artifact, 4613 generated
+interpreter: 5985 bytes artifact, 7436 generated
+json_derive: 11559 bytes artifact, 4613 generated
 lazy_load: 2955 bytes artifact, 750 generated
 literals: 3305 bytes artifact, 940 generated
 nested_match: 2752 bytes artifact, 1195 generated
-nested_option: 8144 bytes artifact, 7057 generated
-option_result: 4049 bytes artifact, 2534 generated
+nested_option: 8237 bytes artifact, 7061 generated
+option_result: 4050 bytes artifact, 2538 generated
 or_patterns: 2685 bytes artifact, 1068 generated
 rebound_scrutinee: 2594 bytes artifact, 893 generated
 shared_constants: 2736 bytes artifact, 1312 generated
 stdlib_chain: 4535 bytes artifact, 1168 generated
 str_match: 2678 bytes artifact, 760 generated
 structs: 2629 bytes artifact, 613 generated
-tail_closure: 4337 bytes artifact, 2834 generated
+tail_closure: 4202 bytes artifact, 2850 generated
 tail_mutual: 2702 bytes artifact, 937 generated
 tail_self: 2968 bytes artifact, 1608 generated
-tail_short_circuit: 3311 bytes artifact, 2052 generated
+tail_short_circuit: 3168 bytes artifact, 2060 generated
 traits: 2560 bytes artifact, 629 generated
 ui_counter: 34821 bytes artifact, 7676 generated
 ui_signals: 8235 bytes artifact, 3959 generated
@@ -37,5 +37,5 @@ ui_styles_dynamic: 40674 bytes artifact, 4700 generated
 ui_theme: 38110 bytes artifact, 9919 generated
 ui_theme_and_computed: 42307 bytes artifact, 4289 generated
 
-total: 319266 bytes artifact, 90705 generated
+total: 318778 bytes artifact, 90749 generated
 largest function: 9971 bytes, ui_counter/$tree_render

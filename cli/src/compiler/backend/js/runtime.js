@@ -676,6 +676,15 @@ function $list_get(xs, i) {
   return n >= 0 && n < xs.length ? $some(xs[n]) : undefined;
 }
 
+// `get` over a list whose element is not itself an `Option`, which the
+// generated code chooses (`js/intrinsics.rs`) because it knows the element
+// type. Such an element is never `undefined` and never a `$some` counter, so
+// it is its own `Some` and needs no check. `$list_findFlat` is the same.
+function $list_getFlat(xs, i) {
+  const n = Number(i);
+  return n >= 0 && n < xs.length ? xs[n] : undefined;
+}
+
 // A higher-order runtime function marks what it hands to a callback: the
 // element belongs to `xs`, so a callback that keeps one keeps a second name
 // for it.
@@ -739,9 +748,15 @@ function $list_find(xs, p) {
   return undefined;
 }
 
+function $list_findFlat(xs, p) {
+  $shareEach(xs);
+  for (let i = 0; i < xs.length; i++) if (p(xs[i])) return xs[i];
+  return undefined;
+}
+
 function $list_findIndex(xs, p) {
   $shareEach(xs);
-  for (let i = 0; i < xs.length; i++) if (p(xs[i])) return $some(BigInt(i));
+  for (let i = 0; i < xs.length; i++) if (p(xs[i])) return BigInt(i);
   return undefined;
 }
 
@@ -1020,11 +1035,13 @@ function $str_length(s) {
   return BigInt(t === null ? s.length : t.length - 1);
 }
 
+// A character is a string and an index a bigint, so neither is ever
+// `undefined`: each is its own `Some`, here and in `indexOf` and `findIndex`.
 function $str_charAt(s, i) {
   const n = Number(i);
   const t = $starts(s);
-  if (t === null) return n >= 0 && n < s.length ? $some(s[n]) : undefined;
-  return n >= 0 && n < t.length - 1 ? $some(s.slice(t[n], t[n + 1])) : undefined;
+  if (t === null) return n >= 0 && n < s.length ? s[n] : undefined;
+  return n >= 0 && n < t.length - 1 ? s.slice(t[n], t[n + 1]) : undefined;
 }
 
 function $str_slice(s, a, b) {
@@ -1071,7 +1088,7 @@ function $str_indexOf(s, n) {
   // The answer is a scalar index, and `indexOf` gives a code-unit index, so
   // what has to be counted is the scalars that start before it.
   const t = $starts(s);
-  if (t === null) return $some(BigInt(i));
+  if (t === null) return BigInt(i);
   let lo = 0;
   let hi = t.length;
   while (lo < hi) {
@@ -1079,7 +1096,7 @@ function $str_indexOf(s, n) {
     if (t[mid] < i) lo = mid + 1;
     else hi = mid;
   }
-  return $some(BigInt(lo));
+  return BigInt(lo);
 }
 
 // Two slices, or .None when the separator does not occur. Pure, because
