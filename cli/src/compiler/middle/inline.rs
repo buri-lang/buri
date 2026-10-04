@@ -86,7 +86,7 @@ pub fn run(program: &mut Program, opts: &Options) -> Stats {
         let inlined = inline_round(program, &facts, &dirty);
         // Inlining a constructor into a projection is what makes most of the
         // folding below possible, so it runs after rather than before.
-        let folded = fold_round(program, &dirty);
+        let folded = fold_round(program, &dirty, &inlined, &own);
         let total: usize = inlined.iter().sum();
         stats.inlined += total;
         if total == 0 {
@@ -149,6 +149,20 @@ fn discardable(e: &Expr) -> bool {
         | ExprKind::Tuple(xs)
         | ExprKind::Array(xs) => xs.iter().all(discardable),
         ExprKind::Field { base, .. } | ExprKind::TupleIndex { base, .. } => discardable(base),
+        _ => false,
+    }
+}
+
+/// Whether [`fold_expr`] might rewrite this node. Every rewrite it makes is at
+/// a node this answers `true` for, or above one it just rewrote.
+fn foldable(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Field { base, .. } | ExprKind::TupleIndex { base, .. } => {
+            matches!(base.kind, ExprKind::StructLit { .. } | ExprKind::Tuple(_))
+        }
+        ExprKind::StructUpdate { base, .. } => matches!(base.kind, ExprKind::StructLit { .. }),
+        ExprKind::If { cond, .. } => matches!(cond.kind, ExprKind::Bool(_)),
+        ExprKind::Block { stmts, .. } => stmts.is_empty(),
         _ => false,
     }
 }
@@ -259,11 +273,14 @@ struct Own {
     /// (`true`) or as a value. A callee outside the table is dropped rather
     /// than recorded: the row it would need is the bounds check.
     edges: Vec<(usize, bool)>,
+    /// Holds a node [`fold_expr`] could rewrite. Without one, and with nothing
+    /// pasted in since, a fold would walk the body and change nothing.
+    folds: bool,
 }
 
 impl Own {
     fn of(func: &Func, n: usize) -> Own {
-        let mut own = Own { size: 0, has_try: false, edges: Vec::new() };
+        let mut own = Own { size: 0, has_try: false, edges: Vec::new(), folds: false };
         let Some(body) = func.body() else { return own };
         typed::walk(body, &mut |e| {
             own.size += 1;
@@ -281,6 +298,7 @@ impl Own {
                 ExprKind::Try { .. } => own.has_try = true,
                 _ => {}
             }
+            own.folds |= foldable(e);
         });
         own
     }
@@ -406,10 +424,15 @@ fn inline_round(program: &mut Program, facts: &Facts, dirty: &[bool]) -> Vec<usi
 
 /// The folds, over the functions `dirty` names. Answers how many rewrites
 /// each made, which is how the next round knows whose body moved.
-fn fold_round(program: &mut Program, dirty: &[bool]) -> Vec<usize> {
+///
+/// A body nothing was pasted into this round is still the body `own`
+/// measured, so where that found nothing to fold the walk is skipped.
+fn fold_round(program: &mut Program, dirty: &[bool], inlined: &[usize], own: &[Own]) -> Vec<usize> {
     let mut folded = vec![0usize; program.funcs.len()];
     for (i, f) in program.funcs.iter_mut().enumerate() {
-        if dirty.get(i) == Some(&true) {
+        let pasted = inlined.get(i).is_some_and(|n| *n > 0);
+        let folds = own.get(i).is_none_or(|o| o.folds);
+        if dirty.get(i) == Some(&true) && (pasted || folds) {
             if let Some(body) = f.body_mut() {
                 put(&mut folded, i, fold_expr(body));
             }
