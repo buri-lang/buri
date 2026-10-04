@@ -988,12 +988,12 @@ fn scoped_alloc(payload: u64, zeroed: bool) -> Option<*mut u8> {
             let cache = unsafe { &mut *c.get() };
             if cache.arena != 0 {
                 let need = block_bytes(payload);
-                if let Some(end) = cache.arena_at.checked_add(need) {
-                    if end <= cache.arena_end {
-                        let raw = cache.arena_at as *mut u8;
-                        cache.arena_at = end;
-                        return Take::Bumped(raw);
-                    }
+                if let Some(end) = cache.arena_at.checked_add(need)
+                    && end <= cache.arena_end
+                {
+                    let raw = cache.arena_at as *mut u8;
+                    cache.arena_at = end;
+                    return Take::Bumped(raw);
                 }
                 return Take::Arena(cache.arena.wrapping_sub(1) as i64);
             }
@@ -2499,11 +2499,11 @@ fn arena_block_len(bytes: usize) -> usize {
 /// [`ARENA_POOL`] where it is a standard block and the pool has one, and out of
 /// the kernel otherwise.
 fn arena_map(len: usize) -> usize {
-    if len == BURI_RT_ARENA_BLOCK {
-        if let Some(base) = arena_pool(Vec::pop) {
-            ARENA_BYTES.fetch_add(len as u64, Ordering::Relaxed);
-            return base;
-        }
+    if len == BURI_RT_ARENA_BLOCK
+        && let Some(base) = arena_pool(Vec::pop)
+    {
+        ARENA_BYTES.fetch_add(len as u64, Ordering::Relaxed);
+        return base;
     }
     // SAFETY: a fresh anonymous private mapping; no fd, no fixed address.
     let p = unsafe {
@@ -2726,6 +2726,7 @@ pub extern "C" fn buri_rt_alloc_arena_total(handle: i64) -> i64 {
 
 /// The active arena's handle, or `None`. Off [`Cache::arena`], which is where
 /// the encoding and the reason for its home are written down.
+#[cfg(test)]
 fn current_arena() -> Option<i64> {
     let biased = arena_slot_of_thread().biased;
     (biased != 0).then(|| biased.wrapping_sub(1) as i64)

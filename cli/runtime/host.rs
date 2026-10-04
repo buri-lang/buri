@@ -1012,7 +1012,7 @@ pub(crate) unsafe fn headers(ptr: *const u8, len: u64) -> Vec<(String, String)> 
 /// timeoutMillis: Int }`, as `middle::layout` lays it out: fields in
 /// declaration order, and `Method` a bare enum whose tag is one byte.
 #[repr(C)]
-pub struct BuriRequest {
+pub struct BuriFetchRequest {
     method: u8,
     url: BuriStr,
     headers: BuriList,
@@ -1022,7 +1022,7 @@ pub struct BuriRequest {
 
 /// `Response` — `{ status: Int, headers: [Header], body: [U8] }`.
 #[repr(C)]
-pub struct BuriResponse {
+pub struct BuriFetchResponse {
     status: i64,
     headers: BuriList,
     body: BuriList,
@@ -1043,8 +1043,8 @@ pub struct BuriResponse {
 /// aligned.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_network_fetch(
-    request: *const BuriRequest,
-    out_ok: *mut BuriResponse,
+    request: *const BuriFetchRequest,
+    out_ok: *mut BuriFetchResponse,
     out_err: *mut BuriStr,
 ) -> i32 {
     // SAFETY: the caller promises a live `Request`.
@@ -1084,7 +1084,7 @@ pub unsafe extern "C" fn buri_rt_host_network_fetch(
     let outcome = http::fetch(bound, method, &url, &sent, body);
     match outcome {
         Ok(response) => {
-            let answer = BuriResponse {
+            let answer = BuriFetchResponse {
                 status: response.status,
                 headers: list_of_headers(&response.headers),
                 body: list_of_bytes(&response.body),
@@ -1332,7 +1332,7 @@ pub unsafe extern "C" fn buri_rt_host_spawn_process(
     }
     if replaces != 0 {
         command.env_clear();
-        for pair in variables.chunks_exact(2) {
+        for pair in variables.as_chunks::<2>().0 {
             command.env(&pair[0], &pair[1]);
         }
     }
@@ -1398,7 +1398,7 @@ fn exit_code(status: &std::process::ExitStatus) -> i64 {
     #[cfg(unix)]
     {
         use std::os::unix::process::ExitStatusExt;
-        return 128 + i64::from(status.signal().unwrap_or(0));
+        128 + i64::from(status.signal().unwrap_or(0))
     }
     #[cfg(not(unix))]
     {

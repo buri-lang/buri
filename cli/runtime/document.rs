@@ -175,7 +175,6 @@ struct RowRec {
 /// not the reconciling watcher, so a row survives the watcher re-running — and
 /// the rows as they stand, keyed. The native `$tree_each`'s state.
 struct EachRegion {
-    start: usize,
     end: usize,
     parent: usize,
     list_owner: i64,
@@ -700,7 +699,7 @@ pub extern "C" fn buri_rt_ui_node_enter_each(handle: i64) -> i64 {
         let start = doc.add(Kind::Marker, String::new(), String::new(), String::new());
         let end = doc.add(Kind::Marker, String::new(), String::new(), String::new());
         let parent = doc.records.get(start).and_then(|r| r.parent).unwrap_or(0);
-        doc.each_regions.push(EachRegion { start, end, parent, list_owner, rows: Vec::new() });
+        doc.each_regions.push(EachRegion { end, parent, list_owner, rows: Vec::new() });
         (doc.each_regions.len() as i64) - 1
     })
     .unwrap_or(-1)
@@ -1350,10 +1349,10 @@ impl Document {
 /// The value of a `prop:value` declaration in a scene `e`-line body, or `None`.
 fn decl_value(body: &str, prop: &str) -> Option<String> {
     for token in body.split(';') {
-        if let Some((p, v)) = token.split_once(':') {
-            if p == prop {
-                return Some(v.to_owned());
-            }
+        if let Some((p, v)) = token.split_once(':')
+            && p == prop
+        {
+            return Some(v.to_owned());
         }
     }
     None

@@ -506,7 +506,7 @@ cargo test -p buri --features backend-llvm --lib compiler::backend::llvm::
 cargo test -p buri --features backend-llvm --test native -- llvm:: agreement:: e2e::
 cargo test -p buri --features backend-llvm --test fuzz
 cargo bench  -p buri --bench compiler --profile validate -- --validate
-cargo clippy -p buri --all-targets
+cargo clippy -p buri -p buri-rt-tests --all-targets
 cargo clippy -p buri --all-targets --features backend-llvm
 ```
 
