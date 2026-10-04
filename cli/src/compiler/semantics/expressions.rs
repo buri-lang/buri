@@ -994,9 +994,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         args.iter()
             .enumerate()
             .map(|(i, a)| {
-                let want = params.get(i).cloned();
-                let checked = self.check_expr(*a, want.as_ref());
-                if let Some(w) = &want {
+                let want = params.get(i);
+                let checked = self.check_expr(*a, want);
+                if let Some(w) = want {
                     let aspan = self.tree().span(*a);
                     self.unify_at(aspan, &checked.ty, w, "the parameter type");
                 }
