@@ -2080,15 +2080,16 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// platforms do, since "check the spelling" sends them hunting for a typo
     /// in a name that is spelled right.
     fn host_field_elsewhere(&self, ty: &Ty, name: &str) -> Option<(String, String)> {
+        use crate::build::buildfile::PlatformName;
         use crate::compiler::standard_library as stdlib;
         let TyKind::Con(con, _) = ty.kind() else { return None };
         let tycon = self.c.tables.tycon(*con);
         // A built-in type has no module, and is no host.
         let module = self.c.loaded.modules.get(tycon.module.index())?.path.as_str();
         let (platform, _) = stdlib::host_type_of(module).filter(|(_, h)| *h == tycon.name)?;
-        let offered: Vec<(&str, &str)> = stdlib::PLATFORMS
+        let offered: Vec<(&str, &str)> = PlatformName::BUNDLED
             .iter()
-            .filter_map(|p| stdlib::host_field(p, name).map(|t| (*p, t)))
+            .filter_map(|p| stdlib::host_field(p.name(), name).map(|t| (p.name(), t)))
             .collect();
         let (_, field_ty) = offered.first()?;
         let effects: Vec<String> =

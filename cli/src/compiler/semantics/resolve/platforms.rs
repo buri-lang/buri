@@ -47,6 +47,35 @@ fn lacking(backend: Backend) -> &'static [&'static str] {
     }
 }
 
+/// The host type a signature takes first, when that is a struct its
+/// platform's `platform.buri` declares.
+pub fn declared_host(tables: &Tables, platform: ModuleId, params: &[ParamInfo]) -> Option<TyConId> {
+    let TyKind::Con(con, args) = (params.first()?.ty).kind() else { return None };
+    let tycon = tables.tycon(*con);
+    (args.is_empty() && tycon.module == platform && matches!(tycon.def, TyDef::Struct { .. }))
+        .then_some(*con)
+}
+
+/// The structs of the platform's own that its host holds, each with the
+/// methods it declares without a body, which its `js` file implements.
+pub fn js_structs(tables: &Tables, platform: ModuleId, host: TyConId) -> Vec<(TyConId, Vec<FnId>)> {
+    let fields = tables.tycon(host).fields().iter();
+    fields
+        .filter_map(|field| match field.ty.kind() {
+            TyKind::Con(con, _) if tables.tycon(*con).module == platform => {
+                Some((*con, bodiless_methods(tables, *con)))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The methods a platform's own production struct declares without a body.
+fn bodiless_methods(tables: &Tables, con: TyConId) -> Vec<FnId> {
+    let fns = tables.fns.iter().enumerate();
+    fns.filter(|(_, f)| f.self_ty == Some(con) && f.intrinsic).map(|(i, _)| FnId(i as u32)).collect()
+}
+
 impl<'a> Checker<'a> {
     /// Whether a module is a repository platform's `platform.buri`.
     pub(super) fn is_platform_surface(&self, module: ModuleId) -> bool {
@@ -87,15 +116,6 @@ impl<'a> Checker<'a> {
         self.loaded.find(&format!("//{}/platform.buri", custom.package_path()))
     }
 
-    /// The host type a signature takes first, when that is a struct its
-    /// platform's `platform.buri` declares.
-    fn declared_host(&self, platform: ModuleId, params: &[ParamInfo]) -> Option<TyConId> {
-        let TyKind::Con(con, args) = (params.first()?.ty).kind() else { return None };
-        let tycon = self.tables.tycon(*con);
-        (args.is_empty() && tycon.module == platform && matches!(tycon.def, TyDef::Struct { .. }))
-            .then_some(*con)
-    }
-
     fn shown(&self, ty: &Ty) -> String {
         show(&self.tables, None, &[], ty)
     }
@@ -121,16 +141,8 @@ impl<'a> Checker<'a> {
         let want = self.tables.fn_info(decl).clone();
         let info = self.tables.fn_info(fid).clone();
         let label = custom.label.value.clone();
-        if !info.generics.is_empty() {
-            self.templated("entry-signature-mismatch", d.span)
-                .bind("entry", name.to_string())
-                .bind("requirement", "declare no generic parameters")
-                .fix(format!(
-                    "drop them: `{name}` is called by the platform, so there is nothing to infer \
-                     them from"
-                ));
-        }
-        let host = self.declared_host(platform, &want.params);
+        self.refuse_entry_generics(&info, d, name);
+        let host = declared_host(&self.tables, platform, &want.params);
         let wanted = self.signature_text(name, &want);
         match (info.params.first(), host) {
             (None, Some(host)) => {
@@ -176,7 +188,11 @@ impl<'a> Checker<'a> {
                 .bind("entry", name.to_string())
                 .bind("requirement", format!("have the signature `{label}` declares, `{wanted}`"))
                 .fix(format!("write it `{wanted}`"));
-        } else if custom.js.is_none() && !self.starts_itself(&want, host.is_some()) {
+        } else if custom.js.is_none()
+            && !(host.is_some()
+                && want.params.len() == 1
+                && (self.is_program_answer(&want.ret) || want.ret.is_error()))
+        {
             // Nothing but the backend calls an entry without a `js` file, and
             // the backend passes the host alone and reads a `Result<(), Str>`.
             let point = &custom.point;
@@ -205,18 +221,24 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// Whether a declaration has the program signature: the host alone, and a
-    /// `Result<(), Str>` answer.
-    fn starts_itself(&mut self, want: &FnInfo, has_host: bool) -> bool {
+    /// Refuses generic parameters on an entry, which the platform calls.
+    pub(super) fn refuse_entry_generics(&mut self, info: &FnInfo, d: &tree::FnDecl, name: &str) {
+        if !info.generics.is_empty() {
+            self.templated("entry-signature-mismatch", d.span)
+                .bind("entry", name.to_string())
+                .bind("requirement", "declare no generic parameters")
+                .fix(format!(
+                    "drop them: `{name}` is called by the platform, so there is nothing to infer \
+                     them from"
+                ));
+        }
+    }
+
+    /// Whether `ty` is `Result<(), Str>`, what a program entry answers.
+    pub(super) fn is_program_answer(&self, ty: &Ty) -> bool {
         let str_ty = self.tables.prim(Prim::Str);
-        let answers = match want.ret.kind() {
-            TyKind::Con(id, args) => {
-                self.result_con.as_ref() == Some(id)
-                    && matches!(args, [ok, err] if *ok == Ty::UNIT && *err == str_ty)
-            }
-            _ => false,
-        };
-        has_host && want.params.len() == 1 && (answers || want.ret.is_error())
+        matches!(ty.kind(), TyKind::Con(id, [ok, err])
+            if self.result_con.as_ref() == Some(id) && *ok == Ty::UNIT && *err == str_ty)
     }
 
     /// Every field of a host type is a production struct its backend has: the
@@ -281,7 +303,7 @@ impl<'a> Checker<'a> {
                 }
             } else if tycon.module == platform
                 && custom.backend == Backend::Native
-                && self.has_bodiless_methods(*con)
+                && !bodiless_methods(&self.tables, *con).is_empty()
                 && !self.already(field.span, "custom-effect-outside-js")
             {
                 self.templated("custom-effect-outside-js", field.span)
@@ -296,22 +318,6 @@ impl<'a> Checker<'a> {
     /// platform two outputs name is told about once.
     fn already(&self, span: Span, code: &str) -> bool {
         self.diags.items.iter().any(|d| d.span == span && d.code.as_deref() == Some(code))
-    }
-
-    /// The methods a platform's own production struct declares without a
-    /// body, which its `js` file implements.
-    pub(super) fn bodiless_methods(&self, con: TyConId) -> Vec<FnId> {
-        self.tables
-            .fns
-            .iter()
-            .enumerate()
-            .filter(|(_, f)| f.self_ty == Some(con) && f.intrinsic)
-            .map(|(i, _)| FnId(i as u32))
-            .collect()
-    }
-
-    fn has_bodiless_methods(&self, con: TyConId) -> bool {
-        !self.bodiless_methods(con).is_empty()
     }
 
     /// The parameters after the first `skip`, and the answer, of a signature a
@@ -343,14 +349,9 @@ impl<'a> Checker<'a> {
 
     /// Every method a `js` file implements for this host, against the table.
     fn check_js_methods(&mut self, platform: ModuleId, host: TyConId) {
-        let fields = self.tables.tycon(host).fields().to_vec();
-        for field in fields {
-            let TyKind::Con(con, _) = field.ty.kind() else { continue };
-            if self.tables.tycon(*con).module != platform {
-                continue;
-            }
-            let struct_name = self.tables.tycon(*con).name.clone();
-            for method in self.bodiless_methods(*con) {
+        for (con, methods) in js_structs(&self.tables, platform, host) {
+            let struct_name = self.tables.tycon(con).name.clone();
+            for method in methods {
                 let info = self.tables.fn_info(method).clone();
                 let generic = info.generics.first().map(|g| g.name.clone());
                 if let Some(param) = generic.filter(|_| !self.already(info.span, "type-not-crossable")) {

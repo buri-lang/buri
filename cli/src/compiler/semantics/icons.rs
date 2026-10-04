@@ -26,9 +26,9 @@ use core::str::Chars;
 use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::consteval::{Env, Folder, Value};
 use crate::compiler::semantics::layered::Layered;
-use crate::compiler::semantics::resolve::{BodyMap, ConstMap, ModuleScope, Sym, Walked};
+use crate::compiler::semantics::resolve::{own_fn, BodyMap, ConstMap, ModuleScope, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind};
-use crate::compiler::semantics::types::{FnId, Tables, TyConId};
+use crate::compiler::semantics::types::{FnId, Tables};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 
 /// The elements an icon may hold: a coordinate system, a group, and the shapes
@@ -70,10 +70,6 @@ const DRAWING: [&str; 26] = [
     "ry",
 ];
 
-/// `NodeKind::Icon`, whose variant order is load-bearing and whose module says
-/// so. Only a decorative `image` lowers to one.
-const NODE_ICON: usize = 8;
-
 /// `Image<C>`'s fields, in declaration order — which is the order a struct
 /// literal stores them in, whatever order the call site wrote them. The two
 /// this pass reads are the source it may have to validate and the `alt` that
@@ -89,24 +85,6 @@ const ALT_DECORATIVE: usize = 0;
 /// written out at the call site.
 const PROP_CONST: usize = 0;
 
-/// Whether this program can build an icon.
-///
-/// Asked the way `styles::builds_a_theme` is, and for the same reason: the
-/// renderer reaches `$tree_icon` through a hole rather than by name, so the
-/// parser and the two allow lists — 2.5 KB of them — ship only in an artifact
-/// that has artwork in it. `NodeKind` is `ui/node`'s private enum, so a literal
-/// of it was written inside that module's own constructors and nowhere else.
-pub fn builds_an_icon(e: &mut typed::Expr, node_con: TyConId) -> bool {
-    if matches!(&e.kind, ExprKind::EnumLit { con, variant, .. }
-        if *con == node_con && *variant == NODE_ICON)
-    {
-        return true;
-    }
-    let mut found = false;
-    typed::children_mut(e, &mut |child| found = found || builds_an_icon(child, node_con));
-    found
-}
-
 /// Reads every decorative `image` in the compilation, and refuses one it
 /// cannot.
 ///
@@ -121,24 +99,15 @@ pub fn run(
     diags: &mut Diagnostics,
     walked: &Walked,
 ) {
-    let Some(image) = constructor(loaded, scopes) else { return };
+    // `ui/node`'s `image`: a decorative one is what lowers to an inline
+    // `<svg>`, so this is the constructor whose calls the walk reads.
+    let Some(image) = own_fn(loaded, scopes, "ui/node", "image") else { return };
 
     for (_, init) in walked.constants(tables, consts) {
         walk(init, image, tables, bodies, consts, diags);
     }
     for (_, body) in walked.functions(tables, bodies) {
         walk(&body.expr, image, tables, bodies, consts, diags);
-    }
-}
-
-/// `ui/node`'s `image`, when this compilation loaded the module. A decorative
-/// one is what lowers to an inline `<svg>`, so this is the constructor whose
-/// calls the walk reads.
-fn constructor(loaded: &Loaded, scopes: &Layered<ModuleScope>) -> Option<FnId> {
-    let index = loaded.modules.iter().position(|m| m.path == "ui/node")?;
-    match scopes.get(index)?.own.get("image")? {
-        Sym::Fn(id) => Some(*id),
-        _ => None,
     }
 }
 
