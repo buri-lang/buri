@@ -157,15 +157,15 @@ fn check_fn(c: &mut Checker, fid: FnId) {
     // The parts the body is checked against, copied once: the checker is
     // borrowed mutably from here on, and the declaration lives in its tables.
     let (module, self_ty, generics, params, expected) =
-        (info.module, info.self_ty, info.generics.clone(), info.params.clone(), info.ret.clone());
+        (info.module, info.self_ty, info.generics.clone(), info.params.clone(), info.ret);
 
-    let mut inf = Infer::new(c, module, generics, expected.clone());
+    let mut inf = Infer::new(c, module, generics, expected);
     inf.self_con = self_ty;
     inf.in_effect_impl = in_effect_impl;
     inf.in_main = in_main;
     inf.push_scope();
     for p in &params {
-        let local = inf.new_local(&p.name, p.ty.clone(), p.span);
+        let local = inf.new_local(&p.name, p.ty, p.span);
         inf.bind(&p.name, local);
         inf.params.push(local);
         // The capture rule is scoped to *effect-carrying* values (SPEC 10.6,
@@ -193,9 +193,9 @@ fn check_const(c: &mut Checker, cid: ConstId) {
     let Some(tree::Item::Let(decl)) = c.module(module).ast.items.get(index as usize) else {
         return;
     };
-    let mut inf = Infer::new(c, info.module, Vec::new(), info.ty.clone());
+    let mut inf = Infer::new(c, info.module, Vec::new(), info.ty);
     inf.push_scope();
-    let ty = info.ty.clone();
+    let ty = info.ty;
     let value_span = inf.t.span(decl.value);
     let value = inf.check_expr(decl.value, Some(&ty));
     inf.unify_at(value_span, &value.ty, &ty, "the declared type");
@@ -230,20 +230,20 @@ pub(super) fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
     else {
         return;
     };
-    let mut inf = Infer::new(c, info.module, Vec::new(), Ty::Unit);
+    let mut inf = Infer::new(c, info.module, Vec::new(), Ty::UNIT);
     inf.in_main = true;
     inf.push_scope();
     let expr = inf.check_context_body(decl.body, decl.span);
     // A body that did not evaluate to a context type has no generated type,
     // and then its constructor is not usable either — so neither is recorded.
-    let ctx_ty = match &expr.ty {
-        Ty::Ctx(ct) => Some(*ct),
+    let ctx_ty = match expr.ty.kind() {
+        TyKind::Ctx(ct) => Some(*ct),
         _ => None,
     };
     let body = inf.finish(expr);
     // A named context is constructed by calling it, and each call builds a
     // fresh one, so the declaration becomes a nullary function.
-    let ret = body.expr.ty.clone();
+    let ret = body.expr.ty;
     let ctor = c.tables.add_fn(FnInfo {
         name: info.name.clone(),
         module: info.module,
@@ -280,7 +280,7 @@ fn check_tests(c: &mut Checker) {
                 module,
                 generics: Vec::new(),
                 params: Vec::new(),
-                ret: Ty::Unit,
+                ret: Ty::UNIT,
                 exported: false,
                 span: t.span,
                 self_ty: None,
@@ -292,7 +292,7 @@ fn check_tests(c: &mut Checker) {
             // that `Checked::tests` — and the ids everything after it counts
             // from — do not move with the selection. Only the body is scoped.
             if c.wants_file(c.module(module).file) {
-                let mut inf = Infer::new(c, module, Vec::new(), Ty::Unit);
+                let mut inf = Infer::new(c, module, Vec::new(), Ty::UNIT);
                 inf.in_main = true;
                 inf.push_scope();
                 let expr = inf.check_block(t.body, None);
@@ -487,7 +487,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         // `subst`, `generics` and `c` are different fields, so neither the
         // type nor the list is copied — and this runs for every parameter,
         // every `let` and every pattern binding.
-        let resolved = self.subst.shallow_ref(ty);
+        let resolved = &self.subst.shallow(ty);
         let carries = self.c.tables.is_effect_carrying(resolved, &self.generics);
         let may = !carries && self.c.tables.may_carry_effect(resolved, &self.generics);
         if carries {
@@ -694,7 +694,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     pub(crate) fn local_ty(&self, id: LocalId) -> Ty {
-        self.local(id).ty.clone()
+        self.local(id).ty
     }
 
     // -- unification --------------------------------------------------------
@@ -756,11 +756,6 @@ impl<'a, 'b> Infer<'a, 'b> {
         self.subst.shallow(t)
     }
 
-    /// The same, without the copy, for the callers that only look at the head.
-    pub(crate) fn resolve_ref<'t>(&'t self, t: &'t Ty) -> &'t Ty {
-        self.subst.shallow_ref(t)
-    }
-
     /// Whether `t` holds no inference variable anywhere, once resolved.
     ///
     /// `resolve` answers for the head only, which is all almost every caller
@@ -768,11 +763,11 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// struct literal reads its type from above rather than solving for it, so
     /// `Holder<?>` is not a type it may be given even though its head is known.
     pub(crate) fn is_settled(&self, t: &Ty) -> bool {
-        match self.resolve_ref(t) {
-            Ty::Var(_) => false,
-            Ty::Con(_, args) | Ty::Tuple(args) => args.iter().all(|a| self.is_settled(a)),
-            Ty::Array(e) => self.is_settled(e),
-            Ty::Fn(params, ret) => {
+        match self.resolve(t).kind() {
+            TyKind::Var(_) => false,
+            TyKind::Con(_, args) | TyKind::Tuple(args) => args.iter().all(|a| self.is_settled(a)),
+            TyKind::Array(e) => self.is_settled(e),
+            TyKind::Fn(params, ret) => {
                 params.iter().all(|p| self.is_settled(p)) && self.is_settled(ret)
             }
             _ => true,
@@ -787,7 +782,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// twice per expression node through `coerce`, so it must not copy the
     /// type to ask.
     pub(crate) fn as_prim(&self, t: &Ty) -> Option<Prim> {
-        self.c.tables.as_prim(self.resolve_ref(t))
+        self.c.tables.as_prim(&self.resolve(t))
     }
 
     pub(crate) fn show_ty(&self, t: &Ty) -> String {
@@ -802,7 +797,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     pub(crate) fn error_expr(&self, span: Span) -> typed::Expr {
-        typed::Expr::new(typed::ExprKind::Error, Ty::Error, span)
+        typed::Expr::new(typed::ExprKind::Error, Ty::ERROR, span)
     }
 
     // -- obligations --------------------------------------------------------
@@ -873,13 +868,13 @@ impl<'a, 'b> Infer<'a, 'b> {
                     let lacking = self.c.tables.trait_(missing).name.clone();
                     let condition =
                         format!("`{head}` implements `{trait_name}` only when `{name}` satisfies `{lacking}`");
-                    if let Ty::Ctx(id) = arg {
+                    if let TyKind::Ctx(id) = arg.kind() {
                         // A context is the one argument whose fix is a
                         // binding rather than an `impl`.
                         let bound: Vec<String> = self
                             .c
                             .tables
-                            .ctx_type(id)
+                            .ctx_type(*id)
                             .bindings
                             .iter()
                             .map(|(t, _)| self.c.tables.trait_(*t).name.clone())
@@ -956,29 +951,29 @@ impl<'a, 'b> Infer<'a, 'b> {
         // `impl<C> Equal for Holder<C>` would let `Holder<Ctx>` through a
         // `T: Equal` bound, and a lambda in that function could capture the
         // capability inside it (SPEC 10.6).
-        if !matches!(ty, Ty::Error | Ty::Var(_))
+        if !matches!(ty.kind(), TyKind::Error | TyKind::Var(_))
             && !self.c.tables.trait_(tr).is_effect
             && self.c.tables.is_effect_carrying(ty, &self.generics)
         {
             return false;
         }
-        match ty {
-            Ty::Param(i) => self
+        match ty.kind() {
+            TyKind::Param(i) => self
                 .generics
                 .get(*i as usize)
                 .is_some_and(|g| g.bounds.contains(&tr)),
-            Ty::Error | Ty::Var(_) => true,
-            Ty::Ctx(id) => self.c.tables.ctx_type(*id).has(tr),
-            Ty::SelfTy => true,
+            TyKind::Error | TyKind::Var(_) => true,
+            TyKind::Ctx(id) => self.c.tables.ctx_type(*id).has(tr),
+            TyKind::SelfTy => true,
             // `[T]`, tuples and function types satisfy the structural traits
             // when their components do (SPEC 5.11).
-            Ty::Array(e) => self.structural_trait(tr) && self.satisfies_seen(e, tr, seen),
-            Ty::Tuple(es) => {
+            TyKind::Array(e) => self.structural_trait(tr) && self.satisfies_seen(e, tr, seen),
+            TyKind::Tuple(es) => {
                 self.structural_trait(tr)
                     && es.iter().all(|e| self.satisfies_seen(e, tr, seen))
             }
-            Ty::Unit => self.structural_trait(tr),
-            Ty::Con(id, args) => {
+            TyKind::Unit => self.structural_trait(tr),
+            TyKind::Con(id, args) => {
                 if let Some(imp) = self.c.tables.impls.get(&(tr, *id)) {
                     // A derived impl requires every field type to satisfy the
                     // trait too.
@@ -996,7 +991,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
                 false
             }
-            Ty::Fn(..) => false,
+            TyKind::Fn(..) => false,
         }
     }
 
@@ -1034,16 +1029,16 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// The first field or payload type of a derived type that does not itself
     /// satisfy the trait.
     fn failing_component(&self, con: TyConId, ty: &Ty, tr: TraitId) -> Option<String> {
-        let args = match ty {
-            Ty::Con(_, a) => a.clone(),
+        let args = match ty.kind() {
+            TyKind::Con(_, a) => a.to_vec(),
             _ => Vec::new(),
         };
         let tycon = self.c.tables.tycon(con);
         let components: Vec<Ty> = match &tycon.def {
-            TyDef::Struct { fields, .. } => fields.iter().map(|f| f.ty.clone()).collect(),
+            TyDef::Struct { fields, .. } => fields.iter().map(|f| f.ty).collect(),
             TyDef::Enum { variants } => variants
                 .iter()
-                .flat_map(|v| v.fields.iter().map(|f| f.ty.clone()))
+                .flat_map(|v| v.fields.iter().map(|f| f.ty))
                 .collect(),
             TyDef::Prim(_) => Vec::new(),
         };
@@ -1073,10 +1068,10 @@ impl<'a, 'b> Infer<'a, 'b> {
     ) -> bool {
         let tycon = self.c.tables.tycon(con);
         let field_types: Vec<Ty> = match &tycon.def {
-            TyDef::Struct { fields, .. } => fields.iter().map(|f| f.ty.clone()).collect(),
+            TyDef::Struct { fields, .. } => fields.iter().map(|f| f.ty).collect(),
             TyDef::Enum { variants } => variants
                 .iter()
-                .flat_map(|v| v.fields.iter().map(|f| f.ty.clone()))
+                .flat_map(|v| v.fields.iter().map(|f| f.ty))
                 .collect(),
             TyDef::Prim(_) => Vec::new(),
         };
@@ -1096,7 +1091,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn check_literal_ranges(&mut self) {
         let checks = std::mem::take(&mut self.lit_checks);
         for lit in checks {
-            let Some(p) = self.c.tables.as_prim(self.subst.shallow_ref(&lit.ty)) else { continue };
+            let Some(p) = self.c.tables.as_prim(&self.subst.shallow(&lit.ty)) else { continue };
             let Some((lo, hi)) = p.int_range() else { continue };
             let fits = if lit.negative {
                 p.is_signed() && (lit.value <= (lo.unsigned_abs()))
@@ -1208,13 +1203,13 @@ impl<'a, 'b> Infer<'a, 'b> {
         let checks = std::mem::take(&mut self.hole_checks);
         for (ty, span) in checks {
             let resolved = self.subst.resolve(&ty);
-            if matches!(resolved, Ty::Error | Ty::Var(_)) {
+            if matches!(resolved.kind(), TyKind::Error | TyKind::Var(_)) {
                 continue;
             }
             // `()` renders as `()` under a derived `Show` and is admitted
             // *inside* a shape for that reason, but a hole holding one on its
             // own is a mistake with no rendering to ask for.
-            if !matches!(resolved, Ty::Unit)
+            if !matches!(resolved.kind(), TyKind::Unit)
                 && self.renders_structurally(&resolved, &mut Vec::new())
             {
                 continue;
@@ -1248,7 +1243,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 if hand == shown {
                     d = d.with_fix("call it in the hole, as in `${x.show(ctx)}`");
                 }
-            } else if matches!(resolved, Ty::Param(_))
+            } else if matches!(resolved.kind(), TyKind::Param(_))
                 && show_tid.is_some_and(|tr| self.satisfies(&resolved, tr))
             {
                 d = d
@@ -1271,10 +1266,10 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// `derive`, which is the one that keeps the whole hole out.
     fn hand_written_show(&self, ty: &Ty, seen: &mut Vec<TyConId>) -> Option<String> {
         let tr = self.c.known_traits.get("Show").copied()?;
-        match ty {
-            Ty::Array(e) => self.hand_written_show(e, seen),
-            Ty::Tuple(es) => es.iter().find_map(|e| self.hand_written_show(e, seen)),
-            Ty::Con(id, args) => {
+        match ty.kind() {
+            TyKind::Array(e) => self.hand_written_show(e, seen),
+            TyKind::Tuple(es) => es.iter().find_map(|e| self.hand_written_show(e, seen)),
+            TyKind::Con(id, args) => {
                 if self.c.tables.as_prim(ty).is_some() {
                     return None;
                 }
@@ -1312,10 +1307,10 @@ impl<'a, 'b> Infer<'a, 'b> {
         if self.c.tables.is_effect_carrying(ty, &self.generics) {
             return false;
         }
-        match ty {
-            Ty::Array(e) => self.renders_structurally(e, seen),
-            Ty::Tuple(es) => es.iter().all(|e| self.renders_structurally(e, seen)),
-            Ty::Con(id, args) => {
+        match ty.kind() {
+            TyKind::Array(e) => self.renders_structurally(e, seen),
+            TyKind::Tuple(es) => es.iter().all(|e| self.renders_structurally(e, seen)),
+            TyKind::Con(id, args) => {
                 if let Some(p) = self.c.tables.as_prim(ty) {
                     return p.is_integer()
                         || p.is_float()
@@ -1346,7 +1341,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     ) -> bool {
         self.component_types(con, args)
             .iter()
-            .all(|t| matches!(t, Ty::Unit) || self.renders_structurally(t, seen))
+            .all(|t| matches!(t.kind(), TyKind::Unit) || self.renders_structurally(t, seen))
     }
 
     /// Every field and payload type of one type constructor, with the
@@ -1354,10 +1349,10 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn component_types(&self, con: TyConId, args: &[Ty]) -> Vec<Ty> {
         let tycon = self.c.tables.tycon(con);
         let declared: Vec<Ty> = match &tycon.def {
-            TyDef::Struct { fields, .. } => fields.iter().map(|f| f.ty.clone()).collect(),
+            TyDef::Struct { fields, .. } => fields.iter().map(|f| f.ty).collect(),
             TyDef::Enum { variants } => variants
                 .iter()
-                .flat_map(|v| v.fields.iter().map(|f| f.ty.clone()))
+                .flat_map(|v| v.fields.iter().map(|f| f.ty))
                 .collect(),
             TyDef::Prim(_) => Vec::new(),
         };
@@ -1447,12 +1442,12 @@ fn unpinned_literal_note(a: &Spelling, b: &Spelling) -> Option<String> {
 /// `Subst::resolve` has already followed every binding, so a `Ty::Var` left in
 /// the tree is one nothing in the body ever constrained.
 fn mentions_var(ty: &Ty) -> bool {
-    match ty {
-        Ty::Var(_) => true,
-        Ty::Con(_, args) => args.iter().any(mentions_var),
-        Ty::Array(e) => mentions_var(e),
-        Ty::Tuple(es) => es.iter().any(mentions_var),
-        Ty::Fn(ps, r) => ps.iter().any(mentions_var) || mentions_var(r),
+    match ty.kind() {
+        TyKind::Var(_) => true,
+        TyKind::Con(_, args) => args.iter().any(mentions_var),
+        TyKind::Array(e) => mentions_var(e),
+        TyKind::Tuple(es) => es.iter().any(mentions_var),
+        TyKind::Fn(ps, r) => ps.iter().any(mentions_var) || mentions_var(r),
         _ => false,
     }
 }
@@ -1482,12 +1477,12 @@ pub(crate) fn answers_its_own_type(info: &FnInfo) -> bool {
 
 /// Whether a type mentions the `i`th rigid generic parameter of its item.
 fn mentions_param(ty: &Ty, i: u32) -> bool {
-    match ty {
-        Ty::Param(p) => *p == i,
-        Ty::Con(_, args) => args.iter().any(|a| mentions_param(a, i)),
-        Ty::Array(e) => mentions_param(e, i),
-        Ty::Tuple(es) => es.iter().any(|e| mentions_param(e, i)),
-        Ty::Fn(ps, r) => ps.iter().any(|p| mentions_param(p, i)) || mentions_param(r, i),
+    match ty.kind() {
+        TyKind::Param(p) => *p == i,
+        TyKind::Con(_, args) => args.iter().any(|a| mentions_param(a, i)),
+        TyKind::Array(e) => mentions_param(e, i),
+        TyKind::Tuple(es) => es.iter().any(|e| mentions_param(e, i)),
+        TyKind::Fn(ps, r) => ps.iter().any(|p| mentions_param(p, i)) || mentions_param(r, i),
         _ => false,
     }
 }
@@ -1500,19 +1495,19 @@ fn mentions_param(ty: &Ty, i: u32) -> bool {
 /// decided stays `None` and is not held against the type. A parameter the
 /// head mentions twice keeps its first binding.
 fn bind_impl_params(head: &Ty, ty: &Ty, bound: &mut [Option<Ty>]) {
-    match (head, ty) {
-        (_, Ty::Var(_) | Ty::Error) => {}
-        (Ty::Param(i), actual) => {
+    match (head.kind(), ty.kind()) {
+        (_, TyKind::Var(_) | TyKind::Error) => {}
+        (TyKind::Param(i), _) => {
             if let Some(slot @ None) = bound.get_mut(*i as usize) {
-                *slot = Some(actual.clone());
+                *slot = Some(*ty);
             }
         }
-        (Ty::Con(_, xs), Ty::Con(_, ys)) | (Ty::Tuple(xs), Ty::Tuple(ys)) => {
-            xs.iter().zip(ys).for_each(|(h, t)| bind_impl_params(h, t, bound));
+        (TyKind::Con(_, xs), TyKind::Con(_, ys)) | (TyKind::Tuple(xs), TyKind::Tuple(ys)) => {
+            xs.iter().zip(ys.iter()).for_each(|(h, t)| bind_impl_params(h, t, bound));
         }
-        (Ty::Array(h), Ty::Array(t)) => bind_impl_params(h, t, bound),
-        (Ty::Fn(xs, a), Ty::Fn(ys, b)) => {
-            xs.iter().zip(ys).for_each(|(h, t)| bind_impl_params(h, t, bound));
+        (TyKind::Array(h), TyKind::Array(t)) => bind_impl_params(h, t, bound),
+        (TyKind::Fn(xs, a), TyKind::Fn(ys, b)) => {
+            xs.iter().zip(ys.iter()).for_each(|(h, t)| bind_impl_params(h, t, bound));
             bind_impl_params(a, b, bound);
         }
         _ => {}

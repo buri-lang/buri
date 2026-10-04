@@ -75,22 +75,22 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
 
             P::Unit { .. } => {
-                self.unify_at(span, &Ty::Unit, &ty, "the scrutinee");
+                self.unify_at(span, &Ty::UNIT, &ty, "the scrutinee");
                 typed::PatKind::Unit
             }
 
             P::Tuple { elems, .. } => {
-                let elem_types = match &ty {
-                    Ty::Tuple(ts) if ts.len() == elems.len() => ts.clone(),
-                    Ty::Error => vec![Ty::Error; elems.len()],
-                    other => {
-                        let shown = self.show_ty(other);
+                let elem_types = match ty.kind() {
+                    TyKind::Tuple(ts) if ts.len() == elems.len() => ts.to_vec(),
+                    TyKind::Error => vec![Ty::ERROR; elems.len()],
+                    _ => {
+                        let shown = self.show_ty(&ty);
                         let n = elems.len();
                         self.templated("pattern-not-tuple", span)
                             .bind("type", shown.clone())
                             .bind("arity", n.to_string())
                             .fix(format!("match the shape of `{shown}`, not a {n}-tuple"));
-                        vec![Ty::Error; elems.len()]
+                        vec![Ty::ERROR; elems.len()]
                     }
                 };
                 typed::PatKind::Tuple(
@@ -103,15 +103,15 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
 
             P::Array { elems, rest, .. } => {
-                let elem_ty = match &ty {
-                    Ty::Array(e) => (**e).clone(),
-                    Ty::Error => Ty::Error,
-                    other => {
-                        let shown = self.show_ty(other);
+                let elem_ty = match ty.kind() {
+                    TyKind::Array(e) => *e,
+                    TyKind::Error => Ty::ERROR,
+                    _ => {
+                        let shown = self.show_ty(&ty);
                         self.templated("pattern-not-array", span)
                             .bind("type", shown.clone())
                             .fix(format!("an array pattern matches `[T]`, not `{shown}`"));
-                        Ty::Error
+                        Ty::ERROR
                     }
                 };
                 let checked: Vec<typed::Pattern> =
@@ -128,7 +128,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                                 .bind("name", bound);
                         }
                         self.pattern_names.push(dup);
-                        let arr = Ty::Array(Box::new(elem_ty.clone()));
+                        let arr = Ty::array(elem_ty);
                         let l = self.shared_local(dup, &arr, dup_span);
                         self.bind(dup, l);
                         typed::ArrayRest::Bound(l)
@@ -240,7 +240,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 existing
             }
             None => {
-                let local = self.new_local(name, ty.clone(), span);
+                let local = self.new_local(name, *ty, span);
                 self.record_or_binding(name, local);
                 local
             }
@@ -262,7 +262,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         let head = t.text(*head);
         // `.Variant` — the scrutinee's type supplies the enum.
         if dotted {
-            let Ty::Con(con, args) = ty else {
+            let TyKind::Con(con, args) = ty.kind() else {
                 if !ty.is_error() {
                     let shown = self.show_ty(ty);
                     self.report_dot_form_against(&shown, head, span);
@@ -273,7 +273,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.report_no_variant(*con, head, span);
                 return typed::PatKind::Error;
             };
-            return self.variant_pattern(*con, index, args.clone(), payload, span);
+            return self.variant_pattern(*con, index, args.to_vec(), payload, span);
         }
 
         // `Enum.Variant`, `mod.Enum.Variant`, `Struct { .. }`, `Tuple(x)`.
@@ -302,18 +302,18 @@ impl<'a, 'b> Infer<'a, 'b> {
             Some(Sym::Ty(con)) => {
                 let variant_name = rest.last().map(|last| t.text(*last));
                 let is_enum = matches!(self.c.tables.tycon(con).def, TyDef::Enum { .. });
-                let args = match ty {
-                    Ty::Con(c, a) if *c == con => a.clone(),
-                    Ty::Error => vec![Ty::Error; self.c.tables.tycon(con).arity()],
-                    other => {
+                let args = match ty.kind() {
+                    TyKind::Con(c, a) if *c == con => a.to_vec(),
+                    TyKind::Error => vec![Ty::ERROR; self.c.tables.tycon(con).arity()],
+                    _ => {
                         let want = self.c.tables.tycon(con).name.clone();
-                        let shown = self.show_ty(other);
+                        let shown = self.show_ty(ty);
                         self.templated("pattern-type-mismatch", span)
                             .bind("expected", shown.clone())
                             .bind("found", want.clone())
                             .mismatch(format!("`{shown}`"), format!("a `{want}` pattern"))
                             .fix(format!("match the shape of `{shown}`"));
-                        vec![Ty::Error; self.c.tables.tycon(con).arity()]
+                        vec![Ty::ERROR; self.c.tables.tycon(con).arity()]
                     }
                 };
                 if is_enum {

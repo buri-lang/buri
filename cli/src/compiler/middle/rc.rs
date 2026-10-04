@@ -271,7 +271,7 @@
 use crate::compiler::middle::ir;
 use crate::compiler::middle::monomorphize::{self, Desc, Func, FuncKind, Program};
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Pattern, Stmt};
-use crate::compiler::semantics::types::{self, FuncIdx, LocalId, Prim, Ty};
+use crate::compiler::semantics::types::{self, FuncIdx, LocalId, Prim, Ty, TyKind};
 use crate::diagnostics::Invariant as _;
 use crate::hash::{Map as HashMap, Set as HashSet};
 
@@ -581,7 +581,7 @@ impl Syntactic {
         let mut ty_of: Vec<Option<Ty>> = vec![None; program.descriptors.len()];
         for (ty, i) in &program.desc_index {
             if let Some(slot) = ty_of.get_mut(*i) {
-                *slot = Some(ty.clone());
+                *slot = Some(*ty);
             }
         }
         let lookup = |d: usize, ty_of: &[Option<Ty>]| ty_of.get(d).cloned().flatten();
@@ -621,7 +621,7 @@ impl Syntactic {
             let Some(body) = f.body() else { continue };
             typed::walk(body, &mut |e| match &e.kind {
                 ExprKind::Str(_) => {
-                    prim_of.entry(e.ty.clone()).or_insert(Prim::Str);
+                    prim_of.entry(e.ty).or_insert(Prim::Str);
                 }
                 // An interpolation names `Template`, and nothing else in a
                 // body does: a text run is not an `ExprKind::Str` and no
@@ -631,38 +631,38 @@ impl Syntactic {
                 // never dropped, and `println("[${x}]")` in a loop grew the
                 // heap by a block an iteration.
                 ExprKind::Template { .. } => {
-                    prim_of.entry(e.ty.clone()).or_insert(Prim::Template);
+                    prim_of.entry(e.ty).or_insert(Prim::Template);
                 }
                 ExprKind::Bool(_) => {
-                    prim_of.entry(e.ty.clone()).or_insert(Prim::Bool);
+                    prim_of.entry(e.ty).or_insert(Prim::Bool);
                 }
                 ExprKind::Char(_) => {
-                    prim_of.entry(e.ty.clone()).or_insert(Prim::Char);
+                    prim_of.entry(e.ty).or_insert(Prim::Char);
                 }
                 ExprKind::Int(..) => {
-                    prim_of.entry(e.ty.clone()).or_insert(Prim::I64);
+                    prim_of.entry(e.ty).or_insert(Prim::I64);
                 }
                 ExprKind::Float(_) => {
-                    prim_of.entry(e.ty.clone()).or_insert(Prim::F64);
+                    prim_of.entry(e.ty).or_insert(Prim::F64);
                 }
                 ExprKind::Prim { prim, args, .. } => {
                     if let Some(a) = args.first() {
-                        prim_of.entry(a.ty.clone()).or_insert(*prim);
+                        prim_of.entry(a.ty).or_insert(*prim);
                     }
                 }
                 ExprKind::StructLit { fields, .. } => {
                     fields_of
-                        .entry(e.ty.clone())
-                        .or_insert_with(|| fields.iter().map(|x| x.ty.clone()).collect());
+                        .entry(e.ty)
+                        .or_insert_with(|| fields.iter().map(|x| x.ty).collect());
                 }
                 ExprKind::EnumLit { args, .. } => {
                     // One variant at a time: a type is counted if *any*
                     // variant carries a counted field, so the union is the
                     // right accumulation.
-                    let entry = fields_of.entry(e.ty.clone()).or_default();
+                    let entry = fields_of.entry(e.ty).or_default();
                     for a in args {
                         if !entry.contains(&a.ty) {
-                            entry.push(a.ty.clone());
+                            entry.push(a.ty);
                         }
                     }
                 }
@@ -713,13 +713,13 @@ impl Syntactic {
             return *a;
         }
         if self.leaves == Leaves::Lists {
-            if !self.visiting.insert(ty.clone()) {
+            if !self.visiting.insert(*ty) {
                 return Answer::No;
             }
             let a = self.walk(ty, depth);
             self.visiting.remove(ty);
             if self.visiting.is_empty() {
-                self.memo.insert(ty.clone(), a);
+                self.memo.insert(*ty, a);
             }
             return a;
         }
@@ -727,7 +727,7 @@ impl Syntactic {
             return Answer::Yes;
         }
         let a = self.walk(ty, depth);
-        self.memo.insert(ty.clone(), a);
+        self.memo.insert(*ty, a);
         a
     }
 
@@ -740,11 +740,11 @@ impl Syntactic {
                 Leaves::Lists => Answer::Unknown,
             };
         }
-        match ty {
-            Ty::Array(_) => Answer::Yes,
-            Ty::Fn(..) => self.opaque_leaf(),
-            Ty::Unit => Answer::No,
-            Ty::Tuple(ts) => {
+        match ty.kind() {
+            TyKind::Array(_) => Answer::Yes,
+            TyKind::Fn(..) => self.opaque_leaf(),
+            TyKind::Unit => Answer::No,
+            TyKind::Tuple(ts) => {
                 let parts: Vec<Answer> = ts.iter().map(|t| self.answer(t, depth - 1)).collect();
                 join(&parts)
             }
@@ -753,11 +753,11 @@ impl Syntactic {
             // zero-sized marker. Nothing writes a `Ty::Ctx` down, so no
             // literal in any body names one and the scans below never see it:
             // without the shapes every context in the program was `Unknown`.
-            Ty::Ctx(id) => match self.shapes.ctxs.get(id.index()) {
+            TyKind::Ctx(id) => match self.shapes.ctxs.get(id.index()) {
                 Some(bindings) => self.join_of(&bindings.clone(), depth),
                 None => Answer::Unknown,
             },
-            Ty::Con(con, args) => match self.shapes.cons.get(con.index()) {
+            TyKind::Con(con, args) => match self.shapes.cons.get(con.index()) {
                 Some(monomorphize::ConShape::Prim(p)) => {
                     if matches!(p, Prim::Str | Prim::Template) {
                         self.opaque_leaf()
@@ -918,12 +918,12 @@ fn name_skipped(locals: &mut Vec<typed::Local>, p: &mut Pattern, counted: &mut d
 /// Wraps one pattern in a binding on a fresh local.
 fn name_one(locals: &mut Vec<typed::Local>, p: &mut Pattern) {
     let local = LocalId(locals.len() as u32);
-    locals.push(typed::Local { name: String::from("discarded"), ty: p.ty.clone(), span: p.span });
+    locals.push(typed::Local { name: String::from("discarded"), ty: p.ty, span: p.span });
     // A `_` tests nothing, so the binding replaces it outright; anything else
     // still has its test to do, under the name.
     let sub = match std::mem::replace(&mut p.kind, PatKind::Wild) {
         PatKind::Wild => None,
-        other => Some(Box::new(Pattern { kind: other, ty: p.ty.clone(), span: p.span })),
+        other => Some(Box::new(Pattern { kind: other, ty: p.ty, span: p.span })),
     };
     p.kind = PatKind::Bind { local, sub };
 }
@@ -1262,7 +1262,7 @@ fn infer_ownership(
             f.params
                 .iter()
                 .map(|p| {
-                    let ty = f.locals.get(p.index()).map(|l| l.ty.clone()).unwrap_or(Ty::Error);
+                    let ty = f.locals.get(p.index()).map(|l| l.ty).unwrap_or(Ty::ERROR);
                     // A value with no count to take is `Own` by convention and
                     // costs nothing either way; saying `Borrow` would make a
                     // backend's signature depend on the classifier's uncertainty.
@@ -2012,7 +2012,7 @@ struct Scan<'a> {
 impl Scan<'_> {
     fn is_counted(&mut self, l: LocalId) -> bool {
         let Some(local) = self.func.locals.get(l.index()) else { return false };
-        let ty = local.ty.clone();
+        let ty = local.ty;
         self.counted_ty(&ty)
     }
 
@@ -2022,7 +2022,7 @@ impl Scan<'_> {
             Answer::No => false,
             Answer::Unknown => {
                 if !self.unclassified.contains(ty) {
-                    self.unclassified.push(ty.clone());
+                    self.unclassified.push(*ty);
                 }
                 false
             }
@@ -4174,7 +4174,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     impl Balance<'_> {
         fn counted_local(&mut self, l: LocalId) -> bool {
             let Some(local) = self.func.locals.get(l.index()) else { return false };
-            let ty = local.ty.clone();
+            let ty = local.ty;
             matches!(self.counted.counted(&ty), Answer::Yes)
         }
 
@@ -4268,7 +4268,7 @@ export fn main(host: NodeHost): Result<(), Str> {
                                     let held = self.suppress.replace(sid);
                                     self.walk(value, sid, Mode::Borrow, st);
                                     self.suppress = held;
-                                    let ty = value.ty.clone();
+                                    let ty = value.ty;
                                     if fresh(value)
                                         && matches!(self.counted.counted(&ty), Answer::Yes)
                                     {
@@ -4293,7 +4293,7 @@ export fn main(host: NodeHost): Result<(), Str> {
                             }
                             Stmt::Expr(x) => {
                                 self.walk(x, sid, Mode::Borrow, st);
-                                let ty = x.ty.clone();
+                                let ty = x.ty;
                                 if fresh(x) && matches!(self.counted.counted(&ty), Answer::Yes) {
                                     st.bump_temp(sid, 1);
                                 }
@@ -4395,7 +4395,7 @@ export fn main(host: NodeHost): Result<(), Str> {
                         };
                         self.walk(arg, aid, m, st);
                         if m == Mode::Borrow && fresh(arg) {
-                            let ty = arg.ty.clone();
+                            let ty = arg.ty;
                             if matches!(self.counted.counted(&ty), Answer::Yes) {
                                 st.bump_temp(aid, 1);
                             }
@@ -5863,9 +5863,9 @@ export fn main(host: NodeHost): Result<(), Str> {
         let program = compile(SRC);
         let mut counted = Syntactic::new(&program);
         let f = program.funcs.get(find(&program, "showFirst").index()).expect("a function");
-        let ctx_ty = f.locals.first().map(|l| l.ty.clone()).expect("the context parameter");
-        let opt_ty = f.locals.get(1).map(|l| l.ty.clone()).expect("the `Option<Str>` parameter");
-        assert!(matches!(ctx_ty, Ty::Ctx(_)), "the first parameter is the context");
+        let ctx_ty = f.locals.first().map(|l| l.ty).expect("the context parameter");
+        let opt_ty = f.locals.get(1).map(|l| l.ty).expect("the `Option<Str>` parameter");
+        assert!(matches!(ctx_ty.kind(), TyKind::Ctx(_)), "the first parameter is the context");
         // `host.alloc` and `host.stdout` are zero-sized markers, so the answer
         // here is `No` — which is the point: the defect was `Unknown`, which
         // means "no operations at all" for a type that may well hold a

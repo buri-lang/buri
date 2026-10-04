@@ -3360,6 +3360,12 @@ const FS_CALL_NAMES: [&str; 16] = [
 //     was. A binary run by hand is unchanged by any of this.
 //   * `BURI_TEST_TO=<index>` — the block to stop before, so several processes
 //     can share one binary's blocks. Absent means the last block.
+//   * `BURI_TEST_PULL` — set, and the process runs the blocks the runner hands
+//     it rather than a range: before each block it holds none for, it writes
+//     `{"next":1}` and reads the next block's index from standard input
+//     ([`handed_this`]). A closed input means there is nothing left. This is
+//     how several processes share one suite's blocks without a process per
+//     few blocks.
 //   * [`buri_rt_test_enter`] — before each block, answering whether to run it.
 //   * one line on standard output when the process reaches its first block
 //     ([`note_started`]), so that a binary that never started is told apart
@@ -3464,6 +3470,63 @@ fn stop_at() -> Option<i64> {
     *ASKED.get_or_init(|| std::env::var(STOP).ok().and_then(|v| v.parse().ok()))
 }
 
+/// The environment variable that makes this process ask the runner for each
+/// block it runs, instead of running a range of them.
+const PULL: &str = "BURI_TEST_PULL";
+
+/// Whether [`PULL`] is set. Read once, as [`resume_at`] is.
+fn pulling() -> bool {
+    static ASKED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ASKED.get_or_init(|| std::env::var_os(PULL).is_some())
+}
+
+/// The block the runner handed this process and it has not reached yet.
+/// `None` when it has none and must ask; `i64::MAX` once the runner has no
+/// more to hand.
+static HANDED: Mutex<Option<i64>> = Mutex::new(None);
+
+/// Whether the block at `index` is the one the runner handed this process,
+/// asking for the next one first where it holds none.
+///
+/// Blocks are entered in program order and the runner hands them out in that
+/// order too, so a handed block is never behind the one being entered: the
+/// blocks before it are skipped until it is reached.
+fn handed_this(index: i64) -> bool {
+    let mut handed = match HANDED.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    loop {
+        match *handed {
+            Some(at) if at >= index => break,
+            _ => *handed = Some(ask_for_a_block()),
+        }
+    }
+    if *handed == Some(index) {
+        *handed = None;
+        return true;
+    }
+    false
+}
+
+/// Asks the runner for the next block: one line on standard output, and the
+/// block's index as one line on standard input. An empty or closed input, or
+/// anything that is not a number, means there is nothing left to run.
+fn ask_for_a_block() -> i64 {
+    use std::io::{BufRead as _, Write as _};
+    {
+        let stream = std::io::stdout();
+        let mut stream = stream.lock();
+        let _ = stream.write_all(b"{\"next\":1}\n");
+        let _ = stream.flush();
+    }
+    let mut line = String::new();
+    match std::io::stdin().lock().read_line(&mut line) {
+        Ok(n) if n > 0 => line.trim().parse().unwrap_or(i64::MAX),
+        _ => i64::MAX,
+    }
+}
+
 /// Set by the first `test` block this process enters, and never cleared.
 static IN_A_TEST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -3496,6 +3559,13 @@ pub extern "C" fn buri_rt_test_enter(index: i64) -> i32 {
     // schedules anything leaves it at the one run every block makes.
     *replay() = Replay { pass: 0, total: 1, note: None };
     let Some(from) = resume_at() else { return 1 };
+    if pulling() {
+        if !handed_this(index) {
+            return 0;
+        }
+        runner().at = index;
+        return 1;
+    }
     if index < from || stop_at().is_some_and(|to| index >= to) {
         return 0;
     }

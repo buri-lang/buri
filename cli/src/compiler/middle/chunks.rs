@@ -192,11 +192,11 @@ fn unwrap_load(e: &mut Expr, loads: &[usize]) {
 fn take_arg(e: &mut Expr) -> Expr {
     let args = match &mut e.kind {
         ExprKind::CallFn { args, .. } | ExprKind::Intrinsic { args, .. } => args,
-        _ => return Expr::new(ExprKind::Unit, e.ty.clone(), e.span),
+        _ => return Expr::new(ExprKind::Unit, e.ty, e.span),
     };
     match args.drain(..).next() {
         Some(a) => a,
-        None => Expr::new(ExprKind::Unit, e.ty.clone(), e.span),
+        None => Expr::new(ExprKind::Unit, e.ty, e.span),
     }
 }
 
@@ -231,26 +231,26 @@ mod tests {
             params: Vec::new(),
             locals: Vec::new(),
             kind,
-            ret: Ty::Unit,
+            ret: Ty::UNIT,
             desc: None,
             span: Span::default(),
         }
     }
 
     fn unit() -> Expr {
-        Expr::new(ExprKind::Unit, Ty::Unit, Span::default())
+        Expr::new(ExprKind::Unit, Ty::UNIT, Span::default())
     }
 
     fn call(to: u32, args: Vec<Expr>) -> Expr {
         Expr::new(
             ExprKind::CallFn { func: Callee::Func(FuncIdx(to)), args },
-            Ty::Unit,
+            Ty::UNIT,
             Span::default(),
         )
     }
 
     fn fn_ref(to: u32) -> Expr {
-        Expr::new(ExprKind::FnRef(Callee::Func(FuncIdx(to))), Ty::Unit, Span::default())
+        Expr::new(ExprKind::FnRef(Callee::Func(FuncIdx(to))), Ty::UNIT, Span::default())
     }
 
     /// slot 0 `main`, slot 1 `lazy.load`, slot 2 the loaded function, slot 3
@@ -306,7 +306,7 @@ mod tests {
                 stmts: vec![typed::Stmt::Expr(call(2, Vec::new()))],
                 tail: Some(Box::new(call(1, vec![fn_ref(2)]))),
             },
-            Ty::Unit,
+            Ty::UNIT,
             Span::default(),
         );
         let mut p = program(body);

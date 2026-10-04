@@ -12,7 +12,7 @@
 use crate::compiler::backend::intrinsic_keys;
 use crate::compiler::middle::monomorphize::{self, FuncKind, Program};
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, Stmt};
-use crate::compiler::semantics::types::{LocalId, Ty};
+use crate::compiler::semantics::types::{LocalId, Ty, TyKind};
 use crate::hash::Set as HashSet;
 
 /// Whether an intrinsic key names a host operation that **blocks**: the call
@@ -302,7 +302,7 @@ impl Parking {
 /// Whether a type is a function type, which is the only kind of value a
 /// [`ExprKind::CallValue`] can reach and so the only kind [`Parking`] tracks.
 fn is_fn_ty(t: &Ty) -> bool {
-    matches!(t, Ty::Fn(..))
+    matches!(t.kind(), TyKind::Fn(..))
 }
 
 /// The `let`s of one body that bind a single name to a single function value.
@@ -492,7 +492,7 @@ pub fn parkability(program: &Program) -> Parking {
             }
         }
         for ty in found {
-            if w.parking_types.insert(ty.clone()) {
+            if w.parking_types.insert(*ty) {
                 changed = true;
             }
             if !w.any_parking_value {
@@ -627,7 +627,7 @@ export fn main(host: NodeHost): Result<(), Str> {
             params: Vec::new(),
             locals: Vec::new(),
             kind: FuncKind::Intrinsic(key.to_string()),
-            ret: Ty::Unit,
+            ret: Ty::UNIT,
             desc: None,
             span: Span::default(),
         }
@@ -640,7 +640,7 @@ export fn main(host: NodeHost): Result<(), Str> {
             params: Vec::new(),
             locals: Vec::new(),
             kind: FuncKind::Body(body),
-            ret: Ty::Unit,
+            ret: Ty::UNIT,
             desc: None,
             span: Span::default(),
         }
@@ -649,13 +649,13 @@ export fn main(host: NodeHost): Result<(), Str> {
     fn call_to(to: u32) -> Expr {
         Expr::new(
             ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(to)), args: Vec::new() },
-            Ty::Unit,
+            Ty::UNIT,
             Span::default(),
         )
     }
 
     fn fn_ty(params: Vec<Ty>, ret: Ty) -> Ty {
-        Ty::Fn(params, Box::new(ret))
+        Ty::func(params, ret)
     }
 
     /// A call to `to` whose *result* is a function value of type `ty` — a
@@ -671,7 +671,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     fn call_value(callee: Expr) -> Expr {
         Expr::new(
             ExprKind::CallValue { callee: Box::new(callee), args: Vec::new() },
-            Ty::Unit,
+            Ty::UNIT,
             Span::default(),
         )
     }
@@ -693,7 +693,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     fn calls(to: &[u32]) -> Expr {
         Expr::new(
             ExprKind::Tuple(to.iter().map(|t| call_to(*t)).collect()),
-            Ty::Unit,
+            Ty::UNIT,
             Span::default(),
         )
     }
@@ -836,16 +836,16 @@ export fn main(host: NodeHost): Result<(), Str> {
     /// park" meant.
     #[test]
     fn a_call_through_a_function_value_is_answered_by_what_it_can_reach() {
-        let plain = fn_ty(vec![Ty::Unit], Ty::Unit);
-        let carrying = fn_ty(vec![Ty::Ctx(types::CtxTypeId(0))], Ty::Unit);
+        let plain = fn_ty(vec![Ty::UNIT], Ty::UNIT);
+        let carrying = fn_ty(vec![Ty::ctx(types::CtxTypeId(0))], Ty::UNIT);
         let program = hand_built(vec![
             body_func("main", calls(&[1, 2])),
             body_func("through a plain callback", call_value(call_to_ty(3, plain))),
             body_func(
                 "through a callback taking the context",
-                call_value(call_to_ty(3, carrying.clone())),
+                call_value(call_to_ty(3, carrying)),
             ),
-            body_func("maker", Expr::new(ExprKind::Unit, Ty::Unit, Span::default())),
+            body_func("maker", Expr::new(ExprKind::Unit, Ty::UNIT, Span::default())),
             body_func("builder", lambda_of(carrying, call_to(5))),
             intrinsic_func("sleepMilliseconds", "host.HostClock.sleepMilliseconds"),
         ]);
@@ -951,7 +951,7 @@ export fn main(host: NodeHost): Result<(), Str> {
                 targs: Vec::new(),
                 args: Vec::new(),
             },
-            Ty::Unit,
+            Ty::UNIT,
             Span::default(),
         );
         let program = hand_built(vec![body_func("main", node)]);

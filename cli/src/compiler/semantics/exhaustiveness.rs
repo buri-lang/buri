@@ -35,7 +35,7 @@ use std::borrow::Cow;
 
 use crate::compiler::semantics::inference::Infer;
 use crate::compiler::semantics::typed::{self, PatKind, Pattern};
-use crate::compiler::semantics::types::{Prim, Ty, TyConId, TyDef};
+use crate::compiler::semantics::types::{Prim, Ty, TyKind, TyConId, TyDef};
 use crate::diagnostics::{Diagnostic, Span};
 use crate::hash::{Map as HashMap, Set as HashSet};
 
@@ -87,9 +87,9 @@ impl Ctor {
             Ctor::Variant(con, v) => {
                 tables.tycon(*con).variants().get(*v).map_or(0, |x| x.fields.len())
             }
-            Ctor::Single => match ty {
-                Ty::Tuple(ts) => ts.len(),
-                Ty::Con(con, _) => tables.tycon(*con).fields().len(),
+            Ctor::Single => match ty.kind() {
+                TyKind::Tuple(ts) => ts.len(),
+                TyKind::Con(con, _) => tables.tycon(*con).fields().len(),
                 _ => 0,
             },
             Ctor::Bool(_) | Ctor::Lit(_) => 0,
@@ -101,8 +101,8 @@ impl Ctor {
     fn field_types(&self, tables: &crate::compiler::semantics::types::Tables, ty: &Ty) -> Vec<Ty> {
         match self {
             Ctor::Variant(con, v) => {
-                let args: &[Ty] = match ty {
-                    Ty::Con(_, a) => a,
+                let args: &[Ty] = match ty.kind() {
+                    TyKind::Con(_, a) => a,
                     _ => &[],
                 };
                 let Some(variant) = tables.tycon(*con).variants().get(*v) else {
@@ -114,9 +114,9 @@ impl Ctor {
                     .map(|f| crate::compiler::semantics::types::substitute(&f.ty, args, None))
                     .collect()
             }
-            Ctor::Single => match ty {
-                Ty::Tuple(ts) => ts.clone(),
-                Ty::Con(con, args) => tables
+            Ctor::Single => match ty.kind() {
+                TyKind::Tuple(ts) => ts.to_vec(),
+                TyKind::Con(con, args) => tables
                     .tycon(*con)
                     .fields()
                     .iter()
@@ -125,9 +125,9 @@ impl Ctor {
                 _ => Vec::new(),
             },
             Ctor::Array(n) | Ctor::ArrayRest(n) => {
-                let elem = match ty {
-                    Ty::Array(e) => (**e).clone(),
-                    _ => Ty::Error,
+                let elem = match ty.kind() {
+                    TyKind::Array(e) => *e,
+                    _ => Ty::ERROR,
                 };
                 vec![elem; *n]
             }
@@ -150,7 +150,7 @@ enum Pat {
 static WILD: Pat = Pat::Wild;
 
 /// The type a column has when the caller supplied none.
-static UNTYPED: Ty = Ty::Error;
+static UNTYPED: Ty = Ty::ERROR;
 
 /// One row of the matrix: the patterns it holds, borrowed.
 ///
@@ -489,8 +489,8 @@ impl<'a> Ctx<'a> {
     /// The complete set of constructors for a type, or `None` when the type
     /// has too many to enumerate.
     fn all_ctors(&self, ty: &Ty) -> Option<Vec<Ctor>> {
-        match ty {
-            Ty::Con(con, _) => match &self.tables.tycon(*con).def {
+        match ty.kind() {
+            TyKind::Con(con, _) => match &self.tables.tycon(*con).def {
                 TyDef::Enum { variants } => {
                     Some((0..variants.len()).map(|i| Ctor::Variant(*con, i)).collect())
                 }
@@ -499,10 +499,10 @@ impl<'a> Ctx<'a> {
                 // Integers, strings, chars and floats need a `_` arm.
                 TyDef::Prim(_) => None,
             },
-            Ty::Tuple(_) | Ty::Unit => Some(vec![Ctor::Single]),
+            TyKind::Tuple(_) | TyKind::Unit => Some(vec![Ctor::Single]),
             // Finite, because rest patterns were expanded into fixed lengths
             // and nothing distinguishes anything longer than `limit`.
-            Ty::Array(_) => Some((0..=self.limit).map(Ctor::Array).collect()),
+            TyKind::Array(_) => Some((0..=self.limit).map(Ctor::Array).collect()),
             _ => None,
         }
     }
@@ -685,7 +685,7 @@ impl<'a> Ctx<'a> {
                                 let arity = c.arity(self.tables, head_ty);
                                 Witness::Ctor(
                                     c,
-                                    head_ty.clone(),
+                                    *head_ty,
                                     vec![Witness::Wild; arity],
                                 )
                             })
@@ -723,7 +723,7 @@ impl<'a> Ctx<'a> {
         }
         let rest = w.split_off(arity.min(w.len()));
         let mut out = Vec::with_capacity(rest.len().saturating_add(1));
-        out.push(Witness::Ctor(c.clone(), head_ty.clone(), w));
+        out.push(Witness::Ctor(c.clone(), *head_ty, w));
         out.extend(rest);
         out
     }
@@ -842,12 +842,12 @@ fn render(tables: &crate::compiler::semantics::types::Tables, w: &Witness) -> St
                 }
             }
             Ctor::Bool(b) => b.to_string(),
-            Ctor::Single => match ty {
-                Ty::Tuple(_) => {
+            Ctor::Single => match ty.kind() {
+                TyKind::Tuple(_) => {
                     let parts: Vec<String> = subs.iter().map(|s| render(tables, s)).collect();
                     format!("({})", parts.join(", "))
                 }
-                Ty::Con(con, _) => {
+                TyKind::Con(con, _) => {
                     let name = &tables.tycon(*con).name;
                     if subs.is_empty() {
                         name.clone()

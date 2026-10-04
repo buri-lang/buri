@@ -29,7 +29,7 @@ use crate::commands::serve;
 use crate::commands::watch;
 
 pub fn command_run(args: &arguments::Args) -> i32 {
-    let (mut session, targets) = match session::open_and_resolve(&args.flags, &args.targets) {
+    let (mut session, targets) = match session::open_and_resolve_to_build(&args.flags, &args.targets) {
         Ok(both) => both,
         Err(c) => return c as i32,
     };
@@ -379,7 +379,7 @@ fn starts_itself(output: &crate::build::buildfile::Output) -> bool {
     if let Some(custom) = &output.custom {
         return custom.js.is_none();
     }
-    crate::build::platforms::bundled(output.platform().proto())
+    crate::build::platforms::bundled(output.platform().slug())
         .and_then(|rule| rule.entries.iter().find(|e| e.name.value == output.entry_point()))
         .is_none_or(|entry| entry.js.is_none())
 }

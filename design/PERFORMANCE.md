@@ -2241,6 +2241,89 @@ backend still renders the `codegen` key it hands back (`llvm/mod.rs`
 `codegen_key`); the build system replaces it like the stencil one, so the
 same deletion applies there.
 
+### 6.20 Interned types, 2026-10-04
+
+§6.15 and §6.18 left `Ty` as the biggest cost in checking and
+monomorphization: a 40-byte owned tree, copied whole into every typed node,
+with a `Box` or `Vec` per level. Now a type is a reference into one
+process-wide table that holds each shape once (`semantics/intern.rs`):
+
+```rust
+pub struct Ty(&'static TyData);           // 8 bytes, Copy; == is a pointer compare
+match ty.kind() {                         // &'static TyKind
+    TyKind::Con(id, args) => …,           // args: &'static [Ty]
+    TyKind::Array(elem) => …,
+    …
+}
+Ty::con(id, args.iter().map(|a| subst.resolve(a)))   // looks the shape up, adds it if new
+```
+
+- Every phase shares the table, so `ty.kind()` works on any thread. A table
+  per analysis would have to be passed to every function that reads a type.
+- 64 shards behind a mutex each; reading a type takes no lock. Profiles show
+  no contention, and `intern` is 0.6% of a whole `mixed-10k` run.
+- Each entry carries flags for "has a variable", "has a parameter or `Self`"
+  and "has `Error`". `Subst::resolve` and `substitute` return a type untouched
+  when the flags say nothing in it can change, which is most calls.
+- `Hash` writes a structural hash stored on the entry, never the address, and
+  `Debug` prints the structure the old derive printed. So which thread interned
+  a shape first can't reach output. There's no `Ord`.
+- Inference is unchanged: a variable is a `Var(id)` type, bound in the body's
+  `Subst`.
+- `ir::TypeId` stays. It numbers one program's types for the backends, and its
+  map is now keyed by interned types.
+- Entries are never freed. They're bounded by distinct shapes, and every id in
+  a shape is a small dense number each analysis reuses, so a language server
+  re-checking a program finds its types already there.
+
+Instructions retired and peak RSS per phase, from `--rss-child` under
+`/usr/bin/time -l`, median of three alternating runs at load 33–50. Phase rows
+are net of the phase before: `sema` minus `lex+parse`, the lowering rows minus
+`sema`.
+
+| corpus | phase | `main` | interned | Δ |
+|---|---|---:|---:|---:|
+| `saved:mixed-10k` | `sema` | 154 M | 137 M | −11% |
+| | `lower+js` | 452 M | 419 M | −7.4% |
+| | `lower+macos-arm64` | 740 M | 666 M | −10% |
+| `mixed-100k` | `sema` | 863 M | 755 M | −12.5% |
+| | `lower+js` | 3,672 M | 3,431 M | −6.6% |
+| | `lower+macos-arm64` | 5,802 M | 5,210 M | −10% |
+| `generic-blowup-100k` | `sema` | 928 M | 767 M | −17% |
+| | `lower+js` | 5,349 M | 4,808 M | −10% |
+| | `lower+macos-arm64` | 7,940 M | 6,820 M | −14% |
+
+| End to end, `main` against interned | before | after |
+|---|---:|---:|
+| `mixed-100k` peak RSS after `sema` | 140 MB | 109 MB (−22%) |
+| `mixed-100k` peak RSS after `lower+js` | 316 MB | 233 MB (−26%) |
+| `mixed-100k` peak RSS after `lower+macos-arm64` | 391 MB | 306 MB (−22%) |
+| `generic-blowup-100k` peak RSS after `lower+macos-arm64` | 495 MB | 382 MB (−23%) |
+| `saved:mixed-10k` sema allocations, per 1,000 lines | 11,560 | 10,101 (−13%) |
+| `saved:mixed-10k` sema, fastest sample | 6.94–8.22 ms | 5.42–5.62 ms (−22%) |
+| `saved:mixed-1k` sema, fastest sample | 2.13–2.18 ms | 1.53–1.65 ms (−28%) |
+| recovery test, instructions | 31.3–31.5 G | 28.0–28.1 G (−11%) |
+| recovery test, CPU | 3.51–3.53 s | 3.32–3.34 s |
+| recovery test, peak memory | 237–254 MB | 190–198 MB (−20%) |
+| cold `buri test //...` on the monorepo copy, instructions | 94.4–94.5 G | 78.9–79.2 G (−16%) |
+| cold `buri test //...`, peak memory | 2,100–2,176 MB | 1,703–1,869 MB |
+| cold `buri test //...`, CPU (user) | 74–76 s | 78–79 s |
+
+Timed lowering rows moved within noise at load 12–37, so the instruction
+counts above are the reading for them. The monorepo ran two alternating pairs at
+load 4–32; its wall time swung 26–112 s with the load and isn't comparable.
+User CPU rose 4% while instructions fell 16%, which is the load on the
+machine, not the change: the recovery test, run back to back, fell on both.
+
+Output is identical. The full suite passes unmodified, the LLVM `native` suite
+passes, including `reproducible.rs`, and all 889 objects of a cold monorepo
+`buri test` match `main`'s by SHA-256. Its JavaScript matches once each test
+library's `$t.seed` is masked (§6.15).
+
+**What's left.** `Ty` no longer shows in a profile. Allocation in checking is
+now the typed tree's own `Box<Expr>` and `Vec<Expr>`, and in lowering it's
+`inline_expr` and `ExprKind::clone` copying bodies.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

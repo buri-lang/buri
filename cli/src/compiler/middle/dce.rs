@@ -216,7 +216,7 @@ mod tests {
                 Some(e) => FuncKind::Body(e),
                 None => FuncKind::Unbuilt,
             },
-            ret: Ty::Unit,
+            ret: Ty::UNIT,
             desc: None,
             span: Span::default(),
         }
@@ -231,7 +231,7 @@ mod tests {
     fn call(to: u32) -> Expr {
         Expr::new(
             ExprKind::CallFn { func: Callee::Func(FuncIdx(to)), args: Vec::new() },
-            Ty::Unit,
+            Ty::UNIT,
             Span::default(),
         )
     }
@@ -259,8 +259,8 @@ mod tests {
     fn what_the_entry_point_reaches_survives_and_the_rest_does_not() {
         let mut p = program(vec![
             func("main", Some(call(1))),
-            func("live", Some(Expr::new(ExprKind::Unit, Ty::Unit, Span::default()))),
-            func("dead", Some(Expr::new(ExprKind::Unit, Ty::Unit, Span::default()))),
+            func("live", Some(Expr::new(ExprKind::Unit, Ty::UNIT, Span::default()))),
+            func("dead", Some(Expr::new(ExprKind::Unit, Ty::UNIT, Span::default()))),
         ]);
         run(&mut p);
         assert!(p.funcs[0].body().is_some());
@@ -273,8 +273,8 @@ mod tests {
     fn a_dropped_function_keeps_its_slot() {
         let mut p = program(vec![
             func("main", Some(call(2))),
-            func("dead", Some(Expr::new(ExprKind::Unit, Ty::Unit, Span::default()))),
-            func("live", Some(Expr::new(ExprKind::Unit, Ty::Unit, Span::default()))),
+            func("dead", Some(Expr::new(ExprKind::Unit, Ty::UNIT, Span::default()))),
+            func("live", Some(Expr::new(ExprKind::Unit, Ty::UNIT, Span::default()))),
         ]);
         run(&mut p);
         assert_eq!(p.funcs.len(), 3);
@@ -287,7 +287,7 @@ mod tests {
     #[test]
     fn a_dead_cycle_does_not_keep_itself_alive() {
         let mut p = program(vec![
-            func("main", Some(Expr::new(ExprKind::Unit, Ty::Unit, Span::default()))),
+            func("main", Some(Expr::new(ExprKind::Unit, Ty::UNIT, Span::default()))),
             func("a", Some(call(2))),
             func("b", Some(call(1))),
         ]);
@@ -302,12 +302,12 @@ mod tests {
     fn a_function_referenced_as_a_value_is_reached() {
         let body = Expr::new(
             ExprKind::FnRef(Callee::Func(FuncIdx(1))),
-            Ty::Unit,
+            Ty::UNIT,
             Span::default(),
         );
         let mut p = program(vec![
             func("main", Some(body)),
-            func("passed_around", Some(Expr::new(ExprKind::Unit, Ty::Unit, Span::default()))),
+            func("passed_around", Some(Expr::new(ExprKind::Unit, Ty::UNIT, Span::default()))),
         ]);
         run(&mut p);
         assert!(p.funcs[1].body().is_some());
@@ -327,7 +327,7 @@ mod tests {
     #[test]
     fn two_dropped_copies_of_one_intrinsic_do_not_share_a_symbol() {
         let mut p = program(vec![
-            func("main", Some(Expr::new(ExprKind::Unit, Ty::Unit, Span::default()))),
+            func("main", Some(Expr::new(ExprKind::Unit, Ty::UNIT, Span::default()))),
             intrinsic("core_str$Str_compare", "str.compare"),
             intrinsic("core_str$Str_compare", "str.compare"),
         ]);
@@ -354,7 +354,7 @@ mod tests {
     #[test]
     fn a_lone_dropped_intrinsic_keeps_its_symbol() {
         let mut p = program(vec![
-            func("main", Some(Expr::new(ExprKind::Unit, Ty::Unit, Span::default()))),
+            func("main", Some(Expr::new(ExprKind::Unit, Ty::UNIT, Span::default()))),
             intrinsic("core_lazy$load", "lazy.load"),
         ]);
         run(&mut p);

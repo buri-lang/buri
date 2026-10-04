@@ -57,7 +57,7 @@ use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{
     self, Cycles, EnumRepr, Layout, Layouts, Repr as LayoutRepr, Scalar,
 };
-use crate::compiler::semantics::types::{Tables, Ty};
+use crate::compiler::semantics::types::{Tables, Ty, TyKind};
 use crate::hash::Map;
 
 /// What one machine-sized piece of an aggregate is.
@@ -190,7 +190,7 @@ impl<'a> Reprs<'a> {
                 slots: Vec::new(),
                 fields: Vec::new(),
                 counted: Vec::new(),
-                ty: Ty::Unit,
+                ty: Ty::UNIT,
             },
             counts: Counts::default(),
         }
@@ -199,7 +199,7 @@ impl<'a> Reprs<'a> {
     /// The flattening of an interned IR type.
     pub fn of(&mut self, program: &ir::Program, id: ir::TypeId) -> &Repr {
         if !self.memo.contains_key(&id.index()) {
-            let ty = program.type_info(id).ty.clone();
+            let ty = program.type_info(id).ty;
             let repr = self.build(&ty);
             self.memo.insert(id.index(), repr);
         }
@@ -215,12 +215,12 @@ impl<'a> Reprs<'a> {
         let repr = self.build(ty);
         let at = self.side.len();
         self.side.push(repr);
-        self.by_ty.insert(ty.clone(), at);
+        self.by_ty.insert(*ty, at);
         self.side.get(at).unwrap_or(&self.empty)
     }
 
     fn build(&mut self, ty: &Ty) -> Repr {
-        let layout = self.layouts.of(ty.clone());
+        let layout = self.layouts.of(*ty);
         let mut slots = Vec::new();
         let mut counted = Vec::new();
         let mut fields = Vec::new();
@@ -327,7 +327,7 @@ impl<'a> Reprs<'a> {
                 }
             },
         }
-        Repr { layout, slots, fields, counted, ty: ty.clone() }
+        Repr { layout, slots, fields, counted, ty: *ty }
     }
 
     /// Places one member's slots inside its owner, at `at`.
@@ -399,16 +399,16 @@ impl<'a> Reprs<'a> {
 
     /// `T` of an `Option<T>` that took the niche.
     fn option_payload(&self, ty: &Ty) -> Option<Ty> {
-        match ty {
-            Ty::Con(_, args) => args.first().cloned(),
+        match ty.kind() {
+            TyKind::Con(_, args) => args.first().cloned(),
             _ => None,
         }
     }
 
     /// The element type of a `[T]`.
     pub fn element(&self, ty: &Ty) -> Option<Ty> {
-        match ty {
-            Ty::Array(t) => Some((**t).clone()),
+        match ty.kind() {
+            TyKind::Array(t) => Some(*t),
             _ => None,
         }
     }

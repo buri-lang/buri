@@ -69,7 +69,7 @@ fn copy_assets(session: &Session, target: TargetId, output: &Output, diagnostics
                     .map(|_| ()),
                 None => Ok(()),
             },
-            None => match crate::build::platforms::file(output.platform().proto(), &asset.value) {
+            None => match crate::build::platforms::file(output.platform().slug(), &asset.value) {
                 Some(text) => std::fs::write(&destination, text),
                 None => Ok(()),
             },
@@ -92,7 +92,7 @@ fn copy_assets(session: &Session, target: TargetId, output: &Output, diagnostics
 pub fn platform_rule<'s>(session: &'s Session, output: &Output) -> Option<&'s PlatformRule> {
     match &output.custom {
         Some(custom) => session.workspace.platform_rule(&custom.label.value).map(|(_, rule)| rule),
-        None => crate::build::platforms::bundled(output.platform().proto()),
+        None => crate::build::platforms::bundled(output.platform().slug()),
     }
 }
 
@@ -372,44 +372,26 @@ fn needed_structs(
     module: &str,
     point: &str,
 ) -> Vec<crate::build::hosted::Needed> {
-    use crate::compiler::semantics::resolve::Sym;
-    use crate::compiler::semantics::types::Ty;
+    use crate::compiler::semantics::resolve::{declared_host, js_structs, own_fn};
+    use crate::build::hosted::{Method, Needed};
     let tables = &analysis.checked.tables;
-    let Some(platform) = analysis.loaded.find(module) else {
+    let Some(platform) = analysis.loaded.find(module) else { return Vec::new() };
+    let decl = own_fn(&analysis.loaded, &analysis.checked.scopes, module, point);
+    let Some(host) = decl.and_then(|d| declared_host(tables, platform, &tables.fn_info(d).params)) else {
         return Vec::new();
     };
-    let Some(Sym::Fn(decl)) =
-        analysis.checked.scopes.get(platform.index()).and_then(|s| s.own.get(point)).cloned()
-    else {
-        return Vec::new();
+    let structs = js_structs(tables, platform, host).into_iter().filter(|(_, m)| !m.is_empty());
+    let method = |f: &crate::compiler::semantics::types::FnInfo| Method {
+        name: f.name.clone(),
+        params: f.params.len(),
+        effect: f.impl_of.map(|(t, _)| tables.trait_(t).name.clone()).unwrap_or_default(),
     };
-    let Some(Ty::Con(host, _)) = tables.fn_info(decl).params.first().map(|p| p.ty.clone()) else {
-        return Vec::new();
-    };
-    if tables.tycon(host).module != platform {
-        return Vec::new();
-    }
-    let mut out = Vec::new();
-    for field in tables.tycon(host).fields() {
-        let Ty::Con(con, _) = &field.ty else { continue };
-        if tables.tycon(*con).module != platform {
-            continue;
-        }
-        let methods: Vec<crate::build::hosted::Method> = tables
-            .fns
-            .iter()
-            .filter(|f| f.self_ty == Some(*con) && f.intrinsic)
-            .map(|f| crate::build::hosted::Method {
-                name: f.name.clone(),
-                params: f.params.len(),
-                effect: f.impl_of.map(|(t, _)| tables.trait_(t).name.clone()).unwrap_or_default(),
-            })
-            .collect();
-        if !methods.is_empty() {
-            out.push(crate::build::hosted::Needed { name: tables.tycon(*con).name.clone(), methods });
-        }
-    }
-    out
+    structs
+        .map(|(con, methods)| Needed {
+            name: tables.tycon(con).name.clone(),
+            methods: methods.into_iter().map(|f| method(tables.fn_info(f))).collect(),
+        })
+        .collect()
 }
 
 /// Reads and checks an entry's `js` file: every production struct the entry's
@@ -432,7 +414,7 @@ fn host_file(
     let (module, js) = match &output.custom {
         Some(custom) => (format!("//{}/platform.buri", custom.package_path()), custom.js.clone()),
         None => {
-            let name = output.platform().proto();
+            let name = output.platform().slug();
             let js = crate::build::platforms::bundled(name)
                 .and_then(|rule| rule.entries.iter().find(|e| e.name.value == point))
                 .and_then(|e| e.js.as_ref().map(|js| js.value.clone()));
@@ -468,7 +450,7 @@ fn host_file(
             }
         }
         None => {
-            let name = output.platform().proto();
+            let name = output.platform().slug();
             let Some(text) = crate::build::platforms::file(name, &js) else { return Ok(None) };
             session.map.embedded(&format!("{name}/{js}"), text)
         }
@@ -1501,7 +1483,7 @@ fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, S
             types.sort_unstable();
             types.dedup();
             let seeds =
-                types.iter().filter_map(|id| program.types.get(*id)).map(|info| info.ty.clone());
+                types.iter().filter_map(|id| program.types.get(*id)).map(|info| info.ty);
             let shapes = layout_closure_signature(layouts, tables, seeds);
             (name, hash_bytes(text.as_bytes()), hash_bytes(shapes.as_bytes()))
         },
@@ -1531,7 +1513,7 @@ fn layout_closure_signature(
     tables: &Tables,
     seeds: impl Iterator<Item = crate::compiler::semantics::types::Ty>,
 ) -> String {
-    use crate::compiler::semantics::types::{self, Ty};
+    use crate::compiler::semantics::types::{self, Ty, TyKind};
 
     let mut seen: std::collections::HashSet<Ty> = std::collections::HashSet::new();
     let mut stack: Vec<Ty> = seeds.collect();
@@ -1540,18 +1522,18 @@ fn layout_closure_signature(
         // Only the shaped types have a layout worth folding in; a bare
         // parameter or an inference variable has none and cannot be reached in
         // a monomorphized program anyway.
-        if matches!(ty, Ty::Var(_) | Ty::Param(_) | Ty::SelfTy | Ty::Error) {
+        if matches!(ty.kind(), TyKind::Var(_) | TyKind::Param(_) | TyKind::SelfTy | TyKind::Error) {
             continue;
         }
-        if !seen.insert(ty.clone()) {
+        if !seen.insert(ty) {
             continue;
         }
-        lines.push(format!("{} {:?}\n", types::show(tables, None, &[], &ty), layouts.of(ty.clone())));
+        lines.push(format!("{} {:?}\n", types::show(tables, None, &[], &ty), layouts.of(ty)));
         // The types this one reaches: its arguments and its constituent parts,
         // then — for a nominal type — the types of its fields or its variants'
         // fields, which is where a shape reached only across a pointer lives.
-        match &ty {
-            Ty::Con(id, args) => {
+        match ty.kind() {
+            TyKind::Con(id, args) => {
                 stack.extend(args.iter().cloned());
                 stack.extend(types::field_types(tables, &ty));
                 let variants = tables.tycon(*id).variants().len();
@@ -1559,13 +1541,13 @@ fn layout_closure_signature(
                     stack.extend(types::variant_types(tables, &ty, v));
                 }
             }
-            Ty::Array(el) => stack.push((**el).clone()),
-            Ty::Tuple(els) => stack.extend(els.iter().cloned()),
-            Ty::Fn(ps, r) => {
+            TyKind::Array(el) => stack.push(*el),
+            TyKind::Tuple(els) => stack.extend(els.iter().cloned()),
+            TyKind::Fn(ps, r) => {
                 stack.extend(ps.iter().cloned());
-                stack.push((**r).clone());
+                stack.push(*r);
             }
-            Ty::Ctx(_) => stack.extend(types::field_types(tables, &ty)),
+            TyKind::Ctx(_) => stack.extend(types::field_types(tables, &ty)),
             _ => {}
         }
     }
@@ -2289,7 +2271,7 @@ pub fn artifact_relative(root: &Path, package_path: &str, output: &Output) -> Pa
     // So is a bundled platform's entry with a `js` file of its own, such as
     // `web`'s `main.mjs`: the files the platform ships beside it name it.
     let adapted = output.custom.is_none()
-        && crate::build::platforms::bundled(output.platform().proto())
+        && crate::build::platforms::bundled(output.platform().slug())
             .is_some_and(|rule| rule.entries.iter().any(|e| e.js.is_some()));
     let default = match (&output.custom, output.entry_name()) {
         (Some(custom), _) => custom.point.clone(),
@@ -2957,7 +2939,7 @@ mod tests {
                 chosen.is_ok() && chosen.map(|b| b.name() == "js").unwrap_or(false),
                 platform.is_javascript(),
                 "`{}` and the js backend disagree about each other",
-                platform.proto()
+                platform.slug()
             );
         }
     }
