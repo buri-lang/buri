@@ -53,6 +53,8 @@ error: an extension or `Any` field, written `[name]`, is not supported [textprot
   = a `.proto` schema here declares no extensions, and an `Any` would name a type the schema does not
   = fix: write the message's own fields
 
+      # proto-file: server.proto
+      # proto-message: Server
       # proto-import: other.proto
       [pkg.ext]: 1
       [type.googleapis.com/pkg.Point] { x: 1 }
@@ -129,8 +131,10 @@ error: expected `,` or `]`, found `count` [textproto-syntax]
   |
   = fix: separate the values with `,` and close the list with `]`
 
+      # proto-file: server.proto
+      # proto-message: Server
       name: "api"
-      ports: [80, 443]
+      ports: [80 443]
 
     The first thing that does not parse is reported, and nothing after it is
     checked. A scalar takes :, a message takes { ... } or < ... >, and a list
@@ -159,6 +163,8 @@ error: `id` is set twice, and it holds one value [textproto-duplicate-field]
   |
   = fix: delete one of the two, or make the field `repeated` in the schema
 
+      # proto-file: server.proto
+      # proto-message: Server
       name: "api"
       name: "web"
 
@@ -179,6 +185,8 @@ error: `count` is of type `int32`, and this is not a whole number [textproto-inv
   |
   = fix: write a whole number
 
+      # proto-file: server.proto
+      # proto-message: Server
       port: "80"
 
       # an `int32` takes a whole number
