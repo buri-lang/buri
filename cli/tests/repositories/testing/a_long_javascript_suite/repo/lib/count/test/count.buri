@@ -1,0 +1,242 @@
+from "core/testing/assert" import * as assert;
+from "//lib/count" import { double };
+
+test "doubles 01" {
+    assert.equal(double(1), 2);
+}
+
+test "doubles 02" {
+    assert.equal(double(2), 4);
+}
+
+test "doubles 03" {
+    assert.equal(double(3), 6);
+}
+
+test "doubles 04" {
+    assert.equal(double(4), 8);
+}
+
+test "doubles 05" {
+    assert.equal(double(5), 10);
+}
+
+test "doubles 06" {
+    assert.equal(double(6), 12);
+}
+
+test "doubles 07" {
+    assert.equal(double(7), 14);
+}
+
+test "doubles 08" {
+    assert.equal(double(8), 16);
+}
+
+test "doubles 09" {
+    assert.equal(double(9), 18);
+}
+
+test "doubles 10" {
+    assert.equal(double(10), 20);
+}
+
+test "doubles 11" {
+    assert.equal(double(11), 22);
+}
+
+test "doubles 12" {
+    assert.equal(double(12), 24);
+}
+
+test "doubles 13" {
+    assert.equal(double(13), 26);
+}
+
+test "doubles 14" {
+    assert.equal(double(14), 28);
+}
+
+test "doubles 15" {
+    assert.equal(double(15), 30);
+}
+
+test "doubles 16" {
+    assert.equal(double(16), 32);
+}
+
+test "doubles 17" {
+    assert.equal(double(17), 34);
+}
+
+test "doubles 18" {
+    assert.equal(double(18), 36);
+}
+
+test "doubles 19" {
+    assert.equal(double(19), 38);
+}
+
+test "doubles 20" {
+    assert.equal(double(20), 40);
+}
+
+test "doubles 21" {
+    assert.equal(double(21), 42);
+}
+
+test "doubles 22" {
+    assert.equal(double(22), 44);
+}
+
+test "doubles 23" {
+    assert.equal(double(23), 46);
+}
+
+test "doubles 24" {
+    assert.equal(double(24), 48);
+}
+
+test "doubles 25" {
+    assert.equal(double(25), 50);
+}
+
+test "doubles 26" {
+    assert.equal(double(26), 52);
+}
+
+test "doubles 27" {
+    assert.equal(double(27), 54);
+}
+
+test "doubles 28" {
+    assert.equal(double(28), 56);
+}
+
+test "doubles 29" {
+    assert.equal(double(29), 58);
+}
+
+test "doubles 30" {
+    assert.equal(double(30), 60);
+}
+
+test "doubles 31" {
+    assert.equal(double(31), 62);
+}
+
+test "doubles 32" {
+    assert.equal(double(32), 64);
+}
+
+test "doubles 33" {
+    assert.equal(double(33), 66);
+}
+
+test "doubles 34" {
+    assert.equal(double(34), 68);
+}
+
+test "doubles 35" {
+    assert.equal(double(35), 70);
+}
+
+test "doubles 36" {
+    assert.equal(double(36), 72);
+}
+
+test "doubles 37" {
+    assert.equal(double(37), 74);
+}
+
+test "doubles 38" {
+    assert.equal(double(38), 76);
+}
+
+test "doubles 39" {
+    assert.equal(double(39), 78);
+}
+
+test "doubles 40" {
+    assert.equal(double(40), 80);
+}
+
+test "doubles 41" {
+    assert.equal(double(41), 82);
+}
+
+test "doubles 42" {
+    assert.equal(double(42), 84);
+}
+
+test "doubles 43" {
+    assert.equal(double(43), 86);
+}
+
+test "doubles 44" {
+    assert.equal(double(44), 88);
+}
+
+test "doubles 45" {
+    assert.equal(double(45), 90);
+}
+
+test "doubles 46" {
+    assert.equal(double(46), 92);
+}
+
+test "doubles 47" {
+    assert.equal(double(47), 94);
+}
+
+test "doubles 48" {
+    assert.equal(double(48), 96);
+}
+
+test "doubles 49" {
+    assert.equal(double(49), 98);
+}
+
+test "doubles 50" {
+    assert.equal(double(50), 100);
+}
+
+test "doubles 51" {
+    assert.equal(double(51), 102);
+}
+
+test "doubles 52" {
+    assert.equal(double(52), 104);
+}
+
+test "doubles 53" {
+    assert.equal(double(53), 106);
+}
+
+test "doubles 54" {
+    assert.equal(double(54), 108);
+}
+
+test "doubles 55" {
+    assert.equal(double(55), 110);
+}
+
+test "doubles 56" {
+    assert.equal(double(56), 112);
+}
+
+test "doubles 57" {
+    assert.equal(double(57), 114);
+}
+
+test "doubles 58" {
+    assert.equal(double(58), 116);
+}
+
+test "doubles 59" {
+    assert.equal(double(59), 118);
+}
+
+test "doubles 60" {
+    assert.equal(double(60), 120);
+}

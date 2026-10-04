@@ -528,7 +528,7 @@ pub fn generate(
         stmts.push(harness);
         // The runner appends its own epilogue after minification, so what that
         // epilogue names has to survive dead code elimination.
-        for name in ["$run", "$write", "$str", "$t", "$host"] {
+        for name in ["$run", "$pull", "$write", "$str", "$t", "$host"] {
             roots.push(name.into());
         }
     }
@@ -3222,17 +3222,30 @@ impl<'a> Gen<'a> {
         // one record. `undefined` where a block scheduled nothing —
         // `JSON.stringify` drops the key, so the artifact a suite without
         // `tasks()` produces is the bytes it always produced.
-        Stmt::Raw(format!(
-            "{}async function $run(filter){{const out=[];for(const[n,m,f]of $cases){{\
-             if(filter&&!n.includes(filter))continue;\
+        //
+        // `$case` runs one test and answers its record, and `$run` runs every
+        // test the filter keeps, in order. `$pull` is how one suite runs in
+        // several processes (`commands/test.rs`'s `run_js_pulled`): it asks
+        // for a test with a `next` line, reads the test's index from standard
+        // input, and writes the test's record on a `ran` line, until its input
+        // ends. The record is written as `JSON.stringify` writes it into
+        // `$run`'s array, so the runner can join the records into the bytes one
+        // process would have written.
+        Stmt::Raw(String::from(
+            "async function $case(n,m,f){\
              $t.from=$t.h.length;$t.pass=0n;$t.total=1n;$t.note=null;\
-             const started=Date.now();try{{await f();out.push({{name:n,module:m,ok:true,ms:Date.now()-started}});}}\
-             catch(e){{out.push({{name:n,module:m,ok:false,ms:Date.now()-started,\
-             error:e&&e.$assert?e.$assert:{{message:String(e&&e.message||e)}},\
+             const started=Date.now();try{await f();return{name:n,module:m,ok:true,ms:Date.now()-started};}\
+             catch(e){return{name:n,module:m,ok:false,ms:Date.now()-started,\
+             error:e&&e.$assert?e.$assert:{message:String(e&&e.message||e)},\
              order:$taskOrderNote()||undefined,\
-             stack:e&&e.stack||\"\"}});}}}}\
-             return out;}}",
-            ""
+             stack:e&&e.stack||\"\"};}}\
+             async function $run(filter){const out=[];for(const[n,m,f]of $cases){\
+             if(filter&&!n.includes(filter))continue;out.push(await $case(n,m,f));}\
+             return out;}\
+             async function $pull(){for(;;){$write(1,'{\"next\":true}\\n');\
+             const k=await $host_HostStdin_readLine(null);if(k===undefined)return;\
+             const[n,m,f]=$cases[Number(k)];\
+             $write(1,'{\"ran\":'+k+',\"record\":'+JSON.stringify(await $case(n,m,f))+'}\\n');}}",
         ))
     }
 }

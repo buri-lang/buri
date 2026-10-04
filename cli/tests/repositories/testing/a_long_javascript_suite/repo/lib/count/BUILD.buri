@@ -1,0 +1,8 @@
+library {
+    sources: ["count.buri"]
+
+    test {
+        sources: ["test/count.buri"]
+        backends: [JS]
+    }
+}

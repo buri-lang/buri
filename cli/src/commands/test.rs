@@ -867,6 +867,8 @@ enum Job {
     Served(Box<ServedJob>),
     /// A bundle a run before this one emitted, written out and run again.
     Bundled(Box<BundledJob>),
+    /// One of the processes running a bundle's tests a test at a time.
+    Js(std::sync::Arc<JsPulled>),
 }
 
 /// What a job hands back to [`drive`].
@@ -935,7 +937,7 @@ fn roots_of(program: &monomorphize::Program) -> Vec<Root> {
 /// runs anything, so a run never stands in the way of the next build.
 fn work(job: Job, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
     match job {
-        Job::Front(job) => front(*job, held, tell, shared),
+        Job::Front(job) => front(*job, held, queue, tell, shared),
         Job::Batch(job) => batch_job(*job, held, queue, tell, shared),
         Job::Part(job) => part(*job, held, queue, tell, shared),
         Job::Member(job) => run_member(job, queue, shared),
@@ -945,7 +947,11 @@ fn work(job: Job, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Do
         }
         Job::Bundled(job) => {
             drop(held);
-            serve_bundle(*job, shared)
+            serve_bundle(*job, queue, shared)
+        }
+        Job::Js(pulled) => {
+            drop(held);
+            run_js_member(pulled, shared)
         }
     }
 }
@@ -1036,7 +1042,7 @@ struct FrontJob {
 }
 
 /// One suite's front end, and then its back end on the same worker.
-fn front(job: FrontJob, held: Held, tell: &Tell, shared: &Shared) -> Done {
+fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
     let FrontJob {
         slot,
         target,
@@ -1106,7 +1112,7 @@ fn front(job: FrontJob, held: Held, tell: &Tell, shared: &Shared) -> Done {
     }
     if !platform.is_native() {
         let job = JsJob { slot, program, tables, key, path: js, limit, on_timeout, skipped };
-        return run_js(job, held, shared);
+        return run_js(job, held, queue, shared);
     }
     // A filtered native run does not even generate the tests it leaves out.
     if let (Some(f), monomorphize::ProgramRoots::Tests(tests)) = (filter, &mut program.roots) {
@@ -1268,34 +1274,23 @@ struct JsJob {
     skipped: usize,
 }
 
-fn run_js(job: JsJob, held: Held, shared: &Shared) -> Done {
+fn run_js(job: JsJob, held: Held, queue: &Queue, shared: &Shared) -> Done {
     let JsJob { slot, mut program, tables, key, path, limit, on_timeout, skipped } = job;
-    let answer =
-        |answer, built| Done::Answer { slot, answer, explain: String::new(), notes: String::new(), built };
     let mut diagnostics = Diagnostics::new();
     let roots = roots_of(&program);
     let bundle =
         match actions::emit_test_bundle(&mut program, &tables, &shared.flags, &mut diagnostics) {
             Ok(bundle) => bundle,
-            Err(d) => return answer(Err(d), None),
+            Err(d) => {
+                return Done::Answer { slot, answer: Err(d), explain: String::new(), notes: String::new(), built: None }
+            }
         };
     drop(program);
     drop(tables);
     drop(held);
     let run = JsRun { key, path, limit, on_timeout };
-    match run_bundle(&bundle, &run, shared) {
-        // A bundle that ran to a verdict, or out of time, is worth running
-        // again next time, unless the verdict is one the cache now serves.
-        JsRan::Ran(ran) => {
-            let served = matches!(&ran, Ok(cases) if may_cache(cases, &shared.flags));
-            let built = (!served).then(|| {
-                let bundle = actions::put_test_bundle(&shared.root, &bundle);
-                Built::Bundled(Box::new(Bundled { bundle, skipped, roots: roots.clone() }))
-            });
-            answer(ran.map(|cases| Ran { cases, skipped, roots }), built)
-        }
-        JsRan::NotRun(d) => answer(Err(d), None),
-    }
+    let suite = JsSuite { slot, origin: JsOrigin::Emitted(bundle), skipped, roots, run };
+    start_js(suite, queue, shared)
 }
 
 /// How a bundle is run, whether it was emitted just now or by an earlier run.
@@ -1314,58 +1309,335 @@ enum JsRan {
     NotRun(Diagnostics),
 }
 
-/// Writes a bundle with this run's driver and runs it, storing its verdicts
-/// where [`may_cache`] allows.
+/// Where a bundle came from, which decides what its answer leaves for the next
+/// run.
+enum JsOrigin {
+    /// Emitted by this run, and worth recording unless the cache now serves
+    /// its verdict.
+    Emitted(String),
+    /// Recorded by an earlier run, so it is recorded already.
+    Served(String),
+}
+
+impl JsOrigin {
+    fn bundle(&self) -> &str {
+        match self {
+            JsOrigin::Emitted(bundle) | JsOrigin::Served(bundle) => bundle,
+        }
+    }
+}
+
+/// One suite's bundle, to be run.
+struct JsSuite {
+    slot: usize,
+    origin: JsOrigin,
+    skipped: usize,
+    /// The suite's tests, in the bundle's order.
+    roots: Vec<Root>,
+    run: JsRun,
+}
+
+/// The suite's answer, from what running its bundle came to.
+///
+/// A bundle this run emitted that ran to a verdict, or out of time, is worth
+/// running again next time, unless the verdict is one the cache now serves. A
+/// recorded bundle that could not be run sends its suite to be built, and the
+/// build reports what went wrong.
+fn answer_js(suite: &JsSuite, ran: JsRan, shared: &Shared) -> Done {
+    let slot = suite.slot;
+    let (skipped, roots) = (suite.skipped, suite.roots.clone());
+    let answer =
+        |answer, built| Done::Answer { slot, answer, explain: String::new(), notes: String::new(), built };
+    match (&suite.origin, ran) {
+        (JsOrigin::Emitted(bundle), JsRan::Ran(ran)) => {
+            let served = matches!(&ran, Ok(cases) if may_cache(cases, &shared.flags));
+            let built = (!served).then(|| {
+                let bundle = actions::put_test_bundle(&shared.root, bundle);
+                Built::Bundled(Box::new(Bundled { bundle, skipped, roots: roots.clone() }))
+            });
+            answer(ran.map(|cases| Ran { cases, skipped, roots }), built)
+        }
+        (JsOrigin::Served(_), JsRan::Ran(ran)) => answer(ran.map(|cases| Ran { cases, skipped, roots }), None),
+        (JsOrigin::Emitted(_), JsRan::NotRun(d)) => answer(Err(d), None),
+        (JsOrigin::Served(_), JsRan::NotRun(_)) => Done::Abandoned { slots: vec![slot], explain: String::new() },
+    }
+}
+
+/// The most processes one suite's bundle is run in.
+///
+/// Each process past the first pays to start and to compile the hot code again,
+/// so it costs CPU time: on a 185-test suite two processes cost a quarter more
+/// than one, three cost half again, and a fourth made it no faster.
+const JS_PROCESSES_MAX: usize = 3;
+
+/// The fewest tests a suite has per process it is run in.
+const TESTS_PER_JS_PROCESS: usize = 32;
+
+/// How many processes a suite of `tests` tests may be run in.
+///
+/// One when the suite declared a limit, because a limit bounds the suite's one
+/// process, as it does a native suite's, and one under `--filter`, which runs
+/// the tests it keeps in one.
+fn js_processes(tests: usize, limit: Option<u32>, flags: &arguments::Flags) -> usize {
+    if limit.is_some() || flags.filter.is_some() {
+        return 1;
+    }
+    tests.div_ceil(TESTS_PER_JS_PROCESS).clamp(1, JS_PROCESSES_MAX.min(jobs_of(flags)))
+}
+
+/// Runs a suite's bundle: in this job, when it is one process, and otherwise
+/// in processes that each pull tests one at a time ([`run_js_pulled`]).
+///
+/// The second way is the native runner's ([`queue_members`]): one job at the
+/// front of the runs, and helpers at the back that start another process only
+/// if tests are still waiting when a worker reaches them.
+fn start_js(suite: JsSuite, queue: &Queue, shared: &Shared) -> Done {
+    let processes = js_processes(suite.roots.len(), suite.run.limit, &shared.flags);
+    if processes == 1 {
+        let ran = run_bundle(suite.origin.bundle(), &suite.run, shared);
+        return answer_js(&suite, ran, shared);
+    }
+    // `$pull` is `async`, and this is module top level of an `.mjs` file.
+    if let Err(d) = write_bundle(suite.origin.bundle(), &suite.run, "await $pull();\n") {
+        return answer_js(&suite, JsRan::NotRun(d), shared);
+    }
+    let tests = suite.roots.len();
+    let pulled = std::sync::Arc::new(JsPulled {
+        suite,
+        state: std::sync::Mutex::new(JsGathered { records: vec![None; tests], ..JsGathered::default() }),
+    });
+    for _ in 1..processes {
+        queue.push_later(Job::Js(std::sync::Arc::clone(&pulled)), false);
+    }
+    queue.push_later(Job::Js(pulled), true);
+    Done::Progress
+}
+
+/// A suite whose tests are pulled by several processes.
+struct JsPulled {
+    suite: JsSuite,
+    state: std::sync::Mutex<JsGathered>,
+}
+
+/// Which of a pulled suite's tests have been handed out, and what came back.
+#[derive(Default)]
+struct JsGathered {
+    /// How many tests have been handed to a process, in order.
+    handed: usize,
+    /// The suite's processes still running.
+    running: usize,
+    /// Each test's record, as its process wrote it.
+    records: Vec<Option<String>>,
+    /// Why the suite has no verdict: a process that could not start, or one
+    /// that ended in the middle of a test.
+    broken: Option<Diagnostics>,
+    /// The suite's answer has been given.
+    answered: bool,
+}
+
+impl JsGathered {
+    fn waiting(&self) -> bool {
+        self.broken.is_none() && self.handed < self.records.len()
+    }
+
+    fn claim(&mut self) -> Option<usize> {
+        if !self.waiting() {
+            return None;
+        }
+        self.handed += 1;
+        Some(self.handed - 1)
+    }
+}
+
+fn js_state(pulled: &JsPulled) -> std::sync::MutexGuard<'_, JsGathered> {
+    pulled.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Runs processes for a pulled suite while its tests are waiting, and answers
+/// for the suite once the last test has a record and the last process ended.
+fn run_js_member(pulled: std::sync::Arc<JsPulled>, shared: &Shared) -> Done {
+    let runtime = js_runtime();
+    loop {
+        {
+            let mut state = js_state(&pulled);
+            if !state.waiting() {
+                break;
+            }
+            state.running += 1;
+        }
+        let ran = run_js_pulled(&runtime, &pulled);
+        let mut state = js_state(&pulled);
+        state.running -= 1;
+        if let Err(d) = ran {
+            state.broken.get_or_insert(d);
+        }
+    }
+    let mut state = js_state(&pulled);
+    if state.answered || state.running > 0 || state.waiting() {
+        return Done::Progress;
+    }
+    state.answered = true;
+    if let Some(d) = state.broken.take() {
+        return answer_js(&pulled.suite, JsRan::NotRun(d), shared);
+    }
+    // The array `$run` writes, joined from the records `$pull` wrote.
+    let records: Vec<&str> = state.records.iter().map(|r| r.as_deref().unwrap_or_default()).collect();
+    let stdout = format!("[{}]", records.join(","));
+    let cases = cases_of(&stdout, &pulled.suite.run.key, shared);
+    answer_js(&pulled.suite, JsRan::Ran(Ok(cases)), shared)
+}
+
+/// Runs one process of a pulled suite, handing it the suite's waiting tests
+/// one at a time until none is left or the process ends.
+///
+/// The process writes a `next` line when it wants a test, and the test's
+/// record on a `ran` line (`$pull`, in `js/generate.rs`). Closing
+/// its input says nothing is left. A process that ends holding a test it has
+/// not reported, or that never asked for one, is what a single process ending
+/// before its array is: the suite did not run.
+fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
+    use std::io::{BufRead as _, Read as _};
+    use std::process::Stdio;
+    let path = &pulled.suite.run.path;
+    let Some(mut cmd) = crate::build::spawn::command(runtime) else {
+        return Err(cannot_run(&format!("`{runtime}` is not on PATH")));
+    };
+    cmd.arg(path);
+    // Forwarded for `execute`'s reason.
+    for name in HEAP_CHECK {
+        if let Some(value) = std::env::var_os(name) {
+            cmd.env(name, value);
+        }
+    }
+    let started =
+        crate::build::spawn::start(cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()));
+    let mut child = started.map_err(|e| cannot_run(&e.to_string()))?;
+    let mut input = child.stdin.take();
+    let errors = child.stderr.take();
+    // On a thread of its own, so a process that fills the pipe never waits
+    // on this one.
+    let reading_err = std::thread::spawn(move || {
+        let mut text = String::new();
+        if let Some(mut pipe) = errors {
+            let _ = pipe.read_to_string(&mut text);
+        }
+        text
+    });
+    let mut asked = false;
+    let mut held: Option<usize> = None;
+    if let Some(output) = child.stdout.take() {
+        for line in std::io::BufReader::new(output).lines() {
+            let Ok(line) = line else { break };
+            if line.starts_with("{\"next\":") {
+                asked = true;
+                let next = if input.is_some() { js_state(pulled).claim() } else { None };
+                match (next, input.as_mut()) {
+                    (Some(test), Some(pipe)) => {
+                        // A write to a process that has just died fails, and
+                        // the test it holds says so below.
+                        let _ = writeln!(pipe, "{test}");
+                        let _ = pipe.flush();
+                        held = Some(test);
+                    }
+                    _ => input = None,
+                }
+            } else if let Some((test, record)) = ran_line(&line) {
+                if held == Some(test) {
+                    held = None;
+                    if let Some(slot) = js_state(pulled).records.get_mut(test) {
+                        *slot = Some(record.to_string());
+                    }
+                }
+            }
+        }
+    }
+    drop(input);
+    let _ = child.wait();
+    let stderr = reading_err.join().unwrap_or_default();
+    if held.is_some() || !asked {
+        return Err(did_not_run(&stderr));
+    }
+    Ok(())
+}
+
+/// A `ran` line's test and record: `{"ran":<test>,"record":<record>}`.
+fn ran_line(line: &str) -> Option<(usize, &str)> {
+    let rest = line.strip_prefix("{\"ran\":")?;
+    let (test, rest) = rest.split_once(',')?;
+    let record = rest.strip_prefix("\"record\":")?.strip_suffix('}')?;
+    Some((test.parse().ok()?, record))
+}
+
+/// The bundle with this run's seed, clock and `driver`, written where it runs.
 ///
 /// The bundle is the whole program: a test program is never split into
 /// `core/lazy` chunks (`middle::chunks`), and its stylesheet is inside it.
-fn run_bundle(bundle: &str, run: &JsRun, shared: &Shared) -> JsRan {
-    let JsRun { key, path, limit, on_timeout } = run;
+fn write_bundle(bundle: &str, run: &JsRun, driver: &str) -> Result<(), Diagnostics> {
     let mut source = bundle.to_string();
     // The order `anyOrder()` schedules with, and the action's clock, spliced in
     // after the runtime is defined and before a test could reach either.
-    source.push_str(&format!("\n$t.seed={}n;\n", seed_of(key)));
+    source.push_str(&format!("\n$t.seed={}n;\n", seed_of(&run.key)));
     source.push_str(crate::build::spawn::FIXED_CLOCK_JS);
-    let filter = shared.flags.filter.as_ref().map(|f| javascript::quote(f)).unwrap_or_else(|| "null".into());
-    // `$run` is `async`, and this is module top level of an `.mjs` file.
-    source.push_str(&format!("$write(1,JSON.stringify(await $run({filter})));\n"));
-    if let Some(dir) = path.parent() {
+    source.push_str(driver);
+    if let Some(dir) = run.path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    if let Err(e) = std::fs::write(path, &source) {
+    std::fs::write(&run.path, &source).map_err(|e| {
         let mut d = Diagnostics::new();
         d.push(
-            Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", path.display()))
+            Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", run.path.display()))
                 .with_fix("check the directory exists and is writable"),
         );
-        return JsRan::NotRun(d);
-    }
-    let out = match execute(&js_runtime(), Some(path), *limit, &[]) {
-        Ok(Execution::Finished(out)) => out,
-        Ok(Execution::TimedOut) => return JsRan::Ran(Err(on_timeout.clone())),
-        Err(e) => {
-            let mut d = Diagnostics::new();
-            d.push(
-                Diagnostic::error(Span::NONE, format!("cannot run the test binary: {e}"))
-                    .with_fix("install bun, or point BURI_JS at a JavaScript runtime"),
-            );
-            return JsRan::NotRun(d);
-        }
-    };
-    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let cases = parse_results(&stdout);
+        d
+    })
+}
+
+fn cannot_run(why: &str) -> Diagnostics {
+    let mut d = Diagnostics::new();
+    d.push(
+        Diagnostic::error(Span::NONE, format!("cannot run the test binary: {why}"))
+            .with_fix("install bun, or point BURI_JS at a JavaScript runtime"),
+    );
+    d
+}
+
+fn did_not_run(stderr: &str) -> Diagnostics {
+    let mut d = Diagnostics::new();
+    d.push(
+        Diagnostic::error(Span::NONE, "the test binary did not run")
+            .with_fix("read the runtime's own message below; it is what failed")
+            .with_note(stderr.trim().to_string()),
+    );
+    d
+}
+
+/// The cases in a suite's record array, stored where [`may_cache`] allows.
+fn cases_of(stdout: &str, key: &crate::build::cache::ActionKey, shared: &Shared) -> Vec<Case> {
+    let cases = parse_results(stdout);
     if may_cache(&cases, &shared.flags) {
         crate::build::cache::Cache::open(&shared.root).put(key, stdout.as_bytes());
     }
-    if cases.is_empty() && !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr).to_string();
-        let mut d = Diagnostics::new();
-        d.push(
-            Diagnostic::error(Span::NONE, "the test binary did not run")
-                .with_fix("read the runtime's own message below; it is what failed")
-                .with_note(err.trim().to_string()),
-        );
+    cases
+}
+
+/// Writes a bundle with this run's driver and runs it in one process, storing
+/// its verdicts where [`may_cache`] allows.
+fn run_bundle(bundle: &str, run: &JsRun, shared: &Shared) -> JsRan {
+    let filter = shared.flags.filter.as_ref().map(|f| javascript::quote(f)).unwrap_or_else(|| "null".into());
+    // `$run` is `async`, and this is module top level of an `.mjs` file.
+    let driver = format!("$write(1,JSON.stringify(await $run({filter})));\n");
+    if let Err(d) = write_bundle(bundle, run, &driver) {
         return JsRan::NotRun(d);
+    }
+    let out = match execute(&js_runtime(), Some(&run.path), run.limit, &[]) {
+        Ok(Execution::Finished(out)) => out,
+        Ok(Execution::TimedOut) => return JsRan::Ran(Err(run.on_timeout.clone())),
+        Err(e) => return JsRan::NotRun(cannot_run(&e.to_string())),
+    };
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let cases = cases_of(&stdout, &run.key, shared);
+    if cases.is_empty() && !out.status.success() {
+        return JsRan::NotRun(did_not_run(&String::from_utf8_lossy(&out.stderr)));
     }
     JsRan::Ran(Ok(cases))
 }
@@ -2005,21 +2277,13 @@ struct BundledJob {
 /// Runs a recorded bundle again. One the cache no longer holds, or one that
 /// can't be run to a verdict, sends its suite to be built, and the build
 /// reports what went wrong.
-fn serve_bundle(job: BundledJob, shared: &Shared) -> Done {
+fn serve_bundle(job: BundledJob, queue: &Queue, shared: &Shared) -> Done {
     let BundledJob { slot, bundled, run } = job;
     let Bundled { bundle, skipped, roots } = bundled;
-    let abandoned = || Done::Abandoned { slots: vec![slot], explain: String::new() };
-    let Some(bundle) = actions::get_test_bundle(&shared.root, &bundle) else { return abandoned() };
-    match run_bundle(&bundle, &run, shared) {
-        JsRan::Ran(ran) => Done::Answer {
-            slot,
-            answer: ran.map(|cases| Ran { cases, skipped, roots }),
-            explain: String::new(),
-            notes: String::new(),
-            built: None,
-        },
-        JsRan::NotRun(_) => abandoned(),
-    }
+    let Some(bundle) = actions::get_test_bundle(&shared.root, &bundle) else {
+        return Done::Abandoned { slots: vec![slot], explain: String::new() };
+    };
+    start_js(JsSuite { slot, origin: JsOrigin::Served(bundle), skipped, roots, run }, queue, shared)
 }
 
 /// The environment variable a native test binary reads the block to start at

@@ -1,0 +1,1 @@
+from "//lib/count/count.buri" export { double };

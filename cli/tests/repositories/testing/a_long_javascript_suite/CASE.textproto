@@ -1,0 +1,36 @@
+# A JavaScript suite long enough that the runner splits it across processes
+# reports exactly what one process would: every test once, and the failures in
+# the order the tests are written.
+#
+# Sixty tests is past the size at which the runner starts a second process.
+# The processes take the tests one at a time, whichever asks first, so which
+# process ran which test changes from run to run, and the report must not. Tests
+# 02 and 03 are next to each other and 60 is the last: a report in the order
+# the processes finished could put 03 before 02, and one that lost a process's
+# records would count fewer than sixty.
+
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a JavaScript suite split across processes reports every test once, in source order"
+
+run {
+  args: ["test", "//lib/count", "--force"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}
+
+# The negative twin: the library made right, so all sixty pass.
+edit {
+  file: "lib/count/count.buri"
+  replace: "if (n == 2 || n == 3 || n == 60) { n } else { n * 2 }"
+  with: "n * 2"
+}
+
+run {
+  args: ["test", "//lib/count", "--force"]
+  exit: 0
+  golden: "pass.txt"
+  stream: OUT
+}

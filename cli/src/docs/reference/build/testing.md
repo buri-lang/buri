@@ -647,7 +647,8 @@ changes nothing you see: the runner still caches verdicts one suite at a time,
 reports one suite at a time, and runs a suite that cannot batch on its own.
 
 Suites build and run side by side. Each suite in a batch runs in a process of
-its own, and a long suite spreads over more when workers are free. Every binary
+its own, and a long suite spreads over more when workers are free. A long
+JavaScript suite does the same, up to three processes. Every binary
 is linked before any suite runs on a worker a build could use. `--jobs=<n>` caps
 how many builds and runs happen at once. The default is one per core, and builds
 stay at one per 8 GB of memory.
