@@ -339,8 +339,9 @@ can't join the snapshot without changing the ids a program's types get.
 | 2026-09-01 | 0.57 ms | | |
 | `afb169cd`, 2026-10-03 | 5.52–5.84 ms | 6.0 ms | |
 | snapshot, 2026-10-03 | 2.65–2.77 ms | 6.0 ms | 4.3–4.5 ms |
+| shared tables (§6.15), 2026-10-03 | 2.01–2.08 ms | | 3.8–3.9 ms |
 
-The two 2026-10-03 rows are two alternating `--quick --only=mixed` runs each, on
+The 2026-10-03 rows are two alternating `--quick --only=mixed` runs each, on
 a shared machine at load 15–25. The growth since September is the standard
 library: 11.2k to 45.6k lines, and the floor program now imports `NodeHost`.
 
@@ -1904,6 +1905,80 @@ lex+parse peak to 41.3 MB; the per-arena figures fixed that.
 a `Vec` per parameter list, and a `String` per doc line. Moving those into the
 tree's arenas changes every consumer of the syntax tree, so it waits for a
 change that can own that.
+
+### 6.15 Analyses share the snapshot's tables, 2026-10-03
+
+`Checker::resume` used to deep-copy the snapshot's tables, scopes, bodies and
+constants into every analysis. A snippet analysis copies the whole checked
+library. Timers around `resume` and `run` over the 7,000 analyses of
+`a_syntax_error_does_not_become_a_type_error` put **59%** of checker time in
+the copy: 2.7 ms per analysis, against 1.9 ms of checking.
+
+Now each table keeps the base's entries behind an `Arc` and the analysis's own
+after them (`semantics/layered.rs`):
+
+```rust
+pub struct Layered<T> { base: Arc<[T]>, own: Vec<T> }          // fns, tycons, traits, scopes…
+pub struct IdMap<I, T> { base: Arc<[Option<T>]>, own: Vec<Option<T>>, replaced: HashMap<usize, T> }
+pub struct LayeredMap<K, V> { base: Arc<HashMap<K, V>>, own: HashMap<K, V> }  // impls
+```
+
+Ids keep running after the base's, so an id means the same entry in either
+half. Resuming costs a reference count per table. `IdMap` holds bodies,
+constants, the method table and each type's traits: one slot per id, walked in
+id order. `replaced` holds the base entries an analysis rewrites, such as
+bodies style extraction rewrites, or a method added to a base type.
+
+Each change below is measured A/B against the one before. "Instructions" is the
+recovery test's `instructions retired` from `/usr/bin/time -l`: it doesn't move
+with load, and the load stayed between 20 and 110 all afternoon. Allocations
+are `--alloc` on `sema`.
+
+| Change | Recovery test: instructions, CPU | `mixed-1k` / `mixed-10k` allocations |
+|---|---:|---:|
+| `main` | 175.8 G, 25.4 s | 63,850 / 194,362 |
+| Layered tables instead of the copy | 42.2 G, 5.6 s | |
+| Passes after checking start at the base's last id; style extraction skips anything with no style in it | 35.4 G, 3.2 s | 54,742 / 185,258 |
+| Resolve a body in place; locals in one flat list of name hashes; no copy of the `FnInfo` per body | 30.1 G, 3.3 s | 44,853 / 153,474 |
+| Unify borrows what no variable stood for; literal checks borrow their spelling | | 40,622 / 144,644 |
+| The base keeps the prelude; known names are recorded once | 29.0 G, 3.1 s | |
+| Methods and conformances in an `IdMap` | 28.6 G, 3.1 s | 40,578 / 144,601 |
+
+The first two rows ran before `main`'s lex+parse and driver changes merged
+in. Those took the starting point from 179.0 G to 175.8 G.
+
+| End to end, `main` against all of it | before | after |
+|---|---:|---:|
+| recovery test, wall | 4.0–4.6 s | 0.56 s |
+| recovery test, peak memory | 323–327 MB | 242 MB |
+| `sema` floor | 2.89–3.02 ms | 2.01–2.08 ms |
+| `mixed/1k` sema | 3.77–4.03 ms | 2.83 ms |
+| the snapshot, once | 4.7–5.1 ms | 3.8–3.9 ms |
+| `saved:mixed-10k` sema peak RSS (`--rss`) | 27.5 MB | 26.3 MB |
+| cold `buri test //...` on the monorepo copy, wall / CPU | 48–50 s / 127 s | 47–49 s / 125–128 s |
+| cold `buri test //...`, peak memory | 2,042–2,067 MB | 2,006–2,034 MB |
+
+A cold `buri test` doesn't move, which matches §6.13: it isn't front-end bound.
+Its JavaScript and generator outputs are byte-identical once each test
+library's `$t.seed` is masked; the seed hashes the toolchain's identity, so a
+different binary changes it.
+
+The style pass got cheap because extraction only rewrites a style or a list of
+them. A body with neither is left alone, so it stays shared instead of being
+copied out of the map, and the base stops handing every constant back to each
+analysis.
+
+**What's left.** Three quarters of what checking still allocates is building
+the typed tree and copying `Ty`s. `Ty` is 40 bytes, and the commonest
+allocation is one 40-byte `Ty` behind a `Box` or in a one-element `Vec`.
+Interning types to `u32` ids would remove most of it, and so would boxing
+`Ty::Fn`'s two fields, which takes `Ty` to 32 bytes. Both change a type the
+middle end and every backend match on, so they wait for a change that owns
+those too.
+
+Native objects aren't reproducible across two cold runs of one `main` binary
+in this repository: same cache key, different bytes. That is why the native
+half of the output wasn't compared above.
 
 ## 7. Profiling, on this platform
 
