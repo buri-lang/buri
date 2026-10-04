@@ -2884,7 +2884,7 @@ fn sanitize(s: &str) -> String {
 /// binding the same effects to different implementations get different symbols;
 /// `golden_javascript::generics_over_different_contexts_do_not_share_a_symbol`
 /// is the test that says so.
-pub(super) fn short_hash(s: &str) -> String {
+pub fn short_hash(s: &str) -> String {
     base36_hash(s, TAG_DIGITS)
 }
 
