@@ -69,7 +69,7 @@ jobs:
       ci_green: ${{ steps.gate.outputs.ci_green }}
     steps:
       # fetch-depth: 0 so the tags are present — the version is read from them.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - id: mode
@@ -162,7 +162,7 @@ jobs:
     # the toolchain setup and the image pull.
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # --- macOS toolchain (native): rustup is already on the host and installs
       # what rust-toolchain.toml pins, Homebrew provides LLVM 21, and CC is
@@ -178,6 +178,17 @@ jobs:
         name: LLVM 21 from Homebrew
         run: |
           set -euo pipefail
+          # The runner image ships taps Homebrew no longer trusts. Untapping them
+          # (and, with --force, the formulae installed from them, which nothing
+          # here uses) is safer than trusting them, and silences the warning.
+          brew untap --force aws/tap azure/bicep || true
+          # The image ships its own LLVM, and installing llvm@21 beside another
+          # llvm keg warns that 21 was not linked. Nothing here links: the build
+          # reads LLVM_SYS_211_PREFIX. Removing the other kegs leaves exactly one
+          # LLVM on the runner, the one llvm-sys 211 expects.
+          for keg in $(brew list --formula | grep -E '^llvm(@[0-9]+)?$' | grep -vx 'llvm@21' || true); do
+            brew uninstall --ignore-dependencies "$keg"
+          done
           brew install llvm@21
           prefix="$(brew --prefix llvm@21)"
           case "$("$prefix/bin/llvm-config" --version)" in
@@ -297,7 +308,7 @@ jobs:
           cat "$tarball.sha256"
           echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: tarball-${{ matrix.target }}
           path: |
@@ -320,10 +331,10 @@ jobs:
       # the ones on that ref. In release mode the commit is pushed to main
       # explicitly below; a scheduled run's ref IS main, so HEAD:main is a
       # fast-forward. fetch-depth 0 for the tag history.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: tarball-*
           path: artifacts
@@ -373,7 +384,7 @@ jobs:
 
       # A dry run's whole point: the templated files, uploaded for inspection.
       - if: needs.version.outputs.mode == 'dry_run'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: templated-files
           path: |

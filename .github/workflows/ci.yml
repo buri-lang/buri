@@ -88,7 +88,7 @@ jobs:
       CC: clang
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
@@ -114,7 +114,7 @@ jobs:
       # holds a fat-LTO release build of the runtime's dependency tree. A wrong
       # key costs a rebuild and can never produce a stale archive, because the
       # restored directory is an input to cargo's own fingerprints.
-      - uses: useblacksmith/cache@v5
+      - uses: actions/cache@v6
         with:
           path: target/debug/build
           key: buildscript-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
@@ -247,7 +247,7 @@ jobs:
       # panicking test keeps its own; `BURI_KEEP` is not set, because it would
       # also keep every passing suite's and that is the 14 GB that filled a disk.
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: scratch-${{ matrix.os }}-${{ matrix.arch }}
           path: target/tmp
@@ -273,7 +273,7 @@ jobs:
       CC: clang
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
@@ -303,7 +303,7 @@ jobs:
       CC: clang
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
@@ -328,7 +328,7 @@ jobs:
     timeout-minutes: 45
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
@@ -374,7 +374,7 @@ jobs:
       BURI_PERF: 1
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
@@ -393,7 +393,7 @@ jobs:
     timeout-minutes: 30
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: cargo build -p buri --no-default-features
@@ -404,13 +404,13 @@ jobs:
     timeout-minutes: 30
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install elan
         run: |
           curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz | tar xz
           ./elan-init -y --default-toolchain none
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
-      - uses: useblacksmith/cache@v5
+      - uses: actions/cache@v6
         with:
           path: formal/.lake
           key: lake-${{ runner.os }}-${{ hashFiles('formal/lean-toolchain', 'formal/lakefile.toml') }}
@@ -430,7 +430,7 @@ jobs:
     timeout-minutes: 30
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: npm install -g tree-sitter-cli
@@ -459,8 +459,11 @@ jobs:
     timeout-minutes: 30
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: actions/checkout@v7
+      # `determinate: false` keeps upstream Nix, which v21 stopped defaulting to.
+      - uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          determinate: false
       - run: nix flake check --all-systems --no-build
       - run: nix build .#from-source
       - run: ./result/bin/buri version
