@@ -9,7 +9,7 @@
 //! 3. Elaborate the types in every signature. This is a module's entire
 //!    inter-module surface (13.4).
 //! 4. Register `impl` and `derive`, and build the method table.
-//! 4½. Check the `ctx` rule, which needs both of the two above finished: which
+//!    4½. Check the `ctx` rule, which needs both of the two above finished: which
 //!    positions of a type constructor hand a value back (step 3's type bodies)
 //!    and which types implement an effect (step 4's conformances).
 //! 5. Check each function body, independently and in any order (13.3).
