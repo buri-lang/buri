@@ -280,6 +280,10 @@ mod sources;
 #[allow(dead_code, reason = "the halves of these files only the toolchain uses")]
 #[path = "src/compiler/backend/stencil/library.rs"]
 mod library;
+// The toolchain's table hasher, which `library.rs` indexes the stencils with.
+#[allow(dead_code, reason = "the script uses the map and not the set")]
+#[path = "src/hash.rs"]
+mod hash;
 
 // The toolchain's one hash, shared the same way and for a reason of the same
 // shape. Both blobs written below enter a cache key **as their own digest** —

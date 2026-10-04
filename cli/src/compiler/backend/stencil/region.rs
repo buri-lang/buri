@@ -47,7 +47,7 @@
               is already in memory"
 )]
 
-use std::collections::HashMap;
+use crate::hash::Map as HashMap;
 
 use super::object::RelKind;
 
@@ -144,7 +144,7 @@ impl Region {
             bytes: Vec::new(),
             pool: Vec::new(),
             pool_targets: Vec::new(),
-            pool_index: HashMap::new(),
+            pool_index: HashMap::default(),
             relocs: Vec::new(),
             pool_relocs: Vec::new(),
         }

@@ -52,7 +52,7 @@ use crate::compiler::backend::counts::{Counts, Site};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Layouts, Repr};
 use crate::compiler::semantics::types::{Tables, Ty};
-use std::collections::HashMap;
+use crate::hash::Map as HashMap;
 
 // ---------------------------------------------------------------------------
 // Hole values
@@ -316,11 +316,11 @@ impl<'a> Jit<'a> {
             dirty: Vec::new(),
             current: 0,
             helpers: Vec::new(),
-            helper_ix: HashMap::new(),
+            helper_ix: HashMap::default(),
             helper_names: Vec::new(),
-            shared_ix: HashMap::new(),
+            shared_ix: HashMap::default(),
             helper_at: Vec::new(),
-            spilled: HashMap::new(),
+            spilled: HashMap::default(),
             counts: scratch.counts,
             part,
         }
@@ -396,7 +396,13 @@ impl<'a> Jit<'a> {
     /// the backend emits, and it used to allocate a `String` for the name, a
     /// second for the comparison and a third for `key+fold`.
     pub(crate) fn elidable_arm(&self, key: &str) -> Option<&'a str> {
-        let (at, s) = self.lib.at(key)?;
+        let (at, _) = self.lib.at(key)?;
+        self.elidable_at(at)
+    }
+
+    /// [`Jit::elidable_arm`], of the stencil at `at` in the library.
+    pub(crate) fn elidable_at(&self, at: usize) -> Option<&'a str> {
+        let s = self.lib.stencils.get(at)?;
         let n = s.holes.get(s.tail?)?.name.as_str();
         if let Some(f) = self.lib.fold_twin(at, super::library::FOLD_PLAIN) {
             if f.holes.get(f.tail?).map(|h| h.name.as_str()) != Some(n) {
@@ -1977,8 +1983,8 @@ impl<'a> Jit<'a> {
             let last = b.insts.len();
             // Where each value is read in this block: an instruction's index,
             // or `last` for the terminator. And where each is defined.
-            let mut read_at: HashMap<u32, Vec<usize>> = HashMap::new();
-            let mut def_at: HashMap<u32, usize> = HashMap::new();
+            let mut read_at: HashMap<u32, Vec<usize>> = HashMap::default();
+            let mut def_at: HashMap<u32, usize> = HashMap::default();
             // How many instructions before each index leave the callee's
             // frame alone, so a range is pure in one subtraction.
             let mut kept = vec![0usize; last + 1];
@@ -2476,8 +2482,8 @@ impl<'a> Jit<'a> {
             // Where each value defined in this block is used, and where the
             // barriers are. A barrier is an instruction whose stencil has the
             // zero-register prototype and therefore clobbers the file.
-            let mut def_at: HashMap<u32, usize> = HashMap::new();
-            let mut use_at: HashMap<u32, Vec<usize>> = HashMap::new();
+            let mut def_at: HashMap<u32, usize> = HashMap::default();
+            let mut use_at: HashMap<u32, Vec<usize>> = HashMap::default();
             let mut barrier = vec![false; n + 1];
             let mut ops = Vec::new();
             for (k, i) in block.insts.iter().enumerate() {
