@@ -7,7 +7,9 @@ reproduction: none
 ---
 # The text format reader refuses what it cannot read
 
-```textproto ignore why="a data file, not a build file"
+```textproto fail code=textproto-unsupported repo=cli/tests/docs/repositories/deploy file=lib/deploy/server.txtpb
+# proto-file: server.proto
+# proto-message: Server
 # proto-import: other.proto
 [pkg.ext]: 1
 [type.googleapis.com/pkg.Point] { x: 1 }

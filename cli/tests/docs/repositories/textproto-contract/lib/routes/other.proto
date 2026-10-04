@@ -1,0 +1,7 @@
+edition = "2026";
+
+package other.v1;
+
+message Route {
+    string path = 1;
+}

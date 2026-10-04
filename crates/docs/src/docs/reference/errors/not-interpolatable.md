@@ -23,6 +23,25 @@ A `Template` names no context, so a hole holds only what the runtime can render
 from the type's shape. A hand-written `impl Show` needs a context the hole can't
 reach, so call it yourself:
 
-```buri ignore why="the fix, not a failure: it needs a Show impl and a ctx the page does not declare"
-str.format(ctx, "the suit is ${suit.show(ctx)}")
+```buri
+# from "core/str" import * as str;
+# from "platform/effect" import { Allocator };
+#
+# enum Suit {
+#     Hearts,
+#     Spades,
+# }
+#
+# impl Show for Suit {
+#     fn show<C: Allocator>(self, ctx: C): Str {
+#         match (self) {
+#             .Hearts => "hearts",
+#             .Spades => "spades",
+#         }
+#     }
+# }
+#
+fn describe<C: Allocator>(ctx: C, suit: Suit): Str {
+    str.format(ctx, "the suit is ${suit.show(ctx)}")
+}
 ```

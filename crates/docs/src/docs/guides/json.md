@@ -118,7 +118,7 @@ adds `"$schema"`. A file that doesn't parse is left alone, and
 
 `json` in `generators` gives a module named after each file:
 
-```textproto schema=build
+```textproto schema=build repo=cli/tests/docs/repositories/json-guide file=lib/deploy/BUILD.buri
 library {
     generators: [
         { tool: "json", inputs: ["regions.schema.json", "regions.json"] },
@@ -126,9 +126,9 @@ library {
 }
 ```
 
-```buri ignore why="it imports modules the build generates from the JSON files"
-from "//lib/deploy/regions.json" import { Regions, regions };
-from "//lib/deploy/regions.schema.json" import { Region };
+```buri repo=cli/tests/docs/repositories/json-guide file=lib/deploy/lib.buri
+from "//lib/deploy/regions.json" import { regions };
+from "//lib/deploy/regions.schema.json" import { Regions };
 ```
 
 - **A schema file** gives the types it describes.

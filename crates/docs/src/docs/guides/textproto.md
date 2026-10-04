@@ -3,7 +3,7 @@
 A `.txtpb` file holds one protobuf message value. List it in a generator's
 `inputs`, and the build checks it against its message:
 
-```textproto schema=build
+```textproto schema=build repo=cli/tests/docs/repositories/textproto-guide file=lib/deploy/BUILD.buri
 library {
     generators: [
         { tool: "textproto", inputs: ["server.txtpb"] },
@@ -11,7 +11,7 @@ library {
 }
 ```
 
-```textproto ignore why="a data file, not a build file"
+```textproto repo=cli/tests/docs/repositories/textproto-guide file=lib/deploy/server.txtpb
 # proto-file: server.proto
 # proto-message: Server
 
@@ -106,13 +106,15 @@ An extension or `Any` field (`[name]`) is
 `buri format` writes one field per line, at `.buri` width and indent, and
 keeps every comment:
 
-```textproto ignore why="a data file, not a build file"
+```textproto repo=cli/tests/docs/repositories/deploy file=lib/deploy/server.txtpb
+# proto-file: server.proto
+# proto-message: Server
 name: "api"
 ports: [80, 443]
 limits {
     cpu: 0.5
 }
-stops: [{ city: "Springfield" }, { city: "Shelbyville" }]
+history: [{ cpu: 0.25 }, { cpu: 0.75 }]
 ```
 
 A scalar takes `:`, a message takes `{ }`, and `< >` becomes `{ }`. Trailing
@@ -125,7 +127,7 @@ and `buri format --check` names it.
 `textproto` in `generators` gives a module named after the file, holding the
 message's types and the file's value:
 
-```buri ignore why="it imports a module the build generates from the text format file"
+```buri repo=cli/tests/docs/repositories/textproto-guide file=lib/deploy/lib.buri
 from "//lib/deploy/server.txtpb" import { Server, server };
 ```
 

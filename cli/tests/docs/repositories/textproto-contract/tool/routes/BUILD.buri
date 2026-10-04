@@ -1,0 +1,7 @@
+tool {
+    generate {
+        accepts: [
+            { language: "textproto", type_schema: "routes.proto:Routes" },
+        ]
+    }
+}

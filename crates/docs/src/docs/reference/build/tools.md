@@ -106,7 +106,7 @@ doesn't answer is [`tool-failed`](../errors/tool-failed.md).
 
 A tool whose inputs follow one schema declares it:
 
-```textproto schema=build
+```textproto schema=build repo=cli/tests/docs/repositories/tool-contract file=tool/database_schema_codegen/BUILD.buri
 # tool/database_schema_codegen/BUILD.buri
 tool {
     sources: ["emit.buri"]
@@ -121,7 +121,7 @@ tool {
 
 The consumer lists its file as usual, and the file may leave out `"$schema"`:
 
-```textproto schema=build
+```textproto schema=build repo=cli/tests/docs/repositories/tool-contract file=lib/orders/BUILD.buri
 # lib/orders/BUILD.buri
 library {
     generators: [
@@ -133,10 +133,10 @@ library {
 The build generates the schema's types into the tool as the module
 `<tool label>/<language>`, and `generate` takes them:
 
-```buri ignore why="it imports the module the build generates into the tool from its contract"
-from "core/tool" import { Generated, GenerateRequest };
-
+```buri repo=cli/tests/docs/repositories/tool-contract file=tool/database_schema_codegen/tool.buri
 // tool/database_schema_codegen/tool.buri
+
+from "core/tool" import { Generated, GenerateRequest };
 from "platform/effect" import { Allocator };
 from "//tool/database_schema_codegen/json" import { Config };
 

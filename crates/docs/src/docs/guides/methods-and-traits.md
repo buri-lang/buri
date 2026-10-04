@@ -21,9 +21,12 @@ type's **defining module**. There's no dispatch and no vtable: the name resolves
 through the type instead of through scope, so a type's operations travel with
 it.
 
-```buri ignore why="names a module in another repository, so it cannot be compiled standalone; the same pattern is compiled in cli/tests/example"
-from "//lib/square" import { Square };            // the type — not `area`, not `scaled`
-sq.scaled(2).area()                      // both resolve with no further imports
+```buri repo=cli/tests/example
+from "//lib/money" import { Cents }; // the type, not `add` or `isZero`
+
+fn settles(owed: Cents, paid: Cents): Bool {
+    owed.add(paid).isZero() // both resolve with no further imports
+}
 ```
 
 A **trait is an interface**, and conformance is **nominal**: a type satisfies it
