@@ -300,9 +300,10 @@ fn one_pass(
     // whole pass.
     let mut slots: Vec<Slot> = Vec::new();
     let mut plans: Vec<Plan> = Vec::new();
+    let mut graph = None;
     for &target in &targets {
         if has_tests(&session, target) {
-            plans.push(plan(&mut session, target, args, &mut slots));
+            plans.push(plan(&mut session, target, args, &mut graph, &mut slots));
         }
     }
     let suites = plans.len();
@@ -441,6 +442,12 @@ struct Slot {
     platform: Platform,
     chosen: Chosen,
     key: crate::build::cache::ActionKey,
+    /// Where this run's build is recorded ([`actions::test_build_key`]), for a
+    /// suite the verdict cache did not answer.
+    build: Option<crate::build::cache::ActionKey>,
+    /// The binary the last run linked for this suite, when the record had one
+    /// and the binary is to be run again rather than built ([`rerun`]).
+    served: Option<Box<Linked>>,
     /// This run's `--explain` lines, printed when the suite is reported.
     explain: String,
     /// Lines for standard error, such as a heap check's receipt.
@@ -468,7 +475,18 @@ struct Plan {
 /// against; `test { backends: [JS] }` and `--output=js` are the two ways to ask
 /// for JavaScript. A platform this toolchain cannot run is refused by name
 /// ([`not_ready`]) rather than routed somewhere nobody chose.
-fn plan(session: &mut Session, target: TargetId, args: &arguments::Args, slots: &mut Vec<Slot>) -> Plan {
+///
+/// A suite the verdict cache does not answer is looked up a second time, by
+/// its build ([`recall`]): the errors that stopped it last time are its answer
+/// again, and a binary it linked is run again rather than built. `graph` is
+/// [`actions::graph_key`], worked out the first time a suite needs it.
+fn plan(
+    session: &mut Session,
+    target: TargetId,
+    args: &arguments::Args,
+    graph: &mut Option<crate::build::cache::ActionKey>,
+    slots: &mut Vec<Slot>,
+) -> Plan {
     let mut refused = Diagnostics::new();
     let declared: Vec<Platform> = session.workspace.suite_platforms(target);
     let checked: Vec<Platform> = if declared.is_empty() {
@@ -506,18 +524,36 @@ fn plan(session: &mut Session, target: TargetId, args: &arguments::Args, slots: 
         let key = actions::test_key(session, target, &output, &args.flags);
         let (cached, mut explain) =
             crate::build::cache::holding_explain(|| served(session, target, platform, &key, args));
-        if cached.is_none() {
-            explain = crate::build::cache::holding_explain(|| {
-                crate::build::cache::explain(
-                    args.flags.explain,
-                    crate::build::cache::Status::Run,
-                    crate::build::cache::Action::Test,
-                    &session.workspace.label(target),
-                    platform.slug(),
-                    &key,
-                );
-            })
-            .1;
+        let mut answer = cached.map(Ok);
+        let mut build = None;
+        let mut linked = None;
+        if answer.is_none() {
+            let label = session.workspace.label(target);
+            let say = |status, action, key: &crate::build::cache::ActionKey| {
+                crate::build::cache::holding_explain(|| {
+                    crate::build::cache::explain(args.flags.explain, status, action, &label, platform.slug(), key);
+                })
+                .1
+            };
+            explain = say(crate::build::cache::Status::Run, crate::build::cache::Action::Test, &key);
+            let graph = graph.get_or_insert_with(|| actions::graph_key(session, &args.flags)).clone();
+            let at = actions::test_build_key(session, target, &output, &args.flags, &graph);
+            // `--force` builds again, as it links again.
+            let recalled = if args.flags.force { None } else { recall(session, &at) };
+            let status = match recalled {
+                Some(_) => crate::build::cache::Status::Cached,
+                None => crate::build::cache::Status::Run,
+            };
+            explain.push_str(&say(status, crate::build::cache::Action::Build, &at));
+            match recalled {
+                Some(Recalled::Refused(diagnostics)) => answer = Some(Err(diagnostics)),
+                Some(Recalled::Nothing { skipped }) => {
+                    answer = Some(Ok(Outcome { cases: Vec::new(), skipped }));
+                }
+                Some(Recalled::Linked(l)) => linked = Some(l),
+                None => {}
+            }
+            build = Some(at);
         }
         mine.push(slots.len());
         slots.push(Slot {
@@ -525,9 +561,11 @@ fn plan(session: &mut Session, target: TargetId, args: &arguments::Args, slots: 
             platform,
             chosen,
             key,
+            build,
+            served: linked,
             explain,
             notes: String::new(),
-            answer: cached.map(Ok),
+            answer,
             queued: false,
             awaiting_build: false,
         });
@@ -606,6 +644,7 @@ fn drive(
     done: &std::sync::mpsc::Receiver<Option<Done>>,
     out: &mut Out,
 ) -> Tally {
+    rerun(session, slots, queue);
     batch(session, args, slots, queue);
     for i in 0..slots.len() {
         solo(session, args, pre, slots, i, queue);
@@ -641,7 +680,10 @@ fn drive(
             continue;
         };
         match answer {
-            Done::Answer { slot, answer, explain, notes } => {
+            Done::Answer { slot, answer, explain, notes, built } => {
+                if let (Some(built), Some(at)) = (built, slots.get(slot).and_then(|s| s.build.as_ref())) {
+                    remember(session, at, &built, &answer);
+                }
                 let answer = answer.map(|ran| located(session, ran));
                 if let Some(s) = slots.get_mut(slot) {
                     s.explain.push_str(&explain);
@@ -809,12 +851,21 @@ enum Job {
     Part(Box<PartJob>),
     /// One member's blocks, in a binary a batch linked.
     Member(MemberJob),
+    /// A binary a run before this one linked, put back where it runs from.
+    Served(Box<ServedJob>),
 }
 
 /// What a job hands back to [`drive`].
 enum Done {
-    /// A slot's answer. `explain` and `notes` are what the job printed.
-    Answer { slot: usize, answer: Result<Ran, Diagnostics>, explain: String, notes: String },
+    /// A slot's answer. `explain` and `notes` are what the job printed, and
+    /// `built` is what the next run may start from instead of building.
+    Answer {
+        slot: usize,
+        answer: Result<Ran, Diagnostics>,
+        explain: String,
+        notes: String,
+        built: Option<Built>,
+    },
     /// A batch's binary is linked and its members are queued. `slot` is the
     /// first member, whose report carries the link's `--explain` lines.
     Built { slot: usize, explain: String },
@@ -835,6 +886,7 @@ enum Done {
 type Tell = crate::parallel::Tell<Done>;
 
 /// One test of a program, as the report locates it.
+#[derive(Clone)]
 struct Root {
     name: String,
     module: String,
@@ -873,6 +925,10 @@ fn work(job: Job, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Do
         Job::Batch(job) => batch_job(*job, held, queue, tell, shared),
         Job::Part(job) => part(*job, held, queue, tell, shared),
         Job::Member(job) => run_member(job, queue, shared),
+        Job::Served(job) => {
+            drop(held);
+            serve(*job, queue, shared)
+        }
     }
 }
 
@@ -976,11 +1032,11 @@ fn front(job: FrontJob, held: Held, tell: &Tell, shared: &Shared) -> Done {
         snapshot_dir,
         filter,
     } = job;
-    let answer = |answer| Done::Answer { slot, answer, explain: String::new(), notes: String::new() };
+    let answer = |answer, built| Done::Answer { slot, answer, explain: String::new(), notes: String::new(), built };
     let mut analysis = crate::compiler::driver::check(loading, Some(&shared.workspace), &map);
     drop(map);
     if analysis.diagnostics.has_errors() {
-        return answer(Err(analysis.diagnostics));
+        return answer(Err(analysis.diagnostics), Some(Built::Refused));
     }
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
@@ -992,13 +1048,14 @@ fn front(job: FrontJob, held: Held, tell: &Tell, shared: &Shared) -> Done {
         monomorphize::Roots::Tests,
     );
     if diagnostics.has_errors() {
-        return answer(Err(diagnostics));
+        return answer(Err(diagnostics), Some(Built::Refused));
     }
     if program.roots.tests().is_empty() {
         if keep {
             tell.tell(Done::Checked { target, analysis: Box::new(analysis) });
         }
-        return answer(Ok(Ran { cases: Vec::new(), skipped: 0, roots: Vec::new() }));
+        let nothing = Built::Nothing { skipped: 0 };
+        return answer(Ok(Ran { cases: Vec::new(), skipped: 0, roots: Vec::new() }), Some(nothing));
     }
     // Counted here rather than in the runner: the names are known before the
     // binary is built, so the summary can always print the count.
@@ -1011,7 +1068,7 @@ fn front(job: FrontJob, held: Held, tell: &Tell, shared: &Shared) -> Done {
     // only for a platform nobody asked for.
     if platform.is_native() && chosen == Chosen::Default {
         if let Some(gap) = native_gap(platform, &shared.flags, &program, &analysis.checked.tables) {
-            return answer(Err(gap_refusal(&label, gap)));
+            return answer(Err(gap_refusal(&label, gap)), None);
         }
     }
     let tables = std::sync::Arc::new(if keep {
@@ -1035,7 +1092,8 @@ fn front(job: FrontJob, held: Held, tell: &Tell, shared: &Shared) -> Done {
     let tests: Vec<(String, String)> =
         program.roots.tests().iter().map(|t| (t.name.clone(), t.module.clone())).collect();
     if tests.is_empty() {
-        return answer(Ok(Ran { cases: Vec::new(), skipped, roots: Vec::new() }));
+        let nothing = Built::Nothing { skipped };
+        return answer(Ok(Ran { cases: Vec::new(), skipped, roots: Vec::new() }), Some(nothing));
     }
     let paints = program.funcs.iter().any(|f| f.intrinsic_key() == Some(PAINT_KEY));
     let job = SoloJob {
@@ -1096,9 +1154,9 @@ fn run_solo(job: SoloJob, held: Held, shared: &Shared) -> Done {
     drop(program);
     drop(tables);
     drop(held);
-    let answer = |answer, notes| Done::Answer { slot, answer, explain: explain.clone(), notes };
-    let binary = match built {
-        Ok(binary) => binary,
+    let answer = |answer, notes| Done::Answer { slot, answer, explain: explain.clone(), notes, built: None };
+    let (binary, link) = match built {
+        Ok(built) => built,
         // The gaps `missing_intrinsics` cannot see are named by the backend
         // while it emits, so the sentence saying what to do is added here.
         Err(d) if is_backend_gap(&d) => {
@@ -1126,9 +1184,24 @@ fn run_solo(job: SoloJob, held: Held, shared: &Shared) -> Done {
     if paints {
         shared.release(&snapshot_dir, slot);
     }
+    // A binary that ran to a verdict, or out of time, is worth running again
+    // next time. One that died is built again, where the death is reported.
+    let linked = |roots: &[Root]| {
+        Some(Built::Linked(Box::new(Linked {
+            link: link.clone(),
+            sheet: sheet.clone(),
+            paints,
+            skipped,
+            ranges: vec![(0, tests.len())],
+            roots: roots.to_vec(),
+        })))
+    };
     let blocks = match ran {
         Ok(Verdicts::Blocks(blocks)) => blocks,
-        Ok(Verdicts::TimedOut) => return answer(Err(on_timeout), notes),
+        Ok(Verdicts::TimedOut) => {
+            let built = linked(&roots);
+            return Done::Answer { slot, answer: Err(on_timeout), explain, notes, built };
+        }
         Ok(Verdicts::HeapCheck(line)) => return answer(Err(heap_check_failed(&label, &line)), notes),
         Ok(Verdicts::Died(how)) => return answer(Err(the_binary_died(&label, &how)), notes),
         Ok(Verdicts::NotStarted(how)) => {
@@ -1144,7 +1217,8 @@ fn run_solo(job: SoloJob, held: Held, shared: &Shared) -> Done {
         }
     };
     let cases = recorded(shared, &key, &tests, blocks.iter());
-    answer(Ok(Ran { cases, skipped, roots }), notes)
+    let built = linked(&roots);
+    Done::Answer { slot, answer: Ok(Ran { cases, skipped, roots }), explain, notes, built }
 }
 
 /// The environment that tells a test binary where its goldens are.
@@ -1173,7 +1247,8 @@ struct JsJob {
 
 fn run_js(job: JsJob, held: Held, shared: &Shared) -> Done {
     let JsJob { slot, mut program, tables, key, path, limit, on_timeout, skipped } = job;
-    let answer = |answer| Done::Answer { slot, answer, explain: String::new(), notes: String::new() };
+    let answer =
+        |answer| Done::Answer { slot, answer, explain: String::new(), notes: String::new(), built: None };
     let mut diagnostics = Diagnostics::new();
     let roots = roots_of(&program);
     let mut source =
@@ -1558,6 +1633,238 @@ fn served(
         key,
     );
     Some(Outcome { cases, skipped: 0 })
+}
+
+// ---------------------------------------------------------------------------
+// What a build leaves for the next run
+// ---------------------------------------------------------------------------
+//
+// A failing verdict is never cached: a failure is what somebody is fixing, and
+// running the suite again has to run it. Building it again is another matter.
+// Without an edit the binary is the same binary and a compile error is the
+// same error, so each suite's build is recorded under a key known before the
+// front end runs ([`actions::test_build_key`]), and a suite the verdict cache
+// does not answer is looked up there next:
+//
+// - **Refused**: the errors the front end reported are printed again, from the
+//   record, without checking anything.
+// - **Nothing**: the suite had no test to run, or a `--filter` left it none.
+// - **Linked**: the binary is still in the link cache under its `link` key, so
+//   it is put back where it runs from ([`serve`]) and its blocks are run again.
+//
+// A batch's binary is recorded once per member, with the member's blocks in
+// it, under the member's own key. That is sound for the reason a batched
+// verdict is: a root neither changes another root's code nor can be reached
+// from it, so a member's blocks behave the same in any binary that holds them.
+// Members whose records name one binary share one copy of it again.
+//
+// A binary that ran again and then died, failed the heap check or never
+// started is built again ([`Done::Abandoned`]), and the build reports it.
+
+/// What a suite's build left for the next run, as a job hands it to [`drive`].
+enum Built {
+    /// The front end refused it, with the answer's diagnostics.
+    Refused,
+    /// It had no test to run.
+    Nothing { skipped: usize },
+    /// A binary in the link cache, and where the suite's tests are in it.
+    Linked(Box<Linked>),
+}
+
+/// One suite's place in a test binary the link cache holds.
+struct Linked {
+    link: crate::build::cache::ActionKey,
+    /// The program's stylesheet, written beside the binary for a snapshot.
+    sheet: String,
+    paints: bool,
+    /// What the `--filter` left out.
+    skipped: usize,
+    /// The suite's blocks, in the binary's numbering.
+    ranges: Vec<(usize, usize)>,
+    /// The suite's tests, in block order.
+    roots: Vec<Root>,
+}
+
+/// A record read back ([`recall`]).
+enum Recalled {
+    Refused(Diagnostics),
+    Nothing { skipped: usize },
+    Linked(Box<Linked>),
+}
+
+/// The shape of a build record, so that a change to the encoding is a miss
+/// rather than a misreading.
+const BUILD_FORMAT: &[u8] = b"buri-test-build-1\n";
+
+/// Writes down what a suite's build left, under `at`.
+///
+/// On this thread rather than a worker's, because a span is written as the
+/// name of its file and the session's map is what knows the names.
+fn remember(
+    session: &Session,
+    at: &crate::build::cache::ActionKey,
+    built: &Built,
+    answer: &Result<Ran, Diagnostics>,
+) {
+    use crate::commands::lint_cache::{put_diagnostic, put_span, put_text, put_u32};
+    let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+    let mut out = BUILD_FORMAT.to_vec();
+    match built {
+        Built::Refused => {
+            let Err(diagnostics) = answer else { return };
+            out.push(0);
+            put_u32(&mut out, count(diagnostics.items.len()));
+            for d in &diagnostics.items {
+                put_diagnostic(&mut out, &session.map, d);
+            }
+        }
+        Built::Nothing { skipped } => {
+            out.push(1);
+            put_u32(&mut out, count(*skipped));
+        }
+        Built::Linked(l) => {
+            out.push(2);
+            put_text(&mut out, l.link.as_str());
+            put_text(&mut out, &l.sheet);
+            out.push(u8::from(l.paints));
+            put_u32(&mut out, count(l.skipped));
+            put_u32(&mut out, count(l.ranges.len()));
+            for &(from, to) in &l.ranges {
+                put_u32(&mut out, count(from));
+                put_u32(&mut out, count(to));
+            }
+            put_u32(&mut out, count(l.roots.len()));
+            for root in &l.roots {
+                put_text(&mut out, &root.name);
+                put_text(&mut out, &root.module);
+                put_span(&mut out, &session.map, root.span);
+            }
+        }
+    }
+    crate::build::cache::Cache::open(&session.root).put(at, &out);
+}
+
+/// What the build recorded under `at` left, with its spans in this run's map.
+///
+/// `None` for no record, one this toolchain can't read, or one naming a file
+/// that isn't there. The suite is then built.
+fn recall(session: &mut Session, at: &crate::build::cache::ActionKey) -> Option<Recalled> {
+    use crate::commands::lint_cache::{read_diagnostic, read_span, Reader};
+    let bytes = crate::build::cache::Cache::open(&session.root).get(at)?;
+    let mut r = Reader::after(BUILD_FORMAT, &bytes)?;
+    let root = session.root.clone();
+    let count = |r: &mut Reader| r.u32().and_then(|n| usize::try_from(n).ok());
+    match r.byte()? {
+        0 => {
+            let mut diagnostics = Diagnostics::new();
+            for _ in 0..r.u32()? {
+                diagnostics.push(read_diagnostic(&mut r, &mut session.map, &root)?);
+            }
+            Some(Recalled::Refused(diagnostics))
+        }
+        1 => Some(Recalled::Nothing { skipped: count(&mut r)? }),
+        2 => {
+            let link = crate::build::cache::ActionKey::parse(&r.text()?)?;
+            let sheet = r.text()?;
+            let paints = r.byte()? == 1;
+            let skipped = count(&mut r)?;
+            let mut ranges = Vec::new();
+            for _ in 0..r.u32()? {
+                ranges.push((count(&mut r)?, count(&mut r)?));
+            }
+            let mut roots = Vec::new();
+            for _ in 0..r.u32()? {
+                let name = r.text()?;
+                let module = r.text()?;
+                let span = read_span(&mut r, &mut session.map, &root)?;
+                roots.push(Root { name, module, span });
+            }
+            Some(Recalled::Linked(Box::new(Linked { link, sheet, paints, skipped, ranges, roots })))
+        }
+        _ => None,
+    }
+}
+
+/// Queues every slot whose binary is to be run again, one [`Job::Served`] per
+/// binary, so members of one batch share one copy of it again.
+fn rerun(session: &Session, slots: &mut [Slot], queue: &Queue) {
+    let mut jobs: Vec<ServedJob> = Vec::new();
+    for (i, slot) in slots.iter_mut().enumerate() {
+        if slot.answer.is_some() || slot.queued {
+            continue;
+        }
+        let Some(linked) = slot.served.take() else { continue };
+        slot.queued = true;
+        let Linked { link, sheet, paints, skipped, ranges, roots } = *linked;
+        let target = slot.target;
+        let output = crate::build::buildfile::Output::for_platform(slot.platform, Span::NONE);
+        let limit = suite(session, target).and_then(|x| x.timeout_seconds);
+        let seeds = std::sync::Arc::new(seeds_at(&ranges, seed_of(&slot.key)));
+        let spec = MemberSpec {
+            slot: i,
+            key: slot.key.clone(),
+            tests: roots.iter().map(|r| (r.name.clone(), r.module.clone())).collect(),
+            ranges,
+            roots,
+            skipped,
+            snapshot_dir: snapshot_dir(session, target),
+            paints,
+            limit,
+            on_timeout: timed_out(session, target, limit),
+            remember: None,
+        };
+        match jobs.iter_mut().find(|j| j.link == link) {
+            Some(job) => job.members.push((spec, seeds)),
+            None => jobs.push(ServedJob {
+                private: actions::private_test_binary(session, target, &output),
+                link,
+                sheet,
+                output,
+                members: vec![(spec, seeds)],
+            }),
+        }
+    }
+    for job in jobs {
+        queue.push(Job::Served(Box::new(job)), 0);
+    }
+}
+
+/// The seeds a suite's processes are handed when its blocks are `ranges` of a
+/// binary: its own seed at each of its blocks, and nothing that means anything
+/// at the blocks of the suites it shares the binary with.
+fn seeds_at(ranges: &[(usize, usize)], seed: u128) -> String {
+    let len = ranges.iter().map(|&(_, to)| to).max().unwrap_or(0);
+    let mut seeds = vec![String::from("0"); len];
+    for &(from, to) in ranges {
+        for s in seeds.iter_mut().take(to).skip(from) {
+            *s = seed.to_string();
+        }
+    }
+    seeds.join(",")
+}
+
+/// A binary an earlier run linked, and the suites to run in it.
+struct ServedJob {
+    link: crate::build::cache::ActionKey,
+    sheet: String,
+    output: crate::build::buildfile::Output,
+    /// Where the binary goes when the shared runner file is taken: the first
+    /// member's own.
+    private: std::path::PathBuf,
+    members: Vec<(MemberSpec, std::sync::Arc<String>)>,
+}
+
+/// Puts a recorded binary back where it runs from and queues its members'
+/// processes. A binary the cache no longer holds sends its members to be built.
+fn serve(job: ServedJob, queue: &Queue, shared: &Shared) -> Done {
+    let ServedJob { link, sheet, output, private, members } = job;
+    let Some(binary) = actions::place_test_binary(&shared.root, &output, private, &link) else {
+        let slots = members.iter().map(|(m, _)| m.slot).collect();
+        return Done::Abandoned { slots, explain: String::new() };
+    };
+    let sheet = write_stylesheet(binary.path(), &sheet);
+    queue_members(binary, sheet, members, queue);
+    Done::Progress
 }
 
 /// The environment variable a native test binary reads the block to start at
@@ -2052,6 +2359,7 @@ fn batch(session: &mut Session, args: &arguments::Args, slots: &mut [Slot], queu
         .enumerate()
         .filter(|(_, s)| {
             s.answer.is_none()
+                && !s.queued
                 && s.chosen == Chosen::Default
                 && s.platform == platform
                 && may_batch(session, s.target)
@@ -2446,6 +2754,7 @@ fn submit_group(
         answer: Ok(Ran { cases: Vec::new(), skipped: skipped_of(i), roots: Vec::new() }),
         explain: String::new(),
         notes: String::new(),
+        built: Some(Built::Nothing { skipped: skipped_of(i) }),
     };
     if selected.is_empty() {
         for &i in &group.members {
@@ -2484,6 +2793,10 @@ fn submit_group(
                     skipped: skipped_of(i),
                     snapshot_dir: info.dirs.get(i)?.clone(),
                     paints: group.painters.contains(&i),
+                    // A suite that declared a limit is not in a batch.
+                    limit: None,
+                    on_timeout: Diagnostics::new(),
+                    remember: None,
                 },
             ))
         })
@@ -2554,6 +2867,13 @@ struct MemberSpec {
     skipped: usize,
     snapshot_dir: String,
     paints: bool,
+    /// The suite's `timeout_seconds`. Only a binary run again has one: a
+    /// suite that declared a limit is not in a batch.
+    limit: Option<u32>,
+    on_timeout: Diagnostics,
+    /// The `link` key and stylesheet of a binary this run linked, so the
+    /// member's answer can record it. `None` for a binary run again.
+    remember: Option<(crate::build::cache::ActionKey, std::sync::Arc<String>)>,
 }
 
 /// Links a group's binary and queues a process per member, ahead of any new
@@ -2570,16 +2890,40 @@ fn build_group(job: GroupJob, held: Held, queue: &Queue, shared: &Shared) -> Don
     drop(program);
     drop(tables);
     drop(held);
-    let Ok(binary) = built else {
+    let Ok((binary, link)) = built else {
         return Done::Abandoned { slots: members.iter().map(|m| m.slot).collect(), explain };
     };
-    let sheet = write_stylesheet(binary.path(), &sheet);
-    let binary = std::sync::Arc::new(binary);
+    let written = write_stylesheet(binary.path(), &sheet);
+    let sheet = std::sync::Arc::new(sheet);
     let seeds = std::sync::Arc::new(seeds);
     let first = members.first().map_or(usize::MAX, |m| m.slot);
+    let members = members
+        .into_iter()
+        .map(|mut m| {
+            m.remember = Some((link.clone(), std::sync::Arc::clone(&sheet)));
+            (m, std::sync::Arc::clone(&seeds))
+        })
+        .collect();
+    queue_members(binary, written, members, queue);
+    Done::Built { slot: first, explain }
+}
+
+/// Queues a process per member of a linked binary, at the front of the queue:
+/// they finish work already paid for. Each member comes with the seeds its
+/// processes are handed.
+fn queue_members(
+    binary: actions::TestBinary,
+    sheet: Option<String>,
+    members: Vec<(MemberSpec, std::sync::Arc<String>)>,
+    queue: &Queue,
+) {
+    let binary = std::sync::Arc::new(binary);
     // Reversed, because each goes to the front: the first member runs first.
-    for spec in members.into_iter().rev() {
-        let chunks = chunks_of(&spec.ranges, BLOCKS_PER_PROCESS);
+    for (spec, seeds) in members.into_iter().rev() {
+        // A limit bounds the suite's one process, so a suite with one is not
+        // divided between several.
+        let size = if spec.limit.is_some() { usize::MAX } else { BLOCKS_PER_PROCESS };
+        let chunks = chunks_of(&spec.ranges, size);
         let spec = std::sync::Arc::new(spec);
         let gathered = std::sync::Arc::new(std::sync::Mutex::new(Gathered {
             left: chunks.len(),
@@ -2596,7 +2940,6 @@ fn build_group(job: GroupJob, held: Held, queue: &Queue, shared: &Shared) -> Don
             }));
         }
     }
-    Done::Built { slot: first, explain }
 }
 
 /// The fewest blocks a member's process is given, when the member has more:
@@ -2638,6 +2981,7 @@ struct Gathered {
     notes: Vec<(usize, String)>,
     left: usize,
     failed: bool,
+    timed_out: bool,
 }
 
 /// Runs some of one member's blocks in a process of its own, and answers for
@@ -2658,8 +3002,7 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
     let MemberJob { binary, seeds, sheet, spec, range, gathered } = job;
     let snapshots = snapshot_env(&spec.snapshot_dir, shared.flags.update, sheet);
     let mut notes = String::new();
-    // No limit: a suite that declared one is not in a batch.
-    let ran = run_blocks(&binary.path().display().to_string(), None, range, &seeds, &snapshots, &mut notes);
+    let ran = run_blocks(&binary.path().display().to_string(), spec.limit, range, &seeds, &snapshots, &mut notes);
     if spec.paints {
         shared.release(&spec.snapshot_dir, spec.slot);
     }
@@ -2669,27 +3012,48 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
             all.blocks.extend((range.0..).zip(mine));
             all.notes.push((range.0, notes));
         }
+        Ok(Verdicts::TimedOut) => {
+            all.timed_out = true;
+            all.notes.push((range.0, notes));
+        }
         _ => all.failed = true,
     }
     all.left = all.left.saturating_sub(1);
     if all.left > 0 {
         return Done::Progress;
     }
+    all.notes.sort_by_key(|(i, _)| *i);
+    if all.timed_out {
+        let notes: String = all.notes.iter().map(|(_, n)| n.as_str()).collect();
+        let answer = Err(spec.on_timeout.clone());
+        return Done::Answer { slot: spec.slot, answer, explain: String::new(), notes, built: linked_of(&spec) };
+    }
     if all.failed {
         return Done::Abandoned { slots: vec![spec.slot], explain: String::new() };
     }
     all.blocks.sort_by_key(|(i, _)| *i);
-    all.notes.sort_by_key(|(i, _)| *i);
     let notes: String = all.notes.iter().map(|(_, n)| n.as_str()).collect();
     let cases = recorded(shared, &spec.key, &spec.tests, all.blocks.iter().map(|(_, block)| block));
-    let roots =
-        spec.roots.iter().map(|r| Root { name: r.name.clone(), module: r.module.clone(), span: r.span }).collect();
     Done::Answer {
         slot: spec.slot,
-        answer: Ok(Ran { cases, skipped: spec.skipped, roots }),
+        answer: Ok(Ran { cases, skipped: spec.skipped, roots: spec.roots.clone() }),
         explain: String::new(),
         notes,
+        built: linked_of(&spec),
     }
+}
+
+/// The record of a member's place in a binary this run linked.
+fn linked_of(spec: &MemberSpec) -> Option<Built> {
+    let (link, sheet) = spec.remember.as_ref()?;
+    Some(Built::Linked(Box::new(Linked {
+        link: link.clone(),
+        sheet: sheet.to_string(),
+        paints: spec.paints,
+        skipped: spec.skipped,
+        ranges: spec.ranges.clone(),
+        roots: spec.roots.clone(),
+    })))
 }
 
 /// Each of a program's tests with the member that owns it, in block order.
