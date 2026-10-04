@@ -45,6 +45,7 @@ buri-diagnostics = { path = "../crates/diagnostics", version = "0.3.19" }
 buri-docs = { path = "../crates/docs", version = "0.3.19" }
 buri-hash = { path = "../crates/hash", version = "0.3.19" }
 buri-stdlib = { path = "../crates/stdlib", version = "0.3.19" }
+buri-syntax = { path = "../crates/syntax", version = "0.3.19" }
 
 # -- backend-llvm -------------------------------------------------------------
 #

@@ -631,7 +631,7 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // and its round-trip corpus, the tcp, process, filesystem, timestamp and
         // uuid packages, and the formatter's escape fixtures. No parser change is
         // in those merges beyond `buri_ast.buri`'s own (which is a library, not
-        // `cli/src/parsing/`); the population grew by a hundred and twenty cases
+        // `crates/syntax/src/parsing/`); the population grew by a hundred and twenty cases
         // dense in adjacent calls and literals. 567 of 2091 is 27.1%, and
         // twenty-eight is that rounded up.
         // Read again over the recovery fixes of issues 110, 117 and 118, same
