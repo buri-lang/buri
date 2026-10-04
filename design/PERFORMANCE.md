@@ -341,6 +341,7 @@ can't join the snapshot without changing the ids a program's types get.
 | snapshot, 2026-10-03 | 2.65–2.77 ms | 6.0 ms | 4.3–4.5 ms |
 | shared tables (§6.15), 2026-10-03 | 2.01–2.08 ms | | 3.8–3.9 ms |
 | JS emit (§6.17), 2026-10-03 | | 3.85–3.98 ms → 0.49–0.50 ms | |
+| sema hot spots (§6.18), 2026-10-03 | 1.92–1.94 → 1.58–1.66 ms | | 3.54–3.66 → 3.17–3.28 ms |
 
 The 2026-10-03 rows are two alternating `--quick --only=mixed` runs each, on
 a shared machine at load 15–25. The growth since September is the standard
@@ -2100,6 +2101,71 @@ to ask for it, since `print` also runs on case bodies inside the workers.
 `Expr` is 56 bytes because `ArrowBlock` holds two `Vec`s inline, and
 `Stmt::If` is about 104; boxing those payloads shrinks every node, but
 `crossing.rs` builds them too.
+
+### 6.18 Type checker hot spots, 2026-10-03
+
+A profile of `mixed/100k` ranked five spots in `semantics/`. Each change below
+is one commit, measured against the one before it. "Instructions" is a `sema`
+child minus a `lex+parse` child (`--rss-child`, under `/usr/bin/time -l`),
+median of three. It doesn't move with load, which ran 27–93 all evening.
+
+| Change | Commit | `mixed/100k` instructions | `ui-style` instructions |
+|---|---|---:|---:|
+| `main` at `3a2a1b59` | | 1,080 M | 329 M |
+| Style extraction copies only the declarations it rewrites | `c60d7846` | 1,079 M | 332 M |
+| `con_carries_effect` reads the type's own trait list | `79d79f3a` | 960 M | 309 M |
+| Exhaustiveness rows borrow patterns and types; witnesses only when asked | `1d275ed7` | 896 M | 298 M |
+| A call reads its callee's generics in place | `93d54c50` | 887 M | 292 M |
+| `unify_at` borrows the checked type | `9b4a9e70` | 882 M | 294 M |
+| A small matrix scans its heads instead of building a set | `67f29956` | 875 M | 289 M |
+| Three copies off the per-binding and per-call paths | `4f4b0751` | **839 M** | **282 M** |
+
+`ui-style` is `saved:mixed-10k` with a token enum, a style constant and six
+styled components added to every module: 13,231 lines that all import
+`ui/style`. It isn't checked in.
+
+The effect predicates were the biggest single cost. `con_carries_effect` asked
+the impl table about each of the standard library's twenty-odd effects, two
+hash probes each, at every type-constructor node the predicates walk. Now it
+scans the short sorted list of traits the type implements, which `add_impl`
+already keeps:
+
+```rust
+self.traits_of_con(con).iter().any(|t| self.trait_(*t).is_effect)
+```
+
+That made a memo per type unnecessary.
+
+Exhaustiveness rows are now `Vec<&Pat>`, so specializing a row copies pointers,
+not patterns. Column types are `Cow<Ty>`, borrowed wherever a step leaves the
+column alone. Reachability only asks whether there is a witness, so it no
+longer builds one.
+
+Style extraction made no measurable difference. `main` already rewrote only
+bodies that mention a style, so the cloned maps cost one deep copy per styled
+body plus one per constant. Now the walk reads the maps untouched and rewrites a
+copy of each declaration it changes.
+
+| End to end, `main` against all of it | before | after |
+|---|---:|---:|
+| `mixed/100k` sema, fastest sample | 70.2–76.3 ms | **57.8 ms** (−18%) |
+| `mixed/1k` sema, fastest sample | 2.58 ms | 2.05–2.11 ms |
+| `ui-style` sema, fastest sample | 17.95–18.25 ms | 15.69–16.02 ms |
+| `wide-match/40k` sema instructions | 550–555 M | 476–480 M |
+| `mixed/100k` sema allocations, per 1,000 lines | 10,213 | 9,418 (−7.8%) |
+| `ui-style` sema allocations, per 1,000 lines | 22,051 | 20,626 |
+| `mixed/100k` sema peak RSS | 130–131 MB | 130–132 MB |
+| `ui-style` sema peak RSS | 37 MB | 37 MB |
+
+Timed rows are two alternating runs each, at load 34–93, so they're read off
+the fastest sample. Diagnostics, goldens and generated code don't change: the
+full suite passes unmodified.
+
+**What's left.** A sampling allocator (every 101st allocation's backtrace) puts
+most of what checking still allocates in `Ty`'s derived `Clone`: a `Vec<Ty>` or a
+`Box<Ty>` copied for a pattern's type, a call's substituted parameters, or a
+local's type at each use. Interning `Ty` removes those. The next largest are the
+`String`s in `ParamInfo` and `Local` names.
 
 ## 7. Profiling, on this platform
 
