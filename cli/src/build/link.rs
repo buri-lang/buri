@@ -846,7 +846,7 @@ fn choose(platform: Platform) -> Flavour {
 /// Unreadable — a driver that does not answer `--version` — contributes the
 /// program's own path, so the field is never silently empty.
 fn version_of(program: &Path) -> String {
-    let out = Command::new(program).arg("--version").output();
+    let out = spawn::output(Command::new(program).arg("--version"));
     match out {
         Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).into_owned(),
         _ => program.display().to_string(),
@@ -1124,13 +1124,14 @@ fn accepts_target(driver: &Path, triple: &str) -> bool {
 /// [`accepts_target`] without the memo.
 fn probe_target(driver: &Path, triple: &str) -> bool {
     use std::io::Write as _;
-    let spawned = Command::new(driver)
-        .arg(format!("--target={triple}"))
-        .args(["-c", "-x", "c", "-", "-o", "/dev/null"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
+    let spawned = spawn::start(
+        Command::new(driver)
+            .arg(format!("--target={triple}"))
+            .args(["-c", "-x", "c", "-", "-o", "/dev/null"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null()),
+    );
     let Ok(mut child) = spawned else { return false };
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(b"int buri_musl_probe(void) { return 0; }\n");
@@ -1152,7 +1153,7 @@ fn probe_target(driver: &Path, triple: &str) -> bool {
 /// path any normal build takes and does not need the memo [`accepts_target`]
 /// has.
 fn system_musl(driver: &Path) -> Option<PathBuf> {
-    let host = Command::new(driver).arg("-dumpmachine").output().ok();
+    let host = spawn::output(Command::new(driver).arg("-dumpmachine")).ok();
     let musl_host = host.is_some_and(|out| {
         out.status.success() && String::from_utf8_lossy(&out.stdout).contains("musl")
     });
@@ -1943,7 +1944,7 @@ impl CDriver {
             let mut direct = Command::new(&replay.program);
             self.pin(&mut direct);
             direct.args(replay.argv(&names));
-            if direct.output().is_ok_and(|done| done.status.success()) {
+            if spawn::output(&mut direct).is_ok_and(|done| done.status.success()) {
                 return self.claim(out);
             }
         }
@@ -1952,7 +1953,7 @@ impl CDriver {
         self.pin(&mut command);
         command.args(&args);
         let spelled = format!("cd {} && {}", self.dir.display(), command_line(&command));
-        match command.output() {
+        match spawn::output(&mut command) {
             Ok(status) if status.status.success() => {
                 if replay.is_some() {
                     // The replay failed where the driver did not, so it is stale.
@@ -2268,7 +2269,7 @@ impl CDriver {
     fn capture(&self, args: &[std::ffi::OsString], objects: &[String]) -> Option<Replay> {
         let mut command = Command::new(&self.driver);
         self.pin(&mut command);
-        let out = command.arg("-###").args(args).output().ok()?;
+        let out = spawn::output(command.arg("-###").args(args)).ok()?;
         if !out.status.success() {
             return None;
         }
@@ -2441,8 +2442,11 @@ fn beside(dest: &Path) -> PathBuf {
 /// (`fclonefileat`) and on Linux asks the kernel to copy it
 /// (`copy_file_range`, a reflink where the filesystem has them). Either way
 /// the bytes do not pass through this process.
+///
+/// Inside [`spawn::writing_executable`], so no child forked meanwhile holds it
+/// open and makes running it fail with `ETXTBSY`.
 fn copy_fresh(src: &Path, path: &Path) -> std::io::Result<()> {
-    std::fs::copy(src, path)?;
+    spawn::writing_executable(|| std::fs::copy(src, path))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
