@@ -3779,21 +3779,48 @@ fn borrowed_root(e: &Expr) -> Option<LocalId> {
     }
 }
 
-/// Every local a guard expression names, so a match arm's guard can be held to
-/// borrow them rather than consume them (see [`Scan::match_`]). A `Lambda`'s
-/// body is not walked: it is a construction over its captures, and the captures
-/// are what a guard reaching one already lists.
+/// Every local from outside a guard expression that the guard names, so a match
+/// arm's guard can be held to borrow them rather than consume them (see
+/// [`Scan::match_`]). A `Lambda`'s body is not walked: it is a construction over
+/// its captures, and the captures are what a guard reaching one already lists.
+///
+/// **A local the guard binds itself is not one of them.** It lives and dies
+/// inside the guard, which releases it at its own last use, so the arm owes it
+/// nothing. A guard binds names more often than its source suggests: the
+/// inliner pastes a short callee's body in, and that body binds its parameters
+/// with `let`. Listing those had the arm release each of them again at its
+/// entry — a guard `!seen.has(k)` over an `OrderedMap` freed the map the arm
+/// then inserted into.
 fn collect_locals(e: &Expr, out: &mut Vec<LocalId>) {
-    if let ExprKind::Local(l) = &e.kind {
-        out.push(*l);
+    fn named(e: &Expr, out: &mut Vec<LocalId>, bound: &mut Vec<LocalId>) {
+        match &e.kind {
+            ExprKind::Local(l) => out.push(*l),
+            ExprKind::Lambda { captures, .. } => {
+                out.extend(captures.iter().copied());
+                return;
+            }
+            ExprKind::Block { stmts, .. } => {
+                for s in stmts {
+                    if let Stmt::Let { pattern, .. } = s {
+                        pattern.binds(bound);
+                    }
+                }
+            }
+            ExprKind::Match { arms, .. } => {
+                for a in arms {
+                    a.pattern.binds(bound);
+                }
+            }
+            _ => {}
+        }
+        for k in kids(e) {
+            named(k, out, bound);
+        }
     }
-    if let ExprKind::Lambda { captures, .. } = &e.kind {
-        out.extend(captures.iter().copied());
-        return;
-    }
-    for k in kids(e) {
-        collect_locals(k, out);
-    }
+    let mut all: Vec<LocalId> = Vec::new();
+    let mut bound: Vec<LocalId> = Vec::new();
+    named(e, &mut all, &mut bound);
+    out.extend(all.into_iter().filter(|l| !bound.contains(l)));
 }
 
 /// Whether an expression produces a *new* reference rather than another name

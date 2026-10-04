@@ -386,8 +386,11 @@ fn emit_selected(
     // work proportional to units × program, in a program that grows by adding
     // units.
     let by_unit = program.funcs_by_unit();
-    let observed = emit::observe(program, opts.profile);
     let cycles = std::sync::Arc::new(layout::Cycles::new(tables));
+    let observed = {
+        let layouts = layout::Layouts::with_cycles(tables, cycles.clone());
+        emit::observe(program, &emit::Boxes::new(program, tables, &layouts), opts.profile)
+    };
     let no_members: Vec<usize> = Vec::new();
 
     let mut out = Vec::with_capacity(program.units.len());
