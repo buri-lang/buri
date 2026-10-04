@@ -55,6 +55,7 @@ dependencies = [
  "buri-docs",
  "buri-hash",
  "buri-stdlib",
+ "buri-syntax",
  "inkwell",
 ]
 
@@ -94,6 +95,15 @@ dependencies = [
 [[package]]
 name = "buri-stdlib"
 version = "0.3.19"
+
+[[package]]
+name = "buri-syntax"
+version = "0.3.19"
+dependencies = [
+ "buri-diagnostics",
+ "buri-hash",
+ "buri-stdlib",
+]
 
 [[package]]
 name = "bytemuck"

@@ -1,0 +1,16 @@
+[package]
+name = "buri-syntax"
+version = "0.3.19"
+edition = "2021"
+description = "The Buri lexer, parser, syntax tree and formatter."
+license = "MIT"
+repository = "https://github.com/buri-lang/buri"
+rust-version = "1.89"
+
+[dependencies]
+buri-diagnostics = { path = "../diagnostics", version = "0.3.19" }
+buri-hash = { path = "../hash", version = "0.3.19" }
+buri-stdlib = { path = "../stdlib", version = "0.3.19" }
+
+[lints]
+workspace = true

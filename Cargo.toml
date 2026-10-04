@@ -171,6 +171,8 @@ opt-level = 1
 opt-level = 1
 [profile.dev.package.buri-stdlib]
 opt-level = 1
+[profile.dev.package.buri-syntax]
+opt-level = 1
 
 # The integration tests are their own crates, so the line above does not reach
 # them: the corpus walkers, the formatter fixed-point check and the reject

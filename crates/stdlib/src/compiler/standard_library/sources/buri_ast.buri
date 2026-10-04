@@ -2168,7 +2168,7 @@ fn isUnprintable(ch: Char): Bool {
 ///
 /// The variation selectors, the keycap mark and the skin tones are printable
 /// already. `buri format` keeps the same rule, read off the same
-/// `PICTOGRAPHIC` table, in `cli/src/formatting.rs`.
+/// `PICTOGRAPHIC` table, in `crates/syntax/src/formatting.rs`.
 fn inEmojiSequence(cs: [Char], index: Int): Bool {
     let ch = charAtOr(cs, index);
     if (ch == '\u{200d}') {

@@ -54,7 +54,7 @@
 
        BURI_BLESS=1 cargo test -p buri --test language corpus::the_tree_sitter_grammar
 
-   And `cli/src/parsing/parser.rs` is the hand-written implementation, held to
+   And `crates/syntax/src/parsing/parser.rs` is the hand-written implementation, held to
    this file by the corpus: every source the compiler parses, the generated
    tree-sitter grammar must parse with no error node, and every source the
    compiler rejects *in the parser* it must reject

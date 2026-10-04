@@ -6,7 +6,7 @@ behind a paywall. This is a reading list, not a library: the papers are other
 people's work, so we link them rather than re-host them.
 
 Cite these from the code and the design docs by author and title, then point at
-this file — the way `cli/src/formatting.rs` and `design/native/MEMORY.md` do. A
+this file — the way `crates/syntax/src/formatting.rs` and `design/native/MEMORY.md` do. A
 reader can search for an author and a title; a path into this directory would
 rot instead.
 
@@ -14,7 +14,7 @@ rot instead.
 
 | Title | Authors | Year | Source | What it informed |
 |---|---|---|---|---|
-| *A prettier printer* | Philip Wadler | 1998 | [homepages.inf.ed.ac.uk](https://homepages.inf.ed.ac.uk/wadler/papers/prettier/prettier.pdf) | The `Doc` algebra in `cli/src/formatting.rs`. `Text`/`Concat`/`Line`/`Nest`/`Group` are his combinators; `render`/`fits` are his `best`/`fits`, one pass with one line of lookahead. The formatter is a rebuild on this paper. |
+| *A prettier printer* | Philip Wadler | 1998 | [homepages.inf.ed.ac.uk](https://homepages.inf.ed.ac.uk/wadler/papers/prettier/prettier.pdf) | The `Doc` algebra in `crates/syntax/src/formatting.rs`. `Text`/`Concat`/`Line`/`Nest`/`Group` are his combinators; `render`/`fits` are his `best`/`fits`, one pass with one line of lookahead. The formatter is a rebuild on this paper. |
 | *Warnings for pattern matching* | Luc Maranget | 2007 | [moscova.inria.fr](http://moscova.inria.fr/~maranget/papers/warn/warn.pdf) | The usefulness algorithm in `cli/src/compiler/semantics/exhaustiveness.rs`, and its Lean re-statement and correctness proof in `formal/Buri/Patterns/Usefulness.lean` and `Exhaustive.lean`. |
 | *Compiling Pattern Matching to Good Decision Trees* | Luc Maranget | 2008 | [moscova.inria.fr](http://moscova.inria.fr/~maranget/papers/ml05e-maranget.pdf) | The clause-matrix decision-tree compilation in `cli/src/compiler/middle/decision.rs`, including column selection and the leftmost-refutable-column heuristic that keeps the output deterministic. |
 | *How to compile pattern matching* | Jules Jacobs | 2021 | [julesjacobs.com](https://julesjacobs.com/notes/patternmatching/patternmatching.pdf) | The readable presentation of the above, reached via ReScript's `docs/optimized-pattern-matching.md`; same target, `cli/src/compiler/middle/decision.rs`. |

@@ -27,13 +27,11 @@ pub mod build;
 pub mod commands;
 pub mod compiler;
 pub mod documentation;
-pub mod formatting;
 pub mod language_server;
 pub mod languages;
-pub mod layout;
-pub mod parsing;
 
 // The lower crates, at the paths their modules had when they were part of this
 // one. `design/CRATES.md` draws the graph.
 pub use buri_diagnostics::{diagnostics, ice, json, parallel};
 pub use buri_hash::hash;
+pub use buri_syntax::{formatting, layout, parsing};
