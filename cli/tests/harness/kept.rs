@@ -114,6 +114,72 @@ pub fn cross_home(key: &str) -> (PathBuf, File) {
     panic!("could not hold a kept cross-build home at {}", entry.display());
 }
 
+/// The code that builds a cross runtime and its sysroot. `include_str!`, so a
+/// change to any of it is a new [`cross_home`] key and a build from cold.
+const BUILDER: [&str; 3] = [
+    include_str!("../../src/build/runtime_cross.rs"),
+    include_str!("../../src/build/runtime_src.rs"),
+    include_str!("../../src/build/musl.rs"),
+];
+
+/// The [`cross_home`] for the code in [`BUILDER`], held until the process
+/// exits.
+///
+/// Every `buri` that `harness::buri_command` starts gets this as `BURI_HOME`,
+/// and so does the one `native::cross` starts. So a run has one cross runtime per runtime version, shared
+/// by every test that links for another machine, and no test writes to the
+/// developer's own `~/.buri`.
+pub fn shared_cross_home() -> &'static Path {
+    static HOME: std::sync::OnceLock<(PathBuf, File)> = std::sync::OnceLock::new();
+    &HOME
+        .get_or_init(|| {
+            super::once();
+            let key = buri::build::sha256::hash_bytes(BUILDER.concat().as_bytes());
+            cross_home(key.get(..16).unwrap_or(&key))
+        })
+        .0
+}
+
+/// Builds the `linux-x86_64` cross runtime into [`shared_cross_home`] now,
+/// unless it is already there.
+///
+/// **Call it before starting a `buri` that may link for Linux.** The first such
+/// link builds the runtime crate in release mode. Under `RUSTC_WRAPPER=sccache`
+/// that build runs inside the sccache server, which is not a child of `buri`.
+/// The hang cap reads only the child's own process tree, so it sees a `buri`
+/// that is asleep and using no processor time, and kills it once that lasts
+/// five minutes, which a cold build on a loaded machine can. Measured: under a
+/// ten-second cap, `repositories::cli_contract` with an empty `BURI_HOME` was
+/// killed in both of its cross builds, each tree having used 0.3 s of
+/// processor time.
+///
+/// So the build happens here, in the test's own process and outside any cap,
+/// and every later link finds the runtime in the cache. One process builds at a
+/// time, under an exclusive lock beside the home; the others wait for it and
+/// then find the entry. A refusal, such as a host without the target's
+/// standard library, is left for the `buri` step to report.
+///
+/// Only a macOS host builds anything here. A Linux host's corpus cross variant
+/// is `macos-x86_64`, which it refuses (`case::platforms_for`).
+pub fn warm_cross_runtime() {
+    static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    DONE.get_or_init(|| {
+        if !cfg!(target_os = "macos") {
+            return;
+        }
+        use buri::build::buildfile::{Arch, Platform};
+        use buri::compiler::backend::Target;
+        let home = shared_cross_home();
+        let warm = home.with_file_name("warm");
+        let lock = File::options().create(true).append(true).open(&warm).unwrap_or_else(|e| {
+            panic!("could not open the cross-runtime lock {}: {e}", warm.display())
+        });
+        lock.lock().unwrap_or_else(|e| panic!("could not lock {}: {e}", warm.display()));
+        let target = Target { platform: Platform::Linux, arch: Some(Arch::X86_64) };
+        let _ = buri::build::runtime_cross::resolve_in(home, target);
+    });
+}
+
 /// Makes `binary` run as the kept file with its bytes.
 ///
 /// The first time a program's bytes are seen, they become a new entry in

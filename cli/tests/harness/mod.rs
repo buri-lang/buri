@@ -179,9 +179,19 @@ pub const HEAP_CHECK_LINE: &str = "buri heap check:";
 /// Every suite that spawns the binary itself rather than through [`run_in`]
 /// starts here, so that "the harness checks every program" is a property of one
 /// function instead of a habit.
+///
+/// It also gets the harness's cross-build home as `BURI_HOME`
+/// (`kept::shared_cross_home`), and no rustc wrapper. `buri` builds a cross
+/// runtime with a nested `cargo`, and a wrapper such as sccache compiles in a
+/// server that is not in `buri`'s process tree. The hang cap reads that tree,
+/// so a step compiling that way looks asleep and can be killed. Without the
+/// wrapper, the compile is `buri`'s own child and the cap sees it working.
+/// Corpora build the runtime up front anyway (`kept::warm_cross_runtime`).
 pub fn buri_command() -> Command {
     let mut cmd = Command::new(buri());
     cmd.env(HEAP_CHECK.0, HEAP_CHECK.1);
+    cmd.env("BURI_HOME", sweep::kept::shared_cross_home());
+    cmd.env_remove("RUSTC_WRAPPER").env_remove("RUSTC_WORKSPACE_WRAPPER");
     cmd
 }
 
