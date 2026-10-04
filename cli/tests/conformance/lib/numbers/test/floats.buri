@@ -506,11 +506,21 @@ test "cosh overflows only where the answer does" {
     assert.isTrue(math.isNan(math.cosh(nan())));
 }
 
+// The subtraction cancels two squares that add up to `cosh(2x)`, so a last-bit
+// error in either factor comes out `cosh(2x)` times larger. `exp` belongs to the
+// platform and isn't promised to the last bit, so the tolerance scales with it.
+fn hyperbolicIdentity(x: Float): () {
+    let c = math.cosh(x);
+    let s = math.sinh(x);
+    let tolerance = 8.0 * math.EPSILON * math.cosh(2.0 * x);
+    assert.isTrue(math.isCloseAbsolute(c * c - s * s, 1.0, tolerance))
+}
+
 test "cosh squared minus sinh squared is one" {
-    let x = 1.75;
-    near(math.cosh(x) * math.cosh(x) - math.sinh(x) * math.sinh(x), 1.0);
-    let y = -0.4;
-    near(math.cosh(y) * math.cosh(y) - math.sinh(y) * math.sinh(y), 1.0);
+    hyperbolicIdentity(1.75);
+    hyperbolicIdentity(-0.4);
+    hyperbolicIdentity(0.25);
+    hyperbolicIdentity(6.0);
 }
 
 test "tanh is odd and stays inside minus one to one" {

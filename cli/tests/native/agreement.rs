@@ -2298,13 +2298,13 @@ export fn main(host: NativeHost): Result<(), Str> {
 
 /// A NaN payload does not survive `f64FromBytes`, on either backend.
 ///
-/// It used to survive natively and not on JavaScript, where a `Float` is a
-/// `number` and moving a NaN through one canonicalizes it — so the same
-/// program computed different bytes on different backends, on a round trip
-/// the module documents. SPEC §6.2 had already ruled that every NaN equals
-/// every other "regardless of sign or payload", and `f64FromBytes` is the
-/// only way to construct one, so native was the side that moved:
-/// `cli/runtime/bytes.rs` canonicalizes on ingress.
+/// It used to survive natively and not on bun, whose engine canonicalizes a
+/// NaN read out of a buffer — so the same program computed different bytes on
+/// different backends, on a round trip the module documents. SPEC §6.2 had
+/// already ruled that every NaN equals every other "regardless of sign or
+/// payload", and `f64FromBytes` is the only way to construct one, so both
+/// runtimes canonicalize on ingress: `cli/runtime/bytes.rs`, and
+/// `runtime.js`'s `$canonicalNan`, since V8 keeps the payload.
 ///
 /// The last line is the other half of the claim. Signed zero was never
 /// affected and is pinned here so that a future canonicalization cannot

@@ -1500,7 +1500,16 @@ function $bytes_fromUtf8(_c, b) {
 // platform, and reconstructing it from arithmetic would be a second definition
 // of the same thing. `Option<T>` is the value or `undefined`, so a short input
 // simply returns nothing.
+//
+// A decoded NaN is the canonical quiet NaN, as SPEC 6.2 promises. The engine
+// doesn't do this: JavaScriptCore canonicalizes a NaN read out of a buffer but
+// V8 keeps the payload, and writes it back out on `setFloat64`. So the
+// decoders below replace every NaN with the `NaN` literal themselves.
 const $f64buf = new DataView(new ArrayBuffer(8));
+
+function $canonicalNan(x) {
+  return x !== x ? NaN : x;
+}
 
 function $bytes_f64ToBytes(_c, x) {
   $f64buf.setFloat64(0, x, true);
@@ -1513,7 +1522,7 @@ function $bytes_f64FromBytes(b, where) {
   const at = Number(where);
   if (at < 0 || at + 8 > b.length) return undefined;
   for (let i = 0; i < 8; i++) $f64buf.setUint8(i, b[at + i] & 0xff);
-  return $f64buf.getFloat64(0, true);
+  return $canonicalNan($f64buf.getFloat64(0, true));
 }
 
 function $bytes_f32ToBytes(_c, x) {
@@ -1527,7 +1536,7 @@ function $bytes_f32FromBytes(b, where) {
   const at = Number(where);
   if (at < 0 || at + 4 > b.length) return undefined;
   for (let i = 0; i < 4; i++) $f64buf.setUint8(i, b[at + i] & 0xff);
-  return $f64buf.getFloat32(0, true);
+  return $canonicalNan($f64buf.getFloat32(0, true));
 }
 
 // A RangeError is a struct { value: Str, target: Str }.
