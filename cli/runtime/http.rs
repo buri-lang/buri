@@ -818,7 +818,7 @@ mod tests {
         let ended_as = match &stalling.0 {
             Ok(response) => format!("a {} answer", response.status),
             Err(NetFail::Timeout) => "a Timeout".to_string(),
-            Err(other) => format!("{}", other.message()),
+            Err(other) => other.message().to_string(),
         };
         assert!(
             matches!(stalling.0, Err(NetFail::Timeout)),

@@ -199,10 +199,10 @@ fn stylesheet() -> String {
             Err(_) => String::new(),
         };
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Ok(bytes) = std::fs::read(exe.with_extension("css")) {
-            return String::from_utf8_lossy(&bytes).into_owned();
-        }
+    if let Ok(exe) = std::env::current_exe()
+        && let Ok(bytes) = std::fs::read(exe.with_extension("css"))
+    {
+        return String::from_utf8_lossy(&bytes).into_owned();
     }
     String::new()
 }
