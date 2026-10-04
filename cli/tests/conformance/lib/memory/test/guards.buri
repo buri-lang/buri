@@ -9,6 +9,8 @@
 // `Str` through such a guard on both backends and read it afterward, so the
 // value the guard borrowed is still the same characters.
 
+from "core/orderedmap" import * as ordmap;
+from "core/orderedmap" import { OrderedMap };
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
@@ -85,4 +87,51 @@ test "an arm reachable only past a guard reads a heap Str the guard borrowed" {
         .Int => "int",
     };
     assert.equal(described, "2026-03-01");
+}
+
+// A guard that binds names of its own. `has` is a short call, so the inliner
+// pastes its body into the guard, and that body binds the map and the key to
+// names that live and die inside the guard: the arm owes them nothing.
+// `middle::rc` released each of them again at the arm's entry, which freed the
+// map the arm was about to insert into — a crash, or a map whose entries were
+// somebody else's blocks.
+fn addOnce<C: Allocator>(
+    ctx: C,
+    seen: OrderedMap<Str, ()>,
+    key: Option<Str>,
+): OrderedMap<Str, ()> {
+    match (key) {
+        .Some(k) if !seen.has(k) => seen.insert(ctx, k, ()),
+        _ => seen,
+    }
+}
+
+test "a guard whose call binds names of its own leaves the map its arm grows alive" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let words = ["users.name", "teams.name", "users.email"];
+    let seen = words.foldCtx(
+        ctx,
+        fn(c, all: OrderedMap<Str, ()>, word) => {
+            addOnce(c, all, word.splitOnce(".").map(fn(parts) => parts.0))
+        },
+        ordmap.empty<Str, ()>(),
+    );
+    assert.equal(seen.keys(ctx), ["teams", "users"]);
+}
+
+test "a guard with a let of its own leaves the list its arm grows alive" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let held = [str.format(ctx, "a${"b"}")];
+    let grown = match (Option.Some(str.format(ctx, "c${"d"}"))) {
+        .Some(next) if {
+            let alias = held;
+            !alias.contains(next)
+        } => { held.push(ctx, next) },
+        _ => held,
+    };
+    assert.equal(grown, ["ab", "cd"]);
 }

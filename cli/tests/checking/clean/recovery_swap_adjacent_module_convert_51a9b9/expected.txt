@@ -1,0 +1,9 @@
+error: expected a string literal, found `{` [unexpected-token]
+  --> main.buri:18:6
+   |
+18 | test { "toInt truncates each lane toward zero"
+   |      ^
+   |
+   = expected: a string literal
+   = actual: `{`
+   = fix: quote it, as in `"core/list"`
