@@ -51,7 +51,7 @@ const REFUSED: &[Refused] = &[
 ];
 
 fn data_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/json-schema")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../cli/tests/json-schema")
 }
 
 fn parse(path: &Path) -> Node {

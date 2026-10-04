@@ -3,7 +3,7 @@
 The grammar for `BUILD.buri` and `REPO.buri`.
 
 Those files end in `.buri` and are not Buri. They are textproto, read by
-[`cli/src/build/textproto.rs`](../../cli/src/build/textproto.rs), and the Buri
+[`crates/project/src/build/textproto.rs`](../../crates/project/src/build/textproto.rs), and the Buri
 grammar next door turns every one of them into one long parse error — `#` reads
 as a syntax error, and an editor asked to comment a line writes `//`, which the
 reader refuses and `buri format` exits on.

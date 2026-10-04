@@ -156,7 +156,7 @@
 //! because the manifest is what makes "which objects changed" answerable from
 //! outside.
 
-use crate::build::buildfile::{Arch, Platform};
+use crate::build::buildfile::Platform;
 use crate::build::cache::{hash_bytes, ActionKey, Cache};
 use crate::build::musl::{self, Libc};
 use crate::build::runtime_cross::{self, Cross};
@@ -171,29 +171,7 @@ use std::process::Command;
 // What the host can link
 // ---------------------------------------------------------------------------
 
-/// The architecture this toolchain is running on, or `None` on one no `Arch`
-/// names.
-pub fn host_arch() -> Option<Arch> {
-    if cfg!(target_arch = "x86_64") {
-        Some(Arch::X86_64)
-    } else if cfg!(target_arch = "aarch64") {
-        Some(Arch::Arm64)
-    } else {
-        None
-    }
-}
-
-/// The platform this toolchain is running on, or `None` where there is no
-/// native backend and no runtime archive anyway.
-pub fn host_platform() -> Option<Platform> {
-    if cfg!(target_os = "macos") {
-        Some(Platform::Macos)
-    } else if cfg!(target_os = "linux") {
-        Some(Platform::Linux)
-    } else {
-        None
-    }
-}
+pub use crate::build::buildfile::{host_arch, host_platform};
 
 /// Whether this machine can link an artifact for `target`.
 ///
@@ -2493,6 +2471,7 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::build::buildfile::Arch;
 
     fn rows() -> Vec<Row> {
         vec![

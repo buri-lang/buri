@@ -169,6 +169,8 @@ opt-level = 1
 opt-level = 1
 [profile.dev.package.buri-hash]
 opt-level = 1
+[profile.dev.package.buri-project]
+opt-level = 1
 [profile.dev.package.buri-stdlib]
 opt-level = 1
 [profile.dev.package.buri-syntax]

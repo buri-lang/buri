@@ -1,5 +1,5 @@
 // The grammar for BUILD.buri and REPO.buri, which are textproto rather than
-// Buri. Hand-written, and held to `cli/src/build/textproto.rs` by `check.sh`.
+// Buri. Hand-written, and held to `crates/project/src/build/textproto.rs` by `check.sh`.
 //
 // That reader is the normative one, and it is small enough to mirror rule for
 // rule: a file is a list of fields, a field is `name: value` or `name { ... }`,
