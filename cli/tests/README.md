@@ -313,12 +313,18 @@ symbolic link to it. Tests still compile and link every time, and run the bytes
 they linked. Bytes repeat across runs because the runtime archive sits at a path
 named for its digest: the linker writes that path into every executable.
 
-**The cross runtime is built once per input.** `native::cross` builds the
-runtime for `linux-x86_64` into its `BURI_HOME`, a release build of the whole
-crate. That home is kept under `CARGO_TARGET_TMPDIR/cross-homes`, keyed by the
-code that does the building (`kept::cross_home`). Buri's own key covers the
-rest: runtime sources, triple, features and toolchain. So the build runs from
-cold whenever any of them changes, and is reused otherwise.
+**The cross runtime is built once per input.** A `linux-x86_64` link from a
+mac needs the runtime built for that target, a release build of the whole
+crate. Every `buri` the harness starts shares one `BURI_HOME` for it, kept
+under `CARGO_TARGET_TMPDIR/cross-homes` and keyed by the code that does the
+building (`kept::shared_cross_home`). Buri's own key covers the rest: runtime
+sources, triple, features and toolchain. So the build runs from cold whenever
+any of them changes, and is reused otherwise.
+
+The cold build happens in the test process, before any step runs
+(`kept::warm_cross_runtime`, called by `run_corpus` and `native::cross`).
+Inside a step, sccache would run it in its server, outside `buri`'s process
+tree, and the hang cap would see a `buri` doing nothing and kill it.
 
 **A long corpus is several tests.** nextest can't spread one test over cores,
 so a corpus that a single test walks holds the run open for as long as it
