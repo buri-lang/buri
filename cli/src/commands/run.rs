@@ -620,7 +620,7 @@ mod stopping {
             let previous = unsafe { signal(sig, forward as *const () as usize) };
             debug_assert!(previous != SIG_ERR, "SIGHUP, SIGINT and SIGTERM can be caught");
         }
-        let child = command.spawn()?;
+        let child = crate::build::spawn::start(command)?;
         // Zero is not a pid this can publish: `kill(0, …)` is every process in
         // this group, which is the one thing a command that forwards a signal
         // to one child must never do.

@@ -374,7 +374,7 @@ fn run_cargo(
             "-Cmetadata=buri_rt",
             "-Cextra-filename=",
         ]);
-        match command.output() {
+        match crate::build::spawn::output(&mut command) {
             Ok(out) if out.status.success() => return Ok(built),
             Ok(out) => last = Some(String::from_utf8_lossy(&out.stderr).into_owned()),
             Err(e) => last = Some(e.to_string()),
@@ -495,9 +495,7 @@ fn tool(var: &str, default: &str) -> String {
 /// was never installed, so the `libc.a` inside is the answer rather than the
 /// path.
 fn self_contained(rustc: &str, triple: &str) -> Option<PathBuf> {
-    let out = Command::new(rustc)
-        .args(["--print", "target-libdir", "--target", triple])
-        .output()
+    let out = crate::build::spawn::output(Command::new(rustc).args(["--print", "target-libdir", "--target", triple]))
         .ok()
         .filter(|o| o.status.success())?;
     let libdir = PathBuf::from(String::from_utf8(out.stdout).ok()?.trim().to_string());
@@ -507,7 +505,7 @@ fn self_contained(rustc: &str, triple: &str) -> Option<PathBuf> {
 
 /// A tool's version banner, or `None` when it could not be asked.
 fn tool_version(program: &str, args: &[&str]) -> Option<String> {
-    let out = Command::new(program).args(args).output().ok()?;
+    let out = crate::build::spawn::output(Command::new(program).args(args)).ok()?;
     out.status.success().then_some(())?;
     String::from_utf8(out.stdout).ok()
 }
