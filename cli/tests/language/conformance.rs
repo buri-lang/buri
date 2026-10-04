@@ -403,6 +403,37 @@ export fn main(host: NodeHost): Result<(), Str> {
     }
 }
 
+/// The float suites pass on V8 as well as on JavaScriptCore.
+///
+/// The engines don't agree on every float. V8 keeps a NaN's payload through a
+/// `DataView` where JavaScriptCore drops it, so `bytes.f64FromBytes` broke
+/// SPEC 6.2's canonical NaN under node until the runtime stopped relying on
+/// the engine. And the two engines' `Math.exp` differ in the last bit, which
+/// every function built on it inherits.
+///
+/// `conformance_suite_passes` runs under bun, so this runs `//lib/numbers` and
+/// `//lib/text` under node, debug and release.
+#[test]
+fn float_suites_pass_under_node() {
+    if Command::new("node").arg("--version").output().is_err()
+        && crate::harness::ci::skipped("language::conformance", "node is not on PATH")
+    {
+        return;
+    }
+    let suite = Scratch::copy_of("floats-on-node", &conformance_repo());
+    for mode in ["--debug", "--release"] {
+        let run = suite.run_with_env(
+            &["test", "//lib/numbers", "//lib/text", "--output=js", mode, "--force"],
+            &[("BURI_JS", "node")],
+        );
+        assert!(
+            run.code == 0 && run.tests_passed() >= 100,
+            "the float suites did not pass under node ({mode}):\n{}",
+            indent(&run.all())
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The minifier does not change the answer
 // ---------------------------------------------------------------------------
