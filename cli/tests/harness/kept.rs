@@ -1,5 +1,6 @@
 //! What the scratch root keeps from one run to the next: the runtime archive,
-//! and every linked executable, by its bytes.
+//! every linked executable, by its bytes, and the cross-build homes
+//! ([`cross_home`]).
 //!
 //! macOS checks an executable file the first time it runs. The check takes
 //! about 0.2 s, checks run one at a time, and the result is kept for that
@@ -67,6 +68,50 @@ pub fn runtime_archive() -> PathBuf {
 
 fn store() -> PathBuf {
     Path::new(env!("CARGO_TARGET_TMPDIR")).join(PROGRAMS)
+}
+
+/// The directory under the scratch root that holds the cross-build homes, one
+/// per [`cross_home`] key.
+pub const CROSS_HOMES: &str = "cross-homes";
+
+/// A `BURI_HOME` kept from one run to the next, and the lock that keeps the
+/// sweep off it while the caller holds it.
+///
+/// `buri build --output=native/linux-x86_64` builds the runtime for the target
+/// into `$BURI_HOME/cross/<key>/` the first time, which is a release build of
+/// the whole runtime crate, and reuses it after that. Buri's key covers the
+/// runtime's sources, the triple, the features and the `rustc` and `cargo`
+/// building it. `key` is for what Buri's key leaves out: the code that does the
+/// building. So a home is reused only when every input of the build it holds is
+/// the same, and the first run after any of them changes builds from cold.
+///
+/// Swept like [`PROGRAMS`]: an entry nobody has held for the sweep's bound is
+/// taken, and one that is held is not.
+pub fn cross_home(key: &str) -> (PathBuf, File) {
+    let homes = Path::new(env!("CARGO_TARGET_TMPDIR")).join(CROSS_HOMES);
+    std::fs::create_dir_all(&homes).unwrap();
+    let entry = homes.join(key);
+    // A sweep can take the entry between two of these steps, so a failed step
+    // starts again, a bounded number of times.
+    for _ in 0..4 {
+        if !entry.is_dir() {
+            let fresh = homes.join(format!(".new-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&fresh);
+            let built = std::fs::create_dir_all(fresh.join("home"))
+                .and_then(|()| std::fs::write(fresh.join("lock"), b""))
+                .and_then(|()| std::fs::rename(&fresh, &entry));
+            if built.is_err() {
+                let _ = std::fs::remove_dir_all(&fresh);
+            }
+        }
+        let Ok(lock) = File::options().append(true).open(entry.join("lock")) else { continue };
+        if lock.lock_shared().is_err() || !entry.join("home").is_dir() {
+            continue;
+        }
+        touch(&entry);
+        return (entry.join("home"), lock);
+    }
+    panic!("could not hold a kept cross-build home at {}", entry.display());
 }
 
 /// Makes `binary` run as the kept file with its bytes.

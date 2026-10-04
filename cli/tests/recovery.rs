@@ -865,13 +865,15 @@ impl Analyzer {
     /// cost is that a cascade wording an unmutated file already produces
     /// somewhere else is masked, which is the safe direction to be wrong in.
     fn errors(&mut self, name: &str, text: &str) -> Vec<(String, String)> {
-        let analysis = driver::analyze_snippet_in(
+        let analysis = driver::analyze_snippet_on(
+            None,
             None,
             &mut self.map,
             &mut self.cache,
             "recovery",
             text,
             role_of(name),
+            None,
         );
         analysis
             .diagnostics

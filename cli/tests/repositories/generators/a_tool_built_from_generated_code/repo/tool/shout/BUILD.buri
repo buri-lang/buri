@@ -1,0 +1,5 @@
+tool {
+    dependencies: ["//lib/greeting"]
+
+    generate {}
+}

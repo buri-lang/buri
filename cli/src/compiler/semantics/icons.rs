@@ -25,11 +25,11 @@ use core::str::Chars;
 
 use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::consteval::{Env, Folder, Value};
-use crate::compiler::semantics::resolve::{ModuleScope, Sym, Walked};
+use crate::compiler::semantics::layered::Layered;
+use crate::compiler::semantics::resolve::{BodyMap, ConstMap, ModuleScope, Sym, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind};
-use crate::compiler::semantics::types::{ConstId, FnId, Tables, TyConId};
+use crate::compiler::semantics::types::{FnId, Tables, TyConId};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
-use crate::hash::Map as HashMap;
 
 /// The elements an icon may hold: a coordinate system, a group, and the shapes
 /// the painter's own SVG subset draws (`cli/runtime/image.rs`).
@@ -115,38 +115,26 @@ pub fn builds_an_icon(e: &mut typed::Expr, node_con: TyConId) -> bool {
 pub fn run(
     loaded: &Loaded,
     tables: &Tables,
-    scopes: &[ModuleScope],
-    bodies: &HashMap<FnId, std::sync::Arc<typed::Body>>,
-    consts: &HashMap<ConstId, typed::Expr>,
+    scopes: &Layered<ModuleScope>,
+    bodies: &BodyMap,
+    consts: &ConstMap,
     diags: &mut Diagnostics,
     walked: &Walked,
 ) {
     let Some(image) = constructor(loaded, scopes) else { return };
 
-    let mut ids: Vec<ConstId> = consts.keys().copied().collect();
-    ids.sort_by_key(|c| c.index());
-    for id in ids {
-        if walked.constant(tables, id) {
-            if let Some(init) = consts.get(&id) {
-                walk(init, image, tables, bodies, consts, diags);
-            }
-        }
+    for (_, init) in walked.constants(tables, consts) {
+        walk(init, image, tables, bodies, consts, diags);
     }
-    let mut fns: Vec<FnId> = bodies.keys().copied().collect();
-    fns.sort_by_key(|f| f.index());
-    for id in fns {
-        if walked.function(tables, id) {
-            if let Some(body) = bodies.get(&id) {
-                walk(&body.expr, image, tables, bodies, consts, diags);
-            }
-        }
+    for (_, body) in walked.functions(tables, bodies) {
+        walk(&body.expr, image, tables, bodies, consts, diags);
     }
 }
 
 /// `ui/node`'s `image`, when this compilation loaded the module. A decorative
 /// one is what lowers to an inline `<svg>`, so this is the constructor whose
 /// calls the walk reads.
-fn constructor(loaded: &Loaded, scopes: &[ModuleScope]) -> Option<FnId> {
+fn constructor(loaded: &Loaded, scopes: &Layered<ModuleScope>) -> Option<FnId> {
     let index = loaded.modules.iter().position(|m| m.path == "ui/node")?;
     match scopes.get(index)?.own.get("image")? {
         Sym::Fn(id) => Some(*id),
@@ -159,8 +147,8 @@ fn walk(
     e: &typed::Expr,
     image: FnId,
     tables: &Tables,
-    bodies: &HashMap<FnId, std::sync::Arc<typed::Body>>,
-    consts: &HashMap<ConstId, typed::Expr>,
+    bodies: &BodyMap,
+    consts: &ConstMap,
     diags: &mut Diagnostics,
 ) {
     if let ExprKind::CallFn { func, args } = &e.kind {
@@ -180,8 +168,8 @@ fn walk(
 fn check(
     arg: &typed::Expr,
     tables: &Tables,
-    bodies: &HashMap<FnId, std::sync::Arc<typed::Body>>,
-    consts: &HashMap<ConstId, typed::Expr>,
+    bodies: &BodyMap,
+    consts: &ConstMap,
     diags: &mut Diagnostics,
 ) {
     // A struct literal stores its fields in declaration order, so the `source`

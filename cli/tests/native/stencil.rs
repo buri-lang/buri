@@ -40,7 +40,7 @@ use buri::compiler::modules::Role;
 use buri::diagnostics::{Diagnostics, SourceMap};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
@@ -1994,7 +1994,7 @@ fn compile_corpus(path: &str) -> Compiled {
     let repository = repository();
     let package = repository.and_then(|w| w.package_by_path(&format!("lib/{package}")));
     let mut cache = buri::parsing::parser::Cache::new();
-    let analysis = driver::analyze_snippet_as(
+    let analysis = driver::analyze_snippet_on(
         repository,
         package,
         &mut map,
@@ -2002,6 +2002,7 @@ fn compile_corpus(path: &str) -> Compiled {
         "main",
         &source,
         Role::TestSource,
+        None,
     );
     if analysis.diagnostics.has_errors() {
         return Compiled::Front(String::from("the front end refused it"));
@@ -2998,7 +2999,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         panic!("the product's link failed: {:?}", messages(&d));
     }
 
-    let ran = run_artifact(&out);
+    let ran = shared::run_artifact(&out);
     assert_eq!(
         ran.status.code(),
         Some(0),
@@ -3236,7 +3237,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         }
         linked.push((name, size));
         // And it is a program, not an empty file the linker was talked into.
-        let ran = run_artifact(&out);
+        let ran = shared::run_artifact(&out);
         assert_eq!(
             ran.status.code(),
             Some(0),
@@ -3304,46 +3305,6 @@ fn debug_stripped_size(artifact: &Path, to: &Path) -> Option<u64> {
         return None;
     }
     std::fs::metadata(to).ok().map(|m| m.len())
-}
-
-/// Runs a freshly linked artifact, waiting out an `ETXTBSY` that is not this
-/// thread's to close.
-///
-/// `execve` refuses a file while *any* process on the machine holds a
-/// descriptor on it open for writing, and "any process" reaches wider than this
-/// file's structure can. The artifact is written by `link::place` through a
-/// truncating `File`, and a child forked by another `#[test]` running
-/// concurrently in this same binary inherits every descriptor that is open at
-/// the instant it forks — that one included, until the child reaches its own
-/// `execve` and `O_CLOEXEC` takes it away. Nothing on this side of the fork
-/// closes that window. What this side can do is never widen it — which is what
-/// the scoped handle in [`debug_stripped_size`] above is for, and why nothing
-/// here strips an artifact in place — and then wait it out.
-///
-/// Bounded and short, because the condition is: the descriptor is gone the
-/// moment that child execs, so a tenth of a second is far past every instance
-/// of this race, and a refusal that outlives it is a different problem and is
-/// reported as one rather than waited on.
-fn run_artifact(path: &Path) -> Output {
-    const TRIES: u32 = 20;
-    const PAUSE: std::time::Duration = std::time::Duration::from_millis(5);
-
-    let mut last = String::new();
-    for _ in 0..TRIES {
-        match Command::new(path).output() {
-            Ok(out) => return out,
-            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
-                last = e.to_string();
-                std::thread::sleep(PAUSE);
-            }
-            Err(e) => panic!("cannot run {}: {e}", path.display()),
-        }
-    }
-    panic!(
-        "{} was still open for writing somewhere after {TRIES} attempts over {} ms: {last}",
-        path.display(),
-        u128::from(TRIES) * PAUSE.as_millis()
-    )
 }
 
 /// What an artifact for `target` may weigh, linked and debug-stripped, in

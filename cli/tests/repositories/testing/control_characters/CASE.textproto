@@ -1,0 +1,30 @@
+# A test title holding a control character is reported under the title it was
+# written with, on both backends.
+#
+# A verdict reaches the report through the record the cache stores: JSON, in
+# which a control character other than a tab, a newline or a carriage return is
+# written as a `\u` escape. The runner used to read that escape back as the
+# letter `u` and four digits, so this title came out as `ringsu0007twice`, a
+# title no test has, and the failure lost its location.
+#
+# The title is printed in the syntax it was written in, so the character stays
+# visible and the `FAIL` line stays one line.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a control character in a test title survives the runner's record and is printed as the escape it was written as"
+
+run {
+  args: ["test", "//lib/bell", "--force"]
+  exit: 1
+  golden: "native.txt"
+  stream: OUT
+}
+
+run {
+  args: ["test", "//lib/bell", "--force", "--output=js"]
+  exit: 1
+  golden: "js.txt"
+  stream: OUT
+}

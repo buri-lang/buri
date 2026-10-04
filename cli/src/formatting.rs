@@ -933,6 +933,13 @@ impl Docs {
     }
 }
 
+/// The text of a run of doc lines, from the lexer's list of where each is.
+fn doc_strings(text: &str, lines: &[Location], d: crate::parsing::flat::Docs) -> Vec<String> {
+    let a = d.start as usize;
+    let run = lines.get(a..a.saturating_add(d.len as usize)).unwrap_or(&[]);
+    run.iter().map(|at| text.get(at.start as usize..at.end as usize).unwrap_or("").to_string()).collect()
+}
+
 /// What was written above one token, with that token's byte offset.
 ///
 /// The two cases are separate variants because most of what a run has to say
@@ -967,8 +974,8 @@ impl Trivia {
     /// `at` is the token's offset, which the lexer's trivia table does not
     /// carry: it is keyed by token index, and the caller is the one holding
     /// the tokens.
-    fn read(at: u32, t: crate::parsing::lexer::Trivia) -> Trivia {
-        let docs = Docs::read(t.docs, t.docs_blank);
+    fn read(at: u32, t: crate::parsing::lexer::Trivia, lines: Vec<String>) -> Trivia {
+        let docs = Docs::read(lines, t.docs_blank);
         if t.comments.is_empty() && matches!(docs, Docs::None) {
             return Trivia::Blank { at };
         }
@@ -1111,7 +1118,8 @@ impl Comments {
                 }
             }
             let start = tokens.span(at).start;
-            entries.push(Entry { trivia: Trivia::read(start, t), claimed: false });
+            let lines = doc_strings(text, &lexed.docs, t.docs);
+            entries.push(Entry { trivia: Trivia::read(start, t, lines), claimed: false });
         }
         Comments { entries, beside_code }
     }
@@ -1289,7 +1297,7 @@ fn import_key(t: &Tree, item: &&Item) -> (u8, String, String) {
     };
     let clause = match &i.clause {
         ImportClause::Namespace(n) => format!("* as {}", t.name(*n)),
-        ImportClause::Named(specs) => format!("{{ {} }}", spec_list(t, specs).join(", ")),
+        ImportClause::Named(specs) => format!("{{ {} }}", spec_list(t, t.list(*specs)).join(", ")),
     };
     (import_group(&i.path), i.path.clone(), clause)
 }
@@ -1551,7 +1559,7 @@ impl<'t> Build<'t> {
         let mut parts: Vec<Doc> = Vec::new();
         // The module's own documentation comes back first, and is separated
         // from the first declaration by a blank line.
-        for line in &m.docs {
+        for line in self.tree().doc_lines(m.docs) {
             parts.push(text(if line.is_empty() {
                 "//!".to_string()
             } else {
@@ -1694,13 +1702,13 @@ impl<'t> Build<'t> {
                         text(format!("from {path} import * as {};", self.tree().name(*n)))
                     }
                     ImportClause::Named(specs) => {
-                        self.name_list(&format!("from {path} import"), specs)
+                        self.name_list(&format!("from {path} import"), self.tree().list(*specs))
                     }
                 }
             }
             Item::ReExport(r) => {
                 let path = self.path_literal(r.path_span, &r.path);
-                self.name_list(&format!("from {path} export"), &r.specs)
+                self.name_list(&format!("from {path} export"), self.tree().list(r.specs))
             }
             Item::Fn(d) => self.fn_decl(d, d.exported),
             Item::Struct(d) => self.struct_decl(d),
@@ -1708,7 +1716,7 @@ impl<'t> Build<'t> {
             Item::TypeAlias(d) => {
                 let ex = if d.exported { "export " } else { "" };
                 let t = self.tree();
-                let g = generics(t, &d.generics);
+                let g = generics(t, t.list(d.generics));
                 text(format!("{ex}type {}{g} = {};", t.name(d.name), type_text(t, d.ty)))
             }
             Item::Let(d) => {
@@ -1724,13 +1732,13 @@ impl<'t> Build<'t> {
                 let ex = if d.exported { "export " } else { "" };
                 let keyword = if d.is_effect { "effect" } else { "trait" };
                 let t = self.tree();
-                let g = generics(t, &d.generics);
+                let g = generics(t, t.list(d.generics));
                 let head = format!("{ex}{keyword} {}{g}", t.name(d.name));
                 if d.methods.is_empty() && !self.tv.any_in(d.span.start, d.span.end) {
                     return text(format!("{head} {{}}"));
                 }
                 let mut lines = Vec::new();
-                for m in &d.methods {
+                for m in t.list(d.methods) {
                     // A trait method's own documentation is the trait's
                     // documentation of it, and is the reason `buri docs` has
                     // anything to say about a method that has no body.
@@ -1746,7 +1754,7 @@ impl<'t> Build<'t> {
             }
             Item::Impl(d) => {
                 let t = self.tree();
-                let g = generics(t, &d.generics);
+                let g = generics(t, t.list(d.generics));
                 let head = match d.trait_ty {
                     Some(tr) => {
                         format!("impl{g} {} for {}", type_text(t, tr), type_text(t, d.self_ty))
@@ -1757,7 +1765,7 @@ impl<'t> Build<'t> {
                     return text(format!("{head} {{}}"));
                 }
                 let mut lines = Vec::new();
-                for (i, m) in d.methods.iter().enumerate() {
+                for (i, m) in t.list(d.methods).iter().enumerate() {
                     if i > 0 {
                         lines.push(Doc::Blank);
                     }
@@ -1796,7 +1804,7 @@ impl<'t> Build<'t> {
             // A declaration the recovery skipped over. Every other broken
             // declaration is caught above, by span; this one has no other
             // form to print.
-            Item::Error(at) => self.verbatim(**at),
+            Item::Error(at) => self.verbatim(*at),
         }
     }
 
@@ -1904,8 +1912,8 @@ impl<'t> Build<'t> {
         // what breaks the signature: a comment cannot share a line with the
         // list it is annotating, so a flat signature is not on offer.
         let t = self.tree();
-        let params: Vec<Doc> = d
-            .params
+        let params: Vec<Doc> = t
+            .list(d.params)
             .iter()
             .map(|p| {
                 let c = self.flush(d.span.start, p.span.start);
@@ -1914,10 +1922,10 @@ impl<'t> Build<'t> {
             .collect();
         let close = format!("): {}{tail}", type_text(t, d.ret));
         if params.is_empty() {
-            return text(format!("{lead}fn {}{}({close}", t.name(d.name), generics(t, &d.generics)));
+            return text(format!("{lead}fn {}{}({close}", t.name(d.name), generics(t, t.list(d.generics))));
         }
         group(cat(vec![
-            text(format!("{lead}fn {}{}(", t.name(d.name), generics(t, &d.generics))),
+            text(format!("{lead}fn {}{}(", t.name(d.name), generics(t, t.list(d.generics)))),
             nest(cat(vec![
                 Doc::SoftLine,
                 join(cat(vec![text(","), Doc::Line]), params),
@@ -1971,10 +1979,10 @@ impl<'t> Build<'t> {
     fn struct_decl(&mut self, d: &StructDecl) -> Doc {
         let ex = if d.exported { "export " } else { "" };
         let t = self.tree();
-        let g = generics(t, &d.generics);
+        let g = generics(t, t.list(d.generics));
         match &d.body {
             StructBody::Tuple(fields) => {
-                let inner = fields
+                let inner = t.list(*fields)
                     .iter()
                     .map(|f| {
                         format!("{}{}", if f.exported { "export " } else { "" }, type_text(t, f.ty))
@@ -1984,6 +1992,7 @@ impl<'t> Build<'t> {
                 text(format!("{ex}struct {}{g}({inner});", t.name(d.name)))
             }
             StructBody::Record(fields) => {
+                let fields = t.list(*fields);
                 let head = format!("{ex}struct {}{g}", t.name(d.name));
                 let inside = d.span.start.saturating_add(1);
                 if fields.is_empty() && !self.tv.any_in(inside, d.span.end) {
@@ -2009,16 +2018,16 @@ impl<'t> Build<'t> {
     fn enum_decl(&mut self, d: &EnumDecl) -> Doc {
         let ex = if d.exported { "export " } else { "" };
         let t = self.tree();
-        let g = generics(t, &d.generics);
+        let g = generics(t, t.list(d.generics));
         let head = format!("{ex}enum {}{g}", t.name(d.name));
         let inside = d.span.start.saturating_add(1);
         if d.variants.is_empty() && !self.tv.any_in(inside, d.span.end) {
             return text(format!("{head} {{}}"));
         }
         let mut items = Vec::new();
-        for (i, v) in d.variants.iter().enumerate() {
+        for (i, v) in t.list(d.variants).iter().enumerate() {
             let c = self.flush(inside, v.span.start);
-            let next = d.variants.get(i.saturating_add(1)).map_or(d.span.end, |n| n.span.start);
+            let next = t.list(d.variants).get(i.saturating_add(1)).map_or(d.span.end, |n| n.span.start);
             let beside = self.trailing(v.span.end, next);
             items.push((with_comment(c, text(variant(t, v))), beside));
         }
@@ -3002,8 +3011,8 @@ pub fn constructor(t: &Tree, d: &StructDecl) -> Option<String> {
         StructBody::Tuple(fields) => Some(format!(
             "{}{}({})",
             t.name(d.name),
-            generics(t, &d.generics),
-            fields.iter().map(|f| type_text(t, f.ty)).collect::<Vec<_>>().join(", ")
+            generics(t, t.list(d.generics)),
+            t.list(*fields).iter().map(|f| type_text(t, f.ty)).collect::<Vec<_>>().join(", ")
         )),
         StructBody::Record(_) => None,
     }
@@ -3018,7 +3027,7 @@ pub fn variant(t: &Tree, v: &Variant) -> String {
         VariantPayload::Record(fs) => format!(
             "{} {{ {} }}",
             t.name(v.name),
-            fs.iter().map(|f| field_decl(t, f)).collect::<Vec<_>>().join(", ")
+            t.list(*fs).iter().map(|f| field_decl(t, f)).collect::<Vec<_>>().join(", ")
         ),
     }
 }
@@ -3036,13 +3045,13 @@ fn param_text(t: &Tree, p: &Param) -> String {
 /// bounds, and every parameter with the type it takes. No `fn` and no answer —
 /// this is read against a call, not hovered over a declaration.
 pub fn call_signature(t: &Tree, d: &FnDecl) -> String {
-    let params = d
-        .params
+    let params = t
+        .list(d.params)
         .iter()
         .map(|p| param_text(t, p))
         .collect::<Vec<_>>()
         .join(", ");
-    format!("{}{}({params})", t.name(d.name), generics(t, &d.generics))
+    format!("{}{}({params})", t.name(d.name), generics(t, t.list(d.generics)))
 }
 
 pub fn signature(t: &Tree, d: &FnDecl) -> String {
@@ -3336,7 +3345,7 @@ pub fn token_shape(text: &str) -> Vec<Shape> {
 fn shapes(text: &str, tokens: bool) -> Vec<Shape> {
     let lexed = lex(text, FileId(0));
     let mut out: Vec<Shape> = Vec::new();
-    for (line, _) in &lexed.module_docs {
+    for line in lexed.module_docs.iter().map(|(at, _)| lexed.doc(*at)) {
         out.push(Shape::ModuleDoc(line.trim().to_string()));
     }
     // The trivia table is keyed by token index and in ascending order of it,
@@ -3348,7 +3357,7 @@ fn shapes(text: &str, tokens: bool) -> Vec<Shape> {
             for c in &tv.comments {
                 out.push(Shape::Comment(trim_lines(&c.text)));
             }
-            for d in &tv.docs {
+            for d in lexed.doc_lines(tv.docs) {
                 out.push(Shape::Doc(d.trim().to_string()));
             }
         }

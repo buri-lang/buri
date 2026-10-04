@@ -104,7 +104,7 @@ fn item_symbol(text: &str, module: &Module, item: &Item) -> Option<Value> {
         }
         Item::Struct(d) => {
             let fields = match &d.body {
-                StructBody::Record(fields) => fields
+                StructBody::Record(fields) => tree.list(*fields)
                     .iter()
                     .map(|f| {
                         let name = tree.name(f.name);
@@ -117,12 +117,12 @@ fn item_symbol(text: &str, module: &Module, item: &Item) -> Option<Value> {
             Some(symbol(text, tree.name(d.name), kind::STRUCT, d.span, d.name.span, fields))
         }
         Item::Enum(d) => {
-            let variants = d
-                .variants
+            let variants = tree
+                .list(d.variants)
                 .iter()
                 .map(|v| {
                     let fields = match &v.payload {
-                        VariantPayload::Record(fields) => fields
+                        VariantPayload::Record(fields) => tree.list(*fields)
                             .iter()
                             .map(|f| {
                                 symbol(
@@ -143,8 +143,8 @@ fn item_symbol(text: &str, module: &Module, item: &Item) -> Option<Value> {
             Some(symbol(text, tree.name(d.name), kind::ENUM, d.span, d.name.span, variants))
         }
         Item::Trait(d) => {
-            let methods = d
-                .methods
+            let methods = tree
+                .list(d.methods)
                 .iter()
                 .map(|m| {
                     symbol(text, tree.name(m.name), kind::METHOD, m.span, m.name.span, Vec::new())
@@ -160,8 +160,8 @@ fn item_symbol(text: &str, module: &Module, item: &Item) -> Option<Value> {
                 Some(t) => format!("impl {} for {self_ty}", crate::formatting::type_text(tree, t)),
                 None => format!("impl {self_ty}"),
             };
-            let methods = d
-                .methods
+            let methods = tree
+                .list(d.methods)
                 .iter()
                 .map(|m| {
                     symbol(text, tree.name(m.name), kind::METHOD, m.span, m.name.span, Vec::new())
@@ -250,11 +250,11 @@ pub fn folding_ranges(text: &str) -> Value {
             out.push(region);
         }
         let methods = match item {
-            Item::Impl(d) => &d.methods,
-            Item::Trait(d) => &d.methods,
+            Item::Impl(d) => d.methods,
+            Item::Trait(d) => d.methods,
             _ => continue,
         };
-        for m in methods {
+        for m in module.tree.list(methods) {
             if let Some(region) = body_fold(text, m.span) {
                 out.push(region);
             }

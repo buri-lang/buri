@@ -1,0 +1,7 @@
+library {
+    sources: ["loud.buri"]
+    generators: [
+        { tool: "//tool/shout", inputs: ["name.txt"] },
+    ]
+    visibility: ["//visibility:public"]
+}

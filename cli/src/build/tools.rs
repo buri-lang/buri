@@ -238,7 +238,7 @@ pub fn contract(
         .items
         .iter()
         .filter_map(|i| match i {
-            Item::Fn(f) if f.exported => Some((tree.name(f.name), &**f)),
+            Item::Fn(f) if f.exported => Some((tree.name(f.name), f)),
             _ => None,
         })
         .filter(|(name, _)| ENTRY_POINTS.contains(name))
@@ -260,9 +260,9 @@ pub fn contract(
         }
     }
     for (entry, f) in &exported {
-        let ctx = f.params.iter().find(|p| p.kind == ParamKind::CtxParam).or(f.params.first());
+        let ctx = tree.list(f.params).iter().find(|p| p.kind == ParamKind::CtxParam).or(tree.list(f.params).first());
         let Some(head) = ctx.and_then(|p| p.written_type()).and_then(|t| tree.type_head(t)) else { continue };
-        let Some(generic) = f.generics.iter().find(|g| tree.name(g.name) == head) else { continue };
+        let Some(generic) = tree.list(f.generics).iter().find(|g| tree.name(g.name) == head) else { continue };
         for bound in tree.type_list(generic.bounds) {
             let effect = tree.type_head(*bound).unwrap_or_default();
             if effect != "Allocator" {
@@ -292,7 +292,7 @@ fn request_type(
     let accepts = tool.accepts(entry);
     let first = accepts.first()?;
     let tree = &module.tree;
-    let request = f.params.get(1)?.written_type()?;
+    let request = tree.list(f.params).get(1)?.written_type()?;
     let head = match entry {
         "check" => "CheckRequest",
         _ => "GenerateRequest",
@@ -308,7 +308,7 @@ fn request_type(
     let (root, path) = wanted.first().cloned()?;
     let imports = || {
         module.items.iter().filter_map(|i| match i {
-            Item::Import(import) => Some(&**import),
+            Item::Import(import) => Some(import),
             _ => None,
         })
     };
@@ -318,7 +318,7 @@ fn request_type(
             wanted.iter().any(|(root, path)| {
                 imports().filter(|i| &i.path == path).any(|i| match (&i.clause, segments.as_slice()) {
                     (ImportClause::Named(specs), [name]) => {
-                        specs.iter().any(|s| tree.name(s.local()) == *name && tree.name(s.name) == root)
+                        tree.list(*specs).iter().any(|s| tree.name(s.local()) == *name && tree.name(s.name) == root)
                     }
                     (ImportClause::Namespace(ns), [q, name]) => tree.name(*ns) == *q && name == root,
                     _ => false,

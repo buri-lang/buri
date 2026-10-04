@@ -1059,7 +1059,7 @@ fn a_module_doc_comment_must_come_first() {
         parsed.errors.iter().any(|d| d.message.contains("must come first")),
         "a late `//!` should be reported"
     );
-    assert_eq!(parsed.module.docs, vec!["fine".to_string()]);
+    assert_eq!(parsed.module.tree.docs(parsed.module.docs), vec!["fine".to_string()]);
 }
 
 /// Every error page's reproduction still produces the code the page is about.

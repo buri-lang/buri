@@ -135,6 +135,21 @@ pub(crate) fn probed_backends() -> Vec<(&'static str, ProbedBuild)> {
     out
 }
 
+/// Every native backend built in that can run here, by name, with the
+/// `buri build` flags that select it — for `reproducible.rs`.
+pub(crate) fn build_modes() -> Vec<(&'static str, &'static [&'static str])> {
+    let mut out: Vec<(&'static str, &'static [&'static str])> = Vec::new();
+    #[cfg(feature = "backend-stencil")]
+    if crate::stencil::supported() {
+        out.push(("stencil", &[]));
+    }
+    #[cfg(feature = "backend-llvm")]
+    if ready() {
+        out.push(("llvm", &["--release"]));
+    }
+    out
+}
+
 macro_rules! unless_ready {
     () => {
         if !ready() {

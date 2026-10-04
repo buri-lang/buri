@@ -87,9 +87,7 @@ impl Lowered {
 /// composes the two, and so does this.
 fn lower(source: &str) -> Lowered {
     let mut map = SourceMap::new();
-    let mut cache = buri::parsing::parser::Cache::new();
-    let analysis =
-        driver::analyze_snippet_in(None, &mut map, &mut cache, "main.buri", source, Role::Entry);
+    let analysis = driver::analyze_snippet(&mut map, "main.buri", source, Role::Entry);
     assert!(!analysis.diagnostics.has_errors(), "{}", render(&analysis.diagnostics, &map));
     let entry = analysis.checked.entry.expect("the program exports no `main`");
     let module_paths: Vec<String> =
@@ -330,9 +328,7 @@ fn build_tests(name: &str, source: &str) -> PathBuf {
 /// [`build_tests`], with the source standing at module path `file`.
 fn build_tests_as(name: &str, file: &str, source: &str) -> PathBuf {
     let mut map = SourceMap::new();
-    let mut cache = buri::parsing::parser::Cache::new();
-    let analysis =
-        driver::analyze_snippet_in(None, &mut map, &mut cache, file, source, Role::TestSource);
+    let analysis = driver::analyze_snippet(&mut map, file, source, Role::TestSource);
     assert!(!analysis.diagnostics.has_errors(), "{}", render(&analysis.diagnostics, &map));
     let module_paths: Vec<String> =
         analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
@@ -1976,7 +1972,6 @@ export fn main(host: NativeHost): Result<(), Str> {
 fn an_unimplemented_intrinsic_is_reported_before_llvm_runs() {
     use buri::compiler::backend::Backend as _;
     let mut map = SourceMap::new();
-    let mut cache = buri::parsing::parser::Cache::new();
     let source = program(
         r#"
 from "native" import { NativeHost };
@@ -1989,8 +1984,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#,
     );
-    let analysis =
-        driver::analyze_snippet_in(None, &mut map, &mut cache, "main.buri", &source, Role::Entry);
+    let analysis = driver::analyze_snippet(&mut map, "main.buri", &source, Role::Entry);
     assert!(!analysis.diagnostics.has_errors(), "{}", render(&analysis.diagnostics, &map));
     let entry = analysis.checked.entry.unwrap();
     let module_paths: Vec<String> =
@@ -2051,14 +2045,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#,
     );
-    let analysis = driver::analyze_snippet_in(
-        None,
-        &mut map,
-        &mut cache,
-        "closure.buri",
-        &with_closure,
-        Role::Entry,
-    );
+    let analysis = driver::analyze_snippet(&mut map, "closure.buri", &with_closure, Role::Entry);
     assert!(!analysis.diagnostics.has_errors(), "{}", render(&analysis.diagnostics, &map));
     let entry = analysis.checked.entry.unwrap();
     let module_paths: Vec<String> =

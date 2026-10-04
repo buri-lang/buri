@@ -62,7 +62,7 @@ pub struct ModuleData {
     pub role: Role,
     /// Shared, not owned: one file is parsed once per process and every
     /// target that imports it reads the same tree.
-    pub ast: std::rc::Rc<tree::Module>,
+    pub ast: std::sync::Arc<tree::Module>,
     /// The package this module belongs to, and the target that compiles it.
     pub pkg: Option<crate::build::workspace::PackageId>,
     /// The file this module was read from, for a module that came from disk.
@@ -310,7 +310,7 @@ impl<'a> Loader<'a> {
                 // builds no context. The toolchain writes the `main` that calls
                 // it, when it runs the tool.
                 let root = self.load_path(&pkg.module_path("tool.buri"), Role::Source, Span::NONE);
-                let ast = root.and_then(|r| self.modules.get(r.index())).map(|m| std::rc::Rc::clone(&m.ast));
+                let ast = root.and_then(|r| self.modules.get(r.index())).map(|m| std::sync::Arc::clone(&m.ast));
                 if let Some(ast) = ast {
                     if self.checked_tools.insert(target) {
                         let roots = |path: &str| {
@@ -845,7 +845,7 @@ impl<'a> Loader<'a> {
                 tree::Item::Import(i) => {
                     let names = match &i.clause {
                         tree::ImportClause::Named(specs) => {
-                            specs.iter().map(|s| t.name(s.name).to_string()).collect()
+                            t.list(*specs).iter().map(|s| t.name(s.name).to_string()).collect()
                         }
                         tree::ImportClause::Namespace(_) => Vec::new(),
                     };
@@ -854,7 +854,7 @@ impl<'a> Loader<'a> {
                 tree::Item::ReExport(r) => Some((
                     r.path.clone(),
                     r.path_span,
-                    r.specs.iter().map(|s| t.name(s.name).to_string()).collect(),
+                    t.list(r.specs).iter().map(|s| t.name(s.name).to_string()).collect(),
                 )),
                 _ => None,
             })
