@@ -164,6 +164,12 @@ impl<'a> Reprs<'a> {
         self.layouts.boxes(owner, member)
     }
 
+    /// The layout table itself, for a question asked without the slots —
+    /// `emit::Boxes`, which asks [`Reprs::boxes`]'s question of the IR.
+    pub fn layouts(&self) -> &Layouts<'a> {
+        &self.layouts
+    }
+
     /// `cycles` is the recursion analysis of these same `tables`, taken once
     /// for the emission rather than once per unit: see [`Cycles`].
     pub fn new(tables: &'a Tables, cycles: std::sync::Arc<Cycles>) -> Reprs<'a> {

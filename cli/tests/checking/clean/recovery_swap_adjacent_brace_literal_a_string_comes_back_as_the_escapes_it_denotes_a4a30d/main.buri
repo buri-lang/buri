@@ -1,0 +1,14 @@
+export fn controls(): Str { "a\r\nb\tc\0d" }
+
+export fn delimiters(): Str { "a\\b\"c\${d}e" }
+
+export fn beyondTheNames(): Str { "a\u{1}b\u{7f}c\u{1b}d" }
+
+// An escape for a printable character comes back as the character.
+export fn printable(): Str { "\u{41}\u{e9}\u{1F600}" }
+
+export fn line(n: Int): Template { "n\t= ${n}\r\n cost \$5" }
+
+export fn kind(s: Str): Int {
+    match (s) "\r\n" { => 1, "\u{7f}" => 2, "\u{41}" => 3, _ => 0 }
+}
