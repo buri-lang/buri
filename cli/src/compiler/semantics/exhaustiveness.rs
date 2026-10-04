@@ -101,9 +101,9 @@ impl Ctor {
     fn field_types(&self, tables: &crate::compiler::semantics::types::Tables, ty: &Ty) -> Vec<Ty> {
         match self {
             Ctor::Variant(con, v) => {
-                let args = match ty {
-                    Ty::Con(_, a) => a.clone(),
-                    _ => Vec::new(),
+                let args: &[Ty] = match ty {
+                    Ty::Con(_, a) => a,
+                    _ => &[],
                 };
                 let Some(variant) = tables.tycon(*con).variants().get(*v) else {
                     return Vec::new();
@@ -111,7 +111,7 @@ impl Ctor {
                 variant
                     .fields
                     .iter()
-                    .map(|f| crate::compiler::semantics::types::substitute(&f.ty, &args, None))
+                    .map(|f| crate::compiler::semantics::types::substitute(&f.ty, args, None))
                     .collect()
             }
             Ctor::Single => match ty {
@@ -145,6 +145,23 @@ enum Pat {
     /// An or-pattern is expanded into several rows rather than handled here.
     Or(Vec<Pat>),
 }
+
+/// The wildcard a row is padded with where no pattern was written.
+static WILD: Pat = Pat::Wild;
+
+/// The type a column has when the caller supplied none.
+static UNTYPED: Ty = Ty::Error;
+
+/// One row of the matrix: the patterns it holds, borrowed.
+///
+/// Every operation below builds new rows out of the patterns of old ones —
+/// `specialize` splices a constructor's sub-patterns in, `default_matrix`
+/// drops a column, an or-pattern is distributed into a row per alternative —
+/// and none of them changes a pattern. Owned rows made each of those a deep
+/// copy of every pattern in the row; borrowed ones make it a pointer copy. The
+/// patterns themselves are lowered once per `match`, and outlive every matrix
+/// built from them.
+type Row<'p> = Vec<&'p Pat>;
 
 fn lower(p: &Pattern) -> Pat {
     match &p.kind {
@@ -267,11 +284,11 @@ fn expand(row: Vec<Pat>) -> Vec<Vec<Pat>> {
 
 /// One row per alternative of an or-pattern that sits at the head of a column,
 /// each carrying the rest of the original row along with it.
-fn distribute(alts: &[Pat], rest: &[Pat]) -> Vec<Vec<Pat>> {
+fn distribute<'p>(alts: &'p [Pat], rest: &[&'p Pat]) -> Vec<Row<'p>> {
     alts.iter()
         .map(|a| {
             let mut row = Vec::with_capacity(rest.len().saturating_add(1));
-            row.push(a.clone());
+            row.push(a);
             row.extend_from_slice(rest);
             row
         })
@@ -317,8 +334,8 @@ const INDEX_THRESHOLD: usize = 16;
 /// the scan did — the witness a non-exhaustive `match` names and the order
 /// unreachable arms are reported in both depend on it.
 #[derive(Default)]
-struct Matrix {
-    rows: Vec<Vec<Pat>>,
+struct Matrix<'p> {
+    rows: Vec<Row<'p>>,
     index: Option<Index>,
 }
 
@@ -378,8 +395,8 @@ impl Iterator for Merge<'_> {
     }
 }
 
-impl Matrix {
-    fn new(rows: Vec<Vec<Pat>>) -> Self {
+impl<'p> Matrix<'p> {
+    fn new(rows: Vec<Row<'p>>) -> Self {
         let mut m = Matrix { rows, index: None };
         if m.rows.len() >= INDEX_THRESHOLD {
             m.build_index();
@@ -394,7 +411,7 @@ impl Matrix {
     /// Appends a row, keeping the index in step. The reachability loop grows
     /// one matrix arm by arm, so rebuilding the index per arm would put the
     /// square back.
-    fn push(&mut self, row: Vec<Pat>) {
+    fn push(&mut self, row: Row<'p>) {
         let at = self.rows.len();
         self.rows.push(row);
         if self.index.is_some() {
@@ -428,7 +445,7 @@ impl Matrix {
 
     fn index_row(&mut self, at: usize) {
         let Some(row) = self.rows.get(at) else { return };
-        let Some(head) = row.first() else { return };
+        let Some(&head) = row.first() else { return };
         let Some(ix) = self.index.as_mut() else { return };
         match head {
             Pat::Wild | Pat::Or(_) => ix.open.push(at),
@@ -444,7 +461,7 @@ impl Matrix {
             None => {
                 let mut out = HashSet::default();
                 for row in &self.rows {
-                    if let Some(head) = row.first() {
+                    if let Some(&head) = row.first() {
                         collect_head_ctors(head, &mut out);
                     }
                 }
@@ -458,6 +475,11 @@ struct Ctx<'a> {
     tables: &'a crate::compiler::semantics::types::Tables,
     /// The largest array length the match distinguishes.
     limit: usize,
+    /// Whether `useful` builds the witness it answers with. Only the
+    /// exhaustiveness question names one; reachability asks only whether
+    /// there is one, and building it cost a copy of a type per constructor on
+    /// the way back up from every live arm.
+    witnesses: bool,
 }
 
 impl<'a> Ctx<'a> {
@@ -484,7 +506,7 @@ impl<'a> Ctx<'a> {
 
     /// Rows of the matrix whose first pattern is `ctor`, with that pattern's
     /// sub-patterns spliced in.
-    fn specialize(&self, matrix: &Matrix, ctor: &Ctor, arity: usize) -> Matrix {
+    fn specialize<'p>(&self, matrix: &Matrix<'p>, ctor: &Ctor, arity: usize) -> Matrix<'p> {
         let mut out = Vec::new();
         match matrix.index.as_ref() {
             Some(ix) => {
@@ -503,20 +525,25 @@ impl<'a> Ctx<'a> {
         Matrix::new(out)
     }
 
-    fn specialize_row(&self, row: &[Pat], ctor: &Ctor, arity: usize, out: &mut Vec<Vec<Pat>>) {
-        let Some((head, rest)) = row.split_first() else { return };
+    fn specialize_row<'p>(
+        &self,
+        row: &[&'p Pat],
+        ctor: &Ctor,
+        arity: usize,
+        out: &mut Vec<Row<'p>>,
+    ) {
+        let Some((&head, rest)) = row.split_first() else { return };
         match head {
             Pat::Wild => {
-                let mut next = vec![Pat::Wild; arity];
+                let mut next = Vec::with_capacity(arity.saturating_add(rest.len()));
+                next.resize(arity, &WILD);
                 next.extend_from_slice(rest);
                 out.push(next);
             }
             Pat::Ctor(c, subs) if c == ctor => {
-                let mut next = subs.clone();
-                while next.len() < arity {
-                    next.push(Pat::Wild);
-                }
-                next.truncate(arity);
+                let mut next = Vec::with_capacity(arity.saturating_add(rest.len()));
+                next.extend(subs.iter().take(arity));
+                next.resize(arity, &WILD);
                 next.extend_from_slice(rest);
                 out.push(next);
             }
@@ -536,7 +563,7 @@ impl<'a> Ctx<'a> {
     }
 
     /// Rows whose first pattern is a wildcard, with that column dropped.
-    fn default_matrix(&self, matrix: &Matrix) -> Matrix {
+    fn default_matrix<'p>(&self, matrix: &Matrix<'p>) -> Matrix<'p> {
         let mut out = Vec::new();
         match matrix.index.as_ref() {
             Some(ix) => {
@@ -555,8 +582,8 @@ impl<'a> Ctx<'a> {
         Matrix::new(out)
     }
 
-    fn default_row(&self, row: &[Pat], out: &mut Vec<Vec<Pat>>) {
-        let Some((head, rest)) = row.split_first() else { return };
+    fn default_row<'p>(&self, row: &[&'p Pat], out: &mut Vec<Row<'p>>) {
+        let Some((&head, rest)) = row.split_first() else { return };
         match head {
             Pat::Wild => out.push(rest.to_vec()),
             // Distribute, for the same reason `specialize` does. An
@@ -572,23 +599,34 @@ impl<'a> Ctx<'a> {
     }
 
     /// Whether `v` matches a value the matrix does not. Returns a witness when
-    /// it does, so a diagnostic can name the missing case.
-    fn useful(&self, matrix: &Matrix, v: &[Pat], types: &[Ty]) -> Option<Vec<Witness>> {
-        let Some((head, tail)) = v.split_first() else {
+    /// it does, so a diagnostic can name the missing case — when `witnesses`
+    /// is on; otherwise the answer is only whether there is one.
+    ///
+    /// The column types are borrowed where they can be: a column the step
+    /// below does not touch keeps the type its caller had, and only the
+    /// columns a constructor's fields open are new.
+    fn useful<'p>(
+        &self,
+        matrix: &Matrix<'p>,
+        v: &[&'p Pat],
+        types: &[Cow<'_, Ty>],
+    ) -> Option<Vec<Witness>> {
+        let Some((&head, tail)) = v.split_first() else {
             return matrix.is_empty().then(Vec::new);
         };
         // A row and its type list are built together, but the type list is the
         // one the caller supplied, so a shorter one leaves the columns past it
         // untyped rather than out of bounds.
-        let (head_ty, rest_types) = match types.split_first() {
-            Some((t, rest)) => (t.clone(), rest),
-            None => (Ty::Error, &[][..]),
+        let (head_ty, rest_types): (&Ty, &[Cow<'_, Ty>]) = match types.split_first() {
+            Some((t, rest)) => (t, rest),
+            None => (&UNTYPED, &[]),
         };
 
         match head {
             Pat::Or(alts) => {
                 for alt in alts {
-                    let mut next = vec![alt.clone()];
+                    let mut next = Vec::with_capacity(v.len());
+                    next.push(alt);
                     next.extend_from_slice(tail);
                     if let Some(w) = self.useful(matrix, &next, types) {
                         return Some(w);
@@ -597,28 +635,22 @@ impl<'a> Ctx<'a> {
                 None
             }
             Pat::Ctor(c, subs) => {
-                let arity = c.arity(self.tables, &head_ty);
+                let arity = c.arity(self.tables, head_ty);
                 let specialized = self.specialize(matrix, c, arity);
-                let mut next: Vec<Pat> = subs.clone();
-                while next.len() < arity {
-                    next.push(Pat::Wild);
+                let mut next: Row<'p> = subs.iter().collect();
+                if next.len() < arity {
+                    next.resize(arity, &WILD);
                 }
                 next.extend_from_slice(tail);
-                let mut next_types = c.field_types(self.tables, &head_ty);
-                next_types.extend_from_slice(rest_types);
-                self.useful(&specialized, &next, &next_types).map(|w| {
-                    let (taken, rest) = w.split_at(arity.min(w.len()));
-                    let mut out =
-                        vec![Witness::Ctor(c.clone(), head_ty.clone(), taken.to_vec())];
-                    out.extend_from_slice(rest);
-                    out
-                })
+                let next_types = self.column_types(c, head_ty, rest_types);
+                self.useful(&specialized, &next, &next_types)
+                    .map(|w| self.wrap(c, head_ty, arity, w))
             }
             Pat::Wild => {
                 let used = matrix.head_ctors();
                 // Once, not once per branch: it allocates one `Ctor` per
                 // variant, and both branches below want the same list.
-                let all_ctors = self.all_ctors(&head_ty);
+                let all_ctors = self.all_ctors(head_ty);
                 let complete = match &all_ctors {
                     Some(all) => all.iter().all(|c| used.contains(c)),
                     None => false,
@@ -627,30 +659,28 @@ impl<'a> Ctx<'a> {
                     // `complete` implies the list is there.
                     let all = all_ctors.unwrap_or_default();
                     for c in all {
-                        let arity = c.arity(self.tables, &head_ty);
+                        let arity = c.arity(self.tables, head_ty);
                         let specialized = self.specialize(matrix, &c, arity);
-                        let mut next = vec![Pat::Wild; arity];
+                        let mut next: Row<'p> = vec![&WILD; arity];
                         next.extend_from_slice(tail);
-                        let mut next_types = c.field_types(self.tables, &head_ty);
-                        next_types.extend_from_slice(rest_types);
+                        let next_types = self.column_types(&c, head_ty, rest_types);
                         if let Some(w) = self.useful(&specialized, &next, &next_types) {
-                            let (taken, rest) = w.split_at(arity.min(w.len()));
-                            let mut out =
-                                vec![Witness::Ctor(c.clone(), head_ty.clone(), taken.to_vec())];
-                            out.extend_from_slice(rest);
-                            return Some(out);
+                            return Some(self.wrap(&c, head_ty, arity, w));
                         }
                     }
                     None
                 } else {
                     let default = self.default_matrix(matrix);
                     self.useful(&default, tail, rest_types).map(|w| {
+                        if !self.witnesses {
+                            return w;
+                        }
                         // Name a constructor the match does not mention, when
                         // there is one to name.
                         let missing = all_ctors
                             .and_then(|all| all.into_iter().find(|c| !used.contains(c)))
                             .map(|c| {
-                                let arity = c.arity(self.tables, &head_ty);
+                                let arity = c.arity(self.tables, head_ty);
                                 Witness::Ctor(
                                     c,
                                     head_ty.clone(),
@@ -667,6 +697,35 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    /// The column types after `c` is peeled off a column of type `head_ty`:
+    /// its fields' types, then the rest of the columns' as they were.
+    fn column_types<'t>(
+        &self,
+        c: &Ctor,
+        head_ty: &Ty,
+        rest_types: &'t [Cow<'_, Ty>],
+    ) -> Vec<Cow<'t, Ty>> {
+        let fields = c.field_types(self.tables, head_ty);
+        let mut out = Vec::with_capacity(fields.len().saturating_add(rest_types.len()));
+        out.extend(fields.into_iter().map(Cow::Owned));
+        out.extend(rest_types.iter().map(|t| Cow::Borrowed(&**t)));
+        out
+    }
+
+    /// A witness for the specialized matrix, put back under the constructor
+    /// it was specialized by: the first `arity` values are that constructor's
+    /// fields, and the rest are the columns after it.
+    fn wrap(&self, c: &Ctor, head_ty: &Ty, arity: usize, mut w: Vec<Witness>) -> Vec<Witness> {
+        if !self.witnesses {
+            return w;
+        }
+        let rest = w.split_off(arity.min(w.len()));
+        let mut out = Vec::with_capacity(rest.len().saturating_add(1));
+        out.push(Witness::Ctor(c.clone(), head_ty.clone(), w));
+        out.extend(rest);
+        out
+    }
+
     /// Which row of `rows` first made `alt` useless — the last row of the
     /// shortest prefix that already covers it.
     ///
@@ -680,10 +739,10 @@ impl<'a> Ctx<'a> {
     /// only about an alternative it has already found useless.
     fn covered_by(
         &self,
-        rows: &[Vec<Pat>],
+        rows: &[Row<'_>],
         upto: usize,
-        alt: &[Vec<Pat>],
-        types: &[Ty],
+        alt: &[Row<'_>],
+        types: &[Cow<'_, Ty>],
     ) -> Option<usize> {
         let live = |k: usize| {
             let prefix = Matrix::new(rows.get(..k).unwrap_or_default().to_vec());
@@ -838,8 +897,18 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
         .max()
         .unwrap_or(0)
         .saturating_add(1);
-    let ctx = Ctx { tables: &inf.c.tables, limit };
-    let types = vec![scrutinee.clone()];
+    // Each alternative's rows, built once up front: the matrices below borrow
+    // their patterns from here.
+    let alternatives: Vec<Vec<(Span, Vec<Vec<Pat>>)>> = alternatives
+        .into_iter()
+        .map(|alts| {
+            alts.into_iter()
+                .map(|(at, low)| (at, expand(vec![expand_lengths(low, limit)])))
+                .collect()
+        })
+        .collect();
+    let ctx = Ctx { tables: &inf.c.tables, limit, witnesses: false };
+    let types = [Cow::Borrowed(scrutinee)];
     let recovered = arms.iter().any(|a| has_error(&a.pattern));
 
     // Arms are tried in order and the first matching arm wins, so an arm is
@@ -855,15 +924,15 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
     for (arm, alts) in arms.iter().zip(&alternatives) {
         let base = covering.rows.len();
         let mut alive = false;
-        let mut dead: Vec<(Span, Vec<Vec<Pat>>, usize)> = Vec::new();
+        let mut dead: Vec<(Span, Vec<Row<'_>>, usize)> = Vec::new();
         // A guarded arm covers nothing below it, so its rows come back out at
         // the end — they go in first only because they do cover this arm's own
         // later alternatives. An arm with one alternative has no later one, so
         // it neither adds nor removes anything and the index is left alone.
         let hold = arm.guard.is_none() || alts.len() > 1;
-        for (at, low) in alts {
+        for (at, owned) in alts {
             let before = covering.rows.len();
-            let rows = expand(vec![expand_lengths(low.clone(), limit)]);
+            let rows: Vec<Row<'_>> = owned.iter().map(|r| r.iter().collect()).collect();
             if rows.iter().any(|r| ctx.useful(&covering, r, &types).is_some()) {
                 alive = true;
             } else {
@@ -916,8 +985,8 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
     }
 
     // A non-exhaustive match is a compile error that names a missing case.
-    let ctx = Ctx { tables: &inf.c.tables, limit };
-    if let Some(witness) = ctx.useful(&covering, &[Pat::Wild], &types) {
+    let ctx = Ctx { tables: &inf.c.tables, limit, witnesses: true };
+    if let Some(witness) = ctx.useful(&covering, &[&WILD], &types) {
         let shown = witness
             .first()
             .map(|w| render(&inf.c.tables, w))
