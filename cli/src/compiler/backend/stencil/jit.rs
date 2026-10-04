@@ -476,6 +476,11 @@ impl<'a> Jit<'a> {
         self.counts.sites(self.tables, &mut self.layouts, ty)
     }
 
+    /// How big a walk of one value of this type is (`Counts::weight`).
+    pub(crate) fn rc_weight(&mut self, ty: &Ty) -> u32 {
+        self.counts.weight(self.tables, &mut self.layouts, ty)
+    }
+
     pub(crate) fn layout_of(&mut self, prog: &ir::Program, id: ir::TypeId) -> Layout {
         let ty: Ty = prog.type_info(id).ty;
         self.layouts.of(ty)

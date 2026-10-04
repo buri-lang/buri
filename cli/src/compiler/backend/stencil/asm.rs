@@ -824,16 +824,19 @@ const PROT_NONE: u64 = 0;
 /// every block the program makes, so every reference operation takes G2's
 /// atomic arm and no in-place write fires on a borrowed value.
 ///
-/// **This backend makes the call even though it cannot fan out.** The two
-/// statements an artifact makes about itself are deliberately separate: one is
-/// about *where a frame lives*, which is this backend's own answer and is why
-/// `buri_rt_frames_are_per_thread` is missing here, and this one is about
-/// *whether a block can be reached from two threads*, which is a property of
-/// the program and is true here for exactly the programs it is true of over
-/// there. Marking a program that then runs its steps in order costs an `or`
-/// per allocation and an atomic count; not marking it would make the day this
-/// backend learns to fan out a day somebody has to remember a second edit, and
-/// MEMORY.md §5.5 says which of those two mistakes is the affordable one.
+/// **This backend asks for the mark only where it can fan out**, which today
+/// is nowhere: [`FRAMES_PER_THREAD`] is false. Without a frame of its own a
+/// second thread never enters Buri code here — `rt::fan_out` and a scope's
+/// side-by-side tasks are both gated on `buri_rt_frames_are_per_thread`, and
+/// `core/actor` steps on whichever thread drives it, which is the one thread
+/// there is — so no block is ever reached from two threads at once, and the
+/// mark buys nothing. It used to be made anyway, on the argument that it cost
+/// an `or` per allocation and an atomic count. Measured, it was more: every
+/// reference operation on the atomic arm, and no in-place growth, came to 7 %
+/// of the CPU of a batch of database tests that reached `core/actor`.
+///
+/// The day this backend gives each thread a frame, [`FRAMES_PER_THREAD`] is the
+/// one edit, and it brings the mark back with the call it names.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Marking {
     /// No statement: the program allocates unmarked blocks and counts them
@@ -843,7 +846,23 @@ pub enum Marking {
     ValuesMayCrossTasks,
 }
 
+/// Whether this backend's entry points say `buri_rt_frames_are_per_thread`:
+/// whether a second thread entering Buri code gets a frame of its own. Not
+/// yet — see [`program_entry`] — and so a program built here is never marked
+/// ([`Marking`]).
+pub const FRAMES_PER_THREAD: bool = false;
+
 impl Marking {
+    /// What an entry point of a program says about itself, given
+    /// `middle::rc::crosses_tasks`'s answer for it.
+    pub fn of(crosses_tasks: bool) -> Marking {
+        if crosses_tasks && FRAMES_PER_THREAD {
+            Marking::ValuesMayCrossTasks
+        } else {
+            Marking::None
+        }
+    }
+
     /// The runtime symbol to call at startup, if any.
     fn symbol(self) -> Option<&'static str> {
         match self {
@@ -1586,6 +1605,16 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A program that crosses tasks is marked only by an entry point that also
+    /// gives each thread a frame, and this backend's do not yet.
+    #[test]
+    fn a_program_is_marked_only_where_its_threads_have_frames() {
+        assert_eq!(Marking::of(false), Marking::None);
+        let expected =
+            if FRAMES_PER_THREAD { Marking::ValuesMayCrossTasks } else { Marking::None };
+        assert_eq!(Marking::of(true), expected);
     }
 
     /// A `main` answering `()` never inspects the return area, so it calls the
