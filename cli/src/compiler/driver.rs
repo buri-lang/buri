@@ -492,7 +492,7 @@ fn execute(name: &str, source: &str, chunks: &[String]) -> Result<String, Diagno
             return Err(fail(format!("cannot write {}: {e}", at.display()), "check TMPDIR"));
         }
     }
-    let out = match Command::new(crate::commands::test::js_runtime()).arg(&path).output() {
+    let out = match crate::build::spawn::output(Command::new(crate::commands::test::js_runtime()).arg(&path)) {
         Ok(o) => o,
         Err(e) => {
             return Err(fail(
