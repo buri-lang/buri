@@ -19,6 +19,7 @@ drifts. Say it once, under `crates/docs/src/docs/`, and leave the argument here.
 | [`non-goals.md`](./non-goals.md) | What the language leaves out, what is deferred and why those items are deferred together, and which trade-offs are still open. Once section 14. It also holds the struct-of-arrays argument. |
 | [`resolved-questions.md`](./resolved-questions.md) | The arguments behind decisions [`non-goals.md`](./non-goals.md) now states in one line. Each one constrains the next proposal that asks for the same thing. |
 | [`PERFORMANCE.md`](./PERFORMANCE.md) | What "fast" means for this toolchain, what the benchmarks measure, and what the numbers say. The benchmark harness's own READMEs treat it as normative. |
+| [`CRATES.md`](./CRATES.md) | How the toolchain is split into crates, what had to move to keep the layers acyclic, and what stayed in `buri`. |
 | [`native/`](./native/) | The native backend's design: architecture, value model, memory, the two native code generators, build and watch, and the decisions taken. |
 
 Three neighbours are also not user documentation.
