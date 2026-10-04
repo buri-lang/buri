@@ -218,3 +218,25 @@ fn a_broken_suite_leaves_the_others_batched() {
     });
     assert!(shared, "the suites that compile did not share a binary:\n{}", indent(&run.all()));
 }
+
+/// Many suites, each in its own binary, linked and run side by side, all pass.
+///
+/// On Linux, a child forked while `buri` was writing one binary held it open
+/// until its own `exec`, and running the binary then failed with `Text file
+/// busy`. Forty suites hit that in most runs. Each round deletes `.buri` so
+/// every binary is written again.
+#[test]
+fn suites_linked_and_run_side_by_side_all_start() {
+    let scratch = Scratch::repo("link-and-run-side-by-side");
+    let count = 40;
+    for i in 0..count {
+        suite(&scratch, &format!("s{i}"), 1);
+    }
+    for round in 1..=3 {
+        let _ = std::fs::remove_dir_all(scratch.path(".buri"));
+        // A batch limit of one byte puts every suite in a binary of its own.
+        let run = scratch.run_with_env(&["test", "//...", "--force"], &[("BURI_TEST_BATCH_BYTES", "1")]);
+        run.ok();
+        assert_eq!(run.tests_passed(), count, "round {round}:\n{}", indent(&run.all()));
+    }
+}
