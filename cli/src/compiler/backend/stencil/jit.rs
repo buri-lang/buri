@@ -1548,6 +1548,12 @@ impl<'a> Jit<'a> {
         pin: &[Option<u32>],
         slot: &mut [u32],
     ) {
+        let part = |i: &ir::Inst| {
+            matches!(i, ir::Inst::ArrayLen { .. } | ir::Inst::MakeStruct { .. } | ir::Inst::MakeEnum { .. })
+        };
+        if !code.blocks.iter().any(|b| b.insts.iter().any(part)) {
+            return;
+        }
         let n = code.values();
         let mut members = vec![0u32; n];
         let mut uses = vec![0u32; n];
@@ -1593,6 +1599,15 @@ impl<'a> Jit<'a> {
         };
         let mut aliased = vec![false; n];
         for b in &code.blocks {
+            if !b.insts.iter().any(part) {
+                continue;
+            }
+            let def_at: HashMap<u32, usize> = b
+                .insts
+                .iter()
+                .enumerate()
+                .flat_map(|(k, i)| i.results().iter().map(move |d| (d.0, k)))
+                .collect();
             for (j, i) in b.insts.iter().enumerate() {
                 if let ir::Inst::ArrayLen { dest, array } = i {
                     if alone(*dest) && still(*array) {
@@ -1642,9 +1657,7 @@ impl<'a> Jit<'a> {
                     {
                         continue;
                     }
-                    let Some(k) = b.insts.iter().take(j).position(|x| x.results().contains(f)) else {
-                        continue;
-                    };
+                    let Some(&k) = def_at.get(&f.0).filter(|k| **k < j) else { continue };
                     let def = b.insts.get(k);
                     let loads = matches!(
                         def,
@@ -1820,7 +1833,27 @@ impl<'a> Jit<'a> {
         def_block: &[u32],
         def_idx: &[u32],
     ) {
+        let candidate = |b: &ir::Block| match &b.term {
+            ir::Term::Jump(t) => b.params.iter().any(|p| t.args.contains(p)),
+            _ => false,
+        };
+        if !code.blocks.iter().any(candidate) {
+            return;
+        }
         let n = code.values();
+        // Each class's members and whether one is pinned, kept up to date as
+        // classes merge, so a candidate costs its own class and not the code.
+        let mut members: Vec<Vec<u32>> = vec![Vec::new(); n];
+        let mut pinned = vec![false; n];
+        for v in 0..n {
+            let r = find(uf, v as u32) as usize;
+            if let Some(m) = members.get_mut(r) {
+                m.push(v as u32);
+            }
+            if ent(pin, v, None).is_some() {
+                put(&mut pinned, r, true);
+            }
+        }
         for latch in &code.blocks {
             let ir::Term::Jump(t) = &latch.term else { continue };
             let header = code.get(t.block);
@@ -1835,7 +1868,7 @@ impl<'a> Jit<'a> {
                     continue;
                 }
                 let (r1, r2) = (find(uf, p1.0), find(uf, p2.0));
-                if r1 == r2 || (0..n).any(|v| find(uf, v as u32) == r1 && ent(pin, v, None).is_some()) {
+                if r1 == r2 || ent(&pinned, r1 as usize, true) || ent(&pinned, r2 as usize, true) {
                     continue;
                 }
                 // Nothing in the latch reads the header parameter's class, and
@@ -1850,8 +1883,8 @@ impl<'a> Jit<'a> {
                 {
                     continue;
                 }
-                let members: Vec<u32> = (0..n as u32).filter(|v| find(uf, *v) == r2).collect();
-                let safe = members.iter().all(|m| {
+                let class = members.get(r2 as usize).cloned().unwrap_or_default();
+                let safe = class.iter().all(|m| {
                     if *m == p2.0 {
                         return true;
                     }
@@ -1873,6 +1906,9 @@ impl<'a> Jit<'a> {
                     continue;
                 }
                 put(uf, r2 as usize, r1);
+                if let Some(m) = members.get_mut(r1 as usize) {
+                    m.extend(class);
+                }
             }
         }
     }
@@ -1935,10 +1971,24 @@ impl<'a> Jit<'a> {
             matches!(prog.funcs.get(func.index()).map(|f| &f.body), Some(ir::Body::Code(_)))
         };
         for b in &code.blocks {
+            if !b.insts.iter().any(|i| matches!(i, ir::Inst::Call { .. })) {
+                continue;
+            }
             let last = b.insts.len();
             // Where each value is read in this block: an instruction's index,
-            // or `last` for the terminator.
+            // or `last` for the terminator. And where each is defined.
             let mut read_at: HashMap<u32, Vec<usize>> = HashMap::new();
+            let mut def_at: HashMap<u32, usize> = HashMap::new();
+            // How many instructions before each index leave the callee's
+            // frame alone, so a range is pure in one subtraction.
+            let mut kept = vec![0usize; last + 1];
+            for (k, i) in b.insts.iter().enumerate() {
+                for d in i.results() {
+                    def_at.insert(d.0, k);
+                }
+                let so_far = ent(&kept, k, 0) + usize::from(keeps_callee_frame(i));
+                put(&mut kept, k + 1, so_far);
+            }
             for (k, i) in b.insts.iter().enumerate() {
                 ops.clear();
                 i.operands(&mut ops);
@@ -1954,15 +2004,16 @@ impl<'a> Jit<'a> {
             for o in &ops {
                 read_at.entry(o.0).or_default().push(last);
             }
-            let pure =
-                |from: usize, to: usize| b.insts.iter().take(to).skip(from).all(keeps_callee_frame);
+            let pure = |from: usize, to: usize| {
+                to <= from || ent(&kept, to, 0) - ent(&kept, from, 0) == to - from
+            };
             let mut results: Vec<(usize, usize)> = Vec::new();
             for (j, i) in b.insts.iter().enumerate() {
                 let ir::Inst::Call { dests, func, .. } = i else { continue };
                 if !calls_code(func) {
                     continue;
                 }
-                let fs = self.frame_sig_of(func.index());
+                let Some(fs) = self.frames.get(func.index()) else { continue };
                 let (Some(&d), Some(&off)) = (dests.first(), fs.ret.first()) else { continue };
                 let Some(reads) = read_at.get(&d.0) else { continue };
                 let mut end = reads.iter().copied().max().unwrap_or(0);
@@ -2004,12 +2055,9 @@ impl<'a> Jit<'a> {
                 if !calls_code(func) {
                     continue;
                 }
-                let fs = self.frame_sig_of(func.index());
+                let Some(fs) = self.frames.get(func.index()) else { continue };
                 for (a, off) in args.iter().zip(fs.params.iter()) {
-                    let Some(k) = b.insts.iter().take(j).position(|x| x.results().contains(a))
-                    else {
-                        continue;
-                    };
+                    let Some(&k) = def_at.get(&a.0).filter(|k| **k < j) else { continue };
                     let defines = matches!(
                         b.insts.get(k),
                         Some(
