@@ -69,10 +69,7 @@ pub fn run(program: &mut Program, opts: &Options) -> Stats {
         return stats;
     }
     let n = program.funcs.len();
-    let mut own: Vec<Own> = {
-        let funcs = &program.funcs;
-        crate::parallel::map(n, |i| Own::of(funcs.get(i), n))
-    };
+    let mut own: Vec<Own> = program.funcs.iter().map(|f| Own::of(f, n)).collect();
     // Measured once, from the original bodies: the ceiling must not move as
     // inlining grows a function, or a chain of small functions compounds.
     let limits: Vec<usize> = own.iter().map(|o| o.size * 2 + GROWTH).collect();
@@ -86,7 +83,7 @@ pub fn run(program: &mut Program, opts: &Options) -> Stats {
         if let Some(before) = &before {
             revisit(&mut dirty, &own, &facts, before);
         }
-        let inlined = inline_round(program, &facts, &dirty, &own);
+        let inlined = inline_round(program, &facts, &dirty);
         // Inlining a constructor into a projection is what makes most of the
         // folding below possible, so it runs after rather than before.
         let folded = fold_round(program, &dirty);
@@ -98,14 +95,9 @@ pub fn run(program: &mut Program, opts: &Options) -> Stats {
         for ((d, i), f) in dirty.iter_mut().zip(&inlined).zip(&folded) {
             *d = *i > 0 || *f > 0;
         }
-        let funcs = &program.funcs;
-        let fresh: Vec<usize> = (0..n).filter(|i| dirty.get(*i) == Some(&true)).collect();
-        let measured = crate::parallel::map(fresh.len(), |k| {
-            Own::of(fresh.get(k).and_then(|i| funcs.get(*i)), n)
-        });
-        for (i, o) in fresh.iter().zip(measured) {
-            if let Some(slot) = own.get_mut(*i) {
-                *slot = o;
+        for ((o, f), d) in own.iter_mut().zip(&program.funcs).zip(&dirty) {
+            if *d {
+                *o = Own::of(f, n);
             }
         }
         before = Some(facts);
@@ -270,9 +262,9 @@ struct Own {
 }
 
 impl Own {
-    fn of(func: Option<&Func>, n: usize) -> Own {
+    fn of(func: &Func, n: usize) -> Own {
         let mut own = Own { size: 0, has_try: false, edges: Vec::new() };
-        let Some(body) = func.and_then(Func::body) else { return own };
+        let Some(body) = func.body() else { return own };
         typed::walk(body, &mut |e| {
             own.size += 1;
             match &e.kind {
@@ -385,111 +377,43 @@ impl Facts {
 // Inlining
 // ---------------------------------------------------------------------------
 
-/// One round of inlining over the functions `dirty` names, answering how many
-/// calls each one inlined.
+/// One round of inlining over the functions `dirty` names, in index order,
+/// answering how many calls each one inlined.
 ///
-/// The answer is the one a single pass in index order gives, where a caller
-/// pastes the body its callee has *at that moment*: already rewritten this
-/// round when the callee comes first, as it was when the callee comes later.
-/// So the order matters only between a caller and a callee it may paste, and
-/// only when the callee's body can change this round — when it is dirty too.
-/// Each such pair is an edge from the lower index to the higher, which makes
-/// the functions a DAG; it is cut into levels, and a level's functions read
-/// nothing another of them writes, so they run on the pool.
-fn inline_round(program: &mut Program, facts: &Facts, dirty: &[bool], own: &[Own]) -> Vec<usize> {
+/// Serial on purpose. The answer depends on the order — a caller pastes the
+/// body its callee has at that moment — and cutting a round into levels that
+/// respect it, one pool start per level, measured slower than this on every
+/// corpus: thread start and stack teardown cost more than the work they
+/// shared. `buri test` already prepares one program per job thread.
+fn inline_round(program: &mut Program, facts: &Facts, dirty: &[bool]) -> Vec<usize> {
     let n = program.funcs.len();
     let mut done = vec![0usize; n];
-    let is_dirty = |i: usize| dirty.get(i) == Some(&true);
-
-    // A level is one more than the deepest edge into it. Every edge runs from
-    // a lower index to a higher one, so one pass in index order sees each
-    // function's level final before it hands it on.
-    let mut level = vec![0usize; n];
-    let mut depth = 0usize;
-    for i in (0..n).filter(|i| is_dirty(*i)) {
-        let Some(o) = own.get(i) else { continue };
-        let pasted = || o.callees().filter(|j| *j != i && is_dirty(*j) && facts.inlinable(*j));
-        let mut at = level.get(i).copied().unwrap_or(0);
-        for j in pasted().filter(|j| *j < i) {
-            at = at.max(level.get(j).copied().unwrap_or(0) + 1);
+    for i in (0..n).filter(|i| dirty.get(*i) == Some(&true)) {
+        let Some(func) = program.funcs.get_mut(i) else { continue };
+        let Some(mut body) = func.take_body() else { continue };
+        let mut locals = std::mem::take(&mut func.locals);
+        let mut size = facts.size(i);
+        let mut count = 0;
+        inline_expr(&mut body, i, program, facts, facts.limit(i), &mut locals, &mut size, &mut count);
+        if let Some(func) = program.funcs.get_mut(i) {
+            func.set_body(body);
+            func.locals = locals;
         }
-        put(&mut level, i, at);
-        for j in pasted().filter(|j| *j > i) {
-            if let Some(l) = level.get_mut(j) {
-                *l = (*l).max(at + 1);
-            }
-        }
-        depth = depth.max(at + 1);
-    }
-    let mut levels: Vec<Vec<usize>> = vec![Vec::new(); depth];
-    for i in (0..n).filter(|i| is_dirty(*i)) {
-        if let Some(l) = level.get(i).and_then(|l| levels.get_mut(*l)) {
-            l.push(i);
-        }
-    }
-
-    for members in levels {
-        // Each member's body and locals, taken out so that the rest of the
-        // program can be read while they are written.
-        let taken: Vec<Taken> = members
-            .iter()
-            .map(|i| {
-                let func = program.funcs.get_mut(*i);
-                let body = func.and_then(|f| f.take_body().map(|b| (b, std::mem::take(&mut f.locals))));
-                std::sync::Mutex::new(body)
-            })
-            .collect();
-        let had: Vec<bool> =
-            taken.iter().map(|s| s.lock().is_ok_and(|s| s.is_some())).collect();
-        let read: &Program = program;
-        let results = crate::parallel::map(members.len(), |k| {
-            let i = members.get(k).copied()?;
-            let (mut body, mut locals) = taken.get(k)?.lock().ok()?.take()?;
-            let mut size = facts.size(i);
-            let mut count = 0;
-            inline_expr(&mut body, i, read, facts, facts.limit(i), &mut locals, &mut size, &mut count);
-            Some((body, locals, count))
-        });
-        for ((i, had), result) in members.iter().zip(had).zip(results) {
-            match result {
-                Some((body, locals, count)) => {
-                    if let Some(func) = program.funcs.get_mut(*i) {
-                        func.set_body(body);
-                        func.locals = locals;
-                    }
-                    put(&mut done, *i, count);
-                }
-                // A body taken out and not handed back would be a function
-                // silently emptied; `parallel::map` recomputes an item whose
-                // worker did not return, and by then the body is gone.
-                None if had => crate::diagnostics::ice("the inliner lost a function body"),
-                None => {}
-            }
-        }
+        put(&mut done, i, count);
     }
     done
 }
 
-/// One function's body and locals, out of the program while a worker has them.
-type Taken = std::sync::Mutex<Option<(Expr, Vec<typed::Local>)>>;
-
-/// The folds, over the functions `dirty` names, on the pool. Answers how many
-/// rewrites each made, which is how the next round knows whose body moved.
+/// The folds, over the functions `dirty` names. Answers how many rewrites
+/// each made, which is how the next round knows whose body moved.
 fn fold_round(program: &mut Program, dirty: &[bool]) -> Vec<usize> {
-    let n = program.funcs.len();
-    let (index, bodies): (Vec<usize>, Vec<std::sync::Mutex<&mut Expr>>) = program
-        .funcs
-        .iter_mut()
-        .enumerate()
-        .filter(|(i, _)| dirty.get(*i) == Some(&true))
-        .filter_map(|(i, f)| Some((i, std::sync::Mutex::new(f.body_mut()?))))
-        .unzip();
-    let counts = crate::parallel::map(bodies.len(), |k| {
-        bodies.get(k).and_then(|b| b.lock().ok()).map_or(0, |mut b| fold_expr(&mut b))
-    });
-    let mut folded = vec![0usize; n];
-    for (i, c) in index.into_iter().zip(counts) {
-        put(&mut folded, i, c);
+    let mut folded = vec![0usize; program.funcs.len()];
+    for (i, f) in program.funcs.iter_mut().enumerate() {
+        if dirty.get(i) == Some(&true) {
+            if let Some(body) = f.body_mut() {
+                put(&mut folded, i, fold_expr(body));
+            }
+        }
     }
     folded
 }
