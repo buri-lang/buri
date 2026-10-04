@@ -684,12 +684,10 @@ fn moves(o: &mut Out) {
          OFF(_JIT_N)); TAIL; }"
             .into(),
     );
-    // The one allocation an open-coded loop needs: `n * stride` bytes with
-    // VALUE-MODEL.md §2's header, or a null block for an empty list. Once per
-    // list operation, not once per element — so it stays a call.
-    // A null block for an empty list is what `buri_rt_list_new` answers and what
-    // `llvm/emit.rs::list_closure` tests for before its `memcpy`, so it is the
-    // same convention on both sides.
+    // The one allocation a list loop needs (`ir::Inst::ArrayAlloc`): `n * stride`
+    // bytes with VALUE-MODEL.md §2's header, or a null block for an empty
+    // list, which is what `buri_rt_list_new` answers. Once per list operation,
+    // not once per element — so it stays a call.
     // Zeroed, not raw: the release glue walks a block's whole capacity and
     // skips null entries, and `filter` leaves its rejected slots unwritten.
     o.push(
@@ -1792,21 +1790,18 @@ fn supernodes(o: &mut Out, level: Level) {
             .into(),
     );
     // Increment, store, and branch on the comparison: the back edge of every
-    // open-coded `list.*` loop (`lists.rs`). Without it the increment stores
-    // the counter and the comparison loads it straight back, which is the
-    // paper's §4.3 "common subtree" with a data dependence rather than only a
-    // control one.
-    for (name, cop) in [("lt", "<"), ("le", "<=")] {
-        o.push(
-            &format!("incbr/{name}"),
-            format!(
-                "void $NAME(ARGS) {{ uint64_t t = AT(uint64_t, _JIT_A) + (uint64_t)OFF(_JIT_N); \
-                 AT(uint64_t, _JIT_D) = t; if (t {cop} AT(uint64_t, _JIT_B)) \
-                 {{ __attribute__((musttail)) return _JIT_T(PASS); }} \
-                 else {{ __attribute__((musttail)) return _JIT_F(PASS); }} }}"
-            ),
-        );
-    }
+    // `core/list` loop (`middle/lower/lists.rs`, `jit.rs`'s `Incbr`). Without
+    // it the increment stores the counter and the comparison loads it straight
+    // back, which is the paper's §4.3 "common subtree" with a data dependence
+    // rather than only a control one.
+    o.push(
+        "incbr/lt",
+        "void $NAME(ARGS) { uint64_t t = AT(uint64_t, _JIT_A) + (uint64_t)OFF(_JIT_N); \
+         AT(uint64_t, _JIT_D) = t; if (t < AT(uint64_t, _JIT_B)) \
+         { __attribute__((musttail)) return _JIT_T(PASS); } \
+         else { __attribute__((musttail)) return _JIT_F(PASS); } }"
+            .into(),
+    );
     // A move and a jump in one stencil: the single commonest pair in the IR,
     // because every loop back edge is a run of moves followed by a jump.
     o.push(

@@ -92,6 +92,15 @@ use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Tables, Ty};
 use crate::diagnostics::Invariant as _;
 use crate::hash::Map as HashMap;
 
+mod lists;
+
+/// Whether lowering builds `key`'s body itself, as IR, so that no backend
+/// meets it as a call: `core/list`'s closure operations and the loops the
+/// derives use (`lower/lists.rs`).
+pub fn lowers(key: &str) -> bool {
+    lists::handles(key)
+}
+
 /// Lowers every function in the program.
 ///
 /// Takes the program by reference and builds a new one rather than consuming
@@ -121,6 +130,7 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     // the whole program first because a forwarder is lowered before the merged
     // function it names.
     let entries: Vec<usize> = program.funcs.iter().map(|f| loop_entries(f.body())).collect();
+    let counts = lists::Counts::new(program);
 
     // Lower every function across the cores. Each gets a type interner of its
     // own — the one piece of cross-function state — and its `TypeId`s are made
@@ -128,7 +138,7 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     // so `funcs` is the same vector the serial loop built.
     let lowered: Vec<(Func, Vec<TypeInfo>)> = crate::parallel::map(program.funcs.len(), |i| {
         let mut types = Types::default();
-        let func = lower_one(program, tables, plan, &entries, &units, &mut types, i);
+        let func = lower_one(program, tables, plan, &counts, &entries, &units, &mut types, i);
         (func, types.list)
     });
 
@@ -165,6 +175,7 @@ fn lower_one(
     program: &Program,
     tables: &Tables,
     plan: &rc::Plan,
+    counts: &lists::Counts<'_>,
     entries: &[usize],
     units: &Units,
     types: &mut Types,
@@ -186,11 +197,15 @@ fn lower_one(
 
     let fplan = plan.func(FuncIdx(i as u32));
     let body = match &f.kind {
-        FuncKind::Intrinsic(key) => Body::Runtime(bounded_key(tables, key, &ret)),
-        FuncKind::Unbuilt | FuncKind::Body(_) => {
+        FuncKind::Intrinsic(key) if !lists::handles(key) => {
+            Body::Runtime(bounded_key(tables, key, &ret))
+        }
+        kind => {
             let mut lower = FnLower {
                 tables,
                 program,
+                plan,
+                counts,
                 types,
                 entries,
                 locals: &f.locals,
@@ -205,7 +220,15 @@ fn lower_one(
                 #[cfg(debug_assertions)]
                 debug_name: &f.debug_name,
             };
-            Body::Code(lower.func(&sig, &f.params, f.body(), dispatch))
+            Body::Code(match kind {
+                // A `core/list` loop is a body too, for a caller that reaches
+                // the function through a function value and so cannot have the
+                // loop at its call site.
+                FuncKind::Intrinsic(key) => lower.list_body(&sig, key, &f.params),
+                FuncKind::Unbuilt | FuncKind::Body(_) => {
+                    lower.func(&sig, &f.params, f.body(), dispatch)
+                }
+            })
         }
     };
 
@@ -496,6 +519,8 @@ struct LoopFrame {
 struct FnLower<'a> {
     tables: &'a Tables,
     program: &'a Program,
+    plan: &'a rc::Plan,
+    counts: &'a lists::Counts<'a>,
     types: &'a mut Types,
     entries: &'a [usize],
     locals: &'a [typed::Local],
@@ -927,6 +952,13 @@ impl FnLower<'_> {
             },
             ExprKind::CallFn { func, args } => match func.func() {
                 Some(f) => {
+                    if let Some(FuncKind::Intrinsic(key)) =
+                        self.program.funcs.get(f.index()).map(|g| &g.kind)
+                    {
+                        if lists::handles(key) {
+                            return self.list_call(key, args, &e.ty);
+                        }
+                    }
                     let args = self.exprs(args);
                     self.emit(ty, |dest| Inst::Call { dests: vec![dest], func: f, args })
                 }
@@ -936,6 +968,9 @@ impl FnLower<'_> {
                 let c = self.expr(callee);
                 let args = self.exprs(args);
                 self.emit(ty, |dest| Inst::CallIndirect { dests: vec![dest], callee: c, args })
+            }
+            ExprKind::Intrinsic { name, args, .. } if lists::handles(name) => {
+                self.list_call(name, args, &e.ty)
             }
             ExprKind::Intrinsic { name, args, .. } => self.intrinsic(ty, name, args),
 
@@ -2708,11 +2743,13 @@ export fn sum(xs: [Int]): Int { xs.fold(fn(a, b) => a + b, 0) }
   let _s = \"${pt.x}-${pt.y}\";
   let _n = sum([1, 2, 3]);
   let _o = [1, 2, 3].get(1);
+  let _l = [1, 2, 3].length();
 ",
         ));
         assert!(ir::verify(&p).is_empty());
         // Both kinds of body reach the backend: generated code, and a
-        // runtime symbol.
+        // runtime symbol. `fold` and `get` are code now (`lower/lists.rs`);
+        // `length` is the runtime symbol.
         assert!(p.funcs.iter().any(|f| f.code().is_some()));
         assert!(p.funcs.iter().any(|f| f.intrinsic_key().is_some()));
     }

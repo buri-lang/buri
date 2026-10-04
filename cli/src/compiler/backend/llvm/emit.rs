@@ -70,13 +70,13 @@ use inkwell::values::{
 use inkwell::{FloatPredicate, IntPredicate};
 
 use crate::compiler::backend::intrinsic_keys::{
-    bits_op, checked_kind, conversion_target, derive_key, json_arm, json_variant, list_call,
-    list_closure_key, numeric_key, step_call, CheckedKind, JsonArm, Step,
+    bits_op, checked_kind, conversion_target, derive_key, json_arm, json_variant, numeric_key,
+    step_call, CheckedKind, JsonArm,
 };
 use crate::compiler::backend::task_thread;
 use crate::compiler::backend::runtime_native;
 use crate::compiler::backend::Profile;
-use crate::compiler::middle::ir;
+use crate::compiler::middle::{ir, lower};
 use crate::compiler::middle::rc::{self, Counted as _};
 use crate::compiler::middle::layout::{
     self, EnumRepr, Layouts, Repr as LayoutRepr, Scalar, CAP_MASK, CAP_SHARED_FLAG,
@@ -799,6 +799,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ir::Inst::ArraySlice { dest, array, from } => {
                 self.array_slice(state, code, *dest, *array, *from)
             }
+            ir::Inst::ArrayAlloc { dest, len } => self.array_alloc(state, code, *dest, *len),
+            ir::Inst::ArraySet { array, index, value } => {
+                self.array_set(state, code, *array, *index, *value)
+            }
+            ir::Inst::ArrayPrefix { dest, array, len } => {
+                self.array_prefix(state, code, *dest, *array, *len)
+            }
             ir::Inst::Call { dests, func, args } => self.call(state, code, dests, *func, args, span),
             ir::Inst::CallIndirect { dests, callee, args } => {
                 self.call_indirect(state, code, dests, *callee, args)
@@ -885,6 +892,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             (ir::UnOp::Not | ir::UnOp::BitNot, BasicValueEnum::IntValue(v)) => {
                 b.build_not(v, "not").map(Into::into).unwrap_or(arg)
             }
+            (ir::UnOp::FromBool, BasicValueEnum::IntValue(v)) => b
+                .build_int_z_extend(v, self.ctx.i64_type(), "frombool")
+                .map(Into::into)
+                .unwrap_or(arg),
             _ => {
                 let _ = prim;
                 arg
@@ -1690,8 +1701,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// The elements are **retained**, because the copy is a second owner of
     /// whatever each of them holds. Both halves of that pair are this backend's
     /// own — this retain, and the release the result's own glue does — so the
-    /// question asked is [`Reprs::counted_type`] and not `middle::rc`'s, which
-    /// is `Unit::list_filter`'s distinction applied to a copy nothing filtered.
+    /// question asked is [`Reprs::counted_type`] and not `middle::rc`'s.
     fn array_slice(
         &mut self,
         state: &mut Function<'ctx>,
@@ -1756,10 +1766,101 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.set(state, dest, value);
     }
 
-    /// The block, its length, the index and the element type of one `[T]` read.
+    /// A block of `len` elements for a loop to fill, whose `cap` header is
+    /// exactly that — which is what makes `cap / stride` the element count the
+    /// drop glue walks (VALUE-MODEL.md §4).
+    fn array_alloc(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dest: ir::ValueId,
+        len: ir::ValueId,
+    ) {
+        let ir_ty = code.ty_of(dest);
+        let Some(element) = self.type_of(ir_ty).and_then(|t| self.reprs.element(&t)) else {
+            return;
+        };
+        let stride = self.reprs.of_ty(&element).layout.stride;
+        let BasicValueEnum::IntValue(n) = self.get(state, len) else { return };
+        let word = self.ctx.i64_type();
+        let bytes = self
+            .builder
+            .build_int_mul(n, word.const_int(u64::from(stride), false), "alloc.bytes")
+            .unwrap_or(n);
+        let block = self.heap(state, bytes, "alloc");
+        let slots = repr::ir_slots(&mut self.reprs, self.program, ir_ty);
+        let value = repr::assemble(self.ctx, &self.builder, &slots, &[block.into(), n.into()]);
+        self.set(state, dest, value);
+    }
+
+    /// One element stored into a block [`Unit::array_alloc`] made: the value
+    /// moves in, so there is nothing to retain.
+    fn array_set(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        array: ir::ValueId,
+        index: ir::ValueId,
+        value: ir::ValueId,
+    ) {
+        let Some(read) = self.element_at(state, code, array, index) else { return };
+        let (stride, slots, align) = {
+            let r = self.reprs.of_ty(&read.element);
+            (r.layout.stride, r.slots.clone(), r.layout.align)
+        };
+        let into = self.elem_at(read.base, read.index, stride, "set.at");
+        let v = self.get(state, value);
+        let pieces = repr::disassemble(&self.builder, &slots, v);
+        self.store_slots(into, &slots, align, &pieces);
+    }
+
+    /// The first `len` elements of a block a loop filled, copied into one exact
+    /// block. The source goes back without its elements being walked: they
+    /// *moved*, and its count is the one the allocation gave it.
     ///
-    /// Split out of [`Unit::array_get`] so that [`Unit::list_get`] can settle
-    /// all of them *before* it opens the blocks its `Option` needs.
+    /// A copy rather than the block kept with spare slots, because this
+    /// backend's `alloc` does not zero, and `filter` keeping a few of many
+    /// elements would otherwise hold the whole source's size.
+    fn array_prefix(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dest: ir::ValueId,
+        array: ir::ValueId,
+        len: ir::ValueId,
+    ) {
+        let ir_ty = code.ty_of(dest);
+        let Some(element) = self.type_of(ir_ty).and_then(|t| self.reprs.element(&t)) else {
+            return;
+        };
+        let (stride, align) = {
+            let r = self.reprs.of_ty(&element);
+            (r.layout.stride, r.layout.align.max(1))
+        };
+        let slots = repr::ir_slots(&mut self.reprs, self.program, ir_ty);
+        let source = self.get(state, array);
+        let pieces = repr::disassemble(&self.builder, &slots, source);
+        let Some(BasicValueEnum::PointerValue(scratch)) = pieces.get(layout::LIST_PTR).copied()
+        else {
+            return;
+        };
+        let BasicValueEnum::IntValue(kept) = self.get(state, len) else { return };
+        let word = self.ctx.i64_type();
+        let bytes = self
+            .builder
+            .build_int_mul(kept, word.const_int(u64::from(stride), false), "prefix.bytes")
+            .unwrap_or(kept);
+        let out = self.heap(state, bytes, "prefix");
+        let _ = self.builder.build_memcpy(out, align, scratch, align, bytes);
+        let free = self.rt_free();
+        if let Ok(call) = self.builder.build_call(free, &[scratch.into()], "") {
+            attrs::set_call_convention(call, attrs::C);
+        }
+        let value = repr::assemble(self.ctx, &self.builder, &slots, &[out.into(), kept.into()]);
+        self.set(state, dest, value);
+    }
+
+    /// The block, the index and the element type of one `[T]` read.
     fn element_at(
         &mut self,
         state: &mut Function<'ctx>,
@@ -1775,23 +1876,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let element = self.reprs.element(&list_ty)?;
         let list = self.get(state, array);
         let pieces = repr::disassemble(&self.builder, &list_slots, list);
-        let (
-            Some(BasicValueEnum::PointerValue(base)),
-            Some(BasicValueEnum::IntValue(len)),
-        ) = (
-            pieces.get(layout::LIST_PTR).copied(),
-            pieces.get(layout::LIST_LEN).copied(),
-        )
+        let Some(BasicValueEnum::PointerValue(base)) = pieces.get(layout::LIST_PTR).copied()
         else {
             return None;
         };
         let BasicValueEnum::IntValue(i) = self.get(state, index) else { return None };
-        Some(ElementRead { base, len, index: i, element })
+        Some(ElementRead { base, index: i, element })
     }
 
     /// The element at `i`: the slots it is made of, and the pieces loaded out
-    /// of the block. The load half of [`Unit::array_get`], shared with
-    /// [`Unit::list_get`], and total — every precondition is its caller's.
+    /// of the block. The load half of [`Unit::array_get`], and total — every
+    /// precondition is its caller's.
     fn load_element(
         &mut self,
         base: PointerValue<'ctx>,
@@ -2066,8 +2161,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if self.numeric(state, code, dests, key, args, span)
             || self.copy_out(state, code, dests, key, args)
             || self.open_coded(state, code, dests, key, args)
-            || self.list_closure(state, code, dests, key, args)
-            || self.derive_array(state, code, dests, key, args)
             || self.derived(state, code, dests, key, args, span)
         {
             return;
@@ -3698,8 +3791,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// The element is loaded, **retained**, and passed. The retain is
     /// `middle/rc.rs`'s "a call through a function value owns its arguments":
     /// the runtime lends the element and keeps its own count, so the step's is
-    /// taken here — exactly as [`Unit::list_closure`] takes it before its own
-    /// indirect call.
+    /// taken here — exactly as `middle::lower`'s list loops take it before a
+    /// call through a closure.
     ///
     /// The **contexts** come out of the record rather than out of `arg`: they
     /// are the same value at every element, and a C signature has no parameter
@@ -5617,9 +5710,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 true
             }
             "str.concat" => self.concat(state, code, dest, args),
-            "list.get" => self.list_get(state, code, dest, args),
-            "list.zip" => self.list_zip(state, code, dests, key, args),
-            "list.flatten" => self.list_flatten(state, code, dests, key, args),
             _ if key.starts_with("bits.") => {
                 let op = key.split_once('.').map_or("", |(_, o)| o);
                 self.bits(state, dest, op, args)
@@ -6259,246 +6349,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 }
 
 // ---------------------------------------------------------------------------
-// The closure surface of `core/list`
+// The blocks `middle::lower`'s list loops build
 // ---------------------------------------------------------------------------
-
-/// The `[T]` a `list.*` loop walks: where the elements are, how far apart, and
-/// what one of them is.
-struct Source<'ctx> {
-    /// The block's payload pointer. Nothing is loaded out of it outside the
-    /// bound test, because `cli/runtime/list.rs` answers a null one for a list
-    /// of no elements.
-    base: PointerValue<'ctx>,
-    len: IntValue<'ctx>,
-    stride: u32,
-    size: u32,
-    align: u32,
-    elem: Ty,
-    slots: Vec<Slot>,
-}
-
-/// The closure a `list.*` loop steps with, taken apart once before the loop.
-struct StepFn<'ctx> {
-    target: PointerValue<'ctx>,
-    env: PointerValue<'ctx>,
-    /// The step's own result slots, read off the closure's `Ty::Fn` rather than
-    /// off the destination: `count`'s predicate answers `Bool` and its
-    /// destination is an `Int`, and `filter`'s answers `Bool` and its
-    /// destination is a `[T]`.
-    rets: Vec<Slot>,
-}
-
-/// `Order.Greater`'s tag.
-///
-/// `core/order` declares `Less`, `Equal`, `Greater` in that order and
-/// `middle::layout` gives a three-variant enum a bare tag that *is* the variant
-/// index. The same three integers are what `buri_rt_str_compare` returns and
-/// what `runtime.js`'s `$list_sortBy` reads, so this is one spelling of a
-/// number three files already agree on rather than a new convention.
-const GREATER: u64 = 2;
-
-/// `Order.Less`'s tag, the same three-variant enum [`GREATER`] names.
-const LESS: u64 = 0;
-
-/// `Order.Equal`'s tag: the answer that lets [`Unit::derive_array_compare`] keep
-/// walking, and the one two equal-length lists agree on.
-const EQUAL: u64 = 1;
-
-/// One resolved call: the block to walk, the closure to step with, and the two
-/// operands only some of the loops have.
-///
-/// A struct rather than four more parameters, for the reason [`Wide`] is one:
-/// the lint set caps a signature at seven, and these four travel together
-/// through every loop below.
-struct ListArgs<'ctx> {
-    src: Source<'ctx>,
-    step: StepFn<'ctx>,
-    ctx: Option<ir::ValueId>,
-    init: Option<ir::ValueId>,
-}
-
-/// One pass of [`Unit::list_sort`]: the run width, twice it, and the two blocks
-/// the pass reads from and writes to.
-struct Runs<'ctx> {
-    width: IntValue<'ctx>,
-    span: IntValue<'ctx>,
-    read_from: PointerValue<'ctx>,
-    write_to: PointerValue<'ctx>,
-}
 
 /// One `[T]` read, settled: the block, its length, the index and the element
 /// type. What [`Unit::element_at`] answers and [`Unit::load_element`] consumes.
 struct ElementRead<'ctx> {
     base: PointerValue<'ctx>,
-    len: IntValue<'ctx>,
     index: IntValue<'ctx>,
     element: Ty,
 }
 
-/// One counted loop under construction: the blocks, the index, and the value
-/// carried across iterations.
-struct Loop<'ctx> {
-    pre: BasicBlock<'ctx>,
-    header: BasicBlock<'ctx>,
-    done: BasicBlock<'ctx>,
-    index: inkwell::values::PhiValue<'ctx>,
-    i: IntValue<'ctx>,
-    /// The phi and the value it starts from, where the loop carries one.
-    carried: Option<(inkwell::values::PhiValue<'ctx>, BasicValueEnum<'ctx>)>,
-}
-
 impl<'ctx, 'a> Unit<'ctx, 'a> {
-    /// The `list.*` entries that take a function, as a loop over the block.
-    ///
-    /// `cli/runtime/list.rs`'s header says why none of these is a runtime call:
-    /// a Buri closure is `{ code, env }` where `code`'s signature is the
-    /// *flattened* one of the element type (VALUE-MODEL.md §5.1), so a C
-    /// function calling one would have to synthesize a parameter list that
-    /// depends on `T`. A backend already knows how — it is an indirect call and
-    /// nothing else — so the loop lives here. `stencil/lists.rs::list_call`
-    /// open-codes the same nine; the two agree on the conventions below because
-    /// a closure built by one is called by the other in the same artifact's
-    /// tests.
-    ///
-    /// # The counts, which is the whole of the difficulty
-    ///
-    /// Two sentences from `middle/rc.rs` decide every reference operation here,
-    /// and they point in opposite directions:
-    ///
-    ///  * **"A runtime intrinsic borrows its arguments and returns a fresh
-    ///    count."** So the source list and the closure arrive borrowed:
-    ///    nothing here releases one, and the result leaves owning what it
-    ///    holds. A fold's initial accumulator is the exception: `middle::rc`
-    ///    hands it over (`rc::is_fold`), so it arrives owned.
-    ///  * **"A call through a function value owns its arguments."** So every
-    ///    value handed to a step is retained first — the element and the
-    ///    threaded context — the step consumes that count and answers a fresh
-    ///    one, and [`Unit::build_thunk`] releases it again where the callee
-    ///    only borrowed it. A fold's accumulator needs no retain: the first
-    ///    step takes the count the seed arrived with.
-    ///
-    /// The retain asks [`Unit::rc_counted`] and not the layout table, for the
-    /// reason that function states: retaining what rc does not count is one
-    /// half of a pair nothing completes, which is a leak per element. An
-    /// element type holding nothing counted — `[Int]`, `[U8]`, a struct of
-    /// scalars, which is most of them — costs no instruction at all.
-    ///
-    /// # The whole family, and where each half lives
-    ///
-    /// Every entry of `core/list` that takes a function is here. `find`,
-    /// `findIndex` and `foldResult` build an `Option` or a `Result` around
-    /// their answer, through the same [`Unit::build_variant`] that
-    /// `ir::Inst::MakeEnum` goes through. `zip` and `flatten` take no function
-    /// at all and are [`Unit::list_zip`] and [`Unit::list_flatten`], for the
-    /// reason `cli/runtime/list.rs`'s header gives: each needs a *second*
-    /// layout that no C signature carries.
-    fn list_closure(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        dests: &[ir::ValueId],
-        key: &str,
-        args: &[ir::ValueId],
-    ) -> bool {
-        let Some(call) = list_call(key) else { return false };
-        let (Some(xs), Some(f), Some(dest)) =
-            (args.first().copied(), args.get(call.func).copied(), dests.first().copied())
-        else {
-            return false;
-        };
-        let ctx = call.ctx.and_then(|i| args.get(i).copied());
-        let init = call.init.and_then(|i| args.get(i).copied());
-        let (Some(src), Some(step)) =
-            (self.list_source(state, code, xs), self.step_fn(state, code, f))
-        else {
-            return false;
-        };
-        let a = ListArgs { src, step, ctx, init };
-        match call.kind {
-            Step::Map => self.list_map(state, code, dest, &a),
-            Step::Filter => self.list_filter(state, code, dest, &a),
-            Step::Fold => self.list_fold(state, code, dest, &a),
-            Step::FoldResult => self.list_fold_result(state, code, dest, &a),
-            Step::Sort => self.list_sort(state, code, dest, &a),
-            Step::Find | Step::FindIndex => {
-                self.list_find(state, code, dest, &a, call.kind);
-            }
-            kind => self.list_test(state, code, dest, &a, kind),
-        }
-        true
-    }
-
-    /// The three things every loop over a `[T]` starts from.
-    fn list_source(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        xs: ir::ValueId,
-    ) -> Option<Source<'ctx>> {
-        let ir_ty = code.ty_of(xs);
-        let elem = self.type_of(ir_ty).and_then(|t| self.reprs.element(&t))?;
-        let slots = repr::ir_slots(&mut self.reprs, self.program, ir_ty);
-        let value = self.get(state, xs);
-        let pieces = repr::disassemble(&self.builder, &slots, value);
-        let (
-            Some(BasicValueEnum::PointerValue(base)),
-            Some(BasicValueEnum::IntValue(len)),
-        ) = (pieces.get(layout::LIST_PTR).copied(), pieces.get(layout::LIST_LEN).copied())
-        else {
-            return None;
-        };
-        let r = self.reprs.of_ty(&elem);
-        let (stride, size, align, slots) =
-            (r.layout.stride, r.layout.size, r.layout.align, r.slots.clone());
-        Some(Source { base, len, stride, size, align, elem, slots })
-    }
-
-    /// The closure, taken apart once in the block before the loop so that the
-    /// two words dominate every iteration.
-    fn step_fn(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        f: ir::ValueId,
-    ) -> Option<StepFn<'ctx>> {
-        let ir_ty = code.ty_of(f);
-        let slots = repr::ir_slots(&mut self.reprs, self.program, ir_ty);
-        let value = self.get(state, f);
-        let pieces = repr::disassemble(&self.builder, &slots, value);
-        let (
-            Some(BasicValueEnum::PointerValue(target)),
-            Some(BasicValueEnum::PointerValue(env)),
-        ) = (
-            pieces.get(layout::CLOSURE_CODE).copied(),
-            pieces.get(layout::CLOSURE_ENV).copied(),
-        )
-        else {
-            return None;
-        };
-        let Some(Ty::Fn(_, ret)) = self.type_of(ir_ty) else { return None };
-        let rets = self.reprs.of_ty(&ret).slots.clone();
-        Some(StepFn { target, env, rets })
-    }
-
-    /// One step, through the closure's own two words: the same indirect call
-    /// [`Unit::call_indirect`] emits, with the environment first.
-    fn call_step(
-        &mut self,
-        state: &mut Function<'ctx>,
-        step: &StepFn<'ctx>,
-        params: &[Slot],
-        args: &[BasicMetadataValueEnum<'ctx>],
-    ) -> Option<BasicValueEnum<'ctx>> {
-        let ty = self.closure_fn_type(params, &step.rets);
-        let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = vec![step.env.into()];
-        argv.extend_from_slice(args);
-        let call = self.builder.build_indirect_call(ty, step.target, &argv, "").ok()?;
-        attrs::set_call_convention(call, attrs::FAST);
-        // An indirect callee's effects are not known here.
-        state.observed.opaque = true;
-        call.try_as_basic_value().basic()
-    }
-
     /// `base + i * stride`.
     fn elem_at(
         &self,
@@ -6542,1472 +6404,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             Err(_) => self.ptr_ty().const_null(),
         }
-    }
-
-    /// The context a `*Ctx` step is threaded, retained and flattened.
-    fn pass_ctx(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        ctx: Option<ir::ValueId>,
-        params: &mut Vec<Slot>,
-        argv: &mut Vec<BasicMetadataValueEnum<'ctx>>,
-    ) {
-        let Some(c) = ctx else { return };
-        let ir_ty = code.ty_of(c);
-        let slots = repr::ir_slots(&mut self.reprs, self.program, ir_ty);
-        let value = self.get(state, c);
-        let pieces = repr::disassemble(&self.builder, &slots, value);
-        if let Some(ty) = self.type_of(ir_ty) {
-            if self.rc_counted(&ty) {
-                let place =
-                    Place::Registers { slots: slots.clone(), pieces: pieces.clone() };
-                self.walk_rc(state, &ty, &place, 0, Op::Retain, 0);
-            }
-        }
-        params.extend_from_slice(&slots);
-        argv.extend(pieces.into_iter().map(BasicMetadataValueEnum::from));
-    }
-
-    /// One element, retained and flattened.
-    fn pass_elem(
-        &mut self,
-        state: &mut Function<'ctx>,
-        src: &Source<'ctx>,
-        at: PointerValue<'ctx>,
-        params: &mut Vec<Slot>,
-        argv: &mut Vec<BasicMetadataValueEnum<'ctx>>,
-    ) {
-        if self.rc_counted(&src.elem) {
-            let elem = src.elem.clone();
-            let place = Place::Memory { base: at, align: src.align };
-            self.walk_rc(state, &elem, &place, 0, Op::Retain, 0);
-        }
-        for piece in self.load_slots(at, &src.slots, src.align) {
-            argv.push(piece.into());
-        }
-        params.extend_from_slice(&src.slots);
-    }
-
-    /// An aggregate already in registers, flattened into a step's arguments.
-    fn pass_value(
-        &mut self,
-        value: BasicValueEnum<'ctx>,
-        slots: &[Slot],
-        params: &mut Vec<Slot>,
-        argv: &mut Vec<BasicMetadataValueEnum<'ctx>>,
-    ) {
-        for piece in repr::disassemble(&self.builder, slots, value) {
-            argv.push(piece.into());
-        }
-        params.extend_from_slice(slots);
-    }
-
-    /// Opens `for i in 0..len`, leaving the builder in the body.
-    ///
-    /// The index is a phi and not memory, which is CODEGEN-LLVM.md §2 applied
-    /// to a loop this backend generates rather than one it lowers.
-    fn open_loop(
-        &mut self,
-        state: &mut Function<'ctx>,
-        len: IntValue<'ctx>,
-        carried: Option<BasicValueEnum<'ctx>>,
-    ) -> Option<Loop<'ctx>> {
-        let word = self.ctx.i64_type();
-        let pre = self.builder.get_insert_block()?;
-        let header = self.ctx.append_basic_block(state.value, "list.head");
-        let body = self.ctx.append_basic_block(state.value, "list.body");
-        let done = self.ctx.append_basic_block(state.value, "list.done");
-        self.builder.build_unconditional_branch(header).ok()?;
-
-        self.builder.position_at_end(header);
-        let index = self.builder.build_phi(word, "list.i").ok()?;
-        let carried = match carried {
-            Some(v) => Some((self.builder.build_phi(v.get_type(), "list.acc").ok()?, v)),
-            None => None,
-        };
-        let i: IntValue<'ctx> = index.as_basic_value().try_into().ok()?;
-        let more = self.builder.build_int_compare(IntPredicate::ULT, i, len, "list.more").ok()?;
-        self.builder.build_conditional_branch(more, body, done).ok()?;
-
-        self.builder.position_at_end(body);
-        Some(Loop { pre, header, done, index, i, carried })
-    }
-
-    /// Closes the loop and leaves the builder in `done`.
-    ///
-    /// The back edge names the block the body *ended* in, not the block it
-    /// began in: a retain over a tagged enum or a niche leaves the builder in a
-    /// join block it created, and a phi whose incoming block is not a real
-    /// predecessor is the one error LLVM's verifier catches here.
-    fn close_loop(&mut self, l: &Loop<'ctx>, next: Option<BasicValueEnum<'ctx>>) {
-        let word = self.ctx.i64_type();
-        let bumped = self
-            .builder
-            .build_int_add(l.i, word.const_int(1, false), "list.next")
-            .unwrap_or(l.i);
-        let latch = self.builder.get_insert_block().unwrap_or(l.header);
-        let _ = self.builder.build_unconditional_branch(l.header);
-        l.index.add_incoming(&[
-            (&word.const_zero() as &dyn BasicValue<'ctx>, l.pre),
-            (&bumped as &dyn BasicValue<'ctx>, latch),
-        ]);
-        if let Some((phi, start)) = &l.carried {
-            let stepped = next.unwrap_or(*start);
-            phi.add_incoming(&[
-                (start as &dyn BasicValue<'ctx>, l.pre),
-                (&stepped as &dyn BasicValue<'ctx>, latch),
-            ]);
-        }
-        self.builder.position_at_end(l.done);
-    }
-
-    /// `map` and `mapCtx`: one fresh block of the same length, filled in place
-    /// by the step.
-    fn list_map(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        dest: ir::ValueId,
-        a: &ListArgs<'ctx>,
-    ) {
-        let (src, step, ctx) = (&a.src, &a.step, a.ctx);
-        let ir_dest = code.ty_of(dest);
-        let Some(out_elem) = self.type_of(ir_dest).and_then(|t| self.reprs.element(&t)) else {
-            return;
-        };
-        let (out_stride, out_align, out_slots) = {
-            let r = self.reprs.of_ty(&out_elem);
-            (r.layout.stride, r.layout.align, r.slots.clone())
-        };
-        let word = self.ctx.i64_type();
-        let bytes = self
-            .builder
-            .build_int_mul(src.len, word.const_int(u64::from(out_stride), false), "map.bytes")
-            .unwrap_or(src.len);
-        let dst = self.heap(state, bytes, "map");
-        let Some(l) = self.open_loop(state, src.len, None) else { return };
-
-        let at = self.elem_at(src.base, l.i, src.stride, "map.at");
-        let mut params = Vec::new();
-        let mut argv = Vec::new();
-        self.pass_ctx(state, code, ctx, &mut params, &mut argv);
-        self.pass_elem(state, src, at, &mut params, &mut argv);
-        let answer = self.call_step(state, step, &params, &argv);
-        // The step's answer is a fresh count and the block is where it lives
-        // from here: it moves in, so there is nothing to retain.
-        let into = self.elem_at(dst, l.i, out_stride, "map.into");
-        if let Some(v) = answer {
-            let pieces = repr::disassemble(&self.builder, &out_slots, v);
-            self.store_slots(into, &out_slots, out_align, &pieces);
-        }
-        self.close_loop(&l, None);
-
-        let slots = repr::ir_slots(&mut self.reprs, self.program, ir_dest);
-        let value =
-            repr::assemble(self.ctx, &self.builder, &slots, &[dst.into(), src.len.into()]);
-        self.set(state, dest, value);
-    }
-
-    /// `filter` and `filterCtx`: kept elements into a scratch block, then one
-    /// exact block copied out of its used prefix.
-    ///
-    /// Two allocations rather than one, and the second is not avoidable: a
-    /// `[T]`'s element count is `cap / stride` ([`Job::Glue`]), so an
-    /// over-allocated block whose length is shorter than its capacity would
-    /// have its *uninitialised* tail released when it died, and shrinking `cap`
-    /// would lie to the allocator about which size class the block came from.
-    /// The predicate runs exactly once per element, which is what rules out
-    /// counting in a first pass — a `filterCtx` predicate may have effects.
-    fn list_filter(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        dest: ir::ValueId,
-        a: &ListArgs<'ctx>,
-    ) {
-        let (src, step, ctx) = (&a.src, &a.step, a.ctx);
-        let word = self.ctx.i64_type();
-        let stride = word.const_int(u64::from(src.stride), false);
-        let bytes = self.builder.build_int_mul(src.len, stride, "filter.bytes").unwrap_or(src.len);
-        let scratch = self.heap(state, bytes, "filter.buf");
-        let zero = word.const_zero();
-        let Some(l) = self.open_loop(state, src.len, Some(zero.into())) else { return };
-        let kept: IntValue<'ctx> = match l.carried.map(|(p, _)| p.as_basic_value()) {
-            Some(BasicValueEnum::IntValue(v)) => v,
-            _ => zero,
-        };
-
-        let at = self.elem_at(src.base, l.i, src.stride, "filter.at");
-        let mut params = Vec::new();
-        let mut argv = Vec::new();
-        self.pass_ctx(state, code, ctx, &mut params, &mut argv);
-        self.pass_elem(state, src, at, &mut params, &mut argv);
-        let answer = self.call_step(state, step, &params, &argv);
-        let next = match answer {
-            Some(BasicValueEnum::IntValue(b)) => {
-                let keep = self.ctx.append_basic_block(state.value, "filter.keep");
-                let skip = self.ctx.append_basic_block(state.value, "filter.skip");
-                let cont = self.ctx.append_basic_block(state.value, "filter.cont");
-                let _ = self.builder.build_conditional_branch(b, keep, skip);
-
-                self.builder.position_at_end(keep);
-                let into = self.elem_at(scratch, kept, src.stride, "filter.into");
-                let align = src.align.max(1);
-                let _ = self.builder.build_memcpy(
-                    into,
-                    align,
-                    at,
-                    align,
-                    word.const_int(u64::from(src.size), false),
-                );
-                // The copy is a second owner of whatever the element holds, and
-                // the count the predicate was handed was its own and is gone.
-                // Both halves of *this* pair are the backend's own — the retain
-                // here and the release the result list's glue does — so it asks
-                // the layout table rather than rc.
-                let elem = src.elem.clone();
-                let place = Place::Memory { base: into, align };
-                self.walk_rc(state, &elem, &place, 0, Op::Retain, 0);
-                let more = self
-                    .builder
-                    .build_int_add(kept, word.const_int(1, false), "filter.kept")
-                    .unwrap_or(kept);
-                let from_keep = self.builder.get_insert_block().unwrap_or(keep);
-                let _ = self.builder.build_unconditional_branch(cont);
-
-                self.builder.position_at_end(skip);
-                let _ = self.builder.build_unconditional_branch(cont);
-
-                self.builder.position_at_end(cont);
-                match self.builder.build_phi(word, "filter.n") {
-                    Ok(phi) => {
-                        phi.add_incoming(&[
-                            (&more as &dyn BasicValue<'ctx>, from_keep),
-                            (&kept as &dyn BasicValue<'ctx>, skip),
-                        ]);
-                        phi.as_basic_value()
-                    }
-                    Err(_) => kept.into(),
-                }
-            }
-            _ => kept.into(),
-        };
-        self.close_loop(&l, Some(next));
-
-        let out_bytes = self.builder.build_int_mul(kept, stride, "filter.out").unwrap_or(kept);
-        let out = self.heap(state, out_bytes, "filter");
-        let align = src.align.max(1);
-        let _ = self.builder.build_memcpy(out, align, scratch, align, out_bytes);
-        // The elements were *moved*, so the scratch block goes back without its
-        // contents being walked: its count is the one the allocation gave it.
-        let free = self.rt_free();
-        if let Ok(call) = self.builder.build_call(free, &[scratch.into()], "") {
-            attrs::set_call_convention(call, attrs::C);
-        }
-        let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
-        let value = repr::assemble(self.ctx, &self.builder, &slots, &[out.into(), kept.into()]);
-        self.set(state, dest, value);
-    }
-
-    /// `find` and `findIndex`: the first element the predicate keeps, as an
-    /// `Option`.
-    ///
-    /// `runtime.js`'s `$list_find` and `$list_findIndex` are the same walk and
-    /// the same early exit, and the exit is legal here for [`Unit::list_test`]'s
-    /// reason: the predicate is `fn(T) => Bool` (`list.buri`), which names no
-    /// context, so SPEC 10.2 leaves it no effect with which to notice how many
-    /// times it was called.
-    ///
-    /// # The counts
-    ///
-    /// One retain, on the element the answer carries, and it asks **rc's**
-    /// question rather than the layout table's. The pair is not this backend's:
-    /// the `Option` leaves owned and `middle::rc` is what releases it, so
-    /// retaining where rc counts nothing would be one half of a pair nothing
-    /// completes. [`Unit::list_filter`]'s retain asks the layout table instead,
-    /// and correctly — there both halves are the backend's own, the second
-    /// being the result block's element glue.
-    ///
-    /// `findIndex`'s payload is an `Int` and holds nothing counted, so its
-    /// answer costs no reference operation at all.
-    fn list_find(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        dest: ir::ValueId,
-        a: &ListArgs<'ctx>,
-        kind: Step,
-    ) {
-        let (src, step) = (&a.src, &a.step);
-        let ir::Type::Agg(id) = code.ty_of(dest) else { return };
-        let join = self.ctx.append_basic_block(state.value, "find.join");
-        let Some(l) = self.open_loop(state, src.len, None) else { return };
-        let at = self.elem_at(src.base, l.i, src.stride, "find.at");
-        let mut params = Vec::new();
-        let mut argv = Vec::new();
-        self.pass_elem(state, src, at, &mut params, &mut argv);
-        let hit = match self.call_step(state, step, &params, &argv) {
-            Some(BasicValueEnum::IntValue(b)) => {
-                let found = self.ctx.append_basic_block(state.value, "find.hit");
-                let cont = self.ctx.append_basic_block(state.value, "find.cont");
-                let _ = self.builder.build_conditional_branch(b, found, cont);
-
-                self.builder.position_at_end(found);
-                let parts = if kind == Step::FindIndex {
-                    // `Option<Int>`'s payload is one 64-bit slot, which is the
-                    // index the loop already carries.
-                    let slot = Slot { offset: 0, ty: SlotTy::Scalar(Scalar::I64) };
-                    vec![(vec![slot], vec![l.i.into()])]
-                } else {
-                    let pieces = self.load_slots(at, &src.slots, src.align);
-                    if self.rc_counted(&src.elem) {
-                        let elem = src.elem.clone();
-                        let place = Place::Memory { base: at, align: src.align };
-                        self.walk_rc(state, &elem, &place, 0, Op::Retain, 0);
-                    }
-                    vec![(src.slots.clone(), pieces)]
-                };
-                let some = self.build_variant(id, 0, &parts);
-                let from = self.builder.get_insert_block().unwrap_or(found);
-                let _ = self.builder.build_unconditional_branch(join);
-                self.builder.position_at_end(cont);
-                some.map(|v| (v, from))
-            }
-            _ => None,
-        };
-        self.close_loop(&l, None);
-
-        // Exhausted. `.None` is variant 1: `core/option` declares `Some` first.
-        let none = self.build_variant(id, 1, &[]);
-        let missed = self.builder.get_insert_block().unwrap_or(l.done);
-        let _ = self.builder.build_unconditional_branch(join);
-        self.builder.position_at_end(join);
-        let Some(none) = none else { return };
-        let value = match hit {
-            Some((some, from)) => match self.builder.build_phi(none.get_type(), "find.answer") {
-                Ok(phi) => {
-                    phi.add_incoming(&[
-                        (&some as &dyn BasicValue<'ctx>, from),
-                        (&none as &dyn BasicValue<'ctx>, missed),
-                    ]);
-                    phi.as_basic_value()
-                }
-                Err(_) => none,
-            },
-            None => none,
-        };
-        self.set(state, dest, value);
-    }
-
-    /// `foldResult` and `foldResultCtx`: a fold that stops at the first `.Err`.
-    ///
-    /// `runtime.js`'s `$list_foldResult` is transcribed rather than
-    /// approximated, because the shape of its short circuit is what the answer
-    /// is:
-    ///
-    /// ```js
-    /// let cur = [0, acc];
-    /// for (…) { cur = f(cur[1], xs[i]); if (cur[0] !== 0) return cur; }
-    /// return cur;
-    /// ```
-    ///
-    /// So an empty list answers `.Ok(init)` — a `Result` nothing built — and a
-    /// step that answers `.Err` is handed back **exactly as it came**, payload
-    /// and all, without the remaining elements being visited. `.Ok`'s
-    /// discriminant is `0` because `core/result` declares `Ok` first, which is
-    /// the same sentence `$list_foldResult`'s `!== 0` rests on.
-    ///
-    /// # The counts
-    ///
-    /// No retain, for [`Unit::list_fold`]'s reason: the initial accumulator
-    /// arrives owned, and the first step consumes that count. After that each
-    /// step consumes the count it is handed and answers another inside its
-    /// `.Ok`, which is what the next step is handed. The early exit therefore
-    /// leaks nothing — the step that answered `.Err` consumed the
-    /// accumulator's count on the way in — and an empty list answers
-    /// `.Ok(init)` with the seed's own count.
-    fn list_fold_result(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        dest: ir::ValueId,
-        a: &ListArgs<'ctx>,
-    ) {
-        let (src, step, ctx) = (&a.src, &a.step, a.ctx);
-        let (Some(init), ir::Type::Agg(id)) = (a.init, code.ty_of(dest)) else { return };
-        let (slots, enum_repr, ok_offsets, none_variant, some_variant) = {
-            let r = self.reprs.of(self.program, id);
-            let (none_at, some_at) = match &r.layout.repr {
-                LayoutRepr::Enum { variants, .. } => (
-                    variants.iter().position(Vec::is_empty).unwrap_or(1),
-                    variants.iter().position(|v| !v.is_empty()).unwrap_or(0),
-                ),
-                _ => (1, 0),
-            };
-            (r.slots.clone(), r.enum_repr().cloned(), r.layout.variant(0).to_vec(), none_at, some_at)
-        };
-        let Some(enum_repr) = enum_repr else { return };
-        let acc_slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(init));
-        let start = self.get(state, init);
-        let join = self.ctx.append_basic_block(state.value, "fr.join");
-        let Some(l) = self.open_loop(state, src.len, Some(start)) else { return };
-        let acc = l.carried.map_or(start, |(p, _)| p.as_basic_value());
-
-        let at = self.elem_at(src.base, l.i, src.stride, "fr.at");
-        let mut params = Vec::new();
-        let mut argv = Vec::new();
-        self.pass_ctx(state, code, ctx, &mut params, &mut argv);
-        self.pass_value(acc, &acc_slots, &mut params, &mut argv);
-        self.pass_elem(state, src, at, &mut params, &mut argv);
-        let Some(stepped) = self.call_step(state, step, &params, &argv) else { return };
-        let tag = self.tag_of(&slots, &enum_repr, none_variant, some_variant, stepped);
-        let BasicValueEnum::IntValue(tag) = tag else { return };
-        let failed = self
-            .builder
-            .build_int_compare(IntPredicate::NE, tag, tag.get_type().const_zero(), "fr.err")
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
-        let bad = self.ctx.append_basic_block(state.value, "fr.bad");
-        let carry = self.ctx.append_basic_block(state.value, "fr.carry");
-        let _ = self.builder.build_conditional_branch(failed, bad, carry);
-        self.builder.position_at_end(bad);
-        let _ = self.builder.build_unconditional_branch(join);
-
-        self.builder.position_at_end(carry);
-        let next = self.payload_of(&slots, &enum_repr, &ok_offsets, 0, &acc_slots, stepped);
-        self.close_loop(&l, Some(next));
-
-        // Exhausted: `.Ok(acc)`, which is the `cur` a loop that never ran also
-        // answers.
-        let pieces = repr::disassemble(&self.builder, &acc_slots, acc);
-        let ok = self.build_variant(id, 0, &[(acc_slots.clone(), pieces)]);
-        let done = self.builder.get_insert_block().unwrap_or(l.done);
-        let _ = self.builder.build_unconditional_branch(join);
-        self.builder.position_at_end(join);
-        let Some(ok) = ok else { return };
-        let value = match self.builder.build_phi(ok.get_type(), "fr.answer") {
-            Ok(phi) => {
-                phi.add_incoming(&[
-                    (&stepped as &dyn BasicValue<'ctx>, bad),
-                    (&ok as &dyn BasicValue<'ctx>, done),
-                ]);
-                phi.as_basic_value()
-            }
-            Err(_) => ok,
-        };
-        self.set(state, dest, value);
-    }
-
-    /// `list.get(self, index) -> Option<T>`, open-coded: the unsigned bounds
-    /// compare and the load `xs[i]` already lowers to, in place of a call whose
-    /// stride is a parameter and whose copy is therefore a `memcpy`.
-    ///
-    /// `middle::lower::index` open-codes the `xs[i]` sugar "so that the
-    /// optimizer can see it: a bound it can prove is a bound it can delete",
-    /// and `list.buri` says the two spellings are one operation — but only the
-    /// sugar reached [`Unit::array_get`]. This is the other spelling reaching
-    /// the same three lines.
-    ///
-    /// **A counted element declines**, exactly as the stencil backend's
-    /// `list_get` does: `buri_rt_list_get` is handed a retain glue and performs
-    /// it, this sequence does not, and `middle::rc` plans over the tree that
-    /// distinguishes them. The fallback is the table entry, which is where the
-    /// key went before.
-    fn list_get(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        dest: ir::ValueId,
-        args: &[ir::ValueId],
-    ) -> bool {
-        let (Some(xs), Some(index)) = (args.first().copied(), args.get(1).copied()) else {
-            return false;
-        };
-        let (ir::Type::Agg(list_id), ir::Type::Agg(opt_id)) = (code.ty_of(xs), code.ty_of(dest))
-        else {
-            return false;
-        };
-        let list_ty = self.reprs.of(self.program, list_id).ty.clone();
-        let Some(element) = self.reprs.element(&list_ty) else { return false };
-        if self.reprs.counted_type(&element) {
-            return false;
-        }
-        let (opt_slots, has_repr) = {
-            let r = self.reprs.of(self.program, opt_id);
-            (r.slots.clone(), r.enum_repr().is_some())
-        };
-        if !has_repr {
-            return false;
-        }
-        let (some_at, none_at) = self.option_variants(opt_id);
-        // The read is settled before the first block is opened, so that nothing
-        // below can decline half-emitted.
-        let Some(read) = self.element_at(state, code, xs, index) else { return false };
-        // One unsigned compare covers both bounds: an `Int` is a whole 64-bit
-        // word, so a negative index reads as a very large unsigned one and
-        // fails `index < len` exactly as `buri_rt_list_get`'s `index < 0` does.
-        // A null block has length zero, so the same compare answers for that
-        // entry's `ptr.is_null()` too.
-        let in_bounds = self
-            .builder
-            .build_int_compare(IntPredicate::ULT, read.index, read.len, "get.in")
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
-        let some_bb = self.ctx.append_basic_block(state.value, "get.some");
-        let none_bb = self.ctx.append_basic_block(state.value, "get.none");
-        let join = self.ctx.append_basic_block(state.value, "get.done");
-        let _ = self.builder.build_conditional_branch(in_bounds, some_bb, none_bb);
-
-        let ty = repr::register_type(self.ctx, &opt_slots);
-        self.builder.position_at_end(some_bb);
-        let loaded = self.load_element(read.base, read.index, &read.element);
-        let some_value =
-            self.build_variant(opt_id, some_at, &[loaded]).unwrap_or_else(|| ty.const_zero());
-        let _ = self.builder.build_unconditional_branch(join);
-
-        self.builder.position_at_end(none_bb);
-        let none_value =
-            self.build_variant(opt_id, none_at, &[]).unwrap_or_else(|| ty.const_zero());
-        let _ = self.builder.build_unconditional_branch(join);
-
-        self.builder.position_at_end(join);
-        if let Ok(phi) = self.builder.build_phi(ty, "get") {
-            phi.add_incoming(&[
-                (&some_value as &dyn BasicValue<'ctx>, some_bb),
-                (&none_value as &dyn BasicValue<'ctx>, none_bb),
-            ]);
-            self.set(state, dest, phi.as_basic_value());
-        }
-        true
-    }
-
-    /// `zip`: one block of pairs, as long as the shorter of the two.
-    ///
-    /// `runtime.js`'s `$list_zip` takes `Math.min` of the two lengths, so
-    /// unequal inputs are not an error and the surplus is dropped — which is
-    /// what makes the paired indexing below in bounds.
-    ///
-    /// `cli/runtime/list.rs`'s header says why this is not a runtime call: the
-    /// element layout of a `[(A, B)]` is `middle::layout`'s answer — the second
-    /// field's offset after alignment — and not a function of the two strides a
-    /// C entry could be handed.
-    ///
-    /// # The counts
-    ///
-    /// Both sources are borrowed and both copies are a second owner, so each
-    /// half of every pair is retained once, against the result block's own
-    /// element glue — [`Unit::list_filter`]'s pair, twice.
-    fn list_zip(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        dests: &[ir::ValueId],
-        key: &str,
-        args: &[ir::ValueId],
-    ) -> bool {
-        if key != "list.zip" {
-            return false;
-        }
-        let (Some(xs), Some(ys), Some(dest)) =
-            (args.first().copied(), args.get(2).copied(), dests.first().copied())
-        else {
-            return false;
-        };
-        let (Some(a), Some(b)) =
-            (self.list_source(state, code, xs), self.list_source(state, code, ys))
-        else {
-            return false;
-        };
-        let ir_dest = code.ty_of(dest);
-        let Some(out_elem) = self.type_of(ir_dest).and_then(|t| self.reprs.element(&t)) else {
-            return false;
-        };
-        let (out_stride, out_align, fields) = {
-            let r = self.reprs.of_ty(&out_elem);
-            (r.layout.stride, r.layout.align, r.layout.fields.clone())
-        };
-        let word = self.ctx.i64_type();
-        let shorter = self
-            .builder
-            .build_int_compare(IntPredicate::ULT, a.len, b.len, "zip.shorter")
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
-        let n: IntValue<'ctx> = match self.builder.build_select(shorter, a.len, b.len, "zip.n") {
-            Ok(BasicValueEnum::IntValue(v)) => v,
-            _ => a.len,
-        };
-        let bytes = self
-            .builder
-            .build_int_mul(n, word.const_int(u64::from(out_stride), false), "zip.bytes")
-            .unwrap_or(n);
-        let dst = self.heap(state, bytes, "zip");
-        let Some(l) = self.open_loop(state, n, None) else { return true };
-        let into = self.elem_at(dst, l.i, out_stride, "zip.into");
-        let sides = [(&a, fields.first().copied().unwrap_or(0)), (&b, fields.get(1).copied().unwrap_or(0))];
-        for (side, field_at) in sides {
-            let from = self.elem_at(side.base, l.i, side.stride, "zip.from");
-            let target =
-                repr::byte_offset(self.ctx, &self.builder, into, i64::from(field_at), "zip.field");
-            let align = side.align.max(1).min(out_align.max(1));
-            let _ = self.builder.build_memcpy(
-                target,
-                align,
-                from,
-                side.align.max(1),
-                word.const_int(u64::from(side.size), false),
-            );
-            let elem = side.elem.clone();
-            let place = Place::Memory { base: target, align };
-            self.walk_rc(state, &elem, &place, 0, Op::Retain, 0);
-        }
-        self.close_loop(&l, None);
-        let slots = repr::ir_slots(&mut self.reprs, self.program, ir_dest);
-        let value = repr::assemble(self.ctx, &self.builder, &slots, &[dst.into(), n.into()]);
-        self.set(state, dest, value);
-        true
-    }
-
-    /// `flatten`: one block holding every element of every inner block.
-    ///
-    /// Two passes, because the result's length is the sum of the inner lengths
-    /// and a `[T]`'s element count is `cap / stride` ([`Job::Glue`]) —
-    /// an over-allocated block would have its uninitialised tail released when
-    /// it died. The first pass reads `len` out of each descriptor and nothing
-    /// else, which is a load per inner list and no call.
-    ///
-    /// `cli/runtime/list.rs`'s header says why this is not a runtime call: the
-    /// elements of a `[[T]]` are descriptors pointing at blocks whose stride
-    /// the entry does not carry.
-    ///
-    /// # The counts
-    ///
-    /// The outer block and every inner one are borrowed, and each element
-    /// copied out is a second owner — one retain per element, against the
-    /// result block's own glue, exactly as [`Unit::list_filter`]'s is. The
-    /// inner *descriptors* are not touched: a `[[T]]` that dies releases its
-    /// own elements, and this walks past them into the blocks they name.
-    fn list_flatten(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        dests: &[ir::ValueId],
-        key: &str,
-        args: &[ir::ValueId],
-    ) -> bool {
-        if key != "list.flatten" {
-            return false;
-        }
-        let (Some(xs), Some(dest)) = (args.first().copied(), dests.first().copied()) else {
-            return false;
-        };
-        let Some(src) = self.list_source(state, code, xs) else { return false };
-        let ir_dest = code.ty_of(dest);
-        let Some(out_elem) = self.type_of(ir_dest).and_then(|t| self.reprs.element(&t)) else {
-            return false;
-        };
-        let (out_stride, out_size, out_align) = {
-            let r = self.reprs.of_ty(&out_elem);
-            (r.layout.stride, r.layout.size, r.layout.align)
-        };
-        let word = self.ctx.i64_type();
-        let zero = word.const_zero();
-
-        // -- pass one: the total ---------------------------------------------
-        let Some(counting) = self.open_loop(state, src.len, Some(zero.into())) else {
-            return true;
-        };
-        let total: IntValue<'ctx> = match counting.carried.map(|(p, _)| p.as_basic_value()) {
-            Some(BasicValueEnum::IntValue(v)) => v,
-            _ => zero,
-        };
-        let at = self.elem_at(src.base, counting.i, src.stride, "flat.count.at");
-        let pieces = self.load_slots(at, &src.slots, src.align);
-        let inner = match pieces.get(layout::LIST_LEN).copied() {
-            Some(BasicValueEnum::IntValue(v)) => v,
-            _ => zero,
-        };
-        let grown = self.builder.build_int_add(total, inner, "flat.total").unwrap_or(total);
-        self.close_loop(&counting, Some(grown.into()));
-
-        let bytes = self
-            .builder
-            .build_int_mul(total, word.const_int(u64::from(out_stride), false), "flat.bytes")
-            .unwrap_or(total);
-        let dst = self.heap(state, bytes, "flat");
-
-        // -- pass two: the elements ------------------------------------------
-        let Some(outer) = self.open_loop(state, src.len, Some(zero.into())) else { return true };
-        let filled: IntValue<'ctx> = match outer.carried.map(|(p, _)| p.as_basic_value()) {
-            Some(BasicValueEnum::IntValue(v)) => v,
-            _ => zero,
-        };
-        let at = self.elem_at(src.base, outer.i, src.stride, "flat.at");
-        let pieces = self.load_slots(at, &src.slots, src.align);
-        let (
-            Some(BasicValueEnum::PointerValue(base)),
-            Some(BasicValueEnum::IntValue(len)),
-        ) = (pieces.get(layout::LIST_PTR).copied(), pieces.get(layout::LIST_LEN).copied())
-        else {
-            return true;
-        };
-        let Some(one) = self.open_loop(state, len, None) else { return true };
-        let from = self.elem_at(base, one.i, out_stride, "flat.from");
-        let k = self.builder.build_int_add(filled, one.i, "flat.k").unwrap_or(one.i);
-        let into = self.elem_at(dst, k, out_stride, "flat.into");
-        let align = out_align.max(1);
-        let _ = self.builder.build_memcpy(
-            into,
-            align,
-            from,
-            align,
-            word.const_int(u64::from(out_size), false),
-        );
-        let elem = out_elem.clone();
-        let place = Place::Memory { base: into, align };
-        self.walk_rc(state, &elem, &place, 0, Op::Retain, 0);
-        self.close_loop(&one, None);
-        let after = self.builder.build_int_add(filled, len, "flat.after").unwrap_or(filled);
-        self.close_loop(&outer, Some(after.into()));
-
-        let slots = repr::ir_slots(&mut self.reprs, self.program, ir_dest);
-        let value = repr::assemble(self.ctx, &self.builder, &slots, &[dst.into(), total.into()]);
-        self.set(state, dest, value);
-        true
-    }
-
-    /// `deriveArrayEq` — a derived `Equal` where the field is a `[T]`.
-    ///
-    /// `middle/derives.rs`'s header states the shape: `([T], [T], fn(T, T) ->
-    /// Bool) -> Bool`, where the third argument is a **code pointer to the
-    /// element's generated function**, "because a loop is not expressible in
-    /// the layer-A tree and every backend has the loop already". This is that
-    /// loop — `stencil/lists.rs::derive_array_eq` is the same one — and it is
-    /// `list_test`'s `all` walking two blocks instead of one.
-    ///
-    /// Two lengths that differ answer `false` without calling the element's
-    /// function at all, which is `$eq`'s own first test and is what makes the
-    /// paired indexing below in bounds. The counts are
-    /// [`Unit::list_closure`]'s, unchanged.
-    ///
-    /// `deriveArrayShow` is [`Unit::derive_array_show`]. The three that remain
-    /// are not here, and none of the five is reported by `missing_intrinsics`:
-    /// a `deriveArray*` is an `ExprKind::Intrinsic` inside a body
-    /// `middle::derives` generated rather than a `FuncKind::Intrinsic` the hook
-    /// can see, which is why `native/agreement.rs`'s `native_refusal` asks the
-    /// backend to emit as well as asking the hook.
-    fn derive_array(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        dests: &[ir::ValueId],
-        key: &str,
-        args: &[ir::ValueId],
-    ) -> bool {
-        if key == "deriveArrayShow" {
-            return self.derive_array_show(state, code, dests, args);
-        }
-        if key == "deriveArrayCompare" {
-            return self.derive_array_compare(state, code, dests, args);
-        }
-        if key != "deriveArrayEq" {
-            return false;
-        }
-        let (Some(xs), Some(ys), Some(f), Some(dest)) = (
-            args.first().copied(),
-            args.get(1).copied(),
-            args.get(2).copied(),
-            dests.first().copied(),
-        ) else {
-            return false;
-        };
-        let (Some(a), Some(b), Some(step)) = (
-            self.list_source(state, code, xs),
-            self.list_source(state, code, ys),
-            self.step_fn(state, code, f),
-        ) else {
-            return false;
-        };
-        let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
-        let BasicTypeEnum::IntType(int) = want else { return false };
-
-        let paired = self.ctx.append_basic_block(state.value, "eq.paired");
-        let short = self.ctx.append_basic_block(state.value, "eq.short");
-        let Ok(same) =
-            self.builder.build_int_compare(IntPredicate::EQ, a.len, b.len, "eq.same")
-        else {
-            return false;
-        };
-        let _ = self.builder.build_conditional_branch(same, paired, short);
-        self.builder.position_at_end(short);
-        let differ = self.ctx.append_basic_block(state.value, "eq.differ");
-        let _ = self.builder.build_unconditional_branch(differ);
-
-        self.builder.position_at_end(paired);
-        let Some(l) = self.open_loop(state, a.len, None) else { return false };
-        let at_a = self.elem_at(a.base, l.i, a.stride, "eq.a");
-        let at_b = self.elem_at(b.base, l.i, b.stride, "eq.b");
-        let mut params = Vec::new();
-        let mut argv = Vec::new();
-        self.pass_elem(state, &a, at_a, &mut params, &mut argv);
-        self.pass_elem(state, &b, at_b, &mut params, &mut argv);
-        let early = match self.call_step(state, &step, &params, &argv) {
-            Some(BasicValueEnum::IntValue(equal)) => {
-                let cont = self.ctx.append_basic_block(state.value, "eq.cont");
-                let from = self.builder.get_insert_block().unwrap_or(cont);
-                let _ = self.builder.build_conditional_branch(equal, cont, differ);
-                self.builder.position_at_end(cont);
-                Some(from)
-            }
-            _ => None,
-        };
-        self.close_loop(&l, None);
-        let exhausted = self.builder.get_insert_block().unwrap_or(l.done);
-        let _ = self.builder.build_unconditional_branch(differ);
-
-        // `differ` is reached from the length test, from the element that said
-        // `false`, and from the loop running out — the last of which is the
-        // only `true`. The phi is built over exactly the edges that exist,
-        // because one naming a block that is not a predecessor is the error
-        // LLVM's verifier catches here.
-        self.builder.position_at_end(differ);
-        let (no, yes) = (int.const_zero(), int.const_int(1, false));
-        let mut incoming: Vec<(&dyn BasicValue<'ctx>, BasicBlock<'ctx>)> =
-            vec![(&no, short), (&yes, exhausted)];
-        if let Some(from) = early.as_ref() {
-            incoming.push((&no, *from));
-        }
-        let value = match self.builder.build_phi(int, "eq.answer") {
-            Ok(phi) => {
-                phi.add_incoming(&incoming);
-                phi.as_basic_value()
-            }
-            Err(_) => no.into(),
-        };
-        self.set(state, dest, value);
-        true
-    }
-
-    /// `deriveArrayCompare` — a derived `Ordered` where the field is a `[T]`.
-    ///
-    /// `middle/derives.rs`'s header states the shape: `([T], [T], fn(T, T) ->
-    /// Order) -> Order`. It is [`Unit::derive_array`]'s loop over the same code
-    /// pointer with a different carried answer, and it is `$cmp`'s array arm:
-    /// the first `min(m, n)` elements decide the order, and where every one of
-    /// them is `Equal` the **lengths** do — so `[1]` is below `[1, 2]` and a
-    /// prefix is below what extends it. That length half is what `deriveArrayEq`
-    /// has no equivalent of, and it is why the loop bound is the shorter length
-    /// rather than the refusal on unequal ones that makes `$eq`'s paired
-    /// indexing in bounds. `stencil/lists.rs::derive_array_compare` is the same
-    /// loop for the same reason (buri-lang/buri#27), and the two backends
-    /// answer the same `Order` because the algorithm is the one SPEC names.
-    ///
-    /// The element's answer is an `Order` — the comparator's whole result, an
-    /// integer tag [`GREATER`]/[`LESS`]/[`EQUAL`] the same three files agree on
-    /// — and the `Order` this returns is the same width, because both are that
-    /// enum's bare tag. The counts are [`Unit::pass_elem`]'s: each element is
-    /// retained on the way into the comparator, which the convention in
-    /// [`Unit::list_closure`]'s header requires of any call through a function
-    /// value.
-    fn derive_array_compare(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        dests: &[ir::ValueId],
-        args: &[ir::ValueId],
-    ) -> bool {
-        let (Some(xs), Some(ys), Some(f), Some(dest)) = (
-            args.first().copied(),
-            args.get(1).copied(),
-            args.get(2).copied(),
-            dests.first().copied(),
-        ) else {
-            return false;
-        };
-        let (Some(a), Some(b), Some(step)) = (
-            self.list_source(state, code, xs),
-            self.list_source(state, code, ys),
-            self.step_fn(state, code, f),
-        ) else {
-            return false;
-        };
-        let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
-        let BasicTypeEnum::IntType(int) = want else { return false };
-
-        // The shorter of the two lengths, which is the loop bound that makes the
-        // paired indexing below in bounds.
-        let a_shorter = self
-            .builder
-            .build_int_compare(IntPredicate::ULT, a.len, b.len, "cmp.ashorter")
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
-        let n: IntValue<'ctx> = match self.builder.build_select(a_shorter, a.len, b.len, "cmp.n") {
-            Ok(BasicValueEnum::IntValue(v)) => v,
-            _ => a.len,
-        };
-
-        // Every exit meets in `decided`; `diff` is the one an unequal element
-        // takes, carrying that element's own `Order` as the answer.
-        let decided = self.ctx.append_basic_block(state.value, "cmp.decided");
-        let diff = self.ctx.append_basic_block(state.value, "cmp.diff");
-
-        let Some(l) = self.open_loop(state, n, None) else { return false };
-        let at_a = self.elem_at(a.base, l.i, a.stride, "cmp.a");
-        let at_b = self.elem_at(b.base, l.i, b.stride, "cmp.b");
-        let mut params = Vec::new();
-        let mut argv = Vec::new();
-        self.pass_elem(state, &a, at_a, &mut params, &mut argv);
-        self.pass_elem(state, &b, at_b, &mut params, &mut argv);
-        let order = match self.call_step(state, &step, &params, &argv) {
-            Some(BasicValueEnum::IntValue(order)) => {
-                let cont = self.ctx.append_basic_block(state.value, "cmp.cont");
-                let Ok(is_equal) = self.builder.build_int_compare(
-                    IntPredicate::EQ,
-                    order,
-                    order.get_type().const_int(EQUAL, false),
-                    "cmp.equal",
-                ) else {
-                    return false;
-                };
-                // `Equal` walks on to the next element; anything else is the
-                // answer and takes `diff`.
-                let _ = self.builder.build_conditional_branch(is_equal, cont, diff);
-                self.builder.position_at_end(cont);
-                order
-            }
-            _ => return false,
-        };
-        self.close_loop(&l, None);
-
-        // Every shared element compared `Equal`, so the lengths decide: the
-        // shorter list is `Less`, the longer `Greater`, and two of a length
-        // `Equal`.
-        let (Ok(shorter), Ok(longer)) = (
-            self.builder.build_int_compare(IntPredicate::ULT, a.len, b.len, "cmp.lt"),
-            self.builder.build_int_compare(IntPredicate::UGT, a.len, b.len, "cmp.gt"),
-        ) else {
-            return false;
-        };
-        let (less, equal, greater) =
-            (int.const_int(LESS, false), int.const_int(EQUAL, false), int.const_int(GREATER, false));
-        let Ok(when_longer) = self.builder.build_select(longer, greater, equal, "cmp.golen") else {
-            return false;
-        };
-        let Ok(by_len) = self.builder.build_select(shorter, less.into(), when_longer, "cmp.bylen")
-        else {
-            return false;
-        };
-        let len_from = self.builder.get_insert_block().unwrap_or(l.done);
-        let _ = self.builder.build_unconditional_branch(decided);
-
-        // The unequal element's `Order` is the answer, unchanged.
-        self.builder.position_at_end(diff);
-        let _ = self.builder.build_unconditional_branch(decided);
-
-        self.builder.position_at_end(decided);
-        let value = match self.builder.build_phi(int, "cmp.answer") {
-            Ok(phi) => {
-                phi.add_incoming(&[
-                    (&order as &dyn BasicValue<'ctx>, diff),
-                    (&by_len as &dyn BasicValue<'ctx>, len_from),
-                ]);
-                phi.as_basic_value()
-            }
-            Err(_) => equal.into(),
-        };
-        self.set(state, dest, value);
-        true
-    }
-
-    /// `deriveArrayShow` — a derived `Show` where the field is a `[T]`.
-    ///
-    /// `middle/derives.rs`'s header states the shape: `([T], fn(T) -> Str) ->
-    /// Str`, rendering `[a, b]` with the separator included. So the answer is
-    /// two halves: **call the element's generated function once per element**,
-    /// which only a backend can do (`cli/runtime/list.rs`'s header), and
-    /// **join the results with brackets and `", "`**, which only the archive
-    /// should do — `buri_rt_show_list` is that half, and
-    /// `stencil/lists.rs::derive_array_show` calls the same symbol with the same
-    /// three arguments.
-    ///
-    /// # The counts
-    ///
-    /// Each rendered `Str` arrives **owned** — the element's `show` is a
-    /// function value and its answer is a fresh count — and the join *copies*
-    /// bytes rather than taking a reference, so every one is released before
-    /// the scratch block goes back. Without that loop a derived `show` of a
-    /// `[Str]` would leak one block per element.
-    fn derive_array_show(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        dests: &[ir::ValueId],
-        args: &[ir::ValueId],
-    ) -> bool {
-        let (Some(xs), Some(f), Some(dest)) =
-            (args.first().copied(), args.get(1).copied(), dests.first().copied())
-        else {
-            return false;
-        };
-        let (Some(src), Some(step)) =
-            (self.list_source(state, code, xs), self.step_fn(state, code, f))
-        else {
-            return false;
-        };
-        let ir_dest = code.ty_of(dest);
-        let Some(str_ty) = self.type_of(ir_dest) else { return false };
-        let (stride, size, align, slots) = {
-            let r = self.reprs.of_ty(&str_ty);
-            (r.layout.stride.max(1), r.layout.size, r.layout.align.max(1), r.slots.clone())
-        };
-        let word = self.ctx.i64_type();
-        let bytes = self
-            .builder
-            .build_int_mul(src.len, word.const_int(u64::from(stride), false), "show.bytes")
-            .unwrap_or(src.len);
-        let scratch = self.heap(state, bytes, "show.buf");
-
-        // -- one rendered `Str` per element ----------------------------------
-        let Some(l) = self.open_loop(state, src.len, None) else { return true };
-        let at = self.elem_at(src.base, l.i, src.stride, "show.at");
-        let mut params = Vec::new();
-        let mut argv = Vec::new();
-        self.pass_elem(state, &src, at, &mut params, &mut argv);
-        let answer = self.call_step(state, &step, &params, &argv);
-        let into = self.elem_at(scratch, l.i, stride, "show.into");
-        if let Some(v) = answer {
-            let pieces = repr::disassemble(&self.builder, &slots, v);
-            self.store_slots(into, &slots, align, &pieces);
-        }
-        self.close_loop(&l, None);
-
-        let join = self.declare_rt(
-            runtime::SHOW_LIST,
-            &[self.ptr_ty().into(), word.into(), self.ptr_ty().into()],
-            None,
-        );
-        let out = self.scratch(state, size, align);
-        if let Ok(call) =
-            self.builder.build_call(join, &[scratch.into(), src.len.into(), out.into()], "")
-        {
-            attrs::set_call_convention(call, attrs::C);
-        }
-        let joined = self.load_slots(out, &slots, align);
-        let value = repr::assemble(self.ctx, &self.builder, &slots, &joined);
-
-        // -- the rendered strings, released ----------------------------------
-        let Some(freeing) = self.open_loop(state, src.len, None) else { return true };
-        let rendered = self.elem_at(scratch, freeing.i, stride, "show.free");
-        let place = Place::Memory { base: rendered, align };
-        let str_ty = str_ty.clone();
-        self.walk_rc(state, &str_ty, &place, 0, Op::Release, 0);
-        self.close_loop(&freeing, None);
-        let free = self.rt_free();
-        if let Ok(call) = self.builder.build_call(free, &[scratch.into()], "") {
-            attrs::set_call_convention(call, attrs::C);
-        }
-        self.set(state, dest, value);
-        true
-    }
-
-    /// `sortBy`: a **stable** sort of a copy of the block.
-    ///
-    /// # Why a merge, and why stable
-    ///
-    /// `runtime.js`'s `$list_sortBy` pairs each element with its index and
-    /// breaks a tie the comparator answered `.Equal` by that index, which is a
-    /// stable sort spelled out. A bottom-up merge is the same order for the
-    /// same reason: a merge takes from the left run unless the comparator says
-    /// the left element is strictly `.Greater`, so equal elements keep the
-    /// order the source had. `data/lists.buri`'s "sortBy is stable" and "sortBy
-    /// is stable when every key is equal" are the two that pin it, and
-    /// `stencil/lists.rs::list_sort` is the same merge for the same reason —
-    /// the two backends have to agree on the *answer*, and they do because the
-    /// algorithm is the one the specification of stability names.
-    ///
-    /// The *sequence of comparisons* is neither backend's business and cannot
-    /// be observed as anything else: `sortBy`'s comparator is `fn(T, T) =>
-    /// Order` (`list.buri`), which names no context, so SPEC 10.2 leaves it no
-    /// effect to notice a call with. `list_test`'s early exit rests on the same
-    /// sentence.
-    ///
-    /// # The counts
-    ///
-    /// Every element move below is a `memcpy` of a value that is *moving*, so
-    /// nothing is retained or released for it: after the last pass each element
-    /// exists exactly once in the result, and the scratch block goes back
-    /// without being walked, exactly as [`Unit::list_filter`]'s does. The one
-    /// retain per element is the copy of the borrowed source into the result;
-    /// the one pair per comparison is [`Unit::pass_elem`]'s, which the
-    /// convention in [`Unit::list_closure`]'s header requires of any call
-    /// through a function value.
-    fn list_sort(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        dest: ir::ValueId,
-        a: &ListArgs<'ctx>,
-    ) {
-        let src = &a.src;
-        let word = self.ctx.i64_type();
-        let align = src.align.max(1);
-        let size = word.const_int(u64::from(src.size), false);
-        let one = word.const_int(1, false);
-        let stride = word.const_int(u64::from(src.stride), false);
-        let bytes = self.builder.build_int_mul(src.len, stride, "sort.bytes").unwrap_or(src.len);
-        let dst = self.heap(state, bytes, "sort");
-        let scratch = self.heap(state, bytes, "sort.buf");
-
-        // -- the source, copied in and retained once per element ------------
-        let Some(l) = self.open_loop(state, src.len, None) else { return };
-        let from = self.elem_at(src.base, l.i, src.stride, "sort.from");
-        let into = self.elem_at(dst, l.i, src.stride, "sort.into");
-        let _ = self.builder.build_memcpy(into, align, from, align, size);
-        let elem = src.elem.clone();
-        let place = Place::Memory { base: into, align };
-        self.walk_rc(state, &elem, &place, 0, Op::Retain, 0);
-        self.close_loop(&l, None);
-
-        // -- width 1, 2, 4, …, with the two buffers swapping each pass ------
-        let Some(entry) = self.builder.get_insert_block() else { return };
-        let wide = self.ctx.append_basic_block(state.value, "sort.wide");
-        let pass = self.ctx.append_basic_block(state.value, "sort.pass");
-        let sorted = self.ctx.append_basic_block(state.value, "sort.sorted");
-        let _ = self.builder.build_unconditional_branch(wide);
-        self.builder.position_at_end(wide);
-        let (Ok(wp), Ok(ap), Ok(bp)) = (
-            self.builder.build_phi(word, "sort.w"),
-            self.builder.build_phi(self.ptr_ty(), "sort.a"),
-            self.builder.build_phi(self.ptr_ty(), "sort.b"),
-        ) else {
-            return;
-        };
-        let width: IntValue<'ctx> = wp.as_basic_value().try_into().unwrap_or(one);
-        let read_from: PointerValue<'ctx> = ap.as_basic_value().try_into().unwrap_or(dst);
-        let write_to: PointerValue<'ctx> = bp.as_basic_value().try_into().unwrap_or(scratch);
-        let unsorted = self
-            .builder
-            .build_int_compare(IntPredicate::ULT, width, src.len, "sort.unsorted")
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
-        let _ = self.builder.build_conditional_branch(unsorted, pass, sorted);
-
-        self.builder.position_at_end(pass);
-        let span = self
-            .builder
-            .build_int_mul(width, word.const_int(2, false), "sort.span")
-            .unwrap_or(width);
-        let swap = self.merge_pass(state, a, &Runs { width, span, read_from, write_to });
-        self.builder.position_at_end(swap);
-        let doubled = self
-            .builder
-            .build_int_mul(width, word.const_int(2, false), "sort.w2")
-            .unwrap_or(width);
-        let _ = self.builder.build_unconditional_branch(wide);
-        wp.add_incoming(&[
-            (&one as &dyn BasicValue<'ctx>, entry),
-            (&doubled as &dyn BasicValue<'ctx>, swap),
-        ]);
-        ap.add_incoming(&[
-            (&dst as &dyn BasicValue<'ctx>, entry),
-            (&write_to as &dyn BasicValue<'ctx>, swap),
-        ]);
-        bp.add_incoming(&[
-            (&scratch as &dyn BasicValue<'ctx>, entry),
-            (&read_from as &dyn BasicValue<'ctx>, swap),
-        ]);
-
-        // -- an odd number of passes ends in the scratch ---------------------
-        self.builder.position_at_end(sorted);
-        let home = self.ctx.append_basic_block(state.value, "sort.home");
-        let end = self.ctx.append_basic_block(state.value, "sort.end");
-        let in_place = self
-            .builder
-            .build_int_compare(IntPredicate::EQ, read_from, dst, "sort.inplace")
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
-        let _ = self.builder.build_conditional_branch(in_place, end, home);
-        self.builder.position_at_end(home);
-        let _ = self.builder.build_memcpy(dst, align, read_from, align, bytes);
-        let _ = self.builder.build_unconditional_branch(end);
-        self.builder.position_at_end(end);
-        let free = self.rt_free();
-        if let Ok(call) = self.builder.build_call(free, &[scratch.into()], "") {
-            attrs::set_call_convention(call, attrs::C);
-        }
-        let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
-        let value =
-            repr::assemble(self.ctx, &self.builder, &slots, &[dst.into(), src.len.into()]);
-        self.set(state, dest, value);
-    }
-
-    /// One pass of [`Unit::list_sort`]: every pair of `width`-wide runs in `a`,
-    /// merged into `b`. Answers the block the pass ends in.
-    fn merge_pass(
-        &mut self,
-        state: &mut Function<'ctx>,
-        a: &ListArgs<'ctx>,
-        r: &Runs<'ctx>,
-    ) -> BasicBlock<'ctx> {
-        let (src, step) = (&a.src, &a.step);
-        let word = self.ctx.i64_type();
-        let align = src.align.max(1);
-        let size = word.const_int(u64::from(src.size), false);
-        let one = word.const_int(1, false);
-        let zero = word.const_zero();
-        let Some(opened) = self.builder.get_insert_block() else {
-            return self.ctx.append_basic_block(state.value, "sort.swap");
-        };
-        let runs = self.ctx.append_basic_block(state.value, "sort.runs");
-        let run = self.ctx.append_basic_block(state.value, "sort.run");
-        let swap = self.ctx.append_basic_block(state.value, "sort.swap");
-        let _ = self.builder.build_unconditional_branch(runs);
-
-        self.builder.position_at_end(runs);
-        let Ok(lop) = self.builder.build_phi(word, "sort.lo") else { return swap };
-        let lo: IntValue<'ctx> = lop.as_basic_value().try_into().unwrap_or(zero);
-        let left = self
-            .builder
-            .build_int_compare(IntPredicate::ULT, lo, src.len, "sort.left")
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
-        let _ = self.builder.build_conditional_branch(left, run, swap);
-
-        self.builder.position_at_end(run);
-        let mid =
-            self.clamp(self.builder.build_int_add(lo, r.width, "sort.mid").unwrap_or(lo), src.len);
-        let hi =
-            self.clamp(self.builder.build_int_add(lo, r.span, "sort.hi").unwrap_or(lo), src.len);
-        let merge = self.ctx.append_basic_block(state.value, "sort.merge");
-        let body = self.ctx.append_basic_block(state.value, "sort.body");
-        let merged = self.ctx.append_basic_block(state.value, "sort.merged");
-        let _ = self.builder.build_unconditional_branch(merge);
-
-        self.builder.position_at_end(merge);
-        let (Ok(lip), Ok(rip), Ok(kp)) = (
-            self.builder.build_phi(word, "sort.li"),
-            self.builder.build_phi(word, "sort.ri"),
-            self.builder.build_phi(word, "sort.k"),
-        ) else {
-            return swap;
-        };
-        let li: IntValue<'ctx> = lip.as_basic_value().try_into().unwrap_or(zero);
-        let ri: IntValue<'ctx> = rip.as_basic_value().try_into().unwrap_or(zero);
-        let k: IntValue<'ctx> = kp.as_basic_value().try_into().unwrap_or(zero);
-        let filling = self
-            .builder
-            .build_int_compare(IntPredicate::ULT, k, hi, "sort.filling")
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
-        let _ = self.builder.build_conditional_branch(filling, body, merged);
-
-        // -- which run the next element comes from ---------------------------
-        self.builder.position_at_end(body);
-        let both = self.ctx.append_basic_block(state.value, "sort.both");
-        let compare = self.ctx.append_basic_block(state.value, "sort.compare");
-        let take_left = self.ctx.append_basic_block(state.value, "sort.left");
-        let take_right = self.ctx.append_basic_block(state.value, "sort.right");
-        let open = self
-            .builder
-            .build_int_compare(IntPredicate::ULT, li, mid, "sort.lopen")
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
-        let _ = self.builder.build_conditional_branch(open, both, take_right);
-        self.builder.position_at_end(both);
-        let open = self
-            .builder
-            .build_int_compare(IntPredicate::ULT, ri, hi, "sort.ropen")
-            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
-        let _ = self.builder.build_conditional_branch(open, compare, take_left);
-
-        self.builder.position_at_end(compare);
-        let left_at = self.elem_at(r.read_from, li, src.stride, "sort.lat");
-        let right_at = self.elem_at(r.read_from, ri, src.stride, "sort.rat");
-        let mut params = Vec::new();
-        let mut argv = Vec::new();
-        self.pass_elem(state, src, left_at, &mut params, &mut argv);
-        self.pass_elem(state, src, right_at, &mut params, &mut argv);
-        match self.call_step(state, step, &params, &argv) {
-            Some(BasicValueEnum::IntValue(order)) => {
-                let after = self
-                    .builder
-                    .build_int_compare(
-                        IntPredicate::EQ,
-                        order,
-                        order.get_type().const_int(GREATER, false),
-                        "sort.after",
-                    )
-                    .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
-                let _ = self.builder.build_conditional_branch(after, take_right, take_left);
-            }
-            _ => {
-                let _ = self.builder.build_unconditional_branch(take_left);
-            }
-        }
-
-        // -- the two moves, which are byte copies and nothing else -----------
-        let mut edges: Vec<(IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>, BasicBlock<'ctx>)> =
-            Vec::new();
-        for (block, right) in [(take_left, false), (take_right, true)] {
-            self.builder.position_at_end(block);
-            let at = if right { ri } else { li };
-            let from = self.elem_at(r.read_from, at, src.stride, "sort.take");
-            let into = self.elem_at(r.write_to, k, src.stride, "sort.put");
-            let _ = self.builder.build_memcpy(into, align, from, align, size);
-            let taken = self.builder.build_int_add(at, one, "sort.taken").unwrap_or(at);
-            let filled = self.builder.build_int_add(k, one, "sort.filled").unwrap_or(k);
-            let _ = self.builder.build_unconditional_branch(merge);
-            let (nl, nr) = if right { (li, taken) } else { (taken, ri) };
-            edges.push((nl, nr, filled, block));
-        }
-        for (value, phi) in [(lo, lip), (mid, rip), (lo, kp)] {
-            phi.add_incoming(&[(&value as &dyn BasicValue<'ctx>, run)]);
-        }
-        for (nl, nr, filled, block) in &edges {
-            lip.add_incoming(&[(nl as &dyn BasicValue<'ctx>, *block)]);
-            rip.add_incoming(&[(nr as &dyn BasicValue<'ctx>, *block)]);
-            kp.add_incoming(&[(filled as &dyn BasicValue<'ctx>, *block)]);
-        }
-
-        self.builder.position_at_end(merged);
-        let next = self.builder.build_int_add(lo, r.span, "sort.nextlo").unwrap_or(lo);
-        let _ = self.builder.build_unconditional_branch(runs);
-        lop.add_incoming(&[
-            (&zero as &dyn BasicValue<'ctx>, opened),
-            (&next as &dyn BasicValue<'ctx>, merged),
-        ]);
-        swap
-    }
-
-    /// `min(v, n)`, as a `select`: a run's end is its start plus the width, or
-    /// the block's length where the last run is short.
-    fn clamp(&self, v: IntValue<'ctx>, n: IntValue<'ctx>) -> IntValue<'ctx> {
-        let Ok(over) = self.builder.build_int_compare(IntPredicate::ULT, v, n, "sort.fits") else {
-            return v;
-        };
-        match self.builder.build_select(over, v, n, "sort.end") {
-            Ok(BasicValueEnum::IntValue(x)) => x,
-            _ => v,
-        }
-    }
-
-    /// `fold` and `foldCtx`: the accumulator, threaded.
-    ///
-    /// One path and not two: an accumulator of any width is a phi, because
-    /// LLVM's phi takes a first-class aggregate. The counts balance with no
-    /// retain here: `middle::rc` hands a fold's seed over (`rc::is_fold`), so
-    /// the initial accumulator arrives owned and the first step takes that
-    /// count, after which each step consumes the count it is given and answers
-    /// another, and the last one is the result's. A retain here as well left
-    /// the seed's owner and the first step both holding the accumulator, and
-    /// the step's first push into it copied the whole list.
-    fn list_fold(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        dest: ir::ValueId,
-        a: &ListArgs<'ctx>,
-    ) {
-        let (src, step, ctx) = (&a.src, &a.step, a.ctx);
-        let Some(init) = a.init else { return };
-        let ir_dest = code.ty_of(dest);
-        let slots = repr::ir_slots(&mut self.reprs, self.program, ir_dest);
-        let start = self.get(state, init);
-        let Some(l) = self.open_loop(state, src.len, Some(start)) else { return };
-        let acc = l.carried.map_or(start, |(p, _)| p.as_basic_value());
-
-        let at = self.elem_at(src.base, l.i, src.stride, "fold.at");
-        let mut params = Vec::new();
-        let mut argv = Vec::new();
-        self.pass_ctx(state, code, ctx, &mut params, &mut argv);
-        self.pass_value(acc, &slots, &mut params, &mut argv);
-        self.pass_elem(state, src, at, &mut params, &mut argv);
-        let stepped = self.call_step(state, step, &params, &argv).unwrap_or(acc);
-        self.close_loop(&l, Some(stepped));
-
-        // The header's phi, which dominates `done`: the accumulator as it stood
-        // when the bound test last failed.
-        self.set(state, dest, acc);
-    }
-
-    /// `any`, `all` and `count`.
-    ///
-    /// `any` and `all` leave the loop at the first element that decides the
-    /// answer, which is what their `core/list` declarations promise by taking
-    /// no context: a step that cannot have an effect cannot notice.
-    fn list_test(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        dest: ir::ValueId,
-        a: &ListArgs<'ctx>,
-        kind: Step,
-    ) {
-        let (src, step) = (&a.src, &a.step);
-        let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
-        let BasicTypeEnum::IntType(int) = want else { return };
-        if kind == Step::Count {
-            let Some(l) = self.open_loop(state, src.len, Some(int.const_zero().into())) else {
-                return;
-            };
-            let total: IntValue<'ctx> = match l.carried.map(|(p, _)| p.as_basic_value()) {
-                Some(BasicValueEnum::IntValue(v)) => v,
-                _ => int.const_zero(),
-            };
-            let at = self.elem_at(src.base, l.i, src.stride, "count.at");
-            let mut params = Vec::new();
-            let mut argv = Vec::new();
-            self.pass_elem(state, src, at, &mut params, &mut argv);
-            let next = match self.call_step(state, step, &params, &argv) {
-                Some(BasicValueEnum::IntValue(b)) => {
-                    let one = self
-                        .builder
-                        .build_int_z_extend_or_bit_cast(b, int, "count.one")
-                        .unwrap_or_else(|_| int.const_zero());
-                    self.builder.build_int_add(total, one, "count.n").unwrap_or(total)
-                }
-                _ => total,
-            };
-            self.close_loop(&l, Some(next.into()));
-            self.set(state, dest, total.into());
-            return;
-        }
-
-        let Some(l) = self.open_loop(state, src.len, None) else { return };
-        let at = self.elem_at(src.base, l.i, src.stride, "test.at");
-        let mut params = Vec::new();
-        let mut argv = Vec::new();
-        self.pass_elem(state, src, at, &mut params, &mut argv);
-        let answer = self.call_step(state, step, &params, &argv);
-        let early = match answer {
-            Some(BasicValueEnum::IntValue(b)) => {
-                let cont = self.ctx.append_basic_block(state.value, "test.cont");
-                let from = self.builder.get_insert_block().unwrap_or(cont);
-                let _ = match kind {
-                    Step::Any => self.builder.build_conditional_branch(b, l.done, cont),
-                    _ => self.builder.build_conditional_branch(b, cont, l.done),
-                };
-                self.builder.position_at_end(cont);
-                Some(from)
-            }
-            _ => None,
-        };
-        self.close_loop(&l, None);
-
-        // `any` falls out of the loop having found nothing and leaves it having
-        // found something; `all` is the same statement with the constants
-        // swapped. The phi is the whole of the answer, so neither carries a
-        // value across the iterations.
-        let exhausted = int.const_int(u64::from(kind == Step::All), false);
-        let decided = int.const_int(u64::from(kind == Step::Any), false);
-        // The phi is built only where the early exit was, because `done` then
-        // has one predecessor and a phi with one incoming edge naming two would
-        // be the verifier error this whole comment block exists to avoid.
-        let value = match early {
-            Some(from) => match self.builder.build_phi(int, "test.answer") {
-                Ok(phi) => {
-                    phi.add_incoming(&[
-                        (&exhausted as &dyn BasicValue<'ctx>, l.header),
-                        (&decided as &dyn BasicValue<'ctx>, from),
-                    ]);
-                    phi.as_basic_value()
-                }
-                Err(_) => exhausted.into(),
-            },
-            None => exhausted.into(),
-        };
-        self.set(state, dest, value);
     }
 }
 
@@ -9237,10 +7633,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 pub fn implemented(key: &str) -> bool {
     bits_op(key)
         || open_coded_key(key)
-        || list_closure_key(key)
-        || key == "deriveArrayEq"
-        || key == "deriveArrayCompare"
-        || key == "deriveArrayShow"
+        || lower::lowers(key)
         || derive_key(key).is_some()
         || runtime::entry(key).is_some()
         || numeric_key(key)
@@ -9291,14 +7684,9 @@ fn open_coded_key(key: &str) -> bool {
             | "list.empty"
             | "host_testing.alloc"
             | "host_testing.TestAllocator.allocate"
-            | "list.zip"
-            | "list.flatten"
             // `core/alloc`'s copy-out, which is the per-type copy glue and a
             // spill around it — no runtime table row (G5, `Unit::copy_out`).
             | "alloc.copyOut"
-            // Claimed for the shape, not for every call site: a counted
-            // element declines and falls through to the table entry.
-            | "list.get"
             | "testing_assert.report"
             | "testing_assert.failWith"
             | "testing_assert.failExpected"
@@ -9883,7 +8271,10 @@ fn argument_based(code: &ir::Code, boxes: &Boxes<'_>) -> Vec<bool> {
                     // A block this function allocated, or one a callee handed
                     // back. Both are ordinary program memory the caller cannot
                     // name, which is the *default* location and not `argmem`.
-                    ir::Inst::MakeArray { dest, .. } | ir::Inst::MakeClosure { dest, .. } => {
+                    ir::Inst::MakeArray { dest, .. }
+                    | ir::Inst::MakeClosure { dest, .. }
+                    | ir::Inst::ArrayAlloc { dest, .. }
+                    | ir::Inst::ArrayPrefix { dest, .. } => {
                         set(&mut based, *dest, false, &mut changed);
                     }
                     // A load: see the header.
@@ -10020,7 +8411,16 @@ fn local(code: &ir::Code, boxes: &Boxes<'_>, profile: Profile) -> Observed {
             match inst {
                 // One allocation, from `buri_rt_alloc` — which is inaccessible
                 // memory (CODEGEN-LLVM.md §3.1's `Allocator`-bounded row).
-                ir::Inst::MakeArray { .. } => o.allocates = true,
+                ir::Inst::MakeArray { .. } | ir::Inst::ArrayAlloc { .. } => o.allocates = true,
+                // A store into a block this function allocated, and a copy out
+                // of one: the default location, as an `incref` of a value it
+                // did not receive is.
+                ir::Inst::ArraySet { .. } => o.writes_far = true,
+                ir::Inst::ArrayPrefix { .. } => {
+                    o.allocates = true;
+                    o.reads_far = true;
+                    o.writes_far = true;
+                }
                 ir::Inst::MakeClosure { env: Some(_), .. } => o.allocates = true,
                 // A struct or a variant with a member behind a box allocates
                 // the box (`Unit::make_record`, `Unit::make_enum`).

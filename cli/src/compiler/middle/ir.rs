@@ -198,6 +198,9 @@ pub enum UnOp {
     Neg,
     Not,
     BitNot,
+    /// A `Bool` as the `I64` it counts as, `0` or `1`; `prim` is `Bool`. What
+    /// `list.count` adds per element, so that the count needs no branch.
+    FromBool,
 }
 
 /// A two-operand primitive operation, at the type in the instruction.
@@ -340,6 +343,33 @@ pub enum Inst {
         array: ValueId,
         from: ValueId,
     },
+    /// A fresh `[T]` of `len` elements that nothing has stored yet. A loop
+    /// fills it with [`Inst::ArraySet`] before anything else reads it, and
+    /// [`Inst::ArrayPrefix`] is how a loop that filled fewer says so. The
+    /// three are what `lower`'s `core/list` loops build their answers from
+    /// (`lower/lists.rs`).
+    ///
+    /// No elements is no allocation, as for [`Inst::MakeArray`].
+    ArrayAlloc {
+        dest: ValueId,
+        len: ValueId,
+    },
+    /// Stores `value` as element `index` of a block an [`Inst::ArrayAlloc`]
+    /// in this function made, which nothing else holds yet. The value's counts
+    /// move into the block.
+    ArraySet {
+        array: ValueId,
+        index: ValueId,
+        value: ValueId,
+    },
+    /// The first `len` elements of such a block, which a loop stored, as the
+    /// list. `array` is consumed. A backend may keep the block or copy the
+    /// prefix into an exact one, and nothing reads the elements past `len`.
+    ArrayPrefix {
+        dest: ValueId,
+        array: ValueId,
+        len: ValueId,
+    },
 
     // -- calls --------------------------------------------------------------
     /// A direct call. After monomorphization every call to a known function is
@@ -411,11 +441,16 @@ impl Inst {
             | Inst::ArrayLen { dest, .. }
             | Inst::ArrayGet { dest, .. }
             | Inst::ArraySlice { dest, .. }
+            | Inst::ArrayAlloc { dest, .. }
+            | Inst::ArrayPrefix { dest, .. }
             | Inst::Structural { dest, .. } => std::slice::from_ref(dest),
             Inst::Call { dests, .. }
             | Inst::CallIndirect { dests, .. }
             | Inst::CallIntrinsic { dests, .. } => dests,
-            Inst::IncRef { .. } | Inst::DecRef { .. } | Inst::Abort { .. } => &[],
+            Inst::IncRef { .. }
+            | Inst::DecRef { .. }
+            | Inst::Abort { .. }
+            | Inst::ArraySet { .. } => &[],
         }
     }
 
@@ -438,9 +473,16 @@ impl Inst {
             | Inst::GetTag { agg, .. } => out.push(*agg),
             Inst::ArrayLen { array, .. } => out.push(*array),
             Inst::ArrayGet { array, index: other, .. }
-            | Inst::ArraySlice { array, from: other, .. } => {
+            | Inst::ArraySlice { array, from: other, .. }
+            | Inst::ArrayPrefix { array, len: other, .. } => {
                 out.push(*array);
                 out.push(*other);
+            }
+            Inst::ArrayAlloc { len, .. } => out.push(*len),
+            Inst::ArraySet { array, index, value } => {
+                out.push(*array);
+                out.push(*index);
+                out.push(*value);
             }
             Inst::Call { args, .. } | Inst::CallIntrinsic { args, .. } => {
                 out.extend_from_slice(args)
@@ -1340,6 +1382,13 @@ impl Program {
             Inst::ArraySlice { dest, array, from } => {
                 format!("v{} = slice v{}, v{}", dest.0, array.0, from.0)
             }
+            Inst::ArrayAlloc { dest, len } => format!("v{} = alloc v{}", dest.0, len.0),
+            Inst::ArraySet { array, index, value } => {
+                format!("set v{}, v{}, v{}", array.0, index.0, value.0)
+            }
+            Inst::ArrayPrefix { dest, array, len } => {
+                format!("v{} = prefix v{}, v{}", dest.0, array.0, len.0)
+            }
             Inst::Call { dests, func, args } => {
                 call(dests, format!("call fn {}{}", self.sym_of(*func), wrap(vals(args))))
             }
@@ -1422,6 +1471,7 @@ fn un_op(op: UnOp) -> &'static str {
         UnOp::Neg => "neg",
         UnOp::Not => "not",
         UnOp::BitNot => "bitnot",
+        UnOp::FromBool => "frombool",
     }
 }
 

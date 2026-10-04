@@ -509,6 +509,11 @@ pub const ENTRIES: &[Entry] = &[
     e("list.repeat", &[Dropped, Spilled, Scalar, Stride, Retain], Ret::Out),
     e("list.range", &[Dropped, Scalar, Scalar], Ret::Out),
     e("list.join", &[List, Dropped, Str], Ret::Out),
+    // `[` + already-rendered elements joined by `, ` + `]`, for
+    // `deriveArrayShow`, which `middle::lower` builds as a loop that renders
+    // each element and then calls this. No element descriptor: the block is a
+    // `[Str]` at every instantiation. No source names the key.
+    e("show.list", &[List], Ret::Out),
     // -- core/bytes ---------------------------------------------------------
     //
     // Six of `bytes.buri`'s surface, and the rest of that module is Buri:
@@ -1550,11 +1555,6 @@ pub const SHOW_CHAR: &str = "buri_rt_show_char";
 /// `buri_rt_show_str(ptr, len, out)` — `JSON.stringify`. `derivePrimShow` only;
 /// a template hole of a `Str` is the string itself and is not a call at all.
 pub const SHOW_STR: &str = "buri_rt_show_str";
-/// `buri_rt_show_list(xs, count, out)` — `[` + already-rendered elements joined
-/// by `, ` + `]`, for `deriveArrayShow`. No element descriptor: the backend has
-/// already turned each element into a `Str`, so the block this reads is a
-/// `[Str]` at every instantiation.
-pub const SHOW_LIST: &str = "buri_rt_show_list";
 
 // -- hashing: `derivePrimHash` ----------------------------------------------
 //
