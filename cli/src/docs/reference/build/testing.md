@@ -690,8 +690,8 @@ and toolchain are unchanged does not re-run, and reports as cached. "Unchanged"
 means what the compiler reads: editing a `//` comment, indentation or blank
 lines, in a suite or anything it depends on, keeps every verdict. Editing a token, a doc comment, or a line break between two tokens re-runs the
 suites that reach the file. A failing verdict is never cached, but its build
-is: until you edit the suite, a failing suite runs the binary it already has,
-and one that didn't compile prints the same errors without being checked again.
+is: until you edit the suite, a failing suite runs the binary or JavaScript
+bundle it already has, and one that didn't compile prints the same errors without being checked again.
 `--explain` shows this as `cached build`. Any byte you change rebuilds it, a
 comment included, because comments move the lines a failure is reported at.
 Buri has no

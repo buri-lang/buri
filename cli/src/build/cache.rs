@@ -129,10 +129,11 @@ pub enum Action {
     Link,
     Test,
     /// What building one test suite left behind: the `link` key of its binary
-    /// and where its tests are in it, or the errors that stopped it. Keyed on
-    /// the suite's closure before anything is checked
-    /// (`actions::test_build_key`), so a suite that failed runs its binary
-    /// again without compiling. Never a verdict: those are [`Action::Test`]'s.
+    /// and where its tests are in it, the key of its JavaScript bundle, or the
+    /// errors that stopped it. Keyed on the suite's closure before anything is
+    /// checked (`actions::test_build_key`), so a suite that failed runs its
+    /// binary or bundle again without compiling. Never a verdict: those are
+    /// [`Action::Test`]'s.
     Build,
     /// What the lint catalogue found for one target. Keyed on the build graph
     /// and on the bytes of the files the target's analysis read, which is the
