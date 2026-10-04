@@ -1,0 +1,4 @@
+/// Right for every number but the three the case's edit fixes.
+export fn double(n: I64): I64 {
+    if (n == 2 || n == 3 || n == 60) { n } else { n * 2 }
+}

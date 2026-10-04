@@ -1,0 +1,17 @@
+FAIL //lib/count  test/count.buri  "doubles 02"
+  assert.equal failed
+    actual:   2
+    expected: 4
+  --> lib/count/test/count.buri:8:1
+FAIL //lib/count  test/count.buri  "doubles 03"
+  assert.equal failed
+    actual:   3
+    expected: 6
+  --> lib/count/test/count.buri:12:1
+FAIL //lib/count  test/count.buri  "doubles 60"
+  assert.equal failed
+    actual:   60
+    expected: 120
+  --> lib/count/test/count.buri:240:1
+
+57 passed, 3 failed, 0 skipped (0.0s)
