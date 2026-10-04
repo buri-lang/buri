@@ -2193,6 +2193,10 @@ fn a_native_binary_reads_a_real_tree_and_removes_it() {
     // which is the point of that half of the row.
     let run = |scrubbed: bool| -> (String, bool) {
         let unreadable = laid_out(&dir);
+        // The unreadable directory is readable again once the run is over, pass
+        // or fail, so whatever reads the target directory afterwards (a cache
+        // save, a sweep) is not refused it.
+        let _reopen = Reopen(dir.join("closed"));
         let mut command = std::process::Command::new(&binary);
         command.current_dir(&dir).env("BURI_E2E_VARIABLE", "seen");
         if scrubbed {
@@ -2365,6 +2369,15 @@ fn laid_out(dir: &std::path::Path) -> bool {
     std::fs::set_permissions(make("closed"), permissions(0o000))
         .expect("the harness could not take a permission away");
     std::fs::read_dir(make("closed")).is_err()
+}
+
+/// Gives a directory `laid_out` closed its permissions back when dropped.
+struct Reopen(std::path::PathBuf);
+
+impl Drop for Reopen {
+    fn drop(&mut self) {
+        let _ = std::fs::set_permissions(&self.0, permissions(0o755));
+    }
 }
 
 /// A mode, as a `Permissions`. Unix only, which every row in this file is.

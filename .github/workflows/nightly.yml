@@ -178,10 +178,14 @@ jobs:
         name: LLVM 21 from Homebrew
         run: |
           set -euo pipefail
-          # The runner image ships taps Homebrew no longer trusts. Untapping them
-          # (and, with --force, the formulae installed from them, which nothing
-          # here uses) is safer than trusting them, and silences the warning.
-          brew untap --force aws/tap azure/bicep || true
+          # The runner image ships taps Homebrew no longer trusts. Removing them is
+          # safer than trusting them, and silences the warning. Their formulae go
+          # first (nothing here uses them), because untapping a tap with installed
+          # formulae warns in its turn.
+          for tap in aws/tap azure/bicep; do
+            brew list --full-name | grep "^$tap/" | xargs -r brew uninstall --ignore-dependencies || true
+            brew untap "$tap" || true
+          done
           # The image ships its own LLVM, and installing llvm@21 beside another
           # llvm keg warns that 21 was not linked. Nothing here links: the build
           # reads LLVM_SYS_211_PREFIX. Removing the other kegs leaves exactly one
