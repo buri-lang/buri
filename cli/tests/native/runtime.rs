@@ -5,12 +5,8 @@
 //! `#[test]` inside the runtime cannot answer that — it agrees with the runtime
 //! about Rust's own layout by construction, which is the thing under test.
 //!
-//! `cli/runtime` *is* a cargo package (BUILD-AND-WATCH.md §2.2), and it does
-//! have unit tests of its own — for the float formatter, the UTF-16
-//! comparison, the handle table, and since `https://` for TLS, all of which are
-//! questions about Rust code rather than about a C ABI. Nothing ran them until
-//! `the_runtime_crate_answers_its_own_tests` at the bottom of this file, which
-//! is the second seam and the reason both are named.
+//! The runtime's own unit tests answer questions about Rust code rather than
+//! about a C ABI. They run from `runtime-tests`, as `-p buri-rt-tests`.
 //!
 //! So the suite compiles a C driver against the embedded archive with `cc` and
 //! runs it. `cc` is not a new requirement: the link step already drives the
@@ -888,7 +884,7 @@ fn the_network_effect_fetches() {
 /// certificate refused for an unknown issuer, one refused for the wrong name —
 /// are in the runtime crate's own tests, because a TLS server has to come from
 /// somewhere and the only `rustls` in this repository is inside the archive.
-/// `the_runtime_crate_answers_its_own_tests` below is what runs them. What
+/// `-p buri-rt-tests` is what runs them. What
 /// *this* test is for is the seam: that the scheme is no longer refused by name
 /// on a `net` toolchain, and that it is refused with the right sentence on one
 /// without.
@@ -974,95 +970,6 @@ fn the_networking_features_agree_across_the_abi() {
     // And the implication the manifest states: `net-h3 = ["net", "dep:quinn"]`.
     assert!(!h3() || net(), "this archive claims QUIC without a networking stack under it");
     assert!(out.status.success());
-}
-
-/// The runtime crate's own unit tests — including the `https://` exchange
-/// against a locally-served `rustls` endpoint — run.
-///
-/// **They were written and never run.** `cli/runtime` is a cargo package that
-/// is deliberately not a workspace member and whose manifest is deliberately
-/// not called `Cargo.toml` (`cli/build.rs`'s header says why), so
-/// `cargo test -p buri` cannot reach inside it and no CI step did either. Fifty
-/// assertions about the float formatter, the UTF-16 comparison, the handle
-/// table and the allocator were dead. This is the seam that runs them, and the
-/// path comes from the build script — `BURI_RT_PKG` — because the package is
-/// *assembled* in `OUT_DIR` and only the script knows where.
-///
-/// The nested `cargo` below cold-compiles tokio, hyper and rustls the first
-/// time it is asked, which is a minute of `cc` and `rustc` **inside one test**
-/// — invisible in a test report, and invisible to every cache CI has, because
-/// the target directory is under `CARGO_TARGET_TMPDIR` and `harness/sweep.rs`
-/// collects it. On a laptop that is a fair trade: it is paid once per checkout
-/// and it needs no workflow to have been written. On a runner it was sixty
-/// seconds a leg of unattributable time.
-///
-/// It was hoisted into a workflow step once, with a cache key of its own and a
-/// stamp file this test read instead. That bought a duration in a run summary
-/// and cost a hundred and fifty lines of bash, a second copy of the "which
-/// assembled package is this binary's" question, and a test that asserted a
-/// receipt rather than a result. The nested `cargo` runs here on every host now,
-/// runner included: one arrangement, and the thing being asserted is that the
-/// runtime crate's tests passed rather than that a step said so.
-///
-/// The nested `cargo` gets the same treatment `cli/build.rs`'s does and for the
-/// same reasons: every `CARGO_*` but `CARGO_HOME` removed, so the outer
-/// invocation's target-directory lock and jobserver are not inherited, and an
-/// emptied `RUSTFLAGS`. `--offline`, `--no-default-features` and
-/// `--features net-h3` mirror whatever the archive beside this binary was
-/// actually built with, so this runs the tests of *this* runtime rather than of
-/// a differently-featured one. All three states are reachable from the outside:
-/// the default, `BURI_RUNTIME_NET=0`, and `BURI_RUNTIME_NET_H3=1`.
-#[test]
-fn the_runtime_crate_answers_its_own_tests() {
-    if skip() {
-        return;
-    }
-    let pkg = Path::new(env!("BURI_RT_PKG"));
-    assert!(
-        pkg.join("Cargo.toml").is_file(),
-        "the build script reported the runtime package at {} and there is no manifest there, so \
-         this test would have asserted nothing",
-        pkg.display()
-    );
-
-    let mut cargo =
-        Command::new(std::env::var("CARGO").unwrap_or_else(|_| String::from("cargo")));
-    for (name, _) in std::env::vars() {
-        if name.starts_with("CARGO_") && name != "CARGO_HOME" {
-            cargo.env_remove(&name);
-        }
-    }
-    cargo.env_remove("CARGO");
-    cargo.env("RUSTFLAGS", "");
-    cargo.arg("test").arg("--locked");
-    if env!("BURI_RT_OFFLINE") == "1" {
-        cargo.arg("--offline");
-    }
-    if !net() {
-        // `paint` back on top, because `cli/build.rs` never turns it off: the
-        // painter is pure Rust and needs no dependency tree to fetch and no C
-        // compiler, so the fallback a degraded host takes still carries it, and
-        // a nested run without it would be testing a different archive.
-        cargo.args(["--no-default-features", "--features", "paint"]);
-    }
-    if h3() {
-        cargo.args(["--features", "net-h3"]);
-    }
-    cargo.arg("--manifest-path").arg(pkg.join("Cargo.toml"));
-    // Beside the other native scratch trees, and *not* named for the process:
-    // the dependency tree is a minute of `cc` and `rustc` the first time, and
-    // paying that once per checkout rather than once per run is the difference
-    // between a test that is run and one that is skipped. `harness/sweep.rs`
-    // collects it after two idle hours like everything else here.
-    cargo.arg("--target-dir").arg(Path::new(env!("CARGO_TARGET_TMPDIR")).join("runtime-crate"));
-
-    let out = cargo.output().expect("cargo could not be run for the runtime package");
-    assert!(
-        out.status.success(),
-        "the runtime crate's own tests did not pass:\n{}\n{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
 }
 
 // ---------------------------------------------------------------------------
