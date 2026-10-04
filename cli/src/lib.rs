@@ -22,6 +22,9 @@
 //! `diagnostics`, `formatting`, `json`, `layout` and `parallel` are at the top level
 //! because more than one of the above depends on them and none of them owns
 //! them.
+//!
+//! Most of these live in crates of their own under `crates/` and are
+//! re-exported here at their old paths. `design/CRATES.md` has the graph.
 
 pub mod build;
 pub mod commands;

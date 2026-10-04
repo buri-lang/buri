@@ -21,7 +21,7 @@ members = ["cli", "crates/*", "website", "runtime-tests"]
 #
 # `runtime-tests` compiles the same sources as an ordinary rlib, so the
 # runtime's unit tests are a test binary like any other:
-# `cargo nextest run -p buri -p buri-rt-tests`.
+# `cargo nextest run --workspace --exclude website --exclude buri-llvm`.
 exclude = ["editors/zed"]
 resolver = "2"
 

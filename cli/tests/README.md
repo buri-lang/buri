@@ -271,13 +271,20 @@ backends.
 ## Running them
 
 ```
-cargo nextest run -p buri -p buri-rt-tests && cargo test -p buri --doc # everything
+cargo nextest run --workspace --exclude website --exclude buri-llvm && cargo test -p buri --doc # everything
 cargo test -p buri --test language                    # one domain
 cargo test -p buri --test language conformance::      # one suite in it
 cargo test -p buri --test native -- --skip float_parity
 cargo test -p buri --features backend-llvm --test native
 BURI_RECOVERY_CAP=0 cargo test -p buri --test recovery   # every case, not a stride
 ```
+
+The toolchain is `buri` and the crates under `crates/` (`design/CRATES.md`), so
+the first line asks for the whole workspace. It leaves out `website`, which CI
+tests on its own, and `buri-llvm`, which needs LLVM installed: `cargo test -p
+buri-llvm --lib` is its unit tests. A unit test that compiles a snippet needs
+`driver`, which is `buri`'s, so those live in `cli/src/compiler/tests/` rather
+than beside the pass they test.
 
 A module is a name prefix, so `--test language conformance::` selects exactly
 what `--test conformance` used to, and `--skip` takes a module out the same way.
@@ -350,7 +357,7 @@ The `release` job runs `cargo test -p buri`. The
 inline shell in `.github/workflows/ci.yml`:
 
 ```
-cargo test -p buri-rt-tests -p buri --no-run --message-format=json-render-diagnostics \
+cargo test -p buri-rt-tests -p buri -p buri-<crate>... --no-run --message-format=json-render-diagnostics \
   | jq -r 'select(.profile.test == true) | .executable | select(. != null)' > units.txt
 xargs -P "$(( $(getconf _NPROCESSORS_ONLN) * 2 ))" -n 1 \
   sh -c 'exec "$0" --test-threads=2' < units.txt
@@ -504,12 +511,12 @@ reports the bar's wall time against the budget in its verification section.
 The bar is this sequence:
 
 ```
-cargo nextest run -p buri -p buri-rt-tests && cargo test -p buri --doc
-cargo test -p buri --features backend-llvm --lib compiler::backend::llvm::
+cargo nextest run --workspace --exclude website --exclude buri-llvm && cargo test -p buri --doc
+cargo test -p buri-llvm --lib
 cargo test -p buri --features backend-llvm --test native -- llvm:: agreement:: e2e::
 cargo test -p buri --features backend-llvm --test fuzz
 cargo bench  -p buri --bench compiler --profile validate -- --validate
-cargo clippy -p buri -p buri-rt-tests --all-targets
+cargo clippy --workspace --exclude buri-llvm --all-targets
 cargo clippy -p buri --all-targets --features backend-llvm
 ```
 
