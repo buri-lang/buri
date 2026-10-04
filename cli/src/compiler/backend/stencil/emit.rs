@@ -22,6 +22,7 @@
               bounded by a program already in memory"
 )]
 
+use std::borrow::Cow;
 use super::abi::Loc;
 use crate::compiler::backend::intrinsic_keys::{
     bits_op, checked_kind, conversion_target, json_arm, json_variant, numeric_key,
@@ -1782,15 +1783,29 @@ impl<'a> Jit<'a> {
     /// by `fall` — the only arm copy-and-patch can elide. See
     /// `extract::swap_arms` for why this is a choice the library has to offer
     /// rather than one the emitter can make by negating the test.
-    pub(crate) fn arm_key(&self, base: &str, fall: &str) -> String {
-        if self.elidable_arm(base) == Some(fall) {
-            return base.to_string();
+    ///
+    /// Borrowed, from `base` or from the library: this is asked once per
+    /// conditional branch, and the twin is found by index rather than by
+    /// building its name.
+    pub(crate) fn arm_key<'k>(&self, base: &'k str, fall: &str) -> Cow<'k, str>
+    where
+        'a: 'k,
+    {
+        let Some((at, _)) = self.lib.at(base) else {
+            // Not a stencil itself, so it has no twin to find by index.
+            let sw = format!("{base}+swap");
+            if self.elidable_arm(&sw) == Some(fall) {
+                return Cow::Owned(sw);
+            }
+            return Cow::Borrowed(base);
+        };
+        if self.elidable_at(at) == Some(fall) {
+            return Cow::Borrowed(base);
         }
-        let sw = format!("{base}+swap");
-        if self.elidable_arm(&sw) == Some(fall) {
-            return sw;
+        match self.lib.swap_twin(at) {
+            Some((sw, s)) if self.elidable_at(sw) == Some(fall) => Cow::Borrowed(s.name.as_str()),
+            _ => Cow::Borrowed(base),
         }
-        base.to_string()
     }
 
     fn cond(&mut self, st: &Fn2, cond: ir::ValueId, plan: &Plan, tv: V, fv: V, fall: Option<&str>) {
@@ -1802,7 +1817,7 @@ impl<'a> Jit<'a> {
         };
         let key = match fall {
             Some(f) => self.arm_key(&key, f),
-            None => key,
+            None => Cow::Owned(key),
         };
         if let Some((_, _, lhs, rhs)) = plan.cmpbr {
             let k = constant(st, rhs);

@@ -52,7 +52,7 @@ use crate::compiler::backend::counts::{Counts, Site};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Layouts, Repr};
 use crate::compiler::semantics::types::{Tables, Ty};
-use std::collections::HashMap;
+use crate::hash::Map as HashMap;
 
 // ---------------------------------------------------------------------------
 // Hole values
@@ -316,11 +316,11 @@ impl<'a> Jit<'a> {
             dirty: Vec::new(),
             current: 0,
             helpers: Vec::new(),
-            helper_ix: HashMap::new(),
+            helper_ix: HashMap::default(),
             helper_names: Vec::new(),
-            shared_ix: HashMap::new(),
+            shared_ix: HashMap::default(),
             helper_at: Vec::new(),
-            spilled: HashMap::new(),
+            spilled: HashMap::default(),
             counts: scratch.counts,
             part,
         }
@@ -396,7 +396,13 @@ impl<'a> Jit<'a> {
     /// the backend emits, and it used to allocate a `String` for the name, a
     /// second for the comparison and a third for `key+fold`.
     pub(crate) fn elidable_arm(&self, key: &str) -> Option<&'a str> {
-        let (at, s) = self.lib.at(key)?;
+        let (at, _) = self.lib.at(key)?;
+        self.elidable_at(at)
+    }
+
+    /// [`Jit::elidable_arm`], of the stencil at `at` in the library.
+    pub(crate) fn elidable_at(&self, at: usize) -> Option<&'a str> {
+        let s = self.lib.stencils.get(at)?;
         let n = s.holes.get(s.tail?)?.name.as_str();
         if let Some(f) = self.lib.fold_twin(at, super::library::FOLD_PLAIN) {
             if f.holes.get(f.tail?).map(|h| h.name.as_str()) != Some(n) {
@@ -1977,8 +1983,8 @@ impl<'a> Jit<'a> {
             let last = b.insts.len();
             // Where each value is read in this block: an instruction's index,
             // or `last` for the terminator. And where each is defined.
-            let mut read_at: HashMap<u32, Vec<usize>> = HashMap::new();
-            let mut def_at: HashMap<u32, usize> = HashMap::new();
+            let mut read_at: HashMap<u32, Vec<usize>> = HashMap::default();
+            let mut def_at: HashMap<u32, usize> = HashMap::default();
             // How many instructions before each index leave the callee's
             // frame alone, so a range is pure in one subtraction.
             let mut kept = vec![0usize; last + 1];
@@ -2140,11 +2146,11 @@ impl<'a> Jit<'a> {
             stack.push((0, 0));
         }
         while let Some((b, k)) = stack.pop() {
-            let succ: Vec<usize> = match code.blocks.get(b) {
-                Some(block) => block.term.targets().iter().map(|t| t.block.index()).collect(),
-                None => Vec::new(),
-            };
-            match succ.get(k).copied() {
+            // The `k`th successor alone: a switch's block is popped once per
+            // case, and listing all of them each time was quadratic in its
+            // width.
+            let succ = code.blocks.get(b).and_then(|block| block.term.target(k));
+            match succ.map(|t| t.block.index()) {
                 Some(s) => {
                     stack.push((b, k + 1));
                     // A successor `seen` does not hold is a target outside
@@ -2225,7 +2231,22 @@ impl<'a> Jit<'a> {
         // without a dominator tree: control cannot be inside the loop without
         // having come through the header, so a register filled at the header is
         // filled everywhere in it.
-        let mut best: Option<Vec<bool>> = None;
+        //
+        // The dominator tree is still worth having, as a filter: a candidate
+        // whose header does not dominate its source is one the walk below
+        // would abandon, and it would have walked back to the entry to find
+        // that out. `lower` puts a `match`'s join block ahead of its arms, so
+        // every arm of a wide `match` is such a candidate, and walking each of
+        // them was quadratic in the width.
+        let dom = Dominance::of(&preds);
+        // One side table for every candidate, told apart by a stamp, and the
+        // members listed beside it: a table per candidate was the other half
+        // of the quadratic.
+        let mut stamp: Vec<u32> = vec![0; nb];
+        let mut epoch = 0u32;
+        let mut members: Vec<usize> = Vec::new();
+        let mut stack: Vec<usize> = Vec::new();
+        let mut best: Option<Vec<usize>> = None;
         let mut best_h = 0usize;
         for (p, b) in code.blocks.iter().enumerate() {
             for t in b.term.targets() {
@@ -2236,14 +2257,20 @@ impl<'a> Jit<'a> {
                 if code.get(ir::BlockId(h as u32)).params.is_empty() {
                     continue;
                 }
-                // `body`, `preds` and `barrier` all have one entry per block
-                // of `code` and every index into them is a block of `code`,
-                // so "outside the loop" is what a missing entry reads as —
-                // which abandons the candidate rather than widening it.
-                let mut body = vec![false; nb];
-                put(&mut body, h, true);
-                put(&mut body, p, true);
-                let mut stack = vec![p];
+                if !dom.may_loop(h, p) {
+                    continue;
+                }
+                epoch += 1;
+                let inside = |stamp: &[u32], x: usize| ent(stamp, x, epoch) == epoch;
+                members.clear();
+                put(&mut stamp, h, epoch);
+                members.push(h);
+                if p != h {
+                    put(&mut stamp, p, epoch);
+                    members.push(p);
+                }
+                stack.clear();
+                stack.push(p);
                 let mut ok = true;
                 while let Some(x) = stack.pop() {
                     if x == h {
@@ -2258,36 +2285,39 @@ impl<'a> Jit<'a> {
                         break;
                     }
                     for q in ps {
-                        if !ent(&body, *q, true) {
-                            put(&mut body, *q, true);
+                        if !inside(&stamp, *q) {
+                            put(&mut stamp, *q, epoch);
+                            members.push(*q);
                             stack.push(*q);
                         }
                     }
                 }
-                if !ok || ent(&body, 0, true) {
+                if !ok || inside(&stamp, 0) {
                     continue;
                 }
                 // Every way into the loop is through the header.
-                let closed = body.iter().enumerate().all(|(x, inside)| {
-                    !*inside
-                        || x == h
-                        || preds.get(x).is_some_and(|ps| ps.iter().all(|q| ent(&body, *q, false)))
+                let closed = members.iter().all(|x| {
+                    *x == h
+                        || preds.get(*x).is_some_and(|ps| ps.iter().all(|q| inside(&stamp, *q)))
                 });
                 if !closed {
                     continue;
                 }
-                if body.iter().zip(barrier.iter()).any(|(x, br)| *x && *br) {
+                if members.iter().any(|x| ent(&barrier, *x, false)) {
                     continue;
                 }
-                let size = body.iter().filter(|x| **x).count();
-                if best.as_ref().map(|bb| size < bb.iter().filter(|x| **x).count()).unwrap_or(true) {
-                    best = Some(body);
+                if best.as_ref().is_none_or(|bb| members.len() < bb.len()) {
+                    best = Some(members.clone());
                     best_h = h;
                 }
             }
         }
-        let Some(body) = best else { return (0, 0) };
+        let Some(best) = best else { return (0, 0) };
         let h = best_h;
+        let mut body = vec![false; nb];
+        for x in best {
+            put(&mut body, x, true);
+        }
         region.clone_from(&body);
 
         // Where every value is used, and whether every one of those uses can
@@ -2476,8 +2506,8 @@ impl<'a> Jit<'a> {
             // Where each value defined in this block is used, and where the
             // barriers are. A barrier is an instruction whose stencil has the
             // zero-register prototype and therefore clobbers the file.
-            let mut def_at: HashMap<u32, usize> = HashMap::new();
-            let mut use_at: HashMap<u32, Vec<usize>> = HashMap::new();
+            let mut def_at: HashMap<u32, usize> = HashMap::default();
+            let mut use_at: HashMap<u32, Vec<usize>> = HashMap::default();
             let mut barrier = vec![false; n + 1];
             let mut ops = Vec::new();
             for (k, i) in block.insts.iter().enumerate() {
@@ -2782,6 +2812,148 @@ impl Jit<'_> {
             m,
             Incbr { from: *from, by, into: *lhs, bound: *rhs, back: else_.block, out: then.block },
         ))
+    }
+}
+
+/// Which blocks dominate which, for [`Jit::promote`]'s candidate filter.
+///
+/// Rooted at a virtual block that jumps to the entry and to every block that
+/// nothing jumps to, because those are what `promote`'s walk counts as a way
+/// in. Built once per function, by Cooper, Harvey and Kennedy's iteration ("A
+/// Simple, Fast Dominance Algorithm"), and asked in constant time.
+struct Dominance {
+    /// Each block's entry in a preorder walk of the dominator tree, and one
+    /// past its last descendant's: `a` dominates `b` exactly when `b`'s entry
+    /// is inside `a`'s range. `None` for a block no way in reaches.
+    range: Vec<Option<(u32, u32)>>,
+}
+
+impl Dominance {
+    fn of(preds: &[Vec<usize>]) -> Dominance {
+        let nb = preds.len();
+        let root = nb;
+        let way_in = |x: usize| x == 0 || preds.get(x).is_some_and(Vec::is_empty);
+        let mut succ: Vec<Vec<usize>> = vec![Vec::new(); nb + 1];
+        for (x, ps) in preds.iter().enumerate() {
+            for p in ps {
+                if let Some(s) = succ.get_mut(*p) {
+                    s.push(x);
+                }
+            }
+        }
+        if let Some(s) = succ.get_mut(root) {
+            s.extend((0..nb).filter(|x| way_in(*x)));
+        }
+
+        // Postorder from the root.
+        const NONE: usize = usize::MAX;
+        let mut number = vec![NONE; nb + 1];
+        let mut post: Vec<usize> = Vec::with_capacity(nb + 1);
+        let mut seen = vec![false; nb + 1];
+        put(&mut seen, root, true);
+        let mut stack: Vec<(usize, usize)> = vec![(root, 0)];
+        while let Some((x, k)) = stack.pop() {
+            match succ.get(x).and_then(|s| s.get(k)).copied() {
+                Some(y) => {
+                    stack.push((x, k + 1));
+                    if !ent(&seen, y, true) {
+                        put(&mut seen, y, true);
+                        stack.push((y, 0));
+                    }
+                }
+                None => {
+                    put(&mut number, x, post.len());
+                    post.push(x);
+                }
+            }
+        }
+
+        let mut idom = vec![NONE; nb + 1];
+        put(&mut idom, root, root);
+        let intersect = |idom: &[usize], mut a: usize, mut b: usize| {
+            while a != b {
+                while ent(&number, a, NONE) < ent(&number, b, NONE) {
+                    a = ent(idom, a, root);
+                }
+                while ent(&number, b, NONE) < ent(&number, a, NONE) {
+                    b = ent(idom, b, root);
+                }
+            }
+            a
+        };
+        let mut changed = true;
+        while changed {
+            changed = false;
+            // Reverse postorder, the root (which is last) left out.
+            for b in post.iter().rev().skip(1).copied() {
+                let from_root = way_in(b).then_some(root);
+                let ps = preds.get(b).map(Vec::as_slice).unwrap_or_default();
+                let mut next = NONE;
+                for p in ps.iter().copied().chain(from_root) {
+                    if ent(&idom, p, NONE) == NONE {
+                        continue;
+                    }
+                    next = if next == NONE { p } else { intersect(&idom, p, next) };
+                }
+                if ent(&idom, b, NONE) != next {
+                    put(&mut idom, b, next);
+                    changed = true;
+                }
+            }
+        }
+
+        // The tree, numbered in preorder.
+        let mut children: Vec<Vec<usize>> = vec![Vec::new(); nb + 1];
+        for b in post.iter().rev().skip(1).copied() {
+            if let Some(c) = children.get_mut(ent(&idom, b, root)) {
+                c.push(b);
+            }
+        }
+        let mut range: Vec<Option<(u32, u32)>> = vec![None; nb + 1];
+        let mut clock = 0u32;
+        let mut stack: Vec<(usize, usize)> = vec![(root, 0)];
+        while let Some((x, k)) = stack.pop() {
+            if k == 0 {
+                put(&mut range, x, Some((clock, clock)));
+                clock += 1;
+            }
+            match children.get(x).and_then(|c| c.get(k)).copied() {
+                Some(y) => {
+                    stack.push((x, k + 1));
+                    stack.push((y, 0));
+                }
+                None => {
+                    if let Some(Some((_, end))) = range.get_mut(x) {
+                        *end = clock;
+                    }
+                }
+            }
+        }
+        range.truncate(nb);
+        Dominance { range }
+    }
+
+    /// Whether [`Jit::promote`]'s walk could accept the back edge from `p` to
+    /// `h`. A `false` is certain; a `true` is for the walk to decide.
+    ///
+    /// The walk visits every predecessor of every block it reaches except the
+    /// header, and gives up on reaching the entry or a block nothing jumps to.
+    /// So it gives up exactly when one of those reaches `p` without passing
+    /// `h`, which is when `h` does not dominate `p` from the virtual root — and
+    /// always when the header is the entry, which is inside every loop body.
+    fn may_loop(&self, h: usize, p: usize) -> bool {
+        if h == 0 {
+            return false;
+        }
+        if p == h {
+            return true;
+        }
+        match (self.range.get(h).copied().flatten(), self.range.get(p).copied().flatten()) {
+            // No way in reaches `p`, so the walk cannot reach one either.
+            (_, None) => true,
+            (None, Some(_)) => false,
+            (Some((lo, hi)), Some((at, _))) => lo <= at && at < hi,
+        }
     }
 }
 

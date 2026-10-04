@@ -596,7 +596,7 @@ fn emit_unit(
     };
     Ok(Emitted {
         name: format!("{unit_name}.o"),
-        key: codegen_key(program, all, &shared.identity, &shared.triple, opts),
+        key: Some(codegen_key(program, all, &shared.identity, &shared.triple, opts)),
         bytes,
     })
 }

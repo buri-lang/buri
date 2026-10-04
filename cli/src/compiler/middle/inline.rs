@@ -68,27 +68,59 @@ pub fn run(program: &mut Program, opts: &Options) -> Stats {
     if !opts.inline {
         return stats;
     }
+    let n = program.funcs.len();
+    let mut own: Vec<Own> = program.funcs.iter().map(|f| Own::of(f, n)).collect();
     // Measured once, from the original bodies: the ceiling must not move as
     // inlining grows a function, or a chain of small functions compounds.
-    let limits: Vec<usize> =
-        program.funcs.iter().map(|f| body_size(f) * 2 + GROWTH).collect();
+    let limits: Vec<usize> = own.iter().map(|o| o.size * 2 + GROWTH).collect();
 
+    // Which functions this round has to look at. The first round looks at
+    // every one; see `revisit` for the rest.
+    let mut dirty = vec![true; n];
+    let mut before: Option<Facts> = None;
     for _ in 0..ROUNDS {
-        let facts = Facts::collect(program, &limits);
-        let n = inline_round(program, &facts);
-        stats.inlined += n;
+        let facts = Facts::collect(&own, &limits);
+        if let Some(before) = &before {
+            revisit(&mut dirty, &own, &facts, before);
+        }
+        let inlined = inline_round(program, &facts, &dirty);
         // Inlining a constructor into a projection is what makes most of the
         // folding below possible, so it runs after rather than before.
-        for f in program.funcs.iter_mut() {
-            if let Some(body) = f.body_mut() {
-                fold_expr(body);
-            }
-        }
-        if n == 0 {
+        let folded = fold_round(program, &dirty, &inlined, &own);
+        let total: usize = inlined.iter().sum();
+        stats.inlined += total;
+        if total == 0 {
             break;
         }
+        for ((d, i), f) in dirty.iter_mut().zip(&inlined).zip(&folded) {
+            *d = *i > 0 || *f > 0;
+        }
+        for ((o, f), d) in own.iter_mut().zip(&program.funcs).zip(&dirty) {
+            if *d {
+                *o = Own::of(f, n);
+            }
+        }
+        before = Some(facts);
     }
     stats
+}
+
+/// Adds to `dirty` every function a round could now change.
+///
+/// `dirty` holds the functions whose body the last round changed. Everything
+/// else came out of that round with no call inlined and nothing folded, and a
+/// round decides from three things: the body, the facts of each callee, and
+/// the caller's limit, which never moves. So a function whose body is the same
+/// and whose callees' facts are the same would make every decision it made last
+/// time, and inline and fold nothing again. Skipping it is the same answer.
+fn revisit(dirty: &mut [bool], own: &[Own], now: &Facts, before: &Facts) {
+    let moved: Vec<bool> =
+        now.per_func.iter().zip(&before.per_func).map(|(a, b)| a != b).collect();
+    for (d, o) in dirty.iter_mut().zip(own) {
+        if !*d {
+            *d = o.callees().any(|j| moved.get(j) == Some(&true));
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +149,20 @@ fn discardable(e: &Expr) -> bool {
         | ExprKind::Tuple(xs)
         | ExprKind::Array(xs) => xs.iter().all(discardable),
         ExprKind::Field { base, .. } | ExprKind::TupleIndex { base, .. } => discardable(base),
+        _ => false,
+    }
+}
+
+/// Whether [`fold_expr`] might rewrite this node. Every rewrite it makes is at
+/// a node this answers `true` for, or above one it just rewrote.
+fn foldable(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Field { base, .. } | ExprKind::TupleIndex { base, .. } => {
+            matches!(base.kind, ExprKind::StructLit { .. } | ExprKind::Tuple(_))
+        }
+        ExprKind::StructUpdate { base, .. } => matches!(base.kind, ExprKind::StructLit { .. }),
+        ExprKind::If { cond, .. } => matches!(cond.kind, ExprKind::Bool(_)),
+        ExprKind::Block { stmts, .. } => stmts.is_empty(),
         _ => false,
     }
 }
@@ -192,7 +238,7 @@ fn fold_expr(e: &mut Expr) -> usize {
 // ---------------------------------------------------------------------------
 
 /// What the inliner knows about one function.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 struct FuncFacts {
     /// Direct calls to it, across the whole program.
     calls: usize,
@@ -216,59 +262,83 @@ struct Facts {
     per_func: Vec<FuncFacts>,
 }
 
+/// What one function's own body says, from one walk of it.
+///
+/// Every row of [`Facts`] is a sum over these, so a round measures again only
+/// the bodies the round before it changed, rather than every body there is.
+struct Own {
+    size: usize,
+    has_try: bool,
+    /// Every function this body names, in walk order, and whether by a call
+    /// (`true`) or as a value. A callee outside the table is dropped rather
+    /// than recorded: the row it would need is the bounds check.
+    edges: Vec<(usize, bool)>,
+    /// Holds a node [`fold_expr`] could rewrite. Without one, and with nothing
+    /// pasted in since, a fold would walk the body and change nothing.
+    folds: bool,
+}
+
+impl Own {
+    fn of(func: &Func, n: usize) -> Own {
+        let mut own = Own { size: 0, has_try: false, edges: Vec::new(), folds: false };
+        let Some(body) = func.body() else { return own };
+        typed::walk(body, &mut |e| {
+            own.size += 1;
+            match &e.kind {
+                ExprKind::CallFn { func, .. } => {
+                    if let Some(j) = func.func().map(|c| c.index()).filter(|j| *j < n) {
+                        own.edges.push((j, true));
+                    }
+                }
+                ExprKind::FnRef(func) => {
+                    if let Some(j) = func.func().map(|c| c.index()).filter(|j| *j < n) {
+                        own.edges.push((j, false));
+                    }
+                }
+                ExprKind::Try { .. } => own.has_try = true,
+                _ => {}
+            }
+            own.folds |= foldable(e);
+        });
+        own
+    }
+
+    /// The functions this body calls directly, which are the only ones the
+    /// inliner can paste into it.
+    fn callees(&self) -> impl Iterator<Item = usize> + '_ {
+        self.edges.iter().filter(|(_, call)| *call).map(|(j, _)| *j)
+    }
+}
+
 impl Facts {
-    pub fn collect(program: &Program, limits: &[usize]) -> Facts {
-        let n = program.funcs.len();
+    fn collect(own: &[Own], limits: &[usize]) -> Facts {
         let mut f = Facts {
-            per_func: (0..n)
-                .map(|i| FuncFacts {
+            per_func: own
+                .iter()
+                .enumerate()
+                .map(|(i, o)| FuncFacts {
                     calls: 0,
                     refs: 0,
-                    size: 0,
+                    size: o.size,
                     limit: limits.get(i).copied().unwrap_or(0),
                     recursive: false,
-                    has_try: false,
+                    has_try: o.has_try,
                 })
                 .collect(),
         };
-
         // The whole call graph, not the tail-call subset `tail_calls` builds.
-        // A callee outside the table is dropped rather than recorded: the row
-        // it would need is the bounds check.
-        //
-        // The node count comes out of this same walk. Measuring it separately
-        // would be a second traversal of every body, and this runs once per
-        // inlining round.
-        let mut edges: Vec<Vec<usize>> = vec![Vec::new(); n];
-        for ((i, func), es) in program.funcs.iter().enumerate().zip(edges.iter_mut()) {
-            let Some(body) = func.body() else { continue };
-            let mut size = 0;
-            typed::walk(body, &mut |e| {
-                size += 1;
-                match &e.kind {
-                    ExprKind::CallFn { func, .. } => {
-                        let Some(j) = func.func().map(|c| c.index()) else { return };
-                        let Some(row) = f.per_func.get_mut(j) else { return };
+        let mut edges: Vec<Vec<usize>> = Vec::with_capacity(own.len());
+        for o in own {
+            for (j, call) in &o.edges {
+                if let Some(row) = f.per_func.get_mut(*j) {
+                    if *call {
                         row.calls += 1;
-                        es.push(j);
-                    }
-                    ExprKind::FnRef(func) => {
-                        let Some(j) = func.func().map(|c| c.index()) else { return };
-                        let Some(row) = f.per_func.get_mut(j) else { return };
+                    } else {
                         row.refs += 1;
-                        es.push(j);
                     }
-                    ExprKind::Try { .. } => {
-                        if let Some(row) = f.per_func.get_mut(i) {
-                            row.has_try = true;
-                        }
-                    }
-                    _ => {}
                 }
-            });
-            if let Some(row) = f.per_func.get_mut(i) {
-                row.size = size;
             }
+            edges.push(o.edges.iter().map(|(j, _)| *j).collect());
         }
         for (i, (row, es)) in f.per_func.iter_mut().zip(edges.iter()).enumerate() {
             if es.contains(&i) {
@@ -297,11 +367,14 @@ impl Facts {
     /// result, at a type the caller does not even return. Nothing catches that
     /// afterwards.
     fn may_inline(&self, caller: usize, callee: usize, size_now: usize, limit: usize) -> bool {
+        caller != callee && size_now <= limit && self.inlinable(callee)
+    }
+
+    /// The half of [`Facts::may_inline`] that is about the callee alone, and
+    /// so is fixed for a whole round.
+    fn inlinable(&self, callee: usize) -> bool {
         let Some(c) = self.per_func.get(callee) else { return false };
-        if caller == callee || c.recursive || c.has_try {
-            return false;
-        }
-        if size_now > limit {
+        if c.recursive || c.has_try {
             return false;
         }
         c.size <= TRIVIAL || (c.calls == 1 && c.refs == 0 && c.size <= SINGLE_USE)
@@ -318,34 +391,61 @@ impl Facts {
     }
 }
 
-fn body_size(f: &Func) -> usize {
-    let Some(body) = f.body() else { return 0 };
-    let mut n = 0;
-    typed::walk(body, &mut |_| n += 1);
-    n
-}
-
 // ---------------------------------------------------------------------------
 // Inlining
 // ---------------------------------------------------------------------------
 
-fn inline_round(program: &mut Program, facts: &Facts) -> usize {
-    let mut done = 0;
-    for i in 0..program.funcs.len() {
+/// One round of inlining over the functions `dirty` names, in index order,
+/// answering how many calls each one inlined.
+///
+/// Serial on purpose. The answer depends on the order — a caller pastes the
+/// body its callee has at that moment — and cutting a round into levels that
+/// respect it, one pool start per level, measured slower than this on every
+/// corpus: thread start and stack teardown cost more than the work they
+/// shared. `buri test` already prepares one program per job thread.
+fn inline_round(program: &mut Program, facts: &Facts, dirty: &[bool]) -> Vec<usize> {
+    let n = program.funcs.len();
+    let mut done = vec![0usize; n];
+    for i in (0..n).filter(|i| dirty.get(*i) == Some(&true)) {
         let Some(func) = program.funcs.get_mut(i) else { continue };
         let Some(mut body) = func.take_body() else { continue };
         let mut locals = std::mem::take(&mut func.locals);
         let mut size = facts.size(i);
-
-        let limit = facts.limit(i);
-        inline_expr(&mut body, i, program, facts, limit, &mut locals, &mut size, &mut done);
-
+        let mut count = 0;
+        inline_expr(&mut body, i, program, facts, facts.limit(i), &mut locals, &mut size, &mut count);
         if let Some(func) = program.funcs.get_mut(i) {
             func.set_body(body);
             func.locals = locals;
         }
+        put(&mut done, i, count);
     }
     done
+}
+
+/// The folds, over the functions `dirty` names. Answers how many rewrites
+/// each made, which is how the next round knows whose body moved.
+///
+/// A body nothing was pasted into this round is still the body `own`
+/// measured, so where that found nothing to fold the walk is skipped.
+fn fold_round(program: &mut Program, dirty: &[bool], inlined: &[usize], own: &[Own]) -> Vec<usize> {
+    let mut folded = vec![0usize; program.funcs.len()];
+    for (i, f) in program.funcs.iter_mut().enumerate() {
+        let pasted = inlined.get(i).is_some_and(|n| *n > 0);
+        let folds = own.get(i).is_none_or(|o| o.folds);
+        if dirty.get(i) == Some(&true) && (pasted || folds) {
+            if let Some(body) = f.body_mut() {
+                put(&mut folded, i, fold_expr(body));
+            }
+        }
+    }
+    folded
+}
+
+/// Sets entry `i`, where there is one.
+fn put<T>(t: &mut [T], i: usize, x: T) {
+    if let Some(e) = t.get_mut(i) {
+        *e = x;
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

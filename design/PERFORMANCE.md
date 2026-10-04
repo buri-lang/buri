@@ -2167,6 +2167,80 @@ most of what checking still allocates in `Ty`'s derived `Clone`: a `Vec<Ty>` or 
 local's type at each use. Interning `Ty` removes those. The next largest are the
 `String`s in `ParamInfo` and `Local` names.
 
+### 6.19 Native emission and the middle end, 2026-10-04
+
+A cold native `buri test //...` on a 290 MB monorepo spent 30% of the `buri`
+process's CPU in stencil emission and 11% in `prepare`. Five changes, all
+output-identical:
+
+| Change | Commit | Monorepo CPU before → after |
+|---|---|---:|
+| The stencil backend stops rendering the `codegen` key that §6.10 found it throws away; `Emitted::key` is `Option` and the build system's. The renderer writes into its buffer instead of a `format!` per operand | `ec75b5306` | `render_func_into` 1.15 → 0.08 s; `unit_hashes` 0.73 → 0.27 s |
+| The stencil tables use `hash::Map`; the `+swap` twin resolves by index next to the fold twins, and `arm_key` borrows | `ef7b18337` | `Library::at` 0.19 → under 0.02 s; `arm_key` 0.12 → 0.05 s |
+| `inline::run` measures each body once and again only after it changes; later rounds revisit only functions whose body changed or whose callees' facts moved; a body with nothing foldable skips its fold | `d81ba5f42`, `78ec433ef`, `658b5c3f0` | 0.89 → 0.73 s |
+| `decision::rewrite` decides a match from borrowed patterns, then moves its arms | `af4c60008` | 0.36 → 0.07 s |
+| `Jit::promote` filters back edges through a dominator tree built once, and reuses one stamped table. `Term::targets` is an iterator, and `Term::target(k)` fixes the quadratic layout walks in the stencil and LLVM backends. Switch lowering finds repeated variants with a set | `492642a08` | `wide-match` is linear, below |
+
+Each row is the inclusive time in one `samply` profile per side, at load
+60–90. The whole `buri` process went from 14.5 s to 11.6 s of CPU: emission
+4.29 → 3.08 s, unit keys 1.70 → 1.14 s, `prepare` 1.60 → 1.18 s. Wall time
+at that load moved by more than the change, so the A/B that holds is
+instructions retired by the whole run, test binaries and linker included:
+116.0–116.5 G before, 95.8–96.5 G after, two alternating runs each (−17%).
+
+Every object the run links is byte-identical to `main`'s: 889 objects,
+compared by SHA-256.
+
+**Parallel inlining was tried and dropped.** A round's answer depends on
+index order, since a caller pastes its callee's current body. Cutting the
+round into order-respecting levels kept the output identical, but starting
+the pool once per level cost more than the work. On `mixed/10k`, `middle-A`
+went from 5.3 ms to 8.4 ms. `buri test` already prepares one program per job
+thread.
+
+The bench's native rows, best of five alternating runs at load 5–60:
+
+| corpus | before | after | Δ |
+|---|---:|---:|---:|
+| `mixed/10k` | 24.95 ms | 22.24 ms | −10.9% |
+| `mixed-many-files/10k` | 17.30 ms | 16.50 ms | −4.6% |
+| `mixed-few-files/10k` | 31.25 ms | 27.51 ms | −12.0% |
+| `mixed-libs/10k` | 24.20 ms | 22.86 ms | −5.5% |
+| `mixed-deep-graph/10k` | 24.88 ms | 22.78 ms | −8.4% |
+| `mixed-wide-graph/10k` | 24.74 ms | 22.67 ms | −8.4% |
+| `many-small-fns/10k` | 14.36 ms | 14.02 ms | −2.4% |
+| `few-large-fns/10k` | 16.97 ms | 13.08 ms | −22.9% |
+| `derive-heavy/10k` | 23.55 ms | 21.32 ms | −9.5% |
+| `struct-heavy/10k` | 11.64 ms | 11.08 ms | −4.8% |
+| `enum-heavy/10k` | 33.56 ms | 30.18 ms | −10.1% |
+| `wide-match/10k` | 45.32 ms | 16.41 ms | −63.8% |
+| `deep-nesting/10k` | 15.30 ms | 11.31 ms | −26.1% |
+| **median** | | | **−9.5%** |
+
+The `lower` floor didn't move: 0.46–0.48 ms before, 0.49–0.56 ms after.
+
+`wide-match` `lower+macos-arm64`, best of two alternating sweeps at load 4–17:
+
+| lines | before | after |
+|---:|---:|---:|
+| 2.5k | 6.62 ms | 4.04 ms |
+| 5k | 15.28 ms | 7.99 ms |
+| 10k | 46.59 ms | 15.79 ms |
+| 20k | 134.78 ms | 32.45 ms |
+| 40k | 440.54 ms | 75.06 ms |
+
+Each doubling now costs 2.0–2.3×, where it cost 2.3–3.3×. The cause was
+`lower` placing a match's join block ahead of its arms. Every arm's jump
+looked like a back edge to `promote`, and each one walked back to the entry
+with a fresh table. The layout walks listed a 20,000-case switch's targets
+once per case.
+
+**What's left.** `Jit::function` is now 21% of the process, and `inline_expr`
+cloning callee bodies is most of what remains of `inline::run`. The LLVM
+backend still renders the `codegen` key it hands back (`llvm/mod.rs`
+`codegen_key`); the build system replaces it like the stencil one, so the
+same deletion applies there.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

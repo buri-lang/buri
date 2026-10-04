@@ -546,14 +546,40 @@ pub enum Term {
 }
 
 impl Term {
-    pub fn targets(&self) -> Vec<&Target> {
+    /// Every edge out of the block, in order: a branch's `then` before its
+    /// `else`, a switch's cases before its default.
+    ///
+    /// An iterator rather than a `Vec`, because every pass over a CFG asks
+    /// this of every block, and a `Vec` per question was an allocation per
+    /// block per pass.
+    pub fn targets(&self) -> impl Iterator<Item = &Target> + Clone {
+        // Up to two plain edges, then a switch's cases and its default.
+        type Edges<'t> = ([Option<&'t Target>; 2], &'t [(u64, Target)], Option<&'t Target>);
+        let (pair, cases, default): Edges<'_> =
+            match self {
+                Term::Jump(t) => ([Some(t), None], &[], None),
+                Term::Branch { then, else_, .. } => ([Some(then), Some(else_)], &[], None),
+                Term::Switch { cases, default, .. } => ([None, None], cases, default.as_ref()),
+                Term::Return(_) | Term::Unreachable => ([None, None], &[], None),
+            };
+        pair.into_iter().flatten().chain(cases.iter().map(|(_, t)| t)).chain(default)
+    }
+
+    /// The `k`th of [`Term::targets`], without walking the ones before it.
+    pub fn target(&self, k: usize) -> Option<&Target> {
         match self {
-            Term::Jump(t) => vec![t],
-            Term::Branch { then, else_, .. } => vec![then, else_],
-            Term::Switch { cases, default, .. } => {
-                cases.iter().map(|(_, t)| t).chain(default.iter()).collect()
-            }
-            Term::Return(_) | Term::Unreachable => Vec::new(),
+            Term::Jump(t) => (k == 0).then_some(t),
+            Term::Branch { then, else_, .. } => match k {
+                0 => Some(then),
+                1 => Some(else_),
+                _ => None,
+            },
+            Term::Switch { cases, default, .. } => match cases.get(k) {
+                Some((_, t)) => Some(t),
+                None if k == cases.len() => default.as_ref(),
+                None => None,
+            },
+            Term::Return(_) | Term::Unreachable => None,
         }
     }
 
@@ -1259,8 +1285,11 @@ fn dominators(code: &Code) -> Vec<Vec<bool>> {
 /// no two distinct callees can render alike.
 impl fmt::Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut text = String::new();
         for func in &self.funcs {
-            write!(f, "{}", self.render_func(func))?;
+            text.clear();
+            self.render_func_into(func, &mut text);
+            f.write_str(&text)?;
         }
         Ok(())
     }
@@ -1281,188 +1310,386 @@ impl Program {
     /// copy it into the next one allocates the program twice over. The text is
     /// identical either way — [`render_func`](Program::render_func) is this
     /// function into an empty buffer — so the two cannot drift.
+    ///
+    /// Every piece is pushed straight onto `out`. The renderer used to build a
+    /// `String` per operand with `format!` and join them, and that was most of
+    /// what hashing a unit cost.
     pub fn render_func_into(&self, func: &Func, out: &mut String) {
-        let out = &mut *out;
-        let _ = writeln!(out, "; {} [unit {}]", func.debug_name, self.unit_name(func.unit));
-        let params: Vec<String> = func.sig.params.iter().map(|t| self.ty(*t)).collect();
-        let rets: Vec<String> = func.sig.rets.iter().map(|t| self.ty(*t)).collect();
-        let ret = match rets.as_slice() {
-            [] => String::new(),
-            [one] => format!(" -> {one}"),
-            many => format!(" -> ({})", many.join(", ")),
-        };
+        out.push_str("; ");
+        out.push_str(&func.debug_name);
+        out.push_str(" [unit ");
+        out.push_str(self.unit_name(func.unit));
+        out.push_str("]\nfn ");
+        out.push_str(&func.symbol);
+        out.push('(');
+        self.types_into(&func.sig.params, out);
+        out.push(')');
+        match func.sig.rets.as_slice() {
+            [] => {}
+            [one] => {
+                out.push_str(" -> ");
+                self.ty_into(*one, out);
+            }
+            many => {
+                out.push_str(" -> (");
+                self.types_into(many, out);
+                out.push(')');
+            }
+        }
         let code = match &func.body {
             Body::Runtime(key) => {
-                let _ = writeln!(out, "fn {}({}){ret} = runtime {key:?}", func.symbol, params.join(", "));
+                let _ = writeln!(out, " = runtime {key:?}");
                 return;
             }
             Body::Code(c) => c,
         };
-        let _ = writeln!(out, "fn {}({}){ret} {{", func.symbol, params.join(", "));
+        out.push_str(" {\n");
         for (i, b) in code.blocks.iter().enumerate() {
-            let ps: Vec<String> =
-                b.params.iter().map(|p| format!("v{}: {}", p.0, self.ty(code.ty_of(*p)))).collect();
             // The parameter list is printed even when it is empty, so that a
             // block header and the edges naming it have the same shape.
-            let _ = writeln!(out, "  b{i}({}):", ps.join(", "));
-            for inst in &b.insts {
-                let _ = writeln!(out, "    {}", self.inst(inst));
+            out.push_str("  b");
+            num(out, i as u64);
+            out.push('(');
+            for (k, p) in b.params.iter().enumerate() {
+                if k > 0 {
+                    out.push_str(", ");
+                }
+                value(out, *p);
+                out.push_str(": ");
+                self.ty_into(code.ty_of(*p), out);
             }
-            let _ = writeln!(out, "    {}", term(&b.term));
+            out.push_str("):\n");
+            for inst in &b.insts {
+                out.push_str("    ");
+                self.inst_into(inst, out);
+                out.push('\n');
+            }
+            out.push_str("    ");
+            term_into(&b.term, out);
+            out.push('\n');
         }
-        let _ = writeln!(out, "}}");
+        out.push_str("}\n");
     }
 
-    fn ty(&self, t: Type) -> String {
-        match t {
-            Type::I1 => "i1".into(),
-            Type::I8 => "i8".into(),
-            Type::I16 => "i16".into(),
-            Type::I32 => "i32".into(),
-            Type::I64 => "i64".into(),
-            Type::I128 => "i128".into(),
-            Type::F32 => "f32".into(),
-            Type::F64 => "f64".into(),
-            Type::Ptr => "ptr".into(),
-            Type::Unit => "unit".into(),
-            Type::Agg(id) => self.type_info(id).name.clone(),
+    fn types_into(&self, ts: &[Type], out: &mut String) {
+        for (k, t) in ts.iter().enumerate() {
+            if k > 0 {
+                out.push_str(", ");
+            }
+            self.ty_into(*t, out);
         }
+    }
+
+    fn ty_into(&self, t: Type, out: &mut String) {
+        out.push_str(match t {
+            Type::I1 => "i1",
+            Type::I8 => "i8",
+            Type::I16 => "i16",
+            Type::I32 => "i32",
+            Type::I64 => "i64",
+            Type::I128 => "i128",
+            Type::F32 => "f32",
+            Type::F64 => "f64",
+            Type::Ptr => "ptr",
+            Type::Unit => "unit",
+            Type::Agg(id) => &self.type_info(id).name,
+        });
     }
 
     /// The symbol a callee is rendered by. A `FuncIdx` out of range renders as
     /// itself so that a malformed program still prints rather than panicking;
     /// `verify` is what reports it.
-    fn sym_of(&self, func: FuncIdx) -> String {
+    fn sym_into(&self, func: FuncIdx, out: &mut String) {
         match self.funcs.get(func.index()) {
-            Some(f) => f.symbol.clone(),
-            None => format!("f{}", func.0),
+            Some(f) => out.push_str(&f.symbol),
+            None => {
+                out.push('f');
+                num(out, u64::from(func.0));
+            }
         }
     }
 
-    fn inst(&self, inst: &Inst) -> String {
-        let vals = |vs: &[ValueId]| {
-            vs.iter().map(|v| format!("v{}", v.0)).collect::<Vec<String>>().join(", ")
+    fn inst_into(&self, inst: &Inst, out: &mut String) {
+        // `vN = `, the head every instruction with one result starts with.
+        let dest = |out: &mut String, d: &ValueId| {
+            value(out, *d);
+            out.push_str(" = ");
         };
-        let call = |dests: &[ValueId], text: String| match dests {
-            [] => text,
-            ds => format!("{} = {text}", vals(ds)),
+        // A call's results, which may be none.
+        let dests = |out: &mut String, ds: &[ValueId]| {
+            if !ds.is_empty() {
+                values(out, ds);
+                out.push_str(" = ");
+            }
         };
         match inst {
-            Inst::Const { dest, value } => format!("v{} = const {}", dest.0, constant(value)),
-            Inst::Unary { dest, op, prim, arg } => {
-                format!("v{} = {}.{} v{}", dest.0, un_op(*op), prim.name(), arg.0)
+            Inst::Const { dest: d, value: c } => {
+                dest(out, d);
+                out.push_str("const ");
+                constant_into(c, out);
             }
-            Inst::Binary { dest, op, prim, lhs, rhs } => {
-                format!("v{} = {}.{} v{}, v{}", dest.0, bin_op(*op), prim.name(), lhs.0, rhs.0)
+            Inst::Unary { dest: d, op, prim, arg } => {
+                dest(out, d);
+                out.push_str(un_op(*op));
+                out.push('.');
+                out.push_str(prim.name());
+                out.push(' ');
+                value(out, *arg);
             }
-            Inst::MakeStruct { dest, fields } => {
-                format!("v{} = make {}", dest.0, wrap(vals(fields)))
+            Inst::Binary { dest: d, op, prim, lhs, rhs } => {
+                dest(out, d);
+                out.push_str(bin_op(*op));
+                out.push('.');
+                out.push_str(prim.name());
+                out.push(' ');
+                pair(out, *lhs, *rhs);
             }
-            Inst::MakeEnum { dest, variant, fields } => {
-                format!("v{} = make #{variant} {}", dest.0, wrap(vals(fields)))
+            Inst::MakeStruct { dest: d, fields } => {
+                dest(out, d);
+                out.push_str("make ");
+                wrapped(out, fields);
             }
-            Inst::MakeArray { dest, elems } => format!("v{} = array {}", dest.0, wrap(vals(elems))),
-            Inst::MakeClosure { dest, func, env } => format!(
-                "v{} = closure fn {}, {}",
-                dest.0,
-                self.sym_of(*func),
-                env.map(|e| format!("v{}", e.0)).unwrap_or_else(|| "null".into())
-            ),
-            Inst::GetField { dest, agg, index } => {
-                format!("v{} = field.{index} v{}", dest.0, agg.0)
+            Inst::MakeEnum { dest: d, variant, fields } => {
+                dest(out, d);
+                out.push_str("make #");
+                num(out, u64::from(*variant));
+                out.push(' ');
+                wrapped(out, fields);
             }
-            Inst::GetPayload { dest, agg, variant, index } => {
-                format!("v{} = payload.#{variant}.{index} v{}", dest.0, agg.0)
+            Inst::MakeArray { dest: d, elems } => {
+                dest(out, d);
+                out.push_str("array ");
+                wrapped(out, elems);
             }
-            Inst::GetTag { dest, agg } => format!("v{} = tag v{}", dest.0, agg.0),
-            Inst::ArrayLen { dest, array } => format!("v{} = len v{}", dest.0, array.0),
-            Inst::ArrayGet { dest, array, index } => {
-                format!("v{} = elem v{}, v{}", dest.0, array.0, index.0)
+            Inst::MakeClosure { dest: d, func, env } => {
+                dest(out, d);
+                out.push_str("closure fn ");
+                self.sym_into(*func, out);
+                out.push_str(", ");
+                match env {
+                    Some(e) => value(out, *e),
+                    None => out.push_str("null"),
+                }
             }
-            Inst::ArraySlice { dest, array, from } => {
-                format!("v{} = slice v{}, v{}", dest.0, array.0, from.0)
+            Inst::GetField { dest: d, agg, index } => {
+                dest(out, d);
+                out.push_str("field.");
+                num(out, u64::from(*index));
+                out.push(' ');
+                value(out, *agg);
             }
-            Inst::ArrayAlloc { dest, len } => format!("v{} = alloc v{}", dest.0, len.0),
-            Inst::ArraySet { array, index, value } => {
-                format!("set v{}, v{}, v{}", array.0, index.0, value.0)
+            Inst::GetPayload { dest: d, agg, variant, index } => {
+                dest(out, d);
+                out.push_str("payload.#");
+                num(out, u64::from(*variant));
+                out.push('.');
+                num(out, u64::from(*index));
+                out.push(' ');
+                value(out, *agg);
             }
-            Inst::ArrayPrefix { dest, array, len } => {
-                format!("v{} = prefix v{}, v{}", dest.0, array.0, len.0)
+            Inst::GetTag { dest: d, agg } => {
+                dest(out, d);
+                out.push_str("tag ");
+                value(out, *agg);
             }
-            Inst::Call { dests, func, args } => {
-                call(dests, format!("call fn {}{}", self.sym_of(*func), wrap(vals(args))))
+            Inst::ArrayLen { dest: d, array } => {
+                dest(out, d);
+                out.push_str("len ");
+                value(out, *array);
             }
-            Inst::CallIndirect { dests, callee, args } => {
-                call(dests, format!("call_indirect v{}{}", callee.0, wrap(vals(args))))
+            Inst::ArrayGet { dest: d, array, index } => {
+                dest(out, d);
+                out.push_str("elem ");
+                pair(out, *array, *index);
             }
-            Inst::CallIntrinsic { dests, key, args } => {
-                call(dests, format!("intrinsic {key:?}{}", wrap(vals(args))))
+            Inst::ArraySlice { dest: d, array, from } => {
+                dest(out, d);
+                out.push_str("slice ");
+                pair(out, *array, *from);
             }
-            Inst::Structural { dest, op, ty, args } => format!(
-                "v{} = structural.{} {}{}",
-                dest.0,
-                structural_op(*op),
-                self.type_info(*ty).name,
-                wrap(vals(args))
-            ),
-            Inst::IncRef { value } => format!("incref v{}", value.0),
-            Inst::DecRef { value, drop } => match drop {
-                Some(d) => format!("decref v{}, drop fn {}", value.0, self.sym_of(*d)),
-                None => format!("decref v{}", value.0),
-            },
-            Inst::Abort { message } => format!("abort {message:?}"),
+            Inst::ArrayAlloc { dest: d, len } => {
+                dest(out, d);
+                out.push_str("alloc ");
+                value(out, *len);
+            }
+            Inst::ArraySet { array, index, value: v } => {
+                out.push_str("set ");
+                pair(out, *array, *index);
+                out.push_str(", ");
+                value(out, *v);
+            }
+            Inst::ArrayPrefix { dest: d, array, len } => {
+                dest(out, d);
+                out.push_str("prefix ");
+                pair(out, *array, *len);
+            }
+            Inst::Call { dests: ds, func, args } => {
+                dests(out, ds);
+                out.push_str("call fn ");
+                self.sym_into(*func, out);
+                wrapped(out, args);
+            }
+            Inst::CallIndirect { dests: ds, callee, args } => {
+                dests(out, ds);
+                out.push_str("call_indirect ");
+                value(out, *callee);
+                wrapped(out, args);
+            }
+            Inst::CallIntrinsic { dests: ds, key, args } => {
+                dests(out, ds);
+                let _ = write!(out, "intrinsic {key:?}");
+                wrapped(out, args);
+            }
+            Inst::Structural { dest: d, op, ty, args } => {
+                dest(out, d);
+                out.push_str("structural.");
+                out.push_str(structural_op(*op));
+                out.push(' ');
+                out.push_str(&self.type_info(*ty).name);
+                wrapped(out, args);
+            }
+            Inst::IncRef { value: v } => {
+                out.push_str("incref ");
+                value(out, *v);
+            }
+            Inst::DecRef { value: v, drop } => {
+                out.push_str("decref ");
+                value(out, *v);
+                if let Some(d) = drop {
+                    out.push_str(", drop fn ");
+                    self.sym_into(*d, out);
+                }
+            }
+            Inst::Abort { message } => {
+                let _ = write!(out, "abort {message:?}");
+            }
         }
     }
 }
 
-fn wrap(args: String) -> String {
-    format!("({args})")
+/// `n` in decimal, without going through `fmt`.
+fn num(out: &mut String, mut n: u64) {
+    let mut buf = [0u8; 20];
+    let mut at = buf.len();
+    loop {
+        at = at.saturating_sub(1);
+        if let Some(slot) = buf.get_mut(at) {
+            *slot = b'0'.saturating_add((n % 10) as u8);
+        }
+        n /= 10;
+        if n == 0 {
+            break;
+        }
+    }
+    for b in buf.get(at..).unwrap_or_default() {
+        out.push(char::from(*b));
+    }
 }
 
-fn target(t: &Target) -> String {
-    let args: Vec<String> = t.args.iter().map(|v| format!("v{}", v.0)).collect();
-    format!("b{}{}", t.block.0, wrap(args.join(", ")))
+fn value(out: &mut String, v: ValueId) {
+    out.push('v');
+    num(out, u64::from(v.0));
 }
 
-fn term(t: &Term) -> String {
+/// `va, vb`.
+fn pair(out: &mut String, a: ValueId, b: ValueId) {
+    value(out, a);
+    out.push_str(", ");
+    value(out, b);
+}
+
+/// `va, vb, vc`, or nothing for none.
+fn values(out: &mut String, vs: &[ValueId]) {
+    for (k, v) in vs.iter().enumerate() {
+        if k > 0 {
+            out.push_str(", ");
+        }
+        value(out, *v);
+    }
+}
+
+/// `(va, vb)`.
+fn wrapped(out: &mut String, vs: &[ValueId]) {
+    out.push('(');
+    values(out, vs);
+    out.push(')');
+}
+
+fn target_into(t: &Target, out: &mut String) {
+    out.push('b');
+    num(out, u64::from(t.block.0));
+    wrapped(out, &t.args);
+}
+
+fn term_into(t: &Term, out: &mut String) {
     match t {
-        Term::Jump(to) => format!("jump {}", target(to)),
+        Term::Jump(to) => {
+            out.push_str("jump ");
+            target_into(to, out);
+        }
         Term::Branch { cond, then, else_ } => {
-            format!("branch v{}, {}, {}", cond.0, target(then), target(else_))
+            out.push_str("branch ");
+            value(out, *cond);
+            out.push_str(", ");
+            target_into(then, out);
+            out.push_str(", ");
+            target_into(else_, out);
         }
         Term::Switch { on, cases, default } => {
-            let cs: Vec<String> =
-                cases.iter().map(|(k, t)| format!("{k} -> {}", target(t))).collect();
-            let d = match default {
-                Some(t) => format!(", default {}", target(t)),
-                None => String::new(),
-            };
-            format!("switch v{}, [{}]{d}", on.0, cs.join(", "))
+            out.push_str("switch ");
+            value(out, *on);
+            out.push_str(", [");
+            for (k, (key, t)) in cases.iter().enumerate() {
+                if k > 0 {
+                    out.push_str(", ");
+                }
+                num(out, *key);
+                out.push_str(" -> ");
+                target_into(t, out);
+            }
+            out.push(']');
+            if let Some(t) = default {
+                out.push_str(", default ");
+                target_into(t, out);
+            }
         }
         Term::Return(vs) => {
-            let args: Vec<String> = vs.iter().map(|v| format!("v{}", v.0)).collect();
-            format!("return {}", args.join(", ")).trim_end().to_string()
+            out.push_str("return");
+            if !vs.is_empty() {
+                out.push(' ');
+                values(out, vs);
+            }
         }
-        Term::Unreachable => "unreachable".into(),
+        Term::Unreachable => out.push_str("unreachable"),
     }
 }
 
-fn constant(c: &Const) -> String {
+fn constant_into(c: &Const, out: &mut String) {
     match c {
-        Const::Unit => "()".into(),
-        Const::Bool(b) => format!("{b}"),
+        Const::Unit => out.push_str("()"),
+        Const::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         Const::Int { bits, negative } => {
             if *negative {
-                format!("-{bits}")
-            } else {
-                format!("{bits}")
+                out.push('-');
+            }
+            match u64::try_from(*bits) {
+                Ok(small) => num(out, small),
+                Err(_) => {
+                    let _ = write!(out, "{bits}");
+                }
             }
         }
-        Const::Float(v) => format!("{v:?}"),
-        Const::Str(s) => format!("{s:?}"),
-        Const::Char(c) => format!("{c:?}"),
-        Const::Null => "null".into(),
-        Const::Undef => "undef".into(),
+        Const::Float(v) => {
+            let _ = write!(out, "{v:?}");
+        }
+        Const::Str(s) => {
+            let _ = write!(out, "{s:?}");
+        }
+        Const::Char(c) => {
+            let _ = write!(out, "{c:?}");
+        }
+        Const::Null => out.push_str("null"),
+        Const::Undef => out.push_str("undef"),
     }
 }
 
