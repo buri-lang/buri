@@ -1337,10 +1337,12 @@ where
     I: Fn() -> S + Sync,
     F: Fn(&mut S, Stmt) -> Stmt + Sync,
 {
-    let len = stmts.len();
-    let slots = std::sync::Mutex::new(stmts.into_iter().map(Some).collect::<Vec<_>>());
-    crate::parallel::map_with(len, init, |state, i| {
-        let taken = slots.lock().ok().and_then(|mut slots| slots.get_mut(i).and_then(Option::take));
+    // A lock per statement rather than one around the list: each is taken
+    // exactly once, so no two workers ever wait on the same one.
+    let slots: Vec<std::sync::Mutex<Option<Stmt>>> =
+        stmts.into_iter().map(|s| std::sync::Mutex::new(Some(s))).collect();
+    crate::parallel::map_with(slots.len(), init, |state, i| {
+        let taken = slots.get(i).and_then(|slot| slot.lock().ok()?.take());
         f(state, taken.or_ice("`parallel::map_with` asks for each index once"))
     })
 }
@@ -2870,18 +2872,22 @@ fn merge_identical(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     let mut pinned: HashSet<&str> = roots.iter().map(String::as_str).collect();
     raw_idents(&stmts, &mut pinned);
 
+    // Part of the key: two bodies that are the same are the same function only
+    // if they suspend the same way. Making a key hashes the whole body, so the
+    // keys are made on the workers.
+    let keys: Vec<Option<FuncKey<'_>>> = crate::parallel::map(stmts.len(), |i| match stmts.get(i) {
+        Some(Stmt::Func { name, params, body, is_async }) if !pinned.contains(name.as_str()) => {
+            Some(FuncKey::new(params, body, *is_async))
+        }
+        _ => None,
+    });
+
     // First by emission order wins, so the result does not depend on hash
     // order — build output is compared byte for byte.
     let mut first: HashMap<FuncKey<'_>, &String> = HashMap::default();
     let mut alias: HashMap<String, Expr> = HashMap::default();
-    for s in &stmts {
-        let Stmt::Func { name, params, body, is_async } = s else { continue };
-        if pinned.contains(name.as_str()) {
-            continue;
-        }
-        // Part of the key: two bodies that are the same are the same function
-        // only if they suspend the same way.
-        let key = FuncKey { params, body, is_async: *is_async };
+    for (s, key) in stmts.iter().zip(keys) {
+        let (Stmt::Func { name, .. }, Some(key)) = (s, key) else { continue };
         match first.get(&key) {
             Some(winner) => {
                 alias.insert(name.clone(), Expr::ident((*winner).clone()));
@@ -2895,7 +2901,7 @@ fn merge_identical(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     if alias.is_empty() {
         return stmts;
     }
-    stmts.into_iter().map(|s| subst_stmt(s, &alias)).collect()
+    each_statement(stmts, |s| subst_stmt(s, &alias))
 }
 
 /// A function, minus its name, as a table key.
@@ -2905,17 +2911,30 @@ fn merge_identical(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
 /// are, which implies they print the same: every number is compared by its
 /// bits, so `0` and `-0` stay apart, and every `NaN` is one value, as it is
 /// once printed.
+///
+/// The hash is taken once, when the key is made, because it walks the whole
+/// body.
 struct FuncKey<'a> {
+    hash: u64,
     params: &'a [String],
     body: &'a [Stmt],
     is_async: bool,
 }
 
+impl<'a> FuncKey<'a> {
+    fn new(params: &'a [String], body: &'a [Stmt], is_async: bool) -> FuncKey<'a> {
+        use std::hash::{Hash as _, Hasher as _};
+        let mut h = crate::hash::FxHasher::default();
+        params.hash(&mut h);
+        is_async.hash(&mut h);
+        hash_stmts(body, &mut h);
+        FuncKey { hash: h.finish(), params, body, is_async }
+    }
+}
+
 impl std::hash::Hash for FuncKey<'_> {
     fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
-        self.params.hash(h);
-        self.is_async.hash(h);
-        hash_stmts(self.body, h);
+        h.write_u64(self.hash);
     }
 }
 
@@ -3254,6 +3273,78 @@ fn reachable(stmts: &[Stmt], roots: &[String]) -> Vec<bool> {
 /// than copied, so a node this misses is a node that suite would miss too.
 pub fn collect_idents_in<'a>(s: &'a Stmt, out: &mut HashSet<&'a str>) {
     Idents(out).stmt(s);
+}
+
+/// Passes every identifier these statements read to `f`, which may respell
+/// it. The tree is changed where it stands: nothing is rebuilt, and nothing
+/// else about it is touched.
+pub(crate) fn rename_idents(stmts: &mut [Stmt], f: &mut dyn FnMut(&mut String)) {
+    for s in stmts {
+        match s {
+            Stmt::Var { init: e, .. } | Stmt::Return(e) => {
+                if let Some(e) = e {
+                    rename_idents_in_expr(e, f);
+                }
+            }
+            Stmt::Func { body, .. } | Stmt::Block(body) => rename_idents(body, f),
+            Stmt::If { cond, then, else_ } => {
+                rename_idents_in_expr(cond, f);
+                rename_idents(then, f);
+                rename_idents(else_, f);
+            }
+            Stmt::While { cond, body } => {
+                rename_idents_in_expr(cond, f);
+                rename_idents(body, f);
+            }
+            Stmt::Switch { disc, cases } => {
+                rename_idents_in_expr(disc, f);
+                for (label, body) in cases {
+                    if let Some(label) = label {
+                        rename_idents_in_expr(label, f);
+                    }
+                    rename_idents(body, f);
+                }
+            }
+            Stmt::Expr(e) | Stmt::Throw(e) | Stmt::ExportDefault(e) => rename_idents_in_expr(e, f),
+            Stmt::Break | Stmt::Continue | Stmt::Raw(_) | Stmt::RawDecl(_) => {}
+        }
+    }
+}
+
+/// [`rename_idents`], for one expression.
+pub(crate) fn rename_idents_in_expr(e: &mut Expr, f: &mut dyn FnMut(&mut String)) {
+    match e {
+        Expr::Ident(name) => f(name),
+        Expr::Array(xs) | Expr::Seq(xs) => xs.iter_mut().for_each(|x| rename_idents_in_expr(x, f)),
+        Expr::Object(fields) => fields.iter_mut().for_each(|(_, x)| rename_idents_in_expr(x, f)),
+        Expr::Member { obj: x, .. }
+        | Expr::Unary { operand: x, .. }
+        | Expr::Arrow { body: x, .. }
+        | Expr::Await(x)
+        | Expr::Spread(x) => rename_idents_in_expr(x, f),
+        Expr::Index { obj: a, index: b }
+        | Expr::Binary { lhs: a, rhs: b, .. }
+        | Expr::Assign { target: a, value: b } => {
+            rename_idents_in_expr(a, f);
+            rename_idents_in_expr(b, f);
+        }
+        Expr::Call { callee, args } | Expr::New { callee, args } => {
+            rename_idents_in_expr(callee, f);
+            args.iter_mut().for_each(|a| rename_idents_in_expr(a, f));
+        }
+        Expr::Cond { test, cons, alt } => {
+            rename_idents_in_expr(test, f);
+            rename_idents_in_expr(cons, f);
+            rename_idents_in_expr(alt, f);
+        }
+        Expr::ArrowBlock { body, .. } => rename_idents(body, f),
+        Expr::Num(_)
+        | Expr::BigInt(_)
+        | Expr::Str(_)
+        | Expr::Bool(_)
+        | Expr::Null
+        | Expr::Undefined => {}
+    }
 }
 
 /// Borrows each name from the tree rather than copying it, so a set of them
