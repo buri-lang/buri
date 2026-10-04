@@ -530,19 +530,12 @@ impl Jit<'_> {
             self.imm_to(G_VALUE + (words - 1) * 8, 0);
         }
         self.elem_load(G_VALUE, G_PTR, G_INDEX, stride, stride);
-        let mut any = G_VALUE;
-        for w in 1..words {
-            self.emit(
-                "bin/or/u64/ff/f",
-                &[
-                    ("JIT_D", V::I(u64::from(G_SPARE))),
-                    ("JIT_A", V::I(u64::from(any))),
-                    ("JIT_B", V::I(u64::from(G_VALUE + w * 8))),
-                    ("JIT_CONT", V::Fall),
-                ],
-            );
-            any = G_SPARE;
-        }
+        let any = if words > 1 {
+            self.first_nonzero_word(words);
+            G_SPARE
+        } else {
+            G_VALUE
+        };
         let key = self.arm_key("brcmp/eq/u64/fi", "JIT_F");
         self.emit(
             &key,
@@ -553,6 +546,49 @@ impl Jit<'_> {
                 ("JIT_F", V::Fall),
             ],
         );
+    }
+
+    /// Writes the first non-zero word of the `words` frame words at `G_VALUE`
+    /// into `G_SPARE`, or zero when every one of them is zero.
+    ///
+    /// Hand-assembled, a load and a branch per word, because the stencil
+    /// spelling of the same test was an `or` per word through a frame slot:
+    /// four instructions a word, each waiting on the store before it. A
+    /// 792-byte element is ninety-nine words, and in a release glue walking a
+    /// list of them that chain was most of the glue's time. Here a live element
+    /// usually stops at its first word.
+    ///
+    /// The one scratch register is `x9` on arm64 and `rax` on x86-64, neither
+    /// of which is a CPS register (`abi::CPS_REGISTER_COUNT`), and nothing
+    /// lives in a register across a glue body's stencils anyway.
+    fn first_nonzero_word(&mut self, words: u32) {
+        if !self.target.is_arm64() {
+            let mut a = X86::new();
+            let mut found = Vec::new();
+            for w in 0..words {
+                a.ldr(RAX, RDI, G_VALUE + w * 8);
+                found.push(a.cbnz_x(RAX));
+            }
+            for p in found {
+                a.here(p);
+            }
+            a.str_off(RAX, RDI, G_SPARE);
+            let (bytes, _) = a.finish();
+            self.region.put(&bytes);
+            return;
+        }
+        let mut a = Asm::new();
+        let mut found = Vec::new();
+        for w in 0..words {
+            a.ldr(9, 0, G_VALUE + w * 8);
+            found.push(a.cbnz_x(9));
+        }
+        for p in found {
+            a.here(p);
+        }
+        a.str_off(9, 0, G_SPARE);
+        let (bytes, _) = a.finish();
+        self.region.put(&bytes);
     }
 
     fn glue_loop_test(&mut self, i: u32, n: u32, tv: V, fv: V, fall: &str) {
