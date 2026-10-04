@@ -662,7 +662,8 @@ impl FnLower<'_> {
     /// element exactly once after every pass, the block read last is the answer,
     /// and the other goes back with its own release of each. An empty or
     /// one-element list makes no pass at all, and the two copies are why the
-    /// block that goes back is never one nothing wrote.
+    /// block that goes back is never one nothing wrote. An element with no
+    /// counts needs neither the second copy nor the release's walk.
     fn list_sort(
         &mut self,
         xs: ValueId,
@@ -679,12 +680,14 @@ impl FnLower<'_> {
         let b0 = self.emit(list_t, |dest| Inst::ArrayAlloc { dest, len: n });
         let copy = self.walk(n, &[]);
         let e = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: xs, index: copy.i });
+        self.push(Inst::ArraySet { array: a0, index: copy.i, value: e });
+        // The second copy is only for the release at the end to walk, and a
+        // release walks nothing in a block of uncounted elements.
         if counted {
             self.push(Inst::IncRef { value: e });
             self.push(Inst::IncRef { value: e });
+            self.push(Inst::ArraySet { array: b0, index: copy.i, value: e });
         }
-        self.push(Inst::ArraySet { array: a0, index: copy.i, value: e });
-        self.push(Inst::ArraySet { array: b0, index: copy.i, value: e });
         self.again(&copy, Vec::new());
         self.end(&copy);
 

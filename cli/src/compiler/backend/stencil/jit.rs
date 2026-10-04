@@ -1634,7 +1634,7 @@ impl<'a> Jit<'a> {
                     let Some(&off) = offs.get(fi) else { continue };
                     let w = self.width(prog, code.ty_of(*f));
                     if w == 0
-                        || w % 8 != 0
+                        || !w.is_multiple_of(8)
                         || ftys.get(fi).is_some_and(|t| self.boxes(&owner, t))
                         || !alone(*f)
                         || ent(&aliased, f.index(), true)
