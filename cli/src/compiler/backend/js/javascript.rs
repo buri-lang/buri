@@ -1651,17 +1651,59 @@ fn cond_chain_to_switch(s: Stmt) -> Stmt {
 
 /// Whether no literal appears in two arms. A repeated `case` is a syntax
 /// error, not a fallthrough.
+///
+/// One table lookup per label: a match over a few thousand variants used to
+/// compare every label against every one before it.
 fn distinct<T>(arms: &[(Vec<&Expr>, T)]) -> bool {
-    let mut seen: Vec<&Expr> = Vec::new();
+    let mut seen: HashSet<LiteralKey<'_>> = HashSet::default();
     for (labels, _) in arms {
         for l in labels {
-            if seen.iter().any(|s| s.same_as(l)) {
-                return false;
+            match LiteralKey::of(l) {
+                // `NaN` is not the same as anything, itself included, so it
+                // never repeats.
+                Some(LiteralKey::NaN) => {}
+                Some(key) => {
+                    if !seen.insert(key) {
+                        return false;
+                    }
+                }
+                // `equality_test` lets only literals through, so this is not
+                // reached; answering "not distinct" keeps the chain as it was.
+                None => return false,
             }
-            seen.push(l);
         }
     }
     true
+}
+
+/// A literal, as [`Expr::same_as`] compares it: two labels are the same case
+/// exactly when their keys are equal.
+#[derive(PartialEq, Eq, Hash)]
+enum LiteralKey<'a> {
+    /// The bits of a number, with `-0` folded into `0` because `-0 === 0`.
+    Num(u64),
+    NaN,
+    BigInt(&'a str),
+    Str(&'a str),
+    Bool(bool),
+    Null,
+    Undefined,
+}
+
+impl LiteralKey<'_> {
+    fn of(e: &Expr) -> Option<LiteralKey<'_>> {
+        Some(match e {
+            Expr::Num(n) if n.is_nan() => LiteralKey::NaN,
+            Expr::Num(n) if *n == 0.0 => LiteralKey::Num(0f64.to_bits()),
+            Expr::Num(n) => LiteralKey::Num(n.to_bits()),
+            Expr::BigInt(s) => LiteralKey::BigInt(s),
+            Expr::Str(s) => LiteralKey::Str(s),
+            Expr::Bool(b) => LiteralKey::Bool(*b),
+            Expr::Null => LiteralKey::Null,
+            Expr::Undefined => LiteralKey::Undefined,
+            _ => return None,
+        })
+    }
 }
 
 /// Rewrites an `if`/`else if` chain over one discriminant into a `switch`.
