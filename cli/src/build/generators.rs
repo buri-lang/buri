@@ -447,13 +447,10 @@ pub fn run_artifact(artifact: &std::path::Path, request: &str) -> Result<String,
             "`{program}` is not on PATH; install bun, or point BURI_JS at a JavaScript runtime"
         ));
     };
-    let mut child = cmd
-        .arg(artifact)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("{program}: {e}"))?;
+    let mut child = crate::build::spawn::start(
+        cmd.arg(artifact).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()),
+    )
+    .map_err(|e| format!("{program}: {e}"))?;
     // Each pipe on a thread of its own, and none of them read after the wait.
     // A pipe holds a page or two: a generator writing more than that — a schema
     // of any size produces far more — blocks on the write, and this process
