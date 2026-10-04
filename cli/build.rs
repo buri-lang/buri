@@ -1032,8 +1032,7 @@ const STAMP: &str = "buri-runtime-stamp 1";
 /// answered says whether the registry was reachable, not what the compiler
 /// produced: the lockfile is a term, and a build that resolves the same
 /// lockfile from a warm `CARGO_HOME` and one that resolves it from the network
-/// compile the same tree. It is *recorded* in the stamp rather than hashed,
-/// because `package_env` has to report it on a run that skipped the probe.
+/// compile the same tree.
 #[allow(
     clippy::too_many_arguments,
     reason = "the argument list is the input list, and that is the point: every one of these \
@@ -1213,29 +1212,24 @@ fn stamp_path(out: &Path) -> PathBuf {
     ))
 }
 
-/// The stamp on disk: the digest of the inputs, the digest of the archive it
-/// was written for, and whether that build resolved offline.
+/// The stamp on disk: the digest of the inputs and the digest of the archive
+/// it was written for.
 ///
 /// Anything that does not parse is `None`, which is a miss. A stamp is a cache
 /// and never a contract, so a file from another version of this script is a
 /// nested build rather than an error.
-fn read_stamp(out: &Path) -> Option<(String, String, bool)> {
+fn read_stamp(out: &Path) -> Option<(String, String)> {
     let text = std::fs::read_to_string(stamp_path(out)).ok()?;
     let mut lines = text.lines();
     (lines.next()? == STAMP).then_some(())?;
     let inputs = lines.next()?.to_string();
     let archive = lines.next()?.to_string();
-    let offline = lines.next()? == "offline";
-    Some((inputs, archive, offline))
+    Some((inputs, archive))
 }
 
 /// Writes the stamp for a build that has just succeeded.
-fn write_stamp(out: &Path, inputs: &str, archive: &str, offline: bool) {
-    let network = if offline { "offline" } else { "network" };
-    write_if_different(
-        &stamp_path(out),
-        format!("{STAMP}\n{inputs}\n{archive}\n{network}\n").as_bytes(),
-    );
+fn write_stamp(out: &Path, inputs: &str, archive: &str) {
+    write_if_different(&stamp_path(out), format!("{STAMP}\n{inputs}\n{archive}\n").as_bytes());
 }
 
 /// Removes any stamp, for a path that is about to leave an archive the stamp
@@ -1247,28 +1241,6 @@ fn write_stamp(out: &Path, inputs: &str, archive: &str, offline: bool) {
 /// changes rather than leaving a file that reads as an answer.
 fn clear_stamp(out: &Path) {
     let _ = std::fs::remove_file(stamp_path(out));
-}
-
-/// Tells the toolchain's own test suite where the assembled runtime package is
-/// and whether its dependency tree is reachable offline.
-///
-/// `cli/tests/native/runtime.rs` runs the runtime crate's **own** unit tests —
-/// `cargo test` on this package — because nothing else in the repository can:
-/// the package is assembled here, at a path only this script knows, and it is
-/// not a workspace member, so `cargo test -p buri` cannot reach inside it. Its
-/// fifty-odd tests (and, since `https://`, the TLS ones) would otherwise be
-/// written and never run.
-///
-/// `cargo:rustc-env` rather than a file, unlike the digest and the feature list
-/// beside the archive: this is a *path on this machine*, not a fact about the
-/// bytes, so it has nothing to travel with. Empty on every path that writes an
-/// empty archive, which is what the test reads as "nothing to run".
-fn package_env(pkg: Option<&Path>, offline: bool) {
-    match pkg {
-        Some(p) => println!("cargo:rustc-env=BURI_RT_PKG={}", p.display()),
-        None => println!("cargo:rustc-env=BURI_RT_PKG="),
-    }
-    println!("cargo:rustc-env=BURI_RT_OFFLINE={}", u8::from(offline));
 }
 
 fn runtime_archive(manifest: &Path) {
@@ -1322,7 +1294,6 @@ fn runtime_archive(manifest: &Path) {
         // unconditionally. The emptiness is the signal.
         bake_sysroot(&out_dir, None);
         clear_stamp(&out);
-        package_env(None, true);
         return;
     }
 
@@ -1507,15 +1478,12 @@ fn runtime_archive(manifest: &Path) {
         manifest, &runtime, &pkg, &target, product.libc, &sysroot, &features, relock, &cargo,
         &rustc, &cc, &command,
     );
-    if let (Some(fresh), Some((inputs, archive, offline))) = (&stamp, read_stamp(&out)) {
+    if let (Some(fresh), Some((inputs, archive))) = (&stamp, read_stamp(&out)) {
         let current = std::fs::read(&out).map(|bytes| sha256::hash_bytes(&bytes));
         if fresh == &inputs && current.is_ok_and(|d| d == archive) {
             // Everything the nested build would have left behind is already
-            // here, so what is left is what this script *says*: the package's
-            // path and how its tree resolved last time, and the three sidecars
-            // - written through `write_if_different`, so a run that changes
+            // here, so what is left is the three sidecars - written through `write_if_different`, so a run that changes
             // nothing moves no mtime and recompiles nothing.
-            package_env(Some(&pkg), offline);
             write_digest_beside(&out, &archive);
             features_beside(&out, &features);
             libc_beside(&out, product.libc);
@@ -1558,12 +1526,10 @@ fn runtime_archive(manifest: &Path) {
                 // And no stamp: the archive this `OUT_DIR` now holds is not one
                 // any set of inputs produced.
                 clear_stamp(&out);
-                package_env(None, true);
                 return;
             }
         },
     };
-    package_env(Some(&pkg), offline == Some(true));
 
     if !relock {
         command.arg("--locked");
@@ -1622,7 +1588,7 @@ fn runtime_archive(manifest: &Path) {
     // conservative half of the rule in `stamp_of` - no stamp is a nested build,
     // and a nested build is always correct.
     match &stamp {
-        Some(fresh) => write_stamp(&out, fresh, &digest, offline == Some(true)),
+        Some(fresh) => write_stamp(&out, fresh, &digest),
         None => clear_stamp(&out),
     }
 }
