@@ -7,7 +7,7 @@
 //! settled during name resolution rather than during parsing.
 
 use crate::diagnostics::Span;
-use crate::parsing::flat::{NONE, TypeId, TypeList};
+use crate::parsing::flat::{Docs, List, NONE, TypeId, TypeList};
 
 /// A name a declaration introduces, or one segment of a written path.
 ///
@@ -43,7 +43,7 @@ pub struct Module {
     pub items: Vec<Item>,
     /// `//!` lines at the top of the file. These document the module itself,
     /// which is what `buri docs <module>` prints above the item list.
-    pub docs: Vec<String>,
+    pub docs: Docs,
     /// Everything below the declaration level, flattened — see
     /// [`flat`](crate::parsing::flat). A declaration holds the id of its body,
     /// of each type it names, and the span of each name it introduces; there
@@ -54,34 +54,31 @@ pub struct Module {
 
 /// A declaration.
 ///
-/// Every variant is boxed, which makes an `Item` sixteen bytes rather than as
-/// wide as the widest declaration there is. The parser builds one through
-/// `fn_decl` → `Item::Fn` → `Some` → `Ok` → `items.push`, so the unboxed form
-/// was copied four or five times per declaration — and a file of small
-/// functions is nothing but declarations. Boxing uniformly rather than only
-/// where it pays is what keeps the width from being a property of whichever
-/// declaration happens to have the most fields.
+/// Held inline rather than boxed. A declaration's lists and doc comments are
+/// ranges into [`Module::tree`]'s arenas, which keeps the widest variant at a
+/// few dozen bytes, so `items` is itself the arena: one allocation for every
+/// declaration in the file, where a `Box` each used to be one apiece.
 #[derive(Clone, Debug)]
 pub enum Item {
-    Import(Box<Import>),
-    ReExport(Box<ReExport>),
-    Fn(Box<FnDecl>),
-    Struct(Box<StructDecl>),
-    Enum(Box<EnumDecl>),
-    TypeAlias(Box<TypeAliasDecl>),
-    Let(Box<LetDecl>),
-    Trait(Box<TraitDecl>),
-    Impl(Box<ImplDecl>),
-    Derive(Box<DeriveDecl>),
-    Context(Box<ContextDecl>),
-    Test(Box<TestDecl>),
+    Import(Import),
+    ReExport(ReExport),
+    Fn(FnDecl),
+    Struct(StructDecl),
+    Enum(EnumDecl),
+    TypeAlias(TypeAliasDecl),
+    Let(LetDecl),
+    Trait(TraitDecl),
+    Impl(ImplDecl),
+    Derive(DeriveDecl),
+    Context(ContextDecl),
+    Test(TestDecl),
     /// A declaration that did not parse, as the extent recovery skipped over.
-    /// Boxed like every other variant, which is what keeps an `Item` sixteen
-    /// bytes wide.
-    Error(Box<Span>),
+    Error(Span),
 }
 
-const _: () = assert!(std::mem::size_of::<Item>() == 16);
+// The width is pinned for the same reason a node's is: a declaration that
+// grows a field grows every item in every file.
+const _: () = assert!(std::mem::size_of::<Item>() == 72);
 
 impl Item {
     pub fn span(&self) -> Span {
@@ -98,7 +95,7 @@ impl Item {
             Item::Derive(i) => i.span,
             Item::Context(i) => i.span,
             Item::Test(i) => i.span,
-            Item::Error(at) => **at,
+            Item::Error(at) => *at,
         }
     }
 
@@ -132,7 +129,7 @@ pub struct Import {
 #[derive(Clone, Debug)]
 pub enum ImportClause {
     /// `import { a, b as c }`
-    Named(Vec<ImportSpec>),
+    Named(List<ImportSpec>),
     /// `import * as list`. A namespace import must be named; bare `import *`
     /// is not derivable from the grammar.
     Namespace(Name),
@@ -156,7 +153,7 @@ impl ImportSpec {
 pub struct ReExport {
     pub path: String,
     pub path_span: Span,
-    pub specs: Vec<ImportSpec>,
+    pub specs: List<ImportSpec>,
     pub span: Span,
 }
 
@@ -203,8 +200,8 @@ impl Param {
 #[derive(Clone, Debug)]
 pub struct FnDecl {
     pub name: Name,
-    pub generics: Vec<GenericParam>,
-    pub params: Vec<Param>,
+    pub generics: List<GenericParam>,
+    pub params: List<Param>,
     pub ret: TypeId,
     /// `None` for a trait or effect method signature, and for the
     /// signature-only declarations the embedded standard library uses for
@@ -214,23 +211,23 @@ pub struct FnDecl {
     pub body: Option<crate::parsing::flat::BlockId>,
     pub exported: bool,
     pub span: Span,
-    pub docs: Vec<String>,
+    pub docs: Docs,
 }
 
 #[derive(Clone, Debug)]
 pub struct StructDecl {
     pub name: Name,
-    pub generics: Vec<GenericParam>,
+    pub generics: List<GenericParam>,
     pub body: StructBody,
     pub exported: bool,
     pub span: Span,
-    pub docs: Vec<String>,
+    pub docs: Docs,
 }
 
 #[derive(Clone, Debug)]
 pub enum StructBody {
-    Record(Vec<FieldDecl>),
-    Tuple(Vec<TupleField>),
+    Record(List<FieldDecl>),
+    Tuple(List<TupleField>),
 }
 
 #[derive(Clone, Debug)]
@@ -239,7 +236,7 @@ pub struct FieldDecl {
     pub name: Name,
     pub ty: TypeId,
     pub span: Span,
-    pub docs: Vec<String>,
+    pub docs: Docs,
 }
 
 #[derive(Clone, Debug)]
@@ -252,11 +249,11 @@ pub struct TupleField {
 #[derive(Clone, Debug)]
 pub struct EnumDecl {
     pub name: Name,
-    pub generics: Vec<GenericParam>,
-    pub variants: Vec<Variant>,
+    pub generics: List<GenericParam>,
+    pub variants: List<Variant>,
     pub exported: bool,
     pub span: Span,
-    pub docs: Vec<String>,
+    pub docs: Docs,
 }
 
 /// A variant carries no visibility of its own: it is exported exactly when the
@@ -266,24 +263,24 @@ pub struct Variant {
     pub name: Name,
     pub payload: VariantPayload,
     pub span: Span,
-    pub docs: Vec<String>,
+    pub docs: Docs,
 }
 
 #[derive(Clone, Debug)]
 pub enum VariantPayload {
     None,
     Tuple(TypeList),
-    Record(Vec<FieldDecl>),
+    Record(List<FieldDecl>),
 }
 
 #[derive(Clone, Debug)]
 pub struct TypeAliasDecl {
     pub name: Name,
-    pub generics: Vec<GenericParam>,
+    pub generics: List<GenericParam>,
     pub ty: TypeId,
     pub exported: bool,
     pub span: Span,
-    pub docs: Vec<String>,
+    pub docs: Docs,
 }
 
 /// A module-level `let`. The block-level one is a `Stmt`, and differs in that
@@ -295,32 +292,32 @@ pub struct LetDecl {
     pub value: crate::parsing::flat::ExprId,
     pub exported: bool,
     pub span: Span,
-    pub docs: Vec<String>,
+    pub docs: Docs,
 }
 
 #[derive(Clone, Debug)]
 pub struct TraitDecl {
     pub name: Name,
-    pub generics: Vec<GenericParam>,
-    pub methods: Vec<FnDecl>,
+    pub generics: List<GenericParam>,
+    pub methods: List<FnDecl>,
     /// Declared with `effect` rather than `trait`. The only difference is that
     /// implementors are effect-carrying (SPEC 10.1).
     pub is_effect: bool,
     pub exported: bool,
     pub span: Span,
-    pub docs: Vec<String>,
+    pub docs: Docs,
 }
 
 #[derive(Clone, Debug)]
 pub struct ImplDecl {
-    pub docs: Vec<String>,
-    pub generics: Vec<GenericParam>,
+    pub docs: Docs,
+    pub generics: List<GenericParam>,
     /// `None` for an inherent `impl Type { ... }`, which declares the type's
     /// own methods. `Some` for `impl Trait for Type`, which declares
     /// conformance and supplies the trait's methods.
     pub trait_ty: Option<TypeId>,
     pub self_ty: TypeId,
-    pub methods: Vec<FnDecl>,
+    pub methods: List<FnDecl>,
     pub span: Span,
 }
 
@@ -337,7 +334,7 @@ pub struct ContextDecl {
     pub body: crate::parsing::flat::CtxBodyId,
     pub exported: bool,
     pub span: Span,
-    pub docs: Vec<String>,
+    pub docs: Docs,
 }
 
 #[derive(Clone, Debug)]
@@ -346,7 +343,7 @@ pub struct TestDecl {
     pub name_span: Span,
     pub body: crate::parsing::flat::BlockId,
     pub span: Span,
-    pub docs: Vec<String>,
+    pub docs: Docs,
 }
 
 // ---------------------------------------------------------------------------

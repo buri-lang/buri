@@ -254,7 +254,7 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
         for item in &m.ast.items {
             let Item::ReExport(r) = item else { continue };
             let Some((_, from)) = owned.iter().find(|(p, _)| *p == r.path) else { continue };
-            for spec in &r.specs {
+            for spec in m.ast.tree.list(r.specs) {
                 let wanted = m.ast.tree.name(spec.name);
                 let shown = m.ast.tree.name(spec.local()).to_string();
                 for found in from.iter().filter(|i| i.name == wanted) {
@@ -269,7 +269,7 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
         }
         items.sort_by(|a, b| sort_key(a).cmp(&sort_key(b)));
         items.dedup_by(|a, b| sort_key(a) == sort_key(b));
-        out.push(ApiModule { path: m.path.clone(), docs: m.ast.docs.clone(), items });
+        out.push(ApiModule { path: m.path.clone(), docs: m.ast.tree.docs(m.ast.docs), items });
     }
     out.sort_by(|a, b| a.path.cmp(&b.path));
     out
@@ -351,21 +351,21 @@ fn items_of(module: &tree::Module, path: &str, traits: &Traits) -> Vec<ApiItem> 
                 api: Api::TypeAlias,
                 name: t.name(d.name).to_string(),
                 signature: format!("type {} = {}", t.name(d.name), formatting::type_text(t, d.ty)),
-                docs: d.docs.clone(),
+                docs: t.docs(d.docs),
                 config: None,
             }),
             Item::Let(d) if d.exported => out.push(ApiItem {
                 api: Api::Const,
                 name: t.name(d.name).to_string(),
                 signature: format!("let {}: {}", t.name(d.name), formatting::type_text(t, d.ty)),
-                docs: d.docs.clone(),
+                docs: t.docs(d.docs),
                 config: None,
             }),
             Item::Context(d) if d.exported => out.push(ApiItem {
                 api: Api::Context,
                 name: t.name(d.name).to_string(),
                 signature: format!("context {}", t.name(d.name)),
-                docs: d.docs.clone(),
+                docs: t.docs(d.docs),
                 config: None,
             }),
             Item::Impl(d) => {
@@ -374,7 +374,7 @@ fn items_of(module: &tree::Module, path: &str, traits: &Traits) -> Vec<ApiItem> 
                     trait_name: formatting::type_text(t, x),
                     derived: false,
                 });
-                for m in &d.methods {
+                for m in t.list(d.methods) {
                     // A trait's methods are visible wherever the type is, so
                     // conformance methods are listed even though they carry no
                     // `export` of their own.
@@ -396,7 +396,7 @@ fn items_of(module: &tree::Module, path: &str, traits: &Traits) -> Vec<ApiItem> 
                     let name = written.rsplit('.').next().unwrap_or(written.as_str());
                     let Some(found) = traits.find(path, name) else { continue };
                     let via = Via { trait_name: name.to_string(), derived: true };
-                    for m in &found.decl.methods {
+                    for m in found.tree.list(found.decl.methods) {
                         out.push(function(found.tree, m, Some((owner.clone(), Some(via.clone())))));
                     }
                 }
@@ -423,10 +423,10 @@ fn derived_owner(module: &tree::Module, self_ty: crate::parsing::flat::TypeId) -
     for item in &module.items {
         match item {
             Item::Struct(d) if d.exported && t.name(d.name) == head => {
-                return Some(format!("{head}{}", parameters(t, &d.generics)));
+                return Some(format!("{head}{}", parameters(t, t.list(d.generics))));
             }
             Item::Enum(d) if d.exported && t.name(d.name) == head => {
-                return Some(format!("{head}{}", parameters(t, &d.generics)));
+                return Some(format!("{head}{}", parameters(t, t.list(d.generics))));
             }
             _ => {}
         }
@@ -469,7 +469,7 @@ fn function(
         },
         name: t.name(d.name).to_string(),
         signature: formatting::signature(t, d),
-        docs: d.docs.clone(),
+        docs: t.docs(d.docs),
         config: None,
     }
 }
@@ -478,12 +478,12 @@ fn function(
 /// may do to the world. Reading them off the signature is the point: purity is
 /// the absence of this list, not an annotation somebody had to remember.
 fn effects_of(t: &crate::parsing::flat::Tree, d: &tree::FnDecl) -> Vec<String> {
-    let Some(ctx) = d.params.iter().find(|p| p.kind == ParamKind::CtxParam) else {
+    let Some(ctx) = t.list(d.params).iter().find(|p| p.kind == ParamKind::CtxParam) else {
         return Vec::new();
     };
     let Some(ty) = ctx.written_type() else { return Vec::new() };
     let name = formatting::type_text(t, ty);
-    d.generics
+    t.list(d.generics)
         .iter()
         .find(|g| t.name(g.name) == name)
         .map(|g| t.type_list(g.bounds).iter().map(|b| formatting::type_text(t, *b)).collect())
@@ -503,16 +503,16 @@ fn strip_export(sig: &str) -> String {
 /// so the two cannot describe one field two ways.
 fn fields_of(t: &crate::parsing::flat::Tree, d: &tree::StructDecl) -> Vec<Member> {
     match &d.body {
-        tree::StructBody::Record(fields) => fields
+        tree::StructBody::Record(fields) => t.list(*fields)
             .iter()
             .filter(|f| f.exported)
             .map(|f| Member {
                 name: t.name(f.name).to_string(),
                 signature: strip_export(&formatting::field_decl(t, f)),
-                docs: f.docs.clone(),
+                docs: t.docs(f.docs),
             })
             .collect(),
-        tree::StructBody::Tuple(fields) => fields
+        tree::StructBody::Tuple(fields) => t.list(*fields)
             .iter()
             .enumerate()
             .filter(|(_, f)| f.exported)
@@ -529,8 +529,8 @@ fn structure(t: &crate::parsing::flat::Tree, d: &tree::StructDecl) -> ApiItem {
     ApiItem {
         api: Api::Struct { fields: fields_of(t, d) },
         name: t.name(d.name).to_string(),
-        signature: format!("struct {}{}", t.name(d.name), formatting::generics(t, &d.generics)),
-        docs: d.docs.clone(),
+        signature: format!("struct {}{}", t.name(d.name), formatting::generics(t, t.list(d.generics))),
+        docs: t.docs(d.docs),
         config: None,
     }
 }
@@ -545,7 +545,7 @@ fn structure(t: &crate::parsing::flat::Tree, d: &tree::StructDecl) -> ApiItem {
 /// page, and a reader can go to it rather than read it twice.
 fn config_of(module: &tree::Module, d: &tree::FnDecl) -> Option<Config> {
     let t = &module.tree;
-    for p in d.params.iter().filter(|p| p.kind == ParamKind::Normal) {
+    for p in t.list(d.params).iter().filter(|p| p.kind == ParamKind::Normal) {
         let Some(ty) = p.written_type() else { continue };
         let written = formatting::type_text(t, ty);
         let head = written.split('<').next().unwrap_or(&written).trim();
@@ -555,7 +555,7 @@ fn config_of(module: &tree::Module, d: &tree::FnDecl) -> Option<Config> {
                 if !s.exported && t.name(s.name) == head {
                     return Some(Config {
                         name: head.to_string(),
-                        docs: s.docs.clone(),
+                        docs: t.docs(s.docs),
                         fields: fields_of(t, s),
                     });
                 }
@@ -570,31 +570,31 @@ fn enumeration(t: &crate::parsing::flat::Tree, d: &tree::EnumDecl) -> ApiItem {
         api: Api::Enum {
             // Every variant of an exported enum is exported, so every one of
             // them is listed.
-            variants: d
-                .variants
+            variants: t
+                .list(d.variants)
                 .iter()
                 .map(|v| Member {
                     name: t.name(v.name).to_string(),
                     signature: formatting::variant(t, v),
-                    docs: v.docs.clone(),
+                    docs: t.docs(v.docs),
                 })
                 .collect(),
         },
         name: t.name(d.name).to_string(),
-        signature: format!("enum {}{}", t.name(d.name), formatting::generics(t, &d.generics)),
-        docs: d.docs.clone(),
+        signature: format!("enum {}{}", t.name(d.name), formatting::generics(t, t.list(d.generics))),
+        docs: t.docs(d.docs),
         config: None,
     }
 }
 
 fn trait_or_effect(t: &crate::parsing::flat::Tree, d: &tree::TraitDecl) -> ApiItem {
-    let methods = d
-        .methods
+    let methods = t
+        .list(d.methods)
         .iter()
         .map(|m| Member {
             name: t.name(m.name).to_string(),
             signature: formatting::signature(t, m),
-            docs: m.docs.clone(),
+            docs: t.docs(m.docs),
         })
         .collect();
     ApiItem {
@@ -604,9 +604,9 @@ fn trait_or_effect(t: &crate::parsing::flat::Tree, d: &tree::TraitDecl) -> ApiIt
             "{} {}{}",
             if d.is_effect { "effect" } else { "trait" },
             t.name(d.name),
-            formatting::generics(t, &d.generics)
+            formatting::generics(t, t.list(d.generics))
         ),
-        docs: d.docs.clone(),
+        docs: t.docs(d.docs),
         config: None,
     }
 }

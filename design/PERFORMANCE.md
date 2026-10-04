@@ -1992,6 +1992,63 @@ Native objects aren't reproducible across two cold runs of one `main` binary
 in this repository: same cache key, different bytes. That is why the native
 half of the output wasn't compared above.
 
+### 6.16 Declarations move into the tree's arenas, 2026-10-03
+
+§6.14 left the parser allocating per declaration. Now nothing in a declaration
+owns heap memory:
+
+```rust
+pub struct FnDecl { name: Name, generics: List<GenericParam>, params: List<Param>, docs: Docs, .. }
+pub enum Item { Fn(FnDecl), Struct(StructDecl), .. }   // inline, 72 bytes; was Fn(Box<FnDecl>)
+for p in tree.list(d.params) { .. }                     // was `for p in &d.params`
+tree.doc_lines(d.docs)                                  // was `d.docs: Vec<String>`
+```
+
+- `module.items` is the item arena: one `Vec` per file instead of a `Box` per declaration.
+- Parameters, generics, fields, tuple fields, variants, methods and import names
+  are `List<T>` ranges into arenas on `flat::Tree`. `Tree::list` picks the arena by `T`.
+- A doc line is the location of its text. The lexer writes every `///` line into
+  one `Vec<Location>`, and the tree adopts it whole.
+
+Every consumer reads through `tree.list` and `tree.doc_lines`: the checker, the
+formatter, the language server, `buri docs`, lint, tool contracts and the
+module loader. A cold build of all 365 repositories under `cli/tests/repositories`
+prints the same bytes on both binaries, and the worked example builds identical
+native objects.
+
+`main` at `828a8361` against `perf/ast-arenas`, alternated A/B three times. The
+timing rounds ran at load 26–34, `--rss` at 62–81 and the repositories at 78–87.
+Times are the fastest sample.
+
+| | `main` | after | Δ |
+|---|---:|---:|---:|
+| `mixed/100k` lex | 6.73–6.75 ms | 5.99–6.19 ms | −10% |
+| `mixed/100k` lex+parse | 13.25–13.34 ms | 11.94–12.13 ms | **−9.5%** |
+| `mixed/100k` lex+parse rate | 7.60 M lines/s | **8.39 M** | +10% |
+| `saved:mixed-10k` lex+parse | 1.28–1.33 ms | 1.16–1.20 ms | −9% |
+| `mixed/100k` sema | 70.5–70.7 ms | 69.6–71.7 ms | flat |
+| `saved:mixed-10k` lex+parse allocations | 1,055 per 1k lines | **389** | −63% |
+| `saved:mixed-10k` lex allocations | 490 per 1k lines | 177 | −64% |
+| `saved:mixed-1k` lex+parse allocations | 1,131 per 1k lines | 448 | −60% |
+| `mixed/100k` lex+parse peak RSS | 37.5 MB | 34.1 MB | −9% |
+| `mixed/100k` lex peak RSS | 27.9 MB | 25.0 MB | −10% |
+| `mixed/100k` sema peak RSS | 134.1 MB | 132.0 MB | −1.6% |
+| recovery test, instructions | 34.10–34.14 G | 33.88–33.97 G | −0.5% |
+| recovery test, peak memory | 222–257 MB | 214–251 MB | noise |
+| cold `buri build` of the 365 repositories, CPU (user) | 16.9–17.5 s | 17.4–17.6 s | flat |
+| cold `buri build //...` of `cli/tests/example`, CPU (user) | 1.14–1.20 s | 1.13–1.15 s | flat |
+
+The lexer gained the most. It used to copy each doc line into a `String` and
+move the run into the trivia table; now it pushes a location. Sema doesn't move:
+its allocations are 14,245 per 1k lines either way, and reading a list through
+`tree.list` costs it nothing measurable. The cold builds aren't front-end bound,
+as §6.13 found.
+
+**What's left.** Lex+parse allocates 389 times per 1,000 lines. Most of that is
+the lexer's trivia table, which still holds a `Vec<Comment>` and a `String` per
+ordinary comment, and the cooked text of string literals, an import's path and a
+test's name included.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
