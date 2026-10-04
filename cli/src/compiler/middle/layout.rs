@@ -70,7 +70,7 @@
 
 use crate::compiler::semantics::types::{self, Prim, Tables, Ty, TyConId, TyDef};
 use crate::diagnostics::Invariant as _;
-use crate::hash::Map;
+use crate::hash::{Map, Set};
 use std::fmt::Write as _;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -450,7 +450,15 @@ pub struct Layouts<'a> {
     depth: u32,
     descriptions: Map<Ty, Rc<str>>,
     /// See [`Layouts::glue_key`].
-    glue_keys: Map<Ty, Rc<str>>,
+    glue_keys: Map<Ty, GlueKey>,
+}
+
+/// A memoised glue key.
+struct GlueKey {
+    key: Rc<str>,
+    /// The types on a cycle the walk passed through, `None` if none. The key
+    /// stands in for a walk only when none of these is on the current path.
+    reach: Option<Rc<Set<Ty>>>,
 }
 
 impl<'a> Layouts<'a> {
@@ -891,11 +899,14 @@ impl<'a> Layouts<'a> {
     /// A recursive type reaches itself through a box. The walk back up is
     /// written as how many levels up it goes, so a subtree that points at
     /// nothing above it hashes the same wherever it appears, and is memoised.
+    ///
+    /// The key never depends on what this table was asked before: the stencil
+    /// backend reuses one table per worker, and workers are dealt parts at random.
     pub fn glue_key(&mut self, ty: &Ty) -> Rc<str> {
         let mut out = String::new();
-        self.write_glue_shape(ty, &mut Vec::new(), &mut out);
+        self.write_glue_shape(ty, &mut Vec::new(), &mut Set::default(), &mut out);
         match self.glue_keys.get(ty) {
-            Some(key) => Rc::clone(key),
+            Some(memo) => Rc::clone(&memo.key),
             // The root has nothing above it to point at, so it is always
             // memoised; the text itself is the answer that cannot be wrong.
             None => Rc::from(out.as_str()),
@@ -903,16 +914,28 @@ impl<'a> Layouts<'a> {
     }
 
     /// Writes `ty`'s glue shape onto `out` and answers the shallowest entry of
-    /// `path` it points back at, or `usize::MAX` if none.
-    fn write_glue_shape(&mut self, ty: &Ty, path: &mut Vec<Ty>, out: &mut String) -> usize {
+    /// `path` it points back at, or `usize::MAX` if none, and whether the walk
+    /// passed through a cycle, adding each type on one to `reach`.
+    fn write_glue_shape(
+        &mut self,
+        ty: &Ty,
+        path: &mut Vec<Ty>,
+        reach: &mut Set<Ty>,
+        out: &mut String,
+    ) -> (usize, bool) {
         if let Some(k) = path.iter().position(|p| p == ty) {
             let _ = write!(out, "^{}", path.len().saturating_sub(k));
-            return k;
+            return (k, true);
         }
-        if let Some(key) = self.glue_keys.get(ty) {
-            out.push('#');
-            out.push_str(key);
-            return usize::MAX;
+        if let Some(memo) = self.glue_keys.get(ty) {
+            let returns = memo.reach.as_ref().is_some_and(|r| path.iter().any(|p| r.contains(p)));
+            if !returns {
+                out.push('#');
+                out.push_str(&memo.key);
+                let Some(seen) = &memo.reach else { return (usize::MAX, false) };
+                reach.extend(seen.iter().cloned());
+                return (usize::MAX, true);
+            }
         }
         let depth = path.len();
         path.push(ty.clone());
@@ -927,30 +950,42 @@ impl<'a> Layouts<'a> {
             _ => Vec::new(),
         };
         let mut shallowest = usize::MAX;
+        let mut cyclic = false;
+        let mut mine = Set::default();
         for list in lists {
             inner.push('(');
             for f in list {
                 if self.boxes(ty, &f) {
                     inner.push('*');
                 }
-                shallowest = shallowest.min(self.write_glue_shape(&f, path, &mut inner));
+                let (back, through) = self.write_glue_shape(&f, path, &mut mine, &mut inner);
+                shallowest = shallowest.min(back);
+                cyclic |= through;
                 inner.push(',');
             }
             inner.push(')');
         }
         path.pop();
+        if cyclic {
+            mine.insert(ty.clone());
+        }
         if shallowest >= depth {
             let digest = crate::build::sha256::hash_bytes(inner.as_bytes());
             let key: Rc<str> = Rc::from(digest.get(..32).unwrap_or(&digest));
             out.push('#');
             out.push_str(&key);
-            self.glue_keys.insert(ty.clone(), key);
-            return usize::MAX;
+            let seen = cyclic.then(|| Rc::new(mine));
+            if let Some(seen) = &seen {
+                reach.extend(seen.iter().cloned());
+            }
+            self.glue_keys.insert(ty.clone(), GlueKey { key, reach: seen });
+            return (usize::MAX, cyclic);
         }
+        reach.extend(mine);
         out.push('{');
         out.push_str(&inner);
         out.push('}');
-        shallowest
+        (shallowest, cyclic)
     }
 
     /// Several types, one block each, newline separated and with no trailing
@@ -2010,6 +2045,35 @@ mod tests {
         let b_first = (second.of(con(b2)), second.of(con(a2)));
         assert_eq!(a_first.0, b_first.1);
         assert_eq!(a_first.1, b_first.0);
+    }
+
+    /// `Doc` and `Entry` reach each other, so each one's walk passes through
+    /// the other; the order they are asked in must not change either key.
+    #[test]
+    fn a_glue_key_does_not_move_with_the_order_of_the_questions() {
+        let mut t = tables();
+        let doc = declare(&mut t, "Doc", &[]);
+        let entry = add_struct(&mut t, "Entry", &[], &[("key", p(Prim::Str)), ("value", con(doc))]);
+        define_enum(
+            &mut t,
+            doc,
+            vec![
+                variant("Null", &[]),
+                variant("Arr", &[Ty::Array(Box::new(con(doc)))]),
+                variant("Obj", &[Ty::Array(Box::new(con(entry)))]),
+            ],
+        );
+        let entries = Ty::Array(Box::new(con(entry)));
+        let tys = [con(doc), con(entry), entries];
+        let fresh: Vec<Rc<str>> =
+            tys.iter().map(|ty| Layouts::new(&t).glue_key(ty)).collect();
+        for first in &tys {
+            let mut l = Layouts::new(&t);
+            l.glue_key(first);
+            for (ty, alone) in tys.iter().zip(&fresh) {
+                assert_eq!(&l.glue_key(ty), alone, "{ty:?} asked after {first:?}");
+            }
+        }
     }
 
     /// `enum Json { .., Array([Json]), Object([(Str, Json)]) }` —

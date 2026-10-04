@@ -16,6 +16,7 @@
 //! | [`differential`] | `backend-stencil` | The same corpus through *both* pipelines, compared **per `test` block**: the same verdict on JavaScript and natively, for every block in every package the two can run. |
 //! | [`llvm`] | `backend-llvm` | The same for the LLVM backend, plus the attribute discipline read off the optimized IR. |
 //! | [`agreement`] | either native backend | VALUE-MODEL.md §12's rows, run under each native backend and compared against JavaScript. |
+//! | [`reproducible`] | either native backend | Do two cold builds of one program, in two repositories, write the same executable on each backend? |
 //!
 //! # The net around `middle::rc`, and the bugs it was shown to catch
 //!
@@ -177,6 +178,10 @@ mod e2e;
 // real ELF and — where `podman` is present — to run in a Linux container.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod cross;
+// Two cold builds of one program, through the `buri` binary, write the same
+// executable — on each native backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod reproducible;
 #[cfg(feature = "backend-stencil")]
 mod conformance;
 // The whole corpus through both pipelines, verdict by verdict. Beside
