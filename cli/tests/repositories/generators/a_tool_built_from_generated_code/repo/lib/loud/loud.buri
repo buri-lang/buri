@@ -1,0 +1,6 @@
+from "//lib/loud/said" import { NAME_TXT };
+
+/// What the tool said about name.txt.
+export fn line(): Str {
+    NAME_TXT
+}

@@ -15,7 +15,8 @@ something:
 
 They are **goals, not claims**. Semantic analysis and both lowering paths meet
 theirs, the native one since 2026-08-29, its first time. Lex+parse does not, and
-§6 records by how much. `cli/benches/compiler.rs` is what keeps saying so.
+§6 records by how much: 1.34× short on a loaded machine on 2026-10-03, after
+§6.14 took it 1.56× faster. `cli/benches/compiler.rs` is what keeps saying so.
 
 ---
 
@@ -318,11 +319,12 @@ it is a rounding error, and the two figures converging is itself a check that
 the floor came out right. It is what explains Carbon's otherwise puzzling result
 that checking is *faster* at 16k lines than at 256.
 
-**The standard library part of the floor is paid once per thread.** Every
+**The standard library part of the floor is paid once per process.** Every
 compilation opens with the same modules: the prelude and the built-in types'
 modules, or for a snippet the whole library. `compiler::snapshot` loads and
 checks them once, and each analysis resumes from that (`Loader::seeded`,
-`Checker::resume`), checking only the modules after them. Ids come out the same
+`Checker::resume`), checking only the modules after them. Syntax trees are
+shared by `Arc`, so every thread reads the one snapshot. Ids come out the same
 as a whole run's, so diagnostics and output don't move. `sema` measures the
 resumed run, and the header prints the snapshot's one-time cost beside it.
 
@@ -332,13 +334,15 @@ for the effects its structs implement: about 3,800 lines on every compilation
 that names a platform. They load after the program's own modules, so they
 can't join the snapshot without changing the ids a program's types get.
 
-| Revision | `sema` floor | `lower` floor | snapshot, once a thread |
+| Revision | `sema` floor | `lower` floor | snapshot, once a process |
 |---|---:|---:|---:|
 | 2026-09-01 | 0.57 ms | | |
 | `afb169cd`, 2026-10-03 | 5.52–5.84 ms | 6.0 ms | |
 | snapshot, 2026-10-03 | 2.65–2.77 ms | 6.0 ms | 4.3–4.5 ms |
+| shared tables (§6.15), 2026-10-03 | 2.01–2.08 ms | | 3.8–3.9 ms |
+| JS emit (§6.17), 2026-10-03 | | 3.85–3.98 ms → 0.49–0.50 ms | |
 
-The two 2026-10-03 rows are two alternating `--quick --only=mixed` runs each, on
+The 2026-10-03 rows are two alternating `--quick --only=mixed` runs each, on
 a shared machine at load 15–25. The growth since September is the standard
 library: 11.2k to 45.6k lines, and the floor program now imports `NodeHost`.
 
@@ -917,6 +921,10 @@ machine from a compiler.
 | lower+js | 100 k | 311 k | 284.1 k | **255.0 k** | **MET** |
 | lower+macos-arm64 | 100 k | 133.3 k | 126.4 k | **135.2 k** | **MET** |
 
+**The lex and lex+parse rows moved on 2026-10-03**: 1.86× and 1.56× the rate
+of the commit before, measured side by side. §6.14 has the readings; this table
+keeps its September figures because nobody re-took the other rows that day.
+
 Two of the three goals are still met, and the third is met on **both** lowering
 backends rather than on the JavaScript one alone. Lex+parse started at 1.45 M
 lines/s and is 4.4× that now; native lowering started at nothing measurable,
@@ -1120,10 +1128,10 @@ one.
   time (§6.1). It stays here because the reason it closed is the finding — the
   gap was in a dependency's design, and no amount of tuning on this side of the
   seam was going to reach it.
-- **Lex+parse's last 1.57×.** The plateau without a design change is
-  ~5.5–6 M lines/s; reaching 10 M additionally needs the C3 rewrite. 11.2% of
-  the phase is provably unavoidable while a standard-library pin stands. Both
-  are product decisions rather than optimizations.
+- **Lex+parse's last 1.34×.** §6.14 broke the old ~6 M plateau without a
+  design change and names what is left: the lexer is half the phase, and the
+  next allocation worth removing is a declaration's `docs: Vec<String>`,
+  which reaches every consumer of the syntax tree.
 
 ### 6.4 Three findings that transfer
 
@@ -1189,6 +1197,9 @@ not**.
   (`design/native/CODEGEN-STENCIL.md` §13).
 - **Erasing generics in the dev profile**, and **moving instantiation
   placement**: both refuted in §6.2.
+- **Scanning comments eight bytes at a time** for their line break, and
+  **skipping the parser's end-of-stream clamp** on `peek`: both 0.0% on
+  lex+parse (§6.14).
 
 ### 6.6 What the multi-threaded fork costs, 2026-08-30
 
@@ -1787,6 +1798,308 @@ A copy of the profiled monorepo, release toolchains, clean runs at load average
 Wall time at this load moves by 2–4× between runs of one binary; CPU time is
 the number to compare. Shared glue takes the server binary another 18% down and
 leaves CPU time inside the noise.
+
+### 6.13 Front ends on the pool, 2026-10-03
+
+`buri test` used to type-check and monomorphize every suite on the main thread,
+because syntax trees, the source map and the parse cache were `Rc`. They are
+`Arc` now. The main thread still loads each suite, so file ids keep a fixed
+order. A worker then checks it, monomorphizes it, and goes straight on to build
+and run it:
+
+```text
+main thread   plan → load suite 1 → load suite 2 → …        → report in label order
+worker        check 1 → monomorphize 1 → link 1 → run 1
+worker                   check 2 → monomorphize 2 → link 2 → run 2
+```
+
+One standard library snapshot serves the whole process instead of one per
+thread. Workers get the source map as one shared copy (`SourceMap::shared`),
+taken again only after the map grows. Analyses the lint never reads are freed
+off the main thread.
+
+A front end and its back end are one heavy job, so the memory cap now covers
+front ends too: at most `builds_of` suites hold a whole analysis or program at
+once. The pool claims that room when a worker takes a heavy job, not when it's
+queued. Queueing never waits, so a batch can queue its groups while it holds
+its own.
+
+The single-threaded cost of `Arc` is inside the noise. Interleaved runs of
+both bench binaries at load average 30–70, best of the rounds:
+
+| row | before | after |
+|---|---:|---:|
+| `mixed/10k` sema | 10.50 ms | 9.64 ms |
+| `mixed/100k` sema | 88.17 ms | 84.01 ms |
+| `mixed/100k` lex+parse | 21.18 ms | 21.02 ms |
+| `struct-heavy/10k` sema, five rounds | 9.03 ms | 8.55 ms |
+| the snapshot, once | 4.3–4.6 ms | 4.2–4.6 ms |
+
+The profiled monorepo's copy (1,768 tests; 12 suites fail to compile in the
+copy itself), release toolchains, two interleaved rounds at load average 20–88:
+
+| `buri test //...` | before | after |
+|---|---:|---:|
+| cold, wall | 17.8–20.8 s | 17.8–20.0 s |
+| cold, CPU (user) | 47.0–47.5 s | 47.1–49.7 s |
+| cold, peak memory | 1,293–1,299 MB | 1,368–1,393 MB |
+| warm, wall | 1.20–1.25 s | 0.72–0.75 s |
+| warm, peak memory | 147 MB | 282–291 MB |
+| a body edit in `//libs/ui/theme`, wall | 5.39–5.68 s | 5.31–5.32 s |
+| a body edit, peak memory | 891 MB | 891 MB |
+
+Output is byte-identical, diagnostics included. A warm pass still re-checks
+the 12 broken suites, since only a clean run is cached; those now check four at
+a time, which is both the speedup and the extra peak memory. A cold pass isn't
+front-end bound on this repository: the profile puts its long poles in building
+the generator tools while the session opens and in the test processes
+themselves. With room
+for ten builds (`BURI_TEST_MEMORY_BYTES`) the edit pass drops to 4.9–5.2 s and
+cold stays where it is.
+
+So the budget is now bytes, not builds. Run one at a time, a suite's build adds
+25–440 MB to the peak, and the batch of 58 suites peaks at 1.9 GB for the whole
+run. Each build is queued with `64 MB + 400 × its repository source bytes`, an
+upper bound on every one of those, and the builds in flight share half the
+machine's memory. On 32 GB that is room for every worker.
+
+The generator tools weren't the cold pass's long pole either: building all
+five took 0.6 s. Running them did. The session asked the `proto` check about 33
+schemas one process at a time, then ran each rule one after another, for 6.1 s
+of `open_at` under load. Rules now run in rounds, side by side, with a rule's
+checks side by side too, and the same `open_at` takes 1.9 s.
+
+### 6.14 Lex+parse breaks its plateau, 2026-10-03
+
+`mixed/100k`, `main` at `2bc82d3f` against `perf/lex-parse`, alternated
+A/B/A/B/A/B on one machine at load 21–25. The first `main` leg read ±36.7% and
+went in the bin.
+
+| | `main` | after | Δ in rate |
+|---|---:|---:|---:|
+| lex | 7.93 M lines/s | **14.77 M** | **+86%** |
+| lex+parse | 4.77 M lines/s | **7.44 M** | **+56%** |
+| lex+parse, fastest sample | 21.03 ms | 12.89 ms | |
+| lex peak RSS (`--rss`) | 29.4 MB | 28.0 MB | −4.8% |
+| lex+parse peak RSS | 38.9 MB | 37.7 MB | −3.1% |
+| token buffer | 13 B/token | 12 B/token | |
+
+This machine read 6.36 M lines/s for `main`'s ancestor on a quiet day and
+4.77 M today, so 7.44 M is 1.34× short of the goal here and about at it on the
+quiet day's scale. Somebody should re-take §6.1 on a quiet machine.
+
+**The lexer was the bigger half, and branches were its cost.** A profile put
+`lex` at 54% of the phase, and allocation at 13%. Removing every doc comment's
+`String` saved 3%, so allocation was not the lever. Each change below is
+`cli/benches/corpora/mixed-10k` through `parse`, the fastest of 2 s of
+repetitions, alternated three or four times:
+
+| Change | lex | lex+parse | load |
+|---|---:|---:|---:|
+| Keywords through a perfect hash: one multiply, one load, one compare | −40% | −24% | 65 |
+| The `expect` family, `enter` and `link` inline their right path, and call a cold function to report | | −8.5% | 38 |
+| One `match` per token: trivia, literals, words and punctuators share one dispatch | −5.8% | −4.9% | 35 |
+| A run of blanks stepped over in one loop | −3.7% | −1.5% | ~100 |
+| One 12-byte record per token instead of three columns | −2% | ±0 | 55 |
+| A word's key read in one 8-byte load | −1% | −1.5% | 17 |
+| Operator table keyed on `TokenKind`; `postfix_ops` checks for an operator first | | −1% | 24 |
+| Arenas sized from the token count, at what `mixed` writes per token plus a tenth | | ±0 | 54 |
+
+The keyword change is out of all proportion to the `memcmp` it removed, which
+was 8% of the profile. The old `match` on a `&str` was a length switch and a
+chain of compares, so most of the gain is mispredictions that went with it.
+
+Arena sizing bought no time, and cut reallocations from 231 to 144 per 1,000
+lines. Its first version reserved half again what a file needs and raised the
+lex+parse peak to 41.3 MB; the per-arena figures fixed that.
+
+**What is left.** The lexer is still half the phase. Allocation is 940 per
+1,000 lines, and most of the parser's share is declarations: a `Box` per item,
+a `Vec` per parameter list, and a `String` per doc line. Moving those into the
+tree's arenas changes every consumer of the syntax tree, so it waits for a
+change that can own that.
+
+### 6.15 Analyses share the snapshot's tables, 2026-10-03
+
+`Checker::resume` used to deep-copy the snapshot's tables, scopes, bodies and
+constants into every analysis. A snippet analysis copies the whole checked
+library. Timers around `resume` and `run` over the 7,000 analyses of
+`a_syntax_error_does_not_become_a_type_error` put **59%** of checker time in
+the copy: 2.7 ms per analysis, against 1.9 ms of checking.
+
+Now each table keeps the base's entries behind an `Arc` and the analysis's own
+after them (`semantics/layered.rs`):
+
+```rust
+pub struct Layered<T> { base: Arc<[T]>, own: Vec<T> }          // fns, tycons, traits, scopes…
+pub struct IdMap<I, T> { base: Arc<[Option<T>]>, own: Vec<Option<T>>, replaced: HashMap<usize, T> }
+pub struct LayeredMap<K, V> { base: Arc<HashMap<K, V>>, own: HashMap<K, V> }  // impls
+```
+
+Ids keep running after the base's, so an id means the same entry in either
+half. Resuming costs a reference count per table. `IdMap` holds bodies,
+constants, the method table and each type's traits: one slot per id, walked in
+id order. `replaced` holds the base entries an analysis rewrites, such as
+bodies style extraction rewrites, or a method added to a base type.
+
+Each change below is measured A/B against the one before. "Instructions" is the
+recovery test's `instructions retired` from `/usr/bin/time -l`: it doesn't move
+with load, and the load stayed between 20 and 110 all afternoon. Allocations
+are `--alloc` on `sema`.
+
+| Change | Recovery test: instructions, CPU | `mixed-1k` / `mixed-10k` allocations |
+|---|---:|---:|
+| `main` | 175.8 G, 25.4 s | 63,850 / 194,362 |
+| Layered tables instead of the copy | 42.2 G, 5.6 s | |
+| Passes after checking start at the base's last id; style extraction skips anything with no style in it | 35.4 G, 3.2 s | 54,742 / 185,258 |
+| Resolve a body in place; locals in one flat list of name hashes; no copy of the `FnInfo` per body | 30.1 G, 3.3 s | 44,853 / 153,474 |
+| Unify borrows what no variable stood for; literal checks borrow their spelling | | 40,622 / 144,644 |
+| The base keeps the prelude; known names are recorded once | 29.0 G, 3.1 s | |
+| Methods and conformances in an `IdMap` | 28.6 G, 3.1 s | 40,578 / 144,601 |
+
+The first two rows ran before `main`'s lex+parse and driver changes merged
+in. Those took the starting point from 179.0 G to 175.8 G.
+
+| End to end, `main` against all of it | before | after |
+|---|---:|---:|
+| recovery test, wall | 4.0–4.6 s | 0.56 s |
+| recovery test, peak memory | 323–327 MB | 242 MB |
+| `sema` floor | 2.89–3.02 ms | 2.01–2.08 ms |
+| `mixed/1k` sema | 3.77–4.03 ms | 2.83 ms |
+| the snapshot, once | 4.7–5.1 ms | 3.8–3.9 ms |
+| `saved:mixed-10k` sema peak RSS (`--rss`) | 27.5 MB | 26.3 MB |
+| cold `buri test //...` on the monorepo copy, wall / CPU | 48–50 s / 127 s | 47–49 s / 125–128 s |
+| cold `buri test //...`, peak memory | 2,042–2,067 MB | 2,006–2,034 MB |
+
+A cold `buri test` doesn't move, which matches §6.13: it isn't front-end bound.
+Its JavaScript and generator outputs are byte-identical once each test
+library's `$t.seed` is masked; the seed hashes the toolchain's identity, so a
+different binary changes it.
+
+The style pass got cheap because extraction only rewrites a style or a list of
+them. A body with neither is left alone, so it stays shared instead of being
+copied out of the map, and the base stops handing every constant back to each
+analysis.
+
+**What's left.** Three quarters of what checking still allocates is building
+the typed tree and copying `Ty`s. `Ty` is 40 bytes, and the commonest
+allocation is one 40-byte `Ty` behind a `Box` or in a one-element `Vec`.
+Interning types to `u32` ids would remove most of it, and so would boxing
+`Ty::Fn`'s two fields, which takes `Ty` to 32 bytes. Both change a type the
+middle end and every backend match on, so they wait for a change that owns
+those too.
+
+Native objects aren't reproducible across two cold runs of one `main` binary
+in this repository: same cache key, different bytes. That is why the native
+half of the output wasn't compared above.
+
+### 6.16 Declarations move into the tree's arenas, 2026-10-03
+
+§6.14 left the parser allocating per declaration. Now nothing in a declaration
+owns heap memory:
+
+```rust
+pub struct FnDecl { name: Name, generics: List<GenericParam>, params: List<Param>, docs: Docs, .. }
+pub enum Item { Fn(FnDecl), Struct(StructDecl), .. }   // inline, 72 bytes; was Fn(Box<FnDecl>)
+for p in tree.list(d.params) { .. }                     // was `for p in &d.params`
+tree.doc_lines(d.docs)                                  // was `d.docs: Vec<String>`
+```
+
+- `module.items` is the item arena: one `Vec` per file instead of a `Box` per declaration.
+- Parameters, generics, fields, tuple fields, variants, methods and import names
+  are `List<T>` ranges into arenas on `flat::Tree`. `Tree::list` picks the arena by `T`.
+- A doc line is the location of its text. The lexer writes every `///` line into
+  one `Vec<Location>`, and the tree adopts it whole.
+
+Every consumer reads through `tree.list` and `tree.doc_lines`: the checker, the
+formatter, the language server, `buri docs`, lint, tool contracts and the
+module loader. A cold build of all 365 repositories under `cli/tests/repositories`
+prints the same bytes on both binaries, and the worked example builds identical
+native objects.
+
+`main` at `828a8361` against `perf/ast-arenas`, alternated A/B three times. The
+timing rounds ran at load 26–34, `--rss` at 62–81 and the repositories at 78–87.
+Times are the fastest sample.
+
+| | `main` | after | Δ |
+|---|---:|---:|---:|
+| `mixed/100k` lex | 6.73–6.75 ms | 5.99–6.19 ms | −10% |
+| `mixed/100k` lex+parse | 13.25–13.34 ms | 11.94–12.13 ms | **−9.5%** |
+| `mixed/100k` lex+parse rate | 7.60 M lines/s | **8.39 M** | +10% |
+| `saved:mixed-10k` lex+parse | 1.28–1.33 ms | 1.16–1.20 ms | −9% |
+| `mixed/100k` sema | 70.5–70.7 ms | 69.6–71.7 ms | flat |
+| `saved:mixed-10k` lex+parse allocations | 1,055 per 1k lines | **389** | −63% |
+| `saved:mixed-10k` lex allocations | 490 per 1k lines | 177 | −64% |
+| `saved:mixed-1k` lex+parse allocations | 1,131 per 1k lines | 448 | −60% |
+| `mixed/100k` lex+parse peak RSS | 37.5 MB | 34.1 MB | −9% |
+| `mixed/100k` lex peak RSS | 27.9 MB | 25.0 MB | −10% |
+| `mixed/100k` sema peak RSS | 134.1 MB | 132.0 MB | −1.6% |
+| recovery test, instructions | 34.10–34.14 G | 33.88–33.97 G | −0.5% |
+| recovery test, peak memory | 222–257 MB | 214–251 MB | noise |
+| cold `buri build` of the 365 repositories, CPU (user) | 16.9–17.5 s | 17.4–17.6 s | flat |
+| cold `buri build //...` of `cli/tests/example`, CPU (user) | 1.14–1.20 s | 1.13–1.15 s | flat |
+
+The lexer gained the most. It used to copy each doc line into a `String` and
+move the run into the trivia table; now it pushes a location. Sema doesn't move:
+its allocations are 14,245 per 1k lines either way, and reading a list through
+`tree.list` costs it nothing measurable. The cold builds aren't front-end bound,
+as §6.13 found.
+
+**What's left.** Lex+parse allocates 389 times per 1,000 lines. Most of that is
+the lexer's trivia table, which still holds a `Vec<Comment>` and a `String` per
+ordinary comment, and the cooked text of string literals, an import's path and a
+test's name included.
+
+### 6.17 JavaScript emission, 2026-10-03
+
+JS emit was 62% of `lower+js` on `mixed/100k`, all on one thread, and 40% of
+it was `malloc`. On `mixed/1k`, half of it was `collect_idents_raw` rescanning
+the 340 KB runtime four times a build, with a `String` per identifier. Six
+changes, each measured A/B against the one before:
+
+| Change | Commit | What it bought |
+|---|---|---|
+| Each runtime declaration carries its identifiers, scanned once a process; identifier walks borrow names | `b9edfaa00` | `lower` floor 3.9 → 0.5 ms; `mixed/1k` `lower+js` 7.2–7.5 → 4.0–4.1 ms |
+| `distinct` keys switch labels in a hash set | `918e5fa81` | `wide-match/40k` `lower+js` 13.2 G → 2.6 G instructions; now linear |
+| Fold, clean and `switches` per top-level statement on `parallel::map`; mangling too | `c8b37efd4` | `mixed/100k` emit 268–293 → 187 ms |
+| Each function generated on a worker; `merge_identical` keys a tree, not its printed text | `9dfd77111` | `mixed/100k` emit 154 ms |
+| Rewrites and the simplifying constructors keep their boxes; one map of compact records in local cleanup | `f216959a6` | `mixed/100k` 4.68 G → 3.79 G instructions (−19%); emit 124 ms |
+| Programs under 64 functions stay on one thread | `6904f19e9` | floor 1.1 → 0.5 ms again |
+
+Output is byte-identical: every corpus in `--quick --set=full`, plus
+`mixed/100k` and `wide-match/20k`, debug and release, diffed against `main`.
+
+A generated function's constants are numbered on its worker from `$k0`, and
+`Gen::adopt` renames them into the program's table in function order. That's
+the order one generator would have numbered them in, so the names don't move.
+
+| End to end | before | after |
+|---|---:|---:|
+| `mixed/1k` `lower+js`, fastest sample | 7.2–7.5 ms | 3.5–3.7 ms |
+| `mixed/100k` `lower+js`, fastest sample | 409 ms | 246 ms |
+| `mixed/100k` emit, split | 273 ms | 124–129 ms |
+| `mixed/100k` peak RSS after `lower+js` | 307 MB | 305 MB |
+
+Those rows ran at load 10–16. `wide-match` ran at load 50–110, so its
+scaling is read off instructions retired (`/usr/bin/time -l`, a `lower+js`
+child minus a `sema` child), which don't move with load:
+
+| `wide-match` lines | before | after | peak RSS before / after |
+|---:|---:|---:|---:|
+| 2.5k | 284 M | 165 M | 30 / 28 MB |
+| 5k | 570 M | 272 M | 44 / 43 MB |
+| 10k | 1,385 M | 489 M | 73 / 70 MB |
+| 20k | 4,013 M | 915 M | 135 / 117 MB |
+| 40k | 13,245 M | 1,791 M | 245 / 231 MB |
+
+Each doubling now costs 1.7–1.9×, where it cost 2.4–3.3×.
+
+**What's left.** On `mixed/100k` the serial part of emission is
+`rc::sharing` and the final `print`. Printing in parallel needs `emit_with`
+to ask for it, since `print` also runs on case bodies inside the workers.
+`Expr` is 56 bytes because `ArrowBlock` holds two `Vec`s inline, and
+`Stmt::If` is about 104; boxing those payloads shrinks every node, but
+`crossing.rs` builds them too.
 
 ## 7. Profiling, on this platform
 

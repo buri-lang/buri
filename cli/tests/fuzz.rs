@@ -665,7 +665,7 @@ fn safety_in_process(input: &str, cache: &mut buri::parsing::parser::Cache) -> O
         std::hint::black_box(textproto::parse(input, FileId(0)));
         let mut map = SourceMap::new();
         let analysis =
-            driver::analyze_snippet_in(None, &mut map, cache, "main", input, Role::Entry);
+            driver::analyze_snippet_on(None, None, &mut map, cache, "main", input, Role::Entry, None);
         for d in &analysis.diagnostics.items {
             std::hint::black_box(map.render(d, false));
         }
@@ -2333,7 +2333,7 @@ fn program_compiles(program: &generate::Program) -> Option<String> {
     let snapshot = snapshot::of(Opening::Builtin, true);
     diagnostics.extend(snapshot.diagnostics.items.iter().cloned());
     let loaded = {
-        let mut loader = Loader::seeded(None, &mut map, &mut diagnostics, &mut cache, &snapshot);
+        let mut loader = Loader::seeded(None, &mut map, &mut diagnostics, &mut cache, snapshot);
         loader.load_builtin_modules();
         let last = program.modules.len().saturating_sub(1);
         for (i, m) in program.modules.iter().enumerate() {

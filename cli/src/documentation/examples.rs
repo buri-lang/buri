@@ -994,7 +994,7 @@ fn run_block_in(
         _ => None,
     };
     if let Some(want) = pinned {
-        match driver::run_snippet_in(workspace, map, &name, &base.text) {
+        match driver::run_snippet(workspace, map, &name, &base.text) {
             Ok(stdout) => {
                 if &stdout != want {
                     failures.push(Failure {
@@ -1049,7 +1049,7 @@ fn lint_codes_in(root: &std::path::Path, source: &str) -> Result<Vec<String>, St
         map,
         parsed: crate::parsing::parser::Cache::new(),
         diagnostics,
-        workspace: std::rc::Rc::new(workspace),
+        workspace: std::sync::Arc::new(workspace),
         rendering: crate::build::session::Rendering::Human { color: false },
     };
     let mut codes = Vec::new();
@@ -1108,14 +1108,14 @@ fn prepared(
     root: &std::path::Path,
     workspace: crate::build::workspace::Workspace,
     map: &SourceMap,
-) -> std::rc::Rc<crate::build::workspace::Workspace> {
-    let workspace = std::rc::Rc::new(workspace);
+) -> std::sync::Arc<crate::build::workspace::Workspace> {
+    let workspace = std::sync::Arc::new(workspace);
     let mut session = crate::build::session::Session {
         root: root.to_path_buf(),
         map: map.clone(),
         parsed: crate::parsing::parser::Cache::new(),
         diagnostics: crate::diagnostics::Diagnostics::new(),
-        workspace: std::rc::Rc::clone(&workspace),
+        workspace: std::sync::Arc::clone(&workspace),
         rendering: crate::build::session::Rendering::Human { color: false },
     };
     crate::build::generators::prepare(
@@ -1140,7 +1140,7 @@ fn run_file_with(
     // One `Workspace` per repository named in this document, not per block:
     // loading a monorepo reads every build file in it, and running its
     // generators runs a program per rule that declares one.
-    let mut repos: HashMap<String, Option<std::rc::Rc<crate::build::workspace::Workspace>>> =
+    let mut repos: HashMap<String, Option<std::sync::Arc<crate::build::workspace::Workspace>>> =
         HashMap::new();
 
     for block in &extracted.blocks {

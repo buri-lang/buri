@@ -12,7 +12,7 @@
 //!   resumes template text by which of the two is on top.
 
 use crate::diagnostics::{Diagnostic, FileId, Invariant as _, Span};
-use crate::parsing::flat::Location;
+use crate::parsing::flat::{Docs, Location};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Keyword {
@@ -106,54 +106,141 @@ impl Keyword {
         }
     }
 
-    /// What an identifier-shaped word is.
-    ///
-    /// One `match` over the keywords *and* the reserved words rather than a
-    /// keyword lookup followed by a scan of [`RESERVED`]: the scan ran for
-    /// every ordinary identifier, which is most words in a file, and rustc
-    /// lowers a single `match` on a `&str` to a switch on the length and a
-    /// short chain of comparisons within it.
-    fn from_str(s: &str) -> Option<Word> {
-        Some(Word::Keyword(match s {
-            "async" | "await" | "break" | "continue" | "do" | "in" | "is" | "loop" | "module"
-            | "mut" | "opaque" | "panic" | "pub" | "return" | "unreachable" | "use" | "when"
-            | "where" | "while" | "with" | "yield" => return Some(Word::Reserved),
-            "as" => Keyword::As,
-            "const" => Keyword::Const,
-            "context" => Keyword::Context,
-            "ctx" => Keyword::Ctx,
-            "derive" => Keyword::Derive,
-            "effect" => Keyword::Effect,
-            "else" => Keyword::Else,
-            "enum" => Keyword::Enum,
-            "export" => Keyword::Export,
-            "false" => Keyword::False,
-            "fn" => Keyword::Fn,
-            "for" => Keyword::For,
-            "from" => Keyword::From,
-            "if" => Keyword::If,
-            "impl" => Keyword::Impl,
-            "import" => Keyword::Import,
-            "let" => Keyword::Let,
-            "match" => Keyword::Match,
-            "self" => Keyword::SelfValue,
-            "Self" => Keyword::SelfType,
-            "struct" => Keyword::Struct,
-            "test" => Keyword::Test,
-            "trait" => Keyword::Trait,
-            "true" => Keyword::True,
-            "type" => Keyword::Type,
-            _ => return None,
-        }))
-    }
 }
 
-/// What [`Keyword::from_str`] found: a keyword, or a word reserved but unused
-/// in v0.3 and rejected by the lexer so that later versions can claim it
-/// without breaking source compatibility.
+/// What an identifier-shaped word is, when it is not an identifier: a token
+/// of its own — a keyword, or `_` — or a word reserved but unused in v0.3 and
+/// rejected by the lexer so that later versions can claim it without breaking
+/// source compatibility.
+#[derive(Clone, Copy)]
 enum Word {
-    Keyword(Keyword),
+    Kind(TokenKind),
     Reserved,
+}
+
+/// The words [`Word::of`] knows, written once.
+///
+/// "unreachable" is the one reserved word longer than the eight bytes a key
+/// holds, so it is not in the table and [`Word::of`] asks for it by name.
+const WORDS: &[(&[u8], Word)] = &[
+    (b"_", Word::Kind(TokenKind::Underscore)),
+    (b"as", Word::Kind(TokenKind::KeywordAs)),
+    (b"const", Word::Kind(TokenKind::KeywordConst)),
+    (b"context", Word::Kind(TokenKind::KeywordContext)),
+    (b"ctx", Word::Kind(TokenKind::KeywordCtx)),
+    (b"derive", Word::Kind(TokenKind::KeywordDerive)),
+    (b"effect", Word::Kind(TokenKind::KeywordEffect)),
+    (b"else", Word::Kind(TokenKind::KeywordElse)),
+    (b"enum", Word::Kind(TokenKind::KeywordEnum)),
+    (b"export", Word::Kind(TokenKind::KeywordExport)),
+    (b"false", Word::Kind(TokenKind::KeywordFalse)),
+    (b"fn", Word::Kind(TokenKind::KeywordFn)),
+    (b"for", Word::Kind(TokenKind::KeywordFor)),
+    (b"from", Word::Kind(TokenKind::KeywordFrom)),
+    (b"if", Word::Kind(TokenKind::KeywordIf)),
+    (b"impl", Word::Kind(TokenKind::KeywordImpl)),
+    (b"import", Word::Kind(TokenKind::KeywordImport)),
+    (b"let", Word::Kind(TokenKind::KeywordLet)),
+    (b"match", Word::Kind(TokenKind::KeywordMatch)),
+    (b"self", Word::Kind(TokenKind::KeywordSelfValue)),
+    (b"Self", Word::Kind(TokenKind::KeywordSelfType)),
+    (b"struct", Word::Kind(TokenKind::KeywordStruct)),
+    (b"test", Word::Kind(TokenKind::KeywordTest)),
+    (b"trait", Word::Kind(TokenKind::KeywordTrait)),
+    (b"true", Word::Kind(TokenKind::KeywordTrue)),
+    (b"type", Word::Kind(TokenKind::KeywordType)),
+    (b"async", Word::Reserved),
+    (b"await", Word::Reserved),
+    (b"break", Word::Reserved),
+    (b"continue", Word::Reserved),
+    (b"do", Word::Reserved),
+    (b"in", Word::Reserved),
+    (b"is", Word::Reserved),
+    (b"loop", Word::Reserved),
+    (b"module", Word::Reserved),
+    (b"mut", Word::Reserved),
+    (b"opaque", Word::Reserved),
+    (b"panic", Word::Reserved),
+    (b"pub", Word::Reserved),
+    (b"return", Word::Reserved),
+    (b"use", Word::Reserved),
+    (b"when", Word::Reserved),
+    (b"where", Word::Reserved),
+    (b"while", Word::Reserved),
+    (b"with", Word::Reserved),
+    (b"yield", Word::Reserved),
+];
+
+/// A word of at most eight bytes as one integer: its bytes little-endian,
+/// zero above the last. An identifier byte is never zero, so two words have
+/// the same key exactly when they are the same word.
+const fn word_key(word: &[u8]) -> u64 {
+    let mut key = 0u64;
+    let mut shift = 0u32;
+    let mut rest = word;
+    while let [b, tail @ ..] = rest {
+        key |= (*b as u64).wrapping_shl(shift);
+        shift = shift.wrapping_add(8);
+        rest = tail;
+    }
+    key
+}
+
+/// The multiplier of the hash that puts every key in [`WORDS`] in a slot of
+/// its own. Found by search; [`WORD_TABLE`] refuses to build, at compile time,
+/// if a new word collides, and then a new multiplier is needed.
+const WORD_HASH: u64 = 0x7e30_9881_fd1e_fd3b;
+const WORD_SLOTS: usize = 128;
+
+const fn word_slot(key: u64) -> usize {
+    key.wrapping_mul(WORD_HASH).wrapping_shr(57) as usize
+}
+
+/// [`WORDS`], addressed by [`word_slot`]. A slot holds its word's key, so a
+/// lookup is one multiply, one load and one comparison, against what used to
+/// be a `match` on a `&str` that rustc lowered to calls to `memcmp`.
+const WORD_TABLE: [(u64, Option<Word>); WORD_SLOTS] = {
+    let mut table = [(0u64, None); WORD_SLOTS];
+    let mut rest = WORDS;
+    while let [(word, kind), tail @ ..] = rest {
+        assert!(word.len() <= 8, "a word longer than a key holds");
+        let key = word_key(word);
+        let slot = word_slot(key);
+        match table.split_at_mut_checked(slot) {
+            Some((_, [entry, ..])) => {
+                assert!(entry.1.is_none(), "two words share a slot: find a new WORD_HASH");
+                *entry = (key, Some(*kind));
+            }
+            _ => panic!("a slot past the table"),
+        }
+        rest = tail;
+    }
+    table
+};
+
+impl Word {
+    /// What the identifier-shaped run of `len` bytes at the start of `rest`
+    /// is, or `None` for an ordinary identifier.
+    ///
+    /// `rest` runs on past the word, so that where eight bytes are there the
+    /// key is one load and a mask rather than a loop over the word's bytes.
+    fn of(rest: &[u8], len: usize) -> Option<Word> {
+        let word = rest.get(..len).unwrap_or(&[]);
+        if len > 8 {
+            return (word == b"unreachable").then_some(Word::Reserved);
+        }
+        let key = match rest.first_chunk::<8>() {
+            Some(eight) => {
+                let unused = 64usize.wrapping_sub(len.wrapping_mul(8)) as u32;
+                u64::from_le_bytes(*eight) & u64::MAX.checked_shr(unused).unwrap_or(0)
+            }
+            None => word_key(word),
+        };
+        match WORD_TABLE.get(word_slot(key)) {
+            Some(&(k, found)) if k == key => found,
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -526,8 +613,9 @@ pub struct Comment {
 /// `docs_blank` says nothing when there is no documentation.
 #[derive(Clone, Debug, Default)]
 pub struct Trivia {
-    /// Doc comment lines (`///`) immediately preceding this token.
-    pub docs: Vec<String>,
+    /// Doc comment lines (`///`) immediately preceding this token, as a run
+    /// of [`Lexed::docs`].
+    pub docs: Docs,
     /// Whether a blank line sat above the doc-comment run. It matters only
     /// when ordinary comments came first: a section heading, a blank line, and
     /// then the declaration's own documentation are three things, not one.
@@ -550,33 +638,37 @@ pub struct Trivia {
     pub detached: bool,
 }
 
-/// The token buffer: three parallel columns and three sparse side tables.
+/// The token buffer: one twelve-byte record per token, and sparse side tables.
 ///
 /// A token used to be a forty-eight-byte record — a tagged union wide enough
 /// for a `u128` beside a `Span` — and the buffer is the largest thing the
-/// front end builds, written once by the lexer and read once by the parser. Of
-/// those forty-eight bytes the parser reads one for almost every token it
-/// looks at, so the buffer is columns: the kind stream it walks is dense, the
-/// spans it takes on a `bump` are their own array, and the value of a literal
-/// — which fewer than one token in ten has — is an index into a table beside
-/// them rather than a hole in every token that is not one.
+/// front end builds, written once by the lexer and read once by the parser.
+/// The value of a literal — which fewer than one token in ten has — is an
+/// index into a table beside the records rather than a hole in every token
+/// that is not one, and an identifier is not in the buffer at all, because
+/// its text is the source under its own span.
 ///
-/// Two consequences beyond the width. Nothing in the three columns owns
-/// anything, so dropping the buffer is three `free`s rather than a walk over
-/// every token asking whether it holds a `String`; and an identifier is not in
-/// the buffer at all, because its text is the source under its own span.
+/// After that the buffer was three columns, a kind, a span and a payload,
+/// thirteen bytes a token. One record is smaller, because the payload fits in
+/// the three bytes of padding beside the kind, and it is one store per token
+/// rather than three: the lexer's write side was an eighth of its time. The
+/// parser reads a kind and then, on `bump`, the span beside it, so the two
+/// sharing a cache line costs it nothing.
 ///
-/// The widths are pinned here rather than left to whatever a new field happens
-/// to cost. A field that is empty on almost every token belongs in a side
-/// table keyed by token index, not in a fourth column.
+/// Nothing in a record owns anything, so dropping the buffer is a handful of
+/// `free`s rather than a walk over every token asking whether it holds a
+/// `String`. The width is pinned here rather than left to whatever a new field
+/// happens to cost. A field that is empty on almost every token belongs in a
+/// side table keyed by token index, not in the record.
 pub struct Tokens<'a> {
     src: &'a str,
     file: FileId,
-    kinds: Vec<TokenKind>,
-    locations: Vec<Location>,
-    /// Decoded by kind: an index into `ints`, `floats` or `strs`, the scalar
-    /// value of a character literal, and unread for every other kind.
-    pays: Vec<u32>,
+    records: Vec<Record>,
+    /// Payloads too wide for a record's three bytes, by token index,
+    /// ascending: an index past sixteen million entries, which a file of that
+    /// many literals would need. Searched, and empty in every file anybody
+    /// has written.
+    wide: Vec<(u32, u32)>,
     ints: Vec<u128>,
     floats: Vec<f64>,
     /// Cooked text — a string literal's contents, a template segment's. The
@@ -604,14 +696,25 @@ enum StrEnd {
     Unterminated,
 }
 
-/// What one token costs in the three columns.
-const BYTES_PER_TOKEN: usize = std::mem::size_of::<TokenKind>()
-    .saturating_add(std::mem::size_of::<Location>())
-    .saturating_add(std::mem::size_of::<u32>());
+/// One token as the buffer holds it.
+///
+/// `pay` is decoded by kind: an index into `ints`, `floats` or `strs`, the
+/// scalar value of a character literal, and unread for every other kind. It
+/// is three bytes, little-endian, which holds every scalar value and an index
+/// up to sixteen million; [`WIDE`] stands for one that does not fit.
+#[derive(Clone, Copy)]
+struct Record {
+    loc: Location,
+    kind: TokenKind,
+    pay: [u8; 3],
+}
+
+/// The payload that says "look in `Tokens::wide`".
+const WIDE: u32 = 0x00ff_ffff;
 
 const _: () = assert!(std::mem::size_of::<TokenKind>() == 1);
 const _: () = assert!(std::mem::size_of::<Location>() == 8);
-const _: () = assert!(BYTES_PER_TOKEN == 13);
+const _: () = assert!(std::mem::size_of::<Record>() == 12);
 /// `Token` is a view built on demand and never stored, so its width is a
 /// register-allocation question rather than a memory one. It is pinned anyway,
 /// because a variant that grew past this would mean somebody had put owned
@@ -627,9 +730,8 @@ impl<'a> Tokens<'a> {
         Tokens {
             src,
             file,
-            kinds: Vec::with_capacity(n),
-            locations: Vec::with_capacity(n),
-            pays: Vec::with_capacity(n),
+            records: Vec::with_capacity(n),
+            wide: Vec::new(),
             ints: Vec::new(),
             floats: Vec::new(),
             strs: Vec::new(),
@@ -639,17 +741,21 @@ impl<'a> Tokens<'a> {
 
     #[inline]
     fn push(&mut self, kind: TokenKind, pay: u32, loc: Location) {
-        self.kinds.push(kind);
-        self.locations.push(loc);
-        self.pays.push(pay);
+        let mut word = pay;
+        if pay >= WIDE {
+            self.wide.push((self.records.len() as u32, pay));
+            word = WIDE;
+        }
+        let [a, b, c, _] = word.to_le_bytes();
+        self.records.push(Record { loc, kind, pay: [a, b, c] });
     }
 
     pub fn len(&self) -> usize {
-        self.kinds.len()
+        self.records.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.kinds.is_empty()
+        self.records.is_empty()
     }
 
     /// The kind at `i`, or `Eof` past the end.
@@ -659,7 +765,7 @@ impl<'a> Tokens<'a> {
     /// `Eof` on every path, so in a correct front end the fallback is
     /// unreachable and this is the one place that has to know it.
     pub fn kind(&self, i: usize) -> TokenKind {
-        self.kinds.get(i).copied().unwrap_or(TokenKind::Eof)
+        self.records.get(i).map_or(TokenKind::Eof, |r| r.kind)
     }
 
     /// Whether the token at `i` is a string whose closing `"` is missing.
@@ -674,7 +780,7 @@ impl<'a> Tokens<'a> {
     }
 
     pub fn loc(&self, i: usize) -> Location {
-        self.locations.get(i).copied().unwrap_or_default()
+        self.records.get(i).map(|r| r.loc).unwrap_or_default()
     }
 
     pub fn span(&self, i: usize) -> Span {
@@ -690,7 +796,17 @@ impl<'a> Tokens<'a> {
     }
 
     fn pay(&self, i: usize) -> usize {
-        self.pays.get(i).copied().unwrap_or(0) as usize
+        let Some(r) = self.records.get(i) else { return 0 };
+        let [a, b, c] = r.pay;
+        let word = u32::from_le_bytes([a, b, c, 0]);
+        if word != WIDE {
+            return word as usize;
+        }
+        let at = i as u32;
+        match self.wide.binary_search_by_key(&at, |(t, _)| *t) {
+            Ok(k) => self.wide.get(k).map_or(0, |(_, pay)| *pay as usize),
+            Err(_) => 0,
+        }
     }
 
     pub fn int(&self, i: usize) -> u128 {
@@ -718,7 +834,7 @@ impl<'a> Tokens<'a> {
     }
 
     pub fn ch(&self, i: usize) -> char {
-        char::from_u32(self.pays.get(i).copied().unwrap_or(0)).unwrap_or('\0')
+        char::from_u32(self.pay(i) as u32).unwrap_or('\0')
     }
 
     /// The token at `i`, decoded. See [`Token`].
@@ -752,26 +868,6 @@ impl<'a> Tokens<'a> {
     }
 }
 
-/// One thing a `}` could be closing, innermost last.
-///
-/// This was two coupled fields — a `Vec<u32>` of the brace depth each open
-/// interpolation began at, and a `u32` counter — which had to agree for the
-/// lexer to tell a block's `}` from the one that resumes template text. An
-/// unbalanced `}` clamped the counter with `saturating_sub`, leaving it saying
-/// a smaller depth than the interpolations recorded, and a later `}` closing a
-/// genuine block was then read as "resume the template" — turning the rest of
-/// the file into string content. One stack cannot disagree with itself: the
-/// depth *is* its length, and an unbalanced `}` is a `pop` that finds nothing.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum LexMode {
-    /// An open `{`. Its `}` is a block terminator.
-    Braces,
-    /// An open interpolation hole. Its `}` resumes the template text, and it
-    /// is popped by the `}"` that ends the template rather than by the `}`
-    /// that ends the hole, because a template may have several holes.
-    Interpolation,
-}
-
 pub struct Lexer<'a> {
     src: &'a [u8],
     text: &'a str,
@@ -780,22 +876,38 @@ pub struct Lexer<'a> {
     tokens: Tokens<'a>,
     trivia: Vec<(u32, Trivia)>,
     errors: Vec<Diagnostic>,
-    /// What is currently open, innermost last.
-    modes: Vec<LexMode>,
+    /// The open interpolation holes, innermost last, each with the number of
+    /// `{` opened inside it and not yet closed.
+    ///
+    /// A `}` resumes template text exactly when the innermost hole has no
+    /// brace of its own open; otherwise it closes one of those braces. A brace
+    /// outside every hole is nothing this stack needs to know about, so the
+    /// common file — whose braces are all outside templates — never touches
+    /// it. An unbalanced `}` is a count that is already zero or a stack that
+    /// is empty, and neither can make a later `}` mean something else.
+    ///
+    /// This replaces a stack with an entry per open brace as well as per hole,
+    /// which was a push and a pop for every pair of braces in the file. It
+    /// keeps that stack's guarantee: there is one structure, so there is
+    /// nothing to disagree with.
+    holes: Vec<u32>,
     /// Whether anything is waiting to be attached to the next token: a
     /// documentation line, a comment, or a blank line above it.
     ///
-    /// It is exactly `!pending_docs.is_empty() || !pending_comments.is_empty()
+    /// It is exactly `docs.len() > pending_docs || !pending_comments.is_empty()
     /// || blank_before`, kept as one byte so that the test [`Lexer::push`]
     /// makes for every token in the file is one load rather than three. Every
     /// site that can make it true goes through [`Lexer::hold_blank`] or pushes
     /// onto a pending list beside a `self.has_trivia = true;`, and
     /// [`Lexer::attach_trivia`] is the only place that clears it.
     has_trivia: bool,
-    pending_docs: Vec<String>,
+    /// Every `///` line so far, as the location of its text. The ones from
+    /// `pending_docs` on are waiting for the next token.
+    docs: Vec<Location>,
+    pending_docs: u32,
     pending_docs_blank: bool,
     pending_comments: Vec<Comment>,
-    module_docs: Vec<(String, Span)>,
+    module_docs: Vec<(Location, Span)>,
     blank_before: bool,
     detached: bool,
 }
@@ -807,9 +919,28 @@ pub struct Lexed<'a> {
     /// them appear.
     pub trivia: Vec<(u32, Trivia)>,
     pub errors: Vec<Diagnostic>,
-    /// `//!` lines, with the span of each, in source order. The parser keeps
-    /// the ones before the first item and reports the rest.
-    pub module_docs: Vec<(String, Span)>,
+    /// Every `///` line, as the location of its text — see [`doc_at`]. A
+    /// token's [`Trivia::docs`] is a run of these, and the parser hands the
+    /// whole list to the tree rather than copying a line out of it.
+    pub docs: Vec<Location>,
+    /// `//!` lines, as the location of each line's text and the span of the
+    /// whole comment, in source order. The parser keeps the ones before the
+    /// first item and reports the rest.
+    pub module_docs: Vec<(Location, Span)>,
+}
+
+impl<'a> Lexed<'a> {
+    /// The text of a doc line.
+    pub fn doc(&self, at: Location) -> &'a str {
+        self.tokens.src.get(at.start as usize..at.end as usize).unwrap_or("")
+    }
+
+    /// The text of a token's doc lines.
+    pub fn doc_lines(&self, d: Docs) -> impl Iterator<Item = &'a str> + '_ {
+        let a = d.start as usize;
+        let lines = self.docs.get(a..a.saturating_add(d.len as usize)).unwrap_or(&[]);
+        lines.iter().map(|at| self.doc(*at))
+    }
 }
 
 /// What a source file says to the compiler: each token's kind and spelling,
@@ -829,11 +960,11 @@ pub fn program_text(text: &str) -> Option<Vec<u8>> {
     for i in 0..tokens.len() {
         let loc = tokens.loc(i);
         // A `//!` line is reported when it follows the first item, so where it sits matters.
-        while let Some((line, _)) = module_docs.next_if(|(_, span)| span.start <= loc.start) {
-            out.extend_from_slice(format!("\0//!{i}:{line}\n").as_bytes());
+        while let Some((at, _)) = module_docs.next_if(|(_, span)| span.start <= loc.start) {
+            out.extend_from_slice(format!("\0//!{i}:{}\n", lexed.doc(*at)).as_bytes());
         }
         while let Some((_, above)) = trivia.next_if(|(at, _)| *at as usize == i) {
-            for line in &above.docs {
+            for line in lexed.doc_lines(above.docs) {
                 out.extend_from_slice(b"\0///");
                 out.extend_from_slice(line.as_bytes());
                 out.push(b'\n');
@@ -850,8 +981,8 @@ pub fn program_text(text: &str) -> Option<Vec<u8>> {
         out.extend_from_slice(spelling);
         previous_end = loc.end as usize;
     }
-    for (line, _) in module_docs {
-        out.extend_from_slice(format!("\0//!end:{line}\n").as_bytes());
+    for (at, _) in module_docs {
+        out.extend_from_slice(format!("\0//!end:{}\n", lexed.doc(*at)).as_bytes());
     }
     Some(out)
 }
@@ -863,11 +994,14 @@ pub fn lex(text: &str, file: FileId) -> Lexed<'_> {
         pos: 0,
         file,
         tokens: Tokens::new(text, file),
-        trivia: Vec::new(),
+        // A file whose every declaration is documented writes a run of
+        // comments every few hundred bytes: sized for that, not grown to it.
+        trivia: Vec::with_capacity(text.len() / 512),
         errors: Vec::new(),
-        modes: Vec::new(),
+        holes: Vec::new(),
         has_trivia: false,
-        pending_docs: Vec::new(),
+        docs: Vec::new(),
+        pending_docs: 0,
         pending_docs_blank: false,
         pending_comments: Vec::new(),
         module_docs: Vec::new(),
@@ -879,6 +1013,7 @@ pub fn lex(text: &str, file: FileId) -> Lexed<'_> {
         tokens: l.tokens,
         trivia: l.trivia,
         errors: l.errors,
+        docs: l.docs,
         module_docs: l.module_docs,
     }
 }
@@ -949,13 +1084,17 @@ impl<'a> Lexer<'a> {
         self.trivia.push((
             at,
             Trivia {
-                docs: std::mem::take(&mut self.pending_docs),
+                docs: Docs {
+                    start: self.pending_docs,
+                    len: (self.docs.len() as u32).saturating_sub(self.pending_docs),
+                },
                 docs_blank: self.pending_docs_blank,
                 comments: std::mem::take(&mut self.pending_comments),
                 blank_before: self.blank_before,
                 detached: self.detached,
             },
         ));
+        self.pending_docs = self.docs.len() as u32;
         self.pending_docs_blank = false;
         self.blank_before = false;
         self.detached = false;
@@ -991,23 +1130,210 @@ impl<'a> Lexer<'a> {
         self.push(kind, at, start);
     }
 
+    /// The whole lexer: one `match` per thing read.
+    ///
+    /// Whitespace, comments and every token start are arms of the same
+    /// `match`, so deciding what the next byte begins is one jump per token.
+    /// Skipping trivia used to be a loop of its own in front of the token
+    /// dispatch, and a punctuator a third `match` behind it: three
+    /// unpredictable branches per token where one will do.
     fn run(&mut self) {
+        use TokenKind::*;
+        // The line breaks read since the last comment or token. Two of them
+        // with nothing between is a blank line.
+        let mut newlines = 0usize;
         loop {
-            self.skip_trivia();
-            if self.pos >= self.src.len() {
-                let start = self.pos;
-                self.push(TokenKind::Eof, 0, start);
-                return;
-            }
             let start = self.pos;
             let c = self.peek();
-            match c {
-                b'0'..=b'9' => self.number(start),
-                b'"' => self.string_or_template(start),
-                b'\'' => self.char_literal(start),
-                c if is_ident_start(c) => self.ident(start),
-                _ => self.punctuation(start),
-            }
+            // Whitespace and comments go round again; every other arm reads
+            // one token, and settles what was above it first.
+            let kind = match c {
+                // A run of blanks — an indentation, mostly — is stepped over
+                // in a loop of its own rather than one trip round this
+                // `match` per byte.
+                b' ' | b'\t' | b'\r' => {
+                    self.pos = start.saturating_add(blanks(self.src, start));
+                    continue;
+                }
+                b'\n' => {
+                    newlines = newlines.saturating_add(1);
+                    let next = start.saturating_add(1);
+                    self.pos = next.saturating_add(blanks(self.src, next));
+                    continue;
+                }
+                b'/' if self.peek_at(1) == b'/' => {
+                    self.line_comment(start, newlines >= 2);
+                    newlines = 0;
+                    continue;
+                }
+                b'/' if self.peek_at(1) == b'*' => {
+                    self.block_comment(start, newlines >= 2);
+                    newlines = 0;
+                    continue;
+                }
+                0 if start >= self.src.len() => {
+                    self.gap(newlines);
+                    self.push(Eof, 0, start);
+                    return;
+                }
+                b'0'..=b'9' => {
+                    self.gap(newlines);
+                    self.number(start);
+                    newlines = 0;
+                    continue;
+                }
+                b'"' => {
+                    self.gap(newlines);
+                    self.string_or_template(start);
+                    newlines = 0;
+                    continue;
+                }
+                b'\'' => {
+                    self.gap(newlines);
+                    self.char_literal(start);
+                    newlines = 0;
+                    continue;
+                }
+                b'a'..=b'z' | b'A'..=b'Z' | b'_' => {
+                    self.gap(newlines);
+                    self.ident(start);
+                    newlines = 0;
+                    continue;
+                }
+                b'{' => {
+                    if let Some(open) = self.holes.last_mut() {
+                        *open = open.saturating_add(1);
+                    }
+                    LBrace
+                }
+                b'}' => {
+                    match self.holes.last_mut() {
+                        // The innermost thing open is a hole, so this `}`
+                        // resumes template text rather than terminating a
+                        // block. The hole stays on the stack until the
+                        // template itself ends.
+                        Some(0) => {
+                            self.gap(newlines);
+                            self.pos = start.saturating_add(1);
+                            self.resume_template(start);
+                            newlines = 0;
+                            continue;
+                        }
+                        Some(open) => *open = open.saturating_sub(1),
+                        // No hole is open. This `}` closes a block, or closes
+                        // nothing, which the parser reports where it can say
+                        // what was expected instead; either way nothing after
+                        // it is mis-lexed.
+                        None => {}
+                    }
+                    RBrace
+                }
+                b'(' => LParen,
+                b')' => RParen,
+                b'[' => LBracket,
+                b']' => RBracket,
+                b',' => Comma,
+                b';' => Semi,
+                b':' => self.pair(b':', ColonColon, Colon),
+                b'.' => self.pair(b'.', DotDot, Dot),
+                b'@' => At,
+                b'=' => match self.peek_at(1) {
+                    b'>' => self.wide(FatArrow),
+                    b'=' => self.wide(EqEq),
+                    _ => Eq,
+                },
+                b'!' => self.pair(b'=', BangEq, Bang),
+                b'<' => self.pair(b'=', LtEq, Lt),
+                // No `>>` token: `Wrapper<Wrapper<Int>>` closes with two `>`.
+                b'>' => self.pair(b'=', GtEq, Gt),
+                b'+' => Plus,
+                b'-' => Minus,
+                b'*' => Star,
+                b'/' => Slash,
+                b'%' => Percent,
+                b'&' => self.pair(b'&', AndAnd, And),
+                b'|' => self.pair(b'|', OrOr, Or),
+                b'^' => Caret,
+                b'~' => Tilde,
+                // `??` is not an operator, and is still one token: read as two
+                // `?`s it would be a double `try`, and the parser would report
+                // something other than what was written. There is no `?.`
+                // token, so `x?.field` is `x` `?` `.` `field`.
+                b'?' => self.pair(b'?', QuestionQuestion, Question),
+                _ => {
+                    self.unexpected(start);
+                    continue;
+                }
+            };
+            // A punctuator: one byte, or two where `pair` or `wide` already
+            // stepped over the first.
+            self.gap(newlines);
+            newlines = 0;
+            self.pos = self.pos.saturating_add(1);
+            self.push(kind, 0, start);
+        }
+    }
+
+    /// A punctuator that is `two` when `next` follows its first byte and `one`
+    /// otherwise.
+    fn pair(&mut self, next: u8, two: TokenKind, one: TokenKind) -> TokenKind {
+        if self.peek_at(1) == next {
+            self.wide(two)
+        } else {
+            one
+        }
+    }
+
+    /// A two-byte punctuator: step over the first byte, and the caller steps
+    /// over the second as it would over a one-byte one.
+    fn wide(&mut self, kind: TokenKind) -> TokenKind {
+        self.pos = self.pos.saturating_add(1);
+        kind
+    }
+
+    /// A character the grammar has no use for.
+    ///
+    /// This is where every character outside ASCII arrives — a `×` someone
+    /// typed for multiplication, a non-breaking space a word processor left
+    /// behind. Those are two, three, or four bytes, so the whole scalar is
+    /// taken, which is what makes the message show what was typed and keeps
+    /// the next token from starting inside a character. The code point is
+    /// spelled out because the two characters most likely to reach here are
+    /// invisible.
+    #[cold]
+    #[inline(never)]
+    fn unexpected(&mut self, start: usize) {
+        let shown = self.next_char();
+        let span = self.span(start);
+        self.templated("unexpected-character", span)
+            .bind("character", shown.to_string())
+            .bind("code_point", format!("{:04X}", shown as u32));
+    }
+
+    /// What lay between the last thing read and the token at the cursor.
+    ///
+    /// Almost every token has nothing above it and no blank line before it,
+    /// and then there is nothing to record: `has_trivia` false means no
+    /// comment is waiting and no blank line is held. Everything else is out
+    /// of line.
+    #[inline]
+    fn gap(&mut self, newlines: usize) {
+        if self.has_trivia || newlines >= 2 {
+            self.settle(newlines >= 2);
+        }
+    }
+
+    /// With nothing waiting above the token, a blank line before it is the
+    /// token's own; with a run of comments above it, it is the gap between the
+    /// run and the token, which is what makes a file header a header rather
+    /// than a comment about the first declaration.
+    #[cold]
+    #[inline(never)]
+    fn settle(&mut self, blank: bool) {
+        if self.run_empty() {
+            self.hold_blank(blank);
+        } else {
+            self.detached = blank;
         }
     }
 
@@ -1017,134 +1343,101 @@ impl<'a> Lexer<'a> {
         self.slice(line, at).chars().count() as u32
     }
 
+    /// Whether a `///` line is waiting for the next token.
+    fn docs_pending(&self) -> bool {
+        self.docs.len() as u32 > self.pending_docs
+    }
+
     /// Whether nothing of this token's trivia has been read yet, so a blank
     /// line here is the one above the whole run rather than one inside it.
     fn run_empty(&self) -> bool {
-        self.pending_comments.is_empty() && self.pending_docs.is_empty()
+        self.pending_comments.is_empty() && !self.docs_pending()
     }
 
-    fn skip_trivia(&mut self) {
-        let mut newlines = 0usize;
-        loop {
-            match self.peek() {
-                b' ' | b'\t' | b'\r' => {
-                    self.pos = self.pos.saturating_add(1);
-                }
-                b'\n' => {
-                    newlines = newlines.saturating_add(1);
-                    self.pos = self.pos.saturating_add(1);
-                }
-                b'/' if self.peek_at(1) == b'/' => {
-                    let start = self.pos;
-                    let is_doc = self.peek_at(2) == b'/' && self.peek_at(3) != b'/';
-                    // `//!` documents the module rather than the declaration
-                    // that follows, which is the only comment form that
-                    // attaches upward. It is legal only before the first
-                    // token; `check` reports one that appears later, where a
-                    // reader would take it for a `///` typo.
-                    let is_module_doc = self.peek_at(2) == b'!';
-                    while self.pos < self.src.len() && self.peek() != b'\n' {
-                        self.pos = self.pos.saturating_add(1);
-                    }
-                    let raw = self.slice(start, self.pos);
-                    // Two newlines with nothing between them is a blank line.
-                    // Above the first thing in the run it is the token's; above
-                    // a later comment it is that comment's own paragraph break.
-                    let blank = newlines >= 2;
-                    if is_module_doc {
-                        let span = self.span(start);
-                        self.module_docs.push((doc_body(raw.get(3..).unwrap_or("")), span));
-                    } else if is_doc {
-                        if self.run_empty() {
-                            self.hold_blank(blank);
-                        }
-                        if self.pending_docs.is_empty() {
-                            self.pending_docs_blank = blank;
-                        }
-                        self.pending_docs.push(doc_body(raw.get(3..).unwrap_or("")));
-                        self.has_trivia = true;
-                    } else {
-                        if self.run_empty() {
-                            self.hold_blank(blank);
-                        }
-                        let text = raw.trim_end().to_string();
-                        let column = self.column(start);
-                        self.pending_comments.push(Comment {
-                            text,
-                            blank_before: blank,
-                            column,
-                            offset: start as u32,
-                        });
-                        self.has_trivia = true;
-                    }
-                    newlines = 0;
-                }
-                b'/' if self.peek_at(1) == b'*' => {
-                    let start = self.pos;
-                    self.pos = self.pos.saturating_add(2);
-                    // Block comments nest.
-                    let mut depth = 1usize;
-                    while self.pos < self.src.len() && depth > 0 {
-                        if self.peek() == b'/' && self.peek_at(1) == b'*' {
-                            depth = depth.saturating_add(1);
-                            self.pos = self.pos.saturating_add(2);
-                        } else if self.peek() == b'*' && self.peek_at(1) == b'/' {
-                            depth = depth.saturating_sub(1);
-                            self.pos = self.pos.saturating_add(2);
-                        } else {
-                            self.pos = self.pos.saturating_add(1);
-                        }
-                    }
-                    if depth > 0 {
-                        let span = self.span(start);
-                        self.templated("unterminated-comment", span);
-                    }
-                    let blank = newlines >= 2;
-                    if self.run_empty() {
-                        self.hold_blank(blank);
-                    }
-                    let text = self.slice(start, self.pos).to_string();
-                    let column = self.column(start);
-                    self.pending_comments.push(Comment {
-                        text,
-                        blank_before: blank,
-                        column,
-                        offset: start as u32,
-                    });
-                    self.has_trivia = true;
-                    newlines = 0;
-                }
-                _ => {
-                    // The newlines counted since the last thing read. With an
-                    // empty run that gap is above the token; with a run above
-                    // it, it is the gap between the run and the token, which
-                    // is what makes a file header a header rather than a
-                    // comment about the first declaration.
-                    if self.run_empty() {
-                        self.hold_blank(newlines >= 2);
-                    } else {
-                        self.detached = newlines >= 2;
-                    }
-                    return;
-                }
+    /// A `//` comment from `start` to the end of its line. `blank` is whether
+    /// a blank line sat above it, which is the token's when nothing of the run
+    /// has been read yet and the comment's own paragraph break otherwise.
+    fn line_comment(&mut self, start: usize, blank: bool) {
+        let is_doc = self.peek_at(2) == b'/' && self.peek_at(3) != b'/';
+        // `//!` documents the module rather than the declaration that
+        // follows, which is the only comment form that attaches upward. It is
+        // legal only before the first token; `check` reports one that appears
+        // later, where a reader would take it for a `///` typo.
+        let is_module_doc = self.peek_at(2) == b'!';
+        while self.pos < self.src.len() && self.peek() != b'\n' {
+            self.pos = self.pos.saturating_add(1);
+        }
+        let raw = self.slice(start, self.pos);
+        if is_module_doc {
+            let span = self.span(start);
+            self.module_docs.push((doc_at(start, raw), span));
+        } else if is_doc {
+            if self.run_empty() {
+                self.hold_blank(blank);
+            }
+            if !self.docs_pending() {
+                self.pending_docs_blank = blank;
+            }
+            self.docs.push(doc_at(start, raw));
+            self.has_trivia = true;
+        } else {
+            if self.run_empty() {
+                self.hold_blank(blank);
+            }
+            let text = raw.trim_end().to_string();
+            let column = self.column(start);
+            self.pending_comments.push(Comment {
+                text,
+                blank_before: blank,
+                column,
+                offset: start as u32,
+            });
+            self.has_trivia = true;
+        }
+    }
+
+    /// A `/* */` comment from `start`, nested ones included.
+    fn block_comment(&mut self, start: usize, blank: bool) {
+        self.pos = self.pos.saturating_add(2);
+        let mut depth = 1usize;
+        while self.pos < self.src.len() && depth > 0 {
+            if self.peek() == b'/' && self.peek_at(1) == b'*' {
+                depth = depth.saturating_add(1);
+                self.pos = self.pos.saturating_add(2);
+            } else if self.peek() == b'*' && self.peek_at(1) == b'/' {
+                depth = depth.saturating_sub(1);
+                self.pos = self.pos.saturating_add(2);
+            } else {
+                self.pos = self.pos.saturating_add(1);
             }
         }
+        if depth > 0 {
+            let span = self.span(start);
+            self.templated("unterminated-comment", span);
+        }
+        if self.run_empty() {
+            self.hold_blank(blank);
+        }
+        let text = self.slice(start, self.pos).to_string();
+        let column = self.column(start);
+        self.pending_comments.push(Comment {
+            text,
+            blank_before: blank,
+            column,
+            offset: start as u32,
+        });
+        self.has_trivia = true;
     }
 
     fn ident(&mut self, start: usize) {
-        while is_ident_continue(self.peek()) {
-            self.pos = self.pos.saturating_add(1);
-        }
-        let s = self.slice(start, self.pos);
-        if s == "_" {
-            self.push(TokenKind::Underscore, 0, start);
-            return;
-        }
-        match Keyword::from_str(s) {
-            Some(Word::Keyword(keyword)) => self.push(TokenKind::of_keyword(keyword), 0, start),
+        let rest = self.src.get(start..).unwrap_or(&[]);
+        let len = rest.iter().position(|c| !is_ident_continue(*c)).unwrap_or(rest.len());
+        self.pos = start.saturating_add(len);
+        match Word::of(rest, len) {
+            Some(Word::Kind(kind)) => self.push(kind, 0, start),
             Some(Word::Reserved) => {
                 let span = self.span(start);
-                let word = s.to_string();
+                let word = self.slice(start, self.pos).to_string();
                 self.templated("reserved-word", span).bind("word", word);
                 self.push(TokenKind::Ident, 0, start);
             }
@@ -1370,7 +1663,7 @@ impl<'a> Lexer<'a> {
         let (body, end) = self.scan_str_body();
         if end == StrEnd::Hole {
             self.push_text(TokenKind::TemplateHead, body, start);
-            self.modes.push(LexMode::Interpolation);
+            self.holes.push(0);
         } else {
             self.push_text(TokenKind::Str, body, start);
             self.mark(end);
@@ -1385,8 +1678,8 @@ impl<'a> Lexer<'a> {
         } else {
             self.push_text(TokenKind::TemplateTail, body, start);
             self.mark(end);
-            debug_assert_eq!(self.modes.last(), Some(&LexMode::Interpolation));
-            self.modes.pop();
+            debug_assert_eq!(self.holes.last(), Some(&0));
+            self.holes.pop();
         }
     }
 
@@ -1430,101 +1723,6 @@ impl<'a> Lexer<'a> {
         }
         self.push(TokenKind::Char, c as u32, start);
     }
-
-    /// A two-character token, the first character of which `bump` has already
-    /// taken: this consumes the second.
-    fn second(&mut self, p: Punctuation) -> Punctuation {
-        self.pos = self.pos.saturating_add(1);
-        p
-    }
-
-    fn punctuation(&mut self, start: usize) {
-        use Punctuation::*;
-        let c = self.bump();
-        let two = self.peek();
-        let p = match (c, two) {
-            (b'{', _) => {
-                self.modes.push(LexMode::Braces);
-                LBrace
-            }
-            (b'}', _) => {
-                match self.modes.last() {
-                    // The innermost thing open is a hole, so this `}` resumes
-                    // template text rather than terminating a block. The mode
-                    // stays open until the template itself ends.
-                    Some(LexMode::Interpolation) => {
-                        self.resume_template(start);
-                        return;
-                    }
-                    Some(LexMode::Braces) => {
-                        self.modes.pop();
-                    }
-                    // Nothing is open. This `}` closes nothing, which the
-                    // parser reports where it can say what was expected
-                    // instead; what matters here is that there is no counter
-                    // to clamp, so nothing after it is mis-lexed.
-                    None => {}
-                }
-                RBrace
-            }
-            (b'(', _) => LParen,
-            (b')', _) => RParen,
-            (b'[', _) => LBracket,
-            (b']', _) => RBracket,
-            (b',', _) => Comma,
-            (b';', _) => Semi,
-            (b':', b':') => self.second(ColonColon),
-            (b':', _) => Colon,
-            (b'.', b'.') => self.second(DotDot),
-            (b'.', _) => Dot,
-            (b'@', _) => At,
-            (b'=', b'>') => self.second(FatArrow),
-            (b'=', b'=') => self.second(EqEq),
-            (b'=', _) => Eq,
-            (b'!', b'=') => self.second(BangEq),
-            (b'!', _) => Bang,
-            (b'<', b'=') => self.second(LtEq),
-            (b'<', _) => Lt,
-            (b'>', b'=') => self.second(GtEq),
-            // No `>>` token: `Wrapper<Wrapper<Int>>` closes with two `>`.
-            (b'>', _) => Gt,
-            (b'+', _) => Plus,
-            (b'-', _) => Minus,
-            (b'*', _) => Star,
-            (b'/', _) => Slash,
-            (b'%', _) => Percent,
-            (b'&', b'&') => self.second(AndAnd),
-            (b'&', _) => And,
-            (b'|', b'|') => self.second(OrOr),
-            (b'|', _) => Or,
-            (b'^', _) => Caret,
-            (b'~', _) => Tilde,
-            // `??` is not an operator, and is still one token: read as two `?`s it would be a double `try`,
-            // and the parser would report something other than what was
-            // written.
-            (b'?', b'?') => self.second(QuestionQuestion),
-            // No `?.` token, so `x?.field` is `x` `?` `.` `field`.
-            (b'?', _) => Question,
-            _ => {
-                // `bump` advanced one *byte*, and this arm is where every
-                // character outside ASCII arrives — a `×` someone typed for
-                // multiplication, a non-breaking space a word processor left
-                // behind. Those are two, three, or four bytes, so reporting
-                // the span `bump` left would cut a character in half; taking
-                // the whole scalar is what makes the message show what was
-                // typed. The code point is spelled out because the two
-                // characters most likely to reach here are invisible.
-                self.pos = start;
-                let shown = self.next_char();
-                let span = self.span(start);
-                self.templated("unexpected-character", span)
-                    .bind("character", shown.to_string())
-                    .bind("code_point", format!("{:04X}", shown as u32));
-                return;
-            }
-        };
-        self.push(TokenKind::of_punctuation(p), 0, start);
-    }
 }
 
 /// A numeric literal's digits with the group separators taken out.
@@ -1539,12 +1737,31 @@ fn without_underscores(s: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
-fn is_ident_start(c: u8) -> bool {
-    c == b'_' || c.is_ascii_alphabetic()
+/// How many spaces, tabs and carriage returns `src` has from `at` on.
+fn blanks(src: &[u8], at: usize) -> usize {
+    let rest = src.get(at..).unwrap_or(&[]);
+    rest.iter().position(|c| !matches!(c, b' ' | b'\t' | b'\r')).unwrap_or(rest.len())
 }
 
+/// Which bytes continue a word: a letter, a digit, or `_`. One load per byte
+/// of every identifier in the file, against the three range tests and an
+/// equality a predicate makes. Which bytes *start* one is an arm of
+/// [`Lexer::run`]'s `match`.
+const IDENT_CONTINUE: [bool; 256] = {
+    let mut table = [false; 256];
+    let mut c = 0usize;
+    while c < 256 {
+        let b = c as u8;
+        if let Some((_, [entry, ..])) = table.split_at_mut_checked(c) {
+            *entry = b == b'_' || b.is_ascii_alphanumeric();
+        }
+        c = c.wrapping_add(1);
+    }
+    table
+};
+
 fn is_ident_continue(c: u8) -> bool {
-    c == b'_' || c.is_ascii_alphanumeric()
+    IDENT_CONTINUE.get(usize::from(c)).copied().unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -1562,6 +1779,23 @@ mod keyword_tests {
         assert_eq!(texts.len(), Keyword::ALL.len(), "`ALL` repeats a keyword");
         // `self` and `Self` differ only in case, so the count is the guard.
         assert_eq!(Keyword::ALL.len(), 25, "a keyword was added without updating `ALL`");
+    }
+
+    /// The lexer finds a keyword through its own table, [`super::WORDS`], so
+    /// each keyword has to be in it and lex to its own kind.
+    #[test]
+    fn every_keyword_lexes_as_itself() {
+        // Alone, and with enough after it that the key is read eight bytes at
+        // a time; and one letter longer, which is an identifier.
+        for k in Keyword::ALL {
+            for text in [k.text().to_string(), format!("{} padding", k.text())] {
+                let l = super::lex(&text, crate::diagnostics::FileId(0));
+                assert_eq!(l.tokens.kind(0), super::TokenKind::of_keyword(*k), "{text}");
+            }
+            let longer = format!("{}x padding", k.text());
+            let l = super::lex(&longer, crate::diagnostics::FileId(0));
+            assert_eq!(l.tokens.kind(0), super::TokenKind::Ident, "{longer}");
+        }
     }
 }
 
@@ -1607,6 +1841,20 @@ mod tests {
         let l = lex(src, FileId(0));
         assert!(l.errors.is_empty(), "unexpected errors: {:?}", l.errors);
         l.tokens.tokens().collect()
+    }
+
+    /// A payload too wide for a record's three bytes goes to the side table
+    /// and comes back whole, and its neighbours are not disturbed.
+    #[test]
+    fn a_payload_past_three_bytes_comes_back_whole() {
+        let mut t = Tokens::new("", FileId(0));
+        let at = Location { start: 0, end: 0 };
+        t.push(TokenKind::Int, 7, at);
+        t.push(TokenKind::Int, super::WIDE, at);
+        t.push(TokenKind::Int, u32::MAX, at);
+        t.push(TokenKind::Char, 0x1F642, at);
+        assert_eq!([t.pay(0), t.pay(1), t.pay(2)], [7, super::WIDE as usize, u32::MAX as usize]);
+        assert_eq!(t.ch(3), '🙂');
     }
 
     #[test]
@@ -1722,6 +1970,16 @@ mod tests {
             ]
         );
     }
+}
+
+/// Where a doc line's text is: what [`doc_body`] keeps of the comment `raw`,
+/// written at `start`, as a location rather than a copy.
+fn doc_at(start: usize, raw: &str) -> Location {
+    let after = raw.get(3..).unwrap_or("");
+    let body = after.strip_prefix(' ').unwrap_or(after);
+    let from = start.saturating_add(raw.len().saturating_sub(body.len()));
+    let to = from.saturating_add(body.trim_end().len());
+    Location { start: from as u32, end: to as u32 }
 }
 
 /// The text of a `///` or `//!` line, after the marker.

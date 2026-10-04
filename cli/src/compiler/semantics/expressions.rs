@@ -376,7 +376,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.lit_checks.push(LitCheck {
                     value,
                     negative: false,
-                    raw: raw.to_string(),
+                    raw,
                     ty: ty.clone(),
                     span,
                 });
@@ -668,10 +668,8 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     fn nearest_value(&self, name: &str) -> Option<String> {
-        let mut candidates: Vec<String> =
-            self.scopes.iter().flat_map(|s| s.keys().cloned()).collect();
-        candidates.extend(self.c.scope(self.module).names.keys().cloned());
-        let refs: Vec<&str> = candidates.iter().map(|s| s.as_str()).collect();
+        let mut refs: Vec<&str> = self.scopes.iter().map(|(_, id)| self.local(*id).name.as_str()).collect();
+        refs.extend(self.c.scope(self.module).names.keys().map(String::as_str));
         nearest(name, &refs).map(|s| s.to_string())
     }
 
@@ -2686,7 +2684,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.lit_checks.push(LitCheck {
                     value,
                     negative: true,
-                    raw: raw.to_string(),
+                    raw,
                     ty: ty.clone(),
                     span,
                 });
@@ -3100,7 +3098,6 @@ impl<'a, 'b> Infer<'a, 'b> {
 
         self.push_scope();
         self.lambda_depth = self.lambda_depth.saturating_add(1);
-        let outer_scopes = self.scopes.len();
         // Locals are numbered in the order they are bound, so everything this
         // lambda introduces — its parameters, its `let`s, the names its match
         // arms bind — is at or past this mark, and everything a capture could
@@ -3204,7 +3201,6 @@ impl<'a, 'b> Infer<'a, 'b> {
                 resolved
             }
         });
-        let _ = outer_scopes;
         self.lambda_depth = self.lambda_depth.saturating_sub(1);
         self.pop_scope();
 
@@ -3409,9 +3405,9 @@ fn signature_of_fn(c: &Checker, id: FnId) -> String {
     let info = c.tables.fn_info(id);
     if let Some((module, item)) = info.ast.item() {
         let declared = match (info.ast, c.module(module).ast.items.get(item as usize)) {
-            (AstRef::Item { .. }, Some(tree::Item::Fn(d))) => Some(&**d),
-            (AstRef::Method { sub, .. }, Some(tree::Item::Impl(d))) => d.methods.get(sub as usize),
-            (AstRef::Method { sub, .. }, Some(tree::Item::Trait(d))) => d.methods.get(sub as usize),
+            (AstRef::Item { .. }, Some(tree::Item::Fn(d))) => Some(d),
+            (AstRef::Method { sub, .. }, Some(tree::Item::Impl(d))) => c.tree(module).list(d.methods).get(sub as usize),
+            (AstRef::Method { sub, .. }, Some(tree::Item::Trait(d))) => c.tree(module).list(d.methods).get(sub as usize),
             _ => None,
         };
         if let Some(d) = declared {
@@ -3444,8 +3440,8 @@ fn shape_of_struct(c: &Checker, con: TyConId) -> String {
 fn shape_of_variant(c: &Checker, con: TyConId, index: usize) -> String {
     let info = c.tables.tycon(con);
     let declared = c.module(info.module).ast.items.iter().find_map(|item| match item {
-        tree::Item::Enum(d) if d.name.span == info.span => d
-            .variants
+        tree::Item::Enum(d) if d.name.span == info.span => c
+            .tree(info.module).list(d.variants)
             .get(index)
             .map(|v| crate::formatting::variant(c.tree(info.module), v)),
         _ => None,
@@ -3464,7 +3460,7 @@ fn shape_of_variant(c: &Checker, con: TyConId, index: usize) -> String {
 fn signature_of_trait_method(c: &Checker, tid: TraitId, index: usize) -> String {
     let info = c.tables.trait_(tid);
     let declared = c.module(info.module).ast.items.iter().find_map(|item| match item {
-        tree::Item::Trait(d) if d.name.span == info.span => d.methods.get(index),
+        tree::Item::Trait(d) if d.name.span == info.span => c.tree(info.module).list(d.methods).get(index),
         _ => None,
     });
     match (declared, info.methods.get(index)) {

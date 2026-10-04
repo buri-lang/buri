@@ -14,8 +14,10 @@
 //! invoking `ld` directly. The driver is what knows
 //! where `crt1.o`, `libc`, and `libSystem.tbd` live, which SDK is selected, and
 //! what a `-syslibroot` should be; reimplementing that is reimplementing the
-//! part of a toolchain that changes with every OS release. Which *linker* the
-//! driver then runs is chosen with `-fuse-ld=`:
+//! part of a toolchain that changes with every OS release. The driver is asked
+//! once per toolchain what it would run (`-###`), and later links run that
+//! linker command directly ([`Replay`]); the driver still chose every flag.
+//! Which *linker* the driver runs is chosen with `-fuse-ld=`:
 //!
 //! ```text
 //! linux   cc -fuse-ld=mold  -o A u0.o u1.o libburi_rt.a -Wl,--build-id=none -Wl,--gc-sections \
@@ -1926,75 +1928,36 @@ impl CDriver {
         // the same reason. Relative names make the recorded path
         // `libburi_rt.a(...)`, which is a fact about the link and not about the
         // machine.
-        let staged = self.dir.join("artifact");
-        let mut command = Command::new(&self.driver);
-        command.current_dir(&self.dir);
-        // The parent's environment, unlike every other action this toolchain
-        // spawns (`build/spawn.rs` clears it). A C driver finds its assembler,
-        // its own linker and its SDK through `PATH`, `DEVELOPER_DIR` and
-        // `SDKROOT`, so clearing them would not make the link deterministic —
-        // it would make it fail. What is pinned instead is everything that
-        // could reach the *bytes*.
-        command.env("SOURCE_DATE_EPOCH", spawn::SOURCE_DATE_EPOCH);
-        command.env("TZ", "UTC");
-        command.env("LC_ALL", "C");
-        command.env("ZERO_AR_DATE", "1");
-        if let Some(flag) = self.flavour.driver_flag() {
-            command.arg(flag);
-        }
-        // On a cross link, point the driver at rustc's bundled `ld.lld` for the
-        // `-fuse-ld=lld` above: `-B <gcc-ld dir>` is the directory clang searches
-        // for `ld.lld`, so the toolchain's own lld does the link and no system
-        // one need be on `PATH` (see `select_cross`). `None` on every host link,
-        // so that path's command line is exactly the string it always was.
-        if let Some(dir) = &self.lld_dir {
-            command.arg("-B").arg(dir);
-        }
-        command.arg("-o").arg("artifact");
-        // The prelude — empty on a host link, and the mode flags plus the
-        // crt-begin objects on a cross one — comes before the program's objects
-        // because a link line resolves left to right (see `prelink_args`).
-        command.args(self.prelink_args());
-        for path in &objects {
-            command.arg(path.file_name().unwrap_or(path.as_os_str()));
-        }
-        if runtime.is_linked() {
-            command.arg(runtime_native::ARCHIVE_NAME);
-        }
-        command.args(self.platform_flags());
+        let names: Vec<String> = objects
+            .iter()
+            .map(|path| path.file_name().unwrap_or(path.as_os_str()).to_string_lossy().into_owned())
+            .collect();
+        let args = self.driver_args(&names, runtime);
 
+        // The linker itself, with the command the driver would have run (see
+        // `Replay`). A failure falls through to the driver, which either links
+        // or reports the error in its own words.
+        let replay = self.replay(&args, &names, runtime);
+        if let Some(replay) = &replay {
+            let mut direct = Command::new(&replay.program);
+            self.pin(&mut direct);
+            direct.args(replay.argv(&names));
+            if direct.output().is_ok_and(|done| done.status.success()) {
+                return self.claim(out);
+            }
+        }
+
+        let mut command = Command::new(&self.driver);
+        self.pin(&mut command);
+        command.args(&args);
         let spelled = format!("cd {} && {}", self.dir.display(), command_line(&command));
         match command.output() {
             Ok(status) if status.status.success() => {
-                // Claimed before anything reads it. Two builds of one key share
-                // this directory — the directory *is* the key — so `artifact`
-                // is a name a second process's driver may truncate at any
-                // moment. Renaming it into a name this process owns closes that
-                // window to the length of a rename, where reading a hundred
-                // megabytes back held it open for the length of the read.
-                let claimed = self.claimed();
-                if let Err(e) = std::fs::rename(&staged, &claimed) {
-                    diagnostics.push(Diagnostic::error(
-                        Span::NONE,
-                        format!("the link produced no {}: {e}", staged.display()),
-                    ));
-                    return Err(diagnostics);
+                if replay.is_some() {
+                    // The replay failed where the driver did not, so it is stale.
+                    self.forget_replay(runtime);
                 }
-                if let Err(e) = place_from(&claimed, out) {
-                    // The claim is dropped here rather than left for a
-                    // `Staged` the caller will never be given: a failed link
-                    // owes the link directory no hundred-megabyte file.
-                    let _ = std::fs::remove_file(&claimed);
-                    diagnostics.push(
-                        Diagnostic::error(
-                            Span::NONE,
-                            format!("cannot write {}: {e}", out.display()),
-                        )
-                        .with_fix("check the directory exists and is writable"),
-                    );
-                    return Err(diagnostics);
-                }
-                Ok(())
+                self.claim(out)
             }
             Ok(out) => {
                 let text = String::from_utf8_lossy(&out.stderr);
@@ -2021,6 +1984,306 @@ impl CDriver {
                 );
                 Err(diagnostics)
             }
+        }
+    }
+
+    /// Takes the `artifact` a successful link wrote and puts its bytes at `out`.
+    fn claim(&self, out: &Path) -> Result<(), Diagnostics> {
+        let mut diagnostics = Diagnostics::new();
+        let staged = self.dir.join("artifact");
+        // Claimed before anything reads it. Two builds of one key share this
+        // directory — the directory *is* the key — so `artifact` is a name a
+        // second process's linker may truncate at any moment. Renaming it into
+        // a name this process owns closes that window to the length of a
+        // rename.
+        let claimed = self.claimed();
+        if let Err(e) = std::fs::rename(&staged, &claimed) {
+            diagnostics.push(Diagnostic::error(
+                Span::NONE,
+                format!("the link produced no {}: {e}", staged.display()),
+            ));
+            return Err(diagnostics);
+        }
+        if let Err(e) = place_from(&claimed, out) {
+            // A failed link owes the link directory no hundred-megabyte file.
+            let _ = std::fs::remove_file(&claimed);
+            diagnostics.push(
+                Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", out.display()))
+                    .with_fix("check the directory exists and is writable"),
+            );
+            return Err(diagnostics);
+        }
+        Ok(())
+    }
+
+    /// Runs `command` in the link directory with the environment pinned.
+    ///
+    /// The parent's environment, unlike every other action this toolchain
+    /// spawns (`build/spawn.rs` clears it). A C driver finds its assembler, its
+    /// own linker and its SDK through `PATH`, `DEVELOPER_DIR` and `SDKROOT`, so
+    /// clearing them would make the link fail rather than deterministic. What
+    /// is pinned instead is everything that could reach the *bytes*.
+    fn pin(&self, command: &mut Command) {
+        command.current_dir(&self.dir);
+        command.env("SOURCE_DATE_EPOCH", spawn::SOURCE_DATE_EPOCH);
+        command.env("TZ", "UTC");
+        command.env("LC_ALL", "C");
+        command.env("ZERO_AR_DATE", "1");
+    }
+
+    /// The driver's arguments for a link of these objects, in order.
+    fn driver_args(&self, objects: &[String], runtime: RuntimeArchive) -> Vec<std::ffi::OsString> {
+        let mut args: Vec<std::ffi::OsString> = Vec::new();
+        if let Some(flag) = self.flavour.driver_flag() {
+            args.push(flag.into());
+        }
+        // On a cross link, `-B <gcc-ld dir>` makes `-fuse-ld=lld` find rustc's
+        // bundled `ld.lld`, so no system lld need be on `PATH` (see
+        // `select_cross`).
+        if let Some(dir) = &self.lld_dir {
+            args.push("-B".into());
+            args.push(dir.into());
+        }
+        args.push("-o".into());
+        args.push("artifact".into());
+        // The cross prelude comes before the objects because a link line
+        // resolves left to right (see `prelink_args`).
+        args.extend(self.prelink_args().into_iter().map(Into::into));
+        args.extend(objects.iter().map(Into::into));
+        if runtime.is_linked() {
+            args.push(runtime_native::ARCHIVE_NAME.into());
+        }
+        args.extend(self.platform_flags().into_iter().map(Into::into));
+        args
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Calling the linker directly
+// ---------------------------------------------------------------------------
+
+/// The linker command the driver runs, with the objects cut out.
+///
+/// Every link used to start three processes: the nix `cc` wrapper's bash,
+/// clang, then the linker. clang and lld each pay libLLVM's static
+/// initializers just to start, which was more CPU than compiling hello world.
+/// So the driver is asked once, with `-###`, what it would run:
+///
+/// ```text
+/// cc -### -fuse-ld=lld -o artifact main.o libburi_rt.a -Wl,-dead_strip -Wl,-oso_prefix,.
+///  "/nix/store/…-lld-21.1.7/bin/ld64.lld" "-demangle" "-dynamic" "-arch" "arm64" … "-o" "artifact"
+///      "-L…" "main.o" "libburi_rt.a" "-dead_strip" "-oso_prefix" "." "-lSystem" "…/libclang_rt.osx.a"
+/// ```
+///
+/// and every later link runs that line with its own objects spliced in. The
+/// driver still decides every flag, crt object and library; it just decides
+/// once per toolchain instead of once per link.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Replay {
+    program: PathBuf,
+    /// The linker's arguments up to the first object.
+    before: Vec<String>,
+    /// Its arguments after the last object.
+    after: Vec<String>,
+}
+
+/// Where the objects go in a stored [`Replay`].
+const OBJECTS: &str = "\u{1}objects";
+
+impl Replay {
+    fn argv(&self, objects: &[String]) -> Vec<String> {
+        let mut argv = self.before.clone();
+        argv.extend(objects.iter().cloned());
+        argv.extend(self.after.iter().cloned());
+        argv
+    }
+
+    /// One linker command line from a `-###` run's stderr, cut around
+    /// `objects`.
+    ///
+    /// `None` unless the driver printed exactly one command, every argument
+    /// quoted the way clang quotes them, and the objects appear once, together.
+    /// gcc prints its `collect2` unquoted and so is never replayed: `collect2`
+    /// reads the environment gcc sets up for it.
+    fn from_dry_run(stderr: &str, objects: &[String]) -> Option<Replay> {
+        if stderr.lines().any(|line| line.contains("error:")) {
+            return None;
+        }
+        let mut commands = stderr.lines().filter(|line| line.starts_with(" \""));
+        let (Some(line), None) = (commands.next(), commands.next()) else { return None };
+        let mut argv = unquote(line)?.into_iter();
+        let program = PathBuf::from(argv.next()?);
+        let argv: Vec<String> = argv.collect();
+        if objects.is_empty() {
+            return None;
+        }
+        let mut at = argv.windows(objects.len()).enumerate().filter(|(_, w)| *w == objects);
+        let (Some((start, _)), None) = (at.next(), at.next()) else { return None };
+        let (before, rest) = argv.split_at_checked(start)?;
+        Some(Replay { program, before: before.to_vec(), after: rest.get(objects.len()..)?.to_vec() })
+    }
+
+    fn to_text(&self) -> String {
+        let mut fields = vec![self.program.to_string_lossy().into_owned()];
+        fields.extend(self.before.iter().cloned());
+        fields.push(OBJECTS.to_string());
+        fields.extend(self.after.iter().cloned());
+        fields.join("\0")
+    }
+
+    fn from_text(text: &str) -> Option<Replay> {
+        let mut fields = text.split('\0').map(String::from);
+        let program = PathBuf::from(fields.next().filter(|p| !p.is_empty())?);
+        let fields: Vec<String> = fields.collect();
+        let at = fields.iter().position(|f| f == OBJECTS)?;
+        let (before, rest) = fields.split_at_checked(at)?;
+        Some(Replay { program, before: before.to_vec(), after: rest.get(1..)?.to_vec() })
+    }
+
+    /// Whether this command can run without the driver around it.
+    ///
+    /// The linker has to be an absolute path to a binary. A script, like nix's
+    /// `ld` wrapper, reads variables the `cc` wrapper exports for it, so it
+    /// keeps going through the driver. So does any line that names the link
+    /// directory, which would not be valid in the next one.
+    fn stands_alone(&self, dir: &Path) -> bool {
+        use std::io::Read as _;
+        let mut magic = [0u8; 2];
+        let binary = self.program.is_absolute()
+            && std::fs::File::open(&self.program)
+                .and_then(|mut f| f.read_exact(&mut magic))
+                .is_ok()
+            && &magic != b"#!";
+        let dirs: Vec<String> = [Some(dir.to_path_buf()), dir.canonicalize().ok()]
+            .into_iter()
+            .flatten()
+            .map(|d| d.to_string_lossy().into_owned())
+            .filter(|d| !d.is_empty())
+            .collect();
+        binary && !self.before.iter().chain(&self.after).any(|a| dirs.iter().any(|d| a.contains(d)))
+    }
+}
+
+/// The arguments of one `-###` line: each in double quotes, with `"`, `\` and
+/// `$` escaped by a backslash.
+fn unquote(line: &str) -> Option<Vec<String>> {
+    let mut args = Vec::new();
+    let mut chars = line.chars();
+    loop {
+        match chars.next() {
+            None => return Some(args),
+            Some(' ') => {}
+            Some('"') => {
+                let mut arg = String::new();
+                loop {
+                    match chars.next()? {
+                        '"' => break,
+                        '\\' => arg.push(chars.next()?),
+                        c => arg.push(c),
+                    }
+                }
+                args.push(arg);
+            }
+            Some(_) => return None,
+        }
+    }
+}
+
+/// Whether an environment variable can change the command the driver prints.
+///
+/// The nix `cc` wrapper turns `NIX_*` into flags, `SDKROOT` and friends pick
+/// the SDK, and `PATH` picks the linker. `NIX_BUILD_TOP` is left out: it names
+/// each `nix develop` shell's own temporary directory and adds no flag.
+fn shapes_the_link(name: &str) -> bool {
+    (name.starts_with("NIX_") && name != "NIX_BUILD_TOP")
+        || name.starts_with("SDKROOT")
+        || name.starts_with("DEVELOPER_DIR")
+        || name.contains("DEPLOYMENT_TARGET")
+        || matches!(
+            name,
+            "PATH" | "LIBRARY_PATH" | "COMPILER_PATH" | "GCC_EXEC_PREFIX" | "CCC_OVERRIDE_OPTIONS"
+        )
+}
+
+/// The replays this process has captured or read, `None` where the driver's
+/// line cannot be replayed.
+static REPLAYS: std::sync::Mutex<Vec<(String, Option<Replay>)>> = std::sync::Mutex::new(Vec::new());
+
+impl CDriver {
+    /// The key a [`Replay`] is stored under: everything that can change what
+    /// the driver prints.
+    fn replay_key(&self, runtime: RuntimeArchive) -> ActionKey {
+        let mut text = format!(
+            "link replay v1\0{}\0{}\0{}\0{}\0{}\0",
+            self.driver.display(),
+            self.version(),
+            self.link_identity(),
+            runtime.is_linked(),
+            self.lld_dir.as_deref().map(Path::display).map(|d| d.to_string()).unwrap_or_default(),
+        );
+        let mut env: Vec<(String, String)> = std::env::vars_os()
+            .filter_map(|(k, v)| Some((k.into_string().ok()?, v.to_string_lossy().into_owned())))
+            .filter(|(k, _)| shapes_the_link(k))
+            .collect();
+        env.sort();
+        for (k, v) in env {
+            text.push_str(&format!("{k}={v}\0"));
+        }
+        ActionKey::of(text.as_bytes())
+    }
+
+    /// The linker command for this link, captured from the driver the first
+    /// time this toolchain links and read back every time after.
+    ///
+    /// Held under one lock, so that parallel first links wait for one capture
+    /// rather than each running their own.
+    fn replay(
+        &self,
+        args: &[std::ffi::OsString],
+        objects: &[String],
+        runtime: RuntimeArchive,
+    ) -> Option<Replay> {
+        let key = self.replay_key(runtime);
+        let mut table = REPLAYS.lock().ok()?;
+        if let Some((_, known)) = table.iter().find(|(k, _)| k == key.as_str()) {
+            return known.clone();
+        }
+        let stored = self.store.as_ref().and_then(|cache| cache.get(&key));
+        let found = match stored {
+            Some(bytes) => std::str::from_utf8(&bytes).ok().and_then(Replay::from_text),
+            None => {
+                let captured = self.capture(args, objects);
+                if let Some(cache) = &self.store {
+                    cache.put(&key, captured.as_ref().map(Replay::to_text).unwrap_or_default().as_bytes());
+                }
+                captured
+            }
+        };
+        table.push((key.as_str().to_string(), found.clone()));
+        found
+    }
+
+    /// Asks the driver what it would run for this link.
+    fn capture(&self, args: &[std::ffi::OsString], objects: &[String]) -> Option<Replay> {
+        let mut command = Command::new(&self.driver);
+        self.pin(&mut command);
+        let out = command.arg("-###").args(args).output().ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        Replay::from_dry_run(&String::from_utf8_lossy(&out.stderr), objects)
+            .filter(|replay| replay.stands_alone(&self.dir))
+    }
+
+    /// Stops replaying this link's command, in this process and in the cache.
+    fn forget_replay(&self, runtime: RuntimeArchive) {
+        let key = self.replay_key(runtime);
+        if let Ok(mut table) = REPLAYS.lock() {
+            table.retain(|(k, _)| k != key.as_str());
+            table.push((key.as_str().to_string(), None));
+        }
+        if let Some(cache) = &self.store {
+            cache.put(&key, b"");
         }
     }
 }
@@ -2610,6 +2873,105 @@ mod tests {
             "the compile and the link name two different targets"
         );
         assert!(named(&compile).is_some(), "the baked tier named no target at all");
+    }
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// The driver's one linker line is cut around the objects, and anything
+    /// that is not exactly one clang-quoted line is refused.
+    #[test]
+    fn a_dry_run_is_cut_around_the_objects() {
+        let objects = strings(&["a.o", "b.o"]);
+        let stderr = "clang version 21.1.7\nTarget: arm64-apple-darwin\n \
+             \"/bin/ld64.lld\" \"-o\" \"artifact\" \"a.o\" \"b.o\" \"lib\\\"q\\\\.a\" \"-lSystem\"\n";
+        let replay = Replay::from_dry_run(stderr, &objects).expect("one linker line");
+        assert_eq!(replay.program, PathBuf::from("/bin/ld64.lld"));
+        assert_eq!(replay.before, strings(&["-o", "artifact"]));
+        assert_eq!(replay.after, strings(&["lib\"q\\.a", "-lSystem"]));
+        assert_eq!(Replay::from_text(&replay.to_text()), Some(replay.clone()));
+        assert_eq!(
+            replay.argv(&strings(&["c.o"])),
+            strings(&["-o", "artifact", "c.o", "lib\"q\\.a", "-lSystem"])
+        );
+
+        let refused = [
+            // gcc's `collect2`, unquoted.
+            " /usr/libexec/gcc/collect2 \"-o\" \"artifact\" \"a.o\" \"b.o\"\n",
+            // Two jobs.
+            " \"/bin/ld\" \"a.o\" \"b.o\"\n \"/bin/dsymutil\" \"artifact\"\n",
+            // The objects split apart, or named twice.
+            " \"/bin/ld\" \"a.o\" \"-x\" \"b.o\"\n",
+            " \"/bin/ld\" \"a.o\" \"b.o\" \"a.o\" \"b.o\"\n",
+            // A driver that complained.
+            "clang: error: no such file or directory: 'a.o'\n \"/bin/ld\" \"a.o\" \"b.o\"\n",
+        ];
+        for stderr in refused {
+            assert_eq!(Replay::from_dry_run(stderr, &objects), None, "{stderr}");
+        }
+        assert_eq!(Replay::from_text(""), None, "an empty entry means no replay");
+    }
+
+    /// A replayed link writes the same bytes the driver writes.
+    #[test]
+    fn a_replayed_link_matches_the_drivers() {
+        let Some(host) = host_platform() else { return };
+        let Ok(cc) = select(Target { platform: host, arch: host_arch() }) else { return };
+        let root = scratch("replay");
+        let (direct, driven) = (root.join("direct"), root.join("driven"));
+        for dir in [&direct, &driven] {
+            std::fs::create_dir_all(dir).expect("a link directory");
+        }
+        let source = root.join("main.c");
+        std::fs::write(&source, "int main(void) { return 0; }\n").expect("writing main.c");
+        let object = root.join("main.o");
+        let compiled = Command::new(&cc.driver)
+            .args(product_compile_args())
+            .arg("-c")
+            .arg(&source)
+            .arg("-o")
+            .arg(&object)
+            .status()
+            .is_ok_and(|s| s.success());
+        assert!(compiled, "compiling main.c");
+        let unit = Emitted {
+            name: String::from("main.o"),
+            key: ActionKey::of(b"a replayed link"),
+            bytes: std::fs::read(&object).expect("main.o"),
+        };
+
+        let cc = cc.in_dir(direct.clone());
+        let out = root.join("out-direct");
+        let target = Target { platform: host, arch: host_arch() };
+        let opts = LinkOptions {
+            profile: crate::compiler::backend::Profile::Debug,
+            target,
+            unit_prefix: "t",
+        };
+        assert!(cc.link(std::slice::from_ref(&unit), &[], &out, &opts).is_ok(), "the replayed link");
+        let runtime = runtime_archive_for(std::slice::from_ref(&unit));
+        let names = strings(&["main.o"]);
+        let replayed = cc.replay(&cc.driver_args(&names, runtime), &names, runtime);
+        if host == Platform::Macos && cc.flavour == Flavour::Lld {
+            assert!(replayed.is_some(), "ld64.lld was not called directly");
+        }
+
+        let cc = cc.in_dir(driven.clone());
+        std::fs::write(driven.join("main.o"), &unit.bytes).expect("staging main.o");
+        if cc.libc == LibcMode::MuslBaked {
+            stage_sysroot(&driven, None).expect("staging the sysroot");
+        }
+        let mut command = Command::new(&cc.driver);
+        cc.pin(&mut command);
+        let linked = command.args(cc.driver_args(&names, runtime)).status().is_ok_and(|s| s.success());
+        assert!(linked, "the driver's link");
+        assert!(
+            std::fs::read(&out).expect("the replayed artifact")
+                == std::fs::read(driven.join("artifact")).expect("the driver's artifact"),
+            "the replayed link wrote different bytes"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// mold is ELF-only and refuses macOS by name, so it must never be

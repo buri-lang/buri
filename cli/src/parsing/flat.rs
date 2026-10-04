@@ -10,6 +10,12 @@
 //! under its own span — so the arenas are a fixed handful of allocations per
 //! file whatever the file contains.
 //!
+//! The declaration level keeps its own structs — see `tree.rs` — but the
+//! lists inside them live here too: a function's parameters and generics, a
+//! struct's fields, an enum's variants, a trait's methods, an import's names,
+//! and every doc comment line. A declaration holds a [`List`] or a [`Docs`]
+//! where it used to hold a `Vec`.
+//!
 //! # Three properties the rest of the front end is entitled to rely on
 //!
 //! * **Post-order.** A production records `nodes.len()` before it parses its
@@ -23,7 +29,7 @@
 //!   parentheses. Eight bytes a node is the price of making a mistake there
 //!   impossible rather than merely unlikely.
 //! * **No mutation after parsing.** `parser::Cache` hands the same
-//!   `Rc<Module>` to every target that imports the file. The tree grows only
+//!   `Arc<Module>` to every target that imports the file. The tree grows only
 //!   while the parser holds it and is read-only from the moment `parse`
 //!   returns, which is why nothing here needs an interior-mutability story and
 //!   why ids rather than `&'arena` references are the only workable addressing.
@@ -39,10 +45,12 @@
 //! the one exhaustive `match` that builds a view, where the test suite finds
 //! it immediately.
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::diagnostics::{FileId, Span};
-use crate::parsing::tree::{BinOp, UnOp};
+use crate::parsing::tree::{
+    BinOp, FieldDecl, FnDecl, GenericParam, ImportSpec, Param, TupleField, UnOp, Variant,
+};
 
 /// The absent optional id.
 ///
@@ -287,6 +295,69 @@ impl TypeList {
     }
 }
 
+/// A range of one of a declaration's arenas: its parameters, its generics, its
+/// fields, its variants, its methods. A declaration holds one of these where
+/// it used to hold a `Vec`, and [`Tree::list`] hands back the slice.
+///
+/// The element type is in the type so that a range can only be read from the
+/// arena it was cut from: [`Tree::list`] picks the arena by `T`.
+pub struct List<T> {
+    pub start: u32,
+    pub len: u32,
+    of: std::marker::PhantomData<fn() -> T>,
+}
+
+impl<T> List<T> {
+    pub fn new(start: u32, len: u32) -> List<T> {
+        List { start, len, of: std::marker::PhantomData }
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.len == 0
+    }
+
+    pub fn len(self) -> usize {
+        self.len as usize
+    }
+}
+
+// By hand, because a derive would ask `T` to be `Copy` and `Debug` too.
+impl<T> Clone for List<T> {
+    fn clone(&self) -> List<T> {
+        *self
+    }
+}
+
+impl<T> Copy for List<T> {}
+
+impl<T> Default for List<T> {
+    fn default() -> List<T> {
+        List::new(0, 0)
+    }
+}
+
+impl<T> std::fmt::Debug for List<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}+{}", self.start, self.len)
+    }
+}
+
+/// A run of doc comment lines, as a range of [`Tree::doc_lines`]' arena. A
+/// line is the source under its location — the text after `///` or `//!`,
+/// less one leading space and any trailing blanks — so documenting a
+/// declaration costs eight bytes and no allocation.
+#[derive(Clone, Copy, Default, Debug)]
+pub struct Docs {
+    pub start: u32,
+    pub len: u32,
+}
+
+impl Docs {
+    pub fn is_empty(self) -> bool {
+        self.len == 0
+    }
+}
+
 /// One type node.
 ///
 /// A type has no `subtree` count: nothing skips a type subtree by arithmetic,
@@ -330,6 +401,8 @@ const _: () = assert!(std::mem::size_of::<Node>() == 24);
 const _: () = assert!(std::mem::size_of::<PNode>() == 24);
 const _: () = assert!(std::mem::size_of::<TypeData>() == 28);
 const _: () = assert!(std::mem::size_of::<TypeList>() == 8);
+const _: () = assert!(std::mem::size_of::<List<Location>>() == 8);
+const _: () = assert!(std::mem::size_of::<Docs>() == 8);
 const _: () = assert!(std::mem::size_of::<Location>() == 8);
 
 // ---------------------------------------------------------------------------
@@ -452,7 +525,7 @@ const _: () = assert!(std::mem::size_of::<PatPayloadData>() == 12);
 // ---------------------------------------------------------------------------
 
 /// Everything below the declaration level of one file, plus the type
-/// expressions and the source a declaration's own fields name.
+/// expressions, lists, doc lines and source a declaration's own fields name.
 #[derive(Clone, Debug)]
 pub struct Tree {
     /// One file per `Module`, hoisted out of every span.
@@ -461,12 +534,12 @@ pub struct Tree {
     ///
     /// The tree owns it because an identifier's text is now `src[span]` and
     /// `parse(text: &str, file)` is called with temporaries at six sites whose
-    /// signature may not change — so a borrow is out and an `Rc<str>` is one
+    /// signature may not change — so a borrow is out and an `Arc<str>` is one
     /// allocation and one memcpy of the file against the ~2 600 `String`s per
-    /// thousand lines it deletes. `Rc` rather than `Box` so that the day the
+    /// thousand lines it deletes. `Arc` rather than `Box` so that the day the
     /// `SourceMap` learns to hand its text out shared, `parse` can take one
     /// and the copy goes away without any other change.
-    src: Rc<str>,
+    src: Arc<str>,
 
     nodes: Vec<Node>,
     /// Parallel to `nodes`. Split out rather than folded in because span-only
@@ -507,11 +580,30 @@ pub struct Tree {
     floats: Vec<f64>,
     /// Cooked string and template text: the only owned text left in the tree.
     strs: Vec<String>,
+
+    // -- the declaration level ----------------------------------------------
+    //
+    // Every list a declaration holds is a [`List`] into one of these, and
+    // every doc comment a [`Docs`] into the last. A declaration's lists used
+    // to be a `Vec` each and its doc lines a `String` each, which was most of
+    // what the parser still allocated per declaration.
+    generics: Vec<GenericParam>,
+    params: Vec<Param>,
+    fields: Vec<FieldDecl>,
+    tfields: Vec<TupleField>,
+    variants: Vec<Variant>,
+    /// A trait's or an `impl`'s methods. A module-level `fn` is in the
+    /// module's item list, not here.
+    methods: Vec<FnDecl>,
+    specs: Vec<ImportSpec>,
+    /// Every doc comment line in the file, `///` and `//!` alike, as the
+    /// location of its text. The lexer writes it and the tree adopts it whole.
+    docs: Vec<Location>,
 }
 
 impl Default for Tree {
     fn default() -> Tree {
-        Tree::new(FileId(0), "")
+        Tree::new(FileId(0), "", 0)
     }
 }
 
@@ -545,49 +637,69 @@ pub struct Mark {
     ints: u32,
     floats: u32,
     strs: u32,
+    generics: u32,
+    params: u32,
+    fields: u32,
+    tfields: u32,
+    variants: u32,
+    methods: u32,
+    specs: u32,
+    docs: u32,
 }
 
 impl Tree {
-    /// An empty tree over `src`.
+    /// An empty tree over `src`, which lexed to `tokens` tokens.
     ///
-    /// The arenas are sized from the text, as `lexer.rs` already sizes its
-    /// token buffer: a thousand lines of Buri is about seven thousand tokens
-    /// and about two thousand expression nodes, so a byte count divided by
-    /// sixteen is within a growth step of the truth and the arenas are then a
-    /// fixed handful of allocations per file rather than a logarithmic number.
-    pub fn new(file: FileId, src: &str) -> Tree {
-        // One expression node per sixteen bytes of source, and the five other
-        // arenas that are written on nearly every line sized off the same
-        // figure. Measured against the generated corpora: a hundred thousand
-        // lines of `mixed` lands within one growth step on all six. The rest
-        // start empty on purpose — a file with no patterns should not pay for
-        // a pattern arena.
-        let n = src.len() / 16;
+    /// The arenas are sized from the token count, which the parser knows
+    /// exactly before it builds anything. A byte count — what this used to
+    /// divide — moves with comments and identifier length, which add bytes and
+    /// no nodes, so a dense file outgrew its arenas and paid a copy of
+    /// everything written so far for each doubling, while a documented one
+    /// held capacity it never used.
+    ///
+    /// Each figure is what the `mixed` corpus writes per token, rounded up by
+    /// about a tenth: 0.26 expression nodes, 0.09 names, 0.08 types, 0.05
+    /// patterns and so on down. A file denser than that grows an arena once;
+    /// one sparser holds a tenth more than it needs rather than half. The
+    /// arenas that corpus writes less than one entry per hundred tokens into
+    /// start empty, so a file with no `context` pays nothing for one. The
+    /// declaration lists follow the same rule: 0.023 parameters and 0.010
+    /// generics per token, and the rest under one in a hundred.
+    pub fn new(file: FileId, src: &str, tokens: usize) -> Tree {
+        let per = |n: usize, d: usize| tokens.saturating_mul(n).checked_div(d).unwrap_or(0);
         Tree {
             file,
-            src: Rc::from(src),
-            nodes: Vec::with_capacity(n),
-            spans: Vec::with_capacity(n),
-            pnodes: Vec::with_capacity(n / 8),
-            pspans: Vec::with_capacity(n / 8),
-            kids: Vec::with_capacity(n / 4),
-            pkids: Vec::new(),
-            tkids: Vec::new(),
-            names: Vec::with_capacity(n / 4),
-            blocks: Vec::new(),
-            stmts: Vec::with_capacity(n / 8),
-            arms: Vec::new(),
+            src: Arc::from(src),
+            nodes: Vec::with_capacity(per(9, 32)),
+            spans: Vec::with_capacity(per(9, 32)),
+            pnodes: Vec::with_capacity(per(1, 18)),
+            pspans: Vec::with_capacity(per(1, 18)),
+            kids: Vec::with_capacity(per(1, 18)),
+            pkids: Vec::with_capacity(per(1, 40)),
+            tkids: Vec::with_capacity(per(1, 36)),
+            names: Vec::with_capacity(per(1, 10)),
+            blocks: Vec::with_capacity(per(1, 40)),
+            stmts: Vec::with_capacity(per(1, 56)),
+            arms: Vec::with_capacity(per(1, 80)),
             inits: Vec::new(),
             fpats: Vec::new(),
             lparams: Vec::new(),
             parts: Vec::new(),
             ctxb: Vec::new(),
             ctxbind: Vec::new(),
-            ppay: Vec::new(),
-            types: Vec::new(),
-            ints: Vec::new(),
+            ppay: Vec::with_capacity(per(1, 96)),
+            types: Vec::with_capacity(per(1, 12)),
+            ints: Vec::with_capacity(per(1, 28)),
             floats: Vec::new(),
-            strs: Vec::new(),
+            strs: Vec::with_capacity(per(1, 90)),
+            generics: Vec::with_capacity(per(1, 90)),
+            params: Vec::with_capacity(per(1, 40)),
+            fields: Vec::new(),
+            tfields: Vec::new(),
+            variants: Vec::new(),
+            methods: Vec::new(),
+            specs: Vec::new(),
+            docs: Vec::new(),
         }
     }
 
@@ -597,7 +709,7 @@ impl Tree {
         self.file
     }
 
-    pub fn source(&self) -> &Rc<str> {
+    pub fn source(&self) -> &Arc<str> {
         &self.src
     }
 
@@ -706,6 +818,25 @@ impl Tree {
 
     pub fn type_list(&self, l: TypeList) -> &[TypeId] {
         self.slice(&self.tkids, l.start, l.len)
+    }
+
+    /// The elements of one of a declaration's lists.
+    pub fn list<T>(&self, l: List<T>) -> &[T]
+    where
+        Tree: Arena<T>,
+    {
+        self.slice(self.arena(), l.start, l.len)
+    }
+
+    /// A run of doc comment lines, one `&str` per line.
+    pub fn doc_lines(&self, d: Docs) -> impl ExactSizeIterator<Item = &str> + Clone + '_ {
+        self.slice(&self.docs, d.start, d.len).iter().map(|at| self.text(*at))
+    }
+
+    /// The same, owned: for the documentation and hover text that outlives
+    /// the tree.
+    pub fn docs(&self, d: Docs) -> Vec<String> {
+        self.doc_lines(d).map(str::to_string).collect()
     }
 
     /// The text a declaration's name was written with.
@@ -1193,6 +1324,47 @@ impl Tree {
         self.strs.len().saturating_sub(1) as u32
     }
 
+    /// Append one element to a declaration's arena. A list is the run of
+    /// these between two [`Tree::len_of`] readings: nothing inside a
+    /// declaration's list can append to that same arena, so the run is
+    /// contiguous.
+    pub fn add<T>(&mut self, v: T)
+    where
+        Tree: Arena<T>,
+    {
+        self.arena_mut().push(v);
+    }
+
+    /// How many elements one of the declaration arenas holds, which is
+    /// where the next list cut from it starts.
+    pub fn len_of<T>(&self) -> u32
+    where
+        Tree: Arena<T>,
+    {
+        self.arena().len() as u32
+    }
+
+    /// Everything appended to `T`'s arena since `start`, as a list.
+    pub fn since<T>(&self, start: u32) -> List<T>
+    where
+        Tree: Arena<T>,
+    {
+        List::new(start, self.len_of::<T>().saturating_sub(start))
+    }
+
+    /// Take the lexer's doc comment lines as this tree's. A [`Docs`] the
+    /// lexer handed out then reads the same lines here.
+    pub fn adopt_docs(&mut self, docs: Vec<Location>) {
+        self.docs = docs;
+    }
+
+    /// Append doc lines, as one run.
+    pub fn push_docs(&mut self, lines: &[Location]) -> Docs {
+        let start = self.docs.len() as u32;
+        self.docs.extend_from_slice(lines);
+        Docs { start, len: lines.len() as u32 }
+    }
+
     /// Every arena length, for a rollback.
     pub fn mark(&self) -> Mark {
         Mark {
@@ -1218,6 +1390,14 @@ impl Tree {
             ints: self.ints.len() as u32,
             floats: self.floats.len() as u32,
             strs: self.strs.len() as u32,
+            generics: self.generics.len() as u32,
+            params: self.params.len() as u32,
+            fields: self.fields.len() as u32,
+            tfields: self.tfields.len() as u32,
+            variants: self.variants.len() as u32,
+            methods: self.methods.len() as u32,
+            specs: self.specs.len() as u32,
+            docs: self.docs.len() as u32,
         }
     }
 
@@ -1253,8 +1433,44 @@ impl Tree {
         self.ints.truncate(m.ints as usize);
         self.floats.truncate(m.floats as usize);
         self.strs.truncate(m.strs as usize);
+        self.generics.truncate(m.generics as usize);
+        self.params.truncate(m.params as usize);
+        self.fields.truncate(m.fields as usize);
+        self.tfields.truncate(m.tfields as usize);
+        self.variants.truncate(m.variants as usize);
+        self.methods.truncate(m.methods as usize);
+        self.specs.truncate(m.specs as usize);
+        self.docs.truncate(m.docs as usize);
     }
 }
+
+/// Which of the tree's arenas holds a `T`, so that [`Tree::list`] and
+/// [`Tree::add`] are one method each rather than one per declaration list.
+pub trait Arena<T> {
+    fn arena(&self) -> &Vec<T>;
+    fn arena_mut(&mut self) -> &mut Vec<T>;
+}
+
+macro_rules! arena {
+    ($t:ty, $field:ident) => {
+        impl Arena<$t> for Tree {
+            fn arena(&self) -> &Vec<$t> {
+                &self.$field
+            }
+            fn arena_mut(&mut self) -> &mut Vec<$t> {
+                &mut self.$field
+            }
+        }
+    };
+}
+
+arena!(GenericParam, generics);
+arena!(Param, params);
+arena!(FieldDecl, fields);
+arena!(TupleField, tfields);
+arena!(Variant, variants);
+arena!(FnDecl, methods);
+arena!(ImportSpec, specs);
 
 // ---------------------------------------------------------------------------
 // Views

@@ -74,12 +74,12 @@ fn check_bodies_the_extractor_folds(c: &mut Checker) {
     }
     let mut queue = Vec::new();
     for (id, body) in &c.bodies {
-        if files.contains(&c.tables.fn_info(*id).span.file) {
+        if files.contains(&c.tables.fn_info(id).span.file) {
             callees_of(&body.expr, &mut queue);
         }
     }
     for (id, expr) in &c.const_values {
-        if files.contains(&c.tables.const_(*id).span.file) {
+        if files.contains(&c.tables.const_(id).span.file) {
             callees_of(expr, &mut queue);
         }
     }
@@ -130,7 +130,7 @@ fn body_ast<'a>(c: &Checker<'a>, r: AstRef) -> Option<&'a tree::FnDecl> {
         },
         AstRef::Method { module, item, sub } => {
             match c.module(module).ast.items.get(item as usize)? {
-                tree::Item::Impl(d) => d.methods.get(sub as usize),
+                tree::Item::Impl(d) => c.module(module).ast.tree.list(d.methods).get(sub as usize),
                 _ => None,
             }
         }
@@ -138,7 +138,7 @@ fn body_ast<'a>(c: &Checker<'a>, r: AstRef) -> Option<&'a tree::FnDecl> {
 }
 
 fn check_fn(c: &mut Checker, fid: FnId) {
-    let info = c.tables.fn_info(fid).clone();
+    let info = c.tables.fn_info(fid);
     let Some(decl) = body_ast(c, info.ast) else { return };
     let Some(body) = decl.body else { return };
 
@@ -147,19 +147,24 @@ fn check_fn(c: &mut Checker, fid: FnId) {
     // still call an effect method on a value (`report_effect_method`).
     let in_effect_impl =
         info.impl_of.is_some_and(|(tid, _)| c.tables.trait_(tid).is_effect);
-
-    let mut inf = Infer::new(c, info.module, info.generics.clone(), info.ret.clone());
-    inf.self_con = info.self_ty;
-    inf.in_effect_impl = in_effect_impl;
     // An entry builds its own context, and there may be several: a page's
     // `main` and a worker's `fetch` out of one `main.buri`. The table the
     // resolver filled says which exported functions those are.
-    inf.in_main = inf.role == Role::Entry
+    let in_main = c.module(info.module).role == Role::Entry
         && info.exported
-        && inf.c.entry_points.contains(&info.name)
-        && inf.c.entries.get(&info.name) == Some(&fid);
+        && c.entry_points.contains(&info.name)
+        && c.entries.get(&info.name) == Some(&fid);
+    // The parts the body is checked against, copied once: the checker is
+    // borrowed mutably from here on, and the declaration lives in its tables.
+    let (module, self_ty, generics, params, expected) =
+        (info.module, info.self_ty, info.generics.clone(), info.params.clone(), info.ret.clone());
+
+    let mut inf = Infer::new(c, module, generics, expected.clone());
+    inf.self_con = self_ty;
+    inf.in_effect_impl = in_effect_impl;
+    inf.in_main = in_main;
     inf.push_scope();
-    for p in &info.params {
+    for p in &params {
         let local = inf.new_local(&p.name, p.ty.clone(), p.span);
         inf.bind(&p.name, local);
         inf.params.push(local);
@@ -172,11 +177,9 @@ fn check_fn(c: &mut Checker, fid: FnId) {
         if p.role == ParamRole::Ctx {
             inf.effect_locals.insert(local);
         } else {
-            let ty = p.ty.clone();
-            inf.note_capture_risk(local, &ty);
+            inf.note_capture_risk(local, &p.ty);
         }
     }
-    let expected = info.ret.clone();
     let body_span = inf.t.block_span(body);
     let expr = inf.check_block(body, Some(&expected));
     inf.unify_at(body_span, &expr.ty.clone(), &expected, "the declared return type");
@@ -310,10 +313,10 @@ fn check_tests(c: &mut Checker) {
 // ---------------------------------------------------------------------------
 
 /// A numeric literal whose type is not known until defaulting has run.
-pub(crate) struct LitCheck {
+pub(crate) struct LitCheck<'b> {
     pub(crate) value: u128,
     pub(crate) negative: bool,
-    pub(crate) raw: String,
+    pub(crate) raw: &'b str,
     pub(crate) ty: Ty,
     pub(crate) span: Span,
 }
@@ -356,7 +359,17 @@ pub struct Infer<'a, 'b> {
     pub(crate) generics: Vec<GenericInfo>,
     pub(crate) ret: Ty,
     pub(crate) subst: Subst,
-    pub(crate) scopes: Vec<HashMap<String, LocalId>>,
+    /// Every local in scope, innermost last: its name's hash and its id. A
+    /// local's name is the one it was bound under, so a lookup compares the
+    /// hash and then the name in [`Infer::locals`].
+    ///
+    /// One flat list rather than a map per scope: a body binds a handful of
+    /// names, and walking them back from the innermost is quicker than hashing
+    /// into a table that had to be allocated, with a copy of every name as its
+    /// key.
+    pub(crate) scopes: Vec<(u64, LocalId)>,
+    /// Where each open scope starts in `scopes`.
+    pub(crate) scope_starts: Vec<usize>,
     pub(crate) locals: Vec<typed::Local>,
     pub(crate) params: Vec<LocalId>,
     pub(crate) self_con: Option<TyConId>,
@@ -371,7 +384,7 @@ pub struct Infer<'a, 'b> {
     pub(crate) poly_locals: std::collections::HashSet<LocalId>,
     pub(crate) lambda_depth: u32,
     pub(crate) obligations: Vec<(Ty, TraitId, Span)>,
-    pub(crate) lit_checks: Vec<LitCheck>,
+    pub(crate) lit_checks: Vec<LitCheck<'b>>,
     /// Template holes, checked after defaulting so `"${1 + 1}"` is fine.
     pub(crate) hole_checks: Vec<(Ty, Span)>,
     /// Calls to a bodyless declaration — an intrinsic the runtime supplies —
@@ -398,7 +411,7 @@ pub struct Infer<'a, 'b> {
     pub(crate) or_scope: Option<OrScope>,
     /// Names bound by the pattern currently being checked, so a duplicate
     /// within one pattern is caught (design/static-rules.md rule 6).
-    pub(crate) pattern_names: Vec<String>,
+    pub(crate) pattern_names: Vec<&'b str>,
     /// The regions covered by blocks in this body whose closing `}` was never
     /// written.
     ///
@@ -410,6 +423,12 @@ pub struct Infer<'a, 'b> {
     /// How many diagnostics had been reported before this body was looked at.
     /// The parser's own sit below it, so retracting counts from here.
     mark: usize,
+}
+
+/// The hash a local's name is found by in [`Infer::scopes`].
+fn name_hash(name: &str) -> u64 {
+    use std::hash::{BuildHasher, BuildHasherDefault};
+    BuildHasherDefault::<crate::hash::FxHasher>::default().hash_one(name)
 }
 
 impl<'a, 'b> Infer<'a, 'b> {
@@ -425,6 +444,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             ret,
             subst: Subst::default(),
             scopes: Vec::new(),
+            scope_starts: Vec::new(),
             locals: Vec::new(),
             params: Vec::new(),
             self_con: None,
@@ -486,12 +506,10 @@ impl<'a, 'b> Infer<'a, 'b> {
         // After the checks above, never before: they read an unbound variable
         // as "not yet known" and would report a type the body never wrote.
         self.subst.default_unconstrained();
-        let expr = self.resolve_expr(expr);
-        let locals = self
-            .locals
-            .iter()
-            .map(|l| typed::Local { name: l.name.clone(), ty: self.subst.resolve(&l.ty), span: l.span })
-            .collect();
+        let mut expr = expr;
+        self.resolve_expr(&mut expr);
+        let mut locals = std::mem::take(&mut self.locals);
+        locals.iter_mut().for_each(|l| self.subst.resolve_in_place(&mut l.ty));
         typed::Body { locals, params: self.params, expr }
     }
 
@@ -515,191 +533,135 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     /// A callee is pre-monomorphization here, so only its type arguments need
     /// resolving.
-    fn resolve_callee(&self, c: typed::Callee) -> typed::Callee {
+    fn resolve_callee(&self, c: &mut typed::Callee) {
         match c {
-            typed::Callee::Decl { id, targs } => typed::Callee::Decl {
-                id,
-                targs: targs.iter().map(|t| self.subst.resolve(t)).collect(),
-            },
-            typed::Callee::Func(i) => typed::Callee::Func(i),
+            typed::Callee::Decl { targs, .. } => self.resolve_all(targs),
+            typed::Callee::Func(_) => {}
         }
     }
 
-    fn resolve_expr(&self, mut e: typed::Expr) -> typed::Expr {
-        e.ty = self.subst.resolve(&e.ty);
-        let sub = |x: typed::Expr| self.resolve_expr(x);
-        e.kind = match e.kind {
-            typed::ExprKind::CallValue { callee, args } => typed::ExprKind::CallValue {
-                callee: Box::new(sub(*callee)),
-                args: args.into_iter().map(sub).collect(),
-            },
-            typed::ExprKind::CallFn { func, args } => typed::ExprKind::CallFn {
-                func: self.resolve_callee(func),
-                args: args.into_iter().map(sub).collect(),
-            },
-            typed::ExprKind::CallTrait { trait_id, method, recv, targs, args } => {
-                typed::ExprKind::CallTrait {
-                    trait_id,
-                    method,
-                    recv: self.subst.resolve(&recv),
-                    targs: targs.iter().map(|t| self.subst.resolve(t)).collect(),
-                    args: args.into_iter().map(sub).collect(),
-                }
-            }
-            typed::ExprKind::StructLit { con, targs, fields } => typed::ExprKind::StructLit {
-                con,
-                targs: targs.iter().map(|t| self.subst.resolve(t)).collect(),
-                fields: fields.into_iter().map(sub).collect(),
-            },
-            typed::ExprKind::StructUpdate { con, base, updates } => typed::ExprKind::StructUpdate {
-                con,
-                base: Box::new(sub(*base)),
-                updates: updates.into_iter().map(|(i, e)| (i, sub(e))).collect(),
-            },
-            typed::ExprKind::EnumLit { con, targs, variant, args } => typed::ExprKind::EnumLit {
-                con,
-                targs: targs.iter().map(|t| self.subst.resolve(t)).collect(),
-                variant,
-                args: args.into_iter().map(sub).collect(),
-            },
-            typed::ExprKind::Tuple(xs) => typed::ExprKind::Tuple(xs.into_iter().map(sub).collect()),
-            typed::ExprKind::Array(xs) => typed::ExprKind::Array(xs.into_iter().map(sub).collect()),
-            typed::ExprKind::Field { base, index } => {
-                typed::ExprKind::Field { base: Box::new(sub(*base)), index }
-            }
-            typed::ExprKind::TupleIndex { base, index } => {
-                typed::ExprKind::TupleIndex { base: Box::new(sub(*base)), index }
-            }
-            typed::ExprKind::Index { base, index, elem } => typed::ExprKind::Index {
-                base: Box::new(sub(*base)),
-                index: Box::new(sub(*index)),
-                elem: self.subst.resolve(&elem),
-            },
-            typed::ExprKind::Block { stmts, tail } => typed::ExprKind::Block {
-                stmts: stmts
-                    .into_iter()
-                    .map(|s| match s {
-                        typed::Stmt::Let { pattern, value, span } => typed::Stmt::Let {
-                            pattern: self.resolve_pattern(pattern),
-                            value: sub(value),
-                            span,
-                        },
-                        typed::Stmt::Expr(e) => typed::Stmt::Expr(sub(e)),
-                    })
-                    .collect(),
-                tail: tail.map(|t| Box::new(sub(*t))),
-            },
-            typed::ExprKind::If { cond, then, else_ } => typed::ExprKind::If {
-                cond: Box::new(sub(*cond)),
-                then: Box::new(sub(*then)),
-                else_: Box::new(sub(*else_)),
-            },
-            typed::ExprKind::Match { scrutinee, arms } => typed::ExprKind::Match {
-                scrutinee: Box::new(sub(*scrutinee)),
-                arms: arms
-                    .into_iter()
-                    .map(|a| typed::Arm {
-                        pattern: self.resolve_pattern(a.pattern),
-                        guard: a.guard.map(sub),
-                        body: sub(a.body),
-                        span: a.span,
-                    })
-                    .collect(),
-            },
-            typed::ExprKind::Lambda { params, body, captures } => {
-                typed::ExprKind::Lambda { params, body: Box::new(sub(*body)), captures }
-            }
-            typed::ExprKind::And { lhs, rhs } => {
-                typed::ExprKind::And { lhs: Box::new(sub(*lhs)), rhs: Box::new(sub(*rhs)) }
-            }
-            typed::ExprKind::Or { lhs, rhs } => {
-                typed::ExprKind::Or { lhs: Box::new(sub(*lhs)), rhs: Box::new(sub(*rhs)) }
-            }
-            typed::ExprKind::Try { base, kind } => {
-                typed::ExprKind::Try { base: Box::new(sub(*base)), kind }
-            }
-            typed::ExprKind::Prim { op, prim, args } => {
-                typed::ExprKind::Prim { op, prim, args: args.into_iter().map(sub).collect() }
-            }
-            typed::ExprKind::StructuralEq { negate, args } => typed::ExprKind::StructuralEq {
-                negate,
-                args: args.into_iter().map(sub).collect(),
-            },
-            typed::ExprKind::StructuralCmp { op, args } => typed::ExprKind::StructuralCmp {
-                op,
-                args: args.into_iter().map(sub).collect(),
-            },
-            typed::ExprKind::Template { parts } => typed::ExprKind::Template {
-                parts: parts
-                    .into_iter()
-                    .map(|p| match p {
-                        typed::TemplatePart::Text(t) => typed::TemplatePart::Text(t),
-                        typed::TemplatePart::Hole(h) => typed::TemplatePart::Hole(sub(h)),
-                    })
-                    .collect(),
-            },
-            typed::ExprKind::CtxLit { bindings } => typed::ExprKind::CtxLit {
-                bindings: bindings.into_iter().map(|(t, e)| (t, sub(e))).collect(),
-            },
-            typed::ExprKind::CtxGet { base, trait_id } => {
-                typed::ExprKind::CtxGet { base: Box::new(sub(*base)), trait_id }
-            }
-            typed::ExprKind::Intrinsic { name, targs, args } => typed::ExprKind::Intrinsic {
-                name,
-                targs: targs.iter().map(|t| self.subst.resolve(t)).collect(),
-                args: args.into_iter().map(sub).collect(),
-            },
-            typed::ExprKind::FnRef(c) => typed::ExprKind::FnRef(self.resolve_callee(c)),
-            other => other,
-        };
-        e
+    fn resolve_all(&self, tys: &mut [Ty]) {
+        tys.iter_mut().for_each(|t| self.subst.resolve_in_place(t));
     }
 
-    fn resolve_pattern(&self, mut p: typed::Pattern) -> typed::Pattern {
-        p.ty = self.subst.resolve(&p.ty);
-        p.kind = match p.kind {
-            typed::PatKind::Bind { local, sub } => typed::PatKind::Bind {
-                local,
-                sub: sub.map(|s| Box::new(self.resolve_pattern(*s))),
-            },
-            typed::PatKind::Tuple(ps) => {
-                typed::PatKind::Tuple(ps.into_iter().map(|x| self.resolve_pattern(x)).collect())
+    /// Applies the substitution to every type in a checked body, in place.
+    ///
+    /// In place because the tree is this body's own: rebuilding it moved every
+    /// boxed child into a fresh box and copied every type, including the ones
+    /// with no variable in them, which are most.
+    fn resolve_expr(&self, e: &mut typed::Expr) {
+        self.subst.resolve_in_place(&mut e.ty);
+        match &mut e.kind {
+            typed::ExprKind::CallValue { callee, args } => {
+                self.resolve_expr(callee);
+                args.iter_mut().for_each(|a| self.resolve_expr(a));
             }
-            typed::PatKind::Struct { con, fields } => typed::PatKind::Struct {
-                con,
-                fields: fields
-                    .into_iter()
-                    .map(|f| typed::FieldPat { index: f.index, pattern: self.resolve_pattern(f.pattern) })
-                    .collect(),
-            },
-            typed::PatKind::Variant { con, variant, fields } => typed::PatKind::Variant {
-                con,
-                variant,
-                fields: fields
-                    .into_iter()
-                    .map(|f| typed::FieldPat { index: f.index, pattern: self.resolve_pattern(f.pattern) })
-                    .collect(),
-            },
-            typed::PatKind::Array { elems, rest } => typed::PatKind::Array {
-                elems: elems.into_iter().map(|x| self.resolve_pattern(x)).collect(),
-                rest,
-            },
-            typed::PatKind::Or(ps) => {
-                typed::PatKind::Or(ps.into_iter().map(|x| self.resolve_pattern(x)).collect())
+            typed::ExprKind::CallFn { func, args } => {
+                self.resolve_callee(func);
+                args.iter_mut().for_each(|a| self.resolve_expr(a));
             }
-            other => other,
-        };
-        p
+            typed::ExprKind::CallTrait { recv, targs, args, .. } => {
+                self.subst.resolve_in_place(recv);
+                self.resolve_all(targs);
+                args.iter_mut().for_each(|a| self.resolve_expr(a));
+            }
+            typed::ExprKind::StructLit { targs, fields: args, .. }
+            | typed::ExprKind::EnumLit { targs, args, .. }
+            | typed::ExprKind::Intrinsic { targs, args, .. } => {
+                self.resolve_all(targs);
+                args.iter_mut().for_each(|a| self.resolve_expr(a));
+            }
+            typed::ExprKind::StructUpdate { base, updates, .. } => {
+                self.resolve_expr(base);
+                updates.iter_mut().for_each(|(_, e)| self.resolve_expr(e));
+            }
+            typed::ExprKind::Tuple(args)
+            | typed::ExprKind::Array(args)
+            | typed::ExprKind::Prim { args, .. }
+            | typed::ExprKind::StructuralEq { args, .. }
+            | typed::ExprKind::StructuralCmp { args, .. } => {
+                args.iter_mut().for_each(|a| self.resolve_expr(a));
+            }
+            typed::ExprKind::Field { base, .. }
+            | typed::ExprKind::TupleIndex { base, .. }
+            | typed::ExprKind::Try { base, .. }
+            | typed::ExprKind::CtxGet { base, .. } => self.resolve_expr(base),
+            typed::ExprKind::Index { base, index, elem } => {
+                self.resolve_expr(base);
+                self.resolve_expr(index);
+                self.subst.resolve_in_place(elem);
+            }
+            typed::ExprKind::Block { stmts, tail } => {
+                for s in stmts {
+                    match s {
+                        typed::Stmt::Let { pattern, value, .. } => {
+                            self.resolve_pattern(pattern);
+                            self.resolve_expr(value);
+                        }
+                        typed::Stmt::Expr(e) => self.resolve_expr(e),
+                    }
+                }
+                if let Some(t) = tail {
+                    self.resolve_expr(t);
+                }
+            }
+            typed::ExprKind::If { cond, then, else_ } => {
+                self.resolve_expr(cond);
+                self.resolve_expr(then);
+                self.resolve_expr(else_);
+            }
+            typed::ExprKind::Match { scrutinee, arms } => {
+                self.resolve_expr(scrutinee);
+                for a in arms {
+                    self.resolve_pattern(&mut a.pattern);
+                    if let Some(g) = &mut a.guard {
+                        self.resolve_expr(g);
+                    }
+                    self.resolve_expr(&mut a.body);
+                }
+            }
+            typed::ExprKind::Lambda { body, .. } => self.resolve_expr(body),
+            typed::ExprKind::And { lhs, rhs } | typed::ExprKind::Or { lhs, rhs } => {
+                self.resolve_expr(lhs);
+                self.resolve_expr(rhs);
+            }
+            typed::ExprKind::Template { parts } => {
+                for p in parts {
+                    if let typed::TemplatePart::Hole(h) = p {
+                        self.resolve_expr(h);
+                    }
+                }
+            }
+            typed::ExprKind::CtxLit { bindings } => bindings.iter_mut().for_each(|(_, e)| self.resolve_expr(e)),
+            typed::ExprKind::FnRef(c) => self.resolve_callee(c),
+            _ => {}
+        }
+    }
+
+    fn resolve_pattern(&self, p: &mut typed::Pattern) {
+        self.subst.resolve_in_place(&mut p.ty);
+        match &mut p.kind {
+            typed::PatKind::Bind { sub: Some(s), .. } => self.resolve_pattern(s),
+            typed::PatKind::Tuple(ps) | typed::PatKind::Or(ps) | typed::PatKind::Array { elems: ps, .. } => {
+                ps.iter_mut().for_each(|x| self.resolve_pattern(x));
+            }
+            typed::PatKind::Struct { fields, .. } | typed::PatKind::Variant { fields, .. } => {
+                fields.iter_mut().for_each(|f| self.resolve_pattern(&mut f.pattern));
+            }
+            _ => {}
+        }
     }
 
     // -- scopes -------------------------------------------------------------
 
     pub(crate) fn push_scope(&mut self) {
-        self.scopes.push(HashMap::default());
+        self.scope_starts.push(self.scopes.len());
     }
 
     pub(crate) fn pop_scope(&mut self) {
-        self.scopes.pop();
+        if let Some(start) = self.scope_starts.pop() {
+            self.scopes.truncate(start);
+        }
     }
 
     pub(crate) fn new_local(&mut self, name: &str, ty: Ty, span: Span) -> LocalId {
@@ -709,15 +671,20 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     pub(crate) fn bind(&mut self, name: &str, local: LocalId) {
-        // Shadowing is permitted, both in nested scopes and within a block.
-        self.scopes
-            .last_mut()
-            .or_ice("a body is checked inside a scope pushed by `push_scope`")
-            .insert(name.to_string(), local);
+        // Shadowing is permitted, both in nested scopes and within a block:
+        // the innermost binding is the last one, and a lookup finds it first.
+        debug_assert!(!self.scope_starts.is_empty(), "a body is checked inside a scope pushed by `push_scope`");
+        debug_assert_eq!(self.local(local).name, name, "a local is bound under its own name");
+        self.scopes.push((name_hash(name), local));
     }
 
     pub(crate) fn lookup_local(&self, name: &str) -> Option<LocalId> {
-        self.scopes.iter().rev().find_map(|s| s.get(name).copied())
+        let hash = name_hash(name);
+        self.scopes
+            .iter()
+            .rev()
+            .find(|(h, id)| *h == hash && self.local(*id).name == name)
+            .map(|(_, id)| *id)
     }
 
     pub(crate) fn local(&self, id: LocalId) -> &typed::Local {
@@ -1131,8 +1098,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn check_literal_ranges(&mut self) {
         let checks = std::mem::take(&mut self.lit_checks);
         for lit in checks {
-            let ty = self.subst.resolve(&lit.ty);
-            let Some(p) = self.c.tables.as_prim(&ty) else { continue };
+            let Some(p) = self.c.tables.as_prim(self.subst.shallow_ref(&lit.ty)) else { continue };
             let Some((lo, hi)) = p.int_range() else { continue };
             let fits = if lit.negative {
                 p.is_signed() && (lit.value <= (lo.unsigned_abs()))
@@ -1141,7 +1107,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             };
             if !fits {
                 let name = p.name();
-                let raw = if lit.negative { format!("-{}", lit.raw) } else { lit.raw.clone() };
+                let raw = if lit.negative { format!("-{}", lit.raw) } else { lit.raw.to_string() };
                 let mut d = Diagnostic::templated("literal-out-of-range", lit.span)
                     .with_bind("literal", raw.clone())
                     .with_bind("type", name);

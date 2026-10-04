@@ -76,7 +76,7 @@ pub fn hover(
     // innermost because a smaller span is always the more specific answer.
     let mut best: Option<(u32, String, crate::diagnostics::Span)> = None;
     for (fid, body) in &analyzed.analysis.checked.bodies {
-        if analyzed.analysis.checked.tables.fn_info(*fid).span.file != file {
+        if analyzed.analysis.checked.tables.fn_info(fid).span.file != file {
             continue;
         }
         crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
@@ -102,7 +102,7 @@ pub fn hover(
         return None;
     }
     let at = crate::diagnostics::Span::point(file, offset as usize);
-    Some(rendered(text, "buri", &format!("from \"{}\"", module.path), &module.ast.docs, at, kind))
+    Some(rendered(text, "buri", &format!("from \"{}\"", module.path), &module.ast.tree.docs(module.ast.docs), at, kind))
 }
 
 /// The hover payload: the signature in a fence, then the doc comment under it.
@@ -499,7 +499,7 @@ pub fn workspace_symbols(analyzed: &Analyzed, query: &str) -> Value {
                     // A trait method is a declaration of its own — the `impl`
                     // that supplies it is a second one — so both are findable.
                     let container = tree.name(d.name).to_string();
-                    for m in &d.methods {
+                    for m in tree.list(d.methods) {
                         let name = tree.name(m.name).to_string();
                         if matches(&name, &wanted) {
                             out.push(found(&name, 6, &uri, &file.text, m.name.span, &container));
@@ -516,7 +516,7 @@ pub fn workspace_symbols(analyzed: &Analyzed, query: &str) -> Value {
                     // methods it supplies are — and they are declared nowhere
                     // else.
                     let container = crate::formatting::type_text(tree, d.self_ty);
-                    for m in &d.methods {
+                    for m in tree.list(d.methods) {
                         let name = tree.name(m.name).to_string();
                         if matches(&name, &wanted) {
                             out.push(found(&name, 6, &uri, &file.text, m.name.span, &container));

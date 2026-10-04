@@ -914,7 +914,7 @@ impl Unchecked {
         // body: an error on a parameter's type is as much a reason not to read
         // the body as one inside it.
         for (fid, body) in &analysis.checked.bodies {
-            let info = analysis.checked.tables.fn_info(*fid);
+            let info = analysis.checked.tables.fn_info(fid);
             let Some(in_file) = errors.get(&info.span.file) else { continue };
             if info.span.file != body.expr.span.file {
                 continue;
@@ -923,7 +923,7 @@ impl Unchecked {
             let end = info.span.end.max(body.expr.span.end) as usize;
             let extent = Span::new(info.span.file, start, end);
             if in_file.iter().any(|e| e.start <= extent.end && e.end >= extent.start) {
-                unchecked.bodies.insert(*fid);
+                unchecked.bodies.insert(fid);
                 unchecked.ranges.push(extent);
             }
         }
@@ -1044,7 +1044,7 @@ fn check_function_shapes(session: &Session, m: &ModuleData, diagnostics: &mut Di
         let name = m.ast.tree.name(d.name);
         // `self` is the receiver and `ctx` is the effect budget. Neither is
         // data a caller assembled, so neither is counted.
-        let parameters = d.params.iter().filter(|p| p.kind == ParamKind::Normal).count();
+        let parameters = m.ast.tree.list(d.params).iter().filter(|p| p.kind == ParamKind::Normal).count();
         if parameters > MAXIMUM_PARAMETERS {
             diagnostics.push(
                 Diagnostic::templated("parameter-count", d.name.span)
@@ -1074,8 +1074,8 @@ fn check_function_shapes(session: &Session, m: &ModuleData, diagnostics: &mut Di
     for item in &m.ast.items {
         match item {
             Item::Fn(d) => check(d),
-            Item::Impl(d) => d.methods.iter().for_each(&mut check),
-            Item::Trait(d) => d.methods.iter().for_each(&mut check),
+            Item::Impl(d) => m.ast.tree.list(d.methods).iter().for_each(&mut check),
+            Item::Trait(d) => m.ast.tree.list(d.methods).iter().for_each(&mut check),
             _ => {}
         }
     }
@@ -1394,7 +1394,7 @@ fn check_unused_variables(
     for (fid, body) in &analysis.checked.bodies {
         // The reads are what this counts, and a body that did not check has
         // lost the ones under whatever it failed on.
-        if !mine.contains(&analysis.checked.tables.fn_info(*fid).module) || unchecked.body(*fid) {
+        if !mine.contains(&analysis.checked.tables.fn_info(fid).module) || unchecked.body(fid) {
             continue;
         }
         let mut read: BTreeSet<LocalId> = BTreeSet::new();
@@ -1444,7 +1444,7 @@ fn check_deep_nesting(
     let mine = editable_modules_of(analysis, own);
     let mut found: Vec<(Span, usize)> = Vec::new();
     for (fid, body) in &analysis.checked.bodies {
-        if !mine.contains(&analysis.checked.tables.fn_info(*fid).module) {
+        if !mine.contains(&analysis.checked.tables.fn_info(fid).module) {
             continue;
         }
         nesting(&body.expr, 0, false, &mut found);
@@ -1600,7 +1600,7 @@ fn check_dead_code(
             if loc.in_package().map(|m| m.package) != Some(own) {
                 continue;
             }
-            for sp in specs {
+            for sp in m.ast.tree.list(*specs) {
                 wanted.insert(m.ast.tree.name(sp.name));
             }
         }
@@ -1892,7 +1892,7 @@ impl Names {
         let mut broken: std::collections::BTreeMap<crate::diagnostics::FileId, Vec<Span>> =
             std::collections::BTreeMap::new();
         for (fid, body) in &analysis.checked.bodies {
-            if unchecked.body(*fid) {
+            if unchecked.body(fid) {
                 broken.entry(body.expr.span.file).or_default().push(body.expr.span);
             }
         }
@@ -1904,7 +1904,7 @@ impl Names {
             // and the runs of source the parser skipped.
             let mut unreadable: Vec<Span> = broken.get(&m.file).cloned().unwrap_or_default();
             unreadable.extend(m.ast.items.iter().filter_map(|i| match i {
-                Item::Error(at) => Some(**at),
+                Item::Error(at) => Some(*at),
                 _ => None,
             }));
             let mut owned: Vec<(&str, Span)> = Vec::new();
@@ -1989,7 +1989,7 @@ impl Census {
             }
         }
         for (fid, body) in &analysis.checked.bodies {
-            let info = tables.fn_info(*fid);
+            let info = tables.fn_info(fid);
             if !mine.contains(&info.module) {
                 continue;
             }
@@ -2183,7 +2183,7 @@ fn check_unused_imports(session: &Session, m: &ModuleData, diagnostics: &mut Dia
         let crate::parsing::tree::Item::Import(i) = item else { continue };
         let specs: Vec<(&str, Span)> = match &i.clause {
             crate::parsing::tree::ImportClause::Named(specs) => {
-                specs.iter().map(|sp| (m.ast.tree.name(sp.local()), sp.span)).collect()
+                m.ast.tree.list(*specs).iter().map(|sp| (m.ast.tree.name(sp.local()), sp.span)).collect()
             }
             crate::parsing::tree::ImportClause::Namespace(n) => {
                 vec![(m.ast.tree.name(*n), n.span)]
@@ -2194,7 +2194,7 @@ fn check_unused_imports(session: &Session, m: &ModuleData, diagnostics: &mut Dia
         // applier refuses on overlap rather than guessing. Rewriting the whole
         // clause has one answer whatever the pattern of unused names is.
         let survivors: Vec<String> = match &i.clause {
-            crate::parsing::tree::ImportClause::Named(specs) => specs
+            crate::parsing::tree::ImportClause::Named(specs) => m.ast.tree.list(*specs)
                 .iter()
                 .filter(|sp| used.contains(m.ast.tree.name(sp.local())))
                 .map(|sp| match sp.alias {
@@ -2348,7 +2348,7 @@ fn check_unused_contexts(
     let mine = editable_modules_of(analysis, target.package);
     let mut found: Vec<(Span, Vec<crate::diagnostics::Edit>)> = Vec::new();
     for (fid, body) in &analysis.checked.bodies {
-        let info = analysis.checked.tables.fn_info(*fid);
+        let info = analysis.checked.tables.fn_info(fid);
         if !mine.contains(&info.module) {
             continue;
         }
@@ -2365,7 +2365,7 @@ fn check_unused_contexts(
         };
         // A body that did not check has lost the reads written under whatever
         // it failed on, so the tree is not the evidence there and the text is.
-        let used = if unchecked.body(*fid) {
+        let used = if unchecked.body(fid) {
             names_ctx(session, extent_of(info, body), param.span)
         } else {
             let mut read = false;
@@ -2380,7 +2380,7 @@ fn check_unused_contexts(
             continue;
         }
         let span = param.span;
-        found.push((span, context_edits(session, analysis, unchecked, target, *fid, index)));
+        found.push((span, context_edits(session, analysis, unchecked, target, fid, index)));
     }
     // `bodies` is a map, so the order findings are met in is not the order they
     // are written in. Sorting here makes one run's report the same as the next.
@@ -2527,10 +2527,10 @@ fn context_edits(
     let mut edits = vec![declaration];
     let mut refused = false;
     for (fid, body) in &analysis.checked.bodies {
-        if !mine.contains(&analysis.checked.tables.fn_info(*fid).module) {
+        if !mine.contains(&analysis.checked.tables.fn_info(fid).module) {
             continue;
         }
-        if unchecked.body(*fid) {
+        if unchecked.body(fid) {
             return Vec::new();
         }
         typed::walk(&body.expr, &mut |e| match &e.kind {
@@ -2596,7 +2596,7 @@ fn testing_surface(
         // and the ones it declares and exports itself.
         match item {
             crate::parsing::tree::Item::ReExport(r) => {
-                out.extend(r.specs.iter().map(|sp| m.ast.tree.name(sp.name).to_string()));
+                out.extend(m.ast.tree.list(r.specs).iter().map(|sp| m.ast.tree.name(sp.name).to_string()));
             }
             other => {
                 if let Some((name, _)) = exported_name(&m.ast.tree, other) {
@@ -2736,8 +2736,8 @@ fn check_unused_context_bounds(
     let mine = editable_modules_of(analysis, target.package);
     let mut found: Vec<(Span, String, String, Vec<crate::diagnostics::Edit>)> = Vec::new();
     for (fid, body) in &analysis.checked.bodies {
-        let info = tables.fn_info(*fid);
-        if !mine.contains(&info.module) || info.impl_of.is_some() || unchecked.body(*fid) {
+        let info = tables.fn_info(fid);
+        if !mine.contains(&info.module) || info.impl_of.is_some() || unchecked.body(fid) {
             continue;
         }
         let Some(index) = info.params.iter().position(|p| p.role == ParamRole::Ctx) else {
@@ -2906,7 +2906,7 @@ fn bound_spans(
     let crate::parsing::tree::Item::Fn(decl) = m.ast.items.get(item as usize)? else {
         return None;
     };
-    let g = decl.generics.get(gi)?;
+    let g = m.ast.tree.list(decl.generics).get(gi)?;
     let t = &m.ast.tree;
     Some(t.type_list(g.bounds).iter().map(|b| t.type_span(*b)).collect())
 }
@@ -3018,7 +3018,7 @@ fn calls_into(
     let mine = modules_of(analysis, own);
     let mut out = Vec::new();
     for (fid, body) in &analysis.checked.bodies {
-        if !mine.contains(&analysis.checked.tables.fn_info(*fid).module) {
+        if !mine.contains(&analysis.checked.tables.fn_info(fid).module) {
             continue;
         }
         crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
@@ -3163,8 +3163,8 @@ fn check_hand_rolled_comparators(
     let mine = editable_modules_of(analysis, own);
     let mut found: Vec<(Span, &'static str)> = Vec::new();
     for (fid, body) in &analysis.checked.bodies {
-        let info = analysis.checked.tables.fn_info(*fid);
-        if !mine.contains(&info.module) || unchecked.body(*fid) {
+        let info = analysis.checked.tables.fn_info(fid);
+        if !mine.contains(&info.module) || unchecked.body(fid) {
             continue;
         }
         if !declared_by(analysis, &info.ret, "core/order", "Order") {
@@ -3252,8 +3252,8 @@ fn check_hand_rolled_discards(
     let mine = editable_modules_of(analysis, own);
     let mut found: Vec<Span> = Vec::new();
     for (fid, body) in &analysis.checked.bodies {
-        let info = analysis.checked.tables.fn_info(*fid);
-        if !mine.contains(&info.module) || unchecked.body(*fid) {
+        let info = analysis.checked.tables.fn_info(fid);
+        if !mine.contains(&info.module) || unchecked.body(fid) {
             continue;
         }
         typed::walk(&body.expr, &mut |e| {
@@ -3388,7 +3388,7 @@ pub(crate) fn reached_by_resolution(
     let mine = modules_of(analysis, own);
     let mut out = BTreeSet::new();
     for (fid, body) in &analysis.checked.bodies {
-        let info = analysis.checked.tables.fn_info(*fid);
+        let info = analysis.checked.tables.fn_info(fid);
         if !mine.contains(&info.module) {
             continue;
         }

@@ -20,6 +20,7 @@
 use crate::build::buildfile::Platform;
 use crate::build::workspace::{PackageId, RuleKind, TargetId, Workspace};
 use crate::compiler::modules::{Loaded, Role};
+use crate::compiler::semantics::layered::{IdMap, Layered};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::compiler::standard_library;
@@ -86,11 +87,16 @@ pub enum Bodies {
     In(Vec<FileId>),
 }
 
+/// Every checked function body, by the function's id.
+pub type BodyMap = IdMap<FnId, std::sync::Arc<typed::Body>>;
+/// Every checked module-level `let`, by the constant's id.
+pub type ConstMap = IdMap<ConstId, typed::Expr>;
+
 pub struct Checked {
     pub tables: Tables,
-    pub scopes: Vec<ModuleScope>,
-    pub bodies: HashMap<FnId, std::sync::Arc<typed::Body>>,
-    pub consts: HashMap<ConstId, typed::Expr>,
+    pub scopes: Layered<ModuleScope>,
+    pub bodies: BodyMap,
+    pub consts: ConstMap,
     /// `main`, when this compilation has one.
     pub entry: Option<FnId>,
     /// Every exported free function of the entry module, by name.
@@ -161,9 +167,9 @@ pub struct Checker<'a> {
     pub ws: Option<&'a Workspace>,
     pub diags: &'a mut Diagnostics,
     pub tables: Tables,
-    pub scopes: Vec<ModuleScope>,
-    pub bodies: HashMap<FnId, std::sync::Arc<typed::Body>>,
-    pub const_values: HashMap<ConstId, typed::Expr>,
+    pub scopes: Layered<ModuleScope>,
+    pub bodies: BodyMap,
+    pub const_values: ConstMap,
     pub entry: Option<FnId>,
     /// See [`Checked::entries`].
     pub entries: HashMap<String, FnId>,
@@ -253,7 +259,7 @@ pub struct Checker<'a> {
 /// repository's, and a snippet loads the whole library before its own text —
 /// and their text is compiled into this binary. So what the passes below make
 /// of them is the same every time, and `compiler::snapshot` keeps it once per
-/// thread. [`Checker::resume`] then runs each pass over the remaining modules
+/// process. [`Checker::resume`] then runs each pass over the remaining modules
 /// only: their ids continue where these stop, so every type constructor,
 /// trait and module keeps the id a whole run would have given it.
 ///
@@ -266,11 +272,14 @@ pub struct Base {
     /// How many of the compilation's leading modules this covers.
     modules: usize,
     tables: Tables,
-    scopes: Vec<ModuleScope>,
-    bodies: HashMap<FnId, std::sync::Arc<typed::Body>>,
-    const_values: HashMap<ConstId, typed::Expr>,
+    scopes: Layered<ModuleScope>,
+    bodies: BodyMap,
+    const_values: ConstMap,
     known_traits: HashMap<String, TraitId>,
     known_types: HashMap<String, TyConId>,
+    /// What every prelude name refers to, which is the same in every module
+    /// and is found in these modules' scopes.
+    prelude: Vec<(String, Sym)>,
     prim_module: ModuleId,
     ctx_rebindings: Vec<Span>,
     ctx_decls_reached: HashSet<ContextDeclId>,
@@ -302,19 +311,30 @@ pub struct Walked {
 }
 
 impl Walked {
-    /// Whether the base walked this function's body.
-    pub fn settled(&self, id: FnId) -> bool {
-        id.index() < self.fns_from
+    /// The bodies the base didn't walk, in id order.
+    pub fn unsettled<'m>(
+        &self,
+        bodies: &'m BodyMap,
+    ) -> impl Iterator<Item = (FnId, &'m std::sync::Arc<typed::Body>)> {
+        bodies.iter_from(self.fns_from)
     }
 
-    /// Whether a pass walks this function's body.
-    pub fn function(&self, tables: &Tables, id: FnId) -> bool {
-        !self.settled(id) && self.wants(tables.fn_info(id).span.file)
+    /// The bodies a pass walks, in id order.
+    pub fn functions<'m>(
+        &'m self,
+        tables: &'m Tables,
+        bodies: &'m BodyMap,
+    ) -> impl Iterator<Item = (FnId, &'m std::sync::Arc<typed::Body>)> {
+        self.unsettled(bodies).filter(|(id, _)| self.wants(tables.fn_info(*id).span.file))
     }
 
-    /// Whether a pass walks this constant's initializer.
-    pub fn constant(&self, tables: &Tables, id: ConstId) -> bool {
-        id.index() >= self.consts_from && self.wants(tables.const_(id).span.file)
+    /// The constants a pass walks, in id order.
+    pub fn constants<'m>(
+        &'m self,
+        tables: &'m Tables,
+        consts: &'m ConstMap,
+    ) -> impl Iterator<Item = (ConstId, &'m typed::Expr)> {
+        consts.iter_from(self.consts_from).filter(|(id, _)| self.wants(tables.const_(*id).span.file))
     }
 
     fn wants(&self, file: FileId) -> bool {
@@ -350,7 +370,7 @@ impl<'a> Checker<'a> {
         ws: Option<&'a Workspace>,
         diags: &'a mut Diagnostics,
     ) -> Checker<'a> {
-        let mut scopes = Vec::new();
+        let mut scopes = Layered::default();
         scopes.resize_with(loaded.modules.len(), ModuleScope::default);
         Checker {
             loaded,
@@ -358,8 +378,8 @@ impl<'a> Checker<'a> {
             diags,
             tables: Tables::default(),
             scopes,
-            bodies: HashMap::default(),
-            const_values: HashMap::default(),
+            bodies: IdMap::default(),
+            const_values: IdMap::default(),
             entry: None,
             entries: HashMap::default(),
             entry_points: HashSet::default(),
@@ -396,12 +416,14 @@ impl<'a> Checker<'a> {
         base: &'a Base,
     ) -> Checker<'a> {
         let mut c = Checker::new(loaded, ws, diags);
-        let mut scopes = base.scopes.clone();
+        // The base's entries are shared rather than copied: these start
+        // empty, and read through to the base for every id below theirs.
+        let mut scopes = base.scopes.layer();
         scopes.resize_with(loaded.modules.len(), ModuleScope::default);
         c.scopes = scopes;
-        c.tables = base.tables.clone();
-        c.bodies = base.bodies.clone();
-        c.const_values = base.const_values.clone();
+        c.tables = base.tables.layer();
+        c.bodies = base.bodies.layer();
+        c.const_values = base.const_values.layer();
         c.known_traits = base.known_traits.clone();
         c.known_types = base.known_types.clone();
         c.prim_module = base.prim_module;
@@ -426,11 +448,15 @@ impl<'a> Checker<'a> {
         // analysis folds its own styles through the bodies as they were
         // before that — so the pass runs on copies, and keeps only what it
         // changed.
+        self.tables.freeze();
+        self.scopes.freeze();
+        self.bodies.freeze();
+        self.const_values.freeze();
         let (mut waiting, mut styled) = Default::default();
         if bodies_checked {
             let walked = self.walked();
             waiting = self.check_icons_and_builders(&walked, &HashSet::default());
-            let (mut bodies, mut consts) = (self.bodies.clone(), self.const_values.clone());
+            let (mut bodies, mut consts) = (self.bodies.layer(), self.const_values.layer());
             let (found, _) = crate::compiler::semantics::styles::run(
                 self.loaded,
                 &self.tables,
@@ -440,17 +466,14 @@ impl<'a> Checker<'a> {
                 self.diags,
                 &walked,
             );
+            // What the pass rewrote is what it wrote into its own layer.
             styled = crate::compiler::semantics::styles::Styled {
-                bodies: bodies
-                    .into_iter()
-                    .filter(|(id, body)| {
-                        !self.bodies.get(id).is_some_and(|was| std::sync::Arc::ptr_eq(was, body))
-                    })
-                    .collect(),
-                consts,
+                bodies: bodies.written().map(|(id, body)| (id, std::sync::Arc::clone(body))).collect(),
+                consts: consts.written().map(|(id, init)| (id, init.clone())).collect(),
                 ..found
             };
         }
+        let prelude = self.prelude();
         Base {
             modules: self.loaded.modules.len(),
             bodies_checked,
@@ -460,6 +483,7 @@ impl<'a> Checker<'a> {
             scopes: self.scopes,
             bodies: self.bodies,
             const_values: self.const_values,
+            prelude,
             known_traits: self.known_traits,
             known_types: self.known_types,
             prim_module: self.prim_module,
@@ -749,7 +773,7 @@ impl<'a> Checker<'a> {
         let t = self.tree(module);
         match item {
             tree::Item::Struct(d) => {
-                let generics = self.generic_shells(module, &d.generics);
+                let generics = self.generic_shells(module, t.list(d.generics));
                 let id = self.tables.add_tycon(TyCon {
                     name: t.name(d.name).to_string(),
                     module,
@@ -761,7 +785,7 @@ impl<'a> Checker<'a> {
                 self.declare(module, d.name, Sym::Ty(id), d.exported);
             }
             tree::Item::Enum(d) => {
-                let generics = self.generic_shells(module, &d.generics);
+                let generics = self.generic_shells(module, t.list(d.generics));
                 let id = self.tables.add_tycon(TyCon {
                     name: t.name(d.name).to_string(),
                     module,
@@ -795,7 +819,7 @@ impl<'a> Checker<'a> {
                 // A *method's* own generics are supported and shipping —
                 // `Show.show<C: Allocator>`, `Ui.memo<T>` — and are what a trait
                 // parameter would have been used for.
-                let generics = self.generic_shells(module, &d.generics);
+                let generics = self.generic_shells(module, t.list(d.generics));
                 if let Some(first) = generics.first() {
                     let at = generics.iter().fold(first.span, |acc, g| acc.to(g.span));
                     let name = t.name(d.name).to_string();
@@ -813,7 +837,7 @@ impl<'a> Checker<'a> {
                 self.declare(module, d.name, Sym::Trait(id), d.exported);
             }
             tree::Item::Fn(d) => {
-                let generics = self.generic_shells(module, &d.generics);
+                let generics = self.generic_shells(module, t.list(d.generics));
                 let id = self.tables.add_fn(FnInfo {
                     name: t.name(d.name).to_string(),
                     module,
@@ -868,7 +892,7 @@ impl<'a> Checker<'a> {
             tree::Item::Impl(d) if d.trait_ty.is_none() => {
                 let owner = t.type_head(d.self_ty).unwrap_or("?").to_string();
                 let scope = self.scope_mut(module);
-                for method in &d.methods {
+                for method in t.list(d.methods) {
                     let sym = Sym::Method(owner.clone());
                     scope.own.entry(t.name(method.name).to_string()).or_insert(sym.clone());
                     if method.exported {
@@ -956,23 +980,25 @@ impl<'a> Checker<'a> {
         // Everything a module declares is visible unqualified inside it,
         // before its imports add to that.
         let first = self.first_module();
-        for scope in self.scopes.iter_mut().skip(first) {
+        debug_assert_eq!(self.scopes.base_len(), first);
+        for scope in self.scopes.own_mut() {
             scope.names = scope.own.clone();
         }
 
         // Prelude names sit under everything, so a module may shadow any of
         // them and importing one explicitly is harmless. What each one refers
-        // to is the same in every module, so it is looked up once here rather
-        // than once per module.
-        let prelude: Vec<(String, Sym)> = standard_library::prelude()
-            .filter_map(|(path, name)| {
-                let from = self.loaded.find(path)?;
-                let sym = self.scope(from).exports.get(name)?.clone();
-                Some((name.to_string(), sym))
-            })
-            .collect();
-        for scope in self.scopes.iter_mut().skip(first) {
-            for (local, sym) in &prelude {
+        // to is the same in every module, so it is looked up once rather than
+        // once per module — and once per process where a base looked it up.
+        let computed;
+        let prelude = match self.base {
+            Some(base) => &base.prelude,
+            None => {
+                computed = self.prelude();
+                &computed
+            }
+        };
+        for scope in self.scopes.own_mut() {
+            for (local, sym) in prelude {
                 scope.names.entry(local.clone()).or_insert_with(|| sym.clone());
             }
         }
@@ -998,7 +1024,7 @@ impl<'a> Checker<'a> {
             }
             tree::ImportClause::Named(specs) => {
                 let platform = self.loaded.module(from).path.clone();
-                for spec in specs {
+                for spec in t.list(*specs) {
                     // A platform's entry is a declaration for the program to
                     // fill, with no body of its own: the program exports one of
                     // the same name, and nothing calls the declaration.
@@ -1071,7 +1097,7 @@ impl<'a> Checker<'a> {
     fn apply_reexport(&mut self, module: ModuleId, re: &tree::ReExport) {
         let Some(from) = self.loaded.find(&re.path) else { return };
         let t = self.tree(module);
-        for spec in &re.specs {
+        for spec in t.list(re.specs) {
             let Some(sym) = self.lookup_export(from, t.name(spec.name)) else {
                 let path = re.path.clone();
                 let name = t.name(spec.name).to_string();
@@ -1126,7 +1152,7 @@ impl<'a> Checker<'a> {
         let mut found = None;
         for item in items {
             if let tree::Item::ReExport(re) = item {
-                let Some(spec) = re.specs.iter().find(|s| t.name(s.local()) == name) else {
+                let Some(spec) = t.list(re.specs).iter().find(|s| t.name(s.local()) == name) else {
                     continue;
                 };
                 if let Some(from) = self.loaded.find(&re.path) {
@@ -1210,11 +1236,11 @@ impl<'a> Checker<'a> {
                         else {
                             continue;
                         };
-                        let generics = self.elaborate_generics(id, &d.generics);
+                        let generics = self.elaborate_generics(id, t.list(d.generics));
                         self.tables.tycon_mut(con).generics = generics.clone();
                         let def = match &d.body {
                             tree::StructBody::Record(fields) => TyDef::Struct {
-                                fields: fields
+                                fields: t.list(*fields)
                                     .iter()
                                     .map(|f| FieldInfo {
                                         name: t.name(f.name).to_string(),
@@ -1226,7 +1252,7 @@ impl<'a> Checker<'a> {
                                 record: true,
                             },
                             tree::StructBody::Tuple(fields) => TyDef::Struct {
-                                fields: fields
+                                fields: t.list(*fields)
                                     .iter()
                                     .enumerate()
                                     .map(|(i, f)| FieldInfo {
@@ -1248,10 +1274,10 @@ impl<'a> Checker<'a> {
                         else {
                             continue;
                         };
-                        let generics = self.elaborate_generics(id, &d.generics);
+                        let generics = self.elaborate_generics(id, t.list(d.generics));
                         self.tables.tycon_mut(con).generics = generics.clone();
-                        let variants = d
-                            .variants
+                        let variants = t
+                            .list(d.variants)
                             .iter()
                             .map(|v| {
                                 let (fields, record) = match &v.payload {
@@ -1272,7 +1298,7 @@ impl<'a> Checker<'a> {
                                     // A payload field has no `export` of its
                                     // own; the enum's is the whole answer.
                                     tree::VariantPayload::Record(fs) => (
-                                        fs.iter()
+                                        t.list(*fs).iter()
                                             .map(|f| FieldInfo {
                                                 name: t.name(f.name).to_string(),
                                                 ty: self.elaborate(id, &generics, f.ty),
@@ -1302,20 +1328,20 @@ impl<'a> Checker<'a> {
                         else {
                             continue;
                         };
-                        let generics = self.elaborate_generics(id, &d.generics);
+                        let generics = self.elaborate_generics(id, t.list(d.generics));
                         self.tables.trait_mut(tid).generics = generics.clone();
                         // A trait's `Self` is whatever type implements it,
                         // which is not known here and so stays abstract.
                         let methods = self.enter_self_scope(Ty::SelfTy, |s| {
-                            d.methods
+                            t.list(d.methods)
                                 .iter()
                                 .map(|sig| {
                                     let mut g = generics.clone();
-                                    g.extend(s.elaborate_generics(id, &sig.generics));
+                                    g.extend(s.elaborate_generics(id, t.list(sig.generics)));
                                     TraitMethod {
                                         name: t.name(sig.name).to_string(),
                                         generics: g.clone(),
-                                        params: s.elaborate_params(id, &g, &sig.params),
+                                        params: s.elaborate_params(id, &g, t.list(sig.params)),
                                         ret: s.elaborate(id, &g, sig.ret),
                                         span: sig.span,
                                     }
@@ -1372,9 +1398,9 @@ impl<'a> Checker<'a> {
         fid: FnId,
         d: &tree::FnDecl,
     ) {
-        let generics = self.elaborate_generics(module, &d.generics);
+        let generics = self.elaborate_generics(module, self.tree(module).list(d.generics));
         self.tables.fn_info_mut(fid).generics = generics.clone();
-        let params = self.elaborate_params(module, &generics, &d.params);
+        let params = self.elaborate_params(module, &generics, self.tree(module).list(d.params));
         let ret = self.elaborate(module, &generics, d.ret);
         self.tables.fn_info_mut(fid).params = params.clone();
         self.tables.fn_info_mut(fid).ret = ret;
@@ -2159,8 +2185,8 @@ impl<'a> Checker<'a> {
         if self.cyclic_aliases.contains(&key) {
             return Some(Ty::Error);
         }
-        let generics: Vec<GenericInfo> = alias
-            .generics
+        let generics: Vec<GenericInfo> = t
+            .list(alias.generics)
             .iter()
             .map(|g| GenericInfo { name: t.name(g.name).to_string(), bounds: Vec::new(), span: g.span })
             .collect();
@@ -2380,18 +2406,22 @@ impl<'a> Checker<'a> {
     /// Well-known names, so operators, `derive`, and the `main` signature
     /// check can find their traits and types. Runs before signatures are
     /// elaborated, because that is where `main` is checked.
+    /// What every prelude name refers to, from the scopes of the modules
+    /// that export them.
+    fn prelude(&self) -> Vec<(String, Sym)> {
+        standard_library::prelude()
+            .filter_map(|(path, name)| {
+                let from = self.loaded.find(path)?;
+                let sym = self.scope(from).exports.get(name)?.clone();
+                Some((name.to_string(), sym))
+            })
+            .collect()
+    }
+
     fn register_known_names(&mut self) {
         for (path, name) in standard_library::prelude() {
             if let Some(m) = self.loaded.find(path) {
-                match self.scope(m).exports.get(name) {
-                    Some(Sym::Trait(t)) => {
-                        self.known_traits.insert(name.to_string(), *t);
-                    }
-                    Some(Sym::Ty(c)) => {
-                        self.known_types.insert(name.to_string(), *c);
-                    }
-                    _ => {}
-                }
+                self.know(m, name);
             }
         }
         // `core/json` is loaded on import rather than eagerly, so these are
@@ -2399,15 +2429,7 @@ impl<'a> Checker<'a> {
         // time a primitive needs an implementation of either to be found.
         if let Some(m) = self.loaded.find("core/json") {
             for name in ["ToJson", "FromJson", "DecodeError", "Json"] {
-                match self.scope(m).exports.get(name) {
-                    Some(Sym::Trait(t)) => {
-                        self.known_traits.insert(name.to_string(), *t);
-                    }
-                    Some(Sym::Ty(c)) => {
-                        self.known_types.insert(name.to_string(), *c);
-                    }
-                    _ => {}
-                }
+                self.know(m, name);
             }
         }
         if let Some(m) = self.loaded.find("platform/effect") {
@@ -2416,20 +2438,26 @@ impl<'a> Checker<'a> {
             // check is a comparison against the ids rather than against a
             // spelling a program could shadow.
             for name in ["Allocator", "IoError", "Region", "Request", "Response"] {
-                match self.scope(m).exports.get(name) {
-                    Some(Sym::Trait(t)) => {
-                        self.known_traits.insert(name.to_string(), *t);
-                    }
-                    Some(Sym::Ty(c)) => {
-                        self.known_types.insert(name.to_string(), *c);
-                    }
-                    _ => {}
-                }
+                self.know(m, name);
             }
         }
         self.option_con = self.known_types.get("Option").copied();
         self.result_con = self.known_types.get("Result").copied();
         self.order_con = self.known_types.get("Order").copied();
+    }
+
+    /// Records `module`'s export `name` as a well-known trait or type, when it
+    /// is one. A name a base already recorded is left as it is.
+    fn know(&mut self, module: ModuleId, name: &str) {
+        match self.scope(module).exports.get(name) {
+            Some(&Sym::Trait(t)) if self.known_traits.get(name) != Some(&t) => {
+                self.known_traits.insert(name.to_string(), t);
+            }
+            Some(&Sym::Ty(c)) if self.known_types.get(name) != Some(&c) => {
+                self.known_types.insert(name.to_string(), c);
+            }
+            _ => {}
+        }
     }
 
     /// Registers the methods of every `impl` block, and every `derive`.
@@ -2499,7 +2527,7 @@ impl<'a> Checker<'a> {
     }
 
     fn register_impl_body(&mut self, module: ModuleId, index: u32, d: &tree::ImplDecl) {
-        let generics = self.elaborate_generics(module, &d.generics);
+        let generics = self.elaborate_generics(module, self.tree(module).list(d.generics));
         // No `for` clause: this declares the type's own methods rather than
         // conformance to anything.
         let Some(trait_ref) = d.trait_ty else {
@@ -2608,7 +2636,7 @@ impl<'a> Checker<'a> {
         // Register the methods, checked against the trait's signatures.
         let trait_methods = self.tables.trait_(trait_id).methods.clone();
         let mut supplied = vec![None; trait_methods.len()];
-        for (sub, method) in d.methods.iter().enumerate() {
+        for (sub, method) in self.tree(module).list(d.methods).iter().enumerate() {
             let mname = self.name_text(module, method.name);
             let Some(slot) = trait_methods.iter().position(|m| m.name == mname) else {
                 let t = self.tables.trait_(trait_id).name.clone();
@@ -2620,8 +2648,8 @@ impl<'a> Checker<'a> {
                 continue;
             };
             let mut g = generics.clone();
-            g.extend(self.elaborate_generics(module, &method.generics));
-            let params = self.elaborate_params(module, &g, &method.params);
+            g.extend(self.elaborate_generics(module, self.tree(module).list(method.generics)));
+            let params = self.elaborate_params(module, &g, self.tree(module).list(method.params));
             let ret = self.elaborate(module, &g, method.ret);
             // The name is what found the slot; whether the signature is the
             // one the slot declares is a second question, and one nothing
@@ -2823,11 +2851,11 @@ impl<'a> Checker<'a> {
             }
         }
 
-        for (sub, method) in d.methods.iter().enumerate() {
+        for (sub, method) in self.tree(module).list(d.methods).iter().enumerate() {
             let mname = self.name_text(module, method.name);
             let mut g = generics.to_vec();
-            g.extend(self.elaborate_generics(module, &method.generics));
-            let params = self.elaborate_params(module, &g, &method.params);
+            g.extend(self.elaborate_generics(module, self.tree(module).list(method.generics)));
+            let params = self.elaborate_params(module, &g, self.tree(module).list(method.params));
             let ret = self.elaborate(module, &g, method.ret);
 
             // A method is a function whose first parameter is `self`, and an
@@ -2963,7 +2991,7 @@ impl<'a> Checker<'a> {
             .iter()
             .filter(|(_, i)| i.is_derived())
             // The base checked its own, and they are the same ones.
-            .filter(|(key, _)| !self.base.is_some_and(|b| b.tables.impls.contains_key(key)))
+            .filter(|(key, _)| !self.base.is_some_and(|b| b.tables.impls.contains_key(*key)))
             .map(|((t, c), i)| (*t, *c, i.span))
             .collect();
         let mut sorted = derived;

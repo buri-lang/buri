@@ -75,7 +75,7 @@ pub fn hints(
     let checked = &analyzed.analysis.checked;
     let mut found: Vec<Hint> = Vec::new();
     for (fid, body) in &checked.bodies {
-        if tables.fn_info(*fid).span.file != file {
+        if tables.fn_info(fid).span.file != file {
             continue;
         }
         for local in &body.locals {
@@ -103,7 +103,7 @@ pub fn hints(
     // A module-level `let`'s value is checked on its own, with no body around
     // it — and it writes its type, so only its call sites can be hinted.
     for (id, expr) in &checked.consts {
-        if tables.const_(*id).span.file == file {
+        if tables.const_(id).span.file == file {
             parameter_hints(analyzed, file, text, expr, &mut found);
         }
     }
@@ -366,8 +366,8 @@ fn names_with_no_written_type(module: &ModuleData) -> BTreeSet<(u32, u32)> {
     for item in &module.ast.items {
         match item {
             Item::Fn(d) => blocks.extend(d.body),
-            Item::Impl(d) => blocks.extend(d.methods.iter().filter_map(|m| m.body)),
-            Item::Trait(d) => blocks.extend(d.methods.iter().filter_map(|m| m.body)),
+            Item::Impl(d) => blocks.extend(tree.list(d.methods).iter().filter_map(|m| m.body)),
+            Item::Trait(d) => blocks.extend(tree.list(d.methods).iter().filter_map(|m| m.body)),
             Item::Test(d) => blocks.push(d.body),
             _ => {}
         }

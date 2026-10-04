@@ -36,7 +36,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// The one thing the toolchain does when an invariant it is supposed to uphold
 /// turns out not to hold.
@@ -745,7 +745,7 @@ const MAX_SOURCE_BYTES: u64 = u32::MAX as u64;
 /// (`build::sources`).
 #[derive(Clone)]
 pub struct SourceMap {
-    files: Vec<Rc<SourceFile>>,
+    files: Vec<Arc<SourceFile>>,
     /// `find` by name, which `load` calls for every file every compilation
     /// asks for. Scanning `files` made loading a repository quadratic in the
     /// number of files it has — invisible at ten and not at a thousand — and
@@ -757,7 +757,9 @@ pub struct SourceMap {
     /// a user sees an error, and it is not allowed to be the thing that
     /// crashes; an empty file renders as no snippet, which is what a span with
     /// no location should look like anyway.
-    missing: Rc<SourceFile>,
+    missing: Arc<SourceFile>,
+    /// What [`SourceMap::shared`] last handed out, until the map changes.
+    shared: Option<Arc<SourceMap>>,
 }
 
 impl Default for SourceMap {
@@ -765,7 +767,8 @@ impl Default for SourceMap {
         SourceMap {
             files: Vec::new(),
             by_name: HashMap::new(),
-            missing: Rc::new(SourceFile::new("<none>".to_string(), PathBuf::new(), String::new())),
+            missing: Arc::new(SourceFile::new("<none>".to_string(), PathBuf::new(), String::new())),
+            shared: None,
         }
     }
 }
@@ -775,11 +778,29 @@ impl SourceMap {
         SourceMap::default()
     }
 
+    /// A copy of this map as it stands, for another thread.
+    ///
+    /// Kept until the map changes, so a command that hands the same map to
+    /// many threads — `buri test` hands one to every suite it queues, and
+    /// most suites load no file the one before did not — pays for one copy
+    /// rather than one each.
+    pub fn shared(&mut self) -> Arc<SourceMap> {
+        if let Some(copy) = &self.shared {
+            return Arc::clone(copy);
+        }
+        let mut copy = self.clone();
+        copy.shared = None;
+        let copy = Arc::new(copy);
+        self.shared = Some(Arc::clone(&copy));
+        copy
+    }
+
     pub fn add(&mut self, name: impl Into<String>, abs_path: PathBuf, text: String) -> FileId {
         let id = FileId(self.files.len() as u32);
         let name = name.into();
+        self.shared = None;
         self.by_name.insert(name.clone(), id);
-        self.files.push(Rc::new(SourceFile::new(name, abs_path, text)));
+        self.files.push(Arc::new(SourceFile::new(name, abs_path, text)));
         id
     }
 
@@ -812,6 +833,7 @@ impl SourceMap {
         let id = FileId::standard(index);
         let name = &crate::compiler::standard_library::file(index).name;
         if !self.by_name.contains_key(name) {
+            self.shared = None;
             self.by_name.insert(name.clone(), id);
         }
         id
@@ -849,7 +871,8 @@ impl SourceMap {
     pub fn replace(&mut self, id: FileId, text: String) {
         let Some(slot) = self.files.get_mut(id.0 as usize) else { return };
         let (name, abs_path) = (slot.name.clone(), slot.abs_path.clone());
-        *slot = Rc::new(SourceFile::new(name, abs_path, text));
+        *slot = Arc::new(SourceFile::new(name, abs_path, text));
+        self.shared = None;
     }
 
     /// Every file in this map, with the id it was minted under.

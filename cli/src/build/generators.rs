@@ -29,7 +29,6 @@ use crate::diagnostics::Span;
 use crate::json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex, PoisonError};
 
 /// The `code` of a [`Diagnostic`] whose `message` is already the whole
@@ -238,7 +237,7 @@ pub struct Outcome {
 /// clone of a `Session`, so `buri build`, `buri test`, `buri lint` and the
 /// language server all read one answer.
 ///
-/// Interior mutability, because the workspace is behind an `Rc` by the time
+/// Interior mutability, because the workspace is behind an `Arc` by the time
 /// there is a session to build a tool with. Nothing else about the graph is
 /// writable and nothing here rewrites the graph.
 ///
@@ -616,10 +615,130 @@ pub fn prepare(session: &mut Session, flags: &Flags, overlay: &Overlay) {
         .into_iter()
         .filter(|t| !declared(&session.workspace, *t).is_empty() || has_contracts(&session.workspace, *t))
         .collect();
+    let session: &Session = session;
+    // In rounds: every rule whose tools' code is generated already runs beside
+    // the others, each recording its own answer, once the tools the round runs
+    // are built. At most one rule of a package runs in a round, so two rules of
+    // one package still record in order.
     let mut done: BTreeSet<TargetId> = BTreeSet::new();
-    for target in targets {
-        ensure(session, target, flags, overlay, &mut done);
+    let mut waiting = targets.clone();
+    while !waiting.is_empty() {
+        let mut ready: Vec<TargetId> = Vec::new();
+        let mut rest: Vec<TargetId> = Vec::new();
+        for &t in &waiting {
+            let free = needs(&session.workspace, t, &targets).iter().all(|n| done.contains(n))
+                && !ready.iter().chain(&rest).any(|r| r.package == t.package);
+            if free { ready.push(t) } else { rest.push(t) }
+        }
+        if ready.is_empty() {
+            // Rules whose tools are built from each other's generated code:
+            // one at a time, in order, the way `ensure` breaks such a circle.
+            for target in rest {
+                ensure(session, target, flags, overlay, &mut done);
+            }
+            break;
+        }
+        build_tools(session, &ready, flags);
+        std::thread::scope(|scope| {
+            for &target in &ready {
+                let started = std::thread::Builder::new()
+                    .name("buri-generate".into())
+                    .stack_size(crate::parallel::STACK)
+                    .spawn_scoped(scope, move || run(session, target, flags, overlay));
+                if started.is_err() {
+                    run(session, target, flags, overlay);
+                }
+            }
+        });
+        done.extend(ready);
+        waiting = rest;
     }
+}
+
+/// One rule's generators, or a tool's contracts.
+fn run(session: &Session, target: TargetId, flags: &Flags, overlay: &Overlay) {
+    if has_contracts(&session.workspace, target) {
+        run_contracts(session, target, flags, overlay);
+    } else {
+        run_rule(session, target, flags, overlay);
+    }
+}
+
+/// The rules among `rules` that must run before `target`: those whose
+/// generated code a tool `target` runs is built from.
+fn needs(workspace: &Workspace, target: TargetId, rules: &[TargetId]) -> Vec<TargetId> {
+    let mut out = Vec::new();
+    for tool in tools_of(workspace, target) {
+        if cycle(workspace, target, tool).is_some() {
+            continue;
+        }
+        out.extend(
+            workspace.closure(tool).into_iter().chain([tool]).filter(|m| *m != target && rules.contains(m)),
+        );
+    }
+    out
+}
+
+/// Builds the programs of the tools these rules run, side by side, before any
+/// of them runs.
+///
+/// Each tool is a whole compile. Rules used to build their tools one at a time,
+/// and rules that share a tool would each build it when run side by side.
+/// Building one here is the same call a rule makes when it first needs the tool
+/// ([`tools::artifact`]), and it writes the program under the same key, so the
+/// rule finds the program already there, and an edited tool still has a key of
+/// its own. A tool whose build failed here fails again in that call, which is
+/// where its error is reported.
+fn build_tools(session: &Session, rules: &[TargetId], flags: &Flags) {
+    let workspace = &session.workspace;
+    let mut wanted: Vec<Tool> = Vec::new();
+    for &rule in rules {
+        for tool in tools_run_by(workspace, rule) {
+            if !wanted.contains(&tool) {
+                wanted.push(tool);
+            }
+        }
+    }
+    std::thread::scope(|scope| {
+        for &tool in &wanted {
+            // A thread that does not start leaves its tool to be built when a
+            // rule first needs it.
+            let _ = std::thread::Builder::new()
+                .name("buri-tool".into())
+                .stack_size(crate::parallel::STACK)
+                .spawn_scoped(scope, move || tools::artifact(session, tool, flags));
+        }
+    });
+}
+
+/// Every tool with a program that one rule's generators run: each entry's tool,
+/// the check of each input's language, and each contract's `generate`.
+fn tools_run_by(workspace: &Workspace, target: TargetId) -> Vec<Tool> {
+    let languages = &workspace.repo.languages;
+    let check_of = |language: &crate::languages::Language| match &language.kind {
+        crate::languages::Kind::Proto => Some(Tool::Proto),
+        crate::languages::Kind::Textproto => Some(Tool::Textproto),
+        crate::languages::Kind::Custom(own) => {
+            own.check.as_ref().and_then(|c| tools::resolve(workspace, &c.value).ok())
+        }
+        crate::languages::Kind::BuiltIn(_) => None,
+    };
+    let mut out: Vec<Tool> = Vec::new();
+    for generator in declared(workspace, target) {
+        out.extend(tools::resolve(workspace, &generator.tool.value).ok());
+        out.extend(generator.inputs.iter().filter_map(|i| languages.of(&i.value).and_then(check_of)));
+    }
+    if let Some(rule) = workspace.package(target.package).build.tool.as_ref().filter(|_| target.kind == RuleKind::Tool) {
+        for a in rule.contracts() {
+            let Some(language) = languages.named(&a.language.value) else { continue };
+            out.extend(match language.kind {
+                crate::languages::Kind::Textproto => Some(Tool::Textproto),
+                _ => language.tools().and_then(|t| t.generate.as_ref()).and_then(|g| tools::resolve(workspace, &g.value).ok()),
+            });
+        }
+    }
+    out.retain(|t| *t != Tool::Json);
+    out
 }
 
 /// One rule's generators, and — first — the generators of whatever its tools
@@ -628,7 +747,7 @@ pub fn prepare(session: &mut Session, flags: &Flags, overlay: &Overlay) {
 /// `done` is entered *before* the recursion, so a graph that turns back on
 /// itself terminates here and is reported by [`cycle`] rather than looping.
 fn ensure(
-    session: &mut Session,
+    session: &Session,
     target: TargetId,
     flags: &Flags,
     overlay: &Overlay,
@@ -637,7 +756,7 @@ fn ensure(
     if !done.insert(target) {
         return;
     }
-    let workspace = Rc::clone(&session.workspace);
+    let workspace = Arc::clone(&session.workspace);
     for tool in tools_of(&workspace, target) {
         if cycle(&workspace, target, tool).is_some() {
             continue;
@@ -649,11 +768,7 @@ fn ensure(
             }
         }
     }
-    if has_contracts(&workspace, target) {
-        run_contracts(session, target, flags, overlay);
-    } else {
-        run_rule(session, target, flags, overlay);
-    }
+    run(session, target, flags, overlay);
 }
 
 /// The repository's own tools one rule's generated code comes from: each
@@ -728,8 +843,8 @@ fn walk_worked_out_from(
 /// For the `json` tool that is [`crate::languages::json::contract`]: the types and
 /// `decode`. The `textproto` tool, and a language of a repository's own, is asked
 /// with `typesOf`, and its one module is filed under the language's name.
-fn run_contracts(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Overlay) {
-    let workspace = Rc::clone(&session.workspace);
+fn run_contracts(session: &Session, target: TargetId, flags: &Flags, overlay: &Overlay) {
+    let workspace = Arc::clone(&session.workspace);
     let package = workspace.package(target.package);
     let Some(rule) = &package.build.tool else { return };
     let languages = &workspace.repo.languages;
@@ -883,8 +998,8 @@ struct Entry {
     contracts: Vec<Option<tools::Contract>>,
 }
 
-fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Overlay) {
-    let workspace = Rc::clone(&session.workspace);
+fn run_rule(session: &Session, target: TargetId, flags: &Flags, overlay: &Overlay) {
+    let workspace = Arc::clone(&session.workspace);
     let mut entries: Vec<Entry> = Vec::new();
     let mut missing: Vec<(Diagnostic, Span)> = Vec::new();
     // The keys, plus a line per input nothing could read and the contents of
@@ -895,6 +1010,7 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
     let mut fingerprint = String::new();
     let mut checks = Checks::default();
     let read = crate::languages::reader(&session.root, overlay);
+    checks.start(session, target, overlay, &read, flags);
 
     for generator in declared(&workspace, target) {
         let package = workspace.package(target.package);
@@ -903,11 +1019,7 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
         for input in &generator.inputs {
             let full = package.dir.join(&input.value);
             let rel = workspace.rel_of(&full);
-            let text = match overlay.get(&full) {
-                Some(text) => Ok(text.clone()),
-                None => std::fs::read_to_string(&full),
-            };
-            match text {
+            match input_text(overlay, &full) {
                 Ok(text) => inputs.push((rel, text)),
                 Err(e) => {
                     unreadable = true;
@@ -946,13 +1058,8 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
         // file that fails. A tool with a contract has its inputs checked
         // against the contract's schema.
         let tool = tools::resolve(&workspace, &generator.tool.value).ok();
-        let contracts: Vec<Option<tools::Contract>> = inputs
-            .iter()
-            .map(|(rel, _)| {
-                let language = workspace.repo.languages.of(rel)?;
-                tools::Contract::of(&workspace, tool?, "generate", &language.name)
-            })
-            .collect();
+        let contracts: Vec<Option<tools::Contract>> =
+            inputs.iter().map(|(rel, _)| contract_of(&workspace, tool, rel)).collect();
         let mut failed = false;
         for (((rel, text), contract), input) in inputs.iter().zip(&contracts).zip(&generator.inputs) {
             let kind = workspace.repo.languages.of(rel).map(|l| &l.kind);
@@ -1056,9 +1163,66 @@ struct Checks {
     contracts: BTreeMap<String, (Option<String>, String)>,
     findings: Vec<(crate::languages::Finding, Span)>,
     reads: BTreeSet<String>,
+    /// Checks run ahead of [`Checks::check`] by [`Checks::start`], each with
+    /// the text it checked.
+    started: BTreeMap<(String, Option<tools::Contract>), (String, Option<tools::Checked>)>,
+}
+
+/// An input's text: the editor's, where it has unsaved text, or the file's.
+fn input_text(overlay: &Overlay, full: &std::path::Path) -> std::io::Result<String> {
+    match overlay.get(full) {
+        Some(text) => Ok(text.clone()),
+        None => std::fs::read_to_string(full),
+    }
+}
+
+/// The contract `tool` reads the input `rel` under, where it has one for the
+/// input's language.
+fn contract_of(workspace: &Workspace, tool: Option<Tool>, rel: &str) -> Option<tools::Contract> {
+    let language = workspace.repo.languages.of(rel)?;
+    tools::Contract::of(workspace, tool?, "generate", &language.name)
 }
 
 impl Checks {
+    /// Runs every check this rule's inputs ask for, side by side.
+    ///
+    /// Each check is a process of the checking tool's own, and the rule asks
+    /// for them one at a time, so a rule with many inputs used to wait for one
+    /// process after another. [`Checks::check`] takes the answer started here
+    /// for the same file, contract and text, so what a rule records is what it
+    /// recorded before: only when each answer was worked out has changed.
+    fn start(
+        &mut self,
+        session: &Session,
+        target: TargetId,
+        overlay: &Overlay,
+        read: &(dyn Fn(&str) -> Option<String> + Sync),
+        flags: &Flags,
+    ) {
+        let workspace = &session.workspace;
+        let package = workspace.package(target.package);
+        let mut asks: Vec<(String, String, Option<tools::Contract>)> = Vec::new();
+        for generator in declared(workspace, target) {
+            let tool = tools::resolve(workspace, &generator.tool.value).ok();
+            for input in &generator.inputs {
+                let full = package.dir.join(&input.value);
+                let rel = workspace.rel_of(&full);
+                let Ok(text) = input_text(overlay, &full) else { continue };
+                let contract = contract_of(workspace, tool, &rel);
+                if !asks.iter().any(|(r, _, c)| *r == rel && *c == contract) {
+                    asks.push((rel, text, contract));
+                }
+            }
+        }
+        let answers = crate::parallel::map(asks.len(), |i| {
+            let (rel, text, contract) = asks.get(i)?;
+            tools::check_file(session, rel, text, contract.as_ref(), read, flags)
+        });
+        for ((rel, text, contract), answer) in asks.into_iter().zip(answers) {
+            self.started.insert((rel, contract), (text, answer));
+        }
+    }
+
     /// Checks one input in a language this repository knows, and answers with
     /// the key the verdict is cached under. A file no tool checks has neither.
     fn check(
@@ -1074,7 +1238,11 @@ impl Checks {
         if let Some(known) = self.done.get(&at) {
             return known.clone();
         }
-        let answer = match tools::check_file(session, rel, text, contract, read, flags) {
+        let checked = match self.started.remove(&at) {
+            Some((checked_text, checked)) if checked_text == text => checked,
+            _ => tools::check_file(session, rel, text, contract, read, flags),
+        };
+        let answer = match checked {
             Some(checked) => {
                 self.reads.extend(checked.asked);
                 (Some(checked.key), checked.findings)

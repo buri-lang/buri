@@ -220,7 +220,7 @@ fn std_bodies(analysis: &Analysis) -> usize {
         .checked
         .bodies
         .keys()
-        .filter(|id| std.contains(&analysis.checked.tables.fn_info(**id).span.file))
+        .filter(|id| std.contains(&analysis.checked.tables.fn_info(*id).span.file))
         .count()
 }
 
@@ -257,13 +257,13 @@ fn bodies_in(analysis: &Analysis, file: FileId) -> Vec<(String, String)> {
     let tables = &analysis.checked.tables;
     let mut out = Vec::new();
     for (id, body) in &analysis.checked.bodies {
-        let info = tables.fn_info(*id);
+        let info = tables.fn_info(id);
         if info.span.file == file {
             out.push((format!("fn {} @{}", info.name, info.span.start), render(&format!("{body:?}"))));
         }
     }
     for (id, expr) in &analysis.checked.consts {
-        let info = tables.const_(*id);
+        let info = tables.const_(id);
         if info.span.file == file {
             out.push((format!("let {} @{}", info.name, info.span.start), render(&format!("{expr:?}"))));
         }

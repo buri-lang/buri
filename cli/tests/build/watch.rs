@@ -87,7 +87,7 @@ fn declared_set_of(root: &Path, pattern: &str) -> Vec<PathBuf> {
         map,
         parsed: buri::parsing::parser::Cache::new(),
         diagnostics,
-        workspace: std::rc::Rc::new(workspace),
+        workspace: std::sync::Arc::new(workspace),
         rendering: Rendering::Human { color: false },
     };
     let targets = s.resolve_targets(&[pattern.to_string()]).expect("the pattern resolves");

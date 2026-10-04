@@ -5,7 +5,7 @@ use crate::build::buildfile::Platform;
 use crate::build::workspace::Workspace;
 use crate::compiler::modules::{Loaded, Loader, Unit};
 use crate::compiler::semantics::resolve::{Bodies, Checked, Checker};
-use crate::compiler::snapshot::{self, Opening};
+use crate::compiler::snapshot::{self, Opening, Snapshot};
 use crate::diagnostics::{Diagnostic, Diagnostics, FileId, SourceMap, Span};
 
 pub struct Analysis {
@@ -61,16 +61,72 @@ pub fn analyze_all(
     cache: &mut crate::parsing::parser::Cache,
     units: &[Unit],
 ) -> Analysis {
-    analyze_on(ws, map, cache, Opening::Builtin, Bodies::All, |loader| {
-        for unit in units {
-            loader.load_unit(unit);
-        }
+    let loading = load_all(ws, map, cache, units);
+    check(loading, ws, map)
+}
+
+/// The loaded half of an [`analyze_all`], before any checking.
+pub struct Loading {
+    loaded: Loaded,
+    diagnostics: Diagnostics,
+}
+
+/// The first half of [`analyze_all`]: loads the units.
+///
+/// The halves are apart because they need different things. Loading reads
+/// files and mints their ids in `map`, and parses into `cache`, so it runs
+/// where those live; checking needs neither, and runs on any thread. That is
+/// how `buri test` checks its suites side by side while one thread loads them.
+pub fn load_all(
+    ws: Option<&Workspace>,
+    map: &mut SourceMap,
+    cache: &mut crate::parsing::parser::Cache,
+    units: &[Unit],
+) -> Loading {
+    load_on(ws, map, cache, snapshot::of(Opening::Builtin, true), |loader| {
+        load_units(loader, units)
     })
 }
 
+impl Loading {
+    /// The bytes of repository source this load holds, which is what checking
+    /// it grows with. The standard library is left out: every load has it.
+    pub fn source_bytes(&self, map: &SourceMap) -> u64 {
+        self.loaded
+            .modules
+            .iter()
+            .filter(|m| m.pkg.is_some())
+            .map(|m| u64::try_from(map.get(m.file).text.len()).unwrap_or(u64::MAX))
+            .fold(0, u64::saturating_add)
+    }
+}
+
+/// The second half of [`analyze_all`]: checks what [`load_all`] loaded.
+///
+/// `map` only names files, to put the diagnostics in order. A copy taken
+/// after the load does.
+pub fn check(loading: Loading, ws: Option<&Workspace>, map: &SourceMap) -> Analysis {
+    check_on(loading, ws, map, snapshot::of(Opening::Builtin, true), Bodies::All)
+}
+
+fn load_units(loader: &mut Loader, units: &[Unit]) {
+    for unit in units {
+        loader.load_unit(unit);
+    }
+}
+
+/// Whose bodies [`analyze_on`] checks. Named before loading, and resolved to
+/// files after it, because which files are the repository's is known only then.
+enum Scope<'a> {
+    All,
+    /// The files [`repository_files`] names.
+    Repository,
+    Files(&'a [FileId]),
+}
+
 /// Loads with `load` on top of the standard library modules `opening` names,
-/// checked once per thread rather than once per call (`compiler::snapshot`),
-/// and checks the rest with `bodies`.
+/// checked once per process rather than once per call (`compiler::snapshot`),
+/// and checks the bodies `scope` names.
 ///
 /// `load` has to load the opening's modules first, which every caller does
 /// by starting the way a loader from nothing would: `Loader::load_unit` loads
@@ -85,20 +141,48 @@ fn analyze_on(
     map: &mut SourceMap,
     cache: &mut crate::parsing::parser::Cache,
     opening: Opening,
-    bodies: Bodies,
+    scope: Scope,
     load: impl FnOnce(&mut Loader),
 ) -> Analysis {
-    let snapshot = snapshot::of(opening, matches!(bodies, Bodies::All));
-    let mut diags = Diagnostics::new();
-    diags.extend(snapshot.diagnostics.items.iter().cloned());
+    let snapshot = snapshot::of(opening, matches!(scope, Scope::All));
+    let loading = load_on(ws, map, cache, snapshot, load);
+    let bodies = match scope {
+        Scope::All => Bodies::All,
+        Scope::Repository => Bodies::In(repository_files(&loading.loaded)),
+        Scope::Files(files) => Bodies::In(files.to_vec()),
+    };
+    check_on(loading, ws, map, snapshot, bodies)
+}
+
+fn load_on(
+    ws: Option<&Workspace>,
+    map: &mut SourceMap,
+    cache: &mut crate::parsing::parser::Cache,
+    snapshot: &'static Snapshot,
+    load: impl FnOnce(&mut Loader),
+) -> Loading {
+    let mut diagnostics = Diagnostics::new();
+    diagnostics.extend(snapshot.diagnostics.items.iter().cloned());
     let loaded = {
-        let mut loader = Loader::seeded(ws, map, &mut diags, cache, &snapshot);
+        let mut loader = Loader::seeded(ws, map, &mut diagnostics, cache, snapshot);
         load(&mut loader);
         loader.finish()
     };
-    let checked = Checker::resume(&loaded, ws, &mut diags, &snapshot.base).checking(bodies).run();
-    diags.sort(map);
-    Analysis { loaded, checked, diagnostics: diags }
+    Loading { loaded, diagnostics }
+}
+
+fn check_on(
+    loading: Loading,
+    ws: Option<&Workspace>,
+    map: &SourceMap,
+    snapshot: &Snapshot,
+    bodies: Bodies,
+) -> Analysis {
+    let Loading { loaded, mut diagnostics } = loading;
+    let checked =
+        Checker::resume(&loaded, ws, &mut diagnostics, &snapshot.base).checking(bodies).run();
+    diagnostics.sort(map);
+    Analysis { loaded, checked, diagnostics }
 }
 
 /// Loads one unit and checks the bodies the *repository* wrote, leaving the
@@ -133,36 +217,7 @@ pub fn analyze_program(
     cache: &mut crate::parsing::parser::Cache,
     unit: &Unit,
 ) -> Analysis {
-    analyze_program_all(ws, map, cache, std::slice::from_ref(unit))
-}
-
-/// The same, over several units batched into one compilation. See
-/// [`analyze_all`] for what batching means and [`analyze_program`] for what is
-/// left unchecked.
-pub fn analyze_program_all(
-    ws: Option<&Workspace>,
-    map: &mut SourceMap,
-    cache: &mut crate::parsing::parser::Cache,
-    units: &[Unit],
-) -> Analysis {
-    // Which files are the repository's is known once loading is over, and
-    // the checker is asked for their bodies alone — so the snapshot is the
-    // one with no bodies, and the files are named afterwards.
-    let snapshot = snapshot::of(Opening::Builtin, false);
-    let mut diags = Diagnostics::new();
-    diags.extend(snapshot.diagnostics.items.iter().cloned());
-    let loaded = {
-        let mut loader = Loader::seeded(ws, map, &mut diags, cache, &snapshot);
-        for unit in units {
-            loader.load_unit(unit);
-        }
-        loader.finish()
-    };
-    let files = repository_files(&loaded);
-    let checked =
-        Checker::resume(&loaded, ws, &mut diags, &snapshot.base).checking(Bodies::In(files)).run();
-    diags.sort(map);
-    Analysis { loaded, checked, diagnostics: diags }
+    analyze_on(ws, map, cache, Opening::Builtin, Scope::Repository, |loader| loader.load_unit(unit))
 }
 
 /// Every file in the closure that the standard library did not supply.
@@ -207,8 +262,8 @@ pub fn analyze_bodies_in(
     unit: &Unit,
     files: &[FileId],
 ) -> Analysis {
-    analyze_on(ws, map, cache, Opening::Builtin, Bodies::In(files.to_vec()), |loader| {
-        loader.load_unit(unit);
+    analyze_on(ws, map, cache, Opening::Builtin, Scope::Files(files), |loader| {
+        loader.load_unit(unit)
     })
 }
 
@@ -267,7 +322,7 @@ pub fn load(
 /// imports.
 pub fn analyze_std_module(map: &mut SourceMap, path: &str) -> Analysis {
     let mut cache = crate::parsing::parser::Cache::new();
-    analyze_on(None, map, &mut cache, Opening::Builtin, Bodies::All, |loader| {
+    analyze_on(None, map, &mut cache, Opening::Builtin, Scope::All, |loader| {
         loader.load_builtin_modules();
         loader.load_std_module(path);
     })
@@ -287,53 +342,27 @@ pub fn analyze_snippet(
     role: crate::compiler::modules::Role,
 ) -> Analysis {
     let mut cache = crate::parsing::parser::Cache::new();
-    analyze_snippet_in(None, map, &mut cache, name, text, role)
+    analyze_snippet_on(None, None, map, &mut cache, name, text, role, None)
 }
 
-/// The same, against a repository, so a snippet that imports `//lib/money`
-/// resolves it.
+/// The same, against a repository, standing in for a file of `pkg`, and built
+/// for one platform. Each is optional.
 ///
-/// The build system's documentation is mostly *about* a monorepo, so most of
-/// its examples name `//...` paths. Compiling them against the worked example
-/// repository is what makes those examples testable instead of illustrative —
-/// and it is the same path a third-party repository's own documentation takes.
-pub fn analyze_snippet_in(
-    ws: Option<&Workspace>,
-    map: &mut SourceMap,
-    cache: &mut crate::parsing::parser::Cache,
-    name: &str,
-    text: &str,
-    role: crate::compiler::modules::Role,
-) -> Analysis {
-    analyze_snippet_as(ws, None, map, cache, name, text, role)
-}
-
-/// The same, with the snippet standing in for a file of `pkg` — which is what
-/// makes a document about a library's internals compilable.
-pub fn analyze_snippet_as(
-    ws: Option<&Workspace>,
-    pkg: Option<crate::build::workspace::PackageId>,
-    map: &mut SourceMap,
-    cache: &mut crate::parsing::parser::Cache,
-    name: &str,
-    text: &str,
-    role: crate::compiler::modules::Role,
-) -> Analysis {
-    analyze_snippet_on(ws, pkg, map, cache, name, text, role, None)
-}
-
-/// The same, built for one platform.
-///
-/// A snippet has no output, so by default its `main` may take any bundled
-/// platform's host. A document *about* the host says which with `platform=` on
-/// its fence: that is what lets the error page for `entry-host-mismatch` carry
-/// a program that actually provokes it.
+/// - The repository is what lets a snippet that imports `//lib/money` resolve
+///   it. The build system's documentation is mostly *about* a monorepo, and
+///   compiling its examples against the worked example repository is what makes
+///   them testable instead of illustrative.
+/// - Standing in for a file of `pkg` is what makes a document about a library's
+///   internals compilable.
+/// - A snippet has no output, so by default its `main` may take any bundled
+///   platform's host. A document *about* the host says which with `platform=`
+///   on its fence: that is what lets the error page for `entry-host-mismatch`
+///   carry a program that actually provokes it.
 #[allow(
     clippy::too_many_arguments,
-    reason = "the eighth is the platform, and the other seven are `analyze_snippet_as`'s \
-              already. Bundling them into a struct would give every caller a builder to \
-              fill in for the one field it varies, and the seven are what a snippet *is*: \
-              where it stands, what it is called, what it says, and what it is compiled as."
+    reason = "bundling them into a struct would give every caller a builder to fill in for \
+              the one field it varies, and they are what a snippet *is*: where it stands, \
+              what it is called, what it says, and what it is compiled as."
 )]
 pub fn analyze_snippet_on(
     ws: Option<&Workspace>,
@@ -345,7 +374,7 @@ pub fn analyze_snippet_on(
     role: crate::compiler::modules::Role,
     platform: Option<Platform>,
 ) -> Analysis {
-    analyze_on(ws, map, cache, Opening::Library, Bodies::All, |loader| {
+    analyze_on(ws, map, cache, Opening::Library, Scope::All, |loader| {
         loader.load_unit(&crate::compiler::modules::Unit {
             target: None,
             platform,
@@ -358,46 +387,30 @@ pub fn analyze_snippet_on(
 }
 
 /// Compiles a snippet that exports `main`, runs it, and returns its standard
-/// output.
+/// output. A repository lets a documented program import the packages the
+/// document is about.
 ///
-/// The tail of `actions::build_target` minus the workspace, the cache, and the
-/// artifact directory — so a documented program is executed exactly the way
-/// `buri run` would execute it.
-pub fn run_snippet(map: &mut SourceMap, name: &str, text: &str) -> Result<String, Diagnostics> {
-    run_snippet_in(None, map, name, text)
-}
-
-/// The same, against a repository, so a documented program may import the
-/// packages the document is about.
-pub fn run_snippet_in(
+/// The tail of `actions::build_target` minus the cache and the artifact
+/// directory — so a documented program is executed exactly the way `buri run`
+/// would execute it.
+pub fn run_snippet(
     ws: Option<&Workspace>,
     map: &mut SourceMap,
     name: &str,
     text: &str,
 ) -> Result<String, Diagnostics> {
-    let (source, chunks) = compile_snippet_js(ws, map, name, text)?;
+    let (source, chunks) = compile_snippet_js_as(ws, None, map, name, text)?;
     execute(name, &source, &chunks)
 }
 
 /// The same up to running it: the JavaScript a snippet that exports `main`
-/// compiles to.
+/// compiles to, with the snippet standing in for a file of `pkg`.
 ///
-/// [`run_snippet_in`] is this and then a subprocess. `build::tools` is the
-/// other caller: the `main` it writes for a tool is a snippet too, and this is
-/// what turns it into an artifact the build can hand a request on standard
-/// input.
-pub fn compile_snippet_js(
-    ws: Option<&Workspace>,
-    map: &mut SourceMap,
-    name: &str,
-    text: &str,
-) -> Result<(String, Vec<String>), Diagnostics> {
-    compile_snippet_js_as(ws, None, map, name, text)
-}
-
-/// The same, with the snippet standing in for a file of `pkg`: the `main` the
-/// toolchain writes for a `tool` rule imports that tool's `tool.buri`, which
-/// only a file of its own package may.
+/// [`run_snippet`] is this and then a subprocess. `build::tools` is the other
+/// caller: the `main` the toolchain writes for a `tool` rule is a snippet too,
+/// and it imports that tool's `tool.buri`, which only a file of its own package
+/// may. This is what turns it into an artifact the build can hand a request on
+/// standard input.
 pub fn compile_snippet_js_as(
     ws: Option<&Workspace>,
     pkg: Option<crate::build::workspace::PackageId>,
@@ -406,7 +419,7 @@ pub fn compile_snippet_js_as(
     text: &str,
 ) -> Result<(String, Vec<String>), Diagnostics> {
     let mut cache = crate::parsing::parser::Cache::new();
-    let analysis = analyze_snippet_as(
+    let analysis = analyze_snippet_on(
         ws,
         pkg,
         map,
@@ -414,6 +427,7 @@ pub fn compile_snippet_js_as(
         name,
         text,
         crate::compiler::modules::Role::Entry,
+        None,
     );
     if analysis.diagnostics.has_errors() {
         return Err(analysis.diagnostics);
