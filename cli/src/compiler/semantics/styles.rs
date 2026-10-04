@@ -44,7 +44,7 @@
 use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::consteval::{Env, Folder, Value};
 use crate::compiler::semantics::layered::Layered;
-use crate::compiler::semantics::resolve::{BodyMap, ConstMap, ModuleScope, Sym, Walked};
+use crate::compiler::semantics::resolve::{own_type, BodyMap, ConstMap, ModuleScope, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{ConstId, FnId, Tables, Ty, TyKind, TyConId};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
@@ -413,8 +413,8 @@ pub fn run(
     diags: &mut Diagnostics,
     walked: &Walked,
 ) -> (Styled, Option<TyConId>) {
-    let Some(style_con) = style_constructor(loaded, scopes) else { return (Styled::default(), None) };
-    let Some(classes_con) = ui_style_type(loaded, scopes, "Classes") else {
+    let Some(style_con) = own_type(loaded, scopes, "ui/style", "Style") else { return (Styled::default(), None) };
+    let Some(classes_con) = own_type(loaded, scopes, "ui/style", "Classes") else {
         return (Styled::default(), None);
     };
 
@@ -429,7 +429,7 @@ pub fn run(
     let mut ex = Extractor {
         style_con,
         classes_con,
-        color_con: ui_style_type(loaded, scopes, "Color"),
+        color_con: own_type(loaded, scopes, "ui/style", "Color"),
         tables,
         original_bodies: bodies,
         original_consts: consts,
@@ -487,20 +487,6 @@ pub fn run(
         bodies.insert(id, std::sync::Arc::new(body));
     }
     (styled, Some(style_con))
-}
-
-/// `ui/style`'s `Style`, when this compilation loaded it.
-fn style_constructor(loaded: &Loaded, scopes: &Layered<ModuleScope>) -> Option<TyConId> {
-    ui_style_type(loaded, scopes, "Style")
-}
-
-/// One of `ui/style`'s own types, by name, when this compilation loaded it.
-fn ui_style_type(loaded: &Loaded, scopes: &Layered<ModuleScope>, name: &str) -> Option<TyConId> {
-    let index = loaded.modules.iter().position(|m| m.path == "ui/style")?;
-    match scopes.get(index)?.own.get(name)? {
-        Sym::Ty(id) => Some(*id),
-        _ => None,
-    }
 }
 
 struct Extractor<'a> {
@@ -1383,49 +1369,41 @@ impl Reset {
     }
 }
 
-/// Which of those elements an expression builds.
+/// Which of those elements an enum literal builds.
 ///
-/// The same question as [`builds_a_theme`] and asked the same way: `NodeKind`
+/// The same question as [`Reached::themes`] and asked the same way: `NodeKind`
 /// is `ui/node`'s private enum, so a literal of it was written inside that
 /// module's own constructors and nowhere else. A list is the exception —
 /// `region` takes its role as a parameter, so what names one is a `Role::List`
 /// literal, and that is written at the call site.
-pub fn reset_in(
-    e: &mut typed::Expr,
-    node_con: TyConId,
-    role_con: Option<TyConId>,
-    out: &mut Reset,
-) {
-    if let ExprKind::EnumLit { con, variant, .. } = &e.kind {
-        if *con == node_con {
-            out.tree = true;
-            match *variant {
-                NODE_HEADING => out.heading = true,
-                NODE_BUTTON => out.button = true,
-                NODE_LINK => out.link = true,
-                // A slider is a `<input type="range">`, whose track and thumb
-                // the field reset clears and re-draws, so it asks for the same
-                // reset a field does.
-                NODE_FIELD | NODE_SLIDER => out.field = true,
-                NODE_TOGGLE => out.toggle = true,
-                NODE_IMAGE | NODE_ICON => out.image = true,
-                NODE_SUBMIT | NODE_FILE_PICKER => out.button = true,
-                NODE_DIALOG => out.dialog = true,
-                NODE_PICKER => out.radiogroup = true,
-                NODE_DISCLOSURE => out.disclosure = true,
-                _ => {}
-            }
-        }
-        if Some(*con) == role_con {
-            match *variant {
-                ROLE_LIST => out.list = true,
-                ROLE_SEPARATOR => out.separator = true,
-                ROLE_TABLE => out.table = true,
-                _ => {}
-            }
+fn reset_in(con: TyConId, variant: usize, node_con: TyConId, role_con: Option<TyConId>, out: &mut Reset) {
+    if con == node_con {
+        out.tree = true;
+        match variant {
+            NODE_HEADING => out.heading = true,
+            NODE_BUTTON => out.button = true,
+            NODE_LINK => out.link = true,
+            // A slider is a `<input type="range">`, whose track and thumb
+            // the field reset clears and re-draws, so it asks for the same
+            // reset a field does.
+            NODE_FIELD | NODE_SLIDER => out.field = true,
+            NODE_TOGGLE => out.toggle = true,
+            NODE_IMAGE | NODE_ICON => out.image = true,
+            NODE_SUBMIT | NODE_FILE_PICKER => out.button = true,
+            NODE_DIALOG => out.dialog = true,
+            NODE_PICKER => out.radiogroup = true,
+            NODE_DISCLOSURE => out.disclosure = true,
+            _ => {}
         }
     }
-    typed::children_mut(e, &mut |child| reset_in(child, node_con, role_con, out));
+    if Some(con) == role_con {
+        match variant {
+            ROLE_LIST => out.list = true,
+            ROLE_SEPARATOR => out.separator = true,
+            ROLE_TABLE => out.table = true,
+            _ => {}
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2156,7 +2134,18 @@ fn digest(text: &str) -> String {
 // Walking
 // ---------------------------------------------------------------------------
 
-/// What a walk over the functions a program kept found out about its styles.
+/// The `ui` types a walk over a program reads, each `None` where the
+/// compilation did not load it.
+#[derive(Clone, Copy)]
+pub struct UiTypes {
+    pub style: Option<TyConId>,
+    pub theme: Option<TyConId>,
+    pub node: Option<TyConId>,
+    pub role: Option<TyConId>,
+}
+
+/// What a walk over the functions a program kept found out about its user
+/// interface.
 #[derive(Default)]
 pub struct Reached {
     /// The classes the program's already-extracted styles name, so that the
@@ -2179,70 +2168,90 @@ pub struct Reached {
     /// but an enum literal — a value reaching a `Computed` from anywhere at all
     /// was written down somewhere in the program.
     pub inline: bool,
+    /// Whether the program builds a `ui/theme` `Theme`.
+    ///
+    /// Asked the way [`Reached::inline`] is: a `Theme` is an opaque struct
+    /// with a private field, wrapping a private enum, and the only two
+    /// literals of it are written inside `themed` and `switching`. A program
+    /// that monomorphized neither can hand `mount` nothing but an empty list,
+    /// and the whole theme half of the runtime — resolution, rendering, the
+    /// `:root` block, the switch's computation — is unreachable.
+    pub themes: bool,
+    /// Whether the program can build an icon.
+    ///
+    /// Asked the way `themes` is, and for the same reason: the renderer
+    /// reaches `$tree_icon` through a hole rather than by name, so the parser
+    /// and the two allow lists — 2.5 KB of them — ship only in an artifact
+    /// that has artwork in it. `NodeKind` is `ui/node`'s private enum, so a
+    /// literal of it was written inside that module's own constructors and
+    /// nowhere else.
+    pub icons: bool,
+    /// Which elements a browser paints something on the program builds, which
+    /// is which reset rules the sheet opens with.
+    pub reset: Reset,
 }
 
-/// The styles an expression names, gathered for [`Reached`].
+/// Reads an expression and everything under it into `out`: the styles it
+/// names, and whether it builds a theme, an icon, or which elements.
 ///
 /// Read after monomorphization, over the functions a program actually kept.
-pub fn collect(e: &mut typed::Expr, style_con: TyConId, out: &mut Reached) {
-    if let ExprKind::EnumLit { con, variant, args, .. } = &e.kind {
-        if *con == style_con {
-            match *variant {
-                STYLE_EXTRACTED => {
-                    // `Extracted(Classes([(slot, class), …]))`: one field, and
-                    // the list is inside it.
-                    let list = match args.first() {
-                        Some(typed::Expr { kind: ExprKind::StructLit { fields, .. }, .. }) => {
-                            fields.first()
-                        }
-                        _ => None,
-                    };
-                    if let Some(typed::Expr { kind: ExprKind::Array(items), .. }) = list {
-                        for item in items {
-                            let ExprKind::Tuple(pair) = &item.kind else { continue };
-                            if let Some(typed::Expr { kind: ExprKind::Str(class), .. }) =
-                                pair.get(1)
-                            {
-                                out.classes.insert(class.clone());
-                            }
-                        }
-                    }
+/// One walk for every question, each asked only of a type the compilation
+/// loaded, so a program that is not a user interface finds nothing.
+pub fn survey(e: &mut typed::Expr, ui: UiTypes, out: &mut Reached) {
+    match &e.kind {
+        ExprKind::EnumLit { con, variant, args, .. } => {
+            if Some(*con) == ui.style {
+                collect(*variant, args, out);
+            }
+            if let Some(node_con) = ui.node {
+                out.icons |= *con == node_con && *variant == NODE_ICON;
+                reset_in(*con, *variant, node_con, ui.role, &mut out.reset);
+            }
+        }
+        ExprKind::StructLit { con, .. } if Some(*con) == ui.theme => out.themes = true,
+        _ => {}
+    }
+    typed::children_mut(e, &mut |child| survey(child, ui, out));
+}
+
+/// The styles one `Style` literal names, gathered for [`Reached`].
+fn collect(variant: usize, args: &[typed::Expr], out: &mut Reached) {
+    match variant {
+        STYLE_EXTRACTED => {
+            // `Extracted(Classes([(slot, class), …]))`: one field, and
+            // the list is inside it.
+            let list = match args.first() {
+                Some(typed::Expr { kind: ExprKind::StructLit { fields, .. }, .. }) => {
+                    fields.first()
                 }
-                // `Group` is transparent and `When` holds two lists that were
-                // extracted like any other; neither is a property of its own.
-                // `On` and `At` exist only in the stylesheet — one that reached
-                // the runtime aborts there — so they are not the inline tier
-                // either, and the checker has already refused the shapes that
-                // could produce one.
-                STYLE_GROUP | STYLE_WHEN | STYLE_ON | STYLE_AT => {}
-                other => {
-                    out.inline = true;
-                    // A dynamic value that lowers to a variable-backed rule
-                    // (#195) names that rule's class here, so the sheet keeps it
-                    // the way it keeps a class an `Extracted` pair names.
-                    if let Some((abbreviation, _)) = variable_property(other) {
-                        out.classes.insert(format!("{abbreviation}-var"));
+                _ => None,
+            };
+            if let Some(typed::Expr { kind: ExprKind::Array(items), .. }) = list {
+                for item in items {
+                    let ExprKind::Tuple(pair) = &item.kind else { continue };
+                    if let Some(typed::Expr { kind: ExprKind::Str(class), .. }) =
+                        pair.get(1)
+                    {
+                        out.classes.insert(class.clone());
                     }
                 }
             }
         }
+        // `Group` is transparent and `When` holds two lists that were
+        // extracted like any other; neither is a property of its own.
+        // `On` and `At` exist only in the stylesheet — one that reached
+        // the runtime aborts there — so they are not the inline tier
+        // either, and the checker has already refused the shapes that
+        // could produce one.
+        STYLE_GROUP | STYLE_WHEN | STYLE_ON | STYLE_AT => {}
+        other => {
+            out.inline = true;
+            // A dynamic value that lowers to a variable-backed rule
+            // (#195) names that rule's class here, so the sheet keeps it
+            // the way it keeps a class an `Extracted` pair names.
+            if let Some((abbreviation, _)) = variable_property(other) {
+                out.classes.insert(format!("{abbreviation}-var"));
+            }
+        }
     }
-    typed::children_mut(e, &mut |child| collect(child, style_con, out));
-}
-
-/// Whether an expression builds a `ui/theme` `Theme`.
-///
-/// The same question as [`Reached::inline`] and asked the same way: a `Theme`
-/// is an opaque struct with a private field, wrapping a private enum, and the
-/// only two literals of it are written inside `themed` and `switching`. A
-/// program that monomorphized neither can hand `mount` nothing but an empty
-/// list, and the whole theme half of the runtime — resolution, rendering, the
-/// `:root` block, the switch's computation — is unreachable.
-pub fn builds_a_theme(e: &mut typed::Expr, theme_con: TyConId) -> bool {
-    if matches!(&e.kind, ExprKind::StructLit { con, .. } if *con == theme_con) {
-        return true;
-    }
-    let mut found = false;
-    typed::children_mut(e, &mut |child| found |= builds_a_theme(child, theme_con));
-    found
 }

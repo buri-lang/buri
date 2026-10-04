@@ -571,39 +571,22 @@ pub fn run(
     // are about what the *artifact* can reach, which is what dead-code
     // elimination is about.
     //
-    // One walk for both style questions, a second for themes and a third for
-    // the tree, because the three are different type constructors and a
-    // compilation that loaded one may not have loaded the others. All three
-    // cost nothing for a program that is not a user interface: no constructor
-    // exists, so no walk starts.
+    // One walk answers every question, and costs nothing for a program that
+    // is not a user interface: no constructor exists, so nothing matches.
+    // Which elements a browser paints something on is asked here for the
+    // same reason: a library's unused button must not put a rule in a sheet.
+    let ui = crate::compiler::semantics::styles::UiTypes {
+        style: checked.style_con,
+        theme: checked.theme_con,
+        node: checked.node_con,
+        role: checked.role_con,
+    };
     let mut reached = crate::compiler::semantics::styles::Reached::default();
-    let mut themes = false;
-    let mut icons = false;
-    let mut reset = crate::compiler::semantics::styles::Reset::default();
-    for f in &mut m.funcs {
-        let FuncKind::Body(body) = &mut f.kind else { continue };
-        if let Some(style_con) = checked.style_con {
-            crate::compiler::semantics::styles::collect(body, style_con, &mut reached);
-        }
-        if let Some(theme_con) = checked.theme_con {
-            themes = themes
-                || crate::compiler::semantics::styles::builds_a_theme(body, theme_con);
-        }
-        if let Some(node_con) = checked.node_con {
-            icons = icons
-                || crate::compiler::semantics::icons::builds_an_icon(body, node_con);
-        }
-        // Which elements a browser paints something on the artifact can build,
-        // which is which reset rules the sheet opens with. Asked here for the
-        // reason the two above are: a library's unused button must not put a
-        // rule in a sheet.
-        if let Some(node_con) = checked.node_con {
-            crate::compiler::semantics::styles::reset_in(
-                body,
-                node_con,
-                checked.role_con,
-                &mut reset,
-            );
+    if ui.style.is_some() || ui.theme.is_some() || ui.node.is_some() {
+        for f in &mut m.funcs {
+            if let FuncKind::Body(body) = &mut f.kind {
+                crate::compiler::semantics::styles::survey(body, ui, &mut reached);
+            }
         }
     }
 
@@ -645,31 +628,23 @@ pub fn run(
         stylesheet: crate::compiler::semantics::styles::stylesheet(
             &checked.styles,
             &reached.classes,
-            reset,
+            reached.reset,
         ),
         inline_styles: reached.inline,
-        themes,
-        icons,
+        themes: reached.themes,
+        icons: reached.icons,
         // `middle::chunks` is the only thing that fills this, and it runs after
         // inlining and dead-code elimination have settled which functions
         // there still are.
         chunks: Vec::new(),
         hosted: Hosted {
-            request: fetch_type(&checked.tables, &m.module_paths, "Request"),
-            response: fetch_type(&checked.tables, &m.module_paths, "Response"),
+            request: checked.known_types.get("Request").copied(),
+            response: checked.known_types.get("Response").copied(),
             js_implemented: m.js_implemented,
             export: None,
             ui: false,
         },
     }
-}
-
-/// `platform/effect`'s `Request` or `Response`, when the program loaded it.
-fn fetch_type(tables: &Tables, module_paths: &[String], name: &str) -> Option<TyConId> {
-    tables.tycons.iter().enumerate().find_map(|(i, t)| {
-        let module = module_paths.get(t.module.index())?;
-        (t.name == name && module == "platform/effect").then_some(TyConId(i as u32))
-    })
 }
 
 /// Two functions that came out of this pass wearing one symbol.
