@@ -1,5 +1,5 @@
 # The failure report, once per scalar shape the runtime's `$show` renders:
-# `cli/src/compiler/backend/js/runtime.js`'s `$show` branches on a type
+# `crates/js/src/compiler/backend/js/runtime.js`'s `$show` branches on a type
 # descriptor, and the `k === 0` arm is these — a JSON string for `Str`, single
 # quotes for `Char`, `$f64` for `Float`, and `String(v)` for everything else.
 #

@@ -19,9 +19,9 @@
 
 pub mod backend;
 pub mod driver;
-pub mod middle;
 pub mod modules;
 pub mod snapshot;
+pub use buri_middle::compiler::middle;
 pub use buri_semantics::compiler::{semantics, standard_library};
 
 #[cfg(test)]

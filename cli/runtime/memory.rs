@@ -5134,7 +5134,7 @@ mod tests {
         assert_eq!(buri_rt_alloc_arena_release(i64::MAX), 0);
     }
 
-    /// The packing is `cli/src/compiler/backend/js/runtime.js`'s too, so it is
+    /// The packing is `crates/js/src/compiler/backend/js/runtime.js`'s too, so it is
     /// pinned rather than left to two readers of one comment.
     #[test]
     fn a_handle_packs_the_generation_above_the_slot() {

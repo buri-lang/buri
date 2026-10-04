@@ -2409,11 +2409,11 @@ fn zip_match(heads: &[Ty], recvs: &[Ty], bound: &mut [Option<Ty>]) -> bool {
 /// There are exactly three ways it does, and each has a column of its own:
 ///
 /// * the element **stride and retain glue** of
-///   [`Extra::Element`](crate::compiler::backend::runtime_table::Extra::Element)
+///   `backend::runtime_table::Extra::Element`
 ///   — every `core/list` entry;
 /// * an **address**, for an argument whose type is a bare `T` and so has no
 ///   leaf list a C signature could name
-///   ([`Entry::by_ref`](crate::compiler::backend::runtime_table::Entry));
+///   (`backend::runtime_table::Entry::by_ref`);
 /// * a **runtime descriptor** ([`Func::desc`]), which is the whole shape of a
 ///   type — `json.decode` and the two `core/testing/assert` entries.
 ///

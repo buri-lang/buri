@@ -1,5 +1,5 @@
-//! Builds the two things a native backend needs and cannot write itself: the
-//! runtime archive, and the copy-and-patch backend's stencil library.
+//! Builds the runtime archive, the one thing a native backend needs and
+//! cannot write itself that is not the stencil library (`crates/stencil/build.rs`).
 //!
 //! # 1. `libburi_rt.a`
 //!
@@ -248,50 +248,13 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-// The stencil library's *builder* is compiled into this script rather than into
-// the toolchain: generating C and running a C compiler is something a build
-// does once, and a `Level` ladder and a Mach-O reader are not things `buri`
-// should carry at run time. The four modules below are the halves of
-// `backend/stencil` that only this script compiles, plus the two — `abi` and
-// `library` — that both compile, which is what keeps the emitter and the
-// library it reads from disagreeing. `super::` resolves the same way in both
-// module trees, which is why the paths inside them are written that way.
-//
-// `dead_code` is allowed on the four the script does not use *all* of, and the
-// allow is here rather than in the files because that is where the fact is:
-// `library.rs`'s decoder and `abi.rs`'s register cap are the toolchain's half,
-// and `Level`'s lower rungs are the ladder the report measured along — the
-// generators still read them, and a library is built at the top one.
-#[allow(dead_code, reason = "the halves of these files only the toolchain uses")]
-#[path = "src/compiler/backend/stencil/abi.rs"]
-mod abi;
-#[path = "src/compiler/backend/stencil/elfobj.rs"]
-mod elfobj;
-#[path = "src/compiler/backend/stencil/extract.rs"]
-mod extract;
-#[path = "src/compiler/backend/stencil/machobj.rs"]
-mod machobj;
-#[allow(dead_code, reason = "the halves of these files only the toolchain uses")]
-#[path = "src/compiler/backend/stencil/x86.rs"]
-mod x86;
-#[allow(dead_code, reason = "the halves of these files only the toolchain uses")]
-#[path = "src/compiler/backend/stencil/sources.rs"]
-mod sources;
-#[allow(dead_code, reason = "the halves of these files only the toolchain uses")]
-#[path = "src/compiler/backend/stencil/library.rs"]
-mod library;
-// The toolchain's table hasher, which `library.rs` indexes the stencils with.
-use buri_hash::hash;
-
-// The toolchain's one hash, a build dependency for a reason of the same shape.
-// Both blobs written below enter a cache key **as their own digest** — the
-// archive through `link_key`'s runtime term, the stencil library through
-// `Backend::identity` — and a digest of bytes that cannot change after this
-// script has written them has no business being recomputed by every process
-// that later reads them. Ten megabytes of SHA-256 is about fifty-five
-// milliseconds, paid once per `buri` invocation that reaches a native backend
-// and paid *before* any cache lookup, so it lands on the no-op build as
-// squarely as on the cold one.
+// The toolchain's one hash, a build dependency. The archive written below
+// enters a cache key **as its own digest**, through `link_key`'s runtime term,
+// and a digest of bytes that cannot change after this script has written them
+// has no business being recomputed by every process that later reads them. Ten
+// megabytes of SHA-256 is about fifty-five milliseconds, paid once per `buri`
+// invocation that reaches a native backend and paid *before* any cache lookup,
+// so it lands on the no-op build as squarely as on the cold one.
 //
 // Shared rather than restated: `hash_bytes` here and `hash_bytes` in the
 // toolchain must produce the same string, and the only way to be sure of that
@@ -309,7 +272,6 @@ fn main() {
         println!("cargo:rustc-link-arg=-Wl,--build-id=sha1");
     }
     runtime_archive(&manifest);
-    stencil_library(&manifest);
 }
 
 /// Writes `bytes` to `path`, **only if what is there differs**.
@@ -1699,105 +1661,6 @@ fn prune(root: &Path) {
         if used.is_ok_and(|t| t.elapsed().is_ok_and(|age| age > WEEK)) {
             let _ = std::fs::remove_dir_all(entry.path());
             let _ = std::fs::remove_file(entry.path().with_extension("lock"));
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 2. The stencil library
-// ---------------------------------------------------------------------------
-
-/// Generates the copy-and-patch backend's stencils and writes the library into
-/// `OUT_DIR`, for `backend::stencil` to `include_bytes!`.
-///
-/// This is the paper's §5.3 "stencil library builder", and it is here for the
-/// same reason the runtime archive is: it is an **install-time** cost paid once
-/// when the toolchain is built, not a cost inside the build loop the rest of
-/// this design spends its effort shortening. Twenty-three thousand C functions
-/// are about a second of `cc` across twelve shards; paying that per `buri
-/// build` would be paying for a C compiler in order to avoid one.
-///
-/// Three properties, each a decision:
-///
-/// * **A host C compiler, not a crate.** `cc` is a platform interface in
-///   exactly the sense the dependency bar in the workspace manifest means, and
-///   it is not a Cargo dependency: nothing is added to the lockfile and nothing
-///   is added to `cargo install buri` beyond a tool every machine that can link
-///   a native artifact already has — `build/link.rs` shells out to the same one
-///   to produce the artifact itself.
-/// * **Degrades rather than breaks.** A host with no `cc`, or one that is not
-///   arm64, gets an **empty** library; `stencil::AVAILABLE` reads the emptiness
-///   and the backend reports itself unavailable, exactly as
-///   `runtime_native::AVAILABLE` does for the archive. That is the third clause
-///   of the dependency bar applied to a tool rather than to a crate, and it is
-///   why this is a `return` and not a `fail`.
-/// * **One library per target.** A stencil is the bytes `cc` emitted for a
-///   function of a particular instruction set, in a particular container, so
-///   it is not portable in any sense. Three are built —
-///   [`abi::StencilTarget::ALL`] — and each is a separate blob with its own
-///   baked digest, so a toolchain can have the host's and not the cross ones,
-///   or all three, and `Stencil::identity` names whichever it has.
-///
-///   The two Linux libraries are **cross-compiled**: `clang -target
-///   {aarch64,x86_64}-unknown-linux-musl` with clang's own headers and no
-///   sysroot, which works because the generated C includes `<stdint.h>` and
-///   declares the one libc function it uses (`sources::memcpy_decl`). A host
-///   whose `cc` cannot do that gets empty blobs for those two and a full one
-///   for its own, which is `can_build`'s whole job.
-///
-///   `-musl` and not `-gnu`, and the triple is `abi::StencilTarget::triple`'s
-///   rather than this comment's: a stencil is bytes that get linked into an
-///   artifact whose libc is musl, so naming gnu here would have been the one
-///   place in the toolchain still describing a glibc Linux.
-fn stencil_library(manifest: &Path) {
-    let dir = manifest.join("src/compiler/backend/stencil");
-    for file in
-        ["abi.rs", "library.rs", "sources.rs", "extract.rs", "machobj.rs", "elfobj.rs", "x86.rs"]
-    {
-        println!("cargo:rerun-if-changed={}", dir.join(file).display());
-    }
-    println!("cargo:rerun-if-env-changed=CC");
-
-    let out_dir = PathBuf::from(env("OUT_DIR"));
-    let blob = |t: abi::StencilTarget| out_dir.join(format!("stencils-{}.bin", t.slug()));
-    let target = env("TARGET");
-    let cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
-
-    // A host with no C compiler, or one that is not a platform this toolchain
-    // has a runtime for, has no stencil library of any kind. Every blob is
-    // still written, because the emitter `include_bytes!`es all three by name.
-    if !supported(&target) || !can_compile(&cc) {
-        for t in abi::StencilTarget::ALL {
-            write_empty(&blob(t));
-        }
-        return;
-    }
-    let scratch = out_dir.join("stencils");
-    let jobs: usize = std::env::var("NUM_JOBS").ok().and_then(|v| v.parse().ok()).unwrap_or(4);
-    for t in abi::StencilTarget::ALL {
-        let out = blob(t);
-        // The host library is only buildable on the host: `cc` without
-        // `-target` compiles for the machine it is on, and `sources.rs` does
-        // not pass one for `MacosArm64`.
-        let host_ok = t != abi::StencilTarget::MacosArm64
-            || (target.contains("-apple-darwin") && target.starts_with("aarch64"));
-        if !host_ok || !sources::can_build(&cc, &scratch, t) {
-            write_empty(&out);
-            continue;
-        }
-        match sources::build(&cc, &scratch, jobs, t) {
-            // A failure *after* `cc` has been shown to compile this target's
-            // prelude is a bug in the generators, not a missing tool, so it
-            // fails the build rather than degrading: a toolchain that silently
-            // shipped no stencils because a generator stopped compiling would
-            // be a silent loss of a backend.
-            Err(e) => fail(&format!("stencil library ({}): {e}", t.slug())),
-            Ok(lib) => {
-                if let Err(e) = std::fs::write(&out, lib.encode()) {
-                    fail(&format!("could not write {}: {e}", out.display()));
-                }
-                digest_beside(&out);
-            }
         }
     }
 }

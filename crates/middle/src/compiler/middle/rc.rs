@@ -1690,7 +1690,7 @@ fn intrinsic_purity(name: &str) -> ir::Purity {
 /// This is the seed of `Plan::crosses_tasks`, and it is the escape-analysis
 /// question the multi-threaded mark asks (`middle::layout::CAP_SHARED_FLAG`,
 /// MEMORY.md §5.1). Like
-/// [`suspends`](crate::compiler::backend::js::park::suspends) it is a list of **keys** rather than of
+/// `backend::js::park::suspends` it is a list of **keys** rather than of
 /// effects, and for the sharper form of the same reason: `Tasks` is an effect
 /// and `host_testing.TestTasks` is an implementation of it that runs every
 /// step on the calling thread, so the answer is a property of the

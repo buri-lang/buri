@@ -583,6 +583,7 @@ fn every_checked_in_build_file_is_formatted() {
     let mut files = Vec::new();
     walk(&root.join("cli/tests"), &mut files);
     walk(&root.join("cli/src"), &mut files);
+    walk(&root.join("crates"), &mut files);
     files.sort();
     assert!(files.len() > 50, "expected the fixture repositories, found {}", files.len());
 

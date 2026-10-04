@@ -1,0 +1,24 @@
+[package]
+name = "buri-stencil"
+version = "0.3.19"
+edition = "2021"
+description = "The Buri copy-and-patch backend, for native debug builds."
+license = "MIT"
+repository = "https://github.com/buri-lang/buri"
+rust-version = "1.89"
+
+[dependencies]
+buri-backend = { path = "../backend", version = "0.3.19" }
+buri-diagnostics = { path = "../diagnostics", version = "0.3.19" }
+buri-hash = { path = "../hash", version = "0.3.19" }
+buri-middle = { path = "../middle", version = "0.3.19" }
+buri-project = { path = "../project", version = "0.3.19" }
+buri-semantics = { path = "../semantics", version = "0.3.19" }
+
+# `build.rs` digests the stencil library with the toolchain's own SHA-256 and
+# indexes it with its table hasher.
+[build-dependencies]
+buri-hash = { path = "../hash", version = "0.3.19" }
+
+[lints]
+workspace = true

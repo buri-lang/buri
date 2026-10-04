@@ -51,14 +51,29 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 name = "buri"
 version = "0.3.19"
 dependencies = [
+ "buri-backend",
  "buri-diagnostics",
  "buri-docs",
  "buri-hash",
+ "buri-js",
+ "buri-llvm",
+ "buri-middle",
  "buri-project",
  "buri-semantics",
  "buri-stdlib",
+ "buri-stencil",
  "buri-syntax",
- "inkwell",
+]
+
+[[package]]
+name = "buri-backend"
+version = "0.3.19"
+dependencies = [
+ "buri-diagnostics",
+ "buri-hash",
+ "buri-middle",
+ "buri-project",
+ "buri-semantics",
 ]
 
 [[package]]
@@ -77,6 +92,39 @@ version = "0.3.19"
 [[package]]
 name = "buri-hash"
 version = "0.3.19"
+
+[[package]]
+name = "buri-js"
+version = "0.3.19"
+dependencies = [
+ "buri-backend",
+ "buri-diagnostics",
+ "buri-hash",
+ "buri-middle",
+ "buri-semantics",
+]
+
+[[package]]
+name = "buri-llvm"
+version = "0.3.19"
+dependencies = [
+ "buri-backend",
+ "buri-diagnostics",
+ "buri-hash",
+ "buri-middle",
+ "buri-project",
+ "buri-semantics",
+ "inkwell",
+]
+
+[[package]]
+name = "buri-middle"
+version = "0.3.19"
+dependencies = [
+ "buri-diagnostics",
+ "buri-hash",
+ "buri-semantics",
+]
 
 [[package]]
 name = "buri-project"
@@ -119,6 +167,18 @@ dependencies = [
 [[package]]
 name = "buri-stdlib"
 version = "0.3.19"
+
+[[package]]
+name = "buri-stencil"
+version = "0.3.19"
+dependencies = [
+ "buri-backend",
+ "buri-diagnostics",
+ "buri-hash",
+ "buri-middle",
+ "buri-project",
+ "buri-semantics",
+]
 
 [[package]]
 name = "buri-syntax"
