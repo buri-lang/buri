@@ -272,7 +272,6 @@ fn no_development_code_generator() -> String {
 mod tests {
     use super::*;
     use crate::build::buildfile::Arch;
-    use crate::compiler::semantics::types::Tables;
     use crate::diagnostics::Span;
 
     fn at(platform: Platform, arch: Option<Arch>) -> Target {
@@ -601,6 +600,7 @@ mod tests {
     /// What is under test is that a key in each family reaches the caller as a
     /// missing one at all.
     #[test]
+    #[cfg(any(feature = "backend-stencil", feature = "backend-llvm"))]
     fn both_native_backends_report_a_capability_key() {
         for key in ["host.HostListen.listen", "host.HostEntropy.words"] {
             both_native_backends_report(key);
