@@ -881,9 +881,9 @@ fn assemble_unit(
     }
 
     let mut symbols: Vec<object::Symbol> = Vec::new();
-    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut index: crate::hash::Map<String, usize> = crate::hash::Map::default();
     let want = |symbols: &mut Vec<object::Symbol>,
-                    index: &mut std::collections::HashMap<String, usize>,
+                    index: &mut crate::hash::Map<String, usize>,
                     name: &str|
      -> usize {
         if let Some(i) = index.get(name) {
