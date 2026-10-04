@@ -45,6 +45,24 @@ struct Miscounted<'x> {
     checked: &'x [typed::Expr],
 }
 
+/// Records an obligation for every bound a generic list puts on the type
+/// arguments it was instantiated with.
+///
+/// A free function over the obligation list rather than a method, so a caller
+/// can read the generics out of the checker's tables while it records them.
+fn require_bounds(
+    obligations: &mut Vec<(Ty, TraitId, Span)>,
+    generics: &[GenericInfo],
+    targs: &[Ty],
+    span: Span,
+) {
+    for (g, t) in generics.iter().zip(targs) {
+        for b in &g.bounds {
+            obligations.push((t.clone(), *b, span));
+        }
+    }
+}
+
 /// A slot in a shape that names none: a function type's parameter, or one of a
 /// tuple constructor's values.
 fn unnamed_slot(ty: &Ty, span: Span) -> ParamInfo {
@@ -189,7 +207,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         let value_span = self.tree().span(value);
         let value_hir = self.check_expr(value, expected.as_ref());
         if let Some(exp) = &expected {
-            self.unify_at(value_span, &value_hir.ty.clone(), exp, "the annotation");
+            self.unify_at(value_span, &value_hir.ty, exp, "the annotation");
         }
         let ty = expected.unwrap_or_else(|| value_hir.ty.clone());
 
@@ -451,12 +469,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let c = self.check_expr(cond, Some(&bool_ty));
                 // The condition must have type `Bool`. There is no truthiness.
                 let cond_span = self.tree().span(cond);
-                self.unify_at(cond_span, &c.ty.clone(), &bool_ty, "an `if` condition");
+                self.unify_at(cond_span, &c.ty, &bool_ty, "an `if` condition");
                 let t = self.check_block(then, expected);
                 let f = self.check_expr(else_, expected.or(Some(&t.ty.clone())));
                 // Both branches must have the same type.
                 let else_span = self.tree().span(else_);
-                self.unify_at(else_span, &f.ty.clone(), &t.ty.clone(), "the other branch");
+                self.unify_at(else_span, &f.ty, &t.ty, "the other branch");
                 let ty = t.ty.clone();
                 typed::Expr::new(
                     typed::ExprKind::If { cond: Box::new(c), then: Box::new(t), else_: Box::new(f) },
@@ -535,7 +553,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let int_ty = self.prim(Prim::I64);
                 let i = self.check_expr(index, Some(&int_ty));
                 let index_span = self.tree().span(index);
-                self.unify_at(index_span, &i.ty.clone(), &int_ty, "an index");
+                self.unify_at(index_span, &i.ty, &int_ty, "an index");
                 let bty = self.resolve(&b.ty);
                 let elem = match &bty {
                     Ty::Array(e) => (**e).clone(),
@@ -674,11 +692,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     fn fn_ref(&mut self, f: FnId, explicit: Option<Vec<Ty>>, span: Span) -> typed::Expr {
-        // Only the generics are copied, and a function usually has none.
-        // `instantiate` is the one step that needs `&mut self`; everything
-        // after it reads the declaration in place.
-        let generics = self.c.tables.fn_info(f).generics.clone();
-        let targs = self.instantiate(&generics, explicit, span);
+        let targs = self.instantiate_fn(f, explicit, span);
         let info = self.c.tables.fn_info(f);
         let params: Vec<Ty> =
             info.params.iter().map(|p| substitute(&p.ty, &targs, None)).collect();
@@ -695,26 +709,38 @@ impl<'a, 'b> Infer<'a, 'b> {
         explicit: Option<Vec<Ty>>,
         span: Span,
     ) -> Vec<Ty> {
-        let targs: Vec<Ty> = match explicit {
-            Some(ts) if ts.len() == generics.len() => ts,
+        let targs = self.type_args(generics.len(), explicit, span);
+        require_bounds(&mut self.obligations, generics, &targs, span);
+        targs
+    }
+
+    /// [`Infer::instantiate`] for a function declaration, read where it is
+    /// rather than copied out first: a call site is the commonest place a
+    /// generic list is asked about, and the copy was a `String` and a bound
+    /// list per generic, per call.
+    fn instantiate_fn(&mut self, f: FnId, explicit: Option<Vec<Ty>>, span: Span) -> Vec<Ty> {
+        let targs = self.type_args(self.c.tables.fn_info(f).generics.len(), explicit, span);
+        let generics = &self.c.tables.fn_info(f).generics;
+        require_bounds(&mut self.obligations, generics, &targs, span);
+        targs
+    }
+
+    /// The written type arguments when there are `want` of them, and fresh
+    /// variables otherwise.
+    fn type_args(&mut self, want: usize, explicit: Option<Vec<Ty>>, span: Span) -> Vec<Ty> {
+        match explicit {
+            Some(ts) if ts.len() == want => ts,
             Some(ts) => {
-                let want = generics.len();
                 let got = ts.len();
                 self.templated("type-argument-count", span)
                     .bind("subject", "this function")
                     .bind("expected", counted(want, "type argument"))
                     .bind("given", were_given(got))
                     .mismatch(want.to_string(), got.to_string());
-                (0..generics.len()).map(|_| self.fresh(span)).collect()
+                (0..want).map(|_| self.fresh(span)).collect()
             }
-            None => (0..generics.len()).map(|_| self.fresh(span)).collect(),
-        };
-        for (g, t) in generics.iter().zip(&targs) {
-            for b in &g.bounds {
-                self.require(t.clone(), *b, span);
-            }
+            None => (0..want).map(|_| self.fresh(span)).collect(),
         }
-        targs
     }
 
     /// Resolves a callee that names something statically: a function, an enum
@@ -968,11 +994,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         args.iter()
             .enumerate()
             .map(|(i, a)| {
-                let want = params.get(i).cloned();
-                let checked = self.check_expr(*a, want.as_ref());
-                if let Some(w) = &want {
+                let want = params.get(i);
+                let checked = self.check_expr(*a, want);
+                if let Some(w) = want {
                     let aspan = self.tree().span(*a);
-                    self.unify_at(aspan, &checked.ty.clone(), w, "the parameter type");
+                    self.unify_at(aspan, &checked.ty, w, "the parameter type");
                 }
                 checked
             })
@@ -990,10 +1016,8 @@ impl<'a, 'b> Infer<'a, 'b> {
     ) -> typed::Expr {
         // The declaration is read, not owned: copying `FnInfo` here copied the
         // name, every parameter's name, and every parameter's type tree, once
-        // per call site in the program. Only the generics are taken, because
-        // `instantiate` wants `&mut self`, and a function usually has none.
-        let generics = self.c.tables.fn_info(f).generics.clone();
-        let targs = self.instantiate(&generics, explicit, span);
+        // per call site in the program.
+        let targs = self.instantiate_fn(f, explicit, span);
         // A bodyless declaration is the runtime's, and its key carries no type
         // arguments: what is written here is the only record of what the value
         // it answers holds. `Infer::check_erased_calls` is where that is held
@@ -1039,7 +1063,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         let mut param_types: &[Ty] = &params;
         if let Some(r) = receiver {
             if let Some((want, rest)) = params.split_first() {
-                self.unify_at(r.span, &r.ty.clone(), want, "the receiver");
+                self.unify_at(r.span, &r.ty, want, "the receiver");
                 param_types = rest;
             }
             hir_args.push(r);
@@ -2244,7 +2268,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             .map(|e| {
                 let c = self.check_expr(*e, Some(&elem_ty));
                 let espan = self.tree().span(*e);
-                self.unify_at(espan, &c.ty.clone(), &elem_ty, "the element type");
+                self.unify_at(espan, &c.ty, &elem_ty, "the element type");
                 c
             })
             .collect();
@@ -2361,13 +2385,13 @@ impl<'a, 'b> Infer<'a, 'b> {
                 Some(v) => {
                     let c = self.check_expr(v, Some(&want));
                     let vspan = t.span(v);
-                    self.unify_at(vspan, &c.ty.clone(), &want, "the field type");
+                    self.unify_at(vspan, &c.ty, &want, "the field type");
                     c
                 }
                 // Field shorthand: `Point { x, y }` binds `x: x`.
                 None => {
                     let c = self.check_ident(iname, ispan, Some(&want));
-                    self.unify_at(ispan, &c.ty.clone(), &want, "the field type");
+                    self.unify_at(ispan, &c.ty, &want, "the field type");
                     c
                 }
             };
@@ -2382,7 +2406,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 // anywhere the type is visible.
                 let b = self.check_expr(base, Some(&ty));
                 let base_span = self.tree().span(base);
-                self.unify_at(base_span, &b.ty.clone(), &ty, "the base of the update");
+                self.unify_at(base_span, &b.ty, &ty, "the base of the update");
                 let updates: Vec<(usize, typed::Expr)> = values
                     .into_iter()
                     .enumerate()
@@ -2612,12 +2636,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                 Some(v) => {
                     let c = self.check_expr(v, Some(&want));
                     let vspan = t.span(v);
-                    self.unify_at(vspan, &c.ty.clone(), &want, "the field type");
+                    self.unify_at(vspan, &c.ty, &want, "the field type");
                     c
                 }
                 None => {
                     let c = self.check_ident(iname, ispan, Some(&want));
-                    self.unify_at(ispan, &c.ty.clone(), &want, "the field type");
+                    self.unify_at(ispan, &c.ty, &want, "the field type");
                     c
                 }
             };
@@ -2703,7 +2727,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let b = self.prim(Prim::Bool);
                 let e = self.check_expr(operand, Some(&b));
                 let ospan = self.tree().span(operand);
-                self.unify_at(ospan, &e.ty.clone(), &b, "`!` takes a `Bool`");
+                self.unify_at(ospan, &e.ty, &b, "`!` takes a `Bool`");
                 return typed::Expr::new(
                     typed::ExprKind::Prim { op: typed::PrimOp::Not, prim: Prim::Bool, args: vec![e] },
                     b,
@@ -2764,10 +2788,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let b = self.prim(Prim::Bool);
                 let l = self.check_expr(lhs, Some(&b));
                 let lspan = self.tree().span(lhs);
-                self.unify_at(lspan, &l.ty.clone(), &b, "a logical operand");
+                self.unify_at(lspan, &l.ty, &b, "a logical operand");
                 let r = self.check_expr(rhs, Some(&b));
                 let rspan = self.tree().span(rhs);
-                self.unify_at(rspan, &r.ty.clone(), &b, "a logical operand");
+                self.unify_at(rspan, &r.ty, &b, "a logical operand");
                 let kind = if op == B::And {
                     typed::ExprKind::And { lhs: Box::new(l), rhs: Box::new(r) }
                 } else {
@@ -2785,7 +2809,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         // expectation is what pins a literal on either side.
         let r = self.check_expr(rhs, Some(&lty));
         let rspan = self.tree().span(rhs);
-        self.unify_at(rspan, &r.ty.clone(), &lty, "the left operand's type");
+        self.unify_at(rspan, &r.ty, &lty, "the left operand's type");
         let ty = self.resolve(&l.ty);
         let prim = self.as_prim(&ty);
         let _ = expected;
@@ -3141,7 +3165,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         let lambda_ret = std::mem::replace(&mut self.ret, outer_ret);
         if let Some(r) = &declared_ret {
             let body_span = self.tree().span(body);
-            self.unify_at(body_span, &body_hir.ty.clone(), r, "the declared return type");
+            self.unify_at(body_span, &body_hir.ty, r, "the declared return type");
         }
         // An unannotated lambda's body is checked against the return type the
         // position wants, exactly as an annotated one is checked against the
@@ -3375,12 +3399,12 @@ impl<'a, 'b> Infer<'a, 'b> {
             let guard = t.opt(arm.guard).map(|g| {
                 let e = self.check_expr(g, Some(&bool_ty));
                 let gspan = t.span(g);
-                self.unify_at(gspan, &e.ty.clone(), &bool_ty, "a guard");
+                self.unify_at(gspan, &e.ty, &bool_ty, "a guard");
                 e
             });
             let body = self.check_expr(ExprId(arm.body), Some(&result));
             let body_span = t.span(ExprId(arm.body));
-            self.unify_at(body_span, &body.ty.clone(), &result, "the other arms");
+            self.unify_at(body_span, &body.ty, &result, "the other arms");
             self.pop_scope();
             checked.push(typed::Arm { pattern: pat, guard, body, span: t.span_of(arm.span) });
         }

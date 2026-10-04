@@ -182,7 +182,7 @@ fn check_fn(c: &mut Checker, fid: FnId) {
     }
     let body_span = inf.t.block_span(body);
     let expr = inf.check_block(body, Some(&expected));
-    inf.unify_at(body_span, &expr.ty.clone(), &expected, "the declared return type");
+    inf.unify_at(body_span, &expr.ty, &expected, "the declared return type");
     let hir_body = inf.finish(expr);
     c.bodies.insert(fid, std::sync::Arc::new(hir_body));
 }
@@ -198,7 +198,7 @@ fn check_const(c: &mut Checker, cid: ConstId) {
     let ty = info.ty.clone();
     let value_span = inf.t.span(decl.value);
     let value = inf.check_expr(decl.value, Some(&ty));
-    inf.unify_at(value_span, &value.ty.clone(), &ty, "the declared type");
+    inf.unify_at(value_span, &value.ty, &ty, "the declared type");
     let body = inf.finish(value);
     c.const_values.insert(cid, body.expr);
 }
@@ -484,13 +484,15 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// parameter, a `let`, a pattern binding, and a lambda's own parameters are
     /// all bindings an inner lambda could close over.
     pub(crate) fn note_capture_risk(&mut self, local: LocalId, ty: &Ty) {
-        // `generics` and `c` are different fields, so neither predicate needs
-        // a copy of the list — and this runs for every parameter, every `let`
-        // and every pattern binding.
-        let resolved = self.resolve(ty);
-        if self.c.tables.is_effect_carrying(&resolved, &self.generics) {
+        // `subst`, `generics` and `c` are different fields, so neither the
+        // type nor the list is copied — and this runs for every parameter,
+        // every `let` and every pattern binding.
+        let resolved = self.subst.shallow_ref(ty);
+        let carries = self.c.tables.is_effect_carrying(resolved, &self.generics);
+        let may = !carries && self.c.tables.may_carry_effect(resolved, &self.generics);
+        if carries {
             self.effect_locals.insert(local);
-        } else if self.c.tables.may_carry_effect(&resolved, &self.generics) {
+        } else if may {
             self.poly_locals.insert(local);
         }
     }
@@ -804,10 +806,6 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     // -- obligations --------------------------------------------------------
-
-    pub(crate) fn require(&mut self, ty: Ty, tr: TraitId, span: Span) {
-        self.obligations.push((ty, tr, span));
-    }
 
     fn discharge_obligations(&mut self) {
         let obligations = std::mem::take(&mut self.obligations);
