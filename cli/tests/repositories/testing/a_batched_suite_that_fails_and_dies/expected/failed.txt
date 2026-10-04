@@ -1,0 +1,7 @@
+FAIL //lib/deep  test/deep.buri  "the block that fails"
+  assert.equal failed
+    actual:   0
+    expected: 1
+  --> lib/deep/test/deep.buri:8:1
+
+7 passed, 1 failed, 0 skipped (0.0s)

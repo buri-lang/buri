@@ -426,7 +426,8 @@ fn suite(session: &Session, target: TargetId) -> Option<crate::build::buildfile:
 //   and monomorphize, side by side.
 // - **Back ends**: the same worker goes on to lower, generate and link, then
 //   runs the binary. A batch's binary runs each member in a process of its
-//   own, so its suites run side by side too.
+//   own, so its suites run side by side too. Those runs queue behind every
+//   build, so every binary is linked as early as it can be.
 //
 // A front end and its back end are one heavy job, queued with the memory its
 // size says it will hold ([`build_bytes`]), and the jobs holding a whole program
@@ -1911,7 +1912,7 @@ fn rerun(session: &Session, slots: &mut [Slot], queue: &Queue) {
                     limit,
                     on_timeout: timed_out(session, target, limit),
                 };
-                queue.push(Job::Bundled(Box::new(BundledJob { slot: i, bundled: *bundled, run })), 0);
+                queue.push_later(Job::Bundled(Box::new(BundledJob { slot: i, bundled: *bundled, run })), false);
                 continue;
             }
         };
@@ -1981,7 +1982,7 @@ fn serve(job: ServedJob, queue: &Queue, shared: &Shared) -> Done {
         return Done::Abandoned { slots, explain: String::new() };
     };
     let sheet = write_stylesheet(binary.path(), &sheet);
-    queue_members(binary, sheet, members, queue);
+    queue_members(binary, sheet, members, queue, jobs_of(&shared.flags));
     Done::Progress
 }
 
@@ -2445,9 +2446,10 @@ fn recorded<'b>(
 // declared in. One suite aborting therefore costs one process and no suite's
 // report, which is exactly the isolation a binary per suite was buying.
 //
-// Each member runs in processes of its own, `BURI_TEST_TO` stopping each at the
-// member's last block, so a batch's suites run side by side and a member whose
-// process ends badly goes back to run alone without its neighbours.
+// Each member runs in processes of its own, which ask for the member's blocks
+// one at a time (`BURI_TEST_PULL`, [`run_pulled`]), so a batch's suites run side
+// by side and a member whose process ends badly goes back to run alone without
+// its neighbours.
 //
 // # Why no verdict can be served from the wrong place
 //
@@ -3049,143 +3051,348 @@ fn build_group(job: GroupJob, held: Held, queue: &Queue, shared: &Shared) -> Don
             (m, std::sync::Arc::clone(&seeds))
         })
         .collect();
-    queue_members(binary, written, members, queue);
+    queue_members(binary, written, members, queue, jobs_of(&shared.flags));
     Done::Built { slot: first, explain }
 }
 
-/// Queues a process per member of a linked binary, at the front of the queue:
-/// they finish work already paid for. Each member comes with the seeds its
-/// processes are handed.
+/// Queues the work of running each member of a linked binary.
+///
+/// **A member's blocks are handed out one at a time to the processes running
+/// them** ([`run_pulled`]), so a member is one process unless it is worth more.
+/// All of it is queued behind every build ([`crate::parallel::Queue::push_later`]),
+/// so no binary waits to be linked while another is run. Each member gets one
+/// job at the front of the runs, because it finishes work already paid for, and
+/// up to `width - 1` helpers at the back. A helper starts another process for
+/// the member only if blocks are still waiting when a worker reaches it, which
+/// is when nothing queued ahead of it needed the worker: a long suite run alone
+/// is spread over the machine, and a pass with work to spare does not pay a
+/// launch per few blocks.
+///
+/// A suite with a `timeout_seconds` has one job: a limit bounds the suite's
+/// one process, so it is not divided between several.
 fn queue_members(
     binary: actions::TestBinary,
     sheet: Option<String>,
     members: Vec<(MemberSpec, std::sync::Arc<String>)>,
     queue: &Queue,
+    width: usize,
 ) {
     let binary = std::sync::Arc::new(binary);
-    // Reversed, because each goes to the front: the first member runs first.
+    // Reversed, because each first job goes to the front: the first member
+    // runs first.
     for (spec, seeds) in members.into_iter().rev() {
-        // A limit bounds the suite's one process, so a suite with one is not
-        // divided between several.
-        let size = if spec.limit.is_some() { usize::MAX } else { BLOCKS_PER_PROCESS };
-        let chunks = chunks_of(&spec.ranges, size);
+        let blocks: Vec<usize> = spec.ranges.iter().flat_map(|&(from, to)| from..to).collect();
+        let helpers = if spec.limit.is_some() { 1 } else { blocks.len().clamp(1, width.max(1)) };
         let spec = std::sync::Arc::new(spec);
-        let gathered = std::sync::Arc::new(std::sync::Mutex::new(Gathered {
-            left: chunks.len(),
-            ..Gathered::default()
-        }));
-        for range in chunks.into_iter().rev() {
-            queue.push_first(Job::Member(MemberJob {
+        let gathered =
+            std::sync::Arc::new(std::sync::Mutex::new(Gathered { blocks, ..Gathered::default() }));
+        let job = || {
+            Job::Member(MemberJob {
                 binary: std::sync::Arc::clone(&binary),
                 seeds: std::sync::Arc::clone(&seeds),
                 sheet: sheet.clone(),
                 spec: std::sync::Arc::clone(&spec),
-                range,
                 gathered: std::sync::Arc::clone(&gathered),
-            }));
+            })
+        };
+        for _ in 1..helpers {
+            queue.push_later(job(), false);
         }
+        queue.push_later(job(), true);
     }
 }
 
-/// The fewest blocks a member's process is given, when the member has more:
-/// a process costs a launch, and a test usually costs less.
-const BLOCKS_PER_PROCESS: usize = 4;
-
-/// `ranges` cut into pieces of about `size` blocks, so one long suite's blocks
-/// run in several processes at once. Each is `(from, to)`, `to` exclusive.
-fn chunks_of(ranges: &[(usize, usize)], size: usize) -> Vec<(usize, usize)> {
-    let mut out = Vec::new();
-    for &(from, to) in ranges {
-        let mut at = from;
-        while at < to {
-            let end = to.min(at.saturating_add(size.max(1)));
-            out.push((at, end));
-            at = end;
-        }
-    }
-    out
-}
-
-/// Some of one member's blocks, in its group's binary. The binary is released
-/// when the last process has finished with it.
+/// One of the jobs running one member's blocks, in its group's binary. The
+/// binary is released when the last of them has finished with it.
 struct MemberJob {
     binary: std::sync::Arc<actions::TestBinary>,
     seeds: std::sync::Arc<String>,
     sheet: Option<String>,
     spec: std::sync::Arc<MemberSpec>,
-    range: (usize, usize),
     gathered: std::sync::Arc<std::sync::Mutex<Gathered>>,
 }
 
-/// What a member's processes have reported so far.
+/// One member's blocks: which have been handed to a process, and what the
+/// processes have reported so far.
 #[derive(Default)]
 struct Gathered {
+    /// The member's blocks, in the binary's numbering, in order.
+    blocks: Vec<usize>,
+    /// How many of `blocks` have been handed to a process.
+    handed: usize,
+    /// The member's processes still running.
+    running: usize,
     /// Each block's verdict with its index, and each process's notes with
     /// its first block, so the answer doesn't depend on which finished first.
-    blocks: Vec<(usize, Block)>,
+    verdicts: Vec<(usize, Block)>,
     notes: Vec<(usize, String)>,
-    left: usize,
     failed: bool,
     timed_out: bool,
+    /// The member's answer has been given.
+    answered: bool,
 }
 
-/// Runs some of one member's blocks in a process of its own, and answers for
-/// the member once its last process has finished.
+impl Gathered {
+    /// Whether any block is still waiting for a process.
+    fn waiting(&self) -> bool {
+        !self.failed && !self.timed_out && self.handed < self.blocks.len()
+    }
+
+    /// The next block to hand a process, if any is waiting.
+    fn claim(&mut self) -> Option<usize> {
+        if !self.waiting() {
+            return None;
+        }
+        let block = self.blocks.get(self.handed).copied();
+        self.handed += 1;
+        block
+    }
+
+    /// What one process reported.
+    fn take(&mut self, ran: Pulled) {
+        self.running = self.running.saturating_sub(1);
+        match ran {
+            Pulled::Ran { verdicts, notes } => {
+                let first = verdicts.iter().map(|(i, _)| *i).min().unwrap_or(usize::MAX);
+                self.verdicts.extend(verdicts);
+                self.notes.push((first, notes));
+            }
+            Pulled::Broken => self.failed = true,
+        }
+    }
+}
+
+fn gathered_of(gathered: &std::sync::Mutex<Gathered>) -> std::sync::MutexGuard<'_, Gathered> {
+    gathered.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Runs one member's waiting blocks, and answers for the member once its last
+/// block has a verdict and its last process has ended.
 ///
-/// A process that ends any way but with a verdict per block — a heap check that
-/// failed, a death after the last block, a binary that did not start — sends
-/// the member back to run alone, where the same binary is built for it and the
-/// problem is reported against it.
+/// A process that ends any way but with a verdict per block it was handed — a
+/// heap check that failed, a death after its last block, a binary that did not
+/// start — sends the member back to run alone, where the same binary is built
+/// for it and the problem is reported against it.
 fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
+    if !gathered_of(&job.gathered).waiting() {
+        return Done::Progress;
+    }
     if job.spec.paints && !shared.claim(&job.spec.snapshot_dir, job.spec.slot) {
         // Another suite is painting there. Back of the queue, rather than a
         // worker held waiting.
         std::thread::sleep(Duration::from_millis(20));
-        queue.push(Job::Member(job), 0);
+        queue.push_later(Job::Member(job), false);
         return Done::Progress;
     }
-    let MemberJob { binary, seeds, sheet, spec, range, gathered } = job;
+    let MemberJob { binary, seeds, sheet, spec, gathered } = job;
     let snapshots = snapshot_env(&spec.snapshot_dir, shared.flags.update, sheet);
-    let mut notes = String::new();
-    let ran = run_blocks(&binary.path().display().to_string(), spec.limit, range, &seeds, &snapshots, &mut notes);
+    let program = binary.path().display().to_string();
+    if spec.limit.is_some() {
+        run_limited(&program, &spec, &gathered, &seeds, &snapshots);
+    } else {
+        loop {
+            {
+                let mut all = gathered_of(&gathered);
+                if !all.waiting() {
+                    break;
+                }
+                all.running += 1;
+            }
+            let ran = run_pulled(&program, &gathered, &seeds, &snapshots);
+            gathered_of(&gathered).take(ran);
+        }
+    }
     if spec.paints {
         shared.release(&spec.snapshot_dir, spec.slot);
     }
-    let mut all = gathered.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    match ran {
-        Ok(Verdicts::Blocks(mine)) => {
-            all.blocks.extend((range.0..).zip(mine));
-            all.notes.push((range.0, notes));
-        }
-        Ok(Verdicts::TimedOut) => {
-            all.timed_out = true;
-            all.notes.push((range.0, notes));
-        }
-        _ => all.failed = true,
+    answer_member(&gathered, &spec, shared)
+}
+
+/// Runs the blocks of a member with a `timeout_seconds`, a range at a time,
+/// each in the processes [`run_blocks`] makes.
+fn run_limited(
+    program: &str,
+    spec: &MemberSpec,
+    gathered: &std::sync::Mutex<Gathered>,
+    seeds: &str,
+    snapshots: &[(&str, String)],
+) {
+    {
+        let mut all = gathered_of(gathered);
+        all.handed = all.blocks.len();
+        all.running += 1;
     }
-    all.left = all.left.saturating_sub(1);
-    if all.left > 0 {
+    for &range in &spec.ranges {
+        let mut notes = String::new();
+        let ran = run_blocks(program, spec.limit, range, seeds, snapshots, &mut notes);
+        let mut all = gathered_of(gathered);
+        match ran {
+            Ok(Verdicts::Blocks(mine)) => {
+                all.verdicts.extend((range.0..).zip(mine));
+                all.notes.push((range.0, notes));
+            }
+            Ok(Verdicts::TimedOut) => {
+                all.timed_out = true;
+                all.notes.push((range.0, notes));
+            }
+            _ => all.failed = true,
+        }
+        if all.failed || all.timed_out {
+            break;
+        }
+    }
+    let mut all = gathered_of(gathered);
+    all.running = all.running.saturating_sub(1);
+}
+
+/// The member's answer, from whichever of its jobs finishes last.
+fn answer_member(gathered: &std::sync::Mutex<Gathered>, spec: &MemberSpec, shared: &Shared) -> Done {
+    let mut all = gathered_of(gathered);
+    if all.answered || all.running > 0 || all.waiting() {
         return Done::Progress;
     }
+    all.answered = true;
     all.notes.sort_by_key(|(i, _)| *i);
+    let notes: String = all.notes.iter().map(|(_, n)| n.as_str()).collect();
     if all.timed_out {
-        let notes: String = all.notes.iter().map(|(_, n)| n.as_str()).collect();
         let answer = Err(spec.on_timeout.clone());
-        return Done::Answer { slot: spec.slot, answer, explain: String::new(), notes, built: linked_of(&spec) };
+        return Done::Answer { slot: spec.slot, answer, explain: String::new(), notes, built: linked_of(spec) };
     }
     if all.failed {
         return Done::Abandoned { slots: vec![spec.slot], explain: String::new() };
     }
-    all.blocks.sort_by_key(|(i, _)| *i);
-    let notes: String = all.notes.iter().map(|(_, n)| n.as_str()).collect();
-    let cases = recorded(shared, &spec.key, &spec.tests, all.blocks.iter().map(|(_, block)| block));
+    all.verdicts.sort_by_key(|(i, _)| *i);
+    let cases = recorded(shared, &spec.key, &spec.tests, all.verdicts.iter().map(|(_, block)| block));
     Done::Answer {
         slot: spec.slot,
         answer: Ok(Ran { cases, skipped: spec.skipped, roots: spec.roots.clone() }),
         explain: String::new(),
         notes,
-        built: linked_of(&spec),
+        built: linked_of(spec),
     }
+}
+
+/// The environment variable that makes a native test binary ask for each
+/// block it runs ([`run_pulled`]). `cli/runtime/testing.rs` is the other half.
+const PULL: &str = "BURI_TEST_PULL";
+
+/// What one process [`run_pulled`] started reported.
+enum Pulled {
+    /// A verdict for every block it was handed, and the heap check's receipt,
+    /// if it printed one.
+    Ran { verdicts: Vec<(usize, Block)>, notes: String },
+    /// It ended in a way that is no verdict on a block: see [`Verdicts`].
+    Broken,
+}
+
+/// Runs one process of a member's binary, handing it the member's waiting
+/// blocks one at a time until none is left or the process ends.
+///
+/// The process asks for a block before each one it holds none for
+/// (`cli/runtime/testing.rs`'s `handed_this`), and asking again means the block
+/// it held returned. Closing its input says nothing is left. A block that
+/// aborts ends the process, and the caller starts another for the blocks still
+/// waiting, so a failure costs one launch, as it does in [`run_blocks`].
+///
+/// The verdicts are the same facts [`run_blocks`] reads: the block a failure
+/// line names, or, for a process that died without one, the block it held if
+/// that block never wrote its `left` line.
+fn run_pulled(
+    program: &str,
+    gathered: &std::sync::Mutex<Gathered>,
+    seeds: &str,
+    snapshots: &[(&str, String)],
+) -> Pulled {
+    use std::io::{BufRead as _, Read as _};
+    use std::process::Stdio;
+    let Some(mut cmd) = crate::build::spawn::command(program) else { return Pulled::Broken };
+    cmd.env(RESUME, "0").env(PULL, "1").env(SEED, seeds);
+    for (name, value) in snapshots {
+        cmd.env(name, value);
+    }
+    // Forwarded for `execute`'s reason.
+    for name in HEAP_CHECK {
+        if let Some(value) = std::env::var_os(name) {
+            cmd.env(name, value);
+        }
+    }
+    let started =
+        crate::build::spawn::start(cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()));
+    let Ok(mut child) = started else { return Pulled::Broken };
+    let mut input = child.stdin.take();
+    let errors = child.stderr.take();
+    // On a thread of its own, so a process that fills the pipe never waits
+    // on this one.
+    let reading_err = std::thread::spawn(move || {
+        let mut text = String::new();
+        if let Some(mut pipe) = errors {
+            let _ = pipe.read_to_string(&mut text);
+        }
+        text
+    });
+    let mut verdicts: Vec<(usize, Block)> = Vec::new();
+    let mut reached = false;
+    let mut held: Option<usize> = None;
+    let mut returned = false;
+    let mut noted: Option<Noted> = None;
+    if let Some(output) = child.stdout.take() {
+        for line in std::io::BufReader::new(output).lines() {
+            let Ok(line) = line else { break };
+            let Ok(value) = crate::json::parse(&line) else { continue };
+            if value.get("started").is_some() {
+                reached = true;
+            } else if value.get("next").is_some() {
+                if let Some(block) = held.take() {
+                    verdicts.push((block, Block::Passed));
+                }
+                let next = if input.is_some() { gathered_of(gathered).claim() } else { None };
+                match (next, input.as_mut()) {
+                    (Some(block), Some(pipe)) => {
+                        // A write to a process that has just died fails, and
+                        // its status below says how it ended.
+                        let _ = writeln!(pipe, "{block}");
+                        let _ = pipe.flush();
+                        held = Some(block);
+                        returned = false;
+                    }
+                    _ => input = None,
+                }
+            } else if text_of(&value, "message").is_some() {
+                noted = noted_of(&value);
+            } else if value.get("left").is_some() && held.is_some() && index_of(&value, "i") == held {
+                returned = true;
+            }
+        }
+    }
+    drop(input);
+    let status = child.wait();
+    let stderr = reading_err.join().unwrap_or_default();
+    let Ok(status) = status else { return Pulled::Broken };
+    if status.code() == Some(HEAP_CHECK_STATUS) {
+        return Pulled::Broken;
+    }
+    let mut notes = String::new();
+    if let Some(line) = heap_check_said(&stderr) {
+        notes.push_str(line);
+        notes.push('\n');
+    }
+    if status.success() {
+        verdicts.extend(held.map(|block| (block, Block::Passed)));
+        return Pulled::Ran { verdicts, notes };
+    }
+    if !reached {
+        return Pulled::Broken;
+    }
+    let Some(block) = held else { return Pulled::Broken };
+    let failed = match noted {
+        Some(n) if n.at == block => Block::Failed { message: n.message, diff: n.diff, order: n.order },
+        _ if !returned => {
+            Block::Failed { message: how_it_ended(&status, &stderr), diff: None, order: None }
+        }
+        _ => return Pulled::Broken,
+    };
+    verdicts.push((block, failed));
+    Pulled::Ran { verdicts, notes }
 }
 
 /// The record of a member's place in a binary this run linked.
@@ -3410,11 +3617,16 @@ fn noted_failure(stdout: &str) -> Option<Noted> {
     // (`cli/runtime/testing.rs`'s `note_left`). A block that aborted writes its
     // line after them, so the last message is still this process's failure.
     let line = lines_of(stdout).rev().find(|line| text_of(line, "message").is_some())?;
+    noted_of(&line)
+}
+
+/// One failure line, read.
+fn noted_of(line: &Value) -> Option<Noted> {
     Some(Noted {
-        at: index_of(&line, "i")?,
-        message: text_of(&line, "message").unwrap_or_default(),
-        diff: diff_of(&line),
-        order: text_of(&line, "order"),
+        at: index_of(line, "i")?,
+        message: text_of(line, "message").unwrap_or_default(),
+        diff: diff_of(line),
+        order: text_of(line, "order"),
     })
 }
 
