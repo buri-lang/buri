@@ -492,7 +492,7 @@ pub fn parkability(program: &Program) -> Parking {
             }
         }
         for ty in found {
-            if w.parking_types.insert(ty.clone()) {
+            if w.parking_types.insert(*ty) {
                 changed = true;
             }
             if !w.any_parking_value {
@@ -843,7 +843,7 @@ export fn main(host: NodeHost): Result<(), Str> {
             body_func("through a plain callback", call_value(call_to_ty(3, plain))),
             body_func(
                 "through a callback taking the context",
-                call_value(call_to_ty(3, carrying.clone())),
+                call_value(call_to_ty(3, carrying)),
             ),
             body_func("maker", Expr::new(ExprKind::Unit, Ty::UNIT, Span::default())),
             body_func("builder", lambda_of(carrying, call_to(5))),

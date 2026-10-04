@@ -685,7 +685,7 @@ impl<'a> Ctx<'a> {
                                 let arity = c.arity(self.tables, head_ty);
                                 Witness::Ctor(
                                     c,
-                                    head_ty.clone(),
+                                    *head_ty,
                                     vec![Witness::Wild; arity],
                                 )
                             })
@@ -723,7 +723,7 @@ impl<'a> Ctx<'a> {
         }
         let rest = w.split_off(arity.min(w.len()));
         let mut out = Vec::with_capacity(rest.len().saturating_add(1));
-        out.push(Witness::Ctor(c.clone(), head_ty.clone(), w));
+        out.push(Witness::Ctor(c.clone(), *head_ty, w));
         out.extend(rest);
         out
     }

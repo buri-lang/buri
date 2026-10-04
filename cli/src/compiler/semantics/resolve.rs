@@ -2024,14 +2024,14 @@ impl<'a> Checker<'a> {
         params: &[tree::Param],
     ) -> Vec<ParamInfo> {
         let t = self.tree(module);
-        let receiver = self.self_scope.clone();
+        let receiver = self.self_scope;
         params
             .iter()
             .map(|p| ParamInfo {
                 name: t.name(p.name).to_string(),
                 ty: match p.written_type() {
                     Some(ty) => self.elaborate(module, generics, ty),
-                    None => receiver.clone().unwrap_or(Ty::ERROR),
+                    None => receiver.unwrap_or(Ty::ERROR),
                 },
                 role: match p.kind {
                     tree::ParamKind::SelfParam => ParamRole::SelfParam,
@@ -2055,7 +2055,7 @@ impl<'a> Checker<'a> {
                 // is known, and `Self` *is* it from here on: nothing between
                 // this point and `middle::layout` substitutes a `Ty::SelfTy`
                 // that reached an `impl` method's signature.
-                let Some(ty) = self.self_scope.clone() else {
+                let Some(ty) = self.self_scope else {
                     self.templated("self-type-outside-impl", span);
                     return Ty::ERROR;
                 };
@@ -2552,7 +2552,7 @@ impl<'a> Checker<'a> {
         // From here down `Self` is the type the head named. `register_impl`
         // restores the outer scope however this returns, so the early exits
         // below need no unwinding of their own.
-        self.self_scope = Some(self_ty.clone());
+        self.self_scope = Some(self_ty);
         let Some(self_con) = self_ty.head() else {
             if !self_ty.is_error() {
                 let at = self.tree(module).type_span(d.self_ty);
@@ -2809,7 +2809,7 @@ impl<'a> Checker<'a> {
         let self_ty = self.elaborate(module, generics, d.self_ty);
         // As in `register_trait_impl`: `Self` is the head's type for the rest
         // of this declaration, and `register_impl` puts the outer scope back.
-        self.self_scope = Some(self_ty.clone());
+        self.self_scope = Some(self_ty);
         let target = match self_ty.kind() {
             TyKind::Con(con, _) => Some(*con),
             TyKind::Array(_) => None,
@@ -3006,12 +3006,12 @@ impl<'a> Checker<'a> {
             // times, and each walk copied every variant and every field.
             let components: Vec<(String, Ty)> = match &self.tables.tycon(con).def {
                 TyDef::Struct { fields, .. } => {
-                    fields.iter().map(|f| (f.name.clone(), f.ty.clone())).collect()
+                    fields.iter().map(|f| (f.name.clone(), f.ty)).collect()
                 }
                 TyDef::Enum { variants } => variants
                     .iter()
                     .flat_map(|v| {
-                        v.fields.iter().map(move |f| (format!("{}.{}", v.name, f.name), f.ty.clone()))
+                        v.fields.iter().map(move |f| (format!("{}.{}", v.name, f.name), f.ty))
                     })
                     .collect(),
                 TyDef::Prim(_) => Vec::new(),
@@ -3251,13 +3251,13 @@ fn signature_mismatches(
             out.push(SignatureMismatch::Parameter {
                 index,
                 expected,
-                found: s.ty.clone(),
+                found: s.ty,
             });
         }
     }
     let expected = substitute(&declared.ret, &args, Some(self_ty));
     if !agrees(&expected, supplied.ret) {
-        out.push(SignatureMismatch::Return { expected, found: supplied.ret.clone() });
+        out.push(SignatureMismatch::Return { expected, found: *supplied.ret });
     }
     out
 }
@@ -3696,7 +3696,7 @@ fn main(): () {}
         let declared =
             trait_method(vec![generic("C", &[])], vec![receiver(), param(Ty::param(0))], Ty::UNIT);
         let generics = [generic("T", &[]), generic("C", &[])];
-        let params = [param(head.clone()), param(Ty::param(1))];
+        let params = [param(head), param(Ty::param(1))];
         let ret = Ty::UNIT;
         let found = supplied(&generics, &params, &ret);
         assert_eq!(signature_mismatches(&declared, 0, &found, 1, &head), vec![]);

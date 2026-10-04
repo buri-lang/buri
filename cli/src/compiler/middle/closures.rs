@@ -100,9 +100,9 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
     let env = LocalId(locals.len() as u32);
     let env_ty = Ty::tuple(captures
             .iter()
-            .filter_map(|c| locals.get(c.index()).map(|l| l.ty.clone()))
+            .filter_map(|c| locals.get(c.index()).map(|l| l.ty))
             );
-    locals.push(typed::Local { name: "env".to_string(), ty: env_ty.clone(), span: e.span });
+    locals.push(typed::Local { name: "env".to_string(), ty: env_ty, span: e.span });
 
     // Each capture is bound back to the id it had, out of the environment, so
     // the body below reads what it always read.
@@ -110,18 +110,18 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
         .iter()
         .enumerate()
         .filter_map(|(i, c)| {
-            let ty = locals.get(c.index())?.ty.clone();
+            let ty = locals.get(c.index())?.ty;
             Some(Stmt::Let {
                 pattern: Pattern {
                     kind: PatKind::Bind { local: *c, sub: None },
-                    ty: ty.clone(),
+                    ty,
                     span: e.span,
                 },
                 value: Expr::new(
                     ExprKind::TupleIndex {
                         base: Box::new(Expr::new(
                             ExprKind::Local(env),
-                            env_ty.clone(),
+                            env_ty,
                             e.span,
                         )),
                         index: i,
@@ -134,11 +134,11 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
         })
         .collect();
 
-    let ret = body.ty.clone();
+    let ret = body.ty;
     let inner = if prologue.is_empty() {
         *body
     } else {
-        Expr::new(ExprKind::Block { stmts: prologue, tail: Some(body) }, ret.clone(), e.span)
+        Expr::new(ExprKind::Block { stmts: prologue, tail: Some(body) }, ret, e.span)
     };
 
     let n = lifted.len();
@@ -166,7 +166,7 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
                 .iter()
                 .filter_map(|c| {
                     let l = parent.locals.get(c.index())?;
-                    Some(Expr::new(ExprKind::Local(*c), l.ty.clone(), e.span))
+                    Some(Expr::new(ExprKind::Local(*c), l.ty, e.span))
                 })
                 .collect(),
         }

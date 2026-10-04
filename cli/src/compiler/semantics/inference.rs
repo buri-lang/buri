@@ -157,15 +157,15 @@ fn check_fn(c: &mut Checker, fid: FnId) {
     // The parts the body is checked against, copied once: the checker is
     // borrowed mutably from here on, and the declaration lives in its tables.
     let (module, self_ty, generics, params, expected) =
-        (info.module, info.self_ty, info.generics.clone(), info.params.clone(), info.ret.clone());
+        (info.module, info.self_ty, info.generics.clone(), info.params.clone(), info.ret);
 
-    let mut inf = Infer::new(c, module, generics, expected.clone());
+    let mut inf = Infer::new(c, module, generics, expected);
     inf.self_con = self_ty;
     inf.in_effect_impl = in_effect_impl;
     inf.in_main = in_main;
     inf.push_scope();
     for p in &params {
-        let local = inf.new_local(&p.name, p.ty.clone(), p.span);
+        let local = inf.new_local(&p.name, p.ty, p.span);
         inf.bind(&p.name, local);
         inf.params.push(local);
         // The capture rule is scoped to *effect-carrying* values (SPEC 10.6,
@@ -193,9 +193,9 @@ fn check_const(c: &mut Checker, cid: ConstId) {
     let Some(tree::Item::Let(decl)) = c.module(module).ast.items.get(index as usize) else {
         return;
     };
-    let mut inf = Infer::new(c, info.module, Vec::new(), info.ty.clone());
+    let mut inf = Infer::new(c, info.module, Vec::new(), info.ty);
     inf.push_scope();
-    let ty = info.ty.clone();
+    let ty = info.ty;
     let value_span = inf.t.span(decl.value);
     let value = inf.check_expr(decl.value, Some(&ty));
     inf.unify_at(value_span, &value.ty, &ty, "the declared type");
@@ -243,7 +243,7 @@ pub(super) fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
     let body = inf.finish(expr);
     // A named context is constructed by calling it, and each call builds a
     // fresh one, so the declaration becomes a nullary function.
-    let ret = body.expr.ty.clone();
+    let ret = body.expr.ty;
     let ctor = c.tables.add_fn(FnInfo {
         name: info.name.clone(),
         module: info.module,
@@ -694,7 +694,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     pub(crate) fn local_ty(&self, id: LocalId) -> Ty {
-        self.local(id).ty.clone()
+        self.local(id).ty
     }
 
     // -- unification --------------------------------------------------------
@@ -1035,10 +1035,10 @@ impl<'a, 'b> Infer<'a, 'b> {
         };
         let tycon = self.c.tables.tycon(con);
         let components: Vec<Ty> = match &tycon.def {
-            TyDef::Struct { fields, .. } => fields.iter().map(|f| f.ty.clone()).collect(),
+            TyDef::Struct { fields, .. } => fields.iter().map(|f| f.ty).collect(),
             TyDef::Enum { variants } => variants
                 .iter()
-                .flat_map(|v| v.fields.iter().map(|f| f.ty.clone()))
+                .flat_map(|v| v.fields.iter().map(|f| f.ty))
                 .collect(),
             TyDef::Prim(_) => Vec::new(),
         };
@@ -1068,10 +1068,10 @@ impl<'a, 'b> Infer<'a, 'b> {
     ) -> bool {
         let tycon = self.c.tables.tycon(con);
         let field_types: Vec<Ty> = match &tycon.def {
-            TyDef::Struct { fields, .. } => fields.iter().map(|f| f.ty.clone()).collect(),
+            TyDef::Struct { fields, .. } => fields.iter().map(|f| f.ty).collect(),
             TyDef::Enum { variants } => variants
                 .iter()
-                .flat_map(|v| v.fields.iter().map(|f| f.ty.clone()))
+                .flat_map(|v| v.fields.iter().map(|f| f.ty))
                 .collect(),
             TyDef::Prim(_) => Vec::new(),
         };
@@ -1349,10 +1349,10 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn component_types(&self, con: TyConId, args: &[Ty]) -> Vec<Ty> {
         let tycon = self.c.tables.tycon(con);
         let declared: Vec<Ty> = match &tycon.def {
-            TyDef::Struct { fields, .. } => fields.iter().map(|f| f.ty.clone()).collect(),
+            TyDef::Struct { fields, .. } => fields.iter().map(|f| f.ty).collect(),
             TyDef::Enum { variants } => variants
                 .iter()
-                .flat_map(|v| v.fields.iter().map(|f| f.ty.clone()))
+                .flat_map(|v| v.fields.iter().map(|f| f.ty))
                 .collect(),
             TyDef::Prim(_) => Vec::new(),
         };

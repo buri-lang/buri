@@ -146,7 +146,7 @@ impl FnLower<'_> {
     /// A call of `key`, lowered as its loop.
     pub(super) fn list_call(&mut self, key: &str, args: &[Expr], ret: &Ty) -> ValueId {
         let vals = self.exprs(args);
-        let tys: Vec<Ty> = args.iter().map(|a| a.ty.clone()).collect();
+        let tys: Vec<Ty> = args.iter().map(|a| a.ty).collect();
         // The step a call site names: a lambda `middle::closures` lifted, or a
         // function passed by name.
         let step = step_at(key)
@@ -168,9 +168,9 @@ impl FnLower<'_> {
         let vals = self.code.get(entry).params.clone();
         let tys: Vec<Ty> = params
             .iter()
-            .map(|p| self.locals.get(p.index()).map(|l| l.ty.clone()).unwrap_or(Ty::UNIT))
+            .map(|p| self.locals.get(p.index()).map(|l| l.ty).unwrap_or(Ty::UNIT))
             .collect();
-        let ret = self.ret.clone();
+        let ret = self.ret;
         let v = match self.list_loop(key, &vals, &tys, None, &ret) {
             Some(v) => v,
             None => self.abort("a `core/list` function whose parameters are not the types it declares"),
@@ -213,7 +213,7 @@ impl FnLower<'_> {
         let step_ret = *step_ret;
         let callee = self.callee(f, step, params.len());
         let ctx = match call.ctx {
-            Some(c) => Some(Arg { value: *vals.get(c)?, ty: tys.get(c)?.clone(), owned: false }),
+            Some(c) => Some(Arg { value: *vals.get(c)?, ty: *tys.get(c)?, owned: false }),
             None => None,
         };
         let n = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
@@ -222,12 +222,12 @@ impl FnLower<'_> {
         let ret_t = self.type_of(ret);
         let element = |l: &mut Self, i: ValueId| {
             let value = l.emit(elem_t, |dest| Inst::ArrayGet { dest, array: xs, index: i });
-            Arg { value, ty: elem.clone(), owned: false }
+            Arg { value, ty: elem, owned: false }
         };
         let with_ctx = |ctx: &Option<Arg>, rest: Vec<Arg>| -> Vec<Arg> {
             let mut all: Vec<Arg> = ctx
                 .iter()
-                .map(|c| Arg { value: c.value, ty: c.ty.clone(), owned: false })
+                .map(|c| Arg { value: c.value, ty: c.ty, owned: false })
                 .collect();
             all.extend(rest);
             all
@@ -276,7 +276,7 @@ impl FnLower<'_> {
             }
             Step::Fold => {
                 let init = *vals.get(call.init?)?;
-                let init_ty = tys.get(call.init?)?.clone();
+                let init_ty = *tys.get(call.init?)?;
                 let w = self.walk(n, &[init]);
                 let acc = *w.vars.first()?;
                 let e = element(self, w.i);
@@ -388,7 +388,7 @@ impl FnLower<'_> {
             // moving the payload out takes no count either.
             Step::FoldResult => {
                 let init = *vals.get(call.init?)?;
-                let init_ty = tys.get(call.init?)?.clone();
+                let init_ty = *tys.get(call.init?)?;
                 let acc_t = self.type_of(&init_ty);
                 let ok = self.variant_of(ret, "Ok", 0);
                 let ok_tag = self.int(Type::I32, ok as usize);
@@ -527,8 +527,8 @@ impl FnLower<'_> {
             let x = l.emit(elem_t, |dest| Inst::ArrayGet { dest, array: xs, index: i });
             let y = l.emit(elem_t, |dest| Inst::ArrayGet { dest, array: ys, index: i });
             vec![
-                Arg { value: x, ty: elem.clone(), owned: false },
-                Arg { value: y, ty: elem.clone(), owned: false },
+                Arg { value: x, ty: elem, owned: false },
+                Arg { value: y, ty: elem, owned: false },
             ]
         };
         if equal {
@@ -632,7 +632,7 @@ impl FnLower<'_> {
         let (&xs, &f) = (vals.first()?, vals.get(1)?);
         let TyKind::Array(elem) = (tys.first()?).kind() else { return None };
         let elem = *elem;
-        let shown = Ty::array(ret.clone());
+        let shown = Ty::array(*ret);
         let (elem_t, ret_t, shown_t) =
             (self.type_of(&elem), self.type_of(ret), self.type_of(&shown));
         let callee = self.callee(f, step, 1);
@@ -772,8 +772,8 @@ impl FnLower<'_> {
         let x = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: a, index: li });
         let y = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: a, index: ri });
         let args = vec![
-            Arg { value: x, ty: elem.clone(), owned: false },
-            Arg { value: y, ty: elem.clone(), owned: false },
+            Arg { value: x, ty: *elem, owned: false },
+            Arg { value: y, ty: *elem, owned: false },
         ];
         let o = self.step(callee, args, order_t);
         let greater = self.variant_of(order_ty, "Greater", 2);
@@ -889,7 +889,7 @@ impl FnLower<'_> {
             // A lambda that captured nothing still takes its environment
             // first, as an empty tuple (`middle::closures`).
             n if Some(n) == want.checked_add(1) => {
-                let ty = g.params.first().and_then(|p| g.locals.get(p.index())).map(|l| l.ty.clone());
+                let ty = g.params.first().and_then(|p| g.locals.get(p.index())).map(|l| l.ty);
                 match ty {
                     Some(t) if t == Ty::tuple([]) => {
                         let env_t = self.type_of(&t);

@@ -218,13 +218,9 @@ fn with_slice<R>(items: impl IntoIterator<Item = Ty>, f: impl FnOnce(&[Ty]) -> R
     const STACK: usize = 8;
     let mut iter = items.into_iter();
     let mut buffer = [Ty::UNIT; STACK];
-    let mut len = 0;
-    for slot in buffer.iter_mut() {
+    for (len, slot) in buffer.iter_mut().enumerate() {
         match iter.next() {
-            Some(t) => {
-                *slot = t;
-                len += 1;
-            }
+            Some(t) => *slot = t,
             None => return f(buffer.get(..len).unwrap_or(&[])),
         }
     }
@@ -239,9 +235,10 @@ fn with_slice<R>(items: impl IntoIterator<Item = Ty>, f: impl FnOnce(&[Ty]) -> R
     }
 }
 
-/// How many ways the table is split. A power of two, so a shard is picked by
+/// How many ways the table is split, as a power of two: a shard is picked by
 /// the top bits of the hash.
-const SHARDS: usize = 64;
+const SHARD_BITS: u32 = 6;
+const SHARDS: usize = 1 << SHARD_BITS;
 
 /// One shard: structural hash -> the entries with that hash.
 type Shard = Map<u64, Vec<Ty>>;
@@ -286,7 +283,7 @@ fn intern(probe: TyKindIn<'_>) -> Ty {
         _ => {}
     }
     let hash = structural_hash(&probe);
-    let shard = (hash >> (64 - SHARDS.trailing_zeros())) as usize;
+    let shard = (hash >> (u64::BITS - SHARD_BITS)) as usize;
     let Some(shard) = TABLE.get(shard) else { return Ty::ERROR };
     let mut shard = shard.lock().unwrap_or_else(PoisonError::into_inner);
     let bucket = shard.entry(hash).or_default();

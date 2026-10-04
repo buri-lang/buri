@@ -101,7 +101,7 @@ fn round8(n: u32) -> u32 {
 /// anything else.
 fn array_elem(prog: &ir::Program, t: ir::Type) -> Option<Ty> {
     let ir::Type::Agg(id) = t else { return None };
-    match prog.type_info(id).ty.clone().kind() {
+    match prog.type_info(id).ty.kind() {
         TyKind::Array(e) => Some(*e),
         _ => None,
     }
@@ -247,7 +247,7 @@ impl Jit<'_> {
             };
             let (stride, carried) = match found {
                 Some(elem) => {
-                    let stride = u64::from(self.layouts_of(elem.clone()).stride.max(1));
+                    let stride = u64::from(self.layouts_of(elem).stride.max(1));
                     (stride, Some(elem))
                 }
                 None => {
@@ -265,7 +265,7 @@ impl Jit<'_> {
             // that increfs whatever counted pointers one element holds, and a
             // **null** pointer for an element type that holds none — which is
             // the common case and what the runtime tests for.
-            let glue = carried.clone().and_then(|ty| self.element_glue(ty));
+            let glue = carried.and_then(|ty| self.element_glue(ty));
             match glue {
                 Some(name) => ints.push(Src::Sym(name)),
                 None => ints.push(Src::Imm(0)),
@@ -275,7 +275,7 @@ impl Jit<'_> {
             // the retain has an incref, which is the one `emit.rs` already
             // emits for a value going out of scope.
             if extra == Extra::Owned {
-                match carried.clone().and_then(|ty| self.value_release(ty)) {
+                match carried.and_then(|ty| self.value_release(ty)) {
                     Some(name) => ints.push(Src::Sym(name)),
                     None => ints.push(Src::Imm(0)),
                 }
@@ -371,7 +371,7 @@ impl Jit<'_> {
                 let Some((ok, err, err_ty)) = self.result_shape(prog, dty) else {
                     return Err(format!("{}: a `Result` destination that is not one", entry.key));
                 };
-                let err_l = self.layouts_of(err_ty.clone());
+                let err_l = self.layouts_of(err_ty);
                 let ok_bytes = self.ok_payload_bytes(prog, dty, ok);
                 if !l.variant(ok).is_empty() && ok_bytes > 0 {
                     ints.push(Src::Addr(dslot + super::lists::payload_at(&l, ok)));
@@ -872,7 +872,7 @@ impl Jit<'_> {
         let out_stride = self.layouts_of(answer).stride.max(1);
 
         let widths: Vec<u32> =
-            params.iter().map(|t| self.layouts_of(t.clone()).size).collect();
+            params.iter().map(|t| self.layouts_of(*t).size).collect();
         let (ctx_at, bytes) = super::glue::state_shape(&widths, call.index);
         // A context is a *value* here rather than the dropped argument a
         // runtime entry takes, because what reads it is the step and not the
@@ -986,14 +986,14 @@ impl Jit<'_> {
         let Some(ty) = source_ty(prog, fty) else {
             return Err(format!("{}: a body with no type", entry.key));
         };
-        let TyKind::Fn(params, ret) = ty.clone().kind() else {
+        let TyKind::Fn(params, ret) = ty.kind() else {
             return Err(format!("{}: a body that is not a function", entry.key));
         };
         if params.len() != 1 {
             return Err(format!("{}: a body taking {} arguments", entry.key, params.len()));
         }
         let widths: Vec<u32> =
-            params.iter().map(|t| self.layouts_of(t.clone()).size).collect();
+            params.iter().map(|t| self.layouts_of(*t).size).collect();
         let (_, bytes) = super::glue::state_shape(&widths, None);
         let state = st.frame.size;
         self.mv(state, fslot, 16);
@@ -1004,8 +1004,8 @@ impl Jit<'_> {
         if self.rc_counted(&ty) {
             self.walk_rc(st, &ty, state, Op::Retain, 0)?;
         }
-        let stride = u64::from(self.layouts_of((*ret).clone()).stride);
-        let release = self.value_release((*ret).clone());
+        let stride = u64::from(self.layouts_of(*ret).stride);
+        let release = self.value_release(*ret);
         let thunk =
             self.helper(super::glue::Helper::Entry { params: params.to_vec(), ret: *ret, index: None });
         ints.push(Src::Sym(thunk));
@@ -1060,7 +1060,7 @@ impl Jit<'_> {
             return Err(format!("{}: a walk taking {} arguments", entry.key, params.len()));
         }
         let widths: Vec<u32> =
-            params.iter().map(|t| self.layouts_of(t.clone()).size).collect();
+            params.iter().map(|t| self.layouts_of(*t).size).collect();
         let (_, _bytes) = super::glue::state_shape(&widths, Some(1));
         let state = st.frame.size;
         self.mv(state, fslot, 16);
@@ -1100,14 +1100,14 @@ impl Jit<'_> {
         let Some(ty) = source_ty(prog, fty) else {
             return Err(format!("{}: a handler with no type", entry.key));
         };
-        let TyKind::Fn(params, ret) = ty.clone().kind() else {
+        let TyKind::Fn(params, ret) = ty.kind() else {
             return Err(format!("{}: a handler that is not a function", entry.key));
         };
         if params.len() != 2 {
             return Err(format!("{}: a handler taking {} arguments", entry.key, params.len()));
         }
         let widths: Vec<u32> =
-            params.iter().map(|t| self.layouts_of(t.clone()).size).collect();
+            params.iter().map(|t| self.layouts_of(*t).size).collect();
         let (_, bytes) = super::glue::state_shape(&widths, None);
         let state = st.frame.size;
         self.mv(state, fslot, 16);
@@ -1145,7 +1145,7 @@ impl Jit<'_> {
     ) -> Option<Ty> {
         let of = |t: ir::Type| -> Option<Ty> {
             let ir::Type::Agg(id) = t else { return None };
-            match prog.type_info(id).ty.clone().kind() {
+            match prog.type_info(id).ty.kind() {
                 TyKind::Array(e) => Some(*e),
                 _ => None,
             }
@@ -1174,8 +1174,8 @@ impl Jit<'_> {
     fn bare_carrier(&mut self, prog: &ir::Program, t: ir::Type) -> (u64, Option<Ty>) {
         match t {
             ir::Type::Agg(id) => {
-                let ty = prog.type_info(id).ty.clone();
-                let stride = u64::from(self.layouts_of(ty.clone()).stride.max(1));
+                let ty = prog.type_info(id).ty;
+                let stride = u64::from(self.layouts_of(ty).stride.max(1));
                 (stride, Some(ty))
             }
             ir::Type::Unit => (1, None),
@@ -1273,7 +1273,7 @@ fn int_bits(prim: crate::compiler::semantics::types::Prim) -> Option<u32> {
 
 pub(crate) fn source_ty(prog: &ir::Program, t: ir::Type) -> Option<Ty> {
     match t {
-        ir::Type::Agg(id) => Some(prog.type_info(id).ty.clone()),
+        ir::Type::Agg(id) => Some(prog.type_info(id).ty),
         _ => None,
     }
 }

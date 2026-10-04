@@ -137,13 +137,13 @@ fn classify_in(
                     | Prim::U16
                     | Prim::U32
                     | Prim::U128 => Ok(Crossing::Widened),
-                    Prim::Char | Prim::Template => Err(ty.clone()),
+                    Prim::Char | Prim::Template => Err(*ty),
                 };
             }
             if let Some(payload) = tables.option_payload(ty) {
                 // `Some(None)` would be `undefined` too, and so would `Some(())`.
                 if tables.is_option_ty(payload) || *payload == Ty::UNIT {
-                    return Err(ty.clone());
+                    return Err(*ty);
                 }
                 let inner = classify_in(tables, known, payload, false, open)?;
                 return Ok(Crossing::Optional(Box::new(inner)));
@@ -154,7 +154,7 @@ fn classify_in(
                     [ok, err] if answer && *err == str_ty => Ok(Crossing::Result(Box::new(
                         classify_in(tables, known, ok, false, open)?,
                     ))),
-                    _ => Err(ty.clone()),
+                    _ => Err(*ty),
                 };
             }
             let tycon = tables.tycon(con);
@@ -162,7 +162,7 @@ fn classify_in(
                 TyDef::Struct { fields, .. } => {
                     // A type that holds itself would cross for ever.
                     if open.contains(&con) {
-                        return Err(ty.clone());
+                        return Err(*ty);
                     }
                     open.push(con);
                     let mut out = Vec::new();
@@ -179,10 +179,10 @@ fn classify_in(
                     open.pop();
                     Ok(Crossing::Record(out))
                 }
-                _ => Err(ty.clone()),
+                _ => Err(*ty),
             }
         }
-        TyKind::Var(_) | TyKind::Param(_) | TyKind::Fn(..) | TyKind::Ctx(_) | TyKind::SelfTy => Err(ty.clone()),
+        TyKind::Var(_) | TyKind::Param(_) | TyKind::Fn(..) | TyKind::Ctx(_) | TyKind::SelfTy => Err(*ty),
     }
 }
 

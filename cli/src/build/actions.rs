@@ -1501,7 +1501,7 @@ fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, S
             types.sort_unstable();
             types.dedup();
             let seeds =
-                types.iter().filter_map(|id| program.types.get(*id)).map(|info| info.ty.clone());
+                types.iter().filter_map(|id| program.types.get(*id)).map(|info| info.ty);
             let shapes = layout_closure_signature(layouts, tables, seeds);
             (name, hash_bytes(text.as_bytes()), hash_bytes(shapes.as_bytes()))
         },
@@ -1543,10 +1543,10 @@ fn layout_closure_signature(
         if matches!(ty.kind(), TyKind::Var(_) | TyKind::Param(_) | TyKind::SelfTy | TyKind::Error) {
             continue;
         }
-        if !seen.insert(ty.clone()) {
+        if !seen.insert(ty) {
             continue;
         }
-        lines.push(format!("{} {:?}\n", types::show(tables, None, &[], &ty), layouts.of(ty.clone())));
+        lines.push(format!("{} {:?}\n", types::show(tables, None, &[], &ty), layouts.of(ty)));
         // The types this one reaches: its arguments and its constituent parts,
         // then — for a nominal type — the types of its fields or its variants'
         // fields, which is where a shape reached only across a pointer lives.

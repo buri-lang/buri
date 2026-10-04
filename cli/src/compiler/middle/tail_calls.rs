@@ -201,7 +201,7 @@ pub fn rewrite(program: &mut Program) {
         let mut entries = vec![body];
         let owned = [func.params.len()];
         snapshot_captures(&mut func.locals, &mut func.params, &mut entries, &owned);
-        let ty = func.ret.clone();
+        let ty = func.ret;
         let span = func.span;
         func.set_body(Expr::new(ExprKind::Loop { entries }, ty, span));
     }
@@ -222,7 +222,7 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
         return;
     }
     let Some(first) = program.funcs.get(*group.first().unwrap_or(&0)) else { return };
-    let ret = first.ret.clone();
+    let ret = first.ret;
     let span = first.span;
 
     // Which of a member's parameters each shared slot is, per member.
@@ -248,7 +248,7 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
         .types
         .iter()
         .enumerate()
-        .map(|(j, ty)| typed::Local { name: format!("a{j}"), ty: ty.clone(), span })
+        .map(|(j, ty)| typed::Local { name: format!("a{j}"), ty: *ty, span })
         .collect();
     let mut params: Vec<LocalId> = (0..slots.types.len()).map(|j| LocalId(j as u32)).collect();
 
@@ -304,13 +304,13 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
             let bound = LocalId(locals.len() as u32);
             locals.push(typed::Local {
                 name: format!("{}_unread", local.name),
-                ty: local.ty.clone(),
+                ty: local.ty,
                 span: local.span,
             });
             dead.push(Stmt::Let {
                 pattern: typed::Pattern {
                     kind: typed::PatKind::Bind { local: bound, sub: None },
-                    ty: local.ty.clone(),
+                    ty: local.ty,
                     span: local.span,
                 },
                 value: Expr::new(ExprKind::Local(slot), local.ty, local.span),
@@ -318,7 +318,7 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
             });
         }
         if !dead.is_empty() {
-            let ty = body.ty.clone();
+            let ty = body.ty;
             let at = body.span;
             body = Expr::new(ExprKind::Block { stmts: dead, tail: Some(Box::new(body)) }, ty, at);
         }
@@ -342,7 +342,7 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
     //
     // So the entries' own type is what the forwarders are labelled with. It is
     // read before `entries` moves into the merged function below.
-    let ret_ty = entries.first().map_or_else(|| ret.clone(), |e| e.ty.clone());
+    let ret_ty = entries.first().map_or_else(|| ret, |e| e.ty);
 
     let merged = FuncIdx(program.funcs.len() as u32);
     let members: Vec<&str> = group
@@ -355,8 +355,8 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
         debug_name: format!("tail group {}", members.join(", ")),
         params,
         locals,
-        kind: FuncKind::Body(Expr::new(ExprKind::Loop { entries }, ret_ty.clone(), span)),
-        ret: ret.clone(),
+        kind: FuncKind::Body(Expr::new(ExprKind::Loop { entries }, ret_ty, span)),
+        ret,
         desc: None,
         span,
     });
@@ -376,13 +376,13 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
             .filter_map(|k| {
                 let p = func.params.get(*k)?;
                 let l = func.locals.get(p.index())?;
-                Some(Expr::new(ExprKind::Local(*p), l.ty.clone(), l.span))
+                Some(Expr::new(ExprKind::Local(*p), l.ty, l.span))
             })
             .collect();
         let span = func.span;
         func.set_body(Expr::new(
             ExprKind::Continue { func: Some(merged), entry: i, args },
-            ret_ty.clone(),
+            ret_ty,
             span,
         ));
     }
@@ -501,7 +501,7 @@ fn snapshot_captures(
         let carrier = LocalId(locals.len() as u32);
         locals.push(typed::Local {
             name: format!("{}_loop", local.name),
-            ty: local.ty.clone(),
+            ty: local.ty,
             span: local.span,
         });
         if let Some(slot) = params.get_mut(j) {
@@ -514,7 +514,7 @@ fn snapshot_captures(
             Stmt::Let {
                 pattern: typed::Pattern {
                     kind: typed::PatKind::Bind { local: param, sub: None },
-                    ty: local.ty.clone(),
+                    ty: local.ty,
                     span: local.span,
                 },
                 value: Expr::new(ExprKind::Local(carrier), local.ty, local.span),
@@ -538,9 +538,9 @@ fn snapshot_captures(
         if mine.is_empty() {
             continue;
         }
-        let ty = entry.ty.clone();
+        let ty = entry.ty;
         let span = entry.span;
-        let inner = std::mem::replace(entry, Expr::new(ExprKind::Unit, ty.clone(), span));
+        let inner = std::mem::replace(entry, Expr::new(ExprKind::Unit, ty, span));
         *entry =
             Expr::new(ExprKind::Block { stmts: mine, tail: Some(Box::new(inner)) }, ty, span);
     }
@@ -580,7 +580,7 @@ fn shared_slots(program: &Program, group: &[usize]) -> Option<Slots> {
             let func = program.funcs.get(*f)?;
             func.params
                 .iter()
-                .map(|p| func.locals.get(p.index()).map(|l| l.ty.clone()))
+                .map(|p| func.locals.get(p.index()).map(|l| l.ty))
                 .collect::<Option<Vec<Ty>>>()
         })
         .collect::<Option<Vec<_>>>()?;
@@ -605,7 +605,7 @@ fn shared_slots(program: &Program, group: &[usize]) -> Option<Slots> {
         }
         for ((k, ty), spoken) in mine.iter().enumerate().zip(taken.iter()) {
             if !*spoken {
-                types.push(ty.clone());
+                types.push(*ty);
                 filled.push(k);
             }
         }
@@ -653,7 +653,7 @@ mod tests {
 
     /// The types of a function's parameters, in order.
     fn param_tys(f: &Func) -> Vec<Ty> {
-        f.params.iter().filter_map(|p| f.locals.get(p.index()).map(|l| l.ty.clone())).collect()
+        f.params.iter().filter_map(|p| f.locals.get(p.index()).map(|l| l.ty)).collect()
     }
 
     /// Which local each argument of a `Continue` names, in order.

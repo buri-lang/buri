@@ -440,17 +440,17 @@ fn shapes_of(tables: &Tables) -> Shapes {
         .map(|c| match &c.def {
             TyDef::Prim(p) => ConShape::Prim(*p),
             TyDef::Struct { fields, .. } => {
-                ConShape::Fields(fields.iter().map(|f| f.ty.clone()).collect())
+                ConShape::Fields(fields.iter().map(|f| f.ty).collect())
             }
             TyDef::Enum { variants } => ConShape::Fields(
-                variants.iter().flat_map(|v| v.fields.iter().map(|f| f.ty.clone())).collect(),
+                variants.iter().flat_map(|v| v.fields.iter().map(|f| f.ty)).collect(),
             ),
         })
         .collect();
     let ctxs = tables
         .ctx_types
         .iter()
-        .map(|c| c.bindings.iter().map(|(_, t)| t.clone()).collect())
+        .map(|c| c.bindings.iter().map(|(_, t)| *t).collect())
         .collect();
     let effects = Effects {
         cons: tables
@@ -779,12 +779,12 @@ impl<'a> Monomorphizer<'a> {
             .params
             .iter()
             .skip(1)
-            .map(|p| typed::Local { name: p.name.clone(), ty: p.ty.clone(), span: p.span })
+            .map(|p| typed::Local { name: p.name.clone(), ty: p.ty, span: p.span })
             .collect();
         let forwarded: Vec<typed::Expr> = rest
             .iter()
             .enumerate()
-            .map(|(i, l)| typed::Expr::new(ExprKind::Local(LocalId(i as u32)), l.ty.clone(), span))
+            .map(|(i, l)| typed::Expr::new(ExprKind::Local(LocalId(i as u32)), l.ty, span))
             .collect();
         let fields: Vec<typed::Expr> = self
             .tables()
@@ -794,12 +794,12 @@ impl<'a> Monomorphizer<'a> {
             .map(|field| match field.ty.kind() {
                 TyKind::Con(con, _) => typed::Expr::new(
                     ExprKind::StructLit { con: *con, targs: Vec::new(), fields: Vec::new() },
-                    field.ty.clone(),
+                    field.ty,
                     span,
                 ),
                 // `host_parameter` admits only a type whose every field is a
                 // production struct, so there is nothing else to build.
-                _ => typed::Expr::new(ExprKind::Error, field.ty.clone(), span),
+                _ => typed::Expr::new(ExprKind::Error, field.ty, span),
             })
             .collect();
         let value = typed::Expr::new(
@@ -811,7 +811,7 @@ impl<'a> Monomorphizer<'a> {
         args.extend(forwarded);
         let call = typed::Expr::new(
             ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(inner as u32)), args },
-            info.ret.clone(),
+            info.ret,
             span,
         );
         let entry = self.func_mut(inner);
@@ -1522,16 +1522,16 @@ impl Monomorphizer<'_> {
         // The receiver is bound once: the call reads it, and so does every
         // adapter, and a lambda captures locals rather than expressions.
         let Some(receiver) = out.first() else { return (out, None) };
-        let recv_ty = receiver.ty.clone();
+        let recv_ty = receiver.ty;
         let span = receiver.span;
-        let bound = self.new_local("__recv", recv_ty.clone(), span);
-        let stands_for = typed::Expr::new(ExprKind::Local(bound), recv_ty.clone(), span);
+        let bound = self.new_local("__recv", recv_ty, span);
+        let stands_for = typed::Expr::new(ExprKind::Local(bound), recv_ty, span);
         let Some(slot) = out.first_mut() else { return (out, None) };
         let receiver = std::mem::replace(slot, stands_for);
         let prelude = typed::Stmt::Let {
             pattern: typed::Pattern {
                 kind: PatKind::Bind { local: bound, sub: None },
-                ty: recv_ty.clone(),
+                ty: recv_ty,
                 span,
             },
             value: receiver,
@@ -1540,21 +1540,21 @@ impl Monomorphizer<'_> {
 
         for (i, at) in adapt {
             let Some(argument) = out.get(i) else { continue };
-            let callback_ty = argument.ty.clone();
+            let callback_ty = argument.ty;
             let span = argument.span;
-            let TyKind::Fn(params, ret) = callback_ty.clone().kind() else { continue };
-            let held = self.new_local("__handler", callback_ty.clone(), span);
+            let TyKind::Fn(params, ret) = callback_ty.kind() else { continue };
+            let held = self.new_local("__handler", callback_ty, span);
             // The adapter's own parameters: the implementation's type where the
             // declaration spelled `Self`, the declared type everywhere else.
             let mut binders = Vec::with_capacity(params.len());
             let mut forwarded = Vec::with_capacity(params.len());
             for (k, p) in params.iter().enumerate() {
                 let is_self = at.contains(&k);
-                let ty = if is_self { implementation.clone() } else { p.clone() };
-                let id = self.new_local(&format!("__a{k}"), ty.clone(), span);
+                let ty = if is_self { implementation } else { *p };
+                let id = self.new_local(&format!("__a{k}"), ty, span);
                 binders.push(id);
                 forwarded.push(if is_self {
-                    typed::Expr::new(ExprKind::Local(bound), recv_ty.clone(), span)
+                    typed::Expr::new(ExprKind::Local(bound), recv_ty, span)
                 } else {
                     typed::Expr::new(ExprKind::Local(id), ty, span)
                 });
@@ -1564,22 +1564,22 @@ impl Monomorphizer<'_> {
                     .enumerate()
                     .map(|(k, p)| {
                         if at.contains(&k) {
-                            implementation.clone()
+                            implementation
                         } else {
-                            p.clone()
+                            *p
                         }
                     })
-                    , ret.clone());
+                    , *ret);
             let body = typed::Expr::new(
                 ExprKind::CallValue {
                     callee: Box::new(typed::Expr::new(
                         ExprKind::Local(held),
-                        callback_ty.clone(),
+                        callback_ty,
                         span,
                     )),
                     args: forwarded,
                 },
-                (*ret).clone(),
+                *ret,
                 span,
             );
             let adapter = typed::Expr::new(
@@ -1588,7 +1588,7 @@ impl Monomorphizer<'_> {
                     body: Box::new(body),
                     captures: vec![bound, held],
                 },
-                adapter_ty.clone(),
+                adapter_ty,
                 span,
             );
             let Some(slot) = out.get_mut(i) else { continue };
@@ -1641,7 +1641,7 @@ impl Monomorphizer<'_> {
                     None => call,
                     Some(stmt) => ExprKind::Block {
                         stmts: vec![stmt],
-                        tail: Some(Box::new(typed::Expr::new(call, e.ty.clone(), e.span))),
+                        tail: Some(Box::new(typed::Expr::new(call, e.ty, e.span))),
                     },
                 }
             }
@@ -1782,7 +1782,7 @@ impl Monomorphizer<'_> {
                 // descriptor is where the shape is written down. Nothing else
                 // asks for one at this type, so ask here.
                 if let Some(a) = args.first() {
-                    let t = a.ty.clone();
+                    let t = a.ty;
                     self.descriptor(&t);
                 }
                 ExprKind::StructuralEq { negate, args }
@@ -1890,7 +1890,7 @@ impl Monomorphizer<'_> {
                 );
                 *first = typed::Expr::new(
                     ExprKind::CtxGet { base: Box::new(base), trait_id },
-                    impl_ty.clone(),
+                    impl_ty,
                     span,
                 );
             }
@@ -2099,7 +2099,7 @@ impl Monomorphizer<'_> {
             .map(|a| {
                 typed::Expr::new(
                     ExprKind::Field { base: Box::new(a), index: 0 },
-                    inner.clone(),
+                    inner,
                     span,
                 )
             })
@@ -2134,7 +2134,7 @@ impl Monomorphizer<'_> {
         let slot = self.descriptors.len();
         self.descriptors.push(Desc::Reserved);
         self.desc_modules.push(self.declaring_module(ty));
-        self.desc_index.insert(ty.clone(), slot);
+        self.desc_index.insert(*ty, slot);
 
         let desc = match ty.kind() {
             TyKind::Unit => Desc::Unit,
@@ -2841,7 +2841,7 @@ fn canonical_ty(canon: &[CtxTypeId], ty: &Ty) -> Ty {
         TyKind::Array(e) => Ty::array(canonical_ty(canon, e)),
         TyKind::Tuple(es) => Ty::tuple(es.iter().map(|e| canonical_ty(canon, e))),
         TyKind::Fn(ps, r) => Ty::func(ps.iter().map(|p| canonical_ty(canon, p)), canonical_ty(canon, r)),
-        TyKind::Var(_) | TyKind::Param(_) | TyKind::Unit | TyKind::SelfTy | TyKind::Error => ty.clone(),
+        TyKind::Var(_) | TyKind::Param(_) | TyKind::Unit | TyKind::SelfTy | TyKind::Error => *ty,
     }
 }
 
@@ -3025,7 +3025,7 @@ mod tests {
     fn an_impl_generic_is_read_off_the_receiver() {
         let host_fs = con(10, vec![]);
         let head = con(12, vec![p0()]);
-        let recv = con(12, vec![host_fs.clone()]);
+        let recv = con(12, vec![host_fs]);
         let got = instance_targs(&head, &recv, counts(1, 0), &[]);
         assert_eq!(got, Ok(vec![host_fs]));
     }
