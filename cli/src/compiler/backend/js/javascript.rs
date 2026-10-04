@@ -234,15 +234,15 @@ impl Expr {
     /// Simplifies as it builds, so the backend gets the peepholes without
     /// asking and the folder has one place to call. See `simplify_bin`.
     pub fn bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
-        simplify_bin(op, lhs, rhs)
+        simplify_bin(op, Box::new(lhs), Box::new(rhs))
     }
 
     pub fn un(op: UnOp, operand: Expr) -> Expr {
-        simplify_un(op, operand)
+        simplify_un(op, Box::new(operand))
     }
 
     pub fn cond(test: Expr, cons: Expr, alt: Expr) -> Expr {
-        simplify_cond(test, cons, alt)
+        simplify_cond(Box::new(test), Box::new(cons), Box::new(alt))
     }
 
     pub fn ident(name: impl Into<String>) -> Expr {
@@ -390,7 +390,7 @@ impl Expr {
     /// Rebuilds this node with each direct child passed through `r`, using
     /// the raw constructors. Children are visited in evaluation order.
     fn map_children<R: Rewrite + ?Sized>(self, r: &mut R) -> Expr {
-        let mut go = |x: Box<Expr>| Box::new(r.expr(*x));
+        let mut go = |x: Box<Expr>| rewrite_boxed(x, |e| r.expr(e));
         match self {
             Expr::Array(xs) => Expr::Array(xs.into_iter().map(|x| r.expr(x)).collect()),
             Expr::Seq(xs) => Expr::Seq(xs.into_iter().map(|x| r.expr(x)).collect()),
@@ -401,11 +401,11 @@ impl Expr {
                 Expr::Index { obj, index: go(index) }
             }
             Expr::Call { callee, args } => {
-                let callee = Box::new(r.expr(*callee));
+                let callee = rewrite_boxed(callee, |e| r.expr(e));
                 Expr::Call { callee, args: args.into_iter().map(|a| r.expr(a)).collect() }
             }
             Expr::New { callee, args } => {
-                let callee = Box::new(r.expr(*callee));
+                let callee = rewrite_boxed(callee, |e| r.expr(e));
                 Expr::New { callee, args: args.into_iter().map(|a| r.expr(a)).collect() }
             }
             Expr::Unary { op, operand } => Expr::Unary { op, operand: go(operand) },
@@ -533,6 +533,15 @@ impl Stmt {
     }
 }
 
+/// `f` applied to the expression in a box, keeping the box. A rewrite moves
+/// every node it passes through, and moving one out of its box and into a new
+/// one was an allocation and a free per node per pass.
+fn rewrite_boxed(mut b: Box<Expr>, f: impl FnOnce(Expr) -> Expr) -> Box<Expr> {
+    let e = std::mem::replace(&mut *b, Expr::Null);
+    *b = f(e);
+    b
+}
+
 /// A rewrite of the tree. Each method's default rebuilds the node from its
 /// rewritten children, so a pass overrides only the nodes it acts on.
 trait Rewrite {
@@ -559,12 +568,13 @@ trait Visit<'a> {
 }
 
 /// Reapplies the simplifying constructors to a node whose children were just
-/// rebuilt, for the passes that fold as they go.
+/// rebuilt, for the passes that fold as they go. The node's own boxes are
+/// handed back to it whenever nothing simplifies, which is nearly always.
 fn simplified(e: Expr) -> Expr {
     match e {
-        Expr::Unary { op, operand } => Expr::un(op, *operand),
-        Expr::Binary { op, lhs, rhs } => Expr::bin(op, *lhs, *rhs),
-        Expr::Cond { test, cons, alt } => Expr::cond(*test, *cons, *alt),
+        Expr::Unary { op, operand } => simplify_un(op, operand),
+        Expr::Binary { op, lhs, rhs } => simplify_bin(op, lhs, rhs),
+        Expr::Cond { test, cons, alt } => simplify_cond(test, cons, alt),
         Expr::Await(x) => Expr::awaited(*x),
         other => other,
     }
@@ -594,8 +604,8 @@ fn concise(e: Expr) -> Expr {
 // JavaScript or guarded by `is_boolean` / `is_pure`; nothing here relies on
 // what the Buri type checker knows, because this layer cannot see it.
 
-fn simplify_un(op: UnOp, operand: Expr) -> Expr {
-    match (op, &operand) {
+fn simplify_un(op: UnOp, operand: Box<Expr>) -> Expr {
+    match (op, &*operand) {
         (UnOp::Not, Expr::Bool(b)) => return Expr::Bool(!b),
         (UnOp::Neg, Expr::Num(n)) => return Expr::Num(-n),
         // Folded rather than printed: `-` in front of `-5n` is `--5n`, which
@@ -624,12 +634,12 @@ fn simplify_un(op: UnOp, operand: Expr) -> Expr {
         }
         _ => {}
     }
-    Expr::Unary { op, operand: Box::new(operand) }
+    Expr::Unary { op, operand }
 }
 
-fn simplify_bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
+fn simplify_bin(op: BinOp, lhs: Box<Expr>, rhs: Box<Expr>) -> Expr {
     // Both operands known.
-    if let (Expr::Num(a), Expr::Num(b)) = (&lhs, &rhs) {
+    if let (Expr::Num(a), Expr::Num(b)) = (&*lhs, &*rhs) {
         let (a, b) = (*a, *b);
         match op {
             BinOp::Add => return Expr::Num(a + b),
@@ -653,7 +663,7 @@ fn simplify_bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
     // rounded — so a fold that overflows the `i128` doing it is declined
     // instead of being wrong. `U128`'s upper half never parses, which is the
     // same refusal by another route.
-    if let (Expr::BigInt(a), Expr::BigInt(b)) = (&lhs, &rhs) {
+    if let (Expr::BigInt(a), Expr::BigInt(b)) = (&*lhs, &*rhs) {
         if let (Ok(a), Ok(b)) = (a.parse::<i128>(), b.parse::<i128>()) {
             let folded = match op {
                 BinOp::Add => a.checked_add(b),
@@ -675,7 +685,7 @@ fn simplify_bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
             }
         }
     }
-    if let (Expr::Str(a), Expr::Str(b)) = (&lhs, &rhs) {
+    if let (Expr::Str(a), Expr::Str(b)) = (&*lhs, &*rhs) {
         match op {
             BinOp::Add => return Expr::Str(format!("{a}{b}")),
             BinOp::StrictEq => return Expr::Bool(a == b),
@@ -683,7 +693,7 @@ fn simplify_bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
             _ => {}
         }
     }
-    if let (Expr::Bool(a), Expr::Bool(b)) = (&lhs, &rhs) {
+    if let (Expr::Bool(a), Expr::Bool(b)) = (&*lhs, &*rhs) {
         match op {
             BinOp::StrictEq => return Expr::Bool(a == b),
             BinOp::StrictNe => return Expr::Bool(a != b),
@@ -696,29 +706,29 @@ fn simplify_bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
         // negation. This is what a pattern test on `true`/`false` produces.
         BinOp::StrictEq | BinOp::StrictNe => {
             let eq = op == BinOp::StrictEq;
-            if let Expr::Bool(b) = rhs {
+            if let Expr::Bool(b) = *rhs {
                 if lhs.is_boolean() {
-                    return if b == eq { lhs } else { Expr::un(UnOp::Not, lhs) };
+                    return if b == eq { *lhs } else { simplify_un(UnOp::Not, lhs) };
                 }
             }
-            if let Expr::Bool(b) = lhs {
+            if let Expr::Bool(b) = *lhs {
                 if rhs.is_boolean() {
-                    return if b == eq { rhs } else { Expr::un(UnOp::Not, rhs) };
+                    return if b == eq { *rhs } else { simplify_un(UnOp::Not, rhs) };
                 }
             }
         }
         BinOp::And => {
-            match (&lhs, &rhs) {
-                (Expr::Bool(true), _) => return rhs,
+            match (&*lhs, &*rhs) {
+                (Expr::Bool(true), _) => return *rhs,
                 (Expr::Bool(false), _) => return Expr::Bool(false),
                 // `e && true` is `e` only for a boolean `e`: `1 && true` is
                 // `true`, not `1`.
-                (_, Expr::Bool(true)) if lhs.is_boolean() => return lhs,
+                (_, Expr::Bool(true)) if lhs.is_boolean() => return *lhs,
                 (_, Expr::Bool(false)) if lhs.is_pure() => return Expr::Bool(false),
                 _ => {}
             }
             if lhs.same_as(&rhs) && lhs.is_pure() {
-                return lhs;
+                return *lhs;
             }
             // A tag test cannot hold two different values at once. This is what
             // an or-pattern's alternatives collapse to once each has been
@@ -728,21 +738,21 @@ fn simplify_bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
             }
         }
         BinOp::Or => {
-            match (&lhs, &rhs) {
+            match (&*lhs, &*rhs) {
                 (Expr::Bool(true), _) => return Expr::Bool(true),
-                (Expr::Bool(false), _) => return rhs,
-                (_, Expr::Bool(false)) if lhs.is_boolean() => return lhs,
+                (Expr::Bool(false), _) => return *rhs,
+                (_, Expr::Bool(false)) if lhs.is_boolean() => return *lhs,
                 (_, Expr::Bool(true)) if lhs.is_pure() => return Expr::Bool(true),
                 _ => {}
             }
             if lhs.same_as(&rhs) && lhs.is_pure() {
-                return lhs;
+                return *lhs;
             }
         }
         _ => {}
     }
 
-    Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
+    Expr::Binary { op, lhs, rhs }
 }
 
 /// For `x === a` and `x === b` over the same pure `x` and two distinct
@@ -768,69 +778,72 @@ fn both_equalities_agree(lhs: &Expr, rhs: &Expr, conjunction: bool) -> Option<bo
     }
 }
 
-fn simplify_cond(test: Expr, cons: Expr, alt: Expr) -> Expr {
-    match &test {
-        Expr::Bool(true) => return cons,
-        Expr::Bool(false) => return alt,
+fn simplify_cond(test: Box<Expr>, cons: Box<Expr>, alt: Box<Expr>) -> Expr {
+    match &*test {
+        Expr::Bool(true) => return *cons,
+        Expr::Bool(false) => return *alt,
         _ => {}
     }
     // `c ? true : false` is `c`, and `c ? false : true` is `!c`.
-    if let (Expr::Bool(a), Expr::Bool(b)) = (&cons, &alt) {
+    if let (Expr::Bool(a), Expr::Bool(b)) = (&*cons, &*alt) {
         if *a && !*b && test.is_boolean() {
-            return test;
+            return *test;
         }
         if !*a && *b {
-            return Expr::un(UnOp::Not, test);
+            return simplify_un(UnOp::Not, test);
         }
     }
     // Both branches the same value, and nothing observable in choosing.
     if cons.same_as(&alt) && test.is_pure() {
-        return cons;
+        return *cons;
     }
     // A branch that yields a constant boolean is a short-circuit. Sound only
     // for a boolean test: `5 ? true : x` is `true`, where `5 || x` is `5`.
     if test.is_boolean() {
-        match (&cons, &alt) {
-            (Expr::Bool(true), _) => return Expr::bin(BinOp::Or, test, alt),
+        match (&*cons, &*alt) {
+            (Expr::Bool(true), _) => return simplify_bin(BinOp::Or, test, alt),
             (Expr::Bool(false), _) => {
-                return Expr::bin(BinOp::And, Expr::un(UnOp::Not, test), alt)
+                return simplify_bin(BinOp::And, Box::new(simplify_un(UnOp::Not, test)), alt)
             }
             (_, Expr::Bool(true)) => {
-                return Expr::bin(BinOp::Or, Expr::un(UnOp::Not, test), cons)
+                return simplify_bin(BinOp::Or, Box::new(simplify_un(UnOp::Not, test)), cons)
             }
-            (_, Expr::Bool(false)) => return Expr::bin(BinOp::And, test, cons),
+            (_, Expr::Bool(false)) => return simplify_bin(BinOp::And, test, cons),
             _ => {}
         }
     }
     // `!c ? a : b` is `c ? b : a`, which is one character shorter and reads
     // in the order the source did.
-    if let Expr::Unary { op: UnOp::Not, operand } = &test {
+    if let Expr::Unary { op: UnOp::Not, operand } = &*test {
         if operand.is_boolean() {
-            return simplify_cond((**operand).clone(), alt, cons);
+            let Expr::Unary { operand, .. } = *test else {
+                crate::ice!("the test was matched as a negation a line above")
+            };
+            return simplify_cond(operand, alt, cons);
         }
     }
     // A ternary whose branches share an arm folds into a single test.
     // `c ? (p ? x : y) : y`  ->  `c && p ? x : y`
-    if let Expr::Cond { test: p, cons: x, alt: y } = &cons {
+    if let Expr::Cond { test: p, cons: x, alt: y } = &*cons {
         if y.same_as(&alt) && p.is_pure() {
             return simplify_cond(
-                Expr::bin(BinOp::And, test, (**p).clone()),
-                (**x).clone(),
+                Box::new(Expr::bin(BinOp::And, *test, (**p).clone())),
+                x.clone(),
                 alt,
             );
         }
     }
     // `c ? x : (p ? x : y)`  ->  `c || p ? x : y`
-    if let Expr::Cond { test: p, cons: x, alt: y } = &alt {
+    if let Expr::Cond { test: p, cons: x, alt: y } = &*alt {
         if x.same_as(&cons) && p.is_pure() {
             return simplify_cond(
-                Expr::bin(BinOp::Or, test, (**p).clone()),
+                Box::new(Expr::bin(BinOp::Or, *test, (**p).clone())),
                 cons,
-                (**y).clone(),
+                y.clone(),
             );
         }
     }
-    Expr::Cond { test: Box::new(test), cons: Box::new(cons), alt: Box::new(alt) }
+    Expr::Cond { test, cons, alt }
 }
 
 // ---------------------------------------------------------------------------
@@ -1892,100 +1905,128 @@ fn switches(body: Vec<Stmt>) -> Vec<Stmt> {
 
 #[derive(Default)]
 struct LocalFacts {
-    /// How many times each name is *declared*. Anything but once disqualifies
-    /// it: the pass reasons about one binding, not a name.
-    declared: HashMap<String, usize>,
-    /// How many times each name is assigned. Assigned exactly once, a
-    /// declaration and its assignment are one binding written apart; assigned
-    /// at all, a name is neither an alias nor removable and its declaration
-    /// has to stay even when nothing reads it.
-    ///
-    /// There used to be a `HashSet` of assigned names beside this map, holding
-    /// exactly its keys. The two gated different decisions — the set gated
-    /// `depends_on_assigned`, which is the soundness condition for moving a
-    /// value across a reassignment, and the map gated `merge_declarations` —
-    /// so a name in one and not the other was the tail-call-loop miscompile
-    /// this pass exists to avoid.
-    assigns: HashMap<String, usize>,
-    /// How many times each name is *read*.
-    uses: HashMap<String, usize>,
+    /// What is known about each name the body mentions, in one entry per name.
+    /// There used to be five maps, each keyed by its own copy of the name.
+    names: HashMap<String, NameFacts>,
     /// How many loops and closures enclose the point being walked.
-    depth: usize,
-    /// The depth each name was declared at, and the deepest any read of it
-    /// sits. A value read deeper than it was bound would, if moved to its use,
-    /// be computed once per iteration or once per call instead of once.
-    decl_depth: HashMap<String, usize>,
-    use_depth: HashMap<String, usize>,
+    depth: u32,
     /// Set when something in the body cannot be reasoned about, in which case
     /// the body is left exactly as it was.
     opaque: bool,
 }
 
+/// What [`LocalFacts`] knows about one name. A count of zero is a name that
+/// was never declared, assigned or read.
+#[derive(Default, Clone, Copy)]
+struct NameFacts {
+    /// How many times the name is *declared*. Anything but once disqualifies
+    /// it: the pass reasons about one binding, not a name.
+    declared: u32,
+    /// How many times the name is assigned. Assigned exactly once, a
+    /// declaration and its assignment are one binding written apart; assigned
+    /// at all, a name is neither an alias nor removable and its declaration
+    /// has to stay even when nothing reads it.
+    ///
+    /// There used to be a `HashSet` of assigned names beside the counts,
+    /// holding exactly the names counted here. The two gated different
+    /// decisions — the set gated `depends_on_assigned`, which is the soundness
+    /// condition for moving a value across a reassignment, and the counts
+    /// gated `merge_declarations` — so a name in one and not the other was the
+    /// tail-call-loop miscompile this pass exists to avoid.
+    assigns: u32,
+    /// How many times the name is *read*.
+    uses: u32,
+    /// The depth the name was last declared at, and the deepest any read of
+    /// it sits. A value read deeper than it was bound would, if moved to its
+    /// use, be computed once per iteration or once per call instead of once.
+    decl_depth: u32,
+    use_depth: u32,
+}
+
 impl LocalFacts {
-    // `get_mut` before `insert` rather than `entry`, in all three of these: the
-    // entry API needs an owned key whether or not the name is already there,
-    // and these run over every identifier of every body, four times a body.
-    // A name is spelled once here however often it occurs.
+    /// The entry for `name`, made on first sight. `get_mut` before `insert`
+    /// rather than `entry`: the entry API needs an owned key whether or not
+    /// the name is already there, and this runs over every identifier of every
+    /// body, four times a body. A name is spelled once here however often it
+    /// occurs.
+    fn entry(&mut self, name: &str) -> &mut NameFacts {
+        if !self.names.contains_key(name) {
+            self.names.insert(name.to_string(), NameFacts::default());
+        }
+        self.names.get_mut(name).or_ice("the entry was inserted a line above")
+    }
+
     fn read(&mut self, name: &str) {
         let d = self.depth;
-        match self.uses.get_mut(name) {
-            Some(n) => *n += 1,
-            None => {
-                self.uses.insert(name.to_string(), 1);
-            }
-        }
-        match self.use_depth.get_mut(name) {
-            Some(x) => *x = (*x).max(d),
-            None => {
-                self.use_depth.insert(name.to_string(), d);
-            }
-        }
+        let n = self.entry(name);
+        n.uses += 1;
+        n.use_depth = n.use_depth.max(d);
     }
 
     fn declare(&mut self, name: &str) {
         let d = self.depth;
-        match self.declared.get_mut(name) {
-            Some(n) => *n += 1,
-            None => {
-                self.declared.insert(name.to_string(), 1);
-            }
-        }
-        match self.decl_depth.get_mut(name) {
-            Some(x) => *x = d,
-            None => {
-                self.decl_depth.insert(name.to_string(), d);
-            }
-        }
+        let n = self.entry(name);
+        n.declared += 1;
+        n.decl_depth = d;
     }
 
     fn assign(&mut self, name: &str) {
-        match self.assigns.get_mut(name) {
-            Some(n) => *n += 1,
-            None => {
-                self.assigns.insert(name.to_string(), 1);
-            }
-        }
+        self.entry(name).assigns += 1;
+    }
+
+    fn get(&self, name: &str) -> NameFacts {
+        self.names.get(name).copied().unwrap_or_default()
+    }
+
+    /// How many times `name` is declared.
+    fn declared(&self, name: &str) -> u32 {
+        self.get(name).declared
+    }
+
+    /// How many times `name` is assigned.
+    fn assigns(&self, name: &str) -> u32 {
+        self.get(name).assigns
+    }
+
+    /// How many times `name` is read.
+    fn uses(&self, name: &str) -> u32 {
+        self.get(name).uses
     }
 
     /// Whether every read of `name` sits no deeper than its binding.
     fn read_where_bound(&self, name: &str) -> bool {
-        let decl = self.decl_depth.get(name).copied().unwrap_or(0);
-        self.use_depth.get(name).copied().unwrap_or(0) <= decl
+        let n = self.get(name);
+        n.use_depth <= n.decl_depth
+    }
+
+    /// Whether a name is ever the target of an assignment.
+    fn is_assigned(&self, name: &str) -> bool {
+        self.assigns(name) > 0
     }
 }
 
-/// The identifiers an expression reads. Used to check that nothing it depends
-/// on is reassigned between where it is bound and where it would be moved to.
-fn reads_of(e: &Expr, out: &mut HashSet<String>) {
-    let mut f = LocalFacts::default();
-    f.expr(e);
-    out.extend(f.uses.into_keys());
+/// The identifiers an expression reads: every name in it but the target of a
+/// plain assignment, which is written rather than read. Used to check that
+/// nothing it depends on is reassigned between where it is bound and where it
+/// would be moved to.
+fn reads_of<'a>(e: &'a Expr, out: &mut HashSet<&'a str>) {
+    Reads(out).expr(e);
 }
 
-impl LocalFacts {
-    /// Whether a name is ever the target of an assignment.
-    fn is_assigned(&self, name: &str) -> bool {
-        self.assigns.contains_key(name)
+/// The walk behind [`reads_of`]: the reads [`LocalFacts`] counts, borrowed.
+struct Reads<'s, 'a>(&'s mut HashSet<&'a str>);
+
+impl<'a> Visit<'a> for Reads<'_, 'a> {
+    fn expr(&mut self, e: &'a Expr) {
+        match e {
+            Expr::Ident(name) => {
+                self.0.insert(name);
+            }
+            Expr::Assign { target, value } if matches!(&**target, Expr::Ident(_)) => {
+                self.expr(value);
+            }
+            _ => e.visit_children(self),
+        }
     }
 }
 
@@ -2077,7 +2118,7 @@ impl Rewrite for Subst<'_> {
             // The target names a storage location, not a value, so it is never
             // rewritten — only what is assigned to it.
             Expr::Assign { target, value } if matches!(&*target, Expr::Ident(_)) => {
-                Expr::Assign { target, value: Box::new(self.expr(*value)) }
+                Expr::Assign { target, value: rewrite_boxed(value, |e| self.expr(e)) }
             }
             // Rebuilding may leave an arrow body that is one `return`, which is
             // the concise form.
@@ -2115,7 +2156,7 @@ impl Rewrite for DropBindings<'_> {
     fn expr(&mut self, e: Expr) -> Expr {
         match e {
             Expr::Assign { target, value } => {
-                Expr::Assign { target, value: Box::new(self.expr(*value)) }
+                Expr::Assign { target, value: rewrite_boxed(value, |e| self.expr(e)) }
             }
             // Rebuilding may leave a body that is one `return`, which is the
             // concise form — the same collapse `Subst` makes.
@@ -2154,10 +2195,10 @@ impl<'a> Visit<'a> for Cleanup<'_> {
             let facts = self.facts;
             // A name declared twice, or ever assigned, is not one binding
             // and nothing here applies to it.
-            if facts.declared.get(name).copied() != Some(1) || facts.is_assigned(name) {
+            if facts.declared(name) != 1 || facts.is_assigned(name) {
                 return;
             }
-            let uses = facts.uses.get(name).copied().unwrap_or(0);
+            let uses = facts.uses(name);
             match init {
                 // Never read: the binding goes, and the value with it when
                 // it has nothing to do.
@@ -2170,7 +2211,7 @@ impl<'a> Visit<'a> for Cleanup<'_> {
                 // before every match.
                 Some(Expr::Ident(src))
                     if !facts.is_assigned(src)
-                        && facts.declared.get(src).copied().unwrap_or(1) == 1 =>
+                        && matches!(facts.declared(src), 0 | 1) =>
                 {
                     self.map.insert(name.clone(), Expr::Ident(src.clone()));
                     self.dead.insert(name.clone());
@@ -2240,29 +2281,26 @@ fn depends_on_assigned(e: &Expr, facts: &LocalFacts) -> bool {
 /// out of `done` rather than clone, and they are the ones absent from the map
 /// it leaves behind. That absence is what the caller wants: substituting them
 /// back into the body would paste into declarations the same round removes.
-fn movable_values(
-    map: &HashMap<String, Expr>,
-    uses: &HashMap<String, usize>,
-) -> HashSet<String> {
+fn movable_values(map: &HashMap<String, Expr>, facts: &LocalFacts) -> HashSet<String> {
     let mut refs: HashMap<&str, usize> = HashMap::default();
     for value in map.values() {
         let mut reads = HashSet::default();
         reads_of(value, &mut reads);
         for r in reads {
-            if let Some((name, _)) = map.get_key_value(&r) {
+            if let Some((name, _)) = map.get_key_value(r) {
                 *refs.entry(name.as_str()).or_insert(0) += 1;
             }
         }
     }
     refs.into_iter()
-        .filter(|&(name, n)| n == 1 && uses.get(name).copied() == Some(1))
+        .filter(|&(name, n)| n == 1 && facts.uses(name) == 1)
         .map(|(name, _)| name.to_string())
         .collect()
 }
 
-fn resolve_map(map: &mut HashMap<String, Expr>, uses: &HashMap<String, usize>) {
+fn resolve_map(map: &mut HashMap<String, Expr>, facts: &LocalFacts) {
     let names: Vec<String> = map.keys().cloned().collect();
-    let movable = movable_values(map, uses);
+    let movable = movable_values(map, facts);
     let mut done: HashMap<String, Expr> = HashMap::default();
     let mut taken: HashSet<String> = HashSet::default();
     let mut visiting: HashSet<String> = HashSet::default();
@@ -2297,7 +2335,8 @@ fn resolve_one(
     let mut reads = HashSet::default();
     reads_of(&raw, &mut reads);
     // Sorted, so the order values are resolved in cannot depend on hash order.
-    let mut reads: Vec<String> = reads.into_iter().filter(|r| map.contains_key(r)).collect();
+    let mut reads: Vec<String> =
+        reads.into_iter().filter(|r| map.contains_key(*r)).map(str::to_owned).collect();
     reads.sort();
     for r in &reads {
         resolve_one(r, map, movable, done, taken, visiting);
@@ -2359,7 +2398,7 @@ fn merge_declarations(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
         };
         // Assigned anywhere else and the slot is genuinely a slot.
         if !matches!(&**target, Expr::Ident(t) if t == name)
-            || facts.assigns.get(name).copied() != Some(1)
+            || facts.assigns(name) != 1
         {
             i = next;
             continue;
@@ -2450,8 +2489,7 @@ fn coalesce_copies(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
         };
         // Read exactly once, and written at least once, or there is nothing to
         // move.
-        if facts.uses.get(from).copied() != Some(1)
-            || facts.assigns.get(from).copied().unwrap_or(0) == 0
+        if facts.uses(from) != 1 || facts.assigns(from) == 0
         {
             continue;
         }
@@ -2489,12 +2527,12 @@ fn coalesce_copies(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
         for s in body.get(i..j).unwrap_or_default() {
             region.stmt(s);
         }
-        if region.uses.contains_key(&to) || region.is_assigned(&to) {
+        if region.uses(&to) > 0 || region.is_assigned(&to) {
             continue;
         }
         // A copy that declares its destination must be the only declaration of
         // it, since the renamed `let` takes that role.
-        if declares && facts.declared.get(&to).copied() != Some(1) {
+        if declares && facts.declared(&to) != 1 {
             continue;
         }
         let from = from.clone();
@@ -2553,12 +2591,12 @@ fn clean_body(body: &mut Vec<Stmt>) -> bool {
     // so it terminates.
     loop {
         let mut resolved = map.clone();
-        resolve_map(&mut resolved, &facts.uses);
+        resolve_map(&mut resolved, &facts);
         let overshot: Vec<String> = resolved
             .iter()
             .filter(|(name, value)| {
                 !value.is_pure_literal()
-                    && facts.uses.get(*name).copied().unwrap_or(0) > 1
+                    && facts.uses(name) > 1
             })
             .map(|(name, _)| name.clone())
             .collect();
@@ -2689,7 +2727,7 @@ fn read_through_locals(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
             // Every read accounted for: `uses` counts bare reads of the name,
             // and each of ours is one, so a mismatch means something else read
             // it in a shape the survey did not recognise.
-            if facts.uses.get(name).copied().unwrap_or(0) != reads.values().sum::<usize>() {
+            if facts.uses(name) as usize != reads.values().sum::<usize>() {
                 return false;
             }
             reads
@@ -2739,7 +2777,7 @@ fn collect_aggregates(
 ) {
     for s in body {
         if let Stmt::Var { kind: VarKind::Const, name, init: Some(Expr::Array(items)) } = s {
-            let single = facts.declared.get(name).copied() == Some(1)
+            let single = facts.declared(name) == 1
                 && !facts.is_assigned(name)
                 && facts.read_where_bound(name);
             // Everything the array holds has to be free to move to a use, and
@@ -2816,7 +2854,7 @@ impl Rewrite for Extract<'_> {
         }
         match e {
             Expr::Assign { target, value } => {
-                Expr::Assign { target, value: Box::new(self.expr(*value)) }
+                Expr::Assign { target, value: rewrite_boxed(value, |e| self.expr(e)) }
             }
             other => simplified(other.map_children(self)),
         }
