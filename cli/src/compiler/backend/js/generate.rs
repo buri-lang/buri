@@ -19,7 +19,7 @@
 use crate::compiler::backend::Profile;
 use crate::compiler::backend::js::crossing::HOSTED_PROGRAM;
 use crate::compiler::backend::js::park::{self, Parking};
-use crate::compiler::backend::js::javascript::{self, BinOp, Expr, Stmt, UnOp, VarKind};
+use crate::compiler::backend::js::javascript::{self, BinOp, Expr, RuntimeDecl, Stmt, UnOp, VarKind};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp};
 use crate::compiler::semantics::types::{LocalId, Prim, Tables, Ty, TyDef};
 use crate::compiler::middle::monomorphize::{self, Desc, FuncKind, Program, ProgramRoots};
@@ -127,10 +127,10 @@ pub struct Gen<'a> {
     /// Where a second reference to a value comes into existence, from
     /// `middle::rc` run with `Options::sharing`. Empty for a `Gen` that is only
     /// being asked which intrinsics exist.
-    sharing: rc::Plan,
+    sharing: &'a rc::Plan,
     /// Which functions and function values can park: the `async` column.
     /// `None` for a `Gen` that is only being asked which intrinsics exist.
-    parking: Option<Parking>,
+    parking: Option<&'a Parking>,
     /// The `Program::funcs` slot whose body is being emitted, because
     /// [`Parking::value_parks`] reads a local and a local means nothing
     /// without one.
@@ -144,19 +144,27 @@ fn runtime_names() -> &'static HashSet<String> {
     NAMES.get_or_init(scan_runtime_names)
 }
 
-/// The runtime's top-level declarations, as written or stripped. Split and
-/// stripped once per process.
-fn runtime_declarations(pretty: bool) -> &'static [(String, String)] {
-    static WRITTEN: OnceLock<Vec<(String, String)>> = OnceLock::new();
-    static STRIPPED: OnceLock<Vec<(String, String)>> = OnceLock::new();
-    let written = WRITTEN.get_or_init(|| {
-        javascript::split_declarations(crate::compiler::backend::js::runtime_source())
-    });
+/// The runtime's top-level declarations, as written or stripped. Split,
+/// stripped and scanned for identifiers once per process.
+fn runtime_declarations(pretty: bool) -> &'static [RuntimeDecl] {
+    static SPLIT: OnceLock<Vec<(String, String)>> = OnceLock::new();
+    static WRITTEN: OnceLock<Vec<RuntimeDecl>> = OnceLock::new();
+    static STRIPPED: OnceLock<Vec<RuntimeDecl>> = OnceLock::new();
+    let split = || {
+        SPLIT.get_or_init(|| {
+            javascript::split_declarations(crate::compiler::backend::js::runtime_source())
+        })
+    };
     if pretty {
-        return written;
+        return WRITTEN.get_or_init(|| {
+            split().iter().map(|(name, src)| RuntimeDecl::new(name.clone(), src.clone())).collect()
+        });
     }
     STRIPPED.get_or_init(|| {
-        written.iter().map(|(name, src)| (name.clone(), javascript::strip(src))).collect()
+        split()
+            .iter()
+            .map(|(name, src)| RuntimeDecl::new(name.clone(), javascript::strip(src)))
+            .collect()
     })
 }
 
@@ -195,7 +203,12 @@ impl<'a> Gen<'a> {
     /// emitting anything — asking "does this backend implement this key" has to
     /// go through the same `Gen::intrinsic` the emission does, or the answer is
     /// a second implementation of the question and the two drift.
-    fn over(program: &'a Program, tables: &'a Tables, profile: Profile) -> Gen<'a> {
+    fn over(
+        program: &'a Program,
+        tables: &'a Tables,
+        profile: Profile,
+        sharing: &'a rc::Plan,
+    ) -> Gen<'a> {
         Gen {
             program,
             tables,
@@ -211,7 +224,7 @@ impl<'a> Gen<'a> {
             consts: Vec::new(),
             const_index: HashMap::default(),
             in_context: false,
-            sharing: rc::Plan::default(),
+            sharing,
             parking: None,
             slot: 0,
         }
@@ -300,7 +313,8 @@ impl<'a> Gen<'a> {
 /// arguments the emitter would have passed, because several intrinsics decide
 /// on arity. Nothing it builds is kept.
 pub fn unimplemented_intrinsics(program: &Program, tables: &Tables) -> Vec<String> {
-    let mut g = Gen::over(program, tables, Profile::Debug);
+    let no_sharing = rc::Plan::default();
+    let mut g = Gen::over(program, tables, Profile::Debug, &no_sharing);
     let mut out = Vec::new();
     for (i, f) in program.funcs.iter().enumerate() {
         let FuncKind::Intrinsic(key) = &f.kind else { continue };
@@ -319,11 +333,9 @@ pub fn generate(
     tables: &Tables,
     profile: Profile,
 ) -> Output {
-    let mut g = Gen::over(program, tables, profile);
-    // The ownership half of `middle::rc`, which this branch of the pipeline
-    // runs for its increments alone. MEMORY.md §5.5.
-    g.sharing = rc::sharing(program);
-    g.parking = Some(park::parkability(program));
+    let (sharing, parking) = analyses(program);
+    let mut g = Gen::over(program, tables, profile, &sharing);
+    g.parking = Some(&parking);
 
     let mut stmts = Vec::new();
     // A program that reaches a node module by name needs `require`, which an
@@ -348,8 +360,8 @@ pub fn generate(
     // drop what a program does not reach. It is hand-written JavaScript, so it
     // is compacted by the tokenizer in `javascript::strip` rather than by the AST
     // printer.
-    for (name, src) in runtime_declarations(profile.pretty()) {
-        stmts.push(Stmt::RawDecl { name: name.clone(), src: src.clone() });
+    for decl in runtime_declarations(profile.pretty()) {
+        stmts.push(Stmt::RawDecl(decl));
     }
     // Where the shared constants go, once the bodies below have said which
     // ones they need.
@@ -430,76 +442,18 @@ pub fn generate(
         }
     }
 
-    for (fi, f) in program.funcs.iter().enumerate() {
-        g.func = FnState::for_locals(&f.locals);
-        g.slot = fi;
-        // `async` iff this instantiation waits. A suspending intrinsic's own
-        // wrapper is included: no `await` lands in it, but it returns what
-        // the host hands back, and an `async` function returns that through
-        // the promise its caller is already awaiting.
-        let is_async = g.parks(fi);
-        if let Some(marks) = g.sharing.funcs.get(fi).map(|plan| g.marks_for(f, plan)) {
-            g.func.marks = marks;
-        }
-        let mut params: Vec<String> =
-            f.params.iter().map(|p| g.local_name_of(p)).collect();
-
-        // A body the middle end turned into a loop takes one more parameter
-        // than the tree says: the entry a caller enters at. Nothing else about
-        // emitting it is special, which is the point of the rewrite.
-        if let Some(entries) = loop_entries(f) {
-            g.func.loops.targets = params.clone();
-            if entries > 1 {
-                g.func.loops.which = Some(DISPATCH.to_string());
-                params.insert(0, DISPATCH.to_string());
-            }
-        }
-
-        let body = match &f.kind {
-            FuncKind::Body(e) => {
-                let mut out = Vec::new();
-                g.tail(e, &mut out);
-                out
-            }
-            FuncKind::Intrinsic(key) => {
-                let args: Vec<Expr> = params.iter().map(|p| Expr::ident(p.clone())).collect();
-                match g.intrinsic(fi, key, &args, f) {
-                    Some(e) => vec![Stmt::Return(Some(e))],
-                    None => {
-                        g.missing.push(key.clone());
-                        vec![Stmt::Throw(Expr::call(
-                            Expr::ident("$abort"),
-                            vec![Expr::Str(format!("missing intrinsic {key}"))],
-                        ))]
-                    }
-                }
-            }
-            // Requested and never built. Calling one is a compiler bug; it
-            // used to `return 0`, which is a value of whatever type the
-            // caller expected.
-            FuncKind::Unbuilt => vec![Stmt::Throw(Expr::call(
-                Expr::ident("$abort"),
-                vec![Expr::Str(format!("{} was never built", f.debug_name))],
-            ))],
-        };
-        // The emitted text against the column, which is the one claim this
-        // backend can check *independently* of the analysis: an `await` in a
-        // function that is not `async` is not a slow artifact, it is a syntax
-        // error. `has_await` does not descend into a nested arrow, so a lambda
-        // that awaits inside this body is the lambda's own business.
-        //
-        // This is deliberately not a second copy of the analysis. The audit's
-        // F-2 finding was that a second copy existed at all; a cross-check that
-        // has to be kept in step with the column is the same duplication under
-        // another name. This one reads the printed statements.
-        debug_assert!(
-            is_async || !javascript::has_await(&body),
-            "{} is not printed `async`, but an `await` landed in its emitted \
-             body — `park`'s column decides both, and the two answers \
-             have drifted",
-            f.debug_name
-        );
-        stmts.push(Stmt::Func { name: f.symbol.clone(), params, body, is_async });
+    // Each function on a worker, with a generator of its own; see
+    // [`Gen::function`] for what it hands back and [`Gen::adopt`] for how the
+    // constants it shared join the program's.
+    let functions = program.funcs.len();
+    let emitted: Vec<Emitted> = if javascript::worth_workers(functions) {
+        crate::parallel::map_with(functions, || g.worker(), |w, fi| w.function(fi))
+    } else {
+        let mut w = g.worker();
+        (0..functions).map(|fi| w.function(fi)).collect()
+    };
+    for e in emitted {
+        stmts.push(g.adopt(e));
     }
 
     // The shared constants the bodies above reached for, spliced in ahead of
@@ -579,6 +533,173 @@ pub fn generate(
     Output { stmts, roots, missing_intrinsics: g.missing, chunks }
 }
 
+/// The ownership half of `middle::rc`, which this branch of the pipeline runs
+/// for its increments alone (MEMORY.md §5.5), and the `async` column.
+///
+/// Neither reads the other, so the column is worked out on a thread of its own
+/// beside the plan.
+fn analyses(program: &Program) -> (rc::Plan, Parking) {
+    if !javascript::worth_workers(program.funcs.len()) {
+        return (rc::sharing(program), park::parkability(program));
+    }
+    std::thread::scope(|scope| {
+        let parking = std::thread::Builder::new()
+            .name("buri-worker".into())
+            .stack_size(crate::parallel::STACK)
+            .spawn_scoped(scope, || park::parkability(program));
+        let sharing = rc::sharing(program);
+        // No thread to be had, or one that did not finish, is the column
+        // worked out here instead.
+        let parking = parking
+            .ok()
+            .and_then(|worker| worker.join().ok())
+            .unwrap_or_else(|| park::parkability(program));
+        (sharing, parking)
+    })
+}
+
+/// One function as a worker emitted it.
+///
+/// Its shared constants are numbered from zero, in the order it first reached
+/// for each, because the worker started the function with an empty table. The
+/// program's table numbers them in that same order, function after function —
+/// which is what [`Gen::adopt`] does on the way in, so the names come out as
+/// they would have from one generator walking the functions in order.
+struct Emitted {
+    decl: Stmt,
+    consts: Vec<Expr>,
+    missing: Vec<String>,
+}
+
+impl<'a> Gen<'a> {
+    /// A generator for a worker: the program's analyses, and tables of its
+    /// own.
+    fn worker(&self) -> Gen<'a> {
+        Gen {
+            defensive_aborts: self.defensive_aborts,
+            parking: self.parking,
+            ..Gen::over(self.program, self.tables, Profile::Debug, self.sharing)
+        }
+    }
+
+    /// Emits the function in slot `fi`.
+    fn function(&mut self, fi: usize) -> Emitted {
+        self.consts.clear();
+        self.const_index.clear();
+        let f = self
+            .program
+            .funcs
+            .get(fi)
+            .or_ice("`parallel::map_with` asks only for indices below the function count");
+        self.func = FnState::for_locals(&f.locals);
+        self.slot = fi;
+        // `async` iff this instantiation waits. A suspending intrinsic's own
+        // wrapper is included: no `await` lands in it, but it returns what
+        // the host hands back, and an `async` function returns that through
+        // the promise its caller is already awaiting.
+        let is_async = self.parks(fi);
+        if let Some(marks) = self.sharing.funcs.get(fi).map(|plan| self.marks_for(f, plan)) {
+            self.func.marks = marks;
+        }
+        let mut params: Vec<String> =
+            f.params.iter().map(|p| self.local_name_of(p)).collect();
+
+        // A body the middle end turned into a loop takes one more parameter
+        // than the tree says: the entry a caller enters at. Nothing else about
+        // emitting it is special, which is the point of the rewrite.
+        if let Some(entries) = loop_entries(f) {
+            self.func.loops.targets = params.clone();
+            if entries > 1 {
+                self.func.loops.which = Some(DISPATCH.to_string());
+                params.insert(0, DISPATCH.to_string());
+            }
+        }
+
+        let body = match &f.kind {
+            FuncKind::Body(e) => {
+                let mut out = Vec::new();
+                self.tail(e, &mut out);
+                out
+            }
+            FuncKind::Intrinsic(key) => {
+                let args: Vec<Expr> = params.iter().map(|p| Expr::ident(p.clone())).collect();
+                match self.intrinsic(fi, key, &args, f) {
+                    Some(e) => vec![Stmt::Return(Some(e))],
+                    None => {
+                        self.missing.push(key.clone());
+                        vec![Stmt::Throw(Expr::call(
+                            Expr::ident("$abort"),
+                            vec![Expr::Str(format!("missing intrinsic {key}"))],
+                        ))]
+                    }
+                }
+            }
+            // Requested and never built. Calling one is a compiler bug; it
+            // used to `return 0`, which is a value of whatever type the
+            // caller expected.
+            FuncKind::Unbuilt => vec![Stmt::Throw(Expr::call(
+                Expr::ident("$abort"),
+                vec![Expr::Str(format!("{} was never built", f.debug_name))],
+            ))],
+        };
+        // The emitted text against the column, which is the one claim this
+        // backend can check *independently* of the analysis: an `await` in a
+        // function that is not `async` is not a slow artifact, it is a syntax
+        // error. `has_await` does not descend into a nested arrow, so a lambda
+        // that awaits inside this body is the lambda's own business.
+        //
+        // This is deliberately not a second copy of the analysis. The audit's
+        // F-2 finding was that a second copy existed at all; a cross-check that
+        // has to be kept in step with the column is the same duplication under
+        // another name. This one reads the printed statements.
+        debug_assert!(
+            is_async || !javascript::has_await(&body),
+            "{} is not printed `async`, but an `await` landed in its emitted \
+             body — `park`'s column decides both, and the two answers \
+             have drifted",
+            f.debug_name
+        );
+
+        Emitted {
+            decl: Stmt::Func { name: f.symbol.clone(), params, body, is_async },
+            consts: std::mem::take(&mut self.consts),
+            missing: std::mem::take(&mut self.missing),
+        }
+    }
+
+    /// Takes in a function a worker emitted: each constant it shared joins
+    /// this generator's table, and the function's names for them become the
+    /// table's.
+    fn adopt(&mut self, e: Emitted) -> Stmt {
+        let Emitted { mut decl, consts, missing } = e;
+        self.missing.extend(missing);
+        if consts.is_empty() {
+            return decl;
+        }
+        // The worker's name for constant `i` is `const_name(i)`. A constant
+        // may hold an earlier one, so each is renamed before it is interned —
+        // interning compares printed text.
+        let mut names: Vec<String> = Vec::with_capacity(consts.len());
+        let rename = |names: &[String], name: &mut String| {
+            let Some(i) = name.strip_prefix("$k").and_then(|n| n.parse::<usize>().ok()) else {
+                return;
+            };
+            if let Some(global) = names.get(i) {
+                name.clone_from(global);
+            }
+        };
+        for mut c in consts {
+            javascript::rename_idents_in_expr(&mut c, &mut |n| rename(&names, n));
+            let Expr::Ident(name) = self.intern(c) else {
+                crate::ice!("a constant a worker shared is one this generator shares too")
+            };
+            names.push(name);
+        }
+        javascript::rename_idents(std::slice::from_mut(&mut decl), &mut |n| rename(&names, n));
+        decl
+    }
+}
+
 /// Moves each chunk's functions out of the artifact and into a module of its
 /// own, and gives each chunk the artifact's bindings.
 ///
@@ -649,9 +770,9 @@ fn split_chunks(
     let declared: HashSet<String> = kept
         .iter()
         .filter_map(|s| match s {
-            Stmt::Func { name, .. } | Stmt::Var { name, .. } | Stmt::RawDecl { name, .. } => {
-                Some(name.clone())
-            }
+            Stmt::Func { name, .. }
+            | Stmt::Var { name, .. }
+            | Stmt::RawDecl(RuntimeDecl { name, .. }) => Some(name.clone()),
             _ => None,
         })
         .collect();
@@ -666,14 +787,17 @@ fn split_chunks(
                 _ => None,
             })
             .collect();
-        let mut used = HashSet::default();
+        let mut used: HashSet<&str> = HashSet::default();
         for s in &body {
             javascript::collect_idents_in(s, &mut used);
         }
         // Sorted, because a `HashSet` is not an order and two builds of one
         // tree write identical bytes.
-        let mut borrowed: Vec<String> =
-            used.into_iter().filter(|u| !own.contains(u) && declared.contains(u)).collect();
+        let mut borrowed: Vec<String> = used
+            .into_iter()
+            .filter(|u| !own.contains(*u) && declared.contains(*u))
+            .map(str::to_owned)
+            .collect();
         borrowed.sort();
 
         let entry = program
