@@ -45,6 +45,24 @@ struct Miscounted<'x> {
     checked: &'x [typed::Expr],
 }
 
+/// Records an obligation for every bound a generic list puts on the type
+/// arguments it was instantiated with.
+///
+/// A free function over the obligation list rather than a method, so a caller
+/// can read the generics out of the checker's tables while it records them.
+fn require_bounds(
+    obligations: &mut Vec<(Ty, TraitId, Span)>,
+    generics: &[GenericInfo],
+    targs: &[Ty],
+    span: Span,
+) {
+    for (g, t) in generics.iter().zip(targs) {
+        for b in &g.bounds {
+            obligations.push((t.clone(), *b, span));
+        }
+    }
+}
+
 /// A slot in a shape that names none: a function type's parameter, or one of a
 /// tuple constructor's values.
 fn unnamed_slot(ty: &Ty, span: Span) -> ParamInfo {
@@ -674,11 +692,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     fn fn_ref(&mut self, f: FnId, explicit: Option<Vec<Ty>>, span: Span) -> typed::Expr {
-        // Only the generics are copied, and a function usually has none.
-        // `instantiate` is the one step that needs `&mut self`; everything
-        // after it reads the declaration in place.
-        let generics = self.c.tables.fn_info(f).generics.clone();
-        let targs = self.instantiate(&generics, explicit, span);
+        let targs = self.instantiate_fn(f, explicit, span);
         let info = self.c.tables.fn_info(f);
         let params: Vec<Ty> =
             info.params.iter().map(|p| substitute(&p.ty, &targs, None)).collect();
@@ -695,26 +709,38 @@ impl<'a, 'b> Infer<'a, 'b> {
         explicit: Option<Vec<Ty>>,
         span: Span,
     ) -> Vec<Ty> {
-        let targs: Vec<Ty> = match explicit {
-            Some(ts) if ts.len() == generics.len() => ts,
+        let targs = self.type_args(generics.len(), explicit, span);
+        require_bounds(&mut self.obligations, generics, &targs, span);
+        targs
+    }
+
+    /// [`Infer::instantiate`] for a function declaration, read where it is
+    /// rather than copied out first: a call site is the commonest place a
+    /// generic list is asked about, and the copy was a `String` and a bound
+    /// list per generic, per call.
+    fn instantiate_fn(&mut self, f: FnId, explicit: Option<Vec<Ty>>, span: Span) -> Vec<Ty> {
+        let targs = self.type_args(self.c.tables.fn_info(f).generics.len(), explicit, span);
+        let generics = &self.c.tables.fn_info(f).generics;
+        require_bounds(&mut self.obligations, generics, &targs, span);
+        targs
+    }
+
+    /// The written type arguments when there are `want` of them, and fresh
+    /// variables otherwise.
+    fn type_args(&mut self, want: usize, explicit: Option<Vec<Ty>>, span: Span) -> Vec<Ty> {
+        match explicit {
+            Some(ts) if ts.len() == want => ts,
             Some(ts) => {
-                let want = generics.len();
                 let got = ts.len();
                 self.templated("type-argument-count", span)
                     .bind("subject", "this function")
                     .bind("expected", counted(want, "type argument"))
                     .bind("given", were_given(got))
                     .mismatch(want.to_string(), got.to_string());
-                (0..generics.len()).map(|_| self.fresh(span)).collect()
+                (0..want).map(|_| self.fresh(span)).collect()
             }
-            None => (0..generics.len()).map(|_| self.fresh(span)).collect(),
-        };
-        for (g, t) in generics.iter().zip(&targs) {
-            for b in &g.bounds {
-                self.require(t.clone(), *b, span);
-            }
+            None => (0..want).map(|_| self.fresh(span)).collect(),
         }
-        targs
     }
 
     /// Resolves a callee that names something statically: a function, an enum
@@ -990,10 +1016,8 @@ impl<'a, 'b> Infer<'a, 'b> {
     ) -> typed::Expr {
         // The declaration is read, not owned: copying `FnInfo` here copied the
         // name, every parameter's name, and every parameter's type tree, once
-        // per call site in the program. Only the generics are taken, because
-        // `instantiate` wants `&mut self`, and a function usually has none.
-        let generics = self.c.tables.fn_info(f).generics.clone();
-        let targs = self.instantiate(&generics, explicit, span);
+        // per call site in the program.
+        let targs = self.instantiate_fn(f, explicit, span);
         // A bodyless declaration is the runtime's, and its key carries no type
         // arguments: what is written here is the only record of what the value
         // it answers holds. `Infer::check_erased_calls` is where that is held

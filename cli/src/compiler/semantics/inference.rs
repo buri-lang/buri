@@ -805,10 +805,6 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     // -- obligations --------------------------------------------------------
 
-    pub(crate) fn require(&mut self, ty: Ty, tr: TraitId, span: Span) {
-        self.obligations.push((ty, tr, span));
-    }
-
     fn discharge_obligations(&mut self) {
         let obligations = std::mem::take(&mut self.obligations);
         for (ty, tr, span) in obligations {
