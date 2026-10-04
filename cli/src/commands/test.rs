@@ -445,9 +445,9 @@ struct Slot {
     /// Where this run's build is recorded ([`actions::test_build_key`]), for a
     /// suite the verdict cache did not answer.
     build: Option<crate::build::cache::ActionKey>,
-    /// The binary the last run linked for this suite, when the record had one
-    /// and the binary is to be run again rather than built ([`rerun`]).
-    served: Option<Box<Linked>>,
+    /// The binary or bundle the last run built for this suite, when the record
+    /// had one and it is to be run again rather than built ([`rerun`]).
+    served: Option<Again>,
     /// This run's `--explain` lines, printed when the suite is reported.
     explain: String,
     /// Lines for standard error, such as a heap check's receipt.
@@ -478,7 +478,8 @@ struct Plan {
 ///
 /// A suite the verdict cache does not answer is looked up a second time, by
 /// its build ([`recall`]): the errors that stopped it last time are its answer
-/// again, and a binary it linked is run again rather than built. `graph` is
+/// again, and a binary it linked or a bundle it emitted is run again rather
+/// than built. `graph` is
 /// [`actions::graph_key`], worked out the first time a suite needs it.
 fn plan(
     session: &mut Session,
@@ -550,7 +551,8 @@ fn plan(
                 Some(Recalled::Nothing { skipped }) => {
                     answer = Some(Ok(Outcome { cases: Vec::new(), skipped }));
                 }
-                Some(Recalled::Linked(l)) => linked = Some(l),
+                Some(Recalled::Linked(l)) => linked = Some(Again::Linked(l)),
+                Some(Recalled::Bundled(b)) => linked = Some(Again::Bundled(b)),
                 None => {}
             }
             build = Some(at);
@@ -853,6 +855,8 @@ enum Job {
     Member(MemberJob),
     /// A binary a run before this one linked, put back where it runs from.
     Served(Box<ServedJob>),
+    /// A bundle a run before this one emitted, written out and run again.
+    Bundled(Box<BundledJob>),
 }
 
 /// What a job hands back to [`drive`].
@@ -929,6 +933,10 @@ fn work(job: Job, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Do
             drop(held);
             serve(*job, queue, shared)
         }
+        Job::Bundled(job) => {
+            drop(held);
+            serve_bundle(*job, shared)
+        }
     }
 }
 
@@ -961,11 +969,7 @@ fn solo(
     let bytes = build_bytes(loading.source_bytes(&session.map));
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
     let limit = suite(session, target).and_then(|x| x.timeout_seconds);
-    let js = session
-        .root
-        .join(".buri/out/node")
-        .join(&session.workspace.package(target.package).path)
-        .join(format!("test-{}.mjs", target.kind.name()));
+    let js = bundle_path(session, target);
     let job = FrontJob {
         slot: i,
         target,
@@ -985,6 +989,15 @@ fn solo(
         filter: args.flags.filter.clone(),
     };
     queue.push(Job::Front(Box::new(job)), bytes);
+}
+
+/// Where a suite's JavaScript bundle is written to be run.
+fn bundle_path(session: &Session, target: TargetId) -> std::path::PathBuf {
+    session
+        .root
+        .join(".buri/out/node")
+        .join(&session.workspace.package(target.package).path)
+        .join(format!("test-{}.mjs", target.kind.name()))
 }
 
 /// One suite, loaded, and everything about it a worker would otherwise ask the
@@ -1248,20 +1261,60 @@ struct JsJob {
 fn run_js(job: JsJob, held: Held, shared: &Shared) -> Done {
     let JsJob { slot, mut program, tables, key, path, limit, on_timeout, skipped } = job;
     let answer =
-        |answer| Done::Answer { slot, answer, explain: String::new(), notes: String::new(), built: None };
+        |answer, built| Done::Answer { slot, answer, explain: String::new(), notes: String::new(), built };
     let mut diagnostics = Diagnostics::new();
     let roots = roots_of(&program);
-    let mut source =
+    let bundle =
         match actions::emit_test_bundle(&mut program, &tables, &shared.flags, &mut diagnostics) {
-            Ok(source) => source,
-            Err(d) => return answer(Err(d)),
+            Ok(bundle) => bundle,
+            Err(d) => return answer(Err(d), None),
         };
     drop(program);
     drop(tables);
     drop(held);
+    let run = JsRun { key, path, limit, on_timeout };
+    match run_bundle(&bundle, &run, shared) {
+        // A bundle that ran to a verdict, or out of time, is worth running
+        // again next time, unless the verdict is one the cache now serves.
+        JsRan::Ran(ran) => {
+            let served = matches!(&ran, Ok(cases) if may_cache(cases, &shared.flags));
+            let built = (!served).then(|| {
+                let bundle = actions::put_test_bundle(&shared.root, &bundle);
+                Built::Bundled(Box::new(Bundled { bundle, skipped, roots: roots.clone() }))
+            });
+            answer(ran.map(|cases| Ran { cases, skipped, roots }), built)
+        }
+        JsRan::NotRun(d) => answer(Err(d), None),
+    }
+}
+
+/// How a bundle is run, whether it was emitted just now or by an earlier run.
+struct JsRun {
+    key: crate::build::cache::ActionKey,
+    path: std::path::PathBuf,
+    limit: Option<u32>,
+    on_timeout: Diagnostics,
+}
+
+/// What running a bundle came to.
+enum JsRan {
+    /// Its cases, or the suite's timeout.
+    Ran(Result<Vec<Case>, Diagnostics>),
+    /// It could not be written or started, or it ended before reporting.
+    NotRun(Diagnostics),
+}
+
+/// Writes a bundle with this run's driver and runs it, storing its verdicts
+/// where [`may_cache`] allows.
+///
+/// The bundle is the whole program: a test program is never split into
+/// `core/lazy` chunks (`middle::chunks`), and its stylesheet is inside it.
+fn run_bundle(bundle: &str, run: &JsRun, shared: &Shared) -> JsRan {
+    let JsRun { key, path, limit, on_timeout } = run;
+    let mut source = bundle.to_string();
     // The order `anyOrder()` schedules with, and the action's clock, spliced in
     // after the runtime is defined and before a test could reach either.
-    source.push_str(&format!("\n$t.seed={}n;\n", seed_of(&key)));
+    source.push_str(&format!("\n$t.seed={}n;\n", seed_of(key)));
     source.push_str(crate::build::spawn::FIXED_CLOCK_JS);
     let filter = shared.flags.filter.as_ref().map(|f| javascript::quote(f)).unwrap_or_else(|| "null".into());
     // `$run` is `async`, and this is module top level of an `.mjs` file.
@@ -1269,30 +1322,30 @@ fn run_js(job: JsJob, held: Held, shared: &Shared) -> Done {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    if let Err(e) = std::fs::write(&path, &source) {
+    if let Err(e) = std::fs::write(path, &source) {
         let mut d = Diagnostics::new();
         d.push(
             Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", path.display()))
                 .with_fix("check the directory exists and is writable"),
         );
-        return answer(Err(d));
+        return JsRan::NotRun(d);
     }
-    let out = match execute(&js_runtime(), Some(&path), limit, &[]) {
+    let out = match execute(&js_runtime(), Some(path), *limit, &[]) {
         Ok(Execution::Finished(out)) => out,
-        Ok(Execution::TimedOut) => return answer(Err(on_timeout)),
+        Ok(Execution::TimedOut) => return JsRan::Ran(Err(on_timeout.clone())),
         Err(e) => {
             let mut d = Diagnostics::new();
             d.push(
                 Diagnostic::error(Span::NONE, format!("cannot run the test binary: {e}"))
                     .with_fix("install bun, or point BURI_JS at a JavaScript runtime"),
             );
-            return answer(Err(d));
+            return JsRan::NotRun(d);
         }
     };
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let cases = parse_results(&stdout);
     if may_cache(&cases, &shared.flags) {
-        crate::build::cache::Cache::open(&shared.root).put(&key, stdout.as_bytes());
+        crate::build::cache::Cache::open(&shared.root).put(key, stdout.as_bytes());
     }
     if cases.is_empty() && !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).to_string();
@@ -1302,9 +1355,9 @@ fn run_js(job: JsJob, held: Held, shared: &Shared) -> Done {
                 .with_fix("read the runtime's own message below; it is what failed")
                 .with_note(err.trim().to_string()),
         );
-        return answer(Err(d));
+        return JsRan::NotRun(d);
     }
-    answer(Ok(Ran { cases, skipped, roots }))
+    JsRan::Ran(Ok(cases))
 }
 
 /// Whether a suite may be *executed* on `platform`.
@@ -1651,6 +1704,9 @@ fn served(
 // - **Nothing**: the suite had no test to run, or a `--filter` left it none.
 // - **Linked**: the binary is still in the link cache under its `link` key, so
 //   it is put back where it runs from ([`serve`]) and its blocks are run again.
+// - **Bundled**: the JavaScript bundle is in the cache under its own key, so it
+//   is written out with this run's driver and run again ([`serve_bundle`]). A
+//   bundle whose verdict the cache took is not stored: nothing would run it.
 //
 // A batch's binary is recorded once per member, with the member's blocks in
 // it, under the member's own key. That is sound for the reason a batched
@@ -1659,7 +1715,8 @@ fn served(
 // Members whose records name one binary share one copy of it again.
 //
 // A binary that ran again and then died, failed the heap check or never
-// started is built again ([`Done::Abandoned`]), and the build reports it.
+// started is built again ([`Done::Abandoned`]), and the build reports it. So
+// is a bundle that could not be run to a verdict.
 
 /// What a suite's build left for the next run, as a job hands it to [`drive`].
 enum Built {
@@ -1669,6 +1726,24 @@ enum Built {
     Nothing { skipped: usize },
     /// A binary in the link cache, and where the suite's tests are in it.
     Linked(Box<Linked>),
+    /// A JavaScript bundle in the cache, and the suite's tests.
+    Bundled(Box<Bundled>),
+}
+
+/// One suite's JavaScript bundle, as the cache holds it
+/// ([`actions::put_test_bundle`]).
+struct Bundled {
+    bundle: crate::build::cache::ActionKey,
+    /// What the `--filter` left out.
+    skipped: usize,
+    /// The suite's tests, in block order.
+    roots: Vec<Root>,
+}
+
+/// What a recorded build has left to run again ([`rerun`]).
+enum Again {
+    Linked(Box<Linked>),
+    Bundled(Box<Bundled>),
 }
 
 /// One suite's place in a test binary the link cache holds.
@@ -1690,6 +1765,7 @@ enum Recalled {
     Refused(Diagnostics),
     Nothing { skipped: usize },
     Linked(Box<Linked>),
+    Bundled(Box<Bundled>),
 }
 
 /// The shape of a build record, so that a change to the encoding is a miss
@@ -1706,7 +1782,7 @@ fn remember(
     built: &Built,
     answer: &Result<Ran, Diagnostics>,
 ) {
-    use crate::commands::lint_cache::{put_diagnostic, put_span, put_text, put_u32};
+    use crate::commands::lint_cache::{put_diagnostic, put_text, put_u32};
     let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
     let mut out = BUILD_FORMAT.to_vec();
     match built {
@@ -1733,15 +1809,43 @@ fn remember(
                 put_u32(&mut out, count(from));
                 put_u32(&mut out, count(to));
             }
-            put_u32(&mut out, count(l.roots.len()));
-            for root in &l.roots {
-                put_text(&mut out, &root.name);
-                put_text(&mut out, &root.module);
-                put_span(&mut out, &session.map, root.span);
-            }
+            put_roots(&mut out, &session.map, &l.roots);
+        }
+        Built::Bundled(b) => {
+            out.push(3);
+            put_text(&mut out, b.bundle.as_str());
+            put_u32(&mut out, count(b.skipped));
+            put_roots(&mut out, &session.map, &b.roots);
         }
     }
     crate::build::cache::Cache::open(&session.root).put(at, &out);
+}
+
+/// A suite's tests, in a build record.
+fn put_roots(out: &mut Vec<u8>, map: &crate::diagnostics::SourceMap, roots: &[Root]) {
+    use crate::commands::lint_cache::{put_span, put_text, put_u32};
+    put_u32(out, u32::try_from(roots.len()).unwrap_or(u32::MAX));
+    for root in roots {
+        put_text(out, &root.name);
+        put_text(out, &root.module);
+        put_span(out, map, root.span);
+    }
+}
+
+/// The inverse of [`put_roots`], with the spans in this run's map.
+fn read_roots(
+    r: &mut crate::commands::lint_cache::Reader,
+    map: &mut crate::diagnostics::SourceMap,
+    root: &std::path::Path,
+) -> Option<Vec<Root>> {
+    let mut roots = Vec::new();
+    for _ in 0..r.u32()? {
+        let name = r.text()?;
+        let module = r.text()?;
+        let span = crate::commands::lint_cache::read_span(r, map, root)?;
+        roots.push(Root { name, module, span });
+    }
+    Some(roots)
 }
 
 /// What the build recorded under `at` left, with its spans in this run's map.
@@ -1749,7 +1853,7 @@ fn remember(
 /// `None` for no record, one this toolchain can't read, or one naming a file
 /// that isn't there. The suite is then built.
 fn recall(session: &mut Session, at: &crate::build::cache::ActionKey) -> Option<Recalled> {
-    use crate::commands::lint_cache::{read_diagnostic, read_span, Reader};
+    use crate::commands::lint_cache::{read_diagnostic, Reader};
     let bytes = crate::build::cache::Cache::open(&session.root).get(at)?;
     let mut r = Reader::after(BUILD_FORMAT, &bytes)?;
     let root = session.root.clone();
@@ -1772,33 +1876,47 @@ fn recall(session: &mut Session, at: &crate::build::cache::ActionKey) -> Option<
             for _ in 0..r.u32()? {
                 ranges.push((count(&mut r)?, count(&mut r)?));
             }
-            let mut roots = Vec::new();
-            for _ in 0..r.u32()? {
-                let name = r.text()?;
-                let module = r.text()?;
-                let span = read_span(&mut r, &mut session.map, &root)?;
-                roots.push(Root { name, module, span });
-            }
+            let roots = read_roots(&mut r, &mut session.map, &root)?;
             Some(Recalled::Linked(Box::new(Linked { link, sheet, paints, skipped, ranges, roots })))
+        }
+        3 => {
+            let bundle = crate::build::cache::ActionKey::parse(&r.text()?)?;
+            let skipped = count(&mut r)?;
+            let roots = read_roots(&mut r, &mut session.map, &root)?;
+            Some(Recalled::Bundled(Box::new(Bundled { bundle, skipped, roots })))
         }
         _ => None,
     }
 }
 
-/// Queues every slot whose binary is to be run again, one [`Job::Served`] per
-/// binary, so members of one batch share one copy of it again.
+/// Queues every slot whose binary or bundle is to be run again: one
+/// [`Job::Served`] per binary, so members of one batch share one copy of it
+/// again, and one [`Job::Bundled`] per bundle.
 fn rerun(session: &Session, slots: &mut [Slot], queue: &Queue) {
     let mut jobs: Vec<ServedJob> = Vec::new();
     for (i, slot) in slots.iter_mut().enumerate() {
         if slot.answer.is_some() || slot.queued {
             continue;
         }
-        let Some(linked) = slot.served.take() else { continue };
+        let Some(again) = slot.served.take() else { continue };
         slot.queued = true;
-        let Linked { link, sheet, paints, skipped, ranges, roots } = *linked;
         let target = slot.target;
-        let output = crate::build::buildfile::Output::for_platform(slot.platform, Span::NONE);
         let limit = suite(session, target).and_then(|x| x.timeout_seconds);
+        let linked = match again {
+            Again::Linked(linked) => linked,
+            Again::Bundled(bundled) => {
+                let run = JsRun {
+                    key: slot.key.clone(),
+                    path: bundle_path(session, target),
+                    limit,
+                    on_timeout: timed_out(session, target, limit),
+                };
+                queue.push(Job::Bundled(Box::new(BundledJob { slot: i, bundled: *bundled, run })), 0);
+                continue;
+            }
+        };
+        let Linked { link, sheet, paints, skipped, ranges, roots } = *linked;
+        let output = crate::build::buildfile::Output::for_platform(slot.platform, Span::NONE);
         let seeds = std::sync::Arc::new(seeds_at(&ranges, seed_of(&slot.key)));
         let spec = MemberSpec {
             slot: i,
@@ -1865,6 +1983,33 @@ fn serve(job: ServedJob, queue: &Queue, shared: &Shared) -> Done {
     let sheet = write_stylesheet(binary.path(), &sheet);
     queue_members(binary, sheet, members, queue);
     Done::Progress
+}
+
+/// A bundle an earlier run emitted, and the suite to run in it.
+struct BundledJob {
+    slot: usize,
+    bundled: Bundled,
+    run: JsRun,
+}
+
+/// Runs a recorded bundle again. One the cache no longer holds, or one that
+/// can't be run to a verdict, sends its suite to be built, and the build
+/// reports what went wrong.
+fn serve_bundle(job: BundledJob, shared: &Shared) -> Done {
+    let BundledJob { slot, bundled, run } = job;
+    let Bundled { bundle, skipped, roots } = bundled;
+    let abandoned = || Done::Abandoned { slots: vec![slot], explain: String::new() };
+    let Some(bundle) = actions::get_test_bundle(&shared.root, &bundle) else { return abandoned() };
+    match run_bundle(&bundle, &run, shared) {
+        JsRan::Ran(ran) => Done::Answer {
+            slot,
+            answer: ran.map(|cases| Ran { cases, skipped, roots }),
+            explain: String::new(),
+            notes: String::new(),
+            built: None,
+        },
+        JsRan::NotRun(_) => abandoned(),
+    }
 }
 
 /// The environment variable a native test binary reads the block to start at
