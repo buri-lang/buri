@@ -1831,7 +1831,7 @@ impl<'a> Gen<'a> {
                 Expr::un(UnOp::Not, subject.clone())
             }),
             PatKind::Int(v, neg) => {
-                let lit = self.int_literal(*v, *neg, &pattern.ty);
+                let lit = self.int_literal(v.get(), *neg, &pattern.ty);
                 Some(Expr::bin(BinOp::StrictEq, subject.clone(), lit))
             }
             // `===` and not `float_eq`: the grammar has no `NaN` literal, so
@@ -2257,7 +2257,7 @@ impl<'a> Gen<'a> {
 
     fn emit(&mut self, e: &typed::Expr, out: &mut Vec<Stmt>) -> Expr {
         match &e.kind {
-            ExprKind::Int(v, neg) => self.int_literal(*v, *neg, &e.ty),
+            ExprKind::Int(v, neg) => self.int_literal(v.get(), *neg, &e.ty),
             ExprKind::Float(v) => {
                 // A literal takes its type from context, so an `F32` one is
                 // stored as the binary32 value it denotes.

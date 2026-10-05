@@ -383,7 +383,7 @@ fn collect(program: &Program, out: &mut Derives) -> Vec<(Op, usize)> {
 /// The descriptor `structural_call` appended to the argument list.
 fn descriptor_arg(args: &[Expr]) -> Option<usize> {
     match args.last().map(|a| &a.kind) {
-        Some(ExprKind::Int(v, false)) => usize::try_from(*v).ok(),
+        Some(ExprKind::Int(v, false)) => usize::try_from(v.get()).ok(),
         _ => None,
     }
 }
@@ -1881,7 +1881,7 @@ impl Generator {
     }
 
     fn hash_int(&self, v: u128) -> Expr {
-        Expr::new(ExprKind::Int(v, false), self.hash_ty(), Span::NONE)
+        Expr::new(ExprKind::Int(typed::Magnitude::new(v), false), self.hash_ty(), Span::NONE)
     }
 
     /// `$mix(h, n)` on a number the shape itself supplies — a field count or a
@@ -2191,7 +2191,7 @@ fn rewrite_expr(
                     if op == Op::Hash {
                         values.insert(
                             0,
-                            Expr::new(ExprKind::Int(HASH_SEED, false), *hash_ty, Span::NONE),
+                            Expr::new(ExprKind::Int(typed::Magnitude::new(HASH_SEED), false), *hash_ty, Span::NONE),
                         );
                     }
                     ExprKind::CallFn { func: Callee::Func(*f), args: values }

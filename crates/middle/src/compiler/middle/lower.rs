@@ -918,7 +918,7 @@ impl FnLower<'_> {
         let ty = self.type_of(&e.ty);
         match &e.kind {
             ExprKind::Int(v, negative) => {
-                self.constant(ty, Const::Int { bits: Magnitude::new(*v), negative: *negative })
+                self.constant(ty, Const::Int { bits: *v, negative: *negative })
             }
             ExprKind::Float(v) => {
                 // A literal takes its type from context, so an `F32` one is
@@ -1723,7 +1723,7 @@ impl FnLower<'_> {
             }
             PatKind::Int(v, negative) => {
                 let ty = self.type_of(&pat.ty);
-                let c = self.constant(ty, Const::Int { bits: Magnitude::new(*v), negative: *negative });
+                let c = self.constant(ty, Const::Int { bits: *v, negative: *negative });
                 self.test_eq(val, c, &pat.ty, fail);
             }
             PatKind::Float(v) => {

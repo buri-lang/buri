@@ -167,7 +167,7 @@ impl<'a> Folder<'a> {
         }
         match &e.kind {
             ExprKind::Int(v, neg) => {
-                let magnitude = i128::try_from(*v).ok()?;
+                let magnitude = i128::try_from(v.get()).ok()?;
                 Some(Value::Int(if *neg { magnitude.checked_neg()? } else { magnitude }))
             }
             ExprKind::Float(v) => {
@@ -423,7 +423,7 @@ fn matches_pattern(p: &typed::Pattern, v: &Value, env: &mut Env) -> bool {
                 None => true,
             }
         }
-        (PatKind::Int(magnitude, neg), Value::Int(n)) => i128::try_from(*magnitude)
+        (PatKind::Int(magnitude, neg), Value::Int(n)) => i128::try_from(magnitude.get())
             .ok()
             .and_then(|m| if *neg { m.checked_neg() } else { Some(m) })
             .is_some_and(|m| m == *n),

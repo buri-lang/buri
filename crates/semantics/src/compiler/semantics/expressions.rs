@@ -382,7 +382,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     ty,
                     span,
                 });
-                typed::Expr::new(typed::ExprKind::Int(value, false), ty, span)
+                typed::Expr::new(typed::ExprKind::Int(typed::Magnitude::new(value), false), ty, span)
             }
             V::Float { value, span, .. } => {
                 let ty = self.subst.fresh_num(NumClass::Float, span);
@@ -2703,7 +2703,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     ty,
                     span,
                 });
-                return typed::Expr::new(typed::ExprKind::Int(value, true), ty, span);
+                return typed::Expr::new(typed::ExprKind::Int(typed::Magnitude::new(value), true), ty, span);
             }
             if let V::Float { value, span: fspan, .. } = self.tree().expr(operand) {
                 let ty = self.subst.fresh_num(NumClass::Float, fspan);

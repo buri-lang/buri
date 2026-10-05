@@ -166,7 +166,7 @@ impl Callee {
 #[derive(Clone, Debug)]
 pub enum ExprKind {
     /// The literal's value, already checked to be representable in `ty`.
-    Int(u128, bool),
+    Int(Magnitude, bool),
     Float(f64),
     Str(String),
     Char(char),
@@ -326,7 +326,7 @@ impl ArrayRest {
 pub enum PatKind {
     Wild,
     Bind { local: LocalId, sub: Option<Box<Pattern>> },
-    Int(u128, bool),
+    Int(Magnitude, bool),
     Float(f64),
     Str(String),
     Char(char),

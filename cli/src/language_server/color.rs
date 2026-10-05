@@ -163,7 +163,7 @@ fn color_of(tables: &Tables, con: TyConId, variant: usize, args: &[typed::Expr])
 /// whole swatch over one channel would hide a literal the reader can see.
 fn eight_bit(e: &typed::Expr) -> Option<f64> {
     match e.kind {
-        ExprKind::Int(n, false) => Some((n.min(255) as f64) / 255.0),
+        ExprKind::Int(n, false) => Some((n.get().min(255) as f64) / 255.0),
         ExprKind::Int(_, true) => Some(0.0),
         _ => None,
     }
