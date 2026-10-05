@@ -273,7 +273,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.report_no_variant(*con, head, span);
                 return typed::PatKind::Error;
             };
-            return self.variant_pattern(*con, index, args.to_vec(), payload, span);
+            return self.variant_pattern(*con, index, args, payload, span);
         }
 
         // `Enum.Variant`, `mod.Enum.Variant`, `Struct { .. }`, `Tuple(x)`.
@@ -328,7 +328,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         self.report_no_variant(con, vname, span);
                         return typed::PatKind::Error;
                     };
-                    self.variant_pattern(con, index, args, payload, span)
+                    self.variant_pattern(con, index, &args, payload, span)
                 } else {
                     let fields = self.struct_field_patterns(con, &args, payload, span);
                     typed::PatKind::Struct { con, fields }
@@ -366,7 +366,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         &mut self,
         con: TyConId,
         index: usize,
-        args: Vec<Ty>,
+        args: &[Ty],
         payload: Option<PatPayloadData>,
         span: Span,
     ) -> typed::PatKind {
@@ -376,8 +376,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             .tycon(con)
             .variants()
             .get(index)
-            .or_ice("the index is a position in this same variant list")
-            .clone();
+            .or_ice("the index is a position in this same variant list");
         // A variant is exported exactly when its enum is, so this fires only
         // where a private enum reached another module through a signature.
         let owner = self.c.tables.tycon(con).module;
@@ -388,7 +387,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 .bind("declaration", format!("variant `{v}` of `{t}`"))
                 .fix(format!("add `export` to `{t}`, or match through a function `{t}`'s module provides"));
         }
-        let fields = self.payload_patterns(&variant.fields, &args, payload, span, &variant.name);
+        let fields = self.payload_patterns(Fields::Variant(con, index), args, payload, span);
         typed::PatKind::Variant { con, variant: index, fields }
     }
 
@@ -399,61 +398,91 @@ impl<'a, 'b> Infer<'a, 'b> {
         payload: Option<PatPayloadData>,
         span: Span,
     ) -> Vec<typed::FieldPat> {
-        let decl = self.c.tables.tycon(con).fields().to_vec();
-        let name = self.c.tables.tycon(con).name.clone();
         // Check visibility once for the pattern as a whole: a struct with any
         // private field cannot be destructured outside its module.
         let owner = self.c.tables.tycon(con).module;
         if owner != self.module && owner.0 != u32::MAX {
-            for f in &decl {
-                if !f.exported {
-                    let fname = f.name.clone();
-                    self.templated("private-to-module", span)
-                        .bind("declaration", format!("field `{fname}` of `{name}`"))
-                        .fix(format!("add `export` to `{fname}`, or read it through a method"));
-                    break;
-                }
+            let tycon = self.c.tables.tycon(con);
+            if let Some(f) = tycon.fields().iter().find(|f| !f.exported) {
+                let (fname, name) = (f.name.clone(), tycon.name.clone());
+                self.templated("private-to-module", span)
+                    .bind("declaration", format!("field `{fname}` of `{name}`"))
+                    .fix(format!("add `export` to `{fname}`, or read it through a method"));
             }
         }
-        self.payload_patterns(&decl, args, payload, span, &name)
+        self.payload_patterns(Fields::Struct(con), args, payload, span)
+    }
+
+    /// The declared fields a payload pattern is checked against.
+    ///
+    /// Read from the tables at each step rather than copied out first: the
+    /// pattern under each field is checked with the checker borrowed
+    /// mutably, and the copy was a name and a field list per pattern.
+    fn field_decls(&self, of: Fields) -> &[FieldInfo] {
+        match of {
+            Fields::Variant(con, index) => {
+                self.c.tables.tycon(con).variants().get(index).map_or(&[], |v| &v.fields)
+            }
+            Fields::Struct(con) => self.c.tables.tycon(con).fields(),
+        }
+    }
+
+    /// The declared field type at `index`, with the type's arguments put in.
+    fn field_ty(&self, of: Fields, index: usize, args: &[Ty]) -> Ty {
+        self.field_decls(of).get(index).map_or(Ty::ERROR, |d| substitute(&d.ty, args, None))
+    }
+
+    /// What a diagnostic about the payload calls the type or the variant.
+    fn fields_owner(&self, of: Fields) -> String {
+        match of {
+            Fields::Variant(con, index) => self
+                .c
+                .tables
+                .tycon(con)
+                .variants()
+                .get(index)
+                .map_or_else(String::new, |v| v.name.clone()),
+            Fields::Struct(con) => self.c.tables.tycon(con).name.clone(),
+        }
     }
 
     fn payload_patterns(
         &mut self,
-        decl: &[FieldInfo],
+        of: Fields,
         args: &[Ty],
         payload: Option<PatPayloadData>,
         span: Span,
-        what: &str,
     ) -> Vec<typed::FieldPat> {
+        let declared = self.field_decls(of).len();
         match payload {
             None => {
-                if !decl.is_empty() {
+                if declared != 0 {
+                    let what = self.fields_owner(of);
                     self.templated("missing-payload-pattern", span)
-                        .bind("name", what.to_string())
+                        .bind("name", what.clone())
                         .fix(format!("write `.{what}(..)`, or name each field"));
                 }
                 Vec::new()
             }
             Some(p) if !p.record => {
                 let ps = self.tree().pkids_at(p.start, p.len);
-                if ps.len() != decl.len() {
-                    let want = decl.len();
+                if ps.len() != declared {
+                    let what = self.fields_owner(of);
                     let have = ps.len();
                     self.templated("payload-pattern-count", span)
-                        .bind("name", what.to_string())
-                        .bind("expected", counted(want, "value"))
+                        .bind("name", what)
+                        .bind("expected", counted(declared, "value"))
                         .bind("matched", counted(have, "value"))
-                        .mismatch(want.to_string(), have.to_string());
+                        .mismatch(declared.to_string(), have.to_string());
                 }
                 // A payload with more patterns than the declaration has
                 // fields is already reported above; the extra ones have no
-                // field to check against, so `zip` stops at the shorter.
+                // field to check against, so `take` stops at the shorter.
                 ps.iter()
-                    .zip(decl)
+                    .take(declared)
                     .enumerate()
-                    .map(|(i, (p, d))| {
-                        let ty = substitute(&d.ty, args, None);
+                    .map(|(i, p)| {
+                        let ty = self.field_ty(of, i, args);
                         typed::FieldPat { index: i, pattern: self.check_pattern(*p, &ty) }
                     })
                     .collect()
@@ -462,20 +491,20 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let t = self.tree();
                 let fields = t.fpats_at(p.start, p.len);
                 let rest = p.rest;
-                let mut out = Vec::new();
+                let mut out = Vec::with_capacity(declared);
                 let mut seen = Vec::new();
                 for f in fields {
                     let fname = t.text(f.name);
                     let fspan = t.span_of(f.name);
-                    let Some((i, d)) = decl.iter().enumerate().find(|(_, d)| d.name == fname)
-                    else {
+                    let Some(i) = self.field_decls(of).iter().position(|d| d.name == fname) else {
+                        let what = self.fields_owner(of);
                         self.templated("unknown-field", fspan)
-                            .bind("type", what.to_string())
+                            .bind("type", what)
                             .bind("field", fname.to_string());
                         continue;
                     };
                     seen.push(i);
-                    let ty = substitute(&d.ty, args, None);
+                    let ty = self.field_ty(of, i, args);
                     let pattern = match t.opt_pat(f.pattern) {
                         Some(p) => self.check_pattern(p, &ty),
                         // Field shorthand: `User { id, name }` binds both.
@@ -499,7 +528,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
                 // Without a `..`, a struct pattern must mention every field.
                 if !rest {
-                    let missing: Vec<String> = decl
+                    let missing: Vec<String> = self
+                        .field_decls(of)
                         .iter()
                         .enumerate()
                         .filter(|(i, _)| !seen.contains(i))
@@ -521,11 +551,11 @@ impl<'a, 'b> Infer<'a, 'b> {
                 // for. A wildcard is exactly what `field: _` produces, so
                 // nothing else reads them: no test, no binding, and no line of
                 // JavaScript.
-                for (i, d) in decl.iter().enumerate() {
+                for i in 0..declared {
                     if seen.contains(&i) {
                         continue;
                     }
-                    let ty = substitute(&d.ty, args, None);
+                    let ty = self.field_ty(of, i, args);
                     out.push(typed::FieldPat {
                         index: i,
                         pattern: typed::Pattern { kind: typed::PatKind::Wild, ty, span },
@@ -535,6 +565,13 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
         }
     }
+}
+
+/// Whose declared fields a payload pattern is checked against.
+#[derive(Clone, Copy)]
+enum Fields {
+    Variant(TyConId, usize),
+    Struct(TyConId),
 }
 
 /// The words for `.Nmae` on an enum with no such variant: the note that either

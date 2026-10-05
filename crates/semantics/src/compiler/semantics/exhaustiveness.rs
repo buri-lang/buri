@@ -31,7 +31,6 @@
 //! `unreachable-arm`: the finer code is for the case the coarser one cannot
 //! see, and the two never fire on the same arm.
 
-use std::borrow::Cow;
 
 use crate::compiler::semantics::inference::Infer;
 use crate::compiler::semantics::typed::{self, PatKind, Pattern};
@@ -98,40 +97,39 @@ impl Ctor {
         }
     }
 
-    fn field_types(&self, tables: &crate::compiler::semantics::types::Tables, ty: &Ty) -> Vec<Ty> {
+    /// The types of this constructor's fields at `ty`, appended to `out`.
+    fn field_types_into(
+        &self,
+        tables: &crate::compiler::semantics::types::Tables,
+        ty: &Ty,
+        out: &mut Vec<Ty>,
+    ) {
+        use crate::compiler::semantics::types::substitute;
         match self {
             Ctor::Variant(con, v) => {
                 let args: &[Ty] = match ty.kind() {
                     TyKind::Con(_, a) => a,
                     _ => &[],
                 };
-                let Some(variant) = tables.tycon(*con).variants().get(*v) else {
-                    return Vec::new();
-                };
-                variant
-                    .fields
-                    .iter()
-                    .map(|f| crate::compiler::semantics::types::substitute(&f.ty, args, None))
-                    .collect()
+                if let Some(variant) = tables.tycon(*con).variants().get(*v) {
+                    out.extend(variant.fields.iter().map(|f| substitute(&f.ty, args, None)));
+                }
             }
             Ctor::Single => match ty.kind() {
-                TyKind::Tuple(ts) => ts.to_vec(),
-                TyKind::Con(con, args) => tables
-                    .tycon(*con)
-                    .fields()
-                    .iter()
-                    .map(|f| crate::compiler::semantics::types::substitute(&f.ty, args, None))
-                    .collect(),
-                _ => Vec::new(),
+                TyKind::Tuple(ts) => out.extend_from_slice(ts),
+                TyKind::Con(con, args) => out.extend(
+                    tables.tycon(*con).fields().iter().map(|f| substitute(&f.ty, args, None)),
+                ),
+                _ => {}
             },
             Ctor::Array(n) | Ctor::ArrayRest(n) => {
                 let elem = match ty.kind() {
                     TyKind::Array(e) => *e,
                     _ => Ty::ERROR,
                 };
-                vec![elem; *n]
+                out.resize(out.len().saturating_add(*n), elem);
             }
-            _ => Vec::new(),
+            _ => {}
         }
     }
 }
@@ -162,6 +160,70 @@ static UNTYPED: Ty = Ty::ERROR;
 /// patterns themselves are lowered once per `match`, and outlive every matrix
 /// built from them.
 type Row<'p> = Vec<&'p Pat>;
+
+/// A matrix's rows, end to end in one list.
+///
+/// Every row of a matrix has the same width, so a row is a slice of `cells`
+/// and building a matrix is one allocation rather than one per row.
+#[derive(Default, Clone)]
+struct Rows<'p> {
+    cells: Vec<&'p Pat>,
+    width: usize,
+    len: usize,
+}
+
+impl<'p> Rows<'p> {
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    fn get(&self, at: usize) -> Option<&[&'p Pat]> {
+        if at >= self.len {
+            return None;
+        }
+        let start = at.checked_mul(self.width)?;
+        self.cells.get(start..start.checked_add(self.width)?)
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &[&'p Pat]> {
+        (0..self.len).filter_map(move |at| self.get(at))
+    }
+
+    /// Appends the row `fill` writes onto the end of the cells. The first row
+    /// sets the width.
+    fn push_with(&mut self, fill: impl FnOnce(&mut Vec<&'p Pat>)) {
+        let before = self.cells.len();
+        fill(&mut self.cells);
+        let width = self.cells.len().saturating_sub(before);
+        if self.len == 0 {
+            self.width = width;
+        }
+        debug_assert_eq!(width, self.width, "every row of a matrix is as wide as the first");
+        self.len = self.len.saturating_add(1);
+    }
+
+    fn push(&mut self, row: &[&'p Pat]) {
+        self.push_with(|cells| cells.extend_from_slice(row));
+    }
+
+    fn truncate(&mut self, len: usize) {
+        if len < self.len {
+            self.cells.truncate(len.saturating_mul(self.width));
+            self.len = len;
+        }
+    }
+
+    /// The first `k` rows, as rows of their own.
+    fn prefix(&self, k: usize) -> Rows<'p> {
+        let len = k.min(self.len);
+        let cells = self.cells.get(..len.saturating_mul(self.width)).unwrap_or_default().to_vec();
+        Rows { cells, width: self.width, len }
+    }
+}
 
 fn lower(p: &Pattern) -> Pat {
     match &p.kind {
@@ -335,7 +397,7 @@ const INDEX_THRESHOLD: usize = 16;
 /// unreachable arms are reported in both depend on it.
 #[derive(Default)]
 struct Matrix<'p> {
-    rows: Vec<Row<'p>>,
+    rows: Rows<'p>,
     index: Option<Index>,
 }
 
@@ -396,7 +458,7 @@ impl Iterator for Merge<'_> {
 }
 
 impl<'p> Matrix<'p> {
-    fn new(rows: Vec<Row<'p>>) -> Self {
+    fn new(rows: Rows<'p>) -> Self {
         let mut m = Matrix { rows, index: None };
         if m.rows.len() >= INDEX_THRESHOLD {
             m.build_index();
@@ -411,7 +473,7 @@ impl<'p> Matrix<'p> {
     /// Appends a row, keeping the index in step. The reachability loop grows
     /// one matrix arm by arm, so rebuilding the index per arm would put the
     /// square back.
-    fn push(&mut self, row: Row<'p>) {
+    fn push(&mut self, row: &[&'p Pat]) {
         let at = self.rows.len();
         self.rows.push(row);
         if self.index.is_some() {
@@ -510,7 +572,7 @@ impl<'a> Ctx<'a> {
     /// Rows of the matrix whose first pattern is `ctor`, with that pattern's
     /// sub-patterns spliced in.
     fn specialize<'p>(&self, matrix: &Matrix<'p>, ctor: &Ctor, arity: usize) -> Matrix<'p> {
-        let mut out = Vec::new();
+        let mut out = Rows::default();
         match matrix.index.as_ref() {
             Some(ix) => {
                 for at in ix.rows_for(ctor) {
@@ -520,7 +582,7 @@ impl<'a> Ctx<'a> {
                 }
             }
             None => {
-                for row in &matrix.rows {
+                for row in matrix.rows.iter() {
                     self.specialize_row(row, ctor, arity, &mut out);
                 }
             }
@@ -533,23 +595,20 @@ impl<'a> Ctx<'a> {
         row: &[&'p Pat],
         ctor: &Ctor,
         arity: usize,
-        out: &mut Vec<Row<'p>>,
+        out: &mut Rows<'p>,
     ) {
         let Some((&head, rest)) = row.split_first() else { return };
         match head {
-            Pat::Wild => {
-                let mut next = Vec::with_capacity(arity.saturating_add(rest.len()));
-                next.resize(arity, &WILD);
-                next.extend_from_slice(rest);
-                out.push(next);
-            }
-            Pat::Ctor(c, subs) if c == ctor => {
-                let mut next = Vec::with_capacity(arity.saturating_add(rest.len()));
-                next.extend(subs.iter().take(arity));
-                next.resize(arity, &WILD);
-                next.extend_from_slice(rest);
-                out.push(next);
-            }
+            Pat::Wild => out.push_with(|cells| {
+                cells.resize(cells.len().saturating_add(arity), &WILD);
+                cells.extend_from_slice(rest);
+            }),
+            Pat::Ctor(c, subs) if c == ctor => out.push_with(|cells| {
+                let end = cells.len().saturating_add(arity);
+                cells.extend(subs.iter().take(arity));
+                cells.resize(end, &WILD);
+                cells.extend_from_slice(rest);
+            }),
             // An alternation `expand` left nested, now exposed by peeling
             // its constructor off. Distribute: each alternative is a row of
             // its own, and the coverage of all of them is the row's.
@@ -567,7 +626,7 @@ impl<'a> Ctx<'a> {
 
     /// Rows whose first pattern is a wildcard, with that column dropped.
     fn default_matrix<'p>(&self, matrix: &Matrix<'p>) -> Matrix<'p> {
-        let mut out = Vec::new();
+        let mut out = Rows::default();
         match matrix.index.as_ref() {
             Some(ix) => {
                 for &at in &ix.open {
@@ -577,7 +636,7 @@ impl<'a> Ctx<'a> {
                 }
             }
             None => {
-                for row in &matrix.rows {
+                for row in matrix.rows.iter() {
                     self.default_row(row, &mut out);
                 }
             }
@@ -585,10 +644,10 @@ impl<'a> Ctx<'a> {
         Matrix::new(out)
     }
 
-    fn default_row<'p>(&self, row: &[&'p Pat], out: &mut Vec<Row<'p>>) {
+    fn default_row<'p>(&self, row: &[&'p Pat], out: &mut Rows<'p>) {
         let Some((&head, rest)) = row.split_first() else { return };
         match head {
-            Pat::Wild => out.push(rest.to_vec()),
+            Pat::Wild => out.push(rest),
             // Distribute, for the same reason `specialize` does. An
             // alternative that is a wildcard makes the whole row a default
             // row.
@@ -605,14 +664,11 @@ impl<'a> Ctx<'a> {
     /// it does, so a diagnostic can name the missing case — when `witnesses`
     /// is on; otherwise the answer is only whether there is one.
     ///
-    /// The column types are borrowed where they can be: a column the step
-    /// below does not touch keeps the type its caller had, and only the
-    /// columns a constructor's fields open are new.
     fn useful<'p>(
         &self,
         matrix: &Matrix<'p>,
         v: &[&'p Pat],
-        types: &[Cow<'_, Ty>],
+        types: &[Ty],
     ) -> Option<Vec<Witness>> {
         let Some((&head, tail)) = v.split_first() else {
             return matrix.is_empty().then(Vec::new);
@@ -620,7 +676,7 @@ impl<'a> Ctx<'a> {
         // A row and its type list are built together, but the type list is the
         // one the caller supplied, so a shorter one leaves the columns past it
         // untyped rather than out of bounds.
-        let (head_ty, rest_types): (&Ty, &[Cow<'_, Ty>]) = match types.split_first() {
+        let (head_ty, rest_types): (&Ty, &[Ty]) = match types.split_first() {
             Some((t, rest)) => (t, rest),
             None => (&UNTYPED, &[]),
         };
@@ -701,16 +757,11 @@ impl<'a> Ctx<'a> {
 
     /// The column types after `c` is peeled off a column of type `head_ty`:
     /// its fields' types, then the rest of the columns' as they were.
-    fn column_types<'t>(
-        &self,
-        c: &Ctor,
-        head_ty: &Ty,
-        rest_types: &'t [Cow<'_, Ty>],
-    ) -> Vec<Cow<'t, Ty>> {
-        let fields = c.field_types(self.tables, head_ty);
-        let mut out = Vec::with_capacity(fields.len().saturating_add(rest_types.len()));
-        out.extend(fields.into_iter().map(Cow::Owned));
-        out.extend(rest_types.iter().map(|t| Cow::Borrowed(&**t)));
+    fn column_types(&self, c: &Ctor, head_ty: &Ty, rest_types: &[Ty]) -> Vec<Ty> {
+        let arity = c.arity(self.tables, head_ty);
+        let mut out = Vec::with_capacity(arity.saturating_add(rest_types.len()));
+        c.field_types_into(self.tables, head_ty, &mut out);
+        out.extend_from_slice(rest_types);
         out
     }
 
@@ -741,13 +792,13 @@ impl<'a> Ctx<'a> {
     /// only about an alternative it has already found useless.
     fn covered_by(
         &self,
-        rows: &[Row<'_>],
+        rows: &Rows<'_>,
         upto: usize,
-        alt: &[Row<'_>],
-        types: &[Cow<'_, Ty>],
+        alt: &Rows<'_>,
+        types: &[Ty],
     ) -> Option<usize> {
         let live = |k: usize| {
-            let prefix = Matrix::new(rows.get(..k).unwrap_or_default().to_vec());
+            let prefix = Matrix::new(rows.prefix(k));
             alt.iter().any(|r| self.useful(&prefix, r, types).is_some())
         };
         let (mut lo, mut hi) = (0usize, upto);
@@ -910,7 +961,7 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
         })
         .collect();
     let ctx = Ctx { tables: &inf.c.tables, limit, witnesses: false };
-    let types = [Cow::Borrowed(scrutinee)];
+    let types = [*scrutinee];
     let recovered = arms.iter().any(|a| has_error(&a.pattern));
 
     // Arms are tried in order and the first matching arm wins, so an arm is
@@ -926,7 +977,7 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
     for (arm, alts) in arms.iter().zip(&alternatives) {
         let base = covering.rows.len();
         let mut alive = false;
-        let mut dead: Vec<(Span, Vec<Row<'_>>, usize)> = Vec::new();
+        let mut dead: Vec<(Span, Rows<'_>, usize)> = Vec::new();
         // A guarded arm covers nothing below it, so its rows come back out at
         // the end — they go in first only because they do cover this arm's own
         // later alternatives. An arm with one alternative has no later one, so
@@ -934,7 +985,10 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
         let hold = arm.guard.is_none() || alts.len() > 1;
         for (at, owned) in alts {
             let before = covering.rows.len();
-            let rows: Vec<Row<'_>> = owned.iter().map(|r| r.iter().collect()).collect();
+            let mut rows = Rows::default();
+            for r in owned {
+                rows.push_with(|cells| cells.extend(r.iter()));
+            }
             if rows.iter().any(|r| ctx.useful(&covering, r, &types).is_some()) {
                 alive = true;
             } else {
@@ -943,7 +997,7 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
             // Even a dead alternative goes in — it adds no coverage, and
             // leaving it out would make the next one's "before" a lie.
             if hold {
-                for r in rows {
+                for r in rows.iter() {
                     covering.push(r);
                     origin.push(*at);
                 }

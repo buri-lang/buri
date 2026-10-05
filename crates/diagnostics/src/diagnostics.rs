@@ -650,17 +650,17 @@ pub struct SourceFile {
 
 impl SourceFile {
     pub(crate) fn new(name: String, abs_path: PathBuf, text: String) -> SourceFile {
+        // A `char` pattern finds each newline with `memchr` rather than a
+        // compare per byte.
         let mut line_starts = vec![0u32];
-        for (i, b) in text.bytes().enumerate() {
-            if b == b'\n' {
-                // Saturating rather than `as`, so the one file that does not
-                // fit in a `u32` of offsets degrades to a wrong line number
-                // instead of wrapping to offset 0. `SourceMap::load` turns that
-                // file away before it gets here; this is the belt to that
-                // brace, for text handed to `add` directly.
-                line_starts.push(u32::try_from(i.saturating_add(1)).unwrap_or(u32::MAX));
-            }
-        }
+        line_starts.extend(text.match_indices('\n').map(|(i, _)| {
+            // Saturating rather than `as`, so the one file that does not
+            // fit in a `u32` of offsets degrades to a wrong line number
+            // instead of wrapping to offset 0. `SourceMap::load` turns that
+            // file away before it gets here; this is the belt to that
+            // brace, for text handed to `add` directly.
+            u32::try_from(i.saturating_add(1)).unwrap_or(u32::MAX)
+        }));
         SourceFile { name, abs_path, text, line_starts }
     }
 

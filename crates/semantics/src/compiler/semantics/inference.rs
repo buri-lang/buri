@@ -156,17 +156,21 @@ fn check_fn(c: &mut Checker, fid: FnId) {
         && c.entries.get(&info.name) == Some(&fid);
     // The parts the body is checked against, copied once: the checker is
     // borrowed mutably from here on, and the declaration lives in its tables.
-    let (module, self_ty, generics, params, expected) =
-        (info.module, info.self_ty, info.generics.clone(), info.params.clone(), info.ret);
+    // The parameters are read one at a time below instead, so that each name
+    // is copied once, into its local.
+    let (module, self_ty, generics, expected, arity) =
+        (info.module, info.self_ty, info.generics.clone(), info.ret, info.params.len());
 
     let mut inf = Infer::new(c, module, generics, expected);
     inf.self_con = self_ty;
     inf.in_effect_impl = in_effect_impl;
     inf.in_main = in_main;
     inf.push_scope();
-    for p in &params {
-        let local = inf.new_local(&p.name, p.ty, p.span);
-        inf.bind(&p.name, local);
+    inf.params.reserve_exact(arity);
+    for i in 0..arity {
+        let Some(p) = inf.c.tables.fn_info(fid).params.get(i) else { break };
+        let (name, ty, span, role) = (p.name.clone(), p.ty, p.span, p.role);
+        let local = inf.bind_new(name, ty, span);
         inf.params.push(local);
         // The capture rule is scoped to *effect-carrying* values (SPEC 10.6,
         // design/static-rules.md rule 8). `ctx` is one by construction — the
@@ -174,10 +178,10 @@ fn check_fn(c: &mut Checker, fid: FnId) {
         // receiver type is, and an ordinary struct's methods must still be
         // able to write `fn(x) => x > self.n`. So `self` is gated on its type,
         // exactly as a normal parameter is in `check_ctx_rule`.
-        if p.role == ParamRole::Ctx {
+        if role == ParamRole::Ctx {
             inf.effect_locals.insert(local);
         } else {
-            inf.note_capture_risk(local, &p.ty);
+            inf.note_capture_risk(local, &ty);
         }
     }
     let body_span = inf.t.block_span(body);
@@ -193,7 +197,7 @@ fn check_const(c: &mut Checker, cid: ConstId) {
     let Some(tree::Item::Let(decl)) = c.module(module).ast.items.get(index as usize) else {
         return;
     };
-    let mut inf = Infer::new(c, info.module, Vec::new(), info.ty);
+    let mut inf = Infer::new(c, info.module, Default::default(), info.ty);
     inf.push_scope();
     let ty = info.ty;
     let value_span = inf.t.span(decl.value);
@@ -230,7 +234,7 @@ pub(super) fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
     else {
         return;
     };
-    let mut inf = Infer::new(c, info.module, Vec::new(), Ty::UNIT);
+    let mut inf = Infer::new(c, info.module, Default::default(), Ty::UNIT);
     inf.in_main = true;
     inf.push_scope();
     let expr = inf.check_context_body(decl.body, decl.span);
@@ -247,7 +251,7 @@ pub(super) fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
     let ctor = c.tables.add_fn(FnInfo {
         name: info.name.clone(),
         module: info.module,
-        generics: Vec::new(),
+        generics: Default::default(),
         params: Vec::new(),
         ret,
         exported: info.exported,
@@ -278,7 +282,7 @@ fn check_tests(c: &mut Checker) {
             let fid = c.tables.add_fn(FnInfo {
                 name: format!("test#{}", cases.len()),
                 module,
-                generics: Vec::new(),
+                generics: Default::default(),
                 params: Vec::new(),
                 ret: Ty::UNIT,
                 exported: false,
@@ -292,7 +296,7 @@ fn check_tests(c: &mut Checker) {
             // that `Checked::tests` — and the ids everything after it counts
             // from — do not move with the selection. Only the body is scoped.
             if c.wants_file(c.module(module).file) {
-                let mut inf = Infer::new(c, module, Vec::new(), Ty::UNIT);
+                let mut inf = Infer::new(c, module, Default::default(), Ty::UNIT);
                 inf.in_main = true;
                 inf.push_scope();
                 let expr = inf.check_block(t.body, None);
@@ -356,7 +360,7 @@ pub struct Infer<'a, 'b> {
     /// returns `&'a` rather than a `&self` borrow.
     pub(crate) t: &'b flat::Tree,
     pub(crate) module: ModuleId,
-    pub(crate) generics: Vec<GenericInfo>,
+    pub(crate) generics: std::sync::Arc<[GenericInfo]>,
     pub(crate) ret: Ty,
     pub(crate) subst: Subst,
     /// Every local in scope, innermost last: its name's hash and its id. A
@@ -370,6 +374,10 @@ pub struct Infer<'a, 'b> {
     pub(crate) scopes: Vec<(u64, LocalId)>,
     /// Where each open scope starts in `scopes`.
     pub(crate) scope_starts: Vec<usize>,
+    /// Emptied type lists, for a call being checked to borrow and give back.
+    /// A call's arguments are calls too, so this holds one per level of
+    /// nesting.
+    pub(crate) ty_lists: Vec<Vec<Ty>>,
     pub(crate) locals: Vec<typed::Local>,
     pub(crate) params: Vec<LocalId>,
     pub(crate) self_con: Option<TyConId>,
@@ -425,6 +433,39 @@ pub struct Infer<'a, 'b> {
     mark: usize,
 }
 
+/// The buffers inference fills and empties within one body, kept on the
+/// checker between bodies so each body reuses the allocations of the last.
+#[derive(Default)]
+pub(crate) struct Scratch<'b> {
+    subst: Subst,
+    scopes: Vec<(u64, LocalId)>,
+    scope_starts: Vec<usize>,
+    ty_lists: Vec<Vec<Ty>>,
+    obligations: Vec<(Ty, TraitId, Span)>,
+    lit_checks: Vec<LitCheck<'b>>,
+    pattern_names: Vec<&'b str>,
+}
+
+impl Drop for Infer<'_, '_> {
+    fn drop(&mut self) {
+        let mut subst = std::mem::take(&mut self.subst);
+        subst.clear();
+        let mut scopes = std::mem::take(&mut self.scopes);
+        scopes.clear();
+        let mut scope_starts = std::mem::take(&mut self.scope_starts);
+        scope_starts.clear();
+        let ty_lists = std::mem::take(&mut self.ty_lists);
+        let mut obligations = std::mem::take(&mut self.obligations);
+        obligations.clear();
+        let mut lit_checks = std::mem::take(&mut self.lit_checks);
+        lit_checks.clear();
+        let mut pattern_names = std::mem::take(&mut self.pattern_names);
+        pattern_names.clear();
+        self.c.scratch =
+            Scratch { subst, scopes, scope_starts, ty_lists, obligations, lit_checks, pattern_names };
+    }
+}
+
 /// The hash a local's name is found by in [`Infer::scopes`].
 fn name_hash(name: &str) -> u64 {
     use std::hash::{BuildHasher, BuildHasherDefault};
@@ -432,34 +473,37 @@ fn name_hash(name: &str) -> u64 {
 }
 
 impl<'a, 'b> Infer<'a, 'b> {
-    fn new(c: &'a mut Checker<'b>, module: ModuleId, generics: Vec<GenericInfo>, ret: Ty) -> Self {
+    fn new(c: &'a mut Checker<'b>, module: ModuleId, generics: std::sync::Arc<[GenericInfo]>, ret: Ty) -> Self {
         let role = c.module(module).role;
         let mark = c.diags.items.len();
         let t = &c.module(module).ast.tree;
+        let Scratch { subst, scopes, scope_starts, ty_lists, obligations, lit_checks, pattern_names } =
+            std::mem::take(&mut c.scratch);
         Infer {
             c,
             t,
             module,
             generics,
             ret,
-            subst: Subst::default(),
-            scopes: Vec::new(),
-            scope_starts: Vec::new(),
+            subst,
+            scopes,
+            scope_starts,
+            ty_lists,
             locals: Vec::new(),
             params: Vec::new(),
             self_con: None,
             effect_locals: std::collections::HashSet::default(),
             poly_locals: std::collections::HashSet::default(),
             lambda_depth: 0,
-            obligations: Vec::new(),
-            lit_checks: Vec::new(),
+            obligations,
+            lit_checks,
             hole_checks: Vec::new(),
             erased_calls: Vec::new(),
             role,
             in_effect_impl: false,
             in_main: false,
             or_scope: None,
-            pattern_names: Vec::new(),
+            pattern_names,
             broken: Vec::new(),
             mark,
         }
@@ -512,7 +556,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         self.resolve_expr(&mut expr);
         let mut locals = std::mem::take(&mut self.locals);
         locals.iter_mut().for_each(|l| self.subst.resolve_in_place(&mut l.ty));
-        typed::Body { locals, params: self.params, expr }
+        typed::Body { locals, params: std::mem::take(&mut self.params), expr }
     }
 
     /// Takes back everything this body reported from inside a block whose `}`
@@ -672,6 +716,14 @@ impl<'a, 'b> Infer<'a, 'b> {
         id
     }
 
+    /// A new local, bound in the innermost scope under the name it takes.
+    pub(crate) fn bind_new(&mut self, name: String, ty: Ty, span: Span) -> LocalId {
+        let id = LocalId(self.locals.len() as u32);
+        self.scopes.push((name_hash(&name), id));
+        self.locals.push(typed::Local { name, ty, span });
+        id
+    }
+
     pub(crate) fn bind(&mut self, name: &str, local: LocalId) {
         // Shadowing is permitted, both in nested scopes and within a block:
         // the innermost binding is the last one, and a lookup finds it first.
@@ -803,8 +855,8 @@ impl<'a, 'b> Infer<'a, 'b> {
     // -- obligations --------------------------------------------------------
 
     fn discharge_obligations(&mut self) {
-        let obligations = std::mem::take(&mut self.obligations);
-        for (ty, tr, span) in obligations {
+        let mut obligations = std::mem::take(&mut self.obligations);
+        for (ty, tr, span) in obligations.drain(..) {
             let ty = self.subst.resolve(&ty);
             if self.satisfies(&ty, tr) {
                 continue;
@@ -918,6 +970,10 @@ impl<'a, 'b> Infer<'a, 'b> {
             if let Some(n) = note {
                 d.notes.push(n);
             }
+        }
+        // Kept for the next body, unless discharging one added another.
+        if self.obligations.is_empty() {
+            self.obligations = obligations;
         }
     }
 
@@ -1089,8 +1145,8 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// Because a literal's type is known before it is checked, a literal that
     /// does not fit its type is a compile error, not a runtime surprise.
     fn check_literal_ranges(&mut self) {
-        let checks = std::mem::take(&mut self.lit_checks);
-        for lit in checks {
+        let mut checks = std::mem::take(&mut self.lit_checks);
+        for lit in checks.drain(..) {
             let Some(p) = self.c.tables.as_prim(&self.subst.shallow(&lit.ty)) else { continue };
             let Some((lo, hi)) = p.int_range() else { continue };
             let fits = if lit.negative {
@@ -1120,6 +1176,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
                 self.c.diags.push(d);
             }
+        }
+        if self.lit_checks.is_empty() {
+            self.lit_checks = checks;
         }
     }
 }

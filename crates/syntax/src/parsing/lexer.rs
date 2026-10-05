@@ -671,10 +671,11 @@ pub struct Tokens<'a> {
     wide: Vec<(u32, u32)>,
     ints: Vec<u128>,
     floats: Vec<f64>,
-    /// Cooked text — a string literal's contents, a template segment's. The
-    /// only owned text the buffer holds, and the only reason it is not `Copy`
-    /// throughout.
-    strs: Vec<String>,
+    /// Cooked text — a string literal's contents, a template segment's — end
+    /// to end, one allocation for the file rather than one per literal.
+    cooked: String,
+    /// Where each literal's text sits in `cooked`.
+    strs: Vec<(u32, u32)>,
     /// The string tokens whose closing `"` was never written, ascending.
     ///
     /// Such a token holds whatever was left on the line rather than what
@@ -734,6 +735,7 @@ impl<'a> Tokens<'a> {
             wide: Vec::new(),
             ints: Vec::new(),
             floats: Vec::new(),
+            cooked: String::new(),
             strs: Vec::new(),
             unterminated: Vec::new(),
         }
@@ -819,18 +821,10 @@ impl<'a> Tokens<'a> {
 
     /// The cooked text of a string literal or template segment.
     pub fn str_at(&self, i: usize) -> &str {
-        self.strs.get(self.pay(i)).map_or("", String::as_str)
-    }
-
-    /// The same, moved out of the buffer.
-    ///
-    /// The parser owns the stream outright and no consumed token's text is
-    /// read twice, so the copy the lexer already made is the one the tree
-    /// keeps. See `Parser::take_text` for the one case — a speculative parse —
-    /// where that is not true.
-    pub fn take_str(&mut self, i: usize) -> String {
-        let at = self.pay(i);
-        self.strs.get_mut(at).map(std::mem::take).unwrap_or_default()
+        self.strs
+            .get(self.pay(i))
+            .and_then(|&(start, end)| self.cooked.get(start as usize..end as usize))
+            .unwrap_or("")
     }
 
     pub fn ch(&self, i: usize) -> char {
@@ -1124,9 +1118,12 @@ impl<'a> Lexer<'a> {
         self.push(TokenKind::Float, at, start);
     }
 
-    fn push_text(&mut self, kind: TokenKind, body: String, start: usize) {
+    /// A string token whose text is what `scan_str_body` appended to the
+    /// cooked text since `from`.
+    fn push_text(&mut self, kind: TokenKind, from: usize, start: usize) {
         let at = self.tokens.strs.len() as u32;
-        self.tokens.strs.push(body);
+        let end = u32::try_from(self.tokens.cooked.len()).unwrap_or(u32::MAX);
+        self.tokens.strs.push((u32::try_from(from).unwrap_or(u32::MAX), end));
         self.push(kind, at, start);
     }
 
@@ -1543,53 +1540,49 @@ impl<'a> Lexer<'a> {
 
     /// Scans string body text, stopping at `"`, at an unescaped `${`, or at the
     /// line break that means the closing quote was never written.
-    fn scan_str_body(&mut self) -> (String, StrEnd) {
+    ///
+    /// The text goes onto the end of the cooked text, and the caller records
+    /// where it started.
+    fn scan_str_body(&mut self) -> StrEnd {
         // `chunk` is the start of the run of source that belongs in the result
         // verbatim. A string with no escape is one such run, so the common
         // literal is copied once rather than a character at a time through a
         // fresh UTF-8 decode per character.
-        let mut out = String::new();
         let mut chunk = self.pos;
         loop {
             if self.pos >= self.src.len() {
-                out.push_str(self.slice(chunk, self.pos));
+                self.tokens.cooked.push_str(self.slice(chunk, self.pos));
                 let span = Span::new(self.file, self.pos, self.pos);
                 self.templated("unterminated-string", span);
-                return (out, StrEnd::Unterminated);
+                return StrEnd::Unterminated;
             }
             match self.peek() {
                 b'"' => {
                     let text = self.slice(chunk, self.pos);
                     self.pos = self.pos.saturating_add(1);
-                    if out.is_empty() {
-                        return (text.to_string(), StrEnd::Quote);
-                    }
-                    out.push_str(text);
-                    return (out, StrEnd::Quote);
+                    self.tokens.cooked.push_str(text);
+                    return StrEnd::Quote;
                 }
                 b'$' if self.peek_at(1) == b'{' => {
                     let text = self.slice(chunk, self.pos);
                     self.pos = self.pos.saturating_add(2);
-                    if out.is_empty() {
-                        return (text.to_string(), StrEnd::Hole);
-                    }
-                    out.push_str(text);
-                    return (out, StrEnd::Hole);
+                    self.tokens.cooked.push_str(text);
+                    return StrEnd::Hole;
                 }
                 b'\\' => {
-                    out.push_str(self.slice(chunk, self.pos));
+                    self.tokens.cooked.push_str(self.slice(chunk, self.pos));
                     let start = self.pos;
                     self.pos = self.pos.saturating_add(1);
                     if let Some(c) = self.escape(start) {
-                        out.push(c);
+                        self.tokens.cooked.push(c);
                     }
                     chunk = self.pos;
                 }
                 b'\n' => {
-                    out.push_str(self.slice(chunk, self.pos));
+                    self.tokens.cooked.push_str(self.slice(chunk, self.pos));
                     let span = Span::new(self.file, self.pos, self.pos.saturating_add(1));
                     self.templated("unterminated-string", span);
-                    return (out, StrEnd::Unterminated);
+                    return StrEnd::Unterminated;
                 }
                 _ => {
                     // A `$` with no `{` after it is content, so the first step
@@ -1660,23 +1653,25 @@ impl<'a> Lexer<'a> {
 
     fn string_or_template(&mut self, start: usize) {
         self.pos = self.pos.saturating_add(1); // the opening quote
-        let (body, end) = self.scan_str_body();
+        let from = self.tokens.cooked.len();
+        let end = self.scan_str_body();
         if end == StrEnd::Hole {
-            self.push_text(TokenKind::TemplateHead, body, start);
+            self.push_text(TokenKind::TemplateHead, from, start);
             self.holes.push(0);
         } else {
-            self.push_text(TokenKind::Str, body, start);
+            self.push_text(TokenKind::Str, from, start);
             self.mark(end);
         }
     }
 
     /// Resumes template text after the `}` that closes a hole.
     fn resume_template(&mut self, start: usize) {
-        let (body, end) = self.scan_str_body();
+        let from = self.tokens.cooked.len();
+        let end = self.scan_str_body();
         if end == StrEnd::Hole {
-            self.push_text(TokenKind::TemplateSpan, body, start);
+            self.push_text(TokenKind::TemplateSpan, from, start);
         } else {
-            self.push_text(TokenKind::TemplateTail, body, start);
+            self.push_text(TokenKind::TemplateTail, from, start);
             self.mark(end);
             debug_assert_eq!(self.holes.last(), Some(&0));
             self.holes.pop();
