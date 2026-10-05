@@ -959,6 +959,19 @@ impl Jit<'_> {
         }
     }
 
+    /// Zeroes the context slots of the record at `state`, for a row whose
+    /// context the runtime supplies rather than the caller.
+    ///
+    /// The thunk reads every context out of the record and hands it to a Buri
+    /// function that owns it, so the bytes must be a value. Zero is one that
+    /// holds no count. The context is always the closure's first parameter, so
+    /// `ctx_at`'s offsets pair with `widths` from the front.
+    fn clear_ctx(&mut self, state: u32, ctx_at: &[u32], widths: &[u32]) {
+        for (off, w) in ctx_at.iter().copied().zip(widths.iter().copied()) {
+            self.clear_slot(state + off, round8(w));
+        }
+    }
+
     /// [`Extra::Compute`]'s seven words: a body the runtime keeps and calls
     /// later.
     ///
@@ -1061,9 +1074,14 @@ impl Jit<'_> {
         }
         let widths: Vec<u32> =
             params.iter().map(|t| self.layouts_of(*t).size).collect();
-        let (_, _bytes) = super::glue::state_shape(&widths, Some(1));
+        let (ctx_at, _bytes) = super::glue::state_shape(&widths, Some(1));
         let state = st.frame.size;
         self.mv(state, fslot, 16);
+        // The context the runtime supplies is this record's, and nothing else
+        // writes it. Zeroed, it is a context holding no count, so a walk whose
+        // context has a heap field is not handed whatever an earlier call left
+        // on the stack (buri-lang/buri#241).
+        self.clear_ctx(state, &ctx_at, &widths);
         let thunk = self.helper(super::glue::Helper::Entry {
             params: params.to_vec(),
             ret: *ret,
@@ -1112,8 +1130,12 @@ impl Jit<'_> {
         // The context, where the row drops one (`core/tasks`'s timers): it goes
         // into the record beside the closure, as a step's does, so the handler
         // is handed the caller's context when it fires. A row that drops none
-        // (`ui/node`'s handlers) leaves the slot alone.
+        // (`ui/node`'s handlers) has no context to put there, so the slot is
+        // zeroed, as a walk's is.
         let dropped = (0..args.len()).find(|i| entry.dropped(*i));
+        if dropped.is_none() {
+            self.clear_ctx(st.frame.size, &ctx_at, &widths);
+        }
         if let (Some(i), Some(off)) = (dropped, ctx_at.first().copied()) {
             let w = widths.first().copied().unwrap_or(0);
             if let Some((from, t)) = args.get(i).copied().filter(|_| w > 0) {
