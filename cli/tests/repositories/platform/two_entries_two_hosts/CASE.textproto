@@ -1,0 +1,54 @@
+# **Two entries, two hosts.** `//platform/two` has a page entry and a worker
+# entry, each with its own host holding its own production struct: `PageHost`
+# holds `HostGreet`, which `page.mjs` implements, and `WorkerHost` holds
+# `HostCount`, which `worker.mjs` implements. Neither file exports the other's.
+#
+# The output builds. Then a file missing the struct its own host holds is
+# refused, and so is one missing a struct its host reaches through a method.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "each js entry implements only the production structs its own host reaches, and a file missing one of those is refused"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+  golden: "built.txt"
+}
+
+file {
+  path: ".buri/out/platform/two/cmd/app/page.mjs"
+  contains: "HostGreet"
+}
+
+file {
+  path: ".buri/out/platform/two/cmd/app/worker.mjs"
+  contains: "HostCount"
+}
+
+# The page's own host holds `HostGreet`, so `page.mjs` still implements it.
+edit {
+  file: "platform/two/page.mjs"
+  replace: "export const HostGreet = {\n  name: (self) => \"page\",\n};\n"
+  with: ""
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "page_without_its_struct.txt"
+}
+
+# A struct the host reaches only through a method's body is the file's too:
+# `HostGreet.name` now asks a private `Names`, which `page.mjs` doesn't export.
+edit {
+  file: "platform/two/platform.buri"
+  replace: "    fn name(self): Str;\n}\n"
+  with: "    fn name(self): Str {\n        Names { }.first()\n    }\n}\n\nstruct Names {}\n\nimpl Names {\n    fn first(self): Str;\n}\n"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "page_without_a_struct_its_host_calls.txt"
+}

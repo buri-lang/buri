@@ -76,8 +76,9 @@ The whole file is in [the guide](../../guides/custom-platforms.md#the-platform).
   or `Tcp`, and `NATIVE` no `Ui` or `Watch`. Any `JS` platform may offer
   `HostUi` and `HostWatch`.
 - **The platform's own structs** have bodiless methods, which the entry's `js`
-  file implements. A struct the host doesn't hold may have them too, for a host
-  field's methods to call. Only `JS` entries have one, so on `NATIVE` such a field is
+  file implements for each struct its host reaches: a field's struct, and any
+  struct that one's fields or methods use. A struct only another entry's host
+  reaches isn't this file's. Only `JS` entries have one, so on `NATIVE` such a field is
   `custom-effect-outside-js`, and on a `JS` entry without one it's
   `missing-host-file`.
 - Only `platform.buri` may import `platform/host` or declare a function without

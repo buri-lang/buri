@@ -1,7 +1,8 @@
-error: `fetch.mjs` exports `HostKv` without `put`, which `Kv` declares with 4 parameters [host-file-missing-method]
- --> platform/cloudflare_worker/fetch.mjs:6:1
+.buri/out/platform/two/cmd/app/worker.mjs (N bytes)
+error: `page.mjs` does not export `Names`, which implements `Names` [host-file-missing-method]
+ --> platform/two/page.mjs:1:1
   |
-6 | export const HostKv = {
+1 | import { page } from "buri:program";
   | ^
   |
   = an export named after one of the platform's production structs implements it, written `export const S = { ... }` with one function per method

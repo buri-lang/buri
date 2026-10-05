@@ -1,0 +1,32 @@
+from "platform/effect" import { Request, Response };
+from "platform/host" import { HostAllocator };
+from "//platform/effect/count" import { Count };
+from "//platform/effect/greet" import { Greet };
+
+export struct PageHost {
+    export alloc: HostAllocator,
+    export greet: HostGreet,
+}
+
+export struct WorkerHost {
+    export alloc: HostAllocator,
+    export count: HostCount,
+}
+
+export fn page(host: PageHost): Result<(), Str>;
+
+export fn worker(host: WorkerHost, request: Request): Response;
+
+// page.mjs implements it; the worker's host never holds one.
+export struct HostGreet {}
+
+impl Greet for HostGreet {
+    fn name(self): Str;
+}
+
+// worker.mjs implements it; the page's host never holds one.
+export struct HostCount {}
+
+impl Count for HostCount {
+    fn next(self): Int;
+}

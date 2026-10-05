@@ -1,0 +1,9 @@
+from "//platform/effect/count" import { Count };
+
+export struct TestCount {}
+
+impl Count for TestCount {
+    fn next(self): Int {
+        1
+    }
+}

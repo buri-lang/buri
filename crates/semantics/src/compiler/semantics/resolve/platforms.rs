@@ -56,31 +56,108 @@ pub fn declared_host(tables: &Tables, platform: ModuleId, params: &[ParamInfo]) 
         .then_some(*con)
 }
 
-/// The structs of the platform's own that its host holds, each with the
-/// methods it declares without a body, which its `js` file implements. Then
-/// any other struct of the platform's own with such methods, which a host
-/// field's methods call: `web`'s `IndexedDb` under its `HostStorage`.
-pub fn js_structs(tables: &Tables, platform: ModuleId, host: TyConId) -> Vec<(TyConId, Vec<FnId>)> {
-    let fields = tables.tycon(host).fields().iter();
-    let mut out: Vec<(TyConId, Vec<FnId>)> = fields
-        .filter_map(|field| match field.ty.kind() {
-            TyKind::Con(con, _) if tables.tycon(*con).module == platform => {
-                Some((*con, bodiless_methods(tables, *con)))
+/// The types of the platform's own that an entry's host reaches, each with the
+/// methods it declares without a body, which the entry's `js` file implements.
+/// The host's fields come first, then whatever those reach through their
+/// fields, their methods' signatures and their methods' bodies, and the
+/// platform's own functions those call: `web`'s `IndexedDb` through its
+/// `HostStorage`. A struct only another entry's host reaches isn't this one's.
+pub fn js_structs(
+    tables: &Tables,
+    bodies: &BodyMap,
+    platform: ModuleId,
+    host: TyConId,
+) -> Vec<(TyConId, Vec<FnId>)> {
+    let mut reach = Reach { tables, platform, cons: vec![host], fns: Vec::new() };
+    let (mut next_con, mut next_fn) = (0, 0);
+    loop {
+        if let Some(&con) = reach.cons.get(next_con) {
+            next_con = next_con.saturating_add(1);
+            let tycon = tables.tycon(con);
+            let variants = tycon.variants().iter().flat_map(|v| &v.fields);
+            for field in tycon.fields().iter().chain(variants) {
+                reach.ty(field.ty);
             }
-            _ => None,
-        })
-        .collect();
-    for (i, tycon) in tables.tycons.iter().enumerate() {
-        let con = TyConId(i as u32);
-        if tycon.module != platform || con == host || out.iter().any(|(c, _)| *c == con) {
-            continue;
-        }
-        let methods = bodiless_methods(tables, con);
-        if !methods.is_empty() {
-            out.push((con, methods));
+            let methods = tables.fns.iter().enumerate().filter(|(_, f)| f.self_ty == Some(con));
+            for (i, _) in methods {
+                reach.fn_(FnId(i as u32));
+            }
+        } else if let Some(&f) = reach.fns.get(next_fn) {
+            next_fn = next_fn.saturating_add(1);
+            let info = tables.fn_info(f);
+            for p in &info.params {
+                reach.ty(p.ty);
+            }
+            reach.ty(info.ret);
+            if let Some(body) = bodies.get(&f) {
+                typed::walk(&body.expr, &mut |e| {
+                    reach.ty(e.ty);
+                    match &e.kind {
+                        typed::ExprKind::StructLit { con, .. } | typed::ExprKind::EnumLit { con, .. } => {
+                            reach.con(*con)
+                        }
+                        typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => {
+                            if let Some(id) = func.decl() {
+                                reach.fn_(id);
+                            }
+                        }
+                        _ => {}
+                    }
+                });
+            }
+        } else {
+            break;
         }
     }
-    out
+    let reached = reach.cons.into_iter().filter(|c| *c != host);
+    reached.map(|con| (con, bodiless_methods(tables, con))).collect()
+}
+
+/// What [`js_structs`] has found so far, in the order it found it.
+struct Reach<'a> {
+    tables: &'a Tables,
+    platform: ModuleId,
+    cons: Vec<TyConId>,
+    fns: Vec<FnId>,
+}
+
+impl Reach<'_> {
+    fn con(&mut self, con: TyConId) {
+        if self.tables.tycon(con).module == self.platform && !self.cons.contains(&con) {
+            self.cons.push(con);
+        }
+    }
+
+    fn fn_(&mut self, f: FnId) {
+        if self.tables.fn_info(f).module == self.platform && !self.fns.contains(&f) {
+            self.fns.push(f);
+        }
+    }
+
+    fn ty(&mut self, ty: Ty) {
+        match ty.kind() {
+            TyKind::Con(con, args) => {
+                self.con(*con);
+                args.iter().for_each(|a| self.ty(*a));
+            }
+            TyKind::Array(t) => self.ty(*t),
+            TyKind::Tuple(ts) => ts.iter().for_each(|t| self.ty(*t)),
+            TyKind::Fn(ps, r) => {
+                ps.iter().for_each(|p| self.ty(*p));
+                self.ty(*r);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Every type of the platform's own with methods declared without a body,
+/// each with them: what some entry's `js` file implements.
+fn bodiless_structs(tables: &Tables, platform: ModuleId) -> Vec<(TyConId, Vec<FnId>)> {
+    let cons = tables.tycons.iter().enumerate().filter(|(_, t)| t.module == platform);
+    cons.map(|(i, _)| (TyConId(i as u32), bodiless_methods(tables, TyConId(i as u32))))
+        .filter(|(_, methods)| !methods.is_empty())
+        .collect()
 }
 
 /// The methods a platform's own production struct declares without a body.
@@ -229,7 +306,7 @@ impl<'a> Checker<'a> {
         if let Some(host) = host {
             self.check_host_fields(custom, platform, host);
             if custom.backend == Backend::Js {
-                self.check_js_methods(platform, host);
+                self.check_js_methods(platform);
             }
         }
     }
@@ -360,9 +437,12 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// Every method a `js` file implements for this host, against the table.
-    fn check_js_methods(&mut self, platform: ModuleId, host: TyConId) {
-        for (con, methods) in js_structs(&self.tables, platform, host) {
+    /// Every method a platform's `js` files implement, against the table.
+    ///
+    /// Bodies aren't checked yet, so which entry's file implements which is
+    /// the build's question (`js_structs`); every one crosses either way.
+    fn check_js_methods(&mut self, platform: ModuleId) {
+        for (con, methods) in bodiless_structs(&self.tables, platform) {
             let struct_name = self.tables.tycon(con).name.clone();
             for method in methods {
                 let info = self.tables.fn_info(method).clone();
