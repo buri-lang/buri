@@ -31,9 +31,9 @@ m12 <a1 i3>
 m13 a0 i2
 m13 a0 i2
 m13 a0 i2
-s14 a1 i0 1
-s14 a1 i0 1
-s14 a1 i0 1
-m15 <a1 2>
-m15 <a2>
-m15 <a1 0>
+s14 a2
+s14 a2
+s14 a2
+m15 a0 ab3
+m15 a3
+m15 a4 ab3 0

@@ -24,19 +24,20 @@ m8 <a0>
 m9 a1 i1 4
 m9 a0
 m9 a1 i2 4
-m10 <a3>
-m10 <a3>
-m10 <a2>
-m11 a0
-m11 a1
-m11 a0
-s12 a0
-s12 a1
-s12 a1
-s13 a0
-s13 a0
-s13 a0
-m14 a0
-m14 a0
-m15 a4
-m15 a1 i0
+m10 <a0 true>
+m10 <a0 true>
+m10 <a0 true>
+s11 a0
+s11 a0
+s11 a0
+m12 <a1>
+m12 <a1>
+m12 <a4>
+m13 a2 3
+m13 a2 0
+m13 a2 0
+s14 a0
+s14 a1 3
+s14 a1 4
+m15 a0
+m15 a0

@@ -24,6 +24,14 @@ fn okay<T>(value: T, limit: Int): Result<T, Int> {
     if (limit > 2) { .Err(limit) } else { .Ok(value) }
 }
 
+fn sized(text: Str): Int {
+    text.length()
+}
+
+fn count<T>(items: [T]): Int {
+    items.length()
+}
+
 enum Shape {
     Golf { items: [Int], inner: Option<Int> },
     Uniform([Int]),
@@ -108,14 +116,24 @@ fn m3<C: Allocator>(ctx: C, v: Shape, limit: Int): Str {
     let make = fn(x: Shape, n: Int) => Option.Some((x, n));
     let answer = match (make(v, limit)) {
         .Some(b0) => "a0",
-        _ => "a1",
+        b2 if !b2.isSome() => {
+            let b2n = match (b2) {
+                .Some((.Uniform(b3), b4)) => str.format(ctx, "i0 ${b3.length()} ${b4}"),
+                .Some((_, 3)) => "i1",
+                .Some(b5) => "i2",
+                .None => "i3",
+            };
+            str.format(ctx, "a1 ${b2n}")
+        },
+        _ => "a2",
     };
     str.format(ctx, "<${answer}>")
 }
 
-fn m4<C: Allocator>(ctx: C, v: Token, limit: Int): Str {
-    match (okay(v, limit)) {
-        .Ok(.Alpha(b0, (b1, _), (b2, _))) => str.format(ctx, "a0 ${b1.length()}"),
+fn m4<C: Allocator>(ctx: C, v: Bool, limit: Int): Str {
+    let make = fn(x: Bool) => Option.Some(x);
+    match (make(v)) {
+        .Some(_) => "a0",
         _ => "a1",
     }
 }
@@ -357,36 +375,9 @@ export fn main(host: NativeHost): Result<(), Str> {
             "m3 ${m3(ctx, Shape.Uniform(list.empty<Int>().push(ctx, 0)), 3)}",
         ),
     );
-    let _ = say(
-        ctx,
-        str.format(
-            ctx,
-            "m4 ${m4(
-                ctx,
-                Token.Alpha(
-                    Option.Some(true),
-                    (list.empty<Int>(), true),
-                    (str.format(ctx, "e${5}"), ""),
-                ),
-                1,
-            )}",
-        ),
-    );
-    let _ = say(
-        ctx,
-        str.format(
-            ctx,
-            "m4 ${m4(
-                ctx,
-                Token.Alpha(
-                    Option.Some(false),
-                    ([13, 2, 1], true),
-                    (str.format(ctx, "b${2}"), "b2"),
-                ),
-                4,
-            )}",
-        ),
-    );
+    let _ = say(ctx, str.format(ctx, "m4 ${m4(ctx, true, 1)}"));
+    let _ = say(ctx, str.format(ctx, "m4 ${m4(ctx, true, 0)}"));
+    let _ = say(ctx, str.format(ctx, "m4 ${m4(ctx, true, 4)}"));
     let _ = say(
         ctx,
         str.format(

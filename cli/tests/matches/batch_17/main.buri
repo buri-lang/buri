@@ -24,6 +24,14 @@ fn okay<T>(value: T, limit: Int): Result<T, Int> {
     if (limit > 2) { .Err(limit) } else { .Ok(value) }
 }
 
+fn sized(text: Str): Int {
+    text.length()
+}
+
+fn count<T>(items: [T]): Int {
+    items.length()
+}
+
 enum Shape {
     Sierra(Option<Bool>, Option<Int>),
     Mike(Result<Int, Int>),
@@ -234,38 +242,36 @@ fn m13<C: Allocator>(ctx: C, v: Signal, limit: Int): Str {
 fn s14<C: Allocator + Stdout>(ctx: C, v: (Entry, [Str]), limit: Int): () {
     let make = fn(x: (Entry, [Str])) => Option.Some(x);
     let _ = match (make(v)) {
-        .Some((Entry { size: b0 }, b1 @ [_, _, ..])) if b1.length() < 2 => {
-            let b1n = match (b1) {
-                [b2, _] => str.format(ctx, "i0 ${b2}"),
-                ["b2", "a1", "b2"] => "i1",
-                ["b2", "a1", "b2", ..b3] if b3.isEmpty() || !b3.isEmpty() => {
-                    str.format(ctx, "i2 ${b3.length()}")
+        .Some((Entry { size: b0 }, b1 @ [_, _, ..])) if b1.length() >= 2 && b0 > 6 => {
+            say(ctx, str.format(ctx, "s14 a0 ${b1.length()}"))
+        },
+        .None => say(ctx, "s14 a1"),
+        .Some((Entry { size: _, .. } | Entry { size: _ }, [_, ..] | [_, _])) => {
+            say(ctx, "s14 a2")
+        },
+        .Some((_, b2)) if b2.isEmpty() && !b2.isEmpty() => {
+            let b2n = match (b2) {
+                ["b2", ..] => "i0",
+                [b4, ..b5] if b5.length() >= 2 => {
+                    str.format(ctx, "i1 ${b4} ${b5.length()}")
                 },
-                _ => "i3",
+                [_, ..] | [] => "i2",
             };
-            say(ctx, str.format(ctx, "s14 a0 ${b1n} ${b0} ${b1.length()}"))
+            say(ctx, str.format(ctx, "s14 a3 ${b2n}"))
         },
-        .Some(b4) => {
-            let b4n = match (b4) {
-                (b5, ["b2", "a1", ..b6]) => str.format(ctx, "i0 ${b6.length()}"),
-                (b7, b8) if b8.length() <= 3 => "i1",
-                (b9, ["b2" | "ab3", ..] | ["ab3", ..]) => "i2",
-                _ => "i3",
-            };
-            say(ctx, str.format(ctx, "s14 a1 ${b4n}"))
-        },
-        b10 => say(ctx, "s14 a2"),
+        _ => say(ctx, "s14 a4"),
     };
     ()
 }
 
-fn m15<C: Allocator>(ctx: C, v: Signal, limit: Int): Str {
-    let answer = match (some(v)) {
-        .Some(b0 @ .Uniform { code: 13, held: _ }) => "a0",
-        .Some(.Uniform { code: _, held: .Ok(b1) }) => str.format(ctx, "a1 ${b1}"),
-        _ => "a2",
-    };
-    str.format(ctx, "<${answer}>")
+fn m15<C: Allocator>(ctx: C, v: [Str], limit: Int): Str {
+    match (id(v)) {
+        [_, "ab3", b0] => str.format(ctx, "a0 ${b0}"),
+        [b1, _, "", ..b2] => str.format(ctx, "a1 ${b2.length()}"),
+        ["b2" | "a1", _, _] => "a2",
+        [] => "a3",
+        [b4, ..b3] => str.format(ctx, "a4 ${b4} ${b3.length()}"),
+    }
 }
 
 export fn main(host: NativeHost): Result<(), Str> {
@@ -445,34 +451,27 @@ export fn main(host: NativeHost): Result<(), Str> {
             list
                 .empty<Str>()
                 .push(ctx, "b2")
-                .push(ctx, "a1")
-                .push(ctx, str.format(ctx, "b${2}")),
+                .push(ctx, str.format(ctx, "a${1}"))
+                .push(ctx, "b2"),
         ),
         0,
     );
     let _ = s14(
         ctx,
-        (
-            Entry { size: 3 },
-            list
-                .empty<Str>()
-                .push(ctx, str.format(ctx, "b${2}"))
-                .push(ctx, str.format(ctx, "a${1}"))
-                .push(ctx, "b2"),
-        ),
+        (Entry { size: 3 }, [str.format(ctx, "b${2}"), "a1", str.format(ctx, "b${2}")]),
         1,
     );
     let _ = s14(
         ctx,
-        (Entry { size: 5 }, ["b2", str.format(ctx, "a${1}"), str.format(ctx, "b${2}")]),
-        3,
-    );
-    let _ = say(
-        ctx,
-        str.format(
-            ctx,
-            "m15 ${m15(ctx, Signal.Uniform { code: 3, held: Result.Ok(2) }, 1)}",
+        (
+            Entry { size: 5 },
+            list
+                .empty<Str>()
+                .push(ctx, str.format(ctx, "b${2}"))
+                .push(ctx, str.format(ctx, "a${1}"))
+                .push(ctx, str.format(ctx, "b${2}")),
         ),
+        3,
     );
     let _ = say(
         ctx,
@@ -480,21 +479,19 @@ export fn main(host: NativeHost): Result<(), Str> {
             ctx,
             "m15 ${m15(
                 ctx,
-                Signal.Golf(
-                    Entry { size: 0 },
-                    Shape.Sierra(Option.Some(true), Option.None),
-                    (true, 2, list.empty<Int>()),
-                ),
-                1,
+                list
+                    .empty<Str>()
+                    .push(ctx, str.format(ctx, "b${2}"))
+                    .push(ctx, "ab3")
+                    .push(ctx, str.format(ctx, "ab${3}")),
+                0,
             )}",
         ),
     );
+    let _ = say(ctx, str.format(ctx, "m15 ${m15(ctx, list.empty<Str>(), 3)}"));
     let _ = say(
         ctx,
-        str.format(
-            ctx,
-            "m15 ${m15(ctx, Signal.Uniform { code: 0, held: Result.Ok(0) }, 4)}",
-        ),
+        str.format(ctx, "m15 ${m15(ctx, [str.format(ctx, "ab${3}")], 3)}"),
     );
     .Ok(())
 }

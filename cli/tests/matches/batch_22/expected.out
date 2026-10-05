@@ -8,33 +8,32 @@ m2 <a0 -2 1 cd4>
 m2 <a0 8 1 >
 s3 a1
 s3 a0
-m4 a1
-m4 a1
-m4 a0
-m5 <a1|true>
-m5 <a1|true>
-m5 <a3|true>
-s6 a0 i0
-s6 a5
-m7 a0 i0
-m7 a0 i0
-m7 a0 i0
-m8 a1
-m8 a2
-m8 a2
-m9 <a0>
-m9 <a0>
-s10 a0
-s10 a0
-m11 <a0>
-m11 <a0>
-m11 <a0>
-s12 a0 13
-s12 a3
-m13 a0 i2
-m13 a2
-m14 a0 -2 ab3 
-m14 a0 -2 ab3 
-m14 a0 -2 ab3 
+s4 a1 i0 0 false 13 ab3 0 
+s4 a1 i0 0 false 13 b2 0 
+m5 a0
+m5 a0
+m6 <a0>
+m6 <a0>
+m7 a1
+m7 a1
+s8 a0
+s8 a0
+m9 a0 true
+m9 a0 false
+m9 a0 false
+m10 a1
+m10 a1
+m11 a0
+m11 a0
+m11 a0
+m12 a1 3
+m12 a2
+m12 a1 3
+s13 a1
+s13 a0 3
+m14 a0 true 5 ab3 1
+m14 a3
+m14 a2 3
 m15 a0
-m15 a0
+m15 a1 1
+m15 a2
