@@ -1,0 +1,13 @@
+# A page that keeps a visit count in `Storage`. The suite runs `visit` against
+# `web/storage/testing`'s store on both backends; `build::web_storage` runs the
+# built page under bun against a fake IndexedDB.
+binary {
+    outputs: [
+        { platform: "web" },
+    ]
+
+    test {
+        sources: ["test/visit_test.buri"]
+        backends: [NATIVE, JS]
+    }
+}

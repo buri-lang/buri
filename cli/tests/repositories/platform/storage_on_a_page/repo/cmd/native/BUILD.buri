@@ -1,0 +1,5 @@
+# A native program that binds `Storage`. A native host has no `storage`, so
+# this doesn't build.
+binary {
+    outputs: [{ platform: "native", variant: "{{HOST_VARIANT}}" }]
+}

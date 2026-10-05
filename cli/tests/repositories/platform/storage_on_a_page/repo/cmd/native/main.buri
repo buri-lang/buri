@@ -1,0 +1,15 @@
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator };
+from "web/storage" import * as storage;
+from "web/storage" import { Storage };
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Storage: host.storage,
+    };
+    match (storage.get(ctx, "count")) {
+        .Ok(_) => .Ok(()),
+        .Err(_) => .Err("no storage"),
+    }
+}
