@@ -178,6 +178,11 @@ pub fn net_intrinsic(key: &str) -> bool {
     if key.starts_with("tasks.scope") {
         return true;
     }
+    // Its timers, likewise: the table and the waits that fire them are
+    // `rt.rs`'s.
+    if key.starts_with("tasks.timer") {
+        return true;
+    }
     let Some(rest) = key.strip_prefix("host.") else { return false };
     let Some((effect, _operation)) = rest.split_once('.') else { return false };
     matches!(effect, "HostListen" | "HostSockets" | "HostTasks" | "HostWebSocketClient")

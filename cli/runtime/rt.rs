@@ -283,7 +283,7 @@ pub fn park_on<T>(future: impl Future<Output = T>) -> T {
     crate::host::about_to_block();
     let here = running();
     if here.is_null() {
-        return handle().block_on(future);
+        return firing_while(future);
     }
     // SAFETY: the thread that resumed this task holds an `Arc` to it for as
     // long as the task is on its stack, which is the whole of this call.
@@ -2300,6 +2300,302 @@ pub extern "C" fn buri_rt_tasks_scope_ran(handle: i64) -> u8 {
     beside.busy = beside.busy.saturating_sub(1);
     beside.wake.notify_waiters();
     u8::from(beside.busy == 0)
+}
+
+// ---------------------------------------------------------------------------
+// `core/tasks`'s timers
+// ---------------------------------------------------------------------------
+//
+// Two exported entries and one table, and the second place in this file where
+// the runtime **calls a Buri closure** rather than handing one back. A spawned
+// task waits for a round some Buri code drives; a timer has nobody to drive it,
+// because `after` holds no `Scope` and answers at once. So its body crosses as
+// a kept handler (`backend/runtime_table.rs`'s `Extra::Press`): an entry
+// thunk, a record this file copies, a frame slot, and the record's release.
+// The context the timer was started with is in the record beside the closure,
+// and the element the thunk reads is the timer's own handle.
+//
+// **Where a timer fires.** On `main`'s own thread, at the two places it waits
+// with nothing of its own to do:
+//
+// * inside [`park_on`]'s arm for a thread that is not a task — a sleep, a
+//   fetch, a fan-out being joined — which waits for the earliest due timer as
+//   well as for its own future, and fires what came due before it waits again;
+// * once `main` has returned `.Ok(())`, from the entry point's success arm,
+//   which waits for every pending timer in turn ([`settle`]). That is the
+//   event loop's rule on JavaScript: a pending timer keeps the process alive.
+//   An abort, an `exitWith`, and a `main` that answered `.Err` end the process
+//   at once, which is `process.exit`'s rule there.
+//
+// So a timer never runs beside code that is computing; it runs where the
+// program would otherwise be idle, on the one thread whose Buri stack is not a
+// task's. A program built by the development backend runs its fan-outs on that
+// thread too, so a step that blocks inside a server's accept holds its timers
+// until it returns (`design/native/DECISIONS.md`).
+
+/// The entry thunk a timer's body is reached through: [`StepEntry`]'s four
+/// words, with the handle as the index-sized element.
+type HandlerEntry =
+    unsafe extern "C" fn(state: *mut u8, index: i64, arg: *const u8, out: *mut u8);
+
+/// One pending timer: the handler the backend handed over, and its copy of the
+/// record.
+struct Pending {
+    entry: HandlerEntry,
+    state: *mut u8,
+    bytes: usize,
+    frame_at: i64,
+    body: crate::list::Release,
+}
+
+// SAFETY: `state` is this file's own copy of the backend's record, reached by
+// whichever thread takes the timer out of the table and by nobody else after.
+// The blocks the closure holds are reached through reference operations, which
+// are marked wherever a second thread can run Buri code (§1).
+unsafe impl Send for Pending {}
+
+impl Pending {
+    /// Runs the body once, in a frame of its own.
+    fn fire(&self, handle: i64) {
+        let frame = if self.frame_at >= 0 {
+            crate::memory::buri_rt_stack_acquire()
+        } else {
+            std::ptr::null_mut()
+        };
+        if let Ok(at) = usize::try_from(self.frame_at) {
+            // SAFETY: the backend asked for the frame at this offset in a
+            // record of its own, and `keep` copied the whole of it.
+            unsafe { self.state.add(at).cast::<*mut u8>().write(frame) };
+        }
+        let mut sink = [0u8; 8];
+        // SAFETY: `entry`/`state` are the handler's thunk and its kept record;
+        // `handle` is one live word crossing as the element, and `sink` a live
+        // destination a `()`-answering thunk writes nothing to.
+        unsafe { (self.entry)(self.state, 0, std::ptr::addr_of!(handle).cast(), sink.as_mut_ptr()) };
+        if !frame.is_null() {
+            // SAFETY: this thread acquired it above and the thunk has returned.
+            unsafe { crate::memory::buri_rt_stack_release(frame) };
+        }
+    }
+
+    /// Gives back the reference the call site took on the closure, and the
+    /// copy of the record.
+    fn give_back(self) {
+        if let Some(release) = self.body
+            && !self.state.is_null()
+        {
+            // SAFETY: the record's first words are the closure `{ code, env }`,
+            // which is what `body` was generated for.
+            unsafe { release(self.state) };
+        }
+        if !self.state.is_null() {
+            // SAFETY: `keep` leaked exactly this boxed slice.
+            drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(self.state, self.bytes)) });
+        }
+    }
+}
+
+/// Every pending timer, in the order it comes due, and each one's deadline by
+/// handle so that a cancel can find it.
+struct Timers {
+    next: i64,
+    due: std::collections::BTreeMap<(std::time::Instant, i64), Pending>,
+    at: std::collections::BTreeMap<i64, std::time::Instant>,
+}
+
+static TIMERS: Mutex<Timers> = Mutex::new(Timers {
+    next: 1,
+    due: std::collections::BTreeMap::new(),
+    at: std::collections::BTreeMap::new(),
+});
+
+fn timers() -> MutexGuard<'static, Timers> {
+    match TIMERS.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// What a waiting `main` is woken by when a timer is started elsewhere, so it
+/// can wait for the new deadline instead of the old one. `notify_one` keeps a
+/// permit for a waiter that has not started waiting yet, so a start that lands
+/// between reading the deadline and waiting is not lost.
+fn started() -> &'static tokio::sync::Notify {
+    static STARTED: OnceLock<tokio::sync::Notify> = OnceLock::new();
+    STARTED.get_or_init(tokio::sync::Notify::new)
+}
+
+/// When the earliest pending timer comes due, if any is pending.
+fn earliest() -> Option<std::time::Instant> {
+    timers().due.keys().next().map(|(at, _)| *at)
+}
+
+/// Fires every timer that is due, in the order they come due.
+///
+/// Only timers started before this call: a body that starts a timer with no
+/// delay has started the next round's, and the wait in between is what lets
+/// the code it interrupted make progress.
+fn fire_due() {
+    let limit = timers().next;
+    loop {
+        let now = std::time::Instant::now();
+        let taken = {
+            let mut t = timers();
+            let found =
+                t.due.keys().take_while(|(at, _)| *at <= now).find(|(_, h)| *h < limit).copied();
+            found.and_then(|key| {
+                t.at.remove(&key.1);
+                t.due.remove(&key).map(|p| (key.1, p))
+            })
+        };
+        let Some((handle, pending)) = taken else { return };
+        pending.fire(handle);
+        pending.give_back();
+    }
+}
+
+/// [`park_on`]'s arm for a thread that is not a task: `future`, with every
+/// timer that comes due meanwhile fired on this thread.
+fn firing_while<T>(future: impl Future<Output = T>) -> T {
+    let mut future = std::pin::pin!(future);
+    loop {
+        let deadline = earliest();
+        let mine = future.as_mut();
+        let answer = handle().block_on(async move {
+            let mut woken = std::pin::pin!(started().notified());
+            let mut sleep = deadline
+                .map(|at| Box::pin(tokio::time::sleep_until(tokio::time::Instant::from_std(at))));
+            let mut mine = mine;
+            std::future::poll_fn(move |cx| {
+                if let Poll::Ready(answer) = mine.as_mut().poll(cx) {
+                    return Poll::Ready(Some(answer));
+                }
+                if woken.as_mut().poll(cx).is_ready() {
+                    return Poll::Ready(None);
+                }
+                if let Some(s) = sleep.as_mut()
+                    && s.as_mut().poll(cx).is_ready()
+                {
+                    return Poll::Ready(None);
+                }
+                Poll::Pending
+            })
+            .await
+        });
+        match answer {
+            // What came due while the wait was ending fires before the code
+            // that waited goes on: a timer due before a sleep ends has fired
+            // by the time the sleep returns, however late the thread woke.
+            Some(answer) => {
+                fire_due();
+                return answer;
+            }
+            None => {
+                fire_due();
+                crate::host::about_to_block();
+            }
+        }
+    }
+}
+
+/// `main` has returned `.Ok(())`: wait for every pending timer, firing each as
+/// it comes due, until none is left. The entry point calls this, through
+/// `buri_rt_main_returned`, on its success arm only, so a `main` that answered
+/// `.Err` ends at once, as an abort and an `exitWith` do.
+pub(crate) fn settle() {
+    while let Some(at) = earliest() {
+        let now = std::time::Instant::now();
+        if at > now {
+            crate::host::about_to_block();
+            thread::sleep(at - now);
+        }
+        fire_due();
+    }
+}
+
+/// Registers [`give_back`] once, after the heap audit so that it runs before
+/// it — `ui.rs`'s `give_back_at_exit`, for the timers a program that failed
+/// left pending.
+fn give_back_at_exit() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        crate::memory::arm_heap_audit();
+        // SAFETY: `give_back` is an `extern "C" fn()` taking no arguments and
+        // returning normally, which is the whole of `atexit`'s contract.
+        unsafe { atexit(give_back) };
+    });
+}
+
+unsafe extern "C" {
+    fn atexit(f: extern "C" fn()) -> i32;
+}
+
+/// Every timer still pending at exit, given back unfired: a `main` that
+/// answered `.Err` does not wait for them, and the references their bodies
+/// hold are not a leak. `try_lock`, for `ui.rs`'s `give_back`'s reason: an
+/// abort can exit from inside a body that holds nothing here, but nothing is
+/// gained by waiting on the way out.
+extern "C" fn give_back() {
+    let Ok(mut t) = TIMERS.try_lock() else { return };
+    t.at.clear();
+    let pending = std::mem::take(&mut t.due);
+    drop(t);
+    for (_, p) in pending {
+        p.give_back();
+    }
+}
+
+/// `core/tasks`'s `timerStart(ctx, millis, run) -> Int` — keeps `run` and
+/// answers the handle it is pending under.
+///
+/// # Safety
+/// `entry` is the thunk the backend generated for the handler, `state` points
+/// at `bytes` readable bytes of the record it was generated against,
+/// `frame_at` is an offset inside that record or negative, and `body` is that
+/// record's release glue or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_tasks_timer_start(
+    millis: i64,
+    entry: HandlerEntry,
+    state: *const u8,
+    bytes: usize,
+    frame_at: i64,
+    body: crate::list::Release,
+) -> i64 {
+    give_back_at_exit();
+    let copy = if state.is_null() || bytes == 0 {
+        std::ptr::null_mut()
+    } else {
+        // SAFETY: the caller promises `bytes` readable bytes.
+        let record = unsafe { std::slice::from_raw_parts(state, bytes) }.to_vec();
+        Box::leak(record.into_boxed_slice()).as_mut_ptr()
+    };
+    let wait = Duration::from_millis(u64::try_from(millis).unwrap_or(0));
+    let at = std::time::Instant::now() + wait;
+    let handle = {
+        let mut t = timers();
+        let handle = t.next;
+        t.next = t.next.saturating_add(1);
+        t.due.insert((at, handle), Pending { entry, state: copy, bytes, frame_at, body });
+        t.at.insert(handle, at);
+        handle
+    };
+    started().notify_one();
+    handle
+}
+
+/// `core/tasks`'s `timerStop(ctx, handle)` — forgets a pending timer. One that
+/// has fired, been stopped already, or never existed is a no-op.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_tasks_timer_stop(handle: i64) {
+    let taken = {
+        let mut t = timers();
+        let at = t.at.remove(&handle);
+        at.and_then(|at| t.due.remove(&(at, handle)))
+    };
+    if let Some(pending) = taken {
+        pending.give_back();
+    }
 }
 
 #[cfg(test)]

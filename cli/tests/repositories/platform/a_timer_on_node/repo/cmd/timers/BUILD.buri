@@ -1,0 +1,7 @@
+# A JavaScript binary, because node's event loop is what is under test:
+# `buri run` builds it and runs it as a process of its own.
+binary {
+    outputs: [
+        { platform: "node" },
+    ]
+}

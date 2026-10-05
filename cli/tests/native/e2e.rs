@@ -5373,3 +5373,124 @@ fn a_native_binary_speaks_https_and_refuses_a_certificate_it_cannot_trust() {
     assert_eq!(untrusted.status, 0, "stderr:\n{}", untrusted.stderr);
     assert_eq!(served.status, 0, "stdout:\n{}\nstderr:\n{}", served.stdout, served.stderr);
 }
+
+// ---------------------------------------------------------------------------
+// `core/tasks`'s timers
+// ---------------------------------------------------------------------------
+
+/// A program that schedules with `tasks.after` five ways: during a wait, after
+/// `main` has returned, cancelled, from a callback, and as a tick that
+/// schedules the next one. Every timer after the first is started by the one
+/// before it or by `main` after its last wait, so the order the lines arrive in
+/// is the program's and not the machine's.
+///
+/// `ending` is what `main` answers, so the same program is the happy path and
+/// its signature failure.
+fn timers(ending: &str) -> String {
+    format!(
+        r#"from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+from "core/time" import * as time;
+from "native" import {{ NativeHost }};
+from "platform/effect" import {{ Allocator, Clock, Stdout, Tasks }};
+
+fn tick<C: Stdout + Tasks>(ctx: C, n: Int): () {{
+    let _ = io.println(ctx, "tick ${{n}}").ignore();
+    if (n < 3) {{
+        let _ = tasks.after(ctx, time.milliseconds(1), fn(c) => tick(c, n + 1));
+        ()
+    }} else {{
+        ()
+    }}
+}}
+
+fn fired<C: Allocator + Stdout + Tasks>(ctx: C): () {{
+    let _ = io.println(ctx, "fired after main returned").ignore();
+    let _ = tasks.parallel(ctx, [1], fn(c, _i, _x) => tasks.after(c, time.milliseconds(1), fn(c2) => {{
+        let _ = io.println(c2, "scheduled from a callback").ignore();
+        tick(c2, 1)
+    }}));
+    ()
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+    let ctx = context {{
+        Allocator: host.alloc,
+        Clock: host.clock,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    }};
+    let _ = tasks.after(ctx, time.milliseconds(1), fn(c) => io.println(c, "fired during the wait").ignore());
+    let _ = time.sleep(ctx, time.milliseconds(30));
+    let _ = io.println(ctx, "the wait is over").ignore();
+    let doomed = tasks.after(ctx, time.milliseconds(1), fn(c) => io.println(c, "a cancelled timer fired").ignore());
+    let _ = tasks.cancel(ctx, doomed);
+    let _ = tasks.after(ctx, time.milliseconds(1), fn(c) => fired(c));
+    let _ = io.println(ctx, "main returned").ignore();
+    {ending}
+}}
+"#
+    )
+}
+
+/// Runs a program to its end under the heap check, with a deadline: a timer
+/// that never fires and a timer that keeps the program alive for ever both
+/// look like a process that does not stop.
+fn ran_to_the_end(binary: &std::path::Path) -> crate::shared::Ran {
+    use std::io::Read;
+    let mut child = crate::shared::spawned(binary);
+    let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    if let Some(mut out) = child.stdout.take() {
+        let _ = out.read_to_string(&mut stdout);
+    }
+    if let Some(mut err) = child.stderr.take() {
+        let _ = err.read_to_string(&mut stderr);
+    }
+    crate::shared::Ran { status: status.code().unwrap_or(-1), stdout, stderr }
+}
+
+/// **A timer fires where the program waits, and after `main` returns, and
+/// keeps the program running until it has.** A cancelled one never fires, one
+/// scheduled from a callback does, and a tick that schedules the next one runs
+/// three times and lets the program end.
+#[test]
+fn a_timer_fires_while_the_program_waits_and_keeps_it_running_after_main_returns() {
+    unless_ready!();
+    let binary = built("e2e-timers", &timers(".Ok(())"));
+    let out = ran_to_the_end(&binary);
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.stdout.lines().collect::<Vec<_>>(),
+        vec![
+            "fired during the wait",
+            "the wait is over",
+            "main returned",
+            "fired after main returned",
+            "scheduled from a callback",
+            "tick 1",
+            "tick 2",
+            "tick 3",
+        ],
+        "stderr:\n{}",
+        out.stderr
+    );
+}
+
+/// **A `main` that fails ends the program at once**, with the timers it left
+/// pending unfired, as an abort does.
+#[test]
+fn a_main_that_fails_ends_the_program_without_its_pending_timers() {
+    unless_ready!();
+    let binary = built("e2e-timers-failed", &timers(r#".Err("gave up")"#));
+    let out = ran_to_the_end(&binary);
+    assert_eq!(out.status, 1, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.stdout.lines().collect::<Vec<_>>(),
+        vec!["fired during the wait", "the wait is over", "main returned"],
+        "stderr:\n{}",
+        out.stderr
+    );
+    assert!(out.stderr.contains("gave up"), "stderr:\n{}", out.stderr);
+}

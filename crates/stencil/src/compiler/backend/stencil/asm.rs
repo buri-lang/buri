@@ -920,7 +920,7 @@ fn program_entry_arm64(callee: &str, result: Option<MainResult>, marking: Markin
     a.bl_symbol(callee);
 
     let Some(r) = result else {
-        a.bl_symbol(runtime::FLUSH);
+        a.bl_symbol(runtime::RETURNED);
         a.mov_imm(X0, 0);
         a.ldp_fp_lr();
         a.ret();
@@ -955,7 +955,7 @@ fn program_entry_arm64(callee: &str, result: Option<MainResult>, marking: Markin
     a.ret();
 
     a.here(ok);
-    a.bl_symbol(runtime::FLUSH);
+    a.bl_symbol(runtime::RETURNED);
     a.mov_imm(X0, 0);
     a.ldp_fp_lr();
     a.ret();
@@ -1061,7 +1061,7 @@ fn program_entry_x86_64(callee: &str, result: Option<MainResult>, marking: Marki
     a.call_symbol(callee);
 
     let Some(r) = result else {
-        a.call_symbol(runtime::FLUSH);
+        a.call_symbol(runtime::RETURNED);
         a.mov_imm(RAX, 0);
         a.pop_rbp();
         a.ret();
@@ -1094,7 +1094,7 @@ fn program_entry_x86_64(callee: &str, result: Option<MainResult>, marking: Marki
     a.ret();
 
     a.here(ok);
-    a.call_symbol(runtime::FLUSH);
+    a.call_symbol(runtime::RETURNED);
     a.mov_imm(RAX, 0);
     a.pop_rbp();
     a.ret();
@@ -1661,7 +1661,7 @@ mod tests {
                 ("Branch26", String::from("buri$main")),
                 ("Branch26", String::from("buri_rt_host_stderr_eprintln")),
                 ("Branch26", String::from(runtime::FLUSH)),
-                ("Branch26", String::from(runtime::FLUSH)),
+                ("Branch26", String::from(runtime::RETURNED)),
             ]
         );
     }

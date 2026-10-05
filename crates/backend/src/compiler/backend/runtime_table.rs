@@ -930,6 +930,14 @@ pub const ENTRIES: &[Entry] = &[
     e("tasks.scopeClaim", &[Dropped, Scalar], Ret::Scalar),
     e("tasks.scopeSpare", &[Dropped, Scalar], Ret::Scalar),
     e("tasks.scopeRan", &[Dropped, Scalar], Ret::Scalar),
+    // `core/tasks`'s timers. Unlike a spawned task, a timer's body is the
+    // runtime's to call, so it crosses as a kept handler ([`Extra::Press`]):
+    // `fn(C, Int) => ()`, with the context written into the record beside the
+    // closure and the timer's handle as the element. The runtime fires it
+    // where the program waits and, once `main` has returned, until none is
+    // pending (`cli/runtime/rt.rs`'s timers).
+    e("tasks.timerStart", &[Dropped, Scalar, Press], Ret::Scalar),
+    e("tasks.timerStop", &[Dropped, Scalar], Ret::Void),
     // -- platform/effect/testing's stateful half -----------------------------------
     //
     // `platform/effect/testing`'s names, over one handle table.
@@ -1445,6 +1453,11 @@ pub const DECREF: &str = "buri_rt_decref";
 pub const ARGV_INIT: &str = "buri_rt_argv_init";
 /// `buri_rt_flush()` — required before every return path from `main`.
 pub const FLUSH: &str = "buri_rt_flush";
+/// `buri_rt_main_returned()` — `main` answered `.Ok(())`, or answered nothing:
+/// fire the timers still pending as they come due, then flush. The success
+/// arm's flush, so a program that failed ends at once (`cli/runtime/rt.rs`'s
+/// timers).
+pub const RETURNED: &str = "buri_rt_main_returned";
 /// `buri_rt_frames_are_per_thread()` — the artifact's one statement about
 /// itself, made once at startup (`cli/runtime/lib.rs` §6).
 ///

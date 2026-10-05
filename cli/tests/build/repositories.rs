@@ -267,7 +267,7 @@ fn concurrency_and_memory() {
 /// `buri run` is the command that hands a program the real one.
 #[test]
 fn the_host_on_node() {
-    run_corpus(&tests_dir().join("repositories/platform"), "platform", 1);
+    run_corpus(&tests_dir().join("repositories/platform"), "platform", 3);
 }
 
 /// build/platforms: a repository's own platforms under `//platform/`, its custom
