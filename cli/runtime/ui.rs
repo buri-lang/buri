@@ -890,8 +890,9 @@ pub unsafe extern "C" fn buri_rt_ui_node_register_handler(
 /// under the graph lock and let go before the call, because the handler's writes
 /// drain the graph on their way through. A body on the frame-threaded backend
 /// works in a frame the caller sets aside, so this acquires one at `frame_at`
-/// exactly as [`run`] does.
-pub(crate) fn fire(id: i64) {
+/// exactly as [`run`] does. The handler is handed the context of `doc`, the
+/// document it was registered in.
+pub(crate) fn fire(id: i64, doc: i64) {
     let compute = {
         let g = lock();
         match g.get(id) {
@@ -907,6 +908,9 @@ pub(crate) fn fire(id: i64) {
         // its own, and `keep` copied the whole of it.
         unsafe { compute.state.add(at).cast::<*mut u8>().write(frame) };
     }
+    // SAFETY: the handler's record was built by the backend that built the
+    // document's mount, and `keep` copied the whole of it.
+    unsafe { crate::document::supply(doc, compute.state) };
     let mut sink = [0u8; 8];
     // One update transaction, the rule every handler runs under: a press that
     // writes three signals is one pass over the watchers, not three. The
