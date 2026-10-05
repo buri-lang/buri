@@ -43,6 +43,9 @@ cli/tests/
     agreement.rs          gated on either: VALUE-MODEL.md §12, both backends
     e2e.rs                gated on either: WHOLE PROGRAMS, real processes, real
                           sockets, real signals — the top of the trust ordering
+    growth.rs             gated on either: the generated `growth/` corpus, its
+      growth/generator.rs   output and its allocations bounded, and the
+                          generator that writes it
     shared.rs             what more than one backend suite needs and none owns
   docs/      main.rs    THE DOCUMENTATION, held to the bar the code is
     documents.rs          what the documents are: fences, links, staleness
@@ -90,6 +93,8 @@ cli/tests/
   proto/                vendored schemas, a testee, and the recorded exchanges
   failing/              one directory per failure shape, with its report
   fuzz/                 every finding a search has made, minimised, replayed
+  growth/               programs that grow a list, a string or a record, each
+                        with the line it prints and the blocks it may allocate
   recovery/             every construct crossed with every mutation shape, with
                         the exact message, span and edit each must produce
   message-audit/        run.sh: the diagnostics put to a model, one question
@@ -664,6 +669,41 @@ BURI_BLESS=1 cargo test -p buri --test formatting --test checking --test linting
 
 One constant per suite holds the count — `GENERATED_TOTAL` and `TOTAL` — so
 scaling the corpus is a number and a bless.
+
+**The growth corpus** catches a value copied where it should grow in place.
+Each `growth/case_NNN.buri` grows a list, a string, or a record holding a
+list, through one mix of the shapes ownership bugs came from: `foldCtx`,
+`foldResultCtx`, a loop, plain recursion and `mapCtx`; a bare, tuple or record
+accumulator; a destructuring `let`, a field read or a `match`; helpers small
+enough to inline or not, that read the value or push onto it; an aliasing
+`let`; an early stop or a `?`; and one loop nested in another. The header
+pins what it prints and how many blocks it may allocate:
+
+```buri
+// value=Ints acc=Tuple access=Destructure pusher=Large reader=None alias=false inner=Fold ...
+// expect: 800 800 5 805 44654
+// blocks: 32
+```
+
+The generator computes both. It runs the same steps over Rust values for the
+line, and allows a few blocks per doubling of each value for the bound. A push
+that copies costs a block per push, which puts a case hundreds over.
+`native::growth` runs the cases twenty to a program, on JavaScript for the
+output and on each native backend for the output, the bound and the heap
+check. A program over its bound rebuilds each case alone and names the ones
+over theirs.
+
+The files regenerate from `SEED` in `native/growth.rs`, and
+`the_checked_in_cases_are_up_to_date` fails when they drift:
+
+```
+BURI_BLESS=1 cargo test -p buri --test native growth::the_checked_in_cases_are_up_to_date
+```
+
+To add a shape, add a variant to a dimension in `growth/generator.rs`, teach
+`source` to write it and `run` to model it, and bless. To add cases, raise
+`COUNT` and `BATCHES` together. A case that fails gets reduced to its own test
+in `ownership.rs` or `fields.rs`, naming the seed and case number.
 
 **The fuzz corpus** is the one corpus nobody wrote. A search found every case in
 it, minimised it, and wrote it down so the finding cannot be lost:

@@ -129,6 +129,101 @@ export fn main(host: NativeHost): Result<(), Str> {
     }
 }
 
+/// Two thousand pushes by a function too large to inline, handed the list a
+/// step took out of its tuple or record accumulator with a destructuring
+/// `let`. The function may hand the list back untouched, so it owns it; the
+/// step must give it the accumulator's count rather than a second one, or every
+/// push copies. Found by the growth generator, seed `0x67726f777468`, case 147.
+#[test]
+fn a_list_a_let_took_apart_and_handed_to_an_owning_function_grows_in_place() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+struct Acc { n: Int, items: [Int] }
+
+fn put<C: Allocator>(ctx: C, items: [Int], k: Int): [Int] {
+  if (k < 0) { items } else { items.push(ctx, k) }
+}
+
+fn tupled<C: Allocator>(ctx: C, acc: (Int, [Int]), i: Int): (Int, [Int]) {
+  let (n, items) = acc;
+  (n + 1, if (i % 2 == 0) { put(ctx, items, i) } else { put(ctx, items, i + 1) })
+}
+
+fn recorded<C: Allocator>(ctx: C, acc: Acc, i: Int): Acc {
+  let Acc { n, items } = acc;
+  Acc { n: n + 1, items: if (i % 2 == 0) { put(ctx, items, i) } else { put(ctx, items, i + 1) } }
+}
+
+fn byTuple<C: Allocator>(ctx: C, count: Int): Int {
+  list.range(ctx, 0, count).foldCtx(ctx, fn(c, acc, i) => tupled(c, acc, i), (0, list.empty<Int>())).1.length()
+}
+
+fn byRecord<C: Allocator>(ctx: C, acc: Acc, left: Int): Int {
+  if (left == 0) { acc.items.length() } else { byRecord(ctx, recorded(ctx, acc, left), left - 1) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let a = byTuple(ctx, 2000);
+  let b = byRecord(ctx, Acc { n: 0, items: list.empty<Int>() }, 2000);
+  let _ = io.println(host.stdout, "${a} ${b}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("let-apart-owning-call", source) {
+        assert_eq!(r.stdout, "2000 2000\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 80,
+            "{backend}: four thousand pushes allocated {blocks} blocks: the step kept a count on \
+             the accumulator while the function it handed the list to pushed, so every push copied"
+        );
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}
+
+/// Two thousand pushes by a one-line function a fold's step hands the list in
+/// its tuple accumulator to, as `acc.1`. The inliner pastes the function in
+/// and binds its parameter with a `let`; the step was lent its accumulator, so
+/// the name needs no count of its own, and with one the push copied. Found by
+/// the growth generator, seed `0x67726f777468`, case 289.
+#[test]
+fn a_list_read_out_of_a_lent_tuple_into_an_inlined_function_grows_in_place() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+fn add<C: Allocator>(ctx: C, items: [Int], k: Int): [Int] { items.push(ctx, k) }
+
+fn step<C: Allocator>(ctx: C, acc: (Int, [Int]), i: Int): (Int, [Int]) {
+  (acc.0 + 1, add(ctx, acc.1, i))
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let acc = list.range(ctx, 0, 2000).foldCtx(ctx, fn(c, acc, i) => step(c, acc, i), (0, list.empty<Int>()));
+  let _ = io.println(host.stdout, "${acc.0} ${acc.1.length()}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("inlined-tuple-field", source) {
+        assert_eq!(r.stdout, "2000 2000\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 40,
+            "{backend}: two thousand pushes allocated {blocks} blocks: the inlined function's \
+             parameter took a count of its own on the lent list, so every push copied it"
+        );
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}
+
 /// A match arm binds a record holding a heap `Str`, its guard reads the record
 /// and fails, and the match falls through to the wildcard (buri-lang/buri#231).
 /// The value must be released once, by the arm that ran: released by the guard
