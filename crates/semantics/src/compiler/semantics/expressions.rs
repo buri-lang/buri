@@ -109,7 +109,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             self.broken.push(t.span_of(block.span));
         }
         self.push_scope();
-        let mut stmts = Vec::new();
+        let mut stmts = Vec::with_capacity(block.stmts_len as usize);
         for s in t.stmts_at(block.stmts_start, block.stmts_len) {
             let span = t.span_of(s.span);
             match s.kind {
@@ -981,18 +981,23 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// Arguments are evaluated left to right before the call, and each is
     /// checked against its parameter's type so that a literal is pinned by it.
     fn check_args(&mut self, args: &[ExprId], params: &[Ty]) -> Vec<typed::Expr> {
-        args.iter()
-            .enumerate()
-            .map(|(i, a)| {
-                let want = params.get(i);
-                let checked = self.check_expr(*a, want);
-                if let Some(w) = want {
-                    let aspan = self.tree().span(*a);
-                    self.unify_at(aspan, &checked.ty, w, "the parameter type");
-                }
-                checked
-            })
-            .collect()
+        let mut out = Vec::with_capacity(args.len());
+        self.check_args_into(args, params, &mut out);
+        out
+    }
+
+    /// [`Infer::check_args`], appending to a list that may already hold the
+    /// receiver.
+    fn check_args_into(&mut self, args: &[ExprId], params: &[Ty], out: &mut Vec<typed::Expr>) {
+        for (i, a) in args.iter().enumerate() {
+            let want = params.get(i);
+            let checked = self.check_expr(*a, want);
+            if let Some(w) = want {
+                let aspan = self.tree().span(*a);
+                self.unify_at(aspan, &checked.ty, w, "the parameter type");
+            }
+            out.push(checked);
+        }
     }
 
     fn call_fn(
@@ -1046,7 +1051,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         let expected_args =
             if receiver.is_some() { params.len().saturating_sub(1) } else { params.len() };
 
-        let mut hir_args = Vec::new();
+        let mut hir_args = Vec::with_capacity(args.len().saturating_add(1));
         // The receiver takes the first slot and the arguments are checked
         // against what is left, which is a subslice rather than a copy of the
         // list with its head removed.
@@ -1059,7 +1064,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             hir_args.push(r);
         }
         if args.len() == expected_args {
-            hir_args.extend(self.check_args(args, param_types));
+            self.check_args_into(args, param_types, &mut hir_args);
         } else {
             let (name, declared) = {
                 let info = self.c.tables.fn_info(f);
@@ -1665,12 +1670,13 @@ impl<'a, 'b> Infer<'a, 'b> {
             let _ = self.subst.unify(&self.c.tables, &ret, exp);
         }
 
-        let mut hir_args = vec![recv];
+        let mut hir_args = Vec::with_capacity(args.len().saturating_add(1));
+        hir_args.push(recv);
         // The receiver takes the first parameter, so the arguments are checked
         // against what is left.
         let rest = params.split_first().map_or(&[][..], |(_, rest)| rest);
         if args.len() == rest.len() {
-            hir_args.extend(self.check_args(args, rest));
+            self.check_args_into(args, rest, &mut hir_args);
         } else {
             let name = method.name.clone();
             let signature = signature_of_trait_method(self.c, tid, index);
@@ -2008,11 +2014,10 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// says which member was missing, which is the whole of the question.
     fn namespace_member_missing(&mut self, base: ExprId, name: &str, name_span: Span) -> bool {
         let V::Ident { name: head, .. } = self.tree().expr(base) else { return false };
-        let head = head.to_string();
-        if self.lookup_local(&head).is_some() {
+        if self.lookup_local(head).is_some() {
             return false;
         }
-        let Some(ns) = self.c.scope(self.module).namespaces.get(&head).copied() else {
+        let Some(ns) = self.c.scope(self.module).namespaces.get(head).copied() else {
             return false;
         };
         if self.c.lookup_export(ns, name).is_some() {
