@@ -313,11 +313,23 @@ pub struct ParamInfo {
     pub span: Span,
 }
 
+/// A list as an `Arc<[T]>`, allocating nothing for an empty one: most
+/// functions have no generics.
+pub fn shared<T>(v: Vec<T>) -> std::sync::Arc<[T]> {
+    if v.is_empty() {
+        std::sync::Arc::default()
+    } else {
+        v.into()
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct FnInfo {
     pub name: String,
     pub module: ModuleId,
-    pub generics: Vec<GenericInfo>,
+    /// Shared, so checking the body holds them without copying them out of
+    /// the tables it is about to borrow mutably. Built with [`shared`].
+    pub generics: std::sync::Arc<[GenericInfo]>,
     pub params: Vec<ParamInfo>,
     pub ret: Ty,
     pub exported: bool,

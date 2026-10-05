@@ -838,7 +838,7 @@ impl<'a> Checker<'a> {
                 // A *method's* own generics are supported and shipping —
                 // `Show.show<C: Allocator>`, `Ui.memo<T>` — and are what a trait
                 // parameter would have been used for.
-                let generics = self.generic_shells(module, t.list(d.generics));
+                let generics: Vec<GenericInfo> = self.generic_shells(module, t.list(d.generics));
                 if let Some(first) = generics.first() {
                     let at = generics.iter().fold(first.span, |acc, g| acc.to(g.span));
                     let name = t.name(d.name).to_string();
@@ -856,7 +856,14 @@ impl<'a> Checker<'a> {
                 self.declare(module, d.name, Sym::Trait(id), d.exported);
             }
             tree::Item::Fn(d) => {
-                let generics = self.generic_shells(module, t.list(d.generics));
+                // Built as the `Arc` the declaration keeps, and nothing at all
+                // for a function with no generics, which is most of them.
+                let written = t.list(d.generics);
+                let generics = if written.is_empty() {
+                    std::sync::Arc::default()
+                } else {
+                    self.generic_shells(module, written)
+                };
                 let id = self.tables.add_fn(FnInfo {
                     name: t.name(d.name).to_string(),
                     module,
@@ -935,7 +942,11 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn generic_shells(&mut self, module: ModuleId, params: &[tree::GenericParam]) -> Vec<GenericInfo> {
+    fn generic_shells<C: FromIterator<GenericInfo>>(
+        &mut self,
+        module: ModuleId,
+        params: &[tree::GenericParam],
+    ) -> C {
         let t = self.tree(module);
         params
             .iter()
@@ -1417,7 +1428,15 @@ impl<'a> Checker<'a> {
         fid: FnId,
         d: &tree::FnDecl,
     ) {
-        let generics = self.elaborate_generics(module, self.tree(module).list(d.generics));
+        // The shells `collect_item` named are completed in place: only their
+        // bounds were missing.
+        let mut generics = std::mem::take(&mut self.tables.fn_info_mut(fid).generics);
+        let written = self.tree(module).list(d.generics);
+        if !written.is_empty() {
+            for (g, p) in std::sync::Arc::make_mut(&mut generics).iter_mut().zip(written) {
+                g.bounds = self.bounds_of(module, p);
+            }
+        }
         let params = self.elaborate_params(module, &generics, self.tree(module).list(d.params));
         let ret = self.elaborate(module, &generics, d.ret);
         // A method is declared inside an `impl` block for its type, so a
@@ -1933,46 +1952,43 @@ impl<'a> Checker<'a> {
         params: &[tree::GenericParam],
     ) -> Vec<GenericInfo> {
         let t = self.tree(module);
-        let mut out: Vec<GenericInfo> = Vec::with_capacity(params.len());
-        for p in params {
-            out.push(GenericInfo {
+        params
+            .iter()
+            .map(|p| GenericInfo {
                 name: t.name(p.name).to_string(),
-                bounds: Vec::new(),
+                bounds: self.bounds_of(module, p),
                 span: p.span,
-            });
-        }
-        // Bounds may mention earlier parameters, so resolve them after the
-        // names exist.
-        let mut resolved: Vec<Vec<TraitId>> = Vec::with_capacity(params.len());
-        for p in params {
-            let mut bounds = Vec::new();
-            for b in t.type_list(p.bounds) {
-                match self.resolve_trait(module, *b) {
-                    Some(id) => bounds.push(id),
-                    None => {
-                        // `T: ns.Name` with no `Name` in `ns` is a missing
-                        // member, not a name that is "not a trait": the module
-                        // has no such thing to be one.
-                        if self.namespace_member_missing_in(module, *b) {
-                            continue;
-                        }
-                        let shown = t.type_head(*b).unwrap_or("?").to_string();
-                        let at = t.type_span(*b);
-                        let d = self.templated("bound-not-trait", at).bind("name", shown.clone());
-                        d.fix(format!(
-                            "name a declared trait or effect, or declare `{shown}` as one"
-                        ));
-                        d.notes
-                            .push("a bound names a declared trait; there are no where clauses".into());
+            })
+            .collect()
+    }
+
+    /// The traits a generic parameter is bounded by. A bound names a trait,
+    /// never another parameter, so this needs no parameter in scope.
+    fn bounds_of(&mut self, module: ModuleId, p: &tree::GenericParam) -> Vec<TraitId> {
+        let t = self.tree(module);
+        let mut bounds = Vec::new();
+        for b in t.type_list(p.bounds) {
+            match self.resolve_trait(module, *b) {
+                Some(id) => bounds.push(id),
+                None => {
+                    // `T: ns.Name` with no `Name` in `ns` is a missing
+                    // member, not a name that is "not a trait": the module
+                    // has no such thing to be one.
+                    if self.namespace_member_missing_in(module, *b) {
+                        continue;
                     }
+                    let shown = t.type_head(*b).unwrap_or("?").to_string();
+                    let at = t.type_span(*b);
+                    let d = self.templated("bound-not-trait", at).bind("name", shown.clone());
+                    d.fix(format!(
+                        "name a declared trait or effect, or declare `{shown}` as one"
+                    ));
+                    d.notes
+                        .push("a bound names a declared trait; there are no where clauses".into());
                 }
             }
-            resolved.push(bounds);
         }
-        for (g, bounds) in out.iter_mut().zip(resolved) {
-            g.bounds = bounds;
-        }
-        out
+        bounds
     }
 
     fn resolve_trait(&mut self, module: ModuleId, id: TypeId) -> Option<TraitId> {
@@ -2662,7 +2678,7 @@ impl<'a> Checker<'a> {
             let fid = self.tables.add_fn(FnInfo {
                 name: mname.to_string(),
                 module,
-                generics: g,
+                generics: shared(g),
                 params,
                 ret,
                 exported: true,
@@ -2860,7 +2876,7 @@ impl<'a> Checker<'a> {
             let fid = self.tables.add_fn(FnInfo {
                 name: mname.to_string(),
                 module,
-                generics: g,
+                generics: shared(g),
                 params,
                 ret,
                 exported: method.exported,

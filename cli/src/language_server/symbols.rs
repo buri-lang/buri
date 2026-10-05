@@ -507,11 +507,11 @@ pub fn signature(analyzed: &Analyzed, symbol: &Symbol) -> Option<Signature> {
     let (generics, params, ret, written) = match symbol {
         Symbol::Function(id) => {
             let info = tables.fn_info(*id);
-            (&info.generics, &info.params, &info.ret, info.name.clone())
+            (&*info.generics, &info.params, &info.ret, info.name.clone())
         }
         Symbol::TraitMethod { trait_id, method } => {
             let m = tables.trait_(*trait_id).methods.get(*method)?;
-            (&m.generics, &m.params, &m.ret, m.name.clone())
+            (m.generics.as_slice(), &m.params, &m.ret, m.name.clone())
         }
         _ => return None,
     };
