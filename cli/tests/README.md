@@ -532,16 +532,15 @@ cargo clippy -p buri --all-targets --features backend-llvm
 second clippy. On a quiet ten-core M-series mac it is 122 s warm and 176 s after
 a `cli/src` edit, which is the column that matters because it is the loop.
 
-**That number is stale, and the first line alone is over budget.** It takes
-about 440 s on a ten-core mac, and the machine is under 3% idle for the whole of
-it. So it's bound by processor time, not by how the tests are scheduled: about
-3,100 CPU-seconds, which can't fit in five minutes of ten cores. The biggest
-single cost is `recovery::a_syntax_error_does_not_become_a_type_error`, about
-650 CPU-seconds, because each of its 5,200 analyses type-checks the whole
-standard library (`driver::analyze_snippet_on` calls `load_all_std`). After it
-come `build::repositories::snapshots` and the reject corpus, about 260 each, and
-the manifest ids, about 225. Getting under the line takes the compiler doing
-less work per case, not a different split. On a machine this busy, check
+**That number is stale, and the first line alone is over budget once it has
+to build.** With the tests already built, its nextest half took 277 s on
+2026-10-05, at load 26–81: 1,200 CPU-seconds, 842 user and 360 system. It's
+bound by processor time, not by how the tests are scheduled. Getting under the
+line takes the compiler doing less work per case, not a different split.
+`design/PERFORMANCE.md` §6.21 says where that work is: mostly the `buri`
+processes the tests start and the linker tools they call. The standard library
+isn't on that list. Every process checks it once and every analysis in it
+shares the result, which is 2% of the suite's CPU (§6.28). On a machine this busy, check
 whether a change did that by its instructions retired rather than its wall
 time: one run per side reads to within about 1% (`design/PERFORMANCE.md` §8).
 
