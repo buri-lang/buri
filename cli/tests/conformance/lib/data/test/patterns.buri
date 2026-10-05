@@ -459,6 +459,36 @@ test "a nested or-pattern covers an array element" {
     assert.equal(describe([true, false]), 3);
 }
 
+// A scrutinee whose payload type a lambda solved, rather than an annotation,
+// is covered the same way: `.None` and `.Some((n, text))` exhaust
+// `Option<(Int, Str)>` however the checker learned the tuple (issue #232).
+
+fn builtByMap(number: Option<Int>): Str {
+    match (number.map(fn(n) => (n, "built"))) {
+        .None => "none",
+        .Some((n, text)) => if (n > 0) { text } else { "zero" },
+    }
+}
+
+test "a tuple under .Some is covered when a lambda built it" {
+    assert.equal(builtByMap(.Some(3)), "built");
+    assert.equal(builtByMap(.Some(0)), "zero");
+    assert.equal(builtByMap(.None), "none");
+}
+
+test "a tuple under .Some is covered when andThen's lambda answered it" {
+    let describe = fn(number: Option<Int>) => {
+        match (number.andThen(fn(n) => if (n > 0) { .Some((n, true)) } else { .None })) {
+            .None => 0,
+            .Some((n, true)) => n,
+            .Some((_, false)) => -1,
+        }
+    };
+    assert.equal(describe(.Some(4)), 4);
+    assert.equal(describe(.Some(-4)), 0);
+    assert.equal(describe(.None), 0);
+}
+
 test "an or-pattern two constructors deep covers its sub-type" {
     let describe = fn(x: Option<Option<Bool>>) => {
         match (x) {
