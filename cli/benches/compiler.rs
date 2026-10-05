@@ -143,7 +143,7 @@ usage: compiler [flags]
   --calibrate            speed-of-light ceilings, before the table
   --alloc                allocations per line and per token (needs the
                          `alloc-counter` feature; noise-free)
-  --rss                  peak resident set size per phase, untimed
+  --rss                  peak RSS and instructions per phase, untimed
 
   --set=<name>           core | realistic | stress | native | saved | scale |
                          scale-full | full          (default: core)
