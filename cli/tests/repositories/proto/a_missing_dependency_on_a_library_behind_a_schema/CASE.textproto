@@ -13,7 +13,7 @@ run {
 
 edit {
   file: "apps/hello/BUILD.buri"
-  replace: "binary {\n}"
+  replace: "binary {}"
   with: "binary {\n    dependencies: [\"//libs/outer\"]\n}"
 }
 
