@@ -215,6 +215,7 @@ fn lower_one(
                 env: vec![None; f.locals.len()],
                 loops: Vec::new(),
                 unmatched: None,
+                slices: Vec::new(),
                 sites: Sites::of(fplan, f.body()),
                 node_values: HashMap::default(),
                 #[cfg(debug_assertions)]
@@ -536,6 +537,10 @@ struct FnLower<'a> {
     /// The shared block for a refutable pattern that matched nothing, built
     /// once per function and only where something needs it.
     unmatched: Option<BlockId>,
+    /// `..rest` slices a pattern has matched but not yet allocated: the
+    /// allocation waits until every test in the pattern has passed, so a test
+    /// that fails after one leaves no block behind ([`FnLower::matched`]).
+    slices: Vec<(LocalId, ValueId, usize)>,
     /// Where `middle::rc` wants an `incref` or a `decref`.
     sites: Sites,
     /// What each node evaluated to, for the sites that name a temporary
@@ -787,7 +792,7 @@ impl FnLower<'_> {
                     self.node_values.insert(n, v);
                 }
                 let fail = self.unmatched();
-                self.pattern(v, pattern, fail);
+                self.matched(v, pattern, fail);
                 if let Some(n) = node {
                     self.rc(n, rc::Position::After);
                 }
@@ -1668,7 +1673,7 @@ impl FnLower<'_> {
                     index: f.index as u32,
                 });
                 let fail = self.unmatched();
-                self.pattern(v, &f.pattern, fail);
+                self.matched(v, &f.pattern, fail);
             }
             let v = self.expr(body);
             self.set_term(Term::Jump(Target::new(join, vec![v])));
@@ -1679,7 +1684,7 @@ impl FnLower<'_> {
             if self.unmatched != Some(block) {
                 self.cur = block;
                 let fail = self.unmatched();
-                self.pattern(s, &arm.pattern, fail);
+                self.matched(s, &arm.pattern, fail);
                 let v = self.expr(&arm.body);
                 self.set_term(Term::Jump(Target::new(join, vec![v])));
             }
@@ -1693,7 +1698,7 @@ impl FnLower<'_> {
         for (i, arm) in arms.iter().enumerate() {
             let last = i.saturating_add(1) == arms.len();
             let next = if last { self.unmatched() } else { self.block(&[]) };
-            self.pattern(s, &arm.pattern, next);
+            self.matched(s, &arm.pattern, next);
             if let Some(g) = &arm.guard {
                 let c = self.expr(g);
                 let body_b = self.block(&[]);
@@ -1719,6 +1724,24 @@ impl FnLower<'_> {
             let v = self.expr(&arm.body);
             self.set_term(Term::Jump(Target::new(join, vec![v])));
             self.cur = next;
+        }
+    }
+
+    /// [`FnLower::pattern`], then the `..rest` slices it bound, once nothing
+    /// is left that can fail.
+    fn matched(&mut self, val: ValueId, pat: &Pattern, fail: BlockId) {
+        let outer = std::mem::take(&mut self.slices);
+        self.pattern(val, pat, fail);
+        self.slice_pending();
+        self.slices = outer;
+    }
+
+    fn slice_pending(&mut self) {
+        for (l, array, at) in std::mem::take(&mut self.slices) {
+            let ty = self.local_type(l);
+            let from = self.int(Type::I64, at);
+            let tail = self.emit(ty, |dest| Inst::ArraySlice { dest, array, from });
+            self.bind(l, tail);
         }
     }
 
@@ -1834,14 +1857,7 @@ impl FnLower<'_> {
                     self.pattern(v, p, fail);
                 }
                 if let ArrayRest::Bound(l) = rest {
-                    let ty = self.local_type(*l);
-                    let from = self.int(Type::I64, elems.len());
-                    let tail = self.emit(ty, |dest| Inst::ArraySlice {
-                        dest,
-                        array: val,
-                        from,
-                    });
-                    self.bind(*l, tail);
+                    self.slices.push((*l, val, elems.len()));
                 }
             }
             // Alternatives bind the same names at the same types, and each
@@ -1875,7 +1891,10 @@ impl FnLower<'_> {
                 for (i, alt) in alts.iter().enumerate() {
                     let last = i.saturating_add(1) == alts.len();
                     let next = if last { fail } else { self.block(&[]) };
+                    let outer = std::mem::take(&mut self.slices);
                     self.pattern(val, alt, next);
+                    self.slice_pending();
+                    self.slices = outer;
                     let args: Vec<ValueId> = binds.iter().map(|b| self.read(*b)).collect();
                     self.set_term(Term::Jump(Target::new(merge, args)));
                     self.cur = next;
