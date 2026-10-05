@@ -471,7 +471,7 @@ fn cache_key(triple: &str, features: &[String], rustc: &str, cargo: &str) -> Str
 /// rather than a temp directory: a cache that vanished between builds would
 /// rebuild the runtime every time, which is exactly the cost the cache exists to
 /// avoid, and doing it silently would be worse than saying so.
-fn buri_home() -> Result<PathBuf, link_refusal::Refusal> {
+pub(crate) fn buri_home() -> Result<PathBuf, link_refusal::Refusal> {
     if let Some(home) = std::env::var_os("BURI_HOME") {
         return Ok(PathBuf::from(home));
     }
