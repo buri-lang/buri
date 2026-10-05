@@ -509,7 +509,7 @@ impl World {
                     }
                 }
             }
-            _ => unreachable!("a value that does not have its type: {v:?} : {ty:?}"),
+            _ => panic!("a value that does not have its type: {v:?} : {ty:?}"),
         }
     }
 }
@@ -586,7 +586,7 @@ impl World {
                         format!("{head}({})", items.join(", "))
                     }
                     VPat::Record(fields, rest) => {
-                        let Payload::Record(decl) = decl else { unreachable!() };
+                        let Payload::Record(decl) = decl else { panic!() };
                         let mut items: Vec<String> = fields
                             .iter()
                             .map(|(f, p)| format!("{}: {}", decl[*f].0, self.pat_text(p)))
@@ -661,13 +661,9 @@ fn bind(p: &Pat, v: &Val, env: &mut Vec<(String, Val)>) -> bool {
             let mut scratch = Vec::new();
             bind(p, v, &mut scratch)
         }),
-        (Pat::At(n, p), v) => {
-            if bind(p, v, env) {
-                env.push((n.clone(), v.clone()));
-                true
-            } else {
-                false
-            }
+        (Pat::At(n, p), v) if bind(p, v, env) => {
+            env.push((n.clone(), v.clone()));
+            true
         }
         _ => false,
     }
@@ -833,7 +829,7 @@ impl Patterns<'_> {
                 }
                 self.variant(rng, *e, *vi, xs, depth, binds)
             }
-            _ => unreachable!("a value that does not have its type: {v:?} : {ty:?}"),
+            _ => panic!("a value that does not have its type: {v:?} : {ty:?}"),
         }
     }
 
@@ -1040,7 +1036,7 @@ fn norm(w: &World, p: &Pat, ty: &Ty) -> Np {
                 _ => Np::C(Ct::AtLeast(ps.len()), args),
             }
         }
-        _ => unreachable!("a pattern that does not have its type: {p:?} : {ty:?}"),
+        _ => panic!("a pattern that does not have its type: {p:?} : {ty:?}"),
     }
 }
 
@@ -1070,7 +1066,7 @@ fn specialize(row: &[Np], c: &Ct, arity: usize) -> Option<Vec<Np>> {
             (hc, c) if hc == c => args.clone(),
             _ => return None,
         },
-        Np::Or(_) => unreachable!("or-patterns are expanded before a row is specialized"),
+        Np::Or(_) => panic!("or-patterns are expanded before a row is specialized"),
     };
     out.extend_from_slice(&row[1..]);
     Some(out)
@@ -1162,7 +1158,7 @@ fn useful(w: &World, rows: &[Vec<Np>], v: &[Np], tys: &[Ty]) -> bool {
                     (h, c) => *h == c,
                 })
             };
-            let all = all.filter(|all| all.iter().all(|c| named(c)));
+            let all = all.filter(|all| all.iter().all(named));
             match all {
                 Some(all) => all.iter().any(|c| {
                     let n = sub_tys(w, &tys[0], c).len();
@@ -1353,7 +1349,7 @@ fn atom(
             Guard::Cmp(IntE::Var(name), *rng.pick(OPS), rhs)
         }
         Ty::Str => {
-            let Val::Str(s) = lookup(env, &name).clone() else { unreachable!() };
+            let Val::Str(s) = lookup(env, &name).clone() else { panic!() };
             match rng.below(3) {
                 0 => {
                     let lit = if rng.percent(50) { s } else { rng.pick(STRS).to_string() };
@@ -1371,7 +1367,7 @@ fn atom(
             if rng.percent(50) {
                 Guard::Probe(name, "isEmpty", rng.percent(50))
             } else {
-                let Val::List(xs) = lookup(env, &name) else { unreachable!() };
+                let Val::List(xs) = lookup(env, &name) else { panic!() };
                 let k = xs.len() as i64;
                 Guard::Cmp(IntE::Len(name), *rng.pick(OPS), IntE::Lit(near(rng, k)))
             }
@@ -1492,7 +1488,7 @@ impl Match {
             let mut lets = String::new();
             if let Some((name, inner)) = &arm.nested {
                 let local = format!("{name}n");
-                let _ = write!(lets, "let {local} = {};\n", inner.text(w, name, "", &|s| s));
+                let _ = writeln!(lets, "let {local} = {};", inner.text(w, name, "", &|s| s));
                 let _ = write!(template, " ${{{local}}}");
             }
             for s in &arm.shows {
@@ -1560,7 +1556,7 @@ fn draw_match(
             let mut seen = rows.clone();
             for alt in alts {
                 let n = norm(w, alt, ty);
-                if useful(w, &seen, &[n.clone()], std::slice::from_ref(ty)) {
+                if useful(w, &seen, std::slice::from_ref(&n), std::slice::from_ref(ty)) {
                     seen.push(vec![n]);
                     kept.push(alt.clone());
                 }
@@ -1572,7 +1568,7 @@ fn draw_match(
             };
         }
         let n = norm(w, &a.pat, ty);
-        if !useful(w, &rows, &[n.clone()], std::slice::from_ref(ty)) {
+        if !useful(w, &rows, std::slice::from_ref(&n), std::slice::from_ref(ty)) {
             continue;
         }
         if a.guard.is_none() {
