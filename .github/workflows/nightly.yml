@@ -408,6 +408,7 @@ jobs:
 
       - if: needs.version.outputs.mode == 'release'
         name: commit + push to main
+        id: commit
         run: |
           set -euo pipefail
           v="${{ needs.version.outputs.version }}"
@@ -415,7 +416,29 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add cli/Cargo.toml Cargo.lock flake.nix Formula/buri.rb
           git commit -m "release: nightly v$v"
-          git push origin HEAD:main
+          # The release commit sits on exactly the commit the tarballs were
+          # built from, and the tag below names it. Main may have moved on while
+          # this ran (a push during the build), so it is merged into whatever
+          # main is now rather than pushed over it; a push that loses a race to
+          # another one fetches and merges again.
+          release=$(git rev-parse HEAD)
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          for attempt in 1 2 3 4 5; do
+            git fetch --quiet origin main
+            if git merge-base --is-ancestor FETCH_HEAD "$release"; then
+              target="$release"
+            else
+              git checkout --quiet --detach FETCH_HEAD
+              git merge --no-edit -m "Merge nightly v$v into main" "$release"
+              target=$(git rev-parse HEAD)
+            fi
+            if git push origin "$target:main"; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          echo "main kept moving; the release commit $release is not on main" >&2
+          exit 1
 
       - if: needs.version.outputs.mode == 'release'
         name: tag + prerelease with tarballs
@@ -427,6 +450,6 @@ jobs:
           gh release create "v$v" \
             --title "v$v" \
             --prerelease \
-            --target main \
+            --target "${{ steps.commit.outputs.release }}" \
             --notes "Nightly release v$v" \
             artifacts/buri-"$v"-*.tar.gz
