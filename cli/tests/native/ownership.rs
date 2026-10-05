@@ -259,3 +259,36 @@ export fn main(host: NativeHost): Result<(), Str> {
         assert_eq!(live, 0, "{backend}: blocks still live at exit");
     }
 }
+
+/// A `..rest` binding followed by a test that fails, in the same pattern: the
+/// match moves on to the next arm having allocated nothing it keeps.
+#[test]
+fn a_rest_binding_before_a_failing_test_leaves_nothing_behind() {
+    let source = r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+fn pick(p: ([Str], Str)): Str {
+  match (p) {
+    ([_, ..rest], "x") => "x",
+    ([first, ..rest], _) => first,
+    _ => "other",
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let items = list.empty<Str>().push(ctx, "a").push(ctx, "b").push(ctx, "c");
+  let line = "${pick((items, "y"))} ${pick((items, "x"))} ${pick((list.empty<Str>(), "y"))}";
+  let _ = io.println(host.stdout, line).ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("rest-then-test", source) {
+        assert_eq!(r.stdout, "a x other\n", "{backend}: {}", r.stderr);
+        assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
+        let (_, live) = probed(&r.stderr);
+        assert_eq!(live, 0, "{backend}: blocks still live at exit");
+    }
+}
