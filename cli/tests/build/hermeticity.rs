@@ -410,6 +410,171 @@ fn the_toolchain_is_named_by_its_linker_id() {
     nowhere.run(&["version", "--verbose"]).ok().says(&format!("this executable: {named}\n"));
 }
 
+// ---------------------------------------------------------------------------
+// The C toolchain's identity, asked once per toolchain rather than per process
+// ---------------------------------------------------------------------------
+
+/// The real C driver, as an absolute path: `CC`, or `cc`, found on `PATH`.
+#[cfg(unix)]
+fn real_c_driver() -> String {
+    let name = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
+    if name.contains('/') {
+        return name;
+    }
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(&name))
+        .find(|p| p.is_file())
+        .map_or(name, |p| p.display().to_string())
+}
+
+/// Writes `bin/cc` into `scratch`: a C driver that appends each command line
+/// it is given to `log`, plus `padding`, then runs the real one.
+#[cfg(unix)]
+fn counting_driver(scratch: &Scratch, log: &Path, padding: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    let driver = scratch.write(
+        "bin/cc",
+        &format!(
+            "#!/bin/sh\n{padding}printf '%s\\n' \"$*\" >> '{log}'\nexec '{real}' \"$@\"\n",
+            log = log.display(),
+            real = real_c_driver(),
+        ),
+    );
+    std::fs::set_permissions(&driver, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// The environment that puts `bin/cc` first on `PATH` as the driver, with a
+/// home for `buri`'s own files inside the scratch repository.
+#[cfg(unix)]
+fn driver_env(scratch: &Scratch) -> Vec<(String, String)> {
+    let path = std::env::var("PATH").unwrap_or_default();
+    vec![
+        ("PATH".into(), format!("{}:{path}", scratch.path("bin").display())),
+        ("CC".into(), "cc".into()),
+        ("BURI_HOME".into(), scratch.path("home").display().to_string()),
+    ]
+}
+
+/// One test package whose library returns `n`.
+#[cfg(unix)]
+fn one_suite(scratch: &Scratch, n: i64) {
+    scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
+    scratch.write("lib/a/lib.buri", &format!("export fn one(): Int {{ {n} }}\n"));
+    scratch.write(
+        "lib/a/test/a.buri",
+        &format!(
+            "from \"//lib/a\" import {{ one }};\n\
+             from \"core/testing/assert\" import * as assert;\n\
+             \ntest \"one\" {{ assert.equal(one(), {n}); }}\n"
+        ),
+    );
+}
+
+/// `buri test //lib/a` with the counting driver. `None` where this host cannot
+/// run a native suite.
+#[cfg(unix)]
+fn test_with_driver(scratch: &Scratch, env: &[(String, String)]) -> Option<()> {
+    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let run = scratch.run_with_env(&["test", "//lib/a"], &env);
+    if run.stderr.contains("native-run-not-available") || run.stderr.contains("test-run-unavailable") {
+        return None;
+    }
+    run.ok();
+    assert_eq!(run.tests_passed(), 1, "{}", indent(&run.all()));
+    Some(())
+}
+
+#[cfg(unix)]
+fn count(log: &Path, needle: &str) -> usize {
+    std::fs::read_to_string(log).unwrap_or_default().lines().filter(|l| l.contains(needle)).count()
+}
+
+/// The C driver's version is asked once per toolchain, not once per `buri`
+/// process, and asked again when the driver changes.
+///
+/// The link key holds the driver's `--version` banner, so that two toolchains
+/// never share a linked executable. Asking for it costs a process or two per
+/// `buri` run. The answer is kept on disk now, so a second process does not ask,
+/// while a driver replaced on disk is asked again: once with the same bytes
+/// written anew, and once with different bytes.
+#[cfg(unix)]
+#[test]
+fn the_c_drivers_version_is_asked_once_per_toolchain() {
+    let scratch = Scratch::repo("linker-version-remembered");
+    let log = scratch.path("driver-calls");
+    counting_driver(&scratch, &log, "");
+    let env = driver_env(&scratch);
+
+    one_suite(&scratch, 1);
+    if test_with_driver(&scratch, &env).is_none() {
+        crate::harness::ci::skipped("build", "this toolchain cannot run a suite on its own host");
+        return;
+    }
+    let asked = count(&log, "--version");
+    assert_eq!(asked, 1, "the first run asked the driver's version {asked} times");
+
+    // A second process, with a link of its own to key.
+    one_suite(&scratch, 2);
+    test_with_driver(&scratch, &env).expect("the second run ran where the first did");
+    let asked = count(&log, "--version");
+    assert_eq!(asked, 1, "a second process asked the driver's version again");
+
+    // The same driver written again: its time moves, so it is asked again.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    counting_driver(&scratch, &log, "");
+    one_suite(&scratch, 3);
+    test_with_driver(&scratch, &env).expect("the third run ran where the first did");
+    let asked = count(&log, "--version");
+    assert_eq!(asked, 2, "a driver written anew was not asked its version again");
+
+    // A different driver: its size moves.
+    counting_driver(&scratch, &log, "# a different driver\n");
+    one_suite(&scratch, 4);
+    test_with_driver(&scratch, &env).expect("the fourth run ran where the first did");
+    let asked = count(&log, "--version");
+    assert_eq!(asked, 3, "a different driver was not asked its version");
+}
+
+/// A second repository links without starting the C driver.
+///
+/// The driver is asked once, with `-###`, what linker command it would run,
+/// and later links run that command themselves
+/// (`monorepo::links_after_the_first_do_not_start_the_c_driver`). The answer
+/// is a fact about the toolchain rather than the repository, so a fresh
+/// repository on the same toolchain uses it too.
+///
+/// gcc prints a command that cannot be replayed, so this is a clang's claim.
+#[cfg(unix)]
+#[test]
+fn a_second_repository_links_without_starting_the_c_driver() {
+    let banner = std::process::Command::new(real_c_driver()).arg("--version").output();
+    if !banner.is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains("clang"))
+        && crate::harness::ci::skipped("build", "the C driver is not a clang")
+    {
+        return;
+    }
+    let first = Scratch::repo("link-replay-first-repository");
+    let log = first.path("driver-calls");
+    counting_driver(&first, &log, "");
+    let env = driver_env(&first);
+    one_suite(&first, 1);
+    if test_with_driver(&first, &env).is_none() {
+        crate::harness::ci::skipped("build", "this toolchain cannot run a suite on its own host");
+        return;
+    }
+
+    let second = Scratch::repo("link-replay-second-repository");
+    one_suite(&second, 2);
+    test_with_driver(&second, &env).expect("the second repository ran where the first did");
+
+    let calls = std::fs::read_to_string(&log).unwrap_or_default();
+    let asked = count(&log, &format!("-{}", "###"));
+    let linked = calls.lines().filter(|l| !l.contains("###") && l.contains("-o artifact")).count();
+    assert_eq!(asked, 1, "the driver was asked what it would run {asked} times:\n{calls}");
+    assert_eq!(linked, 0, "two links started the C driver {linked} times:\n{calls}");
+}
+
 fn walk(dir: &Path, f: &mut dyn FnMut(&Path)) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for e in entries.filter_map(Result::ok) {
