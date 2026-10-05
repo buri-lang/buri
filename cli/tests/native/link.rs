@@ -292,6 +292,80 @@ fn two_links_of_one_set_of_objects_agree_byte_for_byte() {
     }
 }
 
+/// Links of one key at the same moment each work in a directory of their own.
+///
+/// Two targets of one suite can have the same link key, and `buri test` links
+/// on a pool of threads. While they shared `.buri/link/<key>`, one link's
+/// staging removed and renamed files under another's driver, and claimed the
+/// same `artifact.<pid>`: "cannot write …/core_bits.o", "cannot run cc" and
+/// "the link produced no …/artifact", each now and then.
+///
+/// What says the directories were private is checked rather than raced for:
+/// every link hands back a file of its own, whatever the timing was. And the
+/// shared directory is still the record afterwards, with nothing left beside
+/// it once the links' files have been taken.
+#[test]
+fn concurrent_links_of_one_key_each_have_a_directory_of_their_own() {
+    let Some(target) = linkable() else {
+        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        return;
+    };
+    let dir = workspace("concurrent");
+    let units = vec![emit(&dir, "lib_answer", &library(9)), emit(&dir, "main", MAIN)];
+    let cache = Cache::open(&dir);
+    let linker = link::select(target).unwrap().in_dir(dir.join("link")).from_cache(cache);
+    let rows = rows(&units, &[false, false]);
+
+    const LINKS: usize = 12;
+    let start = std::sync::Barrier::new(LINKS);
+    let linked: Vec<(PathBuf, Result<link::Staged, String>)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..LINKS)
+            .map(|n| {
+                let (units, rows, linker, start, dir) = (&units, &rows, &linker, &start, &dir);
+                scope.spawn(move || {
+                    let out = dir.join(format!("app-{n}"));
+                    start.wait();
+                    let staged = link::run(units, rows, linker, &out, &options(target)).map_err(|d| {
+                        d.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n")
+                    });
+                    (out, staged)
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+
+    let mut claimed = std::collections::BTreeSet::new();
+    for (out, staged) in &linked {
+        let staged = staged.as_ref().unwrap_or_else(|e| panic!("a concurrent link failed:\n{e}"));
+        assert!(
+            claimed.insert(staged.path().to_path_buf()),
+            "two concurrent links handed back the same file, {}",
+            staged.path().display()
+        );
+        // One program, run once: every other output is held to its bytes,
+        // because macOS assesses each new executable on its first launch.
+        assert_eq!(
+            std::fs::read(out).unwrap(),
+            std::fs::read(&linked[0].0).unwrap(),
+            "{} is not the program the first link wrote",
+            out.display()
+        );
+    }
+    let ran = crate::shared::run_artifact(&linked[0].0);
+    assert_eq!(String::from_utf8_lossy(&ran.stdout), "answer=9\n");
+    drop(linked);
+
+    assert!(dir.join("link/manifest").exists(), "no link left its record");
+    let mut left: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| !name.starts_with("app-") && !name.contains(".built.o") && !name.ends_with(".c"))
+        .collect();
+    left.sort();
+    assert_eq!(left, [".buri", "link"], "the links left their own directories behind");
+}
+
 /// An unchanged unit's object is not rewritten. "Swap only the object files
 /// that changed" is delivered above the linker rather than inside it — no
 /// shipping linker links incrementally — and this is the whole of what the
