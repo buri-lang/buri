@@ -11,8 +11,8 @@ name: Nightly
 #
 # WHAT RUNS WHEN, AND WHY IT IS SAFE ON A FEATURE BRANCH:
 #
-#   * `schedule` — 6:11am US Pacific. GitHub cron is UTC and cannot do DST, so
-#     this is 6:11am PDT / 5:11am PST year-round; `11 13 * * *` is 6:11am PDT. GitHub only ever
+#   * `schedule` — 2:11am US Pacific. GitHub cron is UTC and cannot do DST, so
+#     this is 2:11am PDT / 1:11am PST year-round; `11 9 * * *` is 2:11am PDT. GitHub only ever
 #     fires a `schedule` from the repository's DEFAULT branch, so this trigger is
 #     inert until the file is merged to main — which is the go-live step.
 #   * `workflow_dispatch` — a manual run, defaulting to the safe `dry_run` mode.
@@ -30,12 +30,13 @@ name: Nightly
 
 on:
   schedule:
-    # 11 13 * * * UTC = 6:11am PDT / 5:11am PST. GitHub cron has no DST; this is
-    # fixed to PDT. Minute 11 rather than 0: GitHub delays a schedule when Actions
-    # is busy, and the top of the hour is when every other schedule fires (runs at
-    # minute 0 started four to five hours late). Fires only from the default
-    # branch (see header).
-    - cron: "11 13 * * *"
+    # 11 9 * * * UTC = 2:11am PDT / 1:11am PST. GitHub cron has no DST; this is
+    # fixed to PDT. GitHub delays a schedule when Actions is busy (runs set for
+    # 6am started four to five hours late), so it is set early enough to publish
+    # by the morning even then, and at minute 11 rather than 0, away from the
+    # top of the hour when every other schedule fires. Fires only from the
+    # default branch (see header).
+    - cron: "11 9 * * *"
   workflow_dispatch:
     inputs:
       mode:
