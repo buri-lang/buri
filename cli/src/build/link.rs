@@ -146,6 +146,12 @@
 //!                                       path that uses it
 //! ```
 //!
+//! A link writes these into a directory of its own,
+//! `.buri/link/<link-key>.<process>.<n>`, and renames that over
+//! `<link-key>/` when it is done ([`run`]). Two links of one key at once never
+//! write into one directory, so `<link-key>/` is always some link's whole
+//! record.
+//!
 //! The archive's last line is a decision rather than a constant:
 //! [`runtime_archive_for`] asks the objects whether any of them names a
 //! `buri_rt_*` symbol, and the answer both gates the file and enters the `link`
@@ -488,6 +494,7 @@ impl Flavour {
 /// `CDriver` that would differ by a single argument: what varies is one flag
 /// and one probe, and three structs whose `link` bodies were copies of each
 /// other would be three places for a platform flag to be fixed in two of them.
+#[derive(Clone)]
 pub struct CDriver {
     /// `.buri/link/<link-key>`: where the objects and the archive are written.
     dir: PathBuf,
@@ -1399,18 +1406,35 @@ impl CDriver {
 
     /// Where a finished link's bytes are kept until something takes them.
     ///
-    /// The driver writes `artifact`, under a name every process linking this
-    /// key shares (the directory is the key), and a successful link
-    /// immediately renames that to this — a name carrying *this* process's id,
-    /// so the file the caller is then handed cannot be truncated out from
-    /// under it by a second build of the same key.
+    /// The driver writes `artifact`, and a successful link immediately renames
+    /// that to this: a file beside the directory rather than in it, because
+    /// [`run`] links in a directory of its own and then puts that directory
+    /// where the shared one was ([`publish`]), which would take the file with
+    /// it.
     ///
     /// Not the driver's `-o` argument, deliberately: the driver is given the
     /// relative name `artifact` because a name that varies is a name that
     /// could vary the bytes, and ARCHITECTURE.md §7's byte-for-byte rebuild
     /// check is a promise this file does not test its luck against.
     fn claimed(&self) -> PathBuf {
-        self.dir.join(format!("artifact.{}", std::process::id()))
+        let mut name = self.dir.file_name().unwrap_or_default().to_os_string();
+        name.push(".artifact");
+        self.dir.with_file_name(name)
+    }
+
+    /// The same driver, working in a directory no other link uses:
+    /// `<link-key>.<process>.<n>`, beside the shared one.
+    ///
+    /// Two links of one key at once are ordinary — two targets of a suite can
+    /// share a key, and `buri test` links on a pool of threads — and in one
+    /// shared directory each removed and renamed files the other's driver was
+    /// reading, and both claimed the same `artifact`.
+    fn private(&self) -> CDriver {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut name = self.dir.file_name().unwrap_or_default().to_os_string();
+        name.push(format!(".{}.{n}", std::process::id()));
+        CDriver { dir: self.dir.with_file_name(name), ..self.clone() }
     }
 
     /// Which libc this link will answer with.
@@ -2449,6 +2473,11 @@ fn command_line(command: &Command) -> String {
 /// record and not the linker's input — a linker that ignored `unchanged`
 /// entirely would still owe the reader a manifest, and `--explain`'s per-unit
 /// lines come from these rows rather than from anything a linker returns.
+///
+/// The link runs in a directory of its own ([`CDriver::private`]), which then
+/// takes the shared directory's place ([`publish`]). So `linker.dir()` is
+/// still where the last link's manifest and objects are, and no two links ever
+/// write into one directory.
 pub fn run(
     units: &[Emitted],
     rows: &[Row],
@@ -2456,16 +2485,51 @@ pub fn run(
     out: &Path,
     opts: &LinkOptions<'_>,
 ) -> Result<Staged, Diagnostics> {
-    let _ = std::fs::create_dir_all(linker.dir());
-    let _ = std::fs::write(linker.dir().join("manifest"), manifest_text(rows));
+    let work = linker.private();
+    // A directory a killed process of the same id left behind.
+    let _ = std::fs::remove_dir_all(work.dir());
+    let _ = std::fs::create_dir_all(work.dir());
+    let _ = std::fs::write(work.dir().join("manifest"), manifest_text(rows));
     let unchanged: Vec<usize> =
         rows.iter().enumerate().filter(|(_, r)| r.cached).map(|(i, _)| i).collect();
-    linker.link(units, &unchanged, out, opts)?;
-    // The bytes are at `out` and they are also still in the link directory,
-    // where the caller can move them from rather than write them again. A
-    // caller that does not is a caller that drops this, and dropping it is
-    // what removes the file — see [`Staged`].
-    Ok(Staged { path: linker.claimed() })
+    // An unchanged object the last link left is the same file again, so the
+    // link's own check finds it there rather than writing the bytes anew.
+    for unit in unchanged.iter().filter_map(|&i| units.get(i)) {
+        if let (Some(prior), Some(path)) = (linker.object_path(&unit.name), work.object_path(&unit.name)) {
+            let _ = std::fs::hard_link(prior, path);
+        }
+    }
+    let linked = work.link(units, &unchanged, out, opts);
+    publish(work.dir(), linker.dir());
+    if let Err(mut diagnostics) = linked {
+        // What a failure names is the directory a reader can still `cd` into.
+        let (from, to) = (work.dir().display().to_string(), linker.dir().display().to_string());
+        for d in &mut diagnostics.items {
+            d.message = d.message.replace(&from, &to);
+            for note in &mut d.notes {
+                *note = note.replace(&from, &to);
+            }
+        }
+        return Err(diagnostics);
+    }
+    // The bytes are at `out` and they are also still beside the link
+    // directory, where the caller can move them from rather than write them
+    // again. A caller that does not is a caller that drops this, and dropping
+    // it is what removes the file — see [`Staged`].
+    Ok(Staged { path: work.claimed() })
+}
+
+/// Puts a finished link's directory where the shared one is, or drops it.
+///
+/// Whatever was there is removed first; nothing works in a shared directory,
+/// so nothing is reading it. Of two links publishing at once one rename wins
+/// and the other finds the place taken, and that one's directory goes: either
+/// is a true record of a link of this key.
+fn publish(work: &Path, shared: &Path) {
+    let _ = std::fs::remove_dir_all(shared);
+    if std::fs::rename(work, shared).is_err() {
+        let _ = std::fs::remove_dir_all(work);
+    }
 }
 
 #[cfg(test)]
