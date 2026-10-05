@@ -1,4 +1,3 @@
 # Imports //libs/outer without naming it here. //libs/outer depends on
 # //libs/inner, which imports the module its `proto` generator writes.
-binary {
-}
+binary {}
