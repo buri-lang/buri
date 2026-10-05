@@ -1,7 +1,7 @@
 ---
 title: A payload pattern matches the values the variant holds
 message: '`{name}` holds {expected}, but the pattern matches {matched}'
-fix: match exactly {expected}, or end the pattern with `..`
+fix: match exactly {expected}, with `_` for any the arm does not need
 ---
 
 ```buri fail code=payload-pattern-count

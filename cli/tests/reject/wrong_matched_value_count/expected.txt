@@ -6,4 +6,4 @@ error: `Circle` holds 2 values, but the pattern matches 1 value [payload-pattern
   |
   = expected: 2
   = actual: 1
-  = fix: match exactly 2 values, or end the pattern with `..`
+  = fix: match exactly 2 values, with `_` for any the arm does not need
