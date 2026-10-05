@@ -2627,6 +2627,104 @@ swung by 100 s, so that's below what these runs can show.
   both build scripts share, or copying 300 lines. A stale key here ships wrong
   machine code, and the win is cold builds only, so it's left for now.
 
+### 6.22 Front-end data structures, 2026-10-05
+
+A profile of `mixed-100k` put 30% of the active samples in checking inside
+`malloc` and `free`, and spread the rest thin. So this round went after
+allocations, one site at a time, ranked by a sampling allocator.
+
+| Change | Commit | `mixed-100k` sema instructions | sema allocations |
+|---|---|---:|---:|
+| `main` at `a0dfb178` | | 639.3 M | 947,084 |
+| Inference keeps its substitution and scope lists on the checker between bodies | `f74252fb` | 612.9 M (−4.1%) | 874,947 |
+| A body's parameters are read in place, each name copied once | `26183ca0` | 599.2 M (−1.8%) | 846,002 |
+| Payload patterns read the declared fields in place instead of copying the variant | `b092b603` | 589.9 M (−1.4%) | 820,178 |
+| Call arguments go straight into the list holding the receiver; blocks size their statements | `3312883c` | 575.1 M (−2.4%) | 794,559 |
+| Exhaustiveness column types are a `Vec<Ty>`, not a `Vec<Cow<Ty>>` built from a second `Vec` | `225662e7` | 572.0 M (−0.8%) | 779,366 |
+| An exhaustiveness matrix keeps its rows end to end in one list | `325a96b8` | 565.0 M (−1.3%) | 748,389 |
+| `check_derives` and `check_entry_point` copy a name only to report it | `344456d7` | 548.9 M (−2.8%) | 715,615 |
+| A call's parameter types borrow a spare list from the body | `40046bcd` | 543.7 M (−0.9%) | 692,812 |
+| `SourceFile::new` finds line starts with `memchr` | `15da63c5` | 534.9 M (−1.6%) | |
+| Pending bounds, literal checks and pattern names reuse the body's lists | `f50b5d29` | 516.5 M (−3.2%) | 645,484 |
+| `FnInfo::generics` is an `Arc<[GenericInfo]>`, completed in place | `75d4dd24` | 502.7 M (−2.8%) | 604,472 |
+
+Instructions are a `sema` child minus a `lex+parse` child, each running its
+phase ten times in one process and divided by ten, so the corpus generator and
+the one-off standard library snapshot drop out. The minimum of two alternating
+runs per side; load ran 25–110. Allocations are one repetition through the
+counting allocator, loading included. Each row is measured against the row
+above it.
+
+Most rows are the same move: a list that lived for one body or one call now
+lives on the checker and gets cleared instead of dropped.
+
+```rust
+pub(crate) struct Scratch<'b> {        // inference.rs, on Checker
+    subst: Subst,
+    scopes: Vec<(u64, LocalId)>,
+    ty_lists: Vec<Vec<Ty>>,            // one per level of call nesting
+    lit_checks: Vec<LitCheck<'b>>,
+    ..
+}
+impl Drop for Infer<'_, '_> { .. }     // clears each list and hands it back
+```
+
+The matrix change is struct-of-arrays in miniature. Every row of a matrix has
+the same width, so a row is a slice of one `Vec<&Pat>` and specializing a
+matrix is one allocation instead of one per row.
+
+`check_derives` was the surprise. It listed every component of every derived
+type, with a `format!` per enum field for a name only a diagnostic reads, four
+times for a type deriving four traits.
+
+One change landed in `syntax`: a file's string literals keep their cooked text
+end to end in one `String`, in the lexer and in the tree, instead of a `String`
+each (`8feca4d4`). Lex+parse allocations fell 10.6% on `mixed-100k` and 28% on
+`string-heavy-100k`. Instructions moved only where strings are dense:
+`string-heavy-100k` lex+parse fell 2.1–2.7%, `mixed-100k` stayed within noise.
+
+| End to end, `main` against all of it | before | after |
+|---|---:|---:|
+| `mixed-100k` sema instructions, per repetition | 637.6 M | 503.2 M (−21%) |
+| `match-heavy-100k` | 695.3 M | 571.7 M (−18%) |
+| `generic-blowup-100k` | 653.9 M | 516.4 M (−21%) |
+| `string-heavy-100k` | 627.7 M | 498.9 M (−21%) |
+| `saved:mixed-10k` | 89.4 M | 72.1 M (−19%) |
+| `mixed-100k` sema allocations | 947,084 | 604,472 (−36%) |
+| `string-heavy-100k` lex+parse allocations | 51,872 | 37,318 (−28%) |
+| `mixed-100k` peak RSS after `sema` | 109.7 MB | 100.2 MB (−8.7%) |
+| `generic-blowup-100k` peak RSS after `sema` | 121.9 MB | 109.5 MB (−10%) |
+| cold `buri lint //...` on the monorepo copy, instructions | 19.0–19.2 G | 17.9 G (−6%) |
+
+The lint's output is byte-identical, and the full suite passes unmodified.
+
+**Reverted.** Making `FnInfo::params` and `generics` `Arc<[_]>` while still
+building each list as a `Vec` first: the conversion's copy cost what the clone
+in `check_fn` had, so instructions moved 0.3% and allocations didn't. The
+version that landed builds the shells straight into the `Arc` and fills in the
+bounds in place.
+
+**How the ranking was taken.** A throwaway patch to the bench's counting
+allocator recorded a backtrace for every seventh allocation inside one phase,
+bucketed by the first frame in `crates/`, from a build with
+`CARGO_PROFILE_BENCH_DEBUG=line-tables-only`. Type sizes came from
+`RUSTC_BOOTSTRAP=1 cargo rustc -p buri-semantics --release -- -Zprint-type-sizes`.
+
+**What's left.** By allocation count, in `mixed-100k` sema:
+
+- `typed::Local::name` is a `String` per local, about 6%. Interning names
+  needs `middle` and the backends, which read it.
+- The typed tree's own lists: `vec![l, r]` per binary operator, a call's
+  arguments, its type arguments.
+- `resolve_scopes` copies each module's own names into `names` and then every
+  prelude name into it, about 3%. `names` is public and the language server
+  iterates it, so a layered lookup changes its readers too.
+- `declare` keys `own` and `exports` with a `String` each.
+- `typed::Expr` is 112 bytes with 16-byte alignment because
+  `ExprKind::Int` holds an `i128`. Storing it as two `u64`s takes `Expr` to
+  104 bytes and shrinks `Stmt` (208) and `Arm` (320) with it, but `middle`
+  matches on it.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

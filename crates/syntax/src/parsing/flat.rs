@@ -578,8 +578,12 @@ pub struct Tree {
     /// path rather than eight bytes on every node.
     ints: Vec<u128>,
     floats: Vec<f64>,
-    /// Cooked string and template text: the only owned text left in the tree.
-    strs: Vec<String>,
+    /// Cooked string and template text, end to end: the only owned text left
+    /// in the tree, and one allocation for the file rather than one per
+    /// literal.
+    cooked: String,
+    /// Where each literal's text sits in `cooked`.
+    strs: Vec<(u32, u32)>,
 
     // -- the declaration level ----------------------------------------------
     //
@@ -636,6 +640,7 @@ pub struct Mark {
     types: u32,
     ints: u32,
     floats: u32,
+    cooked: u32,
     strs: u32,
     generics: u32,
     params: u32,
@@ -691,6 +696,7 @@ impl Tree {
             types: Vec::with_capacity(per(1, 12)),
             ints: Vec::with_capacity(per(1, 28)),
             floats: Vec::new(),
+            cooked: String::new(),
             strs: Vec::with_capacity(per(1, 90)),
             generics: Vec::with_capacity(per(1, 90)),
             params: Vec::with_capacity(per(1, 40)),
@@ -896,7 +902,7 @@ impl Tree {
     /// every reader.
     pub fn part(&self, p: PartData) -> PartView<'_> {
         if p.hole == NONE {
-            PartView::Text(self.strs.get(p.text as usize).map_or("", String::as_str))
+            PartView::Text(self.str_at(p.text))
         } else {
             PartView::Hole(ExprId(p.hole))
         }
@@ -1014,7 +1020,7 @@ impl Tree {
                 span,
             },
             Kind::Str => ExprView::Str {
-                value: self.strs.get(p[0] as usize).map_or("", String::as_str),
+                value: self.str_at(p[0]),
                 span,
             },
             Kind::Char => {
@@ -1144,7 +1150,7 @@ impl Tree {
                 span,
             },
             PatternKind::LitStr => {
-                PatView::LitStr { value: self.strs.get(p[0] as usize).map_or("", String::as_str), span }
+                PatView::LitStr { value: self.str_at(p[0]), span }
             }
             PatternKind::LitChar => {
                 PatView::LitChar { value: char::from_u32(p[0]).unwrap_or('\u{0}'), span }
@@ -1319,9 +1325,20 @@ impl Tree {
         self.floats.len().saturating_sub(1) as u32
     }
 
-    pub fn push_str(&mut self, v: String) -> u32 {
-        self.strs.push(v);
+    pub fn push_str(&mut self, v: &str) -> u32 {
+        let start = u32::try_from(self.cooked.len()).unwrap_or(u32::MAX);
+        self.cooked.push_str(v);
+        let end = u32::try_from(self.cooked.len()).unwrap_or(u32::MAX);
+        self.strs.push((start, end));
         self.strs.len().saturating_sub(1) as u32
+    }
+
+    /// The cooked text [`Tree::push_str`] stored at `at`.
+    fn str_at(&self, at: u32) -> &str {
+        self.strs
+            .get(at as usize)
+            .and_then(|&(start, end)| self.cooked.get(start as usize..end as usize))
+            .unwrap_or("")
     }
 
     /// Append one element to a declaration's arena. A list is the run of
@@ -1389,6 +1406,7 @@ impl Tree {
             types: self.types.len() as u32,
             ints: self.ints.len() as u32,
             floats: self.floats.len() as u32,
+            cooked: self.cooked.len() as u32,
             strs: self.strs.len() as u32,
             generics: self.generics.len() as u32,
             params: self.params.len() as u32,
@@ -1432,6 +1450,7 @@ impl Tree {
         self.types.truncate(m.types as usize);
         self.ints.truncate(m.ints as usize);
         self.floats.truncate(m.floats as usize);
+        self.cooked.truncate(m.cooked as usize);
         self.strs.truncate(m.strs as usize);
         self.generics.truncate(m.generics as usize);
         self.params.truncate(m.params as usize);

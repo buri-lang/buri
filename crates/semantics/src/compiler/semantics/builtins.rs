@@ -103,7 +103,7 @@ impl<'a> Checker<'a> {
         let fid = self.tables.add_fn(FnInfo {
             name: "toJson".into(),
             module,
-            generics,
+            generics: shared(generics),
             params: vec![
                 ParamInfo {
                     name: "self".into(),
@@ -141,7 +141,7 @@ impl<'a> Checker<'a> {
         self.tables.add_fn(FnInfo {
             name: "fromJson".into(),
             module,
-            generics: Vec::new(),
+            generics: Default::default(),
             params: vec![ParamInfo {
                 name: "value".into(),
                 ty: json_ty,
@@ -223,7 +223,7 @@ impl<'a> Checker<'a> {
         let fid = self.tables.add_fn(FnInfo {
             name: name.to_string(),
             module,
-            generics: Vec::new(),
+            generics: Default::default(),
             params: infos,
             ret,
             exported: true,
@@ -379,7 +379,7 @@ impl<'a> Checker<'a> {
         let fid = self.tables.add_fn(FnInfo {
             name: "show".into(),
             module,
-            generics,
+            generics: shared(generics),
             params: vec![
                 ParamInfo {
                     name: "self".into(),
@@ -414,7 +414,7 @@ impl<'a> Checker<'a> {
         self.tables.add_fn(FnInfo {
             name: name.to_string(),
             module,
-            generics: Vec::new(),
+            generics: Default::default(),
             params: Vec::new(),
             ret,
             exported: true,

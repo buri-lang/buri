@@ -320,28 +320,34 @@ pub enum PatKind {
 impl Pattern {
     /// Every local this pattern binds.
     pub fn binds(&self, out: &mut Vec<LocalId>) {
+        self.each_bind(&mut |l| out.push(l));
+    }
+
+    /// Calls `f` with every local this pattern binds, in the order
+    /// [`Pattern::binds`] lists them, for a caller with no use for the list.
+    pub fn each_bind(&self, f: &mut impl FnMut(LocalId)) {
         match &self.kind {
             PatKind::Bind { local, sub } => {
-                out.push(*local);
+                f(*local);
                 if let Some(s) = sub {
-                    s.binds(out);
+                    s.each_bind(f);
                 }
             }
-            PatKind::Tuple(ps) => ps.iter().for_each(|p| p.binds(out)),
+            PatKind::Tuple(ps) => ps.iter().for_each(|p| p.each_bind(f)),
             PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => {
-                fields.iter().for_each(|f| f.pattern.binds(out))
+                fields.iter().for_each(|p| p.pattern.each_bind(f))
             }
             PatKind::Array { elems, rest } => {
-                elems.iter().for_each(|p| p.binds(out));
+                elems.iter().for_each(|p| p.each_bind(f));
                 if let ArrayRest::Bound(l) = rest {
-                    out.push(*l);
+                    f(*l);
                 }
             }
             // Alternatives bind identical names at identical types, so the
             // first is representative.
             PatKind::Or(alts) => {
-                if let Some(f) = alts.first() {
-                    f.binds(out)
+                if let Some(first) = alts.first() {
+                    first.each_bind(f)
                 }
             }
             _ => {}
