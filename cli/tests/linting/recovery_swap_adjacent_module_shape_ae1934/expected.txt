@@ -1,0 +1,9 @@
+error: expected an identifier, found `export` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_shape_ae1934/lib.buri:6:8
+  |
+6 | struct export Drawing {
+  |        ^^^^^^
+  |
+  = expected: an identifier
+  = actual: `export`
+  = fix: write `export` before `struct`

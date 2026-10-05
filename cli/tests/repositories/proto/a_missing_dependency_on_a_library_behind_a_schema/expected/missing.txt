@@ -1,0 +1,8 @@
+.buri/out/node/apps/hello/hello.mjs (N bytes)
+error: apps/hello/main.buri imports //libs/outer, which is not in dependencies [missing-dependency]
+ --> apps/hello/main.buri:4:6
+  |
+4 | from "//libs/outer" import { size };
+  |      ^^^^^^^^^^^^^^
+  |
+  = fix: add "//libs/outer" to dependencies in apps/hello/BUILD.buri — `buri gen //apps/hello` does this automatically

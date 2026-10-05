@@ -197,7 +197,7 @@ Every output names one platform: a bundled one, or a
 
 | Platform | What it builds |
 |---|---|
-| `"native"` | One executable. `variant` is required: `linux-arm64`, `linux-x86_64`, `macos-arm64` or `macos-x86_64`. |
+| `"native"` | One executable. `variant` is `linux-arm64`, `linux-x86_64`, `macos-arm64` or `macos-x86_64`, and the host's when omitted. |
 | `"node"` | One `.mjs` for node or bun. |
 | `"web"` | A page: `main.mjs`, `index.html`, and `main.css` when the page uses styles. |
 | `"//platform/<name>"` | One file per entry, named after it, plus the platform's `assets`. |
@@ -217,14 +217,10 @@ its own under `.buri/out/`, followed by the package path:
 `--output=native` builds every `native` one.
 
 A variant belongs to a platform's entry, and the platform says whether an
-output must pick one. `native`'s `main` entry requires one, so an output
-without it is refused at the output:
-
-```text
-error: `native` needs a variant [missing-platform-variant]
-  = available: linux-arm64, linux-x86_64, macos-arm64, macos-x86_64
-  = fix: add `variant: "linux-arm64"`
-```
+output must pick one. `native` doesn't: `buri build`, `buri run` and `buri
+test` all build the host's variant for an output that names none. A
+[repository platform](./platforms.md) can require one, and an output without it
+is `missing-platform-variant`.
 
 A variant the platform doesn't declare is `unknown-platform-variant`, which
 lists the ones it does. `buri build`, `buri test`, `buri lint` and the language

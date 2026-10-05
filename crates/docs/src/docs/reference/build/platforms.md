@@ -204,6 +204,7 @@ names no `platform` rule is `unknown-platform`.
 
 An output's key holds its platform's `BUILD.buri`, `platform.buri`, sources,
 `js` files, assets and dependencies, so editing any of them rebuilds the outputs
-that use it, and `--watch` watches the same files. Outputs land in
-`.buri/out/platform/<name>/<package>/`, with the variant after the name when
-the output names one.
+that use it, and `--watch` watches the same files. A repository platform's
+outputs land in `.buri/out/platform/<name>/<package>/`, with the variant after
+the name when the output names one. A bundled platform's land in
+`.buri/out/<platform>/<package>/`, such as `.buri/out/web/cmd/site/`.

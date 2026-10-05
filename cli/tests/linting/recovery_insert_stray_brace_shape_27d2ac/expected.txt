@@ -1,0 +1,12 @@
+error: this `enum` is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_brace_shape_27d2ac/lib.buri:2:11
+  |
+2 |     Circle? (Int),
+  |           ^
+  |
+ --> lib/recovery_insert_stray_brace_shape_27d2ac/lib.buri:1:19
+  |
+1 | export enum Shape {
+  |                   ^ opened here
+  |
+  = fix: write `}` here

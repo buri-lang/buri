@@ -1,0 +1,26 @@
+# A native output with no `variant` is the host's, in `buri build` and `buri
+# run` as in `buri test` (buri-lang/buri#227). A variant `native` doesn't
+# declare is `hermeticity/closed_platform_enum`'s.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a native output with no variant builds and runs the host's"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+  golden: "built.txt"
+}
+
+path {
+  path: ".buri/out/native/{{HOST_VARIANT}}/cmd/app/app"
+  exists: true
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run.txt"
+  stream: OUT
+}
+

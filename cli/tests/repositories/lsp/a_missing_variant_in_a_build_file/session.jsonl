@@ -2,7 +2,7 @@
 {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
 {"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri", "languageId": "buri", "version": 1, "text": "binary {\n    outputs: [\n        { platform: \"native\", variant: \"linux-arm64\" },\n    ]\n}\n"}}}
-# The variant deleted: `native` requires one, and the finding lists them.
+# The variant deleted: the output is the host's, so nothing is reported.
 {"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri", "version": 2}, "contentChanges": [{"text": "binary {\n    outputs: [\n        { platform: \"native\" },\n    ]\n}\n"}]}}
 {"jsonrpc": "2.0", "id": 2, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}}}
 # A variant `native` does not declare.

@@ -42,25 +42,6 @@ run {
   golden: "unknown_variant.txt"
 }
 
-# And a native output names one at all.
-edit {
-  file: "cmd/ok/BUILD.buri"
-  replace: "platform: \"native\", variant: \"linux-riscv\""
-  with: "platform: \"native\""
-}
-
-run {
-  args: ["build", "//cmd/ok"]
-  exit: 2
-  golden: "no_variant.txt"
-}
-
-edit {
-  file: "cmd/ok/BUILD.buri"
-  replace: "platform: \"native\""
-  with: "platform: \"native\", variant: \"linux-riscv\""
-}
-
 edit {
   file: "cmd/ok/BUILD.buri"
   replace: "platform: \"native\", variant: \"linux-riscv\""

@@ -1,0 +1,9 @@
+error: expected a type, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_paren_shape_c8e7a2/lib.buri:2:12
+  |
+2 |     Circle(, Int),
+  |            ^
+  |
+  = expected: a type
+  = actual: `,`
+  = fix: name a type here, as in `Int` or `[Str]`

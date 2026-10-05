@@ -190,6 +190,11 @@ because each names a different platform. `buri build //cmd/server` builds both,
 and `--output=native/linux-x86_64` picks one. The tag check does not vary between them,
 so it runs once.
 
+A host can't build every output: a Linux host builds no macOS artifact, and a
+Mac's Linux build has no networking or cryptography. Without `--output`, `buri
+build` skips such an output with an `output-unavailable` warning. Name it with
+`--output` and it fails, saying why.
+
 ## What a failure reports
 
 A `tag-conflict` names both tags, the target carrying each, the path that

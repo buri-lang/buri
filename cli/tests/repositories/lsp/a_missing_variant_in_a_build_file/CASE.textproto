@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "an output missing the variant its platform requires is an error on the BUILD.buri as you type, listing the variants, and so is a variant the platform does not declare"
+doc: "a native output with no variant is the host's and draws nothing as you type, and a variant the platform does not declare is an error on the BUILD.buri, listing the variants"
 
 run {
   args: ["lsp"]

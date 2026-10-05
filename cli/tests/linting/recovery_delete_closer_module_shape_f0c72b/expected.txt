@@ -1,0 +1,9 @@
+error: expected an identifier, found `struct` [unexpected-token]
+ --> lib/recovery_delete_closer_module_shape_f0c72b/lib.buri:6:8
+  |
+6 | export struct Drawing {
+  |        ^^^^^^
+  |
+  = expected: an identifier
+  = actual: `struct`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

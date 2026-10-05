@@ -1,0 +1,9 @@
+error: expected a type, found `,` [unexpected-token]
+ --> lib/recovery_swap_adjacent_brace_shape_62b7e2/lib.buri:7:24
+  |
+7 |     export shapeShape :,
+  |                        ^
+  |
+  = expected: a type
+  = actual: `,`
+  = fix: name a type here, as in `Int` or `[Str]`

@@ -1,0 +1,50 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an exported enum the module next door only matches on, through a field of a struct it imports, is reached and its import by name is used, and each is reported the moment that module stops matching"
+
+run {
+  args: ["lint", "//demo"]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# Importing the enum by name, beside the struct, is the other spelling. The
+# match is what uses it.
+edit {
+  file: "demo/use.buri"
+  replace: "import { Drawing };"
+  with: "import { Drawing, Shape };"
+}
+
+run {
+  args: ["lint", "//demo"]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# The match was the only thing outside `shape.buri` holding a `Shape`.
+edit {
+  file: "demo/use.buri"
+  replace: "    match (drawing.shape) {\n        .Circle(r) => r,\n        .Square(s) => s,\n    }\n"
+  with: "    0\n"
+}
+
+run {
+  args: ["lint", "//demo"]
+  exit: 1
+  golden: "unused_import.txt"
+}
+
+# Without the import, nothing outside `shape.buri` reaches `Shape` at all.
+edit {
+  file: "demo/use.buri"
+  replace: "import { Drawing, Shape };"
+  with: "import { Drawing };"
+}
+
+run {
+  args: ["lint", "//demo"]
+  exit: 1
+  golden: "unreached.txt"
+}

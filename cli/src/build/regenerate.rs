@@ -546,7 +546,7 @@ fn imported_labels(
 /// Parsed rather than scanned, and the parse errors are dropped: a file that
 /// does not compile still says where it thinks its imports come from, and that
 /// is the whole of what is being asked.
-fn imports_of(dir: &Path, file: &str) -> Vec<String> {
+pub(crate) fn imports_of(dir: &Path, file: &str) -> Vec<String> {
     let Ok(text) = std::fs::read_to_string(dir.join(file)) else { return Vec::new() };
     let parsed = crate::parsing::parser::parse(&text, crate::diagnostics::FileId(0));
     parsed
