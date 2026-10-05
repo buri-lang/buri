@@ -102,6 +102,65 @@ export fn main(host: NativeHost): Result<(), Str> {
     }
 }
 
+/// Two more ways to write the update that grows a record's list, each two
+/// thousand pushes. The list is named by a `let` before the update and grown
+/// through the name, and it is handed to a function too large to inline from
+/// both arms of an `if` inside the update. Either way the record dies in the
+/// update, so each push finds its list unique. Found by the growth generator,
+/// seed `0x67726f777468`, cases 138 and 61.
+#[test]
+fn a_list_named_by_a_let_or_handed_on_from_both_arms_of_an_update_grows_in_place() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+struct Acc { n: Int, items: [Int], tag: Int }
+
+fn put<C: Allocator>(ctx: C, items: [Int], k: Int): [Int] {
+  if (k < 0) { items } else { items.push(ctx, k) }
+}
+
+fn named<C: Allocator>(ctx: C, acc: Acc, i: Int): Acc {
+  let held = acc.items;
+  Acc { ..acc, n: acc.n + 1, items: held.push(ctx, held.length() + i) }
+}
+
+fn branched<C: Allocator>(ctx: C, acc: Acc, i: Int): Acc {
+  Acc { ..acc, n: acc.n + 1, items: if (i % 2 == 0) { put(ctx, acc.items, i) } else { put(ctx, acc.items, i + 1) } }
+}
+
+fn byName<C: Allocator>(ctx: C, count: Int): Acc {
+  list.range(ctx, 0, count).foldCtx(ctx, fn(c, acc, i) => named(c, acc, i), Acc { n: 0, items: [], tag: 7 })
+}
+
+fn byBranch<C: Allocator>(ctx: C, acc: Acc, left: Int): Acc {
+  if (left == 0) { acc } else { byBranch(ctx, branched(ctx, acc, left), left - 1) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let a = byName(host.alloc, 2000);
+  let b = byBranch(host.alloc, Acc { n: 0, items: [], tag: 8 }, 2000);
+  let _ = io.println(
+    host.stdout,
+    "${a.n} ${a.items.length()} ${a.tag} ${b.n} ${b.items.length()} ${b.tag}",
+  ).ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("field-push-named-branched", source) {
+        assert_eq!(r.stdout, "2000 2000 7 2000 2000 8\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 60,
+            "{backend}: four thousand pushes through record fields allocated {blocks} blocks: \
+             the field kept a second count while it grew, so every push copied it"
+        );
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}
+
 /// The printer's other shape: a record handed on to the call that grows it,
 /// and then read again for a number alone — `started.at` after `started` went
 /// to `emit`. A number is a word of the record's own value, so reading it is no

@@ -27,11 +27,11 @@
 //!                                                              |
 //!                 +--------------------------------------------+
 //!                 |                                 |
-//!                js       derives -> fuse -> closures -> rc -> layout -> lower -> ir
-//!                                                                               |
-//!                                                             +-----------------+-------------+
-//!                                                             |                               |
-//!                                                         stencil                            llvm
+//!                js       derives -> fuse -> closures -> forward -> rc -> layout -> lower -> ir
+//!                                                                                          |
+//!                                                                        +-----------------+-------------+
+//!                                                                        |                               |
+//!                                                                    stencil                            llvm
 //! ```
 //!
 //! The branch is real: closure conversion is a *pessimisation* in JavaScript,
@@ -61,6 +61,7 @@ pub mod closures;
 pub mod dce;
 pub mod decision;
 pub mod derives;
+pub mod forward;
 pub mod fuse;
 pub mod inline;
 pub mod ir;
@@ -142,6 +143,10 @@ pub fn native(program: &mut Program) -> rc::Plan {
     // `closures` is what turns a lambda into a lifted function.
     fuse::run(program);
     closures::run(program);
+    // After `closures`, so a name it forwards is never read from a lambda's
+    // body, and before `rc`, whose moves out of a dying update see a field
+    // read where the program read a name for it.
+    forward::run(program);
     // The last thing before the analysis, because it is the analysis's own
     // precondition rather than a transformation anybody else wants: a value a
     // `let` pattern skips over has no name, and `rc`'s plan can only release

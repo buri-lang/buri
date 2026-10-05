@@ -1565,14 +1565,18 @@ fn collect_consuming(
         // quadratic (`language::sharing::growing_a_list_beside_another_field_is_linear`
         // is the same claim one shape smaller).
         //
-        // Only the plain binding, because only a plain binding is a second
-        // name. `let .Some(x) = v` binds a piece of `v`, and what taking a
-        // piece does to the whole is the `Match` rule below.
+        // A `let` that takes the value apart — `let (n, items) = acc;` — binds
+        // pieces of it, and keeping a piece takes the whole, for the `Match`
+        // rule's reason below. Borrowed instead, a step that handed `items` to
+        // a function owning it gave that function a second count while the
+        // caller's held the list, so its push copied (`ownership.rs`'s
+        // `a_list_a_let_took_apart_and_handed_to_an_owning_function_grows_in_place`).
         ExprKind::Block { stmts, .. } => {
             for st in stmts {
                 let Stmt::Let { pattern, value, .. } = st else { continue };
-                let typed::PatKind::Bind { local, sub: None } = &pattern.kind else { continue };
-                if out.contains(local) {
+                let mut kept = false;
+                pattern.each_bind(&mut |l| kept |= out.contains(&l));
+                if kept {
                     consume(value, out, counted);
                 }
             }
@@ -3738,10 +3742,9 @@ fn handed_on_fields(root: LocalId, updates: &[(usize, Expr)]) -> Option<Vec<usiz
 }
 
 /// The fields of a dying `root` a native functional update may **move** out of
-/// it rather than count again: [`handed_on_fields`]' fields — replaced, read
-/// exactly once as `root.f`, and `root` never read whole or captured — narrowed
-/// to the reads that run exactly once on every path to the struct the update
-/// builds.
+/// it rather than count again: fields the update replaces, with `root` never
+/// read whole or captured ([`handed_on_fields`] answers `None` then), each read
+/// as `root.f` exactly once on every path to the struct the update builds.
 ///
 /// That is what makes skipping both halves of the pair sound. `lower` releases
 /// a replaced field's old value after the struct is built; a move hands that
@@ -3749,40 +3752,68 @@ fn handed_on_fields(root: LocalId, updates: &[(usize, Expr)]) -> Option<Vec<usiz
 /// path that reaches the release, and no path that skips the release may have
 /// happened after it. So:
 ///
-///  * **not under a branch** — an `if`'s arms, a `match`, either side of a
-///    short circuit — because on the path that skips the read nobody would
-///    release the old value; and
+///  * **once on every path**, not once in the text. Both arms of an `if` or a
+///    `match` may read the field, `items: if (c) { put(ctx, acc.items, a) }
+///    else { put(ctx, acc.items, b) }`, because exactly one of them runs. An
+///    arm that does not read it, a guard or a short circuit's right side that
+///    does, or a read twice on one path is not a move: on the path that skips
+///    the read nobody would release the old value; and
 ///  * **no `?` in any replacement**, because the escape releases the whole
 ///    base ([`Scan::update_dying`]), and a field already moved out would be
 ///    released a second time.
 fn moved_fields(root: LocalId, updates: &[(usize, Expr)]) -> Vec<usize> {
-    fn straight(root: LocalId, e: &Expr, out: &mut Vec<usize>) {
+    /// How many times `e` reads `root.f` on every path through it, or `None`
+    /// where two paths read it a different number of times.
+    fn on_every_path(root: LocalId, f: usize, e: &Expr) -> Option<usize> {
+        let sum = |es: &[&Expr]| {
+            es.iter().try_fold(0, |n, k| on_every_path(root, f, k).map(|m| n + m))
+        };
         match &e.kind {
             ExprKind::Field { base, index }
                 if matches!(base.kind, ExprKind::Local(l) if l == root) =>
             {
-                out.push(*index);
+                Some(usize::from(*index == f))
             }
-            ExprKind::If { .. }
-            | ExprKind::Match { .. }
-            | ExprKind::And { .. }
-            | ExprKind::Or { .. }
-            | ExprKind::Lambda { .. } => {}
-            _ => kids(e).into_iter().for_each(|k| straight(root, k, out)),
+            ExprKind::If { cond, then, else_ } => {
+                let both = on_every_path(root, f, then)?;
+                (on_every_path(root, f, else_)? == both)
+                    .then_some(on_every_path(root, f, cond)? + both)
+            }
+            ExprKind::Match { scrutinee, arms } => {
+                let mut each = None;
+                for arm in arms {
+                    if arm.guard.as_ref().is_some_and(|g| on_every_path(root, f, g) != Some(0)) {
+                        return None;
+                    }
+                    let n = on_every_path(root, f, &arm.body)?;
+                    if each.is_some_and(|m| m != n) {
+                        return None;
+                    }
+                    each = Some(n);
+                }
+                Some(on_every_path(root, f, scrutinee)? + each.unwrap_or(0))
+            }
+            ExprKind::And { lhs, rhs } | ExprKind::Or { lhs, rhs } => {
+                (on_every_path(root, f, rhs)? == 0).then_some(on_every_path(root, f, lhs)?)
+            }
+            ExprKind::Lambda { .. } => (sum(&kids(e))? == 0).then_some(0),
+            _ => sum(&kids(e)),
         }
     }
     fn tries(e: &Expr) -> bool {
         matches!(e.kind, ExprKind::Try { .. }) || kids(e).into_iter().any(tries)
     }
-    let Some(once) = handed_on_fields(root, updates) else { return Vec::new() };
-    if updates.iter().any(|(_, v)| tries(v)) {
+    if handed_on_fields(root, updates).is_none() || updates.iter().any(|(_, v)| tries(v)) {
         return Vec::new();
     }
-    let mut read = Vec::new();
-    for (_, value) in updates {
-        straight(root, value, &mut read);
-    }
-    once.into_iter().filter(|f| read.contains(f)).collect()
+    let values: Vec<&Expr> = updates.iter().map(|(_, v)| v).collect();
+    updates
+        .iter()
+        .map(|(f, _)| *f)
+        .filter(|f| {
+            values.iter().try_fold(0, |n, v| on_every_path(root, *f, v).map(|m| n + m)) == Some(1)
+        })
+        .collect()
 }
 
 /// The local a **field path** starts at: `s`, `s.a`, `s.a.1`, and nothing that

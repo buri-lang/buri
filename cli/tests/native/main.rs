@@ -224,3 +224,8 @@ mod marked;
 // rather than timed, and everything the scope posted read back after it.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod actor_scoped;
+// Generated programs that grow a list, a string, or a record holding a list
+// through the shapes ownership bugs came from: what each prints, on every
+// backend, and the blocks it allocates bounded, from `cli/tests/growth/`.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod growth;
