@@ -66,6 +66,7 @@
 //! Design: `design/native/ARCHITECTURE.md` §1, §2.2.
 
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
+use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{
     self, Arm, Expr, ExprKind, FieldPat, PatKind, Pattern,
 };
@@ -124,7 +125,7 @@ fn head(p: &Pattern) -> Option<Head<'_>> {
         // arm. Rare enough to be worth a chain rather than a special case.
         PatKind::Bind { sub: None, .. } => Some(Head::Any),
         PatKind::Variant { con, variant, .. } => Some(Head::Tag(*con, *variant)),
-        PatKind::Int(v, neg) => Some(Head::Int(*v, *neg)),
+        PatKind::Int(v, neg) => Some(Head::Int(v.get(), *neg)),
         PatKind::Str(s) => Some(Head::Str(s)),
         PatKind::Char(c) => Some(Head::Char(*c)),
         PatKind::Bool(b) => Some(Head::Bool(*b)),
@@ -344,7 +345,7 @@ fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &
     let bound = &arms.first()?.pattern;
     let (bound_ty, bound_span) = (bound.ty, bound.span);
     let held = LocalId(locals.len() as u32);
-    locals.push(typed::Local { name: "col".to_string(), ty: bound_ty, span: bound_span });
+    locals.push(typed::Local { name: Name::new("col"), ty: bound_ty, span: bound_span });
 
     let mut body = Expr::new(
         ExprKind::Match {
@@ -384,9 +385,10 @@ fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &
 #[cfg(test)]
 mod tests {
     use super::run;
+    use crate::compiler::semantics::name::Name;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
     use crate::compiler::semantics::typed::{
-        Arm, Expr, ExprKind, FieldPat, Local, PatKind, Pattern,
+        Arm, Expr, ExprKind, FieldPat, Local, Magnitude, PatKind, Pattern,
     };
     use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty, TyConId};
     use crate::diagnostics::Span;
@@ -412,7 +414,7 @@ mod tests {
     }
 
     fn arm(pattern: Pattern, guard: Option<Expr>, body: u128) -> Arm {
-        Arm { pattern, guard, body: e(ExprKind::Int(body, false)), span: Span::default() }
+        Arm { pattern, guard, body: e(ExprKind::Int(Magnitude::new(body), false)), span: Span::default() }
     }
 
     /// One function whose whole body is the match under test.
@@ -427,7 +429,7 @@ mod tests {
                 debug_name: "f".to_string(),
                 params: vec![LocalId(0)],
                 locals: vec![Local {
-                    name: "s".to_string(),
+                    name: Name::new("s"),
                     ty: Ty::UNIT,
                     span: Span::default(),
                 }],
@@ -476,7 +478,7 @@ mod tests {
     #[test]
     fn arms_on_one_constructor_are_hoisted_into_one_test() {
         let mut p = matched(vec![
-            arm(variant(0, PatKind::Int(1, false)), None, 10),
+            arm(variant(0, PatKind::Int(Magnitude::new(1), false)), None, 10),
             arm(variant(0, PatKind::Wild), None, 20),
             arm(variant(1, PatKind::Wild), None, 30),
         ]);
@@ -493,9 +495,9 @@ mod tests {
             panic!("the column is a match")
         };
         assert_eq!(inner.len(), 2);
-        assert!(matches!(inner[0].pattern.kind, PatKind::Int(1, false)));
-        assert!(matches!(inner[0].body.kind, ExprKind::Int(10, false)));
-        assert!(matches!(inner[1].body.kind, ExprKind::Int(20, false)));
+        assert!(matches!(inner[0].pattern.kind, PatKind::Int(m, false) if m.get() == 1));
+        assert!(matches!(inner[0].body.kind, ExprKind::Int(m, false) if m.get() == 10));
+        assert!(matches!(inner[1].body.kind, ExprKind::Int(m, false) if m.get() == 20));
         // A fresh local holds the column.
         assert_eq!(p.funcs[0].locals.len(), 2);
     }
@@ -517,7 +519,7 @@ mod tests {
             panic!("the column is a match")
         };
         assert!(inner[0].guard.is_some());
-        assert!(matches!(inner[1].body.kind, ExprKind::Int(30, false)));
+        assert!(matches!(inner[1].body.kind, ExprKind::Int(m, false) if m.get() == 30));
     }
 
     /// A group whose last row can still fail would have to fall out of the
@@ -526,7 +528,7 @@ mod tests {
     #[test]
     fn a_group_that_can_fail_is_declined() {
         let mut p = matched(vec![
-            arm(variant(0, PatKind::Int(1, false)), None, 10),
+            arm(variant(0, PatKind::Int(Magnitude::new(1), false)), None, 10),
             arm(variant(1, PatKind::Wild), None, 20),
             arm(pat(PatKind::Wild), None, 30),
         ]);
@@ -569,8 +571,8 @@ mod tests {
     #[test]
     fn literal_arms_keep_their_default() {
         let mut p = matched(vec![
-            arm(pat(PatKind::Int(0, false)), None, 10),
-            arm(pat(PatKind::Int(1, false)), None, 20),
+            arm(pat(PatKind::Int(Magnitude::new(0), false)), None, 10),
+            arm(pat(PatKind::Int(Magnitude::new(1), false)), None, 20),
             arm(pat(PatKind::Wild), None, 30),
         ]);
         run(&mut p);

@@ -23,6 +23,7 @@
 //! because two bodies under one symbol is a miscompile on every backend and
 //! nothing the author of the program could have done about it.
 
+use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::resolve::Checked;
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind};
 use crate::compiler::semantics::types::*;
@@ -755,7 +756,7 @@ impl<'a> Monomorphizer<'a> {
             .params
             .iter()
             .skip(1)
-            .map(|p| typed::Local { name: p.name.clone(), ty: p.ty, span: p.span })
+            .map(|p| typed::Local { name: Name::new(&p.name), ty: p.ty, span: p.span })
             .collect();
         let forwarded: Vec<typed::Expr> = rest
             .iter()
@@ -1169,7 +1170,7 @@ impl Monomorphizer<'_> {
                 name: String::from(name),
                 targs: Vec::new(),
                 args: vec![typed::Expr::new(
-                    ExprKind::Int(index as u128, false),
+                    ExprKind::Int(typed::Magnitude::new(index as u128), false),
                     self.tables().prim(Prim::I64),
                     span,
                 )],
@@ -1192,7 +1193,7 @@ impl Monomorphizer<'_> {
                 .params
                 .iter()
                 .map(|p| typed::Local {
-                    name: p.name.clone(),
+                    name: Name::new(&p.name),
                     ty: self.sub(&p.ty, &targs),
                     span: p.span,
                 })
@@ -1351,7 +1352,7 @@ impl Monomorphizer<'_> {
     /// afterwards, so an entry added here reaches the emitted function.
     fn new_local(&mut self, name: &str, ty: Ty, span: Span) -> LocalId {
         let id = LocalId(self.locals.len() as u32);
-        self.locals.push(typed::Local { name: String::from(name), ty, span });
+        self.locals.push(typed::Local { name: Name::new(name), ty, span });
         id
     }
 
@@ -1963,7 +1964,7 @@ impl Monomorphizer<'_> {
         let span = h.span;
         let desc = self.descriptor(&h.ty);
         let str_ty = self.tables().prim(Prim::Str);
-        let desc_arg = typed::Expr::new(ExprKind::Int(desc as u128, false), Ty::ERROR, span);
+        let desc_arg = typed::Expr::new(ExprKind::Int(typed::Magnitude::new(desc as u128), false), Ty::ERROR, span);
         typed::Expr::new(
             ExprKind::Intrinsic {
                 name: "structuralShow".into(),
@@ -1990,7 +1991,7 @@ impl Monomorphizer<'_> {
         let name = self.tables().trait_(trait_id).name.clone();
         let desc = self.descriptor(recv);
         let desc_arg =
-            typed::Expr::new(ExprKind::Int(desc as u128, false), Ty::ERROR, span);
+            typed::Expr::new(ExprKind::Int(typed::Magnitude::new(desc as u128), false), Ty::ERROR, span);
         let mut all = args;
         all.push(desc_arg);
         match (name.as_str(), method) {

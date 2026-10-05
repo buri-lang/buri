@@ -45,7 +45,7 @@ use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::consteval::{Env, Folder, Value};
 use crate::compiler::semantics::layered::Layered;
 use crate::compiler::semantics::resolve::{own_type, BodyMap, ConstMap, ModuleScope, Walked};
-use crate::compiler::semantics::typed::{self, ExprKind};
+use crate::compiler::semantics::typed::{self, ExprKind, Magnitude};
 use crate::compiler::semantics::types::{ConstId, FnId, Tables, Ty, TyKind, TyConId};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use crate::hash::Set as HashSet;
@@ -769,7 +769,7 @@ impl<'a> Extractor<'a> {
                 typed::Expr::new(
                     ExprKind::Tuple(vec![
                         typed::Expr::new(
-                            ExprKind::Int(u128::from(a.slot), false),
+                            ExprKind::Int(Magnitude::new(u128::from(a.slot)), false),
                             int,
                             span,
                         ),

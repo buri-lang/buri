@@ -18,6 +18,7 @@ pub mod icons;
 pub mod inference;
 pub mod intern;
 pub mod layered;
+pub mod name;
 pub mod patterns;
 pub mod reactive;
 pub mod resolve;

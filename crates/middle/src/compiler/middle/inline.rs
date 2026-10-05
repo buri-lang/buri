@@ -590,6 +590,7 @@ fn mentioned(e: &Expr, out: &mut std::collections::HashSet<u32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compiler::semantics::name::Name;
     use crate::diagnostics::{FileId, Span};
     use crate::compiler::semantics::types::Ty;
     use std::collections::HashSet;
@@ -613,7 +614,7 @@ mod tests {
             params: params.iter().map(|i| LocalId(*i)).collect(),
             locals: (0..local_count)
                 .map(|i| typed::Local {
-                    name: format!("l{i}"),
+                    name: Name::new(&format!("l{i}")),
                     ty: Ty::ERROR,
                     span: span(),
                 })
@@ -769,7 +770,7 @@ mod tests {
     }
 
     fn int(v: u128) -> Expr {
-        e(ExprKind::Int(v, false))
+        e(ExprKind::Int(typed::Magnitude::new(v), false))
     }
 
     /// What inlining a one-line accessor leaves behind.
@@ -780,7 +781,7 @@ mod tests {
             index: 1,
         });
         assert_eq!(fold_expr(&mut x), 1);
-        assert!(matches!(x.kind, ExprKind::Int(2, false)), "{:?}", x.kind);
+        assert!(matches!(x.kind, ExprKind::Int(m, false) if m.get() == 2), "{:?}", x.kind);
     }
 
     /// The field being stepped over has to have nothing to do: a call there is
@@ -803,7 +804,7 @@ mod tests {
             else_: Box::new(int(2)),
         });
         assert_eq!(fold_expr(&mut x), 1);
-        assert!(matches!(x.kind, ExprKind::Int(2, false)));
+        assert!(matches!(x.kind, ExprKind::Int(m, false) if m.get() == 2));
     }
 
     #[test]
@@ -811,6 +812,6 @@ mod tests {
         let mut x =
             e(ExprKind::Block { stmts: Vec::new(), tail: Some(Box::new(int(7))) });
         assert_eq!(fold_expr(&mut x), 1);
-        assert!(matches!(x.kind, ExprKind::Int(7, false)));
+        assert!(matches!(x.kind, ExprKind::Int(m, false) if m.get() == 7));
     }
 }

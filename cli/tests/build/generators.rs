@@ -473,16 +473,22 @@ fn two_entries(name: &str) -> Scratch {
     scratch
 }
 
-/// A script standing in for the JavaScript runtime that notes each tool it is
-/// started on, one line per start, in `starts.txt`, and answers its path for
-/// `BURI_JS`. It runs with an empty environment, so every path is absolute.
-fn counting_runtime(scratch: &Scratch) -> String {
+/// The JavaScript runtime's absolute path. A stand-in runs with an empty
+/// environment, so it can't look the runtime up itself.
+fn js_path() -> String {
     let found = std::process::Command::new("/bin/sh")
         .arg("-c")
         .arg(format!("command -v {}", crate::harness::js_runtime()))
         .output()
         .expect("sh runs");
-    let js = String::from_utf8_lossy(&found.stdout).trim().to_string();
+    String::from_utf8_lossy(&found.stdout).trim().to_string()
+}
+
+/// A script standing in for the JavaScript runtime that notes each tool it is
+/// started on, one line per start, in `starts.txt`, and answers its path for
+/// `BURI_JS`. It runs with an empty environment, so every path is absolute.
+fn counting_runtime(scratch: &Scratch) -> String {
+    let js = js_path();
     let log = scratch.path("starts.txt");
     let path = scratch.write(
         "runtime.sh",
@@ -535,4 +541,78 @@ fn a_tool_that_stops_partway_through_a_pass_is_reported_in_its_own_words() {
         "the entry answered before the stop lost its module:\n{}",
         indent(&run.all())
     );
+}
+
+/// A repository of `rules` libraries, each with one rule asking `//tool/gen`
+/// for one module. Each rule is in a package of its own, so they all run in
+/// the same round, side by side, and most start a tool process of their own.
+fn many_rules(name: &str, rules: usize) -> Scratch {
+    let scratch = Scratch::repo(name);
+    scratch.write("tool/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
+    scratch.write("tool/gen/tool.buri", DIVIDING_TOOL);
+    for i in 0..rules {
+        scratch.write(
+            &format!("lib/w{i}/BUILD.buri"),
+            "library {\n    generators: [\n        { tool: \"//tool/gen\", inputs: [\"alpha.txt\"] },\n    ]\n}\n",
+        );
+        scratch.write(&format!("lib/w{i}/alpha.txt"), &format!("alpha {}\n", i + 1));
+        scratch.write(&format!("lib/w{i}/lib.buri"), &format!("from \"//lib/w{i}/alpha\" export {{ alpha }};\n"));
+    }
+    scratch
+}
+
+/// A script standing in for the JavaScript runtime that notes, for each tool
+/// it's started on, the descriptors it was started with, one line per start in
+/// `descriptors.txt`. Started with `--descriptors`, it prints the line instead
+/// and runs nothing.
+fn descriptor_noting_runtime(scratch: &Scratch) -> String {
+    let js = js_path();
+    let log = scratch.path("descriptors.txt");
+    let path = scratch.write(
+        "runtime.sh",
+        &format!(
+            "#!/bin/sh\ncase \"$1\" in\n--descriptors) echo $(ls /dev/fd/) ; exit 0 ;;\n*/.buri/out/tools/*) echo $(ls /dev/fd/) >> '{}' ;;\nesac\nexec '{js}' \"$@\"\n",
+            log.display()
+        ),
+    );
+    std::process::Command::new("/bin/chmod").arg("+x").arg(&path).status().expect("chmod runs");
+    path.display().to_string()
+}
+
+/// **A tool's process holds its own three streams and nothing of another's.**
+///
+/// A tool process answers requests until its input ends, and the build keeps
+/// one for a pass's next request. A tool started while another's pipes were
+/// being made could inherit them. Holding the write end of a kept process's
+/// input, it kept that process from ever reading the end, and the build
+/// waited on it forever: a cold `buri test` hung in its generators for 21
+/// minutes. Many rules side by side start many tools at once, so their starts
+/// overlap, and each build here runs every one again. What each was started
+/// with is compared with what the stand-in sees when it's started alone.
+#[test]
+fn a_tool_process_inherits_no_other_process_pipe() {
+    const RULES: usize = 96;
+    const BUILDS: usize = 5;
+    let scratch = many_rules("generators-inherit-nothing", RULES);
+    let runtime = descriptor_noting_runtime(&scratch);
+    let alone = std::process::Command::new(&runtime)
+        .arg("--descriptors")
+        .env_clear()
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .expect("the stand-in runs");
+    let alone: Vec<String> = String::from_utf8_lossy(&alone.stdout).split_whitespace().map(str::to_string).collect();
+    for _ in 0..BUILDS {
+        scratch.run_with_env(&["build", "--force", "//..."], &[("BURI_JS", &runtime)]).ok();
+    }
+    let noted = std::fs::read_to_string(scratch.path("descriptors.txt")).unwrap_or_default();
+    // A process a rule let go of may answer a rule that starts after it, so
+    // a build starts at most one per rule, and at least one.
+    let starts = noted.lines().count();
+    assert!((BUILDS..=RULES * BUILDS).contains(&starts), "{starts} tools were started in {BUILDS} builds");
+    let extra: Vec<&str> =
+        noted.lines().filter(|line| line.split_whitespace().any(|fd| !alone.iter().any(|a| a == fd))).collect();
+    assert!(extra.is_empty(), "a tool was started holding more than {alone:?}:\n{}", indent(&extra.join("\n")));
 }

@@ -64,6 +64,7 @@
 use crate::compiler::middle::inline::shift_expr;
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::middle::strongly_connected;
+use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, Stmt};
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
 use crate::hash::{Map as HashMap, Set as HashSet};
@@ -248,7 +249,7 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
         .types
         .iter()
         .enumerate()
-        .map(|(j, ty)| typed::Local { name: format!("a{j}"), ty: *ty, span })
+        .map(|(j, ty)| typed::Local { name: Name::new(&format!("a{j}")), ty: *ty, span })
         .collect();
     let mut params: Vec<LocalId> = (0..slots.types.len()).map(|j| LocalId(j as u32)).collect();
 
@@ -303,7 +304,7 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
             let Some(local) = locals.get(slot.index()).cloned() else { continue };
             let bound = LocalId(locals.len() as u32);
             locals.push(typed::Local {
-                name: format!("{}_unread", local.name),
+                name: Name::new(&format!("{}_unread", local.name)),
                 ty: local.ty,
                 span: local.span,
             });
@@ -500,7 +501,7 @@ fn snapshot_captures(
         let Some(local) = locals.get(param.index()).cloned() else { continue };
         let carrier = LocalId(locals.len() as u32);
         locals.push(typed::Local {
-            name: format!("{}_loop", local.name),
+            name: Name::new(&format!("{}_loop", local.name)),
             ty: local.ty,
             span: local.span,
         });
@@ -619,6 +620,7 @@ fn shared_slots(program: &Program, group: &[usize]) -> Option<Slots> {
 #[cfg(test)]
 mod tests {
     use super::rewrite;
+    use crate::compiler::semantics::name::Name;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
     use crate::compiler::semantics::typed::{Callee, Expr, ExprKind, Local, PatKind, Stmt};
     use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
@@ -634,11 +636,11 @@ mod tests {
     }
 
     fn local(name: &str) -> Local {
-        Local { name: name.to_string(), ty: Ty::UNIT, span: Span::default() }
+        Local { name: Name::new(name), ty: Ty::UNIT, span: Span::default() }
     }
 
     fn typed(name: &str, ty: Ty) -> Local {
-        Local { name: name.to_string(), ty, span: Span::default() }
+        Local { name: Name::new(name), ty, span: Span::default() }
     }
 
     /// Two types that are not `Ty::Unit` and not each other, which is all the

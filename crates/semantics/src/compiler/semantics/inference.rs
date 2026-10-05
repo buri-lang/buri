@@ -10,6 +10,7 @@
 
 use crate::compiler::modules::Role;
 use crate::compiler::semantics::resolve::{Bodies, Checker};
+use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
@@ -169,7 +170,7 @@ fn check_fn(c: &mut Checker, fid: FnId) {
     inf.params.reserve_exact(arity);
     for i in 0..arity {
         let Some(p) = inf.c.tables.fn_info(fid).params.get(i) else { break };
-        let (name, ty, span, role) = (p.name.clone(), p.ty, p.span, p.role);
+        let (name, ty, span, role) = (Name::new(&p.name), p.ty, p.span, p.role);
         let local = inf.bind_new(name, ty, span);
         inf.params.push(local);
         // The capture rule is scoped to *effect-carrying* values (SPEC 10.6,
@@ -712,12 +713,12 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     pub(crate) fn new_local(&mut self, name: &str, ty: Ty, span: Span) -> LocalId {
         let id = LocalId(self.locals.len() as u32);
-        self.locals.push(typed::Local { name: name.to_string(), ty, span });
+        self.locals.push(typed::Local { name: Name::new(name), ty, span });
         id
     }
 
     /// A new local, bound in the innermost scope under the name it takes.
-    pub(crate) fn bind_new(&mut self, name: String, ty: Ty, span: Span) -> LocalId {
+    pub(crate) fn bind_new(&mut self, name: Name, ty: Ty, span: Span) -> LocalId {
         let id = LocalId(self.locals.len() as u32);
         self.scopes.push((name_hash(&name), id));
         self.locals.push(typed::Local { name, ty, span });

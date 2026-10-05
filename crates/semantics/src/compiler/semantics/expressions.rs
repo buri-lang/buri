@@ -382,7 +382,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     ty,
                     span,
                 });
-                typed::Expr::new(typed::ExprKind::Int(value, false), ty, span)
+                typed::Expr::new(typed::ExprKind::Int(typed::Magnitude::new(value), false), ty, span)
             }
             V::Float { value, span, .. } => {
                 let ty = self.subst.fresh_num(NumClass::Float, span);
@@ -2703,7 +2703,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     ty,
                     span,
                 });
-                return typed::Expr::new(typed::ExprKind::Int(value, true), ty, span);
+                return typed::Expr::new(typed::ExprKind::Int(typed::Magnitude::new(value), true), ty, span);
             }
             if let V::Float { value, span: fspan, .. } = self.tree().expr(operand) {
                 let ty = self.subst.fresh_num(NumClass::Float, fspan);
@@ -3233,12 +3233,12 @@ impl<'a, 'b> Infer<'a, 'b> {
         captures.dedup();
         for c in &captures {
             if self.effect_locals.contains(c) {
-                let name = self.local(*c).name.clone();
+                let name = self.local(*c).name.to_string();
                 self.templated("lambda-captures-effect", span).bind("name", name);
                 break;
             }
             if self.poly_locals.contains(c) {
-                let name = self.local(*c).name.clone();
+                let name = self.local(*c).name.to_string();
                 let shown = self.show_ty(&self.local(*c).ty.clone());
                 self.templated("lambda-captures-generic", span)
                     .bind("name", name)

@@ -806,12 +806,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ir::Inst::ArrayPrefix { dest, array, len } => {
                 self.array_prefix(state, code, *dest, *array, *len)
             }
-            ir::Inst::Call { dests, func, args } => self.call(state, code, dests, *func, args, span),
-            ir::Inst::CallIndirect { dests, callee, args } => {
-                self.call_indirect(state, code, dests, *callee, args)
+            ir::Inst::Call { dest, func, args } => {
+                self.call(state, code, std::slice::from_ref(dest), *func, args, span)
             }
-            ir::Inst::CallIntrinsic { dests, key, args } => {
-                self.call_intrinsic(state, code, dests, key, args, span)
+            ir::Inst::CallIndirect { dest, callee, args } => {
+                self.call_indirect(state, code, std::slice::from_ref(dest), *callee, args)
+            }
+            ir::Inst::CallIntrinsic { dest, key, args } => {
+                self.call_intrinsic(state, code, std::slice::from_ref(dest), key, args, span)
             }
             ir::Inst::Structural { .. } => self.structural(state, code, inst, span),
             ir::Inst::IncRef { value } => self.incref(state, code, *value),
@@ -829,7 +831,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         match value {
             ir::Const::Unit => llvm.const_zero(),
             ir::Const::Bool(b) => self.ctx.bool_type().const_int(u64::from(*b), false).into(),
-            ir::Const::Int { bits, negative } => self.int_constant(llvm, *bits, *negative),
+            ir::Const::Int { bits, negative } => self.int_constant(llvm, bits.get(), *negative),
             ir::Const::Float(f) => match llvm {
                 BasicTypeEnum::FloatType(t) => t.const_float(*f).into(),
                 other => other.const_zero(),
@@ -8363,15 +8365,11 @@ fn argument_based(code: &ir::Code, boxes: &Boxes<'_>) -> Vec<bool> {
                     {
                         set(&mut based, *dest, false, &mut changed);
                     }
-                    ir::Inst::Structural { dest, .. } => {
+                    ir::Inst::Structural { dest, .. }
+                    | ir::Inst::Call { dest, .. }
+                    | ir::Inst::CallIndirect { dest, .. }
+                    | ir::Inst::CallIntrinsic { dest, .. } => {
                         set(&mut based, *dest, false, &mut changed);
-                    }
-                    ir::Inst::Call { dests, .. }
-                    | ir::Inst::CallIndirect { dests, .. }
-                    | ir::Inst::CallIntrinsic { dests, .. } => {
-                        for d in dests {
-                            set(&mut based, *d, false, &mut changed);
-                        }
                     }
                     // Everything else either produces a scalar — which is
                     // never counted, so its verdict is read by nobody — or
@@ -8729,7 +8727,7 @@ mod cycles {
                     insts: callees
                         .iter()
                         .map(|c| ir::Inst::Call {
-                            dests: Vec::new(),
+                            dest: ir::ValueId(0),
                             func: FuncIdx(*c as u32),
                             args: Vec::new(),
                         })

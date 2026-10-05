@@ -270,6 +270,7 @@
 
 use crate::compiler::middle::ir;
 use crate::compiler::middle::monomorphize::{self, Desc, Func, FuncKind, Program};
+use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Pattern, Stmt};
 use crate::compiler::semantics::types::{self, FuncIdx, LocalId, Prim, Ty, TyKind};
 use crate::diagnostics::Invariant as _;
@@ -918,7 +919,7 @@ fn name_skipped(locals: &mut Vec<typed::Local>, p: &mut Pattern, counted: &mut d
 /// Wraps one pattern in a binding on a fresh local.
 fn name_one(locals: &mut Vec<typed::Local>, p: &mut Pattern) {
     let local = LocalId(locals.len() as u32);
-    locals.push(typed::Local { name: String::from("discarded"), ty: p.ty, span: p.span });
+    locals.push(typed::Local { name: Name::new("discarded"), ty: p.ty, span: p.span });
     // A `_` tests nothing, so the binding replaces it outright; anything else
     // still has its test to do, under the name.
     let sub = match std::mem::replace(&mut p.kind, PatKind::Wild) {
