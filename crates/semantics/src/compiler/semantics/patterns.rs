@@ -273,7 +273,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.report_no_variant(*con, head, span);
                 return typed::PatKind::Error;
             };
-            return self.variant_pattern(*con, index, args.to_vec(), payload, span);
+            return self.variant_pattern(*con, index, args, payload, span);
         }
 
         // `Enum.Variant`, `mod.Enum.Variant`, `Struct { .. }`, `Tuple(x)`.
@@ -328,7 +328,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         self.report_no_variant(con, vname, span);
                         return typed::PatKind::Error;
                     };
-                    self.variant_pattern(con, index, args, payload, span)
+                    self.variant_pattern(con, index, &args, payload, span)
                 } else {
                     let fields = self.struct_field_patterns(con, &args, payload, span);
                     typed::PatKind::Struct { con, fields }
@@ -366,7 +366,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         &mut self,
         con: TyConId,
         index: usize,
-        args: Vec<Ty>,
+        args: &[Ty],
         payload: Option<PatPayloadData>,
         span: Span,
     ) -> typed::PatKind {
@@ -387,7 +387,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 .bind("declaration", format!("variant `{v}` of `{t}`"))
                 .fix(format!("add `export` to `{t}`, or match through a function `{t}`'s module provides"));
         }
-        let fields = self.payload_patterns(Fields::Variant(con, index), &args, payload, span);
+        let fields = self.payload_patterns(Fields::Variant(con, index), args, payload, span);
         typed::PatKind::Variant { con, variant: index, fields }
     }
 
