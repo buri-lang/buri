@@ -13,7 +13,7 @@ error: expected `context { Allocator: HostAllocator, Stdout: HostStdout }`, foun
 # from "core/io" import * as io;
 # from "native" import { NativeHost };
 # from "platform/effect" import { Allocator, Stdout };
-#
+
 struct Greeter<C> {
     greet: fn(C) => (),
 }
@@ -23,12 +23,18 @@ fn greeter<C: Stdout>(ctx: C): Greeter<C> {
 }
 
 fn greetWith<C: Stdout>(ctx: C, greeter: Greeter<C>): () {
-    (greeter.greet)(ctx)
+    greeter.greet(ctx)
 }
 
 export fn main(host: NativeHost): Result<(), Str> {
-    let first = context { Allocator: host.alloc, Stdout: host.stdout };
-    let second = context { Stdout: host.stdout, Allocator: host.alloc };
+    let first = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let second = context {
+        Stdout: host.stdout,
+        Allocator: host.alloc,
+    };
     let _ = greetWith(second, greeter(first));
     .Ok(())
 }

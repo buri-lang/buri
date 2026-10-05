@@ -274,20 +274,30 @@ fn clockReader<C: Clock>(ctx: C): ClockReader<C> {
 }
 
 fn readClockWith<C: Clock>(ctx: C, reader: ClockReader<C>): Int {
-    (reader.read)(ctx)
+    reader.read(ctx)
 }
 
 test "a value made under one context is used under another with the same bindings" {
-    let first = context { Clock: clock().at(1) };
-    let second = context { Clock: clock().at(2) };
+    let first = context {
+        Clock: clock().at(1),
+    };
+    let second = context {
+        Clock: clock().at(2),
+    };
     let reader = clockReader(first);
     assert.equal(readClockWith(first, reader), 1);
     assert.equal(readClockWith(second, reader), 2);
 }
 
 test "a spread that rebinds an effect to the same type is the same context type" {
-    let first = context { Allocator: alloc(), Clock: clock().at(1) };
-    let second = context { ..first, Clock: clock().at(2) };
+    let first = context {
+        Allocator: alloc(),
+        Clock: clock().at(1),
+    };
+    let second = context {
+        ..first,
+        Clock: clock().at(2),
+    };
     let reader = clockReader(first);
     assert.equal(readClockWith(second, reader), 2);
 }

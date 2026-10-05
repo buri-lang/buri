@@ -478,7 +478,9 @@ test "a tuple under .Some is covered when a lambda built it" {
 
 test "a tuple under .Some is covered when andThen's lambda answered it" {
     let describe = fn(number: Option<Int>) => {
-        match (number.andThen(fn(n) => if (n > 0) { .Some((n, true)) } else { .None })) {
+        match (
+            number.andThen(fn(n) => if (n > 0) { .Some((n, true)) } else { .None })
+        ) {
             .None => 0,
             .Some((n, true)) => n,
             .Some((_, false)) => -1,
