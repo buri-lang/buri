@@ -39,7 +39,7 @@
 //!
 //! ## The second kind of skip, which is not a host's answer either
 //!
-//! Two tests in `cli/tests/build/repositories.rs` assert milliseconds. They are
+//! Three tests in `cli/tests/build/repositories.rs` assert time. They are
 //! meaningless in a debug profile and they cost minutes, so they do not run in
 //! the `test` matrix — they run in `language-server-budget`, which builds
 //! `--release` and sets `BURI_PERF=1`. That is a *deferral*, not a skip: the
