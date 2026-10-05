@@ -66,6 +66,19 @@ pub fn runtime_archive() -> PathBuf {
     path
 }
 
+/// Puts [`runtime_archive`] in `dir` under its own name, which is how the
+/// product's link line names it when run in `dir`
+/// (`build/link.rs::product_link`). A hard link, or a copy where that fails.
+pub fn stage_runtime_archive(dir: &Path) {
+    use buri::compiler::backend::runtime_native::ARCHIVE_NAME;
+    let kept = runtime_archive();
+    let staged = dir.join(ARCHIVE_NAME);
+    let _ = std::fs::remove_file(&staged);
+    if std::fs::hard_link(&kept, &staged).is_err() {
+        std::fs::copy(&kept, &staged).unwrap();
+    }
+}
+
 fn store() -> PathBuf {
     Path::new(env!("CARGO_TARGET_TMPDIR")).join(PROGRAMS)
 }
