@@ -2618,14 +2618,42 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     let bytes = self.step_state_bytes(ps, Some(1));
                     let record = self.scratch(state, bytes, 8);
                     self.store_slots(record, &slots, 8, &pieces);
-                    // The context the runtime supplies is this record's, and
-                    // nothing else writes it. Zeroed, it is a context holding
-                    // no count, so a walk whose context has a heap field is not
-                    // handed whatever the stack held (buri-lang/buri#241).
+                    // The runtime writes the document's context into the record
+                    // before it drives the walk. Until then the slot is zeroed,
+                    // a context holding no count, so it is never whatever the
+                    // stack held (buri-lang/buri#241).
                     self.clear_ctx(record, bytes);
+                    // A row that drops a context (`mount`) hands it to the
+                    // document, inside the record: the runtime keeps a copy with
+                    // a count of its own and supplies it to every walk and
+                    // handler the document drives later.
+                    let dropped = (0..args.len()).find(|i| entry.dropped(*i));
+                    let kept = dropped
+                        .and_then(|i| args.get(i).copied())
+                        .zip(self.step_ctx_offsets(ps, Some(1)).first().copied());
+                    if let Some((arg, at)) = kept {
+                        let cty = code.ty_of(arg);
+                        let cslots = repr::ir_slots(&mut self.reprs, self.program, cty);
+                        if !cslots.is_empty() {
+                            let value = self.get(state, arg);
+                            let cpieces = repr::disassemble(&self.builder, &cslots, value);
+                            let align = match cty {
+                                ir::Type::Agg(id) => self.reprs.of(self.program, id).layout.align,
+                                _ => 8,
+                            };
+                            let into = repr::byte_offset(
+                                self.ctx,
+                                &self.builder,
+                                record,
+                                i64::from(at),
+                                "walk.ctx.p",
+                            );
+                            self.store_slots(into, &cslots, align, &cpieces);
+                        }
+                    }
                     // No retain: the walk is invoked once, during this call, and
                     // released by `middle::rc` at its last use here — the
-                    // runtime keeps nothing.
+                    // runtime keeps nothing of it.
                     let thunk = self.entry_thunk(ps, r, Some(1));
                     let word = self.ctx.i64_type();
                     argv.push(function_pointer(thunk).into());
@@ -2633,6 +2661,20 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // No frame word: this backend's thunk works on the machine
                     // stack, so there is nothing for the runtime to fill in.
                     argv.push(word.const_all_ones().into());
+                    // And where the kept context is, how wide, and the glue
+                    // that takes and gives back its count.
+                    if let (Some((_, at)), Some(cty)) = (kept, ps.first()) {
+                        let width = self.reprs.of_ty(cty).layout.size;
+                        argv.push(word.const_int(u64::from(at), false).into());
+                        argv.push(word.const_int(u64::from(width), false).into());
+                        for op in [Op::Retain, Op::Release] {
+                            let glue = self
+                                .glue(op, cty)
+                                .map(function_pointer)
+                                .unwrap_or_else(|| self.ptr_ty().const_null());
+                            argv.push(glue.into());
+                        }
+                    }
                 }
                 runtime::Arg::Press => {
                     let body = self.type_of(ir_ty);
@@ -2663,8 +2705,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // The context, where the row drops one (`core/tasks`'s
                     // timers): into the record beside the closure, as a step's,
                     // so the handler is handed it when it fires. A row that
-                    // drops none (`ui/node`'s handlers) has no context to put
-                    // there, so the slot is zeroed, as a walk's is.
+                    // drops none (`ui/node`'s handlers) gets its document's
+                    // context from the runtime when it fires, so the slot is
+                    // zeroed until then, as a walk's is.
                     let ctx_at = self.step_ctx_offsets(ps, None);
                     let dropped = (0..args.len()).find(|i| entry.dropped(*i));
                     if dropped.is_none() {

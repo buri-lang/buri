@@ -247,7 +247,10 @@ extern void buri_rt_ui_render_walk(ComputeEntry entry, uint8_t *state,
                                    int64_t builder, const uint8_t *node,
                                    int64_t frame_at);
 extern int64_t buri_rt_host_testing_mount(const uint8_t *root, ComputeEntry entry,
-                                        uint8_t *state, int64_t frame_at);
+                                        uint8_t *state, int64_t frame_at,
+                                        uint64_t ctx_at, uint64_t ctx_bytes,
+                                        void (*ctx_retain)(uint8_t *),
+                                        void (*ctx_release)(uint8_t *));
 
 /* The element document (issue #53, phase 2). The Buri `renderInto` walk drives
  * the three builders; a `Rendered` answers the readers from what they built. */
@@ -391,7 +394,8 @@ static void walk_thunk(uint8_t *state, int64_t index, const uint8_t *arg, uint8_
 static int mode_ui_walk(void) {
   int64_t node = 2; /* a fake node the thunk reads as a heading level */
   int64_t builder =
-      buri_rt_host_testing_mount((const uint8_t *)&node, walk_thunk, NULL, -1);
+      buri_rt_host_testing_mount((const uint8_t *)&node, walk_thunk, NULL, -1,
+                                 0, 0, NULL, NULL);
   BuriStr markup = {0, 0, 0};
   buri_rt_host_testing_rendered_markup(builder, &markup);
   printf("%.*s\n", bytes_of(markup), (const char *)markup.ptr);

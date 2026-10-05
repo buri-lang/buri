@@ -216,8 +216,20 @@ pub enum Arg {
     /// [`Arg::Compute`] with the *keeping* taken out: the walk runs during the
     /// call that handed it over, so the record is used in place rather than
     /// copied, and there is no stride and no release. The thunk is shaped with
-    /// the context dropped, the builder handle as its index and the node as its
-    /// element.
+    /// the context read out of the record, the builder handle as its index and
+    /// the node as its element.
+    ///
+    /// The runtime writes that context: the document's, before every walk it
+    /// drives. A row that drops a context (`mount`) is where the document gets
+    /// it, so it writes the context into the record and four more parameters
+    /// follow the three:
+    ///
+    /// ```text
+    ///   ctx_at       where in the record the context is
+    ///   ctx_bytes    how many bytes it is
+    ///   ctx_retain   the retain glue for it, or null
+    ///   ctx_release  the release glue for it, or null
+    /// ```
     Walk,
     /// A **kept handler**: five parameters, from one Buri closure argument — a
     /// `fn(C, Event) => ()` the runtime keeps on an element and fires later,
@@ -1277,7 +1289,9 @@ pub const ENTRIES: &[Entry] = &[
     // `mount` drops its context, passes `root` by address — a pointer to the
     // one `Node` the walk destructures and this side never reads — and takes
     // the walk as its last argument ([`Extra::Walk`]). `renderInto` never
-    // crosses whole: only its `{ code, env }` does, inside the record.
+    // crosses whole: only its `{ code, env }` does, inside the record, and the
+    // dropped context beside it, which the document keeps for the walks and
+    // handlers it drives later.
     e("host_testing.mount", &[Dropped, Spilled, Walk], Ret::Scalar),
     // The builders the walk emits to. `emitElement` takes the element name and
     // its scene declarations, both `Str`; `emitText` a run; `exitElement`
