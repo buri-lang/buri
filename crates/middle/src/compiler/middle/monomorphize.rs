@@ -518,6 +518,7 @@ pub fn run(
     diags: &mut Diagnostics,
     roots: Roots<'_>,
 ) -> Program {
+    let _phase = crate::profile::enter(crate::profile::Phase::Monomorphize);
     let mut m = Monomorphizer {
         checked,
         diags,

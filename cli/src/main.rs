@@ -55,7 +55,25 @@ fn main() -> ExitCode {
     }
 }
 
+/// `BURI_PROFILE`'s allocation column (`buri::profile`). Off by default: it is
+/// a thread-local increment on every allocation.
+#[cfg(feature = "alloc-counter")]
+#[global_allocator]
+static COUNTING: buri::profile::Counting = buri::profile::Counting;
+
 fn run() -> ExitCode {
+    let started = std::time::Instant::now();
+    let code = {
+        let _phase = buri::profile::enter(buri::profile::Phase::Other);
+        command()
+    };
+    if let Some(report) = buri::profile::report(started) {
+        eprint!("{report}");
+    }
+    code
+}
+
+fn command() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let args = match arguments::parse(&argv) {
         Ok(a) => a,

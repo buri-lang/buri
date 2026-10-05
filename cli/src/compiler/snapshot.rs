@@ -73,6 +73,7 @@ pub fn build(opening: Opening, bodies: bool) -> Snapshot {
     let mut cache = crate::parsing::parser::Cache::new();
     let mut diagnostics = Diagnostics::new();
     let loaded = {
+        let _phase = crate::profile::enter(crate::profile::Phase::Parse);
         let mut loader = Loader::new(None, &mut map, &mut diagnostics, &mut cache);
         loader.load_builtin_modules();
         if opening == Opening::Library {
@@ -81,6 +82,9 @@ pub fn build(opening: Opening, bodies: bool) -> Snapshot {
         loader.finish()
     };
     let wanted = if bodies { Bodies::All } else { Bodies::In(Vec::new()) };
-    let base = Checker::new(&loaded, None, &mut diagnostics).checking(wanted).base();
+    let base = {
+        let _phase = crate::profile::enter(crate::profile::Phase::Check);
+        Checker::new(&loaded, None, &mut diagnostics).checking(wanted).base()
+    };
     Snapshot { modules: loaded.modules, by_path: loaded.by_path, diagnostics, base }
 }

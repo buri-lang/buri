@@ -537,7 +537,9 @@ single cost is `recovery::a_syntax_error_does_not_become_a_type_error`, about
 standard library (`driver::analyze_snippet_on` calls `load_all_std`). After it
 come `build::repositories::snapshots` and the reject corpus, about 260 each, and
 the manifest ids, about 225. Getting under the line takes the compiler doing
-less work per case, not a different split.
+less work per case, not a different split. On a machine this busy, check
+whether a change did that by its instructions retired rather than its wall
+time: one run per side reads to within about 1% (`design/PERFORMANCE.md` §8).
 
 **Why the feature leg is three lines rather than one.** A plain
 `cargo test -p buri --features backend-llvm` runs 917 tests, and 843 of them are
