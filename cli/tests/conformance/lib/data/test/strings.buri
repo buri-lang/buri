@@ -1838,6 +1838,21 @@ test "a string grown from a slice of a long one reads its own scalars" {
     assert.equal(assert.some(grown.indexOf("c")), 12);
 }
 
+// --- show ---------------------------------------------------------------------
+
+test "show of a built string is the string, and leaves it readable" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let built = "ab".concat(ctx, "cd");
+    assert.equal(shown(ctx, built), "abcd");
+    assert.equal(built, "abcd");
+}
+
+fn shown<C: Allocator, T: Show>(ctx: C, value: T): Str {
+    value.show(ctx)
+}
+
 fn grownFromPrefix<C: Allocator>(ctx: C): Str {
     let prefix = longPrefix(ctx);
     prefix.concat(ctx, "abc".repeat(ctx, 100))
