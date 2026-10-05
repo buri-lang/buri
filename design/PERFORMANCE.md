@@ -2324,6 +2324,64 @@ library's `$t.seed` is masked (§6.15).
 now the typed tree's own `Box<Expr>` and `Vec<Expr>`, and in lowering it's
 `inline_expr` and `ExprKind::clone` copying bodies.
 
+### 6.23 `buri clean` and tool processes, 2026-10-05
+
+`buri clean` opened a full session, and opening one runs every generator in
+the repository. So it built the tools, ran them, then deleted what they wrote.
+In a fresh repository it even printed `dropped .buri/out` where there was
+nothing to clean. Now it finds the root and deletes:
+
+```rust
+let root = root_of_cwd()?;   // was open_or_exit(&flags), which ran prepare()
+```
+
+Generators cost more than the compile because of process starts. A tool got
+one bun process per request, and a cold build of `database_server` makes 31
+requests of two tools:
+
+- 16 checks of the proto inputs, plus a second round for the 13 that import
+  another file. The tool answers the first with `needs`, and the build asks
+  again with the files.
+- One proto `generate` over all 16, and one `//tool/app_manifest` `generate`.
+
+Loading the 316 KB proto tool costs about 0.24 G instructions before it
+reads a byte, and a cold JIT makes each check cost 0.33–0.8 G. Replayed
+through one warm process, all 29 checks take 2.2 G in total.
+
+So `core/tool`'s `serve` now answers requests until its input ends. One
+request and then EOF behaves as it always did. While `prepare_rules` runs,
+`run_artifact` keeps each process it starts and sends the next request for
+that tool to an idle one. If a kept process gives anything short of an
+answer, the request runs again in a process of its own. A failing tool runs
+twice, and its diagnostics are the ones it always gave. Generators written by
+users don't change: the toolchain writes the `main` that calls `serve`.
+
+Cold, on the monorepo copy, one run per side at load 10–30, alternated where
+under 3%:
+
+| | `main` | now |
+|---|---:|---:|
+| `buri clean`, fresh: own instructions | 3.46 G | 0.02 G |
+| `buri clean`, fresh: bun runs, instructions | 37, 30.5 G | 0 |
+| `buri clean`, fresh: wall | 1.5 s | 0.03 s |
+| `build //apps/database_server`: bun runs | 31 | 11 |
+| `build //apps/database_server`: bun instructions | 17.6–18.1 G | 11.3–11.8 G (−36%) |
+| `build //apps/database_server`: bun user+sys | 2.1–2.6 s | 1.4–1.5 s |
+| `query`, which runs every generator: bun runs | 37 | 17 |
+| `query`: bun instructions | 31.3–31.5 G | 24.1–25.5 G (−21%) |
+
+Wall time moved within noise. The checks still fan out across cores, so
+`database_server` still starts about ten processes.
+
+**What's left.** The proto `generate` over 16 schemas is 3.4 G even warm.
+That's `std/proto`'s own work, not process overhead. Capping processes per
+tool would push the checks toward 2.2 G, but they'd run in series, which costs
+wall time.
+
+Running a tool by hand with a regular file as standard input now hangs at the
+end of the input. That's bun: paused `process.stdin` on a file never emits
+`end`. A pipe, which is what the build uses, ends normally.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
