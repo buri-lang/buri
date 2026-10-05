@@ -2324,6 +2324,157 @@ library's `$t.seed` is masked (§6.15).
 now the typed tree's own `Box<Expr>` and `Vec<Expr>`, and in lowering it's
 `inline_expr` and `ExprKind::clone` copying bodies.
 
+### 6.21 Where the full suite's time goes, 2026-10-05
+
+The full suite (`cli/tests/README.md`, "The five-minute budget") took 104 s to
+build cold and 378 s to run at `--test-threads 4`, at load 14–24. That run used
+1,111 s of user CPU and 463 s of system CPU. It's bound by CPU rather than by
+scheduling, so the only way under five minutes is less work per test.
+
+Test time by binary:
+
+| Binary | Test time |
+|---|---:|
+| `native` | 481 s |
+| `build` | 307 s |
+| `docs` | 252 s |
+| `language` | 132 s |
+| `buri-rt-tests` | 55 s |
+| `fuzz` | 53 s |
+| `failing` | 45 s |
+
+The slowest tests were the three big `docs::every_manifest_id_is_fetchable`
+shards at 72 s each, then `build repositories::snapshots` at 58 s and
+`native cross::a_linux_x86_64_…` at 43 s.
+
+**Half of the suite's CPU is in `buri` processes.** A run starts 4,798 of
+them, costing 573 s of user CPU and 223 s of system CPU, children included. To
+count them, `target/debug/buri` was swapped for a wrapper that runs the real
+binary and logs its `wait4` rusage, and the suite was run from a
+`cargo nextest archive` so cargo couldn't relink it:
+
+| Command | Launches | CPU |
+|---|---:|---:|
+| `test` | 651 | 460 s |
+| `docs` | 2,178 | 156 s |
+| `build` | 1,313 | 109 s |
+| `run` | 72 | 26 s |
+| `lint` | 321 | 22 s |
+| `lsp` | 137 | 13 s |
+
+Starting the process is cheap: `buri version` retires 21 M instructions. The
+cost is what each launch repeats. Three fixes, each output-identical:
+
+| Change | Commit | Before → after |
+|---|---|---:|
+| `buri docs <id>` loads the prelude and the module the id names, not the whole library, and renders that module alone. An error, lint, command or topic id loads nothing | `fd767b29e` | `api` id 230 M → 46–52 M instructions; `error` id 234 M → 24 M; every manifest id once, 41 s → 9.5 s of user CPU |
+| The stencil library writes a table of where each stencil starts, and a stencil is read when the emitter first asks for it. It used to decode all 25,000 stencils in every process | `68b920bce` | warm `buri test` on `testing/caching` 342 M → 166 M instructions; on `ui/sweep_paint_edges` 807 M → 637 M |
+| The runtime archive is kept by its stamp under `~/.buri/toolchain-build/runtime/` as well as in the target directory | `f5226cf04` | a cold build's runtime step, 47–65 s → 1.25 s |
+
+The `docs` output was compared over every manifest id, as JSON and as text,
+plus misses, the index, the manifest and a search: 89,146 lines, identical.
+The stencil change was checked on four native fixtures: 114 objects and
+executables, identical by SHA-256.
+
+**The runtime archive was supposed to be shared already, and wasn't.** A
+`cli/build.rs` store under `<target-dir>/buri-runtime/` never served a fresh
+target directory, for three reasons:
+
+- It found the target directory by `.rustc_info.json`, which cargo writes when
+  it exits, so the build that paid never stored anything. Now it uses
+  `CACHEDIR.TAG`, which cargo writes when it creates the directory.
+- The stamp hashed `DYLD_FALLBACK_LIBRARY_PATH`, which cargo points into the
+  target directory. The target directory is now a placeholder, like `OUT_DIR`.
+- The stamp hashed `nix develop`'s `out`, which names the checkout. It now sits
+  in `SHELL_BOOKKEEPING`.
+
+With the key path-independent, a new worktree, a `cargo clean` or a second
+clone of a commit already built reuses the archive. Two checkouts of one commit
+already produced the same digest, so the bytes served are the bytes a build
+would write. A home directory that can't be written to, as in a sandboxed nix
+build, builds as before.
+
+`cargo build -p buri --profile test --bin buri` with sccache warm, each from a
+fresh target directory, at load 17–29:
+
+| | build script | whole build, wall |
+|---|---:|---:|
+| before | 46.8 s, or 65.0 s from a second checkout | 75.5 s, 94.7 s |
+| after, from a second checkout | 1.25 s | 25.9 s |
+
+The new critical path is `buri-stencil`'s build script, at 12–21 s, which runs
+clang over the generated stencil C. The same stamp-and-store would apply to it.
+
+**The whole bar moved less than any one row.** The same commands, `main` then
+this branch, at load 7–22, with `CARGO_BUILD_JOBS=3` and `--test-threads 3`:
+
+| | `main` | after |
+|---|---:|---:|
+| cold build, `nextest run --no-run`, fresh target directory | 145 s | 126 s |
+| `cli/build.rs` within it | 46 s | 1.1 s |
+| suite run, last alternating pair | 396 s | 391 s |
+| suite run, user CPU | 1,067 s | 1,051 s |
+| **total** | **541 s** | **517 s** |
+
+At three jobs the cold build is bound by its 300 s of compile CPU, so taking
+the runtime off the critical path saves 19 s rather than 45. The suite run
+barely moves because the `docs` shards spend their time waiting for a seat in
+the run-wide pool, not computing: alone, a shard went from 72 s to 16–18 s,
+but in a full run it still takes 62–72 s. Earlier pairs at load 26–55 swung
+by 60 s between runs of the same build, so they aren't quoted. Getting under
+five minutes takes the linker work below.
+
+**The linker tools are the biggest cost left, and none of it is linking.**
+A shim in front of `clang` counted 1,461 calls in one full run, using 463 s of
+CPU at load 30–80:
+
+| Call | Count | CPU |
+|---|---:|---:|
+| `clang --version` | 782 | 182 s |
+| links and compiles | 679 | 281 s |
+
+`ld64.lld --version` calls `ld64.lld` directly, so the shim missed it, and it
+costs about as much again. Two things make each call expensive:
+
+- **The probes.** `link::identity_of` hashes the banners of
+  `clang --version` and `ld64.lld --version` into the `link` key. It memoizes
+  them per process, but almost every `buri` process the suite starts links
+  once, so it probes every time. That's about 100 ms of CPU per process, and
+  0.23 s each at load.
+- **Starting the tools.** In a small `buri test`, `buri` itself uses 44 ms of
+  CPU, `ld64.lld` 84 ms, the `clang` driver 72 ms and Nix's `cc-wrapper`
+  bash script 44 ms. About half of `ld64.lld` and 90% of the driver run
+  before `main`, in libLLVM's static initializers registering every
+  `cl::opt`, AMDGPU's included. Of the rest of `ld64.lld`, a third goes to
+  parsing the SDK's `.tbd` stubs for `libSystem`'s re-exports. In
+  `repositories::snapshots`, those three tools are 65% of the test's CPU.
+
+None of this is fixed yet. The options, cheapest first:
+
+- Keep the identity probe's answer on disk, keyed by each program's resolved
+  path, size and modification time, and probe only when one moves.
+- Call `ld64.lld` directly with the arguments the driver adds, skipping
+  `clang` and the `cc-wrapper`. That removes two of the three process starts
+  per link.
+- Give the devShell an `lld` linked against a static, trimmed LLVM with only
+  the AArch64 and x86 targets, so the initializers have less to register.
+
+**What else was found and left.** `macOS` holds every new executable file
+for a `syspolicyd` check: about 0.2 s, longer under load, and one at a time
+across the machine. A hard link or a rename skips it, but a copy or an APFS
+clone pays it again. `link::place_from` already accounts for this, so only a
+first build in a fresh scratch repository pays. The hang cap's `launched`
+waits a flat 10 ms before its first look. Backing it off from 200 µs made no
+difference to the `failing` suite, so it stayed as it was. After the stencil
+change, the next per-process costs in a small `buri test` are the standard
+library snapshot (16%), building the stencil key index (7%) and spawning.
+
+**How the numbers were taken.** `samply` isn't installed, so
+`nix shell nixpkgs#samply -c samply record --save-only
+--unstable-presymbolicate` records a command and every child it starts,
+without Developer Tools access. Weighting each sample by its
+`threadCPUDelta` turns the samples into CPU per process.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

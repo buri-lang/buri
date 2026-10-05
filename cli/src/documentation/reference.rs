@@ -240,25 +240,31 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
     // stops there — see `Traits`.
     let traits = Traits::of(loaded);
 
-    // Every module's own items first, so a re-export can be resolved against a
-    // module the filter excluded — which is the normal case, since the modules
-    // behind a surface are internal.
-    let mut owned: Vec<(String, Vec<ApiItem>)> = Vec::new();
-    for m in &loaded.modules {
-        owned.push((m.path.clone(), items_of(&m.ast, &m.path, &traits)));
+    // Each module's own items, worked out the first time something asks: a
+    // kept module for its page, or a re-export for the module behind it, which
+    // the filter usually excluded because the modules behind a surface are
+    // internal. Rendering a signature is most of what this function costs, so
+    // `buri docs core/list` renders the modules that page needs and no others.
+    type Owned<'a> = (&'a ModuleData, std::cell::OnceCell<Vec<ApiItem>>);
+    fn own_items<'o>((m, cached): &'o Owned, traits: &Traits) -> &'o [ApiItem] {
+        cached.get_or_init(|| items_of(&m.ast, &m.path, traits))
     }
+    let owned: Vec<Owned> = loaded.modules.iter().map(|m| (m, std::cell::OnceCell::new())).collect();
+    let items = |entry| own_items(entry, &traits);
 
     let mut out: Vec<ApiModule> = Vec::new();
-    for m in loaded.modules.iter().filter(|m| keep(m)) {
-        let mut items = items_of(&m.ast, &m.path, &traits);
+    for entry in owned.iter().filter(|(m, _)| keep(m)) {
+        let m = entry.0;
+        let mut mine = items(entry).to_vec();
         for item in &m.ast.items {
             let Item::ReExport(r) = item else { continue };
-            let Some((_, from)) = owned.iter().find(|(p, _)| *p == r.path) else { continue };
+            let Some(from) = owned.iter().find(|(m, _)| m.path == r.path) else { continue };
+            let from = items(from);
             for spec in m.ast.tree.list(r.specs) {
                 let wanted = m.ast.tree.name(spec.name);
                 let shown = m.ast.tree.name(spec.local()).to_string();
                 for found in from.iter().filter(|i| i.name == wanted) {
-                    items.push(ApiItem { name: shown.clone(), ..found.clone() });
+                    mine.push(ApiItem { name: shown.clone(), ..found.clone() });
                 }
                 // A method is *not* pulled in just because its type was. The
                 // re-export list is the surface, exactly: `toCents` is exported
@@ -267,9 +273,9 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
                 // — and must not appear on the page either.
             }
         }
-        items.sort_by(|a, b| sort_key(a).cmp(&sort_key(b)));
-        items.dedup_by(|a, b| sort_key(a) == sort_key(b));
-        out.push(ApiModule { path: m.path.clone(), docs: m.ast.tree.docs(m.ast.docs), items });
+        mine.sort_by(|a, b| sort_key(a).cmp(&sort_key(b)));
+        mine.dedup_by(|a, b| sort_key(a) == sort_key(b));
+        out.push(ApiModule { path: m.path.clone(), docs: m.ast.tree.docs(m.ast.docs), items: mine });
     }
     out.sort_by(|a, b| a.path.cmp(&b.path));
     out
