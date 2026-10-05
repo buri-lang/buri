@@ -13,6 +13,9 @@ fn page() -> Scratch {
         "web-storage",
         &tests_dir().join("repositories/platform/storage_on_a_page/repo"),
     );
+    // The manifest's native refusal, whose `{{HOST_VARIANT}}` only the case
+    // runner fills in. This builds the page alone.
+    std::fs::remove_dir_all(scratch.path("cmd/native")).unwrap();
     scratch.run(&["build", "//cmd/page"]).ok();
     scratch
 }
