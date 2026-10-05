@@ -3,9 +3,10 @@
 //!
 //! A test's `render` walks its tree with the runtime driving the walk. A region
 //! the tree rebuilds after a write is walked again from a watcher, and a press
-//! fires a handler, and neither has a context to hand over. The context each is
-//! handed must still be a value, whatever the test's context holds: one whose
-//! effect keeps a heap value must not crash the run.
+//! fires a handler, and neither has a context to hand over. Each must still be
+//! handed the context the test rendered with, whatever it holds: one whose
+//! effect keeps a heap value must not crash the run, and an effect called from
+//! it must be the test's own.
 //!
 //! Each row is a real `buri test` over a repository, under the heap check.
 
@@ -156,6 +157,164 @@ test "pressing with the repository effect in the context" {
         assert!(
             ran.status == 0 && ran.stdout.contains("2 passed, 0 failed"),
             "{backend}: a fill and a press with a State in the context:\n{}\n{}",
+            ran.stdout,
+            ran.stderr
+        );
+    }
+}
+
+/// A row a reconcile builds, a region a watcher rebuilds and a press each call
+/// an effect from the context the test rendered with, and see that context: the
+/// test double's own name and its own `State`, on JavaScript and on every
+/// native backend.
+#[test]
+fn a_rebuilt_row_and_region_and_a_press_see_the_rendered_context() {
+    let repo = workspace("effect-from-context");
+    write(&repo.join("REPO.buri"), "");
+    write(
+        &repo.join("platform/effect/note/BUILD.buri"),
+        "library {\n    visibility: [\"//visibility:public\"]\n\n    testing {}\n}\n",
+    );
+    write(
+        &repo.join("platform/effect/note/lib.buri"),
+        r#"export effect Note {
+    fn note(self, text: Str): ();
+    fn notes(self): [Str];
+}
+
+export fn note<C: Note>(ctx: C, text: Str): () {
+    ctx.note(text)
+}
+
+export fn notes<C: Note>(ctx: C): [Str] {
+    ctx.notes()
+}
+"#,
+    );
+    write(
+        &repo.join("platform/effect/note/testing/lib.buri"),
+        r#"from "core/platforms/testing/state" import * as state;
+from "//platform/effect/note" import { Note };
+
+export struct TestNote {
+    who: Str,
+    log: state.State<[Str]>,
+}
+
+impl Note for TestNote {
+    fn note(self, text: Str): () {
+        let who = self.who;
+        state.update(self.log, fn(c, log) => (log.push(c, who.concat(c, text)), ()))
+    }
+
+    fn notes(self): [Str] {
+        state.read(self.log)
+    }
+}
+
+export fn note(who: Str): TestNote {
+    TestNote { who, log: state.new([]) }
+}
+"#,
+    );
+    write(
+        &repo.join("lib/page/BUILD.buri"),
+        "library {\n    test {\n        sources: [\"test/page.buri\"]\n        \
+         dependencies: [\"//platform/effect/note\", \"//platform/effect/note/testing\"]\n    \
+         }\n}\n",
+    );
+    write(
+        &repo.join("lib/page/lib.buri"),
+        r#"from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+from "//platform/effect/note" import { Note, note };
+
+export fn page<C: Note>(search: Signal<Str>): Node<C> {
+    let rows = ["row 0", "row 1", "row 2"];
+    ui.stack({
+        styles: [],
+        children: [
+            ui.field({ label: .Const("Search"), kind: .Search, value: search, styles: [] }),
+            ui.each(
+                .Computed(fn(s) => {
+                    let typed = search.get(s);
+                    rows.filter(s, fn(row) => row.contains(typed))
+                }),
+                fn(row) => row,
+                fn(c, row, _i) => {
+                    let _ = note(c, row);
+                    ui.text({ content: .Const(row) })
+                },
+            ),
+            ui.computed(fn(s) => {
+                let typed = search.get(s);
+                ui.rebuild(.Const(typed.length()), fn(c, _length) => {
+                    let _ = note(c, "region");
+                    ui.text({ content: .Const("region") })
+                })
+            }),
+            ui.button({
+                label: .Const("Go"),
+                styles: [],
+                onPress: .Some(fn(c) => note(c, "pressed")),
+            }),
+        ],
+    })
+}
+"#,
+    );
+    write(
+        &repo.join("lib/page/test/page.buri"),
+        r#"from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Ui, Watch };
+from "platform/effect/testing" import { alloc, headless, observer, render };
+from "ui/signal" import { signal };
+from "//lib/page" import { page };
+from "//platform/effect/note" import { Note, notes };
+from "//platform/effect/note/testing" import { note };
+
+context Noted {
+    Allocator: alloc(),
+    Ui: headless(),
+    Watch: observer(),
+    Note: note("page: "),
+}
+
+test "rows, a region and a press call the context's effect" {
+    let ctx = Noted();
+    let search = signal(ctx, "");
+    let shown = render(ctx, page(search));
+    shown.fill("Search", "row 1");
+    shown.fill("Search", "");
+    shown.press("Go");
+    assert.equal(
+        notes(ctx),
+        [
+            "page: row 2",
+            "page: row 1",
+            "page: row 0",
+            "page: region",
+            "page: region",
+            "page: row 2",
+            "page: row 0",
+            "page: region",
+            "page: pressed",
+        ],
+    );
+}
+"#,
+    );
+
+    let mut modes = crate::e2e::build_modes();
+    modes.push(("js", &["--output=js"]));
+    for (backend, flags) in modes {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
+        cmd.current_dir(&repo).arg("test").args(flags).arg("//lib/page");
+        let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
+        assert!(
+            ran.status == 0 && ran.stdout.contains("1 passed, 0 failed"),
+            "{backend}: an effect called from the rendered context:\n{}\n{}",
             ran.stdout,
             ran.stderr
         );
