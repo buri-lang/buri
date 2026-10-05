@@ -1,0 +1,15 @@
+from "core/net/http" import * as http;
+from "platform/effect" import { Request, Response };
+from "//platform/effect/count" import * as count;
+from "//platform/effect/greet" import * as greet;
+from "//platform/two" import { PageHost, WorkerHost };
+
+export fn page(host: PageHost): Result<(), Str> {
+    let _ = greet.name(host.greet);
+    .Ok(())
+}
+
+export fn worker(host: WorkerHost, request: Request): Response {
+    let _ = count.next(host.count);
+    http.status(200)
+}

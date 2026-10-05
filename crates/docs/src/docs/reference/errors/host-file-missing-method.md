@@ -11,8 +11,9 @@ reproduction: none
 error: `fetch.mjs` exports `HostKv` without `put`, which `Kv` declares with 4 parameters [host-file-missing-method]
 ```
 
-Each method a platform's `platform.buri` declares without a body is the entry's
-`js` file's to implement, under the struct's name, with the same parameter count:
+Each method a platform's `platform.buri` declares without a body, on a struct the
+entry's host reaches, is the entry's `js` file's to implement, under the
+struct's name, with the same parameter count:
 
 ```buri repo=cli/tests/repositories/custom-platforms/cloudflare_kv/repo file=platform/cloudflare_worker/platform.buri
 # from "platform/effect" import { Request, Response };
