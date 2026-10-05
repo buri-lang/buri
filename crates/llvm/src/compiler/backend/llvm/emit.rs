@@ -2612,6 +2612,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     let bytes = self.step_state_bytes(ps, Some(1));
                     let record = self.scratch(state, bytes, 8);
                     self.store_slots(record, &slots, 8, &pieces);
+                    // The context the runtime supplies is this record's, and
+                    // nothing else writes it. Zeroed, it is a context holding
+                    // no count, so a walk whose context has a heap field is not
+                    // handed whatever the stack held (buri-lang/buri#241).
+                    self.clear_ctx(record, bytes);
                     // No retain: the walk is invoked once, during this call, and
                     // released by `middle::rc` at its last use here — the
                     // runtime keeps nothing.
@@ -2652,9 +2657,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // The context, where the row drops one (`core/tasks`'s
                     // timers): into the record beside the closure, as a step's,
                     // so the handler is handed it when it fires. A row that
-                    // drops none (`ui/node`'s handlers) leaves the slot alone.
+                    // drops none (`ui/node`'s handlers) has no context to put
+                    // there, so the slot is zeroed, as a walk's is.
                     let ctx_at = self.step_ctx_offsets(ps, None);
                     let dropped = (0..args.len()).find(|i| entry.dropped(*i));
+                    if dropped.is_none() {
+                        self.clear_ctx(record, bytes);
+                    }
                     let ctx_arg = dropped.and_then(|i| args.get(i).copied());
                     if let (Some(arg), Some(at)) = (ctx_arg, ctx_at.first().copied()) {
                         if ps.first().is_some_and(|t| self.rc_counted(t)) {
@@ -3991,6 +4000,20 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             at = at.saturating_add(size.next_multiple_of(8));
         }
         out
+    }
+
+    /// Zeroes the contexts of a `bytes`-long state record, for a row whose
+    /// context the runtime supplies rather than the caller.
+    ///
+    /// The entry thunk reads every context out of the record and hands it to a
+    /// Buri function that owns it, so the bytes must be a value. Zero is one
+    /// that holds no count.
+    fn clear_ctx(&mut self, record: PointerValue<'ctx>, bytes: u32) {
+        let Some(len) = bytes.checked_sub(STEP_CTX).filter(|n| *n > 0) else { return };
+        let at = repr::byte_offset(self.ctx, &self.builder, record, i64::from(STEP_CTX), "ctx.p");
+        let zero = self.ctx.i8_type().const_zero();
+        let len = self.ctx.i64_type().const_int(u64::from(len), false);
+        let _ = self.builder.build_memset(at, 8, zero, len);
     }
 
     /// The size of a step's state record: `{ code, env, ctx... }`.

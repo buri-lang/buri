@@ -294,15 +294,36 @@ fn column(rows: &[&Arm]) -> Option<usize> {
     let column = match tested {
         Some(c) => c,
         // Nothing below the head is tested, so these arms differ by guard
-        // alone; any field will do as the thing to write the inner match over.
-        None => fields_of(&first.pattern).first().map(|f| f.index)?,
+        // alone; any field will do as the thing to write the inner match over,
+        // and one a row binds a name in is the one that lets the rewrite keep
+        // that name.
+        None => rows
+            .iter()
+            .flat_map(|row| fields_of(&row.pattern))
+            .find(|f| binds_any(&f.pattern))
+            .or_else(|| fields_of(&first.pattern).first())
+            .map(|f| f.index)?,
     };
+    // The collapsed arm keeps only the column's pattern from each row, so a
+    // name a row binds in any other field would be lost (buri-lang/buri#239).
+    let elsewhere = |row: &&Arm| {
+        fields_of(&row.pattern).iter().any(|f| f.index != column && binds_any(&f.pattern))
+    };
+    if rows.iter().any(elsewhere) {
+        return None;
+    }
     // The last row is what a value with this head falls back on, and it has to
     // catch everything: there is no way out of a group.
     if !total(rows.last()?) {
         return None;
     }
     Some(column)
+}
+
+fn binds_any(p: &Pattern) -> bool {
+    let mut any = false;
+    p.each_bind(&mut |_| any = true);
+    any
 }
 
 /// Several arms testing one constructor, collapsed into one arm that tests it
