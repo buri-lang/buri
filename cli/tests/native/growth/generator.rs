@@ -86,6 +86,10 @@ pub enum Pusher {
     Small,
     /// A helper called from two places, too large to inline.
     Large,
+    /// Two elements a step, the second pushed onto what the first returned.
+    Twice,
+    /// `concat` with a one-element list rather than `push`.
+    Concat,
 }
 
 /// What reads the value before it grows: the reader borrows it, and the push
@@ -99,6 +103,8 @@ pub enum Reader {
     Small,
     /// A helper called twice, too large to inline.
     Large,
+    /// A lambda that captures the value, called once and dropped.
+    Closure,
 }
 
 /// What runs the steps.
@@ -218,8 +224,20 @@ fn draw(rng: &mut Rng) -> Shape {
         value: rng.pick(&[Value::Ints, Value::Strs, Value::Names, Value::Rows, Value::Text]),
         acc: rng.pick(&[Acc::Bare, Acc::Tuple, Acc::Record, Acc::Nested, Acc::Wrapped]),
         access: rng.pick(&[Access::Destructure, Access::Field, Access::Match]),
-        pusher: rng.pick(&[Pusher::Inline, Pusher::Small, Pusher::Large]),
-        reader: rng.pick(&[Reader::None, Reader::Inline, Reader::Small, Reader::Large]),
+        pusher: rng.pick(&[
+            Pusher::Inline,
+            Pusher::Small,
+            Pusher::Large,
+            Pusher::Twice,
+            Pusher::Concat,
+        ]),
+        reader: rng.pick(&[
+            Reader::None,
+            Reader::Inline,
+            Reader::Small,
+            Reader::Large,
+            Reader::Closure,
+        ]),
         alias: rng.below(2) == 0,
         inner: rng.pick(&[Fold, FoldLambda, Loop, Recursion]),
         outer: rng.pick(&[Fold, FoldLambda, Loop, Recursion]),
@@ -352,7 +370,7 @@ fn run(shape: &Shape, state: &mut State, from: usize, to: usize) -> Result<(), (
         let mut code = i64i * shape.scale as i64 + shape.offset as i64;
         code += match shape.reader {
             Reader::None => 0,
-            Reader::Inline | Reader::Small => state.grown.len() as i64 % 7,
+            Reader::Inline | Reader::Small | Reader::Closure => state.grown.len() as i64 % 7,
             Reader::Large => (2 * state.grown.len() as i64) % 7,
         };
         if shape.fallible() {
@@ -366,6 +384,9 @@ fn run(shape: &Shape, state: &mut State, from: usize, to: usize) -> Result<(), (
         }
         state.n += 1;
         state.grown.push(shape.value, code);
+        if shape.pusher == Pusher::Twice {
+            state.grown.push(shape.value, code + 1);
+        }
     }
     Ok(())
 }
@@ -600,6 +621,14 @@ fn grow_expr(shape: &Shape, n: &Names, x: &str, code: &str) -> String {
     };
     match shape.pusher {
         Pusher::Inline => grow(x, elem(code)),
+        Pusher::Twice => {
+            let once = grow(x, elem(code));
+            grow(&once, elem(&format!("{code} + 1")))
+        }
+        Pusher::Concat => match shape.value {
+            Value::Text => grow(x, elem(code)),
+            _ => format!("{x}.concat(ctx, [{}])", elem(code)),
+        },
         Pusher::Small => format!("{p}_add(ctx, {x}, {code})"),
         Pusher::Large => format!(
             "if (i % 2 == 0) {{ {p}_put(ctx, {x}, {code}, 0) }} else {{ {p}_put(ctx, {x}, {code}, 1) }}"
@@ -643,7 +672,7 @@ fn helpers(out: &mut String, shape: &Shape, n: &Names) {
         _ => format!("items.push(ctx, {e})"),
     };
     match shape.pusher {
-        Pusher::Inline => {}
+        Pusher::Inline | Pusher::Twice | Pusher::Concat => {}
         Pusher::Small => writeln!(
             out,
             "fn {p}_add<C: Allocator>(ctx: C, items: {v}, code: Int): {v} {{ {} }}\n",
@@ -658,7 +687,7 @@ fn helpers(out: &mut String, shape: &Shape, n: &Names) {
         .unwrap(),
     }
     match shape.reader {
-        Reader::None | Reader::Inline => {}
+        Reader::None | Reader::Inline | Reader::Closure => {}
         Reader::Small => {
             writeln!(out, "fn {p}_measure(items: {v}): Int {{ {} }}\n", length_of("items"))
                 .unwrap()
@@ -811,6 +840,10 @@ fn flat_body(shape: &Shape, n: &Names) -> String {
         }
         Reader::Small => {
             body.push_str(&format!("let seen = {p}_measure({x}); "));
+            code.push_str(" + seen % 7");
+        }
+        Reader::Closure => {
+            body.push_str(&format!("let probe = fn() => {}; let seen = probe(); ", length_of(&x)));
             code.push_str(" + seen % 7");
         }
         Reader::Large => {
@@ -1060,5 +1093,14 @@ pub fn blocks(shape: &Shape) -> u64 {
         if matches!(shape.value, Value::Names | Value::Rows) { shape.total() as u64 } else { 0 };
     // The kept half is copied once, and the copy grows on.
     let copies = if shape.snapshot { doublings + 6 } else { 0 };
+    // Twice the elements is one more doubling, and the second element of a
+    // built kind is a block too.
+    let doublings = doublings + u64::from(shape.pusher == Pusher::Twice);
+    let elements = if shape.pusher == Pusher::Twice { 2 * elements } else { elements };
+    // So is the one-element list a `concat` is handed, and the environment of
+    // a closure made each step.
+    let per_step = u64::from(shape.pusher == Pusher::Concat && shape.value != Value::Text)
+        + u64::from(shape.reader == Reader::Closure);
+    let elements = elements + per_step * shape.total() as u64;
     8 + 4 * runs + values * (doublings + 4) + elements + copies
 }

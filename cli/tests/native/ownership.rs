@@ -270,6 +270,47 @@ export fn main(host: NativeHost): Result<(), Str> {
     }
 }
 
+/// Two thousand steps that each push two elements onto the list a fold lends
+/// them, once as a chain and once through a `let`. The first push grows the
+/// list in place, so its answer is a second count on the block the fold still
+/// holds; the step has to take the list for the second push to find it unique.
+/// Found by the growth generator, seed `0x67726f777468`, case 309.
+#[test]
+fn a_list_a_fold_step_pushes_twice_grows_in_place() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+fn chained<C: Allocator>(ctx: C, count: Int): Int {
+  list.range(ctx, 0, count).foldCtx(ctx, fn(c, acc: [Int], i) => acc.push(c, i).push(c, i + 1), list.empty<Int>()).length()
+}
+
+fn named<C: Allocator>(ctx: C, count: Int): Int {
+  list.range(ctx, 0, count).foldCtx(ctx, fn(c, acc: [Int], i) => {
+    let once = acc.push(c, i);
+    once.push(c, i + 1)
+  }, list.empty<Int>()).length()
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let _ = io.println(host.stdout, "${chained(host.alloc, 2000)} ${named(host.alloc, 2000)}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("fold-step-pushes-twice", source) {
+        assert_eq!(r.stdout, "4000 4000\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 60,
+            "{backend}: eight thousand pushes allocated {blocks} blocks: the step's second push \
+             found the list still lent to it, so every step copied it"
+        );
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}
+
 /// A match arm binds a record holding a heap `Str`, its guard reads the record
 /// and fails, and the match falls through to the wildcard (buri-lang/buri#231).
 /// The value must be released once, by the arm that ran: released by the guard

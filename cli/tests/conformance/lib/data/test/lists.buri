@@ -1856,6 +1856,39 @@ fn handedOnChecked<C: Allocator>(ctx: C, n: Nest, x: Int): Result<Nest, Str> {
     .Ok(Nest { ..n, out: wroteChecked(ctx, n.out, x)?, n: n.n + 1 })
 }
 
+/// Called from two places, so it is not inlined.
+fn kept<C: Allocator>(ctx: C, xs: [Int], x: Int): [Int] {
+    if (x < 0) { xs } else { xs.push(ctx, x) }
+}
+
+fn putChecked<C: Allocator>(ctx: C, out: Out, x: Int): Result<Out, Str> {
+    .Ok(Out { ..out, pieces: kept(ctx, out.pieces, positive(x)?), at: out.at + 1 })
+}
+
+test "a field handed to a call whose other argument fails leaves nothing behind" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let one = assert.ok(putChecked(ctx, Out { pieces: kept(ctx, [1], 2), at: 0 }, 3));
+    let failed = putChecked(ctx, one, 0);
+    let two = putChecked(ctx, one, 4);
+    assert.equal(failed, .Err("not positive"));
+    assert.equal(two, .Ok(Out { pieces: [1, 2, 3, 4], at: 2 }));
+    assert.equal(one, Out { pieces: [1, 2, 3], at: 1 });
+}
+
+fn builtChecked<C: Allocator>(ctx: C, x: Int): Result<[Int], Str> {
+    .Ok(kept(ctx, kept(ctx, [1], 2), positive(x)?))
+}
+
+test "a list built for a call whose other argument fails leaves nothing behind" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(builtChecked(ctx, 0), .Err("not positive"));
+    assert.equal(builtChecked(ctx, 3), .Ok([1, 2, 3]));
+}
+
 test "a field named by a let and grown in an update answers what a copy would" {
     let ctx = context {
         Allocator: alloc(),

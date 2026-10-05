@@ -284,6 +284,47 @@ export fn main(host: NativeHost): Result<(), Str> {
     }
 }
 
+/// Two thousand updates that each push two elements onto a dying record's
+/// list, as a chain. The first push grows the field in place, and the record
+/// held its old value until the update was built, so the second push found
+/// the list at two and copied it. Found by the growth generator, seed
+/// `0x67726f777468`, case 110.
+#[test]
+fn a_field_pushed_twice_in_one_update_grows_in_place() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+struct Acc { n: Int, items: [Int], tag: Int }
+
+fn step<C: Allocator>(ctx: C, acc: Acc, i: Int): Acc {
+  Acc { ..acc, n: acc.n + 1, items: acc.items.push(ctx, i).push(ctx, i + 1) }
+}
+
+fn run<C: Allocator>(ctx: C, acc: Acc, left: Int): Acc {
+  if (left == 0) { acc } else { run(ctx, step(ctx, acc, left), left - 1) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let a = run(host.alloc, Acc { n: 0, items: [], tag: 3 }, 2000);
+  let _ = io.println(host.stdout, "${a.n} ${a.items.length()} ${a.tag}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("field-push-twice", source) {
+        assert_eq!(r.stdout, "2000 4000 3\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 40,
+            "{backend}: four thousand pushes allocated {blocks} blocks: the record still held \
+             the field its first push grew, so the second copied it"
+        );
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}
+
 /// The printer's other shape: a record handed on to the call that grows it,
 /// and then read again for a number alone — `started.at` after `started` went
 /// to `emit`. A number is a word of the record's own value, so reading it is no
