@@ -1,0 +1,6 @@
+from "platform/effect" import { Allocator };
+from "//libs/inner" import { encode };
+
+export fn size<C: Allocator>(ctx: C): Int {
+    encode(ctx, 7).length()
+}

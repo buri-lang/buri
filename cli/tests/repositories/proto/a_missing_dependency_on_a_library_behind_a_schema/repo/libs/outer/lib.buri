@@ -1,0 +1,1 @@
+from "//libs/outer/outer.buri" export { size };

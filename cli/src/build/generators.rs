@@ -678,16 +678,53 @@ pub fn prepare_for(session: &mut Session, flags: &Flags, targets: &[TargetId]) {
         }
     }
     let mut seen: BTreeSet<TargetId> = BTreeSet::new();
-    while let Some(target) = reached.pop() {
-        if !seen.insert(target) {
-            continue;
+    let every_rule: Vec<TargetId> =
+        workspace.targets().into_iter().filter(|t| generates(&workspace, *t)).collect();
+    loop {
+        while let Some(target) = reached.pop() {
+            if !seen.insert(target) {
+                continue;
+            }
+            for tool in tools_of(&workspace, target) {
+                reached.extend(workspace.closure(tool));
+            }
         }
-        for tool in tools_of(&workspace, target) {
-            reached.extend(workspace.closure(tool));
+        // A library a source imports without naming it in `dependencies` is
+        // still loaded, and that mistake is `missing-dependency`'s to report.
+        // Its generators run too, or the library would fail to check and the
+        // reader would be sent into a library with nothing wrong with it. The
+        // imports are only read while a rule with generators is still left out.
+        if every_rule.iter().all(|t| seen.contains(t)) {
+            break;
+        }
+        reached = imported_but_undeclared(&workspace, &seen);
+        if reached.is_empty() {
+            break;
         }
     }
-    let rules = seen.into_iter().filter(|t| generates(&workspace, *t)).collect();
+    let rules = every_rule.into_iter().filter(|t| seen.contains(t)).collect();
     prepare_rules(session, flags, &Overlay::new(), rules);
+}
+
+/// The libraries the sources of `seen`'s packages import that `seen` does not
+/// hold, each with its closure.
+fn imported_but_undeclared(workspace: &Workspace, seen: &BTreeSet<TargetId>) -> Vec<TargetId> {
+    let packages: BTreeSet<_> = seen.iter().map(|t| t.package).collect();
+    let mut out: Vec<TargetId> = Vec::new();
+    for package in packages {
+        let dir = &workspace.package(package).dir;
+        for file in workspace.declared_sources(package) {
+            for path in crate::build::regenerate::imports_of(dir, &file) {
+                let library = workspace
+                    .dependency_label(package, &path)
+                    .and_then(|label| workspace.dep_target(&label));
+                if let Some(library) = library.filter(|l| !seen.contains(l)) {
+                    out.extend(workspace.closure(library));
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Whether every rule with generators has an answer recorded: false after a

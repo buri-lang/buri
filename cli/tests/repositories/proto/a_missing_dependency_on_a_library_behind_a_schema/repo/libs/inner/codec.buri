@@ -1,0 +1,6 @@
+from "platform/effect" import { Allocator };
+from "//libs/inner/msg.proto" import { encodeMsg, Msg };
+
+export fn encode<C: Allocator>(ctx: C, n: Int): [U8] {
+    encodeMsg(ctx, Msg { n: .Some(n) })
+}

@@ -1,0 +1,7 @@
+library {
+    sources: ["codec.buri"]
+    generators: [
+        { tool: "proto", inputs: ["msg.proto"] },
+    ]
+    visibility: ["//visibility:public"]
+}

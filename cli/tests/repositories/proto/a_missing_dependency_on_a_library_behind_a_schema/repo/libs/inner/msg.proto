@@ -1,0 +1,7 @@
+edition = "2026";
+
+package inner.v1;
+
+message Msg {
+    uint64 n = 1;
+}
