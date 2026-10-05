@@ -425,6 +425,27 @@ pub struct Infer<'a, 'b> {
     mark: usize,
 }
 
+/// The buffers inference fills and empties within one body, kept on the
+/// checker between bodies so each body reuses the allocations of the last.
+#[derive(Default)]
+pub(crate) struct Scratch {
+    subst: Subst,
+    scopes: Vec<(u64, LocalId)>,
+    scope_starts: Vec<usize>,
+}
+
+impl Drop for Infer<'_, '_> {
+    fn drop(&mut self) {
+        let mut subst = std::mem::take(&mut self.subst);
+        subst.clear();
+        let mut scopes = std::mem::take(&mut self.scopes);
+        scopes.clear();
+        let mut scope_starts = std::mem::take(&mut self.scope_starts);
+        scope_starts.clear();
+        self.c.scratch = Scratch { subst, scopes, scope_starts };
+    }
+}
+
 /// The hash a local's name is found by in [`Infer::scopes`].
 fn name_hash(name: &str) -> u64 {
     use std::hash::{BuildHasher, BuildHasherDefault};
@@ -436,15 +457,16 @@ impl<'a, 'b> Infer<'a, 'b> {
         let role = c.module(module).role;
         let mark = c.diags.items.len();
         let t = &c.module(module).ast.tree;
+        let Scratch { subst, scopes, scope_starts } = std::mem::take(&mut c.scratch);
         Infer {
             c,
             t,
             module,
             generics,
             ret,
-            subst: Subst::default(),
-            scopes: Vec::new(),
-            scope_starts: Vec::new(),
+            subst,
+            scopes,
+            scope_starts,
             locals: Vec::new(),
             params: Vec::new(),
             self_con: None,
@@ -512,7 +534,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         self.resolve_expr(&mut expr);
         let mut locals = std::mem::take(&mut self.locals);
         locals.iter_mut().for_each(|l| self.subst.resolve_in_place(&mut l.ty));
-        typed::Body { locals, params: self.params, expr }
+        typed::Body { locals, params: std::mem::take(&mut self.params), expr }
     }
 
     /// Takes back everything this body reported from inside a block whose `}`

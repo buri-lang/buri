@@ -276,6 +276,8 @@ pub struct Checker<'a> {
     /// What checking the compilation's leading standard library modules
     /// already settled, when this analysis starts from it. See [`Base`].
     base: Option<&'a Base>,
+    /// Inference's per-body buffers, between bodies.
+    pub(crate) scratch: crate::compiler::semantics::inference::Scratch,
 }
 
 /// What checking the standard library modules a compilation opens with left
@@ -428,6 +430,7 @@ impl<'a> Checker<'a> {
             wanted: Bodies::All,
             ctx_decls_reached: HashSet::default(),
             base: None,
+            scratch: Default::default(),
         }
     }
 

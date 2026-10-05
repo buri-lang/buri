@@ -1191,6 +1191,13 @@ pub struct Subst {
 }
 
 impl Subst {
+    /// Forgets every variable, keeping the allocations for the next body.
+    pub fn clear(&mut self) {
+        self.slots.clear();
+        self.classes.clear();
+        self.spans.clear();
+    }
+
     pub fn fresh(&mut self, span: Span) -> Ty {
         let id = TyVarId(self.slots.len() as u32);
         self.slots.push(None);
