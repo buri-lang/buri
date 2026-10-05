@@ -318,6 +318,11 @@ A second signal is the operating system's own, so `Ctrl-C` twice still stops a
 process that will not drain, and a program holding no port keeps the ordinary
 behaviour.
 
+A program stops a server itself with `listener.close(ctx)`, from another task
+while `run` answers on it. `run` then returns `.Ok`. It doesn't drain: a
+connection still waiting for a handler is dropped. `buri docs core/net/server`
+shows two listeners where the one that ends first closes the other.
+
 ## Testing a handler
 
 A handler is a function of a context and a request, so a test calls it. Nothing

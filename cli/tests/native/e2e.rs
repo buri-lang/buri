@@ -1478,6 +1478,88 @@ fn a_websocket_message_larger_than_the_socket_buffer_arrives_whole() {
     assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
 }
 
+/// Two listeners side by side, where whichever ends first closes the other.
+///
+/// The first answers one request and is done (`requestLimit: .Some(1)`); the
+/// second has no limit and would answer for ever. buri-lang/buri#240 is that a
+/// program had no way to close the second, so it never exited.
+fn two_listeners_server() -> String {
+    String::from(
+        r#"from "platform/effect" import { Allocator, Listen, ServeError, Stdout, Tasks };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/tasks" import * as tasks;
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Listen: host.listen,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let first = server.Server {
+        port: 0,
+        requestLimit: .Some(1),
+        onRequest: fn(c, _request) => http.text(c, "first"),
+    };
+    let second = server.Server {
+        port: 0,
+        onRequest: fn(c, _request) => http.text(c, "second"),
+    };
+    let a = server.bind(ctx, first).mapErr(server.errorText)?;
+    let b = server.bind(ctx, second).mapErr(server.errorText)?;
+    let _announced = io.println(ctx, "port ${a.port}").ignore();
+    let ran: [Result<(), ServeError>] = tasks.parallel(ctx, [0, 1], fn(c, _i, which) => {
+        if (which == 0) {
+            let answered = server.run(c, a, first);
+            let _said = io.println(c, "first ended").ignore();
+            let _closed = b.close(c);
+            answered.map(fn(_last) => ())
+        } else {
+            let answered = server.run(c, b, second);
+            let _said = io.println(c, "second ended").ignore();
+            let _closed = a.close(c);
+            answered.map(fn(_last) => ())
+        }
+    });
+    let _said = io.println(ctx, "both ended").ignore();
+    match (ran.find(fn(one) => one.isErr())) {
+        .Some(.Err(error)) => .Err(server.errorText(error)),
+        _ => .Ok(()),
+    }
+}
+"#,
+    )
+}
+
+/// **A program can close a listener it bound, and `run` on it ends.**
+/// buri-lang/buri#240.
+///
+/// The first listener answers its one request and its `run` returns; the
+/// program then closes the second, whose `run` has nothing to end it but
+/// that. Both `run`s answer `.Ok`, and the program exits on its own.
+#[test]
+fn closing_a_listener_ends_run_on_it() {
+    unless_ready!();
+    let binary = built("e2e-close-listener", &two_listeners_server());
+    let running = crate::shared::announced(&binary);
+    let back = dialled(running.2, b"GET / HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n", Until::Closed);
+    let reply = String::from_utf8_lossy(&back).to_string();
+    let out = crate::shared::finished(running);
+    assert_eq!(body_of(&reply), Some("first"), "the first listener's reply:\n{reply}");
+    for line in ["first ended", "second ended", "both ended"] {
+        assert!(
+            out.stdout.lines().any(|said| said == line),
+            "the program never said `{line}`.\nstdout:\n{}\nstderr:\n{}",
+            out.stdout,
+            out.stderr
+        );
+    }
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+}
+
 // ---------------------------------------------------------------------------
 // C3's refusal, over real source
 // ---------------------------------------------------------------------------

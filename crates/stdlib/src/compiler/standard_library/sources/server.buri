@@ -135,8 +135,9 @@
 //! ## Stopping, and what `.Ok(())` means
 //!
 //! `serve` answers `.Ok(())` when the server stopped **the way it was asked
-//! to**, and there are three ways to ask. Two are fields: a `requestLimit` that
-//! is spent, and a listener the program closed. The third is the operating
+//! to**, and there are three ways to ask. The first is a field: a
+//! `requestLimit` that is spent. The second is `listener.close(ctx)`, called
+//! from another task while `run` answers on it. The third is the operating
 //! system's — a `SIGTERM` from a supervisor, or a `SIGINT` from somebody at a
 //! terminal — and on a platform that grants `Listen` it does not kill the
 //! process.
@@ -164,6 +165,52 @@
 //!
 //! The signals are the platform's only while a listener is open, so a program
 //! that is not a server keeps the operating system's own behaviour.
+//!
+//! **Closing a listener.** Two listeners side by side, where the one that ends first closes the other:
+//!
+//! ```buri
+//! from "core/net/http" import * as http;
+//! from "core/net/server" import * as server;
+//! from "core/tasks" import * as tasks;
+//! from "core/time" import * as time;
+//! from "native" import { NativeHost };
+//! from "platform/effect" import { Allocator, Listen, Tasks };
+//!
+//! export fn main(host: NativeHost): Result<(), Str> {
+//!     let ctx = context {
+//!         Allocator: host.alloc,
+//!         Listen: host.listen,
+//!         Tasks: host.tasks,
+//!     };
+//!     let public = server.Server {
+//!         port: 3000,
+//!         idleTimeout: .Some(time.minutes(10)),
+//!         onRequest: fn(c, _request) => http.text(c, "hello"),
+//!     };
+//!     let admin = server.Server {
+//!         port: 3001,
+//!         onRequest: fn(_c, _request) => http.status(204),
+//!     };
+//!     let a = server.bind(ctx, public).mapErr(server.errorText)?;
+//!     let b = server.bind(ctx, admin).mapErr(server.errorText)?;
+//!     let _ran = tasks.parallel(ctx, [0, 1], fn(c, _i, which) => {
+//!         if (which == 0) {
+//!             let answered = server.run(c, a, public);
+//!             let _closed = b.close(c);
+//!             answered.map(fn(_last) => ())
+//!         } else {
+//!             let answered = server.run(c, b, admin);
+//!             let _closed = a.close(c);
+//!             answered.map(fn(_last) => ())
+//!         }
+//!     });
+//!     .Ok(())
+//! }
+//! ```
+//!
+//! A close doesn't drain. A handler that is already running still answers,
+//! but a connection waiting for a handler is dropped, and an open WebSocket
+//! ends with `.Abnormal`.
 //!
 //! ## What is here, and what is not yet
 //!
