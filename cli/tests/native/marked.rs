@@ -434,7 +434,7 @@ fn work<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), Str> {
 "#;
 
 /// A run's output, its allocation count, and the instructions it retired where
-/// the kernel says (macOS).
+/// the kernel counts them (macOS on hardware).
 struct Measured {
     ran: Ran,
     blocks: u64,
@@ -465,7 +465,11 @@ fn measured(binary: &std::path::Path, args: &[&str]) -> Measured {
     let (ran, first) = once();
     let (_, second) = once();
     let blocks = probed(&ran.stderr).0;
-    Measured { ran, blocks, instructions: first.zip(second).map(|(a, b)| a.min(b)) }
+    // A kernel without hardware counters (a virtual machine, such as CI's macOS
+    // runners) reports every process as having retired nothing; that is no
+    // count, the same as Linux's absent one.
+    let counted = first.zip(second).map(|(a, b)| a.min(b)).filter(|&n| n > 0);
+    Measured { ran, blocks, instructions: counted }
 }
 
 /// **Single-threaded work costs the same whether or not the program can start
