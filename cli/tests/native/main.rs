@@ -205,6 +205,11 @@ mod strings;
 // backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod fields;
+// What a value taken apart by a pattern, handed on by a fold's step, or read by
+// a match arm's guard owes: the pushes counted rather than timed, and the heap
+// checked, on every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod ownership;
 // A list grown in a program that starts an actor or fans out tasks: the pushes
 // counted rather than timed, and a list grown on several tasks at once left
 // with each task's own answer, on every backend built in.
