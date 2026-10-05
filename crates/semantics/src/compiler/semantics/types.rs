@@ -1056,6 +1056,31 @@ impl Tables {
         id
     }
 
+    /// The type of a `context { ... }` expression: the one an earlier context
+    /// with the same bindings already has, or a new one.
+    ///
+    /// Two contexts that bind the same effects, in the same order, to the same
+    /// implementing types are one type. They have the same layout and resolve
+    /// every effect call to the same method, so nothing can tell a value of
+    /// one from a value of the other — and a value built under one (a reader
+    /// generic over `C`) is usable under the other, which is what a test that
+    /// swaps in a fresh double partway through needs. Order counts because a
+    /// context's slots are laid out in the order its bindings were written.
+    ///
+    /// A binding still holding an inference variable or a generic parameter
+    /// keeps the context its own type: either is local to one body, so an
+    /// equal-looking one in another body need not be the same type.
+    pub fn intern_ctx_type(&mut self, c: CtxType) -> CtxTypeId {
+        let closed = c.bindings.iter().all(|(_, ty)| !ty.has_vars() && !ty.has_params());
+        if closed {
+            let same = self.ctx_types.iter().position(|other| other.bindings == c.bindings);
+            if let Some(at) = same {
+                return CtxTypeId(at as u32);
+            }
+        }
+        self.add_ctx_type(c)
+    }
+
     pub fn register_prim(&mut self, p: Prim, id: TyConId) {
         self.prim_ids.insert(p, (id, Ty::con(id, [])));
     }
